@@ -68,70 +68,6 @@ impl USTRegistry {
         None
     }
 
-    fn make_mock_page_node(&self, page_num: usize, next_id: usize) -> USTNode {
-        USTNode {
-            id: next_id,
-            tag: "Part".to_string(),
-            title: format!("Page {} Section", page_num),
-            alt_text: None,
-            rect: None,
-            handle_id: None,
-            children: vec![
-                USTNode {
-                    id: next_id + 1,
-                    tag: "H1".to_string(),
-                    title: format!("Heading of Page {}", page_num),
-                    alt_text: None,
-                    rect: None,
-                    handle_id: None,
-                    children: Vec::new(),
-                },
-                USTNode {
-                    id: next_id + 2,
-                    tag: "P".to_string(),
-                    title: format!("Paragraph content for page {}", page_num),
-                    alt_text: None,
-                    rect: None,
-                    handle_id: None,
-                    children: Vec::new(),
-                },
-                USTNode {
-                    id: next_id + 3,
-                    tag: "Figure".to_string(),
-                    title: format!("Illustration on page {}", page_num),
-                    alt_text: None,
-                    rect: None,
-                    handle_id: None,
-                    children: Vec::new(),
-                },
-            ],
-        }
-    }
-
-    #[allow(dead_code)]
-    pub fn initialize_mock_tree(&mut self, total_pages: usize) {
-        let mut doc_node = USTNode {
-            id: 0,
-            tag: "Document".to_string(),
-            title: "PDF Document Catalog".to_string(),
-            alt_text: None,
-            rect: None,
-            handle_id: None,
-            children: Vec::new(),
-        };
-
-        let mut next_id = 1;
-
-        for i in 0..total_pages {
-            let page_node = self.make_mock_page_node(i + 1, next_id);
-            doc_node.children.push(page_node);
-            next_id += 4;
-        }
-
-        self.root = Some(doc_node);
-        self.next_node_id = next_id;
-    }
-
     pub fn find_rect_by_id(&self, id: usize) -> Option<[f32; 4]> {
         self.root.as_ref().and_then(|r| Self::find_rect_recursive(r, id))
     }
@@ -1414,13 +1350,55 @@ mod tests {
     #[test]
     fn test_move_node() {
         let mut registry = USTRegistry::new();
-        registry.initialize_mock_tree(1);
+        let doc_node = USTNode {
+            id: 0,
+            tag: "Document".to_string(),
+            title: "PDF Document Catalog".to_string(),
+            alt_text: None,
+            rect: None,
+            handle_id: None,
+            children: vec![USTNode {
+                id: 1,
+                tag: "Part".to_string(),
+                title: "Page 1 Section".to_string(),
+                alt_text: None,
+                rect: None,
+                handle_id: None,
+                children: vec![
+                    USTNode {
+                        id: 2,
+                        tag: "H1".to_string(),
+                        title: "Heading of Page 1".to_string(),
+                        alt_text: None,
+                        rect: None,
+                        handle_id: None,
+                        children: Vec::new(),
+                    },
+                    USTNode {
+                        id: 3,
+                        tag: "P".to_string(),
+                        title: "Paragraph content for page 1".to_string(),
+                        alt_text: None,
+                        rect: None,
+                        handle_id: None,
+                        children: Vec::new(),
+                    },
+                    USTNode {
+                        id: 4,
+                        tag: "Figure".to_string(),
+                        title: "Illustration on page 1".to_string(),
+                        alt_text: None,
+                        rect: None,
+                        handle_id: None,
+                        children: Vec::new(),
+                    },
+                ],
+            }],
+        };
+        registry.root = Some(doc_node);
+        registry.next_node_id = 5;
 
-        // root is Document (id 0)
-        // children: Page 1 Section (id 1)
-        //   children: Heading of Page 1 (id 2), Paragraph (id 3), Illustration (id 4)
-
-        // Let's move Paragraph (id 3) Above Heading (id 2)
+        // Move Paragraph (id 3) Above Heading (id 2)
         assert!(registry.move_node(3, 2, DragRelation::Above));
 
         let root = registry.root.as_ref().unwrap();
@@ -1428,13 +1406,13 @@ mod tests {
         assert_eq!(page.children[0].id, 3);
         assert_eq!(page.children[1].id, 2);
 
-        // Let's move Illustration (id 4) As Child of Paragraph (id 3)
+        // Move Illustration (id 4) As Child of Paragraph (id 3)
         assert!(registry.move_node(4, 3, DragRelation::AsChild));
 
         let root = registry.root.as_ref().unwrap();
         let page = &root.children[0];
-        assert_eq!(page.children[0].id, 3);
-        assert_eq!(page.children[0].children[0].id, 4);
+        let para = &page.children[0];
+        assert_eq!(para.children[0].id, 4);
 
         // Invalid moves: dragging parent to child should fail
         assert!(!registry.move_node(3, 4, DragRelation::Above));

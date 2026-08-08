@@ -39,6 +39,6 @@ mod tests {
     #[test]
     fn test_mcp_error_display() {
         let err = McpError::Pdf("Invalid PDF header".to_string());
-        assert_eq!(format!("{}", err), "PDF error: Invalid PDF header");
+        assert_eq!(format!("{err}"), "PDF error: Invalid PDF header");
     }
 }

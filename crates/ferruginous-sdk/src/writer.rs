@@ -21,8 +21,6 @@ pub struct PdfWriter<'a, W: Write> {
     current_obj_id: u32,
     current_obj_gen: u16,
     recursion_depth: u32,
-    #[allow(dead_code)]
-    obj_stm_map: BTreeMap<u32, (u32, usize)>, // id -> (stream_id, index)
     cached_file_id: Option<Vec<u8>>,
     obj_sizes: BTreeMap<u32, usize>,
 }
@@ -44,7 +42,6 @@ impl<'a, W: Write> PdfWriter<'a, W> {
             current_obj_id: 0,
             current_obj_gen: 0,
             recursion_depth: 0,
-            obj_stm_map: BTreeMap::new(),
             cached_file_id: None,
             obj_sizes: BTreeMap::new(),
         }

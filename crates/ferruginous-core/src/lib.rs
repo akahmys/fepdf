@@ -25,8 +25,6 @@ pub mod parser;
 pub mod refine;
 pub mod security;
 
-extern crate chardetng;
-
 pub use crate::refine::{ParallelRefinery, commit_to_arena};
 pub use arena::{PdfArena, RemappingTable};
 pub use document::Document;

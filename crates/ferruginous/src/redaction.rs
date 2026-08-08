@@ -2,15 +2,12 @@ use crate::interaction::SelectionManager;
 
 #[derive(Debug, Clone)]
 pub struct RedactionZone {
-    #[allow(dead_code)]
-    pub id: usize,
     pub page_index: usize,
     pub rect: egui::Rect, // PDF User Space coordinates
 }
 
 pub struct RedactionManager {
     pub zones: Vec<RedactionZone>,
-    pub next_zone_id: usize,
     pub drag_start: Option<egui::Pos2>,   // PDF User Space
     pub drag_current: Option<egui::Pos2>, // PDF User Space
     pub is_active: bool,                  // Redaction brush active
@@ -26,7 +23,6 @@ impl RedactionManager {
     pub fn new() -> Self {
         Self {
             zones: Vec::new(),
-            next_zone_id: 1,
             drag_start: None,
             drag_current: None,
             is_active: false,
@@ -35,7 +31,6 @@ impl RedactionManager {
 
     pub fn clear(&mut self) {
         self.zones.clear();
-        self.next_zone_id = 1;
         self.drag_start = None;
         self.drag_current = None;
     }
@@ -74,8 +69,7 @@ impl RedactionManager {
             if let (Some(start), Some(current)) = (self.drag_start, self.drag_current) {
                 let rect = egui::Rect::from_two_pos(start, current);
                 if rect.width() > 1.0 && rect.height() > 1.0 {
-                    self.zones.push(RedactionZone { id: self.next_zone_id, page_index, rect });
-                    self.next_zone_id += 1;
+                    self.zones.push(RedactionZone { page_index, rect });
                 }
             }
             self.drag_start = None;

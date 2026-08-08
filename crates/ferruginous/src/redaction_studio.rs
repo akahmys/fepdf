@@ -84,11 +84,9 @@ impl RedactionStudioPanel {
                         for m in &self.matches {
                             if m.checked {
                                 redaction_manager.zones.push(RedactionZone {
-                                    id: redaction_manager.next_zone_id,
                                     page_index: m.page_index,
                                     rect: m.rect,
                                 });
-                                redaction_manager.next_zone_id += 1;
                             }
                         }
                         self.matches.clear();
