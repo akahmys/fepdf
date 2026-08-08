@@ -118,3 +118,40 @@ pub fn process_arena_filters(
 
     Ok(current_data)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_flate_decode_stream() {
+        use flate2::Compression;
+        use flate2::write::ZlibEncoder;
+        use std::io::Write;
+
+        let arena = PdfArena::new();
+        let raw_data = b"Hello Ferruginous PDF 2.0 Engine!";
+        let mut encoder = ZlibEncoder::new(Vec::new(), Compression::default());
+        encoder.write_all(raw_data).unwrap();
+        let compressed = encoder.finish().unwrap();
+
+        let decoded = decode_stream("FlateDecode", &compressed, None, &arena).unwrap();
+        assert_eq!(&decoded[..], raw_data);
+    }
+
+    #[test]
+    fn test_zstd_decode_stream() {
+        let arena = PdfArena::new();
+        let raw_data = b"Ferruginous PDF Zstd Compression Stream";
+        let compressed = zstd::encode_all(&raw_data[..], 3).unwrap();
+        let decoded = decode_stream("ZstandardDecode", &compressed, None, &arena).unwrap();
+        assert_eq!(&decoded[..], raw_data);
+    }
+
+    #[test]
+    fn test_unknown_filter_error() {
+        let arena = PdfArena::new();
+        let result = decode_stream("NonExistentFilter", b"data", None, &arena);
+        assert!(result.is_err());
+    }
+}

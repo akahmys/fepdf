@@ -249,3 +249,27 @@ fn apply_xmp_metadata(doc: &roxmltree::Document, info: &mut MetadataInfo) {
         info.mod_date = Some(text);
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_metadata_info_default() {
+        let info = MetadataInfo::default();
+        assert!(info.title.is_none());
+        assert!(info.author.is_none());
+    }
+
+    #[test]
+    fn test_build_refined_metadata_map() {
+        let info = MetadataInfo {
+            title: Some("ISO 32000-2 Specification".to_string()),
+            author: Some("ISO/TC 171".to_string()),
+            ..Default::default()
+        };
+        let map = build_refined_metadata_map(&info);
+        assert!(map.contains_key(&crate::object::PdfName::new("Title")));
+        assert!(map.contains_key(&crate::object::PdfName::new("Author")));
+    }
+}

@@ -152,3 +152,17 @@ fn test_r5_key_derivation_multistage() {
     let h = handler.unwrap();
     assert!(h.should_decrypt_metadata());
 }
+
+#[test]
+fn test_open_invalid_pdf_bytes() {
+    let invalid_bytes = Bytes::from_static(b"NOT A VALID PDF HEADER");
+    let doc = PdfDocument::open(invalid_bytes);
+    assert!(doc.is_err());
+}
+
+#[test]
+fn test_document_page_count() {
+    let data = get_minimal_pdf();
+    let doc = PdfDocument::open(data).unwrap();
+    assert_eq!(doc.page_count().unwrap(), 0);
+}

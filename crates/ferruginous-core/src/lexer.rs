@@ -356,3 +356,61 @@ fn is_newline(b: u8) -> bool {
 pub fn is_delimiter(b: u8) -> bool {
     matches!(b, b'(' | b')' | b'<' | b'>' | b'[' | b']' | b'{' | b'}' | b'/' | b'%')
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_tokenize_basic_primitives() {
+        let input = b"true false null 123 -456 3.1415 /Type /Page";
+        let tokens = tokenize(input);
+        assert_eq!(
+            tokens,
+            vec![
+                Token::Boolean(true),
+                Token::Boolean(false),
+                Token::Null,
+                Token::Integer(123),
+                Token::Integer(-456),
+                Token::Real(3.1415),
+                Token::Name(Bytes::from_static(b"Type")),
+                Token::Name(Bytes::from_static(b"Page")),
+            ]
+        );
+    }
+
+    #[test]
+    fn test_tokenize_arrays_and_dicts() {
+        let input = b"<< /Count 1 /Kids [ 3 0 R ] >>";
+        let tokens = tokenize(input);
+        assert_eq!(
+            tokens,
+            vec![
+                Token::LeftDict,
+                Token::Name(Bytes::from_static(b"Count")),
+                Token::Integer(1),
+                Token::Name(Bytes::from_static(b"Kids")),
+                Token::LeftArray,
+                Token::Integer(3),
+                Token::Integer(0),
+                Token::Keyword("R".to_string()),
+                Token::RightArray,
+                Token::RightDict,
+            ]
+        );
+    }
+
+    #[test]
+    fn test_tokenize_hex_and_name_escapes() {
+        let input = b"<48656c6c6f> /Foo#20Bar";
+        let tokens = tokenize(input);
+        assert_eq!(
+            tokens,
+            vec![
+                Token::Hex(Bytes::from_static(b"Hello")),
+                Token::Name(Bytes::from_static(b"Foo Bar")),
+            ]
+        );
+    }
+}
