@@ -45,6 +45,10 @@ pub enum WorkerRequest {
     RemovePages {
         indices: Vec<usize>,
     },
+    InsertDocument {
+        data: Bytes,
+        at_index: usize,
+    },
 }
 
 pub enum WorkerResponse {
@@ -167,6 +171,16 @@ pub fn run_worker(rx: Receiver<WorkerRequest>, tx: Sender<WorkerResponse>, ctx: 
                 }
                 ctx.request_repaint();
             }
+            WorkerRequest::InsertDocument { data, at_index } => {
+                text_cache.clear();
+                spans_cache.clear();
+                if let Some(ref mut doc) = current_doc {
+                    handle_insert_document(doc, data, at_index, &tx);
+                } else {
+                    current_doc = handle_open(data, None, &tx);
+                }
+                ctx.request_repaint();
+            }
         }
     }
 }
@@ -248,6 +262,88 @@ fn resolve_struct_tree_root(
     let str_root_ref = resolve_to_node_handle(arena, str_root_obj)?;
     let mut visited = std::collections::BTreeSet::new();
     parse_struct_node(arena, str_root_ref, next_id, &mut visited)
+}
+
+fn handle_insert_document( // RR-15 Limit: Dispatcher - handles page insertion from external document in worker thread
+    doc: &mut PdfDocument,
+    data: Bytes,
+    at_index: usize,
+    tx: &Sender<WorkerResponse>,
+) {
+    let options = ferruginous_core::ingest::IngestionOptions::default();
+    match PdfDocument::open_with_options(data, &options) {
+        Ok(source_doc) => {
+            if let Err(e) = doc.insert_pages_from(&source_doc, at_index) {
+                log::error!("Failed to insert pages in worker: {:?}", e);
+                let _ = tx.send(WorkerResponse::Error(format!("Failed to insert pages: {:?}", e)));
+                return;
+            }
+            let num_pages = doc.page_count().unwrap_or(0);
+            let mut page_sizes = Vec::with_capacity(num_pages);
+            for i in 0..num_pages {
+                page_sizes.push(doc.get_page_size(i).unwrap_or((595.0, 842.0)));
+            }
+
+            let mut next_id = 0;
+            let mut ust_root = resolve_struct_tree_root(doc, &mut next_id);
+
+            if ust_root.is_none() {
+                ust_root = Some(crate::sidebar::USTNode {
+                    id: 0,
+                    tag: "Document".to_string(),
+                    title: "PDF Document Catalog (Untagged)".to_string(),
+                    alt_text: None,
+                    rect: None,
+                    handle_id: None,
+                    children: Vec::new(),
+                });
+            }
+
+            let version =
+                doc.get_summary().ok().map(|s| s.version).unwrap_or_else(|| "1.7".to_string());
+            let metadata = doc.inner().metadata();
+            let security_method = doc.inner().security_method.clone();
+            let permissions = doc.inner().permissions;
+            let fonts = doc.inner().fonts();
+
+            let viewer_direction = if let Some(cah) = doc.inner().catalog_handle() {
+                if let Some(cadh) = doc.inner().resolve_to_dict(cah).ok() {
+                    if let Some(dict) = doc.inner().arena().get_dict(cadh) {
+                        let vp_key = doc.inner().arena().name("ViewerPreferences");
+                        if let Some(vp_obj) = dict.get(&vp_key) {
+                            if let Some(vp_ref) = resolve_to_node_handle(doc.inner().arena(), vp_obj) {
+                                if let Some(vp_dict) = doc.inner().resolve_to_dict(vp_ref).ok().and_then(|h| doc.inner().arena().get_dict(h)) {
+                                    let dir_key = doc.inner().arena().name("Direction");
+                                    vp_dict.get(&dir_key)
+                                        .and_then(|d| d.resolve(doc.inner().arena()).as_name())
+                                        .and_then(|nh| doc.inner().arena().get_name(nh))
+                                        .map(|n| n.as_str().to_string())
+                                } else { None }
+                            } else { None }
+                        } else { None }
+                    } else { None }
+                } else { None }
+            } else { None };
+
+            let _ = tx.send(WorkerResponse::DocumentLoaded {
+                name: None,
+                num_pages,
+                page_sizes,
+                ust_root,
+                file_size: 0,
+                version,
+                metadata,
+                security_method,
+                permissions,
+                fonts,
+                viewer_direction,
+            });
+        }
+        Err(e) => {
+            log::error!("Failed to open dropped document for insertion: {:?}", e);
+            let _ = tx.send(WorkerResponse::Error(format!("Failed to open dropped document: {:?}", e)));
+        }
+    }
 }
 
 fn handle_open( // RR-15 Limit: Dispatcher - handles open document worker requests and packages file properties

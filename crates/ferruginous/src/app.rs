@@ -389,8 +389,14 @@ impl FerruginousApp {
                     fonts,
                     viewer_direction,
                 } => {
-                    self.pdf_name = name;
+                    if name.is_some() {
+                        self.pdf_name = name;
+                    }
                     self.total_pages = num_pages;
+                    self.scenes.clear();
+                    self.raw_texts.clear();
+                    self.page_spans.clear();
+                    self.clear_thumbnails_pending = true;
                     if let Some(ref dir) = viewer_direction {
                         if dir.eq_ignore_ascii_case("R2L") {
                             self.view.binding_direction = crate::view::BindingDirection::RightToLeft;

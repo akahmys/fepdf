@@ -17,6 +17,7 @@ impl ThumbnailSidebar {
             .size_range(160.0..=300.0)
             .frame(panel_frame)
             .show_inside(ui, |ui| {
+                let panel_rect = ui.max_rect();
                 if ui.input(|ins| ins.key_pressed(egui::Key::Delete) || ins.key_pressed(egui::Key::Backspace)) {
                     if !app.selected_pages.is_empty() && app.total_pages > 1 {
                         app.remove_selected_pages();
@@ -72,17 +73,24 @@ impl ThumbnailSidebar {
                 ui.add_space(2.0);
                 ui.separator();
 
+                let mut hovered_item_target = None;
                 egui::ScrollArea::vertical().id_salt("thumbnail_scroll_area").hscroll(false).show(
                     ui,
                     |ui| {
                         if app.total_pages > 0 {
                             for i in 0..app.total_pages {
-                                Self::show_thumbnail_item(app, ui, frame, i);
+                                if let Some(target) = Self::show_thumbnail_item(app, ui, frame, i) {
+                                    hovered_item_target = Some(target);
+                                }
                             }
                         }
                         ui.add_space(16.0);
                     },
                 );
+
+                let target_index = hovered_item_target.unwrap_or(app.total_pages);
+                Self::handle_external_drop(app, ui, panel_rect, target_index);
+                Self::render_external_hover(app, ui, panel_rect);
             });
     }
 
@@ -101,26 +109,103 @@ impl ThumbnailSidebar {
             .size_range(100.0..=180.0)
             .frame(panel_frame)
             .show_inside(ui, |ui| {
+                let panel_rect = ui.max_rect();
                 if ui.input(|ins| ins.key_pressed(egui::Key::Delete) || ins.key_pressed(egui::Key::Backspace)) {
                     if !app.selected_pages.is_empty() && app.total_pages > 1 {
                         app.remove_selected_pages();
                     }
                 }
 
+                let mut hovered_item_target = None;
                 egui::ScrollArea::horizontal().id_salt("thumbnail_horizontal_scroll").vscroll(false).show(
                     ui,
                     |ui| {
                         ui.horizontal(|ui| {
                             if app.total_pages > 0 {
                                 for i in 0..app.total_pages {
-                                    Self::show_thumbnail_item_horizontal(app, ui, frame, i);
+                                    if let Some(target) = Self::show_thumbnail_item_horizontal(app, ui, frame, i) {
+                                        hovered_item_target = Some(target);
+                                    }
                                 }
                             }
                             ui.add_space(16.0);
                         });
                     },
                 );
+
+                let target_index = hovered_item_target.unwrap_or(app.total_pages);
+                Self::handle_external_drop(app, ui, panel_rect, target_index);
+                Self::render_external_hover(app, ui, panel_rect);
             });
+    }
+
+    fn handle_external_drop(
+        app: &mut crate::app::FerruginousApp,
+        ui: &mut egui::Ui,
+        panel_rect: egui::Rect,
+        target_index: usize,
+    ) {
+        let dropped = ui.input(|i| i.raw.dropped_files.clone());
+        if dropped.is_empty() {
+            return;
+        }
+        let is_hovered = ui
+            .input(|i| i.pointer.hover_pos())
+            .is_some_and(|p| panel_rect.contains(p));
+        if is_hovered {
+            for file in dropped {
+                let bytes_opt = if let Some(ref path) = file.path {
+                    std::fs::read(path).ok()
+                } else {
+                    file.bytes.as_ref().map(|b| b.to_vec())
+                };
+                if let Some(bytes) = bytes_opt {
+                    let _ = app.tx_worker.send(crate::worker::WorkerRequest::InsertDocument {
+                        data: bytes::Bytes::from(bytes),
+                        at_index: target_index,
+                    });
+                }
+            }
+        }
+    }
+
+    fn render_external_hover(
+        app: &crate::app::FerruginousApp,
+        ui: &mut egui::Ui,
+        panel_rect: egui::Rect,
+    ) {
+        let hovered = ui.input(|i| i.raw.hovered_files.clone());
+        if hovered.is_empty() {
+            return;
+        }
+        let is_hovered = ui
+            .input(|i| i.pointer.hover_pos())
+            .is_some_and(|p| panel_rect.contains(p));
+        if is_hovered {
+            ui.painter().rect_filled(
+                panel_rect,
+                4.0,
+                egui::Color32::from_rgba_unmultiplied(0, 120, 215, 30),
+            );
+            ui.painter().rect_stroke(
+                panel_rect.shrink(2.0),
+                2.0_f32,
+                egui::Stroke::new(2.0_f32, egui::Color32::from_rgb(0, 120, 215)),
+                egui::StrokeKind::Inside,
+            );
+            let msg = if app.total_pages == 0 {
+                app.locale_mgr.tr(&app.active_language, "drop_to_open_pdf")
+            } else {
+                app.locale_mgr.tr(&app.active_language, "drop_to_insert_pages")
+            };
+            ui.painter().text(
+                panel_rect.center(),
+                egui::Align2::CENTER_CENTER,
+                msg,
+                egui::FontId::proportional(13.0),
+                egui::Color32::from_rgb(0, 80, 180),
+            );
+        }
     }
 
     fn show_thumbnail_item( // RR-15 Limit: GUI - Render individual page thumbnail item and handle click interaction
@@ -128,16 +213,15 @@ impl ThumbnailSidebar {
         ui: &mut egui::Ui,
         frame: &mut eframe::Frame,
         i: usize,
-    ) {
+    ) -> Option<usize> {
         let (size, layout_rect) = {
-            let Some(layout) = app.page_layouts.get(i) else {
-                return;
-            };
+            let layout = app.page_layouts.get(i)?;
             (layout.rect.size(), layout.rect)
         };
         let aspect_ratio = size.y / size.x;
         let is_visible = app.view.visible_pages.contains(&i);
         let is_selected = app.selected_pages.contains(&i);
+        let mut hovered_target = None;
 
         ui.vertical_centered(|ui| {
             ui.add_space(1.0);
@@ -150,6 +234,27 @@ impl ThumbnailSidebar {
                 egui::vec2(sidebar_width - 20.0, mini_page_height + 26.0),
                 egui::Sense::click_and_drag(),
             );
+
+            let hovered_ext = !ui.input(|ins| ins.raw.hovered_files.is_empty());
+            if response.hovered() {
+                let mouse_pos = ui.input(|ins| ins.pointer.hover_pos());
+                if let Some(pos) = mouse_pos {
+                    hovered_target = if pos.y > rect.center().y { Some(i + 1) } else { Some(i) };
+                } else {
+                    hovered_target = Some(i);
+                }
+            }
+
+            if hovered_ext && response.hovered() {
+                let indicator_y = if hovered_target == Some(i + 1) { rect.max.y } else { rect.min.y };
+                ui.painter().line_segment(
+                    [
+                        egui::pos2(rect.min.x, indicator_y),
+                        egui::pos2(rect.max.x, indicator_y),
+                    ],
+                    egui::Stroke::new(3.0_f32, egui::Color32::from_rgb(0, 120, 215)),
+                );
+            }
 
             if response.drag_started() {
                 egui::DragAndDrop::set_payload(ui.ctx(), i);
@@ -307,6 +412,7 @@ impl ThumbnailSidebar {
                 is_visible,
             );
         });
+        hovered_target
     }
 
     fn render_thumbnail_graphics( // RR-15 Limit: GUI - Render actual thumbnail image or loader on sidebar
@@ -392,16 +498,15 @@ impl ThumbnailSidebar {
         ui: &mut egui::Ui,
         frame: &mut eframe::Frame,
         i: usize,
-    ) {
+    ) -> Option<usize> {
         let (size, layout_rect) = {
-            let Some(layout) = app.page_layouts.get(i) else {
-                return;
-            };
+            let layout = app.page_layouts.get(i)?;
             (layout.rect.size(), layout.rect)
         };
         let aspect_ratio = size.y / size.x;
         let is_visible = app.view.visible_pages.contains(&i);
         let is_selected = app.selected_pages.contains(&i);
+        let mut hovered_target = None;
 
         ui.vertical(|ui| {
             ui.add_space(1.0);
@@ -414,6 +519,27 @@ impl ThumbnailSidebar {
                 egui::vec2(mini_page_width + 16.0, sidebar_height - 10.0),
                 egui::Sense::click_and_drag(),
             );
+
+            let hovered_ext = !ui.input(|ins| ins.raw.hovered_files.is_empty());
+            if response.hovered() {
+                let mouse_pos = ui.input(|ins| ins.pointer.hover_pos());
+                if let Some(pos) = mouse_pos {
+                    hovered_target = if pos.x > rect.center().x { Some(i + 1) } else { Some(i) };
+                } else {
+                    hovered_target = Some(i);
+                }
+            }
+
+            if hovered_ext && response.hovered() {
+                let indicator_x = if hovered_target == Some(i + 1) { rect.max.x } else { rect.min.x };
+                ui.painter().line_segment(
+                    [
+                        egui::pos2(indicator_x, rect.min.y),
+                        egui::pos2(indicator_x, rect.max.y),
+                    ],
+                    egui::Stroke::new(3.0_f32, egui::Color32::from_rgb(0, 120, 215)),
+                );
+            }
 
             if response.drag_started() {
                 egui::DragAndDrop::set_payload(ui.ctx(), i);
@@ -572,5 +698,6 @@ impl ThumbnailSidebar {
                 is_visible,
             );
         });
+        hovered_target
     }
 }

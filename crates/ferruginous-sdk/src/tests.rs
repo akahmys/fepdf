@@ -234,3 +234,19 @@ fn test_reorder_and_remove_pages() {
     assert!(doc.remove_page(1).is_ok());
     assert_eq!(doc.page_count().unwrap(), 2);
 }
+
+#[test]
+fn test_insert_pages_from() {
+    let data1 = get_multipage_pdf(2);
+    let data2 = get_multipage_pdf(3);
+    let mut doc1 = PdfDocument::open(data1).unwrap();
+    let doc2 = PdfDocument::open(data2).unwrap();
+
+    assert_eq!(doc1.page_count().unwrap(), 2);
+    assert_eq!(doc2.page_count().unwrap(), 3);
+
+    let inserted = doc1.insert_pages_from(&doc2, 1).unwrap();
+    assert_eq!(inserted, 3);
+    assert_eq!(doc1.page_count().unwrap(), 5);
+}
+

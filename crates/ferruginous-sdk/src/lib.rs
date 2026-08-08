@@ -260,6 +260,37 @@ impl PdfDocument {
         self.inner.remove_page(index)
     }
 
+    /// Inserts pages from another document into this document at `at_index`.
+    pub fn insert_pages_from(&mut self, source: &PdfDocument, at_index: usize) -> PdfResult<usize> {
+        let source_page_count = source.page_count()?;
+        if source_page_count == 0 {
+            return Ok(0);
+        }
+
+        let clamped_index = at_index.min(self.inner.pages.len());
+        let mut cloner = cloning::ObjectCloner::new(source.inner.arena(), self.inner.arena());
+
+        let mut new_page_handles = Vec::with_capacity(source_page_count);
+
+        for i in 0..source_page_count {
+            let source_page = source.inner.get_page(i)?;
+            let source_dh = source.inner.resolve_to_dict(source_page.obj_handle())?;
+            let cloned = cloner.clone_object(&Object::Dictionary(source_dh))?;
+            if let Object::Dictionary(dh) = cloned {
+                let target_page_h = self.inner.arena().alloc_object(Object::Dictionary(dh));
+                new_page_handles.push(target_page_h);
+            }
+        }
+
+        let inserted_count = new_page_handles.len();
+        for (i, h) in new_page_handles.into_iter().enumerate() {
+            self.inner.pages.insert(clamped_index + i, h);
+        }
+
+        self.inner.rebuild_page_tree_in_arena()?;
+        Ok(inserted_count)
+    }
+
     /// Sets the system fallback fonts for the document (Phase 4).
     pub fn set_system_fonts(&mut self, fonts: BTreeMap<FallbackFontType, Arc<Vec<u8>>>) {
         self.inner.system_fonts = Arc::new(fonts);

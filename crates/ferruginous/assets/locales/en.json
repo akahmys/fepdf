@@ -164,5 +164,7 @@
   "reorder_delete_page": "Delete Page",
   "tooltip_move_up": "Move selected page up",
   "tooltip_move_down": "Move selected page down",
-  "tooltip_delete_page": "Delete selected page"
+  "tooltip_delete_page": "Delete selected page",
+  "drop_to_insert_pages": "📄 Drop PDF here to insert pages",
+  "drop_to_open_pdf": "📄 Drop here to open PDF"
 }
