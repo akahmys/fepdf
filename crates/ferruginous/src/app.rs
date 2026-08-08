@@ -140,7 +140,6 @@ impl FerruginousApp {
         cc.egui_ctx.set_visuals(egui::Visuals::light());
 
         cc.egui_ctx.global_style_mut(|style| {
-            style.debug.warn_if_rect_changes_id = false;
             style.visuals.selection.stroke = egui::Stroke::NONE;
             style.visuals.selection.bg_fill = egui::Color32::from_rgba_unmultiplied(120, 125, 135, 45);
             style.visuals.widgets.active.bg_stroke = egui::Stroke::NONE;
@@ -1322,7 +1321,6 @@ impl FerruginousApp {
     fn apply_global_styles(&self, ctx: &egui::Context) {
         ctx.set_visuals(egui::Visuals::light());
         ctx.global_style_mut(|style| {
-            style.debug.warn_if_rect_changes_id = false;
             style.visuals.selection.stroke = egui::Stroke::NONE;
             style.visuals.selection.bg_fill = egui::Color32::from_rgba_unmultiplied(120, 125, 135, 45);
             style.visuals.widgets.active.bg_stroke = egui::Stroke::NONE;
