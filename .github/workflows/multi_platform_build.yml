@@ -51,7 +51,7 @@ jobs:
 
     steps:
     - name: Disable Symlinks on Windows
-      if: matrix.os == 'windows-latest'
+      if: "startsWith(matrix.os, 'windows')"
       run: git config --global core.symlinks false
 
     - uses: actions/checkout@v4
@@ -86,7 +86,7 @@ jobs:
         done
 
     - name: Prepare Artifacts (Unix)
-      if: matrix.os != 'windows-latest'
+      if: "!startsWith(matrix.os, 'windows')"
       shell: bash
       run: |
         mkdir -p dist
@@ -96,7 +96,7 @@ jobs:
         cd dist && tar -czf ../${{ matrix.artifact_name }}.tar.gz ${{ matrix.binaries }}
 
     - name: Prepare Artifacts (Windows)
-      if: matrix.os == 'windows-latest'
+      if: "startsWith(matrix.os, 'windows')"
       shell: pwsh
       run: |
         New-Item -ItemType Directory -Force -Path dist
