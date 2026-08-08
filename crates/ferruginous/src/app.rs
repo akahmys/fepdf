@@ -584,6 +584,85 @@ impl FerruginousApp {
         self.page_layouts = layouts;
     }
 
+    pub fn reorder_page(&mut self, from: usize, to: usize) {
+        if from >= self.total_pages || to >= self.total_pages || from == to {
+            return;
+        }
+
+        if from < self.doc_page_sizes.len() && to < self.doc_page_sizes.len() {
+            let item = self.doc_page_sizes.remove(from);
+            self.doc_page_sizes.insert(to, item);
+        }
+
+        self.scenes.clear();
+        self.raw_texts.clear();
+        self.page_spans.clear();
+        self.clear_thumbnails_pending = true;
+
+        self.compute_layouts(&self.doc_page_sizes.clone());
+
+        let mut new_selected = BTreeSet::new();
+        for &idx in &self.selected_pages {
+            if idx == from {
+                new_selected.insert(to);
+            } else if from < to && idx > from && idx <= to {
+                new_selected.insert(idx - 1);
+            } else if to < from && idx >= to && idx < from {
+                new_selected.insert(idx + 1);
+            } else {
+                new_selected.insert(idx);
+            }
+        }
+        self.selected_pages = new_selected;
+
+        if let Some(last) = self.last_selected_page {
+            if last == from {
+                self.last_selected_page = Some(to);
+            } else if from < to && last > from && last <= to {
+                self.last_selected_page = Some(last - 1);
+            } else if to < from && last >= to && last < from {
+                self.last_selected_page = Some(last + 1);
+            }
+        }
+
+        let _ = self.tx_worker.send(WorkerRequest::ReorderPages { from, to });
+    }
+
+    pub fn remove_selected_pages(&mut self) {
+        if self.selected_pages.is_empty() || self.total_pages <= 1 {
+            return;
+        }
+        if self.selected_pages.len() >= self.total_pages {
+            return;
+        }
+
+        let mut indices: Vec<usize> = self.selected_pages.iter().cloned().collect();
+        indices.sort_unstable_by(|a, b| b.cmp(a));
+
+        for &idx in &indices {
+            if idx < self.doc_page_sizes.len() {
+                self.doc_page_sizes.remove(idx);
+            }
+        }
+
+        self.total_pages -= indices.len();
+        self.scenes.clear();
+        self.raw_texts.clear();
+        self.page_spans.clear();
+        self.clear_thumbnails_pending = true;
+
+        self.compute_layouts(&self.doc_page_sizes.clone());
+
+        self.selected_pages.clear();
+        self.last_selected_page = None;
+
+        if self.view.active_page >= self.total_pages {
+            self.view.active_page = self.total_pages.saturating_sub(1);
+        }
+
+        let _ = self.tx_worker.send(WorkerRequest::RemovePages { indices });
+    }
+
     fn check_gpu_support(&self, ui: &mut egui::Ui, frame: &mut eframe::Frame) -> bool {
         let has_wgpu = frame.wgpu_render_state().is_some();
         let has_vello = self.vello_renderer.is_some();

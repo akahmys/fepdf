@@ -2,7 +2,7 @@
 pub struct ThumbnailSidebar;
 
 impl ThumbnailSidebar {
-    pub fn show(
+    pub fn show( // RR-15 Limit: GUI - Thumbnail Sidebar panel layout and page actions
         app: &mut crate::app::FerruginousApp,
         ui: &mut egui::Ui,
         frame: &mut eframe::Frame,
@@ -17,6 +17,61 @@ impl ThumbnailSidebar {
             .size_range(160.0..=300.0)
             .frame(panel_frame)
             .show_inside(ui, |ui| {
+                if ui.input(|ins| ins.key_pressed(egui::Key::Delete) || ins.key_pressed(egui::Key::Backspace)) {
+                    if !app.selected_pages.is_empty() && app.total_pages > 1 {
+                        app.remove_selected_pages();
+                    }
+                }
+
+                // Top Toolbar
+                ui.add_space(4.0);
+                ui.horizontal(|ui| {
+                    ui.add_space(8.0);
+                    let page_count_str = format!("{} {}", app.total_pages, app.locale_mgr.tr(&app.active_language, "info_page_count"));
+                    ui.label(egui::RichText::new(page_count_str).size(11.0).color(egui::Color32::from_rgb(100, 110, 120)));
+
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        let has_sel = !app.selected_pages.is_empty();
+                        let first_sel = app.selected_pages.iter().next().cloned();
+                        let can_move_up = first_sel.is_some_and(|idx| idx > 0);
+                        let can_move_down = first_sel.is_some_and(|idx| idx < app.total_pages.saturating_sub(1));
+                        let can_delete = has_sel && app.total_pages > 1 && app.selected_pages.len() < app.total_pages;
+
+                        let del_btn = egui::Button::new(egui::RichText::new("🗑").size(12.0))
+                            .min_size(egui::vec2(22.0, 22.0));
+                        if ui.add_enabled(can_delete, del_btn)
+                            .on_hover_text(app.locale_mgr.tr(&app.active_language, "tooltip_delete_page"))
+                            .clicked()
+                        {
+                            app.remove_selected_pages();
+                        }
+
+                        let down_btn = egui::Button::new(egui::RichText::new("▼").size(10.0))
+                            .min_size(egui::vec2(22.0, 22.0));
+                        if ui.add_enabled(can_move_down, down_btn)
+                            .on_hover_text(app.locale_mgr.tr(&app.active_language, "tooltip_move_down"))
+                            .clicked()
+                        {
+                            if let Some(idx) = first_sel {
+                                app.reorder_page(idx, idx + 1);
+                            }
+                        }
+
+                        let up_btn = egui::Button::new(egui::RichText::new("▲").size(10.0))
+                            .min_size(egui::vec2(22.0, 22.0));
+                        if ui.add_enabled(can_move_up, up_btn)
+                            .on_hover_text(app.locale_mgr.tr(&app.active_language, "tooltip_move_up"))
+                            .clicked()
+                        {
+                            if let Some(idx) = first_sel {
+                                app.reorder_page(idx, idx - 1);
+                            }
+                        }
+                    });
+                });
+                ui.add_space(2.0);
+                ui.separator();
+
                 egui::ScrollArea::vertical().id_salt("thumbnail_scroll_area").hscroll(false).show(
                     ui,
                     |ui| {
@@ -46,6 +101,12 @@ impl ThumbnailSidebar {
             .size_range(100.0..=180.0)
             .frame(panel_frame)
             .show_inside(ui, |ui| {
+                if ui.input(|ins| ins.key_pressed(egui::Key::Delete) || ins.key_pressed(egui::Key::Backspace)) {
+                    if !app.selected_pages.is_empty() && app.total_pages > 1 {
+                        app.remove_selected_pages();
+                    }
+                }
+
                 egui::ScrollArea::horizontal().id_salt("thumbnail_horizontal_scroll").vscroll(false).show(
                     ui,
                     |ui| {
@@ -87,8 +148,32 @@ impl ThumbnailSidebar {
 
             let (rect, response) = ui.allocate_at_least(
                 egui::vec2(sidebar_width - 20.0, mini_page_height + 26.0),
-                egui::Sense::click(),
+                egui::Sense::click_and_drag(),
             );
+
+            if response.drag_started() {
+                egui::DragAndDrop::set_payload(ui.ctx(), i);
+            }
+
+            let dragged_from = egui::DragAndDrop::payload::<usize>(ui.ctx()).map(|p| *p);
+            let mut reorder_target = None;
+
+            if let Some(from_idx) = dragged_from {
+                if from_idx != i && response.hovered() {
+                    let indicator_y = if from_idx < i { rect.max.y } else { rect.min.y };
+                    ui.painter().line_segment(
+                        [
+                            egui::pos2(rect.min.x, indicator_y),
+                            egui::pos2(rect.max.x, indicator_y),
+                        ],
+                        egui::Stroke::new(3.0_f32, egui::Color32::from_rgb(0, 120, 215)),
+                    );
+
+                    if ui.input(|ins| ins.pointer.any_released()) {
+                        reorder_target = Some((from_idx, i));
+                    }
+                }
+            }
 
             if response.clicked() {
                 let shift = ui.input(|ins| ins.modifiers.shift);
@@ -120,6 +205,49 @@ impl ThumbnailSidebar {
                     app.last_selected_page = Some(i);
                     app.view.scroll_to_page(i, &app.page_layouts);
                 }
+            }
+
+            let mut action_move = None;
+            let mut action_delete = false;
+
+            response.context_menu(|ui| {
+                if i > 0 {
+                    if ui.button(app.locale_mgr.tr(&app.active_language, "reorder_move_up")).clicked() {
+                        action_move = Some((i, i - 1));
+                        ui.close_kind(egui::UiKind::Menu);
+                    }
+                    if ui.button(app.locale_mgr.tr(&app.active_language, "reorder_move_top")).clicked() {
+                        action_move = Some((i, 0));
+                        ui.close_kind(egui::UiKind::Menu);
+                    }
+                }
+                if i < app.total_pages.saturating_sub(1) {
+                    if ui.button(app.locale_mgr.tr(&app.active_language, "reorder_move_down")).clicked() {
+                        action_move = Some((i, i + 1));
+                        ui.close_kind(egui::UiKind::Menu);
+                    }
+                    if ui.button(app.locale_mgr.tr(&app.active_language, "reorder_move_bottom")).clicked() {
+                        action_move = Some((i, app.total_pages - 1));
+                        ui.close_kind(egui::UiKind::Menu);
+                    }
+                }
+                if app.total_pages > 1 {
+                    ui.separator();
+                    if ui.button(egui::RichText::new(app.locale_mgr.tr(&app.active_language, "reorder_delete_page")).color(egui::Color32::from_rgb(200, 50, 50))).clicked() {
+                        action_delete = true;
+                        ui.close_kind(egui::UiKind::Menu);
+                    }
+                }
+            });
+
+            if let Some((from_idx, target_idx)) = reorder_target {
+                app.reorder_page(from_idx, target_idx);
+            } else if let Some((from_idx, target_idx)) = action_move {
+                app.reorder_page(from_idx, target_idx);
+            } else if action_delete {
+                app.selected_pages.clear();
+                app.selected_pages.insert(i);
+                app.remove_selected_pages();
             }
 
             let page_stroke = if is_selected {
@@ -284,8 +412,32 @@ impl ThumbnailSidebar {
 
             let (rect, response) = ui.allocate_at_least(
                 egui::vec2(mini_page_width + 16.0, sidebar_height - 10.0),
-                egui::Sense::click(),
+                egui::Sense::click_and_drag(),
             );
+
+            if response.drag_started() {
+                egui::DragAndDrop::set_payload(ui.ctx(), i);
+            }
+
+            let dragged_from = egui::DragAndDrop::payload::<usize>(ui.ctx()).map(|p| *p);
+            let mut reorder_target = None;
+
+            if let Some(from_idx) = dragged_from {
+                if from_idx != i && response.hovered() {
+                    let indicator_x = if from_idx < i { rect.max.x } else { rect.min.x };
+                    ui.painter().line_segment(
+                        [
+                            egui::pos2(indicator_x, rect.min.y),
+                            egui::pos2(indicator_x, rect.max.y),
+                        ],
+                        egui::Stroke::new(3.0_f32, egui::Color32::from_rgb(0, 120, 215)),
+                    );
+
+                    if ui.input(|ins| ins.pointer.any_released()) {
+                        reorder_target = Some((from_idx, i));
+                    }
+                }
+            }
 
             if response.clicked() {
                 let shift = ui.input(|ins| ins.modifiers.shift);
@@ -317,6 +469,49 @@ impl ThumbnailSidebar {
                     app.last_selected_page = Some(i);
                     app.view.scroll_to_page(i, &app.page_layouts);
                 }
+            }
+
+            let mut action_move = None;
+            let mut action_delete = false;
+
+            response.context_menu(|ui| {
+                if i > 0 {
+                    if ui.button(app.locale_mgr.tr(&app.active_language, "reorder_move_up")).clicked() {
+                        action_move = Some((i, i - 1));
+                        ui.close_kind(egui::UiKind::Menu);
+                    }
+                    if ui.button(app.locale_mgr.tr(&app.active_language, "reorder_move_top")).clicked() {
+                        action_move = Some((i, 0));
+                        ui.close_kind(egui::UiKind::Menu);
+                    }
+                }
+                if i < app.total_pages.saturating_sub(1) {
+                    if ui.button(app.locale_mgr.tr(&app.active_language, "reorder_move_down")).clicked() {
+                        action_move = Some((i, i + 1));
+                        ui.close_kind(egui::UiKind::Menu);
+                    }
+                    if ui.button(app.locale_mgr.tr(&app.active_language, "reorder_move_bottom")).clicked() {
+                        action_move = Some((i, app.total_pages - 1));
+                        ui.close_kind(egui::UiKind::Menu);
+                    }
+                }
+                if app.total_pages > 1 {
+                    ui.separator();
+                    if ui.button(egui::RichText::new(app.locale_mgr.tr(&app.active_language, "reorder_delete_page")).color(egui::Color32::from_rgb(200, 50, 50))).clicked() {
+                        action_delete = true;
+                        ui.close_kind(egui::UiKind::Menu);
+                    }
+                }
+            });
+
+            if let Some((from_idx, target_idx)) = reorder_target {
+                app.reorder_page(from_idx, target_idx);
+            } else if let Some((from_idx, target_idx)) = action_move {
+                app.reorder_page(from_idx, target_idx);
+            } else if action_delete {
+                app.selected_pages.clear();
+                app.selected_pages.insert(i);
+                app.remove_selected_pages();
             }
 
             let page_stroke = if is_selected {

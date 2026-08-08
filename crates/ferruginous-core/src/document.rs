@@ -393,6 +393,17 @@ impl Document {
         Ok(())
     }
 
+    /// Page reorder operation (moves page from `from` index to `to` index with immediate page tree reconstruction)
+    pub fn reorder_page(&mut self, from: usize, to: usize) -> PdfResult<()> {
+        if from >= self.pages.len() || to >= self.pages.len() {
+            return Err(PdfError::Other("Index out of bounds".into()));
+        }
+        let page = self.pages.remove(from);
+        self.pages.insert(to, page);
+        self.rebuild_page_tree_in_arena()?;
+        Ok(())
+    }
+
     /// Page removal operation (O(1) logical removal with immediate B-tree arena synchronization)
     pub fn remove_page(&mut self, index: usize) -> PdfResult<()> {
         if index >= self.pages.len() {

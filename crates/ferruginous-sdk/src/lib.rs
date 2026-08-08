@@ -245,6 +245,21 @@ impl PdfDocument {
         self.inner.get_page(index)
     }
 
+    /// Swaps the order of two pages.
+    pub fn swap_pages(&mut self, a: usize, b: usize) -> PdfResult<()> {
+        self.inner.swap_pages(a, b)
+    }
+
+    /// Moves page at `from` index to `to` index.
+    pub fn reorder_page(&mut self, from: usize, to: usize) -> PdfResult<()> {
+        self.inner.reorder_page(from, to)
+    }
+
+    /// Removes a page at the specified 0-based index.
+    pub fn remove_page(&mut self, index: usize) -> PdfResult<()> {
+        self.inner.remove_page(index)
+    }
+
     /// Sets the system fallback fonts for the document (Phase 4).
     pub fn set_system_fonts(&mut self, fonts: BTreeMap<FallbackFontType, Arc<Vec<u8>>>) {
         self.inner.system_fonts = Arc::new(fonts);

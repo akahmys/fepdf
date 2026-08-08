@@ -156,5 +156,13 @@
   "tooltip_zoom_in": "Zoom In",
   "tooltip_zoom_out": "Zoom Out",
   "tooltip_first_page": "First Page",
-  "tooltip_last_page": "Last Page"
+  "tooltip_last_page": "Last Page",
+  "reorder_move_up": "Move Up",
+  "reorder_move_down": "Move Down",
+  "reorder_move_top": "Move to Top",
+  "reorder_move_bottom": "Move to Bottom",
+  "reorder_delete_page": "Delete Page",
+  "tooltip_move_up": "Move selected page up",
+  "tooltip_move_down": "Move selected page down",
+  "tooltip_delete_page": "Delete selected page"
 }

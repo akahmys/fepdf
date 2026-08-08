@@ -38,6 +38,13 @@ pub enum WorkerRequest {
         signature_position: Option<(usize, [f32; 4])>,
     },
     Audit,
+    ReorderPages {
+        from: usize,
+        to: usize,
+    },
+    RemovePages {
+        indices: Vec<usize>,
+    },
 }
 
 pub enum WorkerResponse {
@@ -135,6 +142,29 @@ pub fn run_worker(rx: Receiver<WorkerRequest>, tx: Sender<WorkerResponse>, ctx: 
             }
             WorkerRequest::Audit => {
                 handle_audit(&current_doc, &tx);
+                ctx.request_repaint();
+            }
+            WorkerRequest::ReorderPages { from, to } => {
+                text_cache.clear();
+                spans_cache.clear();
+                if let Some(ref mut doc) = current_doc {
+                    if let Err(e) = doc.reorder_page(from, to) {
+                        log::error!("Failed to reorder page in worker: {:?}", e);
+                    }
+                }
+                ctx.request_repaint();
+            }
+            WorkerRequest::RemovePages { mut indices } => {
+                text_cache.clear();
+                spans_cache.clear();
+                if let Some(ref mut doc) = current_doc {
+                    indices.sort_unstable_by(|a, b| b.cmp(a));
+                    for idx in indices {
+                        if let Err(e) = doc.remove_page(idx) {
+                            log::error!("Failed to remove page {} in worker: {:?}", idx, e);
+                        }
+                    }
+                }
                 ctx.request_repaint();
             }
         }

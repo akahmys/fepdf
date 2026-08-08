@@ -166,3 +166,71 @@ fn test_document_page_count() {
     let doc = PdfDocument::open(data).unwrap();
     assert_eq!(doc.page_count().unwrap(), 0);
 }
+
+fn get_multipage_pdf(count: usize) -> Bytes {
+    let mut doc = lopdf::Document::with_version("1.7");
+
+    let mut page_ids = Vec::new();
+    for _ in 0..count {
+        let mut page_dict = lopdf::Dictionary::new();
+        page_dict.set("Type", lopdf::Object::Name(b"Page".to_vec()));
+        page_dict.set(
+            "MediaBox",
+            lopdf::Object::Array(vec![
+                lopdf::Object::Integer(0),
+                lopdf::Object::Integer(0),
+                lopdf::Object::Integer(612),
+                lopdf::Object::Integer(792),
+            ]),
+        );
+        let pid = doc.add_object(lopdf::Object::Dictionary(page_dict));
+        page_ids.push(lopdf::Object::Reference(pid));
+    }
+
+    let mut pages_dict = lopdf::Dictionary::new();
+    pages_dict.set("Type", lopdf::Object::Name(b"Pages".to_vec()));
+    pages_dict.set("Kids", lopdf::Object::Array(page_ids.clone()));
+    pages_dict.set("Count", lopdf::Object::Integer(count as i64));
+    let pages_id = doc.add_object(lopdf::Object::Dictionary(pages_dict));
+
+    for pid_obj in page_ids {
+        if let lopdf::Object::Reference(pid) = pid_obj {
+            if let Some(lopdf::Object::Dictionary(dict)) = doc.objects.get_mut(&pid) {
+                dict.set("Parent", lopdf::Object::Reference(pages_id));
+            }
+        }
+    }
+
+    let mut catalog_dict = lopdf::Dictionary::new();
+    catalog_dict.set("Type", lopdf::Object::Name(b"Catalog".to_vec()));
+    catalog_dict.set("Pages", lopdf::Object::Reference(pages_id));
+    let catalog_id = doc.add_object(lopdf::Object::Dictionary(catalog_dict));
+
+    doc.trailer.set("Root", lopdf::Object::Reference(catalog_id));
+    doc.trailer.set("Size", lopdf::Object::Integer(i64::from(catalog_id.0 + 1)));
+
+    let id_item = lopdf::Object::String(
+        b"0123456789abcdef0123456789abcdef".to_vec(),
+        lopdf::StringFormat::Hexadecimal,
+    );
+    doc.trailer.set("ID", lopdf::Object::Array(vec![id_item.clone(), id_item]));
+
+    let mut buf = Vec::new();
+    doc.save_to(&mut buf).unwrap();
+    Bytes::from(buf)
+}
+
+#[test]
+fn test_reorder_and_remove_pages() {
+    let data = get_multipage_pdf(3);
+    let mut doc = PdfDocument::open(data).unwrap();
+    assert_eq!(doc.page_count().unwrap(), 3);
+
+    // Test reorder page
+    assert!(doc.reorder_page(0, 2).is_ok());
+    assert_eq!(doc.page_count().unwrap(), 3);
+
+    // Test remove page
+    assert!(doc.remove_page(1).is_ok());
+    assert_eq!(doc.page_count().unwrap(), 2);
+}

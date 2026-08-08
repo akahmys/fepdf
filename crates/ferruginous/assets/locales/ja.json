@@ -156,5 +156,13 @@
   "tooltip_zoom_in": "拡大",
   "tooltip_zoom_out": "縮小",
   "tooltip_first_page": "先頭ページに移動",
-  "tooltip_last_page": "最終ページに移動"
+  "tooltip_last_page": "最終ページに移動",
+  "reorder_move_up": "上へ移動",
+  "reorder_move_down": "下へ移動",
+  "reorder_move_top": "先頭へ移動",
+  "reorder_move_bottom": "末尾へ移動",
+  "reorder_delete_page": "ページを削除",
+  "tooltip_move_up": "選択ページを上へ移動",
+  "tooltip_move_down": "選択ページを下へ移動",
+  "tooltip_delete_page": "選択ページを削除"
 }
