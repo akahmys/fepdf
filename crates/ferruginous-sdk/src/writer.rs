@@ -577,10 +577,8 @@ impl<'a, W: Write> PdfWriter<'a, W> {
             next_id += 1;
         }
 
-        let mut current_id = 1;
-        for &handle in &sorted_handles {
+        for (current_id, &handle) in (1..).zip(&sorted_handles) {
             self.write_indirect_object(current_id, 0, handle)?;
-            current_id += 1;
         }
 
         let total_size = next_id;

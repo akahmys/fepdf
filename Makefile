@@ -14,7 +14,7 @@ TARGET_APPLE_INTEL=x86_64-apple-darwin
 TARGET_WINDOWS=x86_64-pc-windows-msvc
 TARGET_LINUX=x86_64-unknown-linux-gnu
 
-.PHONY: all help build-all clean dist audit-licenses
+.PHONY: all help build-all clean dist audit audit-licenses
 
 help:
 	@echo "fepdf Build System v$(VERSION)"
@@ -23,6 +23,7 @@ help:
 	@echo "  make build-local    - Build for the current platform (Release)"
 	@echo "  make clean          - Remove build artifacts"
 	@echo "  make dist           - Package binaries into $(DIST_DIR)"
+	@echo "  make audit          - Run full compliance audit (RR-15, cargo-deny, betterleaks)"
 	@echo "  make audit-licenses - Run Cargo-native license audit via cargo-deny"
 	@echo "  make setup-arlington - Prepare the Arlington PDF Model test environment"
 	@echo "  make audit-external PDF=<file> - Run Arlington audit on a PDF file"
@@ -61,6 +62,9 @@ dist: build-all
 clean:
 	cargo clean
 	rm -rf out/
+
+audit:
+	./scripts/audit/verify_compliance.sh
 
 audit-licenses:
 	cargo deny check licenses

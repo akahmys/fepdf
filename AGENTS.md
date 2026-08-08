@@ -1,30 +1,58 @@
-# Project Agents & Governance
+# 🤖 Ferruginous Agentic Governance & System Architecture
 
-This project adheres to the [Antigravity IDE](https://antigravity.google) conventions for autonomous agentic development.
+Welcome to **Ferruginous**, an experimental, high-fidelity PDF 2.0 processing platform built with Rust. This project operates under an AI-native autonomous engineering model adhering to strict safety and determinism guarantees.
 
-## ⚖️ Core Constitution
-Global project principles and the Hierarchy of Truth are defined in [.agents/rules/constitution.md](.agents/rules/constitution.md).
+---
 
-## 🛡️ Hardening & Quality Gates
-- **Code Safety (RR-15)**: Strict implementation safety rules in [.agents/rules/code-safety.md](.agents/rules/code-safety.md).
-- **ISO Compliance**: ISO 32000-2 compliance strategy in [.agents/rules/iso-compliance.md](.agents/rules/iso-compliance.md).
-- **Naming Conventions**: Identifier and API conventions in [.agents/rules/naming-conventions.md](.agents/rules/naming-conventions.md).
+## 🏛️ Governance Architecture & Document Structure
 
-## 🏗️ Domain-Specific Rules (Glob-Activated)
-- **PDF Engine** (core, macros): Pipeline constraints in [.agents/rules/pdf-engine.md](.agents/rules/pdf-engine.md). Design spec: [docs/specs/core-pipeline.md](docs/specs/core-pipeline.md).
-- **SDK Engine** (sdk): Interpretation & serialization constraints in [.agents/rules/sdk-engine.md](.agents/rules/sdk-engine.md). Design spec: [docs/specs/sdk-pipeline.md](docs/specs/sdk-pipeline.md).
-- **GPU Rendering** (render): Rendering constraints in [.agents/rules/gpu-rendering.md](.agents/rules/gpu-rendering.md). Design spec: [docs/specs/rendering.md](docs/specs/rendering.md).
-- **Desktop UI** (GUI, CLI): Interface design protocol in [.agents/rules/desktop-ui.md](.agents/rules/desktop-ui.md).
+The project rules, architecture specs, and operational protocols are modularized into five core documents:
 
-## 🛠️ Skills
-- **Strategic Planning**: Session management and pre-implementation review in [.agents/skills/strategic-planning/](.agents/skills/strategic-planning/).
-- **Test-Driven Fix**: Bug diagnosis, HDD, and debugging in [.agents/skills/test-driven-fix/](.agents/skills/test-driven-fix/).
-- **Code Audit**: RR-15 and ISO compliance auditing in [.agents/skills/code-audit/](.agents/skills/code-audit/).
-- **PDF Production**: Production-ready PDF generation in [.agents/skills/pdf-production/](.agents/skills/pdf-production/).
-- **Team Orchestration**: Multi-agent roles and delegation in [.agents/skills/team-orchestration/](.agents/skills/team-orchestration/).
-- **Retrospective**: Post-development analysis and friction resolution in [.agents/skills/retrospective/](.agents/skills/retrospective/).
-- **GitHub Workflow**: Branch, PR, and merge governance in [.agents/skills/github-workflow/](.agents/skills/github-workflow/).
-- **Codebase Exploration**: Discovery protocol in [.agents/skills/codebase-exploration/](.agents/skills/codebase-exploration/).
+| Document | Focus & Scope | Description |
+| :--- | :--- | :--- |
+| 📘 **[AGENTS.md](AGENTS.md)** | **Constitution & Core Governance** | System vision, truth hierarchy, decision framework, and entry point. |
+| 📋 **[PLANNING.md](PLANNING.md)** | **Planning & Discovery** | Implementation plans, architecture design, exploration protocols, and task breakdown. |
+| 💻 **[CODING.md](CODING.md)** | **Coding Rules & Architecture** | **RR-15 Protocol**, ISO 32000-2 pipeline, Vello rendering, and Rust 2024 coding standards. |
+| 🛡️ **[AUDITING.md](AUDITING.md)** | **Security, Compliance & Audit** | Static auditing, **`cargo-deny`** license checks, **`betterleaks`** PII protection, and Clippy lints. |
+| 🧪 **[TESTING.md](TESTING.md)** | **Testing & Validation** | Workspace unit/integration tests, Vello visual regression, and MSRV compatibility. |
 
-## 🔄 Workflows
-Slash-command triggered workflows are located in [.agents/workflows/](.agents/workflows/).
+---
+
+## ⚖️ Hierarchy of Truth
+
+When conflicting directives arise, agents and contributors MUST resolve ambiguities using the following strict hierarchy:
+
+```
+1. ISO 32000-2:2020 Standard Specification
+   └── 2. RR-15 (Reliable Rust-15) Safety & Hardening Protocol
+        └── 3. Core Architecture Specs (docs/specs/)
+             └── 4. Primary Governance Docs (AGENTS, PLANNING, CODING, AUDITING, TESTING)
+                  └── 5. Codebase Implementation & Workspace Crates
+```
+
+---
+
+## 🎯 Core Operating Principles
+
+1. **Safety Over Speed**: Memory safety, determinism, and ISO compliance take precedence over premature optimization or prototyping.
+2. **Zero Unsafe**: `unsafe_code = "forbid"` is enforced across all workspace crates.
+3. **Automated Verification**: Every code change must be verifiable via `./scripts/audit/verify_compliance.sh`, `cargo deny`, `betterleaks`, and `cargo test`.
+4. **Log-First Diagnostics**: Diagnostics must be driven by empirical log evidence rather than assumptions.
+
+---
+
+## 🚀 Quick Verification Commands
+
+```bash
+# Run full compliance audit (RR-15 rules, Clippy, cargo-deny, betterleaks)
+./scripts/audit/verify_compliance.sh
+
+# Run Cargo-native license audit
+cargo deny check licenses
+
+# Run full workspace unit tests
+cargo test --workspace
+
+# Run GPU visual regression tests
+python3 scripts/visual_regression.py
+```

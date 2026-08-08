@@ -77,15 +77,11 @@ impl PDFView {
         }
     }
     pub fn get_origin(&self, viewport_rect: egui::Rect) -> egui::Pos2 {
-        let origin_x = if self.display_mode == DisplayMode::SinglePage || self.display_mode == DisplayMode::TwoPageSingle {
-            viewport_rect.center().x
-        } else {
-            viewport_rect.center().x
-        };
-        let origin_y = if self.scroll_direction == ScrollDirection::Horizontal {
-            viewport_rect.center().y
-        } else if self.display_mode == DisplayMode::SinglePage || self.display_mode == DisplayMode::TwoPageSingle {
-            // For SinglePage vertical, we center the page vertically in the viewport
+        let origin_x = viewport_rect.center().x;
+        let origin_y = if self.scroll_direction == ScrollDirection::Horizontal
+            || self.display_mode == DisplayMode::SinglePage
+            || self.display_mode == DisplayMode::TwoPageSingle
+        {
             viewport_rect.center().y
         } else {
             viewport_rect.min.y + 20.0
@@ -94,14 +90,11 @@ impl PDFView {
     }
 
     pub fn get_origin_no_pan(&self, viewport_rect: egui::Rect) -> egui::Pos2 {
-        let origin_x = if self.display_mode == DisplayMode::SinglePage || self.display_mode == DisplayMode::TwoPageSingle {
-            viewport_rect.center().x
-        } else {
-            viewport_rect.center().x
-        };
-        let origin_y = if self.scroll_direction == ScrollDirection::Horizontal {
-            viewport_rect.center().y
-        } else if self.display_mode == DisplayMode::SinglePage || self.display_mode == DisplayMode::TwoPageSingle {
+        let origin_x = viewport_rect.center().x;
+        let origin_y = if self.scroll_direction == ScrollDirection::Horizontal
+            || self.display_mode == DisplayMode::SinglePage
+            || self.display_mode == DisplayMode::TwoPageSingle
+        {
             viewport_rect.center().y
         } else {
             viewport_rect.min.y + 20.0
@@ -176,7 +169,7 @@ impl PDFView {
             - page_local_pos.to_vec2() * self.zoom;
     }
 
-    pub fn show_virtual( // RR-15 Limit: GUI - Renders a virtualized grid layout of PDF pages and overlays highlights/signals
+    pub fn show_virtual( // RR-15 Limit: Dispatcher - Renders a virtualized grid layout of PDF pages and overlays highlights/signals
         &mut self,
         ui: &mut egui::Ui,
         layouts: &[PageLayout],
@@ -654,7 +647,7 @@ impl PDFView {
         }
     }
 
-    pub fn clamp_pan(&mut self, viewport_rect: egui::Rect, layouts: &[PageLayout]) {
+    pub fn clamp_pan(&mut self, viewport_rect: egui::Rect, layouts: &[PageLayout]) { // RR-15 Limit: GUI
         if layouts.is_empty() {
             return;
         }

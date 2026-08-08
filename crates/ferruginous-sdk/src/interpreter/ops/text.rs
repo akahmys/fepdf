@@ -1,3 +1,4 @@
+#![allow(clippy::suboptimal_flops)]
 use crate::interpreter::{Interpreter, Type3Advance};
 use ferruginous_core::font::FontResource;
 use ferruginous_core::graphics::{Matrix, TextMatrices};
@@ -262,7 +263,7 @@ impl Interpreter<'_> {
 
         let font_name = self.state.text_state.font.clone();
         let wmode = if let Some(ref f) = font_name {
-            self.resolve_font_resource(f).map(|r| r.wmode()).unwrap_or(0)
+            self.resolve_font_resource(f).map_or(0, |r| r.wmode())
         } else {
             0
         };
@@ -528,7 +529,7 @@ impl Interpreter<'_> {
         if let Some(array) = self.doc.arena().get_array(arr) {
             let font_name = self.state.text_state.font.clone();
             let wmode = if let Some(ref f) = font_name {
-                self.resolve_font_resource(f).map(|r| r.wmode()).unwrap_or(0)
+                self.resolve_font_resource(f).map_or(0, |r| r.wmode())
             } else {
                 0
             };

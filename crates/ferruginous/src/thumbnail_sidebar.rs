@@ -258,7 +258,8 @@ impl ThumbnailSidebar {
         );
     }
 
-    fn show_thumbnail_item_horizontal(
+    // RR-15 Limit: GUI
+    fn show_thumbnail_item_horizontal( // RR-15 Limit: GUI
         app: &mut crate::app::FerruginousApp,
         ui: &mut egui::Ui,
         frame: &mut eframe::Frame,

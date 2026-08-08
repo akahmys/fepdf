@@ -2378,7 +2378,7 @@ impl FontResource {
 
         if !self.unicode_to_gid.is_empty() {
             cmap.push_str(&format!("{} begincidchar\n", self.unicode_to_gid.len()));
-            for (&c, _) in self.unicode_to_gid.iter() {
+            for &c in self.unicode_to_gid.keys() {
                 let mut buf = [0u8; 4];
                 let utf8_bytes = c.encode_utf8(&mut buf).as_bytes();
                 let utf8_hex = utf8_bytes.iter().map(|b| format!("{:02X}", b)).collect::<String>();

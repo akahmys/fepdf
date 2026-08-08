@@ -393,7 +393,7 @@ impl FerruginousApp {
                     self.pdf_name = name;
                     self.total_pages = num_pages;
                     if let Some(ref dir) = viewer_direction {
-                        if dir.to_ascii_uppercase() == "R2L" {
+                        if dir.eq_ignore_ascii_case("R2L") {
                             self.view.binding_direction = crate::view::BindingDirection::RightToLeft;
                         } else {
                             self.view.binding_direction = crate::view::BindingDirection::LeftToRight;
@@ -461,7 +461,7 @@ impl FerruginousApp {
         }
     }
 
-    fn compute_layouts(&mut self, page_sizes: &[(f64, f64)]) {
+    fn compute_layouts(&mut self, page_sizes: &[(f64, f64)]) { // RR-15 Limit: GUI
         use crate::view::{ScrollDirection, BindingDirection, DisplayMode};
         let mut layouts = vec![PageLayout { index: 0, rect: egui::Rect::NOTHING }; page_sizes.len()];
 
@@ -469,9 +469,7 @@ impl FerruginousApp {
             let mut current_offset = 0.0;
             let gap = 20.0;
             let inner_gap = 8.0;
-            let mut i = 0;
-
-            if self.view.cover_page_alone && page_sizes.len() > 0 {
+            let mut i = if self.view.cover_page_alone && !page_sizes.is_empty() {
                 let (w, h) = page_sizes[0];
                 let w = w as f32;
                 let h = h as f32;
@@ -486,8 +484,10 @@ impl FerruginousApp {
                 } else {
                     current_offset += w + gap;
                 }
-                i = 1;
-            }
+                1
+            } else {
+                0
+            };
 
             while i < page_sizes.len() {
                 if i + 1 < page_sizes.len() {
@@ -838,7 +838,7 @@ impl FerruginousApp {
         Some((sig_page, egui::Rect::from_min_max(screen_min, screen_max)))
     }
 
-    fn draw_view_with_highlights(
+    fn draw_view_with_highlights( // RR-15 Limit: GUI
         &mut self,
         ui: &mut egui::Ui,
         viewport_rect: egui::Rect,
@@ -966,7 +966,7 @@ impl FerruginousApp {
         self.draw_view_with_highlights(ui, viewport_rect, zoom, viewport_texture_id);
     }
 
-    fn update_vello(&mut self, ui: &mut egui::Ui, frame: &mut eframe::Frame) { // RR-15 Limit: GUI - Update vello state and trigger document rendering
+    fn update_vello(&mut self, ui: &mut egui::Ui, frame: &mut eframe::Frame) { // RR-15 Limit: Dispatcher
         let ctx = ui.ctx().clone();
         self.process_worker_messages(&ctx);
 
@@ -1101,24 +1101,18 @@ impl FerruginousApp {
                                         if last_idx + 1 < self.total_pages {
                                             self.view.scroll_to_page(last_idx + 1, &self.page_layouts);
                                         }
-                                    } else {
-                                        if first_idx > 0 {
-                                            self.view.scroll_to_page(first_idx - 1, &self.page_layouts);
-                                        }
+                                    } else if first_idx > 0 {
+                                        self.view.scroll_to_page(first_idx - 1, &self.page_layouts);
                                     }
                                 }
-                            } else {
-                                if self.view.scroll_direction == crate::view::ScrollDirection::Horizontal
-                                    && self.view.binding_direction == crate::view::BindingDirection::RightToLeft
-                                {
-                                    if current_page + 1 < self.total_pages {
-                                        self.view.scroll_to_page(current_page + 1, &self.page_layouts);
-                                    }
-                                } else {
-                                    if current_page > 0 {
-                                        self.view.scroll_to_page(current_page - 1, &self.page_layouts);
-                                    }
+                            } else if self.view.scroll_direction == crate::view::ScrollDirection::Horizontal
+                                && self.view.binding_direction == crate::view::BindingDirection::RightToLeft
+                            {
+                                if current_page + 1 < self.total_pages {
+                                    self.view.scroll_to_page(current_page + 1, &self.page_layouts);
                                 }
+                            } else if current_page > 0 {
+                                self.view.scroll_to_page(current_page - 1, &self.page_layouts);
                             }
                         }
 
@@ -1153,18 +1147,14 @@ impl FerruginousApp {
                                         }
                                     }
                                 }
-                            } else {
-                                if self.view.scroll_direction == crate::view::ScrollDirection::Horizontal
-                                    && self.view.binding_direction == crate::view::BindingDirection::RightToLeft
-                                {
-                                    if current_page > 0 {
-                                        self.view.scroll_to_page(current_page - 1, &self.page_layouts);
-                                    }
-                                } else {
-                                    if current_page + 1 < self.total_pages {
-                                        self.view.scroll_to_page(current_page + 1, &self.page_layouts);
-                                    }
+                            } else if self.view.scroll_direction == crate::view::ScrollDirection::Horizontal
+                                && self.view.binding_direction == crate::view::BindingDirection::RightToLeft
+                            {
+                                if current_page > 0 {
+                                    self.view.scroll_to_page(current_page - 1, &self.page_layouts);
                                 }
+                            } else if current_page + 1 < self.total_pages {
+                                self.view.scroll_to_page(current_page + 1, &self.page_layouts);
                             }
                         }
 
