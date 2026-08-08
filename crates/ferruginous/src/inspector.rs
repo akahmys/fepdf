@@ -144,7 +144,7 @@ impl ArlingtonInspectorPanel {
                     let frame = egui::Frame::NONE
                         .fill(ui.style().visuals.extreme_bg_color)
                         .stroke(egui::Stroke::new(
-                            1.0,
+                            1.0_f32,
                             ui.style().visuals.widgets.noninteractive.bg_stroke.color,
                         ))
                         .corner_radius(6.0)
@@ -168,7 +168,7 @@ impl ArlingtonInspectorPanel {
                                 };
                                 let badge_frame = egui::Frame::NONE
                                     .fill(badge_color.linear_multiply(0.1))
-                                    .stroke(egui::Stroke::new(1.0, badge_color))
+                                    .stroke(egui::Stroke::new(1.0_f32, badge_color))
                                     .corner_radius(3.0)
                                     .inner_margin(egui::Margin::symmetric(4, 2));
                                 badge_frame.show(ui, |ui| {
@@ -196,7 +196,7 @@ impl ArlingtonInspectorPanel {
                                 let warn_frame = egui::Frame::NONE
                                     .fill(egui::Color32::from_rgba_unmultiplied(255, 200, 200, 30))
                                     .stroke(egui::Stroke::new(
-                                        1.0,
+                                        1.0_f32,
                                         egui::Color32::from_rgb(255, 80, 80),
                                     ))
                                     .corner_radius(4.0)

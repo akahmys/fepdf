@@ -7,30 +7,26 @@ rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 
-
-
 [dependencies]
-ferruginous-core = { path = "../ferruginous-core" }
-ferruginous-render = { path = "../ferruginous-render" }
-kurbo = { workspace = true }
+ferruginous-core.workspace = true
+ferruginous-render.workspace = true
+kurbo.workspace = true
 thiserror.workspace = true
 serde.workspace = true
-bytes = { workspace = true }
-ttf-parser = { workspace = true }
-skrifa = { workspace = true }
-roxmltree = { workspace = true }
-image = "0.25"
-tokio = { workspace = true }
-pollster = "0.3"
-flate2 = { workspace = true }
-lopdf = { workspace = true }
-chrono = { workspace = true }
-log = { workspace = true }
-env_logger = "0.11"
-hex = "0.4"
-md5 = "0.8"
-
-[dev-dependencies]
+bytes.workspace = true
+ttf-parser.workspace = true
+skrifa.workspace = true
+roxmltree.workspace = true
+image.workspace = true
+tokio.workspace = true
+pollster.workspace = true
+flate2.workspace = true
+lopdf.workspace = true
+chrono.workspace = true
+log.workspace = true
+env_logger.workspace = true
+hex.workspace = true
+md5.workspace = true
 
 [lints]
 workspace = true

@@ -3,24 +3,28 @@
 This project adheres to the [Antigravity IDE](https://antigravity.google) conventions for autonomous agentic development.
 
 ## ⚖️ Core Constitution
-Global project principles and the Hierarchy of Truth are defined in [.antigravity/rules.md](.antigravity/rules.md).
+Global project principles and the Hierarchy of Truth are defined in [.agents/rules/constitution.md](.agents/rules/constitution.md).
 
-## 🛡️ Hardening & Implementation
-- **Hardening (RR-15)**: Strict implementation safety rules are defined in [.antigravity/rules/hardening.md](.antigravity/rules/hardening.md).
-- **Processing Pipeline**: The canonical processing lifecycle is documented in [.antigravity/rules/pipeline.md](.antigravity/rules/pipeline.md).
+## 🛡️ Hardening & Quality Gates
+- **Code Safety (RR-15)**: Strict implementation safety rules in [.agents/rules/code-safety.md](.agents/rules/code-safety.md).
+- **ISO Compliance**: ISO 32000-2 compliance strategy in [.agents/rules/iso-compliance.md](.agents/rules/iso-compliance.md).
+- **Naming Conventions**: Identifier and API conventions in [.agents/rules/naming-conventions.md](.agents/rules/naming-conventions.md).
 
-## 🎨 Domain Conventions
-- **Structure**: Canonical workspace organization in [.antigravity/rules/structure.md](.antigravity/rules/structure.md).
-- **Rendering**: Graphics and typography standards in [.antigravity/rules/rendering.md](.antigravity/rules/rendering.md).
-- **Naming**: Identifier and API conventions in [.antigravity/rules/naming.md](.antigravity/rules/naming.md).
-- **Debugging**: Troubleshooting protocols in [.antigravity/rules/debugging.md](.antigravity/rules/debugging.md).
-- **Compliance**: ISO 32000-2 compliance strategy in [.antigravity/rules/compliance.md](.antigravity/rules/compliance.md).
-- **Discovery**: Codebase discovery protocol in [.antigravity/rules/discovery.md](.antigravity/rules/discovery.md).
-- **UI Design**: User interface design protocol in [.antigravity/rules/ui.md](.antigravity/rules/ui.md).
+## 🏗️ Domain-Specific Rules (Glob-Activated)
+- **PDF Engine** (core, macros): Pipeline constraints in [.agents/rules/pdf-engine.md](.agents/rules/pdf-engine.md). Design spec: [docs/specs/core-pipeline.md](docs/specs/core-pipeline.md).
+- **SDK Engine** (sdk): Interpretation & serialization constraints in [.agents/rules/sdk-engine.md](.agents/rules/sdk-engine.md). Design spec: [docs/specs/sdk-pipeline.md](docs/specs/sdk-pipeline.md).
+- **GPU Rendering** (render): Rendering constraints in [.agents/rules/gpu-rendering.md](.agents/rules/gpu-rendering.md). Design spec: [docs/specs/rendering.md](docs/specs/rendering.md).
+- **Desktop UI** (GUI, CLI): Interface design protocol in [.agents/rules/desktop-ui.md](.agents/rules/desktop-ui.md).
 
-## 🛠️ Specialized Skills & Workflows
-Procedural instructions for autonomous task execution are located in [.antigravity/skills/](.antigravity/skills/).
-- **Production**: Guidelines for industrial-strength PDF output in [.antigravity/skills/pdf_production.md](.antigravity/skills/pdf_production.md).
-- **Delegation**: Rules for sub-agent management and context handoff in [.antigravity/skills/delegation.md](.antigravity/skills/delegation.md).
-- **Roles & Collaboration**: Multi-agent orchestration protocols for PM, Engineer, and Auditor in [.antigravity/skills/roles.md](.antigravity/skills/roles.md).
+## 🛠️ Skills
+- **Strategic Planning**: Session management and pre-implementation review in [.agents/skills/strategic-planning/](.agents/skills/strategic-planning/).
+- **Test-Driven Fix**: Bug diagnosis, HDD, and debugging in [.agents/skills/test-driven-fix/](.agents/skills/test-driven-fix/).
+- **Code Audit**: RR-15 and ISO compliance auditing in [.agents/skills/code-audit/](.agents/skills/code-audit/).
+- **PDF Production**: Production-ready PDF generation in [.agents/skills/pdf-production/](.agents/skills/pdf-production/).
+- **Team Orchestration**: Multi-agent roles and delegation in [.agents/skills/team-orchestration/](.agents/skills/team-orchestration/).
+- **Retrospective**: Post-development analysis and friction resolution in [.agents/skills/retrospective/](.agents/skills/retrospective/).
+- **GitHub Workflow**: Branch, PR, and merge governance in [.agents/skills/github-workflow/](.agents/skills/github-workflow/).
+- **Codebase Exploration**: Discovery protocol in [.agents/skills/codebase-exploration/](.agents/skills/codebase-exploration/).
 
+## 🔄 Workflows
+Slash-command triggered workflows are located in [.agents/workflows/](.agents/workflows/).

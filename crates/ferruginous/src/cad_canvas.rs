@@ -289,7 +289,7 @@ impl CaliperTool {
             painter.rect_stroke(
                 egui::Rect::from_center_size(screen_pos, egui::vec2(size * 2.0, size * 2.0)),
                 0.0,
-                egui::Stroke::new(1.5, color),
+                egui::Stroke::new(1.5_f32, color),
                 egui::StrokeKind::Outside,
             );
 
@@ -320,7 +320,7 @@ impl CaliperTool {
             // Draw line
             painter.line(
                 vec![start_screen, end_screen],
-                egui::Stroke::new(2.0, egui::Color32::from_rgb(255, 215, 0)),
+                egui::Stroke::new(2.0_f32, egui::Color32::from_rgb(255, 215, 0)),
             );
 
             // Draw small ticks at start/end endpoints
@@ -329,11 +329,11 @@ impl CaliperTool {
 
             painter.line(
                 vec![start_screen - normal, start_screen + normal],
-                egui::Stroke::new(1.5, egui::Color32::from_rgb(255, 215, 0)),
+                egui::Stroke::new(1.5_f32, egui::Color32::from_rgb(255, 215, 0)),
             );
             painter.line(
                 vec![end_screen - normal, end_screen + normal],
-                egui::Stroke::new(1.5, egui::Color32::from_rgb(255, 215, 0)),
+                egui::Stroke::new(1.5_f32, egui::Color32::from_rgb(255, 215, 0)),
             );
 
             // Draw floating HUD box

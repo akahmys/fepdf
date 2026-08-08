@@ -10,6 +10,20 @@ pub struct PageLayout {
 pub enum DisplayMode {
     Continuous,
     SinglePage,
+    TwoPageSpread,
+    TwoPageSingle,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ScrollDirection {
+    Vertical,
+    Horizontal,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BindingDirection {
+    LeftToRight,
+    RightToLeft,
 }
 
 pub struct PDFView {
@@ -18,9 +32,37 @@ pub struct PDFView {
     pub visible_pages: Vec<usize>,
     pub display_mode: DisplayMode,
     pub active_page: usize,
+    pub scroll_direction: ScrollDirection,
+    pub binding_direction: BindingDirection,
+    pub cover_page_alone: bool,
+    pub overscroll_accumulator: egui::Vec2,
 }
 
 impl PDFView {
+    pub fn get_spread_indices(&self, page_index: usize, total_pages: usize) -> Vec<usize> {
+        if total_pages == 0 {
+            return Vec::new();
+        }
+        if self.cover_page_alone {
+            if page_index == 0 {
+                vec![0]
+            } else {
+                let pair_index = ((page_index - 1) / 2) * 2 + 1;
+                let mut spread = vec![pair_index];
+                if pair_index + 1 < total_pages {
+                    spread.push(pair_index + 1);
+                }
+                spread
+            }
+        } else {
+            let pair_index = (page_index / 2) * 2;
+            let mut spread = vec![pair_index];
+            if pair_index + 1 < total_pages {
+                spread.push(pair_index + 1);
+            }
+            spread
+        }
+    }
     pub fn new() -> Self {
         Self {
             zoom: 1.0,
@@ -28,14 +70,81 @@ impl PDFView {
             visible_pages: Vec::new(),
             display_mode: DisplayMode::Continuous,
             active_page: 0,
+            scroll_direction: ScrollDirection::Vertical,
+            binding_direction: BindingDirection::LeftToRight,
+            cover_page_alone: true,
+            overscroll_accumulator: egui::Vec2::ZERO,
         }
     }
+    pub fn get_origin(&self, viewport_rect: egui::Rect) -> egui::Pos2 {
+        let origin_x = if self.display_mode == DisplayMode::SinglePage || self.display_mode == DisplayMode::TwoPageSingle {
+            viewport_rect.center().x
+        } else {
+            viewport_rect.center().x
+        };
+        let origin_y = if self.scroll_direction == ScrollDirection::Horizontal {
+            viewport_rect.center().y
+        } else if self.display_mode == DisplayMode::SinglePage || self.display_mode == DisplayMode::TwoPageSingle {
+            // For SinglePage vertical, we center the page vertically in the viewport
+            viewport_rect.center().y
+        } else {
+            viewport_rect.min.y + 20.0
+        };
+        egui::pos2(origin_x, origin_y) + self.pan
+    }
+
+    pub fn get_origin_no_pan(&self, viewport_rect: egui::Rect) -> egui::Pos2 {
+        let origin_x = if self.display_mode == DisplayMode::SinglePage || self.display_mode == DisplayMode::TwoPageSingle {
+            viewport_rect.center().x
+        } else {
+            viewport_rect.center().x
+        };
+        let origin_y = if self.scroll_direction == ScrollDirection::Horizontal {
+            viewport_rect.center().y
+        } else if self.display_mode == DisplayMode::SinglePage || self.display_mode == DisplayMode::TwoPageSingle {
+            viewport_rect.center().y
+        } else {
+            viewport_rect.min.y + 20.0
+        };
+        egui::pos2(origin_x, origin_y)
+    }
+
     pub fn scroll_to_page(&mut self, page_index: usize, layouts: &[PageLayout]) {
         self.active_page = page_index;
-        if self.display_mode == DisplayMode::Continuous {
+        if self.display_mode == DisplayMode::Continuous || self.display_mode == DisplayMode::TwoPageSpread {
             if let Some(layout) = layouts.get(page_index) {
-                self.pan.y = -layout.rect.min.y * self.zoom;
-                self.pan.x = 0.0;
+                if self.scroll_direction == ScrollDirection::Vertical {
+                    self.pan.y = -layout.rect.min.y * self.zoom;
+                    self.pan.x = 0.0;
+                } else {
+                    self.pan.x = -layout.rect.min.x * self.zoom;
+                    self.pan.y = 0.0;
+                }
+            }
+        } else if self.display_mode == DisplayMode::TwoPageSingle {
+            // In TwoPageSingle, we center the active spread's bounding box relative to origin
+            let spread_indices = self.get_spread_indices(page_index, layouts.len());
+            if !spread_indices.is_empty() {
+                let mut min_x = f32::MAX;
+                let mut max_x = f32::MIN;
+                let mut min_y = f32::MAX;
+                let mut max_y = f32::MIN;
+                for &idx in &spread_indices {
+                    if let Some(layout) = layouts.get(idx) {
+                        min_x = min_x.min(layout.rect.min.x);
+                        max_x = max_x.max(layout.rect.max.x);
+                        min_y = min_y.min(layout.rect.min.y);
+                        max_y = max_y.max(layout.rect.max.y);
+                    }
+                }
+                self.pan.x = -((min_x + max_x) / 2.0) * self.zoom;
+                self.pan.y = -((min_y + max_y) / 2.0) * self.zoom;
+            }
+        } else if self.display_mode == DisplayMode::SinglePage {
+            if let Some(layout) = layouts.get(page_index) {
+                // In SinglePage, we center the page on both x and y
+                self.pan.x = -layout.rect.center().x * self.zoom;
+                self.pan.y = -layout.rect.center().y * self.zoom;
             }
         } else {
             self.pan = egui::Vec2::ZERO;
@@ -61,7 +170,7 @@ impl PDFView {
         let page_local_pos = page_layout.rect.min + egui::vec2(local_x, local_y);
 
         // We want origin + page_local_pos * zoom = viewport_rect.center()
-        let origin_no_pan = egui::pos2(viewport_rect.center().x, viewport_rect.min.y + 20.0);
+        let origin_no_pan = self.get_origin_no_pan(viewport_rect);
         self.pan = viewport_rect.center().to_vec2()
             - origin_no_pan.to_vec2()
             - page_local_pos.to_vec2() * self.zoom;
@@ -104,7 +213,7 @@ impl PDFView {
         // Draw premium design/CAD grid lines that dynamically move with the pan offset
         let grid_size = 32.0;
         let grid_stroke =
-            egui::Stroke::new(1.0, egui::Color32::from_rgba_unmultiplied(0, 0, 0, 10));
+            egui::Stroke::new(1.0_f32, egui::Color32::from_rgba_unmultiplied(0, 0, 0, 10));
 
         // Vertical grid lines
         let step = grid_size * self.zoom;
@@ -140,9 +249,13 @@ impl PDFView {
         }
 
         // 2. Draw page shadows and authoritatively paint solid pure-white backings under each visible page
-        let origin = egui::pos2(viewport_rect.center().x, viewport_rect.min.y + 20.0) + self.pan;
+        let origin = self.get_origin(viewport_rect);
+        let active_spread = self.get_spread_indices(self.active_page, layouts.len());
         for layout in layouts {
             if self.display_mode == DisplayMode::SinglePage && layout.index != self.active_page {
+                continue;
+            }
+            if self.display_mode == DisplayMode::TwoPageSingle && !active_spread.contains(&layout.index) {
                 continue;
             }
             let page_rect = egui::Rect::from_min_size(
@@ -178,10 +291,13 @@ impl PDFView {
         }
 
         let mut new_visible = Vec::new();
-        let origin = egui::pos2(viewport_rect.center().x, viewport_rect.min.y + 20.0) + self.pan;
+        let origin = self.get_origin(viewport_rect);
 
         for layout in layouts {
             if self.display_mode == DisplayMode::SinglePage && layout.index != self.active_page {
+                continue;
+            }
+            if self.display_mode == DisplayMode::TwoPageSingle && !active_spread.contains(&layout.index) {
                 continue;
             }
             let page_rect = egui::Rect::from_min_size(
@@ -201,7 +317,7 @@ impl PDFView {
                     ui.painter().rect_stroke(
                         page_rect,
                         4.0,
-                        egui::Stroke::new(1.0, egui::Color32::from_rgb(220, 224, 230)),
+                        egui::Stroke::new(1.0_f32, egui::Color32::from_rgb(220, 224, 230)),
                         egui::StrokeKind::Inside,
                     );
 
@@ -299,7 +415,7 @@ impl PDFView {
                 ui.painter().rect_stroke(
                     *drag_rect,
                     0.0,
-                    egui::Stroke::new(1.5, egui::Color32::RED),
+                    egui::Stroke::new(1.5_f32, egui::Color32::RED),
                     egui::StrokeKind::Outside,
                 );
             }
@@ -352,20 +468,20 @@ impl PDFView {
                 ui.painter().rect_stroke(
                     *sig_rect,
                     4.0,
-                    egui::Stroke::new(2.0, egui::Color32::from_rgb(226, 135, 67)),
+                    egui::Stroke::new(2.0_f32, egui::Color32::from_rgb(226, 135, 67)),
                     egui::StrokeKind::Outside,
                 );
                 ui.painter().line_segment(
                     [sig_rect.left_top(), sig_rect.right_bottom()],
                     egui::Stroke::new(
-                        1.0,
+                        1.0_f32,
                         egui::Color32::from_rgba_unmultiplied(226, 135, 67, 100),
                     ),
                 );
                 ui.painter().line_segment(
                     [sig_rect.right_top(), sig_rect.left_bottom()],
                     egui::Stroke::new(
-                        1.0,
+                        1.0_f32,
                         egui::Color32::from_rgba_unmultiplied(226, 135, 67, 100),
                     ),
                 );
@@ -400,12 +516,24 @@ impl PDFView {
                     self.zoom = (self.zoom * (scroll_delta.y * 0.005).exp()).clamp(0.1, 10.0);
                 }
                 if !i.modifiers.command {
-                    self.pan += scroll_delta;
+                    if self.scroll_direction == ScrollDirection::Horizontal {
+                        if scroll_delta.x != 0.0 {
+                            self.pan.x += scroll_delta.x;
+                        } else {
+                            // Translate vertical mouse scroll to horizontal panning
+                            self.pan.x += scroll_delta.y;
+                        }
+                    } else {
+                        self.pan += scroll_delta;
+                    }
                 }
             });
         }
         if response.dragged() {
             self.pan += response.drag_delta();
+        }
+        if response.drag_stopped() || (!response.dragged() && ui.input(|i| i.pointer.any_released())) {
+            self.overscroll_accumulator = egui::Vec2::ZERO;
         }
     }
 
@@ -441,9 +569,9 @@ impl PDFView {
             };
 
             let stroke = if Some(node.id) == selected_id {
-                egui::Stroke::new(2.0, egui::Color32::from_rgb(240, 165, 0)) // Amber selection
+                egui::Stroke::new(2.0_f32, egui::Color32::from_rgb(240, 165, 0)) // Amber selection
             } else {
-                egui::Stroke::new(1.0, color)
+                egui::Stroke::new(1.0_f32, color)
             };
 
             ui.painter().rect_stroke(element_rect, 2.0, stroke, egui::StrokeKind::Outside);
@@ -530,26 +658,149 @@ impl PDFView {
         if layouts.is_empty() {
             return;
         }
+
         let mut min_x = f32::MAX;
         let mut max_x = f32::MIN;
         let mut min_y = f32::MAX;
         let mut max_y = f32::MIN;
-        for layout in layouts {
+
+        // If SinglePage or TwoPageSingle, only clamp using target layouts
+        let target_layouts: Vec<&PageLayout> = if self.display_mode == DisplayMode::SinglePage {
+            if let Some(layout) = layouts.get(self.active_page) {
+                vec![layout]
+            } else {
+                layouts.iter().collect()
+            }
+        } else if self.display_mode == DisplayMode::TwoPageSingle {
+            let spread_indices = self.get_spread_indices(self.active_page, layouts.len());
+            spread_indices.iter().filter_map(|&idx| layouts.get(idx)).collect()
+        } else {
+            layouts.iter().collect()
+        };
+
+        for layout in &target_layouts {
             min_x = min_x.min(layout.rect.min.x);
             max_x = max_x.max(layout.rect.max.x);
             min_y = min_y.min(layout.rect.min.y);
             max_y = max_y.max(layout.rect.max.y);
         }
 
-        let origin_no_pan = egui::pos2(viewport_rect.center().x, viewport_rect.min.y + 20.0);
+        let origin_no_pan = self.get_origin_no_pan(viewport_rect);
         let min_overlap = 50.0f32;
 
         let min_pan_x = viewport_rect.min.x + min_overlap - origin_no_pan.x - max_x * self.zoom;
         let max_pan_x = viewport_rect.max.x - min_overlap - origin_no_pan.x - min_x * self.zoom;
-        self.pan.x = self.pan.x.clamp(min_pan_x, max_pan_x);
+        let clamped_x = self.pan.x.clamp(min_pan_x, max_pan_x);
 
         let min_pan_y = viewport_rect.min.y + min_overlap - origin_no_pan.y - max_y * self.zoom;
         let max_pan_y = viewport_rect.max.y - min_overlap - origin_no_pan.y - min_y * self.zoom;
-        self.pan.y = self.pan.y.clamp(min_pan_y, max_pan_y);
+        let clamped_y = self.pan.y.clamp(min_pan_y, max_pan_y);
+
+        if self.display_mode == DisplayMode::SinglePage || self.display_mode == DisplayMode::TwoPageSingle {
+            let threshold = 80.0; // Pull past edge distance threshold
+
+            if self.scroll_direction == ScrollDirection::Vertical {
+                let diff_y = self.pan.y - clamped_y;
+                if diff_y.abs() > 0.0 {
+                    self.overscroll_accumulator.y += diff_y;
+                } else {
+                    self.overscroll_accumulator.y = 0.0;
+                }
+
+                if self.overscroll_accumulator.y.abs() > threshold {
+                    let total_pages = layouts.len();
+                    if self.overscroll_accumulator.y < 0.0 {
+                        // Pulled up / past bottom -> next page/spread
+                        if self.display_mode == DisplayMode::TwoPageSingle {
+                            let spread = self.get_spread_indices(self.active_page, total_pages);
+                            if let Some(&last_idx) = spread.last() {
+                                if last_idx + 1 < total_pages {
+                                    let next = last_idx + 1;
+                                    self.scroll_to_page(next, layouts);
+                                    self.overscroll_accumulator = egui::Vec2::ZERO;
+                                    return;
+                                }
+                            }
+                        } else if self.active_page + 1 < total_pages {
+                            let next = self.active_page + 1;
+                            self.scroll_to_page(next, layouts);
+                            self.overscroll_accumulator = egui::Vec2::ZERO;
+                            return;
+                        }
+                    } else {
+                        // Pulled down / past top -> prev page/spread
+                        if self.display_mode == DisplayMode::TwoPageSingle {
+                            let spread = self.get_spread_indices(self.active_page, total_pages);
+                            if let Some(&first_idx) = spread.first() {
+                                if first_idx > 0 {
+                                    let prev = first_idx - 1;
+                                    self.scroll_to_page(prev, layouts);
+                                    self.overscroll_accumulator = egui::Vec2::ZERO;
+                                    return;
+                                }
+                            }
+                        } else if self.active_page > 0 {
+                            let prev = self.active_page - 1;
+                            self.scroll_to_page(prev, layouts);
+                            self.overscroll_accumulator = egui::Vec2::ZERO;
+                            return;
+                        }
+                    }
+                }
+            } else {
+                let diff_x = self.pan.x - clamped_x;
+                if diff_x.abs() > 0.0 {
+                    self.overscroll_accumulator.x += diff_x;
+                } else {
+                    self.overscroll_accumulator.x = 0.0;
+                }
+
+                if self.overscroll_accumulator.x.abs() > threshold {
+                    let total_pages = layouts.len();
+                    let is_r2l = self.binding_direction == BindingDirection::RightToLeft;
+                    
+                    if (self.overscroll_accumulator.x < 0.0 && !is_r2l) || (self.overscroll_accumulator.x > 0.0 && is_r2l) {
+                        // Go to next page/spread
+                        if self.display_mode == DisplayMode::TwoPageSingle {
+                            let spread = self.get_spread_indices(self.active_page, total_pages);
+                            if let Some(&last_idx) = spread.last() {
+                                if last_idx + 1 < total_pages {
+                                    let next = last_idx + 1;
+                                    self.scroll_to_page(next, layouts);
+                                    self.overscroll_accumulator = egui::Vec2::ZERO;
+                                    return;
+                                }
+                            }
+                        } else if self.active_page + 1 < total_pages {
+                            let next = self.active_page + 1;
+                            self.scroll_to_page(next, layouts);
+                            self.overscroll_accumulator = egui::Vec2::ZERO;
+                            return;
+                        }
+                    } else {
+                        // Go to prev page/spread
+                        if self.display_mode == DisplayMode::TwoPageSingle {
+                            let spread = self.get_spread_indices(self.active_page, total_pages);
+                            if let Some(&first_idx) = spread.first() {
+                                if first_idx > 0 {
+                                    let prev = first_idx - 1;
+                                    self.scroll_to_page(prev, layouts);
+                                    self.overscroll_accumulator = egui::Vec2::ZERO;
+                                    return;
+                                }
+                            }
+                        } else if self.active_page > 0 {
+                            let prev = self.active_page - 1;
+                            self.scroll_to_page(prev, layouts);
+                            self.overscroll_accumulator = egui::Vec2::ZERO;
+                            return;
+                        }
+                    }
+                }
+            }
+        }
+
+        self.pan.x = clamped_x;
+        self.pan.y = clamped_y;
     }
 }

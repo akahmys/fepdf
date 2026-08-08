@@ -1,23 +1,25 @@
 [package]
 name = "fepdf"
 version.workspace = true
-authors = ["Ferruginous Developers"]
-license = "MIT OR Apache-2.0"
-edition = "2024"
+authors.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
 description = "Specialized CLI tool for converting PDF documents to version 2.0"
 
 [dependencies]
-ferruginous-sdk = { path = "../ferruginous-sdk" }
-ferruginous-core = { version = "1.0.0", path = "../ferruginous-core" }
-clap = { version = "4.5", features = ["derive"] }
-anyhow = "1.0"
-lopdf = { workspace = true }
-inquire = "0.7"
-bytes = { workspace = true }
-tokio = { workspace = true }
-serde = { workspace = true }
-serde_json = { workspace = true }
-env_logger = "0.11"
+ferruginous-sdk.workspace = true
+ferruginous-core.workspace = true
+clap.workspace = true
+anyhow.workspace = true
+lopdf.workspace = true
+inquire.workspace = true
+bytes.workspace = true
+tokio.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+env_logger.workspace = true
 image.workspace = true
 
 [features]

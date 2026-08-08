@@ -60,10 +60,60 @@ image = { version = "0.25", default-features = false, features = ["png", "jpeg",
 xmp-writer = "0.3"
 roxmltree = "0.20"
 chardetng = "0.1"
+encoding_rs = "0.8"
+nom = "7.1"
+aes = "0.8"
+cbc = "0.1"
+pbkdf2 = "0.12"
+hmac = "0.12"
+rand = "0.8"
+md5 = "0.8"
+sha2 = "0.10"
+sha1 = "0.10"
+hex = "0.4"
+
+# Cryptography & Certificates
+x509-parser = "0.16"
+reqwest = { version = "0.11", default-features = false, features = ["blocking", "rustls-tls"] }
+der = { version = "0.7", features = ["derive"] }
+spki = "0.7"
+rustls-native-certs = "0.7"
+rsa = { version = "0.9", features = ["sha2"] }
+ecdsa = "0.16"
+p256 = { version = "0.13", features = ["ecdsa", "pkcs8"] }
+signature = "2.2"
 
 # Infrastructure & MCP
 tokio = { version = "1.43", features = ["full"] }
 rmcp = "1.5.0"
+schemars = "1"
+
+# Internal Workspace Crates
+ferruginous-core = { path = "crates/ferruginous-core", version = "1.0.0" }
+ferruginous-render = { path = "crates/ferruginous-render", version = "1.0.0" }
+ferruginous-sdk = { path = "crates/ferruginous-sdk", version = "1.0.0" }
+ferruginous-mcp = { path = "crates/ferruginous-mcp", version = "1.0.0" }
+ferruginous-wasm = { path = "crates/ferruginous-wasm", version = "1.0.0" }
+ferruginous-macros = { path = "crates/ferruginous-macros", version = "1.0.0" }
+
+# GUI, Web & CLI Ecosystem
+eframe = { version = "0.34", features = ["wgpu"] }
+egui = "0.34"
+egui-wgpu = "0.34"
+wgpu = "29"
+rfd = "0.15"
+pollster = "0.4"
+regex = "1.10"
+peniko = "0.6"
+clap = { version = "4.5", features = ["derive"] }
+inquire = "0.7"
+env_logger = "0.11"
+wasm-bindgen = "0.2"
+wasm-bindgen-futures = "0.4"
+js-sys = "0.3"
+web-sys = { version = "0.3", features = ["CanvasRenderingContext2d", "ImageData", "Window", "Document", "HtmlCanvasElement"] }
+console_error_panic_hook = "0.1"
+serde-wasm-bindgen = "0.6"
 
 [workspace.package]
 version = "1.0.0"

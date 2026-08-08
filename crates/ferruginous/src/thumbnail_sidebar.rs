@@ -31,6 +31,37 @@ impl ThumbnailSidebar {
             });
     }
 
+    pub fn show_horizontal(
+        app: &mut crate::app::FerruginousApp,
+        ui: &mut egui::Ui,
+        frame: &mut eframe::Frame,
+    ) {
+        let panel_frame =
+            egui::Frame::side_top_panel(ui.style()).fill(egui::Color32::from_rgb(235, 237, 240));
+
+        egui::Panel::bottom("thumbnail_sidebar_horizontal")
+            .resizable(true)
+            .show_separator_line(true)
+            .default_size(130.0)
+            .size_range(100.0..=180.0)
+            .frame(panel_frame)
+            .show_inside(ui, |ui| {
+                egui::ScrollArea::horizontal().id_salt("thumbnail_horizontal_scroll").vscroll(false).show(
+                    ui,
+                    |ui| {
+                        ui.horizontal(|ui| {
+                            if app.total_pages > 0 {
+                                for i in 0..app.total_pages {
+                                    Self::show_thumbnail_item_horizontal(app, ui, frame, i);
+                                }
+                            }
+                            ui.add_space(16.0);
+                        });
+                    },
+                );
+            });
+    }
+
     fn show_thumbnail_item( // RR-15 Limit: GUI - Render individual page thumbnail item and handle click interaction
         app: &mut crate::app::FerruginousApp,
         ui: &mut egui::Ui,
@@ -92,9 +123,9 @@ impl ThumbnailSidebar {
             }
 
             let page_stroke = if is_selected {
-                egui::Stroke::new(2.5, egui::Color32::from_rgb(80, 90, 105))
+                egui::Stroke::new(2.5_f32, egui::Color32::from_rgb(80, 90, 105))
             } else {
-                egui::Stroke::new(1.0, egui::Color32::from_rgb(200, 205, 212))
+                egui::Stroke::new(1.0_f32, egui::Color32::from_rgb(200, 205, 212))
             };
 
             let mini_page_rect = egui::Rect::from_center_size(
@@ -105,8 +136,7 @@ impl ThumbnailSidebar {
             let mut visible_mask_rect = None;
             if is_visible {
                 if let Some(viewport_rect) = app.last_viewport_rect {
-                    let origin = egui::pos2(viewport_rect.center().x, viewport_rect.min.y + 20.0)
-                        + app.view.pan;
+                    let origin = app.view.get_origin(viewport_rect);
                     let page_rect = egui::Rect::from_min_size(
                         origin + layout_rect.min.to_vec2() * app.view.zoom,
                         layout_rect.size() * app.view.zoom,
@@ -226,5 +256,125 @@ impl ThumbnailSidebar {
             font_id,
             text_color,
         );
+    }
+
+    fn show_thumbnail_item_horizontal(
+        app: &mut crate::app::FerruginousApp,
+        ui: &mut egui::Ui,
+        frame: &mut eframe::Frame,
+        i: usize,
+    ) {
+        let (size, layout_rect) = {
+            let Some(layout) = app.page_layouts.get(i) else {
+                return;
+            };
+            (layout.rect.size(), layout.rect)
+        };
+        let aspect_ratio = size.y / size.x;
+        let is_visible = app.view.visible_pages.contains(&i);
+        let is_selected = app.selected_pages.contains(&i);
+
+        ui.vertical(|ui| {
+            ui.add_space(1.0);
+
+            let sidebar_height = ui.available_height();
+            let mini_page_height = (sidebar_height - 30.0).clamp(50.0, 120.0);
+            let mini_page_width = mini_page_height / aspect_ratio;
+
+            let (rect, response) = ui.allocate_at_least(
+                egui::vec2(mini_page_width + 16.0, sidebar_height - 10.0),
+                egui::Sense::click(),
+            );
+
+            if response.clicked() {
+                let shift = ui.input(|ins| ins.modifiers.shift);
+                let cmd = ui.input(|ins| ins.modifiers.command || ins.modifiers.ctrl);
+
+                if shift {
+                    if let Some(start) = app.last_selected_page {
+                        app.selected_pages.clear();
+                        let min = start.min(i);
+                        let max = start.max(i);
+                        for page_idx in min..=max {
+                            app.selected_pages.insert(page_idx);
+                        }
+                    } else {
+                        app.selected_pages.clear();
+                        app.selected_pages.insert(i);
+                        app.last_selected_page = Some(i);
+                    }
+                } else if cmd {
+                    if app.selected_pages.contains(&i) {
+                        app.selected_pages.remove(&i);
+                    } else {
+                        app.selected_pages.insert(i);
+                    }
+                    app.last_selected_page = Some(i);
+                } else {
+                    app.selected_pages.clear();
+                    app.selected_pages.insert(i);
+                    app.last_selected_page = Some(i);
+                    app.view.scroll_to_page(i, &app.page_layouts);
+                }
+            }
+
+            let page_stroke = if is_selected {
+                egui::Stroke::new(2.5_f32, egui::Color32::from_rgb(80, 90, 105))
+            } else {
+                egui::Stroke::new(1.0_f32, egui::Color32::from_rgb(200, 205, 212))
+            };
+
+            let vertical_center = rect.min.y + (rect.height() - 20.0) / 2.0;
+            let mini_page_rect = egui::Rect::from_center_size(
+                egui::pos2(rect.center().x, vertical_center),
+                egui::vec2(mini_page_width, mini_page_height),
+            );
+
+            let mut visible_mask_rect = None;
+            if is_visible {
+                if let Some(viewport_rect) = app.last_viewport_rect {
+                    let origin = app.view.get_origin(viewport_rect);
+                    let page_rect = egui::Rect::from_min_size(
+                        origin + layout_rect.min.to_vec2() * app.view.zoom,
+                        layout_rect.size() * app.view.zoom,
+                    );
+                    let intersection = viewport_rect.intersect(page_rect);
+                    if intersection.is_positive() {
+                        let x_min = ((intersection.min.x - page_rect.min.x) / page_rect.width())
+                            .clamp(0.0, 1.0);
+                        let x_max = ((intersection.max.x - page_rect.min.x) / page_rect.width())
+                            .clamp(0.0, 1.0);
+                        let y_min = ((intersection.min.y - page_rect.min.y) / page_rect.height())
+                            .clamp(0.0, 1.0);
+                        let y_max = ((intersection.max.y - page_rect.min.y) / page_rect.height())
+                            .clamp(0.0, 1.0);
+
+                        let mask_min = egui::pos2(
+                            mini_page_rect.min.x + x_min * mini_page_rect.width(),
+                            mini_page_rect.min.y + y_min * mini_page_rect.height(),
+                        );
+                        let mask_max = egui::pos2(
+                            mini_page_rect.min.x + x_max * mini_page_rect.width(),
+                            mini_page_rect.min.y + y_max * mini_page_rect.height(),
+                        );
+                        visible_mask_rect = Some(egui::Rect::from_min_max(mask_min, mask_max));
+                    }
+                }
+            }
+
+            Self::render_thumbnail_graphics(
+                app,
+                ui,
+                frame,
+                i,
+                rect,
+                page_stroke,
+                mini_page_rect,
+                visible_mask_rect,
+                size,
+                is_selected,
+                is_visible,
+            );
+        });
     }
 }

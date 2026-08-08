@@ -364,7 +364,7 @@ impl SidebarPanel {
                 let mut btn = egui::Button::new(egui::RichText::new(icon).size(16.0))
                     .min_size(egui::vec2(36.0, 36.0));
                 if is_active {
-                    btn = btn.stroke(egui::Stroke::new(1.5, egui::Color32::from_gray(80)));
+                    btn = btn.stroke(egui::Stroke::new(1.5_f32, egui::Color32::from_gray(80)));
                 }
                 if ui.add(btn).on_hover_text(tooltip).clicked() {
                     if self.active_left_tab == tab {

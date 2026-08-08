@@ -12,26 +12,24 @@ name = "ferruginous"
 path = "src/main.rs"
 
 [dependencies]
-ferruginous-core = { path = "../ferruginous-core" }
-ferruginous-render = { path = "../ferruginous-render" }
-ferruginous-sdk = { path = "../ferruginous-sdk" }
+ferruginous-core.workspace = true
+ferruginous-render.workspace = true
+ferruginous-sdk.workspace = true
 vello.workspace = true
 kurbo.workspace = true
-
-egui = "0.34"
-eframe = { version = "0.34", features = ["wgpu"] }
-egui-wgpu = "0.34"
-rfd = "0.15"
-serde = { workspace = true }
-serde_json = { workspace = true }
-tokio = { workspace = true }
-pollster = "0.4"
-bytes = { workspace = true }
-log = "0.4"
-env_logger = "0.11"
-wgpu = "29" 
-regex = "1.10" 
+egui.workspace = true
+eframe.workspace = true
+egui-wgpu.workspace = true
+rfd.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tokio.workspace = true
+pollster.workspace = true
+bytes.workspace = true
+log.workspace = true
+env_logger.workspace = true
+wgpu.workspace = true
+regex.workspace = true
 
 [lints]
 workspace = true
-

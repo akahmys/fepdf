@@ -141,11 +141,11 @@ cargo clippy --workspace -- -D warnings || ERROR=1
 
 # Rule 16: License Compliance
 echo "[Rule 16] Checking for license conflicts..."
-./scripts/audit/audit_licenses.py || ERROR=1
+cargo deny check licenses || ERROR=1
 
 # Rule 18: Secret & PII Protection
 echo "[Rule 18] Checking for secrets and PII..."
-./scripts/audit/verify_secrets.sh || ERROR=1
+betterleaks dir . || ERROR=1
 
 if [ $ERROR -eq 1 ]; then
     echo "=== AUDIT FAILED ==="

@@ -147,7 +147,7 @@ impl FerruginousApp {
             style.visuals.widgets.hovered.bg_stroke = egui::Stroke::NONE;
             style.visuals.widgets.inactive.bg_stroke = egui::Stroke::NONE;
             style.visuals.widgets.noninteractive.bg_stroke =
-                egui::Stroke::new(1.0, egui::Color32::from_gray(210));
+                egui::Stroke::new(1.0_f32, egui::Color32::from_gray(210));
         });
 
         let egui_ctx = cc.egui_ctx.clone();
@@ -291,30 +291,82 @@ impl FerruginousApp {
 
     pub fn fit_to_width(&mut self, viewport_rect: egui::Rect) {
         let current_page = self.view.visible_pages.first().cloned().unwrap_or(self.view.active_page);
-        if let Some(layout) = self.page_layouts.get(current_page) {
-            let page_w = layout.rect.width();
-            if page_w > 0.0 {
-                let target_zoom = (viewport_rect.width() - 40.0) / page_w;
-                self.view.zoom = target_zoom.clamp(0.1, 10.0);
-                self.view.pan.x = 0.0;
+        let mut indices = vec![current_page];
+        if self.view.display_mode == crate::view::DisplayMode::TwoPageSpread || self.view.display_mode == crate::view::DisplayMode::TwoPageSingle {
+            if self.view.cover_page_alone {
+                if current_page > 0 {
+                    let pair_start = ((current_page - 1) / 2) * 2 + 1;
+                    indices = vec![pair_start];
+                    if pair_start + 1 < self.total_pages {
+                        indices.push(pair_start + 1);
+                    }
+                }
+            } else {
+                let pair_start = (current_page / 2) * 2;
+                indices = vec![pair_start];
+                if pair_start + 1 < self.total_pages {
+                    indices.push(pair_start + 1);
+                }
             }
+        }
+
+        let mut min_x = f32::MAX;
+        let mut max_x = f32::MIN;
+        for &idx in &indices {
+            if let Some(layout) = self.page_layouts.get(idx) {
+                min_x = min_x.min(layout.rect.min.x);
+                max_x = max_x.max(layout.rect.max.x);
+            }
+        }
+
+        let spread_w = max_x - min_x;
+        if spread_w > 0.0 && min_x < f32::MAX {
+            let target_zoom = (viewport_rect.width() - 40.0) / spread_w;
+            self.view.zoom = target_zoom.clamp(0.1, 10.0);
+            self.view.pan.x = 0.0;
         }
     }
 
     pub fn fit_to_height(&mut self, viewport_rect: egui::Rect) {
         let current_page = self.view.visible_pages.first().cloned().unwrap_or(self.view.active_page);
-        if let Some(layout) = self.page_layouts.get(current_page) {
-            let page_h = layout.rect.height();
-            if page_h > 0.0 {
-                let target_zoom = (viewport_rect.height() - 40.0) / page_h;
-                self.view.zoom = target_zoom.clamp(0.1, 10.0);
-                if self.view.display_mode == DisplayMode::Continuous {
-                    self.view.pan.y = -layout.rect.min.y * self.view.zoom;
-                } else {
-                    self.view.pan.y = 0.0;
+        let mut indices = vec![current_page];
+        if self.view.display_mode == crate::view::DisplayMode::TwoPageSpread || self.view.display_mode == crate::view::DisplayMode::TwoPageSingle {
+            if self.view.cover_page_alone {
+                if current_page > 0 {
+                    let pair_start = ((current_page - 1) / 2) * 2 + 1;
+                    indices = vec![pair_start];
+                    if pair_start + 1 < self.total_pages {
+                        indices.push(pair_start + 1);
+                    }
                 }
-                self.view.pan.x = 0.0;
+            } else {
+                let pair_start = (current_page / 2) * 2;
+                indices = vec![pair_start];
+                if pair_start + 1 < self.total_pages {
+                    indices.push(pair_start + 1);
+                }
             }
+        }
+
+        let mut min_y = f32::MAX;
+        let mut max_y = f32::MIN;
+        for &idx in &indices {
+            if let Some(layout) = self.page_layouts.get(idx) {
+                min_y = min_y.min(layout.rect.min.y);
+                max_y = max_y.max(layout.rect.max.y);
+            }
+        }
+
+        let spread_h = max_y - min_y;
+        if spread_h > 0.0 && min_y < f32::MAX {
+            let target_zoom = (viewport_rect.height() - 40.0) / spread_h;
+            self.view.zoom = target_zoom.clamp(0.1, 10.0);
+            if self.view.display_mode == DisplayMode::Continuous || self.view.display_mode == DisplayMode::TwoPageSpread || self.view.display_mode == DisplayMode::TwoPageSingle {
+                self.view.pan.y = -min_y * self.view.zoom;
+            } else {
+                self.view.pan.y = 0.0;
+            }
+            self.view.pan.x = 0.0;
         }
     }
 
@@ -336,9 +388,19 @@ impl FerruginousApp {
                     security_method,
                     permissions,
                     fonts,
+                    viewer_direction,
                 } => {
                     self.pdf_name = name;
                     self.total_pages = num_pages;
+                    if let Some(ref dir) = viewer_direction {
+                        if dir.to_ascii_uppercase() == "R2L" {
+                            self.view.binding_direction = crate::view::BindingDirection::RightToLeft;
+                        } else {
+                            self.view.binding_direction = crate::view::BindingDirection::LeftToRight;
+                        }
+                    } else {
+                        self.view.binding_direction = crate::view::BindingDirection::LeftToRight;
+                    }
                     self.compute_layouts(&page_sizes);
                     self.doc_page_sizes = page_sizes;
 
@@ -400,21 +462,125 @@ impl FerruginousApp {
     }
 
     fn compute_layouts(&mut self, page_sizes: &[(f64, f64)]) {
-        let mut layouts = Vec::with_capacity(page_sizes.len());
-        let mut current_y = 0.0;
-        let gap = 20.0;
+        use crate::view::{ScrollDirection, BindingDirection, DisplayMode};
+        let mut layouts = vec![PageLayout { index: 0, rect: egui::Rect::NOTHING }; page_sizes.len()];
 
-        for (i, &(w, h)) in page_sizes.iter().enumerate() {
-            let w = w as f32;
-            let h = h as f32;
-            let x = -w / 2.0;
-            let rect = if self.view.display_mode == DisplayMode::SinglePage {
-                egui::Rect::from_min_size(egui::pos2(x, 0.0), egui::vec2(w, h))
-            } else {
-                egui::Rect::from_min_size(egui::pos2(x, current_y), egui::vec2(w, h))
-            };
-            layouts.push(PageLayout { index: i, rect });
-            current_y += h + gap;
+        if self.view.display_mode == DisplayMode::TwoPageSpread || self.view.display_mode == DisplayMode::TwoPageSingle {
+            let mut current_offset = 0.0;
+            let gap = 20.0;
+            let inner_gap = 8.0;
+            let mut i = 0;
+
+            if self.view.cover_page_alone && page_sizes.len() > 0 {
+                let (w, h) = page_sizes[0];
+                let w = w as f32;
+                let h = h as f32;
+                let rect = if self.view.scroll_direction == ScrollDirection::Vertical {
+                    egui::Rect::from_min_size(egui::pos2(-w / 2.0, current_offset), egui::vec2(w, h))
+                } else {
+                    egui::Rect::from_min_size(egui::pos2(current_offset, -h / 2.0), egui::vec2(w, h))
+                };
+                layouts[0] = PageLayout { index: 0, rect };
+                if self.view.scroll_direction == ScrollDirection::Vertical {
+                    current_offset += h + gap;
+                } else {
+                    current_offset += w + gap;
+                }
+                i = 1;
+            }
+
+            while i < page_sizes.len() {
+                if i + 1 < page_sizes.len() {
+                    let (w1, h1) = page_sizes[i];
+                    let (w2, h2) = page_sizes[i + 1];
+                    let w1 = w1 as f32;
+                    let w2 = w2 as f32;
+                    let h1 = h1 as f32;
+                    let h2 = h2 as f32;
+
+                    let total_w = w1 + w2 + inner_gap;
+                    let max_h = h1.max(h2);
+
+                    let (rect1, rect2) = if self.view.scroll_direction == ScrollDirection::Vertical {
+                        let y1 = current_offset + (max_h - h1) / 2.0;
+                        let y2 = current_offset + (max_h - h2) / 2.0;
+                        if self.view.binding_direction == BindingDirection::RightToLeft {
+                            let r1 = egui::Rect::from_min_size(egui::pos2(inner_gap / 2.0, y1), egui::vec2(w1, h1));
+                            let r2 = egui::Rect::from_min_size(egui::pos2(-total_w / 2.0, y2), egui::vec2(w2, h2));
+                            (r1, r2)
+                        } else {
+                            let r1 = egui::Rect::from_min_size(egui::pos2(-total_w / 2.0, y1), egui::vec2(w1, h1));
+                            let r2 = egui::Rect::from_min_size(egui::pos2(inner_gap / 2.0, y2), egui::vec2(w2, h2));
+                            (r1, r2)
+                        }
+                    } else {
+                        let x1 = current_offset;
+                        if self.view.binding_direction == BindingDirection::RightToLeft {
+                            let r1 = egui::Rect::from_min_size(egui::pos2(x1 + w2 + inner_gap, -h1 / 2.0), egui::vec2(w1, h1));
+                            let r2 = egui::Rect::from_min_size(egui::pos2(x1, -h2 / 2.0), egui::vec2(w2, h2));
+                            (r1, r2)
+                        } else {
+                            let r1 = egui::Rect::from_min_size(egui::pos2(x1, -h1 / 2.0), egui::vec2(w1, h1));
+                            let r2 = egui::Rect::from_min_size(egui::pos2(x1 + w1 + inner_gap, -h2 / 2.0), egui::vec2(w2, h2));
+                            (r1, r2)
+                        }
+                    };
+
+                    layouts[i] = PageLayout { index: i, rect: rect1 };
+                    layouts[i + 1] = PageLayout { index: i + 1, rect: rect2 };
+
+                    if self.view.scroll_direction == ScrollDirection::Vertical {
+                        current_offset += max_h + gap;
+                    } else {
+                        current_offset += total_w + gap;
+                    }
+                    i += 2;
+                } else {
+                    let (w, h) = page_sizes[i];
+                    let w = w as f32;
+                    let h = h as f32;
+                    let rect = if self.view.scroll_direction == ScrollDirection::Vertical {
+                        egui::Rect::from_min_size(egui::pos2(-w / 2.0, current_offset), egui::vec2(w, h))
+                    } else {
+                        egui::Rect::from_min_size(egui::pos2(current_offset, -h / 2.0), egui::vec2(w, h))
+                    };
+                    layouts[i] = PageLayout { index: i, rect };
+                    if self.view.scroll_direction == ScrollDirection::Vertical {
+                        current_offset += h + gap;
+                    } else {
+                        current_offset += w + gap;
+                    }
+                    i += 1;
+                }
+            }
+        } else if self.view.display_mode == DisplayMode::SinglePage {
+            for (i, &(w, h)) in page_sizes.iter().enumerate() {
+                let w = w as f32;
+                let h = h as f32;
+                let rect = if self.view.scroll_direction == ScrollDirection::Vertical {
+                    egui::Rect::from_min_size(egui::pos2(-w / 2.0, 0.0), egui::vec2(w, h))
+                } else {
+                    egui::Rect::from_min_size(egui::pos2(0.0, -h / 2.0), egui::vec2(w, h))
+                };
+                layouts[i] = PageLayout { index: i, rect };
+            }
+        } else {
+            let mut current_offset = 0.0;
+            let gap = 20.0;
+            for (i, &(w, h)) in page_sizes.iter().enumerate() {
+                let w = w as f32;
+                let h = h as f32;
+                let rect = if self.view.scroll_direction == ScrollDirection::Vertical {
+                    let r = egui::Rect::from_min_size(egui::pos2(-w / 2.0, current_offset), egui::vec2(w, h));
+                    current_offset += h + gap;
+                    r
+                } else {
+                    let r = egui::Rect::from_min_size(egui::pos2(current_offset, -h / 2.0), egui::vec2(w, h));
+                    current_offset += w + gap;
+                    r
+                };
+                layouts[i] = PageLayout { index: i, rect };
+            }
         }
         self.page_layouts = layouts;
     }
@@ -451,6 +617,22 @@ impl FerruginousApp {
             }
             if active + 1 < self.total_pages {
                 render_targets.insert(active + 1);
+            }
+        } else if self.view.display_mode == DisplayMode::TwoPageSingle {
+            let spread_indices = self.view.get_spread_indices(self.view.active_page, self.total_pages);
+            for &idx in &spread_indices {
+                render_targets.insert(idx);
+            }
+            // Pre-render pages before and after the spread
+            if let Some(&first_idx) = spread_indices.first() {
+                if first_idx > 0 {
+                    render_targets.insert(first_idx - 1);
+                }
+            }
+            if let Some(&last_idx) = spread_indices.last() {
+                if last_idx + 1 < self.total_pages {
+                    render_targets.insert(last_idx + 1);
+                }
             }
         } else {
             for &visible_index in &self.view.visible_pages {
@@ -523,13 +705,16 @@ impl FerruginousApp {
         zoom: f32,
     ) {
         let visible_pages = self.view.visible_pages.clone();
+        let active_spread = self.view.get_spread_indices(self.view.active_page, self.total_pages);
         for &visible_index in &visible_pages {
             if self.view.display_mode == DisplayMode::SinglePage && visible_index != self.view.active_page {
                 continue;
             }
+            if self.view.display_mode == DisplayMode::TwoPageSingle && !active_spread.contains(&visible_index) {
+                continue;
+            }
             if let Some(layout) = self.page_layouts.get(visible_index) {
-                let origin = egui::pos2(viewport_rect.center().x, viewport_rect.min.y + 20.0)
-                    + self.view.pan;
+                let origin = self.view.get_origin(viewport_rect);
                 let page_screen_rect = egui::Rect::from_min_size(
                     origin + layout.rect.min.to_vec2() * zoom,
                     layout.rect.size() * zoom,
@@ -604,8 +789,7 @@ impl FerruginousApp {
         let rect = self.ust_registry.find_rect_by_id(selected_id)?;
         let page_idx = 0; // Default to first page
         let layout = self.page_layouts.get(page_idx)?;
-        let origin =
-            egui::pos2(viewport_rect.center().x, viewport_rect.min.y + 20.0) + self.view.pan;
+        let origin = self.view.get_origin(viewport_rect);
         let page_screen_rect = egui::Rect::from_min_size(
             origin + layout.rect.min.to_vec2() * zoom,
             layout.rect.size() * zoom,
@@ -633,8 +817,7 @@ impl FerruginousApp {
     ) -> Option<(usize, egui::Rect)> {
         let (sig_page, sig_rect) = self.signature_position?;
         let layout = self.page_layouts.get(sig_page)?;
-        let origin =
-            egui::pos2(viewport_rect.center().x, viewport_rect.min.y + 20.0) + self.view.pan;
+        let origin = self.view.get_origin(viewport_rect);
         let page_screen_rect = egui::Rect::from_min_size(
             origin + layout.rect.min.to_vec2() * zoom,
             layout.rect.size() * zoom,
@@ -667,13 +850,16 @@ impl FerruginousApp {
         let mut active_redaction_drag = None;
 
         let visible_pages = self.view.visible_pages.clone();
+        let active_spread = self.view.get_spread_indices(self.view.active_page, self.total_pages);
         for &visible_index in &visible_pages {
             if self.view.display_mode == DisplayMode::SinglePage && visible_index != self.view.active_page {
                 continue;
             }
+            if self.view.display_mode == DisplayMode::TwoPageSingle && !active_spread.contains(&visible_index) {
+                continue;
+            }
             if let Some(layout) = self.page_layouts.get(visible_index) {
-                let origin = egui::pos2(viewport_rect.center().x, viewport_rect.min.y + 20.0)
-                    + self.view.pan;
+                let origin = self.view.get_origin(viewport_rect);
                 let page_screen_rect = egui::Rect::from_min_size(
                     origin + layout.rect.min.to_vec2() * zoom,
                     layout.rect.size() * zoom,
@@ -739,11 +925,14 @@ impl FerruginousApp {
 
         // Collect visible pages and their scenes
         let mut visible_pages_data = Vec::new();
-        let origin =
-            egui::pos2(viewport_rect.center().x, viewport_rect.min.y + 20.0) + self.view.pan;
+        let origin = self.view.get_origin(viewport_rect);
 
+        let active_spread = self.view.get_spread_indices(self.view.active_page, self.total_pages);
         for layout in &self.page_layouts {
             if self.view.display_mode == DisplayMode::SinglePage && layout.index != self.view.active_page {
+                continue;
+            }
+            if self.view.display_mode == DisplayMode::TwoPageSingle && !active_spread.contains(&layout.index) {
                 continue;
             }
             let page_screen_rect = egui::Rect::from_min_size(
@@ -821,7 +1010,9 @@ impl FerruginousApp {
                 self.render_document_panel(ui, rs, viewport_rect);
 
                 // Floating page & zoom overlay at the top-center of the CentralPanel
-                let overlay_width = 520.0;
+                let has_spread = self.view.display_mode == DisplayMode::TwoPageSpread;
+                let content_width = if has_spread { 770.0 } else { 600.0 };
+                let overlay_width = content_width + 30.0;
                 let overlay_height = 36.0;
                 let overlay_rect = egui::Rect::from_min_size(
                     egui::pos2(
@@ -840,7 +1031,7 @@ impl FerruginousApp {
                 ui.painter().rect_stroke(
                     overlay_rect,
                     6.0,
-                    egui::Stroke::new(1.0, egui::Color32::from_gray(200)),
+                    egui::Stroke::new(1.0_f32, egui::Color32::from_gray(200)),
                     egui::StrokeKind::Outside,
                 );
 
@@ -853,115 +1044,223 @@ impl FerruginousApp {
                     egui::Layout::left_to_right(egui::Align::Center).with_main_align(egui::Align::Center),
                     |ui| {
                         ui.spacing_mut().item_spacing.x = 6.0;
-                        let content_width = 492.0;
                         let spacer = (ui.available_width() - content_width).max(0.0) / 2.0;
                         ui.add_space(spacer);
 
                         let current_page = if self.view.display_mode == DisplayMode::SinglePage {
-                        self.view.active_page
-                    } else {
-                        self.view.visible_pages.first().cloned().unwrap_or(self.view.active_page)
-                    };
+                            self.view.active_page
+                        } else {
+                            self.view.visible_pages.first().cloned().unwrap_or(self.view.active_page)
+                        };
 
-                    if ui
-                        .add_sized(egui::vec2(24.0, 24.0), egui::Button::new(egui::RichText::new("\u{e072}").size(14.0)))
-                        .on_hover_text(self.locale_mgr.tr(&self.active_language, "tooltip_first_page"))
-                        .clicked()
-                    {
-                        self.view.scroll_to_page(0, &self.page_layouts);
-                    }
-                    if ui
-                        .add_sized(egui::vec2(24.0, 24.0), egui::Button::new(egui::RichText::new("\u{e06e}").size(14.0)))
-                        .clicked()
-                        && current_page > 0
-                    {
-                        self.view.scroll_to_page(current_page - 1, &self.page_layouts);
-                    }
-                    ui.allocate_ui_with_layout(
-                        egui::vec2(75.0, 20.0),
-                        egui::Layout::left_to_right(egui::Align::Center),
-                        |ui| {
-                            ui.set_min_width(75.0);
-                            ui.set_max_width(75.0);
-                            ui.centered_and_justified(|ui| {
-                                ui.label(format!("{}/{}", current_page + 1, self.total_pages));
-                            });
-                        },
-                    );
-                    if ui
-                        .add_sized(egui::vec2(24.0, 24.0), egui::Button::new(egui::RichText::new("\u{e06f}").size(14.0)))
-                        .clicked()
-                        && current_page + 1 < self.total_pages
-                    {
-                        self.view.scroll_to_page(current_page + 1, &self.page_layouts);
-                    }
-                    if ui
-                        .add_sized(egui::vec2(24.0, 24.0), egui::Button::new(egui::RichText::new("\u{e073}").size(14.0)))
-                        .on_hover_text(self.locale_mgr.tr(&self.active_language, "tooltip_last_page"))
-                        .clicked()
-                    {
-                        self.view.scroll_to_page(self.total_pages - 1, &self.page_layouts);
-                    }
+                        // Page Navigation Icon Directions (Adapts to Vertical/Horizontal and L2R/R2L binding)
+                        let (first_icon, prev_icon, next_icon, last_icon) = match self.view.scroll_direction {
+                            crate::view::ScrollDirection::Vertical => (
+                                "▲▲",
+                                "▲",
+                                "▼",
+                                "▼▼",
+                            ),
+                            crate::view::ScrollDirection::Horizontal => {
+                                if self.view.binding_direction == crate::view::BindingDirection::RightToLeft {
+                                    (
+                                        "▶▶",
+                                        "▶",
+                                        "◀",
+                                        "◀◀",
+                                    )
+                                } else {
+                                    (
+                                        "◀◀",
+                                        "◀",
+                                        "▶",
+                                        "▶▶",
+                                    )
+                                }
+                            }
+                        };
 
-                    ui.separator();
+                        if ui
+                            .add_sized(egui::vec2(24.0, 24.0), egui::Button::new(first_icon))
+                            .on_hover_text(self.locale_mgr.tr(&self.active_language, "tooltip_first_page"))
+                            .clicked()
+                        {
+                            self.view.scroll_to_page(0, &self.page_layouts);
+                        }
 
-                    let is_continuous = self.view.display_mode == DisplayMode::Continuous;
-                    let cont_text_color = if is_continuous {
-                        ui.visuals().strong_text_color()
-                    } else {
-                        ui.visuals().weak_text_color()
-                    };
-                    let cont_bg_fill = if is_continuous {
-                        ui.visuals().selection.bg_fill
-                    } else {
-                        egui::Color32::TRANSPARENT
-                    };
-                    if ui
-                        .add_sized(
-                            egui::vec2(24.0, 24.0),
-                            egui::Button::new(
-                                egui::RichText::new("\u{e27b}").size(14.0).color(cont_text_color),
-                            )
-                            .fill(cont_bg_fill),
-                        )
-                        .on_hover_text(self.locale_mgr.tr(&self.active_language, "tooltip_view_continuous"))
-                        .clicked()
-                    {
-                        self.view.display_mode = DisplayMode::Continuous;
-                        self.compute_layouts(&self.doc_page_sizes.clone());
-                        let active = self.view.active_page;
-                        self.view.scroll_to_page(active, &self.page_layouts);
-                    }
+                        // Previous page logic (reversed in RTL Horizontal layout)
+                        let go_prev = ui.add_sized(egui::vec2(24.0, 24.0), egui::Button::new(prev_icon)).clicked();
+                        if go_prev {
+                            if self.view.display_mode == DisplayMode::TwoPageSingle {
+                                let spread = self.view.get_spread_indices(current_page, self.total_pages);
+                                if let Some(&first_idx) = spread.first() {
+                                    let is_r2l = self.view.scroll_direction == crate::view::ScrollDirection::Horizontal
+                                        && self.view.binding_direction == crate::view::BindingDirection::RightToLeft;
+                                    if is_r2l {
+                                        let last_idx = spread.last().cloned().unwrap_or(first_idx);
+                                        if last_idx + 1 < self.total_pages {
+                                            self.view.scroll_to_page(last_idx + 1, &self.page_layouts);
+                                        }
+                                    } else {
+                                        if first_idx > 0 {
+                                            self.view.scroll_to_page(first_idx - 1, &self.page_layouts);
+                                        }
+                                    }
+                                }
+                            } else {
+                                if self.view.scroll_direction == crate::view::ScrollDirection::Horizontal
+                                    && self.view.binding_direction == crate::view::BindingDirection::RightToLeft
+                                {
+                                    if current_page + 1 < self.total_pages {
+                                        self.view.scroll_to_page(current_page + 1, &self.page_layouts);
+                                    }
+                                } else {
+                                    if current_page > 0 {
+                                        self.view.scroll_to_page(current_page - 1, &self.page_layouts);
+                                    }
+                                }
+                            }
+                        }
 
-                    let is_single = self.view.display_mode == DisplayMode::SinglePage;
-                    let single_text_color = if is_single {
-                        ui.visuals().strong_text_color()
-                    } else {
-                        ui.visuals().weak_text_color()
-                    };
-                    let single_bg_fill = if is_single {
-                        ui.visuals().selection.bg_fill
-                    } else {
-                        egui::Color32::TRANSPARENT
-                    };
-                    if ui
-                        .add_sized(
-                            egui::vec2(24.0, 24.0),
-                            egui::Button::new(
-                                egui::RichText::new("\u{e27a}").size(14.0).color(single_text_color),
-                            )
-                            .fill(single_bg_fill),
-                        )
-                        .on_hover_text(self.locale_mgr.tr(&self.active_language, "tooltip_view_single"))
-                        .clicked()
-                    {
-                        self.view.display_mode = DisplayMode::SinglePage;
-                        self.compute_layouts(&self.doc_page_sizes.clone());
-                        let active = self.view.active_page;
-                        self.view.scroll_to_page(active, &self.page_layouts);
-                    }
+                        ui.allocate_ui_with_layout(
+                            egui::vec2(75.0, 20.0),
+                            egui::Layout::left_to_right(egui::Align::Center),
+                            |ui| {
+                                ui.set_min_width(75.0);
+                                ui.set_max_width(75.0);
+                                ui.centered_and_justified(|ui| {
+                                    ui.label(format!("{}/{}", current_page + 1, self.total_pages));
+                                });
+                            },
+                        );
 
-                    ui.separator();
+                        // Next page logic (reversed in RTL Horizontal layout)
+                        let go_next = ui.add_sized(egui::vec2(24.0, 24.0), egui::Button::new(next_icon)).clicked();
+                        if go_next {
+                            if self.view.display_mode == DisplayMode::TwoPageSingle {
+                                let spread = self.view.get_spread_indices(current_page, self.total_pages);
+                                if let Some(&first_idx) = spread.first() {
+                                    let is_r2l = self.view.scroll_direction == crate::view::ScrollDirection::Horizontal
+                                        && self.view.binding_direction == crate::view::BindingDirection::RightToLeft;
+                                    if is_r2l {
+                                        if first_idx > 0 {
+                                            self.view.scroll_to_page(first_idx - 1, &self.page_layouts);
+                                        }
+                                    } else {
+                                        let last_idx = spread.last().cloned().unwrap_or(first_idx);
+                                        if last_idx + 1 < self.total_pages {
+                                            self.view.scroll_to_page(last_idx + 1, &self.page_layouts);
+                                        }
+                                    }
+                                }
+                            } else {
+                                if self.view.scroll_direction == crate::view::ScrollDirection::Horizontal
+                                    && self.view.binding_direction == crate::view::BindingDirection::RightToLeft
+                                {
+                                    if current_page > 0 {
+                                        self.view.scroll_to_page(current_page - 1, &self.page_layouts);
+                                    }
+                                } else {
+                                    if current_page + 1 < self.total_pages {
+                                        self.view.scroll_to_page(current_page + 1, &self.page_layouts);
+                                    }
+                                }
+                            }
+                        }
+
+                        if ui
+                            .add_sized(egui::vec2(24.0, 24.0), egui::Button::new(last_icon))
+                            .on_hover_text(self.locale_mgr.tr(&self.active_language, "tooltip_last_page"))
+                            .clicked()
+                        {
+                            self.view.scroll_to_page(self.total_pages - 1, &self.page_layouts);
+                        }
+
+                        ui.separator();
+
+                        // 1. Display Mode Toggle Group
+                        let is_continuous = self.view.display_mode == DisplayMode::Continuous;
+                        let cont_btn = egui::Button::new(egui::RichText::new("\u{e0ff}").size(14.0)).selected(is_continuous);
+                        if ui.add_sized(egui::vec2(24.0, 24.0), cont_btn).on_hover_text("連続スクロール").clicked() {
+                            self.view.display_mode = DisplayMode::Continuous;
+                            self.compute_layouts(&self.doc_page_sizes.clone());
+                            let active = self.view.active_page;
+                            self.view.scroll_to_page(active, &self.page_layouts);
+                        }
+
+                        let is_single = self.view.display_mode == DisplayMode::SinglePage;
+                        let single_btn = egui::Button::new(egui::RichText::new("\u{e12c}").size(14.0)).selected(is_single);
+                        if ui.add_sized(egui::vec2(24.0, 24.0), single_btn).on_hover_text("単一ページ表示").clicked() {
+                            self.view.display_mode = DisplayMode::SinglePage;
+                            self.compute_layouts(&self.doc_page_sizes.clone());
+                            let active = self.view.active_page;
+                            self.view.scroll_to_page(active, &self.page_layouts);
+                        }
+
+                        let is_spread = self.view.display_mode == DisplayMode::TwoPageSpread;
+                        let spread_btn = egui::Button::new(egui::RichText::new("\u{e05f}").size(14.0)).selected(is_spread);
+                        if ui.add_sized(egui::vec2(24.0, 24.0), spread_btn).on_hover_text("見開き連続表示").clicked() {
+                            self.view.display_mode = DisplayMode::TwoPageSpread;
+                            self.compute_layouts(&self.doc_page_sizes.clone());
+                            let active = self.view.active_page;
+                            self.view.scroll_to_page(active, &self.page_layouts);
+                        }
+
+                        let is_spread_single = self.view.display_mode == DisplayMode::TwoPageSingle;
+                        let spread_single_btn = egui::Button::new(egui::RichText::new("\u{e80a}").size(14.0)).selected(is_spread_single);
+                        if ui.add_sized(egui::vec2(24.0, 24.0), spread_single_btn).on_hover_text("見開き単一表示").clicked() {
+                            self.view.display_mode = DisplayMode::TwoPageSingle;
+                            self.compute_layouts(&self.doc_page_sizes.clone());
+                            let active = self.view.active_page;
+                            self.view.scroll_to_page(active, &self.page_layouts);
+                        }
+
+                        ui.separator();
+
+                        // 2. Scroll Direction Toggle Group
+                        let is_vert = self.view.scroll_direction == crate::view::ScrollDirection::Vertical;
+                        let vert_btn = egui::Button::new(egui::RichText::new("\u{e37d}").size(14.0)).selected(is_vert);
+                        if ui.add_sized(egui::vec2(24.0, 24.0), vert_btn).on_hover_text("縦方向スクロール").clicked() {
+                            self.view.scroll_direction = crate::view::ScrollDirection::Vertical;
+                            self.compute_layouts(&self.doc_page_sizes.clone());
+                            let active = self.view.active_page;
+                            self.view.scroll_to_page(active, &self.page_layouts);
+                        }
+
+                        let is_horiz = self.view.scroll_direction == crate::view::ScrollDirection::Horizontal;
+                        let horiz_btn = egui::Button::new(egui::RichText::new("\u{e24a}").size(14.0)).selected(is_horiz);
+                        if ui.add_sized(egui::vec2(24.0, 24.0), horiz_btn).on_hover_text("横方向スクロール").clicked() {
+                            self.view.scroll_direction = crate::view::ScrollDirection::Horizontal;
+                            self.compute_layouts(&self.doc_page_sizes.clone());
+                            let active = self.view.active_page;
+                            self.view.scroll_to_page(active, &self.page_layouts);
+                        }
+
+                        // 3. Two-Page Spread Specific Controls
+                        if has_spread {
+                            ui.separator();
+
+                            if ui.checkbox(&mut self.view.cover_page_alone, "表紙単独").changed() {
+                                self.compute_layouts(&self.doc_page_sizes.clone());
+                                let active = self.view.active_page;
+                                self.view.scroll_to_page(active, &self.page_layouts);
+                            }
+
+                            let is_rtl = self.view.binding_direction == crate::view::BindingDirection::RightToLeft;
+                            let binding_label = if is_rtl { "右綴じ" } else { "左綴じ" };
+                            if ui.add_sized(egui::vec2(48.0, 24.0), egui::Button::new(binding_label).selected(is_rtl)).clicked() {
+                                self.view.binding_direction = if is_rtl {
+                                    crate::view::BindingDirection::LeftToRight
+                                } else {
+                                    crate::view::BindingDirection::RightToLeft
+                                };
+                                self.compute_layouts(&self.doc_page_sizes.clone());
+                                let active = self.view.active_page;
+                                self.view.scroll_to_page(active, &self.page_layouts);
+                            }
+                        }
+
+                        ui.separator();
 
                     if ui
                         .add_sized(egui::vec2(24.0, 24.0), egui::Button::new(egui::RichText::new("\u{e1b7}").size(14.0)))
@@ -1040,7 +1339,7 @@ impl FerruginousApp {
             style.visuals.widgets.hovered.bg_stroke = egui::Stroke::NONE;
             style.visuals.widgets.inactive.bg_stroke = egui::Stroke::NONE;
             style.visuals.widgets.noninteractive.bg_stroke =
-                egui::Stroke::new(1.0, egui::Color32::from_gray(210));
+                egui::Stroke::new(1.0_f32, egui::Color32::from_gray(210));
         });
     }
 
@@ -1139,7 +1438,7 @@ impl FerruginousApp {
                             .min_size(egui::vec2(36.0, 36.0));
                     if redact_is_active {
                         redact_btn =
-                            redact_btn.stroke(egui::Stroke::new(1.5, egui::Color32::from_gray(80)));
+                            redact_btn.stroke(egui::Stroke::new(1.5_f32, egui::Color32::from_gray(80)));
                     }
                     if ui
                         .add(redact_btn)
@@ -1163,7 +1462,7 @@ impl FerruginousApp {
                             .min_size(egui::vec2(36.0, 36.0));
                     if tagging_is_active {
                         tagging_btn = tagging_btn
-                            .stroke(egui::Stroke::new(1.5, egui::Color32::from_gray(80)));
+                            .stroke(egui::Stroke::new(1.5_f32, egui::Color32::from_gray(80)));
                     }
                     if ui
                         .add(tagging_btn)
@@ -1187,7 +1486,7 @@ impl FerruginousApp {
                             .min_size(egui::vec2(36.0, 36.0));
                     if caliper_is_active {
                         caliper_btn = caliper_btn
-                            .stroke(egui::Stroke::new(1.5, egui::Color32::from_gray(80)));
+                            .stroke(egui::Stroke::new(1.5_f32, egui::Color32::from_gray(80)));
                     }
                     if ui
                         .add(caliper_btn)
@@ -1210,7 +1509,7 @@ impl FerruginousApp {
                             .min_size(egui::vec2(36.0, 36.0));
                     if self.show_inspector {
                         inspector_btn = inspector_btn
-                            .stroke(egui::Stroke::new(1.5, egui::Color32::from_gray(80)));
+                            .stroke(egui::Stroke::new(1.5_f32, egui::Color32::from_gray(80)));
                     }
                     if ui
                         .add(inspector_btn)
@@ -1266,7 +1565,9 @@ impl FerruginousApp {
         });
 
         // 2. Thumbnails Panel (200px width, inner-right)
-        crate::thumbnail_sidebar::ThumbnailSidebar::show(self, ui, frame);
+        if self.view.scroll_direction == crate::view::ScrollDirection::Vertical {
+            crate::thumbnail_sidebar::ThumbnailSidebar::show(self, ui, frame);
+        }
     }
 
     fn render_status_bar(&self, ui: &mut egui::Ui) {
@@ -1506,6 +1807,9 @@ impl eframe::App for FerruginousApp {
         self.render_left_side_panels(ui);
         self.render_right_side_panels(ui, frame);
         self.render_status_bar(ui);
+        if self.view.scroll_direction == crate::view::ScrollDirection::Horizontal {
+            crate::thumbnail_sidebar::ThumbnailSidebar::show_horizontal(self, ui, frame);
+        }
 
         self.update_vello(ui, frame);
         self.render_overlay_windows(&ctx);

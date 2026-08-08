@@ -52,6 +52,7 @@ pub enum WorkerResponse {
         security_method: String,
         permissions: Option<i32>,
         fonts: Vec<ferruginous_core::font::FontSummary>,
+        viewer_direction: Option<String>,
     },
     LoadingProgress {
         message: String,
@@ -262,6 +263,49 @@ fn handle_open( // RR-15 Limit: Dispatcher - handles open document worker reques
             let permissions = doc.inner().permissions;
             let fonts = doc.inner().fonts();
 
+            let mut viewer_direction = if let Some(cah) = doc.inner().catalog_handle() {
+                if let Some(cadh) = doc.inner().resolve_to_dict(cah).ok() {
+                    if let Some(dict) = doc.inner().arena().get_dict(cadh) {
+                        let vp_key = doc.inner().arena().name("ViewerPreferences");
+                        if let Some(vp_obj) = dict.get(&vp_key) {
+                            if let Some(vp_ref) = resolve_to_node_handle(doc.inner().arena(), vp_obj) {
+                                if let Some(vp_dict) = doc.inner().resolve_to_dict(vp_ref).ok().and_then(|h| doc.inner().arena().get_dict(h)) {
+                                    let dir_key = doc.inner().arena().name("Direction");
+                                    vp_dict.get(&dir_key)
+                                        .and_then(|d| d.resolve(doc.inner().arena()).as_name())
+                                        .and_then(|nh| doc.inner().arena().get_name(nh))
+                                        .map(|n| n.as_str().to_string())
+                                } else { None }
+                            } else { None }
+                        } else { None }
+                    } else { None }
+                } else { None }
+            } else { None };
+
+            if viewer_direction.is_none() {
+                // Heuristic 1: Check fonts for CJK vertical layout
+                let has_vertical_font = doc.inner().fonts().iter().any(|f| f.name.ends_with("-V") || f.name.contains("-V-") || f.name.contains("-V_"));
+
+                let is_japanese_lang = if let Some(cah) = doc.inner().catalog_handle() {
+                    if let Some(cadh) = doc.inner().resolve_to_dict(cah).ok() {
+                        if let Some(dict) = doc.inner().arena().get_dict(cadh) {
+                            let lang_key = doc.inner().arena().name("Lang");
+                            if let Some(lang_obj) = dict.get(&lang_key) {
+                                let resolved = lang_obj.resolve(doc.inner().arena());
+                                if let Some(bytes) = resolved.as_string() {
+                                    let s = String::from_utf8_lossy(bytes).to_lowercase();
+                                    s.starts_with("ja")
+                                } else { false }
+                            } else { false }
+                        } else { false }
+                    } else { false }
+                } else { false };
+
+                if has_vertical_font || is_japanese_lang {
+                    viewer_direction = Some("R2L".to_string());
+                }
+            }
+
             let _ = tx.send(WorkerResponse::DocumentLoaded {
                 name,
                 num_pages,
@@ -273,6 +317,7 @@ fn handle_open( // RR-15 Limit: Dispatcher - handles open document worker reques
                 security_method,
                 permissions,
                 fonts,
+                viewer_direction,
             });
             Some(doc)
         }

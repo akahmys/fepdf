@@ -1,30 +1,47 @@
-> [!WARNING]
-> **Superseded**: The canonical workspace structure definition is [.antigravity/rules/structure.md](../../.antigravity/rules/structure.md) (WS-01).
-> This document is retained for historical reference only. Do not update this file — update the SSoT instead.
+# Ferruginous Workspace Directory Layout (WS-01)
 
-# Ferruginous Workspace Directory Layout
+This document defines the canonical directory structure of Ferruginous. Adherence to this hierarchy is mandatory for both human developers and autonomous agents to ensure discovery efficiency and data isolation.
 
-(ISO 32000-2 Compliance)
+---
 
-This document formalizes the directory structure of the Ferruginous repository to ensure long-term "Hardened" integrity and clarity.
+## 1. Directory Hierarchy
 
-## Layout Overview
-
-| Directory | Semantic Purpose | Responsibility |
+| Path | Purpose | Ownership |
 | :--- | :--- | :--- |
-| `assets/` | **Bundled Resources** | Project-specific fonts and unique assets required for engine fallback. |
-| `crates/` | **Source Code** | The core Rust modular architecture of the PDF engine. |
-| `docs/` | **Knowledge Base** | High-level specifications, retrospectives, and engineering conventions. |
-| `examples/` | **API Reference** | Real-world usage examples demonstrating how to integrate the library. |
-| `external/` | **Reference Data** | Consolidated third-party data (Adobe CMaps, Arlington PDF model). |
-| `samples/` | **Reference Samples** | A curated collection of PDF documents for visual and manual verification. |
-| `scratch/` | **Dev Playground** | Transient folder for developer experiments. (Ignored by VCS). |
-| `scripts/` | **Automation** | Categorized utility scripts for `audit`, `dev`, and `test`. |
-| `tests/` | **Regression Suite** | Integration tests and binary snapshots (fixtures). |
-| `verification_results/` | **Logs & Output** | Destination for audit logs and rendering outputs. (Ignored by VCS). |
+| `.agents/` | Governance & Agent Protocols | Antigravity IDE |
+| `assets/` | Static, Read-only Resources (Fonts, Models) | Project |
+| `crates/` | Modular Rust Logic Layer | Engineering |
+| `docs/` | Technical Specs & Architectural History | Architecture |
+| `external/` | Submodules & Third-party Compliance Data | Engineering |
+| `examples/` | Rust Usage Examples & Demonstrations | Engineering |
+| `out/` | Ephemeral & Persistent Outputs (Ignored by Git) | Pipeline |
+| `out/artifacts/`| Test results, renders, and temporary PDFs | CI/CD |
+| `out/exports/` | Extracted document assets (Fonts, Images) | Refinery |
+| `samples/` | Test Input Corpus (PDFs) | QA |
+| `scripts/` | Automation & CI/CD Scripts | DevOps |
 
-## Governance Rules
+## 2. Organization Rules
+
+1.  **Consolidation**: All static resources MUST reside within `assets/`. Prohibit root-level resource directories (e.g., `resources/`).
+2.  **Output Isolation**: All dynamically generated files MUST reside within `out/`.
+3.  **Script Categorization**:
+    *   `scripts/audit/`: Compliance, security, and static analysis.
+    *   `scripts/dev/`: Developer productivity and UI utilities.
+    *   `scripts/test/`: Integration and functional testing.
+4.  **Documentation Locality**: All technical specifications and architectural history MUST reside within `docs/`. High-level vision documents (`README.md`, `ROADMAP.md`, `AGENTS.md`) are permitted at the root for maximum visibility.
+5.  **Scratch & Utility Binaries**:
+    *   Prototyping debug scripts in `src/bin/` are permitted for initial verification.
+    *   Once stabilized, their logic MUST be integrated into standard product CLI subcommands (e.g., `fepdf debug <cmd>`) or standardized as formal regression tests.
+    *   Redundant or obsolete prototyping files MUST be purged during milestone stabilization to prevent codebase rot.
+    *   Infrastructure binaries (e.g., `verify_render.rs` for visual regressions, `bypass_decrypt.rs` for emergency recovery) are exempt but MUST be clean of hardcoded values and compile warning-free under RR-15.
+
+## 3. Governance Rules
 
 1.  **No Redundancy**: Do not copy files from `external/` to `assets/`. Point the engine directly to the unified `external/` paths.
 2.  **Script Placement**: Always place new automation in the appropriate `scripts/` subdirectory (`audit`, `dev`, or `test`).
 3.  **Clean Root**: Keep the project root clean. Only core project metadata (`README`, `ROADMAP`, `VISION`, `LICENSE`) and workspace Cargo files should reside here.
+
+## 4. Maintenance
+
+- Every new directory added to the root MUST be registered in this document.
+- Root-level stray files are prohibited except for core configuration (`Cargo.toml`, `Makefile`, `LICENSE`).

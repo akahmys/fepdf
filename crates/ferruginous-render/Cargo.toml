@@ -8,12 +8,12 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-ferruginous-core = { path = "../ferruginous-core" }
+ferruginous-core.workspace = true
 log.workspace = true
 vello.workspace = true
-peniko = "0.6"
+peniko.workspace = true
 kurbo.workspace = true
-wgpu = "29"
+wgpu.workspace = true
 serde.workspace = true
 thiserror.workspace = true
 bytes.workspace = true
@@ -21,8 +21,8 @@ skrifa.workspace = true
 read-fonts.workspace = true
 ttf-parser.workspace = true
 image.workspace = true
-pollster = "0.4"
+pollster.workspace = true
 tokio.workspace = true
 
 [dev-dependencies]
-ferruginous-sdk = { path = "../ferruginous-sdk" }
+ferruginous-sdk.workspace = true

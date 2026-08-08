@@ -8,8 +8,7 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-# Workspace managed
-ferruginous-macros = { path = "../ferruginous-macros" }
+ferruginous-macros.workspace = true
 log.workspace = true
 bytes.workspace = true
 serde.workspace = true
@@ -30,29 +29,25 @@ ttf-parser.workspace = true
 parking_lot.workspace = true
 pdf-writer.workspace = true
 zstd.workspace = true
-
-# Local only / specific
-encoding_rs = "0.8"
-aes = "0.8"
-cbc = "0.1"
-pbkdf2 = "0.12"
-sha2 = "0.10"
-hmac = "0.12"
-rand = "0.8"
-md5 = "0.8.0"
-nom = "7"
-x509-parser = "0.16" 
-reqwest = { version = "0.11", default-features = false, features = ["blocking", "rustls-tls"] }
-der = { version = "0.7", features = ["derive"] }
-spki = "0.7"
-rustls-native-certs = "0.7"
-rsa = { version = "0.9", features = ["sha2"] }
-ecdsa = "0.16"
-p256 = { version = "0.13", features = ["ecdsa", "pkcs8"] }
-signature = "2.2"
-sha1 = "0.10"
+encoding_rs.workspace = true
+aes.workspace = true
+cbc.workspace = true
+pbkdf2.workspace = true
+sha2.workspace = true
+hmac.workspace = true
+rand.workspace = true
+md5.workspace = true
+nom.workspace = true
+x509-parser.workspace = true
+reqwest.workspace = true
+der.workspace = true
+spki.workspace = true
+rustls-native-certs.workspace = true
+rsa.workspace = true
+ecdsa.workspace = true
+p256.workspace = true
+signature.workspace = true
+sha1.workspace = true
 
 [features]
 debug-tools = []
-
-[dev-dependencies]
