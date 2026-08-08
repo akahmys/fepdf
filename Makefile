@@ -1,10 +1,7 @@
-# fepdf - The Universal PDF Toolkit
-# Makefile for multi-platform distribution
+# Ferruginous Multi-Crate Workspace Makefile
 
 BINARY_NAME=fepdf
 GUI_BINARY_NAME=ferruginous
-CRATE_PATH=crates/fepdf
-GUI_CRATE_PATH=crates/ferruginous
 VERSION=$(shell grep "^version" crates/fepdf/Cargo.toml | head -n 1 | cut -d '"' -f 2)
 DIST_DIR=out/dist
 
@@ -14,19 +11,33 @@ TARGET_APPLE_INTEL=x86_64-apple-darwin
 TARGET_WINDOWS=x86_64-pc-windows-msvc
 TARGET_LINUX=x86_64-unknown-linux-gnu
 
-.PHONY: all help build-all clean dist audit audit-licenses
+.PHONY: all help test check clippy fmt build-all build-local run clean dist audit audit-licenses visual-test visual-update-ref
 
 help:
-	@echo "fepdf Build System v$(VERSION)"
+	@echo "Ferruginous Build & Audit System v$(VERSION)"
 	@echo "Usage:"
-	@echo "  make build-all      - Build for all supported platforms"
-	@echo "  make build-local    - Build for the current platform (Release)"
-	@echo "  make clean          - Remove build artifacts"
-	@echo "  make dist           - Package binaries into $(DIST_DIR)"
+	@echo "  make check          - Fast workspace compilation check"
+	@echo "  make test           - Run full workspace unit/integration tests"
+	@echo "  make clippy         - Run Clippy lints with -D warnings"
+	@echo "  make fmt            - Check code formatting"
 	@echo "  make audit          - Run full compliance audit (RR-15, cargo-deny, betterleaks)"
 	@echo "  make audit-licenses - Run Cargo-native license audit via cargo-deny"
-	@echo "  make setup-arlington - Prepare the Arlington PDF Model test environment"
-	@echo "  make audit-external PDF=<file> - Run Arlington audit on a PDF file"
+	@echo "  make build-local    - Build CLI and GUI binaries for current host"
+	@echo "  make build-all      - Cross-compile binaries for all supported platforms"
+	@echo "  make run            - Launch the desktop GUI application"
+	@echo "  make clean          - Remove build artifacts"
+
+check:
+	cargo check --workspace
+
+test:
+	cargo test --workspace
+
+clippy:
+	cargo clippy --workspace -- -D warnings
+
+fmt:
+	cargo fmt --all --check
 
 build-local:
 	cargo build -p $(BINARY_NAME) --release
@@ -52,7 +63,6 @@ build-linux:
 
 dist: build-all
 	mkdir -p $(DIST_DIR)
-	# macOS Universal Binary (lipo would be used here in a real environment)
 	cp target/$(TARGET_APPLE_SILICON)/release/$(BINARY_NAME) $(DIST_DIR)/$(BINARY_NAME)-macos-arm64
 	cp target/$(TARGET_APPLE_INTEL)/release/$(BINARY_NAME) $(DIST_DIR)/$(BINARY_NAME)-macos-x64
 	cp target/$(TARGET_WINDOWS)/release/$(BINARY_NAME).exe $(DIST_DIR)/$(BINARY_NAME).exe
@@ -79,8 +89,6 @@ setup-arlington:
 audit-external:
 	@if [ -z "$(PDF)" ]; then echo "Error: Please specify target PDF using PDF=<file>"; exit 1; fi
 	./scripts/audit/arlington_audit.sh $(PDF)
-
-.PHONY: visual-test visual-update-ref
 
 visual-test:
 	python3 scripts/visual_regression.py

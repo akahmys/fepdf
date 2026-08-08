@@ -1,0 +1,21 @@
+# Git Attributes Configuration for Ferruginous
+
+# Set default behavior to automatically normalize line endings to LF
+* text=auto eol=lf
+
+# Force specific text formats
+*.rs text eol=lf
+*.toml text eol=lf
+*.md text eol=lf
+*.sh text eol=lf
+*.py text eol=lf
+*.json text eol=lf
+
+# Treat binary files as binary
+*.pdf binary
+*.png binary
+*.jpg binary
+*.ttf binary
+*.otf binary
+*.woff binary
+*.woff2 binary

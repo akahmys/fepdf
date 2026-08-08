@@ -8,8 +8,6 @@ pub mod metrics;
 pub mod reconstruction;
 pub mod rescue;
 pub use reconstruction::{FontReconstructor, ReconstructedFont};
-#[cfg(test)]
-pub mod mapping_tests;
 pub mod schema;
 pub mod subset;
 
@@ -345,7 +343,7 @@ impl FontResource {
     }
 
     #[allow(clippy::too_many_arguments)]
-    fn new_initial( // RR-15 Limit: Dispatcher - constructs initial state of a PDF Font resource mapping tables and cmap configurations
+    pub fn new_initial( // RR-15 Limit: Dispatcher - constructs initial state of a PDF Font resource mapping tables and cmap configurations
         subtype: PdfName,
         base_font: PdfName,
         metrics: FontMetrics,

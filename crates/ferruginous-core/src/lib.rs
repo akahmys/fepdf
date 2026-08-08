@@ -23,8 +23,6 @@ pub mod metadata;
 pub mod object;
 pub mod parser;
 pub mod refine;
-#[cfg(test)]
-mod schema_tests;
 pub mod security;
 
 extern crate chardetng;

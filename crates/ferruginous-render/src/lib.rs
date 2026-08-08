@@ -2,11 +2,6 @@ pub mod headless;
 pub mod path;
 pub mod text;
 
-#[cfg(test)]
-mod path_tests;
-#[cfg(test)]
-mod text_tests;
-
 use ferruginous_core::graphics::TextRenderingMode;
 pub use ferruginous_core::graphics::WindingRule;
 use ferruginous_core::{BlendMode, Color, LineCap, LineJoin, PixelFormat, StrokeStyle};
