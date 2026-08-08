@@ -30,10 +30,13 @@ jobs:
         sudo apt-get update
         sudo apt-get install -y pkg-config libxkbcommon-dev libx11-dev libxcb1-dev libxcursor-dev libxi-dev libxrandr-dev libudev-dev libasound2-dev libegl1-mesa-dev libwayland-dev mesa-vulkan-drivers
 
-    - name: Set up Python
+    - name: Set up Python & Install Pillow
       uses: actions/setup-python@v5
       with:
         python-version: '3.10'
+
+    - name: Install Python Dependencies
+      run: pip install pillow
 
     - name: Run Visual Regression Verification Suite
       run: |

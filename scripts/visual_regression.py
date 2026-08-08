@@ -20,39 +20,39 @@ TEST_CASES = [
 ]
 
 def ensure_binaries():
-    print("Building fepdf and verify_render binaries...")
+    print("Building fepdf binary...")
     try:
-        subprocess.run(["cargo", "build", "--bin", "fepdf", "--bin", "verify_render"], check=True)
-        return "./target/debug/fepdf", "./target/debug/verify_render"
+        subprocess.run(["cargo", "build", "--bin", "fepdf"], check=True)
+        return "./target/debug/fepdf"
     except subprocess.CalledProcessError as e:
-        print(f"Error: Failed to build Rust binaries: {e}")
+        print(f"Error: Failed to build fepdf binary: {e}")
         sys.exit(1)
 
 def run_render(fepdf_bin, pdf_path, page, output_png):
-    # Ensure parent dir exists
     os.makedirs(os.path.dirname(output_png), exist_ok=True)
-    
     cmd = [fepdf_bin, "publish", "render", pdf_path, output_png, "--page", str(page)]
-    # Run the render command
     res = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
     return res.returncode == 0, res.stdout, res.stderr
 
-def run_verify(verify_bin, expected_png, actual_png, diff_png):
-    cmd = [verify_bin, "--expected", expected_png, "--actual", actual_png]
-    if diff_png:
-        cmd += ["--diff", diff_png]
-        
-    res = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-    return res.returncode == 0, res.stdout, res.stderr
+def compare_images(expected_png, actual_png):
+    try:
+        from PIL import Image, ImageChops
+        img1 = Image.open(expected_png)
+        img2 = Image.open(actual_png)
+        diff = ImageChops.difference(img1, img2)
+        return not diff.getbbox()
+    except Exception:
+        # Fallback to byte comparison if Pillow is not available
+        with open(expected_png, 'rb') as f1, open(actual_png, 'rb') as f2:
+            return f1.read() == f2.read()
 
 def main():
     parser = argparse.ArgumentParser(description="Ferruginous Visual Regression Test Suite")
     parser.add_argument("--update", action="store_true", help="Update the reference images with current rendering")
     args = parser.parse_args()
 
-    fepdf_bin, verify_bin = ensure_binaries()
+    fepdf_bin = ensure_binaries()
 
-    # Clean actual and diff directories
     if os.path.exists(ACTUAL_DIR):
         shutil.rmtree(ACTUAL_DIR)
     os.makedirs(ACTUAL_DIR, exist_ok=True)
@@ -105,17 +105,12 @@ def main():
                     failed += 1
                     continue
                 
-                diff_png = os.path.join(DIFF_DIR, f"{pdf_name}_page_{page}_diff.png")
-                match, v_stdout, v_stderr = run_verify(verify_bin, ref_png, actual_png, diff_png)
-                
+                match = compare_images(ref_png, actual_png)
                 if match:
-                    print(f"  [PASS] Render matches reference baseline.")
+                    print("  [PASS] Render matches reference baseline.")
                     passed += 1
                 else:
-                    print(f"  [FAIL] Visual mismatch detected!")
-                    print(v_stdout.strip())
-                    if v_stderr:
-                        print(v_stderr.strip())
+                    print("  [FAIL] Visual mismatch detected!")
                     failed += 1
 
     print("\n==========================================")
