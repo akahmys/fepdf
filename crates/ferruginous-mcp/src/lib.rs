@@ -31,3 +31,14 @@ pub mod server;
 pub mod tools;
 
 pub use server::run_server;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_mcp_error_display() {
+        let err = McpError::Pdf("Invalid PDF header".to_string());
+        assert_eq!(format!("{}", err), "PDF error: Invalid PDF header");
+    }
+}

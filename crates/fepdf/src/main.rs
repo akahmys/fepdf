@@ -1330,3 +1330,28 @@ fn parse_unicode(s: &str) -> Result<char> {
         )
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_parse_unicode_input() {
+        assert_eq!(parse_unicode("A").unwrap(), 'A');
+        assert_eq!(parse_unicode("U+6C38").unwrap(), '永');
+    }
+
+    #[test]
+    fn test_ingest_args_conversion() {
+        let args = IngestArgs {
+            no_refinement: true,
+            no_metadata_recovery: false,
+            relaxed_color: true,
+            force_fallback: false,
+        };
+        let opts: ferruginous_core::ingest::IngestionOptions = args.into();
+        assert!(!opts.active_refinement);
+        assert!(opts.sublime_metadata);
+        assert_eq!(opts.color_policy, ferruginous_core::ingest::ColorPolicy::Relaxed);
+    }
+}

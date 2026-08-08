@@ -406,3 +406,33 @@ pub struct ArenaStats {
 }
 
 pub type RemappingTable = BTreeMap<(u32, u16), Handle<Object>>;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_arena_alloc_and_retrieve_name() {
+        let arena = PdfArena::new();
+        let name_handle = arena.name("Catalog");
+        let name_obj = arena.get_name(name_handle).unwrap();
+        assert_eq!(name_obj.as_str(), "Catalog");
+    }
+
+    #[test]
+    fn test_arena_alloc_dict_and_object() {
+        let arena = PdfArena::new();
+        let mut dict = BTreeMap::new();
+        dict.insert(arena.name("Type"), Object::Name(arena.name("Page")));
+
+        let dict_handle = arena.alloc_dict(dict);
+        let obj_handle = arena.alloc_object(Object::Dictionary(dict_handle));
+
+        if let Some(Object::Dictionary(dh)) = arena.get_object(obj_handle) {
+            let fetched_dict = arena.get_dict(dh).unwrap();
+            assert!(fetched_dict.contains_key(&arena.name("Type")));
+        } else {
+            panic!("Expected dictionary object in arena");
+        }
+    }
+}
