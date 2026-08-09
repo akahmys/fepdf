@@ -19,6 +19,44 @@ fi
 echo "=== Ferruginous Compliance Audit Starting ==="
 echo "Rules: CODING.md (RR-15) & AUDITING.md (cargo-deny / betterleaks)"
 
+# Emits "<start> <end>" line ranges for every #[cfg(test)] module in $1.
+#
+# Rules 2, 10 and 11 exempt test code. They used to do that by checking whether
+# "mod tests" appeared anywhere above the hit, which exempts the entire rest of
+# the file once such a module exists -- correct only because every inline test
+# module currently sits at the end of its file. Brace tracking removes that
+# dependency, so a test module placed mid-file no longer blinds the audit.
+cfg_test_ranges() {
+    awk '
+    /#\[cfg\(test\)\]/ { pending = 1 }
+    pending && /^[[:space:]]*(pub )?mod [A-Za-z_][A-Za-z0-9_]*[[:space:]]*\{/ {
+        start = FNR
+        depth = gsub(/\{/, "{") - gsub(/\}/, "}")
+        inmod = 1; pending = 0
+        if (depth <= 0) { print start, FNR; inmod = 0 }
+        next
+    }
+    inmod {
+        depth += gsub(/\{/, "{") - gsub(/\}/, "}")
+        if (depth <= 0) { print start, FNR; inmod = 0 }
+    }
+    END { if (inmod) print start, FNR }
+    ' "$1"
+}
+
+# True when line $2 of file $1 sits inside a #[cfg(test)] module.
+# $3 optionally carries pre-computed ranges to avoid re-scanning per hit.
+is_test_line() {
+    local line=$2 ranges=${3-}
+    [ -n "$ranges" ] || ranges=$(cfg_test_ranges "$1")
+    local start end
+    while read -r start end; do
+        [ -n "$start" ] || continue
+        if [ "$line" -ge "$start" ] && [ "$line" -le "$end" ]; then return 0; fi
+    done <<< "$ranges"
+    return 1
+}
+
 # Rule 1: Function Line Limit (50 lines, exceptions for verified Dispatchers/GUI up to 200/500)
 echo "[Rule 1] Checking function length..."
 while read -r file; do
@@ -52,32 +90,38 @@ while read -r file; do
             effective_lines++;
         }
     }
-    in_fn && /^[[:space:]]*\}/ { 
+    in_fn && /^[[:space:]]*\}/ {
         match($0, /^[[:space:]]*/);
         if (RLENGTH == fn_indent) {
-            if (effective_lines > limit) { 
+            if (effective_lines > limit) {
                 print "  FAIL: " FILENAME ":" fn_start " (" effective_lines " effective lines, limit was " limit ") " fn_name;
-                exit 1;
-            } 
+                # Record and keep going: exiting here reported only the first
+                # over-long function per file, so fixing one revealed the next.
+                failed=1;
+            }
             in_fn=0;
         }
-    } 
+    }
     /^mod tests/ { in_test=1; }
+    END { exit failed }
     ' "$file" || ERROR=1
 done < <(find $TARGET_DIRS -name "*.rs" | grep -vE "(tests|examples|src/bin)")
 
 # Rule 2: Panic Exclusion
 echo "[Rule 2] Checking for unwrap/expect in production code..."
+rule2_failed=0
 while read -r file; do
+    ranges=$(cfg_test_ranges "$file")
     while read -r line; do
-        lnum=$(echo "$line" | cut -d: -f1)
-        is_test=$(sed -n "1,${lnum}p" "$file" | grep -c "mod tests" || true)
-        if [ "$is_test" -eq 0 ]; then
+        lnum=${line%%:*}
+        if ! is_test_line "$file" "$lnum" "$ranges"; then
             echo "  FAIL: $file:$line"
             ERROR=1
+            rule2_failed=1
         fi
     done < <(grep -nE "\.(unwrap|expect)\(" "$file" | grep -vE "unwrap_(or|err)\(" | grep -v "// RR-15 Safe")
 done < <(find $TARGET_DIRS -name "*.rs" | grep -vE "(tests|examples|src/bin)")
+[ "$rule2_failed" -eq 0 ] && echo "  PASS"
 
 # Rule 3: No Unsafe
 echo "[Rule 3] Checking for unsafe blocks..."
@@ -136,32 +180,42 @@ done <<< "$rule5_raw"
 echo "[Rule 7] Checking for static mut..."
 grep -rn "static mut" $TARGET_DIRS --include="*.rs" && { echo "  FAIL: Global mutable state found"; ERROR=1; } || echo "  PASS"
 
-# Rule 10: Determinism (No HashMap/HashSet in Core/Render)
+# Rule 10: Determinism (no HashMap/HashSet in the crates that decide byte output)
+#
+# ferruginous-sdk owns the writer, so iteration order there reaches the produced
+# PDF just as directly as it does in core. It was previously unchecked.
+RULE10_DIRS="crates/ferruginous-core crates/ferruginous-render crates/ferruginous-sdk"
 echo "[Rule 10] Checking for non-deterministic collections..."
+rule10_failed=0
 while read -r file; do
+    ranges=$(cfg_test_ranges "$file")
     while read -r line; do
-        lnum=$(echo "$line" | cut -d: -f1)
-        is_test=$(sed -n "1,${lnum}p" "$file" | grep -c "mod tests" || true)
-        if [ "$is_test" -eq 0 ]; then
+        lnum=${line%%:*}
+        if ! is_test_line "$file" "$lnum" "$ranges"; then
             echo "  FAIL: $file:$line"
             ERROR=1
+            rule10_failed=1
         fi
     done < <(grep -nE "HashMap|HashSet" "$file")
-done < <(find crates/ferruginous-core crates/ferruginous-render -name "*.rs" | grep -vE "(tests|examples|src/bin)")
+done < <(find $RULE10_DIRS -name "*.rs" | grep -vE "(tests|examples|src/bin)")
+[ "$rule10_failed" -eq 0 ] && echo "  PASS"
 
 # Rule 11: Explicit Error Transparency
 echo "[Rule 11] Checking for String/anyhow errors in Result..."
+rule11_failed=0
 while read -r file; do
     if [[ $file == *"crates/ferruginous-mcp"* || $file == *"crates/fepdf"* || $file == *"crates/ferruginous/src/main.rs"* ]]; then continue; fi
+    ranges=$(cfg_test_ranges "$file")
     while read -r line; do
-        lnum=$(echo "$line" | cut -d: -f1)
-        is_test=$(sed -n "1,${lnum}p" "$file" | grep -c "mod tests" || true)
-        if [ "$is_test" -eq 0 ]; then
+        lnum=${line%%:*}
+        if ! is_test_line "$file" "$lnum" "$ranges"; then
             echo "  FAIL: $file:$line"
             ERROR=1
+            rule11_failed=1
         fi
     done < <(grep -nE "\\bResult<[^,<>]+(<[^<>]+(,[^<>]+)*>)*[^,<>]* *, *String *>|anyhow!" "$file")
 done < <(find $TARGET_DIRS -name "*.rs" | grep -vE "(tests|examples|src/bin)")
+[ "$rule11_failed" -eq 0 ] && echo "  PASS"
 
 # Rule 13: Zero Silent Swallowing
 echo "[Rule 13] Checking for filter_map(Result::ok)..."
