@@ -104,7 +104,9 @@ impl PDFView {
 
     pub fn scroll_to_page(&mut self, page_index: usize, layouts: &[PageLayout]) {
         self.active_page = page_index;
-        if self.display_mode == DisplayMode::Continuous || self.display_mode == DisplayMode::TwoPageSpread {
+        if self.display_mode == DisplayMode::Continuous
+            || self.display_mode == DisplayMode::TwoPageSpread
+        {
             if let Some(layout) = layouts.get(page_index) {
                 if self.scroll_direction == ScrollDirection::Vertical {
                     self.pan.y = -layout.rect.min.y * self.zoom;
@@ -130,8 +132,8 @@ impl PDFView {
                         max_y = max_y.max(layout.rect.max.y);
                     }
                 }
-                self.pan.x = -((min_x + max_x) / 2.0) * self.zoom;
-                self.pan.y = -((min_y + max_y) / 2.0) * self.zoom;
+                self.pan.x = -f32::midpoint(min_x, max_x) * self.zoom;
+                self.pan.y = -f32::midpoint(min_y, max_y) * self.zoom;
             }
         } else if self.display_mode == DisplayMode::SinglePage {
             if let Some(layout) = layouts.get(page_index) {
@@ -150,8 +152,8 @@ impl PDFView {
         page_layout: &PageLayout,
         rect: [f32; 4],
     ) {
-        let pdf_center_x = (rect[0] + rect[2]) / 2.0;
-        let pdf_center_y = (rect[1] + rect[3]) / 2.0;
+        let pdf_center_x = f32::midpoint(rect[0], rect[2]);
+        let pdf_center_y = f32::midpoint(rect[1], rect[3]);
 
         let unscaled_h = page_layout.rect.height();
 
@@ -169,7 +171,8 @@ impl PDFView {
             - page_local_pos.to_vec2() * self.zoom;
     }
 
-    pub fn show_virtual( // RR-15 Limit: Dispatcher - Renders a virtualized grid layout of PDF pages and overlays highlights/signals
+    pub fn show_virtual(
+        // RR-15 Limit: Dispatcher - Renders a virtualized grid layout of PDF pages and overlays highlights/signals
         &mut self,
         ui: &mut egui::Ui,
         layouts: &[PageLayout],
@@ -216,7 +219,7 @@ impl PDFView {
             if width > 0.0 {
                 let count = (width / step).ceil() as usize;
                 for i in 0..count {
-                    let x = start_x + i as f32 * step;
+                    let x = (i as f32).mul_add(step, start_x);
                     ui.painter().line_segment(
                         [egui::pos2(x, viewport_rect.min.y), egui::pos2(x, viewport_rect.max.y)],
                         grid_stroke,
@@ -232,7 +235,7 @@ impl PDFView {
             if height > 0.0 {
                 let count = (height / step).ceil() as usize;
                 for i in 0..count {
-                    let y = start_y + i as f32 * step;
+                    let y = (i as f32).mul_add(step, start_y);
                     ui.painter().line_segment(
                         [egui::pos2(viewport_rect.min.x, y), egui::pos2(viewport_rect.max.x, y)],
                         grid_stroke,
@@ -248,7 +251,9 @@ impl PDFView {
             if self.display_mode == DisplayMode::SinglePage && layout.index != self.active_page {
                 continue;
             }
-            if self.display_mode == DisplayMode::TwoPageSingle && !active_spread.contains(&layout.index) {
+            if self.display_mode == DisplayMode::TwoPageSingle
+                && !active_spread.contains(&layout.index)
+            {
                 continue;
             }
             let page_rect = egui::Rect::from_min_size(
@@ -260,8 +265,10 @@ impl PDFView {
                 if scenes.contains_key(&layout.index) {
                     for offset in 1..=4 {
                         ui.painter().rect_filled(
-                            page_rect
-                                .translate(egui::vec2(offset as f32 * 1.5, offset as f32 * 1.5)),
+                            page_rect.translate(egui::vec2(
+                                f32::from(offset) * 1.5,
+                                f32::from(offset) * 1.5,
+                            )),
                             4.0,
                             egui::Color32::from_black_alpha(20 - offset * 4),
                         );
@@ -290,7 +297,9 @@ impl PDFView {
             if self.display_mode == DisplayMode::SinglePage && layout.index != self.active_page {
                 continue;
             }
-            if self.display_mode == DisplayMode::TwoPageSingle && !active_spread.contains(&layout.index) {
+            if self.display_mode == DisplayMode::TwoPageSingle
+                && !active_spread.contains(&layout.index)
+            {
                 continue;
             }
             let page_rect = egui::Rect::from_min_size(
@@ -331,18 +340,16 @@ impl PDFView {
                 self.draw_structural_highlight(ui, layout.index, structural_highlight);
                 self.draw_signature_highlight(ui, layout.index, signature_highlight);
 
-                if show_reading_order {
-                    if let Some(ref root) = ust_registry.root {
-                        Self::draw_semantic_borders(
-                            ui,
-                            page_rect,
-                            self.zoom,
-                            layout.rect.height(),
-                            root,
-                            ust_registry.selected_node_id,
-                        );
-                        self.draw_reading_order_bar(ui, page_rect, root);
-                    }
+                if show_reading_order && let Some(ref root) = ust_registry.root {
+                    Self::draw_semantic_borders(
+                        ui,
+                        page_rect,
+                        self.zoom,
+                        layout.rect.height(),
+                        root,
+                        ust_registry.selected_node_id,
+                    );
+                    self.draw_reading_order_bar(ui, page_rect, root);
                 }
             }
         }
@@ -398,20 +405,20 @@ impl PDFView {
         page_index: usize,
         active_redaction_drag: &Option<(usize, egui::Rect)>,
     ) {
-        if let Some((active_page, drag_rect)) = active_redaction_drag {
-            if *active_page == page_index {
-                ui.painter().rect_filled(
-                    *drag_rect,
-                    0.0,
-                    egui::Color32::from_rgba_unmultiplied(255, 0, 0, 100),
-                );
-                ui.painter().rect_stroke(
-                    *drag_rect,
-                    0.0,
-                    egui::Stroke::new(1.5_f32, egui::Color32::RED),
-                    egui::StrokeKind::Outside,
-                );
-            }
+        if let Some((active_page, drag_rect)) = active_redaction_drag
+            && *active_page == page_index
+        {
+            ui.painter().rect_filled(
+                *drag_rect,
+                0.0,
+                egui::Color32::from_rgba_unmultiplied(255, 0, 0, 100),
+            );
+            ui.painter().rect_stroke(
+                *drag_rect,
+                0.0,
+                egui::Stroke::new(1.5_f32, egui::Color32::RED),
+                egui::StrokeKind::Outside,
+            );
         }
     }
 
@@ -421,27 +428,27 @@ impl PDFView {
         page_index: usize,
         structural_highlight: &Option<(usize, egui::Rect)>,
     ) {
-        if let Some((highlight_page, highlight_rect)) = structural_highlight {
-            if *highlight_page == page_index {
-                let time = ui.ctx().input(|i| i.time);
-                let pulse = (time * 6.0).sin().abs() as f32;
-                let outline_color = egui::Color32::from_rgb(255, 165, 0);
-                let fill_opacity = 20 + (pulse * 35.0) as u8;
-                let stroke_w = 2.0 + pulse * 2.0;
+        if let Some((highlight_page, highlight_rect)) = structural_highlight
+            && *highlight_page == page_index
+        {
+            let time = ui.ctx().input(|i| i.time);
+            let pulse = (time * 6.0).sin().abs() as f32;
+            let outline_color = egui::Color32::from_rgb(255, 165, 0);
+            let fill_opacity = 20 + (pulse * 35.0) as u8;
+            let stroke_w = 2.0 + pulse * 2.0;
 
-                ui.painter().rect_stroke(
-                    *highlight_rect,
-                    0.0,
-                    egui::Stroke::new(stroke_w, outline_color),
-                    egui::StrokeKind::Outside,
-                );
-                ui.painter().rect_filled(
-                    *highlight_rect,
-                    0.0,
-                    egui::Color32::from_rgba_unmultiplied(255, 165, 0, fill_opacity),
-                );
-                ui.ctx().request_repaint();
-            }
+            ui.painter().rect_stroke(
+                *highlight_rect,
+                0.0,
+                egui::Stroke::new(stroke_w, outline_color),
+                egui::StrokeKind::Outside,
+            );
+            ui.painter().rect_filled(
+                *highlight_rect,
+                0.0,
+                egui::Color32::from_rgba_unmultiplied(255, 165, 0, fill_opacity),
+            );
+            ui.ctx().request_repaint();
         }
     }
 
@@ -451,41 +458,41 @@ impl PDFView {
         page_index: usize,
         signature_highlight: &Option<(usize, egui::Rect)>,
     ) {
-        if let Some((sig_page, sig_rect)) = signature_highlight {
-            if *sig_page == page_index {
-                ui.painter().rect_filled(
-                    *sig_rect,
-                    4.0,
-                    egui::Color32::from_rgba_unmultiplied(226, 135, 67, 30),
-                );
-                ui.painter().rect_stroke(
-                    *sig_rect,
-                    4.0,
-                    egui::Stroke::new(2.0_f32, egui::Color32::from_rgb(226, 135, 67)),
-                    egui::StrokeKind::Outside,
-                );
-                ui.painter().line_segment(
-                    [sig_rect.left_top(), sig_rect.right_bottom()],
-                    egui::Stroke::new(
-                        1.0_f32,
-                        egui::Color32::from_rgba_unmultiplied(226, 135, 67, 100),
-                    ),
-                );
-                ui.painter().line_segment(
-                    [sig_rect.right_top(), sig_rect.left_bottom()],
-                    egui::Stroke::new(
-                        1.0_f32,
-                        egui::Color32::from_rgba_unmultiplied(226, 135, 67, 100),
-                    ),
-                );
-                ui.painter().text(
-                    sig_rect.center(),
-                    egui::Align2::CENTER_CENTER,
-                    "🔏 [ DIGITAL SIGNATURE FIELD ]",
-                    egui::FontId::monospace(12.0),
-                    egui::Color32::from_rgb(226, 135, 67),
-                );
-            }
+        if let Some((sig_page, sig_rect)) = signature_highlight
+            && *sig_page == page_index
+        {
+            ui.painter().rect_filled(
+                *sig_rect,
+                4.0,
+                egui::Color32::from_rgba_unmultiplied(226, 135, 67, 30),
+            );
+            ui.painter().rect_stroke(
+                *sig_rect,
+                4.0,
+                egui::Stroke::new(2.0_f32, egui::Color32::from_rgb(226, 135, 67)),
+                egui::StrokeKind::Outside,
+            );
+            ui.painter().line_segment(
+                [sig_rect.left_top(), sig_rect.right_bottom()],
+                egui::Stroke::new(
+                    1.0_f32,
+                    egui::Color32::from_rgba_unmultiplied(226, 135, 67, 100),
+                ),
+            );
+            ui.painter().line_segment(
+                [sig_rect.right_top(), sig_rect.left_bottom()],
+                egui::Stroke::new(
+                    1.0_f32,
+                    egui::Color32::from_rgba_unmultiplied(226, 135, 67, 100),
+                ),
+            );
+            ui.painter().text(
+                sig_rect.center(),
+                egui::Align2::CENTER_CENTER,
+                "🔏 [ DIGITAL SIGNATURE FIELD ]",
+                egui::FontId::monospace(12.0),
+                egui::Color32::from_rgb(226, 135, 67),
+            );
         }
     }
 
@@ -501,6 +508,9 @@ impl PDFView {
         if is_hovered {
             ui.input(|i| {
                 let zoom_delta = i.zoom_delta();
+                // egui returns exactly 1.0 as the "no pinch gesture this frame" sentinel,
+                // so an exact comparison is the correct test here.
+                #[allow(clippy::float_cmp)]
                 if zoom_delta != 1.0 {
                     self.zoom = (self.zoom * zoom_delta).clamp(0.1, 10.0);
                 }
@@ -525,7 +535,9 @@ impl PDFView {
         if response.dragged() {
             self.pan += response.drag_delta();
         }
-        if response.drag_stopped() || (!response.dragged() && ui.input(|i| i.pointer.any_released())) {
+        if response.drag_stopped()
+            || (!response.dragged() && ui.input(|i| i.pointer.any_released()))
+        {
             self.overscroll_accumulator = egui::Vec2::ZERO;
         }
     }
@@ -647,7 +659,8 @@ impl PDFView {
         }
     }
 
-    pub fn clamp_pan(&mut self, viewport_rect: egui::Rect, layouts: &[PageLayout]) { // RR-15 Limit: GUI
+    pub fn clamp_pan(&mut self, viewport_rect: egui::Rect, layouts: &[PageLayout]) {
+        // RR-15 Limit: GUI
         if layouts.is_empty() {
             return;
         }
@@ -681,15 +694,21 @@ impl PDFView {
         let origin_no_pan = self.get_origin_no_pan(viewport_rect);
         let min_overlap = 50.0f32;
 
-        let min_pan_x = viewport_rect.min.x + min_overlap - origin_no_pan.x - max_x * self.zoom;
-        let max_pan_x = viewport_rect.max.x - min_overlap - origin_no_pan.x - min_x * self.zoom;
+        let min_pan_x =
+            max_x.mul_add(-self.zoom, viewport_rect.min.x + min_overlap - origin_no_pan.x);
+        let max_pan_x =
+            min_x.mul_add(-self.zoom, viewport_rect.max.x - min_overlap - origin_no_pan.x);
         let clamped_x = self.pan.x.clamp(min_pan_x, max_pan_x);
 
-        let min_pan_y = viewport_rect.min.y + min_overlap - origin_no_pan.y - max_y * self.zoom;
-        let max_pan_y = viewport_rect.max.y - min_overlap - origin_no_pan.y - min_y * self.zoom;
+        let min_pan_y =
+            max_y.mul_add(-self.zoom, viewport_rect.min.y + min_overlap - origin_no_pan.y);
+        let max_pan_y =
+            min_y.mul_add(-self.zoom, viewport_rect.max.y - min_overlap - origin_no_pan.y);
         let clamped_y = self.pan.y.clamp(min_pan_y, max_pan_y);
 
-        if self.display_mode == DisplayMode::SinglePage || self.display_mode == DisplayMode::TwoPageSingle {
+        if self.display_mode == DisplayMode::SinglePage
+            || self.display_mode == DisplayMode::TwoPageSingle
+        {
             let threshold = 80.0; // Pull past edge distance threshold
 
             if self.scroll_direction == ScrollDirection::Vertical {
@@ -706,13 +725,13 @@ impl PDFView {
                         // Pulled up / past bottom -> next page/spread
                         if self.display_mode == DisplayMode::TwoPageSingle {
                             let spread = self.get_spread_indices(self.active_page, total_pages);
-                            if let Some(&last_idx) = spread.last() {
-                                if last_idx + 1 < total_pages {
-                                    let next = last_idx + 1;
-                                    self.scroll_to_page(next, layouts);
-                                    self.overscroll_accumulator = egui::Vec2::ZERO;
-                                    return;
-                                }
+                            if let Some(&last_idx) = spread.last()
+                                && last_idx + 1 < total_pages
+                            {
+                                let next = last_idx + 1;
+                                self.scroll_to_page(next, layouts);
+                                self.overscroll_accumulator = egui::Vec2::ZERO;
+                                return;
                             }
                         } else if self.active_page + 1 < total_pages {
                             let next = self.active_page + 1;
@@ -724,13 +743,13 @@ impl PDFView {
                         // Pulled down / past top -> prev page/spread
                         if self.display_mode == DisplayMode::TwoPageSingle {
                             let spread = self.get_spread_indices(self.active_page, total_pages);
-                            if let Some(&first_idx) = spread.first() {
-                                if first_idx > 0 {
-                                    let prev = first_idx - 1;
-                                    self.scroll_to_page(prev, layouts);
-                                    self.overscroll_accumulator = egui::Vec2::ZERO;
-                                    return;
-                                }
+                            if let Some(&first_idx) = spread.first()
+                                && first_idx > 0
+                            {
+                                let prev = first_idx - 1;
+                                self.scroll_to_page(prev, layouts);
+                                self.overscroll_accumulator = egui::Vec2::ZERO;
+                                return;
                             }
                         } else if self.active_page > 0 {
                             let prev = self.active_page - 1;
@@ -751,18 +770,20 @@ impl PDFView {
                 if self.overscroll_accumulator.x.abs() > threshold {
                     let total_pages = layouts.len();
                     let is_r2l = self.binding_direction == BindingDirection::RightToLeft;
-                    
-                    if (self.overscroll_accumulator.x < 0.0 && !is_r2l) || (self.overscroll_accumulator.x > 0.0 && is_r2l) {
+
+                    if (self.overscroll_accumulator.x < 0.0 && !is_r2l)
+                        || (self.overscroll_accumulator.x > 0.0 && is_r2l)
+                    {
                         // Go to next page/spread
                         if self.display_mode == DisplayMode::TwoPageSingle {
                             let spread = self.get_spread_indices(self.active_page, total_pages);
-                            if let Some(&last_idx) = spread.last() {
-                                if last_idx + 1 < total_pages {
-                                    let next = last_idx + 1;
-                                    self.scroll_to_page(next, layouts);
-                                    self.overscroll_accumulator = egui::Vec2::ZERO;
-                                    return;
-                                }
+                            if let Some(&last_idx) = spread.last()
+                                && last_idx + 1 < total_pages
+                            {
+                                let next = last_idx + 1;
+                                self.scroll_to_page(next, layouts);
+                                self.overscroll_accumulator = egui::Vec2::ZERO;
+                                return;
                             }
                         } else if self.active_page + 1 < total_pages {
                             let next = self.active_page + 1;
@@ -774,13 +795,13 @@ impl PDFView {
                         // Go to prev page/spread
                         if self.display_mode == DisplayMode::TwoPageSingle {
                             let spread = self.get_spread_indices(self.active_page, total_pages);
-                            if let Some(&first_idx) = spread.first() {
-                                if first_idx > 0 {
-                                    let prev = first_idx - 1;
-                                    self.scroll_to_page(prev, layouts);
-                                    self.overscroll_accumulator = egui::Vec2::ZERO;
-                                    return;
-                                }
+                            if let Some(&first_idx) = spread.first()
+                                && first_idx > 0
+                            {
+                                let prev = first_idx - 1;
+                                self.scroll_to_page(prev, layouts);
+                                self.overscroll_accumulator = egui::Vec2::ZERO;
+                                return;
                             }
                         } else if self.active_page > 0 {
                             let prev = self.active_page - 1;

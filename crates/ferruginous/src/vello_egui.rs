@@ -68,7 +68,8 @@ impl VelloRenderer {
     pub fn next_frame(&mut self, _render_state: &RenderState) {}
 
     /// Renders all visible pages directly onto the single viewport render target texture.
-    pub fn render_viewport( // RR-15 Limit: GUI - Performs sequential scene assembly and rendering to the single viewport target
+    pub fn render_viewport(
+        // RR-15 Limit: GUI - Performs sequential scene assembly and rendering to the single viewport target
         &mut self,
         render_state: &RenderState,
         visible_pages: &[(usize, Arc<Scene>, egui::Rect, egui::Vec2)], // (page_index, scene, page_screen_rect, page_unscaled_size)
@@ -81,13 +82,15 @@ impl VelloRenderer {
             .map(|(idx, scene, rect, _)| (*idx, Arc::as_ptr(scene) as usize, *rect))
             .collect();
 
+        // Exact equality is intended: `last_zoom` is a cache key, so any change in the
+        // bit pattern must invalidate the retained viewport texture.
+        #[allow(clippy::float_cmp)]
         if self.last_visible_pages == current_visible_pages
             && self.last_viewport_rect == viewport_rect
             && self.last_zoom == zoom
+            && let Some(ref tex) = self.viewport_texture
         {
-            if let Some(ref tex) = self.viewport_texture {
-                return Some(tex.egui_texture);
-            }
+            return Some(tex.egui_texture);
         }
 
         let width = (viewport_rect.width() * scale_factor).round() as u32;
@@ -113,7 +116,7 @@ impl VelloRenderer {
         // Explicitly fill the entire viewport texture background with our premium slate navy color.
         // This is required because Vello's storage texture rendering clears to (0, 0, 0, 0) by default,
         // ignoring the RenderParams base_color, which egui's opaque texture shader then renders as solid black.
-        let viewport_kurbo_rect = kurbo::Rect::new(0.0, 0.0, width as f64, height as f64);
+        let viewport_kurbo_rect = kurbo::Rect::new(0.0, 0.0, f64::from(width), f64::from(height));
         viewport_scene.fill(
             vello::peniko::Fill::NonZero,
             kurbo::Affine::IDENTITY,
@@ -122,19 +125,19 @@ impl VelloRenderer {
             &viewport_kurbo_rect,
         );
 
-        let scale = (zoom * scale_factor) as f64 / 2.0;
+        let scale = f64::from(zoom * scale_factor) / 2.0;
 
         for &(_idx, ref scene, page_screen_rect, page_unscaled_size) in visible_pages {
-            let tx = ((page_screen_rect.min.x - viewport_rect.min.x) * scale_factor) as f64;
-            let ty = ((page_screen_rect.min.y - viewport_rect.min.y) * scale_factor) as f64;
+            let tx = f64::from((page_screen_rect.min.x - viewport_rect.min.x) * scale_factor);
+            let ty = f64::from((page_screen_rect.min.y - viewport_rect.min.y) * scale_factor);
             let transform = kurbo::Affine::new([scale, 0.0, 0.0, scale, tx, ty]);
 
             // Fill a white background rectangle for the page
             let rect = kurbo::Rect::new(
                 0.0,
                 0.0,
-                page_unscaled_size.x as f64 * 2.0,
-                page_unscaled_size.y as f64 * 2.0,
+                f64::from(page_unscaled_size.x) * 2.0,
+                f64::from(page_unscaled_size.y) * 2.0,
             );
             viewport_scene.fill(
                 vello::peniko::Fill::NonZero,
@@ -200,7 +203,8 @@ impl VelloRenderer {
             Some(ViewportTexture { _texture: texture, view, egui_texture: tid, width, height });
     }
 
-    pub fn render_thumbnail( // RR-15 Limit: GUI - Performs rendering of page scenes to thumbnail textures
+    pub fn render_thumbnail(
+        // RR-15 Limit: GUI - Performs rendering of page scenes to thumbnail textures
         &mut self,
         render_state: &RenderState,
         page_index: usize,
@@ -222,7 +226,7 @@ impl VelloRenderer {
         if needs_recreate {
             let device = &render_state.device;
             let texture = device.create_texture(&wgpu::TextureDescriptor {
-                label: Some(&format!("Vello Target Thumbnail Texture {}", page_index)),
+                label: Some(&format!("Vello Target Thumbnail Texture {page_index}")),
                 size: wgpu::Extent3d {
                     width: thumb_width,
                     height: thumb_height,
@@ -258,7 +262,7 @@ impl VelloRenderer {
             // Render page scene onto thumbnail texture
             let tex = self.thumbnail_textures.get(&page_index)?;
             let mut thumb_scene = Scene::new();
-            let rect = kurbo::Rect::new(0.0, 0.0, thumb_width as f64, thumb_height as f64);
+            let rect = kurbo::Rect::new(0.0, 0.0, f64::from(thumb_width), f64::from(thumb_height));
             thumb_scene.fill(
                 vello::peniko::Fill::NonZero,
                 kurbo::Affine::IDENTITY,
@@ -267,7 +271,7 @@ impl VelloRenderer {
                 &rect,
             );
 
-            let scale = (thumb_width as f64 / unscaled_size.x as f64) / 2.0;
+            let scale = (f64::from(thumb_width) / f64::from(unscaled_size.x)) / 2.0;
             let transform = kurbo::Affine::scale(scale);
             thumb_scene.append(scene, Some(transform));
 

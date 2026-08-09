@@ -7,6 +7,11 @@ pub struct USTNode {
     pub title: String,
     pub alt_text: Option<String>,
     pub rect: Option<[f32; 4]>, // [x1, y1, x2, y2] in PDF User Space
+    /// Page the `rect` is expressed on. `None` for nodes whose `/Pg` could not be
+    /// resolved; consumers fall back to the first page. Defaulted on deserialize so
+    /// UST drafts written before this field existed still load.
+    #[serde(default)]
+    pub page_index: Option<usize>,
     pub handle_id: Option<u32>, // raw object handle index in PdfArena
     pub children: Vec<USTNode>,
 }
@@ -68,17 +73,23 @@ impl USTRegistry {
         None
     }
 
-    pub fn find_rect_by_id(&self, id: usize) -> Option<[f32; 4]> {
-        self.root.as_ref().and_then(|r| Self::find_rect_recursive(r, id))
+    /// Resolves a node to the page it sits on and its bounding box in PDF user space.
+    ///
+    /// Nodes with no resolved `/Pg` fall back to the first page, which is what the
+    /// viewport did unconditionally before `USTNode::page_index` existed.
+    pub fn find_placement_by_id(&self, id: usize) -> Option<(usize, [f32; 4])> {
+        let root = self.root.as_ref()?;
+        let (page_index, rect) = Self::find_placement_recursive(root, id)?;
+        Some((page_index.unwrap_or(0), rect))
     }
 
-    fn find_rect_recursive(node: &USTNode, id: usize) -> Option<[f32; 4]> {
+    fn find_placement_recursive(node: &USTNode, id: usize) -> Option<(Option<usize>, [f32; 4])> {
         if node.id == id {
-            return node.rect;
+            return node.rect.map(|r| (node.page_index, r));
         }
         for child in &node.children {
-            if let Some(r) = Self::find_rect_recursive(child, id) {
-                return Some(r);
+            if let Some(found) = Self::find_placement_recursive(child, id) {
+                return Some(found);
             }
         }
         None
@@ -118,25 +129,23 @@ impl USTRegistry {
             return false;
         }
 
-        if let Some(ref root) = self.root {
-            if let Some(dragged_node) = Self::find_node_by_id_recursive(root, dragged_id) {
-                if Self::is_descendant(dragged_node, target_id) {
-                    return false;
-                }
-            }
+        if let Some(ref root) = self.root
+            && let Some(dragged_node) = Self::find_node_by_id_recursive(root, dragged_id)
+            && Self::is_descendant(dragged_node, target_id)
+        {
+            return false;
         }
 
-        if let Some(dragged_node) = self.remove_node(dragged_id) {
-            if let Some(ref mut root) = self.root {
-                if Self::insert_node_recursive(root, target_id, dragged_node, relation).is_ok() {
-                    return true;
-                }
-            }
+        if let Some(dragged_node) = self.remove_node(dragged_id)
+            && let Some(ref mut root) = self.root
+            && Self::insert_node_recursive(root, target_id, dragged_node, relation).is_ok()
+        {
+            return true;
         }
         false
     }
 
-    pub fn find_node_by_id_recursive<'a>(current: &'a USTNode, id: usize) -> Option<&'a USTNode> {
+    pub fn find_node_by_id_recursive(current: &USTNode, id: usize) -> Option<&USTNode> {
         if current.id == id {
             return Some(current);
         }
@@ -209,7 +218,6 @@ impl USTRegistry {
 #[derive(Clone)]
 pub struct FigureInfo {
     pub id: usize,
-    pub title: String,
     pub alt_text: Option<String>,
     pub handle_id: Option<u32>,
 }
@@ -218,7 +226,6 @@ fn collect_figures(node: &USTNode, figures: &mut Vec<FigureInfo>) {
     if node.tag == "Figure" {
         figures.push(FigureInfo {
             id: node.id,
-            title: node.title.clone(),
             alt_text: node.alt_text.clone(),
             handle_id: node.handle_id,
         });
@@ -253,7 +260,6 @@ pub enum LeftTab {
 }
 
 pub struct SidebarPanel {
-    pub active_tab: usize, // Unused but kept for API compatibility
     pub active_left_tab: LeftTab,
     pub alt_text_edit_buffer: String,
     pub context_panel_open: bool,
@@ -268,7 +274,6 @@ impl Default for SidebarPanel {
 impl SidebarPanel {
     pub fn new() -> Self {
         Self {
-            active_tab: 0,
             active_left_tab: LeftTab::DocumentInfo,
             alt_text_edit_buffer: String::new(),
             context_panel_open: false,
@@ -314,7 +319,8 @@ impl SidebarPanel {
         });
     }
 
-    pub fn show( // RR-15 Limit: GUI - sidebar main routing and sub-panel egui layout tree
+    pub fn show(
+        // RR-15 Limit: GUI - sidebar main routing and sub-panel egui layout tree
         &mut self,
         ui: &mut egui::Ui,
         registry: &mut USTRegistry,
@@ -405,16 +411,16 @@ impl SidebarPanel {
         active_lang: &str,
     ) {
         fn format_pdf_date(date_str: &str) -> String {
-            if let Some(clean) = date_str.strip_prefix("D:") {
-                if clean.len() >= 14 {
-                    let year = &clean[0..4];
-                    let month = &clean[4..6];
-                    let day = &clean[6..8];
-                    let hour = &clean[8..10];
-                    let min = &clean[10..12];
-                    let sec = &clean[12..14];
-                    return format!("{}/{}/{} {}:{}:{}", year, month, day, hour, min, sec);
-                }
+            if let Some(clean) = date_str.strip_prefix("D:")
+                && clean.len() >= 14
+            {
+                let year = &clean[0..4];
+                let month = &clean[4..6];
+                let day = &clean[6..8];
+                let hour = &clean[8..10];
+                let min = &clean[10..12];
+                let sec = &clean[12..14];
+                return format!("{year}/{month}/{day} {hour}:{min}:{sec}");
             }
             date_str.to_string()
         }
@@ -475,7 +481,7 @@ impl SidebarPanel {
                 ""
             };
 
-            format!("{:.1} x {:.1} mm{}", w_mm, h_mm, format_name)
+            format!("{w_mm:.1} x {h_mm:.1} mm{format_name}")
         };
 
         ui.vertical(|ui| {
@@ -596,9 +602,8 @@ impl SidebarPanel {
                         };
                         render_row(ui, &locale_mgr.tr(active_lang, "info_pdf_version"), ver, true);
 
-                        let size_str = file_size
-                            .map(|s| format_file_size(s))
-                            .unwrap_or_else(|| "-".to_string());
+                        let size_str =
+                            file_size.map_or_else(|| "-".to_string(), |s| format_file_size(s));
                         render_row(
                             ui,
                             &locale_mgr.tr(active_lang, "info_file_size"),
@@ -823,9 +828,7 @@ impl SidebarPanel {
             } else {
                 egui::ScrollArea::vertical().id_salt("bookmarks_scroll").show(ui, |ui| {
                     for i in 1..=total_pages.min(5) {
-                        if ui
-                            .selectable_label(false, format!("🔖 Chapter {}: Page {}", i, i))
-                            .clicked()
+                        if ui.selectable_label(false, format!("🔖 Chapter {i}: Page {i}")).clicked()
                         {
                             // Navigator target page trigger
                         }
@@ -900,7 +903,8 @@ impl SidebarPanel {
         });
     }
 
-    fn show_element_properties( // RR-15 Limit: GUI - Render properties grid for selected UST node
+    fn show_element_properties(
+        // RR-15 Limit: GUI - Render properties grid for selected UST node
         ui: &mut egui::Ui,
         registry: &mut USTRegistry,
         tx_worker: &std::sync::mpsc::Sender<crate::worker::WorkerRequest>,
@@ -918,113 +922,98 @@ impl SidebarPanel {
             let selected_id = registry.selected_node_id;
             let mut node_found = false;
 
-            if let Some(id) = selected_id {
-                if let Some(ref mut root) = registry.root {
-                    if let Some(node) = Self::find_node_mut_recursive(root, id) {
-                        node_found = true;
-                        egui::Grid::new("properties_grid")
-                            .num_columns(2)
-                            .spacing([10.0, 8.0])
-                            .striped(true)
-                            .show(ui, |ui| {
-                                ui.label(
-                                    egui::RichText::new(
-                                        locale_mgr.tr(active_lang, "element_prop_tag"),
-                                    )
-                                    .weak(),
-                                );
-                                let old_tag = node.tag.clone();
-                                egui::ComboBox::from_id_salt("properties_tag_combobox")
-                                    .selected_text(&node.tag)
-                                    .show_ui(ui, |ui| {
-                                        for t in &[
-                                            "H1", "H2", "P", "Figure", "Table", "List", "Part",
-                                            "Document",
-                                        ] {
-                                            ui.selectable_value(&mut node.tag, t.to_string(), *t);
-                                        }
-                                    });
-                                if node.tag != old_tag {
-                                    if let Some(h_id) = node.handle_id {
-                                        let _ = tx_worker.send(
-                                            crate::worker::WorkerRequest::UpdateNode {
-                                                handle_id: h_id,
-                                                tag: node.tag.clone(),
-                                                alt_text: node.alt_text.clone(),
-                                            },
-                                        );
-                                    }
+            if let Some(id) = selected_id
+                && let Some(ref mut root) = registry.root
+                && let Some(node) = Self::find_node_mut_recursive(root, id)
+            {
+                node_found = true;
+                egui::Grid::new("properties_grid")
+                    .num_columns(2)
+                    .spacing([10.0, 8.0])
+                    .striped(true)
+                    .show(ui, |ui| {
+                        ui.label(
+                            egui::RichText::new(locale_mgr.tr(active_lang, "element_prop_tag"))
+                                .weak(),
+                        );
+                        let old_tag = node.tag.clone();
+                        egui::ComboBox::from_id_salt("properties_tag_combobox")
+                            .selected_text(&node.tag)
+                            .show_ui(ui, |ui| {
+                                for t in &[
+                                    "H1", "H2", "P", "Figure", "Table", "List", "Part", "Document",
+                                ] {
+                                    ui.selectable_value(&mut node.tag, t.to_string(), *t);
                                 }
-                                ui.end_row();
-
-                                ui.label(
-                                    egui::RichText::new(
-                                        locale_mgr.tr(active_lang, "element_prop_title"),
-                                    )
-                                    .weak(),
-                                );
-                                ui.label(egui::RichText::new(&node.title).strong());
-                                ui.end_row();
-
-                                ui.label(
-                                    egui::RichText::new(
-                                        locale_mgr.tr(active_lang, "element_prop_bbox"),
-                                    )
-                                    .weak(),
-                                );
-                                if let Some(rect) = node.rect {
-                                    ui.monospace(format!(
-                                        "[{:.1}, {:.1}, {:.1}, {:.1}]",
-                                        rect[0], rect[1], rect[2], rect[3]
-                                    ));
-                                } else {
-                                    ui.monospace("None");
-                                }
-                                ui.end_row();
-
-                                ui.label(
-                                    egui::RichText::new(
-                                        locale_mgr.tr(active_lang, "element_prop_lang"),
-                                    )
-                                    .weak(),
-                                );
-                                ui.label("en-US");
-                                ui.end_row();
-
-                                ui.label(
-                                    egui::RichText::new(
-                                        locale_mgr.tr(active_lang, "element_prop_role_map"),
-                                    )
-                                    .weak(),
-                                );
-                                ui.label("Default Mapping");
-                                ui.end_row();
-
-                                ui.label(
-                                    egui::RichText::new(
-                                        locale_mgr.tr(active_lang, "element_prop_alt_text"),
-                                    )
-                                    .weak(),
-                                );
-                                let mut buf = node.alt_text.clone().unwrap_or_default();
-                                let text_resp = ui.text_edit_singleline(&mut buf);
-                                if text_resp.changed() {
-                                    node.alt_text =
-                                        if buf.trim().is_empty() { None } else { Some(buf) };
-                                    if let Some(h_id) = node.handle_id {
-                                        let _ = tx_worker.send(
-                                            crate::worker::WorkerRequest::UpdateNode {
-                                                handle_id: h_id,
-                                                tag: node.tag.clone(),
-                                                alt_text: node.alt_text.clone(),
-                                            },
-                                        );
-                                    }
-                                }
-                                ui.end_row();
                             });
-                    }
-                }
+                        if node.tag != old_tag
+                            && let Some(h_id) = node.handle_id
+                        {
+                            let _ = tx_worker.send(crate::worker::WorkerRequest::UpdateNode {
+                                handle_id: h_id,
+                                tag: node.tag.clone(),
+                                alt_text: node.alt_text.clone(),
+                            });
+                        }
+                        ui.end_row();
+
+                        ui.label(
+                            egui::RichText::new(locale_mgr.tr(active_lang, "element_prop_title"))
+                                .weak(),
+                        );
+                        ui.label(egui::RichText::new(&node.title).strong());
+                        ui.end_row();
+
+                        ui.label(
+                            egui::RichText::new(locale_mgr.tr(active_lang, "element_prop_bbox"))
+                                .weak(),
+                        );
+                        if let Some(rect) = node.rect {
+                            ui.monospace(format!(
+                                "[{:.1}, {:.1}, {:.1}, {:.1}]",
+                                rect[0], rect[1], rect[2], rect[3]
+                            ));
+                        } else {
+                            ui.monospace("None");
+                        }
+                        ui.end_row();
+
+                        ui.label(
+                            egui::RichText::new(locale_mgr.tr(active_lang, "element_prop_lang"))
+                                .weak(),
+                        );
+                        ui.label("en-US");
+                        ui.end_row();
+
+                        ui.label(
+                            egui::RichText::new(
+                                locale_mgr.tr(active_lang, "element_prop_role_map"),
+                            )
+                            .weak(),
+                        );
+                        ui.label("Default Mapping");
+                        ui.end_row();
+
+                        ui.label(
+                            egui::RichText::new(
+                                locale_mgr.tr(active_lang, "element_prop_alt_text"),
+                            )
+                            .weak(),
+                        );
+                        let mut buf = node.alt_text.clone().unwrap_or_default();
+                        let text_resp = ui.text_edit_singleline(&mut buf);
+                        if text_resp.changed() {
+                            node.alt_text = if buf.trim().is_empty() { None } else { Some(buf) };
+                            if let Some(h_id) = node.handle_id {
+                                let _ = tx_worker.send(crate::worker::WorkerRequest::UpdateNode {
+                                    handle_id: h_id,
+                                    tag: node.tag.clone(),
+                                    alt_text: node.alt_text.clone(),
+                                });
+                            }
+                        }
+                        ui.end_row();
+                    });
             }
 
             if !node_found {
@@ -1036,7 +1025,8 @@ impl SidebarPanel {
         });
     }
 
-    fn show_accessibility_audit( // RR-15 Limit: GUI - Render accessibility audit findings panel
+    fn show_accessibility_audit(
+        // RR-15 Limit: GUI - Render accessibility audit findings panel
         ui: &mut egui::Ui,
         registry: &mut USTRegistry,
         locale_mgr: &crate::locale::LocaleManager,
@@ -1091,7 +1081,7 @@ impl SidebarPanel {
                         let card_resp = ui.vertical(|ui| {
                             ui.horizontal(|ui| {
                                 ui.colored_label(egui::Color32::LIGHT_RED, checkpoint);
-                                ui.label(format!("({})", severity));
+                                ui.label(format!("({severity})"));
                             });
                             ui.label(message);
                         });
@@ -1099,13 +1089,12 @@ impl SidebarPanel {
                         let id = ui.id().with(checkpoint).with(message);
                         let response =
                             ui.interact(card_resp.response.rect, id, egui::Sense::click());
-                        if response.clicked() {
-                            if let Some(h_id) = handle_id {
-                                if let Some(node_id) = registry.find_node_id_by_handle_id(*h_id) {
-                                    registry.selected_node_id = Some(node_id);
-                                    registry.pending_center_node_id = Some(node_id);
-                                }
-                            }
+                        if response.clicked()
+                            && let Some(h_id) = handle_id
+                            && let Some(node_id) = registry.find_node_id_by_handle_id(*h_id)
+                        {
+                            registry.selected_node_id = Some(node_id);
+                            registry.pending_center_node_id = Some(node_id);
                         }
                         if response.hovered() {
                             ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
@@ -1137,41 +1126,42 @@ impl SidebarPanel {
 
         let dragged_id: Option<Option<usize>> =
             ui.ctx().data(|d| d.get_temp(egui::Id::new("dragged_node_id")));
-        if let Some(Some(drag_id)) = dragged_id {
-            if drag_id != node_id && !USTRegistry::is_descendant(node, drag_id) {
-                let resp_above = ui.button("Above");
-                if resp_above.clicked()
-                    || (resp_above.hovered() && ui.input(|i| i.pointer.any_released()))
-                {
-                    ui.ctx().data_mut(|d| {
-                        d.insert_temp(
-                            egui::Id::new("pending_move"),
-                            Some((drag_id, node_id, DragRelation::Above)),
-                        )
-                    });
-                }
-                let resp_child = ui.button("Child");
-                if resp_child.clicked()
-                    || (resp_child.hovered() && ui.input(|i| i.pointer.any_released()))
-                {
-                    ui.ctx().data_mut(|d| {
-                        d.insert_temp(
-                            egui::Id::new("pending_move"),
-                            Some((drag_id, node_id, DragRelation::AsChild)),
-                        )
-                    });
-                }
-                let resp_below = ui.button("Below");
-                if resp_below.clicked()
-                    || (resp_below.hovered() && ui.input(|i| i.pointer.any_released()))
-                {
-                    ui.ctx().data_mut(|d| {
-                        d.insert_temp(
-                            egui::Id::new("pending_move"),
-                            Some((drag_id, node_id, DragRelation::Below)),
-                        )
-                    });
-                }
+        if let Some(Some(drag_id)) = dragged_id
+            && drag_id != node_id
+            && !USTRegistry::is_descendant(node, drag_id)
+        {
+            let resp_above = ui.button("Above");
+            if resp_above.clicked()
+                || (resp_above.hovered() && ui.input(|i| i.pointer.any_released()))
+            {
+                ui.ctx().data_mut(|d| {
+                    d.insert_temp(
+                        egui::Id::new("pending_move"),
+                        Some((drag_id, node_id, DragRelation::Above)),
+                    )
+                });
+            }
+            let resp_child = ui.button("Child");
+            if resp_child.clicked()
+                || (resp_child.hovered() && ui.input(|i| i.pointer.any_released()))
+            {
+                ui.ctx().data_mut(|d| {
+                    d.insert_temp(
+                        egui::Id::new("pending_move"),
+                        Some((drag_id, node_id, DragRelation::AsChild)),
+                    )
+                });
+            }
+            let resp_below = ui.button("Below");
+            if resp_below.clicked()
+                || (resp_below.hovered() && ui.input(|i| i.pointer.any_released()))
+            {
+                ui.ctx().data_mut(|d| {
+                    d.insert_temp(
+                        egui::Id::new("pending_move"),
+                        Some((drag_id, node_id, DragRelation::Below)),
+                    )
+                });
             }
         }
     }
@@ -1205,7 +1195,8 @@ impl SidebarPanel {
         }
     }
 
-    fn render_node_recursive( // RR-15 Limit: GUI - Renders accessibility tag node tree recursively
+    fn render_node_recursive(
+        // RR-15 Limit: GUI - Renders accessibility tag node tree recursively
         ui: &mut egui::Ui,
         node: &mut USTNode,
         selected_node_id: &mut Option<usize>,
@@ -1274,7 +1265,8 @@ impl SidebarPanel {
         });
     }
 
-    fn show_alt_text_gallery( // RR-15 Limit: GUI - Renders a carousel list of figure elements and their Alt text cards
+    fn show_alt_text_gallery(
+        // RR-15 Limit: GUI - Renders a carousel list of figure elements and their Alt text cards
         &mut self,
         ui: &mut egui::Ui,
         registry: &mut USTRegistry,
@@ -1318,18 +1310,17 @@ impl SidebarPanel {
                                         } else {
                                             Some(buf.clone())
                                         };
-                                        if let Some(ref mut root) = registry.root {
-                                            if update_alt_text(root, fig.id, new_alt.clone()) {
-                                                if let Some(h_id) = fig.handle_id {
-                                                    let _ = tx_worker.send(
-                                                        crate::worker::WorkerRequest::UpdateNode {
-                                                            handle_id: h_id,
-                                                            tag: "Figure".to_string(),
-                                                            alt_text: new_alt,
-                                                        },
-                                                    );
-                                                }
-                                            }
+                                        if let Some(ref mut root) = registry.root
+                                            && update_alt_text(root, fig.id, new_alt.clone())
+                                            && let Some(h_id) = fig.handle_id
+                                        {
+                                            let _ = tx_worker.send(
+                                                crate::worker::WorkerRequest::UpdateNode {
+                                                    handle_id: h_id,
+                                                    tag: "Figure".to_string(),
+                                                    alt_text: new_alt,
+                                                },
+                                            );
                                         }
                                     }
                                 });
@@ -1356,6 +1347,7 @@ mod tests {
             title: "PDF Document Catalog".to_string(),
             alt_text: None,
             rect: None,
+            page_index: None,
             handle_id: None,
             children: vec![USTNode {
                 id: 1,
@@ -1363,6 +1355,7 @@ mod tests {
                 title: "Page 1 Section".to_string(),
                 alt_text: None,
                 rect: None,
+                page_index: None,
                 handle_id: None,
                 children: vec![
                     USTNode {
@@ -1371,6 +1364,7 @@ mod tests {
                         title: "Heading of Page 1".to_string(),
                         alt_text: None,
                         rect: None,
+                        page_index: None,
                         handle_id: None,
                         children: Vec::new(),
                     },
@@ -1380,6 +1374,7 @@ mod tests {
                         title: "Paragraph content for page 1".to_string(),
                         alt_text: None,
                         rect: None,
+                        page_index: None,
                         handle_id: None,
                         children: Vec::new(),
                     },
@@ -1389,6 +1384,7 @@ mod tests {
                         title: "Illustration on page 1".to_string(),
                         alt_text: None,
                         rect: None,
+                        page_index: None,
                         handle_id: None,
                         children: Vec::new(),
                     },

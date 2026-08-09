@@ -33,6 +33,7 @@ pub struct FerruginousApp {
 
     pub redaction_manager: RedactionManager,
     pub redaction_studio_panel: crate::redaction_studio::RedactionStudioPanel,
+    pub show_redaction_studio: bool,
     pub show_export_wizard: bool,
     pub export_compress: bool,
     pub export_linearize: bool,
@@ -79,7 +80,8 @@ pub struct FerruginousApp {
 }
 
 impl FerruginousApp {
-    pub fn new(cc: &eframe::CreationContext<'_>) -> Self { // RR-15 Limit: GUI - App state creation and initialization
+    pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
+        // RR-15 Limit: GUI - App state creation and initialization
         let vello_renderer =
             cc.wgpu_render_state.as_ref().and_then(|rs| VelloRenderer::new(&rs.device));
         let (tx_req, rx_req) = channel();
@@ -107,9 +109,9 @@ impl FerruginousApp {
         ];
 
         if let Ok(win_dir) = std::env::var("windir") {
-            paths.push(format!(r"{}\Fonts\msgothic.ttc", win_dir));
-            paths.push(format!(r"{}\Fonts\yugothm.ttc", win_dir));
-            paths.push(format!(r"{}\Fonts\meiryo.ttc", win_dir));
+            paths.push(format!(r"{win_dir}\Fonts\msgothic.ttc"));
+            paths.push(format!(r"{win_dir}\Fonts\yugothm.ttc"));
+            paths.push(format!(r"{win_dir}\Fonts\meiryo.ttc"));
         } else {
             paths.push(r"C:\Windows\Fonts\msgothic.ttc".to_owned());
             paths.push(r"C:\Windows\Fonts\yugothm.ttc".to_owned());
@@ -123,7 +125,7 @@ impl FerruginousApp {
 
         for path in &paths {
             if let Ok(font_data) = std::fs::read(path) {
-                log::info!("Successfully loaded CJK font from {}", path);
+                log::info!("Successfully loaded CJK font from {path}");
                 fonts
                     .font_data
                     .insert("cjk".to_owned(), egui::FontData::from_owned(font_data).into());
@@ -141,7 +143,8 @@ impl FerruginousApp {
 
         cc.egui_ctx.global_style_mut(|style| {
             style.visuals.selection.stroke = egui::Stroke::NONE;
-            style.visuals.selection.bg_fill = egui::Color32::from_rgba_unmultiplied(120, 125, 135, 45);
+            style.visuals.selection.bg_fill =
+                egui::Color32::from_rgba_unmultiplied(120, 125, 135, 45);
             style.visuals.widgets.active.bg_stroke = egui::Stroke::NONE;
             style.visuals.widgets.hovered.bg_stroke = egui::Stroke::NONE;
             style.visuals.widgets.inactive.bg_stroke = egui::Stroke::NONE;
@@ -171,6 +174,7 @@ impl FerruginousApp {
             sidebar_panel: SidebarPanel::new(),
             redaction_manager: RedactionManager::new(),
             redaction_studio_panel: crate::redaction_studio::RedactionStudioPanel::new(),
+            show_redaction_studio: false,
             show_export_wizard: false,
             export_compress: true,
             export_linearize: true,
@@ -233,6 +237,7 @@ impl FerruginousApp {
                 req.combined_rect.max.x,
                 req.combined_rect.max.y,
             ]),
+            page_index: Some(req.page_index),
             handle_id: None,
             children: Vec::new(),
         };
@@ -242,7 +247,7 @@ impl FerruginousApp {
             root.children.push(new_node);
         }
 
-        self.error = Some(format!("Successfully created <{}> tag", tag));
+        self.error = Some(format!("Successfully created <{tag}> tag"));
     }
 
     pub fn open_file(&mut self, path: PathBuf, ctx: &egui::Context) {
@@ -289,9 +294,12 @@ impl FerruginousApp {
     }
 
     pub fn fit_to_width(&mut self, viewport_rect: egui::Rect) {
-        let current_page = self.view.visible_pages.first().cloned().unwrap_or(self.view.active_page);
+        let current_page =
+            self.view.visible_pages.first().copied().unwrap_or(self.view.active_page);
         let mut indices = vec![current_page];
-        if self.view.display_mode == crate::view::DisplayMode::TwoPageSpread || self.view.display_mode == crate::view::DisplayMode::TwoPageSingle {
+        if self.view.display_mode == crate::view::DisplayMode::TwoPageSpread
+            || self.view.display_mode == crate::view::DisplayMode::TwoPageSingle
+        {
             if self.view.cover_page_alone {
                 if current_page > 0 {
                     let pair_start = ((current_page - 1) / 2) * 2 + 1;
@@ -327,9 +335,12 @@ impl FerruginousApp {
     }
 
     pub fn fit_to_height(&mut self, viewport_rect: egui::Rect) {
-        let current_page = self.view.visible_pages.first().cloned().unwrap_or(self.view.active_page);
+        let current_page =
+            self.view.visible_pages.first().copied().unwrap_or(self.view.active_page);
         let mut indices = vec![current_page];
-        if self.view.display_mode == crate::view::DisplayMode::TwoPageSpread || self.view.display_mode == crate::view::DisplayMode::TwoPageSingle {
+        if self.view.display_mode == crate::view::DisplayMode::TwoPageSpread
+            || self.view.display_mode == crate::view::DisplayMode::TwoPageSingle
+        {
             if self.view.cover_page_alone {
                 if current_page > 0 {
                     let pair_start = ((current_page - 1) / 2) * 2 + 1;
@@ -360,7 +371,10 @@ impl FerruginousApp {
         if spread_h > 0.0 && min_y < f32::MAX {
             let target_zoom = (viewport_rect.height() - 40.0) / spread_h;
             self.view.zoom = target_zoom.clamp(0.1, 10.0);
-            if self.view.display_mode == DisplayMode::Continuous || self.view.display_mode == DisplayMode::TwoPageSpread || self.view.display_mode == DisplayMode::TwoPageSingle {
+            if self.view.display_mode == DisplayMode::Continuous
+                || self.view.display_mode == DisplayMode::TwoPageSpread
+                || self.view.display_mode == DisplayMode::TwoPageSingle
+            {
                 self.view.pan.y = -min_y * self.view.zoom;
             } else {
                 self.view.pan.y = 0.0;
@@ -369,26 +383,28 @@ impl FerruginousApp {
         }
     }
 
-    fn process_worker_messages(&mut self, ctx: &egui::Context) { // RR-15 Limit: GUI - Handle asynchronous background messages
+    fn process_worker_messages(&mut self, ctx: &egui::Context) {
+        // RR-15 Limit: GUI - Handle asynchronous background messages
         while let Ok(msg) = self.rx_worker.try_recv() {
             match msg {
                 WorkerResponse::LoadingProgress { message } => {
                     self.loading_message = message;
                     ctx.request_repaint();
                 }
-                WorkerResponse::DocumentLoaded {
-                    name,
-                    num_pages,
-                    page_sizes,
-                    ust_root,
-                    file_size,
-                    version,
-                    metadata,
-                    security_method,
-                    permissions,
-                    fonts,
-                    viewer_direction,
-                } => {
+                WorkerResponse::DocumentLoaded(loaded) => {
+                    let crate::worker::LoadedDocument {
+                        name,
+                        num_pages,
+                        page_sizes,
+                        ust_root,
+                        file_size,
+                        version,
+                        metadata,
+                        security_method,
+                        permissions,
+                        fonts,
+                        viewer_direction,
+                    } = *loaded;
                     if name.is_some() {
                         self.pdf_name = name;
                     }
@@ -399,9 +415,11 @@ impl FerruginousApp {
                     self.clear_thumbnails_pending = true;
                     if let Some(ref dir) = viewer_direction {
                         if dir.eq_ignore_ascii_case("R2L") {
-                            self.view.binding_direction = crate::view::BindingDirection::RightToLeft;
+                            self.view.binding_direction =
+                                crate::view::BindingDirection::RightToLeft;
                         } else {
-                            self.view.binding_direction = crate::view::BindingDirection::LeftToRight;
+                            self.view.binding_direction =
+                                crate::view::BindingDirection::LeftToRight;
                         }
                     } else {
                         self.view.binding_direction = crate::view::BindingDirection::LeftToRight;
@@ -436,13 +454,12 @@ impl FerruginousApp {
 
                     if let Some(spans) = spans {
                         self.page_spans.insert(index, spans);
-                    } else if let Some(text) = self.raw_texts.get(&index) {
-                        if let Some(layout) = self.page_layouts.get(index) {
-                            let size = layout.rect.size();
-                            let spans =
-                                SelectionManager::generate_spans_for_page(text, size.x, size.y);
-                            self.page_spans.insert(index, spans);
-                        }
+                    } else if let Some(text) = self.raw_texts.get(&index)
+                        && let Some(layout) = self.page_layouts.get(index)
+                    {
+                        let size = layout.rect.size();
+                        let spans = SelectionManager::generate_spans_for_page(text, size.x, size.y);
+                        self.page_spans.insert(index, spans);
                     }
 
                     ctx.request_repaint();
@@ -453,8 +470,8 @@ impl FerruginousApp {
                 }
                 WorkerResponse::DocumentSaved { path } => {
                     self.error = Some(format!(
-                        "Successfully exported compliant PDF to {:?}",
-                        path.file_name().unwrap_or(&path.as_os_str())
+                        "Successfully exported compliant PDF to {}",
+                        path.file_name().unwrap_or(path.as_os_str()).display()
                     ));
                     ctx.request_repaint();
                 }
@@ -466,11 +483,15 @@ impl FerruginousApp {
         }
     }
 
-    fn compute_layouts(&mut self, page_sizes: &[(f64, f64)]) { // RR-15 Limit: GUI
-        use crate::view::{ScrollDirection, BindingDirection, DisplayMode};
-        let mut layouts = vec![PageLayout { index: 0, rect: egui::Rect::NOTHING }; page_sizes.len()];
+    fn compute_layouts(&mut self, page_sizes: &[(f64, f64)]) {
+        // RR-15 Limit: GUI
+        use crate::view::{BindingDirection, DisplayMode, ScrollDirection};
+        let mut layouts =
+            vec![PageLayout { index: 0, rect: egui::Rect::NOTHING }; page_sizes.len()];
 
-        if self.view.display_mode == DisplayMode::TwoPageSpread || self.view.display_mode == DisplayMode::TwoPageSingle {
+        if self.view.display_mode == DisplayMode::TwoPageSpread
+            || self.view.display_mode == DisplayMode::TwoPageSingle
+        {
             let mut current_offset = 0.0;
             let gap = 20.0;
             let inner_gap = 8.0;
@@ -479,9 +500,15 @@ impl FerruginousApp {
                 let w = w as f32;
                 let h = h as f32;
                 let rect = if self.view.scroll_direction == ScrollDirection::Vertical {
-                    egui::Rect::from_min_size(egui::pos2(-w / 2.0, current_offset), egui::vec2(w, h))
+                    egui::Rect::from_min_size(
+                        egui::pos2(-w / 2.0, current_offset),
+                        egui::vec2(w, h),
+                    )
                 } else {
-                    egui::Rect::from_min_size(egui::pos2(current_offset, -h / 2.0), egui::vec2(w, h))
+                    egui::Rect::from_min_size(
+                        egui::pos2(current_offset, -h / 2.0),
+                        egui::vec2(w, h),
+                    )
                 };
                 layouts[0] = PageLayout { index: 0, rect };
                 if self.view.scroll_direction == ScrollDirection::Vertical {
@@ -506,27 +533,52 @@ impl FerruginousApp {
                     let total_w = w1 + w2 + inner_gap;
                     let max_h = h1.max(h2);
 
-                    let (rect1, rect2) = if self.view.scroll_direction == ScrollDirection::Vertical {
+                    let (rect1, rect2) = if self.view.scroll_direction == ScrollDirection::Vertical
+                    {
                         let y1 = current_offset + (max_h - h1) / 2.0;
                         let y2 = current_offset + (max_h - h2) / 2.0;
                         if self.view.binding_direction == BindingDirection::RightToLeft {
-                            let r1 = egui::Rect::from_min_size(egui::pos2(inner_gap / 2.0, y1), egui::vec2(w1, h1));
-                            let r2 = egui::Rect::from_min_size(egui::pos2(-total_w / 2.0, y2), egui::vec2(w2, h2));
+                            let r1 = egui::Rect::from_min_size(
+                                egui::pos2(inner_gap / 2.0, y1),
+                                egui::vec2(w1, h1),
+                            );
+                            let r2 = egui::Rect::from_min_size(
+                                egui::pos2(-total_w / 2.0, y2),
+                                egui::vec2(w2, h2),
+                            );
                             (r1, r2)
                         } else {
-                            let r1 = egui::Rect::from_min_size(egui::pos2(-total_w / 2.0, y1), egui::vec2(w1, h1));
-                            let r2 = egui::Rect::from_min_size(egui::pos2(inner_gap / 2.0, y2), egui::vec2(w2, h2));
+                            let r1 = egui::Rect::from_min_size(
+                                egui::pos2(-total_w / 2.0, y1),
+                                egui::vec2(w1, h1),
+                            );
+                            let r2 = egui::Rect::from_min_size(
+                                egui::pos2(inner_gap / 2.0, y2),
+                                egui::vec2(w2, h2),
+                            );
                             (r1, r2)
                         }
                     } else {
                         let x1 = current_offset;
                         if self.view.binding_direction == BindingDirection::RightToLeft {
-                            let r1 = egui::Rect::from_min_size(egui::pos2(x1 + w2 + inner_gap, -h1 / 2.0), egui::vec2(w1, h1));
-                            let r2 = egui::Rect::from_min_size(egui::pos2(x1, -h2 / 2.0), egui::vec2(w2, h2));
+                            let r1 = egui::Rect::from_min_size(
+                                egui::pos2(x1 + w2 + inner_gap, -h1 / 2.0),
+                                egui::vec2(w1, h1),
+                            );
+                            let r2 = egui::Rect::from_min_size(
+                                egui::pos2(x1, -h2 / 2.0),
+                                egui::vec2(w2, h2),
+                            );
                             (r1, r2)
                         } else {
-                            let r1 = egui::Rect::from_min_size(egui::pos2(x1, -h1 / 2.0), egui::vec2(w1, h1));
-                            let r2 = egui::Rect::from_min_size(egui::pos2(x1 + w1 + inner_gap, -h2 / 2.0), egui::vec2(w2, h2));
+                            let r1 = egui::Rect::from_min_size(
+                                egui::pos2(x1, -h1 / 2.0),
+                                egui::vec2(w1, h1),
+                            );
+                            let r2 = egui::Rect::from_min_size(
+                                egui::pos2(x1 + w1 + inner_gap, -h2 / 2.0),
+                                egui::vec2(w2, h2),
+                            );
                             (r1, r2)
                         }
                     };
@@ -545,9 +597,15 @@ impl FerruginousApp {
                     let w = w as f32;
                     let h = h as f32;
                     let rect = if self.view.scroll_direction == ScrollDirection::Vertical {
-                        egui::Rect::from_min_size(egui::pos2(-w / 2.0, current_offset), egui::vec2(w, h))
+                        egui::Rect::from_min_size(
+                            egui::pos2(-w / 2.0, current_offset),
+                            egui::vec2(w, h),
+                        )
                     } else {
-                        egui::Rect::from_min_size(egui::pos2(current_offset, -h / 2.0), egui::vec2(w, h))
+                        egui::Rect::from_min_size(
+                            egui::pos2(current_offset, -h / 2.0),
+                            egui::vec2(w, h),
+                        )
                     };
                     layouts[i] = PageLayout { index: i, rect };
                     if self.view.scroll_direction == ScrollDirection::Vertical {
@@ -576,11 +634,17 @@ impl FerruginousApp {
                 let w = w as f32;
                 let h = h as f32;
                 let rect = if self.view.scroll_direction == ScrollDirection::Vertical {
-                    let r = egui::Rect::from_min_size(egui::pos2(-w / 2.0, current_offset), egui::vec2(w, h));
+                    let r = egui::Rect::from_min_size(
+                        egui::pos2(-w / 2.0, current_offset),
+                        egui::vec2(w, h),
+                    );
                     current_offset += h + gap;
                     r
                 } else {
-                    let r = egui::Rect::from_min_size(egui::pos2(current_offset, -h / 2.0), egui::vec2(w, h));
+                    let r = egui::Rect::from_min_size(
+                        egui::pos2(current_offset, -h / 2.0),
+                        egui::vec2(w, h),
+                    );
                     current_offset += w + gap;
                     r
                 };
@@ -642,7 +706,7 @@ impl FerruginousApp {
             return;
         }
 
-        let mut indices: Vec<usize> = self.selected_pages.iter().cloned().collect();
+        let mut indices: Vec<usize> = self.selected_pages.iter().copied().collect();
         indices.sort_unstable_by(|a, b| b.cmp(a));
 
         for &idx in &indices {
@@ -703,20 +767,21 @@ impl FerruginousApp {
                 render_targets.insert(active + 1);
             }
         } else if self.view.display_mode == DisplayMode::TwoPageSingle {
-            let spread_indices = self.view.get_spread_indices(self.view.active_page, self.total_pages);
+            let spread_indices =
+                self.view.get_spread_indices(self.view.active_page, self.total_pages);
             for &idx in &spread_indices {
                 render_targets.insert(idx);
             }
             // Pre-render pages before and after the spread
-            if let Some(&first_idx) = spread_indices.first() {
-                if first_idx > 0 {
-                    render_targets.insert(first_idx - 1);
-                }
+            if let Some(&first_idx) = spread_indices.first()
+                && first_idx > 0
+            {
+                render_targets.insert(first_idx - 1);
             }
-            if let Some(&last_idx) = spread_indices.last() {
-                if last_idx + 1 < self.total_pages {
-                    render_targets.insert(last_idx + 1);
-                }
+            if let Some(&last_idx) = spread_indices.last()
+                && last_idx + 1 < self.total_pages
+            {
+                render_targets.insert(last_idx + 1);
             }
         } else {
             for &visible_index in &self.view.visible_pages {
@@ -764,13 +829,11 @@ impl FerruginousApp {
         if response.dragged()
             && let Some(pos) = screen_pos
             && let Some((sig_idx, sig_rect)) = &mut self.signature_position
+            && *sig_idx == visible_index
         {
-            if *sig_idx == visible_index {
-                let pdf_pos =
-                    SelectionManager::screen_to_pdf(page_screen_rect, zoom, unscaled_h, pos);
-                let start_pos = sig_rect.min;
-                *sig_rect = egui::Rect::from_two_pos(start_pos, pdf_pos);
-            }
+            let pdf_pos = SelectionManager::screen_to_pdf(page_screen_rect, zoom, unscaled_h, pos);
+            let start_pos = sig_rect.min;
+            *sig_rect = egui::Rect::from_two_pos(start_pos, pdf_pos);
         }
 
         if response.drag_stopped() {
@@ -782,7 +845,8 @@ impl FerruginousApp {
         }
     }
 
-    fn handle_page_interactions( // RR-15 Limit: GUI - Unified egui pointer and canvas coordinate interaction loop
+    fn handle_page_interactions(
+        // RR-15 Limit: GUI - Unified egui pointer and canvas coordinate interaction loop
         &mut self,
         ui: &mut egui::Ui,
         viewport_rect: egui::Rect,
@@ -791,10 +855,14 @@ impl FerruginousApp {
         let visible_pages = self.view.visible_pages.clone();
         let active_spread = self.view.get_spread_indices(self.view.active_page, self.total_pages);
         for &visible_index in &visible_pages {
-            if self.view.display_mode == DisplayMode::SinglePage && visible_index != self.view.active_page {
+            if self.view.display_mode == DisplayMode::SinglePage
+                && visible_index != self.view.active_page
+            {
                 continue;
             }
-            if self.view.display_mode == DisplayMode::TwoPageSingle && !active_spread.contains(&visible_index) {
+            if self.view.display_mode == DisplayMode::TwoPageSingle
+                && !active_spread.contains(&visible_index)
+            {
                 continue;
             }
             if let Some(layout) = self.page_layouts.get(visible_index) {
@@ -865,13 +933,12 @@ impl FerruginousApp {
         zoom: f32,
     ) -> Option<(usize, egui::Rect)> {
         let selected_id = self.ust_registry.selected_node_id?;
-        if let Some(ref root) = self.ust_registry.root {
-            if root.id == selected_id {
-                return None;
-            }
+        if let Some(ref root) = self.ust_registry.root
+            && root.id == selected_id
+        {
+            return None;
         }
-        let rect = self.ust_registry.find_rect_by_id(selected_id)?;
-        let page_idx = 0; // Default to first page
+        let (page_idx, rect) = self.ust_registry.find_placement_by_id(selected_id)?;
         let layout = self.page_layouts.get(page_idx)?;
         let origin = self.view.get_origin(viewport_rect);
         let page_screen_rect = egui::Rect::from_min_size(
@@ -922,7 +989,8 @@ impl FerruginousApp {
         Some((sig_page, egui::Rect::from_min_max(screen_min, screen_max)))
     }
 
-    fn draw_view_with_highlights( // RR-15 Limit: GUI
+    fn draw_view_with_highlights(
+        // RR-15 Limit: GUI
         &mut self,
         ui: &mut egui::Ui,
         viewport_rect: egui::Rect,
@@ -936,10 +1004,14 @@ impl FerruginousApp {
         let visible_pages = self.view.visible_pages.clone();
         let active_spread = self.view.get_spread_indices(self.view.active_page, self.total_pages);
         for &visible_index in &visible_pages {
-            if self.view.display_mode == DisplayMode::SinglePage && visible_index != self.view.active_page {
+            if self.view.display_mode == DisplayMode::SinglePage
+                && visible_index != self.view.active_page
+            {
                 continue;
             }
-            if self.view.display_mode == DisplayMode::TwoPageSingle && !active_spread.contains(&visible_index) {
+            if self.view.display_mode == DisplayMode::TwoPageSingle
+                && !active_spread.contains(&visible_index)
+            {
                 continue;
             }
             if let Some(layout) = self.page_layouts.get(visible_index) {
@@ -984,19 +1056,18 @@ impl FerruginousApp {
         );
     }
 
-    fn render_document_panel( // RR-15 Limit: GUI - Renders document panel, handles centering, page layouts, and vello texture projection
+    fn render_document_panel(
+        // RR-15 Limit: GUI - Renders document panel, handles centering, page layouts, and vello texture projection
         &mut self,
         ui: &mut egui::Ui,
         rs: &egui_wgpu::RenderState,
         viewport_rect: egui::Rect,
     ) {
-        if let Some(center_id) = self.ust_registry.pending_center_node_id.take() {
-            if let Some(rect) = self.ust_registry.find_rect_by_id(center_id) {
-                let page_idx = 0; // Default to first page
-                if let Some(layout) = self.page_layouts.get(page_idx) {
-                    self.view.center_on_rect(viewport_rect, layout, rect);
-                }
-            }
+        if let Some(center_id) = self.ust_registry.pending_center_node_id.take()
+            && let Some((page_idx, rect)) = self.ust_registry.find_placement_by_id(center_id)
+            && let Some(layout) = self.page_layouts.get(page_idx)
+        {
+            self.view.center_on_rect(viewport_rect, layout, rect);
         }
 
         let vello_renderer = match self.vello_renderer.as_mut() {
@@ -1013,10 +1084,14 @@ impl FerruginousApp {
 
         let active_spread = self.view.get_spread_indices(self.view.active_page, self.total_pages);
         for layout in &self.page_layouts {
-            if self.view.display_mode == DisplayMode::SinglePage && layout.index != self.view.active_page {
+            if self.view.display_mode == DisplayMode::SinglePage
+                && layout.index != self.view.active_page
+            {
                 continue;
             }
-            if self.view.display_mode == DisplayMode::TwoPageSingle && !active_spread.contains(&layout.index) {
+            if self.view.display_mode == DisplayMode::TwoPageSingle
+                && !active_spread.contains(&layout.index)
+            {
                 continue;
             }
             let page_screen_rect = egui::Rect::from_min_size(
@@ -1024,16 +1099,16 @@ impl FerruginousApp {
                 layout.rect.size() * zoom,
             );
 
-            if viewport_rect.intersects(page_screen_rect) {
-                if let Some(scene) = self.scenes.get(&layout.index) {
-                    let unscaled_size = egui::vec2(layout.rect.width(), layout.rect.height());
-                    visible_pages_data.push((
-                        layout.index,
-                        Arc::clone(scene),
-                        page_screen_rect,
-                        unscaled_size,
-                    ));
-                }
+            if viewport_rect.intersects(page_screen_rect)
+                && let Some(scene) = self.scenes.get(&layout.index)
+            {
+                let unscaled_size = egui::vec2(layout.rect.width(), layout.rect.height());
+                visible_pages_data.push((
+                    layout.index,
+                    Arc::clone(scene),
+                    page_screen_rect,
+                    unscaled_size,
+                ));
             }
         }
 
@@ -1050,7 +1125,8 @@ impl FerruginousApp {
         self.draw_view_with_highlights(ui, viewport_rect, zoom, viewport_texture_id);
     }
 
-    fn update_vello(&mut self, ui: &mut egui::Ui, frame: &mut eframe::Frame) { // RR-15 Limit: Dispatcher
+    fn update_vello(&mut self, ui: &mut egui::Ui, frame: &mut eframe::Frame) {
+        // RR-15 Limit: Dispatcher
         let ctx = ui.ctx().clone();
         self.process_worker_messages(&ctx);
 
@@ -1070,11 +1146,11 @@ impl FerruginousApp {
             self.clear_thumbnails_pending = false;
         }
 
-        if !self.invalidated_thumbnails.is_empty() {
-            if let Some(ref mut r) = self.vello_renderer {
-                for page_idx in std::mem::take(&mut self.invalidated_thumbnails) {
-                    r.invalidate_thumbnail(rs, page_idx);
-                }
+        if !self.invalidated_thumbnails.is_empty()
+            && let Some(ref mut r) = self.vello_renderer
+        {
+            for page_idx in std::mem::take(&mut self.invalidated_thumbnails) {
+                r.invalidate_thumbnail(rs, page_idx);
             }
         }
 
@@ -1120,12 +1196,14 @@ impl FerruginousApp {
                 );
 
                 let mut child_ui = ui.new_child(
-                    egui::UiBuilder::new()
-                        .max_rect(overlay_rect)
-                        .layout(egui::Layout::left_to_right(egui::Align::Center).with_main_align(egui::Align::Center)),
+                    egui::UiBuilder::new().max_rect(overlay_rect).layout(
+                        egui::Layout::left_to_right(egui::Align::Center)
+                            .with_main_align(egui::Align::Center),
+                    ),
                 );
                 child_ui.with_layout(
-                    egui::Layout::left_to_right(egui::Align::Center).with_main_align(egui::Align::Center),
+                    egui::Layout::left_to_right(egui::Align::Center)
+                        .with_main_align(egui::Align::Center),
                     |ui| {
                         ui.spacing_mut().item_spacing.x = 6.0;
                         let spacer = (ui.available_width() - content_width).max(0.0) / 2.0;
@@ -1134,63 +1212,65 @@ impl FerruginousApp {
                         let current_page = if self.view.display_mode == DisplayMode::SinglePage {
                             self.view.active_page
                         } else {
-                            self.view.visible_pages.first().cloned().unwrap_or(self.view.active_page)
+                            self.view
+                                .visible_pages
+                                .first()
+                                .copied()
+                                .unwrap_or(self.view.active_page)
                         };
 
                         // Page Navigation Icon Directions (Adapts to Vertical/Horizontal and L2R/R2L binding)
-                        let (first_icon, prev_icon, next_icon, last_icon) = match self.view.scroll_direction {
-                            crate::view::ScrollDirection::Vertical => (
-                                "▲▲",
-                                "▲",
-                                "▼",
-                                "▼▼",
-                            ),
-                            crate::view::ScrollDirection::Horizontal => {
-                                if self.view.binding_direction == crate::view::BindingDirection::RightToLeft {
-                                    (
-                                        "▶▶",
-                                        "▶",
-                                        "◀",
-                                        "◀◀",
-                                    )
-                                } else {
-                                    (
-                                        "◀◀",
-                                        "◀",
-                                        "▶",
-                                        "▶▶",
-                                    )
+                        let (first_icon, prev_icon, next_icon, last_icon) =
+                            match self.view.scroll_direction {
+                                crate::view::ScrollDirection::Vertical => ("▲▲", "▲", "▼", "▼▼"),
+                                crate::view::ScrollDirection::Horizontal => {
+                                    if self.view.binding_direction
+                                        == crate::view::BindingDirection::RightToLeft
+                                    {
+                                        ("▶▶", "▶", "◀", "◀◀")
+                                    } else {
+                                        ("◀◀", "◀", "▶", "▶▶")
+                                    }
                                 }
-                            }
-                        };
+                            };
 
                         if ui
                             .add_sized(egui::vec2(24.0, 24.0), egui::Button::new(first_icon))
-                            .on_hover_text(self.locale_mgr.tr(&self.active_language, "tooltip_first_page"))
+                            .on_hover_text(
+                                self.locale_mgr.tr(&self.active_language, "tooltip_first_page"),
+                            )
                             .clicked()
                         {
                             self.view.scroll_to_page(0, &self.page_layouts);
                         }
 
                         // Previous page logic (reversed in RTL Horizontal layout)
-                        let go_prev = ui.add_sized(egui::vec2(24.0, 24.0), egui::Button::new(prev_icon)).clicked();
+                        let go_prev = ui
+                            .add_sized(egui::vec2(24.0, 24.0), egui::Button::new(prev_icon))
+                            .clicked();
                         if go_prev {
                             if self.view.display_mode == DisplayMode::TwoPageSingle {
-                                let spread = self.view.get_spread_indices(current_page, self.total_pages);
+                                let spread =
+                                    self.view.get_spread_indices(current_page, self.total_pages);
                                 if let Some(&first_idx) = spread.first() {
-                                    let is_r2l = self.view.scroll_direction == crate::view::ScrollDirection::Horizontal
-                                        && self.view.binding_direction == crate::view::BindingDirection::RightToLeft;
+                                    let is_r2l = self.view.scroll_direction
+                                        == crate::view::ScrollDirection::Horizontal
+                                        && self.view.binding_direction
+                                            == crate::view::BindingDirection::RightToLeft;
                                     if is_r2l {
-                                        let last_idx = spread.last().cloned().unwrap_or(first_idx);
+                                        let last_idx = spread.last().copied().unwrap_or(first_idx);
                                         if last_idx + 1 < self.total_pages {
-                                            self.view.scroll_to_page(last_idx + 1, &self.page_layouts);
+                                            self.view
+                                                .scroll_to_page(last_idx + 1, &self.page_layouts);
                                         }
                                     } else if first_idx > 0 {
                                         self.view.scroll_to_page(first_idx - 1, &self.page_layouts);
                                     }
                                 }
-                            } else if self.view.scroll_direction == crate::view::ScrollDirection::Horizontal
-                                && self.view.binding_direction == crate::view::BindingDirection::RightToLeft
+                            } else if self.view.scroll_direction
+                                == crate::view::ScrollDirection::Horizontal
+                                && self.view.binding_direction
+                                    == crate::view::BindingDirection::RightToLeft
                             {
                                 if current_page + 1 < self.total_pages {
                                     self.view.scroll_to_page(current_page + 1, &self.page_layouts);
@@ -1213,26 +1293,35 @@ impl FerruginousApp {
                         );
 
                         // Next page logic (reversed in RTL Horizontal layout)
-                        let go_next = ui.add_sized(egui::vec2(24.0, 24.0), egui::Button::new(next_icon)).clicked();
+                        let go_next = ui
+                            .add_sized(egui::vec2(24.0, 24.0), egui::Button::new(next_icon))
+                            .clicked();
                         if go_next {
                             if self.view.display_mode == DisplayMode::TwoPageSingle {
-                                let spread = self.view.get_spread_indices(current_page, self.total_pages);
+                                let spread =
+                                    self.view.get_spread_indices(current_page, self.total_pages);
                                 if let Some(&first_idx) = spread.first() {
-                                    let is_r2l = self.view.scroll_direction == crate::view::ScrollDirection::Horizontal
-                                        && self.view.binding_direction == crate::view::BindingDirection::RightToLeft;
+                                    let is_r2l = self.view.scroll_direction
+                                        == crate::view::ScrollDirection::Horizontal
+                                        && self.view.binding_direction
+                                            == crate::view::BindingDirection::RightToLeft;
                                     if is_r2l {
                                         if first_idx > 0 {
-                                            self.view.scroll_to_page(first_idx - 1, &self.page_layouts);
+                                            self.view
+                                                .scroll_to_page(first_idx - 1, &self.page_layouts);
                                         }
                                     } else {
-                                        let last_idx = spread.last().cloned().unwrap_or(first_idx);
+                                        let last_idx = spread.last().copied().unwrap_or(first_idx);
                                         if last_idx + 1 < self.total_pages {
-                                            self.view.scroll_to_page(last_idx + 1, &self.page_layouts);
+                                            self.view
+                                                .scroll_to_page(last_idx + 1, &self.page_layouts);
                                         }
                                     }
                                 }
-                            } else if self.view.scroll_direction == crate::view::ScrollDirection::Horizontal
-                                && self.view.binding_direction == crate::view::BindingDirection::RightToLeft
+                            } else if self.view.scroll_direction
+                                == crate::view::ScrollDirection::Horizontal
+                                && self.view.binding_direction
+                                    == crate::view::BindingDirection::RightToLeft
                             {
                                 if current_page > 0 {
                                     self.view.scroll_to_page(current_page - 1, &self.page_layouts);
@@ -1244,7 +1333,9 @@ impl FerruginousApp {
 
                         if ui
                             .add_sized(egui::vec2(24.0, 24.0), egui::Button::new(last_icon))
-                            .on_hover_text(self.locale_mgr.tr(&self.active_language, "tooltip_last_page"))
+                            .on_hover_text(
+                                self.locale_mgr.tr(&self.active_language, "tooltip_last_page"),
+                            )
                             .clicked()
                         {
                             self.view.scroll_to_page(self.total_pages - 1, &self.page_layouts);
@@ -1254,8 +1345,14 @@ impl FerruginousApp {
 
                         // 1. Display Mode Toggle Group
                         let is_continuous = self.view.display_mode == DisplayMode::Continuous;
-                        let cont_btn = egui::Button::new(egui::RichText::new("\u{e0ff}").size(14.0)).selected(is_continuous);
-                        if ui.add_sized(egui::vec2(24.0, 24.0), cont_btn).on_hover_text("連続スクロール").clicked() {
+                        let cont_btn =
+                            egui::Button::new(egui::RichText::new("\u{e0ff}").size(14.0))
+                                .selected(is_continuous);
+                        if ui
+                            .add_sized(egui::vec2(24.0, 24.0), cont_btn)
+                            .on_hover_text("連続スクロール")
+                            .clicked()
+                        {
                             self.view.display_mode = DisplayMode::Continuous;
                             self.compute_layouts(&self.doc_page_sizes.clone());
                             let active = self.view.active_page;
@@ -1263,8 +1360,14 @@ impl FerruginousApp {
                         }
 
                         let is_single = self.view.display_mode == DisplayMode::SinglePage;
-                        let single_btn = egui::Button::new(egui::RichText::new("\u{e12c}").size(14.0)).selected(is_single);
-                        if ui.add_sized(egui::vec2(24.0, 24.0), single_btn).on_hover_text("単一ページ表示").clicked() {
+                        let single_btn =
+                            egui::Button::new(egui::RichText::new("\u{e12c}").size(14.0))
+                                .selected(is_single);
+                        if ui
+                            .add_sized(egui::vec2(24.0, 24.0), single_btn)
+                            .on_hover_text("単一ページ表示")
+                            .clicked()
+                        {
                             self.view.display_mode = DisplayMode::SinglePage;
                             self.compute_layouts(&self.doc_page_sizes.clone());
                             let active = self.view.active_page;
@@ -1272,8 +1375,14 @@ impl FerruginousApp {
                         }
 
                         let is_spread = self.view.display_mode == DisplayMode::TwoPageSpread;
-                        let spread_btn = egui::Button::new(egui::RichText::new("\u{e05f}").size(14.0)).selected(is_spread);
-                        if ui.add_sized(egui::vec2(24.0, 24.0), spread_btn).on_hover_text("見開き連続表示").clicked() {
+                        let spread_btn =
+                            egui::Button::new(egui::RichText::new("\u{e05f}").size(14.0))
+                                .selected(is_spread);
+                        if ui
+                            .add_sized(egui::vec2(24.0, 24.0), spread_btn)
+                            .on_hover_text("見開き連続表示")
+                            .clicked()
+                        {
                             self.view.display_mode = DisplayMode::TwoPageSpread;
                             self.compute_layouts(&self.doc_page_sizes.clone());
                             let active = self.view.active_page;
@@ -1281,8 +1390,14 @@ impl FerruginousApp {
                         }
 
                         let is_spread_single = self.view.display_mode == DisplayMode::TwoPageSingle;
-                        let spread_single_btn = egui::Button::new(egui::RichText::new("\u{e80a}").size(14.0)).selected(is_spread_single);
-                        if ui.add_sized(egui::vec2(24.0, 24.0), spread_single_btn).on_hover_text("見開き単一表示").clicked() {
+                        let spread_single_btn =
+                            egui::Button::new(egui::RichText::new("\u{e80a}").size(14.0))
+                                .selected(is_spread_single);
+                        if ui
+                            .add_sized(egui::vec2(24.0, 24.0), spread_single_btn)
+                            .on_hover_text("見開き単一表示")
+                            .clicked()
+                        {
                             self.view.display_mode = DisplayMode::TwoPageSingle;
                             self.compute_layouts(&self.doc_page_sizes.clone());
                             let active = self.view.active_page;
@@ -1292,18 +1407,32 @@ impl FerruginousApp {
                         ui.separator();
 
                         // 2. Scroll Direction Toggle Group
-                        let is_vert = self.view.scroll_direction == crate::view::ScrollDirection::Vertical;
-                        let vert_btn = egui::Button::new(egui::RichText::new("\u{e37d}").size(14.0)).selected(is_vert);
-                        if ui.add_sized(egui::vec2(24.0, 24.0), vert_btn).on_hover_text("縦方向スクロール").clicked() {
+                        let is_vert =
+                            self.view.scroll_direction == crate::view::ScrollDirection::Vertical;
+                        let vert_btn =
+                            egui::Button::new(egui::RichText::new("\u{e37d}").size(14.0))
+                                .selected(is_vert);
+                        if ui
+                            .add_sized(egui::vec2(24.0, 24.0), vert_btn)
+                            .on_hover_text("縦方向スクロール")
+                            .clicked()
+                        {
                             self.view.scroll_direction = crate::view::ScrollDirection::Vertical;
                             self.compute_layouts(&self.doc_page_sizes.clone());
                             let active = self.view.active_page;
                             self.view.scroll_to_page(active, &self.page_layouts);
                         }
 
-                        let is_horiz = self.view.scroll_direction == crate::view::ScrollDirection::Horizontal;
-                        let horiz_btn = egui::Button::new(egui::RichText::new("\u{e24a}").size(14.0)).selected(is_horiz);
-                        if ui.add_sized(egui::vec2(24.0, 24.0), horiz_btn).on_hover_text("横方向スクロール").clicked() {
+                        let is_horiz =
+                            self.view.scroll_direction == crate::view::ScrollDirection::Horizontal;
+                        let horiz_btn =
+                            egui::Button::new(egui::RichText::new("\u{e24a}").size(14.0))
+                                .selected(is_horiz);
+                        if ui
+                            .add_sized(egui::vec2(24.0, 24.0), horiz_btn)
+                            .on_hover_text("横方向スクロール")
+                            .clicked()
+                        {
                             self.view.scroll_direction = crate::view::ScrollDirection::Horizontal;
                             self.compute_layouts(&self.doc_page_sizes.clone());
                             let active = self.view.active_page;
@@ -1314,15 +1443,23 @@ impl FerruginousApp {
                         if has_spread {
                             ui.separator();
 
-                            if ui.checkbox(&mut self.view.cover_page_alone, "表紙単独").changed() {
+                            if ui.checkbox(&mut self.view.cover_page_alone, "表紙単独").changed()
+                            {
                                 self.compute_layouts(&self.doc_page_sizes.clone());
                                 let active = self.view.active_page;
                                 self.view.scroll_to_page(active, &self.page_layouts);
                             }
 
-                            let is_rtl = self.view.binding_direction == crate::view::BindingDirection::RightToLeft;
+                            let is_rtl = self.view.binding_direction
+                                == crate::view::BindingDirection::RightToLeft;
                             let binding_label = if is_rtl { "右綴じ" } else { "左綴じ" };
-                            if ui.add_sized(egui::vec2(48.0, 24.0), egui::Button::new(binding_label).selected(is_rtl)).clicked() {
+                            if ui
+                                .add_sized(
+                                    egui::vec2(48.0, 24.0),
+                                    egui::Button::new(binding_label).selected(is_rtl),
+                                )
+                                .clicked()
+                            {
                                 self.view.binding_direction = if is_rtl {
                                     crate::view::BindingDirection::LeftToRight
                                 } else {
@@ -1336,57 +1473,83 @@ impl FerruginousApp {
 
                         ui.separator();
 
-                    if ui
-                        .add_sized(egui::vec2(24.0, 24.0), egui::Button::new(egui::RichText::new("\u{e1b7}").size(14.0)))
-                        .on_hover_text(self.locale_mgr.tr(&self.active_language, "tooltip_zoom_out"))
-                        .clicked()
-                    {
-                        self.view.zoom = (self.view.zoom / 1.2).clamp(0.1, 10.0);
-                    }
-                    ui.allocate_ui_with_layout(
-                        egui::vec2(45.0, 20.0),
-                        egui::Layout::left_to_right(egui::Align::Center),
-                        |ui| {
-                            ui.set_min_width(45.0);
-                            ui.set_max_width(45.0);
-                            ui.centered_and_justified(|ui| {
-                                ui.label(format!("{:.0}%", self.view.zoom * 100.0));
-                            });
-                        },
-                    );
-                    if ui
-                        .add_sized(egui::vec2(24.0, 24.0), egui::Button::new(egui::RichText::new("\u{e1b6}").size(14.0)))
-                        .on_hover_text(self.locale_mgr.tr(&self.active_language, "tooltip_zoom_in"))
-                        .clicked()
-                    {
-                        self.view.zoom = (self.view.zoom * 1.2).clamp(0.1, 10.0);
-                    }
+                        if ui
+                            .add_sized(
+                                egui::vec2(24.0, 24.0),
+                                egui::Button::new(egui::RichText::new("\u{e1b7}").size(14.0)),
+                            )
+                            .on_hover_text(
+                                self.locale_mgr.tr(&self.active_language, "tooltip_zoom_out"),
+                            )
+                            .clicked()
+                        {
+                            self.view.zoom = (self.view.zoom / 1.2).clamp(0.1, 10.0);
+                        }
+                        ui.allocate_ui_with_layout(
+                            egui::vec2(45.0, 20.0),
+                            egui::Layout::left_to_right(egui::Align::Center),
+                            |ui| {
+                                ui.set_min_width(45.0);
+                                ui.set_max_width(45.0);
+                                ui.centered_and_justified(|ui| {
+                                    ui.label(format!("{:.0}%", self.view.zoom * 100.0));
+                                });
+                            },
+                        );
+                        if ui
+                            .add_sized(
+                                egui::vec2(24.0, 24.0),
+                                egui::Button::new(egui::RichText::new("\u{e1b6}").size(14.0)),
+                            )
+                            .on_hover_text(
+                                self.locale_mgr.tr(&self.active_language, "tooltip_zoom_in"),
+                            )
+                            .clicked()
+                        {
+                            self.view.zoom = (self.view.zoom * 1.2).clamp(0.1, 10.0);
+                        }
 
-                    ui.separator();
+                        ui.separator();
 
-                    if ui
-                        .add_sized(egui::vec2(24.0, 24.0), egui::Button::new(egui::RichText::new("\u{e1c6}").size(14.0)))
-                        .on_hover_text(self.locale_mgr.tr(&self.active_language, "tooltip_fit_width"))
-                        .clicked()
-                    {
-                        self.fit_to_width(viewport_rect);
-                    }
-                    if ui
-                        .add_sized(egui::vec2(24.0, 24.0), egui::Button::new(egui::RichText::new("\u{e1c7}").size(14.0)))
-                        .on_hover_text(self.locale_mgr.tr(&self.active_language, "tooltip_fit_height"))
-                        .clicked()
-                    {
-                        self.fit_to_height(viewport_rect);
-                    }
+                        if ui
+                            .add_sized(
+                                egui::vec2(24.0, 24.0),
+                                egui::Button::new(egui::RichText::new("\u{e1c6}").size(14.0)),
+                            )
+                            .on_hover_text(
+                                self.locale_mgr.tr(&self.active_language, "tooltip_fit_width"),
+                            )
+                            .clicked()
+                        {
+                            self.fit_to_width(viewport_rect);
+                        }
+                        if ui
+                            .add_sized(
+                                egui::vec2(24.0, 24.0),
+                                egui::Button::new(egui::RichText::new("\u{e1c7}").size(14.0)),
+                            )
+                            .on_hover_text(
+                                self.locale_mgr.tr(&self.active_language, "tooltip_fit_height"),
+                            )
+                            .clicked()
+                        {
+                            self.fit_to_height(viewport_rect);
+                        }
 
-                    if ui
-                        .add_sized(egui::vec2(24.0, 24.0), egui::Button::new(egui::RichText::new("\u{e148}").size(14.0)))
-                        .on_hover_text(self.locale_mgr.tr(&self.active_language, "cmd_reset_view"))
-                        .clicked()
-                    {
-                        self.reset_view();
-                    }
-                });
+                        if ui
+                            .add_sized(
+                                egui::vec2(24.0, 24.0),
+                                egui::Button::new(egui::RichText::new("\u{e148}").size(14.0)),
+                            )
+                            .on_hover_text(
+                                self.locale_mgr.tr(&self.active_language, "cmd_reset_view"),
+                            )
+                            .clicked()
+                        {
+                            self.reset_view();
+                        }
+                    },
+                );
             } else if self.is_loading {
                 ui.centered_and_justified(|ui| {
                     ui.label(&self.loading_message);
@@ -1400,6 +1563,39 @@ impl FerruginousApp {
     fn show_export_wizard_window(&mut self, ctx: &egui::Context) {
         crate::export_wizard::ExportWizard::show(self, ctx);
     }
+
+    /// Bulk front end for the redaction pipeline: pattern-matched text spans are pushed
+    /// into the same `RedactionManager::zones` the manual brush fills, so the export
+    /// wizard's "burn redactions" path consumes both identically.
+    fn show_redaction_studio_window(&mut self, ctx: &egui::Context) {
+        let Self {
+            redaction_studio_panel,
+            raw_texts,
+            page_spans,
+            redaction_manager,
+            locale_mgr,
+            active_language,
+            show_redaction_studio,
+            ..
+        } = self;
+
+        let title = locale_mgr.tr(active_language, "redaction_studio_title");
+        egui::Window::new(format!("🔍 {title}"))
+            .open(show_redaction_studio)
+            .resizable(true)
+            .default_width(420.0)
+            .default_height(360.0)
+            .show(ctx, |ui| {
+                redaction_studio_panel.show(
+                    ui,
+                    raw_texts,
+                    page_spans,
+                    redaction_manager,
+                    locale_mgr,
+                    active_language,
+                );
+            });
+    }
 }
 
 impl FerruginousApp {
@@ -1407,7 +1603,8 @@ impl FerruginousApp {
         ctx.set_visuals(egui::Visuals::light());
         ctx.global_style_mut(|style| {
             style.visuals.selection.stroke = egui::Stroke::NONE;
-            style.visuals.selection.bg_fill = egui::Color32::from_rgba_unmultiplied(120, 125, 135, 45);
+            style.visuals.selection.bg_fill =
+                egui::Color32::from_rgba_unmultiplied(120, 125, 135, 45);
             style.visuals.widgets.active.bg_stroke = egui::Stroke::NONE;
             style.visuals.widgets.hovered.bg_stroke = egui::Stroke::NONE;
             style.visuals.widgets.inactive.bg_stroke = egui::Stroke::NONE;
@@ -1416,7 +1613,8 @@ impl FerruginousApp {
         });
     }
 
-    fn render_left_side_panels(&mut self, ui: &mut egui::Ui) { // RR-15 Limit: GUI - Renders left sidebar icon bar, context panels, and inspector panel
+    fn render_left_side_panels(&mut self, ui: &mut egui::Ui) {
+        // RR-15 Limit: GUI - Renders left sidebar icon bar, context panels, and inspector panel
         // 1. Left Icon Bar (Vertical column, full height)
         let locale_mgr = &self.locale_mgr;
         let active_lang = &self.active_language;
@@ -1480,7 +1678,8 @@ impl FerruginousApp {
         }
     }
 
-    fn render_right_side_panels(&mut self, ui: &mut egui::Ui, frame: &mut eframe::Frame) { // RR-15 Limit: GUI - Renders right-side toolbar icons and interactive tool toggles
+    fn render_right_side_panels(&mut self, ui: &mut egui::Ui, frame: &mut eframe::Frame) {
+        // RR-15 Limit: GUI - Renders right-side toolbar icons and interactive tool toggles
         let ctx = ui.ctx().clone();
 
         // 1. Icon Bar (Right-most, 50px width)
@@ -1510,8 +1709,8 @@ impl FerruginousApp {
                         egui::Button::new(egui::RichText::new("\u{e28f}").size(16.0))
                             .min_size(egui::vec2(36.0, 36.0));
                     if redact_is_active {
-                        redact_btn =
-                            redact_btn.stroke(egui::Stroke::new(1.5_f32, egui::Color32::from_gray(80)));
+                        redact_btn = redact_btn
+                            .stroke(egui::Stroke::new(1.5_f32, egui::Color32::from_gray(80)));
                     }
                     if ui
                         .add(redact_btn)
@@ -1651,7 +1850,7 @@ impl FerruginousApp {
                     ui.label(self.locale_mgr.tr(&self.active_language, "status_ready"));
                     ui.separator();
                     if self.total_pages > 0 {
-                        let current_page = self.view.visible_pages.first().cloned().unwrap_or(0);
+                        let current_page = self.view.visible_pages.first().copied().unwrap_or(0);
                         let indicator = self
                             .locale_mgr
                             .tr(&self.active_language, "page_indicator")
@@ -1676,7 +1875,8 @@ impl FerruginousApp {
         );
     }
 
-    fn show_about_modal_window(&mut self, ctx: &egui::Context) { // RR-15 Limit: GUI - Displays the application metadata/about modal
+    fn show_about_modal_window(&mut self, ctx: &egui::Context) {
+        // RR-15 Limit: GUI - Displays the application metadata/about modal
         if self.show_about_modal {
             let mut show_about = true;
             let about_title = self.locale_mgr.tr(&self.active_language, "about_title");
@@ -1727,7 +1927,7 @@ impl FerruginousApp {
                         for (name, license, purpose) in credits {
                             ui.horizontal(|ui| {
                                 ui.label(egui::RichText::new(name).strong());
-                                ui.label(format!("({})", license));
+                                ui.label(format!("({license})"));
                             });
                             ui.label(egui::RichText::new(purpose).weak());
                             ui.add_space(4.0);
@@ -1752,9 +1952,14 @@ impl FerruginousApp {
         }
     }
 
-    fn render_overlay_windows(&mut self, ctx: &egui::Context) { // RR-15 Limit: GUI - Renders various overlay windows, tool wizards, and popup alerts
+    fn render_overlay_windows(&mut self, ctx: &egui::Context) {
+        // RR-15 Limit: GUI - Renders various overlay windows, tool wizards, and popup alerts
         if self.show_export_wizard {
             self.show_export_wizard_window(ctx);
+        }
+
+        if self.show_redaction_studio {
+            self.show_redaction_studio_window(ctx);
         }
 
         // Show Command Palette window overlay

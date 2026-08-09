@@ -2,7 +2,8 @@
 pub struct ThumbnailSidebar;
 
 impl ThumbnailSidebar {
-    pub fn show( // RR-15 Limit: GUI - Thumbnail Sidebar panel layout and page actions
+    pub fn show(
+        // RR-15 Limit: GUI - Thumbnail Sidebar panel layout and page actions
         app: &mut crate::app::FerruginousApp,
         ui: &mut egui::Ui,
         frame: &mut eframe::Frame,
@@ -18,30 +19,46 @@ impl ThumbnailSidebar {
             .frame(panel_frame)
             .show_inside(ui, |ui| {
                 let panel_rect = ui.max_rect();
-                if ui.input(|ins| ins.key_pressed(egui::Key::Delete) || ins.key_pressed(egui::Key::Backspace)) {
-                    if !app.selected_pages.is_empty() && app.total_pages > 1 {
-                        app.remove_selected_pages();
-                    }
+                if ui.input(|ins| {
+                    ins.key_pressed(egui::Key::Delete) || ins.key_pressed(egui::Key::Backspace)
+                }) && !app.selected_pages.is_empty()
+                    && app.total_pages > 1
+                {
+                    app.remove_selected_pages();
                 }
 
                 // Top Toolbar
                 ui.add_space(4.0);
                 ui.horizontal(|ui| {
                     ui.add_space(8.0);
-                    let page_count_str = format!("{} {}", app.total_pages, app.locale_mgr.tr(&app.active_language, "info_page_count"));
-                    ui.label(egui::RichText::new(page_count_str).size(11.0).color(egui::Color32::from_rgb(100, 110, 120)));
+                    let page_count_str = format!(
+                        "{} {}",
+                        app.total_pages,
+                        app.locale_mgr.tr(&app.active_language, "info_page_count")
+                    );
+                    ui.label(
+                        egui::RichText::new(page_count_str)
+                            .size(11.0)
+                            .color(egui::Color32::from_rgb(100, 110, 120)),
+                    );
 
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         let has_sel = !app.selected_pages.is_empty();
-                        let first_sel = app.selected_pages.iter().next().cloned();
+                        let first_sel = app.selected_pages.iter().next().copied();
                         let can_move_up = first_sel.is_some_and(|idx| idx > 0);
-                        let can_move_down = first_sel.is_some_and(|idx| idx < app.total_pages.saturating_sub(1));
-                        let can_delete = has_sel && app.total_pages > 1 && app.selected_pages.len() < app.total_pages;
+                        let can_move_down =
+                            first_sel.is_some_and(|idx| idx < app.total_pages.saturating_sub(1));
+                        let can_delete = has_sel
+                            && app.total_pages > 1
+                            && app.selected_pages.len() < app.total_pages;
 
                         let del_btn = egui::Button::new(egui::RichText::new("🗑").size(12.0))
                             .min_size(egui::vec2(22.0, 22.0));
-                        if ui.add_enabled(can_delete, del_btn)
-                            .on_hover_text(app.locale_mgr.tr(&app.active_language, "tooltip_delete_page"))
+                        if ui
+                            .add_enabled(can_delete, del_btn)
+                            .on_hover_text(
+                                app.locale_mgr.tr(&app.active_language, "tooltip_delete_page"),
+                            )
                             .clicked()
                         {
                             app.remove_selected_pages();
@@ -49,24 +66,28 @@ impl ThumbnailSidebar {
 
                         let down_btn = egui::Button::new(egui::RichText::new("▼").size(10.0))
                             .min_size(egui::vec2(22.0, 22.0));
-                        if ui.add_enabled(can_move_down, down_btn)
-                            .on_hover_text(app.locale_mgr.tr(&app.active_language, "tooltip_move_down"))
+                        if ui
+                            .add_enabled(can_move_down, down_btn)
+                            .on_hover_text(
+                                app.locale_mgr.tr(&app.active_language, "tooltip_move_down"),
+                            )
                             .clicked()
+                            && let Some(idx) = first_sel
                         {
-                            if let Some(idx) = first_sel {
-                                app.reorder_page(idx, idx + 1);
-                            }
+                            app.reorder_page(idx, idx + 1);
                         }
 
                         let up_btn = egui::Button::new(egui::RichText::new("▲").size(10.0))
                             .min_size(egui::vec2(22.0, 22.0));
-                        if ui.add_enabled(can_move_up, up_btn)
-                            .on_hover_text(app.locale_mgr.tr(&app.active_language, "tooltip_move_up"))
+                        if ui
+                            .add_enabled(can_move_up, up_btn)
+                            .on_hover_text(
+                                app.locale_mgr.tr(&app.active_language, "tooltip_move_up"),
+                            )
                             .clicked()
+                            && let Some(idx) = first_sel
                         {
-                            if let Some(idx) = first_sel {
-                                app.reorder_page(idx, idx - 1);
-                            }
+                            app.reorder_page(idx, idx - 1);
                         }
                     });
                 });
@@ -110,28 +131,32 @@ impl ThumbnailSidebar {
             .frame(panel_frame)
             .show_inside(ui, |ui| {
                 let panel_rect = ui.max_rect();
-                if ui.input(|ins| ins.key_pressed(egui::Key::Delete) || ins.key_pressed(egui::Key::Backspace)) {
-                    if !app.selected_pages.is_empty() && app.total_pages > 1 {
-                        app.remove_selected_pages();
-                    }
+                if ui.input(|ins| {
+                    ins.key_pressed(egui::Key::Delete) || ins.key_pressed(egui::Key::Backspace)
+                }) && !app.selected_pages.is_empty()
+                    && app.total_pages > 1
+                {
+                    app.remove_selected_pages();
                 }
 
                 let mut hovered_item_target = None;
-                egui::ScrollArea::horizontal().id_salt("thumbnail_horizontal_scroll").vscroll(false).show(
-                    ui,
-                    |ui| {
+                egui::ScrollArea::horizontal()
+                    .id_salt("thumbnail_horizontal_scroll")
+                    .vscroll(false)
+                    .show(ui, |ui| {
                         ui.horizontal(|ui| {
                             if app.total_pages > 0 {
                                 for i in 0..app.total_pages {
-                                    if let Some(target) = Self::show_thumbnail_item_horizontal(app, ui, frame, i) {
+                                    if let Some(target) =
+                                        Self::show_thumbnail_item_horizontal(app, ui, frame, i)
+                                    {
                                         hovered_item_target = Some(target);
                                     }
                                 }
                             }
                             ui.add_space(16.0);
                         });
-                    },
-                );
+                    });
 
                 let target_index = hovered_item_target.unwrap_or(app.total_pages);
                 Self::handle_external_drop(app, ui, panel_rect, target_index);
@@ -149,9 +174,8 @@ impl ThumbnailSidebar {
         if dropped.is_empty() {
             return;
         }
-        let is_hovered = ui
-            .input(|i| i.pointer.hover_pos())
-            .is_some_and(|p| panel_rect.contains(p));
+        let is_hovered =
+            ui.input(|i| i.pointer.hover_pos()).is_some_and(|p| panel_rect.contains(p));
         if is_hovered {
             for file in dropped {
                 let bytes_opt = if let Some(ref path) = file.path {
@@ -178,9 +202,8 @@ impl ThumbnailSidebar {
         if hovered.is_empty() {
             return;
         }
-        let is_hovered = ui
-            .input(|i| i.pointer.hover_pos())
-            .is_some_and(|p| panel_rect.contains(p));
+        let is_hovered =
+            ui.input(|i| i.pointer.hover_pos()).is_some_and(|p| panel_rect.contains(p));
         if is_hovered {
             ui.painter().rect_filled(
                 panel_rect,
@@ -208,7 +231,8 @@ impl ThumbnailSidebar {
         }
     }
 
-    fn show_thumbnail_item( // RR-15 Limit: GUI - Render individual page thumbnail item and handle click interaction
+    fn show_thumbnail_item(
+        // RR-15 Limit: GUI - Render individual page thumbnail item and handle click interaction
         app: &mut crate::app::FerruginousApp,
         ui: &mut egui::Ui,
         frame: &mut eframe::Frame,
@@ -246,12 +270,10 @@ impl ThumbnailSidebar {
             }
 
             if hovered_ext && response.hovered() {
-                let indicator_y = if hovered_target == Some(i + 1) { rect.max.y } else { rect.min.y };
+                let indicator_y =
+                    if hovered_target == Some(i + 1) { rect.max.y } else { rect.min.y };
                 ui.painter().line_segment(
-                    [
-                        egui::pos2(rect.min.x, indicator_y),
-                        egui::pos2(rect.max.x, indicator_y),
-                    ],
+                    [egui::pos2(rect.min.x, indicator_y), egui::pos2(rect.max.x, indicator_y)],
                     egui::Stroke::new(3.0_f32, egui::Color32::from_rgb(0, 120, 215)),
                 );
             }
@@ -263,20 +285,18 @@ impl ThumbnailSidebar {
             let dragged_from = egui::DragAndDrop::payload::<usize>(ui.ctx()).map(|p| *p);
             let mut reorder_target = None;
 
-            if let Some(from_idx) = dragged_from {
-                if from_idx != i && response.hovered() {
-                    let indicator_y = if from_idx < i { rect.max.y } else { rect.min.y };
-                    ui.painter().line_segment(
-                        [
-                            egui::pos2(rect.min.x, indicator_y),
-                            egui::pos2(rect.max.x, indicator_y),
-                        ],
-                        egui::Stroke::new(3.0_f32, egui::Color32::from_rgb(0, 120, 215)),
-                    );
+            if let Some(from_idx) = dragged_from
+                && from_idx != i
+                && response.hovered()
+            {
+                let indicator_y = if from_idx < i { rect.max.y } else { rect.min.y };
+                ui.painter().line_segment(
+                    [egui::pos2(rect.min.x, indicator_y), egui::pos2(rect.max.x, indicator_y)],
+                    egui::Stroke::new(3.0_f32, egui::Color32::from_rgb(0, 120, 215)),
+                );
 
-                    if ui.input(|ins| ins.pointer.any_released()) {
-                        reorder_target = Some((from_idx, i));
-                    }
+                if ui.input(|ins| ins.pointer.any_released()) {
+                    reorder_target = Some((from_idx, i));
                 }
             }
 
@@ -317,28 +337,48 @@ impl ThumbnailSidebar {
 
             response.context_menu(|ui| {
                 if i > 0 {
-                    if ui.button(app.locale_mgr.tr(&app.active_language, "reorder_move_up")).clicked() {
+                    if ui
+                        .button(app.locale_mgr.tr(&app.active_language, "reorder_move_up"))
+                        .clicked()
+                    {
                         action_move = Some((i, i - 1));
                         ui.close_kind(egui::UiKind::Menu);
                     }
-                    if ui.button(app.locale_mgr.tr(&app.active_language, "reorder_move_top")).clicked() {
+                    if ui
+                        .button(app.locale_mgr.tr(&app.active_language, "reorder_move_top"))
+                        .clicked()
+                    {
                         action_move = Some((i, 0));
                         ui.close_kind(egui::UiKind::Menu);
                     }
                 }
                 if i < app.total_pages.saturating_sub(1) {
-                    if ui.button(app.locale_mgr.tr(&app.active_language, "reorder_move_down")).clicked() {
+                    if ui
+                        .button(app.locale_mgr.tr(&app.active_language, "reorder_move_down"))
+                        .clicked()
+                    {
                         action_move = Some((i, i + 1));
                         ui.close_kind(egui::UiKind::Menu);
                     }
-                    if ui.button(app.locale_mgr.tr(&app.active_language, "reorder_move_bottom")).clicked() {
+                    if ui
+                        .button(app.locale_mgr.tr(&app.active_language, "reorder_move_bottom"))
+                        .clicked()
+                    {
                         action_move = Some((i, app.total_pages - 1));
                         ui.close_kind(egui::UiKind::Menu);
                     }
                 }
                 if app.total_pages > 1 {
                     ui.separator();
-                    if ui.button(egui::RichText::new(app.locale_mgr.tr(&app.active_language, "reorder_delete_page")).color(egui::Color32::from_rgb(200, 50, 50))).clicked() {
+                    if ui
+                        .button(
+                            egui::RichText::new(
+                                app.locale_mgr.tr(&app.active_language, "reorder_delete_page"),
+                            )
+                            .color(egui::Color32::from_rgb(200, 50, 50)),
+                        )
+                        .clicked()
+                    {
                         action_delete = true;
                         ui.close_kind(egui::UiKind::Menu);
                     }
@@ -366,37 +406,11 @@ impl ThumbnailSidebar {
                 egui::vec2(mini_page_width, mini_page_height),
             );
 
-            let mut visible_mask_rect = None;
-            if is_visible {
-                if let Some(viewport_rect) = app.last_viewport_rect {
-                    let origin = app.view.get_origin(viewport_rect);
-                    let page_rect = egui::Rect::from_min_size(
-                        origin + layout_rect.min.to_vec2() * app.view.zoom,
-                        layout_rect.size() * app.view.zoom,
-                    );
-                    let intersection = viewport_rect.intersect(page_rect);
-                    if intersection.is_positive() {
-                        let x_min = ((intersection.min.x - page_rect.min.x) / page_rect.width())
-                            .clamp(0.0, 1.0);
-                        let x_max = ((intersection.max.x - page_rect.min.x) / page_rect.width())
-                            .clamp(0.0, 1.0);
-                        let y_min = ((intersection.min.y - page_rect.min.y) / page_rect.height())
-                            .clamp(0.0, 1.0);
-                        let y_max = ((intersection.max.y - page_rect.min.y) / page_rect.height())
-                            .clamp(0.0, 1.0);
-
-                        let mask_min = egui::pos2(
-                            mini_page_rect.min.x + x_min * mini_page_rect.width(),
-                            mini_page_rect.min.y + y_min * mini_page_rect.height(),
-                        );
-                        let mask_max = egui::pos2(
-                            mini_page_rect.min.x + x_max * mini_page_rect.width(),
-                            mini_page_rect.min.y + y_max * mini_page_rect.height(),
-                        );
-                        visible_mask_rect = Some(egui::Rect::from_min_max(mask_min, mask_max));
-                    }
-                }
-            }
+            let visible_mask_rect = if is_visible {
+                Self::compute_visible_mask_rect(app, layout_rect, mini_page_rect)
+            } else {
+                None
+            };
 
             Self::render_thumbnail_graphics(
                 app,
@@ -415,7 +429,42 @@ impl ThumbnailSidebar {
         hovered_target
     }
 
-    fn render_thumbnail_graphics( // RR-15 Limit: GUI - Render actual thumbnail image or loader on sidebar
+    /// Maps the portion of the page currently inside the viewport onto the thumbnail,
+    /// producing the shaded "you are here" overlay rectangle.
+    fn compute_visible_mask_rect(
+        app: &crate::app::FerruginousApp,
+        layout_rect: egui::Rect,
+        mini_page_rect: egui::Rect,
+    ) -> Option<egui::Rect> {
+        let viewport_rect = app.last_viewport_rect?;
+        let origin = app.view.get_origin(viewport_rect);
+        let page_rect = egui::Rect::from_min_size(
+            origin + layout_rect.min.to_vec2() * app.view.zoom,
+            layout_rect.size() * app.view.zoom,
+        );
+        let intersection = viewport_rect.intersect(page_rect);
+        if !intersection.is_positive() {
+            return None;
+        }
+
+        let x_min = ((intersection.min.x - page_rect.min.x) / page_rect.width()).clamp(0.0, 1.0);
+        let x_max = ((intersection.max.x - page_rect.min.x) / page_rect.width()).clamp(0.0, 1.0);
+        let y_min = ((intersection.min.y - page_rect.min.y) / page_rect.height()).clamp(0.0, 1.0);
+        let y_max = ((intersection.max.y - page_rect.min.y) / page_rect.height()).clamp(0.0, 1.0);
+
+        let mask_min = egui::pos2(
+            x_min.mul_add(mini_page_rect.width(), mini_page_rect.min.x),
+            y_min.mul_add(mini_page_rect.height(), mini_page_rect.min.y),
+        );
+        let mask_max = egui::pos2(
+            x_max.mul_add(mini_page_rect.width(), mini_page_rect.min.x),
+            y_max.mul_add(mini_page_rect.height(), mini_page_rect.min.y),
+        );
+        Some(egui::Rect::from_min_max(mask_min, mask_max))
+    }
+
+    fn render_thumbnail_graphics(
+        // RR-15 Limit: GUI - Render actual thumbnail image or loader on sidebar
         app: &mut crate::app::FerruginousApp,
         ui: &mut egui::Ui,
         frame: &mut eframe::Frame,
@@ -428,33 +477,29 @@ impl ThumbnailSidebar {
         is_selected: bool,
         is_visible: bool,
     ) {
-        let mut rendered_thumb = false;
-        if let (Some(r), Some(rs)) = (&mut app.vello_renderer, frame.wgpu_render_state()) {
-            if let Some(scene) = app.scenes.get(&i) {
-                if let Some(tex_id) = r.render_thumbnail(rs, i, scene, size, 256) {
-                    ui.painter().image(
-                        tex_id,
-                        mini_page_rect,
-                        egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)),
-                        egui::Color32::WHITE,
-                    );
-                    if let Some(mask) = visible_mask_rect {
-                        ui.painter().rect_filled(
-                            mask,
-                            0.0,
-                            egui::Color32::from_rgba_unmultiplied(120, 125, 135, 45),
-                        );
-                    }
-                    ui.painter().rect_stroke(
-                        mini_page_rect,
-                        2.0,
-                        page_stroke,
-                        egui::StrokeKind::Inside,
-                    );
-                    rendered_thumb = true;
-                }
+        let rendered_thumb = if let (Some(r), Some(rs)) =
+            (&mut app.vello_renderer, frame.wgpu_render_state())
+            && let Some(scene) = app.scenes.get(&i)
+            && let Some(tex_id) = r.render_thumbnail(rs, i, scene, size, 256)
+        {
+            ui.painter().image(
+                tex_id,
+                mini_page_rect,
+                egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)),
+                egui::Color32::WHITE,
+            );
+            if let Some(mask) = visible_mask_rect {
+                ui.painter().rect_filled(
+                    mask,
+                    0.0,
+                    egui::Color32::from_rgba_unmultiplied(120, 125, 135, 45),
+                );
             }
-        }
+            ui.painter().rect_stroke(mini_page_rect, 2.0, page_stroke, egui::StrokeKind::Inside);
+            true
+        } else {
+            false
+        };
 
         if !rendered_thumb {
             ui.painter().rect_filled(mini_page_rect, 2.0, egui::Color32::WHITE);
@@ -493,7 +538,8 @@ impl ThumbnailSidebar {
     }
 
     // RR-15 Limit: GUI
-    fn show_thumbnail_item_horizontal( // RR-15 Limit: GUI
+    fn show_thumbnail_item_horizontal(
+        // RR-15 Limit: GUI
         app: &mut crate::app::FerruginousApp,
         ui: &mut egui::Ui,
         frame: &mut eframe::Frame,
@@ -531,12 +577,10 @@ impl ThumbnailSidebar {
             }
 
             if hovered_ext && response.hovered() {
-                let indicator_x = if hovered_target == Some(i + 1) { rect.max.x } else { rect.min.x };
+                let indicator_x =
+                    if hovered_target == Some(i + 1) { rect.max.x } else { rect.min.x };
                 ui.painter().line_segment(
-                    [
-                        egui::pos2(indicator_x, rect.min.y),
-                        egui::pos2(indicator_x, rect.max.y),
-                    ],
+                    [egui::pos2(indicator_x, rect.min.y), egui::pos2(indicator_x, rect.max.y)],
                     egui::Stroke::new(3.0_f32, egui::Color32::from_rgb(0, 120, 215)),
                 );
             }
@@ -548,20 +592,18 @@ impl ThumbnailSidebar {
             let dragged_from = egui::DragAndDrop::payload::<usize>(ui.ctx()).map(|p| *p);
             let mut reorder_target = None;
 
-            if let Some(from_idx) = dragged_from {
-                if from_idx != i && response.hovered() {
-                    let indicator_x = if from_idx < i { rect.max.x } else { rect.min.x };
-                    ui.painter().line_segment(
-                        [
-                            egui::pos2(indicator_x, rect.min.y),
-                            egui::pos2(indicator_x, rect.max.y),
-                        ],
-                        egui::Stroke::new(3.0_f32, egui::Color32::from_rgb(0, 120, 215)),
-                    );
+            if let Some(from_idx) = dragged_from
+                && from_idx != i
+                && response.hovered()
+            {
+                let indicator_x = if from_idx < i { rect.max.x } else { rect.min.x };
+                ui.painter().line_segment(
+                    [egui::pos2(indicator_x, rect.min.y), egui::pos2(indicator_x, rect.max.y)],
+                    egui::Stroke::new(3.0_f32, egui::Color32::from_rgb(0, 120, 215)),
+                );
 
-                    if ui.input(|ins| ins.pointer.any_released()) {
-                        reorder_target = Some((from_idx, i));
-                    }
+                if ui.input(|ins| ins.pointer.any_released()) {
+                    reorder_target = Some((from_idx, i));
                 }
             }
 
@@ -602,28 +644,48 @@ impl ThumbnailSidebar {
 
             response.context_menu(|ui| {
                 if i > 0 {
-                    if ui.button(app.locale_mgr.tr(&app.active_language, "reorder_move_up")).clicked() {
+                    if ui
+                        .button(app.locale_mgr.tr(&app.active_language, "reorder_move_up"))
+                        .clicked()
+                    {
                         action_move = Some((i, i - 1));
                         ui.close_kind(egui::UiKind::Menu);
                     }
-                    if ui.button(app.locale_mgr.tr(&app.active_language, "reorder_move_top")).clicked() {
+                    if ui
+                        .button(app.locale_mgr.tr(&app.active_language, "reorder_move_top"))
+                        .clicked()
+                    {
                         action_move = Some((i, 0));
                         ui.close_kind(egui::UiKind::Menu);
                     }
                 }
                 if i < app.total_pages.saturating_sub(1) {
-                    if ui.button(app.locale_mgr.tr(&app.active_language, "reorder_move_down")).clicked() {
+                    if ui
+                        .button(app.locale_mgr.tr(&app.active_language, "reorder_move_down"))
+                        .clicked()
+                    {
                         action_move = Some((i, i + 1));
                         ui.close_kind(egui::UiKind::Menu);
                     }
-                    if ui.button(app.locale_mgr.tr(&app.active_language, "reorder_move_bottom")).clicked() {
+                    if ui
+                        .button(app.locale_mgr.tr(&app.active_language, "reorder_move_bottom"))
+                        .clicked()
+                    {
                         action_move = Some((i, app.total_pages - 1));
                         ui.close_kind(egui::UiKind::Menu);
                     }
                 }
                 if app.total_pages > 1 {
                     ui.separator();
-                    if ui.button(egui::RichText::new(app.locale_mgr.tr(&app.active_language, "reorder_delete_page")).color(egui::Color32::from_rgb(200, 50, 50))).clicked() {
+                    if ui
+                        .button(
+                            egui::RichText::new(
+                                app.locale_mgr.tr(&app.active_language, "reorder_delete_page"),
+                            )
+                            .color(egui::Color32::from_rgb(200, 50, 50)),
+                        )
+                        .clicked()
+                    {
                         action_delete = true;
                         ui.close_kind(egui::UiKind::Menu);
                     }
@@ -652,37 +714,11 @@ impl ThumbnailSidebar {
                 egui::vec2(mini_page_width, mini_page_height),
             );
 
-            let mut visible_mask_rect = None;
-            if is_visible {
-                if let Some(viewport_rect) = app.last_viewport_rect {
-                    let origin = app.view.get_origin(viewport_rect);
-                    let page_rect = egui::Rect::from_min_size(
-                        origin + layout_rect.min.to_vec2() * app.view.zoom,
-                        layout_rect.size() * app.view.zoom,
-                    );
-                    let intersection = viewport_rect.intersect(page_rect);
-                    if intersection.is_positive() {
-                        let x_min = ((intersection.min.x - page_rect.min.x) / page_rect.width())
-                            .clamp(0.0, 1.0);
-                        let x_max = ((intersection.max.x - page_rect.min.x) / page_rect.width())
-                            .clamp(0.0, 1.0);
-                        let y_min = ((intersection.min.y - page_rect.min.y) / page_rect.height())
-                            .clamp(0.0, 1.0);
-                        let y_max = ((intersection.max.y - page_rect.min.y) / page_rect.height())
-                            .clamp(0.0, 1.0);
-
-                        let mask_min = egui::pos2(
-                            mini_page_rect.min.x + x_min * mini_page_rect.width(),
-                            mini_page_rect.min.y + y_min * mini_page_rect.height(),
-                        );
-                        let mask_max = egui::pos2(
-                            mini_page_rect.min.x + x_max * mini_page_rect.width(),
-                            mini_page_rect.min.y + y_max * mini_page_rect.height(),
-                        );
-                        visible_mask_rect = Some(egui::Rect::from_min_max(mask_min, mask_max));
-                    }
-                }
-            }
+            let visible_mask_rect = if is_visible {
+                Self::compute_visible_mask_rect(app, layout_rect, mini_page_rect)
+            } else {
+                None
+            };
 
             Self::render_thumbnail_graphics(
                 app,

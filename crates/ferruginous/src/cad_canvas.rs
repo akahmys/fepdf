@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SnapType {
     EndPoint,
     MidPoint,
@@ -28,9 +28,9 @@ impl CadSnapEngine {
     /// Populates simulated snapping points for the page based on text spans and page layout.
     /// This mimics real vector path extraction for demonstration.
     fn add_margin_snap_points(&self, points: &mut Vec<SnapPoint>, page_w: f32, page_h: f32) {
-        let margins = [50.0, 50.0];
-        let w_act = page_w - margins[0] * 2.0;
-        let h_act = page_h - margins[1] * 2.0;
+        let margins = [50.0_f32, 50.0_f32];
+        let w_act = margins[0].mul_add(-2.0, page_w);
+        let h_act = margins[1].mul_add(-2.0, page_h);
 
         let corners = [
             egui::pos2(margins[0], margins[1]),
@@ -112,7 +112,7 @@ impl CadSnapEngine {
             let p1 = points[0].point;
             let p2 = points[1].point;
             points.push(SnapPoint {
-                point: egui::pos2((p1.x + p2.x) / 2.0, (p1.y + p2.y) / 2.0 + 10.0),
+                point: egui::pos2(f32::midpoint(p1.x, p2.x), f32::midpoint(p1.y, p2.y) + 10.0),
                 snap_type: SnapType::Intersection,
                 description: "Path Junction",
             });
@@ -139,7 +139,7 @@ impl CadSnapEngine {
             // PDF distance
             let dx = snap.point.x - pointer_pdf.x;
             let dy = snap.point.y - pointer_pdf.y;
-            let dist_pdf = (dx * dx + dy * dy).sqrt();
+            let dist_pdf = dx.hypot(dy);
 
             // Convert to screen distance
             let dist_screen = dist_pdf * zoom;
@@ -183,7 +183,8 @@ impl CaliperTool {
         self.caliper_line = None;
     }
 
-    pub fn handle_interaction( // RR-15 Limit: GUI - signature UI layout section declaration for Caliper interaction
+    pub fn handle_interaction(
+        // RR-15 Limit: GUI - signature UI layout section declaration for Caliper interaction
         &mut self,
         ui: &mut egui::Ui,
         page_index: usize,
@@ -241,13 +242,13 @@ impl CaliperTool {
             }
 
             if response.dragged() {
-                let target_pos = hovered_snap.map(|s| s.point).unwrap_or(pdf_pos);
+                let target_pos = hovered_snap.map_or(pdf_pos, |s| s.point);
                 self.current_point = Some(target_pos);
 
                 if let Some(start) = &self.start_point {
                     let dx = target_pos.x - start.point.x;
                     let dy = target_pos.y - start.point.y;
-                    self.measured_dist = Some((dx * dx + dy * dy).sqrt());
+                    self.measured_dist = Some(dx.hypot(dy));
                     self.caliper_line = Some((start.point, target_pos));
                 }
             }
@@ -258,7 +259,8 @@ impl CaliperTool {
         }
     }
 
-    pub fn draw_overlay( // RR-15 Limit: GUI - Renders CAD snap lines and ticks directly onto the page drawing layout overlay
+    pub fn draw_overlay(
+        // RR-15 Limit: GUI - Renders CAD snap lines and ticks directly onto the page drawing layout overlay
         &self,
         ui: &mut egui::Ui,
         page_screen_rect: egui::Rect,
@@ -339,7 +341,7 @@ impl CaliperTool {
             // Draw floating HUD box
             if let Some(dist) = self.measured_dist {
                 let mid_screen = start_screen + (end_screen - start_screen) * 0.5;
-                let text = format!("{:.2} pt", dist);
+                let text = format!("{dist:.2} pt");
                 let text_font = egui::FontId::monospace(12.0);
 
                 // Draw background card for readability

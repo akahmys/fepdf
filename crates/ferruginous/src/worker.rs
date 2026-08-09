@@ -1,13 +1,7 @@
-#![allow(
-    clippy::collapsible_if,
-    clippy::match_result_ok,
-    clippy::too_many_arguments,
-    clippy::large_enum_variant
-)]
-
 use bytes::Bytes;
 use ferruginous_render::{FallbackFontType, VelloBackend};
 use ferruginous_sdk::PdfDocument;
+use std::collections::BTreeMap;
 use std::sync::Arc;
 use std::sync::mpsc::{Receiver, Sender};
 use vello::Scene;
@@ -51,20 +45,26 @@ pub enum WorkerRequest {
     },
 }
 
+/// Everything the UI needs after a document finishes loading.
+///
+/// Kept behind a `Box` in [`WorkerResponse`] so that the far more frequent
+/// `PageRendered` messages are not padded out to this variant's size.
+pub struct LoadedDocument {
+    pub name: Option<String>,
+    pub num_pages: usize,
+    pub page_sizes: Vec<(f64, f64)>, // (width, height)
+    pub ust_root: Option<crate::sidebar::USTNode>,
+    pub file_size: usize,
+    pub version: String,
+    pub metadata: ferruginous_core::metadata::MetadataInfo,
+    pub security_method: String,
+    pub permissions: Option<i32>,
+    pub fonts: Vec<ferruginous_core::font::FontSummary>,
+    pub viewer_direction: Option<String>,
+}
+
 pub enum WorkerResponse {
-    DocumentLoaded {
-        name: Option<String>,
-        num_pages: usize,
-        page_sizes: Vec<(f64, f64)>, // (width, height)
-        ust_root: Option<crate::sidebar::USTNode>,
-        file_size: usize,
-        version: String,
-        metadata: ferruginous_core::metadata::MetadataInfo,
-        security_method: String,
-        permissions: Option<i32>,
-        fonts: Vec<ferruginous_core::font::FontSummary>,
-        viewer_direction: Option<String>,
-    },
+    DocumentLoaded(Box<LoadedDocument>),
     LoadingProgress {
         message: String,
     },
@@ -84,7 +84,8 @@ pub enum WorkerResponse {
     Error(String),
 }
 
-pub fn run_worker(rx: Receiver<WorkerRequest>, tx: Sender<WorkerResponse>, ctx: egui::Context) { // RR-15 Limit: GUI - main routing message loop dispatcher for background worker thread
+pub fn run_worker(rx: Receiver<WorkerRequest>, tx: Sender<WorkerResponse>, ctx: egui::Context) {
+    // RR-15 Limit: GUI - main routing message loop dispatcher for background worker thread
     let mut current_doc: Option<PdfDocument> = None;
     let system_fonts = VelloBackend::load_system_fonts();
     let mut text_cache = std::collections::BTreeMap::new();
@@ -100,7 +101,7 @@ pub fn run_worker(rx: Receiver<WorkerRequest>, tx: Sender<WorkerResponse>, ctx: 
             }
             WorkerRequest::RenderPage { index, scale } => {
                 handle_render(
-                    &current_doc,
+                    current_doc.as_ref(),
                     index,
                     scale,
                     &tx,
@@ -130,7 +131,7 @@ pub fn run_worker(rx: Receiver<WorkerRequest>, tx: Sender<WorkerResponse>, ctx: 
                 text_cache.clear();
                 spans_cache.clear();
                 handle_save(
-                    &current_doc,
+                    current_doc.as_ref(),
                     path,
                     compress,
                     linearize,
@@ -145,16 +146,16 @@ pub fn run_worker(rx: Receiver<WorkerRequest>, tx: Sender<WorkerResponse>, ctx: 
                 ctx.request_repaint();
             }
             WorkerRequest::Audit => {
-                handle_audit(&current_doc, &tx);
+                handle_audit(current_doc.as_ref(), &tx);
                 ctx.request_repaint();
             }
             WorkerRequest::ReorderPages { from, to } => {
                 text_cache.clear();
                 spans_cache.clear();
-                if let Some(ref mut doc) = current_doc {
-                    if let Err(e) = doc.reorder_page(from, to) {
-                        log::error!("Failed to reorder page in worker: {:?}", e);
-                    }
+                if let Some(ref mut doc) = current_doc
+                    && let Err(e) = doc.reorder_page(from, to)
+                {
+                    log::error!("Failed to reorder page in worker: {e:?}");
                 }
                 ctx.request_repaint();
             }
@@ -165,7 +166,7 @@ pub fn run_worker(rx: Receiver<WorkerRequest>, tx: Sender<WorkerResponse>, ctx: 
                     indices.sort_unstable_by(|a, b| b.cmp(a));
                     for idx in indices {
                         if let Err(e) = doc.remove_page(idx) {
-                            log::error!("Failed to remove page {} in worker: {:?}", idx, e);
+                            log::error!("Failed to remove page {idx} in worker: {e:?}");
                         }
                     }
                 }
@@ -187,17 +188,6 @@ pub fn run_worker(rx: Receiver<WorkerRequest>, tx: Sender<WorkerResponse>, ctx: 
 
 use ferruginous_core::{Handle, Object, PdfArena, PdfName};
 
-fn load_page_info(doc: &PdfDocument) -> (Vec<(f64, f64)>, Vec<String>) {
-    let num_pages = doc.page_count().unwrap_or(0);
-    let mut page_sizes = Vec::with_capacity(num_pages);
-    let mut page_texts = Vec::with_capacity(num_pages);
-    for i in 0..num_pages {
-        page_sizes.push(doc.get_page_size(i).unwrap_or((595.0, 842.0)));
-        page_texts.push(doc.extract_text(i).unwrap_or_default());
-    }
-    (page_sizes, page_texts)
-}
-
 fn resolve_to_node_handle(arena: &PdfArena, obj: &Object) -> Option<Handle<Object>> {
     match obj {
         Object::Reference(h) => Some(*h),
@@ -213,40 +203,16 @@ fn resolve_to_node_handle(arena: &PdfArena, obj: &Object) -> Option<Handle<Objec
     }
 }
 
-fn parse_struct_tree_findings(
-    doc: &PdfDocument,
-    next_id: &mut usize,
-) -> (Option<crate::sidebar::USTNode>, Vec<(String, String, String, Option<u32>)>) {
-    let mut ust_root = None;
-    let mut audit_findings = Vec::new();
-    let arena = doc.inner().arena();
-
-    if let Some(cah) = doc.inner().catalog_handle() {
-        if let Some(cadh) = doc.inner().resolve_to_dict(cah).ok() {
-            if let Some(dict) = arena.get_dict(cadh) {
-                let str_root_key = arena.name("StructTreeRoot");
-                if let Some(str_root_obj) = dict.get(&str_root_key) {
-                    if let Some(str_root_ref) = resolve_to_node_handle(arena, str_root_obj) {
-                        let mut visited = std::collections::BTreeSet::new();
-                        ust_root = parse_struct_node(arena, str_root_ref, next_id, &mut visited);
-
-                        let auditor = ferruginous_sdk::structure::MatterhornAuditor::new(arena);
-                        if let Ok(findings) = auditor.audit(str_root_ref) {
-                            for f in findings {
-                                audit_findings.push((
-                                    f.checkpoint,
-                                    f.severity,
-                                    f.message,
-                                    f.handle_id,
-                                ));
-                            }
-                        }
-                    }
-                }
-            }
+/// Maps each page's object handle to its zero-based index, so that a struct
+/// element's `/Pg` reference can be turned into a page number.
+fn build_page_handle_map(doc: &PdfDocument) -> BTreeMap<Handle<Object>, usize> {
+    let mut map = BTreeMap::new();
+    for index in 0..doc.page_count().unwrap_or(0) {
+        if let Ok(page) = doc.get_page(index) {
+            map.insert(page.obj_handle(), index);
         }
     }
-    (ust_root, audit_findings)
+    map
 }
 
 fn resolve_struct_tree_root(
@@ -260,11 +226,13 @@ fn resolve_struct_tree_root(
     let str_root_key = arena.name("StructTreeRoot");
     let str_root_obj = dict.get(&str_root_key)?;
     let str_root_ref = resolve_to_node_handle(arena, str_root_obj)?;
+    let page_map = build_page_handle_map(doc);
     let mut visited = std::collections::BTreeSet::new();
-    parse_struct_node(arena, str_root_ref, next_id, &mut visited)
+    parse_struct_node(arena, str_root_ref, next_id, &mut visited, &page_map, None)
 }
 
-fn handle_insert_document( // RR-15 Limit: Dispatcher - handles page insertion from external document in worker thread
+fn handle_insert_document(
+    // RR-15 Limit: Dispatcher - handles page insertion from external document in worker thread
     doc: &mut PdfDocument,
     data: Bytes,
     at_index: usize,
@@ -274,8 +242,8 @@ fn handle_insert_document( // RR-15 Limit: Dispatcher - handles page insertion f
     match PdfDocument::open_with_options(data, &options) {
         Ok(source_doc) => {
             if let Err(e) = doc.insert_pages_from(&source_doc, at_index) {
-                log::error!("Failed to insert pages in worker: {:?}", e);
-                let _ = tx.send(WorkerResponse::Error(format!("Failed to insert pages: {:?}", e)));
+                log::error!("Failed to insert pages in worker: {e:?}");
+                let _ = tx.send(WorkerResponse::Error(format!("Failed to insert pages: {e:?}")));
                 return;
             }
             let num_pages = doc.page_count().unwrap_or(0);
@@ -294,38 +262,58 @@ fn handle_insert_document( // RR-15 Limit: Dispatcher - handles page insertion f
                     title: "PDF Document Catalog (Untagged)".to_string(),
                     alt_text: None,
                     rect: None,
+                    page_index: None,
                     handle_id: None,
                     children: Vec::new(),
                 });
             }
 
-            let version =
-                doc.get_summary().ok().map(|s| s.version).unwrap_or_else(|| "1.7".to_string());
+            let version = doc.get_summary().ok().map_or_else(|| "1.7".to_string(), |s| s.version);
             let metadata = doc.inner().metadata();
             let security_method = doc.inner().security_method.clone();
             let permissions = doc.inner().permissions;
             let fonts = doc.inner().fonts();
 
             let viewer_direction = if let Some(cah) = doc.inner().catalog_handle() {
-                if let Some(cadh) = doc.inner().resolve_to_dict(cah).ok() {
+                if let Ok(cadh) = doc.inner().resolve_to_dict(cah) {
                     if let Some(dict) = doc.inner().arena().get_dict(cadh) {
                         let vp_key = doc.inner().arena().name("ViewerPreferences");
                         if let Some(vp_obj) = dict.get(&vp_key) {
-                            if let Some(vp_ref) = resolve_to_node_handle(doc.inner().arena(), vp_obj) {
-                                if let Some(vp_dict) = doc.inner().resolve_to_dict(vp_ref).ok().and_then(|h| doc.inner().arena().get_dict(h)) {
+                            if let Some(vp_ref) =
+                                resolve_to_node_handle(doc.inner().arena(), vp_obj)
+                            {
+                                if let Some(vp_dict) = doc
+                                    .inner()
+                                    .resolve_to_dict(vp_ref)
+                                    .ok()
+                                    .and_then(|h| doc.inner().arena().get_dict(h))
+                                {
                                     let dir_key = doc.inner().arena().name("Direction");
-                                    vp_dict.get(&dir_key)
+                                    vp_dict
+                                        .get(&dir_key)
                                         .and_then(|d| d.resolve(doc.inner().arena()).as_name())
                                         .and_then(|nh| doc.inner().arena().get_name(nh))
                                         .map(|n| n.as_str().to_string())
-                                } else { None }
-                            } else { None }
-                        } else { None }
-                    } else { None }
-                } else { None }
-            } else { None };
+                                } else {
+                                    None
+                                }
+                            } else {
+                                None
+                            }
+                        } else {
+                            None
+                        }
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                }
+            } else {
+                None
+            };
 
-            let _ = tx.send(WorkerResponse::DocumentLoaded {
+            let _ = tx.send(WorkerResponse::DocumentLoaded(Box::new(LoadedDocument {
                 name: None,
                 num_pages,
                 page_sizes,
@@ -337,16 +325,18 @@ fn handle_insert_document( // RR-15 Limit: Dispatcher - handles page insertion f
                 permissions,
                 fonts,
                 viewer_direction,
-            });
+            })));
         }
         Err(e) => {
-            log::error!("Failed to open dropped document for insertion: {:?}", e);
-            let _ = tx.send(WorkerResponse::Error(format!("Failed to open dropped document: {:?}", e)));
+            log::error!("Failed to open dropped document for insertion: {e:?}");
+            let _ =
+                tx.send(WorkerResponse::Error(format!("Failed to open dropped document: {e:?}")));
         }
     }
 }
 
-fn handle_open( // RR-15 Limit: Dispatcher - handles open document worker requests and packages file properties
+fn handle_open(
+    // RR-15 Limit: Dispatcher - handles open document worker requests and packages file properties
     data: Bytes,
     name: Option<String>,
     tx: &Sender<WorkerResponse>,
@@ -377,43 +367,65 @@ fn handle_open( // RR-15 Limit: Dispatcher - handles open document worker reques
                     title: "PDF Document Catalog (Untagged)".to_string(),
                     alt_text: None,
                     rect: None,
+                    page_index: None,
                     handle_id: None,
                     children: Vec::new(),
                 });
             }
 
-            let version =
-                doc.get_summary().ok().map(|s| s.version).unwrap_or_else(|| "1.7".to_string());
+            let version = doc.get_summary().ok().map_or_else(|| "1.7".to_string(), |s| s.version);
             let metadata = doc.inner().metadata();
             let security_method = doc.inner().security_method.clone();
             let permissions = doc.inner().permissions;
             let fonts = doc.inner().fonts();
 
             let mut viewer_direction = if let Some(cah) = doc.inner().catalog_handle() {
-                if let Some(cadh) = doc.inner().resolve_to_dict(cah).ok() {
+                if let Ok(cadh) = doc.inner().resolve_to_dict(cah) {
                     if let Some(dict) = doc.inner().arena().get_dict(cadh) {
                         let vp_key = doc.inner().arena().name("ViewerPreferences");
                         if let Some(vp_obj) = dict.get(&vp_key) {
-                            if let Some(vp_ref) = resolve_to_node_handle(doc.inner().arena(), vp_obj) {
-                                if let Some(vp_dict) = doc.inner().resolve_to_dict(vp_ref).ok().and_then(|h| doc.inner().arena().get_dict(h)) {
+                            if let Some(vp_ref) =
+                                resolve_to_node_handle(doc.inner().arena(), vp_obj)
+                            {
+                                if let Some(vp_dict) = doc
+                                    .inner()
+                                    .resolve_to_dict(vp_ref)
+                                    .ok()
+                                    .and_then(|h| doc.inner().arena().get_dict(h))
+                                {
                                     let dir_key = doc.inner().arena().name("Direction");
-                                    vp_dict.get(&dir_key)
+                                    vp_dict
+                                        .get(&dir_key)
                                         .and_then(|d| d.resolve(doc.inner().arena()).as_name())
                                         .and_then(|nh| doc.inner().arena().get_name(nh))
                                         .map(|n| n.as_str().to_string())
-                                } else { None }
-                            } else { None }
-                        } else { None }
-                    } else { None }
-                } else { None }
-            } else { None };
+                                } else {
+                                    None
+                                }
+                            } else {
+                                None
+                            }
+                        } else {
+                            None
+                        }
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                }
+            } else {
+                None
+            };
 
             if viewer_direction.is_none() {
                 // Heuristic 1: Check fonts for CJK vertical layout
-                let has_vertical_font = doc.inner().fonts().iter().any(|f| f.name.ends_with("-V") || f.name.contains("-V-") || f.name.contains("-V_"));
+                let has_vertical_font = doc.inner().fonts().iter().any(|f| {
+                    f.name.ends_with("-V") || f.name.contains("-V-") || f.name.contains("-V_")
+                });
 
                 let is_japanese_lang = if let Some(cah) = doc.inner().catalog_handle() {
-                    if let Some(cadh) = doc.inner().resolve_to_dict(cah).ok() {
+                    if let Ok(cadh) = doc.inner().resolve_to_dict(cah) {
                         if let Some(dict) = doc.inner().arena().get_dict(cadh) {
                             let lang_key = doc.inner().arena().name("Lang");
                             if let Some(lang_obj) = dict.get(&lang_key) {
@@ -421,18 +433,28 @@ fn handle_open( // RR-15 Limit: Dispatcher - handles open document worker reques
                                 if let Some(bytes) = resolved.as_string() {
                                     let s = String::from_utf8_lossy(bytes).to_lowercase();
                                     s.starts_with("ja")
-                                } else { false }
-                            } else { false }
-                        } else { false }
-                    } else { false }
-                } else { false };
+                                } else {
+                                    false
+                                }
+                            } else {
+                                false
+                            }
+                        } else {
+                            false
+                        }
+                    } else {
+                        false
+                    }
+                } else {
+                    false
+                };
 
                 if has_vertical_font || is_japanese_lang {
                     viewer_direction = Some("R2L".to_string());
                 }
             }
 
-            let _ = tx.send(WorkerResponse::DocumentLoaded {
+            let _ = tx.send(WorkerResponse::DocumentLoaded(Box::new(LoadedDocument {
                 name,
                 num_pages,
                 page_sizes,
@@ -444,11 +466,11 @@ fn handle_open( // RR-15 Limit: Dispatcher - handles open document worker reques
                 permissions,
                 fonts,
                 viewer_direction,
-            });
+            })));
             Some(doc)
         }
         Err(e) => {
-            let _ = tx.send(WorkerResponse::Error(format!("Failed to load PDF: {}", e)));
+            let _ = tx.send(WorkerResponse::Error(format!("Failed to load PDF: {e}")));
             None
         }
     }
@@ -473,19 +495,24 @@ fn parse_kids_helper(
     next_id: &mut usize,
     visited: &mut std::collections::BTreeSet<Handle<Object>>,
     children: &mut Vec<crate::sidebar::USTNode>,
+    page_map: &BTreeMap<Handle<Object>, usize>,
+    inherited_page: Option<usize>,
 ) {
     if let Some(kid_ref) = resolve_to_node_handle(arena, kids_obj) {
-        if let Some(child_node) = parse_struct_node(arena, kid_ref, next_id, visited) {
+        if let Some(child_node) =
+            parse_struct_node(arena, kid_ref, next_id, visited, page_map, inherited_page)
+        {
             children.push(child_node);
         }
-    } else if let Object::Array(ah) = kids_obj.resolve(arena) {
-        if let Some(array) = arena.get_array(ah) {
-            for kid in array {
-                if let Some(kid_ref) = resolve_to_node_handle(arena, &kid) {
-                    if let Some(child_node) = parse_struct_node(arena, kid_ref, next_id, visited) {
-                        children.push(child_node);
-                    }
-                }
+    } else if let Object::Array(ah) = kids_obj.resolve(arena)
+        && let Some(array) = arena.get_array(ah)
+    {
+        for kid in array {
+            if let Some(kid_ref) = resolve_to_node_handle(arena, &kid)
+                && let Some(child_node) =
+                    parse_struct_node(arena, kid_ref, next_id, visited, page_map, inherited_page)
+            {
+                children.push(child_node);
             }
         }
     }
@@ -501,17 +528,14 @@ fn parse_tag_helper(
     if let Some(s_obj) = dict.get(&s_key) {
         let resolved: Object = s_obj.resolve(arena);
         if let Some(name_h) = resolved.as_name() {
-            arena
-                .get_name(name_h)
-                .map(|n| n.as_str().to_string())
-                .unwrap_or_else(|| "P".to_string())
+            arena.get_name(name_h).map_or_else(|| "P".to_string(), |n| n.as_str().to_string())
         } else {
             "P".to_string()
         }
     } else {
         let type_val = dict.get(&type_key).and_then(|t: &Object| t.resolve(arena).as_name());
         if let Some(tv) = type_val {
-            if arena.get_name(tv).map(|n| n.as_str() == "StructTreeRoot").unwrap_or(false) {
+            if arena.get_name(tv).is_some_and(|n| n.as_str() == "StructTreeRoot") {
                 "Document".to_string()
             } else {
                 "P".to_string()
@@ -533,11 +557,24 @@ fn parse_alt_text_helper(
     String::from_utf8(bytes.to_vec()).ok()
 }
 
+/// Resolves a struct element's `/Pg` entry to a zero-based page index.
+fn parse_page_index_helper(
+    arena: &PdfArena,
+    dict: &std::collections::BTreeMap<Handle<PdfName>, Object>,
+    page_map: &BTreeMap<Handle<Object>, usize>,
+) -> Option<usize> {
+    let pg_obj = dict.get(&arena.name("Pg"))?;
+    let pg_ref = resolve_to_node_handle(arena, pg_obj)?;
+    page_map.get(&pg_ref).copied()
+}
+
 fn parse_struct_node(
     arena: &PdfArena,
     handle: Handle<Object>,
     next_id: &mut usize,
     visited: &mut std::collections::BTreeSet<Handle<Object>>,
+    page_map: &BTreeMap<Handle<Object>, usize>,
+    inherited_page: Option<usize>,
 ) -> Option<crate::sidebar::USTNode> {
     if !visited.insert(handle) {
         return None;
@@ -552,12 +589,15 @@ fn parse_struct_node(
 
     let rect = dict.get(&arena.name("BBox")).and_then(|b| parse_bbox_helper(arena, b));
 
+    // ISO 32000-2 14.7.4.4: /Pg is inherited by descendants that do not carry their own.
+    let page_index = parse_page_index_helper(arena, &dict, page_map).or(inherited_page);
+
     let id = *next_id;
     *next_id += 1;
 
     let mut children = Vec::new();
     if let Some(kids) = dict.get(&arena.name("K")) {
-        parse_kids_helper(arena, kids, next_id, visited, &mut children);
+        parse_kids_helper(arena, kids, next_id, visited, &mut children, page_map, page_index);
     }
 
     visited.remove(&handle);
@@ -568,6 +608,7 @@ fn parse_struct_node(
         title,
         alt_text,
         rect,
+        page_index,
         handle_id: Some(handle.index()),
         children,
     })
@@ -616,7 +657,7 @@ fn get_or_extract_spans(
 }
 
 fn handle_render(
-    doc_opt: &Option<PdfDocument>,
+    doc_opt: Option<&PdfDocument>,
     index: usize,
     scale: f64,
     tx: &Sender<WorkerResponse>,
@@ -632,37 +673,31 @@ fn handle_render(
     let text = get_or_extract_text(doc, index, text_cache);
     let spans = get_or_extract_spans(doc, index, spans_cache);
 
-    if let Ok(()) = doc.render_page(index, &mut backend, initial_transform) {
+    if matches!(doc.render_page(index, &mut backend, initial_transform), Ok(())) {
         let scene = Arc::new(backend.scene().clone());
         let _ = tx.send(WorkerResponse::PageRendered { index, _scale: scale, scene, text, spans });
     } else {
-        let _ = tx.send(WorkerResponse::Error(format!("Failed to render page {}", index)));
+        let _ = tx.send(WorkerResponse::Error(format!("Failed to render page {index}")));
     }
 }
 
-fn handle_audit(doc_opt: &Option<PdfDocument>, tx: &Sender<WorkerResponse>) {
+fn handle_audit(doc_opt: Option<&PdfDocument>, tx: &Sender<WorkerResponse>) {
     let Some(doc) = doc_opt else { return };
     let mut audit_findings = Vec::new();
     let arena = doc.inner().arena();
 
-    if let Some(cah) = doc.inner().catalog_handle() {
-        if let Some(cadh) = doc.inner().resolve_to_dict(cah).ok() {
-            if let Some(dict) = arena.get_dict(cadh) {
-                let str_root_key = arena.name("StructTreeRoot");
-                if let Some(str_root_obj) = dict.get(&str_root_key) {
-                    if let Some(str_root_ref) = str_root_obj.resolve(arena).as_reference() {
-                        let auditor = ferruginous_sdk::structure::MatterhornAuditor::new(arena);
-                        if let Ok(findings) = auditor.audit(str_root_ref) {
-                            for f in findings {
-                                audit_findings.push((
-                                    f.checkpoint,
-                                    f.severity,
-                                    f.message,
-                                    f.handle_id,
-                                ));
-                            }
-                        }
-                    }
+    if let Some(cah) = doc.inner().catalog_handle()
+        && let Ok(cadh) = doc.inner().resolve_to_dict(cah)
+        && let Some(dict) = arena.get_dict(cadh)
+    {
+        let str_root_key = arena.name("StructTreeRoot");
+        if let Some(str_root_obj) = dict.get(&str_root_key)
+            && let Some(str_root_ref) = str_root_obj.resolve(arena).as_reference()
+        {
+            let auditor = ferruginous_sdk::structure::MatterhornAuditor::new(arena);
+            if let Ok(findings) = auditor.audit(str_root_ref) {
+                for f in findings {
+                    audit_findings.push((f.checkpoint, f.severity, f.message, f.handle_id));
                 }
             }
         }
@@ -681,38 +716,37 @@ fn handle_update_node(
     let arena = doc.inner().arena();
     let handle = Handle::<Object>::new(handle_id);
 
-    if let Some(Object::Dictionary(dh)) = arena.get_object(handle) {
-        if let Some(mut dict) = arena.get_dict(dh) {
-            // Update tag Subtype /S
-            let s_key = arena.name("S");
-            dict.insert(s_key, Object::Name(arena.name(&tag)));
+    if let Some(Object::Dictionary(dh)) = arena.get_object(handle)
+        && let Some(mut dict) = arena.get_dict(dh)
+    {
+        // Update tag Subtype /S
+        let s_key = arena.name("S");
+        dict.insert(s_key, Object::Name(arena.name(&tag)));
 
-            // Update Alt-text
-            let alt_key = arena.name("Alt");
-            if let Some(alt) = alt_text {
-                dict.insert(alt_key, Object::String(bytes::Bytes::from(alt)));
-            } else {
-                dict.remove(&alt_key);
-            }
-            arena.set_dict(dh, dict);
+        // Update Alt-text
+        let alt_key = arena.name("Alt");
+        if let Some(alt) = alt_text {
+            dict.insert(alt_key, Object::String(bytes::Bytes::from(alt)));
+        } else {
+            dict.remove(&alt_key);
         }
+        arena.set_dict(dh, dict);
     }
 
     // Run Matterhorn compliance audit on updated tree
     let mut findings = Vec::new();
-    if let Some(cah) = doc.inner().catalog_handle() {
-        if let Some(cadh) = doc.inner().resolve_to_dict(cah).ok() {
-            if let Some(dict) = arena.get_dict(cadh) {
-                let str_root_key = arena.name("StructTreeRoot");
-                if let Some(str_root_obj) = dict.get(&str_root_key) {
-                    if let Some(str_root_ref) = str_root_obj.resolve(arena).as_reference() {
-                        let auditor = ferruginous_sdk::structure::MatterhornAuditor::new(arena);
-                        if let Ok(audit_res) = auditor.audit(str_root_ref) {
-                            for f in audit_res {
-                                findings.push((f.checkpoint, f.severity, f.message, f.handle_id));
-                            }
-                        }
-                    }
+    if let Some(cah) = doc.inner().catalog_handle()
+        && let Ok(cadh) = doc.inner().resolve_to_dict(cah)
+        && let Some(dict) = arena.get_dict(cadh)
+    {
+        let str_root_key = arena.name("StructTreeRoot");
+        if let Some(str_root_obj) = dict.get(&str_root_key)
+            && let Some(str_root_ref) = str_root_obj.resolve(arena).as_reference()
+        {
+            let auditor = ferruginous_sdk::structure::MatterhornAuditor::new(arena);
+            if let Ok(audit_res) = auditor.audit(str_root_ref) {
+                for f in audit_res {
+                    findings.push((f.checkpoint, f.severity, f.message, f.handle_id));
                 }
             }
         }
@@ -720,8 +754,9 @@ fn handle_update_node(
     let _ = tx.send(WorkerResponse::AuditFindings { findings });
 }
 
-fn handle_save( // RR-15 Limit: Dispatcher - Thread pool worker saving request routing dispatcher handling signatures, redactions and compression saving options
-    doc_opt: &Option<PdfDocument>,
+fn handle_save(
+    // RR-15 Limit: Dispatcher - Thread pool worker saving request routing dispatcher handling signatures, redactions and compression saving options
+    doc_opt: Option<&PdfDocument>,
     path: std::path::PathBuf,
     compress: bool,
     linearize: bool,
@@ -752,8 +787,7 @@ fn handle_save( // RR-15 Limit: Dispatcher - Thread pool worker saving request r
             ferruginous_sdk::apply_physical_redaction_to_page(doc.inner(), page_idx, &rects)
         {
             let _ = tx.send(WorkerResponse::Error(format!(
-                "Failed physically redacting page {}: {}",
-                page_idx, e
+                "Failed physically redacting page {page_idx}: {e}"
             )));
             return;
         }
@@ -777,8 +811,8 @@ fn handle_save( // RR-15 Limit: Dispatcher - Thread pool worker saving request r
             name: Some("Ferruginous Digital Signer".to_string()),
             certificate: Some(cert_bytes.clone()),
             private_key: Some(cert_bytes),
-            page_index: signature_position.map(|(idx, _)| idx).unwrap_or(0),
-            rect: signature_position.map(|(_, rect)| rect).unwrap_or([50.0, 50.0, 200.0, 100.0]),
+            page_index: signature_position.map_or(0, |(idx, _)| idx),
+            rect: signature_position.map_or([50.0, 50.0, 200.0, 100.0], |(_, rect)| rect),
         };
         doc.save_signed(&path, version, &options, &sign_opts)
     } else if linearize {
@@ -792,7 +826,7 @@ fn handle_save( // RR-15 Limit: Dispatcher - Thread pool worker saving request r
             let _ = tx.send(WorkerResponse::DocumentSaved { path });
         }
         Err(e) => {
-            let _ = tx.send(WorkerResponse::Error(format!("Failed to save PDF: {}", e)));
+            let _ = tx.send(WorkerResponse::Error(format!("Failed to save PDF: {e}")));
         }
     }
 }

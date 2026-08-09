@@ -35,30 +35,36 @@ impl RedactionStudioPanel {
         }
     }
 
-    pub fn show( // RR-15 Limit: GUI - Sequential egui declarations for Redaction Studio window layout
+    pub fn show(
+        // RR-15 Limit: GUI - Sequential egui declarations for Redaction Studio window layout
         &mut self,
         ui: &mut egui::Ui,
         raw_texts: &BTreeMap<usize, String>,
         page_spans: &BTreeMap<usize, Vec<TextSpan>>,
         redaction_manager: &mut RedactionManager,
+        locale_mgr: &crate::locale::LocaleManager,
+        lang: &str,
     ) {
+        let tr = |key: &str| locale_mgr.tr(lang, key);
         ui.vertical(|ui| {
-            ui.heading("🔍 Regex Redaction Studio");
             ui.add_space(5.0);
 
             ui.horizontal(|ui| {
-                ui.label("Pattern:");
+                ui.label(tr("redaction_studio_pattern"));
                 if ui.text_edit_singleline(&mut self.search_query).changed() {
-                    self.perform_search(raw_texts, page_spans);
+                    self.perform_search(raw_texts, page_spans, locale_mgr, lang);
                 }
             });
 
             ui.horizontal(|ui| {
-                if ui.checkbox(&mut self.use_regex, "Regex").changed() {
-                    self.perform_search(raw_texts, page_spans);
+                if ui.checkbox(&mut self.use_regex, tr("redaction_studio_regex")).changed() {
+                    self.perform_search(raw_texts, page_spans, locale_mgr, lang);
                 }
-                if ui.checkbox(&mut self.case_sensitive, "Match Case").changed() {
-                    self.perform_search(raw_texts, page_spans);
+                if ui
+                    .checkbox(&mut self.case_sensitive, tr("redaction_studio_match_case"))
+                    .changed()
+                {
+                    self.perform_search(raw_texts, page_spans, locale_mgr, lang);
                 }
             });
 
@@ -70,23 +76,23 @@ impl RedactionStudioPanel {
 
             if !self.matches.is_empty() {
                 ui.horizontal(|ui| {
-                    if ui.button("Select All").clicked() {
+                    if ui.button(tr("redaction_studio_select_all")).clicked() {
                         for m in &mut self.matches {
                             m.checked = true;
                         }
                     }
-                    if ui.button("Clear Selection").clicked() {
+                    if ui.button(tr("redaction_studio_clear_selection")).clicked() {
                         for m in &mut self.matches {
                             m.checked = false;
                         }
                     }
-                    if ui.button("🔏 Redact Selected").clicked() {
+                    if ui.button(format!("🔏 {}", tr("redaction_studio_redact_selected"))).clicked()
+                    {
                         for m in &self.matches {
                             if m.checked {
-                                redaction_manager.zones.push(RedactionZone {
-                                    page_index: m.page_index,
-                                    rect: m.rect,
-                                });
+                                redaction_manager
+                                    .zones
+                                    .push(RedactionZone { page_index: m.page_index, rect: m.rect });
                             }
                         }
                         self.matches.clear();
@@ -104,7 +110,12 @@ impl RedactionStudioPanel {
                             if ui.checkbox(&mut checked, "").changed() {
                                 to_toggle.push((idx, checked));
                             }
-                            ui.label(format!("Page {}: {}", m.page_index + 1, m.term));
+                            ui.label(format!(
+                                "{} {}: {}",
+                                tr("redaction_studio_page_label"),
+                                m.page_index + 1,
+                                m.term
+                            ));
                         });
                     }
                     for (idx, state) in to_toggle {
@@ -113,7 +124,7 @@ impl RedactionStudioPanel {
                 });
             } else {
                 ui.centered_and_justified(|ui| {
-                    ui.label("No active search findings. Input search terms above.");
+                    ui.label(tr("redaction_studio_no_results"));
                 });
             }
         });
@@ -124,6 +135,8 @@ impl RedactionStudioPanel {
         raw_texts: &BTreeMap<usize, String>,
         page_spans: &BTreeMap<usize, Vec<TextSpan>>,
         pattern: &str,
+        locale_mgr: &crate::locale::LocaleManager,
+        lang: &str,
     ) {
         match Regex::new(pattern) {
             Ok(re) => {
@@ -148,7 +161,8 @@ impl RedactionStudioPanel {
                 }
             }
             Err(e) => {
-                self.error_msg = Some(format!("Invalid regex pattern: {}", e));
+                let label = locale_mgr.tr(lang, "redaction_studio_invalid_regex");
+                self.error_msg = Some(format!("{label} {e}"));
             }
         }
     }
@@ -179,6 +193,8 @@ impl RedactionStudioPanel {
         &mut self,
         raw_texts: &BTreeMap<usize, String>,
         page_spans: &BTreeMap<usize, Vec<TextSpan>>,
+        locale_mgr: &crate::locale::LocaleManager,
+        lang: &str,
     ) {
         self.matches.clear();
         self.error_msg = None;
@@ -193,7 +209,7 @@ impl RedactionStudioPanel {
             } else {
                 format!("(?i){}", self.search_query)
             };
-            self.perform_regex_search(raw_texts, page_spans, &pattern);
+            self.perform_regex_search(raw_texts, page_spans, &pattern, locale_mgr, lang);
         } else {
             let search_term = if self.case_sensitive {
                 self.search_query.clone()

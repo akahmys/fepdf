@@ -21,12 +21,7 @@ impl Default for RedactionManager {
 
 impl RedactionManager {
     pub fn new() -> Self {
-        Self {
-            zones: Vec::new(),
-            drag_start: None,
-            drag_current: None,
-            is_active: false,
-        }
+        Self { zones: Vec::new(), drag_start: None, drag_current: None, is_active: false }
     }
 
     pub fn clear(&mut self) {

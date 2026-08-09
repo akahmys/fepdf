@@ -34,16 +34,20 @@ while read -r file; do
             match($0, /^[[:space:]]*/);
             fn_indent = RLENGTH;
             
+            limit = 50;
+        }
+    }
+    in_fn {
+        # The RR-15 Limit marker annotates the function, not a specific line. rustfmt
+        # relocates a trailing comment off the "fn" line onto the next one, so scan the
+        # signature region rather than requiring the marker to sit on the "fn" line.
+        if (FNR - fn_start < 15) {
             if ($0 ~ /\/\/ RR-15 Limit: Dispatcher/) {
                 limit = 500;
-            } else if ($0 ~ /\/\/ RR-15 Limit: GUI/) {
+            } else if ($0 ~ /\/\/ RR-15 Limit: GUI/ && limit < 200) {
                 limit = 200;
-            } else {
-                limit = 50;
             }
         }
-    } 
-    in_fn {
         if ($0 !~ /^[[:space:]]*$/ && $0 !~ /^[[:space:]]*\/\// && $0 !~ /^[[:space:]]*\/\*/) {
             effective_lines++;
         }

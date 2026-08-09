@@ -18,7 +18,8 @@ impl ArlingtonInspectorPanel {
     }
 
     /// Simulates PDF dictionary structures for the selected tag/node.
-    fn get_mock_dictionary_for_node(&self, tag: &str) -> Vec<InspectorEntry> { // RR-15 Limit: Dispatcher - Flat mapping of node types to mock dictionary elements
+    fn get_mock_dictionary_for_node(&self, tag: &str) -> Vec<InspectorEntry> {
+        // RR-15 Limit: Dispatcher - Flat mapping of node types to mock dictionary elements
         match tag {
             "Catalog" | "Document" => vec![
                 InspectorEntry {
@@ -88,7 +89,7 @@ impl ArlingtonInspectorPanel {
                 InspectorEntry {
                     key: "S".to_string(),
                     val_type: "Name".to_string(),
-                    raw_value: format!("/{}", tag),
+                    raw_value: format!("/{tag}"),
                     compliance_rule: "Semantic tag designation.",
                     warning: None,
                 },
@@ -103,7 +104,8 @@ impl ArlingtonInspectorPanel {
         }
     }
 
-    pub fn show( // RR-15 Limit: GUI - Arlington Dictionary Inspector panel show
+    pub fn show(
+        // RR-15 Limit: GUI - Arlington Dictionary Inspector panel show
         &mut self,
         ui: &mut egui::Ui,
         selected_tag: Option<&str>,
@@ -111,7 +113,7 @@ impl ArlingtonInspectorPanel {
         active_lang: &str,
     ) {
         let tag = selected_tag.unwrap_or("Catalog");
-        self.active_object_name = format!("Dictionary: <{}>", tag);
+        self.active_object_name = format!("Dictionary: <{tag}>");
 
         ui.vertical(|ui| {
             ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Wrap);

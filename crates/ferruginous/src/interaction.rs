@@ -70,8 +70,8 @@ impl SelectionManager {
         page_h: f32,
         pos: egui::Pos2,
     ) -> egui::Pos2 {
-        let x = page_rect.min.x + pos.x * zoom;
-        let y = page_rect.min.y + (page_h - pos.y) * zoom;
+        let x = pos.x.mul_add(zoom, page_rect.min.x);
+        let y = (page_h - pos.y).mul_add(zoom, page_rect.min.y);
         egui::pos2(x, y)
     }
 
@@ -101,7 +101,7 @@ impl SelectionManager {
             }
 
             // PDF coordinates: Y starts at 0 at bottom
-            let line_y = page_h - top_margin - (row_idx as f32 * line_height);
+            let line_y = (row_idx as f32).mul_add(-line_height, page_h - top_margin);
 
             let words: Vec<&str> = line.split_whitespace().collect();
             if words.is_empty() {

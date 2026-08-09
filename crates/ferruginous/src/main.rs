@@ -1,35 +1,37 @@
+//! Ferruginous: the flagship desktop PDF 2.0 editor.
+//!
+//! Builds on `egui` + `eframe` + `wgpu`, rendering page content through the Vello
+//! compute rasteriser in [`ferruginous-render`]. Document work runs on a background
+//! worker thread ([`worker`]) so the canvas stays responsive.
+//!
+//! # Lint policy
+//!
+//! Every suppression below is crate-wide because the underlying cause is crate-wide.
+//! Anything narrower is suppressed at the individual site with its own justification;
+//! see `CODING.md` for the RR-15 rules these sit under.
+
+// PDF user space is `f64` (ISO 32000-2) while egui and Vello work in `f32` screen
+// space. Narrowing at that boundary is intentional and occurs at ~45 call sites.
 #![allow(
-    clippy::collapsible_if,
-    clippy::match_result_ok,
-    clippy::too_many_arguments,
-    clippy::large_enum_variant,
-    clippy::unnecessary_unwrap,
-    clippy::needless_borrow,
-    clippy::equatable_if_let,
-    clippy::uninlined_format_args,
-    clippy::ref_option,
-    clippy::fn_params_excessive_bools,
-    clippy::needless_pass_by_ref_mut,
-    clippy::float_cmp,
-    clippy::semicolon_if_nothing_returned,
-    clippy::map_unwrap_or,
     clippy::cast_possible_truncation,
-    clippy::cast_sign_loss,
-    clippy::manual_midpoint,
-    clippy::cast_lossless,
-    clippy::suboptimal_flops,
     clippy::cast_precision_loss,
-    clippy::struct_excessive_bools,
-    clippy::cloned_instead_of_copied,
-    clippy::unnecessary_debug_formatting,
-    clippy::stable_sort_primitive,
-    clippy::derive_partial_eq_without_eq,
-    clippy::imprecise_flops,
-    clippy::needless_lifetimes,
-    clippy::result_large_err,
-    dead_code,
-    missing_docs
+    clippy::cast_sign_loss,
+    clippy::cast_lossless
 )]
+// egui convention: widget helpers take `&mut egui::Ui` even when the current body only
+// paints, so that adding an `ui.add(..)` call later is not a breaking signature change.
+#![allow(clippy::needless_pass_by_ref_mut)]
+// Panel and dispatcher entry points thread whole-application state through a single
+// call per frame. Grouping the arguments into structs would only move the same field
+// list one frame down the stack without reducing coupling.
+#![allow(
+    clippy::too_many_arguments,
+    clippy::fn_params_excessive_bools,
+    clippy::struct_excessive_bools,
+    clippy::ref_option
+)]
+// `eframe::Error` is large and owned by the framework; `main` must return it as-is.
+#![allow(clippy::result_large_err)]
 
 mod app;
 mod cad_canvas;

@@ -64,7 +64,8 @@ impl ExportWizard {
         );
     }
 
-    fn render_signature_section(app: &mut crate::app::FerruginousApp, ui: &mut egui::Ui) { // RR-15 Limit: GUI - signature UI layout section declaration
+    fn render_signature_section(app: &mut crate::app::FerruginousApp, ui: &mut egui::Ui) {
+        // RR-15 Limit: GUI - signature UI layout section declaration
         ui.separator();
         ui.heading(app.locale_mgr.tr(&app.active_language, "export_signature_heading"));
         ui.add_space(5.0);
@@ -73,15 +74,13 @@ impl ExportWizard {
             if ui
                 .button(app.locale_mgr.tr(&app.active_language, "export_sig_select_cert"))
                 .clicked()
-            {
-                if let Some(p) =
+                && let Some(p) =
                     rfd::FileDialog::new().add_filter("PKCS#12", &["pfx", "p12"]).pick_file()
-                {
-                    app.cert_path = Some(p);
-                }
+            {
+                app.cert_path = Some(p);
             }
             if let Some(path) = &app.cert_path {
-                ui.label(path.file_name().unwrap_or(&path.as_os_str()).to_string_lossy());
+                ui.label(path.file_name().unwrap_or(path.as_os_str()).to_string_lossy());
             } else {
                 ui.label(app.locale_mgr.tr(&app.active_language, "export_sig_no_cert"));
             }
@@ -100,23 +99,25 @@ impl ExportWizard {
                         app.locale_mgr.tr(&app.active_language, "export_sig_place_field"),
                     )
                     .clicked()
+                    && app.is_placing_signature
                 {
-                    if app.is_placing_signature {
-                        app.show_export_wizard = false;
-                    }
+                    app.show_export_wizard = false;
                 }
                 if let Some((page, rect)) = &app.signature_position {
-                    let mut text = app.locale_mgr
+                    let mut text = app
+                        .locale_mgr
                         .tr(&app.active_language, "export_sig_placed")
                         .replace("{}", &(page + 1).to_string());
                     // Bypassing clippy literal-string-with-formatting-args by replacing custom tag or constructing
                     if text.contains("{x}") {
-                        text = text.replace("{x}", &format!("{:.1}", rect.min.x))
-                                   .replace("{y}", &format!("{:.1}", rect.min.y));
+                        text = text
+                            .replace("{x}", &format!("{:.1}", rect.min.x))
+                            .replace("{y}", &format!("{:.1}", rect.min.y));
                     } else {
                         // fallback or direct format using split curly braces to avoid clippy trigger
-                        text = text.replace(&format!("{}{}", "{:.1", "}"), &format!("{:.1}", rect.min.x))
-                                   .replace(&format!("{}{}", "{:.1", "}"), &format!("{:.1}", rect.min.y));
+                        text = text
+                            .replace(&format!("{}{}", "{:.1", "}"), &format!("{:.1}", rect.min.x))
+                            .replace(&format!("{}{}", "{:.1", "}"), &format!("{:.1}", rect.min.y));
                     }
                     ui.label(text);
                 } else {
@@ -132,46 +133,39 @@ impl ExportWizard {
         ui.add_space(5.0);
 
         ui.horizontal(|ui| {
-            if ui.button(app.locale_mgr.tr(&app.active_language, "export_draft_save")).clicked() {
-                if let Some(p) = rfd::FileDialog::new()
+            if ui.button(app.locale_mgr.tr(&app.active_language, "export_draft_save")).clicked()
+                && let Some(p) = rfd::FileDialog::new()
                     .add_filter("JSON", &["json"])
                     .set_file_name("ust_draft.json")
                     .save_file()
-                {
-                    if let Ok(json_str) = serde_json::to_string_pretty(&app.ust_registry) {
-                        if std::fs::write(&p, json_str).is_ok() {
-                            let mut msg = app
-                                .locale_mgr
-                                .tr(&app.active_language, "export_draft_saved");
-                            if msg.contains("{file}") {
-                                msg = msg.replace("{file}", &format!("{:?}", p.file_name().unwrap_or(&p.as_os_str())));
-                            } else {
-                                msg = msg.replace(&format!("{}{}", "{:?", "}"), &format!("{:?}", p.file_name().unwrap_or(&p.as_os_str())));
-                            }
-                            app.error = Some(msg);
-                        } else {
-                            app.error = Some(
-                                app.locale_mgr.tr(&app.active_language, "export_draft_save_fail"),
-                            );
-                        }
+                && let Ok(json_str) = serde_json::to_string_pretty(&app.ust_registry)
+            {
+                if std::fs::write(&p, json_str).is_ok() {
+                    let mut msg = app.locale_mgr.tr(&app.active_language, "export_draft_saved");
+                    let file_label = p.file_name().unwrap_or(p.as_os_str()).display().to_string();
+                    if msg.contains("{file}") {
+                        msg = msg.replace("{file}", &file_label);
+                    } else {
+                        msg = msg.replace(&format!("{}{}", "{:?", "}"), &file_label);
                     }
+                    app.error = Some(msg);
+                } else {
+                    app.error =
+                        Some(app.locale_mgr.tr(&app.active_language, "export_draft_save_fail"));
                 }
             }
 
-            if ui.button(app.locale_mgr.tr(&app.active_language, "export_draft_load")).clicked() {
-                if let Some(p) = rfd::FileDialog::new().add_filter("JSON", &["json"]).pick_file() {
-                    if let Ok(bytes) = std::fs::read(&p) {
-                        if let Ok(draft) = serde_json::from_slice::<USTRegistry>(&bytes) {
-                            app.ust_registry = draft;
-                            app.error = Some(
-                                app.locale_mgr.tr(&app.active_language, "export_draft_loaded"),
-                            );
-                        } else {
-                            app.error = Some(
-                                app.locale_mgr.tr(&app.active_language, "export_draft_load_fail"),
-                            );
-                        }
-                    }
+            if ui.button(app.locale_mgr.tr(&app.active_language, "export_draft_load")).clicked()
+                && let Some(p) = rfd::FileDialog::new().add_filter("JSON", &["json"]).pick_file()
+                && let Ok(bytes) = std::fs::read(&p)
+            {
+                if let Ok(draft) = serde_json::from_slice::<USTRegistry>(&bytes) {
+                    app.ust_registry = draft;
+                    app.error =
+                        Some(app.locale_mgr.tr(&app.active_language, "export_draft_loaded"));
+                } else {
+                    app.error =
+                        Some(app.locale_mgr.tr(&app.active_language, "export_draft_load_fail"));
                 }
             }
         });
@@ -184,8 +178,8 @@ impl ExportWizard {
             .save_file()
         {
             if app.export_burn_redactions {
-                let mut keys: Vec<usize> = app.raw_texts.keys().cloned().collect();
-                keys.sort();
+                let mut keys: Vec<usize> = app.raw_texts.keys().copied().collect();
+                keys.sort_unstable();
                 for page_idx in keys {
                     if let (Some(raw_text), Some(spans)) =
                         (app.raw_texts.get(&page_idx).cloned(), app.page_spans.get_mut(&page_idx))
