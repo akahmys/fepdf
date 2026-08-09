@@ -220,3 +220,94 @@ impl RedactionStudioPanel {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::locale::LocaleManager;
+
+    fn span(text: &str, x: f32) -> TextSpan {
+        TextSpan {
+            text: text.to_string(),
+            rect: egui::Rect::from_min_size(egui::pos2(x, 0.0), egui::vec2(10.0, 10.0)),
+        }
+    }
+
+    fn fixture() -> (BTreeMap<usize, String>, BTreeMap<usize, Vec<TextSpan>>) {
+        let mut raw = BTreeMap::new();
+        raw.insert(0, "Invoice ACME 2026".to_string());
+        raw.insert(3, "Contact acme@example.com".to_string());
+
+        let mut spans = BTreeMap::new();
+        spans.insert(0, vec![span("Invoice", 0.0), span("ACME", 20.0), span("2026", 40.0)]);
+        spans.insert(3, vec![span("Contact", 0.0), span("acme@example.com", 20.0)]);
+        (raw, spans)
+    }
+
+    fn search(panel: &mut RedactionStudioPanel) {
+        let (raw, spans) = fixture();
+        let mgr = LocaleManager::new();
+        panel.perform_search(&raw, &spans, &mgr, "en");
+    }
+
+    #[test]
+    fn plain_search_is_case_insensitive_by_default() {
+        let mut panel = RedactionStudioPanel::new();
+        panel.search_query = "acme".to_string();
+        search(&mut panel);
+        assert!(!panel.matches.is_empty());
+        assert!(panel.matches.iter().any(|m| m.term == "ACME"));
+    }
+
+    #[test]
+    fn match_case_excludes_differently_cased_spans() {
+        let mut panel = RedactionStudioPanel::new();
+        panel.search_query = "acme".to_string();
+        panel.case_sensitive = true;
+        search(&mut panel);
+        assert!(panel.matches.iter().all(|m| m.term != "ACME"));
+    }
+
+    #[test]
+    fn matches_carry_the_page_they_were_found_on() {
+        // The page index is what RedactionZone needs; losing it would redact the
+        // wrong page.
+        let mut panel = RedactionStudioPanel::new();
+        panel.search_query = "Contact".to_string();
+        search(&mut panel);
+        assert!(!panel.matches.is_empty());
+        assert!(panel.matches.iter().all(|m| m.page_index == 3));
+    }
+
+    #[test]
+    fn regex_mode_matches_by_pattern() {
+        let mut panel = RedactionStudioPanel::new();
+        panel.use_regex = true;
+        panel.search_query = r"[a-z]+@[a-z.]+".to_string();
+        search(&mut panel);
+        assert!(panel.matches.iter().any(|m| m.term == "acme@example.com"));
+        assert!(panel.error_msg.is_none());
+    }
+
+    #[test]
+    fn invalid_regex_reports_an_error_instead_of_matching() {
+        let mut panel = RedactionStudioPanel::new();
+        panel.use_regex = true;
+        panel.search_query = "[unclosed".to_string();
+        search(&mut panel);
+        assert!(panel.matches.is_empty());
+        assert!(panel.error_msg.is_some());
+    }
+
+    #[test]
+    fn an_empty_query_clears_previous_results() {
+        let mut panel = RedactionStudioPanel::new();
+        panel.search_query = "acme".to_string();
+        search(&mut panel);
+        assert!(!panel.matches.is_empty());
+
+        panel.search_query = "   ".to_string();
+        search(&mut panel);
+        assert!(panel.matches.is_empty());
+    }
+}

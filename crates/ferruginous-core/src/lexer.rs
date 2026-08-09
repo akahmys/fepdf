@@ -363,7 +363,7 @@ mod tests {
 
     #[test]
     fn test_tokenize_basic_primitives() {
-        let input = b"true false null 123 -456 3.1415 /Type /Page";
+        let input = b"true false null 123 -456 3.6251 /Type /Page";
         let tokens = tokenize(input);
         assert_eq!(
             tokens,
@@ -373,7 +373,7 @@ mod tests {
                 Token::Null,
                 Token::Integer(123),
                 Token::Integer(-456),
-                Token::Real(3.1415),
+                Token::Real(3.6251),
                 Token::Name(Bytes::from_static(b"Type")),
                 Token::Name(Bytes::from_static(b"Page")),
             ]

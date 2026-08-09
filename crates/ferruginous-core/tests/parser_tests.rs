@@ -18,8 +18,8 @@ fn test_parser_scalar_objects() {
     assert_eq!(obj, Object::Integer(42));
 
     // Parse Real
-    let obj = parse_bytes(b"3.1415", &arena);
-    assert_eq!(obj, Object::Real(3.1415));
+    let obj = parse_bytes(b"3.6251", &arena);
+    assert_eq!(obj, Object::Real(3.6251));
 
     // Parse Boolean
     let obj = parse_bytes(b"true", &arena);

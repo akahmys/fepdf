@@ -246,8 +246,11 @@ echo "[MSRV] Checking Rust workspace compilation..."
 cargo check --quiet || ERROR=1
 
 # Rule 17: Clippy Audit
+#
+# --all-targets so that tests, examples and benches are linted too. Without it
+# those targets were never checked, and lint debt accumulated there unseen.
 echo "[Rule 17] Running clippy audit..."
-cargo clippy --workspace -- -D warnings || ERROR=1
+cargo clippy --workspace --all-targets -- -D warnings || ERROR=1
 
 # Rule 16: License Compliance via cargo-deny
 echo "[Rule 16] Checking for license compliance (cargo-deny)..."

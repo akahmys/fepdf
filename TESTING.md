@@ -85,7 +85,9 @@ cargo check --workspace
 Before submitting a Pull Request or completing a task:
 
 - [ ] `./scripts/audit/verify_compliance.sh` completes with `=== AUDIT PASSED ===`.
-- [ ] `cargo test --workspace` passes with 0 failures across all 48+ test suites.
-- [ ] All integration tests are placed in `crates/*/tests/` following the Test Separation Policy.
+- [ ] `cargo test --workspace` passes with 0 failures across all 66+ test suites.
+- [ ] `cargo clippy --workspace --all-targets -- -D warnings` is clean. `--all-targets` matters: without it tests, examples and benches are never linted.
+- [ ] `cargo fmt --all --check` reports no diff.
+- [ ] All integration tests are placed in `crates/*/tests/` following the Test Separation Policy. Binary crates (`ferruginous`) are the exception: an integration test cannot reach into a binary, so their unit tests live in inline `#[cfg(test)] mod tests` blocks, which the rule permits.
 - [ ] `cargo deny check licenses` returns `licenses ok`.
 - [ ] `.git/hooks/pre-commit` passes secret scanning without leaks.

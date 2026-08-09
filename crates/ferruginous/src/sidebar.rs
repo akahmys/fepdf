@@ -1413,4 +1413,79 @@ mod tests {
         // Invalid moves: dragging parent to child should fail
         assert!(!registry.move_node(3, 4, DragRelation::Above));
     }
+
+    fn node(id: usize, page_index: Option<usize>, rect: Option<[f32; 4]>) -> USTNode {
+        USTNode {
+            id,
+            tag: "P".to_string(),
+            title: format!("node {id}"),
+            alt_text: None,
+            rect,
+            page_index,
+            handle_id: None,
+            children: Vec::new(),
+        }
+    }
+
+    fn registry_with(children: Vec<USTNode>) -> USTRegistry {
+        let mut registry = USTRegistry::new();
+        let mut root = node(0, None, None);
+        root.children = children;
+        registry.root = Some(root);
+        registry
+    }
+
+    #[test]
+    fn find_placement_reports_the_node_own_page() {
+        // Regression: the viewport used to hardcode page 0, so selecting a tag on a
+        // later page highlighted and scrolled to the first page instead.
+        let registry = registry_with(vec![
+            node(1, Some(0), Some([10.0, 20.0, 30.0, 40.0])),
+            node(2, Some(4), Some([50.0, 60.0, 70.0, 80.0])),
+        ]);
+
+        assert_eq!(registry.find_placement_by_id(1), Some((0, [10.0, 20.0, 30.0, 40.0])));
+        assert_eq!(registry.find_placement_by_id(2), Some((4, [50.0, 60.0, 70.0, 80.0])));
+    }
+
+    #[test]
+    fn find_placement_falls_back_to_first_page_when_pg_unresolved() {
+        // Tags parsed from a PDF whose /Pg could not be resolved keep the old
+        // behaviour rather than disappearing from the viewport.
+        let registry = registry_with(vec![node(1, None, Some([1.0, 2.0, 3.0, 4.0]))]);
+        assert_eq!(registry.find_placement_by_id(1), Some((0, [1.0, 2.0, 3.0, 4.0])));
+    }
+
+    #[test]
+    fn find_placement_searches_nested_nodes() {
+        let mut branch = node(1, Some(1), None);
+        branch.children = vec![node(2, Some(7), Some([5.0, 5.0, 6.0, 6.0]))];
+        let registry = registry_with(vec![branch]);
+        assert_eq!(registry.find_placement_by_id(2), Some((7, [5.0, 5.0, 6.0, 6.0])));
+    }
+
+    #[test]
+    fn find_placement_returns_none_without_a_rect_or_a_match() {
+        let registry = registry_with(vec![node(1, Some(3), None)]);
+        // A node carrying no bounding box has nothing to highlight.
+        assert_eq!(registry.find_placement_by_id(1), None);
+        assert_eq!(registry.find_placement_by_id(99), None);
+    }
+
+    #[test]
+    fn ust_node_page_index_defaults_when_absent_from_a_draft() {
+        // UST drafts written before page_index existed must still deserialize.
+        let legacy = r#"{
+            "id": 3,
+            "tag": "H1",
+            "title": "legacy",
+            "alt_text": null,
+            "rect": null,
+            "handle_id": null,
+            "children": []
+        }"#;
+        let parsed: USTNode = serde_json::from_str(legacy).expect("legacy draft should load");
+        assert_eq!(parsed.page_index, None);
+        assert_eq!(parsed.id, 3);
+    }
 }

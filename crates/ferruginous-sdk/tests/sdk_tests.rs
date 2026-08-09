@@ -194,14 +194,14 @@ fn get_multipage_pdf(count: usize) -> Bytes {
     let mut pages_dict = lopdf::Dictionary::new();
     pages_dict.set("Type", lopdf::Object::Name(b"Pages".to_vec()));
     pages_dict.set("Kids", lopdf::Object::Array(page_ids.clone()));
-    pages_dict.set("Count", lopdf::Object::Integer(count as i64));
+    pages_dict.set("Count", lopdf::Object::Integer(i64::try_from(count).unwrap_or(0)));
     let pages_id = doc.add_object(lopdf::Object::Dictionary(pages_dict));
 
     for pid_obj in page_ids {
-        if let lopdf::Object::Reference(pid) = pid_obj {
-            if let Some(lopdf::Object::Dictionary(dict)) = doc.objects.get_mut(&pid) {
-                dict.set("Parent", lopdf::Object::Reference(pages_id));
-            }
+        if let lopdf::Object::Reference(pid) = pid_obj
+            && let Some(lopdf::Object::Dictionary(dict)) = doc.objects.get_mut(&pid)
+        {
+            dict.set("Parent", lopdf::Object::Reference(pages_id));
         }
     }
 

@@ -342,3 +342,48 @@ impl SelectionManager {
         self.highlights.insert(page_index, page_highlights);
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const PAGE_H: f32 = 800.0;
+
+    fn page_rect() -> egui::Rect {
+        egui::Rect::from_min_size(egui::pos2(100.0, 50.0), egui::vec2(600.0, PAGE_H))
+    }
+
+    #[test]
+    fn pdf_and_screen_coordinates_round_trip() {
+        let rect = page_rect();
+        for zoom in [0.5_f32, 1.0, 2.5] {
+            let original = egui::pos2(123.5, 456.25);
+            let screen = SelectionManager::pdf_to_screen(rect, zoom, PAGE_H, original);
+            let back = SelectionManager::screen_to_pdf(rect, zoom, PAGE_H, screen);
+            assert!((back.x - original.x).abs() < 1e-3, "x drifted at zoom {zoom}");
+            assert!((back.y - original.y).abs() < 1e-3, "y drifted at zoom {zoom}");
+        }
+    }
+
+    #[test]
+    fn pdf_origin_is_bottom_left_of_the_page() {
+        // PDF user space grows upwards, screen space downwards. The PDF origin must
+        // therefore land on the page's bottom edge, not its top.
+        let rect = page_rect();
+        let origin = SelectionManager::pdf_to_screen(rect, 1.0, PAGE_H, egui::pos2(0.0, 0.0));
+        assert!((origin.x - rect.min.x).abs() < 1e-3);
+        assert!((origin.y - rect.max.y).abs() < 1e-3);
+
+        let top = SelectionManager::pdf_to_screen(rect, 1.0, PAGE_H, egui::pos2(0.0, PAGE_H));
+        assert!((top.y - rect.min.y).abs() < 1e-3);
+    }
+
+    #[test]
+    fn zoom_scales_distance_from_the_page_origin() {
+        let rect = page_rect();
+        let at_1x = SelectionManager::pdf_to_screen(rect, 1.0, PAGE_H, egui::pos2(100.0, 0.0));
+        let at_2x = SelectionManager::pdf_to_screen(rect, 2.0, PAGE_H, egui::pos2(100.0, 0.0));
+        assert!((at_1x.x - rect.min.x - 100.0).abs() < 1e-3);
+        assert!((at_2x.x - rect.min.x - 200.0).abs() < 1e-3);
+    }
+}

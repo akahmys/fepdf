@@ -70,3 +70,44 @@ impl LocaleManager {
         langs
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn embedded_locales_expose_the_same_key_set() {
+        // A key present in one locale but not the other silently falls back to
+        // English at runtime, which reads as a half-translated UI.
+        let mgr = LocaleManager::new();
+        let en = mgr.translations.get("en").expect("en locale must be embedded");
+        let ja = mgr.translations.get("ja").expect("ja locale must be embedded");
+
+        let missing_in_ja: Vec<&String> = en.keys().filter(|k| !ja.contains_key(*k)).collect();
+        let missing_in_en: Vec<&String> = ja.keys().filter(|k| !en.contains_key(*k)).collect();
+
+        assert!(missing_in_ja.is_empty(), "keys absent from ja.json: {missing_in_ja:?}");
+        assert!(missing_in_en.is_empty(), "keys absent from en.json: {missing_in_en:?}");
+    }
+
+    #[test]
+    fn tr_prefers_the_requested_language() {
+        let mgr = LocaleManager::new();
+        let en = mgr.tr("en", "cmd_redaction_studio");
+        let ja = mgr.tr("ja", "cmd_redaction_studio");
+        assert_eq!(en, "Redaction Studio");
+        assert_ne!(en, ja, "ja should not merely echo the English string");
+    }
+
+    #[test]
+    fn tr_falls_back_to_english_for_an_unknown_language() {
+        let mgr = LocaleManager::new();
+        assert_eq!(mgr.tr("de", "cmd_redaction_studio"), mgr.tr("en", "cmd_redaction_studio"));
+    }
+
+    #[test]
+    fn tr_returns_the_key_when_nothing_matches() {
+        let mgr = LocaleManager::new();
+        assert_eq!(mgr.tr("en", "no_such_key_exists"), "no_such_key_exists");
+    }
+}
