@@ -1,6 +1,10 @@
+//! Integration tests for the public `ferruginous-sdk` surface.
+//!
+//! Placed under `tests/` per RR-15 Rule 14 (Test Code Separation).
+
 #![allow(clippy::float_cmp)]
-use crate::{PdfDocument, PdfStandard};
 use bytes::Bytes;
+use ferruginous_sdk::{PdfDocument, PdfStandard};
 use std::io::Write;
 
 fn get_minimal_pdf() -> Bytes {
@@ -37,9 +41,9 @@ fn test_document_save_settings_sync() {
     let mut doc = PdfDocument::open(data).unwrap();
 
     // Test initial states
-    assert!(!doc.vacuum);
-    assert!(!doc.strip);
-    assert!(doc.password.is_none());
+    assert!(!doc.vacuum());
+    assert!(!doc.strip());
+    assert!(doc.password().is_none());
 
     // Modify states
     doc.set_vacuum(true);
@@ -47,9 +51,9 @@ fn test_document_save_settings_sync() {
     doc.set_password(Some("secret".to_string()));
 
     // Verify mutations
-    assert!(doc.vacuum);
-    assert!(doc.strip);
-    assert_eq!(doc.password.as_deref(), Some("secret"));
+    assert!(doc.vacuum());
+    assert!(doc.strip());
+    assert_eq!(doc.password(), Some("secret"));
 
     // Verify SaveOptions serialization syncing
     let file_path = std::env::temp_dir().join("ferruginous_test_output.pdf");
@@ -85,7 +89,7 @@ fn test_upgrade_to_standard() {
 
 #[test]
 fn test_object_stream_packer() {
-    use crate::obj_stm::ObjectStreamPacker;
+    use ferruginous_sdk::obj_stm::ObjectStreamPacker;
     let mut packer = ObjectStreamPacker::new();
     assert_eq!(packer.count(), 0);
 
@@ -249,4 +253,3 @@ fn test_insert_pages_from() {
     assert_eq!(inserted, 3);
     assert_eq!(doc1.page_count().unwrap(), 5);
 }
-

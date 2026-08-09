@@ -1051,6 +1051,19 @@ impl PdfDocument {
         self.password = password;
     }
 
+    /// Returns whether unreachable objects are removed on save.
+    pub fn vacuum(&self) -> bool {
+        self.vacuum
+    }
+    /// Returns whether descriptive metadata is stripped on save.
+    pub fn strip(&self) -> bool {
+        self.strip
+    }
+    /// Returns the configured document open password, if any.
+    pub fn password(&self) -> Option<&str> {
+        self.password.as_deref()
+    }
+
     /// Sets the rotation of a specific page.
     pub fn set_page_rotation(&mut self, index: usize, angle: i32) -> PdfResult<()> {
         let page = self.inner.get_page(index)?;
@@ -1183,6 +1196,3 @@ pub fn retag_document(doc: &mut Document) -> PdfResult<()> {
     // Automatic application logic would follow
     Ok(())
 }
-
-#[cfg(test)]
-mod tests;
