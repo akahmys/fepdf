@@ -157,7 +157,8 @@ impl FontReconstructor {
         (upem, num_glyphs)
     }
 
-    fn patch_sfnt_data( // RR-15 Limit: Dispatcher - surgical patching of SFNT binary structures
+    fn patch_sfnt_data(
+        // RR-15 Limit: Dispatcher - surgical patching of SFNT binary structures
         resource: &FontResource,
         raw_data: &[u8],
         normalized: ReconstructedFont,
@@ -1446,7 +1447,8 @@ impl FontReconstructor {
         }
     }
 
-    pub fn inspect_cff(data: &[u8]) -> Result<CffInfo, Box<dyn std::error::Error>> { // RR-15 Limit: Dispatcher - parses and inspects raw CFF index tables and structures
+    pub fn inspect_cff(data: &[u8]) -> Result<CffInfo, Box<dyn std::error::Error>> {
+        // RR-15 Limit: Dispatcher - parses and inspects raw CFF index tables and structures
         let cff_data = Self::extract_cff_stream(data)?;
         if cff_data.len() < 10 {
             return Ok(CffInfo::empty());
@@ -1733,7 +1735,8 @@ impl FontReconstructor {
         }
     }
 
-    fn parse_cff_top_dict( // RR-15 Limit: Dispatcher - parses operators and offsets in CFF top dictionary
+    fn parse_cff_top_dict(
+        // RR-15 Limit: Dispatcher - parses operators and offsets in CFF top dictionary
         data: &[u8],
         start: usize,
         count: u16,

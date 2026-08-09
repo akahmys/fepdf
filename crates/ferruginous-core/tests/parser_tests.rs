@@ -12,7 +12,7 @@ fn parse_bytes(input: &[u8], arena: &PdfArena) -> Object {
 #[test]
 fn test_parser_scalar_objects() {
     let arena = PdfArena::new();
-    
+
     // Parse Integer
     let obj = parse_bytes(b"42", &arena);
     assert_eq!(obj, Object::Integer(42));
@@ -64,7 +64,7 @@ fn test_parser_complex_arrays() {
     let arena = PdfArena::new();
     let input = b"[ 100 /Page false ]";
     let obj = parse_bytes(input, &arena);
-    
+
     if let Object::Array(ah) = obj {
         let arr = arena.get_array(ah).unwrap();
         assert_eq!(arr.len(), 3);

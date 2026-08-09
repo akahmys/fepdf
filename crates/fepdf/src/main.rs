@@ -402,7 +402,8 @@ enum DebugSubcommands {
 }
 
 #[tokio::main]
-async fn main() -> Result<()> { // RR-15 Limit: Dispatcher - CLIs top level command dispatcher routing to handlers
+async fn main() -> Result<()> {
+    // RR-15 Limit: Dispatcher - CLIs top level command dispatcher routing to handlers
     env_logger::init();
     let cli = Cli::parse();
 

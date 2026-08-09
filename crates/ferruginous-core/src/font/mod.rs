@@ -343,7 +343,8 @@ impl FontResource {
     }
 
     #[allow(clippy::too_many_arguments)]
-    pub fn new_initial( // RR-15 Limit: Dispatcher - constructs initial state of a PDF Font resource mapping tables and cmap configurations
+    pub fn new_initial(
+        // RR-15 Limit: Dispatcher - constructs initial state of a PDF Font resource mapping tables and cmap configurations
         subtype: PdfName,
         base_font: PdfName,
         metrics: FontMetrics,
@@ -493,24 +494,24 @@ impl FontResource {
             && let Ok(face) = ttf_parser::Face::parse(d, 0)
         {
             self.num_glyphs = face.number_of_glyphs() as u32;
-                let units_per_em = face.units_per_em() as f32;
-                let scale = if units_per_em > 0.0 { 1000.0 / units_per_em } else { 1.0 };
+            let units_per_em = face.units_per_em() as f32;
+            let scale = if units_per_em > 0.0 { 1000.0 / units_per_em } else { 1.0 };
 
-                self.physical_widths.clear();
-                self.physical_names.clear();
-                for gid in 0..self.num_glyphs {
-                    if let Some(w) = face.glyph_hor_advance(ttf_parser::GlyphId(gid as u16)) {
-                        self.physical_widths.insert(gid, w as f32 * scale);
-                    }
-                    if let Some(name) = face.glyph_name(ttf_parser::GlyphId(gid as u16)) {
-                        self.physical_names.insert(gid, name.to_string());
-                    }
+            self.physical_widths.clear();
+            self.physical_names.clear();
+            for gid in 0..self.num_glyphs {
+                if let Some(w) = face.glyph_hor_advance(ttf_parser::GlyphId(gid as u16)) {
+                    self.physical_widths.insert(gid, w as f32 * scale);
                 }
-                log::debug!(
-                    "[FONT] Updated num_glyphs to {}, physical widths and names after reconstruction",
-                    self.num_glyphs
-                );
+                if let Some(name) = face.glyph_name(ttf_parser::GlyphId(gid as u16)) {
+                    self.physical_names.insert(gid, name.to_string());
+                }
             }
+            log::debug!(
+                "[FONT] Updated num_glyphs to {}, physical widths and names after reconstruction",
+                self.num_glyphs
+            );
+        }
     }
 
     /// Surgically patches the embedded font data with PDF metrics.
@@ -2090,10 +2091,11 @@ impl FontResource {
         unicode_hint: Option<char>,
         mut _trace: Option<&mut TraceContext>,
     ) -> Option<u32> {
-        let (hint, glyph_name_resolved, is_suspicious) = match self.check_immediate_resolve(cid, unicode_hint) {
-            Ok(res) => return res,
-            Err(ctx) => ctx,
-        };
+        let (hint, glyph_name_resolved, is_suspicious) =
+            match self.check_immediate_resolve(cid, unicode_hint) {
+                Ok(res) => return res,
+                Err(ctx) => ctx,
+            };
 
         let is_cjk = self.is_cjk();
         let pdf_width = if self.wmode() == 1 {

@@ -164,7 +164,8 @@ fn write_basic_fields(info: &BTreeMap<PdfName, RefinedObject>, writer: &mut XmpW
     }
 }
 
-fn generate_and_write_uuids(info: &BTreeMap<PdfName, RefinedObject>, writer: &mut XmpWriter) { // RR-15 Limit: Dispatcher - hashes metadata elements to generate unique Document and Instance UUIDs in XMP format
+fn generate_and_write_uuids(info: &BTreeMap<PdfName, RefinedObject>, writer: &mut XmpWriter) {
+    // RR-15 Limit: Dispatcher - hashes metadata elements to generate unique Document and Instance UUIDs in XMP format
     let mut doc_hasher = md5::Context::new();
     let title_val = get_info_field(info, "Title").unwrap_or_default();
     doc_hasher.consume(title_val.as_bytes());

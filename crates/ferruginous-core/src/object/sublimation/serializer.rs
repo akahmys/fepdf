@@ -14,7 +14,8 @@ pub fn serialize_commands(cmds: &[Command]) -> Vec<u8> {
     buffer
 }
 
-fn serialize_command(cmd: &Command, buf: &mut Vec<u8>) { // RR-15 Limit: Dispatcher - Serializes high-level command IR via a single exhaustive flat match loop
+fn serialize_command(cmd: &Command, buf: &mut Vec<u8>) {
+    // RR-15 Limit: Dispatcher - Serializes high-level command IR via a single exhaustive flat match loop
     match cmd {
         Command::PushState => buf.extend_from_slice(b"q\n"),
         Command::PopState => buf.extend_from_slice(b"Q\n"),

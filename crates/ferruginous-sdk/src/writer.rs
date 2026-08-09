@@ -671,7 +671,8 @@ impl<'a, W: Write> PdfWriter<'a, W> {
     }
 
     #[allow(clippy::cast_possible_truncation)]
-    fn finish_linearized( // RR-15 Limit: Dispatcher - Sequential PDF linearization generator routing and sorting object tables, hint table, and headers
+    fn finish_linearized(
+        // RR-15 Limit: Dispatcher - Sequential PDF linearization generator routing and sorting object tables, hint table, and headers
         &mut self,
         root: Handle<Object>,
         info: Option<Handle<Object>>,
@@ -980,7 +981,8 @@ impl<'a, W: Write> PdfWriter<'a, W> {
         Ok((hint_pos, s2_end, s7_start, s8_start))
     }
 
-    fn collect_lin_objects( // RR-15 Limit: Dispatcher - Sequential PDF linearization generator routing and sorting object tables, hint table, and headers
+    fn collect_lin_objects(
+        // RR-15 Limit: Dispatcher - Sequential PDF linearization generator routing and sorting object tables, hint table, and headers
         &self,
         root: Handle<Object>,
         info: Option<Handle<Object>>,
@@ -1307,7 +1309,8 @@ impl<'a, W: Write> PdfWriter<'a, W> {
         }
     }
 
-    fn trace_reachable_selective( // RR-15 Limit: Dispatcher - trace reachable object tree selectively
+    fn trace_reachable_selective(
+        // RR-15 Limit: Dispatcher - trace reachable object tree selectively
         &self,
         h: Handle<Object>,
         reachable: &mut BTreeSet<Handle<Object>>,
@@ -1365,7 +1368,8 @@ impl<'a, W: Write> PdfWriter<'a, W> {
         }
     }
 
-    fn trace_reachable_inline( // RR-15 Limit: Dispatcher - trace reachable inline objects recursively
+    fn trace_reachable_inline(
+        // RR-15 Limit: Dispatcher - trace reachable inline objects recursively
         &self,
         obj: &Object,
         reachable: &mut BTreeSet<Handle<Object>>,
@@ -1433,7 +1437,8 @@ impl<'a, W: Write> PdfWriter<'a, W> {
         );
     }
 
-    fn assign_lin_ids( // RR-15 Limit: Dispatcher - Assigns physical IDs to linearized PDF components
+    fn assign_lin_ids(
+        // RR-15 Limit: Dispatcher - Assigns physical IDs to linearized PDF components
         &mut self,
         root: Handle<Object>,
         info: Option<Handle<Object>>,
@@ -1733,10 +1738,10 @@ impl<'a, W: Write> PdfWriter<'a, W> {
         dict.insert(self.arena.name("Size"), Object::Integer(i64::from(total_size)));
         dict.insert(
             self.arena.name("Index"),
-            Object::Array(self.arena.alloc_array(vec![
-                Object::Integer(0),
-                Object::Integer(i64::from(total_size)),
-            ])),
+            Object::Array(
+                self.arena
+                    .alloc_array(vec![Object::Integer(0), Object::Integer(i64::from(total_size))]),
+            ),
         );
         dict.insert(
             self.arena.name("W"),
@@ -1796,7 +1801,8 @@ impl<'a, W: Write> PdfWriter<'a, W> {
         Ok(actual_off)
     }
 
-    fn finalize_lin_headers( // RR-15 Limit: Dispatcher - Sequentially finalizes and writes linearized PDF headers, trailers, and file IDs
+    fn finalize_lin_headers(
+        // RR-15 Limit: Dispatcher - Sequentially finalizes and writes linearized PDF headers, trailers, and file IDs
         &mut self,
         s: LinState,
     ) -> PdfResult<()> {
@@ -1968,7 +1974,8 @@ impl<'a, W: Write> PdfWriter<'a, W> {
         Ok(())
     }
 
-    fn build_lin_structures( // RR-15 Limit: Dispatcher - Assembles and structures physical state maps for PDF linearization
+    fn build_lin_structures(
+        // RR-15 Limit: Dispatcher - Assembles and structures physical state maps for PDF linearization
         &self,
         _root: Handle<Object>,
         _info: Option<Handle<Object>>,
@@ -2113,7 +2120,8 @@ struct LinState {
 
 impl<W: std::io::Write> PdfWriter<'_, W> {
     #[allow(clippy::cast_possible_truncation)]
-    fn generate_hint_tables( // RR-15 Limit: Dispatcher - Sequentially synthesizes and formats linearization hint tables
+    fn generate_hint_tables(
+        // RR-15 Limit: Dispatcher - Sequentially synthesizes and formats linearization hint tables
         &self,
         page_handles: &[Handle<Object>],
         shared_ids: &[u32],

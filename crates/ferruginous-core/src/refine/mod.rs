@@ -329,7 +329,8 @@ impl ParallelRefinery {
     }
 
     #[allow(clippy::too_many_arguments)]
-    fn refine_stream( // RR-15 Limit: Dispatcher - refines streams by decompressing, sublimating contents, and mapping fonts
+    fn refine_stream(
+        // RR-15 Limit: Dispatcher - refines streams by decompressing, sublimating contents, and mapping fonts
         doc: &lopdf::Document,
         id: (u32, u16),
         s: &lopdf::Stream,

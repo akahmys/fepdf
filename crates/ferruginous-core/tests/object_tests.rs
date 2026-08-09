@@ -8,7 +8,7 @@ use std::collections::BTreeMap;
 fn test_object_reference_resolution() {
     let arena = PdfArena::new();
     let num_obj = arena.alloc_object(Object::Integer(2026));
-    
+
     let resolved = arena.get_object(num_obj);
     assert_eq!(resolved, Some(Object::Integer(2026)));
 }
@@ -28,7 +28,7 @@ fn test_arena_intern_name_deduplication() {
 fn test_dictionary_allocation_and_traversal() {
     let arena = PdfArena::new();
     let mut dict = BTreeMap::new();
-    
+
     let key_type = arena.name("Type");
     let val_type = Object::Name(arena.name("Catalog"));
     dict.insert(key_type, val_type);
