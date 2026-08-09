@@ -10,7 +10,7 @@ The project strictly adheres to the **RR-15 (Reliable Rust-15)** hardening proto
 
 Detailed system design and governance standards are documented across the following authoritative guides:
 
-- 🏛️ **[ARCHITECTURE.md](ARCHITECTURE.md)**: **System Design & Pipeline Architecture** (Crate topology, `PdfArena`, Sublimation Pipeline Pass 0/1/2, Vello GPU compute renderer).
+- 🏛️ **[ARCHITECTURE.md](ARCHITECTURE.md)**: **System Design & Layering Rules** (the three rules that place code, target crate topology and its migration status, `PdfArena` invariants, Sublimation Pipeline Pass 0/1/2, Vello GPU compute renderer).
 - 📘 **[AGENTS.md](AGENTS.md)**: **Project Constitution** (Truth hierarchy, core operating principles).
 - 📋 **[PLANNING.md](PLANNING.md)**: **Planning & Discovery** (Implementation plans, codebase discovery protocols).
 - 💻 **[CODING.md](CODING.md)**: **Coding Standards** (RR-15 rules, function limits, Rust 2024 standards).

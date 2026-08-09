@@ -11,7 +11,7 @@ The project rules, architecture specs, and operational protocols are modularized
 | Document | Focus & Scope | Description |
 | :--- | :--- | :--- |
 | 📘 **[AGENTS.md](AGENTS.md)** | **Constitution & Governance** | System vision, truth hierarchy, decision framework, and entry point. |
-| 🏛️ **[ARCHITECTURE.md](ARCHITECTURE.md)** | **System Design & Pipeline** | Crate topology, `PdfArena`, Sublimation Pipeline Pass 0/1/2, Vello renderer. |
+| 🏛️ **[ARCHITECTURE.md](ARCHITECTURE.md)** | **System Design & Layering Rules** | The three rules that decide where code goes, target crate topology with per-crate migration status, `PdfArena` invariants, Sublimation Pipeline Pass 0/1/2, Vello renderer. |
 | 📋 **[PLANNING.md](PLANNING.md)** | **Planning & Discovery** | Implementation plans, architecture design, exploration protocols, and task breakdown. |
 | 💻 **[CODING.md](CODING.md)** | **Coding Rules & Architecture** | **RR-15 Protocol**, ISO 32000-2 pipeline, Vello rendering, and Rust 2024 coding standards. |
 | 🛡️ **[AUDITING.md](AUDITING.md)** | **Security, Compliance & Audit** | Static auditing, **`cargo-deny`** license checks, **`betterleaks`** PII protection, and Clippy lints. |
