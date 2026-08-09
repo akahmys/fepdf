@@ -1,7 +1,7 @@
-# Technical Specification: Ferruginous UI
+# Technical Specification: fepdf UI
 
 > [!IMPORTANT]
-> A PDF viewing and physical editing solution that integrates the parsing capabilities of `ferruginous-sdk` with Vello rendering, achieving usability and functionality that surpasses professional standards.
+> A PDF viewing and physical editing solution that integrates the parsing capabilities of `fepdf-sdk` with Vello rendering, achieving usability and functionality that surpasses professional standards.
 
 ## 1. Design Philosophy
 
@@ -46,7 +46,7 @@ $$P_{screen} = M_{zoom} \cdot M_{pan} \cdot M_{pdf\_to\_screen} \cdot P_{user}$$
 - **$M_{pdf\_to\_screen}$**: Y-axis inversion and origin offset based on MediaBox.
 - **$M_{zoom}$ / $M_{pan}$**: User-driven transformations (zoom/pan).
 
-## 5. UI Components (ferruginous-ui)
+## 5. UI Components (fepdf-ui)
 
 - **Canvas**: Integrates PDF vector data and dynamic overlays (measurement lines, snap points, etc.) using `RenderBackend`.
 - **Control**: Modeless floating menus powered by `egui`.

@@ -1,0 +1,28 @@
+[package]
+name = "fepdf-render"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+fepdf-core.workspace = true
+log.workspace = true
+vello.workspace = true
+peniko.workspace = true
+kurbo.workspace = true
+wgpu.workspace = true
+serde.workspace = true
+thiserror.workspace = true
+bytes.workspace = true
+skrifa.workspace = true
+read-fonts.workspace = true
+ttf-parser.workspace = true
+image.workspace = true
+pollster.workspace = true
+tokio.workspace = true
+
+[dev-dependencies]
+fepdf-sdk.workspace = true

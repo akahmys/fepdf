@@ -1,6 +1,6 @@
-# 🤖 Ferruginous Agentic Governance & System Architecture
+# 🤖 fepdf Agentic Governance & System Architecture
 
-Welcome to **Ferruginous**, an experimental, high-fidelity PDF 2.0 processing platform built with Rust. This project operates under an AI-native autonomous engineering model adhering to strict safety and determinism guarantees.
+Welcome to **fepdf**, an experimental, high-fidelity PDF 2.0 processing platform built with Rust. This project operates under an AI-native autonomous engineering model adhering to strict safety and determinism guarantees.
 
 ---
 

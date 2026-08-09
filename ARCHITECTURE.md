@@ -1,59 +1,67 @@
-# 🏛️ Ferruginous Architecture & System Design
+# 🏛️ `fepdf` Architecture & System Design
 
-This document serves as the authoritative architectural blueprint for **Ferruginous**, detailing crate topology, data flow, the Sublimation Pipeline, memory invariants, and GPU rendering pipelines.
+This document serves as the authoritative architectural blueprint for **fepdf**, detailing crate topology, data flow, the Sublimation Pipeline, memory invariants, and GPU rendering pipelines.
 
 ---
 
-## 🗺️ 1. Workspace Topology & Crate Hierarchy
+## 🗺️ 1. Workspace Topology & 4-Layer Crate Hierarchy
 
-Ferruginous is architected as a modular Rust Cargo Workspace. The component dependencies flow strictly from high-level interface applications down to core physical engines.
+`fepdf` is architected as a modular Rust Cargo Workspace divided into 4 clear logical layers:
 
 ```
-                   ┌─────────────────────────────────────────┐
-                   │  Desktop GUI (crates/ferruginous)      │
-                   │  Universal CLI (crates/fepdf)            │
-                   │  AI MCP Server (crates/ferruginous-mcp) │
-                   │  WebAssembly   (crates/ferruginous-wasm)│
-                   └────────────────────┬────────────────────┘
-                                        │
-                                        ▼
-                   ┌─────────────────────────────────────────┐
-                   │  Public SDK (crates/ferruginous-sdk)    │
-                   └───────────┬─────────────────┬───────────┘
-                               │                 │
-                               ▼                 ▼
-     ┌───────────────────────────────┐ ┌───────────────────────────────┐
-     │ GPU Compute Renderer          │ │ PDF Core & Ingestion Engine   │
-     │ (crates/ferruginous-render)   │ │ (crates/ferruginous-core)     │
-     └───────────────┬───────────────┘ └───────────────┬───────────────┘
-                     │                                 │
-                     └────────────────┬────────────────┘
-                                      │
-                                      ▼
-                     ┌─────────────────────────────────┐
-                     │ Internal Procedural Macros      │
-                     │ (crates/ferruginous-macros)     │
-                     └─────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ Layer 4: Frontends & Integrations                                           │
+│ ┌─────────────────────────┬─────────────────────────┬─────────────────────┐ │
+│ │ Desktop GUI             │ AI MCP Server           │ WebAssembly         │ │
+│ │ (crates/fepdf-gui)      │ (crates/fepdf-mcp)      │ (crates/fepdf-wasm) │ │
+│ └────────────┬────────────┴────────────┬────────────┴──────────┬──────────┘ │
+└──────────────┼─────────────────────────┼───────────────────────┼────────────┘
+               │                         │                       │
+┌──────────────┴─────────────────────────┴───────────────────────┴────────────┐
+│ Layer 3: CLI Application                                                    │
+│ ┌─────────────────────────────────────────────────────────────────────────┐ │
+│ │ Universal CLI (crates/fepdf-cli -> binary: `fepdf`)                     │ │
+│ └────────────────────────────────────┬────────────────────────────────────┘ │
+└──────────────────────────────────────┼──────────────────────────────────────┘
+                                       │
+┌──────────────────────────────────────┴──────────────────────────────────────┐
+│ Layer 2: PDF Operators & Transformation Engine                              │
+│ ┌───────────────────────┬───────────────────────┬─────────────────────────┐ │
+│ │ Ingestion & Sublimation│ Remediation & Edit    │ Writer & Serialization  │ │
+│ │ (fepdf-core::ingest)  │ (fepdf-sdk::ops)      │ (fepdf-sdk::writer)     │ │
+│ ├───────────────────────┼───────────────────────┼─────────────────────────┤ │
+│ │ GPU Render Operator   │ Compliance Audit      │ Security Operator       │ │
+│ │ (fepdf-render)        │ (MatterhornAuditor)   │ (Sign, Encrypt, DSS)    │ │
+│ └───────────────────────┴───────────────────────┴─────────────────────────┘ │
+└──────────────────────────────────────┬──────────────────────────────────────┘
+                                       │
+┌──────────────────────────────────────┴──────────────────────────────────────┐
+│ Layer 1: PDF 2.0 Rust Data Types (AST & Arena)                              │
+│ ┌───────────────────────┬───────────────────────┬─────────────────────────┐ │
+│ │ Low-Level PDF Objects │ Arena & Handle Model  │ High-Level Document AST │ │
+│ │ (Object, PdfName, etc)│ (PdfArena, Handle<T>) │ (Document, Page, etc)   │ │
+│ └───────────────────────┴───────────────────────┴─────────────────────────┘ │
+└─────────────────────────────────────────────────────────────────────────────┘
 ```
 
 ### Module Responsibilities
 
-| Crate | Responsibilities |
-| :--- | :--- |
-| **`ferruginous`** | Flagship desktop GUI application built on **egui**, **eframe**, and **wgpu**. Provides CAD measurement tools, Japanese/CJK text selection, atomic redaction, and UI localization. |
-| **`fepdf`** | Command-line interface for PDF auditing, repair, structural inspection, and PDF 2.0 re-production. |
-| **`ferruginous-mcp`** | **Model Context Protocol (MCP)** server bridge enabling AI assistants to run direct structural diagnostics and inspection tools on PDF documents. |
-| **`ferruginous-wasm`** | WebAssembly bindings for running the Ferruginous engine inside modern browser runtimes. |
-| **`ferruginous-sdk`** | High-level, handle-based public API for document manipulation, object stream packing, and PDF 2.0 conversion. |
-| **`ferruginous-render`** | GPU-accelerated rendering engine using **Vello** (WGPU compute shaders) for CAD-grade vector path rasterization and CJK typography. |
-| **`ferruginous-core`** | PDF physical engine, `PdfArena` handle storage, Pass 0 physical normalization, XRef repair, and cryptography. |
-| **`ferruginous-macros`** | Compile-time procedural macros enforcing RR-15 compile-time checks. |
+| Crate | Layer | Responsibilities |
+| :--- | :--- | :--- |
+| **`fepdf-gui`** | Layer 4 | Desktop GUI application built on **egui**, **eframe**, and **wgpu**. |
+| **`fepdf-cli`** | Layer 3 | Universal command-line interface binary (`fepdf`) for PDF auditing, repair, inspection, and manipulation. |
+| **`fepdf-mcp`** | Layer 4 | **Model Context Protocol (MCP)** server enabling AI assistants to execute PDF diagnostic tools natively. |
+| **`fepdf-wasm`** | Layer 4 | WebAssembly bindings for running the fepdf engine inside web browsers. |
+| **`fepdf-sdk`** | Layer 2 | High-level operations engine (PageOperator, RedactionOperator, Writer, Decoders/Encoders). |
+| **`fepdf-render`** | Layer 2 | GPU-accelerated rendering engine using **Vello** (WGPU compute shaders). |
+| **`fepdf-core`** | Layer 1 | PDF 2.0 data models (`PdfArena`, `Document`, `Object`, `Page`), Pass 0/1/2 physical normalization, and cryptography. |
+| **`fepdf-macros`** | Layer 1/2 | Compile-time procedural macros enforcing compile-time invariants. |
 
 ---
 
 ## 🛡️ 2. The Sublimation Pipeline: Normalization-at-Load
 
-To guarantee absolute **ISO 32000-2:2020** compliance and eliminate malformed PDF vulnerabilities, Ferruginous employs a 3-stage normalization pipeline during ingestion:
+To guarantee absolute **ISO 32000-2:2020** compliance and eliminate malformed PDF vulnerabilities, fepdf employs a 3-stage normalization pipeline during ingestion:
 
 ```
 Raw Bytes ──► [ Pass 0: Physical Normalization ] ──► [ Pass 1: Arena Ingestion ] ──► [ Pass 2: Semantic Sublimation ] ──► PdfDocument

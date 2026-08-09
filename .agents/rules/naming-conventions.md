@@ -1,6 +1,6 @@
 # Naming Convention Protocol (RFC 0430)
 
-This document defines the official naming standards for Ferruginous, adhering to [Rust RFC 0430](https://github.com/rust-lang/rfcs/blob/master/text/0430-finalizing-naming-conventions.md).
+This document defines the official naming standards for fepdf, adhering to [Rust RFC 0430](https://github.com/rust-lang/rfcs/blob/master/text/0430-finalizing-naming-conventions.md).
 
 > [!IMPORTANT]
 > **Priority**: When the PDF specification (ISO 32000) conflicts with Rust conventions, **Rust Naming Context shall prevail** for internal implementation to ensure language idiomatics.

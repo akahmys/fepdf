@@ -1,6 +1,6 @@
-# Ferruginous Session Memory (ELM)
+# fepdf Session Memory (ELM)
 
-This directory serves as the **External Long-term Memory (ELM)** for AI agents working on the Ferruginous project.
+This directory serves as the **External Long-term Memory (ELM)** for AI agents working on the fepdf project.
 
 ## Purpose
 Since AI internal context is volatile and limited, all critical design decisions, architectural maps, and "lessons learned" from individual sessions must be persisted here.

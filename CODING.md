@@ -1,6 +1,6 @@
-# 💻 Ferruginous Coding Standards & Hardening Protocol
+# 💻 fepdf Coding Standards & Hardening Protocol
 
-This document defines the coding conventions, safety standards (**RR-15 Protocol**), and architectural patterns required across all crates in the Ferruginous workspace.
+This document defines the coding conventions, safety standards (**RR-15 Protocol**), and architectural patterns required across all crates in the fepdf workspace.
 
 ---
 
@@ -77,7 +77,7 @@ All physical bytes MUST pass through 3 normalization stages before application p
 
 ## 🎨 3. GPU Rendering & GUI Conventions
 
-- **Compute Rasterization**: Render PDF page streams using **Vello** compute shaders (`ferruginous-render`).
+- **Compute Rasterization**: Render PDF page streams using **Vello** compute shaders (`fepdf-render`).
 - **UI Architecture**: Desktop GUI uses **egui** + **wgpu**.
 - **CAD Precision**: Path snapping and measurement tools must preserve sub-pixel double-precision (`f64`) coordinates before canvas rasterization.
 - **Localization**: User interface strings must support `egui` CJK font loading and English/Japanese localization strings.

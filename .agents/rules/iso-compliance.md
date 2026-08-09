@@ -1,7 +1,7 @@
 # ISO 32000 Compliance Strategy
 
 > [!IMPORTANT]
-> **Technical compliance is the singular raison d'être of Ferruginous.**
+> **Technical compliance is the singular raison d'être of fepdf.**
 > All implementation choices must be objectively validated against ISO 32000-2:2020 using automated auditing and differential testing.
 
 ---

@@ -1,14 +1,14 @@
 [workspace]
 resolver = "2"
 members = [
-    "crates/ferruginous-core",
-    "crates/ferruginous-render",
-    "crates/ferruginous-sdk",
-    "crates/ferruginous-mcp",
-    "crates/ferruginous-wasm",
-    "crates/ferruginous",
-    "crates/fepdf",
-    "crates/ferruginous-macros",
+    "crates/fepdf-core",
+    "crates/fepdf-render",
+    "crates/fepdf-sdk",
+    "crates/fepdf-mcp",
+    "crates/fepdf-wasm",
+    "crates/fepdf-gui",
+    "crates/fepdf-cli",
+    "crates/fepdf-macros",
 ]
 
 [workspace.dependencies]
@@ -89,12 +89,12 @@ rmcp = "1.5.0"
 schemars = "1"
 
 # Internal Workspace Crates
-ferruginous-core = { path = "crates/ferruginous-core", version = "1.0.0" }
-ferruginous-render = { path = "crates/ferruginous-render", version = "1.0.0" }
-ferruginous-sdk = { path = "crates/ferruginous-sdk", version = "1.0.0" }
-ferruginous-mcp = { path = "crates/ferruginous-mcp", version = "1.0.0" }
-ferruginous-wasm = { path = "crates/ferruginous-wasm", version = "1.0.0" }
-ferruginous-macros = { path = "crates/ferruginous-macros", version = "1.0.0" }
+fepdf-core = { path = "crates/fepdf-core", version = "1.0.0" }
+fepdf-render = { path = "crates/fepdf-render", version = "1.0.0" }
+fepdf-sdk = { path = "crates/fepdf-sdk", version = "1.0.0" }
+fepdf-mcp = { path = "crates/fepdf-mcp", version = "1.0.0" }
+fepdf-wasm = { path = "crates/fepdf-wasm", version = "1.0.0" }
+fepdf-macros = { path = "crates/fepdf-macros", version = "1.0.0" }
 
 # GUI, Web & CLI Ecosystem
 eframe = { version = "0.34", features = ["wgpu"] }
@@ -117,11 +117,11 @@ serde-wasm-bindgen = "0.6"
 
 [workspace.package]
 version = "1.0.0"
-authors = ["Ferruginous Developers"]
+authors = ["fepdf Developers"]
 edition = "2024"
 rust-version = "1.94"
 license = "MIT"
-repository = "https://github.com/akahmys/ferruginous"
+repository = "https://github.com/akahmys/fepdf"
 
 [workspace.metadata.hirt]
 integrity_level = "high"

@@ -1,4 +1,4 @@
-# Ferruginous Development Reflections & Post-Mortems
+# fepdf Development Reflections & Post-Mortems
 
 This document tracks development friction, failures, and subsequent protocol improvements.
 

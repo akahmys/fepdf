@@ -1,6 +1,6 @@
 # SDK Pipeline Design Specification
 
-This document describes the design of Phase 3 (Interpretation) and Phase 5 (Serialization & Resurrection) of the Ferruginous processing pipeline.
+This document describes the design of Phase 3 (Interpretation) and Phase 5 (Serialization & Resurrection) of the fepdf processing pipeline.
 
 For prescriptive constraints, see `.agents/rules/sdk-engine.md`.
 

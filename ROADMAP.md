@@ -1,13 +1,13 @@
-# Ferruginous Rebirth Roadmap (v2.2)
+# fepdf Rebirth Roadmap (v2.2)
 
-The "Rebirth" project aims to establish the world's most robust and ISO-compliant PDF 2.0 toolkit, culminating in the **Ferruginous Flagship GUI Editor**.
+The "Rebirth" project aims to establish the world's most robust and ISO-compliant PDF 2.0 toolkit, culminating in the **fepdf Flagship GUI Editor**.
 
 ---
 
 ## [COMPLETED] Phase 1 - 22: Foundation, Refinery & UA-2 Bridge
 **Goal**: Build a high-purity PDF 2.0 data model and comprehensive diagnostic engine.
 
-- [x] **Core Engine (M1-M62)**: Established Vello rendering, CJK hardening, and the Ferruginous Unified Architecture (FUA).
+- [x] **Core Engine (M1-M62)**: Established Vello rendering, CJK hardening, and the fepdf Unified Architecture (FUA).
 - [x] **The Refinery (M63-M65)**: Implemented high-speed, parallel ingestion with the Typed Arena and Handle system.
 - [x] **UA-2 Engine (M66-M67)**: Finalized logical structure tree traversal and Matterhorn Protocol auditing.
 

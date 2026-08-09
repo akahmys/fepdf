@@ -1,14 +1,14 @@
 ---
 name: codebase-exploration
 description: >-
-  Standard procedure for exploring the Ferruginous codebase using
+  Standard procedure for exploring the fepdf codebase using
   conceptual and mechanical analysis. Use when investigating code
   structure, finding implementations, or preparing for changes.
 ---
 
 # Codebase Exploration Protocol
 
-Standard procedure for exploring the Ferruginous codebase using conceptual and mechanical analysis.
+Standard procedure for exploring the fepdf codebase using conceptual and mechanical analysis.
 
 ---
 

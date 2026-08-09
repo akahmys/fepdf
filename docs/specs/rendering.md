@@ -1,6 +1,6 @@
 # Rendering Engine Design Specification
 
-This document describes the technical specifications for text metrics, scaling, and CJK decoding in the Ferruginous rendering engine.
+This document describes the technical specifications for text metrics, scaling, and CJK decoding in the fepdf rendering engine.
 
 For prescriptive constraints, see `.agents/rules/gpu-rendering.md`.
 

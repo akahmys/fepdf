@@ -1,8 +1,13 @@
-# Ferruginous Multi-Crate Workspace Makefile
+# fepdf Multi-Crate Workspace Makefile
 
-BINARY_NAME=fepdf
-GUI_BINARY_NAME=ferruginous
-VERSION=$(shell grep "^version" crates/fepdf/Cargo.toml | head -n 1 | cut -d '"' -f 2)
+# Package names differ from the binaries they produce: the CLI crate is
+# fepdf-cli but ships as `fepdf`. `cargo -p` needs the package, `cp` the binary.
+CLI_PACKAGE=fepdf-cli
+CLI_BINARY=fepdf
+GUI_PACKAGE=fepdf-gui
+GUI_BINARY=fepdf-gui
+# Crates inherit version.workspace, so the literal lives in the root manifest.
+VERSION=$(shell grep "^version" Cargo.toml | head -n 1 | cut -d '"' -f 2)
 DIST_DIR=out/dist
 
 # Targets
@@ -14,7 +19,7 @@ TARGET_LINUX=x86_64-unknown-linux-gnu
 .PHONY: all help test check clippy fmt build-all build-local run clean dist audit audit-licenses visual-test visual-update-ref
 
 help:
-	@echo "Ferruginous Build & Audit System v$(VERSION)"
+	@echo "fepdf Build & Audit System v$(VERSION)"
 	@echo "Usage:"
 	@echo "  make check          - Fast workspace compilation check"
 	@echo "  make test           - Run full workspace unit/integration tests"
@@ -40,33 +45,33 @@ fmt:
 	cargo fmt --all --check
 
 build-local:
-	cargo build -p $(BINARY_NAME) --release
-	cargo build -p $(GUI_BINARY_NAME) --release
+	cargo build -p $(CLI_PACKAGE) --release
+	cargo build -p $(GUI_PACKAGE) --release
 
 run:
-	cargo run -p $(GUI_BINARY_NAME)
+	cargo run -p $(GUI_PACKAGE)
 
 build-all: build-mac build-win build-linux
 
 build-mac:
 	@echo "Building for macOS..."
-	cargo build -p $(BINARY_NAME) --release --target $(TARGET_APPLE_SILICON)
-	cargo build -p $(BINARY_NAME) --release --target $(TARGET_APPLE_INTEL)
+	cargo build -p $(CLI_PACKAGE) --release --target $(TARGET_APPLE_SILICON)
+	cargo build -p $(CLI_PACKAGE) --release --target $(TARGET_APPLE_INTEL)
 
 build-win:
 	@echo "Building for Windows..."
-	cargo build -p $(BINARY_NAME) --release --target $(TARGET_WINDOWS)
+	cargo build -p $(CLI_PACKAGE) --release --target $(TARGET_WINDOWS)
 
 build-linux:
 	@echo "Building for Linux..."
-	cargo build -p $(BINARY_NAME) --release --target $(TARGET_LINUX)
+	cargo build -p $(CLI_PACKAGE) --release --target $(TARGET_LINUX)
 
 dist: build-all
 	mkdir -p $(DIST_DIR)
-	cp target/$(TARGET_APPLE_SILICON)/release/$(BINARY_NAME) $(DIST_DIR)/$(BINARY_NAME)-macos-arm64
-	cp target/$(TARGET_APPLE_INTEL)/release/$(BINARY_NAME) $(DIST_DIR)/$(BINARY_NAME)-macos-x64
-	cp target/$(TARGET_WINDOWS)/release/$(BINARY_NAME).exe $(DIST_DIR)/$(BINARY_NAME).exe
-	cp target/$(TARGET_LINUX)/release/$(BINARY_NAME) $(DIST_DIR)/$(BINARY_NAME)-linux-x64
+	cp target/$(TARGET_APPLE_SILICON)/release/$(CLI_BINARY) $(DIST_DIR)/$(CLI_BINARY)-macos-arm64
+	cp target/$(TARGET_APPLE_INTEL)/release/$(CLI_BINARY) $(DIST_DIR)/$(CLI_BINARY)-macos-x64
+	cp target/$(TARGET_WINDOWS)/release/$(CLI_BINARY).exe $(DIST_DIR)/$(CLI_BINARY).exe
+	cp target/$(TARGET_LINUX)/release/$(CLI_BINARY) $(DIST_DIR)/$(CLI_BINARY)-linux-x64
 	@echo "Artifacts ready in $(DIST_DIR)/"
 
 clean:

@@ -1,4 +1,4 @@
-# Technical Specification: Ferruginous SDK
+# Technical Specification: fepdf SDK
 
 > [!IMPORTANT]
 > ISO 32000-2:2020 Strict Compliance. A pure Rust PDF parsing and editing engine. The RR-15 and HDD protocols serve as the "Development Charter."
@@ -115,7 +115,7 @@ pub enum SublimatedData {
 
 ## 7. Robustness & Security Policy
 
-The Ferruginous PDF Engine adheres to the following core principles to balance high tolerance for "imperfect PDFs" in the real world with reliable "standard-compliant PDF" output.
+The fepdf PDF Engine adheres to the following core principles to balance high tolerance for "imperfect PDFs" in the real world with reliable "standard-compliant PDF" output.
 
 > [!TIP]
 > **Liberal Read, Strict Write**

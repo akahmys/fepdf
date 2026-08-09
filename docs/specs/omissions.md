@@ -1,10 +1,10 @@
 # Implementation Limits and Simplifications Regarding ISO 32000-2 Compliance
 
-This document records the items where intentional simplifications or limitations have been established relative to the full implementation of the ISO 32000-2:2020 (PDF 2.0) specification in the development of the Ferruginous PDF engine. These decisions are the result of prioritizing compliance with the Reliable Rust-15 (RR-15) coding rules and ensuring deterministic behavior in mission-critical environments.
+This document records the items where intentional simplifications or limitations have been established relative to the full implementation of the ISO 32000-2:2020 (PDF 2.0) specification in the development of the fepdf PDF engine. These decisions are the result of prioritizing compliance with the Reliable Rust-15 (RR-15) coding rules and ensuring deterministic behavior in mission-critical environments.
 
 ## 1. Stream Filters
 
-The specification (Clause 7.4) defines a wide variety of compression algorithms. Ferruginous currently limits support to the following filters:
+The specification (Clause 7.4) defines a wide variety of compression algorithms. fepdf currently limits support to the following filters:
 
 - **FlateDecode / ASCIIHexDecode**: Implemented as general-purpose data compression and text-based encoding.
 - **DCTDecode / JPXDecode**: Supports image decoding in JPEG and JPEG 2000 (via hayro-jpeg2000) formats.
@@ -51,8 +51,8 @@ Regarding forms, annotations, and security (Clauses 12/13), the following design
 
 ## 7. Policy: Liberal Read, Strict Write
 
-The basic policy of the Ferruginous PDF Engine is to ensure maximum compatibility during reading (Liberal Read) while strictly adhering to the specification during writing (Strict Write). Many of the limitations described in this document are strategic decisions based on this policy, aimed at enhancing the quality and safety of generated PDFs by intentionally excluding old, complex, and error-prone specifications from the "writing" target.
+The basic policy of the fepdf PDF Engine is to ensure maximum compatibility during reading (Liberal Read) while strictly adhering to the specification during writing (Strict Write). Many of the limitations described in this document are strategic decisions based on this policy, aimed at enhancing the quality and safety of generated PDFs by intentionally excluding old, complex, and error-prone specifications from the "writing" target.
 
 ## Overall Assessment
 
-Ferruginous is an implementation that emphasizes "correct and safe processing of recognized definitions" rather than just "reading all definitions" of PDF 2.0. If these limitations are to be relaxed in the future, the RR-15 audit established in each milestone must be passed again.
+fepdf is an implementation that emphasizes "correct and safe processing of recognized definitions" rather than just "reading all definitions" of PDF 2.0. If these limitations are to be relaxed in the future, the RR-15 audit established in each milestone must be passed again.

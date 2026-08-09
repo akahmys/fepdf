@@ -1,6 +1,6 @@
-# 📋 Ferruginous Planning & Discovery Protocol
+# 📋 fepdf Planning & Discovery Protocol
 
-This document governs task planning, codebase exploration, feature design, and decision-making workflows within the Ferruginous project.
+This document governs task planning, codebase exploration, feature design, and decision-making workflows within the fepdf project.
 
 ---
 

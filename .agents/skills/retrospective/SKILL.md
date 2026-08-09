@@ -9,7 +9,7 @@ description: >-
 # Retrospective & Friction Analysis Protocol
 
 > [!IMPORTANT]
-> **Continuous Improvement**: This protocol defines how Ferruginous learns from its own development friction to harden rules and workflows.
+> **Continuous Improvement**: This protocol defines how fepdf learns from its own development friction to harden rules and workflows.
 
 ---
 

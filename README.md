@@ -1,6 +1,6 @@
-# Ferruginous: High-Fidelity PDF 2.0 Processing Engine
+# fepdf: High-Fidelity PDF 2.0 Processing Engine
 
-**Ferruginous** is an experimental, high-fidelity PDF processing platform engineered with Rust. It achieves **ISO 32000-2:2020** compliance through a deterministic, hardware-accelerated architecture designed to master the complexity of modern and legacy PDF structures.
+**fepdf** is an experimental, high-fidelity PDF processing platform engineered with Rust. It achieves **ISO 32000-2:2020** compliance through a deterministic, hardware-accelerated architecture designed to master the complexity of modern and legacy PDF structures.
 
 The project strictly adheres to the **RR-15 (Reliable Rust-15)** hardening protocol—a mission-critical safety standard ensuring memory safety (`unsafe_code = "forbid"`), bit-perfect determinism, and absolute reliability.
 
@@ -21,10 +21,10 @@ Detailed system design and governance standards are documented across the follow
 
 ## 🚀 Key Capabilities
 
-- **Interactive Desktop GUI (`ferruginous`)**: Built with **egui** + **wgpu** + **Vello**. Features 120fps canvas interaction, Japanese/CJK system font loading, CAD measurement tools, accessibility tagging, and atomic redaction.
+- **Interactive Desktop GUI (`fepdf`)**: Built with **egui** + **wgpu** + **Vello**. Features 120fps canvas interaction, Japanese/CJK system font loading, CAD measurement tools, accessibility tagging, and atomic redaction.
 - **Universal CLI (`fepdf`)**: Command-line toolkit for structural auditing, PDF 2.0 re-production, font glyph tracing, and document repair.
-- **AI-Native MCP Bridge (`ferruginous-mcp`)**: Implementation of the **Model Context Protocol**, enabling AI assistants to perform direct PDF structural diagnostics.
-- **WebAssembly Runtime (`ferruginous-wasm`)**: WebAssembly bindings for running the Ferruginous engine inside web browser environments.
+- **AI-Native MCP Bridge (`fepdf-mcp`)**: Implementation of the **Model Context Protocol**, enabling AI assistants to perform direct PDF structural diagnostics.
+- **WebAssembly Runtime (`fepdf-wasm`)**: WebAssembly bindings for running the fepdf engine inside web browser environments.
 
 ---
 

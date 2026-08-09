@@ -1,7 +1,7 @@
 # Reliable Rust-15 (RR-15) Rulebook
 
 > [!IMPORTANT]
-> A set of 15 immutable safety constraints derived from NASA's "Power of 10," optimized for the Rust ownership model. These rules form the mandatory "Hardening Layer" of Ferruginous.
+> A set of 15 immutable safety constraints derived from NASA's "Power of 10," optimized for the Rust ownership model. These rules form the mandatory "Hardening Layer" of fepdf.
 
 ---
 
@@ -30,7 +30,7 @@
 ## 3. Memory Safety Isolation
 - **Rule**: Total prohibition of `unsafe` blocks in core engine layers.
 - **Purpose**: Guarantee 100% compiler-verified memory safety.
-- **Compliance**: The `unsafe` keyword count MUST be zero in `crates/ferruginous-sdk` and `crates/ferruginous-render`.
+- **Compliance**: The `unsafe` keyword count MUST be zero in `crates/fepdf-sdk` and `crates/fepdf-render`.
 
 ## 4. Logical Path Flattening
 - **Rule**: Prefer early returns (`?` operator). Limit control-flow nesting to 2 levels.

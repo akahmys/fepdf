@@ -1,6 +1,6 @@
 # Core Pipeline Design Specification
 
-This document describes the design of Phase 1 (Ingestion & Decryption) and Phase 2 (Normalization & Pre-Analysis) of the Ferruginous processing pipeline, along with the Sublimation Memory Model.
+This document describes the design of Phase 1 (Ingestion & Decryption) and Phase 2 (Normalization & Pre-Analysis) of the fepdf processing pipeline, along with the Sublimation Memory Model.
 
 For prescriptive constraints, see `.agents/rules/pdf-engine.md`.
 
@@ -8,7 +8,7 @@ For prescriptive constraints, see `.agents/rules/pdf-engine.md`.
 
 ## 1. Overview: Normalization-at-Load
 
-Ferruginous operates on the principles of **"Normalization-at-Load"** and **"Delayed Normalization."** The objective is to resolve all ambiguities, inheritance chains, and non-standard data structures at the earliest possible stage, while **preserving raw high-fidelity data** (e.g., original color spaces) within the Intermediate Representation (IR) until the final rendering or serialization stage. This ensures that downstream processes remain purely deterministic, lossless, and free of side effects.
+fepdf operates on the principles of **"Normalization-at-Load"** and **"Delayed Normalization."** The objective is to resolve all ambiguities, inheritance chains, and non-standard data structures at the earliest possible stage, while **preserving raw high-fidelity data** (e.g., original color spaces) within the Intermediate Representation (IR) until the final rendering or serialization stage. This ensures that downstream processes remain purely deterministic, lossless, and free of side effects.
 
 ---
 
@@ -71,7 +71,7 @@ Ferruginous operates on the principles of **"Normalization-at-Load"** and **"Del
 
 ## 4. Memory Strategy: The Sublimation Cycle
 
-To optimize for both accuracy and memory throughput, Ferruginous utilizes a cyclical state model:
+To optimize for both accuracy and memory throughput, fepdf utilizes a cyclical state model:
 
 1.  **Solid (Raw)**: Objects exist as compressed, physical bytes within the `PdfArena`.
 2.  **Gas (Sublimated)**: Objects are expanded into analyzed, structured, and reconstructed forms during processing.

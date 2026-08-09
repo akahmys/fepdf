@@ -1,0 +1,35 @@
+[package]
+name = "fepdf-gui"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[[bin]]
+name = "fepdf-gui"
+path = "src/main.rs"
+
+[dependencies]
+fepdf-core.workspace = true
+fepdf-render.workspace = true
+fepdf-sdk.workspace = true
+vello.workspace = true
+kurbo.workspace = true
+egui.workspace = true
+eframe.workspace = true
+egui-wgpu.workspace = true
+rfd.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tokio.workspace = true
+pollster.workspace = true
+bytes.workspace = true
+log.workspace = true
+env_logger.workspace = true
+wgpu.workspace = true
+regex.workspace = true
+
+[lints]
+workspace = true

@@ -13,10 +13,10 @@ echo "=== Visual Regression Audit Starting ==="
 # Specify --update to update reference baselines
 if [ "$1" == "--update" ]; then
     echo "Mode: Update Baselines"
-    env UPDATE_BASELINES=1 cargo test --package ferruginous-render --test visual_regression -- --nocapture
+    env UPDATE_BASELINES=1 cargo test --package fepdf-render --test visual_regression -- --nocapture
 else
     echo "Mode: Verification"
-    cargo test --package ferruginous-render --test visual_regression -- --nocapture
+    cargo test --package fepdf-render --test visual_regression -- --nocapture
 fi
 
 echo "=== Visual Regression Audit Completed Successfully ==="

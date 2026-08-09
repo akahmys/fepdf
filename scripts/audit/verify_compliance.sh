@@ -4,7 +4,7 @@
 set -e
 
 ERROR=0
-TARGET_DIRS="crates/ferruginous-core crates/ferruginous-render crates/ferruginous-sdk crates/ferruginous-mcp crates/ferruginous-wasm crates/ferruginous crates/fepdf"
+TARGET_DIRS="crates/fepdf-core crates/fepdf-render crates/fepdf-sdk crates/fepdf-mcp crates/fepdf-wasm crates/fepdf-gui crates/fepdf-cli"
 
 # Ensure cargo is available
 if ! command -v cargo &> /dev/null; then
@@ -16,7 +16,7 @@ if ! command -v cargo &> /dev/null; then
     fi
 fi
 
-echo "=== Ferruginous Compliance Audit Starting ==="
+echo "=== fepdf Compliance Audit Starting ==="
 echo "Rules: CODING.md (RR-15) & AUDITING.md (cargo-deny / betterleaks)"
 
 # Emits "<start> <end>" line ranges for every #[cfg(test)] module in $1.
@@ -139,9 +139,9 @@ grep -rn "unsafe {" $TARGET_DIRS --include="*.rs" && { echo "  FAIL: Unsafe bloc
 RULE5_EXEMPT_TYPES="Object|Token|Command|IrObject|RefinedObject|Data|Fields"
 # Files whose `match self` is over one of the exempt types above. `Self` is not
 # exempt anywhere else, so a self-match on a new domain enum still fails.
-RULE5_EXEMPT_SELF="crates/ferruginous-core/src/object.rs\
-|crates/ferruginous-core/src/object/sublimation.rs\
-|crates/ferruginous-core/src/refine/mod.rs"
+RULE5_EXEMPT_SELF="crates/fepdf-core/src/object.rs\
+|crates/fepdf-core/src/object/sublimation.rs\
+|crates/fepdf-core/src/refine/mod.rs"
 
 echo "[Rule 5] Checking wildcard match arms over domain enums..."
 rule5_raw=$(cargo clippy --workspace --all-targets --quiet -- \
@@ -182,9 +182,9 @@ grep -rn "static mut" $TARGET_DIRS --include="*.rs" && { echo "  FAIL: Global mu
 
 # Rule 10: Determinism (no HashMap/HashSet in the crates that decide byte output)
 #
-# ferruginous-sdk owns the writer, so iteration order there reaches the produced
+# fepdf-sdk owns the writer, so iteration order there reaches the produced
 # PDF just as directly as it does in core. It was previously unchecked.
-RULE10_DIRS="crates/ferruginous-core crates/ferruginous-render crates/ferruginous-sdk"
+RULE10_DIRS="crates/fepdf-core crates/fepdf-render crates/fepdf-sdk"
 echo "[Rule 10] Checking for non-deterministic collections..."
 rule10_failed=0
 while read -r file; do
@@ -204,7 +204,7 @@ done < <(find $RULE10_DIRS -name "*.rs" | grep -vE "(tests|examples|src/bin)")
 echo "[Rule 11] Checking for String/anyhow errors in Result..."
 rule11_failed=0
 while read -r file; do
-    if [[ $file == *"crates/ferruginous-mcp"* || $file == *"crates/fepdf"* || $file == *"crates/ferruginous/src/main.rs"* ]]; then continue; fi
+    if [[ $file == *"crates/fepdf-mcp"* || $file == *"crates/fepdf-cli"* || $file == *"crates/fepdf-gui/src/main.rs"* ]]; then continue; fi
     ranges=$(cfg_test_ranges "$file")
     while read -r line; do
         lnum=${line%%:*}

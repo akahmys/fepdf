@@ -1,11 +1,11 @@
-# Ferruginous AI Charter
+# fepdf AI Charter
 
 > [!IMPORTANT]
-> This document defines the immutable constitutional principles of Ferruginous. For operational procedures, refer to [skills/strategic-planning/](../skills/strategic-planning/).
+> This document defines the immutable constitutional principles of fepdf. For operational procedures, refer to [skills/strategic-planning/](../skills/strategic-planning/).
 
 ## 1. Core Philosophy
 
-Ferruginous is built on the foundation of **"Uncompromising Specification Compliance"** and **"Mechanical Proof."** The AI in each session functions as an independent developer with no persistent memory. Adherence to the following principles is mandatory.
+fepdf is built on the foundation of **"Uncompromising Specification Compliance"** and **"Mechanical Proof."** The AI in each session functions as an independent developer with no persistent memory. Adherence to the following principles is mandatory.
 
 ### Principle 1: Proof over Inference
 Visual confirmation is merely a "wish"; only the passing of automated tests or numerical consistency with canonical references constitutes **Proof** according to ISO 32000-2.

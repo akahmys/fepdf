@@ -1,9 +1,9 @@
 # UI Design Protocol
 
-Guidelines for the Ferruginous Desktop Interface, balancing data transparency with premium operability.
+Guidelines for the fepdf Desktop Interface, balancing data transparency with premium operability.
 
 ## 1. Single Source of Truth (SSoT)
-- **Rule**: Minimize internal UI state. Content MUST be projected directly from the `ferruginous-sdk` model.
+- **Rule**: Minimize internal UI state. Content MUST be projected directly from the `fepdf-sdk` model.
 - **Purpose**: Prevent desynchronization between the visual interface and the underlying PDF state.
 - **Compliance**: UI widgets must consume SDK-native handles or structures.
 

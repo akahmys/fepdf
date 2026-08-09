@@ -1,4 +1,4 @@
-# 🛡️ Ferruginous Security, License & Compliance Auditing Protocol
+# 🛡️ fepdf Security, License & Compliance Auditing Protocol
 
 This document defines the automated audit checks, license policy, security vulnerability management, and secret protection standards.
 
@@ -6,7 +6,7 @@ This document defines the automated audit checks, license policy, security vulne
 
 ## 🔍 1. Audit Framework Overview
 
-Ferruginous enforces a 4-tier automated compliance pipeline:
+fepdf enforces a 4-tier automated compliance pipeline:
 
 ```
                           ┌──────────────────────────┐

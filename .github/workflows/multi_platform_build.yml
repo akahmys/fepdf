@@ -22,32 +22,32 @@ jobs:
           # macOS Targets (Apple Silicon & Intel)
           - os: macos-14
             target: aarch64-apple-darwin
-            artifact_name: ferruginous-macos-arm64
-            binaries: "fepdf ferruginous"
+            artifact_name: fepdf-macos-arm64
+            binaries: "fepdf fepdf-gui"
           - os: macos-14
             target: x86_64-apple-darwin
-            artifact_name: ferruginous-macos-x64
-            binaries: "fepdf ferruginous"
+            artifact_name: fepdf-macos-x64
+            binaries: "fepdf fepdf-gui"
           
           # Windows Targets (64-bit & 32-bit)
           - os: windows-2022
             target: x86_64-pc-windows-msvc
-            artifact_name: ferruginous-windows-x64
-            binaries: "fepdf.exe ferruginous.exe"
+            artifact_name: fepdf-windows-x64
+            binaries: "fepdf.exe fepdf-gui.exe"
           - os: windows-2022
             target: i686-pc-windows-msvc
-            artifact_name: ferruginous-windows-x86
-            binaries: "fepdf.exe ferruginous.exe"
+            artifact_name: fepdf-windows-x86
+            binaries: "fepdf.exe fepdf-gui.exe"
 
           # Linux Targets (Static CLI & Dynamic GUI)
           - os: ubuntu-latest
             target: x86_64-unknown-linux-musl
-            artifact_name: ferruginous-linux-static-x64
+            artifact_name: fepdf-linux-static-x64
             binaries: "fepdf" # CLI statically linked
           - os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
-            artifact_name: ferruginous-linux-dynamic-x64
-            binaries: "ferruginous" # GUI dynamically linked for graphics support
+            artifact_name: fepdf-linux-dynamic-x64
+            binaries: "fepdf-gui" # GUI dynamically linked for graphics support
 
     steps:
     - name: Disable Symlinks on Windows
@@ -124,34 +124,34 @@ jobs:
     - name: Download macOS x64 Artifacts
       uses: actions/download-artifact@v4
       with:
-        name: ferruginous-macos-x64
+        name: fepdf-macos-x64
         path: x64
 
     - name: Download macOS ARM64 Artifacts
       uses: actions/download-artifact@v4
       with:
-        name: ferruginous-macos-arm64
+        name: fepdf-macos-arm64
         path: arm64
 
     - name: Create Universal Binaries
       run: |
         mkdir -p dist/x64 dist/arm64 universal_dist
-        tar -xzf x64/ferruginous-macos-x64.tar.gz -C dist/x64
-        tar -xzf arm64/ferruginous-macos-arm64.tar.gz -C dist/arm64
+        tar -xzf x64/fepdf-macos-x64.tar.gz -C dist/x64
+        tar -xzf arm64/fepdf-macos-arm64.tar.gz -C dist/arm64
         
         # Create Universal Binaries using lipo
         lipo -create -output universal_dist/fepdf dist/x64/fepdf dist/arm64/fepdf
-        lipo -create -output universal_dist/ferruginous dist/x64/ferruginous dist/arm64/ferruginous
+        lipo -create -output universal_dist/fepdf-gui dist/x64/fepdf-gui dist/arm64/fepdf-gui
         
         # Package universal binary
         cd universal_dist
-        zip -r ../ferruginous-macos-universal.zip fepdf ferruginous
+        zip -r ../fepdf-macos-universal.zip fepdf fepdf-gui
 
     - name: Upload macOS Universal Artifact
       uses: actions/upload-artifact@v4
       with:
-        name: ferruginous-macos-universal
-        path: ferruginous-macos-universal.zip
+        name: fepdf-macos-universal
+        path: fepdf-macos-universal.zip
 
   publish-release:
     name: Publish Release
@@ -169,22 +169,22 @@ jobs:
     - name: Rearrange Release Files
       run: |
         mkdir final_dist
-        cp release_artifacts/ferruginous-linux-static-x64/ferruginous-linux-static-x64.tar.gz final_dist/
-        cp release_artifacts/ferruginous-linux-dynamic-x64/ferruginous-linux-dynamic-x64.tar.gz final_dist/
-        cp release_artifacts/ferruginous-windows-x64/ferruginous-windows-x64.zip final_dist/
-        cp release_artifacts/ferruginous-windows-x86/ferruginous-windows-x86.zip final_dist/
-        cp release_artifacts/ferruginous-macos-universal/ferruginous-macos-universal.zip final_dist/
+        cp release_artifacts/fepdf-linux-static-x64/fepdf-linux-static-x64.tar.gz final_dist/
+        cp release_artifacts/fepdf-linux-dynamic-x64/fepdf-linux-dynamic-x64.tar.gz final_dist/
+        cp release_artifacts/fepdf-windows-x64/fepdf-windows-x64.zip final_dist/
+        cp release_artifacts/fepdf-windows-x86/fepdf-windows-x86.zip final_dist/
+        cp release_artifacts/fepdf-macos-universal/fepdf-macos-universal.zip final_dist/
         ls -la final_dist/
 
     - name: Create GitHub Release
       uses: softprops/action-gh-release@v2
       with:
         files: |
-          final_dist/ferruginous-linux-static-x64.tar.gz
-          final_dist/ferruginous-linux-dynamic-x64.tar.gz
-          final_dist/ferruginous-windows-x64.zip
-          final_dist/ferruginous-windows-x86.zip
-          final_dist/ferruginous-macos-universal.zip
+          final_dist/fepdf-linux-static-x64.tar.gz
+          final_dist/fepdf-linux-dynamic-x64.tar.gz
+          final_dist/fepdf-windows-x64.zip
+          final_dist/fepdf-windows-x86.zip
+          final_dist/fepdf-macos-universal.zip
         generate_release_notes: true
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -1,6 +1,6 @@
-# Ferruginous Workspace Directory Layout (WS-01)
+# fepdf Workspace Directory Layout (WS-01)
 
-This document defines the canonical directory structure of Ferruginous. Adherence to this hierarchy is mandatory for both human developers and autonomous agents to ensure discovery efficiency and data isolation.
+This document defines the canonical directory structure of fepdf. Adherence to this hierarchy is mandatory for both human developers and autonomous agents to ensure discovery efficiency and data isolation.
 
 ---
 
