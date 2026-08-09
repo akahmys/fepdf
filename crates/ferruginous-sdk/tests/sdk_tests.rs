@@ -141,7 +141,7 @@ fn test_cielab_to_srgb_conversion() {
             assert!((g - 1.0).abs() < 1e-4);
             assert!((b - 1.0).abs() < 1e-4);
         }
-        _ => panic!("Expected Rgb"),
+        Color::Gray(_) | Color::Cmyk(..) | Color::Lab(..) => panic!("Expected Rgb"),
     }
 }
 

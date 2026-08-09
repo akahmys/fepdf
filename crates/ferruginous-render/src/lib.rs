@@ -435,7 +435,10 @@ fn convert_mono_mask(
             (gv * 255.0).clamp(0.0, 255.0) as u8,
             (bv * 255.0).clamp(0.0, 255.0) as u8,
         ),
-        _ => (0, 0, 0),
+        // `to_rgb` always yields `Rgb`; the remaining arms exist so that adding a
+        // colour space forces this conversion to be revisited rather than silently
+        // painting black.
+        Color::Gray(_) | Color::Cmyk(..) | Color::Lab(..) => (0, 0, 0),
     };
     let alpha = (fill_alpha * 255.0).clamp(0.0, 255.0) as u8;
 
@@ -472,7 +475,8 @@ fn apply_image_smask(rgba_data: &mut [u8], mask: &SMaskData) {
                 let b = f64::from(mask.data[i * 3 + 2]);
                 ((0.299 * r) + (0.587 * g) + (0.114 * b)) as u8
             }
-            _ => 255,
+            // Formats carrying no usable alpha channel leave the pixel opaque.
+            PixelFormat::Cmyk8 | PixelFormat::MonoMask | PixelFormat::MonoMaskInverted => 255,
         };
         chunk[3] = ((f64::from(chunk[3]) * f64::from(mask_val)) / 255.0) as u8;
     }

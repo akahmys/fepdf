@@ -152,7 +152,8 @@ impl<'a> Sublimator<'a> {
     }
 
     #[allow(clippy::collapsible_if)]
-    fn handle_graphics_op(&mut self, op: &str, prev_commands: &[Command]) -> Vec<Command> { // RR-15 Limit: Dispatcher - Flat non-nested PDF graphics instruction parsing dispatcher routing ops to Commands
+    fn handle_graphics_op(&mut self, op: &str, prev_commands: &[Command]) -> Vec<Command> {
+        // RR-15 Limit: Dispatcher - Flat non-nested PDF graphics instruction parsing dispatcher routing ops to Commands
         match op {
             "q" => vec![Command::PushState],
             "Q" => vec![Command::PopState],
@@ -510,19 +511,44 @@ impl<'a> Sublimator<'a> {
         }
     }
 
-    fn pop_color_helper(&mut self, cs: crate::graphics::ColorSpaceKind, count: usize) -> Option<Color> {
+    fn pop_color_helper(
+        &mut self,
+        cs: crate::graphics::ColorSpaceKind,
+        count: usize,
+    ) -> Option<Color> {
         use crate::graphics::ColorSpaceKind;
         match cs {
             ColorSpaceKind::DeviceGray => {
-                if count >= 1 { self.pop_f64().map(Color::Gray) } else { None }
+                if count >= 1 {
+                    self.pop_f64().map(Color::Gray)
+                } else {
+                    None
+                }
             }
             ColorSpaceKind::DeviceRGB => {
-                if count >= 3 { self.pop_rgb() } else { None }
+                if count >= 3 {
+                    self.pop_rgb()
+                } else {
+                    None
+                }
             }
             ColorSpaceKind::DeviceCMYK => {
-                if count >= 4 { self.pop_cmyk() } else { None }
+                if count >= 4 {
+                    self.pop_cmyk()
+                } else {
+                    None
+                }
             }
-            _ => None,
+            // Non-device spaces carry no directly poppable component tuple.
+            ColorSpaceKind::CalGray
+            | ColorSpaceKind::CalRGB
+            | ColorSpaceKind::Lab
+            | ColorSpaceKind::ICCBased
+            | ColorSpaceKind::Pattern
+            | ColorSpaceKind::Indexed
+            | ColorSpaceKind::Separation
+            | ColorSpaceKind::DeviceN
+            | ColorSpaceKind::Unknown => None,
         }
     }
 

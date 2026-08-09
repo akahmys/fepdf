@@ -36,7 +36,10 @@ impl Interpreter<'_> {
                         } => {
                             self.execute_form_commands(&dict, cmds)?;
                         }
-                        _ => {
+                        // Forms not pre-parsed into commands are replayed from raw bytes.
+                        ferruginous_core::object::SublimatedData::Image { .. }
+                        | ferruginous_core::object::SublimatedData::Compressed { .. }
+                        | ferruginous_core::object::SublimatedData::Raw(_) => {
                             let bytes = self.doc.arena().get_stream_bytes(sd)?;
                             self.render_form_xobject(&dict, &bytes)?;
                         }

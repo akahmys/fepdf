@@ -126,7 +126,10 @@ impl<'a> Interpreter<'a> {
             ferruginous_core::object::SublimatedData::Commands { items: ref cmds, .. } => {
                 self.execute_commands(cmds)
             }
-            _ => {
+            // Anything not already parsed into commands is replayed from raw bytes.
+            ferruginous_core::object::SublimatedData::Image { .. }
+            | ferruginous_core::object::SublimatedData::Compressed { .. }
+            | ferruginous_core::object::SublimatedData::Raw(_) => {
                 let data = self.doc.arena().get_stream_bytes(&sublimated)?;
                 self.execute_raw(&data)
             }

@@ -105,7 +105,19 @@ impl Interpreter<'_> {
                 let c = self.pop_f64()?;
                 Color::Cmyk(c, m, y, k)
             }
-            _ => self.fallback_sc(op, count, cs)?,
+            // Also reached when DeviceRGB/DeviceCMYK arrive with too few operands,
+            // since those arms are guarded.
+            ColorSpaceKind::DeviceRGB
+            | ColorSpaceKind::DeviceCMYK
+            | ColorSpaceKind::CalGray
+            | ColorSpaceKind::CalRGB
+            | ColorSpaceKind::Lab
+            | ColorSpaceKind::ICCBased
+            | ColorSpaceKind::Pattern
+            | ColorSpaceKind::Indexed
+            | ColorSpaceKind::Separation
+            | ColorSpaceKind::DeviceN
+            | ColorSpaceKind::Unknown => self.fallback_sc(op, count, cs)?,
         };
 
         if is_fill {

@@ -72,7 +72,17 @@ impl ColorSpace {
                     _ => Color::Gray(0.0),
                 }
             }
-            _ => Color::Gray(0.0),
+            // Colour spaces with no direct component mapping yet. Listed explicitly so
+            // that a new `ColorSpaceKind` variant fails to compile here instead of
+            // silently resolving to black.
+            Self::CalGray
+            | Self::CalRGB
+            | Self::Lab
+            | Self::Pattern
+            | Self::Indexed
+            | Self::Separation
+            | Self::DeviceN
+            | Self::Unknown => Color::Gray(0.0),
         }
     }
 }

@@ -27,7 +27,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         ferruginous_core::object::SublimatedData::Raw(bytes) => {
                             println!("    Sublimated as Raw: {} bytes", bytes.len());
                         }
-                        _ => {
+                        ferruginous_core::object::SublimatedData::Image { .. }
+                        | ferruginous_core::object::SublimatedData::Compressed { .. } => {
                             println!("    Sublimated as Other: {sublimated:?}");
                         }
                     }
