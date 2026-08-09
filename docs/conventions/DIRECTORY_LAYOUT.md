@@ -13,7 +13,7 @@ This document defines the canonical directory structure of fepdf. Adherence to t
 | `crates/` | Modular Rust Logic Layer | Engineering |
 | `docs/` | Technical Specs & Architectural History | Architecture |
 | `external/` | Submodules & Third-party Compliance Data | Engineering |
-| `examples/` | Rust Usage Examples & Demonstrations | Engineering |
+| `crates/*/examples/` | Rust Usage Examples & Demonstrations. Must live under the crate they exercise — a root `examples/` directory is never compiled, because the workspace root has no `[package]`. | Engineering |
 | `out/` | Ephemeral & Persistent Outputs (Ignored by Git) | Pipeline |
 | `out/artifacts/`| Test results, renders, and temporary PDFs | CI/CD |
 | `out/exports/` | Extracted document assets (Fonts, Images) | Refinery |
