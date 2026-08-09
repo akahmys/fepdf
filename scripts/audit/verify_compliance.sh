@@ -83,9 +83,54 @@ done < <(find $TARGET_DIRS -name "*.rs" | grep -vE "(tests|examples|src/bin)")
 echo "[Rule 3] Checking for unsafe blocks..."
 grep -rn "unsafe {" $TARGET_DIRS --include="*.rs" && { echo "  FAIL: Unsafe block found"; ERROR=1; } || echo "  PASS"
 
-# Rule 5: No Wildcard in Match
-echo "[Rule 5] Checking for wildcards in match..."
-grep -rnE "match .* \{" $TARGET_DIRS --include="*.rs" -A 10 | grep "=> _" && { echo "  FAIL: Wildcard pattern found"; ERROR=1; } || echo "  PASS"
+# Rule 5: No wildcard match arms over domain enums.
+#
+# A plain grep cannot enforce this: matching on &str, u8 or usize *requires* a
+# wildcard, so a textual search for "_ =>" reports hundreds of unavoidable hits.
+# clippy::wildcard_enum_match_arm is type-aware and fires only on enums.
+#
+# Types whose variant set is fixed by ISO 32000-2 (the object and operator
+# taxonomy), or owned by an external crate as #[non_exhaustive]. See CODING.md
+# Rule 5 for why these are exempt.
+RULE5_EXEMPT_TYPES="Object|Token|Command|IrObject|RefinedObject|Data|Fields"
+# Files whose `match self` is over one of the exempt types above. `Self` is not
+# exempt anywhere else, so a self-match on a new domain enum still fails.
+RULE5_EXEMPT_SELF="crates/ferruginous-core/src/object.rs\
+|crates/ferruginous-core/src/object/sublimation.rs\
+|crates/ferruginous-core/src/refine/mod.rs"
+
+echo "[Rule 5] Checking wildcard match arms over domain enums..."
+rule5_raw=$(cargo clippy --workspace --all-targets --quiet -- \
+    -W clippy::wildcard_enum_match_arm \
+    -A clippy::all -A clippy::pedantic -A clippy::nursery 2>&1 \
+    | grep -E "^[[:space:]]+--> |help: try" | paste - - || true)
+
+rule5_failed=0
+while IFS= read -r entry; do
+    [ -z "$entry" ] && continue
+    loc=$(echo "$entry" | sed -E 's/^[[:space:]]*--> ([^[:space:]]+).*/\1/')
+    suggestion=$(echo "$entry" | sed -E 's/.*help: try: //')
+
+    # Every enum named in clippy's suggested arm list, minus the exempt ones.
+    residue=$(echo "$suggestion" \
+        | grep -oE "\b[A-Z][A-Za-z0-9_]*::[A-Z][A-Za-z0-9_]*" \
+        | sed -E 's/::.*//' | sort -u \
+        | grep -vE "^($RULE5_EXEMPT_TYPES)\$" || true)
+
+    if echo "$residue" | grep -q "^Self\$"; then
+        if echo "${loc%%:*}" | grep -qE "^($RULE5_EXEMPT_SELF)\$"; then
+            residue=$(echo "$residue" | grep -v "^Self\$" || true)
+        fi
+    fi
+
+    residue=$(echo "$residue" | grep -v '^$' || true)
+    if [ -n "$residue" ]; then
+        echo "  FAIL: $loc wildcard over domain enum: $(echo "$residue" | tr '\n' ' ')"
+        ERROR=1
+        rule5_failed=1
+    fi
+done <<< "$rule5_raw"
+[ "$rule5_failed" -eq 0 ] && echo "  PASS"
 
 # Rule 7: No Global Mutable State
 echo "[Rule 7] Checking for static mut..."
