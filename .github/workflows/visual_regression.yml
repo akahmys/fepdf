@@ -20,7 +20,7 @@ jobs:
     - name: Install Rust (Edition 2024 / MSRV 1.94)
       uses: dtolnay/rust-toolchain@stable
       with:
-        toolchain: 1.94
+        toolchain: stable
 
     - name: Rust Cache
       uses: Swatinem/rust-cache@v2
