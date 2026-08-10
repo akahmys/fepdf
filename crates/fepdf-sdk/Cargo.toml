@@ -31,6 +31,7 @@ log.workspace = true
 env_logger.workspace = true
 hex.workspace = true
 md5.workspace = true
+x509-parser.workspace = true
 
 [features]
 default = []

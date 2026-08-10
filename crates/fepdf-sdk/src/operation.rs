@@ -3,6 +3,12 @@
 //! Rule D: Frontends translate input (argv, UI clicks, MCP calls) into an Operation
 //! value and pass it to fepdf-sdk. Only fepdf-sdk interprets operations.
 
+use fepdf_core::{
+    AnnotationSpec, ArticleThread, AssociatedFile, FormFieldSpec, GeoSpatialAnchor,
+    MeasurementScale, MeshShadingSpec, OptionalContentProperties, OutlineTree, OutputIntent,
+    PageLabelSpec, PdfAction, PortfolioCollection, PublicKeyRecipientSpec, UnencryptedWrapperSpec,
+    UserProperty,
+};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -84,6 +90,23 @@ pub struct StructElemUpdate {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+/// Position for page decorations (Header/Footer/Bates).
+pub enum DecorationPosition {
+    /// Top left position.
+    TopLeft,
+    /// Top center position.
+    TopCenter,
+    /// Top right position.
+    TopRight,
+    /// Bottom left position.
+    BottomLeft,
+    /// Bottom center position.
+    BottomCenter,
+    /// Bottom right position.
+    BottomRight,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 /// Canonical document mutation operations.
 pub enum Operation {
     /// Rotate specified pages according to RotateMode.
@@ -109,4 +132,87 @@ pub enum Operation {
         /// Target handle index of the structural element object.
         handle_index: u32,
     },
+
+    // --- Phase 2: Metadata & Structure Domain Operations ---
+    /// Create or update a PDF Portfolio (/Collection).
+    CreatePortfolio(PortfolioCollection),
+    /// Update document outlines / bookmarks (/Outlines).
+    UpdateOutlines(OutlineTree),
+    /// Update optional content properties / layers (/OCProperties).
+    UpdateLayers(OptionalContentProperties),
+    /// Attach an associated file (/AF) to the document.
+    AttachAssociatedFile(AssociatedFile),
+    /// Set or update the document output intent (/OutputIntents).
+    SetOutputIntent(OutputIntent),
+    /// Embed a pronunciation lexicon XML (/PL).
+    SetPronunciationLexicon {
+        /// Raw XML bytes of the PLS lexicon.
+        lexicon_xml_bytes: Vec<u8>,
+    },
+
+    // --- Phase 2: Security & Provenance Domain Operations ---
+    /// Verify a digital signature on a specific signature field.
+    VerifyDigitalSignature {
+        /// Target signature field name.
+        field_name: String,
+    },
+
+    // --- Phase 2: Decorations & Annotations Domain Operations ---
+    /// Add page header, footer, or watermark text.
+    AddPageDecoration {
+        /// Target pages.
+        pages: PageSelection,
+        /// Text string to render.
+        text: String,
+        /// Position on the page.
+        position: DecorationPosition,
+    },
+    /// Apply Bates numbering to pages.
+    ApplyBatesNumbering {
+        /// Selection of pages.
+        pages: PageSelection,
+        /// Prefix string (e.g. "CONFIDENTIAL-").
+        prefix: String,
+        /// Starting number integer.
+        start_number: u64,
+        /// Total digits count for zero-padding (e.g. 6).
+        digits: usize,
+        /// Position of the number.
+        position: DecorationPosition,
+    },
+    /// Add an annotation to a page.
+    AddAnnotation(AnnotationSpec),
+    /// Set a measurement scale for CAD/geospatial drawings (/Measure).
+    SetMeasurementScale(MeasurementScale),
+
+    // --- Phase 2: Interactive Forms Domain Operations ---
+    /// Set a form field value in AcroForms.
+    SetFormFieldValue(FormFieldSpec),
+
+    // --- Phase 5: Navigation, Structure & Action Engine Operations ---
+    /// Set page labels (/PageLabels).
+    SetPageLabels(Vec<PageLabelSpec>),
+    /// Update article threads (/Threads).
+    UpdateArticleThreads(Vec<ArticleThread>),
+    /// Add user properties to a Tagged PDF element (/UserProperties).
+    AddUserProperties {
+        /// Target element handle index.
+        target_handle: u32,
+        /// Properties list.
+        properties: Vec<UserProperty>,
+    },
+    /// Execute an action (GoToR, GoToE, Named, Transition).
+    ExecuteAction(PdfAction),
+
+    // --- Phase 6: Advanced Graphics & GIS Operations ---
+    /// Set a GIS geographic anchor (/Geo).
+    SetGeospatialAnchor(GeoSpatialAnchor),
+    /// Add a Type 4-7 mesh shading spec.
+    AddMeshShading(MeshShadingSpec),
+
+    // --- Phase 7: Font & Cryptography Operations ---
+    /// Set unencrypted wrapper payload (Clause 7.6.7).
+    SetUnencryptedWrapper(UnencryptedWrapperSpec),
+    /// Add a public key recipient certificate (Clause 7.6.4).
+    AddPublicKeyRecipient(PublicKeyRecipientSpec),
 }

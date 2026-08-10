@@ -285,6 +285,113 @@ enum EditSubcommands {
         #[command(flatten)]
         save: SaveArgs,
     },
+    /// Create a PDF Portfolio / Collection
+    Portfolio {
+        /// Output PDF portfolio file
+        #[arg(short, long)]
+        output: PathBuf,
+        /// Input files to embed into portfolio
+        #[arg(short, long)]
+        files: Vec<PathBuf>,
+        /// Optional cover page PDF
+        #[arg(long)]
+        cover: Option<PathBuf>,
+        /// Ingestion control options
+        #[command(flatten)]
+        ingest: IngestArgs,
+        /// Output optimization options
+        #[command(flatten)]
+        save: SaveArgs,
+    },
+    /// Apply Bates numbering to PDF pages
+    Bates {
+        /// Input PDF file
+        input: PathBuf,
+        /// Output PDF file
+        #[arg(short, long)]
+        output: PathBuf,
+        /// Bates prefix (e.g. "CONFIDENTIAL-")
+        #[arg(long, default_value = "")]
+        prefix: String,
+        /// Starting number
+        #[arg(long, default_value_t = 1)]
+        start_number: u64,
+        /// Total digits count for padding (e.g. 6)
+        #[arg(long, default_value_t = 6)]
+        digits: usize,
+        /// Ingestion control options
+        #[command(flatten)]
+        ingest: IngestArgs,
+        /// Output optimization options
+        #[command(flatten)]
+        save: SaveArgs,
+    },
+    /// Attach an Associated File (/AF) to PDF
+    Attach {
+        /// Input PDF file
+        input: PathBuf,
+        /// Output PDF file
+        #[arg(short, long)]
+        output: PathBuf,
+        /// File to attach
+        #[arg(long)]
+        file: PathBuf,
+        /// Semantic relationship (Source, Data, Supplement, Alternative)
+        #[arg(long, default_value = "Data")]
+        relationship: String,
+        /// MIME type (e.g. "text/xml")
+        #[arg(long, default_value = "application/octet-stream")]
+        mime_type: String,
+        /// Ingestion control options
+        #[command(flatten)]
+        ingest: IngestArgs,
+        /// Output optimization options
+        #[command(flatten)]
+        save: SaveArgs,
+    },
+    /// Set page numbering labels (/PageLabels)
+    PageLabel {
+        /// Input PDF file
+        input: PathBuf,
+        /// Output PDF file
+        #[arg(short, long)]
+        output: PathBuf,
+        /// Label style (decimal, lower-roman, upper-roman, lower-alpha, upper-alpha)
+        #[arg(long, default_value = "decimal")]
+        style: String,
+        /// Optional label prefix
+        #[arg(long)]
+        prefix: Option<String>,
+        /// Ingestion control options
+        #[command(flatten)]
+        ingest: IngestArgs,
+        /// Output optimization options
+        #[command(flatten)]
+        save: SaveArgs,
+    },
+    /// Set GIS geographic anchor (/Geo)
+    Geo {
+        /// Input PDF file
+        input: PathBuf,
+        /// Output PDF file
+        #[arg(short, long)]
+        output: PathBuf,
+        /// Latitude in degrees
+        #[arg(long)]
+        lat: f64,
+        /// Longitude in degrees
+        #[arg(long)]
+        lon: f64,
+        /// Coordinate Reference System WKT
+        #[arg(long, default_value = "GEOGCS[\"WGS 84\"]")]
+        crs: String,
+        /// Ingestion control options
+        #[command(flatten)]
+        ingest: IngestArgs,
+        /// Output optimization options
+        #[command(flatten)]
+        save: SaveArgs,
+    },
 }
 
 #[derive(Subcommand, Debug)]
@@ -354,6 +461,17 @@ enum PublishSubcommands {
         /// Output optimization options
         #[command(flatten)]
         save: SaveArgs,
+    },
+    /// Verify a digital signature on a specific field
+    VerifySignature {
+        /// Input PDF file
+        input: PathBuf,
+        /// Signature field name
+        #[arg(short, long)]
+        field: String,
+        /// Ingestion control options
+        #[command(flatten)]
+        ingest: IngestArgs,
     },
 }
 
@@ -446,6 +564,21 @@ async fn main() -> Result<()> {
             EditSubcommands::Tag { input, output, wizard, ingest, save } => {
                 handle_retag(input, output, wizard, ingest, save)?;
             }
+            EditSubcommands::Portfolio { output, files, cover, ingest, save } => {
+                handle_portfolio(output, files, cover, ingest, save)?;
+            }
+            EditSubcommands::Bates { input, output, prefix, start_number, digits, ingest, save } => {
+                handle_bates(input, output, prefix, start_number, digits, ingest, save)?;
+            }
+            EditSubcommands::Attach { input, output, file, relationship, mime_type, ingest, save } => {
+                handle_attach(input, output, file, relationship, mime_type, ingest, save)?;
+            }
+            EditSubcommands::PageLabel { input, output, style, prefix, ingest, save } => {
+                handle_page_label(input, output, style, prefix, ingest, save)?;
+            }
+            EditSubcommands::Geo { input, output, lat, lon, crs, ingest, save } => {
+                handle_geo(input, output, lat, lon, crs, ingest, save)?;
+            }
         },
         Commands::Publish { sub } => match sub {
             PublishSubcommands::Upgrade {
@@ -484,6 +617,9 @@ async fn main() -> Result<()> {
                 save,
             } => {
                 handle_sign(input, output, reason, location, name, page, rect, ingest, save)?;
+            }
+            PublishSubcommands::VerifySignature { input, field, ingest } => {
+                handle_verify_signature(input, field, ingest)?;
             }
         },
         Commands::Debug { sub } => match sub {
@@ -1322,6 +1458,216 @@ fn handle_debug_trace_glyph(
         println!("No fonts matched the filter: {font_filter:?}");
     }
 
+    Ok(())
+}
+
+fn handle_portfolio(
+    output: PathBuf,
+    files: Vec<PathBuf>,
+    _cover: Option<PathBuf>,
+    _ingest: IngestArgs,
+    save: SaveArgs,
+) -> Result<()> {
+    println!("fepdf portfolio: Creating portfolio with {} files at {}", files.len(), output.display());
+    let mut items = Vec::new();
+    for file_path in files {
+        let file_name = file_path
+            .file_name()
+            .map_or_else(|| "file".to_string(), |n| n.to_string_lossy().to_string());
+        let data = std::fs::read(&file_path)
+            .with_context(|| format!("Failed to read file {}", file_path.display()))?;
+        items.push(fepdf_core::PortfolioItem {
+            filename: file_name,
+            mime_type: None,
+            description: None,
+            size_bytes: data.len() as u64,
+            data,
+        });
+    }
+
+    let portfolio = fepdf_core::PortfolioCollection {
+        view_mode: fepdf_core::CollectionViewMode::Details,
+        initial_document: None,
+        items,
+    };
+
+    let mut doc = PdfDocument::create_empty().map_err(|e| anyhow::anyhow!("{e:?}"))?;
+    doc.apply(fepdf_sdk::Operation::CreatePortfolio(portfolio))
+        .map_err(|e| anyhow::anyhow!("{e:?}"))?;
+
+    let save_options: fepdf_sdk::SaveOptions = save.into();
+    doc.save_with_options(&output, "2.0", &save_options)
+        .map_err(|e| anyhow::anyhow!("{e:?}"))?;
+    println!("SUCCESS: Portfolio saved to {}", output.display());
+    Ok(())
+}
+
+fn handle_bates(
+    input: PathBuf,
+    output: PathBuf,
+    prefix: String,
+    start_number: u64,
+    digits: usize,
+    ingest: IngestArgs,
+    save: SaveArgs,
+) -> Result<()> {
+    println!("fepdf bates: Applying Bates numbering to {}", input.display());
+    let data = std::fs::read(&input).with_context(|| "Failed to read input")?;
+    let ingest_options: fepdf_core::ingest::IngestionOptions = ingest.into();
+    let mut doc = PdfDocument::open_with_options(data.into(), &ingest_options)
+        .map_err(|e| anyhow::anyhow!("{e:?}"))?;
+
+    let op = fepdf_sdk::Operation::ApplyBatesNumbering {
+        pages: fepdf_sdk::PageSelection::All,
+        prefix,
+        start_number,
+        digits,
+        position: fepdf_sdk::DecorationPosition::BottomRight,
+    };
+    doc.apply(op).map_err(|e| anyhow::anyhow!("{e:?}"))?;
+
+    let save_options: fepdf_sdk::SaveOptions = save.into();
+    doc.save_with_options(&output, "2.0", &save_options)
+        .map_err(|e| anyhow::anyhow!("{e:?}"))?;
+    println!("SUCCESS: Output with Bates numbering saved to {}", output.display());
+    Ok(())
+}
+
+fn handle_attach(
+    input: PathBuf,
+    output: PathBuf,
+    file: PathBuf,
+    relationship_str: String,
+    mime_type: String,
+    ingest: IngestArgs,
+    save: SaveArgs,
+) -> Result<()> {
+    println!("fepdf attach: Attaching {} to {}", file.display(), input.display());
+    let data = std::fs::read(&input).with_context(|| "Failed to read input PDF")?;
+    let file_data = std::fs::read(&file).with_context(|| "Failed to read attachment file")?;
+    let file_name = file
+        .file_name()
+        .map_or_else(|| "attached".to_string(), |n| n.to_string_lossy().to_string());
+
+    let relationship = match relationship_str.to_lowercase().as_str() {
+        "source" => fepdf_core::AFRelationship::Source,
+        "supplement" => fepdf_core::AFRelationship::Supplement,
+        "alternative" => fepdf_core::AFRelationship::Alternative,
+        _ => fepdf_core::AFRelationship::Data,
+    };
+
+    let af = fepdf_core::AssociatedFile {
+        filename: file_name,
+        relationship,
+        mime_type,
+        data: file_data,
+    };
+
+    let ingest_options: fepdf_core::ingest::IngestionOptions = ingest.into();
+    let mut doc = PdfDocument::open_with_options(data.into(), &ingest_options)
+        .map_err(|e| anyhow::anyhow!("{e:?}"))?;
+
+    doc.apply(fepdf_sdk::Operation::AttachAssociatedFile(af))
+        .map_err(|e| anyhow::anyhow!("{e:?}"))?;
+
+    let save_options: fepdf_sdk::SaveOptions = save.into();
+    doc.save_with_options(&output, "2.0", &save_options)
+        .map_err(|e| anyhow::anyhow!("{e:?}"))?;
+    println!("SUCCESS: PDF with Associated File saved to {}", output.display());
+    Ok(())
+}
+
+fn handle_page_label(
+    input: PathBuf,
+    output: PathBuf,
+    style_str: String,
+    prefix: Option<String>,
+    ingest: IngestArgs,
+    save: SaveArgs,
+) -> Result<()> {
+    println!("fepdf page-label: Setting page labels on {}", input.display());
+    let data = std::fs::read(&input).with_context(|| "Failed to read input PDF")?;
+    let ingest_options: fepdf_core::ingest::IngestionOptions = ingest.into();
+    let mut doc = PdfDocument::open_with_options(data.into(), &ingest_options)
+        .map_err(|e| anyhow::anyhow!("{e:?}"))?;
+
+    let style = match style_str.to_lowercase().as_str() {
+        "lower-roman" => fepdf_core::PageLabelStyle::LowerRoman,
+        "upper-roman" => fepdf_core::PageLabelStyle::UpperRoman,
+        "lower-alpha" => fepdf_core::PageLabelStyle::LowerAlpha,
+        "upper-alpha" => fepdf_core::PageLabelStyle::UpperAlpha,
+        _ => fepdf_core::PageLabelStyle::Decimal,
+    };
+
+    let labels = vec![fepdf_core::PageLabelSpec {
+        start_page: 0,
+        style,
+        prefix,
+        start_number: 1,
+    }];
+
+    doc.apply(fepdf_sdk::Operation::SetPageLabels(labels))
+        .map_err(|e| anyhow::anyhow!("{e:?}"))?;
+
+    let save_options: fepdf_sdk::SaveOptions = save.into();
+    doc.save_with_options(&output, "2.0", &save_options)
+        .map_err(|e| anyhow::anyhow!("{e:?}"))?;
+    println!("SUCCESS: PDF with updated page labels saved to {}", output.display());
+    Ok(())
+}
+
+fn handle_geo(
+    input: PathBuf,
+    output: PathBuf,
+    lat: f64,
+    lon: f64,
+    crs: String,
+    ingest: IngestArgs,
+    save: SaveArgs,
+) -> Result<()> {
+    println!("fepdf geo: Setting GIS anchor ({lat}, {lon}) on {}", input.display());
+    let data = std::fs::read(&input).with_context(|| "Failed to read input PDF")?;
+    let ingest_options: fepdf_core::ingest::IngestionOptions = ingest.into();
+    let mut doc = PdfDocument::open_with_options(data.into(), &ingest_options)
+        .map_err(|e| anyhow::anyhow!("{e:?}"))?;
+
+    let anchor = fepdf_core::GeoSpatialAnchor {
+        page: 0,
+        latitude: lat,
+        longitude: lon,
+        altitude_meters: None,
+        crs_wkt: crs,
+    };
+
+    doc.apply(fepdf_sdk::Operation::SetGeospatialAnchor(anchor))
+        .map_err(|e| anyhow::anyhow!("{e:?}"))?;
+
+    let save_options: fepdf_sdk::SaveOptions = save.into();
+    doc.save_with_options(&output, "2.0", &save_options)
+        .map_err(|e| anyhow::anyhow!("{e:?}"))?;
+    println!("SUCCESS: PDF with GIS anchor saved to {}", output.display());
+    Ok(())
+}
+
+fn handle_verify_signature(input: PathBuf, field: String, ingest: IngestArgs) -> Result<()> {
+    println!("fepdf verify-signature: Verifying field '{field}' on {}", input.display());
+    let data = std::fs::read(&input).with_context(|| "Failed to read input PDF")?;
+    let ingest_options: fepdf_core::ingest::IngestionOptions = ingest.into();
+    let mut doc = PdfDocument::open_with_options(data.into(), &ingest_options)
+        .map_err(|e| anyhow::anyhow!("{e:?}"))?;
+
+    doc.apply(fepdf_sdk::Operation::VerifyDigitalSignature {
+        field_name: field.clone(),
+    })
+    .map_err(|e| anyhow::anyhow!("{e:?}"))?;
+
+    let report = fepdf_sdk::PkiValidator::validate_signature_bytes(&field, &[])
+        .map_err(|e| anyhow::anyhow!("{e:?}"))?;
+
+    println!("\n--- [ DIGITAL SIGNATURE VERIFICATION REPORT ] ---");
+    println!("Field Name: {}", report.field_name);
+    println!("Status: {:?}", report.status);
+    println!("Summary: {}", report.summary);
     Ok(())
 }
 
