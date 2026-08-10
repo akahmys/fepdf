@@ -46,6 +46,9 @@ impl FontMetrics {
             let mut i: usize = 0;
             while i < w_arr.len() {
                 let first_cid = Object::resolve(&w_arr[i], arena).as_integer().unwrap_or(0) as u32;
+                if i + 1 >= w_arr.len() {
+                    break;
+                }
                 let next_obj = Object::resolve(&w_arr[i + 1], arena);
                 if let Object::Array(iah) = next_obj {
                     if let Some(i_arr) = arena.get_array(iah) {
@@ -57,11 +60,16 @@ impl FontMetrics {
                     }
                     i += 2;
                 } else {
+                    if i + 2 >= w_arr.len() {
+                        break;
+                    }
                     let last_cid = next_obj.as_integer().unwrap_or(0) as u32;
                     let w_val: f32 =
                         Object::resolve(&w_arr[i + 2], arena).as_f64().unwrap_or(1000.0) as f32;
-                    for cid in first_cid..=last_cid {
-                        metrics.widths.insert(cid, w_val);
+                    if first_cid <= last_cid {
+                        for cid in first_cid..=last_cid {
+                            metrics.widths.insert(cid, w_val);
+                        }
                     }
                     i += 3;
                 }
@@ -88,38 +96,52 @@ impl FontMetrics {
 
         let mut i: usize = 0;
         while i < w2_arr.len() {
-            let first_cid = Object::resolve(&w2_arr[i], arena).as_integer().unwrap_or(0) as u32;
-            let next_obj = Object::resolve(&w2_arr[i + 1], arena);
-            if let Object::Array(iah) = next_obj {
-                if let Some(i_arr) = arena.get_array(iah) {
-                    for (idx, chunk) in i_arr.chunks_exact(3).enumerate() {
-                        let w1_y =
-                            Object::resolve(&chunk[0], arena).as_f64().unwrap_or(-1000.0) as f32;
-                        let v_x = Object::resolve(&chunk[1], arena)
-                            .as_f64()
-                            .unwrap_or(f64::from(default_w) / 2.0)
-                            as f32;
-                        let v_y =
-                            Object::resolve(&chunk[2], arena).as_f64().unwrap_or(880.0) as f32;
-                        v_widths.insert(first_cid + idx as u32, (w1_y, v_x, v_y));
-                    }
+            i = Self::parse_v2_entry(&w2_arr, i, arena, default_w, &mut v_widths);
+        }
+        v_widths
+    }
+
+    fn parse_v2_entry(
+        w2_arr: &[Object],
+        i: usize,
+        arena: &PdfArena,
+        default_w: f32,
+        v_widths: &mut BTreeMap<u32, (f32, f32, f32)>,
+    ) -> usize {
+        let first_cid = Object::resolve(&w2_arr[i], arena).as_integer().unwrap_or(0) as u32;
+        if i + 1 >= w2_arr.len() {
+            return w2_arr.len();
+        }
+        let next_obj = Object::resolve(&w2_arr[i + 1], arena);
+        if let Object::Array(iah) = next_obj {
+            if let Some(i_arr) = arena.get_array(iah) {
+                for (idx, chunk) in i_arr.chunks_exact(3).enumerate() {
+                    let w1_y = Object::resolve(&chunk[0], arena).as_f64().unwrap_or(-1000.0) as f32;
+                    let v_x = Object::resolve(&chunk[1], arena)
+                        .as_f64()
+                        .unwrap_or(f64::from(default_w) / 2.0) as f32;
+                    let v_y = Object::resolve(&chunk[2], arena).as_f64().unwrap_or(880.0) as f32;
+                    v_widths.insert(first_cid + idx as u32, (w1_y, v_x, v_y));
                 }
-                i += 2;
-            } else {
-                let last_cid = next_obj.as_integer().unwrap_or(0) as u32;
-                let w1_y =
-                    Object::resolve(&w2_arr[i + 2], arena).as_f64().unwrap_or(-1000.0) as f32;
-                let v_x = Object::resolve(&w2_arr[i + 3], arena)
-                    .as_f64()
-                    .unwrap_or(f64::from(default_w) / 2.0) as f32;
-                let v_y = Object::resolve(&w2_arr[i + 4], arena).as_f64().unwrap_or(880.0) as f32;
+            }
+            i + 2
+        } else {
+            if i + 4 >= w2_arr.len() {
+                return w2_arr.len();
+            }
+            let last_cid = next_obj.as_integer().unwrap_or(0) as u32;
+            let w1_y = Object::resolve(&w2_arr[i + 2], arena).as_f64().unwrap_or(-1000.0) as f32;
+            let v_x = Object::resolve(&w2_arr[i + 3], arena)
+                .as_f64()
+                .unwrap_or(f64::from(default_w) / 2.0) as f32;
+            let v_y = Object::resolve(&w2_arr[i + 4], arena).as_f64().unwrap_or(880.0) as f32;
+            if first_cid <= last_cid {
                 for cid in first_cid..=last_cid {
                     v_widths.insert(cid, (w1_y, v_x, v_y));
                 }
-                i += 5;
             }
+            i + 5
         }
-        v_widths
     }
 
     /// Parses standard horizontal metrics (FirstChar, LastChar, Widths).
@@ -140,9 +162,10 @@ impl FontMetrics {
             dict.get(&arena.name("Widths")).map(|o: &Object| Object::resolve(o, arena))
             && let Some(arr) = arena.get_array(ah)
         {
+            let first_code = metrics.first.max(0) as u32;
             for (idx, w) in arr.iter().enumerate() {
                 metrics.widths.insert(
-                    (metrics.first + idx as i32) as u32,
+                    first_code + idx as u32,
                     Object::resolve(w, arena).as_f64().unwrap_or(0.0) as f32,
                 );
             }
@@ -209,4 +232,35 @@ pub fn detect_wmode(dict: &BTreeMap<Handle<PdfName>, Object>, arena: &PdfArena) 
         }
     }
     0
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_font_metrics_out_of_bounds_safety() {
+        let arena = PdfArena::new();
+        let mut dict = BTreeMap::new();
+        // Construct malformed W array with odd/incomplete length
+        let w_arr = vec![Object::Integer(10)];
+        let w_handle = arena.alloc_array(w_arr);
+        dict.insert(arena.name("W"), Object::Array(w_handle));
+
+        // Should not panic on truncated W array
+        let metrics = FontMetrics::parse_cid(&dict, &arena);
+        assert!(metrics.widths.is_empty());
+    }
+
+    #[test]
+    fn test_font_metrics_negative_first_char_safety() {
+        let arena = PdfArena::new();
+        let mut dict = BTreeMap::new();
+        dict.insert(arena.name("FirstChar"), Object::Integer(-5));
+        let arr_handle = arena.alloc_array(vec![Object::Real(500.0)]);
+        dict.insert(arena.name("Widths"), Object::Array(arr_handle));
+
+        let metrics = FontMetrics::parse_standard(&dict, &arena);
+        assert_eq!(metrics.widths.get(&0), Some(&500.0));
+    }
 }

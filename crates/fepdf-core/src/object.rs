@@ -315,8 +315,19 @@ impl Object {
 
     /// Follows indirect references until a direct object is reached.
     pub fn resolve(&self, arena: &PdfArena) -> Self {
+        self.resolve_depth(arena, 0)
+    }
+
+    fn resolve_depth(&self, arena: &PdfArena, depth: usize) -> Self {
+        if depth > 64 {
+            return Self::Null;
+        }
         if let Self::Reference(h) = self {
-            arena.get_object(*h).unwrap_or(Self::Null)
+            if let Some(target) = arena.get_object(*h) {
+                target.resolve_depth(arena, depth + 1)
+            } else {
+                Self::Null
+            }
         } else {
             self.clone()
         }
@@ -381,32 +392,37 @@ impl Object {
                 Self::Array(arena.alloc_array(items))
             }
             lopdf::Object::Dictionary(dict) => {
-                let mut map = BTreeMap::new();
-                for (k, v) in dict {
-                    let k_handle = arena.intern_name(PdfName::from_bytes(k));
-                    let v_obj = Self::from_lopdf(v, arena, table);
-                    map.insert(k_handle, v_obj);
-                }
-                Self::Dictionary(arena.alloc_dict(map))
+                let dict_h = Self::from_lopdf_dict(dict, arena, table);
+                Self::Dictionary(dict_h)
             }
             lopdf::Object::Stream(s) => {
-                let mut map = BTreeMap::new();
-                for (k, v) in &s.dict {
-                    let k_handle = arena.intern_name(PdfName::from_bytes(k));
-                    let v_obj = Self::from_lopdf(v, arena, table);
-                    map.insert(k_handle, v_obj);
-                }
+                let dict_h = Self::from_lopdf_dict(&s.dict, arena, table);
                 Self::Stream(
-                    arena.alloc_dict(map),
+                    dict_h,
                     SublimatedData::Raw(Bytes::copy_from_slice(&s.content)).into(),
                 )
             }
-            lopdf::Object::Reference(id) => {
-                let handle = table.get(&(id.0, id.1)).copied().unwrap_or(Handle::new(0));
-                Self::Reference(handle)
-            }
+            lopdf::Object::Reference(id) => table
+                .get(&(id.0, id.1))
+                .copied()
+                .map(Self::Reference)
+                .unwrap_or(Self::Null),
             lopdf::Object::Null => Self::Null,
         }
+    }
+
+    fn from_lopdf_dict(
+        dict: &lopdf::Dictionary,
+        arena: &PdfArena,
+        table: &crate::arena::RemappingTable,
+    ) -> Handle<BTreeMap<Handle<PdfName>, Object>> {
+        let mut map = BTreeMap::new();
+        for (k, v) in dict {
+            let k_handle = arena.intern_name(PdfName::from_bytes(k));
+            let v_obj = Self::from_lopdf(v, arena, table);
+            map.insert(k_handle, v_obj);
+        }
+        arena.alloc_dict(map)
     }
 }
 
@@ -533,5 +549,27 @@ mod tests {
         let test_dict_20 = TestDict::from_pdf_object(obj_20, &arena_20).unwrap();
         assert_eq!(test_dict_20.new_feature, Some(100));
         assert_eq!(test_dict_20.def, 999);
+    }
+
+    #[test]
+    fn test_object_resolve_cycle_safety() {
+        let arena = PdfArena::new();
+        let h1 = arena.alloc_object(Object::Null);
+        let h2 = arena.alloc_object(Object::Reference(h1));
+        // Create cyclic reference: h1 -> Reference(h2), h2 -> Reference(h1)
+        arena.set_object(h1, Object::Reference(h2));
+
+        let resolved = Object::Reference(h1).resolve(&arena);
+        assert_eq!(resolved, Object::Null);
+    }
+
+    #[test]
+    fn test_from_lopdf_unregistered_reference() {
+        let arena = PdfArena::new();
+        let table = BTreeMap::new();
+        let lopdf_ref = lopdf::Object::Reference((999, 0));
+
+        let obj = Object::from_lopdf(&lopdf_ref, &arena, &table);
+        assert_eq!(obj, Object::Null);
     }
 }

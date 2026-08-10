@@ -284,22 +284,22 @@ impl SecurityHandler {
         let mut prev_block = [0u8; 16];
         prev_block.copy_from_slice(iv);
 
-        let (cipher128, cipher256) = if key.len() == 16 {
-            (
+        let (cipher128, cipher256) = match key.len() {
+            16 => (
                 Some(
                     Aes128::new_from_slice(key)
                         .map_err(|_| PdfError::Other("AES-128 init fail".into()))?,
                 ),
                 None,
-            )
-        } else {
-            (
+            ),
+            32 => (
                 None,
                 Some(
                     Aes256::new_from_slice(key)
                         .map_err(|_| PdfError::Other("AES-256 init fail".into()))?,
                 ),
-            )
+            ),
+            _ => return Err(PdfError::Other(format!("Invalid AES key length: {}", key.len()).into())),
         };
 
         for chunk in ciphertext.chunks(16) {
@@ -332,22 +332,22 @@ impl SecurityHandler {
         #[allow(clippy::cast_possible_truncation)]
         padded_data.extend(vec![pad_len as u8; pad_len]);
 
-        let (cipher128, cipher256) = if key.len() == 16 {
-            (
+        let (cipher128, cipher256) = match key.len() {
+            16 => (
                 Some(
                     Aes128::new_from_slice(key)
                         .map_err(|_| PdfError::Other("AES-128 init fail".into()))?,
                 ),
                 None,
-            )
-        } else {
-            (
+            ),
+            32 => (
                 None,
                 Some(
                     Aes256::new_from_slice(key)
                         .map_err(|_| PdfError::Other("AES-256 init fail".into()))?,
                 ),
-            )
+            ),
+            _ => return Err(PdfError::Other(format!("Invalid AES key length: {}", key.len()).into())),
         };
 
         let mut prev_block = [0u8; 16];

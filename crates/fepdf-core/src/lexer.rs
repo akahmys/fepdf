@@ -237,23 +237,9 @@ impl Lexer {
                 b'\\' => {
                     self.pos += 1;
                     if self.pos < self.data.len() {
-                        let b2 = self.data[self.pos];
-                        match b2 {
-                            b'n' => result.push(b'\n'),
-                            b'r' => result.push(b'\r'),
-                            b't' => result.push(b'\t'),
-                            b'b' => result.push(8),
-                            b'f' => result.push(12),
-                            b'(' => result.push(b'('),
-                            b')' => result.push(b')'),
-                            b'\\' => result.push(b'\\'),
-                            b'0'..=b'7' => {
-                                let (val, new_pos) = self.lex_octal(b2, self.pos);
-                                result.push(val);
-                                self.pos = new_pos;
-                            }
-                            _ => result.push(b2),
-                        }
+                        self.lex_escape_sequence(&mut result);
+                    } else {
+                        break;
                     }
                 }
                 _ => result.push(b),
@@ -261,6 +247,32 @@ impl Lexer {
             self.pos += 1;
         }
         Ok(Token::String(Bytes::from(result)))
+    }
+
+    fn lex_escape_sequence(&mut self, result: &mut Vec<u8>) {
+        let b2 = self.data[self.pos];
+        match b2 {
+            b'n' => result.push(b'\n'),
+            b'r' => result.push(b'\r'),
+            b't' => result.push(b'\t'),
+            b'b' => result.push(8),
+            b'f' => result.push(12),
+            b'(' => result.push(b'('),
+            b')' => result.push(b')'),
+            b'\\' => result.push(b'\\'),
+            b'\r' => {
+                if self.pos + 1 < self.data.len() && self.data[self.pos + 1] == b'\n' {
+                    self.pos += 1;
+                }
+            }
+            b'\n' => {}
+            b'0'..=b'7' => {
+                let (val, new_pos) = self.lex_octal(b2, self.pos);
+                result.push(val);
+                self.pos = new_pos;
+            }
+            _ => result.push(b2),
+        }
     }
 
     fn lex_octal(&self, first_digit: u8, start_pos: usize) -> (u8, usize) {
@@ -435,6 +447,16 @@ mod tests {
                 Token::Hex(Bytes::from_static(b"Hello")),
                 Token::Name(Bytes::from_static(b"Foo Bar")),
             ]
+        );
+    }
+
+    #[test]
+    fn test_tokenize_literal_string_line_continuation() {
+        let input = b"(Line1\\\r\nLine2\\\nLine3)";
+        let tokens = tokenize(input);
+        assert_eq!(
+            tokens,
+            vec![Token::String(Bytes::from_static(b"Line1Line2Line3"))]
         );
     }
 }

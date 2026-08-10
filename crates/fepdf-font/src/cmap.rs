@@ -273,7 +273,11 @@ impl CMap {
                             if let Ok(val) = u32::from_str_radix(hex, 16)
                                 && let Some(c) = std::char::from_u32(val)
                             {
-                                let cid_bytes = vec![(cid >> 8) as u8, (cid & 0xFF) as u8];
+                                let cid_bytes = if cid <= 0xFFFF {
+                                    vec![(cid >> 8) as u8, (cid & 0xFF) as u8]
+                                } else {
+                                    cid.to_be_bytes().to_vec()
+                                };
                                 map.insert(cid_bytes, c.to_string());
                             }
                         }
@@ -512,14 +516,14 @@ fn process_bfrange_entry(
 
     if dst_base.starts_with(b"<") || dst_base.starts_with(b"(") {
         let mut u_val = vec_to_u32(&parse_cmap_bytes(dst_base));
-        if e_val - s_val > 100 {
+        if e_val >= s_val && e_val - s_val > 100 {
             cmap.bf_ranges.push(CMapRange {
                 start: s_val,
                 end: e_val,
                 base: u_val,
                 len: s_raw.len(),
             });
-        } else {
+        } else if e_val >= s_val {
             for code in s_val..=e_val {
                 let uni = std::char::from_u32(u_val)
                     .map(|c| c.to_string())
@@ -575,14 +579,14 @@ fn handle_cidrange(
                 std::str::from_utf8(tokens[next_i + 2]).unwrap_or("0").parse().unwrap_or(0);
             next_i += 3;
             let (s_val, e_val) = (vec_to_u32(&start), vec_to_u32(&end));
-            if e_val - s_val > 100 {
+            if e_val >= s_val && e_val - s_val > 100 {
                 cmap.cid_ranges.push(CMapRange {
                     start: s_val,
                     end: e_val,
                     base: cid_base,
                     len: start.len(),
                 });
-            } else {
+            } else if e_val >= s_val {
                 for v in s_val..=e_val {
                     mappings_cid.insert(u32_to_vec(v, start.len()), cid_base + (v - s_val));
                 }
@@ -872,5 +876,18 @@ mod tests {
         // Test mapping
         assert_eq!(cmap.to_cid(&[0x00, 0x00, 0x01]), 1);
         assert_eq!(cmap.to_cid(&[0xFF, 0xFF, 0xFF]), 0xFFFFFF);
+    }
+
+    #[test]
+    fn test_inverted_range_underflow_safety() {
+        let cmap_data = b"
+            /CMapName /InvertedRange def
+            1 begincidrange
+            <0005> <0001> 100
+            endcidrange
+        ";
+        // Should not panic on e_val < s_val
+        let cmap = CMap::parse(cmap_data).unwrap();
+        assert_eq!(cmap.cid_ranges.len(), 0);
     }
 }

@@ -888,7 +888,7 @@ impl FontReconstructor {
 
         if op == b"RD" || op == b"-|" {
             let data_start = i + 1; // Usually a space after RD
-            if data_start + len <= data.len() {
+            if data_start < data.len() && data_start + len <= data.len() {
                 return Some((data[data_start..data_start + len].to_vec(), data_start + len));
             }
         }

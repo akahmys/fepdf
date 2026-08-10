@@ -76,7 +76,8 @@ impl PdfArena {
             return *h;
         }
 
-        let h = Handle::new(names.len() as u32);
+        let idx = u32::try_from(names.len()).unwrap_or(0);
+        let h = Handle::new(idx);
         names.push(name.clone());
         map.insert(name, h);
         h
@@ -128,10 +129,7 @@ impl PdfArena {
         dict: BTreeMap<Handle<PdfName>, Object>,
     ) -> Handle<BTreeMap<Handle<PdfName>, Object>> {
         let mut dicts = self.inner.dicts.write();
-        let index = u32::try_from(dicts.len()).unwrap_or(u32::MAX);
-        if index == u32::MAX {
-            return Handle::new(0);
-        }
+        let index = u32::try_from(dicts.len()).unwrap_or(0);
         dicts.push(dict);
         Handle::new(index)
     }
@@ -139,10 +137,7 @@ impl PdfArena {
     /// Allocates an array.
     pub fn alloc_array(&self, array: Vec<Object>) -> Handle<Vec<Object>> {
         let mut arrays = self.inner.arrays.write();
-        let index = u32::try_from(arrays.len()).unwrap_or(u32::MAX);
-        if index == u32::MAX {
-            return Handle::new(0);
-        }
+        let index = u32::try_from(arrays.len()).unwrap_or(0);
         arrays.push(array);
         Handle::new(index)
     }
@@ -157,6 +152,9 @@ impl PdfArena {
         let mut objects = self.inner.objects.write();
         if let Some(e) = objects.get_mut(handle.index() as usize) {
             let old_val = e.object.clone();
+            if old_val == object {
+                return;
+            }
             e.object = object.clone();
 
             let mut idx = self.inner.object_index.write();

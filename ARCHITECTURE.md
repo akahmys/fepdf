@@ -106,9 +106,9 @@ Status: **✅** exists as-is · **⚠️** partially landed · **🔄** code exi
 
 | Crate | Status | ~Lines | Responsibility |
 | :--- | :---: | ---: | :--- |
-| **`fepdf-syntax`** | 🔄 in core | 1,200 | Bytes ⇄ raw objects. Lexing, parsing, stream filters, encryption/decryption. Knows nothing of documents. |
-| **`fepdf-font`** | 🔄 in core | 3,500 | Font *programs*: CFF, TrueType, CMap, Adobe Glyph List, subsetting, reconstruction. **Contains no PDF concepts** — verified, see §4. |
-| **`fepdf-model`** | 🔄 in core+sdk | 8,600 | The document graph: `PdfArena`, `Handle<T>`, `Object`, page tree, metadata. Owns **both** ingestion and serialisation (Rule C), plus the normalisation passes. |
+| **`fepdf-syntax`** | 🔄 in core (Audited ✅) | 1,200 | Bytes ⇄ raw objects. Lexing, parsing, stream filters, encryption/decryption. Hardened with recursion limits (`512`), line continuation, Zip Bomb limit (`128MB`), and AES key checks. |
+| **`fepdf-font`** | 🔄 in core (Audited ✅) | 3,500 | Font *programs*: CFF, TrueType, CMap, Adobe Glyph List, subsetting, reconstruction. Hardened against W/W2 out-of-bounds, CMap underflows (`e_val >= s_val`), and CID byte truncations. |
+| **`fepdf-model`** | 🔄 in core+sdk (Audited ✅) | 8,600 | The document graph: `PdfArena`, `Handle<T>`, `Object`, page tree, metadata. Hardened with pool overflow guards, cyclic `resolve` limits (`64`), and safe `Null` reference fallbacks. |
 | **`fepdf-resource`** | 🔄 in core | 3,600 | Turns PDF resource dictionaries into usable resources: font dict → `FontResource`, colour spaces, images. The bridge between `fepdf-model` and `fepdf-font`. |
 | **`fepdf-content`** | ⚠️ partial | 2,300 | Content-stream interpreter, and the **`RenderBackend` contract** it drives (`TextGlyph`, `TextState`, `SMaskData`, path geometry). No GPU dependency. *The contract has landed; the interpreter still lives in `fepdf-sdk`.* |
 | **`fepdf-doc`** | 🔄 in sdk | 2,200 | Owns the **`Operation` vocabulary** (§5.1) and is its only interpreter: merge, split, rotate, tag, redact, upgrade. Also structure-tree handling, conformance auditing, remediation. |

@@ -9,16 +9,23 @@ use crate::object::{Object, PdfName};
 use bytes::Bytes;
 use std::collections::BTreeMap;
 
+const MAX_RECURSION_DEPTH: usize = 512;
+
 /// Builds arena objects from a token stream.
 pub struct Parser<'a> {
     lexer: Lexer,
     arena: &'a PdfArena,
+    depth: usize,
 }
 
 impl<'a> Parser<'a> {
     /// Parses `data`, allocating into `arena`.
     pub fn new(data: Bytes, arena: &'a PdfArena) -> Self {
-        Self { lexer: Lexer::new(data), arena }
+        Self {
+            lexer: Lexer::new(data),
+            arena,
+            depth: 0,
+        }
     }
 
     /// Reads the next token without consuming it.
@@ -33,18 +40,37 @@ impl<'a> Parser<'a> {
 
     /// Parses a single PDF object from the token stream.
     pub fn parse_object(&mut self) -> PdfResult<Object> {
+        if self.depth >= MAX_RECURSION_DEPTH {
+            return Err(PdfError::Parse {
+                pos: self.lexer.pos(),
+                message: "Exceeded maximum recursion depth limit (512)".into(),
+            });
+        }
+
+        self.depth += 1;
+        let res = self.parse_object_internal();
+        self.depth -= 1;
+        res
+    }
+
+    fn parse_object_internal(&mut self) -> PdfResult<Object> {
         let token = self.lexer.next_token()?;
         match token {
             Token::Boolean(b) => Ok(Object::Boolean(b)),
             Token::Integer(i) => {
                 // Peek to see if it's the start of an indirect reference (R)
                 let saved_pos = self.lexer.pos();
-                if let Ok(Token::Integer(_gen_num)) = self.lexer.next_token()
+                if let Ok(Token::Integer(gen_num)) = self.lexer.next_token()
+                    && gen_num >= 0
                     && let Ok(Token::Keyword(ref k)) = self.lexer.peek()
                     && k == "R"
                 {
                     let _ = self.lexer.next_token(); // consume "R"
-                    return Ok(Object::Reference(Handle::new(i as u32)));
+                    let obj_id = u32::try_from(i).map_err(|_| PdfError::Parse {
+                        pos: saved_pos,
+                        message: format!("Invalid object number: {i}").into(),
+                    })?;
+                    return Ok(Object::Reference(Handle::new(obj_id)));
                 }
                 // Backtrack if it's not an indirect reference
                 self.lexer.set_pos(saved_pos);
@@ -101,5 +127,32 @@ impl<'a> Parser<'a> {
 
         let handle = self.arena.alloc_dict(dict);
         Ok(Object::Dictionary(handle))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_parser_recursion_limit() {
+        let arena = PdfArena::new();
+        // Construct deeply nested array: [[[[...]]]] over 600 levels
+        let mut deeply_nested = Vec::new();
+        for _ in 0..600 {
+            deeply_nested.extend_from_slice(b"[ ");
+        }
+        for _ in 0..600 {
+            deeply_nested.extend_from_slice(b"] ");
+        }
+
+        let mut parser = Parser::new(Bytes::from(deeply_nested), &arena);
+        let result = parser.parse_object();
+        assert!(result.is_err());
+        if let Err(PdfError::Parse { message, .. }) = result {
+            assert!(message.contains("Exceeded maximum recursion depth"));
+        } else {
+            panic!("Expected Parse error with recursion depth limit");
+        }
     }
 }
