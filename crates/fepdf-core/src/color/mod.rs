@@ -12,34 +12,58 @@ use std::sync::Arc;
 /// Lightweight representation of a PDF Color Space type for IR and GraphicsState.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ColorSpaceKind {
+    /// DeviceGray.
     DeviceGray,
+    /// DeviceRGB.
     DeviceRGB,
+    /// DeviceCMYK.
     DeviceCMYK,
+    /// CIE-based CalGray.
     CalGray,
+    /// CIE-based CalRGB.
     CalRGB,
+    /// CIE-based L*a*b*.
     Lab,
+    /// ICC-profile based.
     ICCBased,
+    /// Pattern space; colour comes from a pattern.
     Pattern,
+    /// Indexed palette over a base space.
     Indexed,
+    /// Separation (single colorant).
     Separation,
+    /// DeviceN (multiple colorants).
     DeviceN,
+    /// Unrecognised or absent.
     Unknown,
 }
 
 /// Represents a resolved PDF Color Space with associated resources.
 #[derive(Debug, Clone)]
 pub enum ColorSpace {
+    /// DeviceGray.
     DeviceGray,
+    /// DeviceRGB.
     DeviceRGB,
+    /// DeviceCMYK.
     DeviceCMYK,
+    /// CIE-based CalGray.
     CalGray,
+    /// CIE-based CalRGB.
     CalRGB,
+    /// CIE-based L*a*b*.
     Lab,
+    /// ICC-profile based, carrying the parsed profile.
     ICCBased(Arc<ColorProfile>),
+    /// Pattern space; colour comes from a pattern.
     Pattern,
+    /// Indexed palette over a base space.
     Indexed,
+    /// Separation (single colorant).
     Separation,
+    /// DeviceN (multiple colorants).
     DeviceN,
+    /// Unrecognised or absent.
     Unknown,
 }
 

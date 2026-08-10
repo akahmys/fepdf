@@ -1,5 +1,6 @@
 //! PDF Graphics State Constants & Types (ISO 32000-2:2020 Clause 8)
 
+/// Typed schema helpers for graphics dictionaries.
 pub mod schema;
 
 use crate::object::{FromPdfObject, Object};
@@ -10,8 +11,11 @@ use serde::{Deserialize, Serialize};
 /// PDF Color representation.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub enum Color {
+    /// DeviceGray: a single intensity in [0,1].
     Gray(f64),
+    /// DeviceRGB: red, green and blue, each in [0,1].
     Rgb(f64, f64, f64),
+    /// DeviceCMYK: cyan, magenta, yellow and black, each in [0,1].
     Cmyk(f64, f64, f64, f64),
     /// Lab color space (Placeholder)
     Lab(f64, f64, f64),
@@ -73,40 +77,62 @@ impl Color {
 /// Standard PDF Blend Modes (ISO 32000-2 Table 141)
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum BlendMode {
+    /// Selects the source colour, ignoring the backdrop.
     Normal,
+    /// Multiplies backdrop and source; always darkens.
     Multiply,
+    /// Multiplies the complements; always lightens.
     Screen,
+    /// Multiply or screen per backdrop, preserving highlights and shadows.
     Overlay,
+    /// Selects the darker of backdrop and source.
     Darken,
+    /// Selects the lighter of backdrop and source.
     Lighten,
+    /// Brightens the backdrop to reflect the source.
     ColorDodge,
+    /// Darkens the backdrop to reflect the source.
     ColorBurn,
+    /// Multiply or screen per source; like a harsh spotlight.
     HardLight,
+    /// Darkens or lightens per source; like a diffuse spotlight.
     SoftLight,
+    /// Absolute difference of backdrop and source.
     Difference,
+    /// Like `Difference` but lower in contrast.
     Exclusion,
+    /// Source hue with backdrop saturation and luminosity.
     Hue,
+    /// Source saturation with backdrop hue and luminosity.
     Saturation,
+    /// Source hue and saturation with backdrop luminosity.
     Color,
+    /// Source luminosity with backdrop hue and saturation.
     Luminosity,
 }
 
 /// Path Winding Rules (ISO 32000-2 Clause 8.5.3.3)
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum WindingRule {
+    /// Non-zero winding: inside where the crossing count is non-zero.
     NonZero,
+    /// Even-odd: inside where the crossing count is odd.
     EvenOdd,
 }
 
 /// Line Cap Styles (ISO 32000-2 Table 53)
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum LineCap {
+    /// Butt caps: the stroke ends square at the endpoint.
     Butt,
+    /// Round caps: a semicircle of stroke width is drawn past the endpoint.
     Round,
+    /// Projecting square caps: the stroke extends half a width past the endpoint.
     Square,
 }
 
 impl LineCap {
+    /// Maps the PDF `/LC` integer to a cap style, defaulting to `Butt`.
     pub fn from_i64(val: i64) -> Self {
         match val {
             0 => Self::Butt,
@@ -120,12 +146,16 @@ impl LineCap {
 /// Line Join Styles (ISO 32000-2 Table 54)
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum LineJoin {
+    /// Mitered joins, subject to `miter_limit`.
     Miter,
+    /// Round joins: an arc of stroke width fills the corner.
     Round,
+    /// Bevel joins: the corner is closed with a straight segment.
     Bevel,
 }
 
 impl LineJoin {
+    /// Maps the PDF `/LJ` integer to a join style, defaulting to `Miter`.
     pub fn from_i64(val: i64) -> Self {
         match val {
             0 => Self::Miter,
@@ -139,21 +169,32 @@ impl LineJoin {
 /// Stroke Style Parameters.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct StrokeStyle {
+    /// Stroke width in user-space units.
     pub width: f64,
+    /// How stroke ends are terminated (`/LC`).
     pub cap: LineCap,
+    /// How stroke corners are joined (`/LJ`).
     pub join: LineJoin,
+    /// Ratio at which a mitered join is converted to a bevel (`/ML`).
     pub miter_limit: f64,
+    /// Dash array and phase (`/D`), when the stroke is dashed.
     pub dash_pattern: Option<(Vec<f64>, f64)>,
 }
 
 /// Image Pixel Formats.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum PixelFormat {
+    /// One byte per pixel, grayscale.
     Gray8,
+    /// Three bytes per pixel, RGB.
     Rgb8,
+    /// Four bytes per pixel, CMYK.
     Cmyk8,
+    /// Four bytes per pixel, RGB with alpha.
     Rgba8,
-    MonoMask,         // 1-bit stencil mask (0 means fill color, 1 means transparent)
+    /// One bit per pixel stencil; 0 paints the fill colour.
+    MonoMask, // 1-bit stencil mask (0 means fill color, 1 means transparent)
+    /// One bit per pixel stencil; 1 paints the fill colour.
     MonoMaskInverted, // 1-bit stencil mask inverted (1 means fill color, 0 means transparent)
 }
 
@@ -168,19 +209,23 @@ impl Default for Matrix {
 }
 
 impl Matrix {
+    /// Builds a matrix from the six PDF coefficients `[a b c d e f]`.
     pub fn new(a: f64, b: f64, c: f64, d: f64, e: f64, f: f64) -> Self {
         Self([a, b, c, d, e, f])
     }
 
+    /// Converts to a `kurbo` affine transform.
     pub fn as_affine(&self) -> Affine {
         Affine::new(self.0)
     }
 
+    /// Returns `self` followed by `other`.
     pub fn concat(&self, other: &Self) -> Self {
         let res = self.as_affine() * other.as_affine();
         Self(res.as_coeffs())
     }
 
+    /// Returns `other` followed by `self`.
     pub fn pre_concat(&self, other: &Self) -> Self {
         let res = other.as_affine() * self.as_affine();
         Self(res.as_coeffs())
@@ -190,17 +235,23 @@ impl Matrix {
 /// A simple axis-aligned rectangle (ISO 32000-2 Clause 7.3.6)
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct Rect {
+    /// Left edge.
     pub x1: f64,
+    /// Bottom edge.
     pub y1: f64,
+    /// Right edge.
     pub x2: f64,
+    /// Top edge.
     pub y2: f64,
 }
 
 impl Rect {
+    /// Builds a rectangle from two opposite corners.
     pub fn new(x1: f64, y1: f64, x2: f64, y2: f64) -> Self {
         Self { x1, y1, x2, y2 }
     }
 
+    /// Returns the smallest rectangle containing both.
     pub fn union(&self, other: &Self) -> Self {
         Self {
             x1: self.x1.min(other.x1),
@@ -210,10 +261,12 @@ impl Rect {
         }
     }
 
+    /// Absolute horizontal extent.
     pub fn width(&self) -> f64 {
         (self.x2 - self.x1).abs()
     }
 
+    /// Absolute vertical extent.
     pub fn height(&self) -> f64 {
         (self.y2 - self.y1).abs()
     }
@@ -222,17 +275,29 @@ impl Rect {
 /// Graphics State Parameters (ISO 32000-2 Table 52)
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GraphicsState {
+    /// Current transformation matrix (`cm`).
     pub ctm: Matrix,
+    /// Colour used for stroking.
     pub stroke_color: Color,
+    /// Colour used for filling.
     pub fill_color: Color,
+    /// Pen parameters used for stroking.
     pub stroke_style: StrokeStyle,
+    /// Constant alpha applied to fills (`/ca`).
     pub fill_alpha: f64,
+    /// Constant alpha applied to strokes (`/CA`).
     pub stroke_alpha: f64,
+    /// Blend mode applied when compositing (`/BM`).
     pub blend_mode: BlendMode,
+    /// Text-related parameters, valid inside `BT`/`ET`.
     pub text_state: TextState,
+    /// Colour space in which `fill_color` is expressed.
     pub fill_color_space: ColorSpaceKind,
+    /// Colour space in which `stroke_color` is expressed.
     pub stroke_color_space: ColorSpaceKind,
+    /// Number of clip regions pushed at this state level.
     pub clip_count: usize,
+    /// Soft mask applied when compositing (`/SMask`).
     pub smask: Option<crate::object::Object>,
 }
 
@@ -264,15 +329,25 @@ impl Default for GraphicsState {
 /// Text State Parameters (ISO 32000-2 Table 105)
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TextState {
+    /// Extra space added after each glyph (`Tc`).
     pub char_spacing: f64,
+    /// Extra space added after each single-byte space (`Tw`).
     pub word_spacing: f64,
+    /// Horizontal scaling as a percentage (`Tz`).
     pub horizontal_scaling: f64,
+    /// Distance between baselines (`TL`).
     pub leading: f64,
+    /// Writing mode: 0 horizontal, 1 vertical.
     pub wmode: u8,
+    /// Resource name of the selected font (`Tf`).
     pub font: Option<crate::object::PdfName>,
+    /// Font size in text-space units (`Tf`).
     pub font_size: f64,
+    /// How glyphs are painted (`Tr`).
     pub rendering_mode: TextRenderingMode,
+    /// Baseline displacement for super/subscript (`Ts`).
     pub rise: f64,
+    /// Whether text knockout applies to the group.
     pub knockout: bool,
 }
 
@@ -296,13 +371,21 @@ impl Default for TextState {
 /// Text Rendering Modes (ISO 32000-2 Table 106)
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum TextRenderingMode {
+    /// Fill the glyphs.
     Fill = 0,
+    /// Stroke the glyph outlines.
     Stroke = 1,
+    /// Fill, then stroke.
     FillStroke = 2,
+    /// Paint nothing; the text still contributes to extraction.
     Invisible = 3,
+    /// Fill and add the glyphs to the clip path.
     FillClip = 4,
+    /// Stroke and add the glyphs to the clip path.
     StrokeClip = 5,
+    /// Fill, stroke, and add the glyphs to the clip path.
     FillStrokeClip = 6,
+    /// Add the glyphs to the clip path only.
     Clip = 7,
 }
 
@@ -325,7 +408,9 @@ impl From<i64> for TextRenderingMode {
 /// Text Object Matrices (BT/ET Scope)
 #[derive(Debug, Clone, Copy, Default, Serialize, Deserialize)]
 pub struct TextMatrices {
+    /// Text matrix (`Tm`).
     pub tm: Matrix,
+    /// Text line matrix, the start of the current line.
     pub tlm: Matrix,
 }
 

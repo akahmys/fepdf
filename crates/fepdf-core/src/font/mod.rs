@@ -3,23 +3,35 @@
 pub mod agl;
 pub mod cff_standard;
 pub mod cmap;
+/// Loads embedded font programs out of a document.
 pub mod loader;
+/// Glyph metrics: widths, bounding boxes and vertical advances.
 pub mod metrics;
+/// Repairs damaged or partial font programs into loadable ones.
 pub mod reconstruction;
 pub mod rescue;
 pub use reconstruction::{FontReconstructor, ReconstructedFont};
+/// Typed schema for font dictionaries.
 pub mod schema;
+/// Builds subset font programs containing only the glyphs used.
 pub mod subset;
 
 #[derive(
     Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, serde::Serialize, serde::Deserialize,
 )]
+/// Which bundled font stands in when an embedded program is unusable.
 pub enum FallbackFontType {
+    /// No preference; the loader picks by descriptor flags.
     Default,
+    /// A proportional sans-serif face.
     SansSerif,
+    /// A proportional serif face.
     Serif,
+    /// A fixed-pitch face.
     Monospace,
+    /// A Japanese gothic (sans) face.
     JapaneseSans,
+    /// A Japanese mincho (serif) face.
     JapaneseSerif,
 }
 
@@ -61,7 +73,9 @@ pub struct FontResource {
     pub file_handle: Option<Handle<Object>>,
     /// Type 1 segment lengths (Length1, Length2, Length3).
     pub length1: Option<u32>,
+    /// Length of the encrypted portion (`/Length2`).
     pub length2: Option<u32>,
+    /// Length of the trailing zeros section (`/Length3`).
     pub length3: Option<u32>,
 
     // --- Encodings & Unicode ---
@@ -158,6 +172,7 @@ pub struct FontSummary {
 
 impl FontResource {
     #[cfg(test)]
+    /// Builds a minimal resource for tests.
     pub fn new_test() -> Self {
         Self {
             base_font: PdfName::new("Test"),
@@ -287,6 +302,7 @@ impl FontResource {
         Ok(resource)
     }
 
+    /// Builds a resource backed by one of the bundled fallback fonts.
     pub fn load_fallback(ftype: FallbackFontType, doc: &Document) -> PdfResult<Self> {
         let mut res = Self::new_initial(
             PdfName::new("TrueType"),
@@ -343,6 +359,7 @@ impl FontResource {
     }
 
     #[allow(clippy::too_many_arguments)]
+    /// Builds the initial resource for a font dictionary, before refinement.
     pub fn new_initial(
         // RR-15 Limit: Dispatcher - constructs initial state of a PDF Font resource mapping tables and cmap configurations
         subtype: PdfName,
@@ -557,6 +574,7 @@ impl FontResource {
         Ok(())
     }
 
+    /// Merges the encoding, ToUnicode and embedded cmap tables into one lookup.
     pub fn build_unified_map(&mut self) {
         let mut map: BTreeMap<String, u32> = BTreeMap::new();
 
@@ -597,6 +615,7 @@ impl FontResource {
         self.unified_map = map;
     }
 
+    /// Fills the Unicode map from the embedded font program's own cmap.
     pub fn populate_embedded_unicode_map(&mut self, doc: &Document) {
         let mut u2g = BTreeMap::new();
 
@@ -1168,6 +1187,7 @@ impl FontResource {
         Some(map)
     }
 
+    /// Whether any character-to-Unicode mapping is available at all.
     pub fn has_any_mapping(&self) -> bool {
         (self.to_unicode.as_ref().map(|m| !m.mappings.is_empty()).unwrap_or(false))
             || (self.encoding.as_ref().map(|m| !m.mappings.is_empty()).unwrap_or(false))
@@ -1380,6 +1400,7 @@ impl FontResource {
         self.build_unicode_to_gid();
     }
 
+    /// Builds the reverse Unicode-to-glyph lookup used by fallback matching.
     pub fn build_unicode_to_gid(&mut self) {
         let data_opt = self.reconstructed_data.as_ref().or(self.data.as_ref());
         if let Some(data) = data_opt
@@ -1405,6 +1426,7 @@ impl FontResource {
 
     // extract_font_data has been moved to loader::FontLoader::extract_data
 
+    /// Advance width for a character code, in text-space units.
     pub fn glyph_width(&self, code: &[u8]) -> f32 {
         if code.is_empty() {
             return 0.0;
@@ -1443,6 +1465,7 @@ impl FontResource {
         }
     }
 
+    /// Synthesises a `/ToUnicode` CMap from the standard encoding.
     pub fn generate_standard_tounicode(&self) -> Option<Vec<u8>> {
         let mut cmap = String::new();
         cmap.push_str("/CIDInit /ProcSet findresource begin\n");
@@ -1498,6 +1521,7 @@ impl FontResource {
         (-1000.0, w0 / 2.0, 880.0)
     }
 
+    /// Maps a character code to the text it represents.
     pub fn to_unicode(&self, code: &[u8]) -> Option<String> {
         self.to_unicode_inner(code)
     }
@@ -1555,6 +1579,7 @@ impl FontResource {
         None
     }
 
+    /// Writing mode: 0 horizontal, 1 vertical.
     pub fn wmode(&self) -> i32 {
         i32::from(self.wmode)
     }
@@ -1605,6 +1630,7 @@ impl FontResource {
         self.default_width
     }
 
+    /// Maps a character code to a CID through the font's CMap.
     pub fn to_cid(&self, code: &[u8]) -> u32 {
         if let Some(ref enc) = self.encoding {
             return enc.to_cid(code);
@@ -1637,6 +1663,7 @@ impl FontResource {
         }
     }
 
+    /// Maps a CID to a glyph index, applying `/CIDToGIDMap` when present.
     pub fn to_gid(&self, cid: u32, mut _trace: Option<&mut TraceContext>) -> u32 {
         log::debug!("[FONT] to_gid: font {}, cid {}", self.base_font.as_str(), cid);
         // Priority 1: CFF Charset mapping (authoritative for subsetted CID-keyed CFF)
@@ -1751,6 +1778,7 @@ impl FontResource {
         self.reconstructed_data.is_some()
     }
 
+    /// Advance width for a glyph index, read from the font program.
     pub fn get_physical_width(&self, gid: u32) -> f32 {
         self.physical_widths.get(&gid).copied().unwrap_or(0.0)
     }
@@ -2072,6 +2100,7 @@ impl FontResource {
         Err((hint, glyph_name_resolved, is_suspicious))
     }
 
+    /// Resolves a character code to a glyph index, trying each mapping in turn.
     pub fn resolve_gid(
         &self,
         cid: u32,
@@ -2131,6 +2160,7 @@ impl FontResource {
         None
     }
 
+    /// Decodes the next character code, returning its byte length and text.
     pub fn decode_next(&self, data: &[u8]) -> (usize, Option<String>) {
         if data.is_empty() {
             return (0, None);
@@ -2268,6 +2298,7 @@ impl FontResource {
         (consumed, self.to_unicode(code_bytes))
     }
 
+    /// Synthesises a `/ToUnicode` CMap from UTF-8 aware mappings.
     pub fn generate_tounicode_from_utf8(&self) -> Option<Vec<u8>> {
         let mut cmap = String::new();
         cmap.push_str("/CIDInit /ProcSet findresource begin\n");
@@ -2308,6 +2339,7 @@ impl FontResource {
     }
 }
 
+/// Summarises every font the document references.
 pub fn list_fonts(doc: &Document) -> Vec<FontSummary> {
     let arena = doc.arena();
     let mut fonts = Vec::new();
@@ -2465,6 +2497,7 @@ fn check_font_embedding(
     false
 }
 
+/// Maps a glyph name to its CFF standard string identifier, if it has one.
 pub fn glyph_name_to_sid(name: &str) -> Option<u16> {
     static MAP: std::sync::OnceLock<BTreeMap<&'static str, u16>> = std::sync::OnceLock::new();
     let m = MAP.get_or_init(|| {
@@ -2530,19 +2563,25 @@ impl Default for TraceContext {
 
 #[cfg(not(feature = "debug-tools"))]
 #[derive(Default)]
+/// Placeholder trace record; populated only under `debug-tools`.
 pub struct GlyphTrace;
 
 #[cfg(not(feature = "debug-tools"))]
 #[derive(Default)]
+/// Placeholder trace collector; populated only under `debug-tools`.
 pub struct TraceContext;
 
 #[cfg(not(feature = "debug-tools"))]
 impl TraceContext {
+    /// Creates an inert collector.
     pub fn new() -> Self {
         Self
     }
+    /// No-op without `debug-tools`.
     pub fn start(&mut self, _cid: u32, _hint: Option<char>) {}
+    /// No-op without `debug-tools`.
     pub fn push_step(&mut self, _step: impl Into<String>) {}
+    /// No-op without `debug-tools`.
     pub fn finish(&mut self, _gid: Option<u32>) {}
 }
 

@@ -138,22 +138,27 @@ impl<T: FromPdfObject> FromPdfObject for Option<T> {
 pub struct PdfName(pub String);
 
 impl PdfName {
+    /// Interns a name from a string, without the leading solidus.
     pub fn new(s: &str) -> Self {
         Self(s.to_string())
     }
 
+    /// Interns a name from raw bytes as they appeared in the file.
     pub fn from_bytes(bytes: &[u8]) -> Self {
         Self(crate::refine::text::recover_string(bytes))
     }
 
+    /// The name as UTF-8, or an empty string if it is not valid UTF-8.
     pub fn as_str(&self) -> &str {
         &self.0
     }
 
+    /// The name as UTF-8, replacing invalid sequences.
     pub fn to_string_lossy(&self) -> String {
         self.0.clone()
     }
 
+    /// The name's raw bytes.
     pub fn as_bytes(&self) -> &[u8] {
         self.0.as_bytes()
     }
@@ -184,6 +189,7 @@ impl std::borrow::Borrow<str> for PdfName {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+/// A PDF object (ISO 32000-2 Clause 7.3).
 pub enum Object {
     /// Boolean objects (Clause 7.3.2)
     Boolean(bool),
@@ -218,20 +224,25 @@ pub enum Object {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum SublimatedData {
     /// Pre-parsed drawing commands (Content Streams).
+    /// A content stream already parsed into drawing commands.
     Commands { items: Vec<sublimation::Command> },
     /// Pre-decoded image data (RGBA).
+    /// A decoded image, held as raw samples.
     Image { width: u32, height: u32, format: crate::graphics::PixelFormat, data: Vec<u8> },
     /// Zstd-compressed raw bytes (for Images/Fonts/Thumbnails).
+    /// Stream data still in its encoded form.
     Compressed { original_len: usize, data: Vec<u8> },
     /// Raw uncompressed bytes.
     Raw(Bytes),
 }
 
 impl Object {
+    /// The interned name, if this is a name object.
     pub fn as_name(&self) -> Option<Handle<PdfName>> {
         if let Self::Name(h) = self { Some(*h) } else { None }
     }
 
+    /// The numeric value, for either integer or real objects.
     pub fn as_f64(&self) -> Option<f64> {
         match self {
             Self::Real(f) => Some(*f),
@@ -240,18 +251,22 @@ impl Object {
         }
     }
 
+    /// The array handle, if this is an array object.
     pub fn as_array(&self) -> Option<Handle<Vec<Object>>> {
         if let Self::Array(h) = self { Some(*h) } else { None }
     }
 
+    /// The boolean value, if this is a boolean object.
     pub fn as_bool(&self) -> Option<bool> {
         if let Self::Boolean(b) = self { Some(*b) } else { None }
     }
 
+    /// Whether this object is a stream.
     pub fn is_stream(&self) -> bool {
         matches!(self, Self::Stream(_, _))
     }
 
+    /// The dictionary handle, for a dictionary or a stream.
     pub fn as_dict_handle(&self) -> Option<Handle<BTreeMap<Handle<PdfName>, Object>>> {
         match self {
             Self::Dictionary(h) => Some(*h),
@@ -260,10 +275,12 @@ impl Object {
         }
     }
 
+    /// The integer value, if this is an integer object.
     pub fn as_integer(&self) -> Option<i64> {
         if let Self::Integer(i) = self { Some(*i) } else { None }
     }
 
+    /// The raw bytes, for either a literal or a hexadecimal string.
     pub fn as_string(&self) -> Option<&[u8]> {
         match self {
             Self::String(s) => Some(s),
@@ -272,14 +289,17 @@ impl Object {
         }
     }
 
+    /// The text, if this object holds an already-decoded string.
     pub fn as_text(&self) -> Option<&str> {
         if let Self::Text(t) = self { Some(t) } else { None }
     }
 
+    /// The target handle, if this is an indirect reference.
     pub fn as_reference(&self) -> Option<Handle<Object>> {
         if let Self::Reference(h) = self { Some(*h) } else { None }
     }
 
+    /// Follows indirect references until a direct object is reached.
     pub fn resolve(&self, arena: &PdfArena) -> Self {
         if let Self::Reference(h) = self {
             arena.get_object(*h).unwrap_or(Self::Null)
@@ -288,6 +308,7 @@ impl Object {
         }
     }
 
+    /// Heuristic: whether this stream looks like page content rather than data.
     pub fn is_likely_content_stream(&self, arena: &PdfArena) -> bool {
         if let Some(dh) = self.as_dict_handle()
             && let Some(dict) = arena.get_dict(dh)
@@ -322,6 +343,7 @@ impl Object {
         false
     }
 
+    /// Converts an object from the `lopdf` representation used during ingestion.
     pub fn from_lopdf(
         obj: &lopdf::Object,
         arena: &PdfArena,
@@ -375,8 +397,11 @@ impl Object {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+/// An indirect reference as written in the file.
 pub struct Reference {
+    /// Object number.
     pub id: u32,
+    /// Generation number.
     pub generation: u16,
 }
 
@@ -393,8 +418,11 @@ impl From<Reference> for Handle<Object> {
 }
 
 #[derive(Debug, Clone)]
+/// One slot in the arena's object pool.
 pub struct ObjectEntry {
+    /// The stored object.
     pub object: Object,
+    /// Generation, incremented when the slot is reused.
     pub generation: u16,
 }
 

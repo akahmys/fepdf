@@ -4,24 +4,40 @@ use crate::PdfResult;
 use bytes::Bytes;
 
 #[derive(Debug, Clone, PartialEq)]
+/// One lexical token of the PDF grammar (ISO 32000-2 Clause 7.2).
 pub enum Token {
+    /// `true` or `false`.
     Boolean(bool),
+    /// An integer number.
     Integer(i64),
+    /// A real number.
     Real(f64),
+    /// A literal string, `(...)`, already unescaped.
     String(Bytes),
+    /// A hexadecimal string, `<...>`, already decoded.
     Hex(Bytes),
+    /// A name, `/Foo`, without the solidus.
     Name(Bytes),
+    /// A bare keyword or operator.
     Keyword(String),
+    /// `[`.
     LeftArray,
+    /// `]`.
     RightArray,
+    /// `<<`.
     LeftDict,
+    /// `>>`.
     RightDict,
+    /// A `%` comment.
     Comment(String),
+    /// The `null` object.
     Null,
+    /// End of input.
     EOF,
 }
 
 impl Token {
+    /// Writes the token back out in PDF syntax.
     pub fn write_to(&self, output: &mut Vec<u8>) {
         match self {
             Token::Boolean(b) => output.extend_from_slice(if *b { b"true " } else { b"false " }),
@@ -95,20 +111,24 @@ pub fn tokenize(data: &[u8]) -> Vec<Token> {
     tokens
 }
 
+/// A cursor over PDF bytes yielding [`Token`]s.
 pub struct Lexer {
     data: Bytes,
     pos: usize,
 }
 
 impl Lexer {
+    /// Starts lexing at the beginning of `data`.
     pub fn new(data: Bytes) -> Self {
         Self { data, pos: 0 }
     }
 
+    /// Borrows the bytes being lexed.
     pub fn get_data(&self) -> &Bytes {
         &self.data
     }
 
+    /// Reads the next token, advancing the cursor.
     pub fn next_token(&mut self) -> PdfResult<Token> {
         self.skip_whitespace_and_comments();
         if self.pos >= self.data.len() {
@@ -329,6 +349,7 @@ impl Lexer {
         }
     }
 
+    /// Reads the next token without advancing the cursor.
     pub fn peek(&mut self) -> PdfResult<Token> {
         let prev_pos = self.pos;
         let token = self.next_token();
@@ -336,10 +357,12 @@ impl Lexer {
         token
     }
 
+    /// The current byte offset.
     pub fn pos(&self) -> usize {
         self.pos
     }
 
+    /// Moves the cursor to `pos`.
     pub fn set_pos(&mut self, pos: usize) {
         self.pos = pos;
     }
@@ -353,6 +376,7 @@ fn is_newline(b: u8) -> bool {
     matches!(b, 10 | 13)
 }
 
+/// Whether `b` is one of the PDF delimiter characters.
 pub fn is_delimiter(b: u8) -> bool {
     matches!(b, b'(' | b')' | b'<' | b'>' | b'[' | b']' | b'{' | b'}' | b'/' | b'%')
 }
