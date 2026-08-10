@@ -1,3 +1,5 @@
+//! Vello + wgpu compute rasterisation bridge for rendering PDF scenes onto egui textures.
+
 use egui_wgpu::RenderState;
 use std::sync::Arc;
 use vello::wgpu;

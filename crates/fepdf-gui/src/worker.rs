@@ -1,3 +1,5 @@
+//! Off-thread document worker and request/response dispatch loop.
+
 use bytes::Bytes;
 use fepdf_render::{FallbackFontType, VelloBackend};
 use fepdf_sdk::PdfDocument;

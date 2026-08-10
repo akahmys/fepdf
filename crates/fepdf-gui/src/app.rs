@@ -1,3 +1,5 @@
+//! Central state container and egui UI dispatch loop for `fepdf-gui`.
+
 use crate::interaction::{SelectionManager, TextSpan};
 use crate::redaction::RedactionManager;
 use crate::sidebar::{SidebarPanel, USTRegistry};
