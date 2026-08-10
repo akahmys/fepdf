@@ -7,6 +7,7 @@
 use kurbo::{Affine, Point};
 use serde::{Deserialize, Serialize};
 pub mod parser;
+/// Recovers commands from streams serialised by an older build.
 pub mod resurrection;
 pub mod serializer;
 use crate::graphics::{Color, StrokeStyle, TextRenderingMode, WindingRule};
@@ -112,12 +113,23 @@ pub enum Command {
     /// Draw an external object (Do).
     DrawXObject(String),
     /// Define an inline image (BI...ID...EI).
-    DrawInlineImage { width: u32, height: u32, format: crate::graphics::PixelFormat, data: Vec<u8> },
+    DrawInlineImage {
+        /// Image width in pixels.
+        width: u32,
+        /// Image height in pixels.
+        height: u32,
+        /// Pixel format of the image.
+        format: crate::graphics::PixelFormat,
+        /// Uncompressed byte data of the image.
+        data: Vec<u8>,
+    },
 
     // --- Compatibility & Extensions ---
     /// Begin a marked-content sequence (BMC, BDC).
     BeginMarkedContent {
+        /// The marked-content tag.
         tag: PdfName,
+        /// The tag's property list, inline or by resource name.
         properties: Option<IrObject>, // Tag name or resource name or inline dict
     },
     /// End a marked-content sequence (EMC).
@@ -135,24 +147,39 @@ pub enum Command {
     },
 
     /// A raw PDF operator that could not be sublimated.
-    RawOperator { name: String, operands: Vec<IrObject> },
+    RawOperator {
+        /// Operator name string.
+        name: String,
+        /// Operands vector.
+        operands: Vec<IrObject>,
+    },
 }
 
 /// A self-contained, serializable representation of a PDF object within the IR.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum IrObject {
+    /// A boolean operand.
     Boolean(bool),
+    /// An integer operand.
     Integer(i64),
+    /// A real operand.
     Real(f64),
+    /// A literal string operand.
     String(bytes::Bytes),
+    /// A hexadecimal string operand.
     Hex(bytes::Bytes),
+    /// A name operand.
     Name(String),
+    /// An array operand.
     Array(Vec<IrObject>),
+    /// A dictionary operand.
     Dictionary(std::collections::BTreeMap<String, IrObject>),
+    /// A null operand.
     Null,
 }
 
 impl IrObject {
+    /// The integer value, if this operand is numeric.
     pub fn as_i64(&self) -> Option<i64> {
         match self {
             Self::Integer(i) => Some(*i),
@@ -161,6 +188,7 @@ impl IrObject {
         }
     }
 
+    /// The numeric value, for either integer or real operands.
     pub fn as_f64(&self) -> Option<f64> {
         match self {
             Self::Real(f) => Some(*f),

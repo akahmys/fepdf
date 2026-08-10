@@ -206,7 +206,7 @@ impl FontReconstructor {
                 cid_to_gid_map: final_cid_map,
                 name_to_gid_map: discovered_name_map,
                 sid_to_gid_map: discovered_sid_map,
-                num_glyphs: native_num_glyphs.map(|n| u32::from(n)),
+                num_glyphs: native_num_glyphs.map(u32::from),
             };
         }
 
@@ -1396,15 +1396,22 @@ impl FontReconstructor {
     }
 }
 
+/// What an inspection pass learned about a CFF font program.
 pub struct CffInfo {
+    /// Number of glyphs in the CharStrings index.
     pub num_glyphs: usize,
+    /// Maps string identifiers to glyph indices, for non-CID fonts.
     pub sid_to_gid: Option<BTreeMap<u32, u32>>,
+    /// Maps glyph names to glyph indices, for non-CID fonts.
     pub name_to_gid: Option<BTreeMap<String, u32>>,
+    /// Whether the font is CID-keyed.
     pub is_cid: bool,
+    /// The font's string index, used to resolve custom names.
     pub string_index: Vec<String>,
 }
 
 impl CffInfo {
+    /// An inspection result describing no usable font.
     pub fn empty() -> Self {
         Self {
             num_glyphs: 1,
@@ -1443,6 +1450,7 @@ impl FontReconstructor {
         }
     }
 
+    /// Reads a CFF program's indices without fully decoding its charstrings.
     pub fn inspect_cff(data: &[u8]) -> Result<CffInfo, Box<dyn std::error::Error>> {
         // RR-15 Limit: Dispatcher - parses and inspects raw CFF index tables and structures
         let cff_data = Self::extract_cff_stream(data)?;

@@ -6,20 +6,28 @@ use std::collections::BTreeMap;
 #[pdf_dict(clause = "14.3.3")]
 pub struct PdfInfo {
     #[pdf_key("Title")]
+    /// `/Title`.
     pub title: Option<String>,
     #[pdf_key("Author")]
+    /// `/Author`.
     pub author: Option<String>,
     #[pdf_key("Subject")]
+    /// `/Subject`.
     pub subject: Option<String>,
     #[pdf_key("Keywords")]
+    /// `/Keywords`.
     pub keywords: Option<String>,
     #[pdf_key("Creator")]
+    /// `/Creator`: the application that authored the original.
     pub creator: Option<String>,
     #[pdf_key("Producer")]
+    /// `/Producer`: the application that wrote the PDF.
     pub producer: Option<String>,
     #[pdf_key("CreationDate")]
+    /// `/CreationDate`.
     pub creation_date: Option<String>,
     #[pdf_key("ModDate")]
+    /// `/ModDate`.
     pub mod_date: Option<String>,
 }
 
@@ -44,6 +52,7 @@ pub struct MetadataInfo {
     pub mod_date: Option<String>,
 }
 
+/// Collects document metadata, preferring XMP over the `/Info` dictionary.
 pub fn extract_metadata(doc: &Document) -> MetadataInfo {
     let arena = doc.arena();
     let mut info = MetadataInfo::default();

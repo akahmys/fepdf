@@ -20,6 +20,7 @@ pub struct Sublimator<'a> {
 }
 
 impl<'a> Sublimator<'a> {
+    /// Prepares a sublimator that resolves fonts through `fonts`.
     pub fn new(fonts: &'a BTreeMap<String, Arc<FontResource>>) -> Self {
         Self {
             fonts,
@@ -82,6 +83,7 @@ impl<'a> Sublimator<'a> {
         }
     }
 
+    /// Parses a content stream into drawing commands.
     pub fn sublimate(&mut self, data: &[u8]) -> Vec<Command> {
         // DETECT CORRUPTION: If the stream looks like Rust debug output, attempt resurrection (ISO 32000-2:2020 Clause 7.8.2 Fallback)
         if (data.starts_with(b"PushState") || data.starts_with(b"RawOperator"))

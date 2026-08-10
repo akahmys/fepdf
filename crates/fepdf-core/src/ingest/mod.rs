@@ -17,18 +17,26 @@ pub use discovery::*;
 /// Policy for color validation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ColorPolicy {
+    /// Reject colour definitions that violate the specification.
     Strict,
+    /// Accept malformed colour definitions, substituting a usable value.
     Relaxed,
 }
 
 /// Options for document ingestion.
 #[derive(Clone)]
 pub struct IngestionOptions {
+    /// Run the refinement passes (Pass 2) during ingestion.
     pub active_refinement: bool,
+    /// Recover legacy `/Info` metadata into XMP.
     pub sublime_metadata: bool,
+    /// How strictly colour definitions are validated.
     pub color_policy: ColorPolicy,
+    /// Substitute bundled fonts when an embedded program fails to parse.
     pub force_fallback: bool,
+    /// Password used to decrypt an encrypted document.
     pub password: Option<String>,
+    /// Invoked with progress messages during a long ingestion.
     pub progress_callback: Option<std::sync::Arc<dyn Fn(String) + Send + Sync>>,
 }
 
@@ -58,16 +66,24 @@ impl Default for IngestionOptions {
     }
 }
 
+/// Brings a source document into a [`PdfArena`].
 pub struct Ingestor;
 
 /// Result of a document ingestion.
 pub struct IngestedDocument {
+    /// The populated arena.
     pub arena: PdfArena,
+    /// Handle of the document catalogue (`/Root`).
     pub root: Handle<Object>,
+    /// Handle of the document information dictionary (`/Info`).
     pub info: Option<Handle<Object>>,
+    /// Non-fatal problems encountered while ingesting.
     pub issues: Vec<String>,
+    /// Fonts already resolved, keyed by object number.
     pub font_cache: BTreeMap<u32, Arc<FontResource>>,
+    /// Description of the encryption that was in force, if any.
     pub security_method: String,
+    /// Permission flags recovered from the encryption dictionary.
     pub permissions: Option<i32>,
 }
 
@@ -112,6 +128,7 @@ impl Ingestor {
         global_font_registry
     }
 
+    #[allow(clippy::needless_pass_by_ref_mut)]
     fn perform_active_refinement(
         doc: &mut lopdf::Document,
         table: &RemappingTable,
@@ -141,6 +158,7 @@ impl Ingestor {
         Ok(all_issues)
     }
 
+    /// Ingests a document, running Pass 0 through Pass 2.
     pub fn ingest(
         doc: &mut lopdf::Document,
         options: &IngestionOptions,

@@ -9,19 +9,26 @@ use std::collections::BTreeMap;
 #[pdf_dict(clause = "7.7.3.3")]
 pub struct PdfPageDict {
     #[pdf_key("Type")]
+    /// `/Type`, always `Page`.
     pub kind: PdfName,
     #[pdf_key("Parent")]
+    /// `/Parent`: the enclosing page-tree node.
     pub parent: Handle<crate::Object>,
     #[pdf_key("Contents")]
+    /// `/Contents`: one content stream, or an array of them.
     pub contents: Option<crate::Object>, // Single stream or array
     #[pdf_key("Resources")]
+    /// `/Resources`: fonts, images and other resources this page names.
     pub resources: Option<crate::Object>,
     #[pdf_key("MediaBox")]
+    /// `/MediaBox`: the page's physical extent.
     pub media_box: Option<crate::graphics::Rect>,
     #[pdf_key("Annots")]
+    /// `/Annots`: annotations attached to this page.
     pub annots: Option<Handle<Vec<crate::Object>>>,
 }
 
+/// A page together with the arena and parent chain needed to resolve it.
 pub struct Page<'a> {
     arena: &'a PdfArena,
     obj_handle: Handle<Object>,
@@ -29,6 +36,7 @@ pub struct Page<'a> {
 }
 
 impl<'a> Page<'a> {
+    /// Binds a page handle to its arena and inherited parent chain.
     pub fn new(
         arena: &'a PdfArena,
         obj_handle: Handle<Object>,
@@ -37,6 +45,7 @@ impl<'a> Page<'a> {
         Self { arena, obj_handle, parent_chain }
     }
 
+    /// Reads an attribute from the page, then up the inheritance chain.
     pub fn get_attribute(&self, name: &str) -> Option<Object> {
         let name_handle = self.arena.get_name_by_str(name)?;
 
@@ -109,17 +118,24 @@ impl<'a> Page<'a> {
 #[derive(Debug, Clone, FromPdfObject)]
 #[pdf_dict(clause = "12.5")]
 pub struct PdfAnnotation {
+    /// `/Type`, normally `Annot`.
     pub kind: Option<PdfName>,
     #[pdf_key("Subtype")]
+    /// `/Subtype`: the annotation's kind.
     pub subtype: PdfName,
     #[pdf_key("Rect")]
+    /// `/Rect`: where the annotation sits on the page.
     pub rect: crate::graphics::Rect,
     #[pdf_key("Contents")]
+    /// `/Contents`: the annotation's text.
     pub contents: Option<String>,
     #[pdf_key("P")]
+    /// `/P`: the page this annotation belongs to.
     pub page: Option<Handle<crate::Object>>,
     #[pdf_key("NM")]
+    /// `/NM`: the annotation's unique name.
     pub name: Option<String>,
     #[pdf_key("F")]
+    /// `/F`: annotation flags.
     pub flags: Option<i64>,
 }

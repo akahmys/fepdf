@@ -7,7 +7,11 @@ pub enum PageTreeStrategy {
     /// A single flat level of page nodes.
     Flat,
     /// A balanced tree structure with a limit on kids per node.
-    Balanced { max_kids: usize },
+    /// Rebuild the tree so no node holds more than `max_kids` children.
+    Balanced {
+        /// Maximum children per interior node.
+        max_kids: usize,
+    },
 }
 
 /// A virtual, read-only structured view of the page tree.
@@ -16,5 +20,11 @@ pub enum PageTreeView<'a> {
     /// A flat slice of leaf page handles.
     Flat(&'a [Handle<Object>]),
     /// A balanced hierarchy of page tree views.
-    Balanced { max_kids: usize, nodes: Vec<PageTreeView<'a>> },
+    /// A balanced interior node and the subtrees beneath it.
+    Balanced {
+        /// Maximum children per interior node.
+        max_kids: usize,
+        /// The subtrees beneath this node.
+        nodes: Vec<PageTreeView<'a>>,
+    },
 }

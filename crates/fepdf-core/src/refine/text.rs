@@ -4,6 +4,7 @@ use bytes::Bytes;
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
+/// Rewrites a content stream, normalising its text-showing operators.
 pub fn restructure_content_stream(
     data: &[u8],
     fonts: &BTreeMap<String, Arc<FontResource>>,
@@ -78,7 +79,7 @@ fn handle_font_selection(
     }
 }
 
-fn handle_text_show(op: &str, stack: &mut [Token], current_font: &mut Option<Arc<FontResource>>) {
+fn handle_text_show(op: &str, stack: &mut [Token], current_font: &Option<Arc<FontResource>>) {
     let Some(font) = current_font.as_ref() else {
         return;
     };
@@ -143,6 +144,7 @@ fn restructure_string(input: &[u8], font: &FontResource) -> Vec<u8> {
                         mapped = true;
                     }
                 } else if let Some(code) = font.unified_map.get(u) {
+                    #[allow(clippy::cast_possible_truncation)]
                     result.push(*code as u8);
                     mapped = true;
                 }
@@ -164,6 +166,7 @@ fn write_token(output: &mut Vec<u8>, token: Token) {
     token.write_to(output);
 }
 
+/// Decodes PDF string bytes to text, detecting the encoding in use.
 pub fn recover_string(bytes: &[u8]) -> String {
     if bytes.starts_with(&[0xFE, 0xFF]) {
         // UTF-16BE
@@ -231,6 +234,7 @@ pub fn recover_string(bytes: &[u8]) -> String {
 }
 
 #[allow(clippy::collapsible_if)]
+/// Encodes text into PDF string bytes using the named encoding.
 pub fn encode_string(s: &str, encoding: &str) -> Vec<u8> {
     if encoding == "pdfdoc" || encoding == "auto" {
         if let Some(encoded) = try_encode_pdfdoc(s) {
@@ -252,6 +256,7 @@ pub fn encode_string(s: &str, encoding: &str) -> Vec<u8> {
     }
 }
 
+#[allow(clippy::cast_possible_truncation)]
 fn try_encode_pdfdoc(s: &str) -> Option<Vec<u8>> {
     let mut result = Vec::with_capacity(s.len());
     for c in s.chars() {

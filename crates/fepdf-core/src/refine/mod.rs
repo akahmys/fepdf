@@ -15,29 +15,45 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 
 pub mod color;
+/// Font normalisation performed during refinement.
 pub mod font;
 pub mod metadata;
+/// Text and string normalisation performed during refinement.
 pub mod text;
 
 /// A thread-safe intermediate representation of a refined PDF object.
 #[derive(Debug, Clone)]
 pub enum RefinedObject {
+    /// A boolean.
     Boolean(bool),
+    /// An integer.
     Integer(i64),
+    /// A real number.
     Real(f64),
+    /// A literal string, still as bytes.
     String(Bytes),
+    /// A hexadecimal string, still as bytes.
     Hex(Bytes),
+    /// A string already decoded to UTF-8.
     Text(String),
+    /// A name.
     Name(PdfName),
+    /// An array, refined element-wise.
     Array(Vec<RefinedObject>),
+    /// A dictionary, refined value-wise.
     Dictionary(BTreeMap<PdfName, RefinedObject>),
+    /// A stream: its dictionary and its raw bytes.
     Stream(BTreeMap<PdfName, RefinedObject>, Bytes),
+    /// A stream whose payload has already been sublimated.
     Sublimated(BTreeMap<PdfName, RefinedObject>, crate::object::SublimatedData),
+    /// The null object.
     Null,
+    /// An indirect reference into the arena.
     Reference(Handle<Object>),
 }
 
 impl RefinedObject {
+    /// The name, if this is a name object.
     pub fn as_name(&self) -> Option<&PdfName> {
         match self {
             Self::Name(n) => Some(n),
@@ -45,10 +61,12 @@ impl RefinedObject {
         }
     }
 
+    /// The text, if this object holds a decoded string.
     pub fn as_str(&self) -> Option<&str> {
         self.as_name().map(|n| n.as_str())
     }
 
+    /// Converts from `lopdf`, remapping references through `table`.
     pub fn from_lopdf(obj: &lopdf::Object, table: &RemappingTable) -> Self {
         match obj {
             lopdf::Object::Boolean(b) => Self::Boolean(*b),
@@ -87,11 +105,13 @@ impl RefinedObject {
     }
 }
 
+/// Runs the refinement passes across objects in parallel.
 pub struct ParallelRefinery;
 
 const UI_TEXT_FIELDS: &[&str] = &["Title", "Author", "Subject", "Keywords", "Creator", "Producer"];
 
 impl ParallelRefinery {
+    /// Refines every object, returning the refined tree.
     pub fn refine_all(
         doc: &lopdf::Document,
         table: &RemappingTable,
@@ -411,8 +431,7 @@ fn commit_stream_to_arena(
         .get(&arena.name("Subtype"))
         .and_then(|o: &Object| o.resolve(arena).as_name())
         .and_then(|n: Handle<PdfName>| arena.get_name(n))
-        .map(|n: PdfName| n.as_str() == "Image")
-        .unwrap_or(false);
+        .is_some_and(|n: PdfName| n.as_str() == "Image");
 
     let is_font = committed_dict.contains_key(&arena.name("Length1"))
         || committed_dict.contains_key(&arena.name("Length2"))
@@ -433,6 +452,7 @@ fn commit_stream_to_arena(
     Object::Stream(dh, std::sync::Arc::new(sublimated))
 }
 
+/// Writes a refined object back into the arena, allocating handles as needed.
 pub fn commit_to_arena(arena: &PdfArena, refined: RefinedObject, depth: usize) -> Object {
     if depth > 64 {
         return Object::Null;

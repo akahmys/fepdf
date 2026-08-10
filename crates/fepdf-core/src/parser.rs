@@ -9,20 +9,24 @@ use crate::object::{Object, PdfName};
 use bytes::Bytes;
 use std::collections::BTreeMap;
 
+/// Builds arena objects from a token stream.
 pub struct Parser<'a> {
     lexer: Lexer,
     arena: &'a PdfArena,
 }
 
 impl<'a> Parser<'a> {
+    /// Parses `data`, allocating into `arena`.
     pub fn new(data: Bytes, arena: &'a PdfArena) -> Self {
         Self { lexer: Lexer::new(data), arena }
     }
 
+    /// Reads the next token without consuming it.
     pub fn peek(&mut self) -> PdfResult<Token> {
         self.lexer.peek()
     }
 
+    /// Reads and consumes the next token.
     pub fn next_token(&mut self) -> PdfResult<Token> {
         self.lexer.next_token()
     }

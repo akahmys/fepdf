@@ -7,8 +7,10 @@ use crate::{FromPdfObject, Handle, Object, PdfName};
 #[pdf_dict(clause = "14.7.2")]
 pub struct StructTreeRoot {
     #[pdf_key("K")]
+    /// `/K`: the root's child structure elements.
     pub kids: Option<Object>,
     #[pdf_key("ParentTree")]
+    /// `/ParentTree`: number tree linking content back to structure.
     pub parent_tree: Option<Handle<Object>>,
 }
 
@@ -21,11 +23,15 @@ pub struct StructElement {
     #[pdf_key("S")]
     pub subtype: Option<Handle<PdfName>>,
     #[pdf_key("P")]
+    /// `/P`: the enclosing structure element.
     pub parent: Option<Handle<Object>>,
     #[pdf_key("K")]
+    /// `/K`: this element's children.
     pub kids: Option<Object>,
     #[pdf_key("Alt")]
+    /// `/Alt`: alternative description for assistive technology.
     pub alt: Option<String>,
     #[pdf_key("ActualText")]
+    /// `/ActualText`: the text this element actually represents.
     pub actual_text: Option<String>,
 }

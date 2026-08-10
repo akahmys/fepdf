@@ -1,5 +1,7 @@
 pub mod conformance;
+/// Pages and the page tree.
 pub mod page;
+/// Page-tree traversal strategies.
 pub mod strategy;
 pub mod structure;
 
@@ -17,24 +19,34 @@ use std::sync::Arc;
 #[pdf_dict(clause = "7.7.2")]
 pub struct PdfCatalog {
     #[pdf_key("Pages")]
+    /// `/Pages`: root of the page tree.
     pub pages: Handle<Object>,
     #[pdf_key("StructTreeRoot")]
+    /// `/StructTreeRoot`: root of the logical structure tree.
     pub struct_tree_root: Option<Handle<Object>>,
     #[pdf_key("MarkInfo")]
+    /// `/MarkInfo`: whether the document is tagged.
     pub mark_info: Option<Object>,
     #[pdf_key("Metadata")]
+    /// `/Metadata`: the XMP metadata stream.
     pub metadata: Option<Object>,
     #[pdf_key("Version")]
+    /// `/Version`: a version overriding the file header.
     pub version: Option<Handle<PdfName>>,
     #[pdf_key("AcroForm")]
+    /// `/AcroForm`: interactive form definition.
     pub acro_form: Option<Object>,
     #[pdf_key("Names")]
+    /// `/Names`: the document's name dictionaries.
     pub names: Option<Object>,
     #[pdf_key("Outlines")]
+    /// `/Outlines`: the bookmark tree.
     pub outlines: Option<Object>,
     #[pdf_key("OpenAction")]
+    /// `/OpenAction`: action performed when the document opens.
     pub open_action: Option<Object>,
     #[pdf_key("AA")]
+    /// `/AA`: additional actions triggered by document events.
     pub additional_actions: Option<Object>,
 }
 
@@ -48,14 +60,19 @@ pub struct Document {
     arena: PdfArena,
     root: Handle<Object>,
     info: Option<Handle<Object>>,
+    /// Page handles in reading order.
     pub pages: Vec<Handle<Object>>,
+    /// Non-fatal problems recorded during ingestion.
     pub ingestion_issues: Vec<String>,
     /// System font cache (shared across pages).
     pub system_fonts: Arc<BTreeMap<FallbackFontType, Arc<Vec<u8>>>>,
     /// Parsed FontResource cache to prevent redundant parsing across pages.
     pub font_cache: Arc<RwLock<BTreeMap<Handle<Object>, Arc<FontResource>>>>,
+    /// Whether bundled fonts stand in for unparseable embedded programs.
     pub force_fallback: bool,
+    /// Description of the encryption that was in force, if any.
     pub security_method: String,
+    /// Permission flags recovered from the encryption dictionary.
     pub permissions: Option<i32>,
 }
 
@@ -414,7 +431,7 @@ impl Document {
         Ok(())
     }
 
-    fn create_empty_page_tree(&mut self) -> PdfResult<()> {
+    fn create_empty_page_tree(&self) -> PdfResult<()> {
         let pages_root_key = self.arena.name("Pages");
         let type_key = self.arena.name("Type");
         let count_key = self.arena.name("Count");
@@ -437,7 +454,7 @@ impl Document {
     }
 
     fn build_page_tree_layer(
-        &mut self,
+        &self,
         layer: &[Object],
         max_kids: usize,
     ) -> PdfResult<Vec<Object>> {
@@ -786,6 +803,7 @@ impl Document {
         Ok(())
     }
 
+    #[allow(clippy::needless_pass_by_ref_mut)]
     fn push_down_attributes_recursive(
         &self,
         node_h: Handle<Object>,
@@ -831,7 +849,7 @@ impl Document {
         Err(PdfError::Other("Invalid node type in page tree".into()))
     }
 
-    fn resolve_missing_font_data(&mut self) {
+    fn resolve_missing_font_data(&self) {
         let system_fonts = self.system_fonts.clone();
         let cache = self.font_cache.clone();
 
@@ -932,7 +950,7 @@ impl Document {
     }
 
     fn propagate_tounicode_mappings(
-        &mut self,
+        &self,
         font_groups: FontGroupMap,
         best_to_unicode: BestToUnicodeMap,
     ) {

@@ -718,7 +718,7 @@ impl FontResource {
         }
     }
 
-    fn populate_u2g_from_tounicode(&mut self, u2g: &mut BTreeMap<char, u32>) {
+    fn populate_u2g_from_tounicode(&self, u2g: &mut BTreeMap<char, u32>) {
         let Some(ref tu) = self.to_unicode else { return };
 
         for (code, uni) in tu.mappings.iter() {

@@ -1,3 +1,5 @@
+//! Schema integration tests for fepdf-core.
+
 use fepdf_core::Object;
 use fepdf_core::PdfArena;
 use fepdf_core::font::schema::PdfFont;

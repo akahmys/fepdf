@@ -6,25 +6,39 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 
 #[derive(Debug, Clone, Default)]
+/// A parsed CMap: character codes to CIDs or to Unicode.
 pub struct CMap {
+    /// The CMap's own name, from `/CMapName` or the predefined name it was loaded by.
     pub name: String,
+    /// Writing mode: 0 horizontal, 1 vertical.
     pub wmode: i32,
+    /// Byte ranges defining how many bytes each code occupies.
     pub codespace_ranges: Vec<(Vec<u8>, Vec<u8>)>,
+    /// Direct code-to-text mappings (`bfchar`).
     pub mappings: Arc<BTreeMap<Vec<u8>, String>>,
+    /// Direct code-to-CID mappings (`cidchar`).
     pub mappings_cid: Arc<BTreeMap<Vec<u8>, u32>>,
+    /// Contiguous code-to-CID ranges (`cidrange`).
     pub cid_ranges: Vec<CMapRange<u32>>,
+    /// Contiguous code-to-Unicode ranges (`bfrange`), keyed by starting scalar.
     pub bf_ranges: Vec<CMapRange<u32>>, // Maps to start Unicode scalar
 }
 
 #[derive(Debug, Clone)]
+/// A contiguous run of codes mapping onto consecutive targets.
 pub struct CMapRange<T> {
+    /// First code in the run.
     pub start: u32,
+    /// Last code in the run, inclusive.
     pub end: u32,
+    /// Target the first code maps to; later codes follow consecutively.
     pub base: T,
+    /// Byte width of the codes in this run.
     pub len: usize,
 }
 
 impl CMap {
+    /// Parses a CMap program.
     pub fn parse(data: &[u8]) -> PdfResult<Self> {
         Self::parse_with_depth(data, 0)
     }
@@ -56,6 +70,7 @@ impl CMap {
         Ok(cmap)
     }
 
+    /// Maps a character code to the text it represents.
     pub fn map(&self, code: &[u8]) -> Option<String> {
         if let Some(s) = self.mappings.get(code) {
             return Some(s.clone());
@@ -70,6 +85,7 @@ impl CMap {
         None
     }
 
+    /// Maps a character code to a CID, returning 0 when unmapped.
     pub fn to_cid(&self, code: &[u8]) -> u32 {
         if let Some(&cid) = self.mappings_cid.get(code) {
             return cid;
@@ -102,6 +118,7 @@ impl CMap {
         u32::from(code.first().copied().unwrap_or(0))
     }
 
+    /// Decodes the next code, returning its byte length and the text it maps to.
     pub fn decode_next(&self, data: &[u8]) -> (usize, Option<String>) {
         if data.is_empty() {
             return (0, None);
@@ -118,10 +135,12 @@ impl CMap {
         (1, self.map(&data[0..1]))
     }
 
+    /// The CMap's name.
     pub fn name(&self) -> &str {
         &self.name
     }
 
+    /// Whether any codespace range is wider than one byte.
     pub fn is_multibyte(&self) -> bool {
         self.name.contains("Identity")
             || self.name.contains("JIS")
@@ -133,10 +152,12 @@ impl CMap {
             || self.codespace_ranges.iter().any(|(s, _)| s.len() >= 2)
     }
 
+    /// Like [`CMap::decode_next`], but refuses codes outside a codespace range.
     pub fn decode_next_strict(&self, data: &[u8]) -> Option<(usize, Option<String>)> {
         self.decode_next_with_min_len(data, None)
     }
 
+    /// Decodes the next code, never consuming fewer than `min_len` bytes.
     pub fn decode_next_with_min_len(
         &self,
         data: &[u8],
@@ -189,6 +210,7 @@ impl CMap {
         None
     }
 
+    /// The predefined `Identity-H` CMap: two-byte codes used directly as CIDs.
     pub fn identity_h() -> Self {
         Self {
             name: "Identity-H".into(),
@@ -197,6 +219,7 @@ impl CMap {
         }
     }
 
+    /// The predefined `Identity-V` CMap: `Identity-H` in vertical writing mode.
     pub fn identity_v() -> Self {
         Self {
             name: "Identity-V".into(),
@@ -206,15 +229,18 @@ impl CMap {
         }
     }
 
+    /// The predefined `90ms-RKSJ-H` CMap for Shift-JIS text.
     pub fn rksj_h() -> Self {
         Self { name: "90ms-RKSJ-H".into(), ..Default::default() }
     }
 
+    /// The predefined `UniJIS-UCS2-H` CMap for UCS-2 Japanese text.
     pub fn unijis_h() -> Self {
         // Simple placeholder for UniJIS-UTF16-H
         Self { name: "UniJIS-UTF16-H".into(), ..Default::default() }
     }
 
+    /// The `Adobe-Japan1-UCS2` CMap, mapping Adobe-Japan1 CIDs to Unicode.
     pub fn adobe_japan1_ucs2() -> Self {
         static CACHE: std::sync::OnceLock<std::collections::BTreeMap<Vec<u8>, String>> =
             std::sync::OnceLock::new();
@@ -266,6 +292,7 @@ impl CMap {
         }
     }
 
+    /// Loads a predefined CMap by name, from the bundled Adobe resources.
     pub fn load_named(name: &str) -> Option<Self> {
         Self::load_named_recursive(name, 0)
     }
@@ -802,6 +829,7 @@ fn u32_to_vec(val: u32, len: usize) -> Vec<u8> {
     v
 }
 
+/// Resolves a glyph name to the text it denotes, including `uniXXXX` forms.
 pub fn glyph_name_to_unicode(v: &[u8]) -> String {
     let name = if v.starts_with(b"/") { &v[1..] } else { v };
     let name_str = String::from_utf8_lossy(name);

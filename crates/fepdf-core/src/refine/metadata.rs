@@ -257,6 +257,7 @@ fn parse_and_write_dates(info: &BTreeMap<PdfName, RefinedObject>, writer: &mut X
     writer.metadata_date(final_modify);
 }
 
+/// Renders an `/Info` dictionary as an XMP packet.
 pub fn info_to_xmp(info: &BTreeMap<PdfName, RefinedObject>) -> String {
     let mut writer = XmpWriter::new();
 

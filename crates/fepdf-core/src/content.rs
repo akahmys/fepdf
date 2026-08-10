@@ -9,10 +9,12 @@ pub struct ContentRewriter<'a> {
 }
 
 impl<'a> ContentRewriter<'a> {
+    /// Prepares a rewriter over `data`, resolving references through `arena`.
     pub fn new(arena: &'a PdfArena, data: bytes::Bytes) -> Self {
         Self { _arena: arena, data }
     }
 
+    /// Returns the rewritten stream.
     pub fn rewrite(&self) -> PdfResult<Vec<u8>> {
         let mut lexer = Lexer::new(self.data.clone());
         let mut output = Vec::new();

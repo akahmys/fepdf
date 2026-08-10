@@ -224,14 +224,28 @@ pub enum Object {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum SublimatedData {
     /// Pre-parsed drawing commands (Content Streams).
-    /// A content stream already parsed into drawing commands.
-    Commands { items: Vec<sublimation::Command> },
+    Commands {
+        /// Sequence of drawing commands.
+        items: Vec<sublimation::Command>,
+    },
     /// Pre-decoded image data (RGBA).
-    /// A decoded image, held as raw samples.
-    Image { width: u32, height: u32, format: crate::graphics::PixelFormat, data: Vec<u8> },
+    Image {
+        /// Image width in pixels.
+        width: u32,
+        /// Image height in pixels.
+        height: u32,
+        /// Pixel format of the raw data.
+        format: crate::graphics::PixelFormat,
+        /// Uncompressed byte data of the image pixels.
+        data: Vec<u8>,
+    },
     /// Zstd-compressed raw bytes (for Images/Fonts/Thumbnails).
-    /// Stream data still in its encoded form.
-    Compressed { original_len: usize, data: Vec<u8> },
+    Compressed {
+        /// Uncompressed byte size.
+        original_len: usize,
+        /// Compressed payload bytes.
+        data: Vec<u8>,
+    },
     /// Raw uncompressed bytes.
     Raw(Bytes),
 }

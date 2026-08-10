@@ -7,11 +7,16 @@
 
 extern crate self as fepdf_core;
 
+/// Handle-addressed storage for every object in a document.
 pub mod arena;
+/// Conformance auditing against the published standards.
 pub mod audit;
 pub mod color;
+/// Content stream rewriting.
 pub mod content;
+/// The document model: catalogue, page tree, pages.
 pub mod document;
+/// The error type this engine reports.
 pub mod error;
 pub mod filters;
 pub mod font;
@@ -19,10 +24,12 @@ pub mod graphics;
 pub mod handle;
 pub mod ingest;
 pub mod lexer;
+/// Document metadata, from XMP or the `/Info` dictionary.
 pub mod metadata;
 pub mod object;
 pub mod parser;
 pub mod refine;
+/// Encryption and decryption (ISO 32000-2 Clause 7.6).
 pub mod security;
 
 pub use crate::refine::{ParallelRefinery, commit_to_arena};

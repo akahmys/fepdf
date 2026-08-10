@@ -6,11 +6,15 @@ use std::collections::BTreeMap;
 /// Container for font horizontal and vertical metrics.
 #[derive(Debug, Clone)]
 pub struct FontMetrics {
+    /// First character code covered.
     pub first: i32,
+    /// Last character code covered, inclusive.
     pub last: i32,
+    /// Advance widths, keyed by character code.
     pub widths: BTreeMap<u32, f32>,
     /// CID -> (w1_y, v_x, v_y) for vertical writing.
     pub v_widths: BTreeMap<u32, (f32, f32, f32)>,
+    /// Width used for codes absent from the table (`/MissingWidth` or `/DW`).
     pub default_width: f32,
 }
 

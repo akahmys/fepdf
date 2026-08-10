@@ -9,6 +9,7 @@ use bytes::Bytes;
 use flate2::read::ZlibDecoder;
 use std::io::Read;
 
+/// The `FlateDecode` stream filter.
 pub struct FlateFilter;
 
 impl DecodingFilter for FlateFilter {

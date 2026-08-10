@@ -40,20 +40,24 @@ struct ArenaInner {
 }
 
 impl PdfArena {
+    /// Creates an empty arena declaring PDF 1.7.
     pub fn new() -> Self {
         Self::with_version(1.7)
     }
 
+    /// Creates an empty arena declaring `version`.
     pub fn with_version(version: f32) -> Self {
         let arena = Self::default();
         *arena.inner.version.write() = version;
         arena
     }
 
+    /// The document version this arena will write.
     pub fn version(&self) -> f32 {
         *self.inner.version.read()
     }
 
+    /// Sets the document version this arena will write.
     pub fn set_version(&self, version: f32) {
         *self.inner.version.write() = version;
     }
@@ -91,10 +95,12 @@ impl PdfArena {
         self.inner.names.read().get(handle.index() as usize).map(|n| n.as_str().to_string())
     }
 
+    /// Looks up an already-interned name, without interning a new one.
     pub fn get_name_by_str(&self, name: &str) -> Option<Handle<PdfName>> {
         self.inner.name_map.read().get(name).copied()
     }
 
+    /// Resolves a name handle back to the name.
     pub fn get_name(&self, handle: Handle<PdfName>) -> Option<PdfName> {
         self.inner.names.read().get(handle.index() as usize).cloned()
     }
@@ -141,10 +147,12 @@ impl PdfArena {
         Handle::new(index)
     }
 
+    /// Reads an object by handle.
     pub fn get_object(&self, handle: Handle<Object>) -> Option<Object> {
         self.inner.objects.read().get(handle.index() as usize).map(|e| e.object.clone())
     }
 
+    /// Replaces the object at `handle`.
     pub fn set_object(&self, handle: Handle<Object>, object: Object) {
         let mut objects = self.inner.objects.write();
         if let Some(e) = objects.get_mut(handle.index() as usize) {
@@ -166,10 +174,12 @@ impl PdfArena {
         }
     }
 
+    /// Reads an object together with its generation.
     pub fn get_object_entry(&self, handle: Handle<Object>) -> Option<ObjectEntry> {
         self.inner.objects.read().get(handle.index() as usize).cloned()
     }
 
+    /// Replaces the object and generation at `handle`.
     pub fn set_object_entry(&self, handle: Handle<Object>, entry: ObjectEntry) {
         let mut objects = self.inner.objects.write();
         if let Some(e) = objects.get_mut(handle.index() as usize) {
@@ -222,6 +232,7 @@ impl PdfArena {
         idx.get(object).and_then(|list| list.first().copied())
     }
 
+    /// Number of object slots allocated.
     pub fn object_count(&self) -> u32 {
         self.inner.objects.read().len() as u32
     }
@@ -356,6 +367,7 @@ impl PdfArena {
         }
     }
 
+    /// Reads a stream's sublimated payload, if it has one.
     pub fn get_sublimated_data(
         &self,
         handle: Handle<Object>,
@@ -394,13 +406,19 @@ impl PdfArena {
 /// High-level statistics about a PdfArena instance.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct ArenaStats {
+    /// Objects held.
     pub object_count: u32,
+    /// Dictionaries held.
     pub dictionary_count: u32,
+    /// Arrays held.
     pub array_count: u32,
+    /// Interned names held.
     pub name_count: u32,
+    /// Declared document version.
     pub version: f32,
 }
 
+/// Maps a source file's `(object number, generation)` onto arena handles.
 pub type RemappingTable = BTreeMap<(u32, u16), Handle<Object>>;
 
 #[cfg(test)]

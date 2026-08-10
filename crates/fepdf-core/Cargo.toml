@@ -52,5 +52,6 @@ sha1.workspace = true
 [features]
 debug-tools = []
 
-[lints]
-workspace = true
+[lints.rust]
+unsafe_code = "forbid"
+missing_docs = "warn"

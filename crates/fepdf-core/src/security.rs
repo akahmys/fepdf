@@ -137,6 +137,7 @@ impl SecurityHandler {
         })
     }
 
+    /// Whether `/EncryptMetadata` leaves the metadata stream encrypted.
     pub fn should_decrypt_metadata(&self) -> bool {
         self.encrypt_metadata
     }
@@ -163,16 +164,19 @@ impl SecurityHandler {
         hash.0.to_vec()
     }
 
+    /// Encrypts stream data for the given indirect object.
     pub fn encrypt_stream(&self, data: &[u8], obj_id: u32, gen_num: u16) -> PdfResult<Vec<u8>> {
         let key = self.derive_object_key(obj_id, gen_num);
         self.encrypt_with_key(data, &key)
     }
 
+    /// Encrypts string data for the given indirect object.
     pub fn encrypt_string(&self, data: &[u8], obj_id: u32, gen_num: u16) -> PdfResult<Vec<u8>> {
         let key = self.derive_object_key(obj_id, gen_num);
         self.encrypt_with_key(data, &key)
     }
 
+    /// Decrypts using a key derived without the per-object salt.
     pub fn decrypt_bytes_salted_no_salt(
         &self,
         data: &[u8],
@@ -188,6 +192,7 @@ impl SecurityHandler {
         self.decrypt_with_key(data, &hash[..n])
     }
 
+    /// Decrypts using a key salted with the object and generation numbers.
     pub fn decrypt_bytes_with_salting(
         &self,
         data: &[u8],
@@ -205,6 +210,7 @@ impl SecurityHandler {
         self.decrypt_with_key(data, &hash[..n])
     }
 
+    /// Decrypts, skipping the metadata stream exemption.
     pub fn decrypt_bytes_no_metadata(
         &self,
         data: &[u8],
@@ -226,6 +232,7 @@ impl SecurityHandler {
         Err(PdfError::Other("V4 inputs not available".into()))
     }
 
+    /// Decrypts data for the given indirect object.
     pub fn decrypt_bytes(
         &self,
         data: &[u8],
@@ -238,8 +245,8 @@ impl SecurityHandler {
 
     fn decrypt_block_aes(
         &self,
-        cipher128: &Option<Aes128>,
-        cipher256: &Option<Aes256>,
+        cipher128: Option<&Aes128>,
+        cipher256: Option<&Aes256>,
         block_ref: &mut Block,
     ) {
         if let Some(c) = cipher128 {
@@ -299,7 +306,7 @@ impl SecurityHandler {
             let mut block = [0u8; 16];
             block.copy_from_slice(chunk);
             let block_ref = Block::from_mut_slice(&mut block);
-            self.decrypt_block_aes(&cipher128, &cipher256, block_ref);
+            self.decrypt_block_aes(cipher128.as_ref(), cipher256.as_ref(), block_ref);
             for i in 0..16 {
                 block[i] ^= prev_block[i];
             }
@@ -322,6 +329,7 @@ impl SecurityHandler {
         // PKCS#7 Padding
         let pad_len = 16 - (data.len() % 16);
         let mut padded_data = data.to_vec();
+        #[allow(clippy::cast_possible_truncation)]
         padded_data.extend(vec![pad_len as u8; pad_len]);
 
         let (cipher128, cipher256) = if key.len() == 16 {

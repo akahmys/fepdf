@@ -35,6 +35,7 @@ fn process_font_object(
     }
 }
 
+/// Finds and loads every font the document's pages reference.
 pub fn discover_fonts(
     arena: &PdfArena,
     doc: &Document,
@@ -174,6 +175,7 @@ fn process_stream_context(
     }
 }
 
+/// Records which resource dictionary each content stream is interpreted under.
 pub fn map_stream_contexts(
     arena: &PdfArena,
     fonts: &BTreeMap<u32, Arc<FontResource>>,

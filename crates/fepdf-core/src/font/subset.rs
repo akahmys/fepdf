@@ -8,6 +8,7 @@ pub struct TrueTypeSubsetter<'a> {
 }
 
 impl<'a> TrueTypeSubsetter<'a> {
+    /// Prepares a subsetter over a font program.
     pub fn new(data: &'a [u8]) -> PdfResult<Self> {
         let face = Face::parse(data, 0)
             .map_err(|e| crate::PdfError::Other(format!("Failed to parse font: {e:?}").into()))?;

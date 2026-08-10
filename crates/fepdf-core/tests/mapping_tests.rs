@@ -1,3 +1,5 @@
+//! Mapping integration tests for fepdf-core.
+
 use fepdf_core::arena::PdfArena;
 use fepdf_core::font::{FontMetrics, FontResource, cmap::CMap};
 use fepdf_core::object::PdfName;

@@ -1,5 +1,6 @@
 //! CFF Standard Strings (ISO 32000-2:2020 Annex D)
 
+/// The 391 predefined CFF standard strings (CFF specification Appendix A).
 pub const CFF_STANDARD_STRINGS: &[&str] = &[
     ".notdef",
     "space",

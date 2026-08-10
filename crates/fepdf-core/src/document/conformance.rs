@@ -31,14 +31,21 @@ pub struct StandardMetadata {
 /// A specific compliance violation or warning.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ComplianceIssue {
+    /// How serious the finding is.
     pub severity: Severity,
+    /// The standard the finding is measured against.
     pub standard: String,
+    /// What was found.
     pub message: String,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+/// How serious a conformance finding is.
 pub enum Severity {
+    /// An observation, not a defect.
     Info,
+    /// Permitted, but likely to cause trouble.
     Warning,
+    /// A violation of a requirement.
     Error,
 }

@@ -5,12 +5,17 @@ use std::collections::BTreeMap;
 
 /// Container for extracted font binary data and its metadata.
 pub struct FontData {
+    /// The font program's bytes.
     pub data: Vec<u8>,
+    /// `/Length1`: length of the clear-text portion.
     pub length1: Option<u32>,
+    /// `/Length2`: length of the encrypted portion.
     pub length2: Option<u32>,
+    /// `/Length3`: length of the trailing zeros section.
     pub length3: Option<u32>,
 }
 
+/// Extracts embedded font programs from font descriptors.
 pub struct FontLoader;
 
 impl FontLoader {

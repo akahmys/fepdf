@@ -7,21 +7,27 @@ use crate::{Document, FromPdfObject, Object, PdfSchema};
 use std::collections::BTreeSet;
 
 #[derive(Debug, Default)]
+/// What a compliance pass observed.
 pub struct ComplianceReport {
+    /// ISO clauses the document exercised.
     pub clauses_encountered: BTreeSet<&'static str>,
+    /// Problems found.
     pub issues: Vec<String>,
 }
 
+/// Walks a document recording clause coverage and violations.
 pub struct ComplianceAuditor<'a> {
     doc: &'a Document,
     report: ComplianceReport,
 }
 
 impl<'a> ComplianceAuditor<'a> {
+    /// Prepares an audit of `doc`.
     pub fn new(doc: &'a Document) -> Self {
         Self { doc, report: ComplianceReport::default() }
     }
 
+    /// Runs the audit and returns its report.
     pub fn audit(mut self) -> ComplianceReport {
         let arena = self.doc.arena();
         let root_handle = *self.doc.root_handle();
