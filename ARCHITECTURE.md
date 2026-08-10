@@ -43,6 +43,17 @@ round trip and belong at the same level in the same crate. Splitting them across
 layers produces an engine that can read but not write, and forces callers to reach
 across the seam.
 
+### Rule D — Frontends translate; they never decide
+
+Every mutation of a document is a value in **one vocabulary**, owned by `fepdf-doc`
+(see [§5.1](#51-the-operation-vocabulary)). A frontend's job is to turn argv, a button
+press, an MCP call or a JS call into that value and hand it over. It never implements
+the operation itself.
+
+Where two frontends each implement "the same" operation, the two implementations
+drift, silently, because nothing compares them. That has already happened here — see
+[§4](#-4-why-this-shape).
+
 ---
 
 ## 🗺️ 2. Target Topology
@@ -100,9 +111,9 @@ Status: **✅** exists as-is · **🔄** code exists, lives elsewhere today · *
 | **`fepdf-model`** | 🔄 in core+sdk | 8,600 | The document graph: `PdfArena`, `Handle<T>`, `Object`, page tree, metadata. Owns **both** ingestion and serialisation (Rule C), plus the normalisation passes. |
 | **`fepdf-resource`** | 🔄 in core | 3,600 | Turns PDF resource dictionaries into usable resources: font dict → `FontResource`, colour spaces, images. The bridge between `fepdf-model` and `fepdf-font`. |
 | **`fepdf-content`** | 🔄 in sdk+render | 2,300 | Content-stream interpreter, and the **`Backend` contract** it drives (`TextGlyph`, `TextState`, `SMaskData`, path geometry). No GPU dependency. |
-| **`fepdf-doc`** | 🔄 in sdk | 2,200 | Document-level operations (merge, split, rotate, tag, redact, upgrade), structure-tree handling, conformance auditing, remediation. |
+| **`fepdf-doc`** | 🔄 in sdk | 2,200 | Owns the **`Operation` vocabulary** (§5.1) and is its only interpreter: merge, split, rotate, tag, redact, upgrade. Also structure-tree handling, conformance auditing, remediation. |
 | **`fepdf-render`** | ✅ | 1,100 | A `Backend` implementation on **Vello** + **wgpu**. Nothing else depends on it. |
-| **`fepdf`** | 🆕 | — | The public facade. `Document`, `Page`, `SaveOptions`. The Rule A boundary. |
+| **`fepdf`** | 🆕 | — | The public facade. `Document`, `Page`, `SaveOptions`, and the re-exported `Operation`. The Rule A boundary. |
 | **`fepdf-cli`** | ✅ | 1,400 | Command-line binary (`fepdf`). |
 | **`fepdf-gui`** | ✅ | 8,000 | Desktop application on **egui** + **eframe** + **wgpu**. |
 | **`fepdf-mcp`** | ✅ | 340 | Model Context Protocol server for AI assistants. |
@@ -141,11 +152,84 @@ there precisely because of that.
 `fepdf-core`; `writer.rs` — the single largest file in the workspace at 2,536 lines —
 sits in `fepdf-sdk`. The engine can read but not write.
 
+**Rule D exists because the vocabularies have already diverged.** "Rotate" is defined
+twice — once as a clap subcommand, once as a `WorkerRequest` variant — and the two
+disagree:
+
+```rust
+// fepdf-cli  handle_rotate()            — absolute assignment
+doc.set_page_rotation(idx, angle)
+
+// fepdf-gui  WorkerRequest::RotatePages — relative delta, normalised
+doc.set_page_rotation(idx, (current + delta).rem_euclid(360))
+```
+
+On a page already at 90°, `fepdf edit rotate --angle 90` leaves it at 90° while the
+GUI's 90° button takes it to 180°. The CLI's own progress message says "rotating **by**
+N degrees", describing the behaviour it does not have. Neither path normalises, so
+`--angle 45` reaches `/Rotate`, which ISO 32000-2 requires to be a multiple of 90.
+
+Nothing detected this, because there is no place where the two definitions meet.
+
 ---
 
 ## 🛡️ 5. Cross-Cutting Concerns
 
-### 5.1 The Sublimation Pipeline: normalisation-at-load
+### 5.1 The operation vocabulary
+
+Every document mutation is a value of one type, defined in `fepdf-doc` and re-exported
+through the facade. Frontends construct it; only `fepdf-doc` interprets it.
+
+```
+   fepdf-cli    argv          ─┐
+   fepdf-gui    button press  ─┤
+   fepdf-mcp    tool call     ─┼─►  Operation  ─►  fepdf-doc::apply
+   fepdf-wasm   JS call       ─┘     (a value)      (the only implementation)
+```
+
+Ambiguity that used to live in prose becomes a type. The rotate divergence above is
+not fixable by convention; it is fixable by making the choice unrepresentable:
+
+```rust
+pub enum Operation {
+    Rotate { pages: PageSelection, mode: RotateMode },
+    Reorder { from: usize, to: usize },
+    RemovePages(PageSelection),
+    InsertFrom { source: DocumentId, at: usize },
+    Retag { .. },
+    Redact { zones: Vec<RedactionZone> },
+    Upgrade { standard: PdfStandard },
+    // …
+}
+
+pub enum RotateMode {
+    /// Set `/Rotate` to this angle. Rejected unless a multiple of 90.
+    Absolute(Quarter),
+    /// Add to the current angle, normalised into [0, 360).
+    Relative(Quarter),
+}
+```
+
+A caller must now say which it means, and `Quarter` makes 45° unconstructible.
+
+**Three consequences fall out rather than being designed in:**
+
+- **Undo/redo.** Operations are values, so they can be recorded, inverted and
+  replayed. The GUI gets history without a parallel mechanism.
+- **MCP tool surface.** A tool becomes the serialised form of an `Operation`. New
+  operations reach AI assistants without new bridging code.
+- **Testability.** An operation sequence can be applied and asserted without starting
+  a GUI or spawning a process.
+
+**What this is not.** The GUI keeps its worker thread: `WorkerRequest` remains, but as
+a thin envelope (`Execute(Operation)`, plus genuinely GUI-only messages such as
+`RenderPage`). Off-thread execution is a GUI concern; the *meaning* of an operation is
+not. Equally, this is not "the GUI drives the CLI as a subprocess" — the GUI is a
+stateful editor holding an arena, retained scenes and per-page spans in memory, and
+re-ingesting a 5,057-page document per interaction is not viable. Shared vocabulary,
+not a shared process.
+
+### 5.2 The Sublimation Pipeline: normalisation-at-load
 
 Every byte passes three normalisation stages before application code sees it. The
 pipeline spans `fepdf-syntax` → `fepdf-model`, which is why normalisation is a
@@ -165,7 +249,7 @@ Raw bytes ─► Pass 0: Physical ─► Pass 1: Arena ─► Pass 2: Semantic �
   CJK mojibake, preserves exact path endpoints (`EndPath n`), harmonises graphics
   state, and normalises colour.
 
-### 5.2 Safety invariants
+### 5.3 Safety invariants
 
 - **Handles, not pointers.** Objects are reached only through `Handle<Object>`,
   eliminating use-after-free and dangling references by construction.
@@ -174,7 +258,7 @@ Raw bytes ─► Pass 0: Physical ─► Pass 1: Arena ─► Pass 2: Semantic �
   RR-15 Rule 10 forbids `HashMap`/`HashSet` in the crates that decide output.
 - **Zero unsafe.** `unsafe_code = "forbid"` across the workspace.
 
-### 5.3 Rendering
+### 5.4 Rendering
 
 `fepdf-content` walks the content stream and issues calls against `Backend`.
 `fepdf-render` answers them with **Vello** compute shaders on **wgpu**. Path snapping
@@ -188,18 +272,27 @@ geometry collection without a GPU present.
 
 ## 🚧 6. Migration
 
-Ordered by value against risk. Steps 1–2 relocate code without changing logic, so a
-green test run is sufficient evidence of correctness.
+Ordered by value against risk. Steps 1–3 and 5 relocate code without changing logic,
+so a green test run is sufficient evidence of correctness. Steps 0, 4 and 6 change
+behaviour or API and need their own tests.
 
 | # | Step | Effect | Risk |
 | :-: | :--- | :--- | :---: |
+| 0 | Reconcile the two `rotate` implementations | Fixes a live behavioural divergence; independent of everything below | Low |
 | 1 | Move the `Backend` contract and its types from `fepdf-render` into `fepdf-content` | Drops `vello`/`wgpu` from MCP and WASM | Low |
 | 2 | Extract the PDF-free half of `font/` into `fepdf-font` | 3,500 lines become independently testable | Low |
 | 3 | Move struct-tree handling out of `fepdf-gui` into `fepdf-doc` | Domain logic returns to the engine; closes the Rule A leak | Medium |
-| 4 | Move `writer` into `fepdf-model` | Restores the read/write round trip | Medium |
-| 5 | Introduce the `fepdf` facade | Rule A becomes enforceable; touches all four frontends | High |
+| 4 | Introduce `Operation` in `fepdf-doc`; reduce the CLI subcommands and `WorkerRequest` to adapters over it | Rule D becomes structural; divergence stops being possible | Medium |
+| 5 | Move `writer` into `fepdf-model` | Restores the read/write round trip | Medium |
+| 6 | Introduce the `fepdf` facade | Rule A becomes enforceable; touches all four frontends | High |
 
-Step 5 delivers most of the usability gain and should follow 1–4, not precede them.
+Step 0 is a bug fix and needs no restructuring — but do it as part of step 4, not
+before it, or the same divergence simply recurs the next time an operation is added.
+
+Steps 3 and 4 belong together: both pull domain decisions out of the presentation
+layer, and step 4 is what stops them leaking back.
+
+Step 6 delivers most of the usability gain and should follow 1–5, not precede them.
 The current API cannot hide its internals — reaching a catalogue requires
 `doc.inner().catalog_handle()`, which is the symptom the facade removes.
 
@@ -217,6 +310,11 @@ Architecture rules that are not checked become comments. These are:
 
 - **Rules A–C**: crate dependency direction is enforced by Cargo itself once the split
   lands — a violation fails to compile.
+- **Rule D**: enforced by construction, not by review. Once mutations exist only as
+  `Operation` values and `fepdf-doc` holds the only `apply`, a frontend has nothing to
+  re-implement. The rule is worth stating because that property is easy to give away:
+  the moment a frontend calls a mutating method directly instead of building an
+  `Operation`, drift becomes possible again.
 - **RR-15 protocol**: [`CODING.md`](CODING.md), checked by
   [`scripts/audit/verify_compliance.sh`](scripts/audit/verify_compliance.sh).
 - **Lints**: `cargo clippy --workspace --all-targets -- -D warnings`. `--all-targets`
