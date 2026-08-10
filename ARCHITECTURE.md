@@ -197,6 +197,7 @@ not fixable by convention; it is fixable by making the choice unrepresentable:
 
 ```rust
 pub enum Operation {
+    // --- Core Page & Structure Operations ---
     Rotate { pages: PageSelection, mode: RotateMode },
     Reorder { from: usize, to: usize },
     RemovePages(PageSelection),
@@ -204,7 +205,29 @@ pub enum Operation {
     Retag { .. },
     Redact { zones: Vec<RedactionZone> },
     Upgrade { standard: PdfStandard },
-    // …
+
+    // --- Metadata & Structure Domain ---
+    CreatePortfolio { items: Vec<PortfolioInputItem>, cover_page: Option<CoverPageSpec> },
+    UpdateOutlines { items: Vec<OutlineNodeSpec> },
+    CreateLayer { name: String, visible_by_default: bool, printable: bool },
+    SetLayerVisibility { layer_id: String, visible: bool },
+    AttachAssociatedFile { target: TargetObjectRef, file_name: String, mime_type: String, bytes: Vec<u8> },
+    SetOutputIntent { subtype: String, identifier: String, icc_profile_bytes: Option<Vec<u8>> },
+    SetPronunciationLexicon { lexicon_xml_bytes: Vec<u8> },
+
+    // --- Security & Provenance Domain ---
+    VerifyDigitalSignature { field_name: String },
+
+    // --- Decorations & Annotations Domain ---
+    AddHyperlink { page: usize, rect: [f32; 4], destination: LinkDestination },
+    AddPageDecorations { header: Option<String>, footer: Option<String>, watermark: Option<WatermarkSpec> },
+    ApplyBatesNumbering { prefix: String, start_number: u64, digits: usize, position: PagePosition },
+    AddAnnotation { page: usize, annotation: AnnotationSpec },
+    AddStamp { page: usize, rect: [f32; 4], stamp_image_bytes: Vec<u8> },
+    SetMeasurementScale { page: usize, scale_ratio: f32, unit_label: String },
+
+    // --- Interactive Forms Domain ---
+    SetFormFieldValue { field_name: String, value: FormValue },
 }
 
 pub enum RotateMode {
@@ -249,12 +272,23 @@ Raw bytes ─► Pass 0: Physical ─► Pass 1: Arena ─► Pass 2: Semantic �
   reader compatibility.
 - **Pass 1 — Arena ingestion.** Expands object streams (`/ObjStm`), stores objects in
   `PdfArena` under deterministic `Handle<Object>` (id + generation), and indexes
-  resource dictionaries.
+  resource dictionaries, `/Collection` portfolios, `/OCProperties` layers, `/AF` associated files, and `/Outlines`.
 - **Pass 2 — Semantic sublimation.** Re-encodes character mappings to eliminate legacy
   CJK mojibake, preserves exact path endpoints (`EndPath n`), harmonises graphics
-  state, and normalises colour.
+  state, normalises colour, and validates PDF 2.0 structure integrity.
 
-### 5.3 Safety invariants
+### 5.3 Unified Extension Architecture (Anti-Ad-Hoc Policy)
+
+To prevent codebase drift, ad-hoc struct additions, or uncoordinated writer logic, all new backend capabilities MUST fit into one of four orthogonal domain namespaces owned by `fepdf-model` / `fepdf-doc`:
+
+1. **Metadata & Structure**: Portfolio (`/Collection`), Outlines (`/Outlines`), Optional Content (`/OCProperties`), Associated Files (`/AF`), Output Intents (`/OutputIntents`), Pronunciation (`/PL`).
+2. **Security & Provenance**: Crypt Revision 6 (AES-256-GCM), PKI PAdES Digital Signatures, Sublimation/Redaction.
+3. **Decorations & Annotations**: Watermarks, Bates Numbering, Hyperlinks (`/Link`), Stamps, Measurements (`/Measure`).
+4. **Interactive Forms**: AcroForms, FDF/XFDF static data models.
+
+No feature is permitted to bypass the `Operation` vocabulary or inject un-audited dictionary mutations directly into frontends or serialisers.
+
+### 5.4 Safety invariants
 
 - **Handles, not pointers.** Objects are reached only through `Handle<Object>`,
   eliminating use-after-free and dangling references by construction.

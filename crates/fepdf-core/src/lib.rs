@@ -35,6 +35,7 @@ pub mod security;
 pub use crate::refine::{ParallelRefinery, commit_to_arena};
 pub use arena::{PdfArena, RemappingTable};
 pub use document::Document;
+pub use document::extensions::*;
 pub use document::page::Page;
 
 pub use fepdf_macros::FromPdfObject;

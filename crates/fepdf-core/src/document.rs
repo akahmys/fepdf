@@ -1,4 +1,6 @@
 pub mod conformance;
+/// ISO 32000-2 Extended domain models.
+pub mod extensions;
 /// Pages and the page tree.
 pub mod page;
 /// Page-tree traversal strategies.
