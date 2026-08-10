@@ -317,13 +317,13 @@ impl FontResource {
         physical_widths: &mut BTreeMap<u32, f32>,
         physical_names: &mut BTreeMap<u32, String>,
     ) {
-        let mut units_per_em = face.units_per_em() as f32;
+        let mut units_per_em = f32::from(face.units_per_em());
         if units_per_em == 256.0 {
             let mut sum = 0.0;
             let mut count = 0;
             for gid in 0..face.number_of_glyphs().min(10) {
                 if let Some(w) = face.glyph_hor_advance(ttf_parser::GlyphId(gid)) {
-                    sum += w as f32;
+                    sum += f32::from(w);
                     count += 1;
                 }
             }
@@ -334,10 +334,10 @@ impl FontResource {
         let scale = if units_per_em > 0.0 { 1000.0 / units_per_em } else { 1.0 };
         for gid in 0..face.number_of_glyphs() {
             if let Some(w) = face.glyph_hor_advance(ttf_parser::GlyphId(gid)) {
-                physical_widths.insert(gid as u32, w as f32 * scale);
+                physical_widths.insert(u32::from(gid), f32::from(w) * scale);
             }
             if let Some(name) = face.glyph_name(ttf_parser::GlyphId(gid)) {
-                physical_names.insert(gid as u32, name.to_string());
+                physical_names.insert(u32::from(gid), name.to_string());
             }
         }
     }
@@ -400,7 +400,7 @@ impl FontResource {
             cid_ordering,
             cid_registry,
             num_glyphs: if let Some(ref d) = data {
-                ttf_parser::Face::parse(d, 0).map(|f| f.number_of_glyphs() as u32).unwrap_or(0)
+                ttf_parser::Face::parse(d, 0).map(|f| u32::from(f.number_of_glyphs())).unwrap_or(0)
             } else {
                 0
             },
@@ -493,15 +493,15 @@ impl FontResource {
         if let Some(ref d) = self.reconstructed_data
             && let Ok(face) = ttf_parser::Face::parse(d, 0)
         {
-            self.num_glyphs = face.number_of_glyphs() as u32;
-            let units_per_em = face.units_per_em() as f32;
+            self.num_glyphs = u32::from(face.number_of_glyphs());
+            let units_per_em = f32::from(face.units_per_em());
             let scale = if units_per_em > 0.0 { 1000.0 / units_per_em } else { 1.0 };
 
             self.physical_widths.clear();
             self.physical_names.clear();
             for gid in 0..self.num_glyphs {
                 if let Some(w) = face.glyph_hor_advance(ttf_parser::GlyphId(gid as u16)) {
-                    self.physical_widths.insert(gid, w as f32 * scale);
+                    self.physical_widths.insert(gid, f32::from(w) * scale);
                 }
                 if let Some(name) = face.glyph_name(ttf_parser::GlyphId(gid as u16)) {
                     self.physical_names.insert(gid, name.to_string());
@@ -577,7 +577,7 @@ impl FontResource {
                 let cid = if code.len() == 2 {
                     (u32::from(code[0]) << 8) | u32::from(code[1])
                 } else {
-                    code[0] as u32
+                    u32::from(code[0])
                 };
                 map.entry(uni.clone()).or_insert(cid);
             }
@@ -682,7 +682,7 @@ impl FontResource {
                             if let Some(c) = char::from_u32(cp)
                                 && let Some(gid) = table.glyph_index(cp)
                             {
-                                u2g.entry(c).or_insert(gid.0 as u32);
+                                u2g.entry(c).or_insert(u32::from(gid.0));
                                 count += 1;
                             }
                         });
@@ -708,9 +708,7 @@ impl FontResource {
                 // if other mappings exist, but TRUST ToUnicode if it's the only source.
                 if uni.is_empty() || (c.is_control() && c != '\t' && c != '\n' && c != '\r') {
                     log::debug!(
-                        "[FONT] Skipping suspicious ToUnicode mapping: {:?} -> {:?}",
-                        code,
-                        uni
+                        "[FONT] Skipping suspicious ToUnicode mapping: {code:?} -> {uni:?}"
                     );
                     continue;
                 }
@@ -764,7 +762,7 @@ impl FontResource {
         for table in cmap_table.subtables {
             table.codepoints(|cp: u32| {
                 if let Some(gid) = table.glyph_index(cp) {
-                    let gid_u32 = gid.0 as u32;
+                    let gid_u32 = u32::from(gid.0);
                     if gid_u32 != 0 {
                         self.code_to_gid.insert(cp, gid_u32);
                         if table.is_unicode()
@@ -812,16 +810,12 @@ impl FontResource {
                         count = self.map_cmap_codepoints(cmap_table, u2g);
                     }
                     log::debug!(
-                        "[FONT] Mapped {} Unicode characters from embedded file for {}",
-                        count,
-                        font_name
+                        "[FONT] Mapped {count} Unicode characters from embedded file for {font_name}"
                     );
                 }
                 Err(e) => {
                     log::debug!(
-                        "[FONT] Failed to parse embedded font file for {}: {:?}. (Falling back to document/system truth)",
-                        font_name,
-                        e
+                        "[FONT] Failed to parse embedded font file for {font_name}: {e:?}. (Falling back to document/system truth)"
                     );
                 }
             }
@@ -842,7 +836,7 @@ impl FontResource {
                 .keys()
                 .filter_map(|k| arena.get_name(*k).map(|n| n.as_str().to_string()))
                 .collect();
-            log::warn!("[HARDENING] Missing font subtype. Available keys: {:?}", keys);
+            log::warn!("[HARDENING] Missing font subtype. Available keys: {keys:?}");
         }
 
         subtype_name.ok_or_else(|| PdfError::Other("Missing font subtype".into()))
@@ -914,7 +908,7 @@ impl FontResource {
         } else {
             "Unknown".to_string()
         };
-        log::debug!("[FONT] Font {} has ToUnicode obj: {:?}", base_font, tu_obj);
+        log::debug!("[FONT] Font {base_font} has ToUnicode obj: {tu_obj:?}");
         Self::try_load_cmap(doc, &tu_obj.resolve(arena), "ToUnicode")
     }
 
@@ -923,12 +917,12 @@ impl FontResource {
             Ok(data) => match cmap::CMap::parse(&data) {
                 Ok(m) => Some(m),
                 Err(e) => {
-                    log::warn!("Failed to parse CMap ({}): {:?}", context, e);
+                    log::warn!("Failed to parse CMap ({context}): {e:?}");
                     None
                 }
             },
             Err(e) => {
-                log::warn!("Failed to decode CMap stream ({}): {:?}", context, e);
+                log::warn!("Failed to decode CMap stream ({context}): {e:?}");
                 None
             }
         }
@@ -1001,7 +995,7 @@ impl FontResource {
                         if let Some(glyph_name) = arena.get_name(name_h) {
                             let glyph_name_str: String = glyph_name.as_str().to_string();
                             new_mappings
-                                .insert(vec![current_code as u8], format!("/{}", glyph_name_str));
+                                .insert(vec![current_code as u8], format!("/{glyph_name_str}"));
                             current_code += 1;
                         }
                     }
@@ -1160,13 +1154,13 @@ impl FontResource {
         let data = match doc.decode_stream(&resolved) {
             Ok(d) => d,
             Err(e) => {
-                log::warn!("Failed to decode CIDToGIDMap stream: {:?}", e);
+                log::warn!("Failed to decode CIDToGIDMap stream: {e:?}");
                 return None;
             }
         };
         let mut map = BTreeMap::new();
         for (i, chunk) in data.chunks_exact(2).enumerate() {
-            let gid = u16::from_be_bytes([chunk[0], chunk[1]]) as u32;
+            let gid = u32::from(u16::from_be_bytes([chunk[0], chunk[1]]));
             if gid != 0 {
                 map.insert(i as u32, gid);
             }
@@ -1375,7 +1369,7 @@ impl FontResource {
             let mut reverse = BTreeMap::new();
             for (cid_bytes, uni) in cmap.mappings.iter() {
                 if cid_bytes.len() == 2 {
-                    let cid = ((cid_bytes[0] as u32) << 8) | (cid_bytes[1] as u32);
+                    let cid = (u32::from(cid_bytes[0]) << 8) | u32::from(cid_bytes[1]);
                     reverse.insert(uni.clone(), cid);
                 }
             }
@@ -1400,7 +1394,7 @@ impl FontResource {
                             let u = c as u32;
                             let is_control = (u <= 0x1F) || (0x7F..=0x9F).contains(&u);
                             if gid.0 != 0 && !is_control {
-                                self.unicode_to_gid.insert(c, gid.0 as u32);
+                                self.unicode_to_gid.insert(c, u32::from(gid.0));
                             }
                         }
                     });
@@ -1431,19 +1425,19 @@ impl FontResource {
         for chunk in gid_to_uni.chunks(100) {
             cmap.push_str(&format!("{} begincidchar\n", chunk.len()));
             for &(gid, ref uni_str) in chunk {
-                let gid_hex = format!("{:04X}", gid);
+                let gid_hex = format!("{gid:04X}");
                 let mut uni_hex = String::new();
                 for c in uni_str.chars() {
                     let u = c as u32;
                     if u > 0xFFFF {
                         let high = 0xD800 + ((u - 0x10000) >> 10);
                         let low = 0xDC00 + ((u - 0x10000) & 0x3FF);
-                        uni_hex.push_str(&format!("{:04X}{:04X}", high, low));
+                        uni_hex.push_str(&format!("{high:04X}{low:04X}"));
                     } else {
-                        uni_hex.push_str(&format!("{:04X}", u));
+                        uni_hex.push_str(&format!("{u:04X}"));
                     }
                 }
-                cmap.push_str(&format!("<{}> <{}>\n", gid_hex, uni_hex));
+                cmap.push_str(&format!("<{gid_hex}> <{uni_hex}>\n"));
             }
             cmap.push_str("endcidchar\n");
         }
@@ -1467,12 +1461,12 @@ impl FontResource {
         cmap.push_str("endcodespacerange\n");
 
         let mut gid_to_uni = Vec::new();
-        for (&c, &gid) in self.unicode_to_gid.iter() {
+        for (&c, &gid) in &self.unicode_to_gid {
             gid_to_uni.push((gid, c.to_string()));
         }
 
         if gid_to_uni.is_empty() {
-            for (uni_str, &gid) in self.unified_map.iter() {
+            for (uni_str, &gid) in &self.unified_map {
                 gid_to_uni.push((gid, uni_str.clone()));
             }
         }
@@ -1562,7 +1556,7 @@ impl FontResource {
     }
 
     pub fn wmode(&self) -> i32 {
-        self.wmode as i32
+        i32::from(self.wmode)
     }
 
     /// Inferred bold status based on font name and descriptors.
@@ -1591,7 +1585,7 @@ impl FontResource {
             // For CID-keyed fonts, we must map the GID back to its original CID
             // to retrieve the correct width from the PDF's widths map.
             if let Some(ref map) = self.cid_to_gid_map {
-                for (&cid, &g) in map.iter() {
+                for (&cid, &g) in map {
                     if g == gid {
                         return self.glyph_width_by_cid(cid);
                     }
@@ -1617,9 +1611,9 @@ impl FontResource {
         }
         // Fallback for simple fonts
         if code.len() == 2 {
-            return ((code[0] as u32) << 8) | (code[1] as u32);
+            return (u32::from(code[0]) << 8) | u32::from(code[1]);
         }
-        code.first().copied().unwrap_or(0) as u32
+        u32::from(code.first().copied().unwrap_or(0))
     }
 
     /// Translates a character code from a PDF content stream into a font-internal CID or SID.
@@ -1637,7 +1631,7 @@ impl FontResource {
         if code.len() == 2 {
             (u32::from(code[0]) << 8) | u32::from(code[1])
         } else if code.len() == 1 {
-            code[0] as u32
+            u32::from(code[0])
         } else {
             0
         }
@@ -1684,7 +1678,7 @@ impl FontResource {
         if let Some(t) = _trace {
             t.push_step(format!("Resolved via Identity (Fallback): CID {} -> GID {}", cid, cid));
         }
-        log::debug!("[FONT] to_gid result: cid {} -> gid {}", cid, cid);
+        log::debug!("[FONT] to_gid result: cid {cid} -> gid {cid}");
         cid
     }
 
@@ -1833,7 +1827,7 @@ impl FontResource {
             let h_hex = format!("uni{:04X}", c as u32);
             if phys_name == &h_str
                 || phys_name == &h_hex
-                || phys_name.starts_with(&format!("{}_", h_str))
+                || phys_name.starts_with(&format!("{h_str}_"))
             {
                 score += 500;
             }
@@ -1851,12 +1845,12 @@ impl FontResource {
         let c = hint?;
         if let Some(ref d) = self.reconstructed_data {
             if let Ok(face) = ttf_parser::Face::parse(d, 0) {
-                return face.glyph_index(c).map(|id| id.0 as u32);
+                return face.glyph_index(c).map(|id| u32::from(id.0));
             }
         } else if let Some(ref d) = self.data
             && let Ok(face) = ttf_parser::Face::parse(d, 0)
         {
-            return face.glyph_index(c).map(|id| id.0 as u32);
+            return face.glyph_index(c).map(|id| u32::from(id.0));
         }
         None
     }
@@ -1936,7 +1930,7 @@ impl FontResource {
         if let Some(ref mut t) = _trace {
             t.finish(None);
         }
-        log::debug!("[FONT] resolve_gid result: cid {} -> gid None", cid);
+        log::debug!("[FONT] resolve_gid result: cid {cid} -> gid None");
         None
     }
 
@@ -1968,19 +1962,12 @@ impl FontResource {
                         gid, best_score, _pdf_width, self.get_physical_width(gid), self.physical_names.get(&gid)));
                 }
                 log::info!(
-                    "[GID] FINAL SELECTED GID {} with score {} for CID {} (hint: {:?})",
-                    gid,
-                    best_score,
-                    cid,
-                    hint
+                    "[GID] FINAL SELECTED GID {gid} with score {best_score} for CID {cid} (hint: {hint:?})"
                 );
                 return Some(gid);
             }
             log::info!(
-                "[GID] Candidate GID {} rejected due to low score {} (threshold: {})",
-                gid,
-                best_score,
-                threshold
+                "[GID] Candidate GID {gid} rejected due to low score {best_score} (threshold: {threshold})"
             );
             return None;
         }
@@ -2306,9 +2293,9 @@ impl FontResource {
             for &c in self.unicode_to_gid.keys() {
                 let mut buf = [0u8; 4];
                 let utf8_bytes = c.encode_utf8(&mut buf).as_bytes();
-                let utf8_hex = utf8_bytes.iter().map(|b| format!("{:02X}", b)).collect::<String>();
+                let utf8_hex = utf8_bytes.iter().map(|b| format!("{b:02X}")).collect::<String>();
                 let uni_hex = format!("{:04X}", c as u32);
-                cmap.push_str(&format!("<{}> <{}>\n", utf8_hex, uni_hex));
+                cmap.push_str(&format!("<{utf8_hex}> <{uni_hex}>\n"));
             }
             cmap.push_str("endcidchar\n");
         }

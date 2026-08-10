@@ -25,8 +25,8 @@ impl Token {
     pub fn write_to(&self, output: &mut Vec<u8>) {
         match self {
             Token::Boolean(b) => output.extend_from_slice(if *b { b"true " } else { b"false " }),
-            Token::Integer(i) => output.extend_from_slice(format!("{} ", i).as_bytes()),
-            Token::Real(f) => output.extend_from_slice(format!("{:.4} ", f).as_bytes()),
+            Token::Integer(i) => output.extend_from_slice(format!("{i} ").as_bytes()),
+            Token::Real(f) => output.extend_from_slice(format!("{f:.4} ").as_bytes()),
             Token::String(s) => self.write_literal_string(s, output),
             Token::Hex(s) => self.write_hex_string(s, output),
             Token::Name(n) => self.write_name(n, output),
@@ -63,7 +63,7 @@ impl Token {
     fn write_hex_string(&self, s: &[u8], output: &mut Vec<u8>) {
         output.push(b'<');
         for &b in s {
-            output.extend_from_slice(format!("{:02X}", b).as_bytes());
+            output.extend_from_slice(format!("{b:02X}").as_bytes());
         }
         output.push(b'>');
         output.push(b' ');
@@ -244,13 +244,13 @@ impl Lexer {
     }
 
     fn lex_octal(&self, first_digit: u8, start_pos: usize) -> (u8, usize) {
-        let mut octal = (first_digit - b'0') as u32;
+        let mut octal = u32::from(first_digit - b'0');
         let mut pos = start_pos;
         let mut count = 1;
         while count < 3 && pos + 1 < self.data.len() {
             let next_b = self.data[pos + 1];
             if (b'0'..=b'7').contains(&next_b) {
-                octal = (octal << 3) | (next_b - b'0') as u32;
+                octal = (octal << 3) | u32::from(next_b - b'0');
                 pos += 1;
                 count += 1;
             } else {

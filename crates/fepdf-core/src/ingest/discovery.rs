@@ -153,8 +153,7 @@ fn process_stream_context(
     contexts: &mut BTreeMap<u32, BTreeMap<String, Arc<FontResource>>>,
 ) {
     let obj_h = Handle::new(i);
-    if let Some(Object::Dictionary(handle)) | Some(Object::Stream(handle, _)) =
-        arena.get_object(obj_h)
+    if let Some(Object::Dictionary(handle) | Object::Stream(handle, _)) = arena.get_object(obj_h)
         && let Some(dict) = arena.get_dict(handle)
     {
         let is_page =

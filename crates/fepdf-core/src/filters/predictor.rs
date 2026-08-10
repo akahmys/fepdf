@@ -28,7 +28,7 @@ pub fn apply_predictor(data: &[u8], params: &Object, arena: &PdfArena) -> PdfRes
 
     Err(PdfError::Filter {
         filter: "Predictor".into(),
-        message: format!("Unsupported predictor: {}", predictor).into(),
+        message: format!("Unsupported predictor: {predictor}").into(),
     })
 }
 
@@ -89,15 +89,15 @@ fn decode_row(tag: u8, input: &[u8], prev: &[u8], bpp: usize, out: &mut [u8]) ->
         let up_left = if j >= bpp { prev[j - bpp] } else { 0 };
 
         out[j] = match tag {
-            0 => input[j],                                                     // None
-            1 => input[j].wrapping_add(left),                                  // Sub
-            2 => input[j].wrapping_add(up),                                    // Up
-            3 => input[j].wrapping_add(((left as u16 + up as u16) / 2) as u8), // Average
-            4 => input[j].wrapping_add(paeth(left, up, up_left)),              // Paeth
+            0 => input[j],                    // None
+            1 => input[j].wrapping_add(left), // Sub
+            2 => input[j].wrapping_add(up),   // Up
+            3 => input[j].wrapping_add(u16::midpoint(u16::from(left), u16::from(up)) as u8), // Average
+            4 => input[j].wrapping_add(paeth(left, up, up_left)), // Paeth
             _ => {
                 return Err(PdfError::Filter {
                     filter: "PNGPredictor".into(),
-                    message: format!("Invalid PNG predictor tag: {}", tag).into(),
+                    message: format!("Invalid PNG predictor tag: {tag}").into(),
                 });
             }
         };
@@ -106,10 +106,10 @@ fn decode_row(tag: u8, input: &[u8], prev: &[u8], bpp: usize, out: &mut [u8]) ->
 }
 
 fn paeth(a: u8, b: u8, c: u8) -> u8 {
-    let p = a as i16 + b as i16 - c as i16;
-    let pa = (p - a as i16).abs();
-    let pb = (p - b as i16).abs();
-    let pc = (p - c as i16).abs();
+    let p = i16::from(a) + i16::from(b) - i16::from(c);
+    let pa = (p - i16::from(a)).abs();
+    let pb = (p - i16::from(b)).abs();
+    let pc = (p - i16::from(c)).abs();
 
     if pa <= pb && pa <= pc {
         a

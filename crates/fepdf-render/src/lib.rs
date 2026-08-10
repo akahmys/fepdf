@@ -4,6 +4,25 @@
 //! live in `fepdf-content` (ARCHITECTURE.md Rule B), so consumers that only interpret
 //! content streams never link a GPU stack.
 
+// Colour components arrive as f64 in [0,1] and leave as u8 in [0,255]; page and
+// texture dimensions arrive as f64 user-space units and leave as u32 pixels. Both
+// narrowings are clamped at the call site and are what rasterisation *is* — they
+// occur at roughly forty places, so they are suppressed here rather than annotated
+// individually.
+#![allow(
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss,
+    clippy::cast_precision_loss,
+    clippy::cast_lossless
+)]
+// Glyph and colour maths name components after the standard that defines them
+// (c/m/y/k, x/y, r/g/b); expanding those hurts rather than helps.
+#![allow(clippy::many_single_char_names)]
+// Glyph helpers take `&mut SkrifaBridge` alongside the cache-writing paths they
+// sit with; narrowing the ones that happen not to write today would flip back
+// as soon as caching is added to them.
+#![allow(clippy::needless_pass_by_ref_mut)]
+
 pub mod headless;
 pub mod text;
 
@@ -19,6 +38,7 @@ pub use fepdf_content::{
     FallbackFontType, RenderBackend, SMaskData, TextGlyph, TextState, WindingRule, path,
 };
 
+/// A [`RenderBackend`] that builds a Vello scene for GPU rasterisation.
 pub struct VelloBackend {
     scene: Scene,
     state: VelloState,
@@ -62,6 +82,7 @@ struct FontCacheEntry {
 }
 
 impl VelloBackend {
+    /// Loads the bundled fallback fonts from the configured resource directory.
     pub fn load_system_fonts() -> Arc<std::collections::BTreeMap<FallbackFontType, Arc<Vec<u8>>>> {
         let mut fonts = std::collections::BTreeMap::new();
         let resource_dir = fepdf_core::resource_dir("resources");
@@ -94,6 +115,7 @@ impl VelloBackend {
         Arc::new(fonts)
     }
 
+    /// Creates a backend that draws with the supplied fallback fonts.
     pub fn new(
         system_fonts: Arc<std::collections::BTreeMap<FallbackFontType, Arc<Vec<u8>>>>,
     ) -> Self {
@@ -127,6 +149,7 @@ impl VelloBackend {
         }
     }
 
+    /// Borrows the scene accumulated so far.
     pub fn scene(&self) -> &Scene {
         &self.scene
     }
@@ -142,20 +165,16 @@ impl VelloBackend {
         ctx: &GlyphRenderContext<'a>,
     ) -> (bool, bool, &'a [u8], bool, u32) {
         let is_cid = state.is_cid_keyed;
-        let is_japanese = state
-            .font_name
-            .as_ref()
-            .map(|n| {
-                let lower = n.to_lowercase();
-                lower.contains("mincho")
-                    || lower.contains("gothic")
-                    || lower.contains("hira")
-                    || lower.contains("koz")
-                    || n.contains("明朝")
-                    || n.contains("ゴシック")
-                    || is_cid
-            })
-            .unwrap_or(false);
+        let is_japanese = state.font_name.as_ref().is_some_and(|n| {
+            let lower = n.to_lowercase();
+            lower.contains("mincho")
+                || lower.contains("gothic")
+                || lower.contains("hira")
+                || lower.contains("koz")
+                || n.contains("明朝")
+                || n.contains("ゴシック")
+                || is_cid
+        });
 
         let mut font_data = ctx.data_ref;
         let is_space = glyph.unicode == " " || glyph.unicode == "\u{3000}";
@@ -186,13 +205,13 @@ impl VelloBackend {
         ctx: &GlyphRenderContext,
     ) -> Affine {
         let upem = skrifa_bridge.get_units_per_em(font_data).unwrap_or(1000);
-        let scale = ctx.size / upem as f64;
+        let scale = ctx.size / f64::from(upem);
 
         let h_scale = if ctx.is_vertical { 1.0 } else { ctx.th };
         let v_scale = if ctx.is_vertical { ctx.th } else { 1.0 };
 
         let local_to_pt = Affine::scale_non_uniform(scale * h_scale, scale * v_scale)
-            * Affine::translate(kurbo::Vec2::new(-glyph.vx as f64, -glyph.vy as f64));
+            * Affine::translate(kurbo::Vec2::new(f64::from(-glyph.vx), f64::from(-glyph.vy)));
 
         let adv_vec = if ctx.is_vertical {
             kurbo::Vec2::new(0.0, ctx.advance_offset)
@@ -269,7 +288,7 @@ impl VelloBackend {
         let advance = if !is_vertical {
             let mut adv = (char_width + tc) * th;
             if glyph.char_code == 0x20 {
-                adv += tw * th;
+                adv = tw.mul_add(th, adv);
             }
             adv
         } else {
@@ -403,7 +422,7 @@ fn apply_image_smask(rgba_data: &mut [u8], mask: &SMaskData) {
                 let r = f64::from(mask.data[i * 3]);
                 let g = f64::from(mask.data[i * 3 + 1]);
                 let b = f64::from(mask.data[i * 3 + 2]);
-                ((0.299 * r) + (0.587 * g) + (0.114 * b)) as u8
+                0.114f64.mul_add(b, 0.587f64.mul_add(g, 0.299 * r)) as u8
             }
             // Formats carrying no usable alpha channel leave the pixel opaque.
             PixelFormat::Cmyk8 | PixelFormat::MonoMask | PixelFormat::MonoMaskInverted => 255,
@@ -609,7 +628,7 @@ impl RenderBackend for VelloBackend {
             self.state.is_fallback = is_fallback;
             self.state.fallback_type = entry.fallback_type;
         } else {
-            log::warn!("[RENDER] set_font: {} NOT FOUND in cache", name);
+            log::warn!("[RENDER] set_font: {name} NOT FOUND in cache");
         }
     }
 
@@ -631,10 +650,8 @@ impl RenderBackend for VelloBackend {
         text_state: TextState,
         _op_index: usize,
     ) {
-        let _is_fallback = self.state.is_fallback;
-
         let data_arc = self.state.font_data.clone();
-        let data_ref = data_arc.as_deref().map(|v| v.as_slice()).unwrap_or(&[]);
+        let data_ref = data_arc.as_deref().map_or(&[][..], |v| v.as_slice());
         let brush = to_vello_brush(&self.state.fill_color, self.state.fill_alpha as f32);
         let mut advance_offset = 0.0;
         for glyph in glyphs {

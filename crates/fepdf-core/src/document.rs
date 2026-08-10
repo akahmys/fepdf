@@ -105,7 +105,7 @@ impl Document {
         // Attempt to decrypt with empty password if encrypted
         if lopdf_doc.is_encrypted() {
             match lopdf_doc.decrypt("") {
-                Ok(_) => {}
+                Ok(()) => {}
                 Err(_e) => {
                     // We will try manual Pass 0 decryption in Ingestor
                 }
@@ -159,11 +159,11 @@ impl Document {
         let mac_paths = [
             (
                 crate::font::FallbackFontType::JapaneseSerif,
-                "/System/Library/Fonts/ヒラギノ明朝 ProN.ttc",
+                "/System/Library/Fonts/ヒラギノ明朝 ProN.ttc",
             ),
             (
                 crate::font::FallbackFontType::JapaneseSans,
-                "/System/Library/Fonts/ヒラギノ角ゴ Interface.ttc",
+                "/System/Library/Fonts/ヒラギノ角ゴ Interface.ttc",
             ),
             (crate::font::FallbackFontType::Serif, "/System/Library/Fonts/Times.ttc"),
             (crate::font::FallbackFontType::SansSerif, "/System/Library/Fonts/Helvetica.ttc"),
@@ -362,9 +362,10 @@ impl Document {
 
     /// Resolves an indirect object handle to its current dictionary pool handle.
     pub fn resolve_to_dict(&self, handle: Handle<Object>) -> PdfResult<DictHandle> {
-        self.arena.get_object(handle).and_then(|obj| obj.as_dict_handle()).ok_or_else(|| {
-            PdfError::Other(format!("Object {:?} is not a dictionary", handle).into())
-        })
+        self.arena
+            .get_object(handle)
+            .and_then(|obj| obj.as_dict_handle())
+            .ok_or_else(|| PdfError::Other(format!("Object {handle:?} is not a dictionary").into()))
     }
 
     /// Returns the total number of pages in the document.
@@ -925,7 +926,7 @@ impl Document {
                 .and_then(|o| o.as_string())
                 .map(|s| String::from_utf8_lossy(s).to_string())
                 .unwrap_or_default();
-            return format!("{}-{}", r, o);
+            return format!("{r}-{o}");
         }
         String::new()
     }

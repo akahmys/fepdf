@@ -51,12 +51,12 @@ pub fn decode_stream(
                 .with_guessed_format()
                 .map_err(|e| PdfError::Filter {
                     filter: "DCTDecode".into(),
-                    message: format!("Failed to read JPEG: {}", e).into(),
+                    message: format!("Failed to read JPEG: {e}").into(),
                 })?
                 .decode()
                 .map_err(|e| PdfError::Filter {
                     filter: "DCTDecode".into(),
-                    message: format!("Failed to decode JPEG: {}", e).into(),
+                    message: format!("Failed to decode JPEG: {e}").into(),
                 })?;
 
             let bytes = img.to_rgb8().into_raw();
@@ -64,7 +64,7 @@ pub fn decode_stream(
         }
         _ => Err(PdfError::Filter {
             filter: filter_name.to_string().into(),
-            message: format!("Unsupported filter: {}", filter_name).into(),
+            message: format!("Unsupported filter: {filter_name}").into(),
         }),
     }
 }

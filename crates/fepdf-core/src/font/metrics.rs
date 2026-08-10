@@ -93,7 +93,7 @@ impl FontMetrics {
                             Object::resolve(&chunk[0], arena).as_f64().unwrap_or(-1000.0) as f32;
                         let v_x = Object::resolve(&chunk[1], arena)
                             .as_f64()
-                            .unwrap_or(default_w as f64 / 2.0)
+                            .unwrap_or(f64::from(default_w) / 2.0)
                             as f32;
                         let v_y =
                             Object::resolve(&chunk[2], arena).as_f64().unwrap_or(880.0) as f32;
@@ -107,7 +107,7 @@ impl FontMetrics {
                     Object::resolve(&w2_arr[i + 2], arena).as_f64().unwrap_or(-1000.0) as f32;
                 let v_x = Object::resolve(&w2_arr[i + 3], arena)
                     .as_f64()
-                    .unwrap_or(default_w as f64 / 2.0) as f32;
+                    .unwrap_or(f64::from(default_w) / 2.0) as f32;
                 let v_y = Object::resolve(&w2_arr[i + 4], arena).as_f64().unwrap_or(880.0) as f32;
                 for cid in first_cid..=last_cid {
                     v_widths.insert(cid, (w1_y, v_x, v_y));

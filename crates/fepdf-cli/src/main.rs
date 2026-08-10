@@ -11,6 +11,10 @@ use inquire::Confirm;
 use std::path::PathBuf;
 
 /// Common options for PDF ingestion/reading
+// Each bool is one `--flag` that clap parses for us. Grouping them into a
+// sub-struct would only move the same flags one level down and break the
+// flattened command line.
+#[allow(clippy::struct_excessive_bools)]
 #[derive(clap::Args, Debug, Clone)]
 struct IngestArgs {
     /// Disable active 2-pass refinement (UTF-8 normalization)
@@ -45,6 +49,10 @@ impl From<IngestArgs> for fepdf_core::ingest::IngestionOptions {
 }
 
 /// Common options for PDF writing/optimization
+// Each bool is one `--flag` that clap parses for us. Grouping them into a
+// sub-struct would only move the same flags one level down and break the
+// flattened command line.
+#[allow(clippy::struct_excessive_bools)]
 #[derive(clap::Args, Debug, Clone)]
 struct SaveArgs {
     /// Opt-in for stream compression (FlateDecode)
@@ -506,22 +514,23 @@ fn handle_merge(
     ingest: IngestArgs,
     save: SaveArgs,
 ) -> Result<()> {
-    println!("fepdf merge: Combining {} files into {:?}", inputs.len(), output);
+    println!("fepdf merge: Combining {} files into {}", inputs.len(), output.display());
     let mut sources = Vec::new();
     let ingest_options: fepdf_core::ingest::IngestionOptions = ingest.into();
     for path in inputs {
-        let data = std::fs::read(&path).with_context(|| format!("Failed to read {:?}", path))?;
+        let data =
+            std::fs::read(&path).with_context(|| format!("Failed to read {}", path.display()))?;
         let doc = PdfDocument::open_with_options(data.into(), &ingest_options)
-            .map_err(|e| anyhow::anyhow!("{:?}", e))?;
+            .map_err(|e| anyhow::anyhow!("{e:?}"))?;
         sources.push(doc);
     }
 
-    let merged = PdfDocument::merge(sources).map_err(|e| anyhow::anyhow!("{:?}", e))?;
+    let merged = PdfDocument::merge(sources).map_err(|e| anyhow::anyhow!("{e:?}"))?;
     let save_options: fepdf_sdk::SaveOptions = save.into();
     merged
         .save_with_options(&output, "2.0", &save_options)
-        .map_err(|e| anyhow::anyhow!("{:?}", e))?;
-    println!("SUCCESS: Merged output saved to {:?}", output);
+        .map_err(|e| anyhow::anyhow!("{e:?}"))?;
+    println!("SUCCESS: Merged output saved to {}", output.display());
     Ok(())
 }
 
@@ -532,23 +541,23 @@ fn handle_split(
     ingest: IngestArgs,
     save: SaveArgs,
 ) -> Result<()> {
-    println!("fepdf split: Extracting pages from {:?}", input);
+    println!("fepdf split: Extracting pages from {}", input.display());
     let data = std::fs::read(&input).with_context(|| "Failed to read input")?;
     let ingest_options: fepdf_core::ingest::IngestionOptions = ingest.into();
     let doc = PdfDocument::open_with_options(data.into(), &ingest_options)
-        .map_err(|e| anyhow::anyhow!("{:?}", e))?;
-    let page_count = doc.page_count().map_err(|e| anyhow::anyhow!("{:?}", e))?;
+        .map_err(|e| anyhow::anyhow!("{e:?}"))?;
+    let page_count = doc.page_count().map_err(|e| anyhow::anyhow!("{e:?}"))?;
 
     let range_str = pages.unwrap_or_else(|| "all".to_string());
     let target_indices = parse_page_range(&range_str, page_count)?;
 
-    let extracted = doc.extract_pages(target_indices).map_err(|e| anyhow::anyhow!("{:?}", e))?;
+    let extracted = doc.extract_pages(target_indices).map_err(|e| anyhow::anyhow!("{e:?}"))?;
 
     let save_options: fepdf_sdk::SaveOptions = save.into();
     extracted
         .save_with_options(&output, "2.0", &save_options)
-        .map_err(|e| anyhow::anyhow!("{:?}", e))?;
-    println!("SUCCESS: Extracted output saved to {:?}", output);
+        .map_err(|e| anyhow::anyhow!("{e:?}"))?;
+    println!("SUCCESS: Extracted output saved to {}", output.display());
     Ok(())
 }
 
@@ -557,7 +566,7 @@ fn render_summary_markdown(
     input: &std::path::Path,
     audit: bool,
 ) -> Result<()> {
-    println!("# Document Summary: {:?}", input.file_name().unwrap_or_default());
+    println!("# Document Summary: {}", input.file_name().unwrap_or_default().display());
     render_general_info(summary);
     render_font_audit(summary);
 
@@ -574,22 +583,22 @@ fn render_general_info(summary: &fepdf_sdk::DocumentSummary) {
     println!("| Version | {} |", summary.version);
     println!("| Total Pages | {} |", summary.page_count);
     if let Some(v) = &summary.metadata.title {
-        println!("| Title | {} |", v);
+        println!("| Title | {v} |");
     }
     if let Some(v) = &summary.metadata.author {
-        println!("| Author | {} |", v);
+        println!("| Author | {v} |");
     }
     if let Some(v) = &summary.metadata.subject {
-        println!("| Subject | {} |", v);
+        println!("| Subject | {v} |");
     }
     if let Some(v) = &summary.metadata.keywords {
-        println!("| Keywords | {} |", v);
+        println!("| Keywords | {v} |");
     }
     if let Some(v) = &summary.metadata.creator {
-        println!("| Creator | {} |", v);
+        println!("| Creator | {v} |");
     }
     if let Some(v) = &summary.metadata.producer {
-        println!("| Producer | {} |", v);
+        println!("| Producer | {v} |");
     }
 }
 
@@ -597,7 +606,7 @@ fn render_font_audit(summary: &fepdf_sdk::DocumentSummary) {
     let embedded_count = summary.fonts.iter().filter(|f| f.is_embedded).count();
     let total_fonts = summary.fonts.len();
 
-    println!("\n## Font Audit (Embedded: {}/{})", embedded_count, total_fonts);
+    println!("\n## Font Audit (Embedded: {embedded_count}/{total_fonts})");
     if total_fonts > 0 {
         println!("\n| Font Name | Type | Embedded | Subset | Encoding |");
         println!("| :--- | :--- | :--- | :--- | :--- |");
@@ -634,7 +643,7 @@ fn render_compliance_markdown(summary: &fepdf_sdk::DocumentSummary) -> Result<()
         .filter(|i| matches!(i.severity, fepdf_sdk::IssueSeverity::Warning))
         .count();
     println!("\n## Compliance Audit (UA-2)");
-    println!("**Summary**: {} Errors, {} Warnings", errors, warnings);
+    println!("**Summary**: {errors} Errors, {warnings} Warnings");
 
     if !summary.compliance.issues.is_empty() {
         println!("\n| Severity | Standard | Message |");
@@ -656,7 +665,7 @@ fn render_compliance_markdown(summary: &fepdf_sdk::DocumentSummary) -> Result<()
         println!("\n## Validated ISO 32000-2 Clauses");
         println!("The following structural components were validated against the specification:");
         for clause in &summary.compliance.iso_clauses {
-            println!("- **Clause {}**", clause);
+            println!("- **Clause {clause}**");
         }
     }
     Ok(())
@@ -676,21 +685,21 @@ fn render_summary_text(
     }
 
     if structure {
-        let tree = doc.print_structure().map_err(|e| anyhow::anyhow!("{:?}", e))?;
-        println!("\n--- [ DOCUMENT STRUCTURE ] ---\n{}", tree);
+        let tree = doc.print_structure().map_err(|e| anyhow::anyhow!("{e:?}"))?;
+        println!("\n--- [ DOCUMENT STRUCTURE ] ---\n{tree}");
     }
     Ok(())
 }
 
 fn handle_info(input: PathBuf, format: String, ingest: IngestArgs) -> Result<()> {
     if format == "text" {
-        println!("fepdf info: Analyzing {:?}", input);
+        println!("fepdf info: Analyzing {}", input.display());
     }
     let data = std::fs::read(&input).with_context(|| "Failed to read input")?;
     let ingest_options: fepdf_core::ingest::IngestionOptions = ingest.into();
     let doc = PdfDocument::open_with_options(data.into(), &ingest_options)
-        .map_err(|e| anyhow::anyhow!("{:?}", e))?;
-    let summary = doc.get_summary().map_err(|e| anyhow::anyhow!("{:?}", e))?;
+        .map_err(|e| anyhow::anyhow!("{e:?}"))?;
+    let summary = doc.get_summary().map_err(|e| anyhow::anyhow!("{e:?}"))?;
 
     match format.as_str() {
         "json" => println!("{}", serde_json::to_string_pretty(&summary)?),
@@ -702,13 +711,13 @@ fn handle_info(input: PathBuf, format: String, ingest: IngestArgs) -> Result<()>
 
 fn handle_audit(input: PathBuf, format: String, ingest: IngestArgs) -> Result<()> {
     if format == "text" {
-        println!("fepdf audit: Performing compliance check on {:?}", input);
+        println!("fepdf audit: Performing compliance check on {}", input.display());
     }
     let data = std::fs::read(&input).with_context(|| "Failed to read input")?;
     let ingest_options: fepdf_core::ingest::IngestionOptions = ingest.into();
     let doc = PdfDocument::open_with_options(data.into(), &ingest_options)
-        .map_err(|e| anyhow::anyhow!("{:?}", e))?;
-    let summary = doc.get_summary().map_err(|e| anyhow::anyhow!("{:?}", e))?;
+        .map_err(|e| anyhow::anyhow!("{e:?}"))?;
+    let summary = doc.get_summary().map_err(|e| anyhow::anyhow!("{e:?}"))?;
 
     match format.as_str() {
         "json" => println!("{}", serde_json::to_string_pretty(&summary)?),
@@ -724,22 +733,20 @@ fn print_dictionary_fields(
 ) {
     if let Some(dict) = arena.get_dict(h) {
         println!("Type: Dictionary");
-        for (k, v) in dict.iter() {
+        for (k, v) in &dict {
             let name = arena
                 .get_name(*k)
-                .map(|n| n.as_str().to_string())
-                .unwrap_or_else(|| format!("Unknown_{:?}", k));
+                .map_or_else(|| format!("Unknown_{k:?}"), |n| n.as_str().to_string());
             let val_str = match v {
                 fepdf_core::Object::Name(vh) => arena
                     .get_name(*vh)
-                    .map(|n| format!("Name(/{})", n.as_str()))
-                    .unwrap_or_else(|| format!("{:?}", v)),
-                _ => format!("{:?}", v),
+                    .map_or_else(|| format!("{v:?}"), |n| format!("Name(/{})", n.as_str())),
+                _ => format!("{v:?}"),
             };
-            println!("  /{} -> {}", name, val_str);
+            println!("  /{name} -> {val_str}");
         }
     } else {
-        println!("Error: Dictionary handle {:?} not found in arena", h);
+        println!("Error: Dictionary handle {h:?} not found in arena");
     }
 }
 
@@ -750,12 +757,11 @@ fn print_stream_fields(
 ) {
     if let Some(dict) = arena.get_dict(h) {
         println!("Type: Stream");
-        for (k, v) in dict.iter() {
+        for (k, v) in &dict {
             let name = arena
                 .get_name(*k)
-                .map(|n| n.as_str().to_string())
-                .unwrap_or_else(|| format!("Unknown_{:?}", k));
-            println!("  /{} -> {:?}", name, v);
+                .map_or_else(|| format!("Unknown_{k:?}"), |n| n.as_str().to_string());
+            println!("  /{name} -> {v:?}");
         }
         let raw_bytes = arena.get_stream_bytes(&data).unwrap_or_default();
         println!("Raw Length: {} bytes", raw_bytes.len());
@@ -773,22 +779,22 @@ fn print_stream_fields(
             }
         }
     } else {
-        println!("Error: Stream dictionary handle {:?} not found in arena", h);
+        println!("Error: Stream dictionary handle {h:?} not found in arena");
     }
 }
 
 fn handle_debug_dump(input: PathBuf, obj_id: u32, _gen_num: u16, ingest: IngestArgs) -> Result<()> {
-    println!("fepdf debug dump: Object {} from {:?}", obj_id, input);
+    println!("fepdf debug dump: Object {obj_id} from {}", input.display());
     let data = std::fs::read(&input).with_context(|| "Failed to read input")?;
     let ingest_options: fepdf_core::ingest::IngestionOptions = ingest.into();
     let doc = PdfDocument::open_with_options(data.into(), &ingest_options)
-        .map_err(|e| anyhow::anyhow!("{:?}", e))?;
+        .map_err(|e| anyhow::anyhow!("{e:?}"))?;
 
     let arena = doc.inner().arena();
     let id = fepdf_core::Object::Reference(Handle::new(obj_id));
     let resolved = id.resolve(arena);
 
-    println!("\n--- [ OBJECT {} ] ---", obj_id);
+    println!("\n--- [ OBJECT {obj_id} ] ---");
     match resolved {
         fepdf_core::Object::Dictionary(h) => {
             print_dictionary_fields(arena, h);
@@ -796,30 +802,30 @@ fn handle_debug_dump(input: PathBuf, obj_id: u32, _gen_num: u16, ingest: IngestA
         fepdf_core::Object::Stream(h, data) => {
             print_stream_fields(arena, h, data);
         }
-        _ => println!("{:?}", resolved),
+        _ => println!("{resolved:?}"),
     }
 
     Ok(())
 }
 
 fn handle_debug_structure(input: PathBuf, ingest: IngestArgs) -> Result<()> {
-    println!("fepdf debug structure: Hierarchical tree for {:?}", input);
+    println!("fepdf debug structure: Hierarchical tree for {}", input.display());
     let data = std::fs::read(&input).with_context(|| "Failed to read input")?;
     let ingest_options: fepdf_core::ingest::IngestionOptions = ingest.into();
     let doc = PdfDocument::open_with_options(data.into(), &ingest_options)
-        .map_err(|e| anyhow::anyhow!("{:?}", e))?;
+        .map_err(|e| anyhow::anyhow!("{e:?}"))?;
 
-    let tree = doc.print_structure().map_err(|e| anyhow::anyhow!("{:?}", e))?;
-    println!("\n--- [ DOCUMENT STRUCTURE ] ---\n{}", tree);
+    let tree = doc.print_structure().map_err(|e| anyhow::anyhow!("{e:?}"))?;
+    println!("\n--- [ DOCUMENT STRUCTURE ] ---\n{tree}");
     Ok(())
 }
 
 fn handle_debug_stats(input: PathBuf, ingest: IngestArgs) -> Result<()> {
-    println!("fepdf debug stats: Analyzing memory usage for {:?}", input);
+    println!("fepdf debug stats: Analyzing memory usage for {}", input.display());
     let data = std::fs::read(&input).with_context(|| "Failed to read input")?;
     let ingest_options: fepdf_core::ingest::IngestionOptions = ingest.into();
     let doc = PdfDocument::open_with_options(data.into(), &ingest_options)
-        .map_err(|e| anyhow::anyhow!("{:?}", e))?;
+        .map_err(|e| anyhow::anyhow!("{e:?}"))?;
 
     let stats = doc.inner().arena().get_stats();
 
@@ -847,7 +853,7 @@ fn handle_upgrade(
     ingest: IngestArgs,
     save: SaveArgs,
 ) -> Result<()> {
-    println!("fepdf upgrade: {:?} -> {:?}", input, output);
+    println!("fepdf upgrade: {} -> {}", output.display(), input.display());
     if save.dry_run {
         println!("DRY RUN: Simulation mode enabled. No file will be written.");
     }
@@ -855,7 +861,7 @@ fn handle_upgrade(
     let data = std::fs::read(&input).with_context(|| "Failed to read input")?;
     let ingest_options: fepdf_core::ingest::IngestionOptions = ingest.into();
     let mut doc = PdfDocument::open_with_options(data.into(), &ingest_options)
-        .map_err(|e| anyhow::anyhow!("{:?}", e))?;
+        .map_err(|e| anyhow::anyhow!("{e:?}"))?;
 
     if diff {
         println!("INFO: Structural diff would be displayed here (M67 enhancement).");
@@ -866,25 +872,24 @@ fn handle_upgrade(
             "a4" => PdfStandard::A4,
             "x6" => PdfStandard::X6,
             "ua2" => PdfStandard::UA2,
-            _ => anyhow::bail!("Unsupported standard: {}", std_str),
+            _ => anyhow::bail!("Unsupported standard: {std_str}"),
         };
 
         if (std == PdfStandard::A4 || std == PdfStandard::X6) && icc_profile.is_none() {
             println!("ADVICE: No --icc-profile specified. Defaulting to standard sRGB.");
         }
-        doc.upgrade_to_standard(std).map_err(|e| anyhow::anyhow!("{:?}", e))?;
+        doc.upgrade_to_standard(std).map_err(|e| anyhow::anyhow!("{e:?}"))?;
     }
 
     let save_options: fepdf_sdk::SaveOptions = save.into();
 
     if linearize {
-        doc.save_linearized(&output, "2.0", &save_options)
-            .map_err(|e| anyhow::anyhow!("{:?}", e))?;
+        doc.save_linearized(&output, "2.0", &save_options).map_err(|e| anyhow::anyhow!("{e:?}"))?;
     } else {
         doc.save_with_options(&output, "2.0", &save_options)
-            .map_err(|e| anyhow::anyhow!("{:?}", e))?;
+            .map_err(|e| anyhow::anyhow!("{e:?}"))?;
     }
-    println!("SUCCESS: Output saved to {:?}", output);
+    println!("SUCCESS: Output saved to {}", output.display());
     Ok(())
 }
 
@@ -894,15 +899,15 @@ fn handle_repair(
     ingest: IngestArgs,
     save: SaveArgs,
 ) -> Result<()> {
-    println!("fepdf repair: Attempting to salvage corrupted document {:?}", input);
+    println!("fepdf repair: Attempting to salvage corrupted document {}", input.display());
     let data = std::fs::read(&input).with_context(|| "Failed to read input")?;
     let ingest_options: fepdf_core::ingest::IngestionOptions = ingest.into();
     let doc = PdfDocument::open_and_repair_with_options(data.into(), &ingest_options)
-        .map_err(|e| anyhow::anyhow!("{:?}", e))?;
+        .map_err(|e| anyhow::anyhow!("{e:?}"))?;
 
     let save_options: fepdf_sdk::SaveOptions = save.into();
-    doc.save_with_options(&output, "2.0", &save_options).map_err(|e| anyhow::anyhow!("{:?}", e))?;
-    println!("SUCCESS: Repaired output saved to {:?}", output);
+    doc.save_with_options(&output, "2.0", &save_options).map_err(|e| anyhow::anyhow!("{e:?}"))?;
+    println!("SUCCESS: Repaired output saved to {}", output.display());
     Ok(())
 }
 
@@ -914,23 +919,23 @@ fn handle_rotate(
     ingest: IngestArgs,
     save: SaveArgs,
 ) -> Result<()> {
-    println!("fepdf rotate: Rotating pages in {:?} by {} degrees...", input, angle);
+    println!("fepdf rotate: Rotating pages in {} by {angle} degrees...", input.display());
     let data = std::fs::read(&input).with_context(|| "Failed to read input")?;
     let ingest_options: fepdf_core::ingest::IngestionOptions = ingest.into();
     let mut doc = PdfDocument::open_with_options(data.into(), &ingest_options)
-        .map_err(|e| anyhow::anyhow!("{:?}", e))?;
+        .map_err(|e| anyhow::anyhow!("{e:?}"))?;
 
-    let page_count = doc.page_count().map_err(|e| anyhow::anyhow!("{:?}", e))?;
+    let page_count = doc.page_count().map_err(|e| anyhow::anyhow!("{e:?}"))?;
     let range_str = pages.unwrap_or_else(|| "all".to_string());
     let target_pages = parse_page_range(&range_str, page_count)?;
 
     for idx in target_pages {
-        doc.set_page_rotation(idx, angle).map_err(|e| anyhow::anyhow!("{:?}", e))?;
+        doc.set_page_rotation(idx, angle).map_err(|e| anyhow::anyhow!("{e:?}"))?;
     }
 
     let save_options: fepdf_sdk::SaveOptions = save.into();
-    doc.save_with_options(&output, "2.0", &save_options).map_err(|e| anyhow::anyhow!("{:?}", e))?;
-    println!("SUCCESS: Rotated output saved to {:?}", output);
+    doc.save_with_options(&output, "2.0", &save_options).map_err(|e| anyhow::anyhow!("{e:?}"))?;
+    println!("SUCCESS: Rotated output saved to {}", output.display());
     Ok(())
 }
 
@@ -940,11 +945,15 @@ fn handle_render(
     page_num: usize,
     ingest: IngestArgs,
 ) -> Result<()> {
-    println!("fepdf render: Rendering page {} of {:?} to {:?}...", page_num, input, output);
+    println!(
+        "fepdf render: Rendering page {page_num} of {} to {}...",
+        output.display(),
+        input.display()
+    );
     let data = std::fs::read(&input).with_context(|| "Failed to read input")?;
     let ingest_options: fepdf_core::ingest::IngestionOptions = ingest.into();
     let mut doc = PdfDocument::open_with_options(data.into(), &ingest_options)
-        .map_err(|e| anyhow::anyhow!("{:?}", e))?;
+        .map_err(|e| anyhow::anyhow!("{e:?}"))?;
 
     // Host-level font discovery
     let mut system_fonts = std::collections::BTreeMap::new();
@@ -974,13 +983,13 @@ fn handle_render(
     }
     doc.set_system_fonts(system_fonts);
 
-    if page_num == 0 || page_num > doc.page_count().map_err(|e| anyhow::anyhow!("{:?}", e))? {
-        return Err(anyhow::anyhow!("Invalid page number: {}", page_num));
+    if page_num == 0 || page_num > doc.page_count().map_err(|e| anyhow::anyhow!("{e:?}"))? {
+        return Err(anyhow::anyhow!("Invalid page number: {page_num}"));
     }
 
-    doc.render_page_to_file(page_num - 1, &output).map_err(|e| anyhow::anyhow!("{:?}", e))?;
+    doc.render_page_to_file(page_num - 1, &output).map_err(|e| anyhow::anyhow!("{e:?}"))?;
 
-    println!("SUCCESS: Rendered page saved to {:?}", output);
+    println!("SUCCESS: Rendered page saved to {}", output.display());
     Ok(())
 }
 
@@ -991,16 +1000,19 @@ fn handle_retag(
     ingest: IngestArgs,
     save: SaveArgs,
 ) -> Result<()> {
-    println!("fepdf retag: {} -> {:?}", if wizard { "Wizard Mode" } else { "Automatic" }, output);
+    println!(
+        "fepdf retag: {} -> {}",
+        if wizard { "Wizard Mode" } else { "Automatic" },
+        output.display()
+    );
     let data = std::fs::read(&input).with_context(|| "Failed to read input")?;
     let ingest_options: fepdf_core::ingest::IngestionOptions = ingest.into();
     let mut doc = PdfDocument::open_with_options(data.into(), &ingest_options)
-        .map_err(|e| anyhow::anyhow!("{:?}", e))?;
+        .map_err(|e| anyhow::anyhow!("{e:?}"))?;
 
     if wizard {
         println!("Wizard Mode: Reviewing heuristic structural candidates...");
-        let candidates =
-            doc.get_remediation_candidates().map_err(|e| anyhow::anyhow!("{:?}", e))?;
+        let candidates = doc.get_remediation_candidates().map_err(|e| anyhow::anyhow!("{e:?}"))?;
 
         if candidates.is_empty() {
             println!("No remediation candidates found.");
@@ -1015,28 +1027,28 @@ fn handle_retag(
         }
     } else {
         println!("Running automatic heuristic re-tagging rules...");
-        doc.retag_document().map_err(|e| anyhow::anyhow!("{:?}", e))?;
+        doc.retag_document().map_err(|e| anyhow::anyhow!("{e:?}"))?;
     }
 
     let save_options: fepdf_sdk::SaveOptions = save.into();
-    doc.save_with_options(&output, "2.0", &save_options).map_err(|e| anyhow::anyhow!("{:?}", e))?;
-    println!("SUCCESS: Re-tagged document saved to {:?}", output);
+    doc.save_with_options(&output, "2.0", &save_options).map_err(|e| anyhow::anyhow!("{e:?}"))?;
+    println!("SUCCESS: Re-tagged document saved to {}", output.display());
     Ok(())
 }
 
 fn handle_text(input: PathBuf, pages: Option<String>, ingest: IngestArgs) -> Result<()> {
-    println!("fepdf text: Extracting text from {:?}", input);
+    println!("fepdf text: Extracting text from {}", input.display());
     let data = std::fs::read(&input).with_context(|| "Failed to read input")?;
     let ingest_options: fepdf_core::ingest::IngestionOptions = ingest.into();
     let doc = PdfDocument::open_with_options(data.into(), &ingest_options)
-        .map_err(|e| anyhow::anyhow!("{:?}", e))?;
+        .map_err(|e| anyhow::anyhow!("{e:?}"))?;
 
-    let page_count = doc.page_count().map_err(|e| anyhow::anyhow!("{:?}", e))?;
+    let page_count = doc.page_count().map_err(|e| anyhow::anyhow!("{e:?}"))?;
     let range_str = pages.unwrap_or_else(|| "all".to_string());
     let target_indices = parse_page_range(&range_str, page_count)?;
 
     for idx in target_indices {
-        let text = doc.extract_text(idx).map_err(|e| anyhow::anyhow!("{:?}", e))?;
+        let text = doc.extract_text(idx).map_err(|e| anyhow::anyhow!("{e:?}"))?;
         println!("\n--- [ PAGE {} ] ---\n{}", idx + 1, text);
     }
     Ok(())
@@ -1054,11 +1066,11 @@ fn handle_sign(
     ingest: IngestArgs,
     save: SaveArgs,
 ) -> Result<()> {
-    println!("fepdf sign: {:?} -> {:?}", input, output);
+    println!("fepdf sign: {} -> {}", output.display(), input.display());
     let data = std::fs::read(&input).with_context(|| "Failed to read input")?;
     let ingest_options: fepdf_core::ingest::IngestionOptions = ingest.into();
     let doc = PdfDocument::open_with_options(data.into(), &ingest_options)
-        .map_err(|e| anyhow::anyhow!("{:?}", e))?;
+        .map_err(|e| anyhow::anyhow!("{e:?}"))?;
 
     let mut sign_options = fepdf_sdk::SignOptions {
         reason,
@@ -1078,9 +1090,9 @@ fn handle_sign(
 
     let save_options: fepdf_sdk::SaveOptions = save.into();
     doc.save_signed(&output, "2.0", &save_options, &sign_options)
-        .map_err(|e| anyhow::anyhow!("{:?}", e))?;
+        .map_err(|e| anyhow::anyhow!("{e:?}"))?;
 
-    println!("SUCCESS: Signed document saved to {:?}", output);
+    println!("SUCCESS: Signed document saved to {}", output.display());
     Ok(())
 }
 
@@ -1104,7 +1116,7 @@ fn handle_credits() -> Result<()> {
     println!("{:<25} | {:<20} | {:<30}", "Crate", "License", "Purpose");
     println!("{:-<25}-+-{:-<20}-+-{:-<30}", "", "", "");
     for (name, license, purpose) in credits {
-        println!("{:<25} | {:<20} | {:<30}", name, license, purpose);
+        println!("{name:<25} | {license:<20} | {purpose:<30}");
     }
 
     println!("\nFull license texts are available in the repository's NOTICE file.");
@@ -1134,7 +1146,7 @@ fn parse_page_range(range_str: &str, max_pages: usize) -> Result<Vec<usize>> {
             }
         }
     }
-    pages.sort();
+    pages.sort_unstable();
     pages.dedup();
     Ok(pages)
 }
@@ -1144,10 +1156,10 @@ fn render_general_text(summary: &fepdf_sdk::DocumentSummary) {
     println!("Version:    {}", summary.version);
     println!("Pages:      {}", summary.page_count);
     if let Some(v) = &summary.metadata.title {
-        println!("Title:      {}", v);
+        println!("Title:      {v}");
     }
     if let Some(v) = &summary.metadata.author {
-        println!("Author:     {}", v);
+        println!("Author:     {v}");
     }
 }
 
@@ -1206,7 +1218,7 @@ fn handle_extract_font(
     let data = std::fs::read(&input).with_context(|| "Failed to read input")?;
     let ingest_options: fepdf_core::ingest::IngestionOptions = ingest.into();
     let doc = PdfDocument::open_with_options(data.into(), &ingest_options)
-        .map_err(|e| anyhow::anyhow!("{:?}", e))?;
+        .map_err(|e| anyhow::anyhow!("{e:?}"))?;
 
     let obj_id = obj_num;
     let handle = Handle::new(obj_id);
@@ -1227,14 +1239,14 @@ fn handle_extract_font(
         let data = resource.reconstructed_data.as_ref().or(resource.data.as_ref());
         if let Some(arc_data) = data {
             let extension = if resource.reconstructed_data.is_some() { "otf" } else { "cid" };
-            let filename = format!("exports/font-{:04}.{}", obj_id, extension);
+            let filename = format!("exports/font-{obj_id:04}.{extension}");
             std::fs::write(&filename, &**arc_data).with_context(|| "Failed to write output")?;
             println!("SUCCESS: Extracted font to {} ({} bytes)", filename, arc_data.len());
         } else {
-            anyhow::bail!("No data for font {}", obj_id);
+            anyhow::bail!("No data for font {obj_id}");
         }
     } else {
-        anyhow::bail!("Failed to load font resource for {}", obj_id);
+        anyhow::bail!("Failed to load font resource for {obj_id}");
     }
     Ok(())
 }
@@ -1245,13 +1257,13 @@ fn trace_single_font(
     handle: Handle<Object>,
     target_char: char,
 ) {
-    println!("\n--- [ FONT: {} ] ---", name);
-    println!("Handle: {:?}", handle);
+    println!("\n--- [ FONT: {name} ] ---");
+    println!("Handle: {handle:?}");
 
     let mut ctx = TraceContext::new();
     let cid_match = font.unicode_to_gid.get(&target_char).copied();
     if let Some(cid) = cid_match {
-        println!("Note: Unicode character maps to CID {} in this font's CMap", cid);
+        println!("Note: Unicode character maps to CID {cid} in this font's CMap");
     }
 
     let gid = font.resolve_gid(cid_match.unwrap_or(0), Some(target_char), Some(&mut ctx));
@@ -1266,7 +1278,7 @@ fn trace_single_font(
             let cid = cid_match.unwrap_or(0);
             let w = font.glyph_width_by_cid(cid);
             let (v_w, vx, vy) = font.glyph_vertical_metrics(cid);
-            println!("RESULT: GID {} (w: {}, vx: {}, vy: {}, v_adv: {})", g, w, vx, vy, v_w);
+            println!("RESULT: GID {g} (w: {w}, vx: {vx}, vy: {vy}, v_adv: {v_w})");
         }
         None => println!("RESULT: FAILED TO RESOLVE"),
     }
@@ -1278,13 +1290,16 @@ fn handle_debug_trace_glyph(
     font_filter: Option<String>,
     ingest: IngestArgs,
 ) -> Result<()> {
-    println!("fepdf debug trace-glyph: Analyzing mapping for '{}' in {:?}", unicode_str, input);
+    println!(
+        "fepdf debug trace-glyph: Analyzing mapping for '{unicode_str}' in {}",
+        input.display()
+    );
 
     let target_char = parse_unicode(&unicode_str)?;
     let data = std::fs::read(&input).with_context(|| "Failed to read input")?;
     let ingest_options: fepdf_core::ingest::IngestionOptions = ingest.into();
     let doc = PdfDocument::open_with_options(data.into(), &ingest_options)
-        .map_err(|e| anyhow::anyhow!("{:?}", e))?;
+        .map_err(|e| anyhow::anyhow!("{e:?}"))?;
 
     let font_summaries = doc.inner().fonts();
     let mut found_any = false;
@@ -1300,7 +1315,7 @@ fn handle_debug_trace_glyph(
         let font = match doc.inner().get_font(summary.handle) {
             Ok(f) => f,
             Err(e) => {
-                println!("Warning: Failed to load font {}: {:?}", name, e);
+                println!("Warning: Failed to load font {name}: {e:?}");
                 continue;
             }
         };
@@ -1310,7 +1325,7 @@ fn handle_debug_trace_glyph(
     }
 
     if !found_any {
-        println!("No fonts matched the filter: {:?}", font_filter);
+        println!("No fonts matched the filter: {font_filter:?}");
     }
 
     Ok(())
@@ -1321,7 +1336,7 @@ fn parse_unicode(s: &str) -> Result<char> {
         let hex = &s[2..];
         let val = u32::from_str_radix(hex, 16).with_context(|| "Invalid hex code")?;
         std::char::from_u32(val)
-            .ok_or_else(|| anyhow::anyhow!("Invalid unicode scalar: U+{:04X}", val))
+            .ok_or_else(|| anyhow::anyhow!("Invalid unicode scalar: U+{val:04X}"))
     } else if let Some(c) = s.chars().next() {
         Ok(c)
     } else {

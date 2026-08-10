@@ -61,7 +61,7 @@ impl<'a> Parser<'a> {
             }
             _ => Err(PdfError::Parse {
                 pos: self.lexer.pos(),
-                message: format!("Unexpected token: {:?}", token).into(),
+                message: format!("Unexpected token: {token:?}").into(),
             }),
         }
     }
@@ -85,7 +85,7 @@ impl<'a> Parser<'a> {
                 _ => {
                     return Err(PdfError::Parse {
                         pos: self.lexer.pos(),
-                        message: format!("Expected name as dictionary key, found {:?}", key_token)
+                        message: format!("Expected name as dictionary key, found {key_token:?}")
                             .into(),
                     });
                 }

@@ -49,7 +49,7 @@ impl ColorSpace {
         let profile =
             ColorProfile::new_from_slice(data).map_err(|e| crate::error::PdfError::Ingestion {
                 context: "ICC Profile Loading".into(),
-                message: format!("ICC Profile error: {:?}", e).into(),
+                message: format!("ICC Profile error: {e:?}").into(),
             })?;
         Ok(Self::ICCBased(Arc::new(profile)))
     }

@@ -141,7 +141,7 @@ impl<'a> Sublimator<'a> {
             "BX" | "EX" => Vec::new(), // Strip compatibility operators
             "d0" | "d1" => self.handle_type3_op(op),
             _ => {
-                log::warn!("[SUBLIMATE] Preserving unknown proprietary operator {}", op);
+                log::warn!("[SUBLIMATE] Preserving unknown proprietary operator {op}");
                 let mut operands = Vec::new();
                 while let Some(obj) = self.stack.pop() {
                     operands.insert(0, obj);
@@ -186,7 +186,7 @@ impl<'a> Sublimator<'a> {
                 if op == "f" {
                     if let Some(Command::Rect(r)) = prev_commands.last() {
                         if r.y1 > 700.0 && r.height() < 15.0 && r.width() > 500.0 {
-                            log::info!("[SUBLIMATE] Suppressing suspicious header fill at {:?}", r);
+                            log::info!("[SUBLIMATE] Suppressing suspicious header fill at {r:?}");
                             return vec![Command::RawOperator {
                                 name: "n".to_string(),
                                 operands: Vec::new(),

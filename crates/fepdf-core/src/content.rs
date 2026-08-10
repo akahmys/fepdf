@@ -41,9 +41,7 @@ impl<'a> ContentRewriter<'a> {
             if let Token::Keyword(_) = &token {
                 if let Some((tag, mcid)) = mapping.get(&op_index) {
                     // Start BDC
-                    output.extend_from_slice(
-                        format!("/{} << /MCID {} >> BDC ", tag, mcid).as_bytes(),
-                    );
+                    output.extend_from_slice(format!("/{tag} << /MCID {mcid} >> BDC ").as_bytes());
                     token.write_to(&mut output);
                     output.extend_from_slice(b"EMC ");
                 } else {

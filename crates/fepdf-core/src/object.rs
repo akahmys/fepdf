@@ -31,7 +31,7 @@ impl FromPdfObject for Handle<BTreeMap<Handle<PdfName>, Object>> {
             Object::Dictionary(h) => Ok(h),
             _ => Err(crate::PdfError::Parse {
                 pos: 0,
-                message: format!("Expected dictionary handle, got {:?}", resolved).into(),
+                message: format!("Expected dictionary handle, got {resolved:?}").into(),
             }),
         }
     }
@@ -45,7 +45,7 @@ impl FromPdfObject for Handle<Vec<Object>> {
             Object::Array(h) => Ok(h),
             _ => Err(crate::PdfError::Parse {
                 pos: 0,
-                message: format!("Expected array handle, got {:?}", resolved).into(),
+                message: format!("Expected array handle, got {resolved:?}").into(),
             }),
         }
     }
@@ -60,7 +60,7 @@ impl FromPdfObject for Handle<Object> {
                 // in the sense of an indirect reference.
                 Err(crate::PdfError::Parse {
                     pos: 0,
-                    message: format!("Expected reference handle, got {:?}", obj).into(),
+                    message: format!("Expected reference handle, got {obj:?}").into(),
                 })
             }
         }
@@ -72,7 +72,7 @@ impl FromPdfObject for Handle<PdfName> {
         let resolved = obj.resolve(arena);
         resolved.as_name().ok_or_else(|| crate::PdfError::Parse {
             pos: 0,
-            message: format!("Expected name handle, got {:?}", resolved).into(),
+            message: format!("Expected name handle, got {resolved:?}").into(),
         })
     }
 }
@@ -111,7 +111,7 @@ impl FromPdfObject for String {
         } else {
             Err(crate::PdfError::Parse {
                 pos: 0,
-                message: format!("Expected string or text, got {:?}", resolved).into(),
+                message: format!("Expected string or text, got {resolved:?}").into(),
             })
         }
     }
@@ -330,7 +330,7 @@ impl Object {
         match obj {
             lopdf::Object::Boolean(b) => Self::Boolean(*b),
             lopdf::Object::Integer(i) => Self::Integer(*i),
-            lopdf::Object::Real(f) => Self::Real(*f as f64),
+            lopdf::Object::Real(f) => Self::Real(f64::from(*f)),
             lopdf::Object::String(s, fmt) => {
                 if matches!(fmt, lopdf::StringFormat::Hexadecimal) {
                     Self::Hex(Bytes::copy_from_slice(s))
@@ -366,7 +366,7 @@ impl Object {
                 )
             }
             lopdf::Object::Reference(id) => {
-                let handle = table.get(&(id.0, id.1)).cloned().unwrap_or(Handle::new(0));
+                let handle = table.get(&(id.0, id.1)).copied().unwrap_or(Handle::new(0));
                 Self::Reference(handle)
             }
             lopdf::Object::Null => Self::Null,

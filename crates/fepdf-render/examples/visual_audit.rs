@@ -1,3 +1,5 @@
+//! Renders sample pages for visual inspection.
+
 use fepdf_render::VelloBackend;
 use fepdf_sdk::{Interpreter, PdfDocument};
 use kurbo::Affine;

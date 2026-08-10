@@ -138,7 +138,7 @@ fn get_info_field(info: &BTreeMap<PdfName, RefinedObject>, key: &str) -> Option<
             RefinedObject::String(s) | RefinedObject::Hex(s) => {
                 crate::refine::text::recover_string(s)
             }
-            _ => "".into(),
+            _ => String::new(),
         })
         .filter(|s| !s.is_empty())
 }

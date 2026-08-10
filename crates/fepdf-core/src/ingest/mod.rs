@@ -86,8 +86,8 @@ impl Ingestor {
         let root_id = doc.trailer.get(b"Root").ok().and_then(|o| o.as_reference().ok());
         let info_id = doc.trailer.get(b"Info").ok().and_then(|o| o.as_reference().ok());
 
-        let root_handle = root_id.and_then(|id| table.get(&id)).cloned().unwrap_or(Handle::new(0));
-        let info_handle = info_id.and_then(|id| table.get(&id)).cloned();
+        let root_handle = root_id.and_then(|id| table.get(&id)).copied().unwrap_or(Handle::new(0));
+        let info_handle = info_id.and_then(|id| table.get(&id)).copied();
         (root_handle, info_handle)
     }
 
@@ -98,7 +98,7 @@ impl Ingestor {
         let mut global_font_registry = BTreeMap::new();
         for (h_idx, font_res) in handle_font_cache {
             if let Some(_dict) = arena.get_dict(Handle::new(*h_idx)) {
-                global_font_registry.insert(format!("obj_{}", h_idx), font_res.clone());
+                global_font_registry.insert(format!("obj_{h_idx}"), font_res.clone());
                 let base_name = font_res.base_font.as_str();
                 let is_subset = base_name.len() > 7 && base_name.as_bytes()[6] == b'+';
                 let is_component_cid = font_res.subtype.as_str() == "CIDFontType0"
@@ -130,9 +130,9 @@ impl Ingestor {
 
         let mut all_issues = Vec::new();
         for (id, refined, mut issues) in refined_results {
-            let handle = table.get(&id).cloned().ok_or_else(|| PdfError::Ingestion {
+            let handle = table.get(&id).copied().ok_or_else(|| PdfError::Ingestion {
                 context: "Pass 3 Integration".into(),
-                message: format!("Missing handle for refined object {:?}", id).into(),
+                message: format!("Missing handle for refined object {id:?}").into(),
             })?;
             let committed = crate::refine::commit_to_arena(arena, refined, 0);
             arena.set_object(handle, committed);
@@ -288,7 +288,7 @@ impl Ingestor {
                 }
             }
 
-            let ids: Vec<lopdf::ObjectId> = doc.objects.keys().cloned().collect();
+            let ids: Vec<lopdf::ObjectId> = doc.objects.keys().copied().collect();
             for id in ids {
                 if let Some(obj) = doc.objects.get_mut(&id) {
                     Self::decrypt_object_stacked(obj, id, handler)?;
@@ -395,9 +395,9 @@ fn inhale_objects(
     table: &RemappingTable,
 ) -> crate::PdfResult<()> {
     for (&id, obj) in &doc.objects {
-        let handle = table.get(&id).cloned().ok_or_else(|| PdfError::Ingestion {
+        let handle = table.get(&id).copied().ok_or_else(|| PdfError::Ingestion {
             context: "Pass 1 Inhalation".into(),
-            message: format!("Missing handle for object {:?}", id).into(),
+            message: format!("Missing handle for object {id:?}").into(),
         })?;
         let raw_obj = Object::from_lopdf(obj, arena, table);
         arena.set_object(handle, raw_obj);

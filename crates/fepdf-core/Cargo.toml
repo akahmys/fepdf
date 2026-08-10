@@ -51,3 +51,6 @@ sha1.workspace = true
 
 [features]
 debug-tools = []
+
+[lints]
+workspace = true

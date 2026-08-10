@@ -62,46 +62,42 @@ fn serialize_command(cmd: &Command, buf: &mut Vec<u8>) {
         Command::BeginText => buf.extend_from_slice(b"BT\n"),
         Command::EndText => buf.extend_from_slice(b"ET\n"),
         Command::SetFont { font, size } => {
-            buf.extend_from_slice(format!("/{} {:.6} Tf\n", font, size).as_bytes());
+            buf.extend_from_slice(format!("/{font} {size:.6} Tf\n").as_bytes());
         }
         Command::SetFillColor(color) => match color {
             crate::graphics::Color::Gray(g) => {
-                buf.extend_from_slice(format!("{:.6} g\n", g).as_bytes());
+                buf.extend_from_slice(format!("{g:.6} g\n").as_bytes());
             }
             crate::graphics::Color::Rgb(r, g, b) => {
-                buf.extend_from_slice(format!("{:.6} {:.6} {:.6} rg\n", r, g, b).as_bytes());
+                buf.extend_from_slice(format!("{r:.6} {g:.6} {b:.6} rg\n").as_bytes());
             }
             crate::graphics::Color::Cmyk(c, m, y, k) => {
-                buf.extend_from_slice(
-                    format!("{:.6} {:.6} {:.6} {:.6} k\n", c, m, y, k).as_bytes(),
-                );
+                buf.extend_from_slice(format!("{c:.6} {m:.6} {y:.6} {k:.6} k\n").as_bytes());
             }
             crate::graphics::Color::Lab(l, a, b) => {
                 // Keep High-Fidelity color space (do not downgrade to RGB)
-                buf.extend_from_slice(format!("{:.6} {:.6} {:.6} scn\n", l, a, b).as_bytes());
+                buf.extend_from_slice(format!("{l:.6} {a:.6} {b:.6} scn\n").as_bytes());
             }
         },
         Command::SetStrokeColor(color) => match color {
             crate::graphics::Color::Gray(g) => {
-                buf.extend_from_slice(format!("{:.6} G\n", g).as_bytes());
+                buf.extend_from_slice(format!("{g:.6} G\n").as_bytes());
             }
             crate::graphics::Color::Rgb(r, g, b) => {
-                buf.extend_from_slice(format!("{:.6} {:.6} {:.6} RG\n", r, g, b).as_bytes());
+                buf.extend_from_slice(format!("{r:.6} {g:.6} {b:.6} RG\n").as_bytes());
             }
             crate::graphics::Color::Cmyk(c, m, y, k) => {
-                buf.extend_from_slice(
-                    format!("{:.6} {:.6} {:.6} {:.6} K\n", c, m, y, k).as_bytes(),
-                );
+                buf.extend_from_slice(format!("{c:.6} {m:.6} {y:.6} {k:.6} K\n").as_bytes());
             }
             crate::graphics::Color::Lab(l, a, b) => {
                 // Keep High-Fidelity color space (do not downgrade to RGB)
-                buf.extend_from_slice(format!("{:.6} {:.6} {:.6} SCN\n", l, a, b).as_bytes());
+                buf.extend_from_slice(format!("{l:.6} {a:.6} {b:.6} SCN\n").as_bytes());
             }
         },
         Command::ShowText(bytes) => {
             buf.push(b'<');
             for &b in bytes {
-                buf.extend_from_slice(format!("{:02x}", b).as_bytes());
+                buf.extend_from_slice(format!("{b:02x}").as_bytes());
             }
             buf.extend_from_slice(b"> Tj\n");
         }
@@ -112,12 +108,12 @@ fn serialize_command(cmd: &Command, buf: &mut Vec<u8>) {
                     TextArrayItem::Text(b) => {
                         buf.push(b'<');
                         for &byte in b {
-                            buf.extend_from_slice(format!("{:02x}", byte).as_bytes());
+                            buf.extend_from_slice(format!("{byte:02x}").as_bytes());
                         }
                         buf.push(b'>');
                     }
                     TextArrayItem::Offset(o) => {
-                        buf.extend_from_slice(format!(" {:.6}", o).as_bytes());
+                        buf.extend_from_slice(format!(" {o:.6}").as_bytes());
                     }
                 }
             }
@@ -130,35 +126,35 @@ fn serialize_command(cmd: &Command, buf: &mut Vec<u8>) {
             write_affine(affine, buf);
             buf.extend_from_slice(b" Tm\n");
         }
-        Command::SetCharSpacing(s) => buf.extend_from_slice(format!("{:.6} Tc\n", s).as_bytes()),
-        Command::SetWordSpacing(s) => buf.extend_from_slice(format!("{:.6} Tw\n", s).as_bytes()),
+        Command::SetCharSpacing(s) => buf.extend_from_slice(format!("{s:.6} Tc\n").as_bytes()),
+        Command::SetWordSpacing(s) => buf.extend_from_slice(format!("{s:.6} Tw\n").as_bytes()),
         Command::SetHorizontalScaling(s) => {
-            buf.extend_from_slice(format!("{:.6} Tz\n", s).as_bytes())
+            buf.extend_from_slice(format!("{s:.6} Tz\n").as_bytes());
         }
         Command::SetTextRenderMode(m) => {
-            buf.extend_from_slice(format!("{} Tr\n", *m as i32).as_bytes())
+            buf.extend_from_slice(format!("{} Tr\n", *m as i32).as_bytes());
         }
-        Command::SetTextRise(s) => buf.extend_from_slice(format!("{:.6} Ts\n", s).as_bytes()),
-        Command::SetTextLeading(s) => buf.extend_from_slice(format!("{:.6} TL\n", s).as_bytes()),
+        Command::SetTextRise(s) => buf.extend_from_slice(format!("{s:.6} Ts\n").as_bytes()),
+        Command::SetTextLeading(s) => buf.extend_from_slice(format!("{s:.6} TL\n").as_bytes()),
         Command::MoveToNextLine => buf.extend_from_slice(b"T*\n"),
-        Command::DrawXObject(name) => buf.extend_from_slice(format!("/{} Do\n", name).as_bytes()),
-        Command::SetLineWidth(w) => buf.extend_from_slice(format!("{:.6} w\n", w).as_bytes()),
+        Command::DrawXObject(name) => buf.extend_from_slice(format!("/{name} Do\n").as_bytes()),
+        Command::SetLineWidth(w) => buf.extend_from_slice(format!("{w:.6} w\n").as_bytes()),
         Command::SetLineCap(cap) => {
-            buf.extend_from_slice(format!("{} J\n", *cap as i32).as_bytes())
+            buf.extend_from_slice(format!("{} J\n", *cap as i32).as_bytes());
         }
         Command::SetLineJoin(join) => {
-            buf.extend_from_slice(format!("{} j\n", *join as i32).as_bytes())
+            buf.extend_from_slice(format!("{} j\n", *join as i32).as_bytes());
         }
-        Command::SetMiterLimit(m) => buf.extend_from_slice(format!("{:.6} M\n", m).as_bytes()),
+        Command::SetMiterLimit(m) => buf.extend_from_slice(format!("{m:.6} M\n").as_bytes()),
         Command::SetDashPattern(dash, phase) => {
             buf.push(b'[');
             for (i, d) in dash.iter().enumerate() {
                 if i > 0 {
                     buf.push(b' ');
                 }
-                buf.extend_from_slice(format!("{:.6}", d).as_bytes());
+                buf.extend_from_slice(format!("{d:.6}").as_bytes());
             }
-            buf.extend_from_slice(format!("] {:.6} d\n", phase).as_bytes());
+            buf.extend_from_slice(format!("] {phase:.6} d\n").as_bytes());
         }
         Command::DrawInlineImage { width, height, format, data } => {
             write_inline_image(*width, *height, *format, data, buf);
@@ -172,10 +168,10 @@ fn serialize_command(cmd: &Command, buf: &mut Vec<u8>) {
             buf.push(b'\n');
         }
         Command::SetFillColorSpace(name) => {
-            buf.extend_from_slice(format!("/{} cs\n", name).as_bytes());
+            buf.extend_from_slice(format!("/{name} cs\n").as_bytes());
         }
         Command::SetStrokeColorSpace(name) => {
-            buf.extend_from_slice(format!("/{} CS\n", name).as_bytes());
+            buf.extend_from_slice(format!("/{name} CS\n").as_bytes());
         }
         Command::BeginMarkedContent { tag, properties } => {
             if let Some(props) = properties {
@@ -199,7 +195,7 @@ fn serialize_command(cmd: &Command, buf: &mut Vec<u8>) {
                     .as_bytes(),
                 );
             } else {
-                buf.extend_from_slice(format!("{:.6} {:.6} d0\n", wx, wy).as_bytes());
+                buf.extend_from_slice(format!("{wx:.6} {wy:.6} d0\n").as_bytes());
             }
         }
         _ => {} // Other commands like SetWritingMode are internal and don't map to PDF operators
@@ -214,8 +210,8 @@ fn write_inline_image(
     buf: &mut Vec<u8>,
 ) {
     buf.extend_from_slice(b"BI\n");
-    buf.extend_from_slice(format!("  /W {}\n", width).as_bytes());
-    buf.extend_from_slice(format!("  /H {}\n", height).as_bytes());
+    buf.extend_from_slice(format!("  /W {width}\n").as_bytes());
+    buf.extend_from_slice(format!("  /H {height}\n").as_bytes());
     let cs = match format {
         crate::graphics::PixelFormat::Gray8 => "/G",
         crate::graphics::PixelFormat::Rgb8 => "/RGB",
@@ -225,7 +221,7 @@ fn write_inline_image(
             "/G"
         }
     };
-    buf.extend_from_slice(format!("  /CS {}\n", cs).as_bytes());
+    buf.extend_from_slice(format!("  /CS {cs}\n").as_bytes());
     buf.extend_from_slice(b"  /BPC 8\n");
     buf.extend_from_slice(b"ID\n");
     buf.extend_from_slice(data);
@@ -248,7 +244,7 @@ fn write_ir_object(obj: &IrObject, buf: &mut Vec<u8>) {
     match obj {
         IrObject::Boolean(b) => buf.extend_from_slice(if *b { b"true" } else { b"false" }),
         IrObject::Integer(i) => buf.extend_from_slice(i.to_string().as_bytes()),
-        IrObject::Real(f) => buf.extend_from_slice(format!("{:.6}", f).as_bytes()),
+        IrObject::Real(f) => buf.extend_from_slice(format!("{f:.6}").as_bytes()),
         IrObject::String(b) => {
             buf.push(b'(');
             buf.extend_from_slice(&escape_pdf_string(b));
@@ -257,11 +253,11 @@ fn write_ir_object(obj: &IrObject, buf: &mut Vec<u8>) {
         IrObject::Hex(b) => {
             buf.push(b'<');
             for &byte in b {
-                buf.extend_from_slice(format!("{:02x}", byte).as_bytes());
+                buf.extend_from_slice(format!("{byte:02x}").as_bytes());
             }
             buf.push(b'>');
         }
-        IrObject::Name(n) => buf.extend_from_slice(format!("/{}", n).as_bytes()),
+        IrObject::Name(n) => buf.extend_from_slice(format!("/{n}").as_bytes()),
         IrObject::Null => buf.extend_from_slice(b"null"),
         IrObject::Array(arr) => {
             buf.push(b'[');
@@ -276,7 +272,7 @@ fn write_ir_object(obj: &IrObject, buf: &mut Vec<u8>) {
         IrObject::Dictionary(dict) => {
             buf.extend_from_slice(b"<< ");
             for (key, val) in dict {
-                buf.extend_from_slice(format!("/{} ", key).as_bytes());
+                buf.extend_from_slice(format!("/{key} ").as_bytes());
                 write_ir_object(val, buf);
                 buf.push(b' ');
             }

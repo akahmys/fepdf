@@ -83,9 +83,9 @@ impl CMap {
 
         if self.name.starts_with("Identity") {
             if code.len() == 2 {
-                return ((code[0] as u32) << 8) | (code[1] as u32);
+                return (u32::from(code[0]) << 8) | u32::from(code[1]);
             } else if code.len() == 1 {
-                return code[0] as u32;
+                return u32::from(code[0]);
             }
         }
         if let Some(s) = self.map(code) {
@@ -97,9 +97,9 @@ impl CMap {
             }
         }
         if code.len() == 2 {
-            return ((code[0] as u32) << 8) | (code[1] as u32);
+            return (u32::from(code[0]) << 8) | u32::from(code[1]);
         }
-        code.first().copied().unwrap_or(0) as u32
+        u32::from(code.first().copied().unwrap_or(0))
     }
 
     pub fn decode_next(&self, data: &[u8]) -> (usize, Option<String>) {
@@ -173,7 +173,7 @@ impl CMap {
             if data.len() >= len {
                 let segment = &data[0..len];
                 if let Some(m) = self.map(segment) {
-                    return Some((len, Some(m.clone())));
+                    return Some((len, Some(m)));
                 }
             }
         }
@@ -375,7 +375,7 @@ fn handle_usecmap(
                 cmap.wmode = parent_cmap.wmode;
             }
             cmap.bf_ranges.extend(parent_cmap.bf_ranges.clone());
-            cmap.cid_ranges.extend(parent_cmap.cid_ranges.clone());
+            cmap.cid_ranges.extend(parent_cmap.cid_ranges);
         }
     }
     i + 1
@@ -588,7 +588,7 @@ fn tokenize_cmap(data: &[u8]) -> Vec<&[u8]> {
             b'<' => i = tokenize_hex(data, i, &mut tokens),
             b'/' => i = tokenize_name(data, i, &mut tokens),
             b'[' | b']' | b'{' | b'}' => {
-                tokens.push(&data[i..i + 1]);
+                tokens.push(&data[i..=i]);
                 i += 1;
             }
             _ => i = tokenize_other(data, i, &mut tokens, start),
@@ -789,7 +789,7 @@ fn parse_unicode_hex(v: &[u8]) -> String {
 fn vec_to_u32(v: &[u8]) -> u32 {
     let mut val = 0u32;
     for &b in v {
-        val = (val << 8) | b as u32;
+        val = (val << 8) | u32::from(b);
     }
     val
 }

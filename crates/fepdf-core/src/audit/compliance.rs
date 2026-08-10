@@ -28,12 +28,12 @@ impl<'a> ComplianceAuditor<'a> {
 
         // 0. Collect Ingestion Issues
         for issue in &self.doc.ingestion_issues {
-            self.report.issues.push(format!("Ingestion Issue: {}", issue));
+            self.report.issues.push(format!("Ingestion Issue: {issue}"));
         }
 
         // 1. Audit Catalog
         if let Some(obj) = arena.get_object(root_handle) {
-            if let Err(e) = PdfCatalog::from_pdf_object(obj.clone(), arena) {
+            if let Err(e) = PdfCatalog::from_pdf_object(obj, arena) {
                 self.report.issues.push(format!(
                     "Catalog Error ({}): {:?}",
                     PdfCatalog::iso_clause(),
@@ -48,7 +48,7 @@ impl<'a> ComplianceAuditor<'a> {
         if let Some(info_handle) = self.doc.info_handle()
             && let Some(obj) = arena.get_object(info_handle)
         {
-            if let Err(e) = PdfInfo::from_pdf_object(obj.clone(), arena) {
+            if let Err(e) = PdfInfo::from_pdf_object(obj, arena) {
                 self.report.issues.push(format!("Info Error ({}): {:?}", PdfInfo::iso_clause(), e));
             } else {
                 self.report.clauses_encountered.insert(PdfInfo::iso_clause());

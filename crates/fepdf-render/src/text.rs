@@ -1,3 +1,7 @@
+//! Glyph outline extraction, bridging `skrifa` to `kurbo` paths.
+//!
+//! See `lib.rs` for why `&mut SkrifaBridge` is kept on non-writing helpers.
+
 use kurbo::{BezPath, Point};
 use read_fonts::TableProvider;
 use read_fonts::types::GlyphId;
@@ -7,6 +11,7 @@ use skrifa::prelude::LocationRef;
 use skrifa::{FontRef, MetadataProvider};
 use std::collections::BTreeMap;
 
+/// An `OutlinePen` that accumulates glyph outlines into a `kurbo` path.
 pub struct KurboPen {
     path: BezPath,
 }
@@ -18,9 +23,13 @@ impl Default for KurboPen {
 }
 
 impl KurboPen {
+    /// Starts an empty pen.
+    #[must_use]
     pub fn new() -> Self {
         Self { path: BezPath::new() }
     }
+    /// Consumes the pen and yields the accumulated outline.
+    #[must_use]
     pub fn finish(self) -> BezPath {
         self.path
     }
@@ -28,19 +37,22 @@ impl KurboPen {
 
 impl OutlinePen for KurboPen {
     fn move_to(&mut self, x: f32, y: f32) {
-        self.path.move_to(Point::new(x as f64, y as f64));
+        self.path.move_to(Point::new(f64::from(x), f64::from(y)));
     }
     fn line_to(&mut self, x: f32, y: f32) {
-        self.path.line_to(Point::new(x as f64, y as f64));
+        self.path.line_to(Point::new(f64::from(x), f64::from(y)));
     }
     fn quad_to(&mut self, x1: f32, y1: f32, x: f32, y: f32) {
-        self.path.quad_to(Point::new(x1 as f64, y1 as f64), Point::new(x as f64, y as f64));
+        self.path.quad_to(
+            Point::new(f64::from(x1), f64::from(y1)),
+            Point::new(f64::from(x), f64::from(y)),
+        );
     }
     fn curve_to(&mut self, x1: f32, y1: f32, x2: f32, y2: f32, x: f32, y: f32) {
         self.path.curve_to(
-            Point::new(x1 as f64, y1 as f64),
-            Point::new(x2 as f64, y2 as f64),
-            Point::new(x as f64, y as f64),
+            Point::new(f64::from(x1), f64::from(y1)),
+            Point::new(f64::from(x2), f64::from(y2)),
+            Point::new(f64::from(x), f64::from(y)),
         );
     }
     fn close(&mut self) {
@@ -48,10 +60,15 @@ impl OutlinePen for KurboPen {
     }
 }
 
+/// Spacing parameters applied while laying out a text run.
 pub struct TextLayoutOptions {
+    /// Font size in text-space units.
     pub font_size: f32,
+    /// Additional space after each glyph (`Tc`).
     pub char_spacing: f32,
+    /// Additional space after each space glyph (`Tw`).
     pub word_spacing: f32,
+    /// Horizontal scaling percentage (`Tz`).
     pub horizontal_scaling: f32,
 }
 
@@ -61,6 +78,7 @@ impl Default for TextLayoutOptions {
     }
 }
 
+/// Caches resolved glyph outlines across a render pass.
 pub struct SkrifaBridge {
     glyph_cache: BTreeMap<(u64, u32, u32), BezPath>,
 }
@@ -72,10 +90,13 @@ impl Default for SkrifaBridge {
 }
 
 impl SkrifaBridge {
+    /// Creates a bridge with an empty glyph cache.
+    #[must_use]
     pub fn new() -> Self {
         Self { glyph_cache: BTreeMap::new() }
     }
 
+    /// Reads the font's units-per-em, the scale its outlines are expressed in.
     pub fn get_units_per_em(&self, data: &[u8]) -> Option<u16> {
         if let Ok(font) = FontRef::from_index(data, 0) {
             return Some(font.head().ok()?.units_per_em());
@@ -84,21 +105,37 @@ impl SkrifaBridge {
     }
 }
 
+/// Everything needed to resolve one glyph to an outline.
+// Each flag selects a distinct lookup path; folding them into an enum would
+// need one variant per combination.
+#[allow(clippy::struct_excessive_bools)]
 pub struct GlyphExtractionContext<'a> {
+    /// Cache key identifying the font program.
     pub font_id: u64,
+    /// The raw font program.
     pub data: &'a [u8],
+    /// Glyph index within the font program.
     pub gid: u32,
+    /// Originating character code, part of the cache key.
     pub char_code: u32,
+    /// Explicit CID-to-GID mapping, when the font supplies one.
     pub cid_to_gid_map: Option<&'a BTreeMap<u32, u32>>,
+    /// Whether the writing mode is vertical.
     pub is_vertical: bool,
+    /// Character to look up if the glyph index does not resolve.
     pub unicode_fallback: Option<char>,
+    /// Whether Japanese fallback handling applies.
     pub is_japanese: bool,
+    /// Whether the font is CID-keyed.
     pub is_cid: bool,
+    /// Index within a font collection (TTC).
     pub collection_index: u32,
+    /// Whether this glyph came from a fallback font.
     pub is_fallback: bool,
 }
 
 impl SkrifaBridge {
+    /// Resolves a glyph to its outline, consulting the cache first.
     pub fn extract_path(&mut self, ctx: &GlyphExtractionContext) -> Option<BezPath> {
         let cache_key = (ctx.font_id, ctx.gid, ctx.char_code);
         if let Some(path) = self.glyph_cache.get(&cache_key) {
@@ -131,11 +168,7 @@ impl SkrifaBridge {
     fn is_blank_char(&self, u: Option<char>) -> bool {
         matches!(
             u,
-            Some('\u{0020}')
-                | Some('\u{00A0}')
-                | Some('\u{2000}'..='\u{200F}')
-                | Some('\u{3000}')
-                | Some('\u{202F}')
+            Some('\u{0020}' | '\u{00A0}' | '\u{2000}'..='\u{200F}' | '\u{3000}' | '\u{202F}')
         )
     }
 
@@ -182,14 +215,14 @@ impl SkrifaBridge {
     }
 
     fn draw_glyph_path(font: &FontRef, final_gid: GlyphId) -> Option<BezPath> {
-        let upem = font.head().map(|h| h.units_per_em()).unwrap_or(1000);
+        let upem = font.head().map_or(1000, |h| h.units_per_em());
         let mut pen = KurboPen::new();
         let glyph = font.outline_glyphs().get(final_gid)?;
         if let Err(e) = glyph.draw(
-            DrawSettings::unhinted(SkrifaSize::new(upem as f32), LocationRef::default()),
+            DrawSettings::unhinted(SkrifaSize::new(f32::from(upem)), LocationRef::default()),
             &mut pen,
         ) {
-            log::warn!("[SKRIFA] Drawing failed for GID {}: {:?}", final_gid, e);
+            log::warn!("[SKRIFA] Drawing failed for GID {final_gid}: {e:?}");
             return None;
         }
         Some(pen.finish())

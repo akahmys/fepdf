@@ -53,7 +53,7 @@ impl RefinedObject {
         match obj {
             lopdf::Object::Boolean(b) => Self::Boolean(*b),
             lopdf::Object::Integer(i) => Self::Integer(*i),
-            lopdf::Object::Real(f) => Self::Real(*f as f64),
+            lopdf::Object::Real(f) => Self::Real(f64::from(*f)),
             lopdf::Object::String(s, fmt) => {
                 if matches!(fmt, lopdf::StringFormat::Hexadecimal) {
                     Self::Hex(Bytes::copy_from_slice(s))
@@ -63,7 +63,7 @@ impl RefinedObject {
             }
             lopdf::Object::Name(n) => Self::Name(PdfName::from_bytes(n)),
             lopdf::Object::Reference(id) => {
-                Self::Reference(table.get(&(id.0, id.1)).cloned().unwrap_or(Handle::new(0)))
+                Self::Reference(table.get(&(id.0, id.1)).copied().unwrap_or(Handle::new(0)))
             }
             lopdf::Object::Array(arr) => {
                 Self::Array(arr.iter().map(|item| Self::from_lopdf(item, table)).collect())
@@ -133,7 +133,7 @@ impl ParallelRefinery {
     ) -> RefinedObject {
         // Hardening: Recursion depth limit (ISO 32000-2 Clause 7.1)
         if depth > 128 {
-            issues.push(format!("Recursion depth limit exceeded for object {:?}", id));
+            issues.push(format!("Recursion depth limit exceeded for object {id:?}"));
             return RefinedObject::from_lopdf(obj, table);
         }
         match obj {
@@ -256,7 +256,7 @@ impl ParallelRefinery {
         }
 
         // Font Normalization
-        if let Some("Font") = refined_dict.get(&PdfName::new("Type")).and_then(|o| o.as_str())
+        if refined_dict.get(&PdfName::new("Type")).and_then(|o| o.as_str()) == Some("Font")
             && let Some(handle) = table.get(&id)
         {
             let resource = handle_fonts.get(&handle.index()).map(|arc| arc.as_ref());
@@ -341,7 +341,7 @@ impl ParallelRefinery {
         depth: usize,
         issues: &mut Vec<String>,
     ) -> RefinedObject {
-        log::debug!("Refinery: refining stream {:?}", id);
+        log::debug!("Refinery: refining stream {id:?}");
         let mut refined_dict = Self::refine_stream_dict(
             doc,
             id,

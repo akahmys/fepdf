@@ -172,7 +172,7 @@ impl FontReconstructor {
         if let Ok(mut sfnt_dis) = Self::disassemble_sfnt(&sfnt) {
             let (upem, native_num_glyphs) = Self::get_native_metrics(&sfnt_dis.tables);
             if let Some(n) = native_num_glyphs {
-                log::debug!("[RECONSTRUCT] Discovered native num_glyphs: {}", n);
+                log::debug!("[RECONSTRUCT] Discovered native num_glyphs: {n}");
             }
             Self::patch_hmtx_direct(&mut sfnt_dis.tables, resource, upem);
 
@@ -206,7 +206,7 @@ impl FontReconstructor {
                 cid_to_gid_map: final_cid_map,
                 name_to_gid_map: discovered_name_map,
                 sid_to_gid_map: discovered_sid_map,
-                num_glyphs: native_num_glyphs.map(|n| n as u32),
+                num_glyphs: native_num_glyphs.map(|n| u32::from(n)),
             };
         }
 
@@ -236,7 +236,7 @@ impl FontReconstructor {
             // 1.1 Extract Glyph Names if available (Essential for subsetted fonts)
             for gid in 0..face.number_of_glyphs() {
                 if let Some(name) = face.glyph_name(ttf_parser::GlyphId(gid)) {
-                    name_to_gid.insert(name.to_string(), gid as u32);
+                    name_to_gid.insert(name.to_string(), u32::from(gid));
                 }
             }
 
@@ -244,13 +244,13 @@ impl FontReconstructor {
                 if table.is_unicode() {
                     table.codepoints(|cp| {
                         if let Some(gid) = table.glyph_index(cp) {
-                            internal_u2g.insert(cp, gid.0 as u32);
+                            internal_u2g.insert(cp, u32::from(gid.0));
                         }
                     });
                 } else {
                     table.codepoints(|cp| {
                         if let Some(gid) = table.glyph_index(cp) {
-                            map.insert(cp, gid.0 as u32);
+                            map.insert(cp, u32::from(gid.0));
                         }
                     });
                 }
@@ -612,11 +612,11 @@ impl FontReconstructor {
 
     fn parse_t1_number(t1_bytes: &[u8], b: u8, i: usize) -> (i32, usize) {
         if b <= 246 {
-            (b as i32 - 139, i + 1)
+            (i32::from(b) - 139, i + 1)
         } else if b <= 250 {
-            ((b as i32 - 247) * 256 + t1_bytes[i + 1] as i32 + 108, i + 2)
+            ((i32::from(b) - 247) * 256 + i32::from(t1_bytes[i + 1]) + 108, i + 2)
         } else if b <= 254 {
-            (-(b as i32 - 251) * 256 - t1_bytes[i + 1] as i32 - 108, i + 2)
+            (-(i32::from(b) - 251) * 256 - i32::from(t1_bytes[i + 1]) - 108, i + 2)
         } else {
             let v = i32::from_be_bytes([
                 t1_bytes[i + 1],
@@ -884,7 +884,7 @@ impl FontReconstructor {
             if i >= n {
                 output.push(plain);
             }
-            r = (b as u16).wrapping_add(r).wrapping_mul(c1).wrapping_add(c2);
+            r = u16::from(b).wrapping_add(r).wrapping_mul(c1).wrapping_add(c2);
         }
         output
     }
@@ -1133,11 +1133,7 @@ impl FontReconstructor {
     ) -> u32 {
         let mut gid_opt = actual_gid;
         if gid_opt.unwrap_or(0) == 0 && info.num_glyphs == 2 {
-            log::debug!(
-                "[RECONSTRUCT] Resolved '{}' (CID {}) -> GID 1 via Greedy-Tiny-Subset",
-                c,
-                cid
-            );
+            log::debug!("[RECONSTRUCT] Resolved '{c}' (CID {cid}) -> GID 1 via Greedy-Tiny-Subset");
             gid_opt = Some(1);
         }
         if gid_opt.is_none() {
@@ -1168,9 +1164,9 @@ impl FontReconstructor {
                 table.codepoints(|cp| {
                     if let Some(gid) = table.glyph_index(cp) {
                         if is_unicode {
-                            internal_unicode_map.insert(cp, gid.0 as u32);
+                            internal_unicode_map.insert(cp, u32::from(gid.0));
                         } else {
-                            internal_code_map.insert(cp, gid.0 as u32);
+                            internal_code_map.insert(cp, u32::from(gid.0));
                         }
                     }
                 });
@@ -1384,7 +1380,7 @@ impl FontReconstructor {
         if let Some(idx) = tables.iter().position(|(t, _)| t == b"hmtx") {
             let hmtx = &mut tables[idx].1;
             let n = hmtx.len() / 4;
-            let scale = native_upem as f32 / 1000.0;
+            let scale = f32::from(native_upem) / 1000.0;
 
             for gid in 0..n {
                 let w_pdf = resource.glyph_width_by_gid(gid as u32);
@@ -1472,14 +1468,14 @@ impl FontReconstructor {
         } else {
             0
         };
-        log::debug!("[RECONSTRUCT] Global Subrs INDEX at {}, count: {}", gsubr_pos, gsubr_count);
+        log::debug!("[RECONSTRUCT] Global Subrs INDEX at {gsubr_pos}, count: {gsubr_count}");
 
         let (cso, cso2, is_cid) = Self::parse_cff_top_dict(cff_data, top_dict_pos, tc);
         let ng = Self::determine_glyph_count(cff_data, cso);
         if let Some(o) = cso {
-            log::debug!("[RECONSTRUCT] CharStrings INDEX at {}, count: {}", o, ng);
+            log::debug!("[RECONSTRUCT] CharStrings INDEX at {o}, count: {ng}");
         }
-        log::debug!("[RECONSTRUCT] CFF glyphs: {}, Top DICT: {}, is_cid: {}", ng, tc, is_cid);
+        log::debug!("[RECONSTRUCT] CFF glyphs: {ng}, Top DICT: {tc}, is_cid: {is_cid}");
 
         let mut sid_map = BTreeMap::new();
         if let Some(o) = cso2 {
@@ -1556,12 +1552,12 @@ impl FontReconstructor {
     fn apply_default_charset(map: &mut BTreeMap<u32, u32>, is_cid: bool, num_glyphs: u16) {
         if is_cid {
             for gid in 0..num_glyphs {
-                map.insert(gid as u32, gid as u32);
+                map.insert(u32::from(gid), u32::from(gid));
             }
         } else {
             // ISOAdobe fallback for simple fonts
             for gid in 1..std::cmp::min(num_glyphs, 229) {
-                map.insert(gid as u32, gid as u32);
+                map.insert(u32::from(gid), u32::from(gid));
             }
         }
     }
@@ -1588,17 +1584,17 @@ impl FontReconstructor {
                 if let Some(item) = get_index_item(data, string_idx_pos, custom_idx) {
                     String::from_utf8_lossy(&item).to_string()
                 } else {
-                    format!("c{:03}", sid)
+                    format!("c{sid:03}")
                 }
             };
             nm.insert(name.clone(), gid);
-            log::debug!("[RECONSTRUCT] Derived name: {} -> GID {}", name, gid);
+            log::debug!("[RECONSTRUCT] Derived name: {name} -> GID {gid}");
 
             // Add Unicode alias for standard SIDs (e.g. "!" for "exclam")
             if sid <= CFF_LAST_STANDARD_SID {
                 if let Some(c) = Self::standard_sid_to_unicode(sid) {
                     nm.insert(c.to_string(), gid);
-                    log::debug!("[RECONSTRUCT] Added Unicode alias: {} -> GID {}", c, gid);
+                    log::debug!("[RECONSTRUCT] Added Unicode alias: {c} -> GID {gid}");
                 }
             }
         }
@@ -1687,7 +1683,7 @@ impl FontReconstructor {
     }
 
     fn parse_fdarray_subrs(data: &[u8], offset: usize) {
-        log::debug!("[RECONSTRUCT] FDArray: offset {}", offset);
+        log::debug!("[RECONSTRUCT] FDArray: offset {offset}");
         if offset > 0 && offset < data.len() {
             let (_, count, _) = Self::parse_index_header(data, offset).unwrap_or((0, 0, 0));
             for i in 0..count {
@@ -1697,10 +1693,10 @@ impl FontReconstructor {
                     while fdp < fd.len() {
                         let b0 = fd[fdp];
                         if b0 <= 21 {
-                            let mut op = b0 as u16;
+                            let mut op = u16::from(b0);
                             fdp += 1;
                             if op == 12 && fdp < fd.len() {
-                                op = (op << 8) | fd[fdp] as u16;
+                                op = (op << 8) | u16::from(fd[fdp]);
                                 fdp += 1;
                             }
                             if op == 18 && fdops.len() >= 2 {
@@ -1752,10 +1748,10 @@ impl FontReconstructor {
             while dpos < dd.len() {
                 let b0 = dd[dpos];
                 if b0 <= 21 {
-                    let mut op = b0 as u16;
+                    let mut op = u16::from(b0);
                     dpos += 1;
                     if op == 12 && dpos < dd.len() {
-                        op = (op << 8) | dd[dpos] as u16;
+                        op = (op << 8) | u16::from(dd[dpos]);
                         dpos += 1;
                     }
                     match op {
@@ -1765,9 +1761,7 @@ impl FontReconstructor {
                                 let size = ops[ops.len() - 2] as usize;
                                 let offset = ops[ops.len() - 1] as usize;
                                 log::debug!(
-                                    "[RECONSTRUCT] Private DICT: offset {}, size {}",
-                                    offset,
-                                    size
+                                    "[RECONSTRUCT] Private DICT: offset {offset}, size {size}"
                                 );
                             }
                         }
@@ -1800,7 +1794,7 @@ impl FontReconstructor {
                     break;
                 }
                 let cid = u16::from_be_bytes([data[cpos], data[cpos + 1]]);
-                map.insert(cid as u32, gid as u32);
+                map.insert(u32::from(cid), u32::from(gid));
                 cpos += 2;
             }
         } else if format == 1 || format == 2 {
@@ -1812,15 +1806,15 @@ impl FontReconstructor {
                 }
                 let fc = u16::from_be_bytes([data[cpos], data[cpos + 1]]);
                 let nl = if format == 1 {
-                    data[cpos + 2] as u16
+                    u16::from(data[cpos + 2])
                 } else {
                     u16::from_be_bytes([data[cpos + 2], data[cpos + 3]])
                 };
                 cpos += sz;
                 for i in 0..=nl {
-                    if (fc as u32 + i as u32) < 65536 {
-                        let cid = fc as u32 + i as u32;
-                        map.insert(cid, gid as u32);
+                    if (u32::from(fc) + u32::from(i)) < 65536 {
+                        let cid = u32::from(fc) + u32::from(i);
+                        map.insert(cid, u32::from(gid));
                     }
                     gid += 1;
                     if gid >= num_glyphs {
@@ -1903,15 +1897,15 @@ fn parse_dict_number(d: &[u8]) -> (i32, usize) {
         }
         (0, len)
     } else if b0 == 28 {
-        (u16::from_be_bytes([d[1], d[2]]) as i16 as i32, 3)
+        (i32::from(u16::from_be_bytes([d[1], d[2]]) as i16), 3)
     } else if b0 == 29 {
         (i32::from_be_bytes([d[1], d[2], d[3], d[4]]), 5)
     } else if (32..=246).contains(&b0) {
-        (b0 as i32 - 139, 1)
+        (i32::from(b0) - 139, 1)
     } else if (247..=250).contains(&b0) {
-        ((b0 as i32 - 247) * 256 + d[1] as i32 + 108, 2)
+        ((i32::from(b0) - 247) * 256 + i32::from(d[1]) + 108, 2)
     } else if (251..=254).contains(&b0) {
-        (-(b0 as i32 - 251) * 256 - d[1] as i32 - 108, 2)
+        (-(i32::from(b0) - 251) * 256 - i32::from(d[1]) - 108, 2)
     } else {
         (0, 1)
     }

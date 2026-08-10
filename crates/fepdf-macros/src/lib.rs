@@ -1,3 +1,5 @@
+//! Compile-time derives for the fepdf object model.
+
 extern crate proc_macro;
 
 use proc_macro::TokenStream;
@@ -5,6 +7,10 @@ use quote::quote;
 use syn::{Data, DeriveInput, Fields, LitFloat, LitStr, parse_macro_input};
 
 #[proc_macro_derive(FromPdfObject, attributes(pdf_key, pdf_dict))]
+/// Derives `FromPdfObject`, mapping a PDF dictionary onto a struct's fields.
+///
+/// Each named field is read from the dictionary key matching its name; the
+/// generated impl reports a typed error rather than panicking on a mismatch.
 pub fn derive_from_pdf_object(input: TokenStream) -> TokenStream {
     let input = parse_macro_input!(input as DeriveInput);
     match derive_from_pdf_object_impl(input) {
@@ -109,7 +115,7 @@ fn derive_from_pdf_object_impl(input: DeriveInput) -> syn::Result<proc_macro2::T
                 Err(_) => {
                     return Err(syn::Error::new_spanned(
                         f,
-                        format!("Invalid default expression: {}", def),
+                        format!("Invalid default expression: {def}"),
                     ));
                 }
             }

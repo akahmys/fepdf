@@ -1,3 +1,8 @@
+//! Text matrix bookkeeping tests.
+
+// The matrix is assigned, not computed, so exact comparison is the right check.
+#![allow(clippy::float_cmp)]
+
 use fepdf_core::graphics::{Matrix, TextMatrices};
 
 #[test]

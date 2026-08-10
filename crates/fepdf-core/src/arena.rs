@@ -360,11 +360,7 @@ impl PdfArena {
         &self,
         handle: Handle<Object>,
     ) -> Option<std::sync::Arc<crate::object::SublimatedData>> {
-        if let Some(Object::Stream(_, data)) = self.get_object(handle) {
-            Some(data.clone())
-        } else {
-            None
-        }
+        if let Some(Object::Stream(_, data)) = self.get_object(handle) { Some(data) } else { None }
     }
 
     /// Finds an indirect object handle that points to the given dictionary handle.

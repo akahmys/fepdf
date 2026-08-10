@@ -1,3 +1,5 @@
+//! Off-screen rasterisation of a Vello scene, with no window or surface.
+
 use image::{ImageFormat, RgbaImage};
 use std::num::NonZeroUsize;
 use std::path::Path;
@@ -20,8 +22,7 @@ fn create_renderer(device: &vello::wgpu::Device) -> Result<Renderer, Box<dyn std
     )
     .or_else(|e| {
         log::warn!(
-            "[RENDER] GPU renderer initialization failed ({:?}), falling back to CPU renderer...",
-            e
+            "[RENDER] GPU renderer initialization failed ({e:?}), falling back to CPU renderer..."
         );
         Renderer::new(
             device,
@@ -33,9 +34,10 @@ fn create_renderer(device: &vello::wgpu::Device) -> Result<Renderer, Box<dyn std
             },
         )
     })
-    .map_err(|e| format!("Failed to create renderer: {}", e).into())
+    .map_err(|e| format!("Failed to create renderer: {e}").into())
 }
 
+/// Rasterises a scene off-screen and returns raw RGBA bytes.
 pub async fn render_to_bytes(
     scene: &Scene,
     width: u32,
@@ -67,17 +69,17 @@ pub async fn render_to_bytes(
                 antialiasing_method: AaConfig::Area,
             },
         )
-        .map_err(|e| format!("Rendering failed: {}", e))?;
+        .map_err(|e| format!("Rendering failed: {e}"))?;
 
     log::debug!("[RENDER] Copying texture to vec...");
-    copy_texture_to_vec(device, queue, &target, size).await
+    copy_texture_to_vec(device, queue, &target, size)
 }
 
 async fn setup_wgpu() -> Result<(RenderContext, usize), Box<dyn std::error::Error>> {
     let mut context = RenderContext::new();
     log::debug!("[RENDER] Requesting device...");
     let id = context.device(None).await.ok_or("No compatible device found")?;
-    log::debug!("[RENDER] Device found with id {}", id);
+    log::debug!("[RENDER] Device found with id {id}");
     Ok((context, id))
 }
 
@@ -94,7 +96,7 @@ fn create_target_texture(device: &vello::wgpu::Device, size: Extent3d) -> vello:
     })
 }
 
-async fn copy_texture_to_vec(
+fn copy_texture_to_vec(
     device: &vello::wgpu::Device,
     queue: &vello::wgpu::Queue,
     target: &vello::wgpu::Texture,
@@ -103,7 +105,7 @@ async fn copy_texture_to_vec(
     let padded_width = (size.width * 4).next_multiple_of(256);
     let buffer = device.create_buffer(&BufferDescriptor {
         label: Some("Copy buffer"),
-        size: padded_width as u64 * size.height as u64,
+        size: u64::from(padded_width) * u64::from(size.height),
         usage: BufferUsages::MAP_READ | BufferUsages::COPY_DST,
         mapped_at_creation: false,
     });
@@ -130,7 +132,7 @@ async fn copy_texture_to_vec(
         let _ = tx.send(res);
     });
 
-    block_on_wgpu(device, rx).map_err(|e| format!("Channel closed: {}", e))??;
+    block_on_wgpu(device, rx).map_err(|e| format!("Channel closed: {e}"))??;
     let data = buf_slice.get_mapped_range();
     let mut unpadded = Vec::with_capacity((size.width * size.height * 4) as usize);
     for row in 0..size.height {
@@ -140,6 +142,7 @@ async fn copy_texture_to_vec(
     Ok(unpadded)
 }
 
+/// Rasterises a scene off-screen and encodes it to `path`.
 pub async fn render_to_image(
     scene: &Scene,
     width: u32,
@@ -155,9 +158,9 @@ pub async fn render_to_image(
         image::DynamicImage::ImageRgba8(img)
             .into_rgb8()
             .save_with_format(path, format)
-            .map_err(|e| format!("Failed to save image: {}", e))?;
+            .map_err(|e| format!("Failed to save image: {e}"))?;
     } else {
-        img.save_with_format(path, format).map_err(|e| format!("Failed to save image: {}", e))?;
+        img.save_with_format(path, format).map_err(|e| format!("Failed to save image: {e}"))?;
     }
 
     Ok(())
