@@ -288,6 +288,9 @@ To prevent codebase drift, ad-hoc struct additions, or uncoordinated writer logi
 
 No feature is permitted to bypass the `Operation` vocabulary or inject un-audited dictionary mutations directly into frontends or serialisers.
 
+#### 5.3.1 Multi-Format Provider Architecture
+When introducing support for external document formats (e.g., Word `.docx`, Excel `.xlsx`, SVG, HTML), each format MUST follow Rule C by encapsulating its ingestion (reading) and emission (writing) within a dedicated format provider module/crate (e.g., `fepdf-import-docx`). Providers translate external formats into the `Operation` vocabulary or intermediate layout structures without exposing format-specific dependencies to `fepdf-core`.
+
 ### 5.4 Safety invariants
 
 - **Handles, not pointers.** Objects are reached only through `Handle<Object>`,
@@ -322,7 +325,7 @@ behaviour or API and need their own tests.
 | 2 | Extract the PDF-free half of `font/` into `fepdf-font` | 3,500 lines become independently testable | Low |
 | 3 | Move struct-tree handling out of `fepdf-gui` into `fepdf-doc` | Domain logic returns to the engine; closes the Rule A leak | Medium |
 | 4 | Introduce `Operation` in `fepdf-doc`; reduce the CLI subcommands and `WorkerRequest` to adapters over it | Rule D becomes structural; divergence stops being possible | Medium |
-| 5 | Move `writer` into `fepdf-model` | Restores the read/write round trip | Medium |
+| 5 | Move `writer` into `fepdf-model` (core) | ✅ **Done.** Restores the read/write round trip in `fepdf-core` (Rule C); `fepdf-sdk` re-exports for compatibility | Low |
 | 6 | Introduce the `fepdf` facade | Rule A becomes enforceable; touches all four frontends | High |
 
 Step 0 is a bug fix and needs no restructuring — but do it as part of step 4, not

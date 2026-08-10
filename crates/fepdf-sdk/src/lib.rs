@@ -64,14 +64,7 @@ pub use fepdf_resource as resource;
 pub mod writer;
 
 /// Supported text string encodings for PDF output.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum StringEncoding {
-    /// Maximum compatibility using UTF-16BE with BOM (FE FF).
-    #[default]
-    Utf16BE,
-    /// PDF 2.0 native UTF-8 with BOM (EF BB BF).
-    Utf8,
-}
+pub use fepdf_core::StringEncoding;
 
 /// Options for saving a PDF document.
 #[allow(clippy::struct_excessive_bools)]

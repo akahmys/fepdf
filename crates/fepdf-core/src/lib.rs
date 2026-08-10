@@ -31,12 +31,15 @@ pub mod parser;
 pub mod refine;
 /// Encryption and decryption (ISO 32000-2 Clause 7.6).
 pub mod security;
+/// PDF physical writer and serialization engine.
+pub mod writer;
 
 pub use crate::refine::{ParallelRefinery, commit_to_arena};
 pub use arena::{PdfArena, RemappingTable};
 pub use document::Document;
 pub use document::extensions::*;
 pub use document::page::Page;
+pub use writer::{PdfWriter, StringEncoding};
 
 pub use fepdf_macros::FromPdfObject;
 pub use graphics::{
