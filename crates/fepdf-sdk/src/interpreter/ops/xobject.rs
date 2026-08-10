@@ -311,7 +311,7 @@ impl Interpreter<'_> {
                         (sw, sh, self.detect_pixel_format(&smask_dict), smask_decoded)
                     };
 
-                Some(fepdf_render::SMaskData {
+                Some(fepdf_content::SMaskData {
                     data: smask_decoded.to_vec(),
                     width: sw,
                     height: sh,

@@ -4,7 +4,7 @@
 set -e
 
 ERROR=0
-TARGET_DIRS="crates/fepdf-core crates/fepdf-render crates/fepdf-sdk crates/fepdf-mcp crates/fepdf-wasm crates/fepdf-gui crates/fepdf-cli"
+TARGET_DIRS="crates/fepdf-core crates/fepdf-content crates/fepdf-render crates/fepdf-sdk crates/fepdf-mcp crates/fepdf-wasm crates/fepdf-gui crates/fepdf-cli"
 
 # Ensure cargo is available
 if ! command -v cargo &> /dev/null; then
@@ -184,7 +184,7 @@ grep -rn "static mut" $TARGET_DIRS --include="*.rs" && { echo "  FAIL: Global mu
 #
 # fepdf-sdk owns the writer, so iteration order there reaches the produced
 # PDF just as directly as it does in core. It was previously unchecked.
-RULE10_DIRS="crates/fepdf-core crates/fepdf-render crates/fepdf-sdk"
+RULE10_DIRS="crates/fepdf-core crates/fepdf-content crates/fepdf-render crates/fepdf-sdk"
 echo "[Rule 10] Checking for non-deterministic collections..."
 rule10_failed=0
 while read -r file; do

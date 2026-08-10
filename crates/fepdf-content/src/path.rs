@@ -1,3 +1,5 @@
+//! Accumulates PDF path-construction operators into a `kurbo` path.
+
 use kurbo::{BezPath, Point};
 
 /// Helper to build Kurbo paths from PDF path operations.
@@ -14,10 +16,13 @@ impl Default for PathBuilder {
 }
 
 impl PathBuilder {
+    /// Starts an empty path with no current point.
+    #[must_use]
     pub fn new() -> Self {
         Self { path: BezPath::new(), current_point: None }
     }
 
+    /// PDF `m`: begins a new subpath at (`x`, `y`).
     pub fn move_to(&mut self, x: f64, y: f64) {
         let p = Point::new(x, y);
         self.path.move_to(p);
@@ -30,6 +35,7 @@ impl PathBuilder {
         }
     }
 
+    /// PDF `l`: appends a straight segment to (`x`, `y`).
     pub fn line_to(&mut self, x: f64, y: f64) {
         self.ensure_current_point();
         let p = Point::new(x, y);
@@ -37,6 +43,7 @@ impl PathBuilder {
         self.current_point = Some(p);
     }
 
+    /// PDF `c`: appends a cubic Bezier with both control points given.
     pub fn curve_to(&mut self, x1: f64, y1: f64, x2: f64, y2: f64, x3: f64, y3: f64) {
         self.ensure_current_point();
         let p3 = Point::new(x3, y3);
@@ -61,6 +68,7 @@ impl PathBuilder {
         self.current_point = Some(p3);
     }
 
+    /// PDF `h`: closes the current subpath.
     pub fn close_path(&mut self) {
         self.path.close_path();
         // current_point remains at the point where close_path was called?
@@ -68,6 +76,7 @@ impl PathBuilder {
         // But for common usage, tracking it after close is tricky.
     }
 
+    /// PDF `re`: appends a closed rectangle as a complete subpath.
     pub fn rectangle(&mut self, x: f64, y: f64, w: f64, h: f64) {
         // PDF 're' operator: x y w h
         self.move_to(x, y);
@@ -77,6 +86,8 @@ impl PathBuilder {
         self.close_path();
     }
 
+    /// Consumes the builder and yields the accumulated path.
+    #[must_use]
     pub fn finish(self) -> BezPath {
         self.path
     }

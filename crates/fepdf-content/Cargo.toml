@@ -1,0 +1,18 @@
+[package]
+name = "fepdf-content"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+# ARCHITECTURE.md Rule B: this crate defines the `RenderBackend` contract, so it
+# must not depend on any implementation of it. No vello, no wgpu — that is the
+# whole point, and adding either here silently re-couples every consumer.
+[dependencies]
+fepdf-core.workspace = true
+kurbo.workspace = true
+
+[lints]
+workspace = true

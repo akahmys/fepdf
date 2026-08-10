@@ -1,9 +1,9 @@
+use fepdf_content::{RenderBackend, path::PathBuilder};
 use fepdf_core::graphics::{GraphicsState, Rect, TextMatrices, WindingRule};
 use fepdf_core::lexer::Token;
 use fepdf_core::object::sublimation::Command;
 use fepdf_core::parser::Parser;
 use fepdf_core::{Document, Handle, Object, PdfError, PdfName, PdfResult};
-use fepdf_render::{RenderBackend, path::PathBuilder};
 use std::collections::{BTreeMap, BTreeSet};
 
 /// Captured advance and BBox from d0/d1 operator.

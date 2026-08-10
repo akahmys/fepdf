@@ -1,7 +1,7 @@
 use crate::interpreter::Interpreter;
+use fepdf_content::path::PathBuilder;
 use fepdf_core::PdfResult;
 use fepdf_core::graphics::WindingRule;
-use fepdf_render::path::PathBuilder;
 use kurbo::Shape;
 
 impl Interpreter<'_> {

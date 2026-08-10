@@ -1,7 +1,7 @@
 use crate::interpreter::Interpreter;
+use fepdf_content::{FallbackFontType, RenderBackend, TextGlyph, TextState};
 use fepdf_core::graphics::{BlendMode, Color, PixelFormat, StrokeStyle, WindingRule};
 use fepdf_core::{Document, Handle, Object, PdfResult};
-use fepdf_render::{FallbackFontType, RenderBackend, TextGlyph, TextState};
 use kurbo::{Affine, BezPath};
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -63,7 +63,7 @@ impl RenderBackend for TextExtractionBackend {
         _width: u32,
         _height: u32,
         _format: PixelFormat,
-        _smask: Option<fepdf_render::SMaskData>,
+        _smask: Option<fepdf_content::SMaskData>,
     ) {
     }
     fn set_fill_alpha(&mut self, _alpha: f64) {}
@@ -143,7 +143,7 @@ impl RenderBackend for CollectorBackend {
         _w: u32,
         _h: u32,
         _fmt: PixelFormat,
-        _smask: Option<fepdf_render::SMaskData>,
+        _smask: Option<fepdf_content::SMaskData>,
     ) {
     }
     fn fill_path(&mut self, _path: &BezPath, _color: &Color, _rule: WindingRule) {}

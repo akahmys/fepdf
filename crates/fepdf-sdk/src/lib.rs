@@ -19,11 +19,13 @@ use crate::remediation::HeuristicEngine;
 pub use crate::remediation::apply_physical_redaction_to_page;
 use crate::structure::{AuditFinding, MatterhornAuditor};
 use bytes::Bytes;
+pub use fepdf_content::FallbackFontType;
 pub use fepdf_core::font::{GlyphTrace, TraceContext};
 pub use fepdf_core::{
     Document, Handle, Object, Page, PdfArena, PdfError, PdfName, PdfResult, SublimatedData,
 };
-pub use fepdf_render::{FallbackFontType, VelloBackend};
+#[cfg(feature = "render")]
+pub use fepdf_render::VelloBackend;
 use std::collections::BTreeMap;
 use std::path::Path;
 use std::sync::Arc;
@@ -941,7 +943,7 @@ impl PdfDocument {
     pub fn render_page(
         &self,
         index: usize,
-        backend: &mut dyn fepdf_render::RenderBackend,
+        backend: &mut dyn fepdf_content::RenderBackend,
         initial_transform: kurbo::Affine,
     ) -> PdfResult<()> {
         let page = self.inner.get_page(index)?;
@@ -1149,6 +1151,9 @@ impl PdfDocument {
     }
 
     /// Renders a specific page to an image file, detecting format from extension.
+    ///
+    /// Requires the `render` feature, which pulls in the Vello + wgpu stack.
+    #[cfg(feature = "render")]
     pub fn render_page_to_file(&self, index: usize, output_path: &Path) -> PdfResult<()> {
         let r = self.get_page_box(index)?;
         let w = (r.x2 - r.x1).abs();

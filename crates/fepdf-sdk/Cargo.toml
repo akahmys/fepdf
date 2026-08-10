@@ -9,7 +9,10 @@ repository.workspace = true
 
 [dependencies]
 fepdf-core.workspace = true
-fepdf-render.workspace = true
+fepdf-content.workspace = true
+# Rasterisation is opt-in: only `render_page_to_file` needs it, and pulling
+# vello + wgpu into every SDK consumer is not free. See ARCHITECTURE.md Rule B.
+fepdf-render = { workspace = true, optional = true }
 kurbo.workspace = true
 thiserror.workspace = true
 serde.workspace = true
@@ -17,9 +20,9 @@ bytes.workspace = true
 ttf-parser.workspace = true
 skrifa.workspace = true
 roxmltree.workspace = true
-image.workspace = true
+image = { workspace = true, optional = true }
 tokio.workspace = true
-pollster.workspace = true
+pollster = { workspace = true, optional = true }
 flate2.workspace = true
 lopdf.workspace = true
 chrono.workspace = true
@@ -27,6 +30,11 @@ log.workspace = true
 env_logger.workspace = true
 hex.workspace = true
 md5.workspace = true
+
+[features]
+default = []
+## Enables `PdfDocument::render_page_to_file`, backed by Vello + wgpu.
+render = ["dep:fepdf-render", "dep:pollster", "dep:image"]
 
 [lints]
 workspace = true

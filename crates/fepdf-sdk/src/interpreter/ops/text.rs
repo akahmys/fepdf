@@ -300,7 +300,7 @@ impl Interpreter<'_> {
             log::debug!("[SDK] show_text failed to resolve font {}: {:?}", font_name.as_str(), e);
             e
         })?;
-        let glyphs: Vec<fepdf_render::TextGlyph> = self.map_text_to_glyphs(text, &res)?;
+        let glyphs: Vec<fepdf_content::TextGlyph> = self.map_text_to_glyphs(text, &res)?;
 
         let tm = self.text_matrices.as_ref().map(|m| m.tm).unwrap_or_default();
         let rise = self.state.text_state.rise;
@@ -313,7 +313,7 @@ impl Interpreter<'_> {
 
         let font_size = self.state.text_state.font_size;
         let th = self.state.text_state.horizontal_scaling / 100.0;
-        let text_state = fepdf_render::TextState {
+        let text_state = fepdf_content::TextState {
             tc: self.state.text_state.char_spacing,
             tw: self.state.text_state.word_spacing,
             th,
@@ -369,7 +369,7 @@ impl Interpreter<'_> {
 
     pub(crate) fn render_type3_glyphs(
         &mut self,
-        glyphs: &[fepdf_render::TextGlyph],
+        glyphs: &[fepdf_content::TextGlyph],
     ) -> PdfResult<(f64, f64)> {
         let font_name = self
             .state
@@ -452,7 +452,7 @@ impl Interpreter<'_> {
     fn calculate_type3_advance(
         &self,
         res: &FontResource,
-        glyph: &fepdf_render::TextGlyph,
+        glyph: &fepdf_content::TextGlyph,
         font_size: f64,
         th: f64,
     ) -> (f64, f64) {
@@ -490,7 +490,7 @@ impl Interpreter<'_> {
     fn render_single_type3_glyph(
         &mut self,
         res: &FontResource,
-        glyph: &fepdf_render::TextGlyph,
+        glyph: &fepdf_content::TextGlyph,
         total_adv_x: f64,
         total_adv_y: f64,
         font_size: f64,
@@ -564,7 +564,7 @@ impl Interpreter<'_> {
         &self,
         text: &[u8],
         font: &FontResource,
-    ) -> PdfResult<Vec<fepdf_render::TextGlyph>> {
+    ) -> PdfResult<Vec<fepdf_content::TextGlyph>> {
         let mut glyphs = Vec::new();
         let mut i = 0;
         while i < text.len() {
@@ -613,7 +613,7 @@ impl Interpreter<'_> {
 
             let u_char_hint = unicode_opt.as_ref().and_then(|s| s.chars().next());
             let resolved_gid = font.resolve_gid(cid, u_char_hint, None);
-            glyphs.push(fepdf_render::TextGlyph {
+            glyphs.push(fepdf_content::TextGlyph {
                 gid: resolved_gid.unwrap_or(0),
                 name,
                 char_code,

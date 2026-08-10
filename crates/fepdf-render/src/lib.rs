@@ -1,92 +1,23 @@
+//! A Vello/wgpu implementation of the `fepdf-content` backend contract.
+//!
+//! This crate implements; it does not define. The trait and the values crossing it
+//! live in `fepdf-content` (ARCHITECTURE.md Rule B), so consumers that only interpret
+//! content streams never link a GPU stack.
+
 pub mod headless;
-pub mod path;
 pub mod text;
 
 use fepdf_core::graphics::TextRenderingMode;
-pub use fepdf_core::graphics::WindingRule;
 use fepdf_core::{BlendMode, Color, LineCap, LineJoin, PixelFormat, StrokeStyle};
 use kurbo::{Affine, BezPath, Cap, Join, Stroke};
 use std::sync::Arc;
 use vello::Scene;
 use vello::peniko::{Blob, ImageAlphaType, ImageData, ImageFormat};
 
-// Re-export core types for convenience
-pub use fepdf_core::font::FallbackFontType;
-
-#[derive(Debug, Clone)]
-pub struct SMaskData {
-    pub data: Vec<u8>,
-    pub width: u32,
-    pub height: u32,
-    pub format: PixelFormat,
-}
-
-pub trait RenderBackend {
-    fn transform(&mut self, transform: Affine);
-    fn set_transform(&mut self, transform: Affine);
-    fn push_state(&mut self);
-    fn pop_state(&mut self);
-    fn fill_path(&mut self, path: &BezPath, color: &Color, rule: WindingRule);
-    fn stroke_path(&mut self, path: &BezPath, color: &Color, style: &StrokeStyle);
-    fn push_clip(&mut self, path: &BezPath, rule: WindingRule);
-    fn pop_clip(&mut self);
-    fn set_fill_alpha(&mut self, alpha: f64);
-    fn set_stroke_alpha(&mut self, alpha: f64);
-    fn set_fill_color(&mut self, color: Color);
-    fn set_stroke_color(&mut self, color: Color);
-    fn set_blend_mode(&mut self, mode: BlendMode);
-    fn draw_image(
-        &mut self,
-        image: &[u8],
-        width: u32,
-        height: u32,
-        format: PixelFormat,
-        smask: Option<SMaskData>,
-    );
-    #[allow(clippy::too_many_arguments)]
-    fn define_font(
-        &mut self,
-        name: &str,
-        base_name: Option<&str>,
-        data: Option<Arc<Vec<u8>>>,
-        index: Option<usize>,
-        cid_to_gid_map: Option<std::collections::BTreeMap<u32, u32>>,
-        fallback_type: FallbackFontType,
-        is_cid_keyed: bool,
-    );
-    fn set_font(&mut self, name: &str);
-    fn set_text_render_mode(&mut self, mode: TextRenderingMode);
-    fn set_char_spacing(&mut self, spacing: f64);
-    fn set_word_spacing(&mut self, spacing: f64);
-    fn show_text(
-        &mut self,
-        glyphs: &[TextGlyph],
-        size: f64,
-        transform: kurbo::Affine,
-        state: TextState,
-        op_index: usize,
-    );
-}
-
-#[derive(Debug, Clone)]
-pub struct TextGlyph {
-    pub gid: u32,
-    pub name: Option<String>,
-    pub char_code: u32,
-    pub unicode: String,
-    pub width: f32,
-    pub vx: f32,
-    pub vy: f32,
-    pub is_fallback: bool,
-}
-
-#[derive(Debug, Clone, Copy)]
-pub struct TextState {
-    pub tc: f64,
-    pub tw: f64,
-    pub th: f64,
-    pub is_vertical: bool,
-}
+// The contract this crate implements. Re-exported so existing callers keep working.
+pub use fepdf_content::{
+    FallbackFontType, RenderBackend, SMaskData, TextGlyph, TextState, WindingRule, path,
+};
 
 pub struct VelloBackend {
     scene: Scene,

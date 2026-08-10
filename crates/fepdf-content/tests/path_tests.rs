@@ -1,4 +1,6 @@
-use fepdf_render::path::PathBuilder;
+//! Path construction tests for the content-stream backend contract.
+
+use fepdf_content::path::PathBuilder;
 
 #[test]
 fn test_path_v_y() {

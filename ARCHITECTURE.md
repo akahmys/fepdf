@@ -102,7 +102,7 @@ working as intended, not a cycle.
 
 ## 🧩 3. Crate Responsibilities
 
-Status: **✅** exists as-is · **🔄** code exists, lives elsewhere today · **🆕** new.
+Status: **✅** exists as-is · **⚠️** partially landed · **🔄** code exists, lives elsewhere today · **🆕** new.
 
 | Crate | Status | ~Lines | Responsibility |
 | :--- | :---: | ---: | :--- |
@@ -110,9 +110,9 @@ Status: **✅** exists as-is · **🔄** code exists, lives elsewhere today · *
 | **`fepdf-font`** | 🔄 in core | 3,500 | Font *programs*: CFF, TrueType, CMap, Adobe Glyph List, subsetting, reconstruction. **Contains no PDF concepts** — verified, see §4. |
 | **`fepdf-model`** | 🔄 in core+sdk | 8,600 | The document graph: `PdfArena`, `Handle<T>`, `Object`, page tree, metadata. Owns **both** ingestion and serialisation (Rule C), plus the normalisation passes. |
 | **`fepdf-resource`** | 🔄 in core | 3,600 | Turns PDF resource dictionaries into usable resources: font dict → `FontResource`, colour spaces, images. The bridge between `fepdf-model` and `fepdf-font`. |
-| **`fepdf-content`** | 🔄 in sdk+render | 2,300 | Content-stream interpreter, and the **`Backend` contract** it drives (`TextGlyph`, `TextState`, `SMaskData`, path geometry). No GPU dependency. |
+| **`fepdf-content`** | ⚠️ partial | 2,300 | Content-stream interpreter, and the **`RenderBackend` contract** it drives (`TextGlyph`, `TextState`, `SMaskData`, path geometry). No GPU dependency. *The contract has landed; the interpreter still lives in `fepdf-sdk`.* |
 | **`fepdf-doc`** | 🔄 in sdk | 2,200 | Owns the **`Operation` vocabulary** (§5.1) and is its only interpreter: merge, split, rotate, tag, redact, upgrade. Also structure-tree handling, conformance auditing, remediation. |
-| **`fepdf-render`** | ✅ | 1,100 | A `Backend` implementation on **Vello** + **wgpu**. Nothing else depends on it. |
+| **`fepdf-render`** | ✅ | 1,100 | A `RenderBackend` implementation on **Vello** + **wgpu**. Reached only through the SDK's optional `render` feature. |
 | **`fepdf`** | 🆕 | — | The public facade. `Document`, `Page`, `SaveOptions`, and the re-exported `Operation`. The Rule A boundary. |
 | **`fepdf-cli`** | ✅ | 1,400 | Command-line binary (`fepdf`). |
 | **`fepdf-gui`** | ✅ | 8,000 | Desktop application on **egui** + **eframe** + **wgpu**. |
@@ -136,11 +136,16 @@ reference no PDF type at all** — `agl`, `cff_standard`, `cmap`, `reconstructio
 read font dictionaries, which is why they become `fepdf-resource` rather than moving
 with the rest.
 
-**The contract/implementation inversion has a concrete cost.** `Backend` is defined
-in `fepdf-render`, yet two of its three implementations live in `fepdf-sdk`. The SDK
-therefore depends on the GPU crate to obtain a trait definition, and every SDK
-consumer inherits `vello` + `wgpu` transitively — including the MCP server, which
-speaks JSON over stdio, and the WASM build. Rule B removes that edge.
+**The contract/implementation inversion had a concrete cost.** `RenderBackend` was
+defined in `fepdf-render`, yet two of its three implementations lived in `fepdf-sdk`.
+The SDK therefore depended on the GPU crate to obtain a trait definition, and every
+SDK consumer inherited `vello` + `wgpu` transitively.
+
+Rule B does not make that dependency *disappear* — it makes it **opt-in**. `fepdf-cli`
+and `fepdf-mcp` both call `render_page_to_file` and genuinely rasterise, so they
+enable the SDK's `render` feature and still link the GPU stack, correctly. What
+changes is that the choice is now explicit: `fepdf-wasm`, which never rasterises,
+went from three transitive GPU dependencies to none.
 
 **Rule A exists because it was already broken.** `PdfArena` currently reaches
 `fepdf-gui` (9 references) and `fepdf-cli` (2). The GUI worker holds struct-tree
@@ -279,7 +284,7 @@ behaviour or API and need their own tests.
 | # | Step | Effect | Risk |
 | :-: | :--- | :--- | :---: |
 | 0 | Reconcile the two `rotate` implementations | Fixes a live behavioural divergence; independent of everything below | Low |
-| 1 | Move the `Backend` contract and its types from `fepdf-render` into `fepdf-content` | Drops `vello`/`wgpu` from MCP and WASM | Low |
+| 1 | Move the `RenderBackend` contract and its types from `fepdf-render` into `fepdf-content` | ✅ **Done.** GPU became opt-in; WASM dropped to zero GPU dependencies | Low |
 | 2 | Extract the PDF-free half of `font/` into `fepdf-font` | 3,500 lines become independently testable | Low |
 | 3 | Move struct-tree handling out of `fepdf-gui` into `fepdf-doc` | Domain logic returns to the engine; closes the Rule A leak | Medium |
 | 4 | Introduce `Operation` in `fepdf-doc`; reduce the CLI subcommands and `WorkerRequest` to adapters over it | Rule D becomes structural; divergence stops being possible | Medium |

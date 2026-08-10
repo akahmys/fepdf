@@ -9,6 +9,7 @@ repository.workspace = true
 
 [dependencies]
 fepdf-core.workspace = true
+fepdf-content.workspace = true
 log.workspace = true
 vello.workspace = true
 peniko.workspace = true
