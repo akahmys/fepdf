@@ -248,42 +248,11 @@ fn handle_insert_document(
             }
 
             let version = doc.get_summary().ok().map_or_else(|| "1.7".to_string(), |s| s.version);
-            let metadata = doc.inner().metadata();
-            let security_method = doc.inner().security_method.clone();
-            let permissions = doc.inner().permissions;
-            let fonts = doc.inner().fonts();
-
-            let viewer_direction = if let Some(cah) = doc.inner().catalog_handle() {
-                if let Ok(cadh) = doc.inner().resolve_to_dict(cah) {
-                    if let Some(dict) = doc.inner().arena().get_dict(cadh) {
-                        let vp_key = doc.inner().arena().name("ViewerPreferences");
-                        if let Some(vp_obj) = dict.get(&vp_key) {
-                            if let Some(vp_dh) = vp_obj.resolve(doc.inner().arena()).as_dict_handle() {
-                                if let Some(vp_dict) = doc.inner().arena().get_dict(vp_dh) {
-                                    let dir_key = doc.inner().arena().name("Direction");
-                                    vp_dict
-                                        .get(&dir_key)
-                                        .and_then(|d| d.resolve(doc.inner().arena()).as_name())
-                                        .and_then(|nh| doc.inner().arena().get_name(nh))
-                                        .map(|n| n.as_str().to_string())
-                                } else {
-                                    None
-                                }
-                            } else {
-                                None
-                            }
-                        } else {
-                            None
-                        }
-                    } else {
-                        None
-                    }
-                } else {
-                    None
-                }
-            } else {
-                None
-            };
+            let metadata = doc.metadata();
+            let security_method = doc.security_method();
+            let permissions = doc.permissions();
+            let fonts = doc.fonts();
+            let viewer_direction = doc.viewer_direction();
 
             let _ = tx.send(WorkerResponse::DocumentLoaded(Box::new(LoadedDocument {
                 name: None,
@@ -346,73 +315,19 @@ fn handle_open(
             }
 
             let version = doc.get_summary().ok().map_or_else(|| "1.7".to_string(), |s| s.version);
-            let metadata = doc.inner().metadata();
-            let security_method = doc.inner().security_method.clone();
-            let permissions = doc.inner().permissions;
-            let fonts = doc.inner().fonts();
-
-            let mut viewer_direction = if let Some(cah) = doc.inner().catalog_handle() {
-                if let Ok(cadh) = doc.inner().resolve_to_dict(cah) {
-                    if let Some(dict) = doc.inner().arena().get_dict(cadh) {
-                        let vp_key = doc.inner().arena().name("ViewerPreferences");
-                        if let Some(vp_obj) = dict.get(&vp_key) {
-                            if let Some(vp_dh) = vp_obj.resolve(doc.inner().arena()).as_dict_handle() {
-                                if let Some(vp_dict) = doc.inner().arena().get_dict(vp_dh) {
-                                    let dir_key = doc.inner().arena().name("Direction");
-                                    vp_dict
-                                        .get(&dir_key)
-                                        .and_then(|d| d.resolve(doc.inner().arena()).as_name())
-                                        .and_then(|nh| doc.inner().arena().get_name(nh))
-                                        .map(|n| n.as_str().to_string())
-                                } else {
-                                    None
-                                }
-                            } else {
-                                None
-                            }
-                        } else {
-                            None
-                        }
-                    } else {
-                        None
-                    }
-                } else {
-                    None
-                }
-            } else {
-                None
-            };
+            let metadata = doc.metadata();
+            let security_method = doc.security_method();
+            let permissions = doc.permissions();
+            let fonts = doc.fonts();
+            let mut viewer_direction = doc.viewer_direction();
 
             if viewer_direction.is_none() {
                 // Heuristic 1: Check fonts for CJK vertical layout
-                let has_vertical_font = doc.inner().fonts().iter().any(|f| {
+                let has_vertical_font = fonts.iter().any(|f| {
                     f.name.ends_with("-V") || f.name.contains("-V-") || f.name.contains("-V_")
                 });
 
-                let is_japanese_lang = if let Some(cah) = doc.inner().catalog_handle() {
-                    if let Ok(cadh) = doc.inner().resolve_to_dict(cah) {
-                        if let Some(dict) = doc.inner().arena().get_dict(cadh) {
-                            let lang_key = doc.inner().arena().name("Lang");
-                            if let Some(lang_obj) = dict.get(&lang_key) {
-                                let resolved = lang_obj.resolve(doc.inner().arena());
-                                if let Some(bytes) = resolved.as_string() {
-                                    let s = String::from_utf8_lossy(bytes).to_lowercase();
-                                    s.starts_with("ja")
-                                } else {
-                                    false
-                                }
-                            } else {
-                                false
-                            }
-                        } else {
-                            false
-                        }
-                    } else {
-                        false
-                    }
-                } else {
-                    false
-                };
+                let is_japanese_lang = doc.language().is_some_and(|lang| lang.to_lowercase().starts_with("ja"));
 
                 if has_vertical_font || is_japanese_lang {
                     viewer_direction = Some("R2L".to_string());
@@ -523,25 +438,12 @@ fn handle_render(
 
 fn handle_audit(doc_opt: Option<&PdfDocument>, tx: &Sender<WorkerResponse>) {
     let Some(doc) = doc_opt else { return };
-    let mut audit_findings = Vec::new();
-    let arena = doc.inner().arena();
-
-    if let Some(cah) = doc.inner().catalog_handle()
-        && let Ok(cadh) = doc.inner().resolve_to_dict(cah)
-        && let Some(dict) = arena.get_dict(cadh)
-    {
-        let str_root_key = arena.name("StructTreeRoot");
-        if let Some(str_root_obj) = dict.get(&str_root_key)
-            && let Some(str_root_ref) = str_root_obj.resolve(arena).as_reference()
-        {
-            let auditor = fepdf_sdk::structure::MatterhornAuditor::new(arena);
-            if let Ok(findings) = auditor.audit(str_root_ref) {
-                for f in findings {
-                    audit_findings.push((f.checkpoint, f.severity, f.message, f.handle_id));
-                }
-            }
-        }
-    }
+    let audit_findings = doc
+        .audit_ua2()
+        .unwrap_or_default()
+        .into_iter()
+        .map(|f| (f.checkpoint, f.severity, f.message, f.handle_id))
+        .collect();
     let _ = tx.send(WorkerResponse::AuditFindings { findings: audit_findings });
 }
 
@@ -562,24 +464,12 @@ fn handle_update_node(
     ));
 
     // Run Matterhorn compliance audit on updated tree
-    let mut findings = Vec::new();
-    let arena = doc.inner().arena();
-    if let Some(cah) = doc.inner().catalog_handle()
-        && let Ok(cadh) = doc.inner().resolve_to_dict(cah)
-        && let Some(dict) = arena.get_dict(cadh)
-    {
-        let str_root_key = arena.name("StructTreeRoot");
-        if let Some(str_root_obj) = dict.get(&str_root_key)
-            && let Some(str_root_ref) = str_root_obj.resolve(arena).as_reference()
-        {
-            let auditor = fepdf_sdk::structure::MatterhornAuditor::new(arena);
-            if let Ok(audit_res) = auditor.audit(str_root_ref) {
-                for f in audit_res {
-                    findings.push((f.checkpoint, f.severity, f.message, f.handle_id));
-                }
-            }
-        }
-    }
+    let findings = doc
+        .audit_ua2()
+        .unwrap_or_default()
+        .into_iter()
+        .map(|f| (f.checkpoint, f.severity, f.message, f.handle_id))
+        .collect();
     let _ = tx.send(WorkerResponse::AuditFindings { findings });
 }
 
@@ -612,7 +502,7 @@ fn handle_save(
 
     // 2. Apply physical stream sanitization to each page mutably
     for (page_idx, rects) in page_redactions {
-        if let Err(e) = fepdf_sdk::apply_physical_redaction_to_page(doc.inner(), page_idx, &rects) {
+        if let Err(e) = doc.apply_redaction_to_page(page_idx, &rects) {
             let _ = tx.send(WorkerResponse::Error(format!(
                 "Failed physically redacting page {page_idx}: {e}"
             )));

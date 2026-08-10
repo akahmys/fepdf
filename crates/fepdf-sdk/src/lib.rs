@@ -1240,6 +1240,70 @@ impl PdfDocument {
         })
     }
 
+    /// Returns the document's refined metadata.
+    pub fn metadata(&self) -> fepdf_core::metadata::MetadataInfo {
+        self.inner.metadata()
+    }
+
+    /// Returns the active security handler method name if encrypted.
+    pub fn security_method(&self) -> String {
+        self.inner.security_method.clone()
+    }
+
+    /// Returns user permissions granted for this document.
+    pub fn permissions(&self) -> Option<i32> {
+        self.inner.permissions
+    }
+
+    /// Returns all font summaries in the document.
+    pub fn fonts(&self) -> Vec<FontSummary> {
+        self.inner.fonts()
+    }
+
+    /// Returns memory arena allocation statistics.
+    pub fn arena_stats(&self) -> fepdf_core::arena::ArenaStats {
+        self.inner.arena().get_stats()
+    }
+
+    /// Returns the reading direction specified in ViewerPreferences, if any.
+    pub fn viewer_direction(&self) -> Option<String> {
+        let cah = self.inner.catalog_handle()?;
+        let cadh = self.inner.resolve_to_dict(cah).ok()?;
+        let dict = self.inner.arena().get_dict(cadh)?;
+        let vp_obj = dict.get(&self.inner.arena().name("ViewerPreferences"))?;
+        let vp_dh = vp_obj.resolve(self.inner.arena()).as_dict_handle()?;
+        let vp_dict = self.inner.arena().get_dict(vp_dh)?;
+        let dir_obj = vp_dict.get(&self.inner.arena().name("Direction"))?;
+        let name_handle = dir_obj.resolve(self.inner.arena()).as_name()?;
+        self.inner.arena().get_name(name_handle).map(|n| n.as_str().to_string())
+    }
+
+    /// Returns the natural language identifier (`/Lang`) of the document, if specified.
+    pub fn language(&self) -> Option<String> {
+        let cah = self.inner.catalog_handle()?;
+        let cadh = self.inner.resolve_to_dict(cah).ok()?;
+        let dict = self.inner.arena().get_dict(cadh)?;
+        let lang_obj = dict.get(&self.inner.arena().name("Lang"))?;
+        let resolved = lang_obj.resolve(self.inner.arena());
+        if let Some(s) = resolved.as_string() {
+            String::from_utf8(s.to_vec()).ok()
+        } else if let Some(nh) = resolved.as_name() {
+            self.inner.arena().get_name(nh).map(|n| n.as_str().to_string())
+        } else {
+            None
+        }
+    }
+
+    /// Applies physical redaction boxes to a target page.
+    pub fn apply_redaction_to_page(&self, page_idx: usize, rects: &[[f32; 4]]) -> PdfResult<()> {
+        apply_physical_redaction_to_page(&self.inner, page_idx, rects)
+    }
+
+    /// Retrieves a specific font resource by its object handle.
+    pub fn get_font(&self, handle: Handle<Object>) -> PdfResult<std::sync::Arc<fepdf_core::font::FontResource>> {
+        self.inner.get_font(handle)
+    }
+
     /// Returns a list of all fonts embedded or referenced in the document.
     pub fn get_embedded_fonts(&self) -> Vec<FontSummary> {
         self.inner.fonts()

@@ -827,7 +827,7 @@ fn handle_debug_stats(input: PathBuf, ingest: IngestArgs) -> Result<()> {
     let doc = PdfDocument::open_with_options(data.into(), &ingest_options)
         .map_err(|e| anyhow::anyhow!("{e:?}"))?;
 
-    let stats = doc.inner().arena().get_stats();
+    let stats = doc.arena_stats();
 
     println!("\n--- [ ARENA STATISTICS ] ---");
     println!("PDF Version:      {}", stats.version);
@@ -835,7 +835,7 @@ fn handle_debug_stats(input: PathBuf, ingest: IngestArgs) -> Result<()> {
     println!("Dictionaries:     {}", stats.dictionary_count);
     println!("Arrays:           {}", stats.array_count);
     println!("\n--- [ FONT RESOURCES ] ---");
-    for font in doc.inner().fonts() {
+    for font in doc.fonts() {
         println!("  Handle {:>3}: {:<30} ({})", font.handle.index(), font.name, font.font_type);
     }
 
@@ -1306,7 +1306,7 @@ fn handle_debug_trace_glyph(
     let doc = PdfDocument::open_with_options(data.into(), &ingest_options)
         .map_err(|e| anyhow::anyhow!("{e:?}"))?;
 
-    let font_summaries = doc.inner().fonts();
+    let font_summaries = doc.fonts();
     let mut found_any = false;
 
     for summary in font_summaries {
@@ -1317,7 +1317,7 @@ fn handle_debug_trace_glyph(
             continue;
         }
 
-        let font = match doc.inner().get_font(summary.handle) {
+        let font = match doc.get_font(summary.handle) {
             Ok(f) => f,
             Err(e) => {
                 println!("Warning: Failed to load font {name}: {e:?}");
