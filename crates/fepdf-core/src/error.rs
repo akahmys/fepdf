@@ -86,3 +86,9 @@ pub enum PdfError {
     /// A failure with no more specific variant.
     Other(std::borrow::Cow<'static, str>),
 }
+
+impl From<fepdf_font::FontError> for PdfError {
+    fn from(err: fepdf_font::FontError) -> Self {
+        PdfError::Other(err.to_string().into())
+    }
+}

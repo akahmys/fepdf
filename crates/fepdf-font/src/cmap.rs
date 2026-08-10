@@ -834,7 +834,7 @@ pub fn glyph_name_to_unicode(v: &[u8]) -> String {
     let name = if v.starts_with(b"/") { &v[1..] } else { v };
     let name_str = String::from_utf8_lossy(name);
 
-    crate::font::agl::lookup(&name_str).unwrap_or_default()
+    crate::agl::lookup(&name_str).unwrap_or_default()
 }
 
 #[cfg(test)]

@@ -1,6 +1,6 @@
 //! CMap Rescue & Heuristics for broken font mappings.
 
-use crate::font::cmap::CMap;
+use crate::cmap::CMap;
 
 /// Handles recovery of missing or broken Unicode mappings.
 pub struct CMapRescue;

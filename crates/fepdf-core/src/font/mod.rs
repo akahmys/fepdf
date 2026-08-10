@@ -1,20 +1,13 @@
 //! PDF Font Engine (ISO 32000-2:2020 Clause 9)
 
-pub mod agl;
-pub mod cff_standard;
-pub mod cmap;
+pub use fepdf_font::{agl, cff_standard, cmap, reconstruction, rescue, subset};
 /// Loads embedded font programs out of a document.
 pub mod loader;
 /// Glyph metrics: widths, bounding boxes and vertical advances.
 pub mod metrics;
-/// Repairs damaged or partial font programs into loadable ones.
-pub mod reconstruction;
-pub mod rescue;
-pub use reconstruction::{FontReconstructor, ReconstructedFont};
+pub use fepdf_font::reconstruction::{FontReconstructor, ReconstructedFont};
 /// Typed schema for font dictionaries.
 pub mod schema;
-/// Builds subset font programs containing only the glyphs used.
-pub mod subset;
 
 #[derive(
     Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, serde::Serialize, serde::Deserialize,
@@ -2583,6 +2576,39 @@ impl TraceContext {
     pub fn push_step(&mut self, _step: impl Into<String>) {}
     /// No-op without `debug-tools`.
     pub fn finish(&mut self, _gid: Option<u32>) {}
+}
+
+impl fepdf_font::reconstruction::FontInfo for FontResource {
+    fn base_font(&self) -> &str {
+        self.base_font.as_str()
+    }
+    fn subtype(&self) -> &str {
+        self.subtype.as_str()
+    }
+    fn is_cid_keyed(&self) -> bool {
+        self.is_cid_keyed
+    }
+    fn is_cjk(&self) -> bool {
+        self.is_cjk()
+    }
+    fn cid_ordering(&self) -> Option<&str> {
+        self.cid_ordering.as_deref()
+    }
+    fn cid_to_gid_map(&self) -> Option<&BTreeMap<u32, u32>> {
+        self.cid_to_gid_map.as_ref()
+    }
+    fn unified_map(&self) -> &BTreeMap<String, u32> {
+        &self.unified_map
+    }
+    fn encoding(&self) -> Option<&fepdf_font::cmap::CMap> {
+        self.encoding.as_ref()
+    }
+    fn glyph_width_by_gid(&self, gid: u32) -> f32 {
+        self.glyph_width_by_gid(gid)
+    }
+    fn to_gid_hint(&self, cid: u32, _hint_name: Option<&str>) -> u32 {
+        self.to_gid(cid, None)
+    }
 }
 
 #[cfg(test)]

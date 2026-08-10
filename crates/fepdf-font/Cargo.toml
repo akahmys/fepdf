@@ -1,0 +1,23 @@
+[package]
+name = "fepdf-font"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+log.workspace = true
+bytes.workspace = true
+serde.workspace = true
+thiserror.workspace = true
+kurbo.workspace = true
+skrifa.workspace = true
+read-fonts.workspace = true
+ttf-parser.workspace = true
+parking_lot.workspace = true
+
+[lints.rust]
+unsafe_code = "forbid"
+missing_docs = "warn"

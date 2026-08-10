@@ -9,6 +9,7 @@ repository.workspace = true
 
 [dependencies]
 fepdf-macros.workspace = true
+fepdf-font.workspace = true
 log.workspace = true
 bytes.workspace = true
 serde.workspace = true

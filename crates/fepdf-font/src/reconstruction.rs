@@ -1,6 +1,30 @@
-use crate::font::FontResource;
+use crate::cmap::CMap;
 use crate::{PdfError, PdfResult};
 use std::collections::BTreeMap;
+
+/// Interface exposing font metadata needed for binary reconstruction.
+pub trait FontInfo {
+    /// PostScript base font name.
+    fn base_font(&self) -> &str;
+    /// Subtype of the font.
+    fn subtype(&self) -> &str;
+    /// Whether the font is CID-keyed.
+    fn is_cid_keyed(&self) -> bool;
+    /// Whether the font is a CJK font.
+    fn is_cjk(&self) -> bool;
+    /// CID ordering string.
+    fn cid_ordering(&self) -> Option<&str>;
+    /// Map of CID to GID.
+    fn cid_to_gid_map(&self) -> Option<&BTreeMap<u32, u32>>;
+    /// Unified mapping for CMap synthesis.
+    fn unified_map(&self) -> &BTreeMap<String, u32>;
+    /// Encoding CMap if present.
+    fn encoding(&self) -> Option<&CMap>;
+    /// Physical or PDF glyph width by GID.
+    fn glyph_width_by_gid(&self, gid: u32) -> f32;
+    /// Resolves GID for a CID or hint name.
+    fn to_gid_hint(&self, cid: u32, hint_name: Option<&str>) -> u32;
+}
 
 /// A surgical patcher for SFNT binaries.
 pub struct FontReconstructor;
@@ -61,13 +85,13 @@ pub enum FontFormat {
 
 impl FontFormat {
     /// Detects the font format from raw binary data, optionally using metadata hints.
-    pub fn detect_with_resource(data: &[u8], resource: &crate::font::FontResource) -> Self {
+    pub fn detect_with_resource(data: &[u8], resource: &impl FontInfo) -> Self {
         let format = Self::detect(data);
 
         // Hardening (RR-15): If metadata says CIDFontType0 (CFF) but we detected Type1Pfb,
         // it might be a misidentified CFF font or a CID-keyed Type 1 font.
         // We check if it's actually CFF but just has a weird start (coincidental 0x80 0x01).
-        if format == FontFormat::Type1Pfb && resource.subtype.as_str() == "CIDFontType0" {
+        if format == FontFormat::Type1Pfb && resource.subtype() == "CIDFontType0" {
             // CFF should start with version 1.x or 2.x.
             // If data[0] is 1 or 2, it's likely CFF even if the first 2 bytes match PFB.
             if data.len() >= 4 && (data[0] == 1 || data[0] == 2) {
@@ -123,7 +147,7 @@ impl FontReconstructor {
     ///
     /// This method performs surgical patching of font tables (hmtx, cmap) to align
     /// the physical font file with the metrics declared in the PDF document.
-    pub fn reconstruct(resource: &FontResource, raw_data: &[u8]) -> PdfResult<ReconstructedFont> {
+    pub fn reconstruct(resource: &impl FontInfo, raw_data: &[u8]) -> PdfResult<ReconstructedFont> {
         let format = FontFormat::detect_with_resource(raw_data, resource);
         let sig = if raw_data.len() >= 4 {
             format!("{:02x}{:02x}{:02x}{:02x}", raw_data[0], raw_data[1], raw_data[2], raw_data[3])
@@ -132,7 +156,7 @@ impl FontReconstructor {
         };
         log::debug!(
             "[RECONSTRUCT] Starting reconstruction for {} (format: {:?}, size: {} bytes, sig: {})",
-            resource.base_font.as_str(),
+            resource.base_font(),
             format,
             raw_data.len(),
             sig
@@ -159,7 +183,7 @@ impl FontReconstructor {
 
     fn patch_sfnt_data(
         // RR-15 Limit: Dispatcher - surgical patching of SFNT binary structures
-        resource: &FontResource,
+        resource: &impl FontInfo,
         raw_data: &[u8],
         normalized: ReconstructedFont,
     ) -> ReconstructedFont {
@@ -225,7 +249,7 @@ impl FontReconstructor {
     /// Also attempts to rescue Glyph Name to GID mappings from the 'post' table.
     fn rescue_sid_map_from_sfnt(
         data: &[u8],
-        resource: &FontResource,
+        resource: &impl FontInfo,
         name_to_gid: &mut BTreeMap<String, u32>,
     ) -> Option<BTreeMap<u32, u32>> {
         let mut map = BTreeMap::new();
@@ -260,7 +284,7 @@ impl FontReconstructor {
             // This allows us to find the correct GID for a character code even if the font's
             // internal cmap is strictly Unicode or has lying Identity entries.
             // Priority: PDF metrics (ToUnicode) ALWAYS override font internal cmaps.
-            for (uni_str, &code) in &resource.unified_map {
+            for (uni_str, &code) in resource.unified_map() {
                 if let Some(c) = uni_str.chars().next()
                     && let Some(&gid) = internal_u2g.get(&(c as u32))
                 {
@@ -271,7 +295,7 @@ impl FontReconstructor {
         if map.is_empty() { None } else { Some(map) }
     }
 
-    fn normalize_sfnt_format(data: &[u8], resource: &FontResource) -> PdfResult<ReconstructedFont> {
+    fn normalize_sfnt_format(data: &[u8], resource: &impl FontInfo) -> PdfResult<ReconstructedFont> {
         let mut info = Self::inspect_cff(data).unwrap_or(CffInfo::empty());
 
         if info.sid_to_gid.is_none() {
@@ -297,7 +321,7 @@ impl FontReconstructor {
         {
             log::debug!(
                 "[RECONSTRUCT] Patching SFNT cmap table for {}",
-                resource.base_font.as_str()
+                resource.base_font()
             );
             if let Some(idx) = sfnt_dis.tables.iter().position(|(t, _)| t == b"cmap") {
                 sfnt_dis.tables[idx].1 = new_cmap_data;
@@ -329,7 +353,7 @@ impl FontReconstructor {
     fn normalize_to_sfnt(
         format: FontFormat,
         data: &[u8],
-        resource: &FontResource,
+        resource: &impl FontInfo,
     ) -> PdfResult<ReconstructedFont> {
         match format {
             FontFormat::Sfnt => Self::normalize_sfnt_format(data, resource),
@@ -358,12 +382,12 @@ impl FontReconstructor {
 
     fn transcode_type1_to_cff(
         data: &[u8],
-        resource: &FontResource,
+        resource: &impl FontInfo,
     ) -> PdfResult<ReconstructedFont> {
         let segments = Self::parse_pfb(data)?;
         log::info!(
             "[RECONSTRUCT] Type 1 segments extracted for {}: ASCII={} bytes, Binary={} bytes, Trailer={} bytes",
-            resource.base_font.as_str(),
+            resource.base_font(),
             segments.ascii.len(),
             segments.binary.len(),
             segments.trailer.len()
@@ -925,8 +949,8 @@ impl FontReconstructor {
         Ok(Type1Segments { ascii, binary, trailer })
     }
 
-    fn build_name_table(resource: &FontResource) -> Vec<u8> {
-        let font_name = resource.base_font.as_str().as_bytes();
+    fn build_name_table(resource: &impl FontInfo) -> Vec<u8> {
+        let font_name = resource.base_font().as_bytes();
         let name_count = 1;
         let mut name_table = vec![0u8; 6 + 12 * name_count + font_name.len()];
         name_table[2..4].copy_from_slice(&(name_count as u16).to_be_bytes());
@@ -943,7 +967,7 @@ impl FontReconstructor {
         name_table
     }
 
-    fn build_hmtx_table(resource: &FontResource, num_glyphs: usize) -> Vec<u8> {
+    fn build_hmtx_table(resource: &impl FontInfo, num_glyphs: usize) -> Vec<u8> {
         let mut hmtx = Vec::with_capacity(num_glyphs * 4);
         for gid in 0..num_glyphs {
             let width = resource.glyph_width_by_gid(gid as u32);
@@ -956,7 +980,7 @@ impl FontReconstructor {
     fn synthesize_naked_tables(
         tag: [u8; 4],
         outline_data: &[u8],
-        resource: &FontResource,
+        resource: &impl FontInfo,
         info: &CffInfo,
     ) -> Vec<([u8; 4], Vec<u8>)> {
         let mut tables = Vec::new();
@@ -1002,7 +1026,7 @@ impl FontReconstructor {
     fn wrap_naked_outline(
         tag: [u8; 4],
         outline_data: &[u8],
-        resource: &FontResource,
+        resource: &impl FontInfo,
     ) -> PdfResult<ReconstructedFont> {
         let info = if tag == *b"CFF " || tag == *b"CFF2" {
             Self::inspect_cff(outline_data).unwrap_or(CffInfo::empty())
@@ -1030,7 +1054,7 @@ impl FontReconstructor {
             Err(e) => {
                 log::error!(
                     "[RECONSTRUCT] SFNT assembly FAILED for {}: {:?}",
-                    resource.base_font.as_str(),
+                    resource.base_font(),
                     e
                 );
                 outline_data.to_vec()
@@ -1055,12 +1079,12 @@ impl FontReconstructor {
     fn resolve_via_name_and_unicode(
         cid: u32,
         c: char,
-        resource: &FontResource,
+        resource: &impl FontInfo,
         discovered_map: Option<&BTreeMap<u32, u32>>,
         name_to_gid: Option<&BTreeMap<String, u32>>,
     ) -> Option<u32> {
         if let Some(nmap) = name_to_gid
-            && let Some(glyph_name) = resource.encoding.as_ref().and_then(|e| e.map(&[cid as u8]))
+            && let Some(glyph_name) = resource.encoding().and_then(|e| e.map(&[cid as u8]))
         {
             let name = glyph_name.strip_prefix('/').unwrap_or(&glyph_name);
             if let Some(gid) = nmap.get(name).copied() {
@@ -1128,7 +1152,7 @@ impl FontReconstructor {
         cid: u32,
         c: char,
         actual_gid: Option<u32>,
-        resource: &FontResource,
+        resource: &impl FontInfo,
         info: &CffInfo,
     ) -> u32 {
         let mut gid_opt = actual_gid;
@@ -1137,19 +1161,19 @@ impl FontReconstructor {
             gid_opt = Some(1);
         }
         if gid_opt.is_none() {
-            let is_identity = resource.cid_ordering.as_deref().is_none_or(|o| o == "Identity");
-            if resource.is_cid_keyed && is_identity && !resource.is_cjk() && cid != 0 {
+            let is_identity = resource.cid_ordering().is_none_or(|o| o == "Identity");
+            if resource.is_cid_keyed() && is_identity && !resource.is_cjk() && cid != 0 {
                 gid_opt = Some(cid);
             }
         }
         if let Some(gid) = gid_opt {
             gid
-        } else if resource.is_cid_keyed
-            && (resource.cid_to_gid_map.is_some()
-                || !resource.base_font.as_str().contains('+')
+        } else if resource.is_cid_keyed()
+            && (resource.cid_to_gid_map().is_some()
+                || !resource.base_font().contains('+')
                 || resource.is_cjk())
         {
-            resource.to_gid(cid, None)
+            resource.to_gid_hint(cid, None)
         } else {
             0
         }
@@ -1176,7 +1200,7 @@ impl FontReconstructor {
     }
 
     fn synthesize_bridged_cmap(
-        resource: &FontResource,
+        resource: &impl FontInfo,
         raw_data: &[u8],
         discovered_map: Option<&BTreeMap<u32, u32>>,
         name_to_gid: Option<&BTreeMap<String, u32>>,
@@ -1188,13 +1212,13 @@ impl FontReconstructor {
         let mut mappings = Vec::new();
         let default_map;
         let it: Box<dyn Iterator<Item = (String, u32)>> =
-            if resource.unified_map.is_empty() && !resource.is_cid_keyed {
+            if resource.unified_map().is_empty() && !resource.is_cid_keyed() {
                 default_map = (0..=255u32)
                     .map(|c| (String::from_utf8_lossy(&[c as u8]).to_string(), c))
                     .collect::<Vec<_>>();
                 Box::new(default_map.into_iter())
             } else {
-                Box::new(resource.unified_map.iter().map(|(s, &c)| (s.clone(), c)))
+                Box::new(resource.unified_map().iter().map(|(s, &c)| (s.clone(), c)))
             };
 
         let mut cid_to_gid_map = discovered_map.cloned().unwrap_or_default();
@@ -1211,7 +1235,7 @@ impl FontReconstructor {
                     discovered_map,
                     &internal_unicode_map,
                     &internal_code_map,
-                    resource.is_cid_keyed,
+                    resource.is_cid_keyed(),
                 );
             }
             let final_gid = Self::resolve_final_fallback(cid, c, actual_gid, resource, &info);
@@ -1374,7 +1398,7 @@ impl FontReconstructor {
 
     fn patch_hmtx_direct(
         tables: &mut [([u8; 4], Vec<u8>)],
-        resource: &FontResource,
+        resource: &impl FontInfo,
         native_upem: u16,
     ) {
         if let Some(idx) = tables.iter().position(|(t, _)| t == b"hmtx") {
@@ -1582,7 +1606,7 @@ impl FontReconstructor {
             sid_map.len(),
             string_idx_pos
         );
-        use crate::font::cff_standard::CFF_STANDARD_STRINGS;
+        use crate::cff_standard::CFF_STANDARD_STRINGS;
 
         for (&sid, &gid) in sid_map {
             let name = if sid <= CFF_LAST_STANDARD_SID {
@@ -1964,10 +1988,27 @@ mod tests {
         assert_eq!(FontFormat::detect(&[0x12, 0x34]), FontFormat::Unknown);
     }
 
+    struct TestFontInfo;
+    impl FontInfo for TestFontInfo {
+        fn base_font(&self) -> &str { "Test" }
+        fn subtype(&self) -> &str { "TrueType" }
+        fn is_cid_keyed(&self) -> bool { false }
+        fn is_cjk(&self) -> bool { false }
+        fn cid_ordering(&self) -> Option<&str> { None }
+        fn cid_to_gid_map(&self) -> Option<&BTreeMap<u32, u32>> { None }
+        fn unified_map(&self) -> &BTreeMap<String, u32> {
+            static EMPTY: std::sync::OnceLock<BTreeMap<String, u32>> = std::sync::OnceLock::new();
+            EMPTY.get_or_init(BTreeMap::new)
+        }
+        fn encoding(&self) -> Option<&CMap> { None }
+        fn glyph_width_by_gid(&self, _gid: u32) -> f32 { 1000.0 }
+        fn to_gid_hint(&self, cid: u32, _hint_name: Option<&str>) -> u32 { cid }
+    }
+
     #[test]
     fn test_cff2_wrapping() {
         let dummy_cff2 = vec![2, 0, 5, 1, 2, 3, 4, 5];
-        let resource = FontResource::new_test();
+        let resource = TestFontInfo;
 
         let res = FontReconstructor::wrap_naked_outline(*b"CFF2", &dummy_cff2, &resource).unwrap();
         assert_eq!(FontFormat::detect(&res.data), FontFormat::Sfnt);
