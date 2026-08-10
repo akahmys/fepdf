@@ -652,16 +652,35 @@ impl ThumbnailSidebar {
         let mut action_delete = false;
 
         response.context_menu(|ui| {
-            if ui.button(app.locale_mgr.tr(&app.active_language, "rotate_left_90")).clicked() {
-                action_rotate = Some(-90);
-                ui.close_kind(egui::UiKind::Menu);
-            }
             if ui.button(app.locale_mgr.tr(&app.active_language, "rotate_right_90")).clicked() {
                 action_rotate = Some(90);
                 ui.close_kind(egui::UiKind::Menu);
             }
+            if ui.button(app.locale_mgr.tr(&app.active_language, "rotate_left_90")).clicked() {
+                action_rotate = Some(-90);
+                ui.close_kind(egui::UiKind::Menu);
+            }
             if ui.button(app.locale_mgr.tr(&app.active_language, "rotate_180")).clicked() {
                 action_rotate = Some(180);
+                ui.close_kind(egui::UiKind::Menu);
+            }
+            ui.separator();
+            if ui.button(app.locale_mgr.tr(&app.active_language, "page_setup_menu")).clicked() {
+                // Future modal open for paper / crop / scale setup
+                ui.close_kind(egui::UiKind::Menu);
+            }
+            ui.menu_button(app.locale_mgr.tr(&app.active_language, "page_insert_menu"), |ui| {
+                if ui.button(app.locale_mgr.tr(&app.active_language, "page_insert_file")).clicked() {
+                    ui.close_kind(egui::UiKind::Menu);
+                }
+                if ui.button(app.locale_mgr.tr(&app.active_language, "page_insert_blank")).clicked() {
+                    ui.close_kind(egui::UiKind::Menu);
+                }
+            });
+            if ui.button(app.locale_mgr.tr(&app.active_language, "page_replace_menu")).clicked() {
+                ui.close_kind(egui::UiKind::Menu);
+            }
+            if ui.button(app.locale_mgr.tr(&app.active_language, "page_extract_menu")).clicked() {
                 ui.close_kind(egui::UiKind::Menu);
             }
             ui.separator();
@@ -693,12 +712,7 @@ impl ThumbnailSidebar {
             if app.total_pages > 1 {
                 ui.separator();
                 if ui
-                    .button(
-                        egui::RichText::new(
-                            app.locale_mgr.tr(&app.active_language, "reorder_delete_page"),
-                        )
-                        .color(egui::Color32::from_rgb(200, 50, 50)),
-                    )
+                    .button(app.locale_mgr.tr(&app.active_language, "reorder_delete_page"))
                     .clicked()
                 {
                     action_delete = true;

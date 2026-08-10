@@ -177,9 +177,16 @@
   "tooltip_move_up": "Move selected page up",
   "tooltip_move_down": "Move selected page down",
   "tooltip_delete_page": "Delete selected page",
-  "drop_to_insert_pages": "📄 Drop PDF here to insert pages",
-  "drop_to_open_pdf": "📄 Drop here to open PDF",
-  "rotate_left_90": "↺ Rotate 90° Left",
-  "rotate_right_90": "↻ Rotate 90° Right",
-  "rotate_180": "🗘 Rotate 180°"
+  "drop_to_insert_pages": "Drop PDF here to insert pages",
+  "drop_to_open_pdf": "Drop here to open PDF",
+  "rotate_left_90": "Rotate 90° Left",
+  "rotate_right_90": "Rotate 90° Right",
+  "rotate_180": "Rotate 180°",
+  "page_setup_title": "Page / Paper Setup",
+  "page_setup_menu": "Paper, Size & Crop Setup...",
+  "page_insert_menu": "Insert Pages...",
+  "page_insert_file": "Insert from File...",
+  "page_insert_blank": "Insert Blank Page",
+  "page_replace_menu": "Replace Pages...",
+  "page_extract_menu": "Extract Pages..."
 }
