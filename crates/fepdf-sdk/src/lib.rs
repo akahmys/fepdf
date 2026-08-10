@@ -150,6 +150,15 @@ pub struct DocumentSummary {
 pub use fepdf_core::font::FontSummary;
 pub use fepdf_core::metadata::MetadataInfo;
 
+/// Summary of a digital signature present in a document.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct SignatureSummary {
+    /// Object ID index of the signature dictionary.
+    pub object_id: u32,
+    /// Signer name if specified.
+    pub signer_name: Option<String>,
+}
+
 /// Structural compliance overview.
 #[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
 pub struct ComplianceSummary {
@@ -1302,6 +1311,33 @@ impl PdfDocument {
     /// Retrieves a specific font resource by its object handle.
     pub fn get_font(&self, handle: Handle<Object>) -> PdfResult<std::sync::Arc<fepdf_core::font::FontResource>> {
         self.inner.get_font(handle)
+    }
+
+    /// Finds all digital signatures (/Type /Sig) present in the document.
+    pub fn list_signatures(&self) -> Vec<SignatureSummary> {
+        let arena = self.inner.arena();
+        let mut signatures = Vec::new();
+        for i in 0..arena.object_count() {
+            let handle = Handle::new(i);
+            if let Some(Object::Dictionary(dh)) = arena.get_object(handle)
+                && let Some(dict) = arena.get_dict(dh)
+            {
+                let type_key = arena.name("Type");
+                if let Some(val) = dict.get(&type_key)
+                    && let Some(name_h) = val.resolve(arena).as_name()
+                    && let Some(name) = arena.get_name(name_h)
+                    && name.as_str() == "Sig"
+                {
+                    let name_key = arena.name("Name");
+                    let signer_name = dict.get(&name_key).and_then(|n_val| {
+                        let resolved = n_val.resolve(arena);
+                        resolved.as_string().and_then(|b| String::from_utf8(b.to_vec()).ok())
+                    });
+                    signatures.push(SignatureSummary { object_id: i, signer_name });
+                }
+            }
+        }
+        signatures
     }
 
     /// Returns a list of all fonts embedded or referenced in the document.

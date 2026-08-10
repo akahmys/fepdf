@@ -1226,18 +1226,7 @@ fn handle_extract_font(
         .map_err(|e| anyhow::anyhow!("{e:?}"))?;
 
     let obj_id = obj_num;
-    let handle = Handle::new(obj_id);
-    let obj = doc.inner().arena().get_object(handle);
-
-    let font_resource = if let Some(Object::Dictionary(dh)) = obj {
-        if let Some(dict) = doc.inner().arena().get_dict(dh) {
-            fepdf_core::font::FontResource::load(&dict, doc.inner()).ok()
-        } else {
-            None
-        }
-    } else {
-        None
-    };
+    let font_resource = doc.get_font(Handle::new(obj_id)).ok().map(|arc_f| (*arc_f).clone());
 
     if let Some(mut resource) = font_resource {
         resource.perform_reconstruction().ok();
