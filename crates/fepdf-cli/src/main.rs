@@ -929,9 +929,14 @@ fn handle_rotate(
     let range_str = pages.unwrap_or_else(|| "all".to_string());
     let target_pages = parse_page_range(&range_str, page_count)?;
 
-    for idx in target_pages {
-        doc.set_page_rotation(idx, angle).map_err(|e| anyhow::anyhow!("{e:?}"))?;
-    }
+    let quarter = fepdf_sdk::Quarter::from_degrees(angle)
+        .ok_or_else(|| anyhow::anyhow!("Angle must be a multiple of 90 degrees"))?;
+
+    doc.apply(fepdf_sdk::Operation::Rotate {
+        pages: fepdf_sdk::PageSelection::Indices(target_pages),
+        mode: fepdf_sdk::RotateMode::Absolute(quarter),
+    })
+    .map_err(|e| anyhow::anyhow!("{e:?}"))?;
 
     let save_options: fepdf_sdk::SaveOptions = save.into();
     doc.save_with_options(&output, "2.0", &save_options).map_err(|e| anyhow::anyhow!("{e:?}"))?;

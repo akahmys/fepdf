@@ -1,7 +1,6 @@
 use bytes::Bytes;
 use fepdf_render::{FallbackFontType, VelloBackend};
 use fepdf_sdk::PdfDocument;
-use std::collections::BTreeMap;
 use std::sync::Arc;
 use std::sync::mpsc::{Receiver, Sender};
 use vello::Scene;
@@ -204,49 +203,11 @@ pub fn run_worker(rx: Receiver<WorkerRequest>, tx: Sender<WorkerResponse>, ctx: 
     }
 }
 
-use fepdf_core::{Handle, Object, PdfArena, PdfName};
-
-fn resolve_to_node_handle(arena: &PdfArena, obj: &Object) -> Option<Handle<Object>> {
-    match obj {
-        Object::Reference(h) => Some(*h),
-        Object::Dictionary(dh) => Some(Handle::new(dh.index())),
-        _ => {
-            let resolved = obj.resolve(arena);
-            match resolved {
-                Object::Reference(h) => Some(h),
-                Object::Dictionary(dh) => Some(Handle::new(dh.index())),
-                _ => None,
-            }
-        }
-    }
-}
-
-/// Maps each page's object handle to its zero-based index, so that a struct
-/// element's `/Pg` reference can be turned into a page number.
-fn build_page_handle_map(doc: &PdfDocument) -> BTreeMap<Handle<Object>, usize> {
-    let mut map = BTreeMap::new();
-    for index in 0..doc.page_count().unwrap_or(0) {
-        if let Ok(page) = doc.get_page(index) {
-            map.insert(page.obj_handle(), index);
-        }
-    }
-    map
-}
-
 fn resolve_struct_tree_root(
     doc: &PdfDocument,
-    next_id: &mut usize,
+    _next_id: &mut usize,
 ) -> Option<crate::sidebar::USTNode> {
-    let arena = doc.inner().arena();
-    let cah = doc.inner().catalog_handle()?;
-    let cadh = doc.inner().resolve_to_dict(cah).ok()?;
-    let dict = arena.get_dict(cadh)?;
-    let str_root_key = arena.name("StructTreeRoot");
-    let str_root_obj = dict.get(&str_root_key)?;
-    let str_root_ref = resolve_to_node_handle(arena, str_root_obj)?;
-    let page_map = build_page_handle_map(doc);
-    let mut visited = std::collections::BTreeSet::new();
-    parse_struct_node(arena, str_root_ref, next_id, &mut visited, &page_map, None)
+    doc.extract_struct_tree()
 }
 
 fn handle_insert_document(
@@ -281,7 +242,7 @@ fn handle_insert_document(
                     alt_text: None,
                     rect: None,
                     page_index: None,
-                    handle_id: None,
+                    handle_index: None,
                     children: Vec::new(),
                 });
             }
@@ -297,15 +258,8 @@ fn handle_insert_document(
                     if let Some(dict) = doc.inner().arena().get_dict(cadh) {
                         let vp_key = doc.inner().arena().name("ViewerPreferences");
                         if let Some(vp_obj) = dict.get(&vp_key) {
-                            if let Some(vp_ref) =
-                                resolve_to_node_handle(doc.inner().arena(), vp_obj)
-                            {
-                                if let Some(vp_dict) = doc
-                                    .inner()
-                                    .resolve_to_dict(vp_ref)
-                                    .ok()
-                                    .and_then(|h| doc.inner().arena().get_dict(h))
-                                {
+                            if let Some(vp_dh) = vp_obj.resolve(doc.inner().arena()).as_dict_handle() {
+                                if let Some(vp_dict) = doc.inner().arena().get_dict(vp_dh) {
                                     let dir_key = doc.inner().arena().name("Direction");
                                     vp_dict
                                         .get(&dir_key)
@@ -386,7 +340,7 @@ fn handle_open(
                     alt_text: None,
                     rect: None,
                     page_index: None,
-                    handle_id: None,
+                    handle_index: None,
                     children: Vec::new(),
                 });
             }
@@ -402,15 +356,8 @@ fn handle_open(
                     if let Some(dict) = doc.inner().arena().get_dict(cadh) {
                         let vp_key = doc.inner().arena().name("ViewerPreferences");
                         if let Some(vp_obj) = dict.get(&vp_key) {
-                            if let Some(vp_ref) =
-                                resolve_to_node_handle(doc.inner().arena(), vp_obj)
-                            {
-                                if let Some(vp_dict) = doc
-                                    .inner()
-                                    .resolve_to_dict(vp_ref)
-                                    .ok()
-                                    .and_then(|h| doc.inner().arena().get_dict(h))
-                                {
+                            if let Some(vp_dh) = vp_obj.resolve(doc.inner().arena()).as_dict_handle() {
+                                if let Some(vp_dict) = doc.inner().arena().get_dict(vp_dh) {
                                     let dir_key = doc.inner().arena().name("Direction");
                                     vp_dict
                                         .get(&dir_key)
@@ -494,143 +441,7 @@ fn handle_open(
     }
 }
 
-fn parse_bbox_helper(arena: &PdfArena, bbox_obj: &Object) -> Option<[f32; 4]> {
-    let array_h = bbox_obj.resolve(arena).as_array()?;
-    let arr = arena.get_array(array_h)?;
-    if arr.len() != 4 {
-        return None;
-    }
-    let x1 = arr[0].resolve(arena).as_f64().unwrap_or(0.0) as f32;
-    let y1 = arr[1].resolve(arena).as_f64().unwrap_or(0.0) as f32;
-    let x2 = arr[2].resolve(arena).as_f64().unwrap_or(0.0) as f32;
-    let y2 = arr[3].resolve(arena).as_f64().unwrap_or(0.0) as f32;
-    Some([x1, y1, x2, y2])
-}
 
-fn parse_kids_helper(
-    arena: &PdfArena,
-    kids_obj: &Object,
-    next_id: &mut usize,
-    visited: &mut std::collections::BTreeSet<Handle<Object>>,
-    children: &mut Vec<crate::sidebar::USTNode>,
-    page_map: &BTreeMap<Handle<Object>, usize>,
-    inherited_page: Option<usize>,
-) {
-    if let Some(kid_ref) = resolve_to_node_handle(arena, kids_obj) {
-        if let Some(child_node) =
-            parse_struct_node(arena, kid_ref, next_id, visited, page_map, inherited_page)
-        {
-            children.push(child_node);
-        }
-    } else if let Object::Array(ah) = kids_obj.resolve(arena)
-        && let Some(array) = arena.get_array(ah)
-    {
-        for kid in array {
-            if let Some(kid_ref) = resolve_to_node_handle(arena, &kid)
-                && let Some(child_node) =
-                    parse_struct_node(arena, kid_ref, next_id, visited, page_map, inherited_page)
-            {
-                children.push(child_node);
-            }
-        }
-    }
-}
-
-fn parse_tag_helper(
-    arena: &PdfArena,
-    dict: &std::collections::BTreeMap<Handle<PdfName>, Object>,
-) -> String {
-    let type_key = arena.name("Type");
-    let s_key = arena.name("S");
-
-    if let Some(s_obj) = dict.get(&s_key) {
-        let resolved: Object = s_obj.resolve(arena);
-        if let Some(name_h) = resolved.as_name() {
-            arena.get_name(name_h).map_or_else(|| "P".to_string(), |n| n.as_str().to_string())
-        } else {
-            "P".to_string()
-        }
-    } else {
-        let type_val = dict.get(&type_key).and_then(|t: &Object| t.resolve(arena).as_name());
-        if let Some(tv) = type_val {
-            if arena.get_name(tv).is_some_and(|n| n.as_str() == "StructTreeRoot") {
-                "Document".to_string()
-            } else {
-                "P".to_string()
-            }
-        } else {
-            "P".to_string()
-        }
-    }
-}
-
-fn parse_alt_text_helper(
-    arena: &PdfArena,
-    dict: &std::collections::BTreeMap<Handle<PdfName>, Object>,
-) -> Option<String> {
-    let alt_key = arena.name("Alt");
-    let alt_obj = dict.get(&alt_key)?;
-    let resolved = alt_obj.resolve(arena);
-    let bytes = resolved.as_string()?;
-    String::from_utf8(bytes.to_vec()).ok()
-}
-
-/// Resolves a struct element's `/Pg` entry to a zero-based page index.
-fn parse_page_index_helper(
-    arena: &PdfArena,
-    dict: &std::collections::BTreeMap<Handle<PdfName>, Object>,
-    page_map: &BTreeMap<Handle<Object>, usize>,
-) -> Option<usize> {
-    let pg_obj = dict.get(&arena.name("Pg"))?;
-    let pg_ref = resolve_to_node_handle(arena, pg_obj)?;
-    page_map.get(&pg_ref).copied()
-}
-
-fn parse_struct_node(
-    arena: &PdfArena,
-    handle: Handle<Object>,
-    next_id: &mut usize,
-    visited: &mut std::collections::BTreeSet<Handle<Object>>,
-    page_map: &BTreeMap<Handle<Object>, usize>,
-    inherited_page: Option<usize>,
-) -> Option<crate::sidebar::USTNode> {
-    if !visited.insert(handle) {
-        return None;
-    }
-    let obj = arena.get_object(handle)?;
-    let dh = obj.as_dict_handle()?;
-    let dict = arena.get_dict(dh)?;
-
-    let tag = parse_tag_helper(arena, &dict);
-    let title = tag.clone();
-    let alt_text = parse_alt_text_helper(arena, &dict);
-
-    let rect = dict.get(&arena.name("BBox")).and_then(|b| parse_bbox_helper(arena, b));
-
-    // ISO 32000-2 14.7.4.4: /Pg is inherited by descendants that do not carry their own.
-    let page_index = parse_page_index_helper(arena, &dict, page_map).or(inherited_page);
-
-    let id = *next_id;
-    *next_id += 1;
-
-    let mut children = Vec::new();
-    if let Some(kids) = dict.get(&arena.name("K")) {
-        parse_kids_helper(arena, kids, next_id, visited, &mut children, page_map, page_index);
-    }
-
-    visited.remove(&handle);
-
-    Some(crate::sidebar::USTNode {
-        id,
-        tag,
-        title,
-        alt_text,
-        rect,
-        page_index,
-        handle_id: Some(handle.index()),
-        children,
-    })
-}
 
 fn get_or_extract_text(
     doc: &PdfDocument,
@@ -742,28 +553,17 @@ fn handle_update_node(
     tx: &Sender<WorkerResponse>,
 ) {
     let Some(doc) = doc_opt else { return };
-    let arena = doc.inner().arena();
-    let handle = Handle::<Object>::new(handle_id);
-
-    if let Some(Object::Dictionary(dh)) = arena.get_object(handle)
-        && let Some(mut dict) = arena.get_dict(dh)
-    {
-        // Update tag Subtype /S
-        let s_key = arena.name("S");
-        dict.insert(s_key, Object::Name(arena.name(&tag)));
-
-        // Update Alt-text
-        let alt_key = arena.name("Alt");
-        if let Some(alt) = alt_text {
-            dict.insert(alt_key, Object::String(bytes::Bytes::from(alt)));
-        } else {
-            dict.remove(&alt_key);
-        }
-        arena.set_dict(dh, dict);
-    }
+    let _ = doc.apply(fepdf_sdk::Operation::UpdateStructElem(
+        fepdf_sdk::StructElemUpdate {
+            handle_index: handle_id,
+            new_tag: Some(tag),
+            new_alt: alt_text,
+        },
+    ));
 
     // Run Matterhorn compliance audit on updated tree
     let mut findings = Vec::new();
+    let arena = doc.inner().arena();
     if let Some(cah) = doc.inner().catalog_handle()
         && let Ok(cadh) = doc.inner().resolve_to_dict(cah)
         && let Some(dict) = arena.get_dict(cadh)

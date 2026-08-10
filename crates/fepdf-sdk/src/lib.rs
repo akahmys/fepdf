@@ -41,6 +41,12 @@ pub mod obj_stm;
 pub mod remediation;
 /// The internal structure module for UA-2 logical tree handling.
 pub mod structure;
+/// Unified operation vocabulary for canonical document mutations.
+pub mod operation;
+pub use operation::*;
+/// Logical structure tree visitor and presentation data.
+pub mod struct_tree;
+pub use struct_tree::{StructureTreeVisitor, StructureTreeNode};
 /// The internal writer module for generating PDF files.
 pub mod writer;
 
@@ -1085,6 +1091,93 @@ impl PdfDocument {
         let mut dict = arena.get_dict(page_dh).unwrap_or_default();
         dict.insert(arena.name("Rotate"), Object::Integer(i64::from(angle)));
         arena.set_dict(page_dh, dict);
+        Ok(())
+    }
+
+    /// Extracts the presentation-ready logical structure tree.
+    pub fn extract_struct_tree(&self) -> Option<StructureTreeNode> {
+        StructureTreeVisitor::extract(self)
+    }
+
+    /// Applies a canonical mutation operation to the document.
+    pub fn apply(&mut self, op: Operation) -> PdfResult<()> {
+        // RR-15 Limit: Dispatcher - applies canonical document mutation operations
+        match op {
+            Operation::Rotate { pages, mode } => self.apply_rotate(&pages, &mode),
+            Operation::Reorder { from, to } => self.reorder_page(from, to),
+            Operation::RemovePages(pages) => self.apply_remove_pages(&pages),
+            Operation::UpdateStructElem(update) => self.apply_update_struct(update),
+            Operation::DeleteStructElem { handle_index } => self.apply_delete_struct(handle_index),
+        }
+    }
+
+    fn apply_rotate(&mut self, pages: &PageSelection, mode: &RotateMode) -> PdfResult<()> {
+        let count = self.page_count()?;
+        let indices = match pages {
+            PageSelection::All => (0..count).collect(),
+            PageSelection::Single(i) => vec![*i],
+            PageSelection::Indices(idx) => idx.clone(),
+        };
+        for idx in indices {
+            if idx < count {
+                let current = self.get_page_rotation(idx)?;
+                let target = match mode {
+                    RotateMode::Absolute(q) => q.to_degrees(),
+                    RotateMode::Relative(q) => (current + q.to_degrees()).rem_euclid(360),
+                };
+                self.set_page_rotation(idx, target)?;
+            }
+        }
+        Ok(())
+    }
+
+    fn apply_remove_pages(&mut self, pages: &PageSelection) -> PdfResult<()> {
+        let count = self.page_count()?;
+        let mut indices = match pages {
+            PageSelection::All => (0..count).collect(),
+            PageSelection::Single(i) => vec![*i],
+            PageSelection::Indices(idx) => idx.clone(),
+        };
+        indices.sort_unstable();
+        indices.dedup();
+        for idx in indices.into_iter().rev() {
+            if idx < count {
+                self.remove_page(idx)?;
+            }
+        }
+        Ok(())
+    }
+
+    fn apply_update_struct(&self, update: StructElemUpdate) -> PdfResult<()> {
+        let handle = Handle::<Object>::new(update.handle_index);
+        let arena = self.inner.arena();
+        if let Some(Object::Dictionary(dh)) = arena.get_object(handle)
+            && let Some(mut dict) = arena.get_dict(dh)
+        {
+            if let Some(tag) = update.new_tag {
+                let s_key = arena.name("S");
+                dict.insert(s_key, Object::Name(arena.name(&tag)));
+            }
+            if let Some(alt) = update.new_alt {
+                let alt_key = arena.name("Alt");
+                dict.insert(alt_key, Object::String(Bytes::from(alt)));
+            }
+            arena.set_dict(dh, dict);
+        }
+        Ok(())
+    }
+
+    fn apply_delete_struct(&self, handle_index: u32) -> PdfResult<()> {
+        let handle = Handle::<Object>::new(handle_index);
+        let arena = self.inner.arena();
+        if let Some(cah) = self.inner.catalog_handle()
+            && let Ok(cadh) = self.inner.resolve_to_dict(cah)
+            && let Some(dict) = arena.get_dict(cadh)
+            && let Some(str_root_obj) = dict.get(&arena.name("StructTreeRoot"))
+            && let Some(str_root_ref) = struct_tree::resolve_to_node_handle(arena, str_root_obj)
+        {
+            struct_tree::delete_struct_node(arena, str_root_ref, handle);
+        }
         Ok(())
     }
 

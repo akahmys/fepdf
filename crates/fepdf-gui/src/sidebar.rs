@@ -1,20 +1,7 @@
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct USTNode {
-    pub id: usize,
-    pub tag: String,
-    pub title: String,
-    pub alt_text: Option<String>,
-    pub rect: Option<[f32; 4]>, // [x1, y1, x2, y2] in PDF User Space
-    /// Page the `rect` is expressed on. `None` for nodes whose `/Pg` could not be
-    /// resolved; consumers fall back to the first page. Defaulted on deserialize so
-    /// UST drafts written before this field existed still load.
-    #[serde(default)]
-    pub page_index: Option<usize>,
-    pub handle_id: Option<u32>, // raw object handle index in PdfArena
-    pub children: Vec<USTNode>,
-}
+/// Presentation node for structure tree hierarchy in GUI.
+pub use fepdf_sdk::StructureTreeNode as USTNode;
 
 #[derive(Serialize, Deserialize)]
 pub struct USTRegistry {
@@ -62,7 +49,7 @@ impl USTRegistry {
     }
 
     fn find_node_id_by_handle_recursive(node: &USTNode, handle_id: u32) -> Option<usize> {
-        if node.handle_id == Some(handle_id) {
+        if node.handle_index == Some(handle_id) {
             return Some(node.id);
         }
         for child in &node.children {
@@ -227,7 +214,7 @@ fn collect_figures(node: &USTNode, figures: &mut Vec<FigureInfo>) {
         figures.push(FigureInfo {
             id: node.id,
             alt_text: node.alt_text.clone(),
-            handle_id: node.handle_id,
+            handle_id: node.handle_index,
         });
     }
     for child in &node.children {
@@ -947,7 +934,7 @@ impl SidebarPanel {
                                 }
                             });
                         if node.tag != old_tag
-                            && let Some(h_id) = node.handle_id
+                            && let Some(h_id) = node.handle_index
                         {
                             let _ = tx_worker.send(crate::worker::WorkerRequest::UpdateNode {
                                 handle_id: h_id,
@@ -1004,7 +991,7 @@ impl SidebarPanel {
                         let text_resp = ui.text_edit_singleline(&mut buf);
                         if text_resp.changed() {
                             node.alt_text = if buf.trim().is_empty() { None } else { Some(buf) };
-                            if let Some(h_id) = node.handle_id {
+                            if let Some(h_id) = node.handle_index {
                                 let _ = tx_worker.send(crate::worker::WorkerRequest::UpdateNode {
                                     handle_id: h_id,
                                     tag: node.tag.clone(),
@@ -1185,7 +1172,7 @@ impl SidebarPanel {
                 "P" => "H1".to_string(),
                 _ => "P".to_string(),
             };
-            if let Some(h_id) = node.handle_id {
+            if let Some(h_id) = node.handle_index {
                 let _ = tx_worker.send(crate::worker::WorkerRequest::UpdateNode {
                     handle_id: h_id,
                     tag: node.tag.clone(),
@@ -1348,7 +1335,7 @@ mod tests {
             alt_text: None,
             rect: None,
             page_index: None,
-            handle_id: None,
+            handle_index: None,
             children: vec![USTNode {
                 id: 1,
                 tag: "Part".to_string(),
@@ -1356,7 +1343,7 @@ mod tests {
                 alt_text: None,
                 rect: None,
                 page_index: None,
-                handle_id: None,
+                handle_index: None,
                 children: vec![
                     USTNode {
                         id: 2,
@@ -1365,7 +1352,7 @@ mod tests {
                         alt_text: None,
                         rect: None,
                         page_index: None,
-                        handle_id: None,
+                        handle_index: None,
                         children: Vec::new(),
                     },
                     USTNode {
@@ -1375,7 +1362,7 @@ mod tests {
                         alt_text: None,
                         rect: None,
                         page_index: None,
-                        handle_id: None,
+                        handle_index: None,
                         children: Vec::new(),
                     },
                     USTNode {
@@ -1385,7 +1372,7 @@ mod tests {
                         alt_text: None,
                         rect: None,
                         page_index: None,
-                        handle_id: None,
+                        handle_index: None,
                         children: Vec::new(),
                     },
                 ],
@@ -1422,7 +1409,7 @@ mod tests {
             alt_text: None,
             rect,
             page_index,
-            handle_id: None,
+            handle_index: None,
             children: Vec::new(),
         }
     }

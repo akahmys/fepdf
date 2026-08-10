@@ -238,7 +238,7 @@ impl FepdfApp {
                 req.combined_rect.max.y,
             ]),
             page_index: Some(req.page_index),
-            handle_id: None,
+            handle_index: None,
             children: Vec::new(),
         };
         self.ust_registry.next_node_id += 1;
