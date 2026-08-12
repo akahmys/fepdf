@@ -426,8 +426,8 @@ impl FepdfApp {
                     } else {
                         self.view.binding_direction = crate::view::BindingDirection::LeftToRight;
                     }
-                    self.compute_layouts(&page_sizes);
                     self.doc_page_sizes = page_sizes;
+                    self.compute_layouts();
 
                     self.doc_file_size = Some(file_size);
                     self.doc_version = Some(version);
@@ -485,11 +485,17 @@ impl FepdfApp {
         }
     }
 
-    fn compute_layouts(&mut self, page_sizes: &[(f64, f64)]) {
+    /// Recomputes page rectangles from `doc_self.doc_page_sizes` and the current view mode.
+    ///
+    /// Reads the sizes from `self` rather than taking them as a parameter: every
+    /// caller passed `self.doc_self.doc_page_sizes`, and doing so through a `&mut self`
+    /// method forced a clone of the whole vector at each of the fourteen call
+    /// sites -- one entry per page, on every layout change.
+    fn compute_layouts(&mut self) {
         // RR-15 Limit: GUI
         use crate::view::{BindingDirection, DisplayMode, ScrollDirection};
         let mut layouts =
-            vec![PageLayout { index: 0, rect: egui::Rect::NOTHING }; page_sizes.len()];
+            vec![PageLayout { index: 0, rect: egui::Rect::NOTHING }; self.doc_page_sizes.len()];
 
         if self.view.display_mode == DisplayMode::TwoPageSpread
             || self.view.display_mode == DisplayMode::TwoPageSingle
@@ -497,8 +503,8 @@ impl FepdfApp {
             let mut current_offset = 0.0;
             let gap = 20.0;
             let inner_gap = 8.0;
-            let mut i = if self.view.cover_page_alone && !page_sizes.is_empty() {
-                let (w, h) = page_sizes[0];
+            let mut i = if self.view.cover_page_alone && !self.doc_page_sizes.is_empty() {
+                let (w, h) = self.doc_page_sizes[0];
                 let w = w as f32;
                 let h = h as f32;
                 let rect = if self.view.scroll_direction == ScrollDirection::Vertical {
@@ -523,10 +529,10 @@ impl FepdfApp {
                 0
             };
 
-            while i < page_sizes.len() {
-                if i + 1 < page_sizes.len() {
-                    let (w1, h1) = page_sizes[i];
-                    let (w2, h2) = page_sizes[i + 1];
+            while i < self.doc_page_sizes.len() {
+                if i + 1 < self.doc_page_sizes.len() {
+                    let (w1, h1) = self.doc_page_sizes[i];
+                    let (w2, h2) = self.doc_page_sizes[i + 1];
                     let w1 = w1 as f32;
                     let w2 = w2 as f32;
                     let h1 = h1 as f32;
@@ -595,7 +601,7 @@ impl FepdfApp {
                     }
                     i += 2;
                 } else {
-                    let (w, h) = page_sizes[i];
+                    let (w, h) = self.doc_page_sizes[i];
                     let w = w as f32;
                     let h = h as f32;
                     let rect = if self.view.scroll_direction == ScrollDirection::Vertical {
@@ -619,7 +625,7 @@ impl FepdfApp {
                 }
             }
         } else if self.view.display_mode == DisplayMode::SinglePage {
-            for (i, &(w, h)) in page_sizes.iter().enumerate() {
+            for (i, &(w, h)) in self.doc_page_sizes.iter().enumerate() {
                 let w = w as f32;
                 let h = h as f32;
                 let rect = if self.view.scroll_direction == ScrollDirection::Vertical {
@@ -632,7 +638,7 @@ impl FepdfApp {
         } else {
             let mut current_offset = 0.0;
             let gap = 20.0;
-            for (i, &(w, h)) in page_sizes.iter().enumerate() {
+            for (i, &(w, h)) in self.doc_page_sizes.iter().enumerate() {
                 let w = w as f32;
                 let h = h as f32;
                 let rect = if self.view.scroll_direction == ScrollDirection::Vertical {
@@ -671,7 +677,7 @@ impl FepdfApp {
         self.page_spans.clear();
         self.clear_thumbnails_pending = true;
 
-        self.compute_layouts(&self.doc_page_sizes.clone());
+        self.compute_layouts();
 
         let mut new_selected = BTreeSet::new();
         for &idx in &self.selected_pages {
@@ -714,7 +720,7 @@ impl FepdfApp {
         self.page_spans.clear();
         self.clear_thumbnails_pending = true;
 
-        self.compute_layouts(&self.doc_page_sizes.clone());
+        self.compute_layouts();
 
         self.selected_pages.clear();
         self.selected_pages.insert(index + 1);
@@ -746,7 +752,7 @@ impl FepdfApp {
         self.page_spans.clear();
         self.clear_thumbnails_pending = true;
 
-        self.compute_layouts(&self.doc_page_sizes.clone());
+        self.compute_layouts();
 
         self.selected_pages.clear();
         self.last_selected_page = None;
@@ -777,7 +783,7 @@ impl FepdfApp {
         }
 
         self.clear_thumbnails_pending = true;
-        self.compute_layouts(&self.doc_page_sizes.clone());
+        self.compute_layouts();
 
         let _ = self.tx_worker.send(WorkerRequest::RotatePages { indices, delta });
     }
@@ -1424,7 +1430,7 @@ impl FepdfApp {
                             .clicked()
                         {
                             self.view.display_mode = DisplayMode::Continuous;
-                            self.compute_layouts(&self.doc_page_sizes.clone());
+                            self.compute_layouts();
                             let active = self.view.active_page;
                             self.view.scroll_to_page(active, &self.page_layouts);
                         }
@@ -1439,7 +1445,7 @@ impl FepdfApp {
                             .clicked()
                         {
                             self.view.display_mode = DisplayMode::SinglePage;
-                            self.compute_layouts(&self.doc_page_sizes.clone());
+                            self.compute_layouts();
                             let active = self.view.active_page;
                             self.view.scroll_to_page(active, &self.page_layouts);
                         }
@@ -1454,7 +1460,7 @@ impl FepdfApp {
                             .clicked()
                         {
                             self.view.display_mode = DisplayMode::TwoPageSpread;
-                            self.compute_layouts(&self.doc_page_sizes.clone());
+                            self.compute_layouts();
                             let active = self.view.active_page;
                             self.view.scroll_to_page(active, &self.page_layouts);
                         }
@@ -1469,7 +1475,7 @@ impl FepdfApp {
                             .clicked()
                         {
                             self.view.display_mode = DisplayMode::TwoPageSingle;
-                            self.compute_layouts(&self.doc_page_sizes.clone());
+                            self.compute_layouts();
                             let active = self.view.active_page;
                             self.view.scroll_to_page(active, &self.page_layouts);
                         }
@@ -1488,7 +1494,7 @@ impl FepdfApp {
                             .clicked()
                         {
                             self.view.scroll_direction = crate::view::ScrollDirection::Vertical;
-                            self.compute_layouts(&self.doc_page_sizes.clone());
+                            self.compute_layouts();
                             let active = self.view.active_page;
                             self.view.scroll_to_page(active, &self.page_layouts);
                         }
@@ -1504,7 +1510,7 @@ impl FepdfApp {
                             .clicked()
                         {
                             self.view.scroll_direction = crate::view::ScrollDirection::Horizontal;
-                            self.compute_layouts(&self.doc_page_sizes.clone());
+                            self.compute_layouts();
                             let active = self.view.active_page;
                             self.view.scroll_to_page(active, &self.page_layouts);
                         }
@@ -1515,7 +1521,7 @@ impl FepdfApp {
 
                             if ui.checkbox(&mut self.view.cover_page_alone, "表紙単独").changed()
                             {
-                                self.compute_layouts(&self.doc_page_sizes.clone());
+                                self.compute_layouts();
                                 let active = self.view.active_page;
                                 self.view.scroll_to_page(active, &self.page_layouts);
                             }
@@ -1535,7 +1541,7 @@ impl FepdfApp {
                                 } else {
                                     crate::view::BindingDirection::RightToLeft
                                 };
-                                self.compute_layouts(&self.doc_page_sizes.clone());
+                                self.compute_layouts();
                                 let active = self.view.active_page;
                                 self.view.scroll_to_page(active, &self.page_layouts);
                             }

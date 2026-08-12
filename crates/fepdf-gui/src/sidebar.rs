@@ -503,66 +503,55 @@ impl SidebarPanel {
                         };
                         render_row(ui, &filename_key, filename_val, true);
 
-                        let empty = "-".to_string();
-                        let title = metadata
-                            .as_ref()
-                            .and_then(|m| m.title.clone())
-                            .unwrap_or_else(|| empty.clone());
-                        let author = metadata
-                            .as_ref()
-                            .and_then(|m| m.author.clone())
-                            .unwrap_or_else(|| empty.clone());
-                        let subject = metadata
-                            .as_ref()
-                            .and_then(|m| m.subject.clone())
-                            .unwrap_or_else(|| empty.clone());
-                        let keywords = metadata
-                            .as_ref()
-                            .and_then(|m| m.keywords.clone())
-                            .unwrap_or_else(|| empty.clone());
-                        let creator = metadata
-                            .as_ref()
-                            .and_then(|m| m.creator.clone())
-                            .unwrap_or_else(|| empty.clone());
-                        let producer = metadata
-                            .as_ref()
-                            .and_then(|m| m.producer.clone())
-                            .unwrap_or_else(|| empty.clone());
+                        // `render_row` takes `&str`, so these borrow from the metadata
+                        // rather than copying it out field by field.
+                        const EMPTY: &str = "-";
+                        let field =
+                            |pick: fn(&fepdf_core::metadata::MetadataInfo) -> Option<&String>| {
+                                metadata.as_ref().and_then(pick).map_or(EMPTY, String::as_str)
+                            };
+                        let title = field(|m| m.title.as_ref());
+                        let author = field(|m| m.author.as_ref());
+                        let subject = field(|m| m.subject.as_ref());
+                        let keywords = field(|m| m.keywords.as_ref());
+                        let creator = field(|m| m.creator.as_ref());
+                        let producer = field(|m| m.producer.as_ref());
+                        // Dates are reformatted, so these do own their string.
                         let created = metadata
                             .as_ref()
-                            .and_then(|m| m.creation_date.as_ref().map(|d| format_pdf_date(d)))
-                            .unwrap_or_else(|| empty.clone());
+                            .and_then(|m| m.creation_date.as_ref().map(|d| format_pdf_date(d)));
+                        let created = created.as_deref().unwrap_or(EMPTY);
                         let modified = metadata
                             .as_ref()
-                            .and_then(|m| m.mod_date.as_ref().map(|d| format_pdf_date(d)))
-                            .unwrap_or_else(|| empty.clone());
+                            .and_then(|m| m.mod_date.as_ref().map(|d| format_pdf_date(d)));
+                        let modified = modified.as_deref().unwrap_or(EMPTY);
 
-                        render_row(ui, &locale_mgr.tr(active_lang, "info_doc_title"), &title, true);
-                        render_row(ui, &locale_mgr.tr(active_lang, "info_author"), &author, true);
-                        render_row(ui, &locale_mgr.tr(active_lang, "info_subject"), &subject, true);
+                        render_row(ui, &locale_mgr.tr(active_lang, "info_doc_title"), title, true);
+                        render_row(ui, &locale_mgr.tr(active_lang, "info_author"), author, true);
+                        render_row(ui, &locale_mgr.tr(active_lang, "info_subject"), subject, true);
                         render_row(
                             ui,
                             &locale_mgr.tr(active_lang, "info_keywords"),
-                            &keywords,
+                            keywords,
                             true,
                         );
-                        render_row(ui, &locale_mgr.tr(active_lang, "info_created"), &created, true);
+                        render_row(ui, &locale_mgr.tr(active_lang, "info_created"), created, true);
                         render_row(
                             ui,
                             &locale_mgr.tr(active_lang, "info_modified"),
-                            &modified,
+                            modified,
                             true,
                         );
                         render_row(
                             ui,
                             &locale_mgr.tr(active_lang, "info_application"),
-                            &creator,
+                            creator,
                             true,
                         );
                         render_row(
                             ui,
                             &locale_mgr.tr(active_lang, "info_producer"),
-                            &producer,
+                            producer,
                             true,
                         );
                     });
