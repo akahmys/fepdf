@@ -21,11 +21,7 @@ pub struct Parser<'a> {
 impl<'a> Parser<'a> {
     /// Parses `data`, allocating into `arena`.
     pub fn new(data: Bytes, arena: &'a PdfArena) -> Self {
-        Self {
-            lexer: Lexer::new(data),
-            arena,
-            depth: 0,
-        }
+        Self { lexer: Lexer::new(data), arena, depth: 0 }
     }
 
     /// Reads the next token without consuming it.

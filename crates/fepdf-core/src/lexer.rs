@@ -454,9 +454,6 @@ mod tests {
     fn test_tokenize_literal_string_line_continuation() {
         let input = b"(Line1\\\r\nLine2\\\nLine3)";
         let tokens = tokenize(input);
-        assert_eq!(
-            tokens,
-            vec![Token::String(Bytes::from_static(b"Line1Line2Line3"))]
-        );
+        assert_eq!(tokens, vec![Token::String(Bytes::from_static(b"Line1Line2Line3"))]);
     }
 }

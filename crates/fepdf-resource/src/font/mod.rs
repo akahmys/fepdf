@@ -9,12 +9,12 @@ pub use fepdf_font::reconstruction::{FontInfo, FontReconstructor, ReconstructedF
 /// Typed schema for font dictionaries.
 pub mod schema;
 
+use self::loader::FontLoader;
+use self::metrics::{FontMetrics, detect_wmode};
+use fepdf_core::PdfResult;
 use fepdf_core::arena::PdfArena;
 use fepdf_core::handle::Handle;
 use fepdf_core::object::{Object, PdfName};
-use fepdf_core::PdfResult;
-use self::loader::FontLoader;
-use self::metrics::{detect_wmode, FontMetrics};
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
@@ -41,7 +41,9 @@ pub struct TraceContext;
 
 impl TraceContext {
     /// Creates a new trace context.
-    pub fn new() -> Self { Self }
+    pub fn new() -> Self {
+        Self
+    }
     /// Starts a trace.
     pub fn start(&mut self, _cid: u32, _hint: Option<char>) {}
     /// Pushes a diagnostic step.
@@ -141,22 +143,37 @@ impl FontResource {
     where
         F: Fn(&Object) -> Option<Vec<u8>>,
     {
-        let dict = Object::resolve(dict_obj, arena).as_dict_handle().and_then(|h| arena.get_dict(h))
-            .ok_or_else(|| fepdf_core::PdfError::Ingestion { context: "Font Load".into(), message: "Expected font dict".into() })?;
+        let dict = Object::resolve(dict_obj, arena)
+            .as_dict_handle()
+            .and_then(|h| arena.get_dict(h))
+            .ok_or_else(|| fepdf_core::PdfError::Ingestion {
+                context: "Font Load".into(),
+                message: "Expected font dict".into(),
+            })?;
 
-        let subtype = dict.get(&arena.name("Subtype"))
+        let subtype = dict
+            .get(&arena.name("Subtype"))
             .and_then(|o| Object::resolve(o, arena).as_name())
             .and_then(|h| arena.get_name(h))
             .unwrap_or_else(|| PdfName::new("Type1"));
 
-        let base_font = dict.get(&arena.name("BaseFont"))
+        let base_font = dict
+            .get(&arena.name("BaseFont"))
             .and_then(|o| Object::resolve(o, arena).as_name())
             .and_then(|h| arena.get_name(h))
             .unwrap_or_else(|| PdfName::new("Helvetica"));
 
-        let is_cid = subtype.as_str() == "Type0" || subtype.as_str() == "CIDFontType0" || subtype.as_str() == "CIDFontType2";
-        let metrics = if is_cid { FontMetrics::parse_cid(&dict, arena) } else { FontMetrics::parse_standard(&dict, arena) };
-        let font_data = dict.get(&arena.name("FontDescriptor")).and_then(|fd| FontLoader::extract_data(fd, arena, &decode_stream, Some(&dict)));
+        let is_cid = subtype.as_str() == "Type0"
+            || subtype.as_str() == "CIDFontType0"
+            || subtype.as_str() == "CIDFontType2";
+        let metrics = if is_cid {
+            FontMetrics::parse_cid(&dict, arena)
+        } else {
+            FontMetrics::parse_standard(&dict, arena)
+        };
+        let font_data = dict
+            .get(&arena.name("FontDescriptor"))
+            .and_then(|fd| FontLoader::extract_data(fd, arena, &decode_stream, Some(&dict)));
 
         let mut res = Self::new_initial(
             subtype,

@@ -5,7 +5,8 @@ use fepdf_core::{
     CollectionViewMode, FormFieldSpec, FormValue, GeoSpatialAnchor, LayerGroup, MeasurementScale,
     MeshShadingSpec, MeshShadingType, OptionalContentProperties, OutlineNode, OutlineTree,
     OutputIntent, PageLabelSpec, PageLabelStyle, PdfAction, PortfolioCollection, PortfolioItem,
-    PublicKeyRecipientSpec, UnencryptedWrapperSpec, UserProperty, UserPropertyValue, VisibilityState,
+    PublicKeyRecipientSpec, UnencryptedWrapperSpec, UserProperty, UserPropertyValue,
+    VisibilityState,
 };
 use fepdf_sdk::{DecorationPosition, Operation, PageSelection, PkiValidator, SignatureStatus};
 
@@ -142,10 +143,7 @@ fn test_annotation_spec() {
     let annot = AnnotationSpec {
         page: 0,
         rect: [10.0, 10.0, 100.0, 100.0],
-        kind: AnnotationKind::Link {
-            destination_page: 2,
-            url: None,
-        },
+        kind: AnnotationKind::Link { destination_page: 2, url: None },
     };
 
     let op = Operation::AddAnnotation(annot);
@@ -163,11 +161,7 @@ fn test_annotation_spec() {
 
 #[test]
 fn test_measurement_scale_spec() {
-    let scale = MeasurementScale {
-        page: 0,
-        scale_ratio: 0.01,
-        unit_label: "m".to_string(),
-    };
+    let scale = MeasurementScale { page: 0, scale_ratio: 0.01, unit_label: "m".to_string() };
 
     let op = Operation::SetMeasurementScale(scale);
     if let Operation::SetMeasurementScale(s) = op {
@@ -217,10 +211,7 @@ fn test_page_label_operation() {
 fn test_article_thread_operation() {
     let threads = vec![ArticleThread {
         title: "Main Story".to_string(),
-        beads: vec![ArticleBead {
-            page: 0,
-            rect: [0.0, 0.0, 200.0, 400.0],
-        }],
+        beads: vec![ArticleBead { page: 0, rect: [0.0, 0.0, 200.0, 400.0] }],
     }];
 
     let op = Operation::UpdateArticleThreads(threads);
@@ -240,10 +231,7 @@ fn test_user_property_operation() {
         formatted: Some("Engineering Dept".to_string()),
     }];
 
-    let op = Operation::AddUserProperties {
-        target_handle: 42,
-        properties: props,
-    };
+    let op = Operation::AddUserProperties { target_handle: 42, properties: props };
 
     if let Operation::AddUserProperties { target_handle, properties } = op {
         assert_eq!(target_handle, 42);
@@ -256,10 +244,7 @@ fn test_user_property_operation() {
 
 #[test]
 fn test_action_execute_operation() {
-    let action = PdfAction::GoToRemote {
-        file_path: "appendix.pdf".to_string(),
-        page: 5,
-    };
+    let action = PdfAction::GoToRemote { file_path: "appendix.pdf".to_string(), page: 5 };
 
     let op = Operation::ExecuteAction(action);
     if let Operation::ExecuteAction(PdfAction::GoToRemote { file_path, page }) = op {

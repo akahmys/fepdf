@@ -1,9 +1,9 @@
 //! PDF Logical Structure Tree Traversal and Presentation Data (ISO 32000-2 Clause 14.7).
 
+use crate::PdfDocument;
+use fepdf_core::arena::PdfArena;
 use fepdf_core::handle::Handle;
 use fepdf_core::object::{Object, PdfName};
-use fepdf_core::arena::PdfArena;
-use crate::PdfDocument;
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -175,10 +175,7 @@ fn parse_kids_helper(
     }
 }
 
-fn parse_tag_helper(
-    arena: &PdfArena,
-    dict: &BTreeMap<Handle<PdfName>, Object>,
-) -> String {
+fn parse_tag_helper(arena: &PdfArena, dict: &BTreeMap<Handle<PdfName>, Object>) -> String {
     let type_key = arena.name("Type");
     let s_key = arena.name("S");
 

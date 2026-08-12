@@ -670,10 +670,12 @@ impl ThumbnailSidebar {
                 ui.close_kind(egui::UiKind::Menu);
             }
             ui.menu_button(app.locale_mgr.tr(&app.active_language, "page_insert_menu"), |ui| {
-                if ui.button(app.locale_mgr.tr(&app.active_language, "page_insert_file")).clicked() {
+                if ui.button(app.locale_mgr.tr(&app.active_language, "page_insert_file")).clicked()
+                {
                     ui.close_kind(egui::UiKind::Menu);
                 }
-                if ui.button(app.locale_mgr.tr(&app.active_language, "page_insert_blank")).clicked() {
+                if ui.button(app.locale_mgr.tr(&app.active_language, "page_insert_blank")).clicked()
+                {
                     ui.close_kind(egui::UiKind::Menu);
                 }
             });

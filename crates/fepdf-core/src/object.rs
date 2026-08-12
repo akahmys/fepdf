@@ -397,16 +397,11 @@ impl Object {
             }
             lopdf::Object::Stream(s) => {
                 let dict_h = Self::from_lopdf_dict(&s.dict, arena, table);
-                Self::Stream(
-                    dict_h,
-                    SublimatedData::Raw(Bytes::copy_from_slice(&s.content)).into(),
-                )
+                Self::Stream(dict_h, SublimatedData::Raw(Bytes::copy_from_slice(&s.content)).into())
             }
-            lopdf::Object::Reference(id) => table
-                .get(&(id.0, id.1))
-                .copied()
-                .map(Self::Reference)
-                .unwrap_or(Self::Null),
+            lopdf::Object::Reference(id) => {
+                table.get(&(id.0, id.1)).copied().map(Self::Reference).unwrap_or(Self::Null)
+            }
             lopdf::Object::Null => Self::Null,
         }
     }

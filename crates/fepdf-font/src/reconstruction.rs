@@ -295,7 +295,10 @@ impl FontReconstructor {
         if map.is_empty() { None } else { Some(map) }
     }
 
-    fn normalize_sfnt_format(data: &[u8], resource: &impl FontInfo) -> PdfResult<ReconstructedFont> {
+    fn normalize_sfnt_format(
+        data: &[u8],
+        resource: &impl FontInfo,
+    ) -> PdfResult<ReconstructedFont> {
         let mut info = Self::inspect_cff(data).unwrap_or(CffInfo::empty());
 
         if info.sid_to_gid.is_none() {
@@ -319,10 +322,7 @@ impl FontReconstructor {
         if let Some(new_cmap_data) = synthesized_cmap
             && let Ok(mut sfnt_dis) = Self::disassemble_sfnt(data)
         {
-            log::debug!(
-                "[RECONSTRUCT] Patching SFNT cmap table for {}",
-                resource.base_font()
-            );
+            log::debug!("[RECONSTRUCT] Patching SFNT cmap table for {}", resource.base_font());
             if let Some(idx) = sfnt_dis.tables.iter().position(|(t, _)| t == b"cmap") {
                 sfnt_dis.tables[idx].1 = new_cmap_data;
             } else {
@@ -1990,19 +1990,37 @@ mod tests {
 
     struct TestFontInfo;
     impl FontInfo for TestFontInfo {
-        fn base_font(&self) -> &str { "Test" }
-        fn subtype(&self) -> &str { "TrueType" }
-        fn is_cid_keyed(&self) -> bool { false }
-        fn is_cjk(&self) -> bool { false }
-        fn cid_ordering(&self) -> Option<&str> { None }
-        fn cid_to_gid_map(&self) -> Option<&BTreeMap<u32, u32>> { None }
+        fn base_font(&self) -> &str {
+            "Test"
+        }
+        fn subtype(&self) -> &str {
+            "TrueType"
+        }
+        fn is_cid_keyed(&self) -> bool {
+            false
+        }
+        fn is_cjk(&self) -> bool {
+            false
+        }
+        fn cid_ordering(&self) -> Option<&str> {
+            None
+        }
+        fn cid_to_gid_map(&self) -> Option<&BTreeMap<u32, u32>> {
+            None
+        }
         fn unified_map(&self) -> &BTreeMap<String, u32> {
             static EMPTY: std::sync::OnceLock<BTreeMap<String, u32>> = std::sync::OnceLock::new();
             EMPTY.get_or_init(BTreeMap::new)
         }
-        fn encoding(&self) -> Option<&CMap> { None }
-        fn glyph_width_by_gid(&self, _gid: u32) -> f32 { 1000.0 }
-        fn to_gid_hint(&self, cid: u32, _hint_name: Option<&str>) -> u32 { cid }
+        fn encoding(&self) -> Option<&CMap> {
+            None
+        }
+        fn glyph_width_by_gid(&self, _gid: u32) -> f32 {
+            1000.0
+        }
+        fn to_gid_hint(&self, cid: u32, _hint_name: Option<&str>) -> u32 {
+            cid
+        }
     }
 
     #[test]

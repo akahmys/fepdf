@@ -3,8 +3,8 @@
 //! This module implements strict color management using `moxcms` to ensure
 //! high-fidelity CMYK -> RGB conversion and ICC profile handling.
 
-use fepdf_core::graphics::Color;
 use fepdf_core::PdfResult;
+use fepdf_core::graphics::Color;
 use moxcms::ColorProfile;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;

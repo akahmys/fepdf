@@ -567,10 +567,26 @@ async fn main() -> Result<()> {
             EditSubcommands::Portfolio { output, files, cover, ingest, save } => {
                 handle_portfolio(output, files, cover, ingest, save)?;
             }
-            EditSubcommands::Bates { input, output, prefix, start_number, digits, ingest, save } => {
+            EditSubcommands::Bates {
+                input,
+                output,
+                prefix,
+                start_number,
+                digits,
+                ingest,
+                save,
+            } => {
                 handle_bates(input, output, prefix, start_number, digits, ingest, save)?;
             }
-            EditSubcommands::Attach { input, output, file, relationship, mime_type, ingest, save } => {
+            EditSubcommands::Attach {
+                input,
+                output,
+                file,
+                relationship,
+                mime_type,
+                ingest,
+                save,
+            } => {
                 handle_attach(input, output, file, relationship, mime_type, ingest, save)?;
             }
             EditSubcommands::PageLabel { input, output, style, prefix, ingest, save } => {
@@ -1468,7 +1484,11 @@ fn handle_portfolio(
     _ingest: IngestArgs,
     save: SaveArgs,
 ) -> Result<()> {
-    println!("fepdf portfolio: Creating portfolio with {} files at {}", files.len(), output.display());
+    println!(
+        "fepdf portfolio: Creating portfolio with {} files at {}",
+        files.len(),
+        output.display()
+    );
     let mut items = Vec::new();
     for file_path in files {
         let file_name = file_path
@@ -1496,8 +1516,7 @@ fn handle_portfolio(
         .map_err(|e| anyhow::anyhow!("{e:?}"))?;
 
     let save_options: fepdf_sdk::SaveOptions = save.into();
-    doc.save_with_options(&output, "2.0", &save_options)
-        .map_err(|e| anyhow::anyhow!("{e:?}"))?;
+    doc.save_with_options(&output, "2.0", &save_options).map_err(|e| anyhow::anyhow!("{e:?}"))?;
     println!("SUCCESS: Portfolio saved to {}", output.display());
     Ok(())
 }
@@ -1527,8 +1546,7 @@ fn handle_bates(
     doc.apply(op).map_err(|e| anyhow::anyhow!("{e:?}"))?;
 
     let save_options: fepdf_sdk::SaveOptions = save.into();
-    doc.save_with_options(&output, "2.0", &save_options)
-        .map_err(|e| anyhow::anyhow!("{e:?}"))?;
+    doc.save_with_options(&output, "2.0", &save_options).map_err(|e| anyhow::anyhow!("{e:?}"))?;
     println!("SUCCESS: Output with Bates numbering saved to {}", output.display());
     Ok(())
 }
@@ -1571,8 +1589,7 @@ fn handle_attach(
         .map_err(|e| anyhow::anyhow!("{e:?}"))?;
 
     let save_options: fepdf_sdk::SaveOptions = save.into();
-    doc.save_with_options(&output, "2.0", &save_options)
-        .map_err(|e| anyhow::anyhow!("{e:?}"))?;
+    doc.save_with_options(&output, "2.0", &save_options).map_err(|e| anyhow::anyhow!("{e:?}"))?;
     println!("SUCCESS: PDF with Associated File saved to {}", output.display());
     Ok(())
 }
@@ -1599,19 +1616,12 @@ fn handle_page_label(
         _ => fepdf_core::PageLabelStyle::Decimal,
     };
 
-    let labels = vec![fepdf_core::PageLabelSpec {
-        start_page: 0,
-        style,
-        prefix,
-        start_number: 1,
-    }];
+    let labels = vec![fepdf_core::PageLabelSpec { start_page: 0, style, prefix, start_number: 1 }];
 
-    doc.apply(fepdf_sdk::Operation::SetPageLabels(labels))
-        .map_err(|e| anyhow::anyhow!("{e:?}"))?;
+    doc.apply(fepdf_sdk::Operation::SetPageLabels(labels)).map_err(|e| anyhow::anyhow!("{e:?}"))?;
 
     let save_options: fepdf_sdk::SaveOptions = save.into();
-    doc.save_with_options(&output, "2.0", &save_options)
-        .map_err(|e| anyhow::anyhow!("{e:?}"))?;
+    doc.save_with_options(&output, "2.0", &save_options).map_err(|e| anyhow::anyhow!("{e:?}"))?;
     println!("SUCCESS: PDF with updated page labels saved to {}", output.display());
     Ok(())
 }
@@ -1643,8 +1653,7 @@ fn handle_geo(
         .map_err(|e| anyhow::anyhow!("{e:?}"))?;
 
     let save_options: fepdf_sdk::SaveOptions = save.into();
-    doc.save_with_options(&output, "2.0", &save_options)
-        .map_err(|e| anyhow::anyhow!("{e:?}"))?;
+    doc.save_with_options(&output, "2.0", &save_options).map_err(|e| anyhow::anyhow!("{e:?}"))?;
     println!("SUCCESS: PDF with GIS anchor saved to {}", output.display());
     Ok(())
 }
@@ -1656,10 +1665,8 @@ fn handle_verify_signature(input: PathBuf, field: String, ingest: IngestArgs) ->
     let mut doc = PdfDocument::open_with_options(data.into(), &ingest_options)
         .map_err(|e| anyhow::anyhow!("{e:?}"))?;
 
-    doc.apply(fepdf_sdk::Operation::VerifyDigitalSignature {
-        field_name: field.clone(),
-    })
-    .map_err(|e| anyhow::anyhow!("{e:?}"))?;
+    doc.apply(fepdf_sdk::Operation::VerifyDigitalSignature { field_name: field.clone() })
+        .map_err(|e| anyhow::anyhow!("{e:?}"))?;
 
     let report = fepdf_sdk::PkiValidator::validate_signature_bytes(&field, &[])
         .map_err(|e| anyhow::anyhow!("{e:?}"))?;

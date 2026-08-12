@@ -299,7 +299,11 @@ impl SecurityHandler {
                         .map_err(|_| PdfError::Other("AES-256 init fail".into()))?,
                 ),
             ),
-            _ => return Err(PdfError::Other(format!("Invalid AES key length: {}", key.len()).into())),
+            _ => {
+                return Err(PdfError::Other(
+                    format!("Invalid AES key length: {}", key.len()).into(),
+                ));
+            }
         };
 
         for chunk in ciphertext.chunks(16) {
@@ -347,7 +351,11 @@ impl SecurityHandler {
                         .map_err(|_| PdfError::Other("AES-256 init fail".into()))?,
                 ),
             ),
-            _ => return Err(PdfError::Other(format!("Invalid AES key length: {}", key.len()).into())),
+            _ => {
+                return Err(PdfError::Other(
+                    format!("Invalid AES key length: {}", key.len()).into(),
+                ));
+            }
         };
 
         let mut prev_block = [0u8; 16];

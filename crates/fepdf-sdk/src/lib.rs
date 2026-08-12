@@ -27,8 +27,8 @@ pub use fepdf_core::{
     MeasurementScale, MeshShadingSpec, MeshShadingType, Object, OptionalContentProperties,
     OutlineNode, OutlineTree, OutputIntent, Page, PageLabelSpec, PageLabelStyle, PdfAction,
     PdfArena, PdfError, PdfName, PdfResult, PortfolioCollection, PortfolioItem,
-    PublicKeyRecipientSpec, SublimatedData, TransitionSpec, TransitionStyle, UnencryptedWrapperSpec,
-    UserProperty, UserPropertyValue, VisibilityState,
+    PublicKeyRecipientSpec, SublimatedData, TransitionSpec, TransitionStyle,
+    UnencryptedWrapperSpec, UserProperty, UserPropertyValue, VisibilityState,
 };
 #[cfg(feature = "render")]
 pub use fepdf_render::VelloBackend;
@@ -43,12 +43,12 @@ pub mod interpreter;
 pub use interpreter::Interpreter;
 /// The internal obj_stm module for high-density object packing.
 pub mod obj_stm;
+/// Pure Rust PKI Validation engine.
+pub mod pki_validator;
 /// The internal remediation module for structural repair.
 pub mod remediation;
 /// The internal structure module for UA-2 logical tree handling.
 pub mod structure;
-/// Pure Rust PKI Validation engine.
-pub mod pki_validator;
 pub use pki_validator::{PkiValidator, SignatureAuditReport, SignatureStatus};
 /// Unified operation vocabulary for canonical document mutations.
 pub mod operation;
@@ -57,9 +57,9 @@ pub use operation::{
 };
 /// Logical structure tree visitor and presentation data.
 pub mod struct_tree;
-pub use struct_tree::{StructureTreeVisitor, StructureTreeNode};
 /// PDF resource dictionary resolution and conversion engine.
 pub use fepdf_resource as resource;
+pub use struct_tree::{StructureTreeNode, StructureTreeVisitor};
 /// The internal writer module for generating PDF files.
 pub mod writer;
 
@@ -210,7 +210,8 @@ impl PdfDocument {
         let empty_pdf_bytes = Bytes::from_static(
             b"%PDF-2.0\n1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n2 0 obj\n<< /Type /Pages /Count 1 /Kids [3 0 R] >>\nendobj\n3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] >>\nendobj\nxref\n0 4\n0000000000 65535 f \n0000000009 00000 n \n0000000060 00000 n \n0000000120 00000 n \ntrailer\n<< /Size 4 /Root 1 0 R >>\nstartxref\n185\n%%EOF\n",
         );
-        let inner = Document::open(empty_pdf_bytes, &fepdf_core::ingest::IngestionOptions::default())?;
+        let inner =
+            Document::open(empty_pdf_bytes, &fepdf_core::ingest::IngestionOptions::default())?;
         Ok(Self { inner, vacuum: false, strip: false, password: None })
     }
 
@@ -1146,13 +1147,9 @@ impl PdfDocument {
             Operation::AddPageDecoration { pages, text, position } => {
                 self.apply_add_page_decoration(&pages, &text, &position)
             }
-            Operation::ApplyBatesNumbering {
-                pages,
-                prefix,
-                start_number,
-                digits,
-                position,
-            } => self.apply_bates_numbering(&pages, &prefix, start_number, digits, &position),
+            Operation::ApplyBatesNumbering { pages, prefix, start_number, digits, position } => {
+                self.apply_bates_numbering(&pages, &prefix, start_number, digits, &position)
+            }
             Operation::AddAnnotation(annot) => self.apply_add_annotation(annot),
             Operation::SetMeasurementScale(scale) => self.apply_set_measurement_scale(scale),
             Operation::SetFormFieldValue(field) => self.apply_set_form_field_value(field),
@@ -1164,7 +1161,9 @@ impl PdfDocument {
             Operation::ExecuteAction(action) => self.apply_execute_action(action),
             Operation::SetGeospatialAnchor(anchor) => self.apply_set_geospatial_anchor(anchor),
             Operation::AddMeshShading(shading) => self.apply_add_mesh_shading(shading),
-            Operation::SetUnencryptedWrapper(wrapper) => self.apply_set_unencrypted_wrapper(wrapper),
+            Operation::SetUnencryptedWrapper(wrapper) => {
+                self.apply_set_unencrypted_wrapper(wrapper)
+            }
             Operation::AddPublicKeyRecipient(recipient) => {
                 self.apply_add_public_key_recipient(recipient)
             }
@@ -1498,7 +1497,10 @@ impl PdfDocument {
     }
 
     /// Retrieves a specific font resource by its object handle.
-    pub fn get_font(&self, handle: Handle<Object>) -> PdfResult<std::sync::Arc<fepdf_core::font::FontResource>> {
+    pub fn get_font(
+        &self,
+        handle: Handle<Object>,
+    ) -> PdfResult<std::sync::Arc<fepdf_core::font::FontResource>> {
         self.inner.get_font(handle)
     }
 

@@ -329,7 +329,8 @@ fn handle_open(
                     f.name.ends_with("-V") || f.name.contains("-V-") || f.name.contains("-V_")
                 });
 
-                let is_japanese_lang = doc.language().is_some_and(|lang| lang.to_lowercase().starts_with("ja"));
+                let is_japanese_lang =
+                    doc.language().is_some_and(|lang| lang.to_lowercase().starts_with("ja"));
 
                 if has_vertical_font || is_japanese_lang {
                     viewer_direction = Some("R2L".to_string());
@@ -357,8 +358,6 @@ fn handle_open(
         }
     }
 }
-
-
 
 fn get_or_extract_text(
     doc: &PdfDocument,
@@ -457,13 +456,11 @@ fn handle_update_node(
     tx: &Sender<WorkerResponse>,
 ) {
     let Some(doc) = doc_opt else { return };
-    let _ = doc.apply(fepdf_sdk::Operation::UpdateStructElem(
-        fepdf_sdk::StructElemUpdate {
-            handle_index: handle_id,
-            new_tag: Some(tag),
-            new_alt: alt_text,
-        },
-    ));
+    let _ = doc.apply(fepdf_sdk::Operation::UpdateStructElem(fepdf_sdk::StructElemUpdate {
+        handle_index: handle_id,
+        new_tag: Some(tag),
+        new_alt: alt_text,
+    }));
 
     // Run Matterhorn compliance audit on updated tree
     let findings = doc

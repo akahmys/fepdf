@@ -455,11 +455,7 @@ impl Document {
         Ok(())
     }
 
-    fn build_page_tree_layer(
-        &self,
-        layer: &[Object],
-        max_kids: usize,
-    ) -> PdfResult<Vec<Object>> {
+    fn build_page_tree_layer(&self, layer: &[Object], max_kids: usize) -> PdfResult<Vec<Object>> {
         let mut next_layer = Vec::new();
         for chunk in layer.chunks(max_kids) {
             let mut total_count = 0;
