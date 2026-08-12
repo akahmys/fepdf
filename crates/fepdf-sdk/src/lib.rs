@@ -1230,13 +1230,13 @@ impl PdfDocument {
     #[allow(clippy::needless_pass_by_ref_mut)]
     fn apply_set_page_labels(&mut self, _labels: Vec<PageLabelSpec>) -> PdfResult<()> {
         // Pass 1: Set /PageLabels in Document Catalog
-        Ok(())
+        Err(PdfError::NotImplemented("Operation::SetPageLabels"))
     }
 
     #[allow(clippy::needless_pass_by_ref_mut)]
     fn apply_update_article_threads(&mut self, _threads: Vec<ArticleThread>) -> PdfResult<()> {
         // Pass 1: Update /Threads array in Document Catalog
-        Ok(())
+        Err(PdfError::NotImplemented("Operation::UpdateArticleThreads"))
     }
 
     #[allow(clippy::needless_pass_by_ref_mut)]
@@ -1246,31 +1246,31 @@ impl PdfDocument {
         _properties: Vec<UserProperty>,
     ) -> PdfResult<()> {
         // Pass 1: Attach /UserProperties to Tagged PDF element
-        Ok(())
+        Err(PdfError::NotImplemented("Operation::AddUserProperties"))
     }
 
     #[allow(clippy::needless_pass_by_ref_mut)]
     fn apply_execute_action(&mut self, _action: PdfAction) -> PdfResult<()> {
         // Pass 1: Execute action (GoToR, GoToE, Named, Transition)
-        Ok(())
+        Err(PdfError::NotImplemented("Operation::ExecuteAction"))
     }
 
     #[allow(clippy::needless_pass_by_ref_mut)]
     fn apply_set_geospatial_anchor(&mut self, _anchor: GeoSpatialAnchor) -> PdfResult<()> {
         // Pass 1: Attach GIS Geographic anchor (/Geo)
-        Ok(())
+        Err(PdfError::NotImplemented("Operation::SetGeospatialAnchor"))
     }
 
     #[allow(clippy::needless_pass_by_ref_mut)]
     fn apply_add_mesh_shading(&mut self, _shading: MeshShadingSpec) -> PdfResult<()> {
         // Pass 2: Add Type 4-7 Mesh Shading object
-        Ok(())
+        Err(PdfError::NotImplemented("Operation::AddMeshShading"))
     }
 
     #[allow(clippy::needless_pass_by_ref_mut)]
     fn apply_set_unencrypted_wrapper(&mut self, _wrapper: UnencryptedWrapperSpec) -> PdfResult<()> {
         // Pass 0: Set Unencrypted Wrapper Payload (Clause 7.6.7)
-        Ok(())
+        Err(PdfError::NotImplemented("Operation::SetUnencryptedWrapper"))
     }
 
     #[allow(clippy::needless_pass_by_ref_mut)]
@@ -1279,43 +1279,43 @@ impl PdfDocument {
         _recipient: PublicKeyRecipientSpec,
     ) -> PdfResult<()> {
         // Pass 0: Add Public Key Recipient Envelope (Clause 7.6.4)
-        Ok(())
+        Err(PdfError::NotImplemented("Operation::AddPublicKeyRecipient"))
     }
 
     #[allow(clippy::needless_pass_by_ref_mut)]
     fn apply_create_portfolio(&mut self, _portfolio: PortfolioCollection) -> PdfResult<()> {
         // Pass 1: Ingest portfolio collection metadata into Document Catalog (/Collection)
-        Ok(())
+        Err(PdfError::NotImplemented("Operation::CreatePortfolio"))
     }
 
     #[allow(clippy::needless_pass_by_ref_mut)]
     fn apply_update_outlines(&mut self, _outlines: OutlineTree) -> PdfResult<()> {
         // Pass 1: Reconstruct Outlines tree in PdfArena (/Outlines)
-        Ok(())
+        Err(PdfError::NotImplemented("Operation::UpdateOutlines"))
     }
 
     #[allow(clippy::needless_pass_by_ref_mut)]
     fn apply_update_layers(&mut self, _layers: OptionalContentProperties) -> PdfResult<()> {
         // Pass 1: Update Layer groups in Document Catalog (/OCProperties)
-        Ok(())
+        Err(PdfError::NotImplemented("Operation::UpdateLayers"))
     }
 
     #[allow(clippy::needless_pass_by_ref_mut)]
     fn apply_attach_associated_file(&mut self, _file: AssociatedFile) -> PdfResult<()> {
         // Pass 1: Attach Associated File specs (/AF)
-        Ok(())
+        Err(PdfError::NotImplemented("Operation::AttachAssociatedFile"))
     }
 
     #[allow(clippy::needless_pass_by_ref_mut)]
     fn apply_set_output_intent(&mut self, _intent: OutputIntent) -> PdfResult<()> {
         // Pass 1: Update Output Intents in Document Catalog (/OutputIntents)
-        Ok(())
+        Err(PdfError::NotImplemented("Operation::SetOutputIntent"))
     }
 
     #[allow(clippy::needless_pass_by_ref_mut)]
     fn apply_set_pronunciation_lexicon(&mut self, _bytes: Vec<u8>) -> PdfResult<()> {
         // Pass 1: Embed Pronunciation Lexicon (/PL)
-        Ok(())
+        Err(PdfError::NotImplemented("Operation::SetPronunciationLexicon"))
     }
 
     #[allow(clippy::needless_pass_by_ref_mut)]
@@ -1333,7 +1333,7 @@ impl PdfDocument {
         _position: &DecorationPosition,
     ) -> PdfResult<()> {
         // Pass 2: Synthesize page decoration overlay
-        Ok(())
+        Err(PdfError::NotImplemented("Operation::AddPageDecoration"))
     }
 
     #[allow(clippy::needless_pass_by_ref_mut)]
@@ -1346,25 +1346,25 @@ impl PdfDocument {
         _position: &DecorationPosition,
     ) -> PdfResult<()> {
         // Pass 2: Synthesize Bates numbering overlay
-        Ok(())
+        Err(PdfError::NotImplemented("Operation::ApplyBatesNumbering"))
     }
 
     #[allow(clippy::needless_pass_by_ref_mut)]
     fn apply_add_annotation(&mut self, _annot: AnnotationSpec) -> PdfResult<()> {
         // Pass 1: Append annotation spec to page /Annots array
-        Ok(())
+        Err(PdfError::NotImplemented("Operation::AddAnnotation"))
     }
 
     #[allow(clippy::needless_pass_by_ref_mut)]
     fn apply_set_measurement_scale(&mut self, _scale: MeasurementScale) -> PdfResult<()> {
         // Pass 1: Attach Measurement scale dictionary (/Measure)
-        Ok(())
+        Err(PdfError::NotImplemented("Operation::SetMeasurementScale"))
     }
 
     #[allow(clippy::needless_pass_by_ref_mut)]
     fn apply_set_form_field_value(&mut self, _field: FormFieldSpec) -> PdfResult<()> {
         // Pass 1: Update AcroForm field value
-        Ok(())
+        Err(PdfError::NotImplemented("Operation::SetFormFieldValue"))
     }
 
     fn apply_rotate(&mut self, pages: &PageSelection, mode: &RotateMode) -> PdfResult<()> {

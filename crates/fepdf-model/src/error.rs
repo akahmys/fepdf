@@ -86,6 +86,13 @@ pub enum PdfError {
     #[error("Syntax error: {0}")]
     Syntax(#[from] fepdf_syntax::SyntaxError),
 
+    /// The operation is part of the vocabulary but has no implementation yet.
+    ///
+    /// Returned rather than `Ok(())` so that a caller is never told a document was
+    /// changed when it was not. The payload names the operation.
+    #[error("{0} is not implemented yet")]
+    NotImplemented(&'static str),
+
     /// A failure with no more specific variant.
     #[error("Other error: {0}")]
     Other(std::borrow::Cow<'static, str>),

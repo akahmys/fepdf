@@ -338,3 +338,45 @@ fn quarter_rejects_angles_that_are_not_multiples_of_90() {
     assert_eq!(fepdf_sdk::Quarter::from_degrees(450), Some(fepdf_sdk::Quarter::Q90));
     assert_eq!(fepdf_sdk::Quarter::from_degrees(-90), Some(fepdf_sdk::Quarter::Q270));
 }
+
+#[test]
+fn unimplemented_operations_report_instead_of_claiming_success() {
+    // These once returned Ok(()), so the CLI printed SUCCESS and wrote a file with
+    // none of the requested change in it. Returning an error is what stops that.
+    let mut doc = PdfDocument::open(get_multipage_pdf(1)).unwrap();
+
+    let cases: Vec<(&str, fepdf_sdk::Operation)> = vec![
+        ("Operation::SetPageLabels", fepdf_sdk::Operation::SetPageLabels(Vec::new())),
+        (
+            "Operation::ApplyBatesNumbering",
+            fepdf_sdk::Operation::ApplyBatesNumbering {
+                pages: fepdf_sdk::PageSelection::All,
+                prefix: String::new(),
+                start_number: 1,
+                digits: 6,
+                position: fepdf_sdk::DecorationPosition::BottomRight,
+            },
+        ),
+    ];
+
+    for (name, op) in cases {
+        match doc.apply(op) {
+            Err(fepdf_sdk::PdfError::NotImplemented(which)) => assert_eq!(which, name),
+            other => panic!("{name} should report NotImplemented, got {other:?}"),
+        }
+    }
+}
+
+#[test]
+fn implemented_operations_still_succeed() {
+    // The guard above must not have swept up operations that do work.
+    let mut doc = PdfDocument::open(get_multipage_pdf(2)).unwrap();
+    assert!(
+        doc.apply(fepdf_sdk::Operation::Rotate {
+            pages: fepdf_sdk::PageSelection::All,
+            mode: fepdf_sdk::RotateMode::Relative(fepdf_sdk::Quarter::Q90),
+        })
+        .is_ok()
+    );
+    assert_eq!(doc.get_page_rotation(0).unwrap(), 90);
+}

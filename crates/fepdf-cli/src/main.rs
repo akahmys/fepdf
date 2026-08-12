@@ -284,6 +284,10 @@ enum EditSubcommands {
         save: SaveArgs,
     },
     /// Create a PDF Portfolio / Collection
+    // Hidden until the backing Operation is implemented: it currently returns
+    // PdfError::NotImplemented, so listing it in --help would advertise a
+    // capability the tool does not have.
+    #[command(hide = true)]
     Portfolio {
         /// Output PDF portfolio file
         #[arg(short, long)]
@@ -302,6 +306,10 @@ enum EditSubcommands {
         save: SaveArgs,
     },
     /// Apply Bates numbering to PDF pages
+    // Hidden until the backing Operation is implemented: it currently returns
+    // PdfError::NotImplemented, so listing it in --help would advertise a
+    // capability the tool does not have.
+    #[command(hide = true)]
     Bates {
         /// Input PDF file
         input: PathBuf,
@@ -325,6 +333,10 @@ enum EditSubcommands {
         save: SaveArgs,
     },
     /// Attach an Associated File (/AF) to PDF
+    // Hidden until the backing Operation is implemented: it currently returns
+    // PdfError::NotImplemented, so listing it in --help would advertise a
+    // capability the tool does not have.
+    #[command(hide = true)]
     Attach {
         /// Input PDF file
         input: PathBuf,
@@ -348,6 +360,10 @@ enum EditSubcommands {
         save: SaveArgs,
     },
     /// Set page numbering labels (/PageLabels)
+    // Hidden until the backing Operation is implemented: it currently returns
+    // PdfError::NotImplemented, so listing it in --help would advertise a
+    // capability the tool does not have.
+    #[command(hide = true)]
     PageLabel {
         /// Input PDF file
         input: PathBuf,
@@ -368,6 +384,10 @@ enum EditSubcommands {
         save: SaveArgs,
     },
     /// Set GIS geographic anchor (/Geo)
+    // Hidden until the backing Operation is implemented: it currently returns
+    // PdfError::NotImplemented, so listing it in --help would advertise a
+    // capability the tool does not have.
+    #[command(hide = true)]
     Geo {
         /// Input PDF file
         input: PathBuf,
