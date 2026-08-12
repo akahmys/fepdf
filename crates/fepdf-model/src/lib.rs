@@ -29,6 +29,8 @@ pub mod metadata;
 pub mod object;
 pub mod parser;
 pub mod refine;
+/// Where documents come from: the bytes-to-`Document` boundary.
+pub mod source;
 pub use fepdf_syntax::security;
 /// PDF physical writer and serialization engine.
 pub mod writer;
@@ -49,6 +51,7 @@ pub use ingest::Ingestor;
 pub use object::{FromPdfObject, Object, PdfName, PdfSchema, Reference, SublimatedData};
 
 pub use error::{PdfError, PdfResult};
+pub use source::{DocumentSource, PdfSource};
 
 /// Resolves the directory holding bundled resources (fonts, Adobe CMap tables).
 ///

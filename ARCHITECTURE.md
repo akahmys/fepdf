@@ -265,7 +265,30 @@ stateful editor holding an arena, retained scenes and per-page spans in memory, 
 re-ingesting a 5,057-page document per interaction is not viable. Shared vocabulary,
 not a shared process.
 
-### 5.2 The Sublimation Pipeline: normalisation-at-load
+### 5.2 Document sources
+
+`DocumentSource` is the boundary between "read some bytes" and "have a normalised
+`Document`". `PdfSource` is the only implementation; the trait exists so that
+file-format knowledge stays on one side of that line rather than inside `Document`.
+
+Its options are an associated type, not a shared struct: `password` and
+`color_policy` mean something to PDF and nothing to a word-processor format.
+
+**Deliberately minimal.** There is no registry, no dynamic dispatch and no
+per-format feature flags. An interface designed against one implementation is
+almost always wrong for the second, and this codebase has twice paid for building
+a container before its contents existed — `fepdf-resource`, and an `Operation`
+vocabulary that was 79% stubs. When a second source exists, its real requirements
+reshape this.
+
+**What a second source owes.** A source hands back a `Document` whose arena already
+holds a catalogue, page tree, content streams and font resources. For a format such
+as DOCX that means resolving styles, breaking lines, paginating and generating
+content streams — a layout engine. Implementing the trait is the small part; apart
+from font handling, almost nothing is shared with reading PDF. Naming the boundary
+makes such a converter easy to *place*, not easy to *write*.
+
+### 5.3 The Sublimation Pipeline: normalisation-at-load
 
 Every byte passes three normalisation stages before application code sees it. The
 pipeline spans `fepdf-syntax` → `fepdf-model`, which is why normalisation is a
@@ -285,7 +308,7 @@ Raw bytes ─► Pass 0: Physical ─► Pass 1: Arena ─► Pass 2: Semantic �
   CJK mojibake, preserves exact path endpoints (`EndPath n`), harmonises graphics
   state, normalises colour, and validates PDF 2.0 structure integrity.
 
-### 5.3 Unified Extension Architecture (Anti-Ad-Hoc Policy)
+### 5.4 Unified Extension Architecture (Anti-Ad-Hoc Policy)
 
 To prevent codebase drift, ad-hoc struct additions, or uncoordinated writer logic, all new backend capabilities MUST fit into one of four orthogonal domain namespaces owned by `fepdf-model` / `fepdf-doc`:
 
@@ -299,7 +322,7 @@ No feature is permitted to bypass the `Operation` vocabulary or inject un-audite
 #### 5.3.1 Multi-Format Provider Architecture
 When introducing support for external document formats (e.g., Word `.docx`, Excel `.xlsx`, SVG, HTML), each format MUST follow Rule C by encapsulating its ingestion (reading) and emission (writing) within a dedicated format provider module/crate (e.g., `fepdf-import-docx`). Providers translate external formats into the `Operation` vocabulary or intermediate layout structures without exposing format-specific dependencies to `fepdf-model`.
 
-### 5.4 Safety invariants
+### 5.5 Safety invariants
 
 - **Handles, not pointers.** Objects are reached only through `Handle<Object>`,
   eliminating use-after-free and dangling references by construction.
@@ -308,7 +331,7 @@ When introducing support for external document formats (e.g., Word `.docx`, Exce
   RR-15 Rule 10 forbids `HashMap`/`HashSet` in the crates that decide output.
 - **Zero unsafe.** `unsafe_code = "forbid"` across the workspace.
 
-### 5.4 Rendering
+### 5.6 Rendering
 
 `fepdf-content` walks the content stream and issues calls against `Backend`.
 `fepdf-render` answers them with **Vello** compute shaders on **wgpu**. Path snapping

@@ -36,6 +36,7 @@ pub use fepdf_model::{
     PublicKeyRecipientSpec, SublimatedData, TransitionSpec, TransitionStyle,
     UnencryptedWrapperSpec, UserProperty, UserPropertyValue, VisibilityState,
 };
+pub use fepdf_model::{DocumentSource, PdfSource};
 #[cfg(feature = "render")]
 pub use fepdf_render::VelloBackend;
 use std::collections::BTreeMap;
