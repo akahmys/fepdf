@@ -700,6 +700,29 @@ impl FepdfApp {
         let _ = self.tx_worker.send(WorkerRequest::ReorderPages { from, to });
     }
 
+    pub fn duplicate_page(&mut self, index: usize) {
+        if index >= self.total_pages {
+            return;
+        }
+
+        let page_size = self.doc_page_sizes.get(index).copied().unwrap_or((595.0, 842.0));
+        self.doc_page_sizes.insert(index + 1, page_size);
+        self.total_pages += 1;
+
+        self.scenes.clear();
+        self.raw_texts.clear();
+        self.page_spans.clear();
+        self.clear_thumbnails_pending = true;
+
+        self.compute_layouts(&self.doc_page_sizes.clone());
+
+        self.selected_pages.clear();
+        self.selected_pages.insert(index + 1);
+        self.last_selected_page = Some(index + 1);
+
+        let _ = self.tx_worker.send(WorkerRequest::DuplicatePage { index });
+    }
+
     pub fn remove_selected_pages(&mut self) {
         if self.selected_pages.is_empty() || self.total_pages <= 1 {
             return;
@@ -1663,15 +1686,110 @@ impl FepdfApp {
     fn render_left_side_panels(&mut self, ui: &mut egui::Ui) {
         // RR-15 Limit: GUI - Renders left sidebar icon bar, context panels, and inspector panel
         // 1. Left Icon Bar (Vertical column, full height)
-        let locale_mgr = &self.locale_mgr;
-        let active_lang = &self.active_language;
+        let ctx = ui.ctx().clone();
 
         egui::Panel::left("left_icon_bar").resizable(false).default_size(50.0).show_inside(
             ui,
             |ui| {
-                self.sidebar_panel.show_icon_bar(ui, locale_mgr, active_lang);
+                ui.vertical_centered(|ui| {
+                    ui.style_mut().spacing.item_spacing = egui::vec2(0.0, 8.0);
+                    ui.add_space(8.0);
+
+                    // 1. Load PDF
+                    let load_btn = egui::Button::new(egui::RichText::new("\u{e247}").size(16.0))
+                        .min_size(egui::vec2(36.0, 36.0));
+                    if ui
+                        .add(load_btn)
+                        .on_hover_text(
+                            self.locale_mgr.tr(&self.active_language, "tooltip_load_pdf"),
+                        )
+                        .clicked()
+                        && let Some(p) =
+                            rfd::FileDialog::new().add_filter("PDF", &["pdf"]).pick_file()
+                    {
+                        if self.total_pages > 0 {
+                            if let Ok(exe) = std::env::current_exe() {
+                                let _ = std::process::Command::new(exe).arg(p).spawn();
+                            }
+                        } else {
+                            self.open_file(p, &ctx);
+                        }
+                    }
+
+                    // 2. Export PDF & Inspector (Enabled only when doc loaded)
+                    let has_doc = self.total_pages > 0;
+                    ui.add_enabled_ui(has_doc, |ui| {
+                        let export_btn =
+                            egui::Button::new(egui::RichText::new("\u{e14d}").size(16.0))
+                                .min_size(egui::vec2(36.0, 36.0));
+                        if ui
+                            .add(export_btn)
+                            .on_hover_text(
+                                self.locale_mgr.tr(&self.active_language, "tooltip_export_pdf"),
+                            )
+                            .clicked()
+                        {
+                            self.show_export_wizard = true;
+                        }
+
+                        let mut inspector_btn =
+                            egui::Button::new(egui::RichText::new("\u{e151}").size(16.0))
+                                .min_size(egui::vec2(36.0, 36.0));
+                        if self.show_inspector {
+                            inspector_btn = inspector_btn
+                                .stroke(egui::Stroke::new(1.5_f32, egui::Color32::from_gray(80)));
+                        }
+                        if ui
+                            .add(inspector_btn)
+                            .on_hover_text(
+                                self.locale_mgr.tr(&self.active_language, "tooltip_inspector"),
+                            )
+                            .clicked()
+                        {
+                            self.show_inspector = !self.show_inspector;
+                        }
+                    });
+
+                    ui.separator();
+
+                    // 3. 7 Sidebar Navigation Tabs (DocumentInfo, Bookmarks, Attachments, Structure, Properties, AltText, Audit)
+                    self.sidebar_panel.show_icon_bar(ui, &self.locale_mgr, &self.active_language);
+
+                    let current_height = ui.available_height();
+                    if current_height > 100.0 {
+                        ui.add_space(current_height - 90.0);
+                    }
+
+                    // 4. Settings Button
+                    let settings_btn =
+                        egui::Button::new(egui::RichText::new("\u{e30b}").size(16.0))
+                            .min_size(egui::vec2(36.0, 36.0));
+                    if ui
+                        .add(settings_btn)
+                        .on_hover_text(
+                            self.locale_mgr.tr(&self.active_language, "tooltip_settings"),
+                        )
+                        .clicked()
+                    {
+                        self.show_settings_modal = true;
+                    }
+
+                    // 5. About (Help) Button
+                    let about_btn = egui::Button::new(egui::RichText::new("\u{e082}").size(16.0))
+                        .min_size(egui::vec2(36.0, 36.0));
+                    if ui
+                        .add(about_btn)
+                        .on_hover_text(self.locale_mgr.tr(&self.active_language, "tooltip_about"))
+                        .clicked()
+                    {
+                        self.show_about_modal = true;
+                    }
+                });
             },
         );
+
+        let locale_mgr = &self.locale_mgr;
+        let active_lang = &self.active_language;
 
         // 2. Context Panel (resizable, automatic size adjusting)
         if self.sidebar_panel.context_panel_open {
@@ -1722,170 +1840,6 @@ impl FepdfApp {
                         self.arlington_inspector.show(ui, selected_tag, locale_mgr, active_lang);
                     });
                 });
-        }
-    }
-
-    fn render_right_side_panels(&mut self, ui: &mut egui::Ui, frame: &mut eframe::Frame) {
-        // RR-15 Limit: GUI - Renders right-side toolbar icons and interactive tool toggles
-        let ctx = ui.ctx().clone();
-
-        // 1. Icon Bar (Right-most, 50px width)
-        egui::Panel::right("icon_bar").resizable(false).default_size(50.0).show_inside(ui, |ui| {
-            ui.vertical_centered(|ui| {
-                ui.style_mut().spacing.item_spacing = egui::vec2(0.0, 8.0);
-                ui.add_space(8.0);
-                let load_btn = egui::Button::new(egui::RichText::new("\u{e247}").size(16.0))
-                    .min_size(egui::vec2(36.0, 36.0));
-                if ui
-                    .add(load_btn)
-                    .on_hover_text(self.locale_mgr.tr(&self.active_language, "tooltip_load_pdf"))
-                    .clicked()
-                    && let Some(p) = rfd::FileDialog::new().add_filter("PDF", &["pdf"]).pick_file()
-                {
-                    self.open_file(p, &ctx);
-                }
-
-                // Disable editing tools if no document loaded
-                let has_doc = self.total_pages > 0;
-                ui.add_enabled_ui(has_doc, |ui| {
-                    ui.style_mut().spacing.item_spacing = egui::vec2(0.0, 8.0);
-
-                    // Redact Brush
-                    let redact_is_active = self.redaction_manager.is_active;
-                    let mut redact_btn =
-                        egui::Button::new(egui::RichText::new("\u{e28f}").size(16.0))
-                            .min_size(egui::vec2(36.0, 36.0));
-                    if redact_is_active {
-                        redact_btn = redact_btn
-                            .stroke(egui::Stroke::new(1.5_f32, egui::Color32::from_gray(80)));
-                    }
-                    if ui
-                        .add(redact_btn)
-                        .on_hover_text(
-                            self.locale_mgr.tr(&self.active_language, "tooltip_redact_brush"),
-                        )
-                        .clicked()
-                    {
-                        self.redaction_manager.is_active = !redact_is_active;
-                        if self.redaction_manager.is_active {
-                            self.selection_manager.clear();
-                            self.selection_manager.is_tagging_brush_active = false;
-                            self.caliper_tool.is_active = false;
-                        }
-                    }
-
-                    // Tagging Brush
-                    let tagging_is_active = self.selection_manager.is_tagging_brush_active;
-                    let mut tagging_btn =
-                        egui::Button::new(egui::RichText::new("\u{e17f}").size(16.0))
-                            .min_size(egui::vec2(36.0, 36.0));
-                    if tagging_is_active {
-                        tagging_btn = tagging_btn
-                            .stroke(egui::Stroke::new(1.5_f32, egui::Color32::from_gray(80)));
-                    }
-                    if ui
-                        .add(tagging_btn)
-                        .on_hover_text(
-                            self.locale_mgr.tr(&self.active_language, "tooltip_tagging_brush"),
-                        )
-                        .clicked()
-                    {
-                        self.selection_manager.is_tagging_brush_active = !tagging_is_active;
-                        if self.selection_manager.is_tagging_brush_active {
-                            self.selection_manager.clear();
-                            self.redaction_manager.is_active = false;
-                            self.caliper_tool.is_active = false;
-                        }
-                    }
-
-                    // Caliper Brush
-                    let caliper_is_active = self.caliper_tool.is_active;
-                    let mut caliper_btn =
-                        egui::Button::new(egui::RichText::new("\u{e14b}").size(16.0))
-                            .min_size(egui::vec2(36.0, 36.0));
-                    if caliper_is_active {
-                        caliper_btn = caliper_btn
-                            .stroke(egui::Stroke::new(1.5_f32, egui::Color32::from_gray(80)));
-                    }
-                    if ui
-                        .add(caliper_btn)
-                        .on_hover_text(
-                            self.locale_mgr.tr(&self.active_language, "tooltip_caliper_brush"),
-                        )
-                        .clicked()
-                    {
-                        self.caliper_tool.is_active = !caliper_is_active;
-                        if self.caliper_tool.is_active {
-                            self.selection_manager.clear();
-                            self.redaction_manager.is_active = false;
-                            self.selection_manager.is_tagging_brush_active = false;
-                        }
-                    }
-
-                    // Inspector
-                    let mut inspector_btn =
-                        egui::Button::new(egui::RichText::new("\u{e151}").size(16.0))
-                            .min_size(egui::vec2(36.0, 36.0));
-                    if self.show_inspector {
-                        inspector_btn = inspector_btn
-                            .stroke(egui::Stroke::new(1.5_f32, egui::Color32::from_gray(80)));
-                    }
-                    if ui
-                        .add(inspector_btn)
-                        .on_hover_text(
-                            self.locale_mgr.tr(&self.active_language, "tooltip_inspector"),
-                        )
-                        .clicked()
-                    {
-                        self.show_inspector = !self.show_inspector;
-                    }
-
-                    // Export PDF
-                    let export_btn = egui::Button::new(egui::RichText::new("\u{e14d}").size(16.0))
-                        .min_size(egui::vec2(36.0, 36.0));
-                    if ui
-                        .add(export_btn)
-                        .on_hover_text(
-                            self.locale_mgr.tr(&self.active_language, "tooltip_export_pdf"),
-                        )
-                        .clicked()
-                    {
-                        self.show_export_wizard = true;
-                    }
-                });
-
-                let current_height = ui.available_height();
-                if current_height > 100.0 {
-                    ui.add_space(current_height - 90.0);
-                }
-
-                // Settings Button
-                let settings_btn = egui::Button::new(egui::RichText::new("\u{e30b}").size(16.0))
-                    .min_size(egui::vec2(36.0, 36.0));
-                if ui
-                    .add(settings_btn)
-                    .on_hover_text(self.locale_mgr.tr(&self.active_language, "tooltip_settings"))
-                    .clicked()
-                {
-                    self.show_settings_modal = true;
-                }
-
-                // About Button
-                let about_btn = egui::Button::new(egui::RichText::new("\u{e082}").size(16.0))
-                    .min_size(egui::vec2(36.0, 36.0));
-                if ui
-                    .add(about_btn)
-                    .on_hover_text(self.locale_mgr.tr(&self.active_language, "tooltip_about"))
-                    .clicked()
-                {
-                    self.show_about_modal = true;
-                }
-            });
-        });
-
-        // 2. Thumbnails Panel (200px width, inner-right)
-        if self.view.scroll_direction == crate::view::ScrollDirection::Vertical {
-            crate::thumbnail_sidebar::ThumbnailSidebar::show(self, ui, frame);
         }
     }
 
@@ -2130,11 +2084,12 @@ impl eframe::App for FepdfApp {
         ui.painter().rect_filled(entire_rect, 0.0, ui.visuals().window_fill);
 
         self.render_left_side_panels(ui);
-        self.render_right_side_panels(ui, frame);
-        self.render_status_bar(ui);
-        if self.view.scroll_direction == crate::view::ScrollDirection::Horizontal {
+        if self.view.scroll_direction == crate::view::ScrollDirection::Vertical {
+            crate::thumbnail_sidebar::ThumbnailSidebar::show(self, ui, frame);
+        } else {
             crate::thumbnail_sidebar::ThumbnailSidebar::show_horizontal(self, ui, frame);
         }
+        self.render_status_bar(ui);
 
         self.update_vello(ui, frame);
         self.render_overlay_windows(&ctx);

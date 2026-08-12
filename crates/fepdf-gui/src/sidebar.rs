@@ -275,7 +275,6 @@ impl SidebarPanel {
     ) {
         ui.vertical_centered(|ui| {
             ui.style_mut().spacing.item_spacing = egui::vec2(0.0, 8.0);
-            ui.add_space(8.0);
 
             let tabs = [
                 (LeftTab::DocumentInfo, "\u{e0cc}", locale_mgr.tr(active_lang, "tab_doc_info")),

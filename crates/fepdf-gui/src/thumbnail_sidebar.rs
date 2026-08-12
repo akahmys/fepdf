@@ -27,73 +27,6 @@ impl ThumbnailSidebar {
                     app.remove_selected_pages();
                 }
 
-                // Top Toolbar
-                ui.add_space(4.0);
-                ui.horizontal(|ui| {
-                    ui.add_space(8.0);
-                    let page_count_str = format!(
-                        "{} {}",
-                        app.total_pages,
-                        app.locale_mgr.tr(&app.active_language, "info_page_count")
-                    );
-                    ui.label(
-                        egui::RichText::new(page_count_str)
-                            .size(11.0)
-                            .color(egui::Color32::from_rgb(100, 110, 120)),
-                    );
-
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        let has_sel = !app.selected_pages.is_empty();
-                        let first_sel = app.selected_pages.iter().next().copied();
-                        let can_move_up = first_sel.is_some_and(|idx| idx > 0);
-                        let can_move_down =
-                            first_sel.is_some_and(|idx| idx < app.total_pages.saturating_sub(1));
-                        let can_delete = has_sel
-                            && app.total_pages > 1
-                            && app.selected_pages.len() < app.total_pages;
-
-                        let del_btn = egui::Button::new(egui::RichText::new("🗑").size(12.0))
-                            .min_size(egui::vec2(22.0, 22.0));
-                        if ui
-                            .add_enabled(can_delete, del_btn)
-                            .on_hover_text(
-                                app.locale_mgr.tr(&app.active_language, "tooltip_delete_page"),
-                            )
-                            .clicked()
-                        {
-                            app.remove_selected_pages();
-                        }
-
-                        let down_btn = egui::Button::new(egui::RichText::new("▼").size(10.0))
-                            .min_size(egui::vec2(22.0, 22.0));
-                        if ui
-                            .add_enabled(can_move_down, down_btn)
-                            .on_hover_text(
-                                app.locale_mgr.tr(&app.active_language, "tooltip_move_down"),
-                            )
-                            .clicked()
-                            && let Some(idx) = first_sel
-                        {
-                            app.reorder_page(idx, idx + 1);
-                        }
-
-                        let up_btn = egui::Button::new(egui::RichText::new("▲").size(10.0))
-                            .min_size(egui::vec2(22.0, 22.0));
-                        if ui
-                            .add_enabled(can_move_up, up_btn)
-                            .on_hover_text(
-                                app.locale_mgr.tr(&app.active_language, "tooltip_move_up"),
-                            )
-                            .clicked()
-                            && let Some(idx) = first_sel
-                        {
-                            app.reorder_page(idx, idx - 1);
-                        }
-                    });
-                });
-                ui.add_space(2.0);
-                ui.separator();
-
                 let mut hovered_item_target = None;
                 egui::ScrollArea::vertical().id_salt("thumbnail_scroll_area").hscroll(false).show(
                     ui,
@@ -332,7 +265,7 @@ impl ThumbnailSidebar {
                 }
             }
 
-            let (action_rotate, action_move, action_delete) =
+            let (action_rotate, action_move, action_duplicate, action_extract, action_delete) =
                 Self::render_thumbnail_context_menu(app, &response, i);
 
             if let Some(delta) = action_rotate {
@@ -341,6 +274,15 @@ impl ThumbnailSidebar {
                 app.reorder_page(from_idx, target_idx);
             } else if let Some((from_idx, target_idx)) = action_move {
                 app.reorder_page(from_idx, target_idx);
+            } else if action_duplicate {
+                app.duplicate_page(i);
+            } else if action_extract {
+                let indices = if app.selected_pages.contains(&i) {
+                    app.selected_pages.iter().copied().collect()
+                } else {
+                    vec![i]
+                };
+                let _ = app.tx_worker.send(crate::worker::WorkerRequest::ExtractPages { indices });
             } else if action_delete {
                 app.selected_pages.clear();
                 app.selected_pages.insert(i);
@@ -591,7 +533,7 @@ impl ThumbnailSidebar {
                 }
             }
 
-            let (action_rotate, action_move, action_delete) =
+            let (action_rotate, action_move, action_duplicate, action_extract, action_delete) =
                 Self::render_thumbnail_context_menu(app, &response, i);
 
             if let Some(delta) = action_rotate {
@@ -600,6 +542,15 @@ impl ThumbnailSidebar {
                 app.reorder_page(from_idx, target_idx);
             } else if let Some((from_idx, target_idx)) = action_move {
                 app.reorder_page(from_idx, target_idx);
+            } else if action_duplicate {
+                app.duplicate_page(i);
+            } else if action_extract {
+                let indices = if app.selected_pages.contains(&i) {
+                    app.selected_pages.iter().copied().collect()
+                } else {
+                    vec![i]
+                };
+                let _ = app.tx_worker.send(crate::worker::WorkerRequest::ExtractPages { indices });
             } else if action_delete {
                 app.selected_pages.clear();
                 app.selected_pages.insert(i);
@@ -646,9 +597,11 @@ impl ThumbnailSidebar {
         app: &crate::app::FepdfApp,
         response: &egui::Response,
         i: usize,
-    ) -> (Option<fepdf_sdk::Quarter>, Option<(usize, usize)>, bool) {
+    ) -> (Option<fepdf_sdk::Quarter>, Option<(usize, usize)>, bool, bool, bool) {
         let mut action_rotate = None;
         let mut action_move = None;
+        let mut action_duplicate = false;
+        let mut action_extract = false;
         let mut action_delete = false;
 
         response.context_menu(|ui| {
@@ -656,17 +609,13 @@ impl ThumbnailSidebar {
                 action_rotate = Some(fepdf_sdk::Quarter::Q90);
                 ui.close_kind(egui::UiKind::Menu);
             }
-            if ui.button(app.locale_mgr.tr(&app.active_language, "rotate_left_90")).clicked() {
-                action_rotate = Some(fepdf_sdk::Quarter::Q270);
-                ui.close_kind(egui::UiKind::Menu);
-            }
-            if ui.button(app.locale_mgr.tr(&app.active_language, "rotate_180")).clicked() {
-                action_rotate = Some(fepdf_sdk::Quarter::Q180);
-                ui.close_kind(egui::UiKind::Menu);
-            }
             ui.separator();
             if ui.button(app.locale_mgr.tr(&app.active_language, "page_setup_menu")).clicked() {
-                // Future modal open for paper / crop / scale setup
+                // Future modal open for scale setup
+                ui.close_kind(egui::UiKind::Menu);
+            }
+            if ui.button(app.locale_mgr.tr(&app.active_language, "page_duplicate")).clicked() {
+                action_duplicate = true;
                 ui.close_kind(egui::UiKind::Menu);
             }
             ui.menu_button(app.locale_mgr.tr(&app.active_language, "page_insert_menu"), |ui| {
@@ -683,34 +632,53 @@ impl ThumbnailSidebar {
                 ui.close_kind(egui::UiKind::Menu);
             }
             if ui.button(app.locale_mgr.tr(&app.active_language, "page_extract_menu")).clicked() {
+                action_extract = true;
                 ui.close_kind(egui::UiKind::Menu);
             }
             ui.separator();
-            if i > 0 {
-                if ui.button(app.locale_mgr.tr(&app.active_language, "reorder_move_up")).clicked() {
-                    action_move = Some((i, i - 1));
-                    ui.close_kind(egui::UiKind::Menu);
-                }
-                if ui.button(app.locale_mgr.tr(&app.active_language, "reorder_move_top")).clicked()
-                {
-                    action_move = Some((i, 0));
-                    ui.close_kind(egui::UiKind::Menu);
-                }
+
+            // 4 Move Options: Move to Top, Move Previous, Move Next, Move to Bottom
+            let can_move_top = i > 0;
+            let can_move_prev = i > 0;
+            let can_move_next = i < app.total_pages.saturating_sub(1);
+            let can_move_bottom = i < app.total_pages.saturating_sub(1);
+
+            let top_btn = ui.add_enabled(
+                can_move_top,
+                egui::Button::new(app.locale_mgr.tr(&app.active_language, "reorder_move_top")),
+            );
+            if top_btn.clicked() {
+                action_move = Some((i, 0));
+                ui.close_kind(egui::UiKind::Menu);
             }
-            if i < app.total_pages.saturating_sub(1) {
-                if ui.button(app.locale_mgr.tr(&app.active_language, "reorder_move_down")).clicked()
-                {
-                    action_move = Some((i, i + 1));
-                    ui.close_kind(egui::UiKind::Menu);
-                }
-                if ui
-                    .button(app.locale_mgr.tr(&app.active_language, "reorder_move_bottom"))
-                    .clicked()
-                {
-                    action_move = Some((i, app.total_pages - 1));
-                    ui.close_kind(egui::UiKind::Menu);
-                }
+
+            let prev_btn = ui.add_enabled(
+                can_move_prev,
+                egui::Button::new(app.locale_mgr.tr(&app.active_language, "reorder_move_up")),
+            );
+            if prev_btn.clicked() {
+                action_move = Some((i, i - 1));
+                ui.close_kind(egui::UiKind::Menu);
             }
+
+            let next_btn = ui.add_enabled(
+                can_move_next,
+                egui::Button::new(app.locale_mgr.tr(&app.active_language, "reorder_move_down")),
+            );
+            if next_btn.clicked() {
+                action_move = Some((i, i + 1));
+                ui.close_kind(egui::UiKind::Menu);
+            }
+
+            let bottom_btn = ui.add_enabled(
+                can_move_bottom,
+                egui::Button::new(app.locale_mgr.tr(&app.active_language, "reorder_move_bottom")),
+            );
+            if bottom_btn.clicked() {
+                action_move = Some((i, app.total_pages.saturating_sub(1)));
+                ui.close_kind(egui::UiKind::Menu);
+            }
+
             if app.total_pages > 1 {
                 ui.separator();
                 if ui
@@ -723,6 +691,6 @@ impl ThumbnailSidebar {
             }
         });
 
-        (action_rotate, action_move, action_delete)
+        (action_rotate, action_move, action_duplicate, action_extract, action_delete)
     }
 }

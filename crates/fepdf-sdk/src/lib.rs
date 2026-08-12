@@ -294,6 +294,31 @@ impl PdfDocument {
         self.inner.remove_page(index)
     }
 
+    /// Duplicates a page at `index` and inserts the cloned page immediately after it.
+    pub fn duplicate_page(&mut self, index: usize) -> PdfResult<()> {
+        let page_count = self.page_count()?;
+        if index >= page_count {
+            return Err(PdfError::Arena(format!("Page index {index} out of bounds").into()));
+        }
+
+        let source_page = self.inner.get_page(index)?;
+        let source_dh = self.inner.resolve_to_dict(source_page.obj_handle())?;
+
+        let arena = self.inner.arena();
+        let cloned_obj = {
+            let mut cloner = cloning::ObjectCloner::new(arena, arena);
+            cloner.clone_object(&Object::Dictionary(source_dh))?
+        };
+
+        if let Object::Dictionary(dh) = cloned_obj {
+            let target_page_h = self.inner.arena().alloc_object(Object::Dictionary(dh));
+            self.inner.pages.insert(index + 1, target_page_h);
+            self.inner.rebuild_page_tree_in_arena()?;
+        }
+
+        Ok(())
+    }
+
     /// Inserts pages from another document into this document at `at_index`.
     pub fn insert_pages_from(&mut self, source: &PdfDocument, at_index: usize) -> PdfResult<usize> {
         let source_page_count = source.page_count()?;

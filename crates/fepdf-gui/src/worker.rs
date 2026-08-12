@@ -40,6 +40,9 @@ pub enum WorkerRequest {
     RemovePages {
         indices: Vec<usize>,
     },
+    DuplicatePage {
+        index: usize,
+    },
     InsertDocument {
         data: Bytes,
         at_index: usize,
@@ -47,6 +50,9 @@ pub enum WorkerRequest {
     RotatePages {
         indices: Vec<usize>,
         delta: fepdf_sdk::Quarter,
+    },
+    ExtractPages {
+        indices: Vec<usize>,
     },
 }
 
@@ -177,6 +183,16 @@ pub fn run_worker(rx: Receiver<WorkerRequest>, tx: Sender<WorkerResponse>, ctx: 
                 }
                 ctx.request_repaint();
             }
+            WorkerRequest::DuplicatePage { index } => {
+                text_cache.clear();
+                spans_cache.clear();
+                if let Some(ref mut doc) = current_doc
+                    && let Err(e) = doc.duplicate_page(index)
+                {
+                    log::error!("Failed to duplicate page {index} in worker: {e:?}");
+                }
+                ctx.request_repaint();
+            }
             WorkerRequest::InsertDocument { data, at_index } => {
                 text_cache.clear();
                 spans_cache.clear();
@@ -197,6 +213,24 @@ pub fn run_worker(rx: Receiver<WorkerRequest>, tx: Sender<WorkerResponse>, ctx: 
                     })
                 {
                     log::error!("Failed to rotate pages in worker: {e:?}");
+                }
+                ctx.request_repaint();
+            }
+            WorkerRequest::ExtractPages { indices } => {
+                if let Some(ref doc) = current_doc
+                    && let Ok(extracted_doc) = doc.extract_pages(indices)
+                {
+                    let mut temp_path = std::env::temp_dir();
+                    let timestamp = std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .map_or(0, |d| d.as_millis());
+                    temp_path.push(format!("fepdf_extracted_{timestamp}.pdf"));
+
+                    if extracted_doc.save_as_version(&temp_path, "1.7").is_ok()
+                        && let Ok(exe) = std::env::current_exe()
+                    {
+                        let _ = std::process::Command::new(exe).arg(&temp_path).spawn();
+                    }
                 }
                 ctx.request_repaint();
             }
