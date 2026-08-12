@@ -735,12 +735,12 @@ impl FepdfApp {
         let _ = self.tx_worker.send(WorkerRequest::RemovePages { indices });
     }
 
-    pub fn rotate_pages(&mut self, indices: Vec<usize>, delta_angle: i32) {
+    pub fn rotate_pages(&mut self, indices: Vec<usize>, delta: fepdf_sdk::Quarter) {
         if indices.is_empty() || self.total_pages == 0 {
             return;
         }
 
-        let is_90_or_270 = delta_angle.abs() % 180 != 0;
+        let is_90_or_270 = delta.to_degrees() % 180 != 0;
         for &idx in &indices {
             if idx < self.doc_page_sizes.len() {
                 if is_90_or_270 {
@@ -756,11 +756,11 @@ impl FepdfApp {
         self.clear_thumbnails_pending = true;
         self.compute_layouts(&self.doc_page_sizes.clone());
 
-        let _ = self.tx_worker.send(WorkerRequest::RotatePages { indices, delta_angle });
+        let _ = self.tx_worker.send(WorkerRequest::RotatePages { indices, delta });
     }
 
     #[allow(dead_code)]
-    pub fn rotate_selected_pages(&mut self, delta_angle: i32) {
+    pub fn rotate_selected_pages(&mut self, delta: fepdf_sdk::Quarter) {
         let targets = if !self.selected_pages.is_empty() {
             self.selected_pages.iter().copied().collect()
         } else if self.total_pages > 0 && self.view.active_page < self.total_pages {
@@ -768,16 +768,16 @@ impl FepdfApp {
         } else {
             Vec::new()
         };
-        self.rotate_pages(targets, delta_angle);
+        self.rotate_pages(targets, delta);
     }
 
-    pub fn rotate_page_action(&mut self, clicked_idx: usize, delta_angle: i32) {
+    pub fn rotate_page_action(&mut self, clicked_idx: usize, delta: fepdf_sdk::Quarter) {
         let targets = if self.selected_pages.contains(&clicked_idx) {
             self.selected_pages.iter().copied().collect()
         } else {
             vec![clicked_idx]
         };
-        self.rotate_pages(targets, delta_angle);
+        self.rotate_pages(targets, delta);
     }
 
     fn check_gpu_support(&self, ui: &mut egui::Ui, frame: &mut eframe::Frame) -> bool {

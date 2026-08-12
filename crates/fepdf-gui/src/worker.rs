@@ -46,7 +46,7 @@ pub enum WorkerRequest {
     },
     RotatePages {
         indices: Vec<usize>,
-        delta_angle: i32,
+        delta: fepdf_sdk::Quarter,
     },
 }
 
@@ -187,17 +187,16 @@ pub fn run_worker(rx: Receiver<WorkerRequest>, tx: Sender<WorkerResponse>, ctx: 
                 }
                 ctx.request_repaint();
             }
-            WorkerRequest::RotatePages { indices, delta_angle } => {
+            WorkerRequest::RotatePages { indices, delta } => {
                 text_cache.clear();
                 spans_cache.clear();
-                if let Some(ref mut doc) = current_doc {
-                    for &idx in &indices {
-                        let current_rot = doc.get_page_rotation(idx).unwrap_or(0);
-                        let new_rot = (current_rot + delta_angle).rem_euclid(360);
-                        if let Err(e) = doc.set_page_rotation(idx, new_rot) {
-                            log::error!("Failed to rotate page {idx} in worker: {e:?}");
-                        }
-                    }
+                if let Some(ref mut doc) = current_doc
+                    && let Err(e) = doc.apply(fepdf_sdk::Operation::Rotate {
+                        pages: fepdf_sdk::PageSelection::Indices(indices),
+                        mode: fepdf_sdk::RotateMode::Relative(delta),
+                    })
+                {
+                    log::error!("Failed to rotate pages in worker: {e:?}");
                 }
                 ctx.request_repaint();
             }

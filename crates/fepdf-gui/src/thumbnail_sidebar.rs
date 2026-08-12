@@ -646,22 +646,22 @@ impl ThumbnailSidebar {
         app: &crate::app::FepdfApp,
         response: &egui::Response,
         i: usize,
-    ) -> (Option<i32>, Option<(usize, usize)>, bool) {
+    ) -> (Option<fepdf_sdk::Quarter>, Option<(usize, usize)>, bool) {
         let mut action_rotate = None;
         let mut action_move = None;
         let mut action_delete = false;
 
         response.context_menu(|ui| {
             if ui.button(app.locale_mgr.tr(&app.active_language, "rotate_right_90")).clicked() {
-                action_rotate = Some(90);
+                action_rotate = Some(fepdf_sdk::Quarter::Q90);
                 ui.close_kind(egui::UiKind::Menu);
             }
             if ui.button(app.locale_mgr.tr(&app.active_language, "rotate_left_90")).clicked() {
-                action_rotate = Some(-90);
+                action_rotate = Some(fepdf_sdk::Quarter::Q270);
                 ui.close_kind(egui::UiKind::Menu);
             }
             if ui.button(app.locale_mgr.tr(&app.active_language, "rotate_180")).clicked() {
-                action_rotate = Some(180);
+                action_rotate = Some(fepdf_sdk::Quarter::Q180);
                 ui.close_kind(egui::UiKind::Menu);
             }
             ui.separator();

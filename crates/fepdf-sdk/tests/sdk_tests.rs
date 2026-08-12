@@ -277,3 +277,64 @@ fn test_page_rotation() {
     let (w270, h270) = doc.get_page_size(0).unwrap();
     assert_eq!((w270, h270), (h0, w0));
 }
+
+#[test]
+fn rotate_absolute_sets_the_angle_regardless_of_current_rotation() {
+    let mut doc = PdfDocument::open(get_multipage_pdf(2)).unwrap();
+    doc.set_page_rotation(0, 90).unwrap();
+
+    doc.apply(fepdf_sdk::Operation::Rotate {
+        pages: fepdf_sdk::PageSelection::Single(0),
+        mode: fepdf_sdk::RotateMode::Absolute(fepdf_sdk::Quarter::Q90),
+    })
+    .unwrap();
+
+    // Absolute means "set to", so a page already at 90 stays at 90.
+    assert_eq!(doc.get_page_rotation(0).unwrap(), 90);
+}
+
+#[test]
+fn rotate_relative_accumulates_and_wraps() {
+    let mut doc = PdfDocument::open(get_multipage_pdf(2)).unwrap();
+    doc.set_page_rotation(0, 90).unwrap();
+
+    doc.apply(fepdf_sdk::Operation::Rotate {
+        pages: fepdf_sdk::PageSelection::Single(0),
+        mode: fepdf_sdk::RotateMode::Relative(fepdf_sdk::Quarter::Q90),
+    })
+    .unwrap();
+    assert_eq!(doc.get_page_rotation(0).unwrap(), 180);
+
+    // 180 + 270 wraps rather than reaching 450.
+    doc.apply(fepdf_sdk::Operation::Rotate {
+        pages: fepdf_sdk::PageSelection::Single(0),
+        mode: fepdf_sdk::RotateMode::Relative(fepdf_sdk::Quarter::Q270),
+    })
+    .unwrap();
+    assert_eq!(doc.get_page_rotation(0).unwrap(), 90);
+}
+
+#[test]
+fn rotate_applies_to_every_selected_page() {
+    let mut doc = PdfDocument::open(get_multipage_pdf(3)).unwrap();
+
+    doc.apply(fepdf_sdk::Operation::Rotate {
+        pages: fepdf_sdk::PageSelection::Indices(vec![0, 2]),
+        mode: fepdf_sdk::RotateMode::Relative(fepdf_sdk::Quarter::Q90),
+    })
+    .unwrap();
+
+    assert_eq!(doc.get_page_rotation(0).unwrap(), 90);
+    assert_eq!(doc.get_page_rotation(1).unwrap(), 0);
+    assert_eq!(doc.get_page_rotation(2).unwrap(), 90);
+}
+
+#[test]
+fn quarter_rejects_angles_that_are_not_multiples_of_90() {
+    // The type is what stops `--angle 45` reaching /Rotate, where ISO 32000-2
+    // requires a multiple of 90.
+    assert!(fepdf_sdk::Quarter::from_degrees(45).is_none());
+    assert!(fepdf_sdk::Quarter::from_degrees(1).is_none());
+    assert_eq!(fepdf_sdk::Quarter::from_degrees(450), Some(fepdf_sdk::Quarter::Q90));
+    assert_eq!(fepdf_sdk::Quarter::from_degrees(-90), Some(fepdf_sdk::Quarter::Q270));
+}
