@@ -252,6 +252,23 @@ cargo check --quiet || ERROR=1
 echo "[Rule 17] Running clippy audit..."
 cargo clippy --workspace --all-targets -- -D warnings || ERROR=1
 
+# Rule 19: Formatting
+#
+# Previously only `make fmt` checked this, and nothing forced anyone to run it,
+# so diffs accumulated silently while the audit stayed green. Rule 1 reads the
+# "// RR-15 Limit:" marker from a function's signature region rather than its
+# fn line precisely so that formatting and the audit can both hold at once.
+echo "[Rule 19] Checking formatting..."
+if cargo fmt --all --check > /dev/null 2>&1; then
+    echo "  PASS"
+else
+    fmt_files=$(cargo fmt --all --check 2>/dev/null \
+        | grep -E "^Diff in" | sed -E 's|^Diff in ||; s|:[0-9]+:$||' | sort -u)
+    echo "  FAIL: not formatted. Run 'cargo fmt --all'. Files:"
+    echo "$fmt_files" | sed 's/^/    /'
+    ERROR=1
+fi
+
 # Rule 16: License Compliance via cargo-deny
 echo "[Rule 16] Checking for license compliance (cargo-deny)..."
 cargo deny check licenses || ERROR=1
