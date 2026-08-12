@@ -26,12 +26,12 @@ impl<'a> Parser<'a> {
 
     /// Reads the next token without consuming it.
     pub fn peek(&mut self) -> PdfResult<Token> {
-        self.lexer.peek()
+        Ok(self.lexer.peek()?)
     }
 
     /// Reads and consumes the next token.
     pub fn next_token(&mut self) -> PdfResult<Token> {
-        self.lexer.next_token()
+        Ok(self.lexer.next_token()?)
     }
 
     /// Parses a single PDF object from the token stream.

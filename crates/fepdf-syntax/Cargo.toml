@@ -1,0 +1,24 @@
+[package]
+name = "fepdf-syntax"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+# ARCHITECTURE.md: this is the byte layer. It must not depend on the object model
+# -- that is the property which lets the cryptography be reasoned about on its own.
+[dependencies]
+bytes.workspace = true
+thiserror.workspace = true
+aes.workspace = true
+cbc.workspace = true
+md5.workspace = true
+pbkdf2.workspace = true
+hmac.workspace = true
+sha2.workspace = true
+rand.workspace = true
+
+[lints]
+workspace = true

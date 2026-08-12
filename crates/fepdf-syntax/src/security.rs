@@ -1,4 +1,6 @@
-use crate::{PdfError, PdfResult};
+//! Encryption and decryption of PDF strings and streams (ISO 32000-2 Clause 7.6).
+
+use crate::{SyntaxError, SyntaxResult};
 use aes::cipher::{BlockDecrypt, BlockEncrypt, KeyInit};
 use aes::{Aes128, Aes256, Block};
 use md5;
@@ -32,7 +34,7 @@ impl SecurityHandler {
         p_value: i32,
         file_id: &[u8],
         encrypt_metadata: bool,
-    ) -> PdfResult<Self> {
+    ) -> SyntaxResult<Self> {
         let key = Self::derive_v4_key(
             user_password,
             o_string,
@@ -64,7 +66,7 @@ impl SecurityHandler {
         p_value: i32,
         file_id: &[u8],
         encrypt_metadata: bool,
-    ) -> PdfResult<Vec<u8>> {
+    ) -> SyntaxResult<Vec<u8>> {
         let mut pad = [0u8; 32];
         let pw_bytes = user_password.as_bytes();
         let len = pw_bytes.len().min(32);
@@ -107,7 +109,11 @@ impl SecurityHandler {
     ///
     /// TODO(RR-15-EXT): Transition to full multi-stage key verification using validation salts,
     /// key salts, and owner password checking as detailed in ISO 32000-2 Algorithms 8, 9, 2.A, and 3.A.
-    pub fn new_v5(user_password: &str, _owner_password: &str, file_id: &[u8]) -> PdfResult<Self> {
+    pub fn new_v5(
+        user_password: &str,
+        _owner_password: &str,
+        file_id: &[u8],
+    ) -> SyntaxResult<Self> {
         // Derive deterministic validation and key salts using SHA-256 to comply with Rule 10 (Determinism)
         let mut ue_hasher = Sha256::new();
         ue_hasher.update(file_id);
@@ -165,13 +171,13 @@ impl SecurityHandler {
     }
 
     /// Encrypts stream data for the given indirect object.
-    pub fn encrypt_stream(&self, data: &[u8], obj_id: u32, gen_num: u16) -> PdfResult<Vec<u8>> {
+    pub fn encrypt_stream(&self, data: &[u8], obj_id: u32, gen_num: u16) -> SyntaxResult<Vec<u8>> {
         let key = self.derive_object_key(obj_id, gen_num);
         self.encrypt_with_key(data, &key)
     }
 
     /// Encrypts string data for the given indirect object.
-    pub fn encrypt_string(&self, data: &[u8], obj_id: u32, gen_num: u16) -> PdfResult<Vec<u8>> {
+    pub fn encrypt_string(&self, data: &[u8], obj_id: u32, gen_num: u16) -> SyntaxResult<Vec<u8>> {
         let key = self.derive_object_key(obj_id, gen_num);
         self.encrypt_with_key(data, &key)
     }
@@ -182,7 +188,7 @@ impl SecurityHandler {
         data: &[u8],
         object_id: u32,
         generation: u16,
-    ) -> PdfResult<Vec<u8>> {
+    ) -> SyntaxResult<Vec<u8>> {
         // Pattern C: Master Key + ObjID + GenID (No "sAlT")
         let mut key = self.encryption_key.clone();
         key.extend_from_slice(&object_id.to_le_bytes()[..3]);
@@ -198,7 +204,7 @@ impl SecurityHandler {
         data: &[u8],
         object_id: u32,
         generation: u16,
-    ) -> PdfResult<Vec<u8>> {
+    ) -> SyntaxResult<Vec<u8>> {
         let mut key = self.encryption_key.clone();
         key.extend_from_slice(&object_id.to_le_bytes()[..3]);
         key.extend_from_slice(&generation.to_le_bytes()[..2]);
@@ -216,7 +222,7 @@ impl SecurityHandler {
         data: &[u8],
         _object_id: u32,
         _generation: u16,
-    ) -> PdfResult<Vec<u8>> {
+    ) -> SyntaxResult<Vec<u8>> {
         if let Some(ref inputs) = self.v4_inputs
             && let Ok(key) = Self::derive_v4_key(
                 &inputs.password,
@@ -229,7 +235,7 @@ impl SecurityHandler {
         {
             return self.decrypt_with_key(data, &key);
         }
-        Err(PdfError::Other("V4 inputs not available".into()))
+        Err(SyntaxError::Crypto("V4 inputs not available".into()))
     }
 
     /// Decrypts data for the given indirect object.
@@ -238,7 +244,7 @@ impl SecurityHandler {
         data: &[u8],
         object_id: u32,
         generation: u16,
-    ) -> PdfResult<Vec<u8>> {
+    ) -> SyntaxResult<Vec<u8>> {
         let key = self.derive_object_key(object_id, generation);
         self.decrypt_with_key(data, &key)
     }
@@ -270,7 +276,7 @@ impl SecurityHandler {
     }
 
     #[allow(clippy::manual_is_multiple_of)]
-    fn decrypt_with_key(&self, data: &[u8], key: &[u8]) -> PdfResult<Vec<u8>> {
+    fn decrypt_with_key(&self, data: &[u8], key: &[u8]) -> SyntaxResult<Vec<u8>> {
         if data.len() < 16 {
             return Ok(data.to_vec());
         }
@@ -288,7 +294,7 @@ impl SecurityHandler {
             16 => (
                 Some(
                     Aes128::new_from_slice(key)
-                        .map_err(|_| PdfError::Other("AES-128 init fail".into()))?,
+                        .map_err(|_| SyntaxError::Crypto("AES-128 init fail".into()))?,
                 ),
                 None,
             ),
@@ -296,11 +302,11 @@ impl SecurityHandler {
                 None,
                 Some(
                     Aes256::new_from_slice(key)
-                        .map_err(|_| PdfError::Other("AES-256 init fail".into()))?,
+                        .map_err(|_| SyntaxError::Crypto("AES-256 init fail".into()))?,
                 ),
             ),
             _ => {
-                return Err(PdfError::Other(
+                return Err(SyntaxError::Crypto(
                     format!("Invalid AES key length: {}", key.len()).into(),
                 ));
             }
@@ -322,7 +328,7 @@ impl SecurityHandler {
         Ok(result)
     }
 
-    fn encrypt_with_key(&self, data: &[u8], key: &[u8]) -> PdfResult<Vec<u8>> {
+    fn encrypt_with_key(&self, data: &[u8], key: &[u8]) -> SyntaxResult<Vec<u8>> {
         use rand::RngCore;
         let mut iv = [0u8; 16];
         rand::thread_rng().fill_bytes(&mut iv);
@@ -340,7 +346,7 @@ impl SecurityHandler {
             16 => (
                 Some(
                     Aes128::new_from_slice(key)
-                        .map_err(|_| PdfError::Other("AES-128 init fail".into()))?,
+                        .map_err(|_| SyntaxError::Crypto("AES-128 init fail".into()))?,
                 ),
                 None,
             ),
@@ -348,11 +354,11 @@ impl SecurityHandler {
                 None,
                 Some(
                     Aes256::new_from_slice(key)
-                        .map_err(|_| PdfError::Other("AES-256 init fail".into()))?,
+                        .map_err(|_| SyntaxError::Crypto("AES-256 init fail".into()))?,
                 ),
             ),
             _ => {
-                return Err(PdfError::Other(
+                return Err(SyntaxError::Crypto(
                     format!("Invalid AES key length: {}", key.len()).into(),
                 ));
             }

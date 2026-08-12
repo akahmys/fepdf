@@ -1,6 +1,7 @@
 [workspace]
 resolver = "2"
 members = [
+    "crates/fepdf-syntax",
     "crates/fepdf-core",
     "crates/fepdf-font",
     "crates/fepdf-content",
@@ -91,6 +92,7 @@ rmcp = "1.5.0"
 schemars = "1"
 
 # Internal Workspace Crates
+fepdf-syntax = { path = "crates/fepdf-syntax", version = "1.0.0" }
 fepdf-core = { path = "crates/fepdf-core", version = "1.0.0" }
 fepdf-font = { path = "crates/fepdf-font", version = "1.0.0" }
 fepdf-content = { path = "crates/fepdf-content", version = "1.0.0" }

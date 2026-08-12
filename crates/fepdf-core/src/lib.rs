@@ -23,14 +23,13 @@ pub mod font;
 pub mod graphics;
 pub mod handle;
 pub mod ingest;
-pub mod lexer;
+pub use fepdf_syntax::lexer;
 /// Document metadata, from XMP or the `/Info` dictionary.
 pub mod metadata;
 pub mod object;
 pub mod parser;
 pub mod refine;
-/// Encryption and decryption (ISO 32000-2 Clause 7.6).
-pub mod security;
+pub use fepdf_syntax::security;
 /// PDF physical writer and serialization engine.
 pub mod writer;
 

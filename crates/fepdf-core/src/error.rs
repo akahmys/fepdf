@@ -82,8 +82,12 @@ pub enum PdfError {
         parameter: String,
     },
 
-    #[error("Other error: {0}")]
+    /// The byte layer -- lexing or decryption -- failed.
+    #[error("Syntax error: {0}")]
+    Syntax(#[from] fepdf_syntax::SyntaxError),
+
     /// A failure with no more specific variant.
+    #[error("Other error: {0}")]
     Other(std::borrow::Cow<'static, str>),
 }
 

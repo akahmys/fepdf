@@ -103,7 +103,7 @@ impl<'a, W: Write> PdfWriter<'a, W> {
 
     fn encrypt_data(&self, data: &[u8]) -> PdfResult<Vec<u8>> {
         if let Some(sh) = &self.security_handler {
-            sh.encrypt_stream(data, self.current_obj_id, self.current_obj_gen)
+            Ok(sh.encrypt_stream(data, self.current_obj_id, self.current_obj_gen)?)
         } else {
             Ok(data.to_vec())
         }

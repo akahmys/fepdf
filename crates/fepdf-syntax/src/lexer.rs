@@ -1,6 +1,6 @@
 //! ISO 32000-2:2020 Clause 7.2 - Lexical Conventions
 
-use crate::PdfResult;
+use crate::SyntaxResult;
 use bytes::Bytes;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -129,7 +129,7 @@ impl Lexer {
     }
 
     /// Reads the next token, advancing the cursor.
-    pub fn next_token(&mut self) -> PdfResult<Token> {
+    pub fn next_token(&mut self) -> SyntaxResult<Token> {
         self.skip_whitespace_and_comments();
         if self.pos >= self.data.len() {
             return Ok(Token::EOF);
@@ -193,7 +193,7 @@ impl Lexer {
         }
     }
 
-    fn lex_name(&mut self) -> PdfResult<Token> {
+    fn lex_name(&mut self) -> SyntaxResult<Token> {
         self.pos += 1; // skip '/'
         let mut result = Vec::new();
         while self.pos < self.data.len()
@@ -217,7 +217,7 @@ impl Lexer {
         Ok(Token::Name(Bytes::from(result)))
     }
 
-    fn lex_literal_string(&mut self) -> PdfResult<Token> {
+    fn lex_literal_string(&mut self) -> SyntaxResult<Token> {
         self.pos += 1; // skip '('
         let mut balance = 1;
         let mut result = Vec::new();
@@ -289,10 +289,14 @@ impl Lexer {
                 break;
             }
         }
-        (octal as u8, pos)
+        #[allow(clippy::cast_possible_truncation)]
+        // ISO 32000-2 7.3.4.2: a \\ddd escape above 255 has its high-order
+        // overflow ignored, so truncating here is what the standard asks for.
+        let byte = octal as u8;
+        (byte, pos)
     }
 
-    fn lex_hex_string(&mut self) -> PdfResult<Token> {
+    fn lex_hex_string(&mut self) -> SyntaxResult<Token> {
         self.pos += 1; // skip '<'
         let mut result = Vec::new();
         let mut high_nibble: Option<u8> = None;
@@ -304,10 +308,10 @@ impl Lexer {
             }
             if let Some(val) = (b as char).to_digit(16) {
                 if let Some(high) = high_nibble {
-                    result.push((high << 4) | val as u8);
+                    result.push((high << 4) | u8::try_from(val).unwrap_or(0));
                     high_nibble = None;
                 } else {
-                    high_nibble = Some(val as u8);
+                    high_nibble = Some(u8::try_from(val).unwrap_or(0));
                 }
             }
             self.pos += 1;
@@ -318,7 +322,7 @@ impl Lexer {
         Ok(Token::Hex(Bytes::from(result)))
     }
 
-    fn lex_number_or_keyword(&mut self) -> PdfResult<Token> {
+    fn lex_number_or_keyword(&mut self) -> SyntaxResult<Token> {
         let start = self.pos;
         let mut is_real = false;
         while self.pos < self.data.len()
@@ -341,7 +345,7 @@ impl Lexer {
         Ok(Token::Keyword(s.to_string()))
     }
 
-    fn lex_keyword_or_other(&mut self) -> PdfResult<Token> {
+    fn lex_keyword_or_other(&mut self) -> SyntaxResult<Token> {
         let start = self.pos;
         if self.pos < self.data.len() {
             self.pos += 1;
@@ -362,7 +366,7 @@ impl Lexer {
     }
 
     /// Reads the next token without advancing the cursor.
-    pub fn peek(&mut self) -> PdfResult<Token> {
+    pub fn peek(&mut self) -> SyntaxResult<Token> {
         let prev_pos = self.pos;
         let token = self.next_token();
         self.pos = prev_pos;

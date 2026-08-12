@@ -85,7 +85,7 @@ drift, silently, because nothing compares them. That has already happened here �
    └───────┬───────────────────────┘  └──────────────────┘
            ▼
    ┌───────────────┐
-   │ fepdf-syntax  │  lexer · parser · filters · crypto
+   │ fepdf-syntax  │  lexer · crypto (no model types)
    └───────────────┘
 ```
 
@@ -101,7 +101,7 @@ Status: **✅** exists as-is · **⚠️** partially landed · **🔄** code exi
 
 | Crate | Status | ~Lines | Responsibility |
 | :--- | :---: | ---: | :--- |
-| **`fepdf-syntax`** | 🔄 in core (Audited ✅) | 1,200 | Bytes ⇄ raw objects. Lexing, parsing, stream filters, encryption/decryption. Hardened with recursion limits (`512`), line continuation, Zip Bomb limit (`128MB`), and AES key checks. |
+| **`fepdf-syntax`** | ✅ | 850 | The byte layer: lexing and encryption/decryption. Depends on no model type, which is what lets the cryptography be reviewed on its own. Parsing and stream filters are *not* here — see §4. |
 | **`fepdf-font`** | 🔄 in core (Audited ✅) | 3,500 | Font *programs*: CFF, TrueType, CMap, Adobe Glyph List, subsetting, reconstruction. Hardened against W/W2 out-of-bounds, CMap underflows (`e_val >= s_val`), and CID byte truncations. |
 | **`fepdf-model`** | 🔄 in core+sdk (Audited ✅) | 8,600 | The document graph: `PdfArena`, `Handle<T>`, `Object`, page tree, metadata. Hardened with pool overflow guards, cyclic `resolve` limits (`64`), and safe `Null` reference fallbacks. |
 | **`fepdf-content`** | ⚠️ partial | 2,300 | Content-stream interpreter, and the **`RenderBackend` contract** it drives (`TextGlyph`, `TextState`, `SMaskData`, path geometry). No GPU dependency. *The contract has landed; the interpreter still lives in `fepdf-sdk`.* |
