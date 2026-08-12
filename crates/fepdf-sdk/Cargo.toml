@@ -36,6 +36,8 @@ x509-parser.workspace = true
 default = []
 ## Enables `PdfDocument::render_page_to_file`, backed by Vello + wgpu.
 render = ["dep:fepdf-render", "dep:pollster", "dep:image"]
+## Forwards fepdf-core's glyph tracing, used by `fepdf debug trace-font`.
+debug-tools = ["fepdf-core/debug-tools"]
 
 [lints]
 workspace = true

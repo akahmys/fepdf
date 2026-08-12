@@ -72,13 +72,13 @@ pub struct FepdfApp {
     pub locale_mgr: crate::locale::LocaleManager,
     pub active_language: String,
     pub show_settings_modal: bool,
-    pub doc_metadata: Option<fepdf_core::metadata::MetadataInfo>,
+    pub doc_metadata: Option<fepdf_sdk::MetadataInfo>,
     pub doc_file_size: Option<usize>,
     pub doc_version: Option<String>,
     pub doc_security_method: Option<String>,
     pub doc_permissions: Option<i32>,
     pub doc_page_sizes: Vec<(f64, f64)>,
-    pub doc_fonts: Vec<fepdf_core::font::FontSummary>,
+    pub doc_fonts: Vec<fepdf_sdk::FontSummary>,
 }
 
 impl FepdfApp {

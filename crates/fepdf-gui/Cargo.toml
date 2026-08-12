@@ -12,7 +12,6 @@ name = "fepdf-gui"
 path = "src/main.rs"
 
 [dependencies]
-fepdf-core.workspace = true
 fepdf-render.workspace = true
 fepdf-sdk.workspace = true
 vello.workspace = true

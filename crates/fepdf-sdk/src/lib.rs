@@ -21,6 +21,12 @@ use crate::structure::{AuditFinding, MatterhornAuditor};
 use bytes::Bytes;
 pub use fepdf_content::FallbackFontType;
 pub use fepdf_core::font::{GlyphTrace, TraceContext};
+// Re-exported so frontends need no dependency on fepdf-core at all: with the model
+// unreachable by name, ARCHITECTURE.md Rule A is enforced by Cargo rather than by
+// review.
+pub use fepdf_core::font::FontResource;
+pub use fepdf_core::graphics::Rect;
+pub use fepdf_core::ingest::{ColorPolicy, IngestionOptions};
 pub use fepdf_core::{
     AFRelationship, AnnotationKind, AnnotationSpec, ArticleBead, ArticleThread, AssociatedFile,
     CollectionViewMode, Document, FormFieldSpec, FormValue, GeoSpatialAnchor, Handle, LayerGroup,

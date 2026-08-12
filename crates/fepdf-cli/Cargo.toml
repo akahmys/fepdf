@@ -15,7 +15,6 @@ path = "src/main.rs"
 [dependencies]
 # Rasterises pages (debug render subcommand), so the SDK's optional GPU path is required.
 fepdf-sdk = { workspace = true, features = ["render"] }
-fepdf-core.workspace = true
 clap.workspace = true
 anyhow.workspace = true
 lopdf.workspace = true
@@ -28,7 +27,7 @@ env_logger.workspace = true
 image.workspace = true
 
 [features]
-debug-tools = ["fepdf-core/debug-tools"]
+debug-tools = ["fepdf-sdk/debug-tools"]
 
 [lints]
 workspace = true

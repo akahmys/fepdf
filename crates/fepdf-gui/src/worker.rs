@@ -67,10 +67,10 @@ pub struct LoadedDocument {
     pub ust_root: Option<crate::sidebar::USTNode>,
     pub file_size: usize,
     pub version: String,
-    pub metadata: fepdf_core::metadata::MetadataInfo,
+    pub metadata: fepdf_sdk::MetadataInfo,
     pub security_method: String,
     pub permissions: Option<i32>,
-    pub fonts: Vec<fepdf_core::font::FontSummary>,
+    pub fonts: Vec<fepdf_sdk::FontSummary>,
     pub viewer_direction: Option<String>,
 }
 
@@ -252,7 +252,7 @@ fn handle_insert_document(
     at_index: usize,
     tx: &Sender<WorkerResponse>,
 ) {
-    let options = fepdf_core::ingest::IngestionOptions::default();
+    let options = fepdf_sdk::IngestionOptions::default();
     match PdfDocument::open_with_options(data, &options) {
         Ok(source_doc) => {
             if let Err(e) = doc.insert_pages_from(&source_doc, at_index) {
@@ -319,11 +319,11 @@ fn handle_open(
 ) -> Option<PdfDocument> {
     let file_size = data.len();
     let tx_clone = tx.clone();
-    let options = fepdf_core::ingest::IngestionOptions {
+    let options = fepdf_sdk::IngestionOptions {
         progress_callback: Some(Arc::new(move |msg| {
             let _ = tx_clone.send(WorkerResponse::LoadingProgress { message: msg });
         })),
-        ..fepdf_core::ingest::IngestionOptions::default()
+        ..fepdf_sdk::IngestionOptions::default()
     };
     match PdfDocument::open_with_options(data, &options) {
         Ok(doc) => {
@@ -444,9 +444,8 @@ fn handle_render(
     spans_cache: &mut std::collections::BTreeMap<usize, Vec<crate::interaction::TextSpan>>,
 ) {
     let Some(doc) = doc_opt else { return };
-    let r = doc
-        .get_page_box(index)
-        .unwrap_or_else(|_| fepdf_core::graphics::Rect::new(0.0, 0.0, 595.0, 842.0));
+    let r =
+        doc.get_page_box(index).unwrap_or_else(|_| fepdf_sdk::Rect::new(0.0, 0.0, 595.0, 842.0));
     let w = (r.x2 - r.x1).abs();
     let h = (r.y2 - r.y1).abs();
     let rot = doc.get_page_rotation(index).unwrap_or(0);

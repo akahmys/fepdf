@@ -29,15 +29,15 @@ struct IngestArgs {
     force_fallback: bool,
 }
 
-impl From<IngestArgs> for fepdf_core::ingest::IngestionOptions {
+impl From<IngestArgs> for fepdf_sdk::IngestionOptions {
     fn from(args: IngestArgs) -> Self {
         Self {
             active_refinement: !args.no_refinement,
             sublime_metadata: !args.no_metadata_recovery,
             color_policy: if args.relaxed_color {
-                fepdf_core::ingest::ColorPolicy::Relaxed
+                fepdf_sdk::ColorPolicy::Relaxed
             } else {
-                fepdf_core::ingest::ColorPolicy::Strict
+                fepdf_sdk::ColorPolicy::Strict
             },
             force_fallback: args.force_fallback,
             password: None,
@@ -666,7 +666,7 @@ fn handle_merge(
 ) -> Result<()> {
     println!("fepdf merge: Combining {} files into {}", inputs.len(), output.display());
     let mut sources = Vec::new();
-    let ingest_options: fepdf_core::ingest::IngestionOptions = ingest.into();
+    let ingest_options: fepdf_sdk::IngestionOptions = ingest.into();
     for path in inputs {
         let data =
             std::fs::read(&path).with_context(|| format!("Failed to read {}", path.display()))?;
@@ -693,7 +693,7 @@ fn handle_split(
 ) -> Result<()> {
     println!("fepdf split: Extracting pages from {}", input.display());
     let data = std::fs::read(&input).with_context(|| "Failed to read input")?;
-    let ingest_options: fepdf_core::ingest::IngestionOptions = ingest.into();
+    let ingest_options: fepdf_sdk::IngestionOptions = ingest.into();
     let doc = PdfDocument::open_with_options(data.into(), &ingest_options)
         .map_err(|e| anyhow::anyhow!("{e:?}"))?;
     let page_count = doc.page_count().map_err(|e| anyhow::anyhow!("{e:?}"))?;
@@ -846,7 +846,7 @@ fn handle_info(input: PathBuf, format: String, ingest: IngestArgs) -> Result<()>
         println!("fepdf info: Analyzing {}", input.display());
     }
     let data = std::fs::read(&input).with_context(|| "Failed to read input")?;
-    let ingest_options: fepdf_core::ingest::IngestionOptions = ingest.into();
+    let ingest_options: fepdf_sdk::IngestionOptions = ingest.into();
     let doc = PdfDocument::open_with_options(data.into(), &ingest_options)
         .map_err(|e| anyhow::anyhow!("{e:?}"))?;
     let summary = doc.get_summary().map_err(|e| anyhow::anyhow!("{e:?}"))?;
@@ -864,7 +864,7 @@ fn handle_audit(input: PathBuf, format: String, ingest: IngestArgs) -> Result<()
         println!("fepdf audit: Performing compliance check on {}", input.display());
     }
     let data = std::fs::read(&input).with_context(|| "Failed to read input")?;
-    let ingest_options: fepdf_core::ingest::IngestionOptions = ingest.into();
+    let ingest_options: fepdf_sdk::IngestionOptions = ingest.into();
     let doc = PdfDocument::open_with_options(data.into(), &ingest_options)
         .map_err(|e| anyhow::anyhow!("{e:?}"))?;
     let summary = doc.get_summary().map_err(|e| anyhow::anyhow!("{e:?}"))?;
@@ -880,7 +880,7 @@ fn handle_audit(input: PathBuf, format: String, ingest: IngestArgs) -> Result<()
 fn handle_debug_dump(input: PathBuf, obj_id: u32, _gen_num: u16, ingest: IngestArgs) -> Result<()> {
     println!("fepdf debug dump: Object {obj_id} from {}", input.display());
     let data = std::fs::read(&input).with_context(|| "Failed to read input")?;
-    let ingest_options: fepdf_core::ingest::IngestionOptions = ingest.into();
+    let ingest_options: fepdf_sdk::IngestionOptions = ingest.into();
     let doc = PdfDocument::open_with_options(data.into(), &ingest_options)
         .map_err(|e| anyhow::anyhow!("{e:?}"))?;
 
@@ -892,7 +892,7 @@ fn handle_debug_dump(input: PathBuf, obj_id: u32, _gen_num: u16, ingest: IngestA
 fn handle_debug_structure(input: PathBuf, ingest: IngestArgs) -> Result<()> {
     println!("fepdf debug structure: Hierarchical tree for {}", input.display());
     let data = std::fs::read(&input).with_context(|| "Failed to read input")?;
-    let ingest_options: fepdf_core::ingest::IngestionOptions = ingest.into();
+    let ingest_options: fepdf_sdk::IngestionOptions = ingest.into();
     let doc = PdfDocument::open_with_options(data.into(), &ingest_options)
         .map_err(|e| anyhow::anyhow!("{e:?}"))?;
 
@@ -904,7 +904,7 @@ fn handle_debug_structure(input: PathBuf, ingest: IngestArgs) -> Result<()> {
 fn handle_debug_stats(input: PathBuf, ingest: IngestArgs) -> Result<()> {
     println!("fepdf debug stats: Analyzing memory usage for {}", input.display());
     let data = std::fs::read(&input).with_context(|| "Failed to read input")?;
-    let ingest_options: fepdf_core::ingest::IngestionOptions = ingest.into();
+    let ingest_options: fepdf_sdk::IngestionOptions = ingest.into();
     let doc = PdfDocument::open_with_options(data.into(), &ingest_options)
         .map_err(|e| anyhow::anyhow!("{e:?}"))?;
 
@@ -940,7 +940,7 @@ fn handle_upgrade(
     }
 
     let data = std::fs::read(&input).with_context(|| "Failed to read input")?;
-    let ingest_options: fepdf_core::ingest::IngestionOptions = ingest.into();
+    let ingest_options: fepdf_sdk::IngestionOptions = ingest.into();
     let mut doc = PdfDocument::open_with_options(data.into(), &ingest_options)
         .map_err(|e| anyhow::anyhow!("{e:?}"))?;
 
@@ -982,7 +982,7 @@ fn handle_repair(
 ) -> Result<()> {
     println!("fepdf repair: Attempting to salvage corrupted document {}", input.display());
     let data = std::fs::read(&input).with_context(|| "Failed to read input")?;
-    let ingest_options: fepdf_core::ingest::IngestionOptions = ingest.into();
+    let ingest_options: fepdf_sdk::IngestionOptions = ingest.into();
     let doc = PdfDocument::open_and_repair_with_options(data.into(), &ingest_options)
         .map_err(|e| anyhow::anyhow!("{e:?}"))?;
 
@@ -1002,7 +1002,7 @@ fn handle_rotate(
 ) -> Result<()> {
     println!("fepdf rotate: Rotating pages in {} by {angle} degrees...", input.display());
     let data = std::fs::read(&input).with_context(|| "Failed to read input")?;
-    let ingest_options: fepdf_core::ingest::IngestionOptions = ingest.into();
+    let ingest_options: fepdf_sdk::IngestionOptions = ingest.into();
     let mut doc = PdfDocument::open_with_options(data.into(), &ingest_options)
         .map_err(|e| anyhow::anyhow!("{e:?}"))?;
 
@@ -1037,7 +1037,7 @@ fn handle_render(
         input.display()
     );
     let data = std::fs::read(&input).with_context(|| "Failed to read input")?;
-    let ingest_options: fepdf_core::ingest::IngestionOptions = ingest.into();
+    let ingest_options: fepdf_sdk::IngestionOptions = ingest.into();
     let mut doc = PdfDocument::open_with_options(data.into(), &ingest_options)
         .map_err(|e| anyhow::anyhow!("{e:?}"))?;
 
@@ -1092,7 +1092,7 @@ fn handle_retag(
         output.display()
     );
     let data = std::fs::read(&input).with_context(|| "Failed to read input")?;
-    let ingest_options: fepdf_core::ingest::IngestionOptions = ingest.into();
+    let ingest_options: fepdf_sdk::IngestionOptions = ingest.into();
     let mut doc = PdfDocument::open_with_options(data.into(), &ingest_options)
         .map_err(|e| anyhow::anyhow!("{e:?}"))?;
 
@@ -1125,7 +1125,7 @@ fn handle_retag(
 fn handle_text(input: PathBuf, pages: Option<String>, ingest: IngestArgs) -> Result<()> {
     println!("fepdf text: Extracting text from {}", input.display());
     let data = std::fs::read(&input).with_context(|| "Failed to read input")?;
-    let ingest_options: fepdf_core::ingest::IngestionOptions = ingest.into();
+    let ingest_options: fepdf_sdk::IngestionOptions = ingest.into();
     let doc = PdfDocument::open_with_options(data.into(), &ingest_options)
         .map_err(|e| anyhow::anyhow!("{e:?}"))?;
 
@@ -1154,7 +1154,7 @@ fn handle_sign(
 ) -> Result<()> {
     println!("fepdf sign: {} -> {}", output.display(), input.display());
     let data = std::fs::read(&input).with_context(|| "Failed to read input")?;
-    let ingest_options: fepdf_core::ingest::IngestionOptions = ingest.into();
+    let ingest_options: fepdf_sdk::IngestionOptions = ingest.into();
     let doc = PdfDocument::open_with_options(data.into(), &ingest_options)
         .map_err(|e| anyhow::anyhow!("{e:?}"))?;
 
@@ -1302,7 +1302,7 @@ fn handle_extract_font(
     ingest: IngestArgs,
 ) -> Result<()> {
     let data = std::fs::read(&input).with_context(|| "Failed to read input")?;
-    let ingest_options: fepdf_core::ingest::IngestionOptions = ingest.into();
+    let ingest_options: fepdf_sdk::IngestionOptions = ingest.into();
     let doc = PdfDocument::open_with_options(data.into(), &ingest_options)
         .map_err(|e| anyhow::anyhow!("{e:?}"))?;
 
@@ -1326,12 +1326,7 @@ fn handle_extract_font(
     Ok(())
 }
 
-fn trace_single_font(
-    font: &fepdf_core::font::FontResource,
-    name: &str,
-    obj_id: u32,
-    target_char: char,
-) {
+fn trace_single_font(font: &fepdf_sdk::FontResource, name: &str, obj_id: u32, target_char: char) {
     println!("\n--- [ FONT: {name} ] ---");
     println!("Object: {obj_id}");
 
@@ -1372,7 +1367,7 @@ fn handle_debug_trace_glyph(
 
     let target_char = parse_unicode(&unicode_str)?;
     let data = std::fs::read(&input).with_context(|| "Failed to read input")?;
-    let ingest_options: fepdf_core::ingest::IngestionOptions = ingest.into();
+    let ingest_options: fepdf_sdk::IngestionOptions = ingest.into();
     let doc = PdfDocument::open_with_options(data.into(), &ingest_options)
         .map_err(|e| anyhow::anyhow!("{e:?}"))?;
 
@@ -1425,7 +1420,7 @@ fn handle_portfolio(
             .map_or_else(|| "file".to_string(), |n| n.to_string_lossy().to_string());
         let data = std::fs::read(&file_path)
             .with_context(|| format!("Failed to read file {}", file_path.display()))?;
-        items.push(fepdf_core::PortfolioItem {
+        items.push(fepdf_sdk::PortfolioItem {
             filename: file_name,
             mime_type: None,
             description: None,
@@ -1434,8 +1429,8 @@ fn handle_portfolio(
         });
     }
 
-    let portfolio = fepdf_core::PortfolioCollection {
-        view_mode: fepdf_core::CollectionViewMode::Details,
+    let portfolio = fepdf_sdk::PortfolioCollection {
+        view_mode: fepdf_sdk::CollectionViewMode::Details,
         initial_document: None,
         items,
     };
@@ -1461,7 +1456,7 @@ fn handle_bates(
 ) -> Result<()> {
     println!("fepdf bates: Applying Bates numbering to {}", input.display());
     let data = std::fs::read(&input).with_context(|| "Failed to read input")?;
-    let ingest_options: fepdf_core::ingest::IngestionOptions = ingest.into();
+    let ingest_options: fepdf_sdk::IngestionOptions = ingest.into();
     let mut doc = PdfDocument::open_with_options(data.into(), &ingest_options)
         .map_err(|e| anyhow::anyhow!("{e:?}"))?;
 
@@ -1497,20 +1492,16 @@ fn handle_attach(
         .map_or_else(|| "attached".to_string(), |n| n.to_string_lossy().to_string());
 
     let relationship = match relationship_str.to_lowercase().as_str() {
-        "source" => fepdf_core::AFRelationship::Source,
-        "supplement" => fepdf_core::AFRelationship::Supplement,
-        "alternative" => fepdf_core::AFRelationship::Alternative,
-        _ => fepdf_core::AFRelationship::Data,
+        "source" => fepdf_sdk::AFRelationship::Source,
+        "supplement" => fepdf_sdk::AFRelationship::Supplement,
+        "alternative" => fepdf_sdk::AFRelationship::Alternative,
+        _ => fepdf_sdk::AFRelationship::Data,
     };
 
-    let af = fepdf_core::AssociatedFile {
-        filename: file_name,
-        relationship,
-        mime_type,
-        data: file_data,
-    };
+    let af =
+        fepdf_sdk::AssociatedFile { filename: file_name, relationship, mime_type, data: file_data };
 
-    let ingest_options: fepdf_core::ingest::IngestionOptions = ingest.into();
+    let ingest_options: fepdf_sdk::IngestionOptions = ingest.into();
     let mut doc = PdfDocument::open_with_options(data.into(), &ingest_options)
         .map_err(|e| anyhow::anyhow!("{e:?}"))?;
 
@@ -1533,19 +1524,19 @@ fn handle_page_label(
 ) -> Result<()> {
     println!("fepdf page-label: Setting page labels on {}", input.display());
     let data = std::fs::read(&input).with_context(|| "Failed to read input PDF")?;
-    let ingest_options: fepdf_core::ingest::IngestionOptions = ingest.into();
+    let ingest_options: fepdf_sdk::IngestionOptions = ingest.into();
     let mut doc = PdfDocument::open_with_options(data.into(), &ingest_options)
         .map_err(|e| anyhow::anyhow!("{e:?}"))?;
 
     let style = match style_str.to_lowercase().as_str() {
-        "lower-roman" => fepdf_core::PageLabelStyle::LowerRoman,
-        "upper-roman" => fepdf_core::PageLabelStyle::UpperRoman,
-        "lower-alpha" => fepdf_core::PageLabelStyle::LowerAlpha,
-        "upper-alpha" => fepdf_core::PageLabelStyle::UpperAlpha,
-        _ => fepdf_core::PageLabelStyle::Decimal,
+        "lower-roman" => fepdf_sdk::PageLabelStyle::LowerRoman,
+        "upper-roman" => fepdf_sdk::PageLabelStyle::UpperRoman,
+        "lower-alpha" => fepdf_sdk::PageLabelStyle::LowerAlpha,
+        "upper-alpha" => fepdf_sdk::PageLabelStyle::UpperAlpha,
+        _ => fepdf_sdk::PageLabelStyle::Decimal,
     };
 
-    let labels = vec![fepdf_core::PageLabelSpec { start_page: 0, style, prefix, start_number: 1 }];
+    let labels = vec![fepdf_sdk::PageLabelSpec { start_page: 0, style, prefix, start_number: 1 }];
 
     doc.apply(fepdf_sdk::Operation::SetPageLabels(labels)).map_err(|e| anyhow::anyhow!("{e:?}"))?;
 
@@ -1566,11 +1557,11 @@ fn handle_geo(
 ) -> Result<()> {
     println!("fepdf geo: Setting GIS anchor ({lat}, {lon}) on {}", input.display());
     let data = std::fs::read(&input).with_context(|| "Failed to read input PDF")?;
-    let ingest_options: fepdf_core::ingest::IngestionOptions = ingest.into();
+    let ingest_options: fepdf_sdk::IngestionOptions = ingest.into();
     let mut doc = PdfDocument::open_with_options(data.into(), &ingest_options)
         .map_err(|e| anyhow::anyhow!("{e:?}"))?;
 
-    let anchor = fepdf_core::GeoSpatialAnchor {
+    let anchor = fepdf_sdk::GeoSpatialAnchor {
         page: 0,
         latitude: lat,
         longitude: lon,
@@ -1590,7 +1581,7 @@ fn handle_geo(
 fn handle_verify_signature(input: PathBuf, field: String, ingest: IngestArgs) -> Result<()> {
     println!("fepdf verify-signature: Verifying field '{field}' on {}", input.display());
     let data = std::fs::read(&input).with_context(|| "Failed to read input PDF")?;
-    let ingest_options: fepdf_core::ingest::IngestionOptions = ingest.into();
+    let ingest_options: fepdf_sdk::IngestionOptions = ingest.into();
     let mut doc = PdfDocument::open_with_options(data.into(), &ingest_options)
         .map_err(|e| anyhow::anyhow!("{e:?}"))?;
 
@@ -1640,9 +1631,9 @@ mod tests {
             relaxed_color: true,
             force_fallback: false,
         };
-        let opts: fepdf_core::ingest::IngestionOptions = args.into();
+        let opts: fepdf_sdk::IngestionOptions = args.into();
         assert!(!opts.active_refinement);
         assert!(opts.sublime_metadata);
-        assert_eq!(opts.color_policy, fepdf_core::ingest::ColorPolicy::Relaxed);
+        assert_eq!(opts.color_policy, fepdf_sdk::ColorPolicy::Relaxed);
     }
 }

@@ -313,13 +313,13 @@ impl SidebarPanel {
         tx_worker: &std::sync::mpsc::Sender<crate::worker::WorkerRequest>,
         pdf_name: &Option<String>,
         total_pages: usize,
-        metadata: &Option<fepdf_core::metadata::MetadataInfo>,
+        metadata: &Option<fepdf_sdk::MetadataInfo>,
         file_size: Option<usize>,
         pdf_version: &Option<String>,
         security_method: &Option<String>,
         permissions: Option<i32>,
         page_sizes: &[(f64, f64)],
-        fonts: &[fepdf_core::font::FontSummary],
+        fonts: &[fepdf_sdk::FontSummary],
         locale_mgr: &crate::locale::LocaleManager,
         active_lang: &str,
     ) {
@@ -386,13 +386,13 @@ impl SidebarPanel {
         ui: &mut egui::Ui,
         pdf_name: &Option<String>,
         total_pages: usize,
-        metadata: &Option<fepdf_core::metadata::MetadataInfo>,
+        metadata: &Option<fepdf_sdk::MetadataInfo>,
         file_size: Option<usize>,
         pdf_version: &Option<String>,
         security_method: &Option<String>,
         permissions: Option<i32>,
         page_sizes: &[(f64, f64)],
-        fonts: &[fepdf_core::font::FontSummary],
+        fonts: &[fepdf_sdk::FontSummary],
         locale_mgr: &crate::locale::LocaleManager,
         active_lang: &str,
     ) {
@@ -506,10 +506,9 @@ impl SidebarPanel {
                         // `render_row` takes `&str`, so these borrow from the metadata
                         // rather than copying it out field by field.
                         const EMPTY: &str = "-";
-                        let field =
-                            |pick: fn(&fepdf_core::metadata::MetadataInfo) -> Option<&String>| {
-                                metadata.as_ref().and_then(pick).map_or(EMPTY, String::as_str)
-                            };
+                        let field = |pick: fn(&fepdf_sdk::MetadataInfo) -> Option<&String>| {
+                            metadata.as_ref().and_then(pick).map_or(EMPTY, String::as_str)
+                        };
                         let title = field(|m| m.title.as_ref());
                         let author = field(|m| m.author.as_ref());
                         let subject = field(|m| m.subject.as_ref());

@@ -107,7 +107,7 @@ Status: **✅** exists as-is · **⚠️** partially landed · **🔄** code exi
 | **`fepdf-content`** | ⚠️ partial | 2,300 | Content-stream interpreter, and the **`RenderBackend` contract** it drives (`TextGlyph`, `TextState`, `SMaskData`, path geometry). No GPU dependency. *The contract has landed; the interpreter still lives in `fepdf-sdk`.* |
 | **`fepdf-doc`** | 🔄 in sdk | 2,200 | Owns the **`Operation` vocabulary** (§5.1) and is its only interpreter: merge, split, rotate, tag, redact, upgrade. Also structure-tree handling, conformance auditing, remediation. |
 | **`fepdf-render`** | ✅ | 1,100 | A `RenderBackend` implementation on **Vello** + **wgpu**. Reached only through the SDK's optional `render` feature. |
-| **`fepdf`** | 🆕 | — | The public facade. `Document`, `Page`, `SaveOptions`, and the re-exported `Operation`. The Rule A boundary. |
+| **`fepdf`** | ⚠️ lives in `fepdf-sdk` | — | The public facade: `PdfDocument`, `SaveOptions`, `Operation`. It is the Rule A boundary in fact — frontends depend on it and on nothing below — but it is not yet a crate of its own. |
 | **`fepdf-cli`** | ✅ | 1,400 | Command-line binary (`fepdf`). |
 | **`fepdf-gui`** | ✅ | 8,000 | Desktop application on **egui** + **eframe** + **wgpu**. |
 | **`fepdf-mcp`** | ✅ | 340 | Model Context Protocol server for AI assistants. |
@@ -358,8 +358,10 @@ decision, not an architectural one.
 
 Architecture rules that are not checked become comments. These are:
 
-- **Rules A–C**: crate dependency direction is enforced by Cargo itself once the split
-  lands — a violation fails to compile.
+- **Rules A–C**: enforced by Cargo. No frontend declares `fepdf-core`, so a model type
+  cannot be named from `fepdf-cli`, `fepdf-gui`, `fepdf-mcp` or `fepdf-wasm` at all —
+  reaching for one is a compile error, not a review finding. The facade re-exports
+  what frontends legitimately need.
 - **Rule D**: enforced by construction, not by review. Once mutations exist only as
   `Operation` values and `fepdf-doc` holds the only `apply`, a frontend has nothing to
   re-implement. The rule is worth stating because that property is easy to give away:

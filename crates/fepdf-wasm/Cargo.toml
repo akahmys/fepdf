@@ -12,7 +12,6 @@ crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 fepdf-sdk.workspace = true
-fepdf-core.workspace = true
 wasm-bindgen.workspace = true
 js-sys.workspace = true
 web-sys.workspace = true

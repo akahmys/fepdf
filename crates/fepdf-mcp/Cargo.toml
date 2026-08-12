@@ -10,7 +10,6 @@ repository.workspace = true
 [dependencies]
 # Rasterises pages (render tool), so the SDK's optional GPU path is required.
 fepdf-sdk = { workspace = true, features = ["render"] }
-fepdf-core.workspace = true
 rmcp = { workspace = true, features = ["macros", "server", "transport-io", "schemars"] }
 tokio.workspace = true
 serde = { workspace = true, features = ["derive"] }
