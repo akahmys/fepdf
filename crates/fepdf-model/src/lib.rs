@@ -23,6 +23,8 @@ pub mod font;
 pub mod graphics;
 pub mod handle;
 pub mod ingest;
+/// Decisions taken when the input departs from the standard.
+pub mod interpretation;
 pub use fepdf_syntax::lexer;
 /// Document metadata, from XMP or the `/Info` dictionary.
 pub mod metadata;
@@ -51,6 +53,7 @@ pub use ingest::Ingestor;
 pub use object::{FromPdfObject, Object, PdfName, PdfSchema, Reference, SublimatedData};
 
 pub use error::{PdfError, PdfResult};
+pub use interpretation::{Decision, DecisionLog, Severity, Strictness};
 pub use source::{DocumentSource, PdfSource};
 
 /// Resolves the directory holding bundled resources (fonts, Adobe CMap tables).

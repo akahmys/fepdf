@@ -118,7 +118,7 @@ impl ParallelRefinery {
         handle_fonts: &BTreeMap<u32, Arc<FontResource>>,
         stream_contexts: &BTreeMap<u32, BTreeMap<String, Arc<FontResource>>>,
         distilled_fonts: &BTreeMap<Handle<Object>, Arc<Vec<u8>>>,
-    ) -> Vec<((u32, u16), RefinedObject, Vec<String>)> {
+    ) -> Vec<((u32, u16), RefinedObject, Vec<crate::interpretation::Decision>)> {
         doc.objects
             .par_iter()
             .map(|(&id, obj)| {
@@ -149,11 +149,15 @@ impl ParallelRefinery {
         _stream_contexts: &BTreeMap<u32, BTreeMap<String, Arc<FontResource>>>,
         distilled_fonts: &std::collections::BTreeMap<Handle<Object>, Arc<Vec<u8>>>,
         depth: usize,
-        issues: &mut Vec<String>,
+        issues: &mut Vec<crate::interpretation::Decision>,
     ) -> RefinedObject {
         // Hardening: Recursion depth limit (ISO 32000-2 Clause 7.1)
         if depth > 128 {
-            issues.push(format!("Recursion depth limit exceeded for object {id:?}"));
+            issues.push(crate::interpretation::Decision::violation(
+                "7.3.10",
+                format!("object {id:?} nests past the resolution limit"),
+                "stopped resolving; the object is left unrefined",
+            ));
             return RefinedObject::from_lopdf(obj, table);
         }
         match obj {
@@ -194,7 +198,7 @@ impl ParallelRefinery {
         _stream_contexts: &BTreeMap<u32, BTreeMap<String, Arc<FontResource>>>,
         distilled_fonts: &std::collections::BTreeMap<Handle<Object>, Arc<Vec<u8>>>,
         depth: usize,
-        issues: &mut Vec<String>,
+        issues: &mut Vec<crate::interpretation::Decision>,
     ) -> RefinedObject {
         if matches!(
             key_name.as_str(),
@@ -255,7 +259,7 @@ impl ParallelRefinery {
         _stream_contexts: &BTreeMap<u32, BTreeMap<String, Arc<FontResource>>>,
         distilled_fonts: &std::collections::BTreeMap<Handle<Object>, Arc<Vec<u8>>>,
         depth: usize,
-        issues: &mut Vec<String>,
+        issues: &mut Vec<crate::interpretation::Decision>,
     ) -> RefinedObject {
         let mut refined_dict = BTreeMap::new();
         for (k, v) in dict {
@@ -326,7 +330,7 @@ impl ParallelRefinery {
         _stream_contexts: &BTreeMap<u32, BTreeMap<String, Arc<FontResource>>>,
         distilled_fonts: &std::collections::BTreeMap<Handle<Object>, Arc<Vec<u8>>>,
         depth: usize,
-        issues: &mut Vec<String>,
+        issues: &mut Vec<crate::interpretation::Decision>,
     ) -> BTreeMap<PdfName, RefinedObject> {
         let mut refined_dict = BTreeMap::new();
         for (k, v) in dict {
@@ -359,7 +363,7 @@ impl ParallelRefinery {
         _stream_contexts: &BTreeMap<u32, BTreeMap<String, Arc<FontResource>>>,
         distilled_fonts: &std::collections::BTreeMap<Handle<Object>, Arc<Vec<u8>>>,
         depth: usize,
-        issues: &mut Vec<String>,
+        issues: &mut Vec<crate::interpretation::Decision>,
     ) -> RefinedObject {
         log::debug!("Refinery: refining stream {id:?}");
         let mut refined_dict = Self::refine_stream_dict(

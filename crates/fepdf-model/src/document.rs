@@ -65,7 +65,8 @@ pub struct Document {
     /// Page handles in reading order.
     pub pages: Vec<Handle<Object>>,
     /// Non-fatal problems recorded during ingestion.
-    pub ingestion_issues: Vec<String>,
+    /// What the engine decided where the input departed from the standard.
+    pub decisions: crate::interpretation::DecisionLog,
     /// System font cache (shared across pages).
     pub system_fonts: Arc<BTreeMap<FallbackFontType, Arc<Vec<u8>>>>,
     /// Parsed FontResource cache to prevent redundant parsing across pages.
@@ -86,7 +87,7 @@ impl Document {
             root,
             info,
             pages: Vec::new(),
-            ingestion_issues: Vec::new(),
+            decisions: crate::interpretation::DecisionLog::default(),
             system_fonts: Arc::new(BTreeMap::new()),
             font_cache: Arc::new(RwLock::new(BTreeMap::new())),
             force_fallback: false,
@@ -100,14 +101,20 @@ impl Document {
         arena: PdfArena,
         root: Handle<Object>,
         info: Option<Handle<Object>>,
-        issues: Vec<String>,
+        issues: Vec<crate::interpretation::Decision>,
     ) -> Self {
         Self {
             arena,
             root,
             info,
             pages: Vec::new(),
-            ingestion_issues: issues,
+            decisions: {
+                let mut log = crate::interpretation::DecisionLog::default();
+                for d in issues {
+                    log.push(d);
+                }
+                log
+            },
             system_fonts: Arc::new(BTreeMap::new()),
             font_cache: Arc::new(RwLock::new(BTreeMap::new())),
             force_fallback: false,

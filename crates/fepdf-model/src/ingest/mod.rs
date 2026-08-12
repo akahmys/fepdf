@@ -78,7 +78,7 @@ pub struct IngestedDocument {
     /// Handle of the document information dictionary (`/Info`).
     pub info: Option<Handle<Object>>,
     /// Non-fatal problems encountered while ingesting.
-    pub issues: Vec<String>,
+    pub issues: Vec<crate::interpretation::Decision>,
     /// Fonts already resolved, keyed by object number.
     pub font_cache: BTreeMap<u32, Arc<FontResource>>,
     /// Description of the encryption that was in force, if any.
@@ -135,7 +135,7 @@ impl Ingestor {
         handle_font_cache: &BTreeMap<u32, Arc<FontResource>>,
         stream_contexts: &BTreeMap<u32, BTreeMap<String, Arc<FontResource>>>,
         arena: &PdfArena,
-    ) -> crate::PdfResult<Vec<String>> {
+    ) -> crate::PdfResult<Vec<crate::interpretation::Decision>> {
         let distilled_fonts = std::collections::BTreeMap::new();
         let refined_results = ParallelRefinery::refine_all(
             doc,

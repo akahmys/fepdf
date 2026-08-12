@@ -33,8 +33,8 @@ impl<'a> ComplianceAuditor<'a> {
         let root_handle = *self.doc.root_handle();
 
         // 0. Collect Ingestion Issues
-        for issue in &self.doc.ingestion_issues {
-            self.report.issues.push(format!("Ingestion Issue: {issue}"));
+        for decision in self.doc.decisions.entries() {
+            self.report.issues.push(decision.to_string());
         }
 
         // 1. Audit Catalog

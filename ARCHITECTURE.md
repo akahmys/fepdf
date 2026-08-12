@@ -288,7 +288,43 @@ content streams — a layout engine. Implementing the trait is the small part; a
 from font handling, almost nothing is shared with reading PDF. Naming the boundary
 makes such a converter easy to *place*, not easy to *write*.
 
-### 5.3 The Sublimation Pipeline: normalisation-at-load
+### 5.3 Interpretation policy
+
+"Read 1.7, write 2.0" is mostly a *decision* problem. Files written before PDF 2.0
+are frequently non-conforming, and parts of the older specifications are genuinely
+ambiguous — how to delimit a stream whose `/Length` is wrong, whether a byte sequence
+inside an inline image terminates it, how to read a text string with no BOM. Reading
+such a file means choosing, and the choice determines the output.
+
+Those choices are therefore **recorded, not logged**. `Document::decisions` carries a
+[`DecisionLog`]; `fepdf inspect audit` prints it. A caller must be able to distinguish
+*this loaded* from *this was conforming*, which a `log::warn!` on stderr cannot do.
+
+Each decision carries the clause that governs it and what was done:
+
+| Severity | Meaning |
+| :--- | :--- |
+| `Ambiguity` | The standard permits several readings; the engine picked one. |
+| `Repaired` | The input is wrong but its intent is unmistakable, and nothing was lost. |
+| `Violation` | The input contradicts a requirement; something was dropped or substituted. |
+
+`Strictness::Lenient` is the default, because refusing real-world files is not useful.
+`Strictness::Strict` rejects a document carrying a `Violation` — for validating a
+producer, or gating an archive. Repairs alone never fail a strict read.
+
+**Rules for adding a decision point.** Where the engine departs from a literal reading
+of the standard, it records why, at the point of decision, with the clause. A silent
+acceptance is a defect even when the output is right, because the next reader of the
+code cannot tell a deliberate choice from an oversight.
+
+**Current coverage is one site.** The pipeline is wired end to end — detection through
+`DecisionLog` to the audit — but only the recursion limit feeds it today. Eleven other
+places detect non-conformance and merely `log::warn!`: missing font `/Subtype`, empty
+`/DescendantFonts`, undecodable CMap streams, unknown content-stream operators. They
+are listed here so the gap is visible rather than implied; converting them is part of
+replacing the reader, since most sit on paths that will change anyway.
+
+### 5.4 The Sublimation Pipeline: normalisation-at-load
 
 Every byte passes three normalisation stages before application code sees it. The
 pipeline spans `fepdf-syntax` → `fepdf-model`, which is why normalisation is a
@@ -308,7 +344,7 @@ Raw bytes ─► Pass 0: Physical ─► Pass 1: Arena ─► Pass 2: Semantic �
   CJK mojibake, preserves exact path endpoints (`EndPath n`), harmonises graphics
   state, normalises colour, and validates PDF 2.0 structure integrity.
 
-### 5.4 Unified Extension Architecture (Anti-Ad-Hoc Policy)
+### 5.5 Unified Extension Architecture (Anti-Ad-Hoc Policy)
 
 To prevent codebase drift, ad-hoc struct additions, or uncoordinated writer logic, all new backend capabilities MUST fit into one of four orthogonal domain namespaces owned by `fepdf-model` / `fepdf-doc`:
 
@@ -322,7 +358,7 @@ No feature is permitted to bypass the `Operation` vocabulary or inject un-audite
 #### 5.3.1 Multi-Format Provider Architecture
 When introducing support for external document formats (e.g., Word `.docx`, Excel `.xlsx`, SVG, HTML), each format MUST follow Rule C by encapsulating its ingestion (reading) and emission (writing) within a dedicated format provider module/crate (e.g., `fepdf-import-docx`). Providers translate external formats into the `Operation` vocabulary or intermediate layout structures without exposing format-specific dependencies to `fepdf-model`.
 
-### 5.5 Safety invariants
+### 5.6 Safety invariants
 
 - **Handles, not pointers.** Objects are reached only through `Handle<Object>`,
   eliminating use-after-free and dangling references by construction.
@@ -331,7 +367,7 @@ When introducing support for external document formats (e.g., Word `.docx`, Exce
   RR-15 Rule 10 forbids `HashMap`/`HashSet` in the crates that decide output.
 - **Zero unsafe.** `unsafe_code = "forbid"` across the workspace.
 
-### 5.6 Rendering
+### 5.7 Rendering
 
 `fepdf-content` walks the content stream and issues calls against `Backend`.
 `fepdf-render` answers them with **Vello** compute shaders on **wgpu**. Path snapping
