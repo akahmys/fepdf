@@ -33,6 +33,7 @@ pub use fepdf_core::{
 #[cfg(feature = "render")]
 pub use fepdf_render::VelloBackend;
 use std::collections::BTreeMap;
+use std::fmt::Write as _;
 use std::path::Path;
 use std::sync::Arc;
 
@@ -1071,6 +1072,32 @@ impl PdfDocument {
         }
     }
 
+    /// Renders one indirect object as human-readable text, for `fepdf debug dump`.
+    ///
+    /// Takes the object number rather than an arena handle so that callers need no
+    /// knowledge of the storage model (ARCHITECTURE.md Rule A). Streams are reported
+    /// with their dictionary, raw length, and decoded payload where it is small
+    /// enough to be useful.
+    pub fn describe_object(&self, obj_id: u32) -> PdfResult<String> {
+        let arena = self.inner.arena();
+        match Object::Reference(Handle::new(obj_id)).resolve(arena) {
+            Object::Dictionary(h) => Ok(arena.get_dict(h).map_or_else(
+                || format!("Object {obj_id}: dictionary not present in arena"),
+                |dict| format!("Type: Dictionary\n{}", describe_dict_entries(arena, &dict, true)),
+            )),
+            Object::Stream(h, data) => Ok(arena.get_dict(h).map_or_else(
+                || format!("Object {obj_id}: stream dictionary not present in arena"),
+                |dict| {
+                    let mut out =
+                        format!("Type: Stream\n{}", describe_dict_entries(arena, &dict, false));
+                    out.push_str(&describe_stream_payload(arena, &data, &dict));
+                    out
+                },
+            )),
+            other => Ok(format!("{other:?}")),
+        }
+    }
+
     /// Controls whether unreachable objects are removed on save.
     pub fn set_vacuum(&mut self, vacuum: bool) {
         self.vacuum = vacuum;
@@ -1496,12 +1523,15 @@ impl PdfDocument {
         apply_physical_redaction_to_page(&self.inner, page_idx, rects)
     }
 
-    /// Retrieves a specific font resource by its object handle.
+    /// Retrieves a font resource by the object number of its font dictionary.
+    ///
+    /// Takes a number rather than an arena handle so the facade exposes no storage
+    /// types (ARCHITECTURE.md Rule A).
     pub fn get_font(
         &self,
-        handle: Handle<Object>,
+        obj_id: u32,
     ) -> PdfResult<std::sync::Arc<fepdf_core::font::FontResource>> {
-        self.inner.get_font(handle)
+        self.inner.get_font(Handle::new(obj_id))
     }
 
     /// Finds all digital signatures (/Type /Sig) present in the document.
@@ -1591,6 +1621,59 @@ impl PdfDocument {
 
         Ok(())
     }
+}
+
+/// Formats a dictionary's entries one per line.
+///
+/// `resolve_names` renders name values as `Name(/Foo)` rather than debug output,
+/// which is what the dictionary dump wants and the stream dump does not.
+fn describe_dict_entries(
+    arena: &PdfArena,
+    dict: &BTreeMap<Handle<PdfName>, Object>,
+    resolve_names: bool,
+) -> String {
+    let mut out = String::new();
+    for (k, v) in dict {
+        let name =
+            arena.get_name(*k).map_or_else(|| format!("Unknown_{k:?}"), |n| n.as_str().to_string());
+        let val = match v {
+            Object::Name(vh) if resolve_names => arena
+                .get_name(*vh)
+                .map_or_else(|| format!("{v:?}"), |n| format!("Name(/{})", n.as_str())),
+            other => format!("{other:?}"),
+        };
+        let _ = writeln!(out, "  /{name} -> {val}");
+    }
+    out
+}
+
+/// Reports a stream's raw length and, when small enough to read, its decoded bytes.
+fn describe_stream_payload(
+    arena: &PdfArena,
+    data: &std::sync::Arc<SublimatedData>,
+    dict: &BTreeMap<Handle<PdfName>, Object>,
+) -> String {
+    /// Longest decoded payload reproduced in full.
+    const PREVIEW: usize = 2000;
+
+    let raw = arena.get_stream_bytes(data).unwrap_or_default();
+    let mut out = String::new();
+    let _ = writeln!(out, "Raw Length: {} bytes", raw.len());
+
+    let Ok(decoded) = arena.process_filters(&raw, dict) else {
+        return out;
+    };
+    let _ = writeln!(out, "Decoded Length: {} bytes", decoded.len());
+    if decoded.len() < PREVIEW {
+        let _ = write!(out, "\n--- [ DECODED CONTENT ] ---\n{}", String::from_utf8_lossy(&decoded));
+    } else {
+        let _ = write!(
+            out,
+            "\n--- [ DECODED CONTENT (PREVIEW) ] ---\n{}\n... (truncated)",
+            String::from_utf8_lossy(&decoded[..PREVIEW])
+        );
+    }
+    out
 }
 
 /// Helper function to perform structural re-tagging on a document.

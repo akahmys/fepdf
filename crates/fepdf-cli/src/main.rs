@@ -4,8 +4,6 @@
 
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
-use fepdf_core::Object;
-use fepdf_core::handle::Handle;
 use fepdf_sdk::{PdfDocument, PdfStandard, TraceContext};
 use inquire::Confirm;
 use std::path::PathBuf;
@@ -879,62 +877,6 @@ fn handle_audit(input: PathBuf, format: String, ingest: IngestArgs) -> Result<()
     Ok(())
 }
 
-fn print_dictionary_fields(
-    arena: &fepdf_core::PdfArena,
-    h: Handle<std::collections::BTreeMap<Handle<fepdf_core::PdfName>, Object>>,
-) {
-    if let Some(dict) = arena.get_dict(h) {
-        println!("Type: Dictionary");
-        for (k, v) in &dict {
-            let name = arena
-                .get_name(*k)
-                .map_or_else(|| format!("Unknown_{k:?}"), |n| n.as_str().to_string());
-            let val_str = match v {
-                fepdf_core::Object::Name(vh) => arena
-                    .get_name(*vh)
-                    .map_or_else(|| format!("{v:?}"), |n| format!("Name(/{})", n.as_str())),
-                _ => format!("{v:?}"),
-            };
-            println!("  /{name} -> {val_str}");
-        }
-    } else {
-        println!("Error: Dictionary handle {h:?} not found in arena");
-    }
-}
-
-fn print_stream_fields(
-    arena: &fepdf_core::PdfArena,
-    h: Handle<std::collections::BTreeMap<Handle<fepdf_core::PdfName>, Object>>,
-    data: std::sync::Arc<fepdf_core::SublimatedData>,
-) {
-    if let Some(dict) = arena.get_dict(h) {
-        println!("Type: Stream");
-        for (k, v) in &dict {
-            let name = arena
-                .get_name(*k)
-                .map_or_else(|| format!("Unknown_{k:?}"), |n| n.as_str().to_string());
-            println!("  /{name} -> {v:?}");
-        }
-        let raw_bytes = arena.get_stream_bytes(&data).unwrap_or_default();
-        println!("Raw Length: {} bytes", raw_bytes.len());
-
-        if let Ok(decoded) = arena.process_filters(&raw_bytes, &dict) {
-            println!("Decoded Length: {} bytes", decoded.len());
-            if decoded.len() < 2000 {
-                println!("\n--- [ DECODED CONTENT ] ---\n{}", String::from_utf8_lossy(&decoded));
-            } else {
-                println!(
-                    "\n--- [ DECODED CONTENT (PREVIEW) ] ---\n{}",
-                    String::from_utf8_lossy(&decoded[..2000])
-                );
-                println!("... (truncated)");
-            }
-        }
-    } else {
-        println!("Error: Stream dictionary handle {h:?} not found in arena");
-    }
-}
-
 fn handle_debug_dump(input: PathBuf, obj_id: u32, _gen_num: u16, ingest: IngestArgs) -> Result<()> {
     println!("fepdf debug dump: Object {obj_id} from {}", input.display());
     let data = std::fs::read(&input).with_context(|| "Failed to read input")?;
@@ -942,21 +884,8 @@ fn handle_debug_dump(input: PathBuf, obj_id: u32, _gen_num: u16, ingest: IngestA
     let doc = PdfDocument::open_with_options(data.into(), &ingest_options)
         .map_err(|e| anyhow::anyhow!("{e:?}"))?;
 
-    let arena = doc.inner().arena();
-    let id = fepdf_core::Object::Reference(Handle::new(obj_id));
-    let resolved = id.resolve(arena);
-
-    println!("\n--- [ OBJECT {obj_id} ] ---");
-    match resolved {
-        fepdf_core::Object::Dictionary(h) => {
-            print_dictionary_fields(arena, h);
-        }
-        fepdf_core::Object::Stream(h, data) => {
-            print_stream_fields(arena, h, data);
-        }
-        _ => println!("{resolved:?}"),
-    }
-
+    let described = doc.describe_object(obj_id).map_err(|e| anyhow::anyhow!("{e:?}"))?;
+    println!("\n--- [ OBJECT {obj_id} ] ---\n{described}");
     Ok(())
 }
 
@@ -988,7 +917,7 @@ fn handle_debug_stats(input: PathBuf, ingest: IngestArgs) -> Result<()> {
     println!("Arrays:           {}", stats.array_count);
     println!("\n--- [ FONT RESOURCES ] ---");
     for font in doc.fonts() {
-        println!("  Handle {:>3}: {:<30} ({})", font.handle.index(), font.name, font.font_type);
+        println!("  Handle {:>3}: {:<30} ({})", font.object_id, font.name, font.font_type);
     }
 
     Ok(())
@@ -1378,7 +1307,7 @@ fn handle_extract_font(
         .map_err(|e| anyhow::anyhow!("{e:?}"))?;
 
     let obj_id = obj_num;
-    let font_resource = doc.get_font(Handle::new(obj_id)).ok().map(|arc_f| (*arc_f).clone());
+    let font_resource = doc.get_font(obj_id).ok().map(|arc_f| (*arc_f).clone());
 
     if let Some(mut resource) = font_resource {
         resource.perform_reconstruction().ok();
@@ -1400,11 +1329,11 @@ fn handle_extract_font(
 fn trace_single_font(
     font: &fepdf_core::font::FontResource,
     name: &str,
-    handle: Handle<Object>,
+    obj_id: u32,
     target_char: char,
 ) {
     println!("\n--- [ FONT: {name} ] ---");
-    println!("Handle: {handle:?}");
+    println!("Object: {obj_id}");
 
     let mut ctx = TraceContext::new();
     let cid_match = font.unicode_to_gid.get(&target_char).copied();
@@ -1458,7 +1387,7 @@ fn handle_debug_trace_glyph(
             continue;
         }
 
-        let font = match doc.get_font(summary.handle) {
+        let font = match doc.get_font(summary.object_id) {
             Ok(f) => f,
             Err(e) => {
                 println!("Warning: Failed to load font {name}: {e:?}");
@@ -1467,7 +1396,7 @@ fn handle_debug_trace_glyph(
         };
 
         found_any = true;
-        trace_single_font(&font, name, summary.handle, target_char);
+        trace_single_font(&font, name, summary.object_id, target_char);
     }
 
     if !found_any {

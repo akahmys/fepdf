@@ -159,8 +159,8 @@ pub struct FontSummary {
     pub encoding: String,
     /// Whether the font has a ToUnicode mapping.
     pub has_to_unicode: bool,
-    /// Handle to the underlying PDF object.
-    pub handle: Handle<Object>,
+    /// Object number of the underlying font dictionary.
+    pub object_id: u32,
 }
 
 impl FontResource {
@@ -2401,7 +2401,7 @@ fn extract_font_summary(
         is_subset,
         encoding,
         has_to_unicode,
-        handle,
+        object_id: handle.index(),
     })
 }
 
