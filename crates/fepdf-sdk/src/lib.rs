@@ -59,7 +59,6 @@ pub use operation::{
 /// Logical structure tree visitor and presentation data.
 pub mod struct_tree;
 /// PDF resource dictionary resolution and conversion engine.
-pub use fepdf_resource as resource;
 pub use struct_tree::{StructureTreeNode, StructureTreeVisitor};
 /// The internal writer module for generating PDF files.
 pub mod writer;

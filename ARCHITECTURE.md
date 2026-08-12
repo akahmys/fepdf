@@ -77,17 +77,12 @@ drift, silently, because nothing compares them. That has already happened here �
          │                │                  ▲
          │                │      Rule B: the arrow points this way
          ▼                ▼
-   ┌──────────────────────────────┐
-   │ fepdf-resource               │  PDF dictionaries → usable resources
-   │ font dicts · colour · images │
-   └───────┬──────────────┬───────┘
-           ▼              ▼
-   ┌───────────────┐  ┌──────────────────┐
-   │ fepdf-model   │  │ fepdf-font       │
-   │ Arena/Object  │  │ CFF · TrueType   │
-   │ read ⇄ write  │  │ CMap · AGL       │
-   │ normalisation │  │ (knows no PDF)   │
-   └───────┬───────┘  └──────────────────┘
+   ┌───────────────────────────────┐  ┌──────────────────┐
+   │ fepdf-model                   │  │ fepdf-font       │
+   │ Arena/Object · read ⇄ write   │─►│ CFF · TrueType   │
+   │ normalisation                 │  │ CMap · AGL       │
+   │ resource resolution (see §4)  │  │ (knows no PDF)   │
+   └───────┬───────────────────────┘  └──────────────────┘
            ▼
    ┌───────────────┐
    │ fepdf-syntax  │  lexer · parser · filters · crypto
@@ -109,7 +104,6 @@ Status: **✅** exists as-is · **⚠️** partially landed · **🔄** code exi
 | **`fepdf-syntax`** | 🔄 in core (Audited ✅) | 1,200 | Bytes ⇄ raw objects. Lexing, parsing, stream filters, encryption/decryption. Hardened with recursion limits (`512`), line continuation, Zip Bomb limit (`128MB`), and AES key checks. |
 | **`fepdf-font`** | 🔄 in core (Audited ✅) | 3,500 | Font *programs*: CFF, TrueType, CMap, Adobe Glyph List, subsetting, reconstruction. Hardened against W/W2 out-of-bounds, CMap underflows (`e_val >= s_val`), and CID byte truncations. |
 | **`fepdf-model`** | 🔄 in core+sdk (Audited ✅) | 8,600 | The document graph: `PdfArena`, `Handle<T>`, `Object`, page tree, metadata. Hardened with pool overflow guards, cyclic `resolve` limits (`64`), and safe `Null` reference fallbacks. |
-| **`fepdf-resource`** | 🔄 in core | 3,600 | Turns PDF resource dictionaries into usable resources: font dict → `FontResource`, colour spaces, images. The bridge between `fepdf-model` and `fepdf-font`. |
 | **`fepdf-content`** | ⚠️ partial | 2,300 | Content-stream interpreter, and the **`RenderBackend` contract** it drives (`TextGlyph`, `TextState`, `SMaskData`, path geometry). No GPU dependency. *The contract has landed; the interpreter still lives in `fepdf-sdk`.* |
 | **`fepdf-doc`** | 🔄 in sdk | 2,200 | Owns the **`Operation` vocabulary** (§5.1) and is its only interpreter: merge, split, rotate, tag, redact, upgrade. Also structure-tree handling, conformance auditing, remediation. |
 | **`fepdf-render`** | ✅ | 1,100 | A `RenderBackend` implementation on **Vello** + **wgpu**. Reached only through the SDK's optional `render` feature. |
@@ -133,8 +127,22 @@ tree already shows a seam or a defect.
 **The font split is measured, not assumed.** Of 6,590 lines under `font/`, **3,547
 reference no PDF type at all** — `agl`, `cff_standard`, `cmap`, `reconstruction`,
 `rescue`, `subset` are pure font-format work. The remaining 3,043 exist solely to
-read font dictionaries, which is why they become `fepdf-resource` rather than moving
+read font dictionaries, which is why they stay in `fepdf-model` rather than moving
 with the rest.
+
+**Resource resolution is part of the model, not a layer above it.** An earlier
+revision of this document placed a `fepdf-resource` crate between the model and its
+consumers, on the assumption that font dictionaries are resolved lazily when content
+is interpreted. They are not: this engine resolves them eagerly during ingestion.
+`Document` owns the font cache, `ingest::discover_fonts` populates it, and the
+refinery normalises it, with `document.rs` alone referring to the font module in 29
+places. A crate above the model therefore cannot own that work without inverting a
+dependency ingestion genuinely needs.
+
+The crate was created before this was noticed and never adopted; it sat unused for
+long enough to accumulate a partial, divergent copy of `font/`, and has been removed.
+What it was meant to separate — font *programs* from PDF *dictionaries* — is already
+separated, as `fepdf-font` versus `fepdf-model`'s `font/`.
 
 **The contract/implementation inversion had a concrete cost.** `RenderBackend` was
 defined in `fepdf-render`, yet two of its three implementations lived in `fepdf-sdk`.

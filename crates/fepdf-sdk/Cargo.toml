@@ -9,7 +9,6 @@ repository.workspace = true
 
 [dependencies]
 fepdf-core.workspace = true
-fepdf-resource.workspace = true
 fepdf-content.workspace = true
 # Rasterisation is opt-in: only `render_page_to_file` needs it, and pulling
 # vello + wgpu into every SDK consumer is not free. See ARCHITECTURE.md Rule B.
