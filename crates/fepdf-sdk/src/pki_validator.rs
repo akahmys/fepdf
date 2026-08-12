@@ -4,7 +4,7 @@
 //!
 //! Ensures 100% memory safety (`unsafe_code = "forbid"`) using `x509-parser`.
 
-use fepdf_core::PdfResult;
+use fepdf_model::PdfResult;
 use serde::{Deserialize, Serialize};
 
 /// Digital Signature Validation Status result.

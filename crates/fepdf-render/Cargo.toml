@@ -8,7 +8,7 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-fepdf-core.workspace = true
+fepdf-model.workspace = true
 fepdf-content.workspace = true
 log.workspace = true
 vello.workspace = true

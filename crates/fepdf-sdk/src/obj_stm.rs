@@ -1,4 +1,4 @@
-use fepdf_core::PdfResult;
+use fepdf_model::PdfResult;
 use std::io::Write;
 
 /// A packer for creating PDF Object Streams (Type /ObjStm).

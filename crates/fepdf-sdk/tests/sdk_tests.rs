@@ -127,7 +127,7 @@ fn test_heuristic_retag_execution() {
 
 #[test]
 fn test_cielab_to_srgb_conversion() {
-    use fepdf_core::graphics::Color;
+    use fepdf_model::graphics::Color;
     // Test pure black: L=0, a=0, b=0 -> Rgb(0, 0, 0)
     let lab_black = Color::Lab(0.0, 0.0, 0.0);
     assert_eq!(lab_black.to_rgb(), Color::Rgb(0.0, 0.0, 0.0));
@@ -147,7 +147,7 @@ fn test_cielab_to_srgb_conversion() {
 
 #[test]
 fn test_r5_key_derivation_multistage() {
-    use fepdf_core::security::SecurityHandler;
+    use fepdf_model::security::SecurityHandler;
     let file_id = b"testfileid123456";
     let handler = SecurityHandler::new_v5("password", "", file_id);
     assert!(handler.is_ok());

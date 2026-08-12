@@ -4,7 +4,7 @@
 set -e
 
 ERROR=0
-TARGET_DIRS="crates/fepdf-syntax crates/fepdf-core crates/fepdf-content crates/fepdf-render crates/fepdf-sdk crates/fepdf-mcp crates/fepdf-wasm crates/fepdf-gui crates/fepdf-cli"
+TARGET_DIRS="crates/fepdf-syntax crates/fepdf-model crates/fepdf-content crates/fepdf-render crates/fepdf-sdk crates/fepdf-mcp crates/fepdf-wasm crates/fepdf-gui crates/fepdf-cli"
 
 # Ensure cargo is available
 if ! command -v cargo &> /dev/null; then
@@ -139,9 +139,9 @@ grep -rn "unsafe {" $TARGET_DIRS --include="*.rs" && { echo "  FAIL: Unsafe bloc
 RULE5_EXEMPT_TYPES="Object|Token|Command|IrObject|RefinedObject|Data|Fields"
 # Files whose `match self` is over one of the exempt types above. `Self` is not
 # exempt anywhere else, so a self-match on a new domain enum still fails.
-RULE5_EXEMPT_SELF="crates/fepdf-core/src/object.rs\
-|crates/fepdf-core/src/object/sublimation.rs\
-|crates/fepdf-core/src/refine/mod.rs"
+RULE5_EXEMPT_SELF="crates/fepdf-model/src/object.rs\
+|crates/fepdf-model/src/object/sublimation.rs\
+|crates/fepdf-model/src/refine/mod.rs"
 
 echo "[Rule 5] Checking wildcard match arms over domain enums..."
 rule5_raw=$(cargo clippy --workspace --all-targets --quiet -- \
@@ -184,7 +184,7 @@ grep -rn "static mut" $TARGET_DIRS --include="*.rs" && { echo "  FAIL: Global mu
 #
 # fepdf-sdk owns the writer, so iteration order there reaches the produced
 # PDF just as directly as it does in core. It was previously unchecked.
-RULE10_DIRS="crates/fepdf-syntax crates/fepdf-core crates/fepdf-content crates/fepdf-render crates/fepdf-sdk"
+RULE10_DIRS="crates/fepdf-syntax crates/fepdf-model crates/fepdf-content crates/fepdf-render crates/fepdf-sdk"
 echo "[Rule 10] Checking for non-deterministic collections..."
 rule10_failed=0
 while read -r file; do

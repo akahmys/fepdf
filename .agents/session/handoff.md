@@ -62,7 +62,7 @@
 - **Rule Update**: Finalized `.agents/rules/pipeline.md` to establish "Late-binding" as the canonical architectural standard for the SDK.
 
 ## 2. Current State
-- **Build Health**: Entire `fepdf-core` and `fepdf-sdk` suites compile cleanly.
+- **Build Health**: Entire `fepdf-model` and `fepdf-sdk` suites compile cleanly.
 - **Architecture**: The "Invariance of Handles" rule (RR-15) is now fully enforced across all high-level document components.
 
 ## 3. Next Steps

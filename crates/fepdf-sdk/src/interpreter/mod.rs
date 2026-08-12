@@ -1,9 +1,9 @@
 use fepdf_content::{RenderBackend, path::PathBuilder};
-use fepdf_core::graphics::{GraphicsState, Rect, TextMatrices, WindingRule};
-use fepdf_core::lexer::Token;
-use fepdf_core::object::sublimation::Command;
-use fepdf_core::parser::Parser;
-use fepdf_core::{Document, Handle, Object, PdfError, PdfName, PdfResult};
+use fepdf_model::graphics::{GraphicsState, Rect, TextMatrices, WindingRule};
+use fepdf_model::lexer::Token;
+use fepdf_model::object::sublimation::Command;
+use fepdf_model::parser::Parser;
+use fepdf_model::{Document, Handle, Object, PdfError, PdfName, PdfResult};
 use std::collections::{BTreeMap, BTreeSet};
 
 /// Captured advance and BBox from d0/d1 operator.
@@ -74,7 +74,7 @@ impl<'a> Interpreter<'a> {
         initial_transform: kurbo::Affine,
     ) -> Self {
         let state = GraphicsState {
-            ctm: fepdf_core::graphics::Matrix::default(),
+            ctm: fepdf_model::graphics::Matrix::default(),
             ..GraphicsState::default()
         };
 
@@ -123,13 +123,13 @@ impl<'a> Interpreter<'a> {
         }
 
         match *sublimated {
-            fepdf_core::object::SublimatedData::Commands { items: ref cmds, .. } => {
+            fepdf_model::object::SublimatedData::Commands { items: ref cmds, .. } => {
                 self.execute_commands(cmds)
             }
             // Anything not already parsed into commands is replayed from raw bytes.
-            fepdf_core::object::SublimatedData::Image { .. }
-            | fepdf_core::object::SublimatedData::Compressed { .. }
-            | fepdf_core::object::SublimatedData::Raw(_) => {
+            fepdf_model::object::SublimatedData::Image { .. }
+            | fepdf_model::object::SublimatedData::Compressed { .. }
+            | fepdf_model::object::SublimatedData::Raw(_) => {
                 let data = self.doc.arena().get_stream_bytes(&sublimated)?;
                 self.execute_raw(&data)
             }
@@ -270,24 +270,24 @@ impl<'a> Interpreter<'a> {
 
             // --- Color ---
             Command::SetFillColor(color) => match color {
-                fepdf_core::graphics::Color::Gray(g) => {
+                fepdf_model::graphics::Color::Gray(g) => {
                     self.stack.push(Object::Real(*g));
                     self.handle_color_operator("g")
                 }
-                fepdf_core::graphics::Color::Rgb(r, g, b) => {
+                fepdf_model::graphics::Color::Rgb(r, g, b) => {
                     self.stack.push(Object::Real(*r));
                     self.stack.push(Object::Real(*g));
                     self.stack.push(Object::Real(*b));
                     self.handle_color_operator("rg")
                 }
-                fepdf_core::graphics::Color::Cmyk(c, m, y, k) => {
+                fepdf_model::graphics::Color::Cmyk(c, m, y, k) => {
                     self.stack.push(Object::Real(*c));
                     self.stack.push(Object::Real(*m));
                     self.stack.push(Object::Real(*y));
                     self.stack.push(Object::Real(*k));
                     self.handle_color_operator("k")
                 }
-                fepdf_core::graphics::Color::Lab(l, a, b) => {
+                fepdf_model::graphics::Color::Lab(l, a, b) => {
                     self.stack.push(Object::Real(*l));
                     self.stack.push(Object::Real(*a));
                     self.stack.push(Object::Real(*b));
@@ -298,24 +298,24 @@ impl<'a> Interpreter<'a> {
                 }
             },
             Command::SetStrokeColor(color) => match color {
-                fepdf_core::graphics::Color::Gray(g) => {
+                fepdf_model::graphics::Color::Gray(g) => {
                     self.stack.push(Object::Real(*g));
                     self.handle_color_operator("G")
                 }
-                fepdf_core::graphics::Color::Rgb(r, g, b) => {
+                fepdf_model::graphics::Color::Rgb(r, g, b) => {
                     self.stack.push(Object::Real(*r));
                     self.stack.push(Object::Real(*g));
                     self.stack.push(Object::Real(*b));
                     self.handle_color_operator("RG")
                 }
-                fepdf_core::graphics::Color::Cmyk(c, m, y, k) => {
+                fepdf_model::graphics::Color::Cmyk(c, m, y, k) => {
                     self.stack.push(Object::Real(*c));
                     self.stack.push(Object::Real(*m));
                     self.stack.push(Object::Real(*y));
                     self.stack.push(Object::Real(*k));
                     self.handle_color_operator("K")
                 }
-                fepdf_core::graphics::Color::Lab(l, a, b) => {
+                fepdf_model::graphics::Color::Lab(l, a, b) => {
                     self.stack.push(Object::Real(*l));
                     self.stack.push(Object::Real(*a));
                     self.stack.push(Object::Real(*b));
@@ -374,24 +374,24 @@ impl<'a> Interpreter<'a> {
             // --- Fallback ---
             Command::RawOperator { name, operands } => {
                 fn ir_to_refined(
-                    ir: &fepdf_core::object::sublimation::IrObject,
-                ) -> fepdf_core::refine::RefinedObject {
-                    use fepdf_core::object::sublimation::IrObject;
-                    use fepdf_core::refine::RefinedObject;
+                    ir: &fepdf_model::object::sublimation::IrObject,
+                ) -> fepdf_model::refine::RefinedObject {
+                    use fepdf_model::object::sublimation::IrObject;
+                    use fepdf_model::refine::RefinedObject;
                     match ir {
                         IrObject::Boolean(b) => RefinedObject::Boolean(*b),
                         IrObject::Integer(i) => RefinedObject::Integer(*i),
                         IrObject::Real(f) => RefinedObject::Real(*f),
                         IrObject::String(b) => RefinedObject::String(b.clone()),
                         IrObject::Hex(b) => RefinedObject::Hex(b.clone()),
-                        IrObject::Name(n) => RefinedObject::Name(fepdf_core::PdfName::new(n)),
+                        IrObject::Name(n) => RefinedObject::Name(fepdf_model::PdfName::new(n)),
                         IrObject::Array(a) => {
                             RefinedObject::Array(a.iter().map(ir_to_refined).collect())
                         }
                         IrObject::Dictionary(d) => {
                             let mut map = std::collections::BTreeMap::new();
                             for (k, v) in d {
-                                map.insert(fepdf_core::PdfName::new(k), ir_to_refined(v));
+                                map.insert(fepdf_model::PdfName::new(k), ir_to_refined(v));
                             }
                             RefinedObject::Dictionary(map)
                         }
@@ -401,7 +401,7 @@ impl<'a> Interpreter<'a> {
 
                 for op in operands {
                     let refined = ir_to_refined(op);
-                    self.stack.push(fepdf_core::commit_to_arena(self.doc.arena(), refined, 0));
+                    self.stack.push(fepdf_model::commit_to_arena(self.doc.arena(), refined, 0));
                 }
                 self.execute_operator(name)
             }

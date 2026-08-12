@@ -5,7 +5,7 @@
 //! This crate provides the high-performance Arena-based object model
 //! and the Ingestion Gateway for the fepdf toolkit.
 
-extern crate self as fepdf_core;
+extern crate self as fepdf_model;
 
 /// Handle-addressed storage for every object in a document.
 pub mod arena;

@@ -1,5 +1,5 @@
 [package]
-name = "fepdf-core"
+name = "fepdf-model"
 version.workspace = true
 authors.workspace = true
 edition.workspace = true

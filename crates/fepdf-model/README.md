@@ -1,4 +1,4 @@
-# fepdf-core
+# fepdf-model
 
 The technical foundation of the fepdf PDF engine.
 
@@ -28,7 +28,7 @@ Once data is in the Arena, the `Refinery` performs context-aware transformations
 ## Usage Example
 
 ```rust
-use fepdf_core::ingest::Ingestor;
+use fepdf_model::ingest::Ingestor;
 
 let mut ingestor = Ingestor::new(arena);
 // Pass 0 normalization is called internally during ingest() or manually

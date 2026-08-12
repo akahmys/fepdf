@@ -1,6 +1,6 @@
 //! Example demonstrating how to dump text commands from a PDF.
 
-use fepdf_core::object::sublimation::{Command, TextArrayItem};
+use fepdf_model::object::sublimation::{Command, TextArrayItem};
 use fepdf_sdk::PdfDocument;
 
 /// Main function for running the text command dumping example.
@@ -19,7 +19,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         for h in handles {
             if let Some(sublimated) = doc.inner().arena().get_sublimated_data(h)
-                && let fepdf_core::object::SublimatedData::Commands { items: cmds } = &*sublimated
+                && let fepdf_model::object::SublimatedData::Commands { items: cmds } = &*sublimated
             {
                 for cmd in cmds {
                     match cmd {

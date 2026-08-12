@@ -92,24 +92,24 @@ fn derive_from_pdf_object_impl(input: DeriveInput) -> syn::Result<proc_macro2::T
         let version_check = if let Some(v) = since_version {
             quote! {
                 if arena.version() < #v {
-                    fepdf_core::Object::Null
+                    fepdf_model::Object::Null
                 } else {
-                    dict.get(&key).cloned().unwrap_or(fepdf_core::Object::Null)
+                    dict.get(&key).cloned().unwrap_or(fepdf_model::Object::Null)
                 }
             }
         } else {
             quote! {
-                dict.get(&key).cloned().unwrap_or(fepdf_core::Object::Null)
+                dict.get(&key).cloned().unwrap_or(fepdf_model::Object::Null)
             }
         };
 
         let parser = if let Some(def) = default_expr {
             match syn::parse_str::<syn::Expr>(&def) {
                 Ok(def_token) => quote! {
-                    if matches!(val, fepdf_core::Object::Null) {
+                    if matches!(val, fepdf_model::Object::Null) {
                         #def_token
                     } else {
-                        <#field_type as fepdf_core::object::FromPdfObject>::from_pdf_object(val, arena)?
+                        <#field_type as fepdf_model::object::FromPdfObject>::from_pdf_object(val, arena)?
                     }
                 },
                 Err(_) => {
@@ -121,7 +121,7 @@ fn derive_from_pdf_object_impl(input: DeriveInput) -> syn::Result<proc_macro2::T
             }
         } else {
             quote! {
-                <#field_type as fepdf_core::object::FromPdfObject>::from_pdf_object(val, arena)?
+                <#field_type as fepdf_model::object::FromPdfObject>::from_pdf_object(val, arena)?
             }
         };
 
@@ -138,16 +138,16 @@ fn derive_from_pdf_object_impl(input: DeriveInput) -> syn::Result<proc_macro2::T
     let iso_clause_str = iso_clause;
 
     let expanded = quote! {
-        impl fepdf_core::object::FromPdfObject for #name {
-            fn from_pdf_object(obj: fepdf_core::Object, arena: &fepdf_core::PdfArena) -> fepdf_core::PdfResult<Self> {
+        impl fepdf_model::object::FromPdfObject for #name {
+            fn from_pdf_object(obj: fepdf_model::Object, arena: &fepdf_model::PdfArena) -> fepdf_model::PdfResult<Self> {
                 let dict_handle = obj.resolve(arena).as_dict_handle()
-                    .ok_or_else(|| fepdf_core::PdfError::Parse {
+                    .ok_or_else(|| fepdf_model::PdfError::Parse {
                         pos: 0,
                         message: format!("Expected dictionary for {}, got {:?}", stringify!(#name), obj).into()
                     })?;
 
                 let dict = arena.get_dict(dict_handle)
-                    .ok_or_else(|| fepdf_core::PdfError::Arena("Missing dictionary in arena".into()))?;
+                    .ok_or_else(|| fepdf_model::PdfError::Arena("Missing dictionary in arena".into()))?;
 
                 #(#field_parsers)*
 
@@ -157,7 +157,7 @@ fn derive_from_pdf_object_impl(input: DeriveInput) -> syn::Result<proc_macro2::T
             }
         }
 
-        impl fepdf_core::object::PdfSchema for #name {
+        impl fepdf_model::object::PdfSchema for #name {
             fn iso_clause() -> &'static str {
                 #iso_clause_str
             }

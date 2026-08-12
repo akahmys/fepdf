@@ -1,6 +1,6 @@
 //! PDF Physical Writer (Arena Bridge)
 //!
-//! This module re-exports the PDF serialization components from `fepdf-core::writer`
+//! This module re-exports the PDF serialization components from `fepdf-model::writer`
 //! for backward compatibility with SDK consumers.
 
-pub use fepdf_core::writer::*;
+pub use fepdf_model::writer::*;

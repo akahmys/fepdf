@@ -1,9 +1,9 @@
 //! PDF Logical Structure Tree Traversal and Presentation Data (ISO 32000-2 Clause 14.7).
 
 use crate::PdfDocument;
-use fepdf_core::arena::PdfArena;
-use fepdf_core::handle::Handle;
-use fepdf_core::object::{Object, PdfName};
+use fepdf_model::arena::PdfArena;
+use fepdf_model::handle::Handle;
+use fepdf_model::object::{Object, PdfName};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 

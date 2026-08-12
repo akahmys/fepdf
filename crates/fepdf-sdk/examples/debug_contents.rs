@@ -21,14 +21,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
                 if let Some(sublimated) = doc.inner().arena().get_sublimated_data(*h) {
                     match &*sublimated {
-                        fepdf_core::object::SublimatedData::Commands { items: cmds } => {
+                        fepdf_model::object::SublimatedData::Commands { items: cmds } => {
                             println!("    Sublimated as Commands: {} commands", cmds.len());
                         }
-                        fepdf_core::object::SublimatedData::Raw(bytes) => {
+                        fepdf_model::object::SublimatedData::Raw(bytes) => {
                             println!("    Sublimated as Raw: {} bytes", bytes.len());
                         }
-                        fepdf_core::object::SublimatedData::Image { .. }
-                        | fepdf_core::object::SublimatedData::Compressed { .. } => {
+                        fepdf_model::object::SublimatedData::Image { .. }
+                        | fepdf_model::object::SublimatedData::Compressed { .. } => {
                             println!("    Sublimated as Other: {sublimated:?}");
                         }
                     }

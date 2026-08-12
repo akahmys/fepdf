@@ -1,10 +1,10 @@
 #![allow(clippy::suboptimal_flops)]
 use crate::interpreter::{Interpreter, Type3Advance};
-use fepdf_core::font::FontResource;
-use fepdf_core::graphics::{Matrix, TextMatrices};
-use fepdf_core::{Handle, Object, PdfError, PdfResult};
+use fepdf_model::font::FontResource;
+use fepdf_model::graphics::{Matrix, TextMatrices};
+use fepdf_model::{Handle, Object, PdfError, PdfResult};
 
-use fepdf_core::object::sublimation::Command;
+use fepdf_model::object::sublimation::Command;
 
 impl Interpreter<'_> {
     /// Dispatches a normalized text command to the appropriate operator handler.
@@ -142,7 +142,7 @@ impl Interpreter<'_> {
             }
             "Tr" => {
                 let mode = self.pop_i64()?;
-                let m = fepdf_core::graphics::TextRenderingMode::from(mode);
+                let m = fepdf_model::graphics::TextRenderingMode::from(mode);
                 self.state.text_state.rendering_mode = m;
                 self.backend.set_text_render_mode(m);
             }
@@ -257,9 +257,9 @@ impl Interpreter<'_> {
     /// ensuring correct layout for complex vertical and horizontal text blocks.
     pub(crate) fn handle_show_text_array_ir(
         &mut self,
-        arr: &[fepdf_core::object::sublimation::TextArrayItem],
+        arr: &[fepdf_model::object::sublimation::TextArrayItem],
     ) -> PdfResult<()> {
-        use fepdf_core::object::sublimation::TextArrayItem;
+        use fepdf_model::object::sublimation::TextArrayItem;
 
         let font_name = self.state.text_state.font.clone();
         let wmode = if let Some(ref f) = font_name {

@@ -1,6 +1,6 @@
 //! Example demonstrating how to inspect the CIDToGIDMap of a PDF font.
 
-use fepdf_core::font::FontResource;
+use fepdf_model::font::FontResource;
 use fepdf_sdk::PdfDocument;
 
 /// Main function for running the CID map inspection example.

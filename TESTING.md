@@ -20,7 +20,7 @@ fepdf employs a 3-tier testing hierarchy with strict **Test Code Separation**:
 
 ### 📁 Test Code Separation Guidelines
 1. **Integration & Large Test Suites (`crates/*/tests/`)**:
-   - Multi-file tests, scenario tests, schema expansions, and end-to-end integration tests MUST be located in the crate's root `tests/` directory (e.g., `crates/fepdf-core/tests/parser_tests.rs`).
+   - Multi-file tests, scenario tests, schema expansions, and end-to-end integration tests MUST be located in the crate's root `tests/` directory (e.g., `crates/fepdf-model/tests/parser_tests.rs`).
    - Do NOT place standalone test files inside `src/` (e.g., `src/schema_tests.rs` is forbidden).
 2. **Inline Unit Tests (`src/`)**:
    - Small, private helper unit tests may reside alongside production code inside `#[cfg(test)] mod tests { ... }` blocks at the bottom of `src/` files.
@@ -38,7 +38,7 @@ cargo test --workspace
 ```
 
 ### Key Subsystem Test Suites
-- **`fepdf-core`**:
+- **`fepdf-model`**:
   - `tests/parser_tests.rs`: Lexer primitives, tokenizing, and object parser.
   - `tests/security_tests.rs`: R4 AES-128 and R5 AES-256 security handlers.
   - `tests/object_tests.rs`: Object reference resolution, name deduplication, dictionary traversal.

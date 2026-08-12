@@ -3,7 +3,7 @@
 // The matrix is assigned, not computed, so exact comparison is the right check.
 #![allow(clippy::float_cmp)]
 
-use fepdf_core::graphics::{Matrix, TextMatrices};
+use fepdf_model::graphics::{Matrix, TextMatrices};
 
 #[test]
 fn test_text_matrix_init() {

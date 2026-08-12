@@ -7,10 +7,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut lopdf_doc = lopdf::Document::load_mem(&data)?;
     println!("Step 3: Ingestor::ingest with active_refinement=false...");
     let options =
-        fepdf_core::ingest::IngestionOptions { active_refinement: false, ..Default::default() };
-    let ingested = fepdf_core::ingest::Ingestor::ingest(&mut lopdf_doc, &options)?;
+        fepdf_model::ingest::IngestionOptions { active_refinement: false, ..Default::default() };
+    let ingested = fepdf_model::ingest::Ingestor::ingest(&mut lopdf_doc, &options)?;
     println!("Step 4: Creating Document...");
-    let mut doc = fepdf_core::Document::with_issues(
+    let mut doc = fepdf_model::Document::with_issues(
         ingested.arena,
         ingested.root,
         ingested.info,

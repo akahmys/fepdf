@@ -20,14 +20,14 @@ pub use crate::remediation::apply_physical_redaction_to_page;
 use crate::structure::{AuditFinding, MatterhornAuditor};
 use bytes::Bytes;
 pub use fepdf_content::FallbackFontType;
-pub use fepdf_core::font::{GlyphTrace, TraceContext};
-// Re-exported so frontends need no dependency on fepdf-core at all: with the model
+pub use fepdf_model::font::{GlyphTrace, TraceContext};
+// Re-exported so frontends need no dependency on fepdf-model at all: with the model
 // unreachable by name, ARCHITECTURE.md Rule A is enforced by Cargo rather than by
 // review.
-pub use fepdf_core::font::FontResource;
-pub use fepdf_core::graphics::Rect;
-pub use fepdf_core::ingest::{ColorPolicy, IngestionOptions};
-pub use fepdf_core::{
+pub use fepdf_model::font::FontResource;
+pub use fepdf_model::graphics::Rect;
+pub use fepdf_model::ingest::{ColorPolicy, IngestionOptions};
+pub use fepdf_model::{
     AFRelationship, AnnotationKind, AnnotationSpec, ArticleBead, ArticleThread, AssociatedFile,
     CollectionViewMode, Document, FormFieldSpec, FormValue, GeoSpatialAnchor, Handle, LayerGroup,
     MeasurementScale, MeshShadingSpec, MeshShadingType, Object, OptionalContentProperties,
@@ -70,7 +70,7 @@ pub use struct_tree::{StructureTreeNode, StructureTreeVisitor};
 pub mod writer;
 
 /// Supported text string encodings for PDF output.
-pub use fepdf_core::StringEncoding;
+pub use fepdf_model::StringEncoding;
 
 /// Options for saving a PDF document.
 #[allow(clippy::struct_excessive_bools)]
@@ -157,8 +157,8 @@ pub struct DocumentSummary {
     pub compliance: ComplianceSummary,
 }
 
-pub use fepdf_core::font::FontSummary;
-pub use fepdf_core::metadata::MetadataInfo;
+pub use fepdf_model::font::FontSummary;
+pub use fepdf_model::metadata::MetadataInfo;
 
 /// Summary of a digital signature present in a document.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -217,19 +217,19 @@ impl PdfDocument {
             b"%PDF-2.0\n1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n2 0 obj\n<< /Type /Pages /Count 1 /Kids [3 0 R] >>\nendobj\n3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] >>\nendobj\nxref\n0 4\n0000000000 65535 f \n0000000009 00000 n \n0000000060 00000 n \n0000000120 00000 n \ntrailer\n<< /Size 4 /Root 1 0 R >>\nstartxref\n185\n%%EOF\n",
         );
         let inner =
-            Document::open(empty_pdf_bytes, &fepdf_core::ingest::IngestionOptions::default())?;
+            Document::open(empty_pdf_bytes, &fepdf_model::ingest::IngestionOptions::default())?;
         Ok(Self { inner, vacuum: false, strip: false, password: None })
     }
 
     /// Opens a PDF document from a byte buffer with default ingestion options.
     pub fn open(data: Bytes) -> PdfResult<Self> {
-        Self::open_with_options(data, &fepdf_core::ingest::IngestionOptions::default())
+        Self::open_with_options(data, &fepdf_model::ingest::IngestionOptions::default())
     }
 
     /// Opens a PDF document with custom ingestion options.
     pub fn open_with_options(
         data: Bytes,
-        options: &fepdf_core::ingest::IngestionOptions,
+        options: &fepdf_model::ingest::IngestionOptions,
     ) -> PdfResult<Self> {
         let inner = Document::open(data, options)?;
         Ok(Self { inner, vacuum: false, strip: false, password: None })
@@ -253,7 +253,7 @@ impl PdfDocument {
             let stream_h = arena.alloc_dict(stream_dict);
             let stream_ref = arena.alloc_object(Object::Stream(
                 stream_h,
-                std::sync::Arc::new(fepdf_core::object::SublimatedData::Raw(bytes::Bytes::from(
+                std::sync::Arc::new(fepdf_model::object::SublimatedData::Raw(bytes::Bytes::from(
                     cert_data,
                 ))),
             ));
@@ -280,7 +280,7 @@ impl PdfDocument {
     }
 
     /// Retrieves a specific page by its 0-based index.
-    pub fn get_page(&self, index: usize) -> PdfResult<fepdf_core::document::page::Page<'_>> {
+    pub fn get_page(&self, index: usize) -> PdfResult<fepdf_model::document::page::Page<'_>> {
         self.inner.get_page(index)
     }
 
@@ -364,7 +364,7 @@ impl PdfDocument {
     /// Attempts to open and repair a PDF document with custom options.
     pub fn open_and_repair_with_options(
         data: Bytes,
-        options: &fepdf_core::ingest::IngestionOptions,
+        options: &fepdf_model::ingest::IngestionOptions,
     ) -> PdfResult<Self> {
         let inner = Document::open_repair(data, options)?;
         Ok(Self { inner, vacuum: false, strip: false, password: None })
@@ -497,7 +497,7 @@ impl PdfDocument {
     fn merge_assemble(
         target_arena: PdfArena,
         pages_root_h: Handle<Object>,
-        pages_root_dict_h: Handle<std::collections::BTreeMap<Handle<fepdf_core::PdfName>, Object>>,
+        pages_root_dict_h: Handle<std::collections::BTreeMap<Handle<fepdf_model::PdfName>, Object>>,
         target_pages: Vec<Object>,
         merged_fields: Vec<Object>,
         merged_outlines: Vec<Object>,
@@ -551,7 +551,7 @@ impl PdfDocument {
     fn merge_link_outlines(
         target_arena: &PdfArena,
         merged_outlines: &[Object],
-        catalog_dict: &mut std::collections::BTreeMap<Handle<fepdf_core::PdfName>, Object>,
+        catalog_dict: &mut std::collections::BTreeMap<Handle<fepdf_model::PdfName>, Object>,
     ) {
         let mut outline_handles = Vec::new();
         for item in merged_outlines {
@@ -702,7 +702,7 @@ impl PdfDocument {
             metadata.producer = Some("fepdf-sdk (optimized)".to_string());
         }
 
-        fepdf_core::metadata::update_document_metadata(&self.inner, &metadata)?;
+        fepdf_model::metadata::update_document_metadata(&self.inner, &metadata)?;
 
         if options.strip {
             // Further stripping: remove Metadata entry from catalog
@@ -755,7 +755,7 @@ impl PdfDocument {
         }
         metadata.producer = Some("fepdf-sdk (linearized)".to_string());
 
-        fepdf_core::metadata::update_document_metadata(&self.inner, &metadata)?;
+        fepdf_model::metadata::update_document_metadata(&self.inner, &metadata)?;
 
         let file = std::fs::File::create(output_path).map_err(PdfError::Io)?;
         let final_arena = PdfArena::new();
@@ -917,7 +917,7 @@ impl PdfDocument {
     }
 
     /// Returns the physical viewport of the page (MediaBox).
-    pub fn get_page_box(&self, index: usize) -> PdfResult<fepdf_core::graphics::Rect> {
+    pub fn get_page_box(&self, index: usize) -> PdfResult<fepdf_model::graphics::Rect> {
         let page = self.inner.get_page(index)?;
         let box_obj =
             page.resolve_attribute("CropBox").or_else(|| page.resolve_attribute("MediaBox"));
@@ -931,9 +931,9 @@ impl PdfDocument {
             let y1 = arr[1].resolve(self.inner.arena()).as_f64().unwrap_or(0.0);
             let x2 = arr[2].resolve(self.inner.arena()).as_f64().unwrap_or(595.0);
             let y2 = arr[3].resolve(self.inner.arena()).as_f64().unwrap_or(842.0);
-            return Ok(fepdf_core::graphics::Rect::new(x1, y1, x2, y2));
+            return Ok(fepdf_model::graphics::Rect::new(x1, y1, x2, y2));
         }
-        Ok(fepdf_core::graphics::Rect::new(0.0, 0.0, 595.0, 842.0)) // Default A4
+        Ok(fepdf_model::graphics::Rect::new(0.0, 0.0, 595.0, 842.0)) // Default A4
     }
 
     /// Returns the physical dimensions of the page (Width, Height), accounting for page rotation.
@@ -1471,7 +1471,7 @@ impl PdfDocument {
         }
 
         // Run structural ISO compliance audit
-        let auditor = fepdf_core::audit::compliance::ComplianceAuditor::new(&self.inner);
+        let auditor = fepdf_model::audit::compliance::ComplianceAuditor::new(&self.inner);
         let report = auditor.audit();
         let mut iso_clauses: Vec<String> =
             report.clauses_encountered.iter().map(|&s| s.to_string()).collect();
@@ -1495,7 +1495,7 @@ impl PdfDocument {
     }
 
     /// Returns the document's refined metadata.
-    pub fn metadata(&self) -> fepdf_core::metadata::MetadataInfo {
+    pub fn metadata(&self) -> fepdf_model::metadata::MetadataInfo {
         self.inner.metadata()
     }
 
@@ -1515,7 +1515,7 @@ impl PdfDocument {
     }
 
     /// Returns memory arena allocation statistics.
-    pub fn arena_stats(&self) -> fepdf_core::arena::ArenaStats {
+    pub fn arena_stats(&self) -> fepdf_model::arena::ArenaStats {
         self.inner.arena().get_stats()
     }
 
@@ -1560,7 +1560,7 @@ impl PdfDocument {
     pub fn get_font(
         &self,
         obj_id: u32,
-    ) -> PdfResult<std::sync::Arc<fepdf_core::font::FontResource>> {
+    ) -> PdfResult<std::sync::Arc<fepdf_model::font::FontResource>> {
         self.inner.get_font(Handle::new(obj_id))
     }
 

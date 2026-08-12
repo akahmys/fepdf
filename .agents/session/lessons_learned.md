@@ -24,7 +24,7 @@ During the processing of `UnicodeStandard-16.0.pdf`, we encountered **Adobe Acro
 # Lessons Learned: Handle Stability & PUA Invariance
 
 ## Context
-During the optimization of font caching in `fepdf-core`, we found that font resources were occasionally failing to resolve after a `ParallelRefinery` pass, despite no logical changes to the document structure.
+During the optimization of font caching in `fepdf-model`, we found that font resources were occasionally failing to resolve after a `ParallelRefinery` pass, despite no logical changes to the document structure.
 
 ## Key Discovery
 1.  **RefCell Handle Churn**: While `PdfArena` object indices are stable, the `RefCell` handles for *Dictionaries* can change if the dictionary itself is re-allocated or refined.

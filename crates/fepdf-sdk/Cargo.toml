@@ -8,7 +8,7 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-fepdf-core.workspace = true
+fepdf-model.workspace = true
 fepdf-content.workspace = true
 # Rasterisation is opt-in: only `render_page_to_file` needs it, and pulling
 # vello + wgpu into every SDK consumer is not free. See ARCHITECTURE.md Rule B.
@@ -36,8 +36,8 @@ x509-parser.workspace = true
 default = []
 ## Enables `PdfDocument::render_page_to_file`, backed by Vello + wgpu.
 render = ["dep:fepdf-render", "dep:pollster", "dep:image"]
-## Forwards fepdf-core's glyph tracing, used by `fepdf debug trace-font`.
-debug-tools = ["fepdf-core/debug-tools"]
+## Forwards fepdf-model's glyph tracing, used by `fepdf debug trace-font`.
+debug-tools = ["fepdf-model/debug-tools"]
 
 [lints]
 workspace = true

@@ -3,7 +3,7 @@
 //! Rule D: Frontends translate input (argv, UI clicks, MCP calls) into an Operation
 //! value and pass it to fepdf-sdk. Only fepdf-sdk interprets operations.
 
-use fepdf_core::{
+use fepdf_model::{
     AnnotationSpec, ArticleThread, AssociatedFile, FormFieldSpec, GeoSpatialAnchor,
     MeasurementScale, MeshShadingSpec, OptionalContentProperties, OutlineTree, OutputIntent,
     PageLabelSpec, PdfAction, PortfolioCollection, PublicKeyRecipientSpec, UnencryptedWrapperSpec,

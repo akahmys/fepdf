@@ -11,7 +11,7 @@ repository.workspace = true
 # must not depend on any implementation of it. No vello, no wgpu — that is the
 # whole point, and adding either here silently re-couples every consumer.
 [dependencies]
-fepdf-core.workspace = true
+fepdf-model.workspace = true
 kurbo.workspace = true
 
 [lints]

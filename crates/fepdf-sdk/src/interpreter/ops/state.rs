@@ -1,5 +1,5 @@
 use crate::interpreter::Interpreter;
-use fepdf_core::{FromPdfObject, LineCap, LineJoin, Matrix, Object, PdfName, PdfResult};
+use fepdf_model::{FromPdfObject, LineCap, LineJoin, Matrix, Object, PdfName, PdfResult};
 
 impl Interpreter<'_> {
     #[allow(clippy::many_single_char_names)]
@@ -92,7 +92,7 @@ impl Interpreter<'_> {
                 self.backend.set_stroke_alpha(ca_up);
             }
             if let Some(bm_obj) = gs_dict.get(&bm_key) {
-                if let Ok(bm) = fepdf_core::graphics::BlendMode::from_pdf_object(
+                if let Ok(bm) = fepdf_model::graphics::BlendMode::from_pdf_object(
                     bm_obj.resolve(self.doc.arena()),
                     self.doc.arena(),
                 ) {

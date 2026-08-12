@@ -26,8 +26,8 @@
 pub mod headless;
 pub mod text;
 
-use fepdf_core::graphics::TextRenderingMode;
-use fepdf_core::{BlendMode, Color, LineCap, LineJoin, PixelFormat, StrokeStyle};
+use fepdf_model::graphics::TextRenderingMode;
+use fepdf_model::{BlendMode, Color, LineCap, LineJoin, PixelFormat, StrokeStyle};
 use kurbo::{Affine, BezPath, Cap, Join, Stroke};
 use std::sync::Arc;
 use vello::Scene;
@@ -85,7 +85,7 @@ impl VelloBackend {
     /// Loads the bundled fallback fonts from the configured resource directory.
     pub fn load_system_fonts() -> Arc<std::collections::BTreeMap<FallbackFontType, Arc<Vec<u8>>>> {
         let mut fonts = std::collections::BTreeMap::new();
-        let resource_dir = fepdf_core::resource_dir("resources");
+        let resource_dir = fepdf_model::resource_dir("resources");
         let base_path = std::path::Path::new(&resource_dir).join("fonts");
 
         let mappings = [

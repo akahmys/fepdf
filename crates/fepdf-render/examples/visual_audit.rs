@@ -17,7 +17,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("--- Rendering Page 1 of fy05.pdf ---");
     let mut backend = VelloBackend::new(system_fonts);
 
-    // Page is fepdf_core::document::page::Page
+    // Page is fepdf_model::document::page::Page
     // We need its resources and contents.
 
     let mut interpreter =

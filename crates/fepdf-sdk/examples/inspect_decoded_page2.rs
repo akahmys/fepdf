@@ -1,6 +1,6 @@
 //! Example for inspecting decoded character sequences on PDF page 2.
 
-use fepdf_core::font::FontResource;
+use fepdf_model::font::FontResource;
 use fepdf_sdk::PdfDocument;
 
 /// Main function for running the page 2 decoding inspection example.
@@ -33,10 +33,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
             if font_res.subtype.as_str() == "Type0"
                 && let Some(desc_fonts_obj) = dict.get(&arena.name("DescendantFonts"))
-                && let fepdf_core::Object::Array(ah) = desc_fonts_obj.resolve(arena)
+                && let fepdf_model::Object::Array(ah) = desc_fonts_obj.resolve(arena)
                 && let Some(arr) = arena.get_array(ah)
                 && let Some(desc_font) = arr.first()
-                && let fepdf_core::Object::Dictionary(dfh) = desc_font.resolve(arena)
+                && let fepdf_model::Object::Dictionary(dfh) = desc_font.resolve(arena)
                 && let Some(df_dict) = arena.get_dict(dfh)
             {
                 let mut desc_res = FontResource::load(&df_dict, doc.inner()).unwrap();
@@ -55,18 +55,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let handles = page.contents_handles();
     for &stream_h in &handles {
         let sublimated = arena.get_sublimated_data(stream_h).unwrap();
-        if let fepdf_core::object::SublimatedData::Commands { items: ref cmds, .. } = *sublimated {
+        if let fepdf_model::object::SublimatedData::Commands { items: ref cmds, .. } = *sublimated {
             let mut current_font = None;
             for cmd in cmds {
                 match cmd {
-                    fepdf_core::object::sublimation::Command::SetFont { font, .. } => {
+                    fepdf_model::object::sublimation::Command::SetFont { font, .. } => {
                         current_font = fonts.get(font);
                     }
-                    fepdf_core::object::sublimation::Command::ShowTextArray(items) => {
+                    fepdf_model::object::sublimation::Command::ShowTextArray(items) => {
                         if let Some(font) = current_font {
                             for item in items {
-                                if let fepdf_core::object::sublimation::TextArrayItem::Text(bytes) =
-                                    item
+                                if let fepdf_model::object::sublimation::TextArrayItem::Text(
+                                    bytes,
+                                ) = item
                                 {
                                     let mut i = 0;
                                     while i < bytes.len() {

@@ -11,13 +11,13 @@
 
 pub mod path;
 
-use fepdf_core::graphics::TextRenderingMode;
-pub use fepdf_core::graphics::WindingRule;
-use fepdf_core::{BlendMode, Color, PixelFormat, StrokeStyle};
+use fepdf_model::graphics::TextRenderingMode;
+pub use fepdf_model::graphics::WindingRule;
+use fepdf_model::{BlendMode, Color, PixelFormat, StrokeStyle};
 use kurbo::{Affine, BezPath};
 use std::sync::Arc;
 
-pub use fepdf_core::font::FallbackFontType;
+pub use fepdf_model::font::FallbackFontType;
 
 /// A soft mask accompanying an image, carrying its own dimensions and format.
 #[derive(Debug, Clone)]

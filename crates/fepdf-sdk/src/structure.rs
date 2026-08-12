@@ -2,8 +2,8 @@
 //!
 //! (ISO 14289-2 / PDF/UA-2 Compliance Bridge)
 
-use fepdf_core::document::structure::StructElement;
-use fepdf_core::{FromPdfObject, Handle, Object, PdfArena, PdfError, PdfResult};
+use fepdf_model::document::structure::StructElement;
+use fepdf_model::{FromPdfObject, Handle, Object, PdfArena, PdfError, PdfResult};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeSet, VecDeque};
 

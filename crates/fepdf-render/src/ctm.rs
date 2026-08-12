@@ -1,4 +1,4 @@
-use fepdf_core::Matrix;
+use fepdf_model::Matrix;
 use kurbo::Affine;
 
 /// Internal state of the graphics stack level.

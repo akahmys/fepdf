@@ -1,6 +1,6 @@
 //! Integration tests for PDF Security Handlers & Encryption
 
-use fepdf_core::security::SecurityHandler;
+use fepdf_model::security::SecurityHandler;
 
 #[test]
 fn test_security_handler_v5_aes256() {

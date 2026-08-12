@@ -1,10 +1,10 @@
-//! Schema integration tests for fepdf-core.
+//! Schema integration tests for fepdf-model.
 
-use fepdf_core::Object;
-use fepdf_core::PdfArena;
-use fepdf_core::font::schema::PdfFont;
-use fepdf_core::graphics::schema::PdfExtGState;
-use fepdf_core::object::{FromPdfObject, PdfSchema};
+use fepdf_model::Object;
+use fepdf_model::PdfArena;
+use fepdf_model::font::schema::PdfFont;
+use fepdf_model::graphics::schema::PdfExtGState;
+use fepdf_model::object::{FromPdfObject, PdfSchema};
 
 #[test]
 fn test_font_schema_expansion() {
@@ -37,6 +37,6 @@ fn test_graphics_schema_expansion() {
     let obj = Object::Dictionary(handle);
 
     let gs = PdfExtGState::from_pdf_object(obj, &arena).unwrap();
-    assert_eq!(gs.blend_mode, Some(fepdf_core::graphics::BlendMode::Multiply));
+    assert_eq!(gs.blend_mode, Some(fepdf_model::graphics::BlendMode::Multiply));
     assert_eq!(PdfExtGState::iso_clause(), "8.4.5");
 }

@@ -1,8 +1,8 @@
-//! Mapping integration tests for fepdf-core.
+//! Mapping integration tests for fepdf-model.
 
-use fepdf_core::arena::PdfArena;
-use fepdf_core::font::{FontMetrics, FontResource, cmap::CMap};
-use fepdf_core::object::PdfName;
+use fepdf_model::arena::PdfArena;
+use fepdf_model::font::{FontMetrics, FontResource, cmap::CMap};
+use fepdf_model::object::PdfName;
 use std::collections::BTreeMap;
 use std::sync::Arc;
 

@@ -1,5 +1,5 @@
 #![allow(missing_docs)]
-use fepdf_core::Object;
+use fepdf_model::Object;
 use fepdf_sdk::PdfDocument;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {

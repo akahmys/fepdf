@@ -1,13 +1,13 @@
 use crate::interpreter::Interpreter;
-use fepdf_core::font::FontResource;
-use fepdf_core::{Handle, Object, PdfError, PdfName, PdfResult};
+use fepdf_model::font::FontResource;
+use fepdf_model::{Handle, Object, PdfError, PdfName, PdfResult};
 use std::sync::Arc;
 
 impl Interpreter<'_> {
     pub(crate) fn resolve_font_resource(&mut self, name: &PdfName) -> PdfResult<Arc<FontResource>> {
         if name.as_str() == "Fallback-Sans" {
             let res = FontResource::load_fallback(
-                fepdf_core::font::FallbackFontType::SansSerif,
+                fepdf_model::font::FallbackFontType::SansSerif,
                 self.doc,
             )?;
             return Ok(Arc::new(res));
@@ -100,7 +100,7 @@ impl Interpreter<'_> {
 
             if !is_sfnt {
                 let fallback_type =
-                    res.fallback_type.unwrap_or(fepdf_core::font::FallbackFontType::Default);
+                    res.fallback_type.unwrap_or(fepdf_model::font::FallbackFontType::Default);
                 log::warn!(
                     "[SDK] Font {backend_name} is not SFNT, using fallback data for type {fallback_type:?}"
                 );
@@ -113,7 +113,7 @@ impl Interpreter<'_> {
                 data,
                 None,
                 res.cid_to_gid_map.clone(),
-                res.fallback_type.unwrap_or(fepdf_core::font::FallbackFontType::Default),
+                res.fallback_type.unwrap_or(fepdf_model::font::FallbackFontType::Default),
                 res.is_cid_keyed,
             );
             self.defined_fonts.insert(backend_name.clone());

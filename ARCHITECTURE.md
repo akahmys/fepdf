@@ -4,7 +4,7 @@ The authoritative architectural blueprint for **fepdf**: crate topology, layerin
 rules, the Sublimation Pipeline, and memory invariants.
 
 > **Status.** This describes the *target* topology. Several crates below do not exist
-> yet — their code lives in `fepdf-core` or `fepdf-sdk` today. Every entry in
+> yet — their code lives in `fepdf-model` or `fepdf-sdk` today. Every entry in
 > [§3](#-3-crate-responsibilities) carries a status marker, and [§6](#-6-migration)
 > records the order of work. Nothing here is aspirational hand-waving: the shape is
 > derived from measured coupling in the current tree, recorded in
@@ -103,7 +103,7 @@ Status: **✅** exists as-is · **⚠️** partially landed · **🔄** code exi
 | :--- | :---: | ---: | :--- |
 | **`fepdf-syntax`** | ✅ | 850 | The byte layer: lexing and encryption/decryption. Depends on no model type, which is what lets the cryptography be reviewed on its own. Parsing and stream filters are *not* here — see §4. |
 | **`fepdf-font`** | 🔄 in core (Audited ✅) | 3,500 | Font *programs*: CFF, TrueType, CMap, Adobe Glyph List, subsetting, reconstruction. Hardened against W/W2 out-of-bounds, CMap underflows (`e_val >= s_val`), and CID byte truncations. |
-| **`fepdf-model`** | 🔄 in core+sdk (Audited ✅) | 8,600 | The document graph: `PdfArena`, `Handle<T>`, `Object`, page tree, metadata. Hardened with pool overflow guards, cyclic `resolve` limits (`64`), and safe `Null` reference fallbacks. |
+| **`fepdf-model`** | ✅ | 8,600 | The document graph: `PdfArena`, `Handle<T>`, `Object`, page tree, metadata. Hardened with pool overflow guards, cyclic `resolve` limits (`64`), and safe `Null` reference fallbacks. |
 | **`fepdf-content`** | ⚠️ partial | 2,300 | Content-stream interpreter, and the **`RenderBackend` contract** it drives (`TextGlyph`, `TextState`, `SMaskData`, path geometry). No GPU dependency. *The contract has landed; the interpreter still lives in `fepdf-sdk`.* |
 | **`fepdf-doc`** | 🔄 in sdk | 2,200 | Owns the **`Operation` vocabulary** (§5.1) and is its only interpreter: merge, split, rotate, tag, redact, upgrade. Also structure-tree handling, conformance auditing, remediation. |
 | **`fepdf-render`** | ✅ | 1,100 | A `RenderBackend` implementation on **Vello** + **wgpu**. Reached only through the SDK's optional `render` feature. |
@@ -162,7 +162,7 @@ presentation layer, outside the reach of engine tests. A page-mapping defect sur
 there precisely because of that.
 
 **Rule C exists because the round trip is currently split.** Ingestion sits in
-`fepdf-core`; `writer.rs` — the single largest file in the workspace at 2,536 lines —
+`fepdf-model`; `writer.rs` — the single largest file in the workspace at 2,536 lines —
 sits in `fepdf-sdk`. The engine can read but not write.
 
 **Rule D exists because the vocabularies have already diverged.** "Rotate" is defined
@@ -297,7 +297,7 @@ To prevent codebase drift, ad-hoc struct additions, or uncoordinated writer logi
 No feature is permitted to bypass the `Operation` vocabulary or inject un-audited dictionary mutations directly into frontends or serialisers.
 
 #### 5.3.1 Multi-Format Provider Architecture
-When introducing support for external document formats (e.g., Word `.docx`, Excel `.xlsx`, SVG, HTML), each format MUST follow Rule C by encapsulating its ingestion (reading) and emission (writing) within a dedicated format provider module/crate (e.g., `fepdf-import-docx`). Providers translate external formats into the `Operation` vocabulary or intermediate layout structures without exposing format-specific dependencies to `fepdf-core`.
+When introducing support for external document formats (e.g., Word `.docx`, Excel `.xlsx`, SVG, HTML), each format MUST follow Rule C by encapsulating its ingestion (reading) and emission (writing) within a dedicated format provider module/crate (e.g., `fepdf-import-docx`). Providers translate external formats into the `Operation` vocabulary or intermediate layout structures without exposing format-specific dependencies to `fepdf-model`.
 
 ### 5.4 Safety invariants
 
@@ -333,7 +333,7 @@ behaviour or API and need their own tests.
 | 2 | Extract the PDF-free half of `font/` into `fepdf-font` | 3,500 lines become independently testable | Low |
 | 3 | Move struct-tree handling out of `fepdf-gui` into `fepdf-doc` | Domain logic returns to the engine; closes the Rule A leak | Medium |
 | 4 | Introduce `Operation` in `fepdf-doc`; reduce the CLI subcommands and `WorkerRequest` to adapters over it | Rule D becomes structural; divergence stops being possible | Medium |
-| 5 | Move `writer` into `fepdf-model` (core) | ✅ **Done.** Restores the read/write round trip in `fepdf-core` (Rule C); `fepdf-sdk` re-exports for compatibility | Low |
+| 5 | Move `writer` into `fepdf-model` (core) | ✅ **Done.** Restores the read/write round trip in `fepdf-model` (Rule C); `fepdf-sdk` re-exports for compatibility | Low |
 | 6 | Introduce the `fepdf` facade | Rule A becomes enforceable; touches all four frontends | High |
 
 Step 0 is a bug fix and needs no restructuring — but do it as part of step 4, not
@@ -358,7 +358,7 @@ decision, not an architectural one.
 
 Architecture rules that are not checked become comments. These are:
 
-- **Rules A–C**: enforced by Cargo. No frontend declares `fepdf-core`, so a model type
+- **Rules A–C**: enforced by Cargo. No frontend declares `fepdf-model`, so a model type
   cannot be named from `fepdf-cli`, `fepdf-gui`, `fepdf-mcp` or `fepdf-wasm` at all —
   reaching for one is a compile error, not a review finding. The facade re-exports
   what frontends legitimately need.

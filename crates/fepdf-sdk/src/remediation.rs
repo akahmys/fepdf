@@ -1,7 +1,7 @@
 use crate::interpreter::Interpreter;
 use fepdf_content::{FallbackFontType, RenderBackend, TextGlyph, TextState};
-use fepdf_core::graphics::{BlendMode, Color, PixelFormat, StrokeStyle, WindingRule};
-use fepdf_core::{Document, Handle, Object, PdfResult};
+use fepdf_model::graphics::{BlendMode, Color, PixelFormat, StrokeStyle, WindingRule};
+use fepdf_model::{Document, Handle, Object, PdfResult};
 use kurbo::{Affine, BezPath};
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -101,7 +101,7 @@ impl RenderBackend for TextExtractionBackend {
         }
         self.last_y = y;
     }
-    fn set_text_render_mode(&mut self, _mode: fepdf_core::graphics::TextRenderingMode) {}
+    fn set_text_render_mode(&mut self, _mode: fepdf_model::graphics::TextRenderingMode) {}
     fn set_char_spacing(&mut self, _spacing: f64) {}
     fn set_word_spacing(&mut self, _spacing: f64) {}
 }
@@ -206,7 +206,7 @@ impl RenderBackend for CollectorBackend {
             self.fonts.insert(name.to_string(), base_name.to_string());
         }
     }
-    fn set_text_render_mode(&mut self, _mode: fepdf_core::graphics::TextRenderingMode) {}
+    fn set_text_render_mode(&mut self, _mode: fepdf_model::graphics::TextRenderingMode) {}
     fn set_char_spacing(&mut self, _spacing: f64) {}
     fn set_word_spacing(&mut self, _spacing: f64) {}
 }
@@ -494,7 +494,7 @@ impl HeuristicEngine {
         let page_dict = arena.get_dict(page_dh).unwrap_or_default();
         if let Some(contents) = page_dict.get(&arena.name("Contents")) {
             let data = doc.decode_stream(contents)?;
-            let rewriter = fepdf_core::content::ContentRewriter::new(arena, data);
+            let rewriter = fepdf_model::content::ContentRewriter::new(arena, data);
             let mut mapping_refs = BTreeMap::new();
             for (k, (v1, v2)) in &op_to_mcid {
                 mapping_refs.insert(*k, (v1.as_str(), *v2));
@@ -504,7 +504,7 @@ impl HeuristicEngine {
             stream_dict.insert(arena.name("Length"), Object::Integer(new_data.len() as i64));
             let new_contents = arena.alloc_object(Object::Stream(
                 arena.alloc_dict(stream_dict),
-                std::sync::Arc::new(fepdf_core::object::SublimatedData::Raw(bytes::Bytes::from(
+                std::sync::Arc::new(fepdf_model::object::SublimatedData::Raw(bytes::Bytes::from(
                     new_data,
                 ))),
             ));
@@ -616,7 +616,7 @@ impl HeuristicEngine {
         data: bytes::Bytes,
         redacted_op_indices: &std::collections::BTreeSet<usize>,
     ) -> Vec<u8> {
-        use fepdf_core::lexer::{Lexer, Token};
+        use fepdf_model::lexer::{Lexer, Token};
         let mut lexer = Lexer::new(data);
         let mut output = Vec::new();
         let mut op_index = 0;
@@ -686,7 +686,7 @@ pub fn apply_physical_redaction_to_page(
         stream_dict.insert(arena.name("Length"), Object::Integer(output.len() as i64));
         let new_contents = arena.alloc_object(Object::Stream(
             arena.alloc_dict(stream_dict),
-            std::sync::Arc::new(fepdf_core::object::SublimatedData::Raw(bytes::Bytes::from(
+            std::sync::Arc::new(fepdf_model::object::SublimatedData::Raw(bytes::Bytes::from(
                 output,
             ))),
         ));

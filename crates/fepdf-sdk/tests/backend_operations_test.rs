@@ -1,6 +1,6 @@
 //! Integration and Unit Test Suite for ISO 32000-2 Extended Backend Operations.
 
-use fepdf_core::{
+use fepdf_model::{
     AFRelationship, AnnotationKind, AnnotationSpec, ArticleBead, ArticleThread, AssociatedFile,
     CollectionViewMode, FormFieldSpec, FormValue, GeoSpatialAnchor, LayerGroup, MeasurementScale,
     MeshShadingSpec, MeshShadingType, OptionalContentProperties, OutlineNode, OutlineTree,

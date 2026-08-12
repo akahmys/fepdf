@@ -1,7 +1,7 @@
 //! Integration tests for PDF Object Representation & PdfArena Handle Invariants
 
-use fepdf_core::arena::PdfArena;
-use fepdf_core::object::Object;
+use fepdf_model::arena::PdfArena;
+use fepdf_model::object::Object;
 use std::collections::BTreeMap;
 
 #[test]

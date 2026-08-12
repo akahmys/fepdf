@@ -1,6 +1,6 @@
 use crate::interpreter::Interpreter;
-use fepdf_core::graphics::WindingRule;
-use fepdf_core::{PdfError, PdfResult};
+use fepdf_model::graphics::WindingRule;
+use fepdf_model::{PdfError, PdfResult};
 
 impl Interpreter<'_> {
     pub(crate) fn handle_path_operator(&mut self, op: &str) -> PdfResult<()> {

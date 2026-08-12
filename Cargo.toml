@@ -2,7 +2,7 @@
 resolver = "2"
 members = [
     "crates/fepdf-syntax",
-    "crates/fepdf-core",
+    "crates/fepdf-model",
     "crates/fepdf-font",
     "crates/fepdf-content",
     "crates/fepdf-render",
@@ -93,7 +93,7 @@ schemars = "1"
 
 # Internal Workspace Crates
 fepdf-syntax = { path = "crates/fepdf-syntax", version = "1.0.0" }
-fepdf-core = { path = "crates/fepdf-core", version = "1.0.0" }
+fepdf-model = { path = "crates/fepdf-model", version = "1.0.0" }
 fepdf-font = { path = "crates/fepdf-font", version = "1.0.0" }
 fepdf-content = { path = "crates/fepdf-content", version = "1.0.0" }
 fepdf-render = { path = "crates/fepdf-render", version = "1.0.0" }

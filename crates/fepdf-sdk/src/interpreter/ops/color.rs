@@ -1,6 +1,6 @@
 use crate::interpreter::Interpreter;
-use fepdf_core::PdfResult;
-use fepdf_core::graphics::Color;
+use fepdf_model::PdfResult;
+use fepdf_model::graphics::Color;
 
 impl Interpreter<'_> {
     pub(crate) fn handle_color_operator(&mut self, op: &str) -> PdfResult<()> {
@@ -15,7 +15,7 @@ impl Interpreter<'_> {
     }
 
     fn handle_cs(&mut self, op: &str) -> PdfResult<()> {
-        use fepdf_core::graphics::ColorSpaceKind;
+        use fepdf_model::graphics::ColorSpaceKind;
         let is_fill = op == "cs";
         let name = self.pop_name()?;
         let cs = match name.as_str() {
@@ -85,7 +85,7 @@ impl Interpreter<'_> {
     }
 
     fn handle_sc(&mut self, op: &str) -> PdfResult<()> {
-        use fepdf_core::graphics::ColorSpaceKind;
+        use fepdf_model::graphics::ColorSpaceKind;
         let is_fill = op == "sc" || op == "scn";
         let cs = if is_fill { self.state.fill_color_space } else { self.state.stroke_color_space };
         let count = self.stack.len();
@@ -134,7 +134,7 @@ impl Interpreter<'_> {
         &mut self,
         op: &str,
         count: usize,
-        cs: fepdf_core::graphics::ColorSpaceKind,
+        cs: fepdf_model::graphics::ColorSpaceKind,
     ) -> PdfResult<Color> {
         match count {
             1 => Ok(Color::Gray(self.pop_f64()?)),

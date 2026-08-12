@@ -21,7 +21,7 @@ Detailed system design and governance standards are documented across the follow
 
 ## 🚀 Key Capabilities
 
-- **Hardened Core Engine (`fepdf-core`)**: Fully audited **Syntax**, **Font**, and **Model** subsystems. Hardened against Zip Bomb streams, recursion limits, cyclic object resolution, and out-of-bounds panics while strictly observing ISO 32000-2:2020.
+- **Hardened Core Engine (`fepdf-model`)**: Fully audited **Syntax**, **Font**, and **Model** subsystems. Hardened against Zip Bomb streams, recursion limits, cyclic object resolution, and out-of-bounds panics while strictly observing ISO 32000-2:2020.
 - **Interactive Desktop GUI (`fepdf`)**: Built with **egui** + **wgpu** + **Vello**. Features 120fps canvas interaction, Japanese/CJK system font loading, CAD measurement tools, accessibility tagging, and atomic redaction.
 - **Universal CLI (`fepdf`)**: Command-line toolkit for structural auditing, PDF 2.0 re-production, font glyph tracing, and document repair.
 - **AI-Native MCP Bridge (`fepdf-mcp`)**: Implementation of the **Model Context Protocol**, enabling AI assistants to perform direct PDF structural diagnostics.

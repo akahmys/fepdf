@@ -1,5 +1,5 @@
 use crate::interpreter::Interpreter;
-use fepdf_core::PdfResult;
+use fepdf_model::PdfResult;
 
 impl Interpreter<'_> {
     pub(crate) fn handle_marked_content_operator(&mut self, op: &str) -> PdfResult<()> {

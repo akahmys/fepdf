@@ -1,4 +1,4 @@
-use fepdf_core::{Handle, Object, PdfArena, PdfResult};
+use fepdf_model::{Handle, Object, PdfArena, PdfResult};
 use std::collections::BTreeMap;
 
 /// Utility for cloning PDF objects and migrating them between arenas or contexts.
@@ -107,7 +107,7 @@ impl<'a> ObjectCloner<'a> {
             match task {
                 CloningTask::CloneHandle(source_h, target_h) => {
                     let source_obj = self.source.get_object(source_h).ok_or_else(|| {
-                        fepdf_core::PdfError::Other("Dangling reference in source".into())
+                        fepdf_model::PdfError::Other("Dangling reference in source".into())
                     })?;
 
                     let target_obj = self.clone_object(&source_obj)?;
@@ -122,7 +122,7 @@ impl<'a> ObjectCloner<'a> {
             let source_obj = self.source.get_object(source_h).unwrap_or(Object::Null);
             let target_obj = self.target.get_object(target_h).unwrap_or(Object::Null);
             if matches!(target_obj, Object::Null) && !matches!(source_obj, Object::Null) {
-                return Err(fepdf_core::PdfError::Other(
+                return Err(fepdf_model::PdfError::Other(
                     format!("Cloning failed: Object {target_h:?} remains Null in target").into(),
                 ));
             }

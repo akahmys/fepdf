@@ -1,8 +1,8 @@
 //! Integration tests for PDF Lexer & Object Parser
 
 use bytes::Bytes;
-use fepdf_core::parser::Parser;
-use fepdf_core::{Object, PdfArena};
+use fepdf_model::parser::Parser;
+use fepdf_model::{Object, PdfArena};
 
 fn parse_bytes(input: &[u8], arena: &PdfArena) -> Object {
     let mut parser = Parser::new(Bytes::copy_from_slice(input), arena);
