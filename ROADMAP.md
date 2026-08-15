@@ -17,7 +17,7 @@ Understanding them is what remains.
 | :--- | :--- |
 | **7.3** Objects | Complete. Every type in the clause. |
 | **7.5** File structure | **Complete and in use.** Header scan, both cross-reference forms, `/Prev` chains, hybrid references, object streams, incremental updates, and recovery by scanning. `Document::open` reads the file itself; `lopdf` is gone. |
-| **7.6** Encryption | **Weakest area.** AES-128 (V4/R4) now decrypts correctly and validates the user password, after both were found broken ([ADR-0009](docs/adr/0009-permissions-are-thirty-two-bits-not-a-positive-integer.md)). AES-256 R5/R6 is self-declared non-conformant; RC4 (V1/V2) is not supported at all; public-key (7.6.4) and unencrypted wrapper (7.6.7) are stubs. |
+| **7.6** Encryption | RC4 (V1/V2) and AES-128 (V4/R4) decrypt, validate the user password, and preserve content through a round trip — verified against PDFKit on eleven files. All three were broken or absent ([ADR-0009](docs/adr/0009-permissions-are-thirty-two-bits-not-a-positive-integer.md)). **Still weakest**: AES-256 R5/R6 is self-declared non-conformant and invents its own salts; owner passwords and `/P` enforcement are unimplemented; public-key (7.6.4) and unencrypted wrapper (7.6.7) are stubs. |
 | **7.7** Document structure | **10 of Table 29's 32** catalogue entries typed, measured by `status.sh` from `PdfCatalog`. Untyped entries survive a round trip but cannot be reasoned about; `inspect catalog` names which ones, per file. |
 | **PDF 2.0 additions** | **Six** catalogue entries have a spec type but no read or write path — `PageLabels`, `Threads`, `OutputIntents`, `OCProperties`, `Collection`, `AF`. `DPartRoot` has no type at all, contrary to what this table said before it was checked. `inspect catalog` reports the six as `type only`. |
 | **8–14** Content, text, interactive, tagged | Interpreter, fonts and UA-2 auditing exist; interactive features (12) can now be *read* (`inspect interactive`) but not edited. The corpus exercises one annotation subtype of ~28 — all 29,973 are `/Link` — and no form field at all. |
@@ -144,19 +144,35 @@ Independent of A and B, and the area where a partial implementation is most harm
       document and report 29,438 font failures; it is now refused
 - [ ] `inspect encryption` — handler, revision, permissions, conformance. Carried over
       from Phase B; next, now that there is something correct to report on
-- [ ] RC4 (V1/V2) — `build_handler` matches only `(4,4)` and `(5,5|6)`, so every
-      pre-AES encrypted file is refused outright. The RC4 written for Algorithm 6 is
-      most of what this needs
+- [x] RC4 (V1/V2), and `/V 4 /CFM /V2`. `build_handler` matched only `(4,4)` and
+      `(5,5|6)`, so every pre-AES file was refused; `is_aes` was set `true` at both
+      construction sites and no path could clear it, so a crypt filter naming RC4 was
+      decrypted as AES. Test data comes from `scripts/test/make_encrypted.py`, which
+      implements Algorithms 1–5 independently
 - [ ] AES-256 R5/R6 to Algorithms 2.A, 3.A, 8 and 9 — the current key derivation is
       documented in-source as not conforming, and invents its own salts rather than
       reading `/U` and `/O`
 - [ ] Owner-password validation and permission enforcement
 - [ ] Public-key encryption (7.6.4)
 - [ ] Unencrypted wrapper documents (7.6.7)
-- [ ] A corpus of encrypted files as regression tests
+- [x] A corpus of encrypted files as regression tests — RC4 40- and 128-bit, built
+      independently. AES-256 has none, and cannot until the key derivation conforms
+- [ ] Explain the 93 characters `fy05.pdf` loses through a round trip
 
 *Done when*: an AES-256 document written by Acrobat round-trips, and one written by
 fepdf opens in Acrobat.
+
+### The corpus is now three files, and that is why the defects surfaced
+
+`scripts/test/make_encrypted.py` builds RC4 fixtures from `samples/sample.pdf`,
+implementing Algorithms 1–5 from the standard with nothing but `hashlib`. Generating
+them with fepdf's own cryptography would have tested it against itself; PDFKit reads
+both fixtures and extracts the same 12,120 characters as the unencrypted source, so the
+generator is right and any disagreement is the engine's.
+
+Round-tripping the whole corpus through `publish upgrade` and reading the output with
+PDFKit: ten of eleven files preserve their text exactly. `fy05.pdf` loses 93 characters
+of 251,922 — unencrypted, so unrelated to this work, and unexplained.
 
 ### Why the corpus item is not optional
 

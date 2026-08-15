@@ -109,6 +109,11 @@ if [ -d target/malformed ]; then
 else
     row "target/malformed/*.pdf" "absent — python3 scripts/test/make_malformed.py"
 fi
+if [ -d target/encrypted ]; then
+    row "target/encrypted/*.pdf" "$(find target/encrypted -name '*.pdf' | wc -l | tr -d ' ')"
+else
+    row "target/encrypted/*.pdf" "absent — python3 scripts/test/make_encrypted.py"
+fi
 
 if [ "${1:-}" = "--full" ]; then
     echo

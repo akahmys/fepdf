@@ -15,7 +15,7 @@ use crate::interpretation::{Decision, DecisionLog};
 use crate::object::{Object, PdfName, SublimatedData};
 use crate::reader::DictHandle;
 use bytes::Bytes;
-use fepdf_syntax::security::SecurityHandler;
+use fepdf_syntax::security::{Cipher, SecurityHandler, StandardSpec};
 use std::collections::BTreeMap;
 
 /// What the document said about its own protection.
@@ -124,24 +124,89 @@ fn build_handler(
     let revision = integer(arena, encrypt, "R").unwrap_or(0);
     let id = first_file_id(arena, trailer);
 
-    match (version, revision) {
-        (4, 4) => {
-            let u = string(arena, encrypt, "U").unwrap_or_default();
-            let handler = SecurityHandler::new_v4(
-                password,
-                &string(arena, encrypt, "O").unwrap_or_default(),
-                &u,
-                permissions(arena, encrypt)?,
-                &id,
-                boolean(arena, encrypt, "EncryptMetadata").unwrap_or(true),
-            )
-            .ok()?;
-            // Algorithm 6. A wrong password otherwise derives a wrong key and every
-            // object decrypts to noise, which the engine reported as thousands of
-            // font failures rather than as a refusal.
-            handler.user_password_matches(&u, &id).then_some(handler)
-        }
-        (5, 5 | 6) => SecurityHandler::new_v5(password, "", &id).ok(),
+    if (version, revision) == (5, 5) || (version, revision) == (5, 6) {
+        return SecurityHandler::new_v5(password, "", &id).ok();
+    }
+
+    // 7.6.4.2 Table 20: `/V` decides how the key is sized and whether crypt filters
+    // apply; `/CFM` decides the cipher. `/V 4` is AES only when `/CFM` says `/AESV2`.
+    let (key_len, cipher) = match version {
+        1 => (5, Cipher::Rc4),
+        2 => (key_bytes(arena, encrypt).unwrap_or(5), Cipher::Rc4),
+        4 => (key_bytes(arena, encrypt).unwrap_or(16), crypt_filter_method(arena, encrypt)),
+        _ => return None,
+    };
+    if !(2..=4).contains(&revision) {
+        return None;
+    }
+
+    let u = string(arena, encrypt, "U").unwrap_or_default();
+    let handler = SecurityHandler::new_standard(
+        password,
+        &StandardSpec {
+            owner: &string(arena, encrypt, "O").unwrap_or_default(),
+            permissions: permissions(arena, encrypt)?,
+            file_id: &id,
+            encrypt_metadata: boolean(arena, encrypt, "EncryptMetadata").unwrap_or(true),
+            revision: i32::try_from(revision).ok()?,
+            key_len,
+            cipher,
+        },
+    )
+    .ok()?;
+
+    // Algorithm 6. A wrong password otherwise derives a wrong key and every object
+    // decrypts to noise, which the engine reported as thousands of font failures
+    // rather than as a refusal.
+    handler.user_password_matches(&u, &id).then_some(handler)
+}
+
+/// `/Length` in bytes. It is written in bits, and defaults to 40.
+fn key_bytes(arena: &PdfArena, encrypt: &Dict) -> Option<usize> {
+    let bits = integer(arena, encrypt, "Length")?;
+    usize::try_from(bits).ok().map(|b| b / 8).filter(|b| (5..=16).contains(b))
+}
+
+/// The cipher named by the default stream crypt filter (7.6.5).
+///
+/// `/V 4` files exist with `/CFM /V2`, which is RC4 under a crypt filter. Assuming AES
+/// from `/V` alone decrypts those to noise, which is what the handler did: `is_aes`
+/// was set `true` at both construction sites and no code path could clear it.
+fn crypt_filter_method(arena: &PdfArena, encrypt: &Dict) -> Cipher {
+    let Some(cf) = entry_in(arena, encrypt, "CF").and_then(|o| as_dict(arena, &o)) else {
+        return Cipher::Rc4;
+    };
+    let name = name_of(arena, encrypt, "StmF").unwrap_or_else(|| "Identity".to_string());
+    let Some(filter) = cf.get(&arena.name(&name)).and_then(|o| as_dict(arena, o)) else {
+        return Cipher::Rc4;
+    };
+    match filter.get(&arena.name("CFM")).and_then(|o| match o {
+        Object::Name(h) => arena.get_name_str(*h),
+        _ => None,
+    }) {
+        Some(m) if m == "AESV2" || m == "AESV3" => Cipher::Aes,
+        Some(_) | None => Cipher::Rc4,
+    }
+}
+
+fn entry_in(arena: &PdfArena, dict: &Dict, key: &str) -> Option<Object> {
+    dict.get(&arena.name(key)).cloned()
+}
+
+fn as_dict(arena: &PdfArena, object: &Object) -> Option<Dict> {
+    match object {
+        Object::Dictionary(h) => arena.get_dict(*h),
+        Object::Reference(h) => match arena.get_object(*h)? {
+            Object::Dictionary(d) => arena.get_dict(d),
+            _ => None,
+        },
+        _ => None,
+    }
+}
+
+fn name_of(arena: &PdfArena, dict: &Dict, key: &str) -> Option<String> {
+    match dict.get(&arena.name(key))? {
+        Object::Name(h) => arena.get_name_str(*h),
         _ => None,
     }
 }

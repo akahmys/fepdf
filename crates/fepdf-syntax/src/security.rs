@@ -38,15 +38,6 @@ fn rc4(key: &[u8], data: &[u8]) -> Vec<u8> {
         .collect()
 }
 
-#[derive(Clone)]
-struct V4Inputs {
-    pub password: String,
-    pub o: Vec<u8>,
-    pub u: Vec<u8>,
-    pub p: i32,
-    pub file_id: Vec<u8>,
-}
-
 /// A security handler for PDF encryption.
 #[derive(Clone)]
 pub struct SecurityHandler {
@@ -54,82 +45,117 @@ pub struct SecurityHandler {
     revision: i32,
     is_aes: bool,
     encrypt_metadata: bool,
-    v4_inputs: Option<V4Inputs>,
+}
+
+/// Which cipher the standard security handler applies to strings and streams.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Cipher {
+    /// RC4, for `/V` 1 and 2, and for `/V 4` under `/CFM /V2`.
+    Rc4,
+    /// AES in CBC mode, for `/CFM /AESV2` and `/AESV3`.
+    Aes,
+}
+
+/// The `/Encrypt` dictionary values the standard handler derives its key from.
+///
+/// A struct rather than nine arguments, because they arrive together, from one
+/// dictionary, and getting two of them the same type in the wrong order is a defect
+/// with no compiler to catch it.
+#[derive(Debug, Clone)]
+pub struct StandardSpec<'a> {
+    /// `/O`.
+    pub owner: &'a [u8],
+    /// `/P`, as the signed 32-bit value 7.6.4.2 defines.
+    pub permissions: i32,
+    /// The first element of the trailer's `/ID`.
+    pub file_id: &'a [u8],
+    /// `/EncryptMetadata`, which defaults to true.
+    pub encrypt_metadata: bool,
+    /// `/R`.
+    pub revision: i32,
+    /// `/Length` in **bytes**: 5 for the 40-bit default of `/V 1`, `/Length / 8` else.
+    pub key_len: usize,
+    /// From `/CFM` where a crypt filter is present, [`Cipher::Rc4`] otherwise.
+    ///
+    /// Independent of `/V`: reading the cipher from `/V` alone takes `/V 4 /CFM /V2`
+    /// for AES, and that file is RC4.
+    pub cipher: Cipher,
 }
 
 impl SecurityHandler {
-    /// Creates a new security handler for AES-128 (Revision 4).
-    pub fn new_v4(
-        user_password: &str,
-        o_string: &[u8],
-        u_string: &[u8],
-        p_value: i32,
-        file_id: &[u8],
-        encrypt_metadata: bool,
-    ) -> SyntaxResult<Self> {
-        let key = Self::derive_v4_key(
-            user_password,
-            o_string,
-            u_string,
-            p_value,
-            file_id,
-            encrypt_metadata,
-        )?;
-
+    /// Creates a handler for the standard security handler's password revisions.
+    pub fn new_standard(user_password: &str, spec: &StandardSpec<'_>) -> SyntaxResult<Self> {
+        if !(1..=16).contains(&spec.key_len) {
+            return Err(SyntaxError::Crypto(
+                format!(
+                    "key length {} is outside the 40..128-bit range 7.6.4.2 allows",
+                    spec.key_len
+                )
+                .into(),
+            ));
+        }
         Ok(Self {
-            encryption_key: key,
-            revision: 4,
-            is_aes: true,
-            encrypt_metadata,
-            v4_inputs: Some(V4Inputs {
-                password: user_password.to_string(),
-                o: o_string.to_vec(),
-                u: u_string.to_vec(),
-                p: p_value,
-                file_id: file_id.to_vec(),
-            }),
+            encryption_key: Self::derive_file_key(user_password, spec),
+            revision: spec.revision,
+            is_aes: spec.cipher == Cipher::Aes,
+            encrypt_metadata: spec.encrypt_metadata,
         })
     }
 
-    fn derive_v4_key(
+    /// Creates a handler for AES-128 (`/V 4`, `/R 4`, `/CFM /AESV2`).
+    pub fn new_v4(
         user_password: &str,
         o_string: &[u8],
         _u_string: &[u8],
         p_value: i32,
         file_id: &[u8],
         encrypt_metadata: bool,
-    ) -> SyntaxResult<Vec<u8>> {
-        let mut pad = [0u8; 32];
+    ) -> SyntaxResult<Self> {
+        Self::new_standard(
+            user_password,
+            &StandardSpec {
+                owner: o_string,
+                permissions: p_value,
+                file_id,
+                encrypt_metadata,
+                revision: 4,
+                key_len: 16,
+                cipher: Cipher::Aes,
+            },
+        )
+    }
+
+    /// The file encryption key: ISO 32000-2, Algorithm 2.
+    fn derive_file_key(user_password: &str, spec: &StandardSpec<'_>) -> Vec<u8> {
+        let mut pad = PAD;
         let pw_bytes = user_password.as_bytes();
         let len = pw_bytes.len().min(32);
         pad[..len].copy_from_slice(&pw_bytes[..len]);
-        if len < 32 {
-            let padding = [
-                0x28, 0xbf, 0x4e, 0x5e, 0x4e, 0x75, 0x8a, 0x41, 0x64, 0x00, 0x4e, 0x56, 0xff, 0xfa,
-                0x01, 0x08, 0x2e, 0x2e, 0x00, 0xb6, 0xd0, 0x68, 0x3e, 0x80, 0x2f, 0x0c, 0xa9, 0xfe,
-                0x64, 0x53, 0x69, 0x7a,
-            ];
-            pad[len..].copy_from_slice(&padding[..32 - len]);
-        }
+        pad[len..].copy_from_slice(&PAD[..32 - len]);
 
         let mut hasher = md5::Context::new();
         hasher.consume(pad);
-        hasher.consume(o_string);
-        hasher.consume(p_value.to_le_bytes());
-        hasher.consume(file_id);
+        hasher.consume(spec.owner);
+        hasher.consume(spec.permissions.to_le_bytes());
+        hasher.consume(spec.file_id);
 
-        if !encrypt_metadata {
+        if spec.revision >= 4 && !spec.encrypt_metadata {
             hasher.consume([0xFF, 0xFF, 0xFF, 0xFF]);
         }
 
         let mut hash = hasher.finalize().0;
-        for _ in 0..50 {
-            let mut h2 = md5::Context::new();
-            h2.consume(&hash[..16]);
-            hash = h2.finalize().0;
+        // Step (h): revision 2 stops here; 3 and later iterate over the first n bytes,
+        // which is where `key_len` first matters — hashing all 16 regardless produces
+        // the right answer only for a 128-bit key.
+        if spec.revision >= 3 {
+            for _ in 0..50 {
+                let mut h2 = md5::Context::new();
+                h2.consume(&hash[..spec.key_len]);
+                hash = h2.finalize().0;
+            }
         }
 
-        Ok(hash[..16].to_vec())
+        hash[..spec.key_len].to_vec()
     }
 
     /// Creates a new security handler for AES-256 (Revision 5).
@@ -171,7 +197,6 @@ impl SecurityHandler {
             revision: 5,
             is_aes: true,
             encrypt_metadata: true,
-            v4_inputs: None,
         })
     }
 
@@ -230,6 +255,7 @@ impl SecurityHandler {
         self.encrypt_metadata
     }
 
+    /// The per-object key: ISO 32000-2, Algorithm 1.
     fn derive_object_key(&self, obj_id: u32, gen_num: u16) -> Vec<u8> {
         if self.revision >= 5 {
             // ISO 32000-2 Clause 7.6.4.3.4: "For Revision 5 and later, the encryption key
@@ -241,15 +267,17 @@ impl SecurityHandler {
         key.extend_from_slice(&obj_id.to_le_bytes()[..3]);
         key.extend_from_slice(&gen_num.to_le_bytes()[..2]);
 
-        // Revision 4 (AES-128) specifically requires appending "sAlT"
-        if self.is_aes && self.revision == 4 {
+        // Step (b): AES adds the four bytes 73 41 6C 54, whatever the revision.
+        if self.is_aes {
             key.extend_from_slice(b"sAlT");
         }
 
         let hash = md5::compute(&key);
-        // AES-128 uses a 16-byte key (plus 5 bytes for derivation, then hashed)
-        // The output of MD5 is 16 bytes.
-        hash.0.to_vec()
+        // Step (d): the object key is n + 5 bytes, to a maximum of 16. Returning all
+        // 16 regardless is correct only for a 128-bit file key, and silently wrong for
+        // the 40-bit default of `/V 1`.
+        let n = (self.encryption_key.len() + 5).min(16);
+        hash.0[..n].to_vec()
     }
 
     /// Encrypts stream data for the given indirect object.
@@ -258,67 +286,11 @@ impl SecurityHandler {
         self.encrypt_with_key(data, &key)
     }
 
-    /// Encrypts string data for the given indirect object.
-    pub fn encrypt_string(&self, data: &[u8], obj_id: u32, gen_num: u16) -> SyntaxResult<Vec<u8>> {
-        let key = self.derive_object_key(obj_id, gen_num);
-        self.encrypt_with_key(data, &key)
-    }
-
-    /// Decrypts using a key derived without the per-object salt.
-    pub fn decrypt_bytes_salted_no_salt(
-        &self,
-        data: &[u8],
-        object_id: u32,
-        generation: u16,
-    ) -> SyntaxResult<Vec<u8>> {
-        // Pattern C: Master Key + ObjID + GenID (No "sAlT")
-        let mut key = self.encryption_key.clone();
-        key.extend_from_slice(&object_id.to_le_bytes()[..3]);
-        key.extend_from_slice(&generation.to_le_bytes()[..2]);
-        let hash = md5::compute(&key);
-        let n = if self.is_aes { 16 } else { self.encryption_key.len() };
-        self.decrypt_with_key(data, &hash[..n])
-    }
-
-    /// Decrypts using a key salted with the object and generation numbers.
-    pub fn decrypt_bytes_with_salting(
-        &self,
-        data: &[u8],
-        object_id: u32,
-        generation: u16,
-    ) -> SyntaxResult<Vec<u8>> {
-        let mut key = self.encryption_key.clone();
-        key.extend_from_slice(&object_id.to_le_bytes()[..3]);
-        key.extend_from_slice(&generation.to_le_bytes()[..2]);
-        if self.is_aes {
-            key.extend_from_slice(b"sAlT");
-        }
-        let hash = md5::compute(&key);
-        let n = if self.is_aes { 16 } else { self.encryption_key.len() };
-        self.decrypt_with_key(data, &hash[..n])
-    }
-
-    /// Decrypts, skipping the metadata stream exemption.
-    pub fn decrypt_bytes_no_metadata(
-        &self,
-        data: &[u8],
-        _object_id: u32,
-        _generation: u16,
-    ) -> SyntaxResult<Vec<u8>> {
-        if let Some(ref inputs) = self.v4_inputs
-            && let Ok(key) = Self::derive_v4_key(
-                &inputs.password,
-                &inputs.o,
-                &inputs.u,
-                inputs.p,
-                &inputs.file_id,
-                false,
-            )
-        {
-            return self.decrypt_with_key(data, &key);
-        }
-        Err(SyntaxError::Crypto("V4 inputs not available".into()))
-    }
+    // Three further `decrypt_bytes_*` variants stood here — one without the per-object
+    // salt, one with, one recomputing the key as though `/EncryptMetadata` were false.
+    // None had a caller. Alternative key derivations sitting in a crypto module are a
+    // hazard rather than an option: `decrypt_bytes` below is Algorithm 1, and there is
+    // no second answer to pick from.
 
     /// Decrypts data for the given indirect object.
     pub fn decrypt_bytes(
@@ -359,6 +331,12 @@ impl SecurityHandler {
 
     #[allow(clippy::manual_is_multiple_of)]
     fn decrypt_with_key(&self, data: &[u8], key: &[u8]) -> SyntaxResult<Vec<u8>> {
+        // RC4 is a stream cipher: no IV, no block alignment, no padding, and the
+        // ciphertext is the same length as the plaintext. Falling through to the AES
+        // path below would have read its first sixteen bytes as an IV.
+        if !self.is_aes {
+            return Ok(rc4(key, data));
+        }
         if data.len() < 16 {
             return Ok(data.to_vec());
         }
@@ -372,27 +350,7 @@ impl SecurityHandler {
         let mut prev_block = [0u8; 16];
         prev_block.copy_from_slice(iv);
 
-        let (cipher128, cipher256) = match key.len() {
-            16 => (
-                Some(
-                    Aes128::new_from_slice(key)
-                        .map_err(|_| SyntaxError::Crypto("AES-128 init fail".into()))?,
-                ),
-                None,
-            ),
-            32 => (
-                None,
-                Some(
-                    Aes256::new_from_slice(key)
-                        .map_err(|_| SyntaxError::Crypto("AES-256 init fail".into()))?,
-                ),
-            ),
-            _ => {
-                return Err(SyntaxError::Crypto(
-                    format!("Invalid AES key length: {}", key.len()).into(),
-                ));
-            }
-        };
+        let (cipher128, cipher256) = Self::aes_ciphers(key)?;
 
         for chunk in ciphertext.chunks(16) {
             let mut block = [0u8; 16];
@@ -410,7 +368,32 @@ impl SecurityHandler {
         Ok(result)
     }
 
+    /// The AES cipher for a key of the one length that names it. Shared by both
+    /// directions, which had the same twenty lines each.
+    fn aes_ciphers(key: &[u8]) -> SyntaxResult<(Option<Aes128>, Option<Aes256>)> {
+        match key.len() {
+            16 => Ok((
+                Some(
+                    Aes128::new_from_slice(key)
+                        .map_err(|_| SyntaxError::Crypto("AES-128 init fail".into()))?,
+                ),
+                None,
+            )),
+            32 => Ok((
+                None,
+                Some(
+                    Aes256::new_from_slice(key)
+                        .map_err(|_| SyntaxError::Crypto("AES-256 init fail".into()))?,
+                ),
+            )),
+            other => Err(SyntaxError::Crypto(format!("Invalid AES key length: {other}").into())),
+        }
+    }
+
     fn encrypt_with_key(&self, data: &[u8], key: &[u8]) -> SyntaxResult<Vec<u8>> {
+        if !self.is_aes {
+            return Ok(rc4(key, data));
+        }
         use rand::RngCore;
         let mut iv = [0u8; 16];
         rand::thread_rng().fill_bytes(&mut iv);
@@ -424,27 +407,7 @@ impl SecurityHandler {
         #[allow(clippy::cast_possible_truncation)]
         padded_data.extend(vec![pad_len as u8; pad_len]);
 
-        let (cipher128, cipher256) = match key.len() {
-            16 => (
-                Some(
-                    Aes128::new_from_slice(key)
-                        .map_err(|_| SyntaxError::Crypto("AES-128 init fail".into()))?,
-                ),
-                None,
-            ),
-            32 => (
-                None,
-                Some(
-                    Aes256::new_from_slice(key)
-                        .map_err(|_| SyntaxError::Crypto("AES-256 init fail".into()))?,
-                ),
-            ),
-            _ => {
-                return Err(SyntaxError::Crypto(
-                    format!("Invalid AES key length: {}", key.len()).into(),
-                ));
-            }
-        };
+        let (cipher128, cipher256) = Self::aes_ciphers(key)?;
 
         let mut prev_block = [0u8; 16];
         prev_block.copy_from_slice(&iv);
@@ -525,6 +488,74 @@ mod tests {
             .file_key()
             .to_vec();
         assert_ne!(right, wrong);
+    }
+
+    /// Reference values for RC4 revisions, computed by `scripts/test/make_encrypted.py`,
+    /// which implements Algorithms 1 to 5 from the standard with only hashlib. Whatever
+    /// these assert, they assert independently of the code under test.
+    mod rc4_revisions {
+        use super::*;
+
+        const FILE_ID: &str = "00112233445566778899aabbccddeeff";
+        const P: i32 = -4;
+
+        fn rc4_handler(owner: &[u8], revision: i32, key_len: usize) -> SecurityHandler {
+            SecurityHandler::new_standard(
+                "",
+                &StandardSpec {
+                    owner,
+                    permissions: P,
+                    file_id: &hex(FILE_ID),
+                    encrypt_metadata: true,
+                    revision,
+                    key_len,
+                    cipher: Cipher::Rc4,
+                },
+            )
+            .expect("builds")
+        }
+
+        #[test]
+        fn revision_2_derives_a_forty_bit_key() {
+            let o = hex("2055c756c72e1ad702608e8196acad447ad32d17cff583235f6dd15fed7dab67");
+            let u = hex("e6f8e044f4f9dc0158c31560c11e2dbda4fe3487341bc7a11c77e297701a83cc");
+            let h = rc4_handler(&o, 2, 5);
+            assert_eq!(hexs(h.file_key()), "85fe7c5d51", "Algorithm 2, no iteration at R2");
+            assert!(h.user_password_matches(&u, &hex(FILE_ID)), "Algorithm 4");
+            assert!(!h.file_key().is_empty());
+        }
+
+        #[test]
+        fn revision_3_derives_a_hundred_and_twenty_eight_bit_key() {
+            let o = hex("36451bd39d753b7c1d10922c28e6665aa4f3353fb0348b536893e3b1db5c579b");
+            let u = hex("1e901c0cd9f1675370edfbad8a6fe84028bf4e5e4e758a4164004e56fffa0108");
+            let h = rc4_handler(&o, 3, 16);
+            assert_eq!(hexs(h.file_key()), "6e6c4cba9f2e6bcb27e743d91e5fabc5");
+            assert!(h.user_password_matches(&u, &hex(FILE_ID)), "Algorithm 5");
+            assert!(!h.user_password_matches(&hex(&"aa".repeat(32)), &hex(FILE_ID)));
+        }
+
+        #[test]
+        fn an_rc4_stream_round_trips_at_its_own_length() {
+            // RC4 adds no IV and no padding, which is why `decrypt_with_key` must not
+            // reach the AES path: that reads the first sixteen bytes as an IV.
+            let o = hex("36451bd39d753b7c1d10922c28e6665aa4f3353fb0348b536893e3b1db5c579b");
+            let h = rc4_handler(&o, 3, 16);
+            let plain = b"BT /F1 12 Tf (hello) Tj ET";
+            let cipher = h.encrypt_stream(plain, 7, 0).expect("encrypts");
+            assert_eq!(cipher.len(), plain.len(), "a stream cipher changes no lengths");
+            assert_eq!(h.decrypt_bytes(&cipher, 7, 0).expect("decrypts"), plain);
+        }
+
+        #[test]
+        fn the_object_key_is_n_plus_five_bytes() {
+            // Algorithm 1 step (d). Returning all sixteen is right only for a 128-bit
+            // file key, and was what the code did for every key length.
+            let o = hex("2055c756c72e1ad702608e8196acad447ad32d17cff583235f6dd15fed7dab67");
+            let h = rc4_handler(&o, 2, 5);
+            assert_eq!(hexs(&h.derive_object_key(7, 0)), "aff63a256e8c21ed8b5c");
+            assert_eq!(h.derive_object_key(7, 0).len(), 10, "5 + 5");
+        }
     }
 
     #[test]

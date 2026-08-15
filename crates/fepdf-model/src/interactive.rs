@@ -99,6 +99,11 @@ impl InteractiveReport {
     /// Fails when the file cannot be read or names no catalogue.
     pub fn survey(bytes: &[u8]) -> PdfResult<Self> {
         let raw = reader::load_document(bytes)?;
+        // Pass 0, as `Document::open` runs it. Without this the report describes the
+        // file's *ciphertext*: `samples/unicode_16.pdf` listed `/Lang` as a 32-byte
+        // string, which is one AES block and an IV, not a language tag.
+        let mut decisions = raw.decisions.clone();
+        crate::decrypt::unlock(&raw.arena, raw.trailer, "", &mut decisions)?;
         let arena = &raw.arena;
         let catalog = raw
             .trailer
@@ -124,7 +129,7 @@ impl InteractiveReport {
             form,
             outline,
             actions,
-            decisions: raw.decisions.entries().to_vec(),
+            decisions: decisions.entries().to_vec(),
         })
     }
 

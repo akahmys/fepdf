@@ -125,6 +125,11 @@ impl CatalogReport {
     /// Fails when the file cannot be read, or names no catalogue to report.
     pub fn survey(bytes: &[u8]) -> PdfResult<Self> {
         let raw = reader::load_document(bytes)?;
+        // Pass 0, as `Document::open` runs it. Without this the report describes the
+        // file's *ciphertext*: `samples/unicode_16.pdf` listed `/Lang` as a 32-byte
+        // string, which is one AES block and an IV, not a language tag.
+        let mut decisions = raw.decisions.clone();
+        crate::decrypt::unlock(&raw.arena, raw.trailer, "", &mut decisions)?;
         let root = raw
             .trailer
             .and_then(|t| raw.arena.get_dict(t))
@@ -153,7 +158,7 @@ impl CatalogReport {
             .map(|(k, _)| (*k).to_string())
             .collect();
 
-        Ok(Self { entries, absent, decisions: raw.decisions.entries().to_vec() })
+        Ok(Self { entries, absent, decisions: decisions.entries().to_vec() })
     }
 
     /// How many present entries fall at each level of support.
