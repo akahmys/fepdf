@@ -188,6 +188,214 @@ fn find_endstream(bytes: &[u8], from: usize) -> Option<usize> {
     Some(end)
 }
 
+/// A cross-reference section, whichever form the file used.
+#[derive(Debug, Clone)]
+pub struct XrefSection {
+    /// Where each object lives.
+    pub entries: std::collections::BTreeMap<u32, fepdf_syntax::xref::XrefRecord>,
+    /// The trailer dictionary. For a cross-reference stream this is the stream's own
+    /// dictionary, which is why reading one has to happen at this layer.
+    pub trailer: Option<
+        crate::handle::Handle<
+            std::collections::BTreeMap<crate::handle::Handle<crate::object::PdfName>, Object>,
+        >,
+    >,
+}
+
+/// Reads whichever cross-reference form sits at `offset`.
+///
+/// A classic table is pure bytes and handled by the syntax layer; a cross-reference
+/// stream is an indirect object whose dictionary carries `/W` and `/Index` and whose
+/// payload is filtered, so it can only be read once objects and filters exist.
+pub fn read_xref_section(
+    bytes: &[u8],
+    offset: usize,
+    arena: &PdfArena,
+    decisions: &mut DecisionLog,
+) -> PdfResult<XrefSection> {
+    if let Ok(table) = fepdf_syntax::xref::parse_xref_table(bytes, offset) {
+        let trailer = table.trailer_at.and_then(|at| parse_trailer_dict(bytes, at, arena));
+        return Ok(XrefSection { entries: table.entries, trailer });
+    }
+
+    let indirect = parse_indirect_at(bytes, offset, arena, decisions)?;
+    let Object::Stream(dict_h, data) = &indirect.object else {
+        return Err(PdfError::Parse {
+            pos: offset,
+            message: "cross-reference section is neither a table nor a stream".into(),
+        });
+    };
+    let Some(dict) = arena.get_dict(*dict_h) else {
+        return Err(PdfError::Arena("cross-reference stream has no dictionary".into()));
+    };
+
+    let layout = stream_layout(&dict, arena).ok_or_else(|| PdfError::Parse {
+        pos: offset,
+        message: "cross-reference stream has no usable /W".into(),
+    })?;
+    let raw = arena.get_stream_bytes(data).unwrap_or_default();
+    let decoded = crate::filters::process_arena_filters(&raw, &dict, arena)?;
+    let entries = fepdf_syntax::xref::parse_xref_stream_data(&decoded, &layout)?;
+
+    Ok(XrefSection { entries, trailer: Some(*dict_h) })
+}
+
+/// Reads `/W` and `/Index` out of a cross-reference stream's dictionary.
+fn stream_layout(
+    dict: &std::collections::BTreeMap<crate::handle::Handle<crate::object::PdfName>, Object>,
+    arena: &PdfArena,
+) -> Option<fepdf_syntax::xref::XrefStreamLayout> {
+    let widths: Vec<usize> = integer_array(dict.get(&arena.name("W"))?, arena)?;
+    if widths.len() != 3 {
+        return None;
+    }
+    let widths = [widths[0], widths[1], widths[2]];
+
+    // 7.5.8.2: /Index defaults to one subsection covering 0..Size.
+    let index = match dict.get(&arena.name("Index")).and_then(|o| integer_array(o, arena)) {
+        Some(flat) if flat.len() >= 2 => flat
+            .chunks_exact(2)
+            .filter_map(|p| Some((u32::try_from(p[0]).ok()?, u32::try_from(p[1]).ok()?)))
+            .collect(),
+        _ => {
+            let size = integer_entry(dict, arena, "Size").unwrap_or(0);
+            vec![(0, u32::try_from(size).unwrap_or(0))]
+        }
+    };
+    Some(fepdf_syntax::xref::XrefStreamLayout { widths, index })
+}
+
+/// Reads an array of integers, resolving it through the arena.
+fn integer_array(object: &Object, arena: &PdfArena) -> Option<Vec<usize>> {
+    let Object::Array(h) = object.resolve(arena) else { return None };
+    Some(
+        arena
+            .get_array(h)?
+            .iter()
+            .filter_map(|o| match o.resolve(arena) {
+                Object::Integer(n) => usize::try_from(n).ok(),
+                _ => None,
+            })
+            .collect(),
+    )
+}
+
+/// Parses the dictionary following a `trailer` keyword.
+fn parse_trailer_dict(
+    bytes: &[u8],
+    at: usize,
+    arena: &PdfArena,
+) -> Option<
+    crate::handle::Handle<
+        std::collections::BTreeMap<crate::handle::Handle<crate::object::PdfName>, Object>,
+    >,
+> {
+    let mut parser = Parser::new(Bytes::copy_from_slice(&bytes[at.min(bytes.len())..]), arena);
+    match parser.parse_object().ok()? {
+        Object::Dictionary(h) => Some(h),
+        _ => None,
+    }
+}
+
+/// Expands an object stream (ISO 32000-2 7.5.7) into the objects it carries.
+///
+/// The stream begins with `/N` pairs of `object-number offset`, then the objects
+/// themselves at `/First + offset`. The pairs are read rather than trusted against
+/// `/N`: a producer that miscounts still wrote the pairs it wrote.
+pub fn expand_object_stream(
+    stream: &Object,
+    arena: &PdfArena,
+    decisions: &mut DecisionLog,
+) -> PdfResult<Vec<IndirectObject>> {
+    let Object::Stream(dict_h, data) = stream else {
+        return Err(PdfError::Parse {
+            pos: 0,
+            message: "object stream expansion needs a stream object".into(),
+        });
+    };
+    let Some(dict) = arena.get_dict(*dict_h) else {
+        return Err(PdfError::Arena("object stream has no dictionary".into()));
+    };
+
+    let raw = arena.get_stream_bytes(data).unwrap_or_default();
+    let decoded = crate::filters::process_arena_filters(&raw, &dict, arena)?;
+
+    let first = integer_entry(&dict, arena, "First")
+        .ok_or_else(|| PdfError::Parse { pos: 0, message: "object stream has no /First".into() })?;
+    let declared = integer_entry(&dict, arena, "N");
+
+    let pairs = read_pairs(&decoded, first);
+    if let Some(n) = declared
+        && n != pairs.len()
+    {
+        decisions.push(Decision::repaired(
+            "7.5.7",
+            format!("/N says {n} objects but {} pairs are present", pairs.len()),
+            "used the pairs actually written",
+        ));
+    }
+
+    Ok(build_stream_objects(&decoded, first, &pairs, arena, decisions))
+}
+
+/// Parses each object a stream's pair table points at, recording what it cannot read.
+fn build_stream_objects(
+    decoded: &[u8],
+    first: usize,
+    pairs: &[(u32, usize)],
+    arena: &PdfArena,
+    decisions: &mut DecisionLog,
+) -> Vec<IndirectObject> {
+    let mut objects = Vec::with_capacity(pairs.len());
+    for &(number, at) in pairs {
+        let start = first.saturating_add(at);
+        if start >= decoded.len() {
+            decisions.push(Decision::violation(
+                "7.5.7",
+                format!("object {number} is listed at offset {at}, past the end of the stream"),
+                "skipped it",
+            ));
+            continue;
+        }
+        let mut parser = Parser::new(Bytes::copy_from_slice(&decoded[start..]), arena);
+        match parser.parse_object() {
+            // 7.5.7: an object inside an object stream always has generation 0.
+            Ok(object) => objects.push(IndirectObject { number, generation: 0, object }),
+            Err(e) => decisions.push(Decision::violation(
+                "7.5.7",
+                format!("object {number} inside an object stream did not parse: {e}"),
+                "skipped it",
+            )),
+        }
+    }
+    objects
+}
+
+/// Reads the `number offset` pairs preceding `first`.
+fn read_pairs(decoded: &[u8], first: usize) -> Vec<(u32, usize)> {
+    let head = &decoded[..first.min(decoded.len())];
+    let numbers: Vec<u64> = String::from_utf8_lossy(head)
+        .split_ascii_whitespace()
+        .filter_map(|t| t.parse().ok())
+        .collect();
+    numbers
+        .chunks_exact(2)
+        .filter_map(|p| Some((u32::try_from(p[0]).ok()?, usize::try_from(p[1]).ok()?)))
+        .collect()
+}
+
+/// Reads an integer entry from a dictionary.
+fn integer_entry(
+    dict: &std::collections::BTreeMap<crate::handle::Handle<crate::object::PdfName>, Object>,
+    arena: &PdfArena,
+    key: &str,
+) -> Option<usize> {
+    match dict.get(&arena.name(key))? {
+        Object::Integer(n) => usize::try_from(*n).ok(),
+        _ => None,
+    }
+}
+
 /// Reads the next token as an unsigned integer.
 fn expect_unsigned(lexer: &mut Lexer, at: usize) -> PdfResult<i64> {
     match lexer.next_token()? {
@@ -269,6 +477,102 @@ mod tests {
         let obj = parse_indirect_at(src, 0, &arena, &mut log).expect("should still parse");
         let Object::Stream(..) = obj.object else { panic!("expected a stream") };
         assert_eq!(log.entries()[0].severity, crate::interpretation::Severity::Violation);
+    }
+
+    /// Builds an uncompressed `/Type /ObjStm` carrying `objects`.
+    fn object_stream(arena: &PdfArena, objects: &[(u32, &str)], declared_n: Option<i64>) -> Object {
+        let mut body = String::new();
+        let mut pairs = String::new();
+        for (number, text) in objects {
+            pairs.push_str(&format!("{number} {} ", body.len()));
+            body.push_str(text);
+            body.push(' ');
+        }
+        let first = pairs.len();
+        let data = format!("{pairs}{body}");
+
+        let mut dict = std::collections::BTreeMap::new();
+        dict.insert(
+            arena.name("Type"),
+            Object::Name(arena.intern_name(crate::object::PdfName::new("ObjStm"))),
+        );
+        dict.insert(arena.name("First"), Object::Integer(first as i64));
+        if let Some(n) = declared_n {
+            dict.insert(arena.name("N"), Object::Integer(n));
+        }
+        let dict_h = arena.alloc_dict(dict);
+        Object::Stream(
+            dict_h,
+            std::sync::Arc::new(SublimatedData::Raw(Bytes::from(data.into_bytes()))),
+        )
+    }
+
+    #[test]
+    fn an_object_stream_yields_the_objects_it_carries() {
+        let arena = PdfArena::new();
+        let mut log = DecisionLog::default();
+        let stream = object_stream(&arena, &[(4, "42"), (7, "true")], Some(2));
+
+        let objects = expand_object_stream(&stream, &arena, &mut log).unwrap();
+        assert_eq!(objects.len(), 2);
+        assert_eq!(objects[0].number, 4);
+        assert_eq!(objects[0].object, Object::Integer(42));
+        assert_eq!(objects[1].number, 7);
+        assert_eq!(objects[1].object, Object::Boolean(true));
+        assert!(log.is_conforming());
+    }
+
+    #[test]
+    fn objects_in_a_stream_have_generation_zero() {
+        // 7.5.7: an object in an object stream always has generation 0, so a file
+        // claiming otherwise cannot be honoured.
+        let arena = PdfArena::new();
+        let mut log = DecisionLog::default();
+        let stream = object_stream(&arena, &[(4, "1")], Some(1));
+        let objects = expand_object_stream(&stream, &arena, &mut log).unwrap();
+        assert_eq!(objects[0].generation, 0);
+    }
+
+    #[test]
+    fn a_miscounted_n_is_repaired_towards_what_was_written() {
+        let arena = PdfArena::new();
+        let mut log = DecisionLog::default();
+        let stream = object_stream(&arena, &[(4, "42"), (7, "1")], Some(9));
+
+        let objects = expand_object_stream(&stream, &arena, &mut log).unwrap();
+        assert_eq!(objects.len(), 2, "the pairs actually present win over /N");
+        assert_eq!(log.entries().len(), 1);
+        assert!(log.entries()[0].found.contains("/N says 9"));
+    }
+
+    #[test]
+    fn an_entry_pointing_past_the_stream_is_recorded_and_skipped() {
+        let arena = PdfArena::new();
+        let mut log = DecisionLog::default();
+        let mut dict = std::collections::BTreeMap::new();
+        dict.insert(arena.name("First"), Object::Integer(6));
+        dict.insert(arena.name("N"), Object::Integer(1));
+        let dict_h = arena.alloc_dict(dict);
+        let stream = Object::Stream(
+            dict_h,
+            std::sync::Arc::new(SublimatedData::Raw(Bytes::from_static(b"4 900 42"))),
+        );
+
+        let objects = expand_object_stream(&stream, &arena, &mut log).unwrap();
+        assert!(objects.is_empty());
+        assert_eq!(log.entries()[0].severity, crate::interpretation::Severity::Violation);
+    }
+
+    #[test]
+    fn a_stream_without_first_is_refused() {
+        let arena = PdfArena::new();
+        let mut log = DecisionLog::default();
+        let dict_h = arena.alloc_dict(std::collections::BTreeMap::new());
+        let stream = Object::Stream(
+            dict_h,
+            std::sync::Arc::new(SublimatedData::Raw(Bytes::from_static(b""))),
+        );
+        assert!(expand_object_stream(&stream, &arena, &mut log).is_err());
     }
 
     #[test]
