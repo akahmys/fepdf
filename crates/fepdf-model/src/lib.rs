@@ -20,6 +20,8 @@ pub mod content;
 pub mod decrypt;
 /// The document model: catalogue, page tree, pages.
 pub mod document;
+/// What protects a document, and how far the engine conforms in handling it (7.6).
+pub mod encryption;
 /// The error type this engine reports.
 pub mod error;
 /// A file's layout as clause 7.5 describes it, and the decisions taken reading it.

@@ -78,12 +78,12 @@ One defect was found by cross-checking against an independent reader rather than
 any of the above — see
 [ADR-0006](docs/adr/0006-a-container-may-not-overwrite-a-newer-revision.md).
 
-## Phase B — Read before write *(one item deferred to Phase C)*
+## Phase B — Read before write *(complete; `inspect encryption` landed in Phase C)*
 
 Semantic completeness starts with being able to *see* a feature. `inspect` began with
 four commands — `info`, `audit`, `text`, `tree` — against roughly fifteen clauses, and
-nothing reported encryption, interactive features, or file structure. It now has seven,
-covering 7.5, 7.7.2 and clause 12, with the decision log on all of them.
+nothing reported encryption, interactive features, or file structure. It now has eight,
+covering 7.5, 7.6, 7.7.2 and clause 12, with the decision log on all of them.
 
 - [x] `inspect structure` — file layout: sections, updates, object streams, and the
       decisions taken while reading. Text, JSON and Markdown; reads the bytes rather
@@ -94,9 +94,9 @@ covering 7.5, 7.7.2 and clause 12, with the decision log on all of them.
 - [x] `inspect interactive` — annotations by subtype, form fields walked through
       `/Kids`, actions by `/S`, and the outline as total, visible and declared. No
       sample carries a form field, so that walk is held by a hand-assembled fixture
-- [ ] `inspect encryption` — handler, revision, permissions, conformance. Deferred
-      behind the rest: 7.6 is Phase C's subject, and reporting on a handler that is
-      self-declared non-conformant would mostly describe the gap
+- [x] `inspect encryption` — done in Phase C, once there was something correct to
+      report on. Handler, revision, key length, cipher from `/CFM`, crypt filters,
+      `/P` decoded bit by bit, and **what this engine does with it**
 - [x] Surface `DecisionLog` in every output format, not only `audit` — and
       structured, not stringified: the audit had been flattening every decision to
       `Warning` regardless of the severity the engine assigned
@@ -104,9 +104,11 @@ covering 7.5, 7.7.2 and clause 12, with the decision log on all of them.
 *Done when*: for any PDF 2.0 feature the engine claims to support, there is a command
 that shows it. Reading a feature is the precondition for writing it correctly.
 
-`inspect encryption` is the one item left, and it moves to Phase C rather than being
-dropped: a report on a handler documented in-source as non-conformant would describe
-the gap rather than the feature, and Phase C is where the gap closes.
+`inspect encryption` moved to Phase C rather than being dropped, and landed there: a
+report on a handler documented in-source as non-conformant would have described the gap
+rather than the feature. Two of the three defects Phase C then found were invisible
+precisely because the file *opened*, so the command now states conformance per file —
+against what the code implements, not what the dictionary declares.
 
 ### What surveying the corpus first turned up
 
@@ -142,8 +144,10 @@ Independent of A and B, and the area where a partial implementation is most harm
       ([ADR-0009](docs/adr/0009-permissions-are-thirty-two-bits-not-a-positive-integer.md))
 - [x] User-password validation (Algorithm 6). A wrong password used to open the
       document and report 29,438 font failures; it is now refused
-- [ ] `inspect encryption` — handler, revision, permissions, conformance. Carried over
-      from Phase B; next, now that there is something correct to report on
+- [x] `inspect encryption` — handler, revision, key length, cipher, crypt filters,
+      Table 22 decoded, and a conformance verdict per file rather than per declaration:
+      a document can declare AES-256 and be unreadable, which is the case the report
+      exists to make visible
 - [x] RC4 (V1/V2), and `/V 4 /CFM /V2`. `build_handler` matched only `(4,4)` and
       `(5,5|6)`, so every pre-AES file was refused; `is_aes` was set `true` at both
       construction sites and no path could clear it, so a crypt filter naming RC4 was

@@ -208,6 +208,17 @@ enum InspectSubcommands {
         #[arg(long)]
         all: bool,
     },
+    /// Report what protects the document (7.6), and how far the engine conforms
+    Encryption {
+        /// Input PDF file
+        input: PathBuf,
+        /// Output format (text, json, markdown)
+        #[arg(short, long, default_value = "text")]
+        format: String,
+        /// Password to open the document with
+        #[arg(long, default_value = "")]
+        password: String,
+    },
     /// Report interactive features: annotations, form fields, actions, outline
     Interactive {
         /// Input PDF file
@@ -599,6 +610,9 @@ async fn main() -> Result<()> {
             InspectSubcommands::Catalog { input, format, all } => {
                 handle_catalog(&input, &format, all)?;
             }
+            InspectSubcommands::Encryption { input, format, password } => {
+                handle_encryption(&input, &format, &password)?;
+            }
             InspectSubcommands::Interactive { input, format } => {
                 handle_interactive(&input, &format)?;
             }
@@ -962,6 +976,115 @@ fn render_decisions_markdown(decisions: &[fepdf_sdk::Decision]) {
     for d in decisions {
         println!("| {:?} | {} | {} | {} |", d.severity, d.clause, d.found, d.action);
     }
+}
+
+/// Reports what protects the document (7.6), and how far the engine conforms.
+fn handle_encryption(input: &std::path::Path, format: &str, password: &str) -> Result<()> {
+    let data = std::fs::read(input).with_context(|| "Failed to read input")?;
+    let report = fepdf_sdk::EncryptionReport::survey(&data, password)
+        .map_err(|e| anyhow::anyhow!("{e:?}"))?;
+
+    match format {
+        "json" => println!("{}", serde_json::to_string_pretty(&report)?),
+        "markdown" => render_encryption_markdown(&report, input),
+        _ => render_encryption_text(&report, input),
+    }
+    Ok(())
+}
+
+fn conformance_label(c: fepdf_sdk::Conformance) -> &'static str {
+    match c {
+        fepdf_sdk::Conformance::Implemented => "implemented",
+        fepdf_sdk::Conformance::NonConformant => "NON-CONFORMANT",
+        fepdf_sdk::Conformance::Unsupported => "UNSUPPORTED",
+    }
+}
+
+fn render_encryption_text(r: &fepdf_sdk::EncryptionReport, input: &std::path::Path) {
+    println!("fepdf encryption: {}", input.display());
+    if !r.encrypted {
+        println!("\n  no /Encrypt — the document is not protected");
+        render_decisions_text(&r.decisions);
+        return;
+    }
+
+    println!("\n--- [ HANDLER (7.6.4) ] ---");
+    println!("  /Filter            {}", r.handler.as_deref().unwrap_or("(absent)"));
+    println!("  /V                 {}", opt(r.version));
+    println!("  /R                 {}", opt(r.revision));
+    println!("  key length         {}", r.key_bits.map_or("—".into(), |b| format!("{b} bits")));
+    println!("  stream cipher      {}", r.cipher.as_deref().unwrap_or("—"));
+    println!("  /EncryptMetadata   {}", r.encrypt_metadata);
+    println!("  unlocked           {}", if r.unlocked { "yes" } else { "NO" });
+
+    if !r.crypt_filters.is_empty() {
+        println!("\n--- [ CRYPT FILTERS (7.6.5) ] ---");
+        for f in &r.crypt_filters {
+            let mut used = Vec::new();
+            if f.for_streams {
+                used.push("streams");
+            }
+            if f.for_strings {
+                used.push("strings");
+            }
+            let used = if used.is_empty() { "unused".to_string() } else { used.join(", ") };
+            println!("  /{:<12} /CFM {:<8} {}", f.name, f.method, used);
+        }
+    }
+
+    render_encryption_permissions(r);
+
+    println!("\n--- [ WHAT THIS ENGINE DOES WITH IT ] ---");
+    println!("  {}", conformance_label(r.conformance));
+    println!("  {}", r.conformance_note);
+
+    render_decisions_text(&r.decisions);
+}
+
+fn render_encryption_permissions(r: &fepdf_sdk::EncryptionReport) {
+    println!("\n--- [ PERMISSIONS (7.6.4.2, Table 22) ] ---");
+    let Some(bits) = r.permission_bits else {
+        println!("  /P is absent or unreadable");
+        return;
+    };
+    // The sign is the point: these are 32 bits, and the hex is how the file writes
+    // them. Reading them back as a positive integer is what ADR-0009 is about.
+    println!("  /P {bits} (0x{:08X})", bits.cast_unsigned());
+    for p in &r.permissions {
+        println!("    bit {:>2}  {}  {}", p.bit, if p.granted { "yes" } else { "no " }, p.meaning);
+    }
+}
+
+fn render_encryption_markdown(r: &fepdf_sdk::EncryptionReport, input: &std::path::Path) {
+    println!("# Encryption: {}", input.display());
+    if !r.encrypted {
+        println!("\nNo `/Encrypt` — the document is not protected.");
+        render_decisions_markdown(&r.decisions);
+        return;
+    }
+    println!("\n| Property | Value |");
+    println!("| :--- | :--- |");
+    println!("| `/Filter` | {} |", r.handler.as_deref().unwrap_or("—"));
+    println!("| `/V` / `/R` | {} / {} |", opt(r.version), opt(r.revision));
+    println!("| Key length | {} |", r.key_bits.map_or("—".into(), |b| format!("{b} bits")));
+    println!("| Stream cipher | {} |", r.cipher.as_deref().unwrap_or("—"));
+    println!("| `/EncryptMetadata` | {} |", r.encrypt_metadata);
+    println!("| Unlocked | {} |", if r.unlocked { "yes" } else { "no" });
+    println!("| Conformance | **{}** |", conformance_label(r.conformance));
+    println!("\n{}\n", r.conformance_note);
+
+    if !r.permissions.is_empty() {
+        println!("| Bit | Granted | Permits |");
+        println!("| ---: | :---: | :--- |");
+        for p in &r.permissions {
+            println!("| {} | {} | {} |", p.bit, if p.granted { "yes" } else { "no" }, p.meaning);
+        }
+    }
+    render_decisions_markdown(&r.decisions);
+}
+
+fn opt<T: std::fmt::Display>(value: Option<T>) -> String {
+    value.map_or_else(|| "—".to_string(), |v| v.to_string())
 }
 
 /// Reports what a reader could interact with (clause 12).
