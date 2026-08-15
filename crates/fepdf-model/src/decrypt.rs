@@ -15,7 +15,7 @@ use crate::interpretation::{Decision, DecisionLog};
 use crate::object::{Object, PdfName, SublimatedData};
 use crate::reader::DictHandle;
 use bytes::Bytes;
-use fepdf_syntax::security::{AesV5Spec, Cipher, SecurityHandler, StandardSpec};
+use fepdf_syntax::security::{Access, AesV5Spec, Cipher, SecurityHandler, StandardSpec};
 use std::collections::BTreeMap;
 
 /// What the document said about its own protection.
@@ -25,11 +25,14 @@ pub struct Security {
     pub method: String,
     /// The `/P` permission bits, if the document declared any.
     pub permissions: Option<i32>,
+    /// Which password authenticated. `None` when the document is not encrypted, or
+    /// when no password opened it.
+    pub access: Option<Access>,
 }
 
 impl Default for Security {
     fn default() -> Self {
-        Self { method: "No Security".to_string(), permissions: None }
+        Self { method: "No Security".to_string(), permissions: None, access: None }
     }
 }
 
@@ -50,7 +53,7 @@ pub fn unlock(
         return Ok(Security::default());
     };
 
-    let security = describe(arena, &encrypt);
+    let mut security = describe(arena, &encrypt);
     let Some(handler) = build_handler(arena, trailer, &encrypt, password, decisions) else {
         decisions.push(Decision::violation(
             "7.6.1",
@@ -59,6 +62,8 @@ pub fn unlock(
         ));
         return Ok(security);
     };
+
+    security.access = Some(handler.access());
 
     for number in 0..arena.object_count() {
         if Some(number) == exclude {
@@ -93,7 +98,7 @@ fn describe(arena: &PdfArena, encrypt: &Dict) -> Security {
         4 => "Password Security (AES-128)",
         _ => "Password Security (Standard)",
     };
-    Security { method: method.to_string(), permissions: permissions(arena, encrypt) }
+    Security { method: method.to_string(), permissions: permissions(arena, encrypt), access: None }
 }
 
 /// The `/P` bits, reinterpreted as the signed 32-bit field 7.6.4.2 defines.
@@ -142,24 +147,36 @@ fn build_handler(
     }
 
     let u = string(arena, encrypt, "U").unwrap_or_default();
-    let handler = SecurityHandler::new_standard(
-        password,
-        &StandardSpec {
-            owner: &string(arena, encrypt, "O").unwrap_or_default(),
-            permissions: permissions(arena, encrypt)?,
-            file_id: &id,
-            encrypt_metadata: boolean(arena, encrypt, "EncryptMetadata").unwrap_or(true),
-            revision: i32::try_from(revision).ok()?,
-            key_len,
-            cipher,
-        },
-    )
-    .ok()?;
+    let o = string(arena, encrypt, "O").unwrap_or_default();
+    let spec = StandardSpec {
+        owner: &o,
+        permissions: permissions(arena, encrypt)?,
+        file_id: &id,
+        encrypt_metadata: boolean(arena, encrypt, "EncryptMetadata").unwrap_or(true),
+        revision: i32::try_from(revision).ok()?,
+        key_len,
+        cipher,
+    };
 
     // Algorithm 6. A wrong password otherwise derives a wrong key and every object
     // decrypts to noise, which the engine reported as thousands of font failures
     // rather than as a refusal.
-    handler.user_password_matches(&u, &id).then_some(handler)
+    let handler = SecurityHandler::new_standard(password, &spec).ok()?;
+    if handler.user_password_matches(&u, &id) {
+        return Some(handler);
+    }
+
+    // Algorithm 7. 7.6.4.1 says either password should open the document, and `/O`
+    // holds the user password wrapped under the owner's — so recover it, and derive
+    // the key from *that*, since the owner password is not what Algorithm 2 hashes.
+    let recovered = SecurityHandler::recover_user_password(password, &o, spec.revision, key_len)?;
+    let recovered = String::from_utf8_lossy(&recovered).into_owned();
+    let mut owner = SecurityHandler::new_standard(recovered.trim_end_matches('\0'), &spec).ok()?;
+    if owner.user_password_matches(&u, &id) {
+        owner.set_access(Access::Owner);
+        return Some(owner);
+    }
+    None
 }
 
 /// Algorithm 2.A: the AES-256 handler, whose key comes from `/U`, `/UE`, `/O` and

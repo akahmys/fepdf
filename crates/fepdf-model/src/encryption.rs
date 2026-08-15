@@ -82,6 +82,9 @@ pub struct EncryptionReport {
     pub conformance_note: &'static str,
     /// Whether the supplied password unlocked it.
     pub unlocked: bool,
+    /// Which password authenticated: `"user"`, `"owner"`, or absent. 7.6.4.1 restricts
+    /// only user access by `/P`, so `unlocked` alone does not say enough.
+    pub access: Option<String>,
     /// Decisions taken reading and unlocking.
     pub decisions: Vec<Decision>,
 }
@@ -153,6 +156,10 @@ impl EncryptionReport {
             conformance,
             conformance_note,
             unlocked,
+            access: security.access.map(|a| match a {
+                fepdf_syntax::security::Access::User => "user".to_string(),
+                fepdf_syntax::security::Access::Owner => "owner".to_string(),
+            }),
             decisions: decisions.entries().to_vec(),
         })
     }
@@ -172,6 +179,7 @@ impl EncryptionReport {
             conformance: Conformance::Implemented,
             conformance_note: "the document declares no /Encrypt",
             unlocked: true,
+            access: None,
             decisions,
         }
     }

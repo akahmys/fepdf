@@ -77,6 +77,8 @@ pub struct Document {
     pub security_method: String,
     /// Permission flags recovered from the encryption dictionary.
     pub permissions: Option<i32>,
+    /// Which password authenticated. `/P` restricts only [`Access::User`] (7.6.4.1).
+    pub access: Option<fepdf_syntax::security::Access>,
 }
 
 impl Document {
@@ -93,6 +95,7 @@ impl Document {
             force_fallback: false,
             security_method: "No Security".to_string(),
             permissions: None,
+            access: None,
         }
     }
 
@@ -120,7 +123,49 @@ impl Document {
             force_fallback: false,
             security_method: "No Security".to_string(),
             permissions: None,
+            access: None,
         }
+    }
+
+    /// What is lost by writing this document out, when its `/P` said not to.
+    ///
+    /// `/P` is a declaration, not a lock: it is readable without a password, it is not
+    /// cryptographically bound to any operation, and 7.6.4.1 puts obeying it at
+    /// `should` rather than `shall`. So this refuses nothing.
+    ///
+    /// What it does refuse to do is stay quiet. Writing decrypts the objects, and a
+    /// trailer that still claimed `/Encrypt` over plain objects makes Acrobat report
+    /// error 135 — so `/Encrypt` goes, and the permissions go with it. The author's
+    /// declaration does not survive, and without this nothing said so: the engine took
+    /// a document reading "do not modify, do not reassemble", rewrote it, and produced
+    /// one that declares nothing at all.
+    ///
+    /// Only under [`Access::User`]. An owner password carries full access (7.6.4.1),
+    /// including the right to change the permissions, so there is nothing to report.
+    #[must_use]
+    pub fn permissions_lost_on_write(&self) -> Option<crate::interpretation::Decision> {
+        use fepdf_syntax::security::Access;
+        if self.access != Some(Access::User) {
+            return None;
+        }
+        let bits = self.permissions?;
+        let denied: Vec<&str> = [(4, "modification"), (11, "assembly"), (6, "annotation")]
+            .iter()
+            .filter(|(bit, _)| bits & (1 << (bit - 1)) == 0)
+            .map(|(_, name)| *name)
+            .collect();
+        if denied.is_empty() {
+            return None;
+        }
+        Some(crate::interpretation::Decision::violation(
+            "7.6.4.2",
+            format!(
+                "the document was opened with user access and its /P ({bits}) permits no {}",
+                denied.join(" and no ")
+            ),
+            "wrote it anyway; /Encrypt cannot survive decryption, so the output declares \
+             no permissions at all",
+        ))
     }
 
     /// Opens a PDF document from bytes with specific options.
@@ -132,6 +177,7 @@ impl Document {
         doc.force_fallback = options.force_fallback;
         doc.security_method = ingested.security_method;
         doc.permissions = ingested.permissions;
+        doc.access = ingested.access;
 
         // Populate font cache from ingestion
         {
@@ -973,5 +1019,65 @@ impl Document {
         handle: Handle<Object>,
     ) -> Option<std::sync::Arc<crate::object::SublimatedData>> {
         self.arena.get_sublimated_data(handle)
+    }
+}
+
+#[cfg(test)]
+mod permission_notice {
+    //! `/P` is reported, never enforced — and reported to exactly one party.
+
+    use super::*;
+    use fepdf_syntax::security::Access;
+
+    /// A document with the given access level and permission bits, and nothing else.
+    fn with(access: Option<Access>, permissions: Option<i32>) -> Document {
+        let arena = PdfArena::new();
+        let root = arena.alloc_object(Object::Null);
+        let mut doc = Document::new(arena, root, None);
+        doc.access = access;
+        doc.permissions = permissions;
+        doc
+    }
+
+    #[test]
+    fn user_access_against_a_restrictive_p_is_reported() {
+        // samples/unicode_16.pdf: bits 4 and 11 clear, opened with the default
+        // password, which 7.6.4.1 makes user access.
+        let doc = with(Some(Access::User), Some(-1036));
+        let decision = doc.permissions_lost_on_write().expect("a notice is owed");
+        assert!(decision.found.contains("modification"), "{decision}");
+        assert!(decision.found.contains("assembly"), "{decision}");
+        assert!(decision.action.contains("wrote it anyway"), "nothing is refused");
+    }
+
+    #[test]
+    fn owner_access_is_not_nagged() {
+        // 7.6.4.1: the owner password carries full access, "including the ability to
+        // change the document's passwords and access permissions". Reporting a loss to
+        // the party entitled to cause it would make the notice noise.
+        assert!(with(Some(Access::Owner), Some(-1036)).permissions_lost_on_write().is_none());
+    }
+
+    #[test]
+    fn a_permissive_p_says_nothing() {
+        // -4 clears only the two reserved low bits: everything is permitted, so no
+        // declaration is lost by writing. A notice here would fire on every encrypted
+        // document and stop being a signal (ADR-0008).
+        assert!(with(Some(Access::User), Some(-4)).permissions_lost_on_write().is_none());
+    }
+
+    #[test]
+    fn an_unencrypted_document_says_nothing() {
+        assert!(with(None, None).permissions_lost_on_write().is_none());
+        assert!(with(None, Some(-1036)).permissions_lost_on_write().is_none());
+    }
+
+    #[test]
+    fn each_denied_bit_is_named() {
+        // Bit 6 is annotations; naming which bits were set is what makes the notice
+        // actionable rather than a warning that something was lost.
+        let doc = with(Some(Access::User), Some(!0b0010_0000));
+        let decision = doc.permissions_lost_on_write().expect("bit 6 is clear");
+        assert!(decision.found.contains("annotation"), "{decision}");
     }
 }

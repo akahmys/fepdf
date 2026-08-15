@@ -166,6 +166,21 @@ pub struct SecurityHandler {
     revision: i32,
     is_aes: bool,
     encrypt_metadata: bool,
+    access: Access,
+}
+
+/// Which password authenticated, which is what decides whether `/P` applies.
+///
+/// 7.6.4.1: opening with the owner password "should allow full (owner) access",
+/// while opening with the user password — or with the default empty one — allows
+/// operations "according to the user access permissions". A processor that does not
+/// know which it holds cannot honour either sentence.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Access {
+    /// The user password, or the default empty one. `/P` addresses this party.
+    User,
+    /// The owner password. `/P` does not restrict it.
+    Owner,
 }
 
 /// Which cipher the standard security handler applies to strings and streams.
@@ -220,6 +235,10 @@ impl SecurityHandler {
             revision: spec.revision,
             is_aes: spec.cipher == Cipher::Aes,
             encrypt_metadata: spec.encrypt_metadata,
+            // Revisions 4 and earlier authenticate separately, through
+            // `user_password_matches`; until that runs this is the assumption that
+            // restricts rather than the one that does not.
+            access: Access::User,
         })
     }
 
@@ -295,14 +314,14 @@ impl SecurityHandler {
         }
         let pw = &password.as_bytes()[..password.len().min(127)];
 
-        let key = if hash_2a(spec.revision, pw, &spec.u[32..40], &[]) == spec.u[..32] {
+        let (key, access) = if hash_2a(spec.revision, pw, &spec.u[32..40], &[]) == spec.u[..32] {
             // Steps (a), (b), (e): the user password.
             let intermediate = hash_2a(spec.revision, pw, &spec.u[40..48], &[]);
-            aes256_cbc_decrypt_no_padding(&intermediate, spec.ue)?
+            (aes256_cbc_decrypt_no_padding(&intermediate, spec.ue)?, Access::User)
         } else if hash_2a(spec.revision, pw, &spec.o[32..40], &spec.u[..48]) == spec.o[..32] {
             // Steps (c), (d): the owner password, which hashes the 48-byte /U with it.
             let intermediate = hash_2a(spec.revision, pw, &spec.o[40..48], &spec.u[..48]);
-            aes256_cbc_decrypt_no_padding(&intermediate, spec.oe)?
+            (aes256_cbc_decrypt_no_padding(&intermediate, spec.oe)?, Access::Owner)
         } else {
             return None;
         };
@@ -312,6 +331,7 @@ impl SecurityHandler {
             revision: spec.revision,
             is_aes: true,
             encrypt_metadata: spec.encrypt_metadata,
+            access,
         })
     }
 
@@ -366,6 +386,48 @@ impl SecurityHandler {
         computed[..16] == u_string[..16]
     }
 
+    /// Whether the password is the document's *owner* password: Algorithm 7 (7.6.4.4).
+    ///
+    /// `/O` holds the user password encrypted under a key made from the owner
+    /// password, so recovering it and checking it as a user password is the test. The
+    /// caller passes the recovered password back through [`Self::new_standard`],
+    /// because it — not the owner password — is what derives the file key.
+    #[must_use]
+    pub fn recover_user_password(
+        owner_password: &str,
+        o_string: &[u8],
+        revision: i32,
+        key_len: usize,
+    ) -> Option<Vec<u8>> {
+        if o_string.len() < 32 {
+            return None;
+        }
+        let mut pad = PAD;
+        let bytes = owner_password.as_bytes();
+        let len = bytes.len().min(32);
+        pad[..len].copy_from_slice(&bytes[..len]);
+        pad[len..].copy_from_slice(&PAD[..32 - len]);
+
+        let mut digest = md5::compute(pad).0;
+        if revision >= 3 {
+            for _ in 0..50 {
+                digest = md5::compute(digest).0;
+            }
+        }
+        let key = &digest[..key_len.min(16)];
+
+        let mut out = o_string[..32].to_vec();
+        if revision == 2 {
+            return Some(rc4(key, &out));
+        }
+        // Algorithm 7 step (b): nineteen down to zero, the reverse of Algorithm 3.
+        for round in (0..=19u8).rev() {
+            let round_key: Vec<u8> = key.iter().map(|b| b ^ round).collect();
+            out = rc4(&round_key, &out);
+        }
+        Some(out)
+    }
+
     /// `/U` as Algorithm 4 (revision 2) or Algorithm 5 (revision 3 and later) defines.
     fn compute_u(&self, file_id: &[u8]) -> Vec<u8> {
         if self.revision == 2 {
@@ -382,6 +444,18 @@ impl SecurityHandler {
             out = rc4(&key, &out);
         }
         out
+    }
+
+    /// Which password authenticated.
+    #[must_use]
+    pub fn access(&self) -> Access {
+        self.access
+    }
+
+    /// Records that the owner password authenticated, for the revisions whose password
+    /// check is a separate step from deriving the key (7.6.4.4, Algorithms 6 and 7).
+    pub fn set_access(&mut self, access: Access) {
+        self.access = access;
     }
 
     /// Whether `/EncryptMetadata` leaves the metadata stream encrypted.

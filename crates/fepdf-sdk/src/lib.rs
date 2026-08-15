@@ -34,7 +34,7 @@ pub use fepdf_model::interactive::{
     AnnotationCensus, FormFields, InteractiveReport, Outline as OutlineSummary,
 };
 pub use fepdf_model::interpretation::{Decision, DecisionLog, Severity, Strictness};
-pub use fepdf_model::security::{AesV5Spec, SecurityHandler};
+pub use fepdf_model::security::{Access, AesV5Spec, SecurityHandler};
 pub use fepdf_model::{
     AFRelationship, AnnotationKind, AnnotationSpec, ArticleBead, ArticleThread, AssociatedFile,
     CollectionViewMode, Document, FormFieldSpec, FormValue, GeoSpatialAnchor, Handle, LayerGroup,
@@ -1526,6 +1526,14 @@ impl PdfDocument {
     /// Returns the active security handler method name if encrypted.
     pub fn security_method(&self) -> String {
         self.inner.security_method.clone()
+    }
+
+    /// What is lost by writing this document out, when its `/P` said not to.
+    ///
+    /// Reports rather than refuses; see `Document::permissions_lost_on_write`.
+    #[must_use]
+    pub fn permissions_lost_on_write(&self) -> Option<Decision> {
+        self.inner.permissions_lost_on_write()
     }
 
     /// Returns user permissions granted for this document.

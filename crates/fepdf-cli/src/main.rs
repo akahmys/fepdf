@@ -760,9 +760,7 @@ fn handle_merge(
 
     let merged = PdfDocument::merge(sources).map_err(|e| anyhow::anyhow!("{e:?}"))?;
     let save_options: fepdf_sdk::SaveOptions = save.into();
-    merged
-        .save_with_options(&output, "2.0", &save_options)
-        .map_err(|e| anyhow::anyhow!("{e:?}"))?;
+    save_reporting_permissions(&merged, &output, &save_options)?;
     println!("SUCCESS: Merged output saved to {}", output.display());
     Ok(())
 }
@@ -787,9 +785,7 @@ fn handle_split(
     let extracted = doc.extract_pages(target_indices).map_err(|e| anyhow::anyhow!("{e:?}"))?;
 
     let save_options: fepdf_sdk::SaveOptions = save.into();
-    extracted
-        .save_with_options(&output, "2.0", &save_options)
-        .map_err(|e| anyhow::anyhow!("{e:?}"))?;
+    save_reporting_permissions(&extracted, &output, &save_options)?;
     println!("SUCCESS: Extracted output saved to {}", output.display());
     Ok(())
 }
@@ -984,6 +980,26 @@ fn render_decisions_markdown(decisions: &[fepdf_sdk::Decision]) {
     }
 }
 
+/// Writes the document, first saying what its `/P` said about being rewritten.
+///
+/// One function rather than a line at each of ten call sites, because the thing that
+/// must not happen is a write path that forgets. `/P` is a declaration and not a lock
+/// (7.6.4.1 puts obeying it at `should`), so nothing is refused — but decryption drops
+/// `/Encrypt`, the permissions go with it, and until this the engine rewrote a document
+/// saying "do not modify" into one saying nothing at all, in silence.
+///
+/// stderr, so a redirected `>` output is unchanged.
+fn save_reporting_permissions(
+    doc: &PdfDocument,
+    output: &std::path::Path,
+    save_options: &fepdf_sdk::SaveOptions,
+) -> Result<()> {
+    if let Some(decision) = doc.permissions_lost_on_write() {
+        eprintln!("{decision}");
+    }
+    doc.save_with_options(output, "2.0", save_options).map_err(|e| anyhow::anyhow!("{e:?}"))
+}
+
 /// Reports what protects the document (7.6), and how far the engine conforms.
 fn handle_encryption(input: &std::path::Path, format: &str, password: &str) -> Result<()> {
     let data = std::fs::read(input).with_context(|| "Failed to read input")?;
@@ -1022,6 +1038,11 @@ fn render_encryption_text(r: &fepdf_sdk::EncryptionReport, input: &std::path::Pa
     println!("  stream cipher      {}", r.cipher.as_deref().unwrap_or("—"));
     println!("  /EncryptMetadata   {}", r.encrypt_metadata);
     println!("  unlocked           {}", if r.unlocked { "yes" } else { "NO" });
+    if let Some(access) = &r.access {
+        // /P restricts user access only (7.6.4.1), so which one opened it is the
+        // difference between the permissions applying and not applying at all.
+        println!("  access             {access}");
+    }
 
     if !r.crypt_filters.is_empty() {
         println!("\n--- [ CRYPT FILTERS (7.6.5) ] ---");
@@ -1522,6 +1543,10 @@ fn handle_upgrade(
 
     let save_options: fepdf_sdk::SaveOptions = save.into();
 
+    // Linearising writes too, so it owes the same notice.
+    if let Some(decision) = doc.permissions_lost_on_write() {
+        eprintln!("{decision}");
+    }
     if linearize {
         doc.save_linearized(&output, "2.0", &save_options).map_err(|e| anyhow::anyhow!("{e:?}"))?;
     } else {
@@ -1545,7 +1570,7 @@ fn handle_repair(
         .map_err(|e| anyhow::anyhow!("{e:?}"))?;
 
     let save_options: fepdf_sdk::SaveOptions = save.into();
-    doc.save_with_options(&output, "2.0", &save_options).map_err(|e| anyhow::anyhow!("{e:?}"))?;
+    save_reporting_permissions(&doc, &output, &save_options)?;
     println!("SUCCESS: Repaired output saved to {}", output.display());
     Ok(())
 }
@@ -1578,7 +1603,7 @@ fn handle_rotate(
     .map_err(|e| anyhow::anyhow!("{e:?}"))?;
 
     let save_options: fepdf_sdk::SaveOptions = save.into();
-    doc.save_with_options(&output, "2.0", &save_options).map_err(|e| anyhow::anyhow!("{e:?}"))?;
+    save_reporting_permissions(&doc, &output, &save_options)?;
     println!("SUCCESS: Rotated output saved to {}", output.display());
     Ok(())
 }
@@ -1675,7 +1700,7 @@ fn handle_retag(
     }
 
     let save_options: fepdf_sdk::SaveOptions = save.into();
-    doc.save_with_options(&output, "2.0", &save_options).map_err(|e| anyhow::anyhow!("{e:?}"))?;
+    save_reporting_permissions(&doc, &output, &save_options)?;
     println!("SUCCESS: Re-tagged document saved to {}", output.display());
     Ok(())
 }
@@ -2009,7 +2034,7 @@ fn handle_portfolio(
         .map_err(|e| anyhow::anyhow!("{e:?}"))?;
 
     let save_options: fepdf_sdk::SaveOptions = save.into();
-    doc.save_with_options(&output, "2.0", &save_options).map_err(|e| anyhow::anyhow!("{e:?}"))?;
+    save_reporting_permissions(&doc, &output, &save_options)?;
     println!("SUCCESS: Portfolio saved to {}", output.display());
     Ok(())
 }
@@ -2039,7 +2064,7 @@ fn handle_bates(
     doc.apply(op).map_err(|e| anyhow::anyhow!("{e:?}"))?;
 
     let save_options: fepdf_sdk::SaveOptions = save.into();
-    doc.save_with_options(&output, "2.0", &save_options).map_err(|e| anyhow::anyhow!("{e:?}"))?;
+    save_reporting_permissions(&doc, &output, &save_options)?;
     println!("SUCCESS: Output with Bates numbering saved to {}", output.display());
     Ok(())
 }
@@ -2078,7 +2103,7 @@ fn handle_attach(
         .map_err(|e| anyhow::anyhow!("{e:?}"))?;
 
     let save_options: fepdf_sdk::SaveOptions = save.into();
-    doc.save_with_options(&output, "2.0", &save_options).map_err(|e| anyhow::anyhow!("{e:?}"))?;
+    save_reporting_permissions(&doc, &output, &save_options)?;
     println!("SUCCESS: PDF with Associated File saved to {}", output.display());
     Ok(())
 }
@@ -2110,7 +2135,7 @@ fn handle_page_label(
     doc.apply(fepdf_sdk::Operation::SetPageLabels(labels)).map_err(|e| anyhow::anyhow!("{e:?}"))?;
 
     let save_options: fepdf_sdk::SaveOptions = save.into();
-    doc.save_with_options(&output, "2.0", &save_options).map_err(|e| anyhow::anyhow!("{e:?}"))?;
+    save_reporting_permissions(&doc, &output, &save_options)?;
     println!("SUCCESS: PDF with updated page labels saved to {}", output.display());
     Ok(())
 }
@@ -2142,7 +2167,7 @@ fn handle_geo(
         .map_err(|e| anyhow::anyhow!("{e:?}"))?;
 
     let save_options: fepdf_sdk::SaveOptions = save.into();
-    doc.save_with_options(&output, "2.0", &save_options).map_err(|e| anyhow::anyhow!("{e:?}"))?;
+    save_reporting_permissions(&doc, &output, &save_options)?;
     println!("SUCCESS: PDF with GIS anchor saved to {}", output.display());
     Ok(())
 }

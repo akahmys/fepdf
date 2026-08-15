@@ -95,6 +95,8 @@ pub struct IngestedDocument {
     pub security_method: String,
     /// Permission flags recovered from the encryption dictionary.
     pub permissions: Option<i32>,
+    /// Which password authenticated, when the document was encrypted.
+    pub access: Option<fepdf_syntax::security::Access>,
 }
 
 impl Ingestor {
@@ -161,6 +163,7 @@ impl Ingestor {
             font_cache: handle_font_cache,
             security_method: security.method,
             permissions: security.permissions,
+            access: security.access,
         })
     }
 
