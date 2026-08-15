@@ -38,6 +38,127 @@ fn rc4(key: &[u8], data: &[u8]) -> Vec<u8> {
         .collect()
 }
 
+/// The `/Encrypt` values an AES-256 document derives its key from (7.6.4.4).
+#[derive(Debug, Clone)]
+pub struct AesV5Spec<'a> {
+    /// `/U`: 32-byte hash, 8-byte validation salt, 8-byte key salt.
+    pub u: &'a [u8],
+    /// `/UE`: the file key, wrapped under the user password.
+    pub ue: &'a [u8],
+    /// `/O`, laid out like `/U` but hashed with the 48-byte `/U` appended.
+    pub o: &'a [u8],
+    /// `/OE`: the file key, wrapped under the owner password.
+    pub oe: &'a [u8],
+    /// `/R`: 5 for the Adobe extension, 6 for what PDF 2.0 standardised.
+    pub revision: i32,
+    /// `/EncryptMetadata`.
+    pub encrypt_metadata: bool,
+}
+
+/// The hash Algorithm 2.A calls for at this revision.
+///
+/// Revision 5 is Adobe's original extension and hashes once. Revision 6 is what ISO
+/// 32000-2 standardised and runs Algorithm 2.B, which exists so the derivation cannot
+/// be parallelised: each round picks its next hash function from the round before.
+fn hash_2a(revision: i32, password: &[u8], salt: &[u8], udata: &[u8]) -> Vec<u8> {
+    let mut first = Sha256::new();
+    first.update(password);
+    first.update(salt);
+    first.update(udata);
+    let seed: [u8; 32] = first.finalize().into();
+    if revision < 6 {
+        return seed.to_vec();
+    }
+    hash_2b(password, udata, seed)
+}
+
+/// Algorithm 2.B, 7.6.4.3.4, transcribed from the clause.
+fn hash_2b(password: &[u8], udata: &[u8], seed: [u8; 32]) -> Vec<u8> {
+    let mut k: Vec<u8> = seed.to_vec();
+    let mut round: u64 = 0;
+    loop {
+        // (a) K1 is 64 repetitions of the password, K, and — only when checking an
+        // owner password — the 48-byte /U.
+        let mut k1 = Vec::with_capacity(64 * (password.len() + k.len() + udata.len()));
+        for _ in 0..64 {
+            k1.extend_from_slice(password);
+            k1.extend_from_slice(&k);
+            k1.extend_from_slice(udata);
+        }
+
+        // (b) AES-128 in CBC with no padding, keyed and initialised by the halves of K.
+        let Some(e) = aes128_cbc_encrypt_no_padding(&k[..16], &k[16..32], &k1) else {
+            return k;
+        };
+
+        // (c) The first 16 bytes of E as a big-endian integer, modulo 3. 256 is 1 mod 3,
+        // so the byte sum has the same remainder and needs no wide arithmetic.
+        let remainder = e[..16].iter().map(|b| u32::from(*b)).sum::<u32>() % 3;
+        k = match remainder {
+            0 => Sha256::digest(&e).to_vec(),
+            1 => sha2::Sha384::digest(&e).to_vec(),
+            _ => sha2::Sha512::digest(&e).to_vec(),
+        };
+
+        round += 1;
+        // (e), (f): from round 64, stop once the last byte of E is at most round - 32.
+        if round >= 64 && u64::from(e[e.len() - 1]) <= round - 32 {
+            k.truncate(32);
+            return k;
+        }
+    }
+}
+
+/// AES-128 CBC encryption with no padding, for Algorithm 2.B step (b).
+fn aes128_cbc_encrypt_no_padding(key: &[u8], iv: &[u8], data: &[u8]) -> Option<Vec<u8>> {
+    if !data.len().is_multiple_of(16) {
+        return None;
+    }
+    let cipher = Aes128::new_from_slice(key).ok()?;
+    let mut previous: [u8; 16] = iv.try_into().ok()?;
+    let mut out = Vec::with_capacity(data.len());
+    for chunk in data.chunks(16) {
+        let mut block = [0u8; 16];
+        for (i, byte) in chunk.iter().enumerate() {
+            block[i] = byte ^ previous[i];
+        }
+        cipher.encrypt_block(Block::from_mut_slice(&mut block));
+        previous = block;
+        out.extend_from_slice(&block);
+    }
+    Some(out)
+}
+
+/// AES-256 CBC decryption with a zero initialisation vector and no padding, which is
+/// how `/UE` and `/OE` wrap the file key (2.A steps (d) and (e)).
+fn aes256_cbc_decrypt_no_padding(key: &[u8], data: &[u8]) -> Option<Vec<u8>> {
+    if !data.len().is_multiple_of(16) {
+        return None;
+    }
+    let cipher = Aes256::new_from_slice(key).ok()?;
+    let mut previous = [0u8; 16];
+    let mut out = Vec::with_capacity(data.len());
+    for chunk in data.chunks(16) {
+        let mut block: [u8; 16] = chunk.try_into().ok()?;
+        let saved = block;
+        cipher.decrypt_block(Block::from_mut_slice(&mut block));
+        for (i, byte) in block.iter_mut().enumerate() {
+            *byte ^= previous[i];
+        }
+        previous = saved;
+        out.extend_from_slice(&block);
+    }
+    Some(out)
+}
+
+/// AES-256 ECB decryption, which `/Perms` uses (2.A step (f)).
+fn aes256_ecb_decrypt(key: &[u8], data: &[u8]) -> Option<Vec<u8>> {
+    let cipher = Aes256::new_from_slice(key).ok()?;
+    let mut block: [u8; 16] = data.get(..16)?.try_into().ok()?;
+    cipher.decrypt_block(Block::from_mut_slice(&mut block));
+    Some(block.to_vec())
+}
+
 /// A security handler for PDF encryption.
 #[derive(Clone)]
 pub struct SecurityHandler {
@@ -158,46 +279,59 @@ impl SecurityHandler {
         hash[..spec.key_len].to_vec()
     }
 
-    /// Creates a new security handler for AES-256 (Revision 5).
+    /// Retrieves the file encryption key from an AES-256 document: Algorithm 2.A.
     ///
-    /// # Compliance Warning
-    /// This is a simplified Revision 5 key derivation logic primarily used for internal validation,
-    /// and does not fully conform to the multi-stage key hashing and AES-decryption requirements
-    /// specified in ISO 32000-2:2020 Clause 7.6.4.3.3 (Algorithm 2.A/Algorithm 3.A).
+    /// Tries the password as the user's, then as the owner's, and returns `None` when
+    /// it is neither. Nothing here uses `/ID` — 7.6.4.3.3 deliberately drops it, which
+    /// is why an incremental update cannot invalidate the key.
     ///
-    /// TODO(RR-15-EXT): Transition to full multi-stage key verification using validation salts,
-    /// key salts, and owner password checking as detailed in ISO 32000-2 Algorithms 8, 9, 2.A, and 3.A.
-    pub fn new_v5(
-        user_password: &str,
-        _owner_password: &str,
-        file_id: &[u8],
-    ) -> SyntaxResult<Self> {
-        // Derive deterministic validation and key salts using SHA-256 to comply with Rule 10 (Determinism)
-        let mut ue_hasher = Sha256::new();
-        ue_hasher.update(file_id);
-        ue_hasher.update(b"UserKeySalt");
-        let ue_salt: [u8; 32] = ue_hasher.finalize().into();
-
-        // 50-round SHA-256 multi-stage key derivation (ISO 32000-2:2020 Clause 7.6.4.3.3)
-        let mut hasher = Sha256::new();
-        hasher.update(user_password.as_bytes());
-        hasher.update(ue_salt);
-        let mut hash: [u8; 32] = hasher.finalize().into();
-
-        for _ in 0..50 {
-            let mut h = Sha256::new();
-            h.update(hash);
-            h.update(user_password.as_bytes());
-            h.update(ue_salt);
-            hash = h.finalize().into();
+    /// **SASLprep is not applied.** Step (a) of 2.A calls for RFC 4013 normalisation
+    /// before the UTF-8 conversion; this truncates to 127 bytes (step b) and otherwise
+    /// takes the string as given. Passwords outside ASCII may therefore fail where a
+    /// conforming reader succeeds, and that is a real gap rather than a rounding.
+    pub fn new_aes256(password: &str, spec: &AesV5Spec<'_>) -> Option<Self> {
+        if spec.u.len() < 48 || spec.o.len() < 48 || spec.ue.len() < 32 || spec.oe.len() < 32 {
+            return None;
         }
+        let pw = &password.as_bytes()[..password.len().min(127)];
 
-        Ok(Self {
-            encryption_key: hash.to_vec(),
-            revision: 5,
+        let key = if hash_2a(spec.revision, pw, &spec.u[32..40], &[]) == spec.u[..32] {
+            // Steps (a), (b), (e): the user password.
+            let intermediate = hash_2a(spec.revision, pw, &spec.u[40..48], &[]);
+            aes256_cbc_decrypt_no_padding(&intermediate, spec.ue)?
+        } else if hash_2a(spec.revision, pw, &spec.o[32..40], &spec.u[..48]) == spec.o[..32] {
+            // Steps (c), (d): the owner password, which hashes the 48-byte /U with it.
+            let intermediate = hash_2a(spec.revision, pw, &spec.o[40..48], &spec.u[..48]);
+            aes256_cbc_decrypt_no_padding(&intermediate, spec.oe)?
+        } else {
+            return None;
+        };
+
+        Some(Self {
+            encryption_key: key,
+            revision: spec.revision,
             is_aes: true,
-            encrypt_metadata: true,
+            encrypt_metadata: spec.encrypt_metadata,
         })
+    }
+
+    /// Checks `/Perms` against `/P`: Algorithm 2.A step (f).
+    ///
+    /// A file whose `/Perms` does not decrypt to its own `/P` has had its permissions
+    /// edited without the key, which the standard makes detectable precisely so that
+    /// stripping them is not silent.
+    #[must_use]
+    pub fn perms_agree(&self, perms: &[u8], declared: i32) -> bool {
+        if perms.len() < 16 {
+            return false;
+        }
+        let Some(plain) = aes256_ecb_decrypt(&self.encryption_key, &perms[..16]) else {
+            return false;
+        };
+        if &plain[9..12] != b"adb" {
+            return false;
+        }
+        i32::from_le_bytes([plain[0], plain[1], plain[2], plain[3]]) == declared
     }
 
     /// The file encryption key, for cross-checking key derivation against an
@@ -215,9 +349,9 @@ impl SecurityHandler {
     /// decrypts to noise, and the document still "opens": `samples/unicode_16.pdf`
     /// reported 1,140 pages and 29,438 font failures rather than refusing.
     ///
-    /// Revisions 5 and 6 validate differently (Algorithm 11, against `/U`'s validation
-    /// salt) and are not covered here; `new_v5` does not derive a conforming key to
-    /// begin with, so there is nothing yet to validate against.
+    /// Revisions 5 and 6 are not covered here because they validate as part of
+    /// deriving the key: [`Self::new_aes256`] returns `None` when the password matches
+    /// neither `/U` nor `/O`, so there is no unvalidated handler to check afterwards.
     #[must_use]
     pub fn user_password_matches(&self, u_string: &[u8], file_id: &[u8]) -> bool {
         if self.revision >= 5 || u_string.len() < 16 {
@@ -555,6 +689,70 @@ mod tests {
             let h = rc4_handler(&o, 2, 5);
             assert_eq!(hexs(&h.derive_object_key(7, 0)), "aff63a256e8c21ed8b5c");
             assert_eq!(h.derive_object_key(7, 0).len(), 10, "5 + 5");
+        }
+    }
+
+    /// Algorithms 2.A and 2.B against `scripts/test/make_encrypted.py`, which
+    /// transcribes them from ISO 32000-2 with only `hashlib` and a pure-Python AES.
+    /// The AES there is itself checked against FIPS-197, so a disagreement below means
+    /// one of the two transcriptions is wrong rather than both being wrong together.
+    mod aes256 {
+        use super::*;
+
+        const SALT: &str = "0011223344556677";
+
+        #[test]
+        fn algorithm_2b_matches_an_independent_transcription() {
+            assert_eq!(
+                hexs(&hash_2b(b"", b"", sha256_of(b"", &hex(SALT), b""))),
+                "c2e2dc9383748384b0ef05fdbc769d3879a739cffd5a05a7d6bb2958d0f9ccf0"
+            );
+            assert_eq!(
+                hexs(&hash_2a(6, b"password", &hex(SALT), b"")),
+                "03ccc9a6b2caf2fa710326f2b867dfe523a6006e711411738233fa1831db58fb"
+            );
+        }
+
+        #[test]
+        fn the_owner_path_folds_the_forty_eight_byte_u_into_the_hash() {
+            // 2.A step (c). Omitting /U makes every owner password fail, and nothing
+            // else would notice, because the user path is tried first.
+            let udata: Vec<u8> = (0..48u8).collect();
+            assert_eq!(
+                hexs(&hash_2a(6, b"", &hex(SALT), &udata)),
+                "c7f2cf304927163bf52398502c32b09dd366a5b0192f927a01a7ba3a98dc9fda"
+            );
+        }
+
+        #[test]
+        fn revision_5_hashes_once_where_revision_6_iterates() {
+            // Adobe's extension, which PDF 2.0 deprecates but files still use.
+            assert_eq!(
+                hexs(&hash_2a(5, b"", &hex(SALT), b"")),
+                "d1a5f998fa6ed82da6943127533b412f2286b30c8473a819f70a8fec5913fea7"
+            );
+            assert_ne!(hash_2a(5, b"", &hex(SALT), b""), hash_2a(6, b"", &hex(SALT), b""));
+        }
+
+        #[test]
+        fn a_short_or_absent_string_refuses_rather_than_guessing() {
+            let spec = AesV5Spec {
+                u: &[0u8; 8],
+                ue: &[0u8; 32],
+                o: &[0u8; 48],
+                oe: &[0u8; 32],
+                revision: 6,
+                encrypt_metadata: true,
+            };
+            assert!(SecurityHandler::new_aes256("", &spec).is_none(), "/U is 48 bytes");
+        }
+
+        fn sha256_of(password: &[u8], salt: &[u8], udata: &[u8]) -> [u8; 32] {
+            let mut h = Sha256::new();
+            h.update(password);
+            h.update(salt);
+            h.update(udata);
+            h.finalize().into()
         }
     }
 

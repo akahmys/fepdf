@@ -17,7 +17,7 @@ Understanding them is what remains.
 | :--- | :--- |
 | **7.3** Objects | Complete. Every type in the clause. |
 | **7.5** File structure | **Complete and in use.** Header scan, both cross-reference forms, `/Prev` chains, hybrid references, object streams, incremental updates, and recovery by scanning. `Document::open` reads the file itself; `lopdf` is gone. |
-| **7.6** Encryption | RC4 (V1/V2) and AES-128 (V4/R4) decrypt, validate the user password, and preserve content through a round trip — verified against PDFKit on eleven files. All three were broken or absent ([ADR-0009](docs/adr/0009-permissions-are-thirty-two-bits-not-a-positive-integer.md)). **Still weakest**: AES-256 R5/R6 is self-declared non-conformant and invents its own salts; owner passwords and `/P` enforcement are unimplemented; public-key (7.6.4) and unencrypted wrapper (7.6.7) are stubs. |
+| **7.6** Encryption | Every password handler the standard defines now decrypts: RC4 (V1/V2), AES-128 (V4/R4) and AES-256 (V5/R5, V5/R6) to Algorithms 1, 2, 2.A, 2.B and 4–6, with `/Perms` checked and both password roles authenticating. Verified against PDFKit on fourteen files; all of it was broken or absent ([ADR-0009](docs/adr/0009-permissions-are-thirty-two-bits-not-a-positive-integer.md)). **Remaining**: SASLprep is not applied to passwords; `/P` is reported but not enforced; public-key (7.6.4) and unencrypted wrapper (7.6.7) are stubs. |
 | **7.7** Document structure | **10 of Table 29's 32** catalogue entries typed, measured by `status.sh` from `PdfCatalog`. Untyped entries survive a round trip but cannot be reasoned about; `inspect catalog` names which ones, per file. |
 | **PDF 2.0 additions** | **Six** catalogue entries have a spec type but no read or write path — `PageLabels`, `Threads`, `OutputIntents`, `OCProperties`, `Collection`, `AF`. `DPartRoot` has no type at all, contrary to what this table said before it was checked. `inspect catalog` reports the six as `type only`. |
 | **8–14** Content, text, interactive, tagged | Interpreter, fonts and UA-2 auditing exist; interactive features (12) can now be *read* (`inspect interactive`) but not edited. The corpus exercises one annotation subtype of ~28 — all 29,973 are `/Link` — and no form field at all. |
@@ -105,7 +105,7 @@ covering 7.5, 7.6, 7.7.2 and clause 12, with the decision log on all of them.
 that shows it. Reading a feature is the precondition for writing it correctly.
 
 `inspect encryption` moved to Phase C rather than being dropped, and landed there: a
-report on a handler documented in-source as non-conformant would have described the gap
+report on a handler that could not then open a conforming file would have described the gap
 rather than the feature. Two of the three defects Phase C then found were invisible
 precisely because the file *opened*, so the command now states conformance per file —
 against what the code implements, not what the dictionary declares.
@@ -153,14 +153,22 @@ Independent of A and B, and the area where a partial implementation is most harm
       construction sites and no path could clear it, so a crypt filter naming RC4 was
       decrypted as AES. Test data comes from `scripts/test/make_encrypted.py`, which
       implements Algorithms 1–5 independently
-- [ ] AES-256 R5/R6 to Algorithms 2.A, 3.A, 8 and 9 — the current key derivation is
-      documented in-source as not conforming, and invents its own salts rather than
-      reading `/U` and `/O`
-- [ ] Owner-password validation and permission enforcement
+- [x] AES-256 R5/R6 to Algorithm 2.A, with 2.B transcribed from 7.6.4.3.4. The old
+      derivation invented salts from `/ID` and returned a handler for **any** password,
+      so the file opened and decrypted to noise. `/Perms` is checked (step f), and both
+      the user and owner passwords authenticate. SASLprep is **not** applied, so a
+      non-ASCII password may fail where a conforming reader succeeds
+- [x] Owner-password validation — Algorithm 2.A tries `/U` then `/O`, so an owner
+      password opens a document whose user password is unknown
+- [ ] Permission enforcement. `/P` is read, decoded and reported; nothing acts on it,
+      which is the honest state rather than a claim of protection
+- [ ] SASLprep (RFC 4013) on passwords, which 2.A step (a) requires
 - [ ] Public-key encryption (7.6.4)
 - [ ] Unencrypted wrapper documents (7.6.7)
-- [x] A corpus of encrypted files as regression tests — RC4 40- and 128-bit, built
-      independently. AES-256 has none, and cannot until the key derivation conforms
+- [x] A corpus of encrypted files as regression tests — five, built independently:
+      RC4 40- and 128-bit, AES-256 at revisions 5 and 6, and one with distinct user and
+      owner passwords. `scripts/test/aes.py` is a pure-Python AES checked against
+      FIPS-197, so the fixtures do not depend on the engine they test
 - [ ] Explain the 93 characters `fy05.pdf` loses through a round trip
 
 *Done when*: an AES-256 document written by Acrobat round-trips, and one written by

@@ -15,7 +15,7 @@ use crate::interpretation::{Decision, DecisionLog};
 use crate::object::{Object, PdfName, SublimatedData};
 use crate::reader::DictHandle;
 use bytes::Bytes;
-use fepdf_syntax::security::{Cipher, SecurityHandler, StandardSpec};
+use fepdf_syntax::security::{AesV5Spec, Cipher, SecurityHandler, StandardSpec};
 use std::collections::BTreeMap;
 
 /// What the document said about its own protection.
@@ -51,7 +51,7 @@ pub fn unlock(
     };
 
     let security = describe(arena, &encrypt);
-    let Some(handler) = build_handler(arena, trailer, &encrypt, password) else {
+    let Some(handler) = build_handler(arena, trailer, &encrypt, password, decisions) else {
         decisions.push(Decision::violation(
             "7.6.1",
             format!("{} could not be unlocked", security.method),
@@ -119,13 +119,14 @@ fn build_handler(
     trailer: DictHandle,
     encrypt: &Dict,
     password: &str,
+    decisions: &mut DecisionLog,
 ) -> Option<SecurityHandler> {
     let version = integer(arena, encrypt, "V").unwrap_or(0);
     let revision = integer(arena, encrypt, "R").unwrap_or(0);
     let id = first_file_id(arena, trailer);
 
-    if (version, revision) == (5, 5) || (version, revision) == (5, 6) {
-        return SecurityHandler::new_v5(password, "", &id).ok();
+    if version == 5 && (revision == 5 || revision == 6) {
+        return build_aes256(arena, encrypt, password, revision, decisions);
     }
 
     // 7.6.4.2 Table 20: `/V` decides how the key is sized and whether crypt filters
@@ -159,6 +160,46 @@ fn build_handler(
     // decrypts to noise, which the engine reported as thousands of font failures
     // rather than as a refusal.
     handler.user_password_matches(&u, &id).then_some(handler)
+}
+
+/// Algorithm 2.A: the AES-256 handler, whose key comes from `/U`, `/UE`, `/O` and
+/// `/OE` and from no part of `/ID` — which is what lets an incremental update leave it
+/// valid, and why 7.6.4.3.3 encourages it over Algorithm 2.
+fn build_aes256(
+    arena: &PdfArena,
+    encrypt: &Dict,
+    password: &str,
+    revision: i64,
+    decisions: &mut DecisionLog,
+) -> Option<SecurityHandler> {
+    let (u, ue) = (string(arena, encrypt, "U")?, string(arena, encrypt, "UE")?);
+    let (o, oe) = (string(arena, encrypt, "O")?, string(arena, encrypt, "OE")?);
+    let handler = SecurityHandler::new_aes256(
+        password,
+        &AesV5Spec {
+            u: &u,
+            ue: &ue,
+            o: &o,
+            oe: &oe,
+            revision: i32::try_from(revision).ok()?,
+            encrypt_metadata: boolean(arena, encrypt, "EncryptMetadata").unwrap_or(true),
+        },
+    )?;
+
+    // Step (f). A `/Perms` that does not decrypt to this file's own `/P` means the
+    // permissions were edited without the key, which the standard makes detectable so
+    // that stripping them cannot be silent.
+    if let (Some(perms), Some(declared)) =
+        (string(arena, encrypt, "Perms"), permissions(arena, encrypt))
+        && !handler.perms_agree(&perms, declared)
+    {
+        decisions.push(Decision::violation(
+            "7.6.4.3.3",
+            "/Perms does not decrypt to the /P this file declares",
+            "unlocked the document anyway; its permissions have been altered without the key",
+        ));
+    }
+    Some(handler)
 }
 
 /// `/Length` in bytes. It is written in bits, and defaults to 40.

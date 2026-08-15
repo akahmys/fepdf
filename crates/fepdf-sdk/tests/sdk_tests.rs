@@ -157,16 +157,29 @@ fn test_cielab_to_srgb_conversion() {
     }
 }
 
+/// Revision 5 and 6 derive their key from `/U`, `/UE`, `/O` and `/OE`, and from no
+/// part of `/ID`.
+///
+/// This asserted the reverse until it was measured: `new_v5` took a file id, invented
+/// salts from it, and returned `Ok` for every password — so the test passed while the
+/// handler produced a key that could not decrypt anything. Passing on a wrong answer is
+/// worse than failing, and a test written from the code rather than the clause will do
+/// that indefinitely.
 #[test]
-fn test_r5_key_derivation_multistage() {
-    use fepdf_model::security::SecurityHandler;
-    let file_id = b"testfileid123456";
-    let handler = SecurityHandler::new_v5("password", "", file_id);
-    assert!(handler.is_ok());
-
-    // Verify it is a Revision 5 handler with AES enabled
-    let h = handler.unwrap();
-    assert!(h.should_decrypt_metadata());
+fn test_aes256_requires_the_documents_own_strings() {
+    use fepdf_sdk::{AesV5Spec, SecurityHandler};
+    let spec = AesV5Spec {
+        u: &[0u8; 48],
+        ue: &[0u8; 32],
+        o: &[0u8; 48],
+        oe: &[0u8; 32],
+        revision: 6,
+        encrypt_metadata: true,
+    };
+    assert!(
+        SecurityHandler::new_aes256("password", &spec).is_none(),
+        "a password that authenticates against neither /U nor /O must not build a handler"
+    );
 }
 
 #[test]

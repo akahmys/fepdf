@@ -22,8 +22,8 @@ pub enum Conformance {
     /// Implemented against the standard's algorithms and cross-checked against an
     /// independent implementation.
     Implemented,
-    /// Implemented, but the key derivation is documented in-source as not conforming.
-    /// The handler will not open a file written by anything else.
+    /// Implemented, but with a documented departure from the clause. The handler may
+    /// fail on input a conforming reader accepts.
     NonConformant,
     /// Not implemented. The document is left encrypted and its content unreadable.
     Unsupported,
@@ -189,10 +189,15 @@ fn judge(version: Option<i64>, revision: Option<i64>) -> (Conformance, &'static 
             Conformance::Implemented,
             "AES-128 or RC4 by /CFM, to Algorithms 1 to 6, cross-checked against PDFKit",
         ),
-        (5, 5 | 6) => (
-            Conformance::NonConformant,
-            "key derivation is documented in-source as not conforming to Algorithms 2.A and 3.A; \
-             it invents its own salts rather than reading /U and /O",
+        (5, 6) => (
+            Conformance::Implemented,
+            "AES-256 to Algorithms 2.A and 2.B, with /Perms checked; SASLprep is not \
+             applied to the password, so non-ASCII passwords may fail",
+        ),
+        (5, 5) => (
+            Conformance::Implemented,
+            "AES-256 at Adobe's revision 5, which hashes once where revision 6 runs \
+             Algorithm 2.B; deprecated by PDF 2.0 but still read",
         ),
         _ => (Conformance::Unsupported, "no handler is implemented for this /V and /R"),
     }
@@ -333,8 +338,8 @@ mod tests {
         assert_eq!(judge(Some(1), Some(2)).0, Conformance::Implemented);
         assert_eq!(judge(Some(2), Some(3)).0, Conformance::Implemented);
         assert_eq!(judge(Some(4), Some(4)).0, Conformance::Implemented);
-        assert_eq!(judge(Some(5), Some(6)).0, Conformance::NonConformant);
-        assert_eq!(judge(Some(5), Some(5)).0, Conformance::NonConformant);
+        assert_eq!(judge(Some(5), Some(6)).0, Conformance::Implemented);
+        assert_eq!(judge(Some(5), Some(5)).0, Conformance::Implemented);
         // Public-key handlers, and anything else the standard adds.
         assert_eq!(judge(Some(4), Some(9)).0, Conformance::Unsupported);
         assert_eq!(judge(None, None).0, Conformance::Unsupported);

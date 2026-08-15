@@ -34,6 +34,12 @@ struct IngestArgs {
     /// Force fallback to system fonts if embedded font parsing fails
     #[arg(long)]
     force_fallback: bool,
+    /// Password to open an encrypted document with
+    ///
+    /// `IngestionOptions::password` was hardcoded `None` here, so every command that
+    /// opens a document could only ever open one with an empty user password.
+    #[arg(long)]
+    password: Option<String>,
 }
 
 impl From<IngestArgs> for fepdf_sdk::IngestionOptions {
@@ -47,7 +53,7 @@ impl From<IngestArgs> for fepdf_sdk::IngestionOptions {
                 fepdf_sdk::ColorPolicy::Strict
             },
             force_fallback: args.force_fallback,
-            password: None,
+            password: args.password,
             progress_callback: None,
         }
     }
@@ -2200,6 +2206,7 @@ mod tests {
             no_metadata_recovery: false,
             relaxed_color: true,
             force_fallback: false,
+            password: None,
         };
         let opts: fepdf_sdk::IngestionOptions = args.into();
         assert!(!opts.active_refinement);

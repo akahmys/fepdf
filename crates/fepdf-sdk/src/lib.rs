@@ -34,6 +34,7 @@ pub use fepdf_model::interactive::{
     AnnotationCensus, FormFields, InteractiveReport, Outline as OutlineSummary,
 };
 pub use fepdf_model::interpretation::{Decision, DecisionLog, Severity, Strictness};
+pub use fepdf_model::security::{AesV5Spec, SecurityHandler};
 pub use fepdf_model::{
     AFRelationship, AnnotationKind, AnnotationSpec, ArticleBead, ArticleThread, AssociatedFile,
     CollectionViewMode, Document, FormFieldSpec, FormValue, GeoSpatialAnchor, Handle, LayerGroup,
