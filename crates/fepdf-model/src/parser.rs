@@ -35,6 +35,13 @@ impl<'a> Parser<'a> {
     }
 
     /// Parses a single PDF object from the token stream.
+    /// Byte offset just past the last token consumed.
+    #[must_use]
+    pub fn position(&self) -> usize {
+        self.lexer.pos()
+    }
+
+    /// Parses one object, following nested arrays and dictionaries.
     pub fn parse_object(&mut self) -> PdfResult<Object> {
         if self.depth >= MAX_RECURSION_DEPTH {
             return Err(PdfError::Parse {

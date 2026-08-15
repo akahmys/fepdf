@@ -30,6 +30,8 @@ pub use fepdf_syntax::lexer;
 pub mod metadata;
 pub mod object;
 pub mod parser;
+/// Building objects from the offsets the syntax layer located.
+pub mod reader;
 pub mod refine;
 /// Where documents come from: the bytes-to-`Document` boundary.
 pub mod source;
