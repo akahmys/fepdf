@@ -41,14 +41,28 @@ fn normalize_type0_font(dict: &mut BTreeMap<PdfName, RefinedObject>, resource: &
     let encoding_name = if resource.wmode == 1 { "Identity-V" } else { "Identity-H" };
     dict.insert(PdfName::new("Encoding"), RefinedObject::Name(PdfName::new(encoding_name)));
 
-    // HARDENING: Only inject a generated ToUnicode map if it's missing.
-    // This prevents clobbering authoritative subset mappings in documents like unicode_16.pdf.
-    if let std::collections::btree_map::Entry::Vacant(e) = dict.entry(PdfName::new("ToUnicode"))
-        && let Some(uni_map) = resource.generate_standard_tounicode()
-        && !uni_map.is_empty()
-    {
-        e.insert(RefinedObject::Stream(BTreeMap::new(), bytes::Bytes::from(uni_map)));
-    }
+    // No `/ToUnicode` is synthesised here, and the entry that used to be is gone.
+    //
+    // `generate_standard_tounicode` keys its map on **glyph** ids, because that is what
+    // `unicode_to_gid` holds. Under `Identity-H` the codes in the content stream are
+    // CIDs. The two coincide only for a `CIDFontType2` written with `CIDToGIDMap
+    // /Identity`; a `CIDFontType0` maps CIDs through the CFF charset, and
+    // `CIDToGIDMap` does not apply to it at all. `samples/fy05.pdf` is the second case.
+    //
+    // Emitting a wrong map is worse than emitting none, because a reader trusts
+    // `/ToUnicode` over the registry ordering it would otherwise resolve through.
+    // Round-tripping the corpus and reading the output with PDFKit:
+    //
+    //   fy05.pdf    source 251,922    with the map 251,829    without it 251,930
+    //   other eight                   identical               identical
+    //
+    // Ninety-three pages lost text, five of them all of it — page 1's title among
+    // them. The map helped no file in the corpus and harmed one.
+    //
+    // Reinstating it needs a file that proves the narrow case: a `CIDFontType2` with
+    // `CIDToGIDMap /Identity`, no `/ToUnicode`, and text a reader cannot otherwise
+    // recover. Without such a file this is a guess, and the guess was measured wrong.
+    let _ = resource;
 }
 
 /// Normalizes a CMap stream to a canonical PDF 2.0 form.

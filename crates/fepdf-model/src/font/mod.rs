@@ -1389,7 +1389,16 @@ impl FontResource {
         }
     }
 
-    /// Synthesises a `/ToUnicode` CMap from the standard encoding.
+    /// Synthesises a `/ToUnicode` CMap keyed on **glyph** ids.
+    ///
+    /// **No caller, deliberately.** The refinement pass used to inject the result into
+    /// every `Type0` font that lacked a `/ToUnicode`, and that destroyed text: under
+    /// `Identity-H` the content stream's codes are CIDs, and glyph ids equal CIDs only
+    /// for a `CIDFontType2` written with `CIDToGIDMap /Identity`. See
+    /// `refine/font.rs::normalize_type0_font` for the measurement that removed it.
+    ///
+    /// Kept because that narrow case is real. Calling this again needs a file proving
+    /// it, and a check that the descendant is a `CIDFontType2` with an identity map.
     pub fn generate_standard_tounicode(&self) -> Option<Vec<u8>> {
         let mut cmap = String::new();
         cmap.push_str("/CIDInit /ProcSet findresource begin\n");
@@ -2222,46 +2231,6 @@ impl FontResource {
         }
 
         (consumed, self.to_unicode(code_bytes))
-    }
-
-    /// Synthesises a `/ToUnicode` CMap from UTF-8 aware mappings.
-    pub fn generate_tounicode_from_utf8(&self) -> Option<Vec<u8>> {
-        let mut cmap = String::new();
-        cmap.push_str("/CIDInit /ProcSet findresource begin\n");
-        cmap.push_str("12 dict begin\n");
-        cmap.push_str("begincmap\n");
-        cmap.push_str(
-            "/CIDSystemInfo <<\n  /Registry (Adobe)\n  /Ordering (UCS)\n  /Supplement 0\n>> def\n",
-        );
-        cmap.push_str(&format!(
-            "/CMapName /Adobe-UTF8-ToUnicode-{} def\n",
-            self.base_font.as_str()
-        ));
-        cmap.push_str("/CMapType 2 def\n");
-        cmap.push_str("4 begincodespacerange\n");
-        cmap.push_str("<00> <7F>\n");
-        cmap.push_str("<C280> <DFBF>\n");
-        cmap.push_str("<E0A080> <EFBFBF>\n");
-        cmap.push_str("<F0908080> <F48FBFBF>\n");
-        cmap.push_str("endcodespacerange\n");
-
-        if !self.unicode_to_gid.is_empty() {
-            cmap.push_str(&format!("{} begincidchar\n", self.unicode_to_gid.len()));
-            for &c in self.unicode_to_gid.keys() {
-                let mut buf = [0u8; 4];
-                let utf8_bytes = c.encode_utf8(&mut buf).as_bytes();
-                let utf8_hex = utf8_bytes.iter().map(|b| format!("{b:02X}")).collect::<String>();
-                let uni_hex = format!("{:04X}", c as u32);
-                cmap.push_str(&format!("<{utf8_hex}> <{uni_hex}>\n"));
-            }
-            cmap.push_str("endcidchar\n");
-        }
-
-        cmap.push_str("endcmap\n");
-        cmap.push_str("CMapName currentdict /CMap defineresource pop\n");
-        cmap.push_str("end\nend\n");
-
-        Some(cmap.into_bytes())
     }
 }
 

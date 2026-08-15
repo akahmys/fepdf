@@ -6,7 +6,7 @@
 # shows up as a disagreement instead of being read as current.
 #
 #   ./scripts/dev/status.sh          state and figures
-#   ./scripts/dev/status.sh --full   also runs the tests and the compliance audit
+#   ./scripts/dev/status.sh --full   also runs the tests, the audit and the cross-check
 set -uo pipefail
 cd "$(dirname "$0")/../.." || exit 1
 
@@ -125,11 +125,18 @@ if [ "${1:-}" = "--full" ]; then
     else
         row "compliance audit" "FAILED — run ./scripts/audit/verify_compliance.sh"
     fi
+    # Three defects have been found only by reading the output with something else
+    # (ADR-0006, ADR-0009, ADR-0010). None was visible to the engine's own comparison.
+    if ./scripts/test/crosscheck_roundtrip.sh >/dev/null 2>&1; then
+        row "round trip vs PDFKit" "no page lost its text"
+    else
+        row "round trip vs PDFKit" "FAILED — run ./scripts/test/crosscheck_roundtrip.sh"
+    fi
 else
     echo
-    echo "  (--full also runs the tests and the compliance audit)"
+    echo "  (--full also runs the tests, the compliance audit and the PDFKit cross-check)"
 fi
 
 echo
 bold "Next"
-sed -n '/^## Phase B/,/^\*Done when\*/p' ROADMAP.md | sed 's/^/  /'
+sed -n '/^## Phase C/,/^\*Done when\*/p' ROADMAP.md | sed 's/^/  /'

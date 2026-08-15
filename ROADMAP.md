@@ -169,7 +169,12 @@ Independent of A and B, and the area where a partial implementation is most harm
       RC4 40- and 128-bit, AES-256 at revisions 5 and 6, and one with distinct user and
       owner passwords. `scripts/test/aes.py` is a pure-Python AES checked against
       FIPS-197, so the fixtures do not depend on the engine they test
-- [ ] Explain the 93 characters `fy05.pdf` loses through a round trip
+- [x] Explain the 93 characters `fy05.pdf` loses through a round trip. It was 93
+      *pages*, five of them losing all their text, because the refinement pass
+      synthesised a `/ToUnicode` keyed on glyph ids for a `CIDFontType0`
+      ([ADR-0010](docs/adr/0010-a-synthesised-tounicode-keyed-on-glyphs-destroys-text.md))
+- [ ] Explain the eight characters it now *gains*: ±1 across 78 of 846 pages, which
+      looks like word spacing rather than content
 
 *Done when*: an AES-256 document written by Acrobat round-trips, and one written by
 fepdf opens in Acrobat.
@@ -183,8 +188,10 @@ both fixtures and extracts the same 12,120 characters as the unencrypted source,
 generator is right and any disagreement is the engine's.
 
 Round-tripping the whole corpus through `publish upgrade` and reading the output with
-PDFKit: ten of eleven files preserve their text exactly. `fy05.pdf` loses 93 characters
-of 251,922 — unencrypted, so unrelated to this work, and unexplained.
+PDFKit is now a standing check. It found the one thing internal comparison could not:
+`fy05.pdf` was losing whole pages of text to a `/ToUnicode` the engine synthesised for
+it ([ADR-0010](docs/adr/0010-a-synthesised-tounicode-keyed-on-glyphs-destroys-text.md)).
+Thirteen of fourteen files now come back with their text intact.
 
 ### Why the corpus item is not optional
 
