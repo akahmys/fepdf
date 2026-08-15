@@ -21,6 +21,13 @@ pub trait FromPdfObject: Sized {
 pub trait PdfSchema {
     /// Returns the ISO 32000-2:2020 clause associated with this type.
     fn iso_clause() -> &'static str;
+
+    /// The dictionary keys this type reads, in declaration order.
+    ///
+    /// Derived from the `#[pdf_key]` attributes rather than written out again, so
+    /// "which entries are typed" has one answer that cannot drift from the struct.
+    /// `catalog.rs` reports the catalogue's gaps against it.
+    fn pdf_keys() -> &'static [&'static str];
 }
 
 impl FromPdfObject for Handle<BTreeMap<Handle<PdfName>, Object>> {

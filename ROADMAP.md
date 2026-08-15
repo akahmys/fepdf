@@ -18,8 +18,8 @@ Understanding them is what remains.
 | **7.3** Objects | Complete. Every type in the clause. |
 | **7.5** File structure | **Complete and in use.** Header scan, both cross-reference forms, `/Prev` chains, hybrid references, object streams, incremental updates, and recovery by scanning. `Document::open` reads the file itself; `lopdf` is gone. |
 | **7.6** Encryption | **Weakest area.** AES-256 R5/R6 is self-declared non-conformant; public-key (7.6.4) and unencrypted wrapper (7.6.7) are stubs. |
-| **7.7** Document structure | 10 of ~30 catalogue entries typed. Untyped entries survive a round trip but cannot be reasoned about. |
-| **PDF 2.0 additions** | `DSS`, `AF`, `DPartRoot` have spec types but no read or write path. |
+| **7.7** Document structure | **10 of Table 29's 32** catalogue entries typed, measured by `status.sh` from `PdfCatalog`. Untyped entries survive a round trip but cannot be reasoned about; `inspect catalog` names which ones, per file. |
+| **PDF 2.0 additions** | **Six** catalogue entries have a spec type but no read or write path — `PageLabels`, `Threads`, `OutputIntents`, `OCProperties`, `Collection`, `AF`. `DPartRoot` has no type at all, contrary to what this table said before it was checked. `inspect catalog` reports the six as `type only`. |
 | **8–14** Content, text, interactive, tagged | Interpreter, fonts and UA-2 auditing exist; interactive features (12) are largely unmodelled. |
 
 One measurement worth carrying forward: 19 of 24 `Operation` variants are stubs that
@@ -87,9 +87,13 @@ nothing reported encryption, interactive features, or file structure.
 - [x] `inspect structure` — file layout: sections, updates, object streams, and the
       decisions taken while reading. Text, JSON and Markdown; reads the bytes rather
       than a normalised `Document`, so it reports the file as written
-- [ ] `inspect encryption` — handler, revision, permissions, conformance
+- [x] `inspect catalog` — every entry, typed or not, so gaps are visible. Which
+      entries are *typed* is derived from `PdfCatalog`'s `#[pdf_key]` attributes
+      rather than listed again, so the report cannot drift from the struct
 - [ ] `inspect interactive` — annotations, form fields, actions, outlines
-- [ ] `inspect catalog` — every entry, typed or not, so gaps are visible
+- [ ] `inspect encryption` — handler, revision, permissions, conformance. Deferred
+      behind the rest: 7.6 is Phase C's subject, and reporting on a handler that is
+      self-declared non-conformant would mostly describe the gap
 - [ ] Surface `DecisionLog` in every output format, not only `audit`
 
 *Done when*: for any PDF 2.0 feature the engine claims to support, there is a command

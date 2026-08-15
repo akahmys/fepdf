@@ -56,6 +56,15 @@ leak=$(grep -rn "PdfArena\|Handle<" \
     --include="*.rs" 2>/dev/null | wc -l | tr -d ' ')
 row "Rule A leaks: arena types in frontends (expect 0)" "$leak"
 
+# ROADMAP.md quotes "10 of ~30 catalogue entries typed". Both halves are derived:
+# the numerator from `PdfCatalog`'s `#[pdf_key]` attributes, the denominator from the
+# Table 29 list `catalog.rs` reports against.
+typed=$(sed -n '/^pub struct PdfCatalog/,/^}/p' crates/fepdf-model/src/document.rs \
+    | grep -c '#\[pdf_key(' | tr -d ' ')
+table29=$(sed -n '/^const TABLE_29/,/^\];/p' crates/fepdf-model/src/catalog.rs \
+    | grep -c '^    ("' | tr -d ' ')
+row "catalogue entries typed (of Table 29)" "$typed of $table29"
+
 # ROADMAP.md Phase B counts these. `help` is clap's own and is not one of them.
 inspect_cmds=$(sed -n '/^enum InspectSubcommands/,/^}/p' crates/fepdf-cli/src/main.rs \
     | grep -c '^    [A-Z][A-Za-z]* {' | tr -d ' ')

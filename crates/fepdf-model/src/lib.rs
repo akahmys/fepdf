@@ -11,6 +11,8 @@ extern crate self as fepdf_model;
 pub mod arena;
 /// Conformance auditing against the published standards.
 pub mod audit;
+/// The document catalogue (7.7.2), entry by entry, typed or not.
+pub mod catalog;
 pub mod color;
 /// Content stream rewriting.
 pub mod content;

@@ -56,6 +56,8 @@ fn derive_from_pdf_object_impl(input: DeriveInput) -> syn::Result<proc_macro2::T
     };
 
     let mut field_parsers = Vec::new();
+    // Collected so `PdfSchema::pdf_keys` can report them; see object.rs.
+    let mut declared_keys: Vec<String> = Vec::new();
     for f in fields {
         let field_name = &f.ident;
         let field_type = &f.ty;
@@ -125,6 +127,7 @@ fn derive_from_pdf_object_impl(input: DeriveInput) -> syn::Result<proc_macro2::T
             }
         };
 
+        declared_keys.push(pdf_key.clone());
         field_parsers.push(quote! {
             let #field_name = {
                 let key = arena.name(#pdf_key);
@@ -160,6 +163,10 @@ fn derive_from_pdf_object_impl(input: DeriveInput) -> syn::Result<proc_macro2::T
         impl fepdf_model::object::PdfSchema for #name {
             fn iso_clause() -> &'static str {
                 #iso_clause_str
+            }
+
+            fn pdf_keys() -> &'static [&'static str] {
+                &[#(#declared_keys),*]
             }
         }
     };

@@ -197,6 +197,17 @@ enum InspectSubcommands {
         #[command(flatten)]
         ingest: IngestArgs,
     },
+    /// Report every catalogue entry (7.7.2), and what the engine can make of it
+    Catalog {
+        /// Input PDF file
+        input: PathBuf,
+        /// Output format (text, json, markdown)
+        #[arg(short, long, default_value = "text")]
+        format: String,
+        /// List every Table 29 key, including those this file does not carry
+        #[arg(long)]
+        all: bool,
+    },
     /// Report file layout: revisions, cross-reference form, object storage, decisions
     Structure {
         /// Input PDF file
@@ -577,6 +588,9 @@ async fn main() -> Result<()> {
             InspectSubcommands::Text { input, pages, ingest } => {
                 handle_text(input, pages, ingest)?;
             }
+            InspectSubcommands::Catalog { input, format, all } => {
+                handle_catalog(&input, &format, all)?;
+            }
             InspectSubcommands::Structure { input, format } => {
                 handle_structure(&input, &format)?;
             }
@@ -895,6 +909,88 @@ fn handle_info(input: PathBuf, format: String, ingest: IngestArgs) -> Result<()>
         _ => render_summary_text(&doc, &summary, false, false)?,
     }
     Ok(())
+}
+
+/// Reports the document catalogue (7.7.2) entry by entry, and the gaps.
+///
+/// `--all` adds every Table 29 key the file does not carry, which turns the report
+/// from "what is in this document" into "what the engine understands at all".
+fn handle_catalog(input: &std::path::Path, format: &str, all: bool) -> Result<()> {
+    let data = std::fs::read(input).with_context(|| "Failed to read input")?;
+    let report = fepdf_sdk::CatalogReport::survey(&data).map_err(|e| anyhow::anyhow!("{e:?}"))?;
+
+    match format {
+        "json" => println!("{}", serde_json::to_string_pretty(&report)?),
+        "markdown" => render_catalog_markdown(&report, input),
+        _ => render_catalog_text(&report, input, all),
+    }
+    Ok(())
+}
+
+fn support_label(s: fepdf_sdk::Support) -> &'static str {
+    match s {
+        fepdf_sdk::Support::Typed => "typed",
+        fepdf_sdk::Support::TypeOnly => "type only",
+        fepdf_sdk::Support::Untyped => "untyped",
+    }
+}
+
+fn render_catalog_text(r: &fepdf_sdk::CatalogReport, input: &std::path::Path, all: bool) {
+    println!("fepdf catalog: {}", input.display());
+
+    let (read, type_only, preserved) = r.support_counts();
+    println!("\n--- [ ENTRIES ({}) ] ---", r.entries.len());
+    println!("  {:<18} {:<11} {:<8} value", "key", "support", "in 7.7.2");
+    for e in &r.entries {
+        println!(
+            "  {:<18} {:<11} {:<8} {}",
+            e.key,
+            support_label(e.support),
+            if e.standard { "yes" } else { "no" },
+            e.value
+        );
+    }
+
+    println!("\n--- [ WHAT THE ENGINE CAN DO WITH THEM ] ---");
+    println!("  typed:     {read} — a field of PdfCatalog, so it can be reasoned about");
+    println!("  type only: {type_only} — a type for its contents exists; no read path");
+    println!("  untyped:   {preserved} — round-trips; any handling is ad hoc");
+    let untyped = r.untyped();
+    if !untyped.is_empty() {
+        println!(
+            "\n  {} of {} entries have no typed view: {}",
+            untyped.len(),
+            r.entries.len(),
+            untyped.iter().map(|e| e.key.as_str()).collect::<Vec<_>>().join(" ")
+        );
+    }
+
+    if all {
+        println!("\n--- [ TABLE 29 KEYS THIS FILE DOES NOT CARRY ({}) ] ---", r.absent.len());
+        for key in &r.absent {
+            println!("  {key}");
+        }
+    } else if !r.absent.is_empty() {
+        println!("\n  {} Table 29 keys are absent; --all lists them", r.absent.len());
+    }
+}
+
+fn render_catalog_markdown(r: &fepdf_sdk::CatalogReport, input: &std::path::Path) {
+    println!("# Catalogue: {}", input.display());
+    println!("\n| Key | Support | In 7.7.2 | Value |");
+    println!("| :--- | :--- | :---: | :--- |");
+    for e in &r.entries {
+        println!(
+            "| `{}` | {} | {} | {} |",
+            e.key,
+            support_label(e.support),
+            if e.standard { "yes" } else { "no" },
+            e.value
+        );
+    }
+    let (read, type_only, preserved) = r.support_counts();
+    println!("\nTyped {read}, type only {type_only}, untyped {preserved}.");
+    println!("\nAbsent Table 29 keys: {}.", r.absent.len());
 }
 
 /// Reports the file's layout (ISO 32000-2, 7.5) and every decision taken reading it.
