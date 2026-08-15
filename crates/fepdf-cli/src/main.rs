@@ -208,6 +208,14 @@ enum InspectSubcommands {
         #[arg(long)]
         all: bool,
     },
+    /// Report interactive features: annotations, form fields, actions, outline
+    Interactive {
+        /// Input PDF file
+        input: PathBuf,
+        /// Output format (text, json, markdown)
+        #[arg(short, long, default_value = "text")]
+        format: String,
+    },
     /// Report file layout: revisions, cross-reference form, object storage, decisions
     Structure {
         /// Input PDF file
@@ -591,6 +599,9 @@ async fn main() -> Result<()> {
             InspectSubcommands::Catalog { input, format, all } => {
                 handle_catalog(&input, &format, all)?;
             }
+            InspectSubcommands::Interactive { input, format } => {
+                handle_interactive(&input, &format)?;
+            }
             InspectSubcommands::Structure { input, format } => {
                 handle_structure(&input, &format)?;
             }
@@ -909,6 +920,115 @@ fn handle_info(input: PathBuf, format: String, ingest: IngestArgs) -> Result<()>
         _ => render_summary_text(&doc, &summary, false, false)?,
     }
     Ok(())
+}
+
+/// Reports what a reader could interact with (clause 12).
+fn handle_interactive(input: &std::path::Path, format: &str) -> Result<()> {
+    let data = std::fs::read(input).with_context(|| "Failed to read input")?;
+    let report =
+        fepdf_sdk::InteractiveReport::survey(&data).map_err(|e| anyhow::anyhow!("{e:?}"))?;
+
+    match format {
+        "json" => println!("{}", serde_json::to_string_pretty(&report)?),
+        "markdown" => render_interactive_markdown(&report, input),
+        _ => render_interactive_text(&report, input),
+    }
+    Ok(())
+}
+
+fn render_interactive_text(r: &fepdf_sdk::InteractiveReport, input: &std::path::Path) {
+    println!("fepdf interactive: {}", input.display());
+    if r.is_empty() {
+        println!("\n  nothing interactive: no annotations, fields, outline or actions");
+        return;
+    }
+
+    println!("\n--- [ ANNOTATIONS (12.5) ] ---");
+    if r.annotations.total == 0 {
+        println!("  none");
+    } else {
+        println!(
+            "  {} across {} of {} pages",
+            r.annotations.total, r.annotations.pages_with, r.pages
+        );
+        for (subtype, n) in &r.annotations.by_subtype {
+            println!("    {subtype:<18} {n:>7}");
+        }
+        if r.annotations.without_subtype > 0 {
+            println!(
+                "    {:<18} {:>7}  /Subtype is required (12.5.2)",
+                "(missing)", r.annotations.without_subtype
+            );
+        }
+    }
+
+    println!("\n--- [ FORM (12.7) ] ---");
+    if r.form.declared {
+        println!("  /AcroForm present, {} terminal fields", r.form.fields);
+        for (kind, n) in &r.form.by_type {
+            println!("    /FT {kind:<14} {n:>7}");
+        }
+        if let Some(needs) = r.form.needs_appearances {
+            println!("  /NeedAppearances {needs}");
+        }
+        if r.form.fields == 0 {
+            println!("  the form declares no fields, so there is nothing to fill");
+        }
+    } else {
+        println!("  no /AcroForm");
+    }
+
+    render_interactive_outline(r);
+
+    println!("\n--- [ ACTIONS (12.6) ] ---");
+    if r.actions.is_empty() {
+        println!("  none");
+    }
+    for (kind, n) in &r.actions {
+        println!("  {kind:<18} {n:>7}");
+    }
+}
+
+fn render_interactive_outline(r: &fepdf_sdk::InteractiveReport) {
+    println!("\n--- [ OUTLINE (12.3.3) ] ---");
+    if !r.outline.present {
+        println!("  no /Outlines");
+        return;
+    }
+    println!("  items in the tree      {}", r.outline.total);
+    println!("  visible                {}", r.outline.visible);
+    println!("  /Count declares        {}", r.outline.declared_visible);
+    if r.outline.count_disagrees() {
+        println!("  /Count does not match the visible items it is defined as (12.3.3)");
+    }
+}
+
+fn render_interactive_markdown(r: &fepdf_sdk::InteractiveReport, input: &std::path::Path) {
+    println!("# Interactive features: {}", input.display());
+    println!("\n| Feature | Value |");
+    println!("| :--- | :--- |");
+    println!("| Pages | {} |", r.pages);
+    println!("| Annotations | {} on {} pages |", r.annotations.total, r.annotations.pages_with);
+    println!("| Form fields | {} |", r.form.fields);
+    println!("| Outline items / visible | {} / {} |", r.outline.total, r.outline.visible);
+    println!("| Actions | {} |", r.actions.iter().map(|(_, n)| n).sum::<usize>());
+
+    if !r.annotations.by_subtype.is_empty() {
+        println!("\n## Annotation subtypes\n");
+        println!("| Subtype | Count |");
+        println!("| :--- | ---: |");
+        for (subtype, n) in &r.annotations.by_subtype {
+            println!("| `{subtype}` | {n} |");
+        }
+    }
+    if !r.actions.is_empty() {
+        println!("\n## Actions\n");
+        println!("| Kind | Count |");
+        println!("| :--- | ---: |");
+        for (kind, n) in &r.actions {
+            println!("| `{kind}` | {n} |");
+        }
+    }
 }
 
 /// Reports the document catalogue (7.7.2) entry by entry, and the gaps.

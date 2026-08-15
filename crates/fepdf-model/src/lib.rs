@@ -30,6 +30,8 @@ pub mod graphics;
 pub mod handle;
 pub mod ingest;
 /// Decisions taken when the input departs from the standard.
+/// Interactive features (clause 12): annotations, forms, actions, outlines.
+pub mod interactive;
 pub mod interpretation;
 pub use fepdf_syntax::lexer;
 /// Document metadata, from XMP or the `/Info` dictionary.

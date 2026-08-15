@@ -20,7 +20,7 @@ Understanding them is what remains.
 | **7.6** Encryption | **Weakest area.** AES-256 R5/R6 is self-declared non-conformant; public-key (7.6.4) and unencrypted wrapper (7.6.7) are stubs. |
 | **7.7** Document structure | **10 of Table 29's 32** catalogue entries typed, measured by `status.sh` from `PdfCatalog`. Untyped entries survive a round trip but cannot be reasoned about; `inspect catalog` names which ones, per file. |
 | **PDF 2.0 additions** | **Six** catalogue entries have a spec type but no read or write path — `PageLabels`, `Threads`, `OutputIntents`, `OCProperties`, `Collection`, `AF`. `DPartRoot` has no type at all, contrary to what this table said before it was checked. `inspect catalog` reports the six as `type only`. |
-| **8–14** Content, text, interactive, tagged | Interpreter, fonts and UA-2 auditing exist; interactive features (12) are largely unmodelled. |
+| **8–14** Content, text, interactive, tagged | Interpreter, fonts and UA-2 auditing exist; interactive features (12) can now be *read* (`inspect interactive`) but not edited. The corpus exercises one annotation subtype of ~28 — all 29,973 are `/Link` — and no form field at all. |
 
 One measurement worth carrying forward: 19 of 24 `Operation` variants are stubs that
 now report rather than claim success. In the engine (`fepdf-model`, `fepdf-syntax`)
@@ -90,7 +90,9 @@ nothing reported encryption, interactive features, or file structure.
 - [x] `inspect catalog` — every entry, typed or not, so gaps are visible. Which
       entries are *typed* is derived from `PdfCatalog`'s `#[pdf_key]` attributes
       rather than listed again, so the report cannot drift from the struct
-- [ ] `inspect interactive` — annotations, form fields, actions, outlines
+- [x] `inspect interactive` — annotations by subtype, form fields walked through
+      `/Kids`, actions by `/S`, and the outline as total, visible and declared. No
+      sample carries a form field, so that walk is held by a hand-assembled fixture
 - [ ] `inspect encryption` — handler, revision, permissions, conformance. Deferred
       behind the rest: 7.6 is Phase C's subject, and reporting on a handler that is
       self-declared non-conformant would mostly describe the gap

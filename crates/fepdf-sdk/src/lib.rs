@@ -29,6 +29,9 @@ pub use fepdf_model::file_structure::{FileStructure, ObjectCensus, ObjectStream,
 pub use fepdf_model::font::FontResource;
 pub use fepdf_model::graphics::Rect;
 pub use fepdf_model::ingest::{ColorPolicy, IngestionOptions};
+pub use fepdf_model::interactive::{
+    AnnotationCensus, FormFields, InteractiveReport, Outline as OutlineSummary,
+};
 pub use fepdf_model::interpretation::{Decision, DecisionLog, Severity, Strictness};
 pub use fepdf_model::{
     AFRelationship, AnnotationKind, AnnotationSpec, ArticleBead, ArticleThread, AssociatedFile,
