@@ -211,3 +211,69 @@ mod tests {
         assert_eq!(format!("{d}"), "[AMBIGUITY] no BOM -> PDFDocEncoding");
     }
 }
+
+#[cfg(test)]
+mod carried_everywhere {
+    //! Every report type carries the decision log.
+    //!
+    //! Phase B's last item was to surface it beyond the audit. Without a check this is
+    //! a claim in a roadmap: a report added later would omit it and nothing would say
+    //! so. Asserting on the reports rather than on the CLI keeps this fast; the
+    //! renderers all read the same field.
+
+    use crate::catalog::CatalogReport;
+    use crate::file_structure::FileStructure;
+    use crate::interactive::InteractiveReport;
+
+    /// A file with 300 bytes before `%PDF-`, which is a `Repaired` under 7.5.2.
+    fn prefixed() -> Vec<u8> {
+        let body = "%PDF-2.0\n\
+             1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n\
+             2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n\
+             3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] >>\nendobj\n";
+        let offsets: Vec<usize> =
+            (1..=3).map(|n| body.find(&format!("\n{n} 0 obj")).map_or(0, |p| p + 1)).collect();
+        let mut out = String::from(body);
+        let xref_at = out.len();
+        out.push_str("xref\n0 4\n0000000000 65535 f \n");
+        for off in &offsets {
+            out.push_str(&format!("{off:010} 00000 n \n"));
+        }
+        out.push_str(&format!("trailer\n<< /Size 4 /Root 1 0 R >>\nstartxref\n{xref_at}\n%%EOF\n"));
+
+        let mut prefixed = vec![b'X'; 300];
+        prefixed.extend_from_slice(out.as_bytes());
+        prefixed
+    }
+
+    #[test]
+    fn every_report_carries_the_decision_log() {
+        let bytes = prefixed();
+
+        let structure = FileStructure::survey(&bytes).expect("structure");
+        let catalog = CatalogReport::survey(&bytes).expect("catalog");
+        let interactive = InteractiveReport::survey(&bytes).expect("interactive");
+
+        for (name, decisions) in [
+            ("structure", &structure.decisions),
+            ("catalog", &catalog.decisions),
+            ("interactive", &interactive.decisions),
+        ] {
+            assert!(
+                decisions.iter().any(|d| d.clause == "7.5.2"),
+                "{name} does not carry the 7.5.2 repair: {decisions:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_conforming_file_leaves_every_report_silent() {
+        // The other half: a log that is never empty is a log nobody reads. Strip the
+        // prefix and the same file must record nothing anywhere.
+        let bytes = prefixed()[300..].to_vec();
+
+        assert!(FileStructure::survey(&bytes).expect("structure").decisions.is_empty());
+        assert!(CatalogReport::survey(&bytes).expect("catalog").decisions.is_empty());
+        assert!(InteractiveReport::survey(&bytes).expect("interactive").decisions.is_empty());
+    }
+}

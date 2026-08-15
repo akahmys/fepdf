@@ -78,11 +78,12 @@ One defect was found by cross-checking against an independent reader rather than
 any of the above — see
 [ADR-0006](docs/adr/0006-a-container-may-not-overwrite-a-newer-revision.md).
 
-## Phase B — Read before write
+## Phase B — Read before write *(one item deferred to Phase C)*
 
 Semantic completeness starts with being able to *see* a feature. `inspect` began with
 four commands — `info`, `audit`, `text`, `tree` — against roughly fifteen clauses, and
-nothing reported encryption, interactive features, or file structure.
+nothing reported encryption, interactive features, or file structure. It now has seven,
+covering 7.5, 7.7.2 and clause 12, with the decision log on all of them.
 
 - [x] `inspect structure` — file layout: sections, updates, object streams, and the
       decisions taken while reading. Text, JSON and Markdown; reads the bytes rather
@@ -96,10 +97,16 @@ nothing reported encryption, interactive features, or file structure.
 - [ ] `inspect encryption` — handler, revision, permissions, conformance. Deferred
       behind the rest: 7.6 is Phase C's subject, and reporting on a handler that is
       self-declared non-conformant would mostly describe the gap
-- [ ] Surface `DecisionLog` in every output format, not only `audit`
+- [x] Surface `DecisionLog` in every output format, not only `audit` — and
+      structured, not stringified: the audit had been flattening every decision to
+      `Warning` regardless of the severity the engine assigned
 
 *Done when*: for any PDF 2.0 feature the engine claims to support, there is a command
 that shows it. Reading a feature is the precondition for writing it correctly.
+
+`inspect encryption` is the one item left, and it moves to Phase C rather than being
+dropped: a report on a handler documented in-source as non-conformant would describe
+the gap rather than the feature, and Phase C is where the gap closes.
 
 ### What surveying the corpus first turned up
 
@@ -128,6 +135,9 @@ outside until the reader can.
 
 Independent of A and B, and the area where a partial implementation is most harmful.
 
+- [ ] `inspect encryption` — handler, revision, permissions, conformance. Carried over
+      from Phase B; do it first, so the rest of this phase has something to measure
+      against rather than only tests
 - [ ] AES-256 R5/R6 to Algorithms 2.A, 3.A, 8 and 9 — the current key derivation is
       documented in-source as not conforming
 - [ ] Owner-password validation and permission enforcement

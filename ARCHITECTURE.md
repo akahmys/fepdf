@@ -314,8 +314,16 @@ inside an inline image terminates it, how to read a text string with no BOM. Rea
 such a file means choosing, and the choice determines the output.
 
 Those choices are therefore **recorded, not logged**. `Document::decisions` carries a
-[`DecisionLog`]; `fepdf inspect audit` prints it. A caller must be able to distinguish
-*this loaded* from *this was conforming*, which a `log::warn!` on stderr cannot do.
+[`DecisionLog`], and every `inspect` command prints it in every output format — text,
+JSON and Markdown — with `inspect text` writing to stderr so its piped output stays
+clean. A caller must be able to distinguish *this loaded* from *this was conforming*,
+which a `log::warn!` on stderr cannot do.
+
+Structured, too. The audit alone used to show them, by stringifying each decision into
+a compliance issue at `IssueSeverity::Warning`: a JSON consumer was told "Warning"
+about something the engine had classified `Repaired`, and a `Violation` was
+indistinguishable from an `Ambiguity`. `DocumentSummary::decisions` now carries the log
+with its severities, and the audit no longer launders them.
 
 Each decision carries the clause that governs it and what was done:
 

@@ -12,6 +12,7 @@ use crate::arena::PdfArena;
 use crate::document::PdfCatalog;
 use crate::error::PdfResult;
 use crate::handle::Handle;
+use crate::interpretation::Decision;
 use crate::object::PdfSchema;
 use crate::object::{Object, PdfName};
 use crate::reader;
@@ -112,6 +113,9 @@ pub struct CatalogReport {
     pub entries: Vec<CatalogEntry>,
     /// Table 29 keys the file does not carry.
     pub absent: Vec<String>,
+    /// What the engine decided while reading this file (§5.3). Carried by every
+    /// report so that "how was this read" travels with "what was found".
+    pub decisions: Vec<Decision>,
 }
 
 impl CatalogReport {
@@ -149,7 +153,7 @@ impl CatalogReport {
             .map(|(k, _)| (*k).to_string())
             .collect();
 
-        Ok(Self { entries, absent })
+        Ok(Self { entries, absent, decisions: raw.decisions.entries().to_vec() })
     }
 
     /// How many present entries fall at each level of support.

@@ -782,6 +782,7 @@ fn render_summary_markdown(
     println!("# Document Summary: {}", input.file_name().unwrap_or_default().display());
     render_general_info(summary);
     render_font_audit(summary);
+    render_decisions_markdown(&summary.decisions);
 
     if audit {
         render_compliance_markdown(summary)?;
@@ -893,6 +894,10 @@ fn render_summary_text(
     render_general_text(summary);
     render_font_text(summary);
 
+    // Every text report carries the log, not only the audit: a caller must be able to
+    // tell "this loaded" from "this was conforming" whichever command they reached for.
+    render_decisions_text(&summary.decisions);
+
     if audit {
         render_audit_text(summary);
     }
@@ -922,6 +927,43 @@ fn handle_info(input: PathBuf, format: String, ingest: IngestArgs) -> Result<()>
     Ok(())
 }
 
+/// Prints the decisions taken while reading, in the same shape for every command.
+///
+/// One function rather than one per report, so a caller sees the same block from
+/// `info`, `audit`, `catalog`, `interactive` and `structure`. Before this, only the
+/// audit showed them, and it showed them laundered: every decision reached the summary
+/// as a compliance issue at `Warning`, whatever severity the engine had assigned.
+fn render_decisions_text(decisions: &[fepdf_sdk::Decision]) {
+    println!("\n--- [ DECISIONS TAKEN READING (5.3) ] ---");
+    if decisions.is_empty() {
+        println!("  none — the file was read without departing from the standard");
+        return;
+    }
+    let count = |s: fepdf_sdk::Severity| decisions.iter().filter(|d| d.severity == s).count();
+    println!(
+        "  {} ambiguities, {} repairs, {} violations",
+        count(fepdf_sdk::Severity::Ambiguity),
+        count(fepdf_sdk::Severity::Repaired),
+        count(fepdf_sdk::Severity::Violation)
+    );
+    for d in decisions {
+        println!("  {d}");
+    }
+}
+
+fn render_decisions_markdown(decisions: &[fepdf_sdk::Decision]) {
+    println!("\n## Decisions taken reading\n");
+    if decisions.is_empty() {
+        println!("None — the file was read without departing from the standard.");
+        return;
+    }
+    println!("| Severity | Clause | Found | Action |");
+    println!("| :--- | :--- | :--- | :--- |");
+    for d in decisions {
+        println!("| {:?} | {} | {} | {} |", d.severity, d.clause, d.found, d.action);
+    }
+}
+
 /// Reports what a reader could interact with (clause 12).
 fn handle_interactive(input: &std::path::Path, format: &str) -> Result<()> {
     let data = std::fs::read(input).with_context(|| "Failed to read input")?;
@@ -940,6 +982,7 @@ fn render_interactive_text(r: &fepdf_sdk::InteractiveReport, input: &std::path::
     println!("fepdf interactive: {}", input.display());
     if r.is_empty() {
         println!("\n  nothing interactive: no annotations, fields, outline or actions");
+        render_decisions_text(&r.decisions);
         return;
     }
 
@@ -987,6 +1030,8 @@ fn render_interactive_text(r: &fepdf_sdk::InteractiveReport, input: &std::path::
     for (kind, n) in &r.actions {
         println!("  {kind:<18} {n:>7}");
     }
+
+    render_decisions_text(&r.decisions);
 }
 
 fn render_interactive_outline(r: &fepdf_sdk::InteractiveReport) {
@@ -1029,6 +1074,7 @@ fn render_interactive_markdown(r: &fepdf_sdk::InteractiveReport, input: &std::pa
             println!("| `{kind}` | {n} |");
         }
     }
+    render_decisions_markdown(&r.decisions);
 }
 
 /// Reports the document catalogue (7.7.2) entry by entry, and the gaps.
@@ -1093,6 +1139,8 @@ fn render_catalog_text(r: &fepdf_sdk::CatalogReport, input: &std::path::Path, al
     } else if !r.absent.is_empty() {
         println!("\n  {} Table 29 keys are absent; --all lists them", r.absent.len());
     }
+
+    render_decisions_text(&r.decisions);
 }
 
 fn render_catalog_markdown(r: &fepdf_sdk::CatalogReport, input: &std::path::Path) {
@@ -1111,6 +1159,7 @@ fn render_catalog_markdown(r: &fepdf_sdk::CatalogReport, input: &std::path::Path
     let (read, type_only, preserved) = r.support_counts();
     println!("\nTyped {read}, type only {type_only}, untyped {preserved}.");
     println!("\nAbsent Table 29 keys: {}.", r.absent.len());
+    render_decisions_markdown(&r.decisions);
 }
 
 /// Reports the file's layout (ISO 32000-2, 7.5) and every decision taken reading it.
@@ -1196,16 +1245,7 @@ fn render_structure_objects(s: &fepdf_sdk::FileStructure) {
 }
 
 fn render_structure_decisions(s: &fepdf_sdk::FileStructure) {
-    println!("\n--- [ DECISIONS TAKEN READING (5.3) ] ---");
-    if s.is_conforming() {
-        println!("  none — the file was read without departing from the standard");
-        return;
-    }
-    let (a, r, v) = s.decision_counts();
-    println!("  {a} ambiguities, {r} repairs, {v} violations");
-    for d in &s.decisions {
-        println!("  {d}");
-    }
+    render_decisions_text(&s.decisions);
 }
 
 fn render_structure_markdown(s: &fepdf_sdk::FileStructure, input: &std::path::Path) {
@@ -1521,6 +1561,18 @@ fn handle_text(input: PathBuf, pages: Option<String>, ingest: IngestArgs) -> Res
     let page_count = doc.page_count().map_err(|e| anyhow::anyhow!("{e:?}"))?;
     let range_str = pages.unwrap_or_else(|| "all".to_string());
     let target_indices = parse_page_range(&range_str, page_count)?;
+
+    // On stderr, not stdout: this command's output is meant to be piped, and a
+    // decisions block in the middle of extracted text would corrupt it. Silence here
+    // would be worse — text pulled from a file the engine had to repair is exactly the
+    // case a caller needs told about.
+    let decisions = doc.decisions();
+    if !decisions.is_empty() {
+        eprintln!("--- [ DECISIONS TAKEN READING (5.3) ] ---");
+        for d in decisions {
+            eprintln!("  {d}");
+        }
+    }
 
     for idx in target_indices {
         let text = doc.extract_text(idx).map_err(|e| anyhow::anyhow!("{e:?}"))?;

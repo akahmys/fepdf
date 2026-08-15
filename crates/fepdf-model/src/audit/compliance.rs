@@ -32,10 +32,13 @@ impl<'a> ComplianceAuditor<'a> {
         let arena = self.doc.arena();
         let root_handle = *self.doc.root_handle();
 
-        // 0. Collect Ingestion Issues
-        for decision in self.doc.decisions.entries() {
-            self.report.issues.push(decision.to_string());
-        }
+        // Decisions taken while *reading* are deliberately not folded in here. They are
+        // a different category from an audit finding (ARCHITECTURE.md §5.3), and
+        // stringifying them cost their severity: every one arrived at the CLI as
+        // `IssueSeverity::Warning`, so a `Violation` and a `Repaired` were reported
+        // identically, and JSON consumers were told "Warning" about something the
+        // engine had classified as `Repaired`. `DocumentSummary::decisions` now carries
+        // the log itself, with its severities intact.
 
         // 1. Audit Catalog
         if let Some(obj) = arena.get_object(root_handle) {

@@ -88,6 +88,8 @@ pub struct InteractiveReport {
     pub outline: Outline,
     /// Actions by `/S`, from `/OpenAction`, annotation `/A` and `/AA` entries.
     pub actions: Vec<(String, usize)>,
+    /// What the engine decided while reading this file (§5.3).
+    pub decisions: Vec<crate::interpretation::Decision>,
 }
 
 impl InteractiveReport {
@@ -116,7 +118,14 @@ impl InteractiveReport {
         let mut actions: Vec<(String, usize)> = actions.into_iter().collect();
         actions.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(&b.0)));
 
-        Ok(Self { pages: pages.len(), annotations, form, outline, actions })
+        Ok(Self {
+            pages: pages.len(),
+            annotations,
+            form,
+            outline,
+            actions,
+            decisions: raw.decisions.entries().to_vec(),
+        })
     }
 
     /// Whether the document offers nothing to interact with.

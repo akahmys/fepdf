@@ -162,6 +162,10 @@ pub struct DocumentSummary {
     pub fonts: Vec<FontSummary>,
     /// Summary of structural compliance issues.
     pub compliance: ComplianceSummary,
+    /// What the engine decided where the input departed from the standard, with the
+    /// severities it assigned (ARCHITECTURE.md §5.3). Present in every output format,
+    /// not only the audit's prose.
+    pub decisions: Vec<Decision>,
 }
 
 pub use fepdf_model::font::FontSummary;
@@ -279,6 +283,16 @@ impl PdfDocument {
         }
 
         Ok(())
+    }
+
+    /// What the engine decided where the input departed from the standard.
+    ///
+    /// Reaching these previously meant asking for a whole [`DocumentSummary`], which
+    /// walks the fonts and runs the compliance audit. A caller that only wants to know
+    /// whether the file was conforming should not have to pay for that.
+    #[must_use]
+    pub fn decisions(&self) -> &[Decision] {
+        self.inner.decisions.entries()
     }
 
     /// Returns the total number of pages.
@@ -1498,6 +1512,7 @@ impl PdfDocument {
             metadata: self.inner.metadata(),
             fonts: self.inner.fonts(),
             compliance: ComplianceSummary { issues, iso_clauses },
+            decisions: self.inner.decisions.entries().to_vec(),
         })
     }
 
