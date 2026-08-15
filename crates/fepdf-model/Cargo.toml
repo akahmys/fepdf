@@ -11,6 +11,7 @@ repository.workspace = true
 fepdf-macros.workspace = true
 fepdf-font.workspace = true
 fepdf-syntax.workspace = true
+unicode-normalization.workspace = true
 log.workspace = true
 bytes.workspace = true
 serde.workspace = true

@@ -126,7 +126,7 @@ fn build_handler(
     let id = first_file_id(arena, trailer);
 
     if version == 5 && (revision == 5 || revision == 6) {
-        return build_aes256(arena, encrypt, password, revision, decisions);
+        return build_aes256(arena, encrypt, &saslprep(password), revision, decisions);
     }
 
     // 7.6.4.2 Table 20: `/V` decides how the key is sized and whether crypt filters
@@ -200,6 +200,54 @@ fn build_aes256(
         ));
     }
     Some(handler)
+}
+
+/// SASLprep (RFC 4013), as 7.6.4.3.3 step (a) requires before the UTF-8 conversion.
+///
+/// Applied here rather than in `fepdf-syntax` on purpose: that crate is the byte layer,
+/// and keeping Unicode tables out of it is what lets the cryptography be read on its
+/// own (`ARCHITECTURE.md` §3). A password is a string until the moment it is hashed.
+///
+/// **Partial, and knowingly so.** The substantive half of the profile is the NFKC
+/// normalisation, which is done. Also done are the two mappings that change what a user
+/// can type: RFC 3454 table B.1 characters map to nothing, and table C.1.2 non-ASCII
+/// spaces map to `U+0020`. Not done: the prohibited-output tables and the bidi checks
+/// of RFC 3454 §6, which *reject* passwords rather than transform them — refusing a
+/// password a conforming reader would also refuse gains nothing here, and refusing one
+/// it would accept is the failure this function exists to remove.
+///
+/// Measured: `target/encrypted/aes256_saslprep.pdf` stores `/U` for the NFKC form of
+/// `\u{FB01}re` — the fi ligature. PDFKit opens it when that ligature is typed; without
+/// this, so did nothing here.
+fn saslprep(password: &str) -> String {
+    use unicode_normalization::UnicodeNormalization;
+    password
+        .chars()
+        .filter(|c| !is_mapped_to_nothing(*c))
+        .map(|c| if is_non_ascii_space(c) { ' ' } else { c })
+        .nfkc()
+        .collect()
+}
+
+/// RFC 3454 table B.1: soft hyphen, zero-width joiners, variation selectors and the
+/// other characters stringprep deletes outright.
+fn is_mapped_to_nothing(c: char) -> bool {
+    matches!(c,
+        '\u{00AD}' | '\u{034F}' | '\u{1806}'
+        | '\u{180B}'..='\u{180D}'
+        | '\u{200B}'..='\u{200D}'
+        | '\u{2060}'
+        | '\u{FE00}'..='\u{FE0F}'
+        | '\u{FEFF}')
+}
+
+/// RFC 3454 table C.1.2: the spaces that are not `U+0020`.
+fn is_non_ascii_space(c: char) -> bool {
+    matches!(
+        c,
+        '\u{00A0}' | '\u{1680}' | '\u{2000}'
+            ..='\u{200A}' | '\u{2028}' | '\u{2029}' | '\u{202F}' | '\u{205F}' | '\u{3000}'
+    )
 }
 
 /// `/Length` in bytes. It is written in bits, and defaults to 40.
@@ -388,5 +436,61 @@ fn boolean(arena: &PdfArena, dict: &Dict, key: &str) -> Option<bool> {
     match dict.get(&arena.name(key))? {
         Object::Boolean(v) => Some(*v),
         _ => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The transformations 7.6.4.3.3 step (a) asks for, which is what lets a user type
+    /// a password the way their keyboard produces it.
+    #[test]
+    fn saslprep_normalises_what_a_keyboard_produces() {
+        // NFKC compatibility folding: the fi ligature is the case the fixture uses.
+        assert_eq!(saslprep("\u{FB01}re"), "fire");
+        // Full-width Latin, which a Japanese input method emits.
+        assert_eq!(saslprep("\u{FF50}\u{FF41}\u{FF53}\u{FF53}"), "pass");
+        // Canonical composition: "e" plus a combining acute is one character after.
+        assert_eq!(saslprep("cafe\u{0301}"), "caf\u{00E9}");
+    }
+
+    #[test]
+    fn saslprep_deletes_and_folds_the_two_mapping_tables() {
+        // RFC 3454 B.1: a soft hyphen or a zero-width joiner is invisible, and a
+        // password that differs from another only by one must not be a different
+        // password.
+        assert_eq!(saslprep("pass\u{00AD}word"), "password");
+        assert_eq!(saslprep("pass\u{200B}word"), "password");
+        // C.1.2: every other space becomes U+0020.
+        assert_eq!(saslprep("a\u{00A0}b"), "a b");
+        assert_eq!(saslprep("a\u{3000}b"), "a b");
+    }
+
+    #[test]
+    fn saslprep_leaves_an_ascii_password_alone() {
+        // The overwhelming case, and the one a regression here would break silently.
+        for password in ["", "secret", "P@ssw0rd!", "a b c"] {
+            assert_eq!(saslprep(password), password);
+        }
+    }
+
+    #[test]
+    fn permissions_read_either_form_of_the_same_thing() {
+        // ADR-0009. `-1036` and `4294966260` are the same 32 bits, and producers write
+        // both; rejecting the unsigned form fed a wrong key into Algorithm 2.
+        let arena = PdfArena::new();
+        let mut dict = BTreeMap::new();
+        dict.insert(arena.name("P"), Object::Integer(4_294_966_260));
+        assert_eq!(permissions(&arena, &dict), Some(-1036));
+
+        let mut signed = BTreeMap::new();
+        signed.insert(arena.name("P"), Object::Integer(-1036));
+        assert_eq!(permissions(&arena, &signed), Some(-1036));
+
+        // Beyond 32 bits it is neither form, and guessing is what caused the defect.
+        let mut nonsense = BTreeMap::new();
+        nonsense.insert(arena.name("P"), Object::Integer(1 << 40));
+        assert_eq!(permissions(&arena, &nonsense), None);
     }
 }

@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import unicodedata
 import os
 import re
 import sys
@@ -363,6 +364,16 @@ def main() -> int:
     path = args.out / "aes256_r5.pdf"
     path.write_bytes(build_aes256(source, revision=5))
     print(f"  {path}  V5 R5 256-bit AES (Adobe extension, single SHA-256)")
+
+    # 2.A step (a) requires SASLprep before the UTF-8 conversion, and the practical
+    # half of SASLprep is NFKC. A producer that follows the clause stores /U for the
+    # *normalised* password; a user types the form on their keyboard. A reader that
+    # skips normalisation cannot open this file, and one that applies it can.
+    typed = "\uFB01re"  # the ligature fi, which NFKC folds to "fi"
+    stored = unicodedata.normalize("NFKC", typed).encode()
+    path = args.out / "aes256_saslprep.pdf"
+    path.write_bytes(build_aes256(source, user=stored, owner=stored))
+    print(f"  {path}  V5 R6, password typed {typed!r} stored as {stored.decode()!r}")
     return 0
 
 

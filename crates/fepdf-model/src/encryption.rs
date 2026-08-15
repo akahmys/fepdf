@@ -191,8 +191,8 @@ fn judge(version: Option<i64>, revision: Option<i64>) -> (Conformance, &'static 
         ),
         (5, 6) => (
             Conformance::Implemented,
-            "AES-256 to Algorithms 2.A and 2.B, with /Perms checked; SASLprep is not \
-             applied to the password, so non-ASCII passwords may fail",
+            "AES-256 to Algorithms 2.A and 2.B, with /Perms checked and SASLprep \
+             applied to the password (its mappings and NFKC, not its refusals)",
         ),
         (5, 5) => (
             Conformance::Implemented,
