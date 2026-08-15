@@ -91,6 +91,9 @@ documents come to disagree.
 ## 🚀 Quick Verification Commands
 
 ```bash
+# Where the project stands, with the documents' own figures re-measured
+./scripts/dev/status.sh --full
+
 # Run full compliance audit (RR-15 rules, Clippy, cargo-deny, betterleaks)
 ./scripts/audit/verify_compliance.sh
 

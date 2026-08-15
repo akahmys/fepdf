@@ -23,9 +23,13 @@ Understanding them is what remains.
 | **8–14** Content, text, interactive, tagged | Interpreter, fonts and UA-2 auditing exist; interactive features (12) are largely unmodelled. |
 
 One measurement worth carrying forward: 19 of 24 `Operation` variants are stubs that
-now report rather than claim success. The `log::warn!` count is down from 14 to one,
-and that one is deliberate — it reports which fonts *this machine* has, not anything
-the document says.
+now report rather than claim success. In the engine (`fepdf-model`, `fepdf-syntax`)
+the `log::warn!` count is down from 14 to one, and that one is deliberate: it reports
+which fonts *this machine* has, not anything the document says. Frontends still log
+freely, which is their job.
+
+`./scripts/dev/status.sh` re-derives these figures, so a number that has gone stale
+shows up as a disagreement rather than reading as current.
 
 ---
 

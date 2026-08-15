@@ -52,6 +52,22 @@ cargo test --workspace
 - **`fepdf-mcp`**:
   - `tests/mcp_server_tests.rs`: Model Context Protocol server error display and schema validation.
 
+### The malformed corpus
+
+Six files, each damaging one part of ISO 32000-2 clause 7.5, are the reader's
+acceptance test; `docs/adr/0003` and `ROADMAP.md` both quote results measured against
+them. They are generated rather than committed, from `samples/sample.pdf`:
+
+```bash
+python3 scripts/test/make_malformed.py
+cargo run -q -p fepdf-model --example read_probe -- target/malformed/*.pdf
+```
+
+Reading recovers 111 objects from five of them — the count of the undamaged file — and
+77 from the truncated one, being all that survives. The truncated file has no
+`/Type /Catalog` at all, so it reads but cannot be *opened* as a document; that is the
+expected result, not a gap.
+
 ---
 
 ## 🖼️ 3. Visual Regression Testing
