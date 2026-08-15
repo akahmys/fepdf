@@ -10,6 +10,7 @@
 
 pub mod lexer;
 pub mod security;
+pub mod xref;
 
 use thiserror::Error;
 

@@ -4,7 +4,7 @@
 set -e
 
 ERROR=0
-TARGET_DIRS="crates/fepdf-syntax crates/fepdf-model crates/fepdf-content crates/fepdf-render crates/fepdf-sdk crates/fepdf-mcp crates/fepdf-wasm crates/fepdf-gui crates/fepdf-cli"
+TARGET_DIRS="crates/fepdf-syntax crates/fepdf-font crates/fepdf-model crates/fepdf-content crates/fepdf-render crates/fepdf-sdk crates/fepdf-mcp crates/fepdf-wasm crates/fepdf-gui crates/fepdf-cli"
 
 # Ensure cargo is available
 if ! command -v cargo &> /dev/null; then
