@@ -15,6 +15,7 @@ Detailed system design and governance standards are documented across the follow
 - 📋 **[PLANNING.md](PLANNING.md)**: **Planning & Discovery** (Implementation plans, codebase discovery protocols).
 - 💻 **[CODING.md](CODING.md)**: **Coding Standards** (RR-15 rules, function limits, Rust 2024 standards).
 - 🛡️ **[AUDITING.md](AUDITING.md)**: **Security & Compliance** (Static audits, `cargo-deny` license checks, `betterleaks` PII protection).
+- 📜 **[docs/adr/](docs/adr/README.md)**: **Decision Records** (decisions that were contested, reversed, or rest on a measurement).
 - 🧪 **[TESTING.md](TESTING.md)**: **Testing Strategy** (Workspace unit tests, Vello visual regression, MSRV 1.94+).
 
 ---

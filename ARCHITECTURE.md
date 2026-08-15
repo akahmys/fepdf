@@ -130,26 +130,18 @@ reference no PDF type at all** — `agl`, `cff_standard`, `cmap`, `reconstructio
 read font dictionaries, which is why they stay in `fepdf-model` rather than moving
 with the rest.
 
-**Resource resolution is part of the model, not a layer above it.** An earlier
-revision of this document placed a `fepdf-resource` crate between the model and its
-consumers, on the assumption that font dictionaries are resolved lazily when content
-is interpreted. They are not: this engine resolves them eagerly during ingestion.
-`Document` owns the font cache, `ingest::discover_fonts` populates it, and the
-refinery normalises it, with `document.rs` alone referring to the font module in 29
-places. A crate above the model therefore cannot own that work without inverting a
-dependency ingestion genuinely needs.
-
-The crate was created before this was noticed and never adopted; it sat unused for
-long enough to accumulate a partial, divergent copy of `font/`, and has been removed.
-What it was meant to separate — font *programs* from PDF *dictionaries* — is already
-separated, as `fepdf-font` versus `fepdf-model`'s `font/`.
+**Resource resolution is part of the model, not a layer above it.** This engine
+resolves font dictionaries eagerly during ingestion rather than lazily at interpretation
+time, so a crate above the model cannot own that work. An earlier revision placed one
+there; see [ADR-0001](docs/adr/0001-resource-resolution-stays-in-the-model.md).
 
 **The contract/implementation inversion had a concrete cost.** `RenderBackend` was
 defined in `fepdf-render`, yet two of its three implementations lived in `fepdf-sdk`.
 The SDK therefore depended on the GPU crate to obtain a trait definition, and every
 SDK consumer inherited `vello` + `wgpu` transitively.
 
-Rule B does not make that dependency *disappear* — it makes it **opt-in**. `fepdf-cli`
+Rule B does not make that dependency *disappear* — it makes it **opt-in**
+([ADR-0004](docs/adr/0004-rule-b-makes-the-gpu-dependency-optional.md)). `fepdf-cli`
 and `fepdf-mcp` both call `render_page_to_file` and genuinely rasterise, so they
 enable the SDK's `render` feature and still link the GPU stack, correctly. What
 changes is that the choice is now explicit: `fepdf-wasm`, which never rasterises,
@@ -183,6 +175,15 @@ N degrees", describing the behaviour it does not have. Neither path normalises, 
 `--angle 45` reaches `/Rotate`, which ISO 32000-2 requires to be a multiple of 90.
 
 Nothing detected this, because there is no place where the two definitions meet.
+
+**Where the reasoning lives.** This section says why the architecture has its present
+shape. Decisions that were *reversed*, and the measurements that reversed them, are in
+[`docs/adr/`](docs/adr/README.md) — including the scope of `fepdf-syntax`
+([ADR-0002](docs/adr/0002-the-syntax-layer-is-lexer-and-crypto-only.md)), the reader's
+independence from `lopdf`
+([ADR-0003](docs/adr/0003-lopdf-was-not-providing-robustness.md)), and how Rules A–C
+came to be enforced by the build rather than by review
+([ADR-0005](docs/adr/0005-layering-rules-are-enforced-by-cargo.md)).
 
 ---
 
