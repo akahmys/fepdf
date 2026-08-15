@@ -1,5 +1,10 @@
 # Reliable Rust-15 (RR-15) Rulebook
 
+> [!NOTE]
+> The enforced form of these rules is [`CODING.md`](../../CODING.md), checked by
+> [`scripts/audit/verify_compliance.sh`](../../scripts/audit/verify_compliance.sh).
+> This file explains the reasoning; where the two disagree, the script is what runs.
+
 > [!IMPORTANT]
 > A set of 15 immutable safety constraints derived from NASA's "Power of 10," optimized for the Rust ownership model. These rules form the mandatory "Hardening Layer" of fepdf.
 
@@ -10,10 +15,10 @@
 - **Purpose**: Maintain precision of the borrow checker and minimize cognitive load.
 - **Compliance**: All functions MUST stay within 50 effective logic lines. Blank lines and doc-comments are excluded. **Atomic Verification**: Functional verification MUST be performed at the same granularity as code changes; massive edits without intermediate verification are prohibited.
   - **Exception & Annotations**: Under strict conditions, specific functions may exceed the 50-line limit *only* if they are inherently indivisible and do not increase cognitive load. This is strictly restricted to:
-    1. **Exhaustive Match Dispatchers**: A function that is almost entirely composed of a single, flat, non-nested `match` statement (such as standard AST parsing or serializing command dispatches). Maximum limit: **200 lines**.
-    2. **GUI Layout/Declaration Functions**: Functions declaring sequential egui/UI structures where splitting would fragment the visual understanding of the layout tree. Maximum limit: **150 lines**.
+    1. **Exhaustive Match Dispatchers**: A function that is almost entirely composed of a single, flat, non-nested `match` statement (such as standard AST parsing or serializing command dispatches). Maximum limit: **500 lines**.
+    2. **GUI Layout/Declaration Functions**: Functions declaring sequential egui/UI structures where splitting would fragment the visual understanding of the layout tree. Maximum limit: **200 lines**.
   - **Safeguards Against Abuse**:
-    1. **Mandatory Explicit Annotation**: The function declaration line *must* carry an explicit annotation on the same line: `// RR-15 Limit: [Dispatcher/GUI] - [Brief justification]`.
+    1. **Mandatory Explicit Annotation**: The function must carry `// RR-15 Limit: [Dispatcher/GUI] - [Brief justification]` within its signature region. It need not be on the declaration line itself: rustfmt relocates a trailing comment onto the next line, and requiring the line made formatting and the audit mutually exclusive.
     2. **No Business Logic inside Arms**: In match dispatchers, the match arms must strictly delegate logic to sub-functions. Deep nesting (over 2 levels) or execution of complex algorithms in arms instantly invalidates the exception.
     3. **Absolute Ceiling**: Under no circumstances shall *any* function in the codebase exceed 200 lines of effective logic.
 

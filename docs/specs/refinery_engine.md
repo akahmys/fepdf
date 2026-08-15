@@ -11,7 +11,9 @@ All PDF objects are decoupled from their physical locations and stored in a type
 - **Handle System**: Objects are cross-referenced by lightweight `u32`-based handles. Generational management bits ensure memory safety.
 
 ### 2.2 Refinery Pipeline (Refinement Process)
-1. **Ingestion**: Deconstruct physical structures via `lopdf` and perform high-speed transfers to the arena.
+1. **Ingestion**: Deconstruct physical structures and transfer them to the arena.
+   (Historic note: this was delegated to `lopdf`. See ROADMAP.md Phase A and
+   [ADR-0003](../adr/0003-lopdf-was-not-providing-robustness.md).)
 2. **Normalization & Sublimation**: 
    - **Content Sublimation (IR)**: Content streams are parsed into a high-level Intermediate Representation (`Command` IR). This performs early UTF-8 decoding and operator normalization.
    - **Font Reconstruction**: Embedded font binaries are surgically patched with widths derived from PDF `/Widths`, ensuring layout parity.

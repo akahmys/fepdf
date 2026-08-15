@@ -22,15 +22,60 @@ The project rules, architecture specs, and operational protocols are modularized
 
 ## ⚖️ Hierarchy of Truth
 
-When conflicting directives arise, agents and contributors MUST resolve ambiguities using the following strict hierarchy:
+When directives conflict, resolve in this order:
 
 ```
-1. ISO 32000-2:2020 Standard Specification
-   └── 2. RR-15 (Reliable Rust-15) Safety & Hardening Protocol
-        └── 3. Core Architecture Specs (docs/specs/)
-             └── 4. Primary Governance Docs (AGENTS, PLANNING, CODING, AUDITING, TESTING)
-                  └── 5. Codebase Implementation & Workspace Crates
+1. ISO 32000-2:2020, the standard itself
+   └── 2. Measurement of the code as it is
+        └── 3. RR-15 (CODING.md) and the layering rules (ARCHITECTURE.md)
+             └── 4. The remaining governance documents
+                  └── 5. docs/specs/ and other background material
 ```
+
+**Measurement outranks documentation.** This is not a platitude: four decisions in
+`docs/adr/` were reversed because a document asserted something the code did not do.
+A document that disagrees with a verified measurement is wrong and gets corrected, not
+argued from.
+
+---
+
+## 📚 Which Document Owns What
+
+Each document answers one question. Writing something in the wrong one is how two
+documents come to disagree.
+
+| Document | Answers | Does **not** contain |
+| :--- | :--- | :--- |
+| **[README.md](README.md)** | What is this, how do I build it? | Design or rules |
+| **[AGENTS.md](AGENTS.md)** | How is the project governed? Where does everything live? | The rules themselves |
+| **[ARCHITECTURE.md](ARCHITECTURE.md)** | What is the design **now**, and why this shape? | History, plans, coding rules |
+| **[docs/adr/](docs/adr/README.md)** | How did it come to be? What was tried and dropped? | The present design |
+| **[CODING.md](CODING.md)** | What must code satisfy? | Design rationale |
+| **[AUDITING.md](AUDITING.md)** | How is compliance checked? | The rules being checked |
+| **[TESTING.md](TESTING.md)** | What must be verified before merging? | Test results |
+| **[ROADMAP.md](ROADMAP.md)** | What is next, and what does done mean? | Completed history |
+| **[PLANNING.md](PLANNING.md)** | How is a change planned before it is written? | Any specific plan |
+| **docs/specs/** | Background on a subsystem. | Anything authoritative |
+| **docs/retrospectives/**, **docs/history/** | What happened, as it was then. | Anything current |
+| **.agents/** | Agent operating protocols: rules, skills, workflows. | The enforced form of any rule — that is `CODING.md` |
+
+### Rules
+
+1. **One fact, one home.** If it belongs in two places, one of them links instead of
+   restating. `ARCHITECTURE.md` §4 links to ADRs rather than repeating them.
+2. **Present tense is `ARCHITECTURE.md`; past tense is `docs/adr/`.** A decision that
+   was reversed is recorded, not deleted, so the reasoning is not repeated.
+3. **Historical documents are never updated.** `docs/retrospectives/` and
+   `docs/history/` keep the names and facts that were true when written. They were
+   deliberately excluded from the `ferruginous`→`fepdf` rename.
+4. **A quoted figure carries its date.** Measurements go stale. Either re-verify
+   before quoting, or write "at the time" — an ADR that silently rots is worse than
+   none.
+5. **A rule that is not checked is a comment.** Every entry in `CODING.md` names what
+   enforces it. If nothing does, say so rather than implying enforcement.
+6. **`docs/specs/` is background, not truth.** It predates most of the current design
+   and sits at the bottom of the hierarchy. Where it disagrees with
+   `ARCHITECTURE.md`, `ARCHITECTURE.md` wins.
 
 ---
 

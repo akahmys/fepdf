@@ -6,7 +6,11 @@ This document governs task planning, codebase exploration, feature design, and d
 
 ## 🎯 1. Planning Workflow
 
-Before embarking on significant structural changes, new features, or refactoring, create or update an **Implementation Plan** (`implementation_plan.md`).
+Before a significant structural change, write the plan down. For a decision that is
+contested, reversed, or rests on a measurement, the record belongs in
+[`docs/adr/`](docs/adr/README.md); for sequencing, in [ROADMAP.md](ROADMAP.md).
+There is no standing `implementation_plan.md` — the one under `docs/history/archive/`
+is a record of an earlier effort and is not maintained.
 
 ### Implementation Plan Structure
 1. **Goal Description**: Clear scope, rationale, and target outcomes.
