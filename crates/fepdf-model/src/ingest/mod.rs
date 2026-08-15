@@ -14,6 +14,11 @@ mod discovery;
 pub use discovery::*;
 
 /// Policy for color validation.
+///
+/// **Not consulted by any ingestion path.** The type and the field exist; the
+/// colour validation they were meant to govern does not. Its CLI flag is hidden
+/// rather than removed (ADR-0007). Implementing the policy means making this the
+/// input to a real check, not finding the code that already reads it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ColorPolicy {
     /// Reject colour definitions that violate the specification.
@@ -28,8 +33,14 @@ pub struct IngestionOptions {
     /// Run the refinement passes (Pass 2) during ingestion.
     pub active_refinement: bool,
     /// Recover legacy `/Info` metadata into XMP.
+    ///
+    /// **Not read.** Recovery runs unconditionally; setting this to `false` does not
+    /// stop it. Kept because the option is the right shape for the behaviour that
+    /// should exist — see [`ColorPolicy`] for the same situation and ADR-0007.
     pub sublime_metadata: bool,
     /// How strictly colour definitions are validated.
+    ///
+    /// **Not read.** See [`ColorPolicy`].
     pub color_policy: ColorPolicy,
     /// Substitute bundled fonts when an embedded program fails to parse.
     pub force_fallback: bool,

@@ -42,6 +42,42 @@ row "Operation stubs in the SDK (expect 19)" "$stubs"
 adrs=$(find docs/adr -name '0*.md' | wc -l | tr -d ' ')
 row "decision records" "$adrs"
 
+# ARCHITECTURE.md 5.3 quotes this. It read "one site" for as long as it took Phase A to
+# convert the other eleven, which is the drift this row exists to make visible.
+decisions=$(grep -rn "Decision::ambiguity\|Decision::repaired\|Decision::violation" \
+    crates/fepdf-model/src crates/fepdf-syntax/src --include="*.rs" 2>/dev/null \
+    | grep -vc "interpretation.rs" | tr -d ' ')
+row "Decision sites in the engine" "$decisions"
+
+# ARCHITECTURE.md 4 justified Rule A with "9 references and 2". Cargo has since made
+# both impossible (5.7), so anything but 0 means a frontend gained a direct dependency.
+leak=$(grep -rn "PdfArena\|Handle<" \
+    crates/fepdf-cli/src crates/fepdf-gui/src crates/fepdf-mcp/src crates/fepdf-wasm/src \
+    --include="*.rs" 2>/dev/null | wc -l | tr -d ' ')
+row "Rule A leaks: arena types in frontends (expect 0)" "$leak"
+
+# ROADMAP.md Phase B counts these. `help` is clap's own and is not one of them.
+inspect_cmds=$(sed -n '/^enum InspectSubcommands/,/^}/p' crates/fepdf-cli/src/main.rs \
+    | grep -c '^    [A-Z][A-Za-z]* {' | tr -d ' ')
+row "inspect subcommands" "$inspect_cmds"
+
+# An option that no code reads is a claim the CLI makes and the engine does not keep
+# (ADR-0007). Counts IngestionOptions fields with no reader outside the plumbing.
+# Field *access* only: `options.foo`. A declaration, a struct literal, a `.field("foo")`
+# in a Debug impl and a doc comment all mention the name without reading it, and the
+# first version of this check counted them — reporting a field that is read and missing
+# one that is not. Asserts are excluded too: `assert!(opts.sublime_metadata)` observes
+# that the flag arrived, which is what the passing test in fepdf-cli asserts about a
+# field the engine never consults.
+inert=""
+for field in $(sed -n '/^pub struct IngestionOptions/,/^}/p' crates/fepdf-model/src/ingest/mod.rs \
+        | grep -oE '^    pub [a-z_]+' | awk '{print $2}'); do
+    uses=$(grep -rhn "\.$field\b" crates/*/src --include="*.rs" 2>/dev/null \
+        | grep -vE '^\s*[0-9]+:\s*//' | grep -v '\.field("' | grep -vc 'assert' | tr -d ' ')
+    [ "$uses" -eq 0 ] && inert="$inert $field"
+done
+row "ingestion options nothing reads (expect 2)" "${inert:-none} "
+
 echo
 bold "Corpus"
 samples=$(find samples -name '*.pdf' 2>/dev/null | wc -l | tr -d ' ')

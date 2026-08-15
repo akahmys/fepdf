@@ -18,11 +18,18 @@ struct IngestArgs {
     /// Disable active 2-pass refinement (UTF-8 normalization)
     #[arg(long)]
     no_refinement: bool,
+    // Hidden: `sublime_metadata` is carried through `IngestionOptions` but no
+    // ingestion path reads it, so this flag changes nothing. Measured by upgrading
+    // `samples/sample.pdf` with and without it and comparing with
+    // `examples/compare_documents.rs`: the only differing object is the XMP packet,
+    // which differs between two runs of identical flags anyway. Un-hide it when
+    // metadata recovery becomes conditional on the field.
     /// Disable automatic conversion of Info to XMP
-    #[arg(long)]
+    #[arg(long, hide = true)]
     no_metadata_recovery: bool,
+    // Hidden for the same reason: nothing reads `color_policy`. See ADR-0007.
     /// Use relaxed color validation policy
-    #[arg(long)]
+    #[arg(long, hide = true)]
     relaxed_color: bool,
     /// Force fallback to system fonts if embedded font parsing fails
     #[arg(long)]
@@ -189,6 +196,14 @@ enum InspectSubcommands {
         /// Ingestion control options
         #[command(flatten)]
         ingest: IngestArgs,
+    },
+    /// Report file layout: revisions, cross-reference form, object storage, decisions
+    Structure {
+        /// Input PDF file
+        input: PathBuf,
+        /// Output format (text, json, markdown)
+        #[arg(short, long, default_value = "text")]
+        format: String,
     },
     /// Dump hierarchical logical structure tree
     Tree {
@@ -562,6 +577,9 @@ async fn main() -> Result<()> {
             InspectSubcommands::Text { input, pages, ingest } => {
                 handle_text(input, pages, ingest)?;
             }
+            InspectSubcommands::Structure { input, format } => {
+                handle_structure(&input, &format)?;
+            }
             InspectSubcommands::Tree { input, ingest } => {
                 handle_debug_structure(input, ingest)?;
             }
@@ -877,6 +895,141 @@ fn handle_info(input: PathBuf, format: String, ingest: IngestArgs) -> Result<()>
         _ => render_summary_text(&doc, &summary, false, false)?,
     }
     Ok(())
+}
+
+/// Reports the file's layout (ISO 32000-2, 7.5) and every decision taken reading it.
+///
+/// Takes no `IngestArgs`: this describes the file as written, before normalisation,
+/// so the ingestion options have nothing to act on. It also does not build a
+/// `Document`, which is why it stays fast on a file with 341,321 objects.
+fn handle_structure(input: &std::path::Path, format: &str) -> Result<()> {
+    let data = std::fs::read(input).with_context(|| "Failed to read input")?;
+    let structure =
+        fepdf_sdk::FileStructure::survey(&data).map_err(|e| anyhow::anyhow!("{e:?}"))?;
+
+    match format {
+        "json" => println!("{}", serde_json::to_string_pretty(&structure)?),
+        "markdown" => render_structure_markdown(&structure, input),
+        _ => render_structure_text(&structure, input),
+    }
+    Ok(())
+}
+
+fn render_structure_text(s: &fepdf_sdk::FileStructure, input: &std::path::Path) {
+    println!("fepdf structure: {}", input.display());
+
+    println!("\n--- [ FILE ] ---");
+    println!("PDF version:      {}", s.version);
+    println!("Size:             {} bytes", s.size);
+    if s.header_offset == 0 {
+        println!("Header:           at offset 0");
+    } else {
+        println!("Header:           at offset {} — bytes precede %PDF- (7.5.2)", s.header_offset);
+    }
+    println!("Encrypted:        {}", if s.encrypted { "yes (7.6)" } else { "no" });
+    println!("Declares /Root:   {}", if s.declares_root { "yes" } else { "no" });
+
+    render_structure_revisions(s);
+    render_structure_objects(s);
+    render_structure_decisions(s);
+}
+
+fn render_structure_revisions(s: &fepdf_sdk::FileStructure) {
+    println!("\n--- [ REVISIONS (7.5.6) ] ---");
+    if s.revisions.is_empty() {
+        println!("  none readable — the cross-reference was reconstructed by scanning");
+        return;
+    }
+    println!("  {:<4} {:>12} {:>9} {:>8}  form", "#", "offset", "entries", "trailer");
+    for r in &s.revisions {
+        println!(
+            "  {:<4} {:>12} {:>9} {:>8}  {}",
+            r.index,
+            r.offset,
+            r.entries,
+            if r.has_trailer { "yes" } else { "-" },
+            r.form
+        );
+    }
+    if s.revisions.len() > 1 {
+        println!("  {} object numbers are defined by more than one revision", s.superseded);
+    }
+}
+
+fn render_structure_objects(s: &fepdf_sdk::FileStructure) {
+    println!("\n--- [ OBJECTS ] ---");
+    if s.objects.from_scan {
+        println!("Source:           recovered by scanning; the cross-reference gave nothing");
+    }
+    println!("Highest number:   {}", s.objects.highest_number);
+    println!("Written in file:  {}", s.objects.in_file);
+    println!("In object stream: {} (7.5.7)", s.objects.in_object_stream);
+    println!("Free:             {}", s.objects.free);
+
+    if s.object_streams.is_empty() {
+        return;
+    }
+    println!("\n--- [ OBJECT STREAMS ] ---");
+    println!("{} containers, largest first:", s.object_streams.len());
+    for c in s.object_streams.iter().take(10) {
+        println!("  object {:>7} carries {:>7}", c.container, c.carries);
+    }
+    if s.object_streams.len() > 10 {
+        println!("  … and {} more", s.object_streams.len() - 10);
+    }
+}
+
+fn render_structure_decisions(s: &fepdf_sdk::FileStructure) {
+    println!("\n--- [ DECISIONS TAKEN READING (5.3) ] ---");
+    if s.is_conforming() {
+        println!("  none — the file was read without departing from the standard");
+        return;
+    }
+    let (a, r, v) = s.decision_counts();
+    println!("  {a} ambiguities, {r} repairs, {v} violations");
+    for d in &s.decisions {
+        println!("  {d}");
+    }
+}
+
+fn render_structure_markdown(s: &fepdf_sdk::FileStructure, input: &std::path::Path) {
+    println!("# File structure: {}", input.display());
+    println!("\n| Property | Value |");
+    println!("| :--- | :--- |");
+    println!("| PDF version | {} |", s.version);
+    println!("| Size | {} bytes |", s.size);
+    println!("| Header offset | {} |", s.header_offset);
+    println!("| Encrypted | {} |", if s.encrypted { "yes" } else { "no" });
+    println!("| Declares `/Root` | {} |", if s.declares_root { "yes" } else { "no" });
+    println!("| Revisions | {} |", s.revisions.len());
+    println!("| Objects in file | {} |", s.objects.in_file);
+    println!("| Objects in object streams | {} |", s.objects.in_object_stream);
+    println!("| Free slots | {} |", s.objects.free);
+
+    println!("\n## Revisions\n");
+    println!("| # | Offset | Entries | Trailer | Form |");
+    println!("| ---: | ---: | ---: | :---: | :--- |");
+    for r in &s.revisions {
+        println!(
+            "| {} | {} | {} | {} | {} |",
+            r.index,
+            r.offset,
+            r.entries,
+            if r.has_trailer { "yes" } else { "—" },
+            r.form
+        );
+    }
+
+    println!("\n## Decisions\n");
+    if s.is_conforming() {
+        println!("None — the file was read without departing from the standard.");
+    } else {
+        println!("| Severity | Clause | Found | Action |");
+        println!("| :--- | :--- | :--- | :--- |");
+        for d in &s.decisions {
+            println!("| {:?} | {} | {} | {} |", d.severity, d.clause, d.found, d.action);
+        }
+    }
 }
 
 fn handle_audit(input: PathBuf, format: String, ingest: IngestArgs) -> Result<()> {
@@ -1642,6 +1795,13 @@ mod tests {
         assert_eq!(parse_unicode("U+6C38").unwrap(), '永');
     }
 
+    /// Covers the mapping from flags to options and nothing beyond it.
+    ///
+    /// Two of the fields asserted here — `sublime_metadata` and `color_policy` — are
+    /// carried faithfully and then read by nobody (ADR-0007). This test passed
+    /// throughout, because setting a field correctly is all it ever claimed. Whether an
+    /// option *does* anything is a question about ingestion, not about `From`, and it
+    /// is answered by varying one flag and comparing the documents that come out.
     #[test]
     fn test_ingest_args_conversion() {
         let args = IngestArgs {

@@ -20,6 +20,8 @@ pub mod decrypt;
 pub mod document;
 /// The error type this engine reports.
 pub mod error;
+/// A file's layout as clause 7.5 describes it, and the decisions taken reading it.
+pub mod file_structure;
 pub mod filters;
 pub mod font;
 pub mod graphics;

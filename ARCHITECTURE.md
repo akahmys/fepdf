@@ -99,23 +99,27 @@ working as intended, not a cycle.
 
 Status: **✅** exists as-is · **⚠️** partially landed · **🔄** code exists, lives elsewhere today · **🆕** new.
 
+`~Lines` is the *target* crate's size: for a crate that exists, what it holds today;
+for one that does not, the code that would move into it. Measured 2026-08-15.
+
 | Crate | Status | ~Lines | Responsibility |
 | :--- | :---: | ---: | :--- |
-| **`fepdf-syntax`** | ✅ | 850 | The byte layer: lexing and encryption/decryption. Depends on no model type, which is what lets the cryptography be reviewed on its own. Parsing and stream filters are *not* here — see §4. |
-| **`fepdf-font`** | 🔄 in core (Audited ✅) | 3,500 | Font *programs*: CFF, TrueType, CMap, Adobe Glyph List, subsetting, reconstruction. Hardened against W/W2 out-of-bounds, CMap underflows (`e_val >= s_val`), and CID byte truncations. |
-| **`fepdf-model`** | ✅ | 8,600 | The document graph: `PdfArena`, `Handle<T>`, `Object`, page tree, metadata. Hardened with pool overflow guards, cyclic `resolve` limits (`64`), and safe `Null` reference fallbacks. |
-| **`fepdf-content`** | ⚠️ partial | 2,300 | Content-stream interpreter, and the **`RenderBackend` contract** it drives (`TextGlyph`, `TextState`, `SMaskData`, path geometry). No GPU dependency. *The contract has landed; the interpreter still lives in `fepdf-sdk`.* |
+| **`fepdf-syntax`** | ✅ | 1,500 | The byte layer: lexing and encryption/decryption. Depends on no model type, which is what lets the cryptography be reviewed on its own. Parsing and stream filters are *not* here — see §4. |
+| **`fepdf-font`** | ✅ (Audited ✅) | 3,700 | Font *programs*: CFF, TrueType, CMap, Adobe Glyph List, subsetting, reconstruction. Hardened against W/W2 out-of-bounds, CMap underflows (`e_val >= s_val`), and CID byte truncations. |
+| **`fepdf-model`** | ✅ | 14,800 | The document graph: `PdfArena`, `Handle<T>`, `Object`, page tree, metadata — and, since Phase A, the reader (7.5) and `writer.rs`. Hardened with pool overflow guards, cyclic `resolve` limits (`64`), and safe `Null` reference fallbacks. |
+| **`fepdf-content`** | ⚠️ partial | 2,300 | Content-stream interpreter, and the **`RenderBackend` contract** it drives (`TextGlyph`, `TextState`, `SMaskData`, path geometry). No GPU dependency. *The contract has landed (230 lines); the interpreter is the remaining ~2,100, still in `fepdf-sdk`.* |
 | **`fepdf-doc`** | 🔄 in sdk | 2,200 | Owns the **`Operation` vocabulary** (§5.1) and is its only interpreter: merge, split, rotate, tag, redact, upgrade. Also structure-tree handling, conformance auditing, remediation. |
-| **`fepdf-render`** | ✅ | 1,100 | A `RenderBackend` implementation on **Vello** + **wgpu**. Reached only through the SDK's optional `render` feature. |
+| **`fepdf-render`** | ✅ | 1,240 | A `RenderBackend` implementation on **Vello** + **wgpu**. Reached only through the SDK's optional `render` feature. |
 | **`fepdf`** | ⚠️ lives in `fepdf-sdk` | — | The public facade: `PdfDocument`, `SaveOptions`, `Operation`. It is the Rule A boundary in fact — frontends depend on it and on nothing below — but it is not yet a crate of its own. |
-| **`fepdf-cli`** | ✅ | 1,400 | Command-line binary (`fepdf`). |
+| **`fepdf-cli`** | ✅ | 1,660 | Command-line binary (`fepdf`). |
 | **`fepdf-gui`** | ✅ | 8,000 | Desktop application on **egui** + **eframe** + **wgpu**. |
-| **`fepdf-mcp`** | ✅ | 340 | Model Context Protocol server for AI assistants. |
+| **`fepdf-mcp`** | ✅ | 330 | Model Context Protocol server for AI assistants. |
 | **`fepdf-wasm`** | ✅ | 40 | WebAssembly bindings. Currently a stub — `render_page` is unimplemented. |
-| **`fepdf-macros`** | ✅ | 160 | Compile-time procedural macros. |
+| **`fepdf-macros`** | ✅ | 170 | Compile-time procedural macros. |
 
-Two `Backend` implementations besides the GPU one — text extraction and geometry
-collection — live in `fepdf-doc`, which is exactly what Rule B makes possible.
+Two `RenderBackend` implementations besides the GPU one — `TextExtractionBackend` and
+`CollectorBackend` — sit alongside the operations, in `fepdf-sdk` until `fepdf-doc` is
+split out. Neither pulls in a GPU, which is exactly what Rule B makes possible.
 
 ---
 
@@ -124,11 +128,12 @@ collection — live in `fepdf-doc`, which is exactly what Rule B makes possible.
 The layering is not a taxonomy exercise. Each boundary was placed where the current
 tree already shows a seam or a defect.
 
-**The font split is measured, not assumed.** Of 6,590 lines under `font/`, **3,547
-reference no PDF type at all** — `agl`, `cff_standard`, `cmap`, `reconstruction`,
-`rescue`, `subset` are pure font-format work. The remaining 3,043 exist solely to
-read font dictionaries, which is why they stay in `fepdf-model` rather than moving
-with the rest.
+**The font split was measured, not assumed.** Of the 6,590 lines then under `font/`,
+**3,547 referenced no PDF type at all** — `agl`, `cff_standard`, `cmap`,
+`reconstruction`, `rescue`, `subset` are pure font-format work. The remaining 3,043
+existed solely to read font dictionaries, which is why they stayed in `fepdf-model`
+rather than moving with the rest. The split has since been made: `fepdf-font` is 3,700
+lines and `fepdf-model/src/font/` 3,130, both grown since the measurement.
 
 **Resource resolution is part of the model, not a layer above it.** This engine
 resolves font dictionaries eagerly during ingestion rather than lazily at interpretation
@@ -147,19 +152,25 @@ enable the SDK's `render` feature and still link the GPU stack, correctly. What
 changes is that the choice is now explicit: `fepdf-wasm`, which never rasterises,
 went from three transitive GPU dependencies to none.
 
-**Rule A exists because it was already broken.** `PdfArena` currently reaches
-`fepdf-gui` (9 references) and `fepdf-cli` (2). The GUI worker holds struct-tree
+**Rule A exists because it had already been broken once.** `PdfArena` reached
+`fepdf-gui` (9 references) and `fepdf-cli` (2), and the GUI worker held struct-tree
 traversal, `/BBox` interpretation and `/Pg` inheritance — PDF semantics living in the
 presentation layer, outside the reach of engine tests. A page-mapping defect survived
 there precisely because of that.
 
-**Rule C exists because the round trip is currently split.** Ingestion sits in
-`fepdf-model`; `writer.rs` — the single largest file in the workspace at 2,536 lines —
-sits in `fepdf-sdk`. The engine can read but not write.
+That leak is closed: no frontend declares `fepdf-model`, so the count is now zero on
+both, and the GUI asks the engine (`doc.extract_struct_tree()`) instead of walking the
+tree itself. The rule is stated because Cargo enforces it (§7) — not because it is
+currently violated.
 
-**Rule D exists because the vocabularies have already diverged.** "Rotate" is defined
+**Rule C exists because the round trip had been split.** Ingestion sat in
+`fepdf-model` while `writer.rs` sat in `fepdf-sdk`, so the engine could read but not
+write. `writer.rs` now lives in `fepdf-model` (2,548 lines) and `fepdf-sdk` keeps a
+six-line re-export for compatibility (§6, step 5).
+
+**Rule D exists because the vocabularies had already diverged.** "Rotate" was defined
 twice — once as a clap subcommand, once as a `WorkerRequest` variant — and the two
-disagree:
+disagreed:
 
 ```rust
 // fepdf-cli  handle_rotate()            — absolute assignment
@@ -169,12 +180,14 @@ doc.set_page_rotation(idx, angle)
 doc.set_page_rotation(idx, (current + delta).rem_euclid(360))
 ```
 
-On a page already at 90°, `fepdf edit rotate --angle 90` leaves it at 90° while the
-GUI's 90° button takes it to 180°. The CLI's own progress message says "rotating **by**
-N degrees", describing the behaviour it does not have. Neither path normalises, so
-`--angle 45` reaches `/Rotate`, which ISO 32000-2 requires to be a multiple of 90.
+On a page already at 90°, `fepdf edit rotate --angle 90` left it at 90° while the
+GUI's 90° button took it to 180°. Neither path normalised, so `--angle 45` reached
+`/Rotate`, which ISO 32000-2 requires to be a multiple of 90.
 
-Nothing detected this, because there is no place where the two definitions meet.
+Nothing detected this, because there was no place where the two definitions met. The
+fix was to make the choice unrepresentable rather than to align the two call sites —
+`RotateMode` and `Quarter` below (§5.1). Both frontends now construct an `Operation`:
+`fepdf-cli` an `Absolute`, `fepdf-gui` a `Relative`.
 
 **Where the reasoning lives.** This section says why the architecture has its present
 shape. Decisions that were *reversed*, and the measurements that reversed them, are in
@@ -203,8 +216,8 @@ through the facade. Frontends construct it; only `fepdf-doc` interprets it.
    fepdf-wasm   JS call       ─┘     (a value)      (the only implementation)
 ```
 
-Ambiguity that used to live in prose becomes a type. The rotate divergence above is
-not fixable by convention; it is fixable by making the choice unrepresentable:
+Ambiguity that used to live in prose becomes a type. The rotate divergence in §4 was
+not fixable by convention; it was fixed by making the choice unrepresentable:
 
 ```rust
 pub enum Operation {
@@ -275,14 +288,15 @@ not a shared process.
 file-format knowledge stays on one side of that line rather than inside `Document`.
 
 Its options are an associated type, not a shared struct: `password` and
-`color_policy` mean something to PDF and nothing to a word-processor format.
+`force_fallback` mean something to PDF and nothing to a word-processor format.
 
 **Deliberately minimal.** There is no registry, no dynamic dispatch and no
 per-format feature flags. An interface designed against one implementation is
-almost always wrong for the second, and this codebase has twice paid for building
-a container before its contents existed — `fepdf-resource`, and an `Operation`
-vocabulary that was 79% stubs. When a second source exists, its real requirements
-reshape this.
+almost always wrong for the second, and this codebase keeps paying for building
+a container before its contents existed — `fepdf-resource`, an `Operation`
+vocabulary that is 79% stubs, and two ingestion options nothing reads
+([ADR-0007](docs/adr/0007-an-option-that-is-not-read-is-hidden.md)). When a second
+source exists, its real requirements reshape this.
 
 **What a second source owes.** A source hands back a `Document` whose arena already
 holds a catalogue, page tree, content streams and font resources. For a format such
@@ -320,12 +334,26 @@ of the standard, it records why, at the point of decision, with the clause. A si
 acceptance is a defect even when the output is right, because the next reader of the
 code cannot tell a deliberate choice from an oversight.
 
-**Current coverage is one site.** The pipeline is wired end to end — detection through
-`DecisionLog` to the audit — but only the recursion limit feeds it today. Eleven other
-places detect non-conformance and merely `log::warn!`: missing font `/Subtype`, empty
-`/DescendantFonts`, undecodable CMap streams, unknown content-stream operators. They
-are listed here so the gap is visible rather than implied; converting them is part of
-replacing the reader, since most sit on paths that will change anyway.
+**Current coverage is 29 sites**, up from one: `reader.rs` 15, `font/mod.rs` 8,
+`object/sublimation/parser.rs` 2, `ingest/mod.rs` 2, `refine/mod.rs` 1, `decrypt.rs` 1.
+The eleven places that previously detected non-conformance and merely `log::warn!` —
+missing font `/Subtype`, empty `/DescendantFonts`, undecodable CMap streams, unknown
+content-stream operators — were converted while the reader was replaced, which is
+where most of them sat.
+
+One `log::warn!` remains in the engine, in `font/mod.rs`, and is deliberate: it reports
+which fonts *this machine* has, which is a property of the host and not of the
+document, so it is not a decision about the input.
+
+**A decision that fires on conforming input is worse than none**, because it makes the
+log a constant rather than a signal. Reading an indirect `/Length` — which 7.3.8.2
+permits — was recorded as an `Ambiguity`, so `samples/sample.pdf` reported 31
+departures and `is_conforming` returned `false` for a clean file
+([ADR-0008](docs/adr/0008-an-indirect-length-is-not-an-ambiguity.md)). All nine samples
+now record nothing, and each readable malformed file records exactly its damage. When
+adding a decision point, check it against a conforming file as well as a broken one.
+
+*Counts measured 2026-08-15.*
 
 ### 5.4 The Sublimation Pipeline: normalisation-at-load
 
@@ -400,19 +428,19 @@ behaviour or API and need their own tests.
 
 | # | Step | Effect | Risk |
 | :-: | :--- | :--- | :---: |
-| 0 | Reconcile the two `rotate` implementations | Fixes a live behavioural divergence; independent of everything below | Low |
+| 0 | Reconcile the two `rotate` implementations | ✅ **Done**, as part of step 4. `RotateMode` + `Quarter` make the divergence unrepresentable | Low |
 | 1 | Move the `RenderBackend` contract and its types from `fepdf-render` into `fepdf-content` | ✅ **Done.** GPU became opt-in; WASM dropped to zero GPU dependencies | Low |
-| 2 | Extract the PDF-free half of `font/` into `fepdf-font` | 3,500 lines become independently testable | Low |
-| 3 | Move struct-tree handling out of `fepdf-gui` into `fepdf-doc` | Domain logic returns to the engine; closes the Rule A leak | Medium |
-| 4 | Introduce `Operation` in `fepdf-doc`; reduce the CLI subcommands and `WorkerRequest` to adapters over it | Rule D becomes structural; divergence stops being possible | Medium |
+| 2 | Extract the PDF-free half of `font/` into `fepdf-font` | ✅ **Done.** 3,700 lines are independently testable | Low |
+| 3 | Move struct-tree handling out of `fepdf-gui` into `fepdf-doc` | ✅ **Done** into `fepdf-sdk`, pending its split. The GUI calls `extract_struct_tree()`; the Rule A leak is closed | Medium |
+| 4 | Introduce `Operation`; reduce the CLI subcommands and `WorkerRequest` to adapters over it | ✅ **Done** in `fepdf-sdk`, pending its split into `fepdf-doc`. Rule D is structural | Medium |
 | 5 | Move `writer` into `fepdf-model` (core) | ✅ **Done.** Restores the read/write round trip in `fepdf-model` (Rule C); `fepdf-sdk` re-exports for compatibility | Low |
 | 6 | Introduce the `fepdf` facade | Rule A becomes enforceable; touches all four frontends | High |
 
-Step 0 is a bug fix and needs no restructuring — but do it as part of step 4, not
-before it, or the same divergence simply recurs the next time an operation is added.
-
-Steps 3 and 4 belong together: both pull domain decisions out of the presentation
-layer, and step 4 is what stops them leaking back.
+Steps 0–5 are complete. Steps 3 and 4 landed in `fepdf-sdk` rather than in a
+`fepdf-doc` of its own: the code moved out of the presentation layer, which was the
+point, but the crate boundary is still to be drawn. That remainder is Phase E in
+[`ROADMAP.md`](ROADMAP.md), deliberately deferred until the operation vocabulary has
+contents to own.
 
 Step 6 delivers most of the usability gain and should follow 1–5, not precede them.
 The current API cannot hide its internals — reaching a catalogue requires

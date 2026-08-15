@@ -24,9 +24,11 @@ pub use fepdf_model::font::{GlyphTrace, TraceContext};
 // Re-exported so frontends need no dependency on fepdf-model at all: with the model
 // unreachable by name, ARCHITECTURE.md Rule A is enforced by Cargo rather than by
 // review.
+pub use fepdf_model::file_structure::{FileStructure, ObjectCensus, ObjectStream, Revision};
 pub use fepdf_model::font::FontResource;
 pub use fepdf_model::graphics::Rect;
 pub use fepdf_model::ingest::{ColorPolicy, IngestionOptions};
+pub use fepdf_model::interpretation::{Decision, DecisionLog, Severity, Strictness};
 pub use fepdf_model::{
     AFRelationship, AnnotationKind, AnnotationSpec, ArticleBead, ArticleThread, AssociatedFile,
     CollectionViewMode, Document, FormFieldSpec, FormValue, GeoSpatialAnchor, Handle, LayerGroup,

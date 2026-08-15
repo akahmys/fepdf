@@ -154,7 +154,11 @@ impl Document {
         data: bytes::Bytes,
         options: &crate::ingest::IngestionOptions,
     ) -> PdfResult<Self> {
-        // Recovery is not a separate mode: the reader scans for objects when the
+        // Recovery is not a separate mode: the reader scans for `N G obj` whenever the
+        // cross-reference is unusable, and records the substitution as a `Decision`.
+        // There is therefore nothing for a repair path to do that `open` does not
+        // already do (ADR-0003). Kept as a distinct entry point because callers name
+        // their intent with it.
         Self::open(data, options)
     }
 

@@ -112,19 +112,20 @@ fn attach_stream(
         });
     };
 
-    let declared = arena
-        .get_dict(dict_h)
-        .and_then(|d| d.get(&arena.name("Length")).cloned())
-        .and_then(|o| match o {
-            Object::Integer(n) => usize::try_from(n).ok(),
-            // An indirect /Length cannot be resolved until every object is loaded,
-            // so the data is delimited by scanning instead.
-            _ => None,
-        });
+    let declared = match arena.get_dict(dict_h).and_then(|d| d.get(&arena.name("Length")).cloned())
+    {
+        Some(Object::Integer(n)) => {
+            usize::try_from(n).map_or(DeclaredLength::Absent, DeclaredLength::Direct)
+        }
+        // An indirect /Length cannot be resolved until every object is loaded, so the
+        // data is delimited by scanning instead.
+        Some(Object::Reference(_)) => DeclaredLength::Indirect,
+        _ => DeclaredLength::Absent,
+    };
 
     let end = resolve_stream_extent(bytes, data_at, declared, decisions);
     let length = end.saturating_sub(data_at);
-    if declared != Some(length) {
+    if declared != DeclaredLength::Direct(length) {
         // State the extent that was actually used. Leaving an indirect /Length in place
         // would strand the integer object it names, which nothing else references.
         record_length(arena, dict_h, length);
@@ -141,6 +142,23 @@ fn record_length(arena: &PdfArena, dict_h: DictHandle, length: usize) {
     arena.set_dict(dict_h, dict);
 }
 
+/// What a stream dictionary says about its own extent.
+///
+/// These three are not interchangeable, and collapsing them into `Option<usize>` is
+/// how an indirect `/Length` — which 7.3.8.2 explicitly permits — came to be recorded
+/// as a departure from the standard alongside a missing one, which is a violation of a
+/// required key.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum DeclaredLength {
+    /// A direct integer, as most producers write.
+    Direct(usize),
+    /// `N G R`. Conforming, but not resolvable here: the object it names may not be
+    /// parsed yet, which is the whole reason producers use the form.
+    Indirect,
+    /// No `/Length`, or one that is not a number. The key is required.
+    Absent,
+}
+
 /// Decides where a stream's data ends, recording why when the file is not clear.
 ///
 /// `/Length` is authoritative when it agrees with the `endstream` keyword. When they
@@ -149,7 +167,7 @@ fn record_length(arena: &PdfArena, dict_h: DictHandle, length: usize) {
 fn resolve_stream_extent(
     bytes: &[u8],
     data_at: usize,
-    declared: Option<usize>,
+    declared: DeclaredLength,
     decisions: &mut DecisionLog,
 ) -> usize {
     let keyword = find_endstream(bytes, data_at);
@@ -158,12 +176,12 @@ fn resolve_stream_extent(
         // /Length defines the extent (7.3.8.2); only an EOL may follow it. Data that
         // itself ends in CR makes the trailing marker ambiguous, so where /Length is
         // consistent with the keyword's position it is believed over the scan.
-        (Some(len), Some(_))
+        (DeclaredLength::Direct(len), Some(_))
             if keyword.is_some_and(|at| separated_by_space(bytes, data_at + len, at)) =>
         {
             data_at + len
         }
-        (Some(len), Some(found)) => {
+        (DeclaredLength::Direct(len), Some(found)) => {
             decisions.push(Decision::repaired(
                 "7.3.8.2",
                 format!("/Length {len} but endstream is {} bytes in", found - data_at),
@@ -171,7 +189,7 @@ fn resolve_stream_extent(
             ));
             found
         }
-        (Some(len), None) if data_at + len <= bytes.len() => {
+        (DeclaredLength::Direct(len), None) if data_at + len <= bytes.len() => {
             decisions.push(Decision::repaired(
                 "7.3.8.2",
                 "no endstream keyword after the stream data",
@@ -179,10 +197,15 @@ fn resolve_stream_extent(
             ));
             data_at + len
         }
-        (None, Some(found)) => {
-            decisions.push(Decision::ambiguity(
+        // Nothing is recorded: an indirect /Length is conforming, and scanning to
+        // `endstream` is how it is meant to be read on a single pass. Reporting this
+        // made every stream of a clean file look like a departure — 31 of them in
+        // `samples/sample.pdf`, whose declared lengths all agree with the scan.
+        (DeclaredLength::Indirect, Some(found)) => found,
+        (DeclaredLength::Absent, Some(found)) => {
+            decisions.push(Decision::repaired(
                 "7.3.8.2",
-                "/Length absent or an indirect reference",
+                "stream dictionary has no /Length, which is required",
                 "delimited the data by scanning to endstream",
             ));
             found
@@ -265,6 +288,17 @@ pub fn load_document(bytes: &[u8]) -> PdfResult<RawDocument> {
     );
     // Offsets in a file with a prefix are relative to the header (7.5.2).
     let base = header.as_ref().map_or(0, |h| h.offset);
+    if base != 0 {
+        // Tolerating this is the single robustness behaviour ADR-0003 names as
+        // mattering most, since mail gateways and scanners prepend bytes routinely.
+        // Tolerating it silently is still a defect: the file is not conforming, and a
+        // caller validating a producer needs to be told.
+        decisions.push(Decision::repaired(
+            "7.5.2",
+            format!("{base} bytes precede %PDF-, which shall begin the file"),
+            "took the header's position as the origin for every offset in the file",
+        ));
+    }
 
     let arena = PdfArena::new();
     let (records, trailer) = locate_objects(bytes, base, &arena, &mut decisions);
@@ -304,6 +338,19 @@ fn locate_objects(
         records.extend(
             scanned.into_iter().map(|(n, o)| (n, XrefRecord::InFile { offset: o, generation: 0 })),
         );
+    }
+
+    if trailer.is_none() {
+        // 7.5.5 requires a trailer, and `/Root` is how the catalogue is reached. Losing
+        // it is not fatal — the catalogue can be found by type — but the caller is
+        // entitled to know the file did not say where it was. `target/malformed/
+        // no_trailer.pdf` read with a `None` trailer and no decision at all until this
+        // was measured: its cross-reference table is intact, so nothing else fired.
+        decisions.push(Decision::violation(
+            "7.5.5",
+            "no trailer dictionary, so the file names no /Root",
+            "left the catalogue to be located by scanning for /Type /Catalog",
+        ));
     }
     (records, trailer)
 }
@@ -421,6 +468,15 @@ fn current_container(records: &BTreeMap<u32, XrefRecord>, number: u32) -> Option
     }
 }
 
+/// Which of the two cross-reference forms a section is written in (7.5.4, 7.5.8).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum XrefForm {
+    /// A classic `xref` table followed by a `trailer` dictionary.
+    Table,
+    /// A cross-reference stream, which PDF 2.0 prefers and 1.5 introduced.
+    Stream,
+}
+
 /// A cross-reference section, whichever form the file used.
 #[derive(Debug, Clone)]
 pub struct XrefSection {
@@ -429,6 +485,9 @@ pub struct XrefSection {
     /// The trailer dictionary. For a cross-reference stream this is the stream's own
     /// dictionary, which is why reading one has to happen at this layer.
     pub trailer: Option<DictHandle>,
+    /// The form this section is written in. Reported by `inspect structure`, since a
+    /// file mixing both is a hybrid-reference file and worth being able to see.
+    pub form: XrefForm,
 }
 
 /// Reads whichever cross-reference form sits at `offset`.
@@ -444,7 +503,7 @@ pub fn read_xref_section(
 ) -> PdfResult<XrefSection> {
     if let Ok(table) = fepdf_syntax::xref::parse_xref_table(bytes, offset) {
         let trailer = table.trailer_at.and_then(|at| parse_trailer_dict(bytes, at, arena));
-        return Ok(XrefSection { entries: table.entries, trailer });
+        return Ok(XrefSection { entries: table.entries, trailer, form: XrefForm::Table });
     }
 
     let indirect = parse_indirect_at(bytes, offset, arena, decisions)?;
@@ -466,7 +525,7 @@ pub fn read_xref_section(
     let decoded = crate::filters::process_arena_filters(&raw, &dict, arena)?;
     let entries = fepdf_syntax::xref::parse_xref_stream_data(&decoded, &layout)?;
 
-    Ok(XrefSection { entries, trailer: Some(*dict_h) })
+    Ok(XrefSection { entries, trailer: Some(*dict_h), form: XrefForm::Stream })
 }
 
 /// Reads `/W` and `/Index` out of a cross-reference stream's dictionary.
@@ -674,15 +733,38 @@ mod tests {
     }
 
     #[test]
-    fn an_indirect_length_is_resolved_by_scanning() {
-        // /Length may reference an object that is not loaded yet, so the data is
-        // delimited by scanning; that is a reading chosen, not an error.
+    fn an_indirect_length_is_conforming_and_records_nothing() {
+        // 7.3.8.2 permits `/Length N G R`, and producers use it precisely because the
+        // length is not known when the dictionary is written. Scanning to `endstream`
+        // is how such a stream is meant to be read on one pass, so there is nothing to
+        // report: the file departed from nothing.
+        //
+        // This asserted the opposite until measured. All 31 streams in
+        // `samples/sample.pdf` carry an indirect /Length, so a conforming file reported
+        // 31 departures and `DecisionLog::is_conforming` returned false for it. Every
+        // one of those declared lengths agrees with the scan
+        // (`examples/length_crosscheck.rs`).
         let (obj, log) = read(b"1 0 obj\n<< /Length 9 0 R >>\nstream\nHELLO\nendstream\nendobj\n");
         let Object::Stream(_, data) = obj.object else { panic!("expected a stream") };
         let SublimatedData::Raw(bytes) = data.as_ref() else { panic!("expected raw data") };
         assert_eq!(&bytes[..], b"HELLO");
+        assert!(log.is_conforming(), "an indirect /Length is not a departure: {:?}", log.entries());
+    }
+
+    #[test]
+    fn a_missing_length_is_a_repair_not_an_ambiguity() {
+        // The same arm used to serve this case and the indirect one. /Length is
+        // required, so its absence is wrong input whose intent is still recoverable —
+        // which is a different thing from a conforming file the reader cannot resolve
+        // in one pass.
+        let (obj, log) =
+            read(b"1 0 obj\n<< /Filter /FlateDecode >>\nstream\nHELLO\nendstream\nendobj\n");
+        let Object::Stream(_, data) = obj.object else { panic!("expected a stream") };
+        let SublimatedData::Raw(bytes) = data.as_ref() else { panic!("expected raw data") };
+        assert_eq!(&bytes[..], b"HELLO");
         assert_eq!(log.entries().len(), 1);
-        assert_eq!(log.entries()[0].severity, crate::interpretation::Severity::Ambiguity);
+        assert_eq!(log.entries()[0].severity, crate::interpretation::Severity::Repaired);
+        assert!(log.entries()[0].found.contains("no /Length"));
     }
 
     #[test]

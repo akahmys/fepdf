@@ -80,12 +80,13 @@ any of the above — see
 
 ## Phase B — Read before write
 
-Semantic completeness starts with being able to *see* a feature. `inspect` has five
-commands against roughly fifteen clauses; nothing reports encryption, interactive
-features, or file structure.
+Semantic completeness starts with being able to *see* a feature. `inspect` began with
+four commands — `info`, `audit`, `text`, `tree` — against roughly fifteen clauses, and
+nothing reported encryption, interactive features, or file structure.
 
-- [ ] `inspect structure` — file layout: sections, updates, object streams, and the
-      decisions taken while reading
+- [x] `inspect structure` — file layout: sections, updates, object streams, and the
+      decisions taken while reading. Text, JSON and Markdown; reads the bytes rather
+      than a normalised `Document`, so it reports the file as written
 - [ ] `inspect encryption` — handler, revision, permissions, conformance
 - [ ] `inspect interactive` — annotations, form fields, actions, outlines
 - [ ] `inspect catalog` — every entry, typed or not, so gaps are visible
@@ -93,6 +94,29 @@ features, or file structure.
 
 *Done when*: for any PDF 2.0 feature the engine claims to support, there is a command
 that shows it. Reading a feature is the precondition for writing it correctly.
+
+### What surveying the corpus first turned up
+
+`examples/structure_survey.rs` was written before the command, because a column whose
+value is the same for every file is a column not worth printing. It found the opposite
+problem — a column that was wrong.
+
+The reader recorded an `Ambiguity` for every indirect `/Length`, a form the standard
+permits, so `sample.pdf` reported 31 departures and `DecisionLog::is_conforming` was
+`false` for a conforming file. Fixing it exposed two further tolerances the noise had
+hidden: a header at a non-zero offset and a missing trailer dictionary were both
+accepted in silence ([ADR-0008](docs/adr/0008-an-indirect-length-is-not-an-ambiguity.md)).
+
+| Corpus | Decisions recorded, before → after |
+| :--- | :--- |
+| nine samples | 31, 31, 0×7 → **0 each** |
+| five readable malformed files | 31, 31, 31, 22, 0 → **1–3 each, naming the damage** |
+
+One gap is left deliberately: an indirect `/Length` pointing at the *wrong* object is
+still read silently, because the reader never resolves the reference to compare. The
+correct extent is found by scanning either way, so nothing is misread — but the file's
+non-conformance goes unreported. `examples/length_crosscheck.rs` detects it from
+outside until the reader can.
 
 ## Phase C — Clause 7.6
 
@@ -155,6 +179,12 @@ The previous version marked Phases 1–27 complete against a goal of "the world'
 robust and ISO-compliant PDF 2.0 toolkit". Several of those completions did not
 survive measurement: `open_repair` returned without repairing, `ColorPolicy` was never
 read, and five `fepdf edit` subcommands reported success while writing nothing.
+
+`ColorPolicy` is still not read, and a second ingestion option turned out to share the
+condition; both flags are now hidden rather than advertised
+([ADR-0007](docs/adr/0007-an-option-that-is-not-read-is-hidden.md)). Naming a defect is
+not fixing it — `./scripts/dev/status.sh` now counts them, so the gap is measured
+rather than remembered.
 
 Each phase here therefore states what *done* means in terms that can be measured, and
 the current state above is what the code does today rather than what it was intended
