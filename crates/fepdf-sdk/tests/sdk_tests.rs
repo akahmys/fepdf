@@ -5,34 +5,46 @@
 #![allow(clippy::float_cmp)]
 use bytes::Bytes;
 use fepdf_sdk::{PdfDocument, PdfStandard};
+use std::fmt::Write as _;
 use std::io::Write;
 
-fn get_minimal_pdf() -> Bytes {
-    let mut doc = lopdf::Document::with_version("1.7");
+/// Assembles indirect objects into a file, cross-reference and trailer included.
+///
+/// Written out by hand rather than by a library, so the tests exercise the reader on
+/// bytes a producer would actually emit, offsets and all. Objects are numbered from 1
+/// in the order given, and `root` names which of them is the catalogue.
+fn assemble(bodies: &[String], root: usize) -> Bytes {
+    let mut out = String::from("%PDF-1.7\n");
+    let mut offsets = Vec::new();
+    for (index, body) in bodies.iter().enumerate() {
+        offsets.push(out.len());
+        let _ = write!(out, "{} 0 obj\n{body}\nendobj\n", index + 1);
+    }
 
-    let mut pages_dict = lopdf::Dictionary::new();
-    pages_dict.set("Type", lopdf::Object::Name(b"Pages".to_vec()));
-    pages_dict.set("Kids", lopdf::Object::Array(vec![]));
-    pages_dict.set("Count", lopdf::Object::Integer(0));
-    let pages_id = doc.add_object(lopdf::Object::Dictionary(pages_dict));
-
-    let mut catalog_dict = lopdf::Dictionary::new();
-    catalog_dict.set("Type", lopdf::Object::Name(b"Catalog".to_vec()));
-    catalog_dict.set("Pages", lopdf::Object::Reference(pages_id));
-    let catalog_id = doc.add_object(lopdf::Object::Dictionary(catalog_dict));
-
-    doc.trailer.set("Root", lopdf::Object::Reference(catalog_id));
-    doc.trailer.set("Size", lopdf::Object::Integer(i64::from(catalog_id.0 + 1)));
-
-    let id_item = lopdf::Object::String(
-        b"0123456789abcdef0123456789abcdef".to_vec(),
-        lopdf::StringFormat::Hexadecimal,
+    let startxref = out.len();
+    let size = bodies.len() + 1;
+    let _ = write!(out, "xref\n0 {size}\n0000000000 65535 f \n");
+    for offset in &offsets {
+        let _ = writeln!(out, "{offset:010} 00000 n ");
+    }
+    let id = "<0123456789abcdef0123456789abcdef>";
+    let _ = write!(
+        out,
+        "trailer\n<< /Size {size} /Root {root} 0 R /ID [{id} {id}] >>\n\
+         startxref\n{startxref}\n%%EOF\n"
     );
-    doc.trailer.set("ID", lopdf::Object::Array(vec![id_item.clone(), id_item]));
+    Bytes::from(out)
+}
 
-    let mut buf = Vec::new();
-    doc.save_to(&mut buf).unwrap();
-    Bytes::from(buf)
+/// The smallest conforming document: a catalogue and an empty page tree.
+fn get_minimal_pdf() -> Bytes {
+    assemble(
+        &[
+            "<< /Type /Pages /Kids [] /Count 0 >>".to_string(),
+            "<< /Type /Catalog /Pages 1 0 R >>".to_string(),
+        ],
+        2,
+    )
 }
 
 #[test]
@@ -171,57 +183,17 @@ fn test_document_page_count() {
     assert_eq!(doc.page_count().unwrap(), 0);
 }
 
+/// A document with `count` pages, all children of one page tree node.
 fn get_multipage_pdf(count: usize) -> Bytes {
-    let mut doc = lopdf::Document::with_version("1.7");
+    let pages_number = count + 1;
+    let mut bodies: Vec<String> = (0..count)
+        .map(|_| format!("<< /Type /Page /Parent {pages_number} 0 R /MediaBox [0 0 612 792] >>"))
+        .collect();
 
-    let mut page_ids = Vec::new();
-    for _ in 0..count {
-        let mut page_dict = lopdf::Dictionary::new();
-        page_dict.set("Type", lopdf::Object::Name(b"Page".to_vec()));
-        page_dict.set(
-            "MediaBox",
-            lopdf::Object::Array(vec![
-                lopdf::Object::Integer(0),
-                lopdf::Object::Integer(0),
-                lopdf::Object::Integer(612),
-                lopdf::Object::Integer(792),
-            ]),
-        );
-        let pid = doc.add_object(lopdf::Object::Dictionary(page_dict));
-        page_ids.push(lopdf::Object::Reference(pid));
-    }
-
-    let mut pages_dict = lopdf::Dictionary::new();
-    pages_dict.set("Type", lopdf::Object::Name(b"Pages".to_vec()));
-    pages_dict.set("Kids", lopdf::Object::Array(page_ids.clone()));
-    pages_dict.set("Count", lopdf::Object::Integer(i64::try_from(count).unwrap_or(0)));
-    let pages_id = doc.add_object(lopdf::Object::Dictionary(pages_dict));
-
-    for pid_obj in page_ids {
-        if let lopdf::Object::Reference(pid) = pid_obj
-            && let Some(lopdf::Object::Dictionary(dict)) = doc.objects.get_mut(&pid)
-        {
-            dict.set("Parent", lopdf::Object::Reference(pages_id));
-        }
-    }
-
-    let mut catalog_dict = lopdf::Dictionary::new();
-    catalog_dict.set("Type", lopdf::Object::Name(b"Catalog".to_vec()));
-    catalog_dict.set("Pages", lopdf::Object::Reference(pages_id));
-    let catalog_id = doc.add_object(lopdf::Object::Dictionary(catalog_dict));
-
-    doc.trailer.set("Root", lopdf::Object::Reference(catalog_id));
-    doc.trailer.set("Size", lopdf::Object::Integer(i64::from(catalog_id.0 + 1)));
-
-    let id_item = lopdf::Object::String(
-        b"0123456789abcdef0123456789abcdef".to_vec(),
-        lopdf::StringFormat::Hexadecimal,
-    );
-    doc.trailer.set("ID", lopdf::Object::Array(vec![id_item.clone(), id_item]));
-
-    let mut buf = Vec::new();
-    doc.save_to(&mut buf).unwrap();
-    Bytes::from(buf)
+    let kids: Vec<String> = (1..=count).map(|n| format!("{n} 0 R")).collect();
+    bodies.push(format!("<< /Type /Pages /Kids [{}] /Count {count} >>", kids.join(" ")));
+    bodies.push(format!("<< /Type /Catalog /Pages {pages_number} 0 R >>"));
+    assemble(&bodies, count + 2)
 }
 
 #[test]

@@ -1,6 +1,6 @@
 //! Reads every object a file's cross-reference names, reporting what had to be decided.
 //!
-//! A diagnostic for the reader replacing lopdf: it exercises both cross-reference
+//! A diagnostic for the reader: it exercises both cross-reference
 //! forms, expands object streams, and prints the interpretation decisions taken.
 
 use fepdf_model::arena::PdfArena;

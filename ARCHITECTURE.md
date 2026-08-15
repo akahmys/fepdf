@@ -181,9 +181,11 @@ shape. Decisions that were *reversed*, and the measurements that reversed them, 
 [`docs/adr/`](docs/adr/README.md) — including the scope of `fepdf-syntax`
 ([ADR-0002](docs/adr/0002-the-syntax-layer-is-lexer-and-crypto-only.md)), the reader's
 independence from `lopdf`
-([ADR-0003](docs/adr/0003-lopdf-was-not-providing-robustness.md)), and how Rules A–C
-came to be enforced by the build rather than by review
-([ADR-0005](docs/adr/0005-layering-rules-are-enforced-by-cargo.md)).
+([ADR-0003](docs/adr/0003-lopdf-was-not-providing-robustness.md)), how Rules A–C came
+to be enforced by the build rather than by review
+([ADR-0005](docs/adr/0005-layering-rules-are-enforced-by-cargo.md)), and why an object
+stream may not overwrite a newer revision of what it carries
+([ADR-0006](docs/adr/0006-a-container-may-not-overwrite-a-newer-revision.md)).
 
 ---
 
@@ -332,18 +334,28 @@ pipeline spans `fepdf-syntax` → `fepdf-model`, which is why normalisation is a
 concern of the model rather than a crate of its own.
 
 ```
-Raw bytes ─► Pass 0: Physical ─► Pass 1: Arena ─► Pass 2: Semantic ─► Document
+Raw bytes ─► Reading ─► Pass 0: Decryption ─► Pass 2: Semantic ─► Document
 ```
 
-- **Pass 0 — Physical normalisation.** Recursive stack-based decryption and
-  cross-reference repair. Strips residual `/Encrypt` dictionaries for deterministic
-  reader compatibility.
-- **Pass 1 — Arena ingestion.** Expands object streams (`/ObjStm`), stores objects in
-  `PdfArena` under deterministic `Handle<Object>` (id + generation), and indexes
-  resource dictionaries, `/Collection` portfolios, `/OCProperties` layers, `/AF` associated files, and `/Outlines`.
+- **Reading** (`reader::load_document`). Locates the header, walks the cross-reference
+  sections oldest-first so a later revision overrides an earlier one, expands object
+  streams, and places each object in the arena **at the slot matching its number**.
+  There is no remapping table: the parser builds `Object::Reference(Handle::new(n))`
+  straight from `n 0 R`, so references are correct as written. Every tolerance applied
+  is recorded as a `Decision` (§5.3). When the cross-reference is unusable the file is
+  scanned for `N G obj` instead, and that substitution is recorded too.
+- **Pass 0 — Decryption** (`decrypt::unlock`). Walks the populated arena decrypting
+  strings and streams with each object's own number, skipping the `/Encrypt`
+  dictionary, which is never encrypted. Removes `/Encrypt` afterwards: Acrobat reports
+  error 135 for a file whose objects are plain but whose trailer still claims
+  encryption.
 - **Pass 2 — Semantic sublimation.** Re-encodes character mappings to eliminate legacy
   CJK mojibake, preserves exact path endpoints (`EndPath n`), harmonises graphics
   state, normalises colour, and validates PDF 2.0 structure integrity.
+
+Pass 1 no longer exists. It converted another library's object model into ours; the
+reader now produces the arena directly
+([ADR-0003](docs/adr/0003-lopdf-was-not-providing-robustness.md)).
 
 ### 5.5 Unified Extension Architecture (Anti-Ad-Hoc Policy)
 

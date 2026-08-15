@@ -1207,7 +1207,6 @@ fn handle_credits() -> Result<()> {
     println!("fepdf and fepdf-sdk are powered by the following excellent libraries:\n");
 
     let credits = [
-        ("lopdf", "MIT", "Low-level PDF parsing and manipulation"),
         ("pdf-writer", "Apache-2.0", "Efficient PDF object serialization"),
         ("flate2", "MIT / Apache-2.0", "Deflate/Zlib compression"),
         ("vello", "Apache-2.0 / MIT", "High-performance vector graphics"),

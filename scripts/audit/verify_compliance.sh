@@ -147,7 +147,12 @@ echo "[Rule 5] Checking wildcard match arms over domain enums..."
 rule5_raw=$(cargo clippy --workspace --all-targets --quiet -- \
     -W clippy::wildcard_enum_match_arm \
     -A clippy::all -A clippy::pedantic -A clippy::nursery 2>&1 \
-    | grep -E "^[[:space:]]+--> |help: try" | paste - - || true)
+    | grep -E "^[[:space:]]+--> |help: try" \
+    | awk '
+        /^[[:space:]]*--> / { if (loc != "") print loc "\t"; loc = $0; next }
+        /help: try/ { if (loc != "") { print loc "\t" $0; loc = "" } }
+        END { if (loc != "") print loc "\t" }
+      ' || true)
 
 rule5_failed=0
 while IFS= read -r entry; do

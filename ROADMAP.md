@@ -16,21 +16,22 @@ Understanding them is what remains.
 | ISO 32000-2 | State |
 | :--- | :--- |
 | **7.3** Objects | Complete. Every type in the clause. |
-| **7.5** File structure | **Implemented, not yet wired.** Header scan, both cross-reference forms, `/Prev` chains, hybrid references, object streams, and recovery by scanning. `Document::open` still calls `lopdf`. |
+| **7.5** File structure | **Complete and in use.** Header scan, both cross-reference forms, `/Prev` chains, hybrid references, object streams, incremental updates, and recovery by scanning. `Document::open` reads the file itself; `lopdf` is gone. |
 | **7.6** Encryption | **Weakest area.** AES-256 R5/R6 is self-declared non-conformant; public-key (7.6.4) and unencrypted wrapper (7.6.7) are stubs. |
 | **7.7** Document structure | 10 of ~30 catalogue entries typed. Untyped entries survive a round trip but cannot be reasoned about. |
 | **PDF 2.0 additions** | `DSS`, `AF`, `DPartRoot` have spec types but no read or write path. |
 | **8–14** Content, text, interactive, tagged | Interpreter, fonts and UA-2 auditing exist; interactive features (12) are largely unmodelled. |
 
-Two measurements worth carrying forward: 19 of 24 `Operation` variants are stubs that
-now report rather than claim success, and 14 places still detect non-conformance with
-`log::warn!` instead of recording a `Decision`.
+One measurement worth carrying forward: 19 of 24 `Operation` variants are stubs that
+now report rather than claim success. The `log::warn!` count is down from 14 to one,
+and that one is deliberate — it reports which fonts *this machine* has, not anything
+the document says.
 
 ---
 
-## Phase A — Own the reader *(in progress)*
+## Phase A — Own the reader *(complete)*
 
-Replacing `lopdf` is the gate on everything else: what the engine can read is
+Replacing `lopdf` was the gate on everything else: what the engine could read was
 otherwise bounded by another project's coverage, and the robustness it was kept for
 was measured absent ([ADR-0003](docs/adr/0003-lopdf-was-not-providing-robustness.md)).
 
@@ -38,15 +39,40 @@ was measured absent ([ADR-0003](docs/adr/0003-lopdf-was-not-providing-robustness
 - [x] Cross-reference streams, `/Prev` chains, hybrid references
 - [x] Indirect objects from offsets, with `/Length` repair recorded as a `Decision`
 - [x] Object stream expansion
-- [ ] **Assemble a document from those pieces** — object numbering into the arena,
-      trailer resolution, decryption on the new path
-- [ ] **Switch `Document::open` over**, comparing every sample before and after so the
-      change is verifiable rather than asserted
-- [ ] **Delete `lopdf`**, which removes ~90 references of conversion code
-- [ ] Convert the 14 `log::warn!` sites to `Decision`s while their code paths are open
+- [x] Document assembly — an object's handle **is** its object number, so the
+      remapping table is gone; decryption runs on the arena (`decrypt.rs`)
+- [x] `Document::open` switched, with every sample compared before and after
+- [x] `lopdf` deleted: 95 references, the dependency, and the credits entries
+- [x] `log::warn!` sites converted to `Decision`s
 
-*Done when*: the six malformed files and all nine samples load through the new reader,
-byte-identical output where the old path succeeded.
+### What the switch actually changed
+
+Round-tripping all nine samples through `publish upgrade` on both paths, compared by
+`examples/compare_documents.rs` — which walks the catalogue, numbers objects by the
+order they are reached, and sorts dictionary keys, so neither renumbering nor key
+order can masquerade as a difference:
+
+| Sample | Reachable objects | Differing |
+| :--- | ---: | :--- |
+| `bokutokitan`, `constitution`, `fugaku`, `sample`, `print_sample`, `volvo_xc90` | 80–26,847 | 1 each |
+| `intel_sdm` | 332,814 | 1 |
+| `fy05` | 4,586 | 2 |
+| `unicode_16` | 8,280 | 179 |
+
+Every "1" is the XMP packet, whose `xmpMM:InstanceID` is a fresh UUID per instance.
+**Byte-identical was not an achievable criterion**: the old path was not byte-stable
+against itself either, differing in exactly those 31 bytes between two runs of the
+same binary. The remaining 178 differences in `unicode_16` and one in `fy05` are real
+numbers: `lopdf` parsed them as `f32`, so `302.498454` came back as `302.498444`.
+
+On the six deliberately malformed files, `publish upgrade` now succeeds on five where
+it previously succeeded on one. The sixth is truncated before its trailer and has no
+`/Type /Catalog` anywhere; it now fails with a message that says so rather than
+`Object Handle<Object>(0) is not a dictionary`.
+
+One defect was found by cross-checking against an independent reader rather than by
+any of the above — see
+[ADR-0006](docs/adr/0006-a-container-may-not-overwrite-a-newer-revision.md).
 
 ## Phase B — Read before write
 

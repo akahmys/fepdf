@@ -125,6 +125,12 @@ impl DecisionLog {
 
     /// Every decision, in the order they were taken.
     #[must_use]
+    /// Consumes the log, yielding the decisions it recorded.
+    pub fn into_entries(self) -> Vec<Decision> {
+        self.entries
+    }
+
+    /// The decisions recorded so far, in the order they were taken.
     pub fn entries(&self) -> &[Decision] {
         &self.entries
     }

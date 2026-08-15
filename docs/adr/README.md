@@ -53,3 +53,6 @@ ADR-0001 through ADR-0005 were written **retroactively**, reconstructed from the
 commits that implemented them. They were not written at the time the decisions were
 taken — which is the reason this log exists, since in four of the five the original
 reasoning had to be recovered from a diff rather than read.
+
+ADR-0006 is the first written as the decision was taken, with the measurement that
+forced it still to hand.

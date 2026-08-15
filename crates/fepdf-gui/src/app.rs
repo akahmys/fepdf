@@ -1925,7 +1925,6 @@ impl FepdfApp {
                     egui::ScrollArea::vertical().max_height(150.0).show(ui, |ui| {
                         ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Wrap);
                         let credits = [
-                            ("lopdf", "MIT License", "Low-level PDF parsing"),
                             ("pdf-writer", "Apache-2.0 License", "PDF object serialization"),
                             ("vello", "Apache-2.0 / MIT", "GPU vector graphics"),
                             ("egui / eframe", "MIT / Apache-2.0", "GUI library"),

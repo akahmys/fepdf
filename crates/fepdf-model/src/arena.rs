@@ -224,6 +224,13 @@ impl PdfArena {
         self.inner.arrays.read().get(handle.index() as usize).cloned()
     }
 
+    /// Updates an existing array in place, keeping its handle valid.
+    pub fn set_array(&self, handle: Handle<Vec<Object>>, array: Vec<Object>) {
+        if let Some(a) = self.inner.arrays.write().get_mut(handle.index() as usize) {
+            *a = array;
+        }
+    }
+
     /// Searches for an existing indirect object that matches the provided object.
     pub fn find_object(&self, object: &Object) -> Option<Handle<Object>> {
         let idx = self.inner.object_index.read();
@@ -415,9 +422,6 @@ pub struct ArenaStats {
     /// Declared document version.
     pub version: f32,
 }
-
-/// Maps a source file's `(object number, generation)` onto arena handles.
-pub type RemappingTable = BTreeMap<(u32, u16), Handle<Object>>;
 
 #[cfg(test)]
 mod tests {

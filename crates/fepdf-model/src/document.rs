@@ -125,20 +125,8 @@ impl Document {
 
     /// Opens a PDF document from bytes with specific options.
     pub fn open(data: bytes::Bytes, options: &crate::ingest::IngestionOptions) -> PdfResult<Self> {
-        let mut lopdf_doc = lopdf::Document::load_mem(&data)
-            .map_err(|e| PdfError::Parse { pos: 0, message: e.to_string().into() })?;
-
-        // Attempt to decrypt with empty password if encrypted
-        if lopdf_doc.is_encrypted() {
-            match lopdf_doc.decrypt("") {
-                Ok(()) => {}
-                Err(_e) => {
-                    // We will try manual Pass 0 decryption in Ingestor
-                }
-            }
-        }
-
-        let ingested = crate::ingest::Ingestor::ingest(&mut lopdf_doc, options)?;
+        let raw = crate::reader::load_document(&data)?;
+        let ingested = crate::ingest::Ingestor::ingest(raw, options)?;
         let mut doc =
             Self::with_issues(ingested.arena, ingested.root, ingested.info, ingested.issues);
         doc.force_fallback = options.force_fallback;
@@ -166,7 +154,7 @@ impl Document {
         data: bytes::Bytes,
         options: &crate::ingest::IngestionOptions,
     ) -> PdfResult<Self> {
-        // lopdf's load_mem is already quite robust, but we could add more repair logic here
+        // Recovery is not a separate mode: the reader scans for objects when the
         Self::open(data, options)
     }
 

@@ -126,6 +126,23 @@ pub struct FontResource {
     pub cid_ordering: Option<String>,
     /// CID Registry (e.g., "Adobe").
     pub cid_registry: Option<String>,
+    /// What had to be decided to read this font, recorded rather than logged.
+    pub decisions: Vec<crate::interpretation::Decision>,
+}
+
+/// What an embedded font program's leading bytes say it is (ISO 9.9).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum EmbeddedFormat {
+    /// An OpenType or TrueType program, which this engine reads glyphs from.
+    Sfnt,
+    /// A bare CFF program, likewise readable.
+    Cff,
+    /// A Type 1 program, which this engine does not ingest.
+    Type1,
+    /// Bytes matching no known signature.
+    Unrecognised,
+    /// No embedded program at all.
+    Absent,
 }
 
 pub use metrics::FontMetrics;
@@ -207,6 +224,7 @@ impl FontResource {
             cid_registry: None,
             num_glyphs: 0,
             force_fallback: false,
+            decisions: Vec::new(),
         }
     }
 
@@ -215,6 +233,7 @@ impl FontResource {
         subtype: &PdfName,
         font_data: Option<loader::FontData>,
         doc: &Document,
+        decisions: &mut Vec<crate::interpretation::Decision>,
     ) -> DescendantResult {
         let arena = doc.arena();
         let mut res = DescendantResult::default();
@@ -222,7 +241,7 @@ impl FontResource {
             res.metrics = FontMetrics::parse_type3(dict, arena);
             res.font_data = font_data;
         } else if subtype.as_str() == "Type0" {
-            if let Some(desc) = Self::parse_descendant_font(dict, doc) {
+            if let Some(desc) = Self::parse_descendant_font(dict, doc, decisions) {
                 res.base_font = desc.base_font;
                 res.font_data = font_data.or(desc.font_data);
                 res.font_descriptor = desc.font_descriptor;
@@ -248,21 +267,23 @@ impl FontResource {
     /// Loads a Font resource from a PDF dictionary.
     pub fn load(dict: &BTreeMap<Handle<PdfName>, Object>, doc: &Document) -> PdfResult<Self> {
         let arena = doc.arena();
-        let subtype = Self::extract_subtype(dict, arena)?;
+        let mut decisions = Vec::new();
+        let subtype = Self::extract_subtype(dict, arena, &mut decisions)?;
         let mut base_font = Self::extract_base_font(dict, arena);
 
         let fd_obj = dict.get(&arena.name("FontDescriptor"));
         let font_data = fd_obj.and_then(|o| loader::FontLoader::extract_data(o, doc, Some(dict)));
 
-        let to_unicode = Self::parse_to_unicode(dict, doc);
-        let encoding = Self::parse_encoding(dict, doc);
+        let to_unicode = Self::parse_to_unicode(dict, doc, &mut decisions);
+        let encoding = Self::parse_encoding(dict, doc, &mut decisions);
 
         let mut font_descriptor = fd_obj.and_then(|o| o.as_reference());
         let is_cid_keyed = subtype.as_str() == "Type0"
             || subtype.as_str() == "CIDFontType0"
             || subtype.as_str() == "CIDFontType2";
 
-        let desc = Self::parse_subtype_metrics_and_data(dict, &subtype, font_data, doc);
+        let desc =
+            Self::parse_subtype_metrics_and_data(dict, &subtype, font_data, doc, &mut decisions);
 
         if base_font.as_str() == "Untitled"
             && let Some(bf) = desc.base_font
@@ -291,6 +312,7 @@ impl FontResource {
             desc.registry,
         );
 
+        resource.decisions = decisions;
         resource.initialize_lifecycle(doc);
         Ok(resource)
     }
@@ -422,6 +444,7 @@ impl FontResource {
             char_procs: Self::parse_char_procs(dict, arena),
             font_matrix: Self::parse_font_matrix(dict, arena),
             force_fallback,
+            decisions: Vec::new(),
         };
 
         if let Some(ref d) = resource.data
@@ -608,55 +631,56 @@ impl FontResource {
         self.unified_map = map;
     }
 
+    /// Classifies the embedded program by its leading bytes.
+    fn embedded_format(&self) -> EmbeddedFormat {
+        let Some(raw) = self.data.as_ref() else { return EmbeddedFormat::Absent };
+        if raw.starts_with(b"OTTO")
+            || raw.starts_with(&[0, 1, 0, 0])
+            || raw.starts_with(b"ttcf")
+            || raw.starts_with(b"true")
+        {
+            EmbeddedFormat::Sfnt
+        } else if raw.len() >= 2 && ((raw[0] == 1 && raw[1] == 0) || raw[0] == 2) {
+            EmbeddedFormat::Cff
+        } else if raw.starts_with(b"%!") || raw.starts_with(&[0x80, 0x01]) {
+            EmbeddedFormat::Type1
+        } else {
+            EmbeddedFormat::Unrecognised
+        }
+    }
+
     /// Fills the Unicode map from the embedded font program's own cmap.
     pub fn populate_embedded_unicode_map(&mut self, doc: &Document) {
         let mut u2g = BTreeMap::new();
+        let mut taken = Vec::new();
 
-        // Check if the current font data is valid SFNT.
-        // If it's not (e.g. Type 1), we should pre-populate u2g from the system fallback font
-        // that will be used during rendering, ensuring GID consistency.
-        let is_sfnt = self
-            .data
-            .as_ref()
-            .map(|raw_data| {
-                raw_data.starts_with(b"OTTO")
-                    || raw_data.starts_with(&[0, 1, 0, 0])
-                    || raw_data.starts_with(b"ttcf")
-                    || raw_data.starts_with(b"true")
-            })
-            .unwrap_or(false);
-
-        let is_cff = self
-            .data
-            .as_ref()
-            .map(|raw_data| {
-                raw_data.len() >= 2 && ((raw_data[0] == 1 && raw_data[1] == 0) || raw_data[0] == 2)
-            })
-            .unwrap_or(false);
-
-        let is_type1 = self
-            .data
-            .as_ref()
-            .map(|raw_data| raw_data.starts_with(b"%!") || raw_data.starts_with(&[0x80, 0x01]))
-            .unwrap_or(false);
+        let format = self.embedded_format();
 
         // Priority 1: ToUnicode (bridges Unicode to character codes/GIDs)
         self.populate_u2g_from_tounicode(&mut u2g);
 
         // Priority 2: Font file's own charmap
-        if is_sfnt || is_cff || self.reconstructed_data.is_some() {
+        if matches!(format, EmbeddedFormat::Sfnt | EmbeddedFormat::Cff)
+            || self.reconstructed_data.is_some()
+        {
             self.populate_u2g_from_font_file(&mut u2g);
-        } else if is_type1 {
-            log::warn!(
-                "[FONT] Embedded font for {} is Type 1. Direct ingestion from font file is not yet supported for this format.",
-                self.base_font.as_str()
-            );
-        } else if let Some(ref raw_data) = self.data {
-            log::warn!(
-                "[FONT] Embedded font for {} is an unrecognized format (sig: {:?}). Skipping ingestion.",
-                self.base_font.as_str(),
-                &raw_data[..std::cmp::min(4, raw_data.len())]
-            );
+        } else if matches!(format, EmbeddedFormat::Type1) {
+            taken.push(crate::interpretation::Decision::ambiguity(
+                "9.9",
+                format!("{} embeds a Type 1 program", self.base_font.as_str()),
+                "did not read glyphs from it; this engine ingests SFNT and CFF only",
+            ));
+        } else if let Some(signature) =
+            self.data.as_ref().map(|d| d[..std::cmp::min(4, d.len())].to_vec())
+        {
+            taken.push(crate::interpretation::Decision::violation(
+                "9.9",
+                format!(
+                    "{} embeds a program in no recognised format (starts {signature:?})",
+                    self.base_font.as_str()
+                ),
+                "skipped it and fell back to a system font",
+            ));
         }
         // Priority 3: System fallback fonts (for characters still missing)
         if let Some(ftype) = self.fallback_type
@@ -665,15 +689,21 @@ impl FontResource {
             // If force_fallback is set, we proactively populate from system fonts
             // to cover potential parsing failures in embedded fonts.
             // Otherwise, it acts as a traditional fallback for missing glyphs.
-            self.populate_u2g_from_data(fb_data, &mut u2g);
+            self.populate_u2g_from_data(fb_data, &mut u2g, &mut taken);
         }
         // Priority 4: Unified mapping (last resort heuristics)
         self.populate_u2g_from_unified(&mut u2g);
 
+        self.decisions.append(&mut taken);
         self.unicode_to_gid = u2g;
     }
 
-    fn populate_u2g_from_data(&self, data: &[u8], u2g: &mut BTreeMap<char, u32>) {
+    fn populate_u2g_from_data(
+        &self,
+        data: &[u8],
+        u2g: &mut BTreeMap<char, u32>,
+        decisions: &mut Vec<crate::interpretation::Decision>,
+    ) {
         if let Ok(face) = ttf_parser::Face::parse(data, 0) {
             log::debug!(
                 "[FONT] Parsing cmap for font: {}. cmap table present: {}",
@@ -707,7 +737,11 @@ impl FontResource {
                 self.base_font.as_str()
             );
         } else {
-            log::error!("[FONT] Failed to parse font data for {}", self.base_font.as_str());
+            decisions.push(crate::interpretation::Decision::violation(
+                "9.9",
+                format!("the embedded program for {} did not parse", self.base_font.as_str()),
+                "left the font without a glyph mapping of its own",
+            ));
         }
     }
 
@@ -837,6 +871,7 @@ impl FontResource {
     fn extract_subtype(
         dict: &BTreeMap<Handle<PdfName>, Object>,
         arena: &PdfArena,
+        decisions: &mut Vec<crate::interpretation::Decision>,
     ) -> PdfResult<PdfName> {
         let subtype_name = dict
             .get(&arena.name("Subtype"))
@@ -848,7 +883,11 @@ impl FontResource {
                 .keys()
                 .filter_map(|k| arena.get_name(*k).map(|n| n.as_str().to_string()))
                 .collect();
-            log::warn!("[HARDENING] Missing font subtype. Available keys: {keys:?}");
+            decisions.push(crate::interpretation::Decision::violation(
+                "9.6.2",
+                format!("font dictionary has no /Subtype; it holds {keys:?}"),
+                "rejected the font resource",
+            ));
         }
 
         subtype_name.ok_or_else(|| PdfError::Other("Missing font subtype".into()))
@@ -908,6 +947,7 @@ impl FontResource {
     fn parse_to_unicode(
         dict: &BTreeMap<Handle<PdfName>, Object>,
         doc: &Document,
+        decisions: &mut Vec<crate::interpretation::Decision>,
     ) -> Option<cmap::CMap> {
         let arena = doc.arena();
         let tu_obj = dict.get(&arena.name("ToUnicode"))?;
@@ -921,20 +961,33 @@ impl FontResource {
             "Unknown".to_string()
         };
         log::debug!("[FONT] Font {base_font} has ToUnicode obj: {tu_obj:?}");
-        Self::try_load_cmap(doc, &tu_obj.resolve(arena), "ToUnicode")
+        Self::try_load_cmap(doc, &tu_obj.resolve(arena), "ToUnicode", decisions)
     }
 
-    fn try_load_cmap(doc: &Document, obj: &Object, context: &str) -> Option<cmap::CMap> {
+    fn try_load_cmap(
+        doc: &Document,
+        obj: &Object,
+        context: &str,
+        decisions: &mut Vec<crate::interpretation::Decision>,
+    ) -> Option<cmap::CMap> {
         match doc.decode_stream(obj) {
             Ok(data) => match cmap::CMap::parse(&data) {
                 Ok(m) => Some(m),
                 Err(e) => {
-                    log::warn!("Failed to parse CMap ({context}): {e:?}");
+                    decisions.push(crate::interpretation::Decision::violation(
+                        "9.10.3",
+                        format!("the {context} CMap did not parse: {e:?}"),
+                        "left the font without that mapping",
+                    ));
                     None
                 }
             },
             Err(e) => {
-                log::warn!("Failed to decode CMap stream ({context}): {e:?}");
+                decisions.push(crate::interpretation::Decision::violation(
+                    "9.10.3",
+                    format!("the {context} CMap stream did not decode: {e:?}"),
+                    "left the font without that mapping",
+                ));
                 None
             }
         }
@@ -953,6 +1006,7 @@ impl FontResource {
     fn parse_encoding(
         dict: &BTreeMap<Handle<PdfName>, Object>,
         doc: &Document,
+        decisions: &mut Vec<crate::interpretation::Decision>,
     ) -> Option<cmap::CMap> {
         let arena = doc.arena();
         let enc_obj = dict.get(&arena.name("Encoding"))?;
@@ -969,7 +1023,7 @@ impl FontResource {
                     _ => None,
                 })
             }
-            Object::Stream(_, _) => Self::try_load_cmap(doc, &enc, "Encoding"),
+            Object::Stream(_, _) => Self::try_load_cmap(doc, &enc, "Encoding", decisions),
             Object::Dictionary(h) => Self::parse_encoding_dict(h, arena),
             _ => None,
         }
@@ -1067,6 +1121,7 @@ impl FontResource {
     fn get_descendant_font_obj(
         dict: &BTreeMap<Handle<PdfName>, Object>,
         arena: &PdfArena,
+        decisions: &mut Vec<crate::interpretation::Decision>,
     ) -> Option<Object> {
         let df_obj = dict.get(&arena.name("DescendantFonts"))?;
         let df_resolved = df_obj.resolve(arena);
@@ -1075,7 +1130,11 @@ impl FontResource {
         if let Some(first) = df_array.first() {
             Some(first.clone())
         } else {
-            log::warn!("[HARDENING] DescendantFonts array is empty.");
+            decisions.push(crate::interpretation::Decision::violation(
+                "9.7.4",
+                "a Type0 font's /DescendantFonts array is empty",
+                "left the font without a descendant",
+            ));
             None
         }
     }
@@ -1099,9 +1158,10 @@ impl FontResource {
     fn parse_descendant_font(
         dict: &BTreeMap<Handle<PdfName>, Object>,
         doc: &Document,
+        decisions: &mut Vec<crate::interpretation::Decision>,
     ) -> Option<DescendantResult> {
         let arena = doc.arena();
-        let df_dict_obj = Self::get_descendant_font_obj(dict, arena)?;
+        let df_dict_obj = Self::get_descendant_font_obj(dict, arena, decisions)?;
         let df_dict_resolved = df_dict_obj.resolve(arena);
         let df_h = df_dict_obj.as_reference();
 
@@ -1120,9 +1180,11 @@ impl FontResource {
         // Favor the mapping from the FontResource (which includes embedded CFF truth)
         // over the potentially missing or "Identity" PDF dictionary mapping.
         let cid_to_gid_map = if let Some(ref fr) = font_resource {
-            fr.cid_to_gid_map.clone().or_else(|| Self::parse_cid_to_gid_map(&df_dict, doc))
+            fr.cid_to_gid_map
+                .clone()
+                .or_else(|| Self::parse_cid_to_gid_map(&df_dict, doc, decisions))
         } else {
-            Self::parse_cid_to_gid_map(&df_dict, doc)
+            Self::parse_cid_to_gid_map(&df_dict, doc, decisions)
         };
 
         let csi_dict = df_dict
@@ -1154,6 +1216,7 @@ impl FontResource {
     fn parse_cid_to_gid_map(
         df_dict: &BTreeMap<Handle<PdfName>, Object>,
         doc: &Document,
+        decisions: &mut Vec<crate::interpretation::Decision>,
     ) -> Option<BTreeMap<u32, u32>> {
         let arena = doc.arena();
         let map_obj = df_dict.get(&arena.name("CIDToGIDMap"))?;
@@ -1166,7 +1229,11 @@ impl FontResource {
         let data = match doc.decode_stream(&resolved) {
             Ok(d) => d,
             Err(e) => {
-                log::warn!("Failed to decode CIDToGIDMap stream: {e:?}");
+                decisions.push(crate::interpretation::Decision::violation(
+                    "9.7.4.3",
+                    format!("the /CIDToGIDMap stream did not decode: {e:?}"),
+                    "treated the map as absent, so CIDs map to themselves",
+                ));
                 return None;
             }
         };
@@ -1184,142 +1251,6 @@ impl FontResource {
     pub fn has_any_mapping(&self) -> bool {
         (self.to_unicode.as_ref().map(|m| !m.mappings.is_empty()).unwrap_or(false))
             || (self.encoding.as_ref().map(|m| !m.mappings.is_empty()).unwrap_or(false))
-    }
-
-    fn new_lopdf_initial(
-        subtype: PdfName,
-        base_font: PdfName,
-        is_cid_keyed: bool,
-        to_unicode: Option<cmap::CMap>,
-        encoding: Option<cmap::CMap>,
-        wmode: u8,
-    ) -> Self {
-        Self {
-            subtype,
-            base_font,
-            is_cid_keyed,
-            first_char: 0,
-            last_char: 0,
-            widths: BTreeMap::new(),
-            vertical_widths: BTreeMap::new(),
-            default_width: 1000.0,
-            wmode,
-            is_bold: false,
-            length1: None,
-            length2: None,
-            length3: None,
-            descriptor: None,
-            file_handle: None,
-            num_glyphs: 0,
-            encoding,
-            to_unicode,
-            adj1_mapping: None,
-            reverse_adj1_mapping: None,
-            discovered_mappings: Arc::new(std::sync::Mutex::new(BTreeMap::new())),
-            unified_map: BTreeMap::new(),
-            unicode_to_gid: BTreeMap::new(),
-            glyph_name_to_gid: BTreeMap::new(),
-            code_to_gid: BTreeMap::new(),
-            sid_to_gid: BTreeMap::new(),
-            cid_to_gid_map: None,
-            data: None,
-            reconstructed_data: None,
-            fallback_type: None,
-            is_legacy_distiller: false,
-            is_embedded_resource: false,
-            char_procs: None,
-            font_matrix: None,
-            force_fallback: false,
-            cid_ordering: None,
-            cid_registry: None,
-            physical_widths: BTreeMap::new(),
-            physical_names: BTreeMap::new(),
-        }
-    }
-
-    /// Loads a Font resource directly from lopdf objects (used during ingest refinement).
-    pub fn from_lopdf(
-        _id: (u32, u16),
-        dict: &lopdf::Dictionary,
-        doc: &lopdf::Document,
-    ) -> PdfResult<Self> {
-        let subtype_raw = dict
-            .get(b"Subtype")
-            .ok()
-            .and_then(|o| o.as_name().ok())
-            .ok_or_else(|| PdfError::Other("Missing font subtype".into()))?;
-        let subtype = PdfName::new(&String::from_utf8_lossy(subtype_raw));
-
-        let base_font_raw =
-            dict.get(b"BaseFont").ok().and_then(|o| o.as_name().ok()).unwrap_or(b"Unknown");
-        let base_font = PdfName::new(&crate::refine::text::recover_string(base_font_raw));
-
-        let to_unicode = Self::parse_to_unicode_lopdf(dict, doc);
-        let encoding = Self::parse_encoding_lopdf(dict, doc);
-        let mut wmode = 0;
-        if let Some(enc_name) = encoding.as_ref().map(|e| e.name())
-            && (enc_name.ends_with("-V") || enc_name == "V")
-        {
-            wmode = 1;
-        }
-
-        let is_cid_keyed = subtype.as_str() == "Type0"
-            || subtype.as_str() == "CIDFontType0"
-            || subtype.as_str() == "CIDFontType2";
-
-        let mut resource =
-            Self::new_lopdf_initial(subtype, base_font, is_cid_keyed, to_unicode, encoding, wmode);
-
-        resource.init_adj1_mapping();
-        resource.build_unified_map();
-        Ok(resource)
-    }
-
-    fn parse_to_unicode_lopdf(
-        dict: &lopdf::Dictionary,
-        doc: &lopdf::Document,
-    ) -> Option<cmap::CMap> {
-        if let Ok(to_uni_obj) = dict.get(b"ToUnicode")
-            && let Ok(rid) = to_uni_obj.as_reference()
-            && let Ok(to_uni_stream_obj) = doc.get_object(rid)
-            && let Ok(to_uni_stream) = to_uni_stream_obj.as_stream()
-            && let Ok(data) = to_uni_stream.decompressed_content()
-            && let Ok(m) = cmap::CMap::parse(&data)
-        {
-            return Some(m);
-        }
-        None
-    }
-
-    fn parse_encoding_lopdf(dict: &lopdf::Dictionary, doc: &lopdf::Document) -> Option<cmap::CMap> {
-        let enc_obj = dict.get(b"Encoding").ok()?;
-        match enc_obj {
-            lopdf::Object::Name(n) => {
-                let name_str = String::from_utf8_lossy(n);
-                let mut encoding = cmap::CMap::load_named(&name_str);
-                if encoding.is_none() {
-                    match name_str.as_ref() {
-                        "Identity-H" => encoding = Some(cmap::CMap::identity_h()),
-                        "Identity-V" => encoding = Some(cmap::CMap::identity_v()),
-                        "90ms-RKSJ-H" => encoding = Some(cmap::CMap::rksj_h()),
-                        "UniJIS-UTF16-H" => encoding = Some(cmap::CMap::unijis_h()),
-                        _ => {}
-                    }
-                }
-                encoding
-            }
-            lopdf::Object::Reference(rid) => {
-                if let Ok(enc_stream_obj) = doc.get_object(*rid)
-                    && let Ok(enc_stream) = enc_stream_obj.as_stream()
-                    && let Ok(data) = enc_stream.decompressed_content()
-                    && let Ok(m) = cmap::CMap::parse(&data)
-                {
-                    return Some(m);
-                }
-                None
-            }
-            _ => None,
-        }
     }
 
     /// Performs heuristic recovery of Unicode mappings if they are missing or broken.
@@ -1940,6 +1871,8 @@ impl FontResource {
         }
 
         if cid != 0 {
+            // A log, not a Decision: this depends on which fonts this machine has, not
+            // on anything the document says. Decisions record conclusions about the file.
             log::warn!(
                 "[FONT] CID {} failed to resolve to any GID for {}. Hint: {:?}",
                 cid,

@@ -17,6 +17,7 @@ pub struct Sublimator<'a> {
     fill_color_space: crate::graphics::ColorSpaceKind,
     stroke_color_space: crate::graphics::ColorSpaceKind,
     current_stroke_style: crate::graphics::StrokeStyle,
+    decisions: Vec<crate::interpretation::Decision>,
 }
 
 impl<'a> Sublimator<'a> {
@@ -26,6 +27,7 @@ impl<'a> Sublimator<'a> {
             fonts,
             stack: Vec::new(),
             current_font: None,
+            decisions: Vec::new(),
             fill_color_space: crate::graphics::ColorSpaceKind::DeviceGray,
             stroke_color_space: crate::graphics::ColorSpaceKind::DeviceGray,
             current_stroke_style: crate::graphics::StrokeStyle {
@@ -84,6 +86,12 @@ impl<'a> Sublimator<'a> {
     }
 
     /// Parses a content stream into drawing commands.
+    /// The interpretation decisions taken while sublimating, and clears them.
+    pub fn take_decisions(&mut self) -> Vec<crate::interpretation::Decision> {
+        std::mem::take(&mut self.decisions)
+    }
+
+    /// Turns a content stream's bytes into drawing commands.
     pub fn sublimate(&mut self, data: &[u8]) -> Vec<Command> {
         // DETECT CORRUPTION: If the stream looks like Rust debug output, attempt resurrection (ISO 32000-2:2020 Clause 7.8.2 Fallback)
         if (data.starts_with(b"PushState") || data.starts_with(b"RawOperator"))
@@ -143,7 +151,11 @@ impl<'a> Sublimator<'a> {
             "BX" | "EX" => Vec::new(), // Strip compatibility operators
             "d0" | "d1" => self.handle_type3_op(op),
             _ => {
-                log::warn!("[SUBLIMATE] Preserving unknown proprietary operator {op}");
+                self.decisions.push(crate::interpretation::Decision::ambiguity(
+                    "7.8.2",
+                    format!("unknown content operator {op}"),
+                    "kept it verbatim so a later writer can reproduce it",
+                ));
                 let mut operands = Vec::new();
                 while let Some(obj) = self.stack.pop() {
                     operands.insert(0, obj);
@@ -654,11 +666,13 @@ impl<'a> Sublimator<'a> {
                 Command::SetWritingMode(font_res.wmode),
             ]
         } else {
-            log::error!(
-                "[SUBLIMATE] Font /{} not found in resources! Available: {:?}",
-                name_str,
-                self.fonts.keys().collect::<Vec<_>>()
-            );
+            self.decisions.push(crate::interpretation::Decision::repaired(
+                "9.6.2",
+                format!(
+                    "the content stream selects /{name_str}, which its resources do not define"
+                ),
+                "substituted a fallback font so the text still renders",
+            ));
             // Insert a SetFont command anyway, but mark it for fallback resolution in SDK
             vec![Command::SetFont { font: "Fallback-Sans".to_string(), size }]
         }

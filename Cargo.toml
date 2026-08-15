@@ -38,7 +38,6 @@ id-arena = "2.2"
 zstd = "0.13"
 
 # PDF Physical Engine
-lopdf = "0.34"
 flate2 = "1.0"
 
 # PDF Optimized Output

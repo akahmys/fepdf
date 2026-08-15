@@ -41,10 +41,6 @@ pub enum PdfError {
         message: std::borrow::Cow<'static, str>,
     },
 
-    #[error("Lopdf error: {0}")]
-    /// The `lopdf` ingestion stage reported an error.
-    Lopdf(#[from] lopdf::Error),
-
     #[error("Recursion depth limit exceeded: {0}")]
     /// Object resolution nested deeper than the configured limit.
     DepthLimitExceeded(usize),

@@ -14,6 +14,8 @@ pub mod audit;
 pub mod color;
 /// Content stream rewriting.
 pub mod content;
+/// Unlocking an encrypted document (ISO 7.6).
+pub mod decrypt;
 /// The document model: catalogue, page tree, pages.
 pub mod document;
 /// The error type this engine reports.
@@ -40,7 +42,7 @@ pub use fepdf_syntax::security;
 pub mod writer;
 
 pub use crate::refine::{ParallelRefinery, commit_to_arena};
-pub use arena::{PdfArena, RemappingTable};
+pub use arena::PdfArena;
 pub use document::Document;
 pub use document::extensions::*;
 pub use document::page::Page;

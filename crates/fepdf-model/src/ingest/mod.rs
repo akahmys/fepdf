@@ -1,13 +1,12 @@
-//! Ingestor module for transitioning lopdf::Document to PdfArena.
+//! Ingestion: turning the objects the reader placed in an arena into a document.
 
 use crate::Document;
-use crate::arena::{PdfArena, RemappingTable};
-use crate::error::PdfError;
+use crate::arena::PdfArena;
 use crate::font::FontResource;
 use crate::handle::Handle;
 use crate::object::Object;
-use crate::refine::ParallelRefinery;
-use crate::security::SecurityHandler;
+use crate::reader::{DictHandle, RawDocument};
+use crate::refine::{ParallelRefinery, RefineContext};
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
@@ -88,23 +87,104 @@ pub struct IngestedDocument {
 }
 
 impl Ingestor {
-    /// Ingests a lopdf::Document into a new PdfArena and returns a refined Document.
+    /// Ingests a document that the reader has already placed into an arena.
     ///
-    /// The ingestion process is a three-pass system:
-    /// 1. **Pass 0 (Normalization)**: Decrypts all objects and cleans the physical structure.
-    /// 2. **Pass 1 (Inhalation)**: Maps lopdf objects to PdfArena Handles, decoupling from physical offsets.
-    /// 3. **Pass 1.5 (Context Discovery)**: Discovers font resources and maps them to content streams.
-    /// 4. **Pass 2 (Refinement)**: Parallel processing of page content and metadata.
-    fn resolve_root_info(
-        doc: &lopdf::Document,
-        table: &RemappingTable,
-    ) -> (Handle<Object>, Option<Handle<Object>>) {
-        let root_id = doc.trailer.get(b"Root").ok().and_then(|o| o.as_reference().ok());
-        let info_id = doc.trailer.get(b"Info").ok().and_then(|o| o.as_reference().ok());
+    /// The remaining passes are:
+    /// 1. **Pass 0 (Normalization)**: decrypts every object and drops `/Encrypt`.
+    /// 2. **Pass 1.5 (Context Discovery)**: discovers fonts and maps them to streams.
+    /// 3. **Pass 2 (Refinement)**: parallel normalisation of content and metadata.
+    ///
+    /// Pass 1 no longer exists. The reader writes each object into the slot matching
+    /// its number, so there is nothing left to inhale or remap.
+    pub fn ingest(
+        raw: RawDocument,
+        options: &IngestionOptions,
+    ) -> crate::PdfResult<IngestedDocument> {
+        let report = |msg: &str| {
+            if let Some(c) = &options.progress_callback {
+                c(msg.to_string());
+            }
+        };
+        report("1/4: Decrypting and normalizing document...");
+        let mut decisions = raw.decisions;
+        let security =
+            crate::decrypt::unlock(&raw.arena, raw.trailer, password(options), &mut decisions)?;
 
-        let root_handle = root_id.and_then(|id| table.get(&id)).copied().unwrap_or(Handle::new(0));
-        let info_handle = info_id.and_then(|id| table.get(&id)).copied();
-        (root_handle, info_handle)
+        report("2/4: Mapping objects and loading structure...");
+        let arena = raw.arena;
+        let (root_handle, info_handle) =
+            Self::resolve_root_info(&arena, raw.trailer, &mut decisions)?;
+        let temp_doc = Document::new(arena.clone(), root_handle, info_handle);
+
+        report("3/4: Discovering font resources and stream contexts...");
+        let (font_indices, page_and_form_indices) = scan_ingested_objects(&arena);
+        let handle_font_cache = discover_fonts(&arena, &temp_doc, Some(&font_indices));
+
+        for font in handle_font_cache.values() {
+            for decision in &font.decisions {
+                decisions.push(decision.clone());
+            }
+        }
+
+        let global_font_registry = Self::build_global_font_registry(&arena, &handle_font_cache);
+        let mut stream_contexts =
+            map_stream_contexts(&arena, &handle_font_cache, Some(&page_and_form_indices));
+
+        merge_global_fonts_into_contexts(&mut stream_contexts, &global_font_registry);
+
+        report("4/4: Performing active refinement and layout optimization...");
+        let mut issues = decisions.into_entries();
+        if options.active_refinement {
+            issues.append(&mut Self::perform_active_refinement(
+                &arena,
+                &handle_font_cache,
+                &stream_contexts,
+            ));
+        }
+
+        Ok(IngestedDocument {
+            arena,
+            root: root_handle,
+            info: info_handle,
+            issues,
+            font_cache: handle_font_cache,
+            security_method: security.method,
+            permissions: security.permissions,
+        })
+    }
+
+    /// Finds the catalogue and the information dictionary.
+    ///
+    /// A file recovered by scanning has no trailer to ask, so the catalogue is found by
+    /// looking for the object that declares itself one (7.7.2).
+    fn resolve_root_info(
+        arena: &PdfArena,
+        trailer: Option<DictHandle>,
+        decisions: &mut crate::interpretation::DecisionLog,
+    ) -> crate::PdfResult<(Handle<Object>, Option<Handle<Object>>)> {
+        let info = trailer.and_then(|t| trailer_reference(arena, t, "Info"));
+        if let Some(root) = trailer.and_then(|t| trailer_reference(arena, t, "Root")) {
+            return Ok((root, info));
+        }
+        let Some(root) = find_catalog(arena) else {
+            decisions.push(crate::interpretation::Decision::violation(
+                "7.7.2",
+                "no /Root in the trailer and no /Type /Catalog object anywhere",
+                "cannot open the file as a document; its objects are still readable",
+            ));
+            return Err(crate::PdfError::Ingestion {
+                context: "Catalogue".into(),
+                message: "the file has no document catalogue (ISO 7.7.2); \
+                          it may be truncated before the trailer"
+                    .into(),
+            });
+        };
+        decisions.push(crate::interpretation::Decision::repaired(
+            "7.7.2",
+            "the trailer named no /Root",
+            format!("used object {} , which declares /Type /Catalog", root.index()),
+        ));
+        Ok((root, info))
     }
 
     fn build_global_font_registry(
@@ -128,232 +208,55 @@ impl Ingestor {
         global_font_registry
     }
 
-    #[allow(clippy::needless_pass_by_ref_mut)]
     fn perform_active_refinement(
-        doc: &mut lopdf::Document,
-        table: &RemappingTable,
+        arena: &PdfArena,
         handle_font_cache: &BTreeMap<u32, Arc<FontResource>>,
         stream_contexts: &BTreeMap<u32, BTreeMap<String, Arc<FontResource>>>,
-        arena: &PdfArena,
-    ) -> crate::PdfResult<Vec<crate::interpretation::Decision>> {
-        let distilled_fonts = std::collections::BTreeMap::new();
-        let refined_results = ParallelRefinery::refine_all(
-            doc,
-            table,
-            handle_font_cache,
-            stream_contexts,
-            &distilled_fonts,
-        );
+    ) -> Vec<crate::interpretation::Decision> {
+        let distilled_fonts = BTreeMap::new();
+        let context = RefineContext {
+            arena,
+            fonts: handle_font_cache,
+            contexts: stream_contexts,
+            distilled: &distilled_fonts,
+        };
+        let refined_results = ParallelRefinery::refine_all(&context);
 
         let mut all_issues = Vec::new();
-        for (id, refined, mut issues) in refined_results {
-            let handle = table.get(&id).copied().ok_or_else(|| PdfError::Ingestion {
-                context: "Pass 3 Integration".into(),
-                message: format!("Missing handle for refined object {id:?}").into(),
-            })?;
+        for (number, refined, mut issues) in refined_results {
             let committed = crate::refine::commit_to_arena(arena, refined, 0);
-            arena.set_object(handle, committed);
+            arena.set_object(Handle::new(number), committed);
             all_issues.append(&mut issues);
         }
-        Ok(all_issues)
+        all_issues
     }
+}
 
-    /// Ingests a document, running Pass 0 through Pass 2.
-    pub fn ingest(
-        doc: &mut lopdf::Document,
-        options: &IngestionOptions,
-    ) -> crate::PdfResult<IngestedDocument> {
-        let report = |msg: &str| {
-            if let Some(c) = &options.progress_callback {
-                c(msg.to_string());
-            }
-        };
-        report("1/4: Decrypting and normalizing document...");
-        let arena = PdfArena::new();
-        let mut table = RemappingTable::new();
+/// The password to try, defaulting to the empty one every reader starts with.
+fn password(options: &IngestionOptions) -> &str {
+    options.password.as_deref().unwrap_or("")
+}
 
-        let (security_method, permissions) = Self::perform_pass_0_decryption(doc, options)?;
-
-        for &id in doc.objects.keys() {
-            let handle = arena.alloc_object(Object::Null);
-            table.insert(id, handle);
-        }
-
-        report("2/4: Mapping objects and loading structure...");
-        inhale_objects(doc, &arena, &table)?;
-
-        let (root_handle, info_handle) = Self::resolve_root_info(doc, &table);
-        let temp_doc = Document::new(arena.clone(), root_handle, info_handle);
-
-        report("3/4: Discovering font resources and stream contexts...");
-        let (font_indices, page_and_form_indices) = scan_ingested_objects(&arena);
-        let handle_font_cache = discover_fonts(&arena, &temp_doc, Some(&font_indices));
-
-        let global_font_registry = Self::build_global_font_registry(&arena, &handle_font_cache);
-        let mut stream_contexts =
-            map_stream_contexts(&arena, &handle_font_cache, Some(&page_and_form_indices));
-
-        merge_global_fonts_into_contexts(&mut stream_contexts, &global_font_registry);
-
-        report("4/4: Performing active refinement and layout optimization...");
-        let mut all_issues = Vec::new();
-        if options.active_refinement {
-            all_issues = Self::perform_active_refinement(
-                doc,
-                &table,
-                &handle_font_cache,
-                &stream_contexts,
-                &arena,
-            )?;
-        }
-
-        Ok(IngestedDocument {
-            arena,
-            root: root_handle,
-            info: info_handle,
-            issues: all_issues,
-            font_cache: handle_font_cache,
-            security_method,
-            permissions,
-        })
+/// An indirect reference held under `key` in the trailer.
+fn trailer_reference(arena: &PdfArena, trailer: DictHandle, key: &str) -> Option<Handle<Object>> {
+    match arena.get_dict(trailer)?.get(&arena.name(key))? {
+        Object::Reference(h) => Some(*h),
+        _ => None,
     }
+}
 
-    /// Performs "Pass 0" normalization by decrypting the raw PDF objects in-place.
-    ///
-    /// This is required because Acrobat (and other strict viewers) will fail with Error 135
-    /// if a document is saved with decrypted objects but still contains an `/Encrypt` trailer entry.
-    /// After decryption, this method explicitly removes the `/Encrypt` dictionary to satisfy
-    /// Adobe fidelity requirements.
-    fn parse_security_handler(
-        doc: &lopdf::Document,
-        options: &IngestionOptions,
-    ) -> Option<SecurityHandler> {
-        let password = options.password.as_deref().unwrap_or("");
-        let encrypt_dict_obj = doc.trailer.get(b"Encrypt").ok()?;
-        let encrypt_obj = if let Ok(id) = encrypt_dict_obj.as_reference() {
-            doc.objects.get(&id)
-        } else {
-            Some(encrypt_dict_obj)
-        };
-
-        if let Some(lopdf::Object::Dictionary(dict)) = encrypt_obj {
-            let v_val = dict.get(b"V").and_then(|o| o.as_i64()).unwrap_or(0);
-            let r_val = dict.get(b"R").and_then(|o| o.as_i64()).unwrap_or(0);
-
-            if v_val == 4 && r_val == 4 {
-                let o_str = dict.get(b"O").and_then(|o| o.as_str()).unwrap_or(&[]);
-                let u_str = dict.get(b"U").and_then(|o| o.as_str()).unwrap_or(&[]);
-                let p_val = dict.get(b"P").and_then(|o| o.as_i64()).unwrap_or(0) as i32;
-                let file_id = doc
-                    .trailer
-                    .get(b"ID")
-                    .and_then(|o| o.as_array())
-                    .map(|a| a.first().and_then(|o| o.as_str().ok()).unwrap_or(&[]))
-                    .unwrap_or(&[]);
-                let encrypt_metadata =
-                    dict.get(b"EncryptMetadata").and_then(|o| o.as_bool()).unwrap_or(true);
-                return SecurityHandler::new_v4(
-                    password,
-                    o_str,
-                    u_str,
-                    p_val,
-                    file_id,
-                    encrypt_metadata,
-                )
-                .ok();
-            } else if v_val == 5 && (r_val == 5 || r_val == 6) {
-                let mut file_id = &[][..];
-                if let Ok(id_array) = doc.trailer.get(b"ID")
-                    && let Ok(arr) = id_array.as_array()
-                    && let Some(first) = arr.first()
-                    && let Ok(s) = first.as_str()
-                {
-                    file_id = s;
-                }
-                return SecurityHandler::new_v5(password, "", file_id).ok();
-            }
+/// The first object declaring `/Type /Catalog`, for files with no usable trailer.
+fn find_catalog(arena: &PdfArena) -> Option<Handle<Object>> {
+    let type_key = arena.name("Type");
+    let catalog = arena.name("Catalog");
+    for number in 0..arena.object_count() {
+        let handle = Handle::new(number);
+        let Some(Object::Dictionary(d)) = arena.get_object(handle) else { continue };
+        if arena.get_dict(d)?.get(&type_key) == Some(&Object::Name(catalog)) {
+            return Some(handle);
         }
-        None
     }
-
-    fn perform_pass_0_decryption(
-        doc: &mut lopdf::Document,
-        options: &IngestionOptions,
-    ) -> crate::PdfResult<(String, Option<i32>)> {
-        let mut security_method = "No Security".to_string();
-        let mut permissions = None;
-
-        let security_handler = Self::parse_security_handler(doc, options);
-
-        if let Some(handler) = &security_handler {
-            if let Ok(encrypt_dict_obj) = doc.trailer.get(b"Encrypt") {
-                let encrypt_obj = if let Ok(id) = encrypt_dict_obj.as_reference() {
-                    doc.objects.get(&id)
-                } else {
-                    Some(encrypt_dict_obj)
-                };
-                if let Some(lopdf::Object::Dictionary(dict)) = encrypt_obj {
-                    let v_val = dict.get(b"V").and_then(|o| o.as_i64()).unwrap_or(0);
-                    let _r_val = dict.get(b"R").and_then(|o| o.as_i64()).unwrap_or(0);
-                    security_method = if v_val == 5 {
-                        "Password Security (AES-256)".to_string()
-                    } else if v_val == 4 {
-                        "Password Security (AES-128)".to_string()
-                    } else {
-                        "Password Security (Standard)".to_string()
-                    };
-                    permissions = dict.get(b"P").and_then(|o| o.as_i64()).map(|p| p as i32).ok();
-                }
-            }
-
-            let ids: Vec<lopdf::ObjectId> = doc.objects.keys().copied().collect();
-            for id in ids {
-                if let Some(obj) = doc.objects.get_mut(&id) {
-                    Self::decrypt_object_stacked(obj, id, handler)?;
-                }
-            }
-            doc.trailer.remove(b"Encrypt");
-        }
-        Ok((security_method, permissions))
-    }
-
-    /// Iteratively traverses a PDF object tree and decrypts all strings and streams.
-    ///
-    /// This method is **RR-15 Rule 6 compliant** (no recursion). It uses an explicit stack
-    /// to walk through Dictionaries and Arrays. This is critical for PDF documents which
-    /// can have arbitrary nesting depths that would otherwise cause a stack overflow.
-    fn decrypt_object_stacked(
-        root_obj: &mut lopdf::Object,
-        id: lopdf::ObjectId,
-        handler: &SecurityHandler,
-    ) -> crate::PdfResult<()> {
-        let mut stack = vec![root_obj];
-
-        while let Some(obj) = stack.pop() {
-            match obj {
-                lopdf::Object::String(s, _) => {
-                    let decrypted = handler.decrypt_bytes(s, id.0, id.1)?;
-                    *s = decrypted;
-                }
-                lopdf::Object::Stream(stream) => {
-                    let decrypted = handler.decrypt_bytes(&stream.content, id.0, id.1)?;
-                    stream.content = decrypted;
-                }
-                lopdf::Object::Array(arr) => {
-                    for item in arr {
-                        stack.push(item);
-                    }
-                }
-                lopdf::Object::Dictionary(dict) => {
-                    for (_, item) in dict.iter_mut() {
-                        stack.push(item);
-                    }
-                }
-                _ => {}
-            }
-        }
-        Ok(())
-    }
+    None
 }
 
 fn scan_ingested_objects(arena: &PdfArena) -> (Vec<u32>, Vec<u32>) {
@@ -405,20 +308,4 @@ fn merge_global_fonts_into_contexts(
             }
         }
     }
-}
-
-fn inhale_objects(
-    doc: &lopdf::Document,
-    arena: &PdfArena,
-    table: &RemappingTable,
-) -> crate::PdfResult<()> {
-    for (&id, obj) in &doc.objects {
-        let handle = table.get(&id).copied().ok_or_else(|| PdfError::Ingestion {
-            context: "Pass 1 Inhalation".into(),
-            message: format!("Missing handle for object {id:?}").into(),
-        })?;
-        let raw_obj = Object::from_lopdf(obj, arena, table);
-        arena.set_object(handle, raw_obj);
-    }
-    Ok(())
 }

@@ -367,58 +367,6 @@ impl Object {
         }
         false
     }
-
-    /// Converts an object from the `lopdf` representation used during ingestion.
-    pub fn from_lopdf(
-        obj: &lopdf::Object,
-        arena: &PdfArena,
-        table: &crate::arena::RemappingTable,
-    ) -> Self {
-        match obj {
-            lopdf::Object::Boolean(b) => Self::Boolean(*b),
-            lopdf::Object::Integer(i) => Self::Integer(*i),
-            lopdf::Object::Real(f) => Self::Real(f64::from(*f)),
-            lopdf::Object::String(s, fmt) => {
-                if matches!(fmt, lopdf::StringFormat::Hexadecimal) {
-                    Self::Hex(Bytes::copy_from_slice(s))
-                } else {
-                    Self::String(Bytes::copy_from_slice(s))
-                }
-            }
-            lopdf::Object::Name(n) => Self::Name(arena.intern_name(PdfName::from_bytes(n))),
-            lopdf::Object::Array(arr) => {
-                let items: Vec<Object> =
-                    arr.iter().map(|o| Self::from_lopdf(o, arena, table)).collect();
-                Self::Array(arena.alloc_array(items))
-            }
-            lopdf::Object::Dictionary(dict) => {
-                let dict_h = Self::from_lopdf_dict(dict, arena, table);
-                Self::Dictionary(dict_h)
-            }
-            lopdf::Object::Stream(s) => {
-                let dict_h = Self::from_lopdf_dict(&s.dict, arena, table);
-                Self::Stream(dict_h, SublimatedData::Raw(Bytes::copy_from_slice(&s.content)).into())
-            }
-            lopdf::Object::Reference(id) => {
-                table.get(&(id.0, id.1)).copied().map(Self::Reference).unwrap_or(Self::Null)
-            }
-            lopdf::Object::Null => Self::Null,
-        }
-    }
-
-    fn from_lopdf_dict(
-        dict: &lopdf::Dictionary,
-        arena: &PdfArena,
-        table: &crate::arena::RemappingTable,
-    ) -> Handle<BTreeMap<Handle<PdfName>, Object>> {
-        let mut map = BTreeMap::new();
-        for (k, v) in dict {
-            let k_handle = arena.intern_name(PdfName::from_bytes(k));
-            let v_obj = Self::from_lopdf(v, arena, table);
-            map.insert(k_handle, v_obj);
-        }
-        arena.alloc_dict(map)
-    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
@@ -556,15 +504,5 @@ mod tests {
 
         let resolved = Object::Reference(h1).resolve(&arena);
         assert_eq!(resolved, Object::Null);
-    }
-
-    #[test]
-    fn test_from_lopdf_unregistered_reference() {
-        let arena = PdfArena::new();
-        let table = BTreeMap::new();
-        let lopdf_ref = lopdf::Object::Reference((999, 0));
-
-        let obj = Object::from_lopdf(&lopdf_ref, &arena, &table);
-        assert_eq!(obj, Object::Null);
     }
 }

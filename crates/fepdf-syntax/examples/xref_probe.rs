@@ -1,6 +1,6 @@
 //! Reports what the byte-level file-structure layer sees in a given PDF.
 //!
-//! A diagnostic for the reader that is replacing lopdf: it shows which sections
+//! A diagnostic for the file layer: it shows which sections
 //! parse, and what the recovery scan finds when they do not.
 
 use fepdf_syntax::xref::{self, XrefRecord, XrefStreamLayout};

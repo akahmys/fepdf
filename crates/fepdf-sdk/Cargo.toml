@@ -24,7 +24,6 @@ image = { workspace = true, optional = true }
 tokio.workspace = true
 pollster = { workspace = true, optional = true }
 flate2.workspace = true
-lopdf.workspace = true
 chrono.workspace = true
 log.workspace = true
 env_logger.workspace = true

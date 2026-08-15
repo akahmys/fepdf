@@ -17,7 +17,6 @@ path = "src/main.rs"
 fepdf-sdk = { workspace = true, features = ["render"] }
 clap.workspace = true
 anyhow.workspace = true
-lopdf.workspace = true
 inquire.workspace = true
 bytes.workspace = true
 tokio.workspace = true
