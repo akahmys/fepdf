@@ -17,7 +17,7 @@ Understanding them is what remains.
 | :--- | :--- |
 | **7.3** Objects | Complete. Every type in the clause. |
 | **7.5** File structure | **Complete and in use.** Header scan, both cross-reference forms, `/Prev` chains, hybrid references, object streams, incremental updates, and recovery by scanning. `Document::open` reads the file itself; `lopdf` is gone. |
-| **7.6** Encryption | **Weakest area.** AES-256 R5/R6 is self-declared non-conformant; public-key (7.6.4) and unencrypted wrapper (7.6.7) are stubs. |
+| **7.6** Encryption | **Weakest area.** AES-128 (V4/R4) now decrypts correctly and validates the user password, after both were found broken ([ADR-0009](docs/adr/0009-permissions-are-thirty-two-bits-not-a-positive-integer.md)). AES-256 R5/R6 is self-declared non-conformant; RC4 (V1/V2) is not supported at all; public-key (7.6.4) and unencrypted wrapper (7.6.7) are stubs. |
 | **7.7** Document structure | **10 of Table 29's 32** catalogue entries typed, measured by `status.sh` from `PdfCatalog`. Untyped entries survive a round trip but cannot be reasoned about; `inspect catalog` names which ones, per file. |
 | **PDF 2.0 additions** | **Six** catalogue entries have a spec type but no read or write path — `PageLabels`, `Threads`, `OutputIntents`, `OCProperties`, `Collection`, `AF`. `DPartRoot` has no type at all, contrary to what this table said before it was checked. `inspect catalog` reports the six as `type only`. |
 | **8–14** Content, text, interactive, tagged | Interpreter, fonts and UA-2 auditing exist; interactive features (12) can now be *read* (`inspect interactive`) but not edited. The corpus exercises one annotation subtype of ~28 — all 29,973 are `/Link` — and no form field at all. |
@@ -135,11 +135,21 @@ outside until the reader can.
 
 Independent of A and B, and the area where a partial implementation is most harmful.
 
+- [x] AES-128 (V4/R4) actually decrypts. It did not: `/P` was read as a positive
+      integer, failed to convert, and `unwrap_or(0)` fed a different key into
+      Algorithm 2, so the one encrypted sample decrypted to noise and `publish
+      upgrade` wrote that noise out
+      ([ADR-0009](docs/adr/0009-permissions-are-thirty-two-bits-not-a-positive-integer.md))
+- [x] User-password validation (Algorithm 6). A wrong password used to open the
+      document and report 29,438 font failures; it is now refused
 - [ ] `inspect encryption` — handler, revision, permissions, conformance. Carried over
-      from Phase B; do it first, so the rest of this phase has something to measure
-      against rather than only tests
+      from Phase B; next, now that there is something correct to report on
+- [ ] RC4 (V1/V2) — `build_handler` matches only `(4,4)` and `(5,5|6)`, so every
+      pre-AES encrypted file is refused outright. The RC4 written for Algorithm 6 is
+      most of what this needs
 - [ ] AES-256 R5/R6 to Algorithms 2.A, 3.A, 8 and 9 — the current key derivation is
-      documented in-source as not conforming
+      documented in-source as not conforming, and invents its own salts rather than
+      reading `/U` and `/O`
 - [ ] Owner-password validation and permission enforcement
 - [ ] Public-key encryption (7.6.4)
 - [ ] Unencrypted wrapper documents (7.6.7)
@@ -147,6 +157,17 @@ Independent of A and B, and the area where a partial implementation is most harm
 
 *Done when*: an AES-256 document written by Acrobat round-trips, and one written by
 fepdf opens in Acrobat.
+
+### Why the corpus item is not optional
+
+One encrypted file exercises the whole clause, and for as long as its content decrypted
+to noise every internal check passed: it opened, its page count matched PDFKit's 1,140,
+its objects counted the same, and `publish upgrade` reported success. The comparison in
+`examples/compare_documents.rs` could not have caught it either — it compares two fepdf
+reads, and both were the same noise.
+
+What caught it was reading the file with something else. `scripts/dev/status.sh` now
+asserts text comes out of that sample, because asserting it *opens* passed throughout.
 
 ## Phase D — The catalogue and PDF 2.0 features
 

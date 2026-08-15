@@ -87,6 +87,19 @@ for field in $(sed -n '/^pub struct IngestionOptions/,/^}/p' crates/fepdf-model/
 done
 row "ingestion options nothing reads (expect 2)" "${inert:-none} "
 
+# The one encrypted sample, which is the only thing exercising clause 7.6. It read as
+# "1,140 pages, no errors" for as long as its content decrypted to noise (ADR-0009), so
+# the check has to be that text comes out, not that the file opens.
+if [ -f samples/unicode_16.pdf ]; then
+    chars=$(cargo run -q --release -p fepdf-cli -- inspect text samples/unicode_16.pdf \
+        --pages 3 2>/dev/null | tail -n +3 | wc -c | tr -d ' ')
+    if [ "${chars:-0}" -gt 5000 ]; then
+        row "encrypted sample decrypts (chars on p3)" "$chars"
+    else
+        row "encrypted sample decrypts (chars on p3)" "$chars — FAILED, expected >5000"
+    fi
+fi
+
 echo
 bold "Corpus"
 samples=$(find samples -name '*.pdf' 2>/dev/null | wc -l | tr -d ' ')

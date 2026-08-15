@@ -6,6 +6,38 @@ use aes::{Aes128, Aes256, Block};
 use md5;
 use sha2::{Digest, Sha256};
 
+/// The 32-byte padding string of ISO 32000-2, Table 24.
+const PAD: [u8; 32] = [
+    0x28, 0xbf, 0x4e, 0x5e, 0x4e, 0x75, 0x8a, 0x41, 0x64, 0x00, 0x4e, 0x56, 0xff, 0xfa, 0x01, 0x08,
+    0x2e, 0x2e, 0x00, 0xb6, 0xd0, 0x68, 0x3e, 0x80, 0x2f, 0x0c, 0xa9, 0xfe, 0x64, 0x53, 0x69, 0x7a,
+];
+
+/// RC4, as clause 7.6.3.2 requires for the standard handler's earlier revisions.
+///
+/// Written out because no crate in this workspace provides it and the algorithm is
+/// twenty lines. It is used here to *validate* a password — recomputing `/U` and
+/// comparing — which is a check the standard specifies, not a security choice.
+fn rc4(key: &[u8], data: &[u8]) -> Vec<u8> {
+    if key.is_empty() {
+        return data.to_vec();
+    }
+    let mut s: [u8; 256] = core::array::from_fn(|i| u8::try_from(i).unwrap_or(0));
+    let mut j = 0usize;
+    for i in 0..256 {
+        j = (j + s[i] as usize + key[i % key.len()] as usize) % 256;
+        s.swap(i, j);
+    }
+    let (mut i, mut j) = (0usize, 0usize);
+    data.iter()
+        .map(|&byte| {
+            i = (i + 1) % 256;
+            j = (j + s[i] as usize) % 256;
+            s.swap(i, j);
+            byte ^ s[(s[i] as usize + s[j] as usize) % 256]
+        })
+        .collect()
+}
+
 #[derive(Clone)]
 struct V4Inputs {
     pub password: String,
@@ -141,6 +173,56 @@ impl SecurityHandler {
             encrypt_metadata: true,
             v4_inputs: None,
         })
+    }
+
+    /// The file encryption key, for cross-checking key derivation against an
+    /// independent implementation of the standard's algorithms.
+    #[doc(hidden)]
+    #[must_use]
+    pub fn file_key(&self) -> &[u8] {
+        &self.encryption_key
+    }
+
+    /// Whether the password this handler was built from is the document's user
+    /// password — Algorithm 6, by way of Algorithm 4 or 5 (7.6.4.4).
+    ///
+    /// Without this a wrong password derives a wrong key, every string and stream
+    /// decrypts to noise, and the document still "opens": `samples/unicode_16.pdf`
+    /// reported 1,140 pages and 29,438 font failures rather than refusing.
+    ///
+    /// Revisions 5 and 6 validate differently (Algorithm 11, against `/U`'s validation
+    /// salt) and are not covered here; `new_v5` does not derive a conforming key to
+    /// begin with, so there is nothing yet to validate against.
+    #[must_use]
+    pub fn user_password_matches(&self, u_string: &[u8], file_id: &[u8]) -> bool {
+        if self.revision >= 5 || u_string.len() < 16 {
+            return true;
+        }
+        let computed = self.compute_u(file_id);
+        if self.revision == 2 {
+            // Algorithm 4: /U is the padding string encrypted with the file key.
+            return computed == u_string[..computed.len().min(u_string.len())];
+        }
+        // Algorithm 5: only the first 16 bytes are defined; the rest is arbitrary.
+        computed[..16] == u_string[..16]
+    }
+
+    /// `/U` as Algorithm 4 (revision 2) or Algorithm 5 (revision 3 and later) defines.
+    fn compute_u(&self, file_id: &[u8]) -> Vec<u8> {
+        if self.revision == 2 {
+            return rc4(&self.encryption_key, &PAD);
+        }
+        let mut hasher = md5::Context::new();
+        hasher.consume(PAD);
+        hasher.consume(file_id);
+        let seed = hasher.finalize().0;
+
+        let mut out = rc4(&self.encryption_key, &seed);
+        for round in 1..=19u8 {
+            let key: Vec<u8> = self.encryption_key.iter().map(|b| b ^ round).collect();
+            out = rc4(&key, &out);
+        }
+        out
     }
 
     /// Whether `/EncryptMetadata` leaves the metadata stream encrypted.
@@ -384,5 +466,76 @@ impl SecurityHandler {
         }
 
         Ok(result)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The `/Encrypt` values of `samples/unicode_16.pdf`, which is V4/R4 with `/CFM
+    /// /AESV2`, `/Length 128` and an empty user password. Written out rather than read
+    /// from the file so the test stays self-contained, as every other test here does.
+    const O: &str = "fd2c3d3ce19144d01850580c7870bd45fba3474163aac53f0647ad421d4d7030";
+    const U: &str = "18ff103cead285b9cf3b3b9694b40cc328bf4e5e4e758a4164004e56fffa0108";
+    const ID: &str = "3232363431643233306330623665393339323565656363616430313364346533";
+    /// `/P 4294966260`, which is these 32 bits read as signed.
+    const P: i32 = -1036;
+
+    fn hex(s: &str) -> Vec<u8> {
+        (0..s.len()).step_by(2).map(|i| u8::from_str_radix(&s[i..i + 2], 16).unwrap()).collect()
+    }
+
+    fn hexs(bytes: &[u8]) -> String {
+        use std::fmt::Write;
+        bytes.iter().fold(String::new(), |mut s, b| {
+            let _ = write!(s, "{b:02x}");
+            s
+        })
+    }
+
+    fn handler_for(password: &str) -> SecurityHandler {
+        SecurityHandler::new_v4(password, &hex(O), &hex(U), P, &hex(ID), true).expect("builds")
+    }
+
+    #[test]
+    fn algorithm_2_matches_an_independent_derivation() {
+        // Computed separately with CommonCrypto against ISO 32000-2 Algorithm 2, which
+        // is how the /P defect was isolated: the key was right whenever /P was, and the
+        // caller was passing 0.
+        assert_eq!(hexs(handler_for("").file_key()), "d889527373ba8d339c29e3d0d0f7a3c9");
+    }
+
+    #[test]
+    fn the_right_password_validates_and_a_wrong_one_does_not() {
+        // Algorithm 6. Without it a wrong password derives a wrong key, every object
+        // decrypts to noise, and the document still reports 1,140 pages.
+        assert!(handler_for("").user_password_matches(&hex(U), &hex(ID)));
+        assert!(!handler_for("wrong").user_password_matches(&hex(U), &hex(ID)));
+        assert!(!handler_for("also wrong").user_password_matches(&hex(U), &hex(ID)));
+    }
+
+    #[test]
+    fn a_wrong_permissions_value_changes_the_key() {
+        // The defect itself, as a unit: /P is hashed into the key, so reading
+        // 4294966260 as "unrepresentable, use 0" silently produced a different key.
+        let right = handler_for("").file_key().to_vec();
+        let wrong = SecurityHandler::new_v4("", &hex(O), &hex(U), 0, &hex(ID), true)
+            .expect("builds")
+            .file_key()
+            .to_vec();
+        assert_ne!(right, wrong);
+    }
+
+    #[test]
+    fn rc4_round_trips_and_matches_a_published_vector() {
+        // RFC 6229's first vector for the 40-bit key 0x0102030405.
+        let key = [0x01, 0x02, 0x03, 0x04, 0x05];
+        let stream = rc4(&key, &[0u8; 16]);
+        assert_eq!(stream[0], 0xb2);
+        assert_eq!(stream[1], 0x39);
+        assert_eq!(stream[2], 0x63);
+        assert_eq!(stream[3], 0x05);
+        assert_eq!(rc4(&key, &stream), vec![0u8; 16], "RC4 is its own inverse");
     }
 }

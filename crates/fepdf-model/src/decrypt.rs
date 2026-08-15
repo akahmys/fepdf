@@ -96,10 +96,21 @@ fn describe(arena: &PdfArena, encrypt: &Dict) -> Security {
     Security { method: method.to_string(), permissions: permissions(arena, encrypt) }
 }
 
-/// The `/P` bits, narrowed to the 32-bit field the standard defines them as.
+/// The `/P` bits, reinterpreted as the signed 32-bit field 7.6.4.2 defines.
+///
+/// Producers write these bits either way: Table 22 calls `/P` an integer whose high
+/// bit is set for every reserved-and-unused flag, so `-1036` and `4294966260` are the
+/// same 32 bits and both appear in the wild. `samples/unicode_16.pdf` writes the
+/// unsigned form.
+///
+/// This was `i32::try_from(value).ok()`, which rejected the unsigned form, and the one
+/// caller that matters resolved the `None` with `unwrap_or(0)`. Algorithm 2 hashes
+/// `/P` into the file encryption key, so a `/P` of 0 in place of `-1036` produced a
+/// different key and the document decrypted to noise — silently, since nothing
+/// validates the result.
 fn permissions(arena: &PdfArena, encrypt: &Dict) -> Option<i32> {
     let value = integer(arena, encrypt, "P")?;
-    i32::try_from(value).ok()
+    i32::try_from(value).ok().or_else(|| u32::try_from(value).ok().map(|bits| bits as i32))
 }
 
 /// Builds a handler for the revisions the syntax layer implements.
@@ -114,15 +125,22 @@ fn build_handler(
     let id = first_file_id(arena, trailer);
 
     match (version, revision) {
-        (4, 4) => SecurityHandler::new_v4(
-            password,
-            &string(arena, encrypt, "O").unwrap_or_default(),
-            &string(arena, encrypt, "U").unwrap_or_default(),
-            permissions(arena, encrypt).unwrap_or(0),
-            &id,
-            boolean(arena, encrypt, "EncryptMetadata").unwrap_or(true),
-        )
-        .ok(),
+        (4, 4) => {
+            let u = string(arena, encrypt, "U").unwrap_or_default();
+            let handler = SecurityHandler::new_v4(
+                password,
+                &string(arena, encrypt, "O").unwrap_or_default(),
+                &u,
+                permissions(arena, encrypt)?,
+                &id,
+                boolean(arena, encrypt, "EncryptMetadata").unwrap_or(true),
+            )
+            .ok()?;
+            // Algorithm 6. A wrong password otherwise derives a wrong key and every
+            // object decrypts to noise, which the engine reported as thousands of
+            // font failures rather than as a refusal.
+            handler.user_password_matches(&u, &id).then_some(handler)
+        }
         (5, 5 | 6) => SecurityHandler::new_v5(password, "", &id).ok(),
         _ => None,
     }
