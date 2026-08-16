@@ -97,16 +97,8 @@ struct SaveArgs {
     /// Pack objects into object streams (7.5.7), with a cross-reference stream
     #[arg(long)]
     obj_stm: bool,
-    // Hidden: nothing reads it. `--image-quality 20` on `samples/fy05.pdf`, which has
-    // images, produces a byte-identical file. ADR-0007.
-    /// Image re-compression quality (1-100)
-    #[arg(long, hide = true)]
-    image_quality: Option<u32>,
-    // Hidden: the save path matches on it and does nothing, under a comment saying
-    // where the value would go. The output carries no `/Lang` whatever is passed.
-    // ADR-0007.
-    /// Set document primary language (e.g., "en-US", "ja-JP")
-    #[arg(long, hide = true)]
+    /// Set the document's natural language, a BCP 47 tag (e.g. "en-US", "ja")
+    #[arg(long)]
     lang: Option<String>,
     /// Override document title
     #[arg(long)]
@@ -114,10 +106,8 @@ struct SaveArgs {
     /// Override document author
     #[arg(long)]
     author: Option<String>,
-    // Hidden: no code reads it. The string passed does not appear anywhere in the
-    // output. ADR-0007.
-    /// Set copyright notice in XMP metadata
-    #[arg(long, hide = true)]
+    /// Set the copyright notice, written as `dc:rights` in the XMP packet
+    #[arg(long)]
     copyright: Option<String>,
     // No longer hidden, and it was hidden for a reason that has gone: permissions live
     // in `/Encrypt` (7.6.4.2), and this engine wrote no `/Encrypt`. It writes one now,
@@ -145,7 +135,6 @@ impl From<SaveArgs> for fepdf_sdk::SaveOptions {
             password: args.password,
             owner_password: args.owner_password,
             obj_stm: args.obj_stm,
-            image_quality: args.image_quality,
             lang: args.lang,
             title: args.title,
             author: args.author,
@@ -509,12 +498,6 @@ enum PublishSubcommands {
         /// Opt-in for Fast Web View (Linearization)
         #[arg(long)]
         linearize: bool,
-        // Hidden: it prints "INFO: Structural diff would be displayed here (M67
-        // enhancement)." and returns. A flag that announces its own absence is still a
-        // flag that does nothing. ADR-0007.
-        /// Show a structural diff of the changes
-        #[arg(long, hide = true)]
-        diff: bool,
         /// Ingestion control options
         #[command(flatten)]
         ingest: IngestArgs,
@@ -725,20 +708,10 @@ async fn main() -> Result<()> {
                 standard,
                 icc_profile,
                 linearize,
-                diff,
                 ingest,
                 save,
             } => {
-                handle_upgrade(
-                    input,
-                    output,
-                    standard,
-                    icc_profile,
-                    linearize,
-                    diff,
-                    ingest,
-                    save,
-                )?;
+                handle_upgrade(input, output, standard, icc_profile, linearize, ingest, save)?;
             }
             PublishSubcommands::Render { input, output, page, ingest } => {
                 handle_render(input, output, page, ingest)?;
@@ -1607,7 +1580,6 @@ fn handle_upgrade(
     standard: Option<String>,
     icc_profile: Option<PathBuf>,
     linearize: bool,
-    diff: bool,
     ingest: IngestArgs,
     save: SaveArgs,
 ) -> Result<()> {
@@ -1620,10 +1592,6 @@ fn handle_upgrade(
     let ingest_options: fepdf_sdk::IngestionOptions = ingest.into();
     let mut doc = PdfDocument::open_with_options(data.into(), &ingest_options)
         .map_err(|e| anyhow::anyhow!("{e:?}"))?;
-
-    if diff {
-        println!("INFO: Structural diff would be displayed here (M67 enhancement).");
-    }
 
     if let Some(std_str) = standard {
         let std = match std_str.to_lowercase().as_str() {

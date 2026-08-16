@@ -98,15 +98,13 @@ pub struct SaveOptions {
     pub owner_password: Option<String>,
     /// Whether to use Object Streams (ObjStm) for high-density compression.
     pub obj_stm: bool,
-    /// Optional image re-compression quality (1-100).
-    pub image_quality: Option<u32>,
-    /// Document primary language (ISO 639-1).
+    /// The catalogue's `/Lang` (14.9.2.1) — a BCP 47 tag such as `en-GB` or `ja`.
     pub lang: Option<String>,
     /// Override document title.
     pub title: Option<String>,
     /// Override document author.
     pub author: Option<String>,
-    /// Set copyright notice in XMP.
+    /// `dc:rights` in the XMP packet.
     pub copyright: Option<String>,
     /// Override creation date.
     pub creation_date: Option<String>,
@@ -139,7 +137,6 @@ impl Default for SaveOptions {
             password: None,
             owner_password: None,
             obj_stm: false,
-            image_quality: None,
             lang: None,
             title: None,
             author: None,
@@ -777,7 +774,11 @@ impl PdfDocument {
         if let Some(v) = &options.author {
             metadata.author = Some(v.clone());
         }
-        if let Some(_v) = &options.lang { /* Lang is usually in Catalog /Lang, not Metadata struct for now */
+        if let Some(v) = &options.lang {
+            metadata.language = Some(v.clone());
+        }
+        if let Some(v) = &options.copyright {
+            metadata.rights = Some(v.clone());
         }
 
         // Automatic Producer stamping

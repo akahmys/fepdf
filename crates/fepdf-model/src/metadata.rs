@@ -50,6 +50,14 @@ pub struct MetadataInfo {
     pub creation_date: Option<String>,
     /// The date and time the document was last modified.
     pub mod_date: Option<String>,
+    /// `dc:rights` — the copyright notice. XMP only: 14.3.3's `/Info` has no entry for
+    /// it, and that clause deprecates `/Info` regardless.
+    pub rights: Option<String>,
+    /// The catalogue's `/Lang` (14.9.2.1): the natural language of the document's text.
+    ///
+    /// Not descriptive metadata, which is why `--strip` leaves it alone. A reader that
+    /// does not know the language cannot pick a voice to read it in.
+    pub language: Option<String>,
 }
 
 /// Reads the `/Info` dictionary (14.3.3).
@@ -233,6 +241,27 @@ pub fn update_document_metadata(
     // 2. Update XMP Metadata in Catalog
     update_xmp_metadata(doc, info)?;
 
+    // 3. The catalogue's own /Lang, which is not metadata about the document but a
+    //    statement about its text (14.9.2.1), and so lives outside the XMP packet.
+    if let Some(language) = &info.language {
+        set_document_language(doc, language)?;
+    }
+
+    Ok(())
+}
+
+/// Sets the catalogue's `/Lang`.
+///
+/// # Errors
+/// If the catalogue is not a dictionary.
+fn set_document_language(doc: &crate::Document, language: &str) -> crate::PdfResult<()> {
+    let arena = doc.arena();
+    let Some(Object::Dictionary(dh)) = arena.get_object(*doc.root_handle()) else {
+        return Err(crate::error::PdfError::Other("Invalid Catalog".into()));
+    };
+    let mut dict = arena.get_dict(dh).unwrap_or_default();
+    dict.insert(arena.name("Lang"), Object::Text(language.to_string()));
+    arena.set_dict(dh, dict);
     Ok(())
 }
 
@@ -322,6 +351,7 @@ fn build_refined_metadata_map(
     insert_text_if_present(&mut refined_map, "Producer", &info.producer);
     insert_text_if_present(&mut refined_map, "CreationDate", &info.creation_date);
     insert_text_if_present(&mut refined_map, "ModDate", &info.mod_date);
+    insert_text_if_present(&mut refined_map, "Rights", &info.rights);
     refined_map
 }
 
@@ -578,6 +608,77 @@ xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\">\
     fn open_fixture(bytes: Vec<u8>) -> Document {
         Document::open(bytes::Bytes::from(bytes), &crate::ingest::IngestionOptions::default())
             .expect("the fixture is a readable document")
+    }
+
+    /// 14.9.2.1: the natural language of the document's text, in the catalogue rather
+    /// than in the XMP packet — it is a statement about the content, not about the
+    /// document as a work.
+    #[test]
+    fn the_language_is_written_to_the_catalogue() {
+        let doc = open_fixture(info_and_xmp_disagree());
+        let mut info = doc.metadata();
+        info.language = Some("ja-JP".to_string());
+        update_document_metadata(&doc, &info).expect("the metadata should update");
+
+        let arena = doc.arena();
+        let Some(Object::Dictionary(dh)) = arena.get_object(*doc.root_handle()) else {
+            panic!("the catalogue is not a dictionary");
+        };
+        let catalog = arena.get_dict(dh).expect("a catalogue");
+        assert_eq!(
+            catalog.get(&arena.name("Lang")).map(|v| v.resolve(arena)),
+            Some(Object::Text("ja-JP".to_string())),
+            "/Lang is not in the catalogue"
+        );
+    }
+
+    /// A save that does not ask for a language leaves the one already there. `/Lang` is
+    /// not descriptive metadata, so `--strip` has no business removing it either.
+    #[test]
+    fn a_save_without_a_language_does_not_clear_one() {
+        let doc = open_fixture(info_and_xmp_disagree());
+        let mut info = doc.metadata();
+        info.language = Some("cy".to_string());
+        update_document_metadata(&doc, &info).expect("a first save");
+
+        update_document_metadata(&doc, &MetadataInfo::default()).expect("a stripping save");
+
+        let arena = doc.arena();
+        let Some(Object::Dictionary(dh)) = arena.get_object(*doc.root_handle()) else {
+            panic!("the catalogue is not a dictionary");
+        };
+        assert_eq!(
+            arena
+                .get_dict(dh)
+                .expect("a catalogue")
+                .get(&arena.name("Lang"))
+                .map(|v| v.resolve(arena)),
+            Some(Object::Text("cy".to_string())),
+            "stripping removed the document's language"
+        );
+    }
+
+    /// `dc:rights`, which has no `/Info` entry to live in — 14.3.3 has no key for a
+    /// copyright notice, and deprecates `/Info` besides.
+    #[test]
+    fn the_copyright_notice_reaches_the_xmp_packet() {
+        let doc = open_fixture(info_and_xmp_disagree());
+        let mut info = doc.metadata();
+        info.rights = Some("(c) 2026 nobody".to_string());
+        update_document_metadata(&doc, &info).expect("the metadata should update");
+
+        let packet = crate::refine::metadata::info_to_xmp_derived(
+            &build_refined_metadata_map(&info),
+            &doc.provenance,
+        );
+        assert!(packet.contains("dc:rights"), "no dc:rights element: {packet}");
+        assert!(packet.contains("(c) 2026 nobody"), "the notice is not in the packet");
+
+        let without = crate::refine::metadata::info_to_xmp_derived(
+            &build_refined_metadata_map(&doc.metadata()),
+            &doc.provenance,
+        );
+        assert!(!without.contains("dc:rights"), "dc:rights appears without being asked for");
     }
 
     #[test]
