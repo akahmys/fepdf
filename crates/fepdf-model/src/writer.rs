@@ -40,6 +40,24 @@ struct Signature<'a> {
     reserved: usize,
 }
 
+/// How many objects go in one `/ObjStm`.
+///
+/// A container is decompressed whole to reach any one object in it, so the number
+/// trades file size against the cost of reaching a single object. 100 is what
+/// `samples/intel_sdm.pdf` uses across all 8,044 of its containers, which is as good a
+/// reason as any to match it: the file this feature exists for was built that way.
+const OBJECTS_PER_STREAM: usize = 100;
+
+/// Where an object ended up, which is what a cross-reference stream records.
+enum Location {
+    /// Written at a byte offset in the file: a type 1 entry.
+    InFile(usize),
+    /// Held in an object stream, by that stream's object number and the index within
+    /// it: a type 2 entry, which a classic cross-reference table cannot express. That
+    /// is the whole reason 7.5.7 requires 7.5.8 alongside it.
+    InStream { container: u32, index: usize },
+}
+
 /// Where the two fields that cannot be written until the file is finished ended up.
 ///
 /// Both are recorded as they are written rather than searched for afterwards. Searching
@@ -65,6 +83,12 @@ pub struct PdfWriter<'a, W: Write> {
     string_encoding: StringEncoding,
     security_handler: Option<crate::security::SecurityHandler>,
     artifacts: Option<crate::security::EncryptionArtifacts>,
+    pack_objects: bool,
+    /// Where each object went, for the cross-reference stream to record.
+    located: BTreeMap<u32, Location>,
+    /// Set while serialising into an object stream, where 7.6.2 says strings are not
+    /// encrypted individually because the container is encrypted around them.
+    inside_object_stream: bool,
     current_obj_id: u32,
     current_obj_gen: u16,
     recursion_depth: u32,
@@ -88,6 +112,9 @@ impl<'a, W: Write> PdfWriter<'a, W> {
             string_encoding: StringEncoding::default(),
             security_handler: None,
             artifacts: None,
+            pack_objects: false,
+            located: BTreeMap::new(),
+            inside_object_stream: false,
             current_obj_id: 0,
             current_obj_gen: 0,
             recursion_depth: 0,
@@ -151,6 +178,15 @@ impl<'a, W: Write> PdfWriter<'a, W> {
         self.linearize = linearize;
     }
 
+    /// Packs objects into `/ObjStm` containers, and writes a cross-reference stream.
+    ///
+    /// The two are one switch because 7.5.7 makes them one: a classic cross-reference
+    /// table has no entry type that can say where a packed object lives, so a file with
+    /// object streams and a classic table is unreadable.
+    pub fn set_pack_objects(&mut self, pack: bool) {
+        self.pack_objects = pack;
+    }
+
     /// Sets the Zlib compression level for streams (0-9).
     pub fn set_compression(&mut self, level: u32) {
         self.compression_level = Some(level.min(9));
@@ -167,6 +203,12 @@ impl<'a, W: Write> PdfWriter<'a, W> {
     }
 
     fn encrypt_data(&self, data: &[u8]) -> PdfResult<Vec<u8>> {
+        // 7.6.2: a string in an object stream is not encrypted on its own — the
+        // container is encrypted around it. Encrypting here as well would encrypt it
+        // twice, and no reader would undo the second layer.
+        if self.inside_object_stream {
+            return Ok(data.to_vec());
+        }
         if let Some(sh) = &self.security_handler {
             Ok(sh.encrypt_stream(data, self.current_obj_id, self.current_obj_gen)?)
         } else {
@@ -521,6 +563,7 @@ impl<'a, W: Write> PdfWriter<'a, W> {
     ) -> PdfResult<()> {
         let start_pos = self.current_offset();
         self.xref.insert(id, start_pos);
+        self.located.insert(id, Location::InFile(start_pos));
         self.current_obj_id = id;
         self.current_obj_gen = generation;
         self.write_all(format!("{id} {generation} obj\r\n").as_bytes())?;
@@ -713,9 +756,7 @@ impl<'a, W: Write> PdfWriter<'a, W> {
             next_id += 1;
         }
 
-        for (current_id, &handle) in (1..).zip(&sorted_handles) {
-            self.write_indirect_object(current_id, 0, handle)?;
-        }
+        next_id = self.write_objects(&sorted_handles, next_id)?;
 
         // The `/Encrypt` dictionary is written last and is not in the arena, because it
         // is not part of the document: nothing references it, the catalogue cannot reach
@@ -729,7 +770,188 @@ impl<'a, W: Write> PdfWriter<'a, W> {
             self.write_encrypt_dictionary(id)?;
         }
 
-        self.write_xref_and_trailer(next_id, root_handle, info_handle, encrypt_id)
+        if self.pack_objects {
+            // 7.5.7 requires it: a classic table has no type 2 entry, so it cannot say
+            // where a packed object lives.
+            self.write_xref_stream(next_id, root_handle, info_handle, encrypt_id)
+        } else {
+            self.write_xref_and_trailer(next_id, root_handle, info_handle, encrypt_id)
+        }
+    }
+
+    /// Writes every object, packing the ones 7.5.7 permits, and returns the next free
+    /// object number.
+    ///
+    /// Object numbers are assigned before any of this, so packing changes where an
+    /// object lives and never what it is called. A reference into a container is the
+    /// same `N 0 R` it would be to a loose object, which is the property that lets the
+    /// decision be made here rather than everywhere a reference is written.
+    fn write_objects(
+        &mut self,
+        sorted_handles: &[Handle<Object>],
+        mut next_id: u32,
+    ) -> PdfResult<u32> {
+        let packable: Vec<(u32, Handle<Object>)> = if self.pack_objects {
+            (1..)
+                .zip(sorted_handles)
+                .filter(|(_, h)| self.may_pack(**h))
+                .map(|(i, h)| (i, *h))
+                .collect()
+        } else {
+            Vec::new()
+        };
+        let packed: BTreeSet<u32> = packable.iter().map(|(id, _)| *id).collect();
+
+        for (current_id, &handle) in (1..).zip(sorted_handles) {
+            if !packed.contains(&current_id) {
+                self.write_indirect_object(current_id, 0, handle)?;
+            }
+        }
+
+        // Containers come after the objects that stayed loose, so that the numbers they
+        // need are already assigned. Each is itself an ordinary indirect object.
+        for batch in packable.chunks(OBJECTS_PER_STREAM) {
+            let container = next_id;
+            next_id += 1;
+            self.write_object_stream(container, batch)?;
+        }
+        Ok(next_id)
+    }
+
+    /// Whether 7.5.7 allows this object inside an object stream.
+    ///
+    /// The clause names three exclusions and this engine adds a fourth. Streams cannot
+    /// nest. Objects with a generation other than zero are excluded, which costs
+    /// nothing here because this writer only ever emits generation zero. The `/Encrypt`
+    /// dictionary is excluded, and is not in the arena to begin with. The fourth is the
+    /// signature dictionary: its `/Contents` is a hole patched at a byte offset and its
+    /// `/ByteRange` names offsets in the file, neither of which exists for an object
+    /// that lives inside a compressed container.
+    fn may_pack(&self, handle: Handle<Object>) -> bool {
+        if self.signature.as_ref().is_some_and(|s| s.handle == handle) {
+            return false;
+        }
+        !matches!(self.arena.get_object(handle), Some(Object::Stream(..)) | None)
+    }
+
+    /// Writes one `/ObjStm` holding `batch`, and records where each object went.
+    ///
+    /// The objects are serialised without their `N 0 obj` wrapper — the header is the
+    /// pair list at the front of the stream instead — and, per 7.6.2, their strings are
+    /// not encrypted here: the container is encrypted around them, and encrypting both
+    /// would encrypt them twice.
+    fn write_object_stream(
+        &mut self,
+        container: u32,
+        batch: &[(u32, Handle<Object>)],
+    ) -> PdfResult<()> {
+        let was_inside = std::mem::replace(&mut self.inside_object_stream, true);
+        let mut pairs = Vec::new();
+        let mut body = Vec::new();
+        for (index, &(id, handle)) in batch.iter().enumerate() {
+            pairs.extend_from_slice(format!("{id} {} ", body.len()).as_bytes());
+            body.extend_from_slice(&self.write_object_to_bytes(handle)?);
+            body.push(b'\n');
+            self.located.insert(id, Location::InStream { container, index });
+        }
+        self.inside_object_stream = was_inside;
+
+        let first = pairs.len();
+        let mut data = pairs;
+        data.extend_from_slice(&body);
+
+        let mut dict = BTreeMap::new();
+        dict.insert(self.arena.name("Type"), Object::Name(self.arena.name("ObjStm")));
+        dict.insert(self.arena.name("N"), Object::Integer(batch.len().cast_signed() as i64));
+        dict.insert(self.arena.name("First"), Object::Integer(first.cast_signed() as i64));
+        let dict_handle = self.arena.alloc_dict(dict);
+        let stream = self.arena.alloc_object(Object::Stream(
+            dict_handle,
+            std::sync::Arc::new(crate::object::SublimatedData::Raw(data.into())),
+        ));
+        self.write_indirect_object(container, 0, stream)
+    }
+
+    /// The cross-reference stream (7.5.8), which is what object streams require.
+    ///
+    /// It is an ordinary indirect object that also stands in for the trailer, so it
+    /// carries `/Root`, `/Info`, `/ID` and `/Encrypt` itself. 7.6.2 exempts it from
+    /// encryption — a reader has to read it before it has a key — which is why it is
+    /// assembled here rather than handed to `write_indirect_object`.
+    fn write_xref_stream(
+        &mut self,
+        total_size: u32,
+        root_handle: Handle<Object>,
+        info_handle: Option<Handle<Object>>,
+        encrypt_id: Option<u32>,
+    ) -> PdfResult<()> {
+        let xref_id = total_size;
+        let size = total_size + 1;
+        let start_xref = self.current_offset();
+        self.located.insert(xref_id, Location::InFile(start_xref));
+
+        let rows = self.xref_rows(size);
+        let compressed = self.compression_level.and_then(|level| {
+            let mut encoder =
+                flate2::write::ZlibEncoder::new(Vec::new(), flate2::Compression::new(level));
+            encoder.write_all(&rows).ok()?;
+            encoder.finish().ok()
+        });
+        let flate = compressed.is_some();
+        let data = compressed.unwrap_or(rows);
+
+        let id_hex = hex::encode(self.generate_file_id(info_handle)).to_uppercase();
+        let mut dictionary = format!(
+            "<<\r\n/Type /XRef\r\n/Size {size}\r\n/W [1 4 2]\r\n/Root {} 0 R\r\n",
+            self.id_map[&root_handle]
+        );
+        if let Some(id) = info_handle.and_then(|h| self.id_map.get(&h)) {
+            dictionary.push_str(&format!("/Info {id} 0 R\r\n"));
+        }
+        if let Some(id) = encrypt_id {
+            dictionary.push_str(&format!("/Encrypt {id} 0 R\r\n"));
+        }
+        dictionary.push_str(&format!("/ID [<{id_hex}> <{id_hex}>]\r\n"));
+        if flate {
+            dictionary.push_str("/Filter /FlateDecode\r\n");
+        }
+        dictionary.push_str(&format!("/Length {}\r\n>>", data.len()));
+
+        self.xref.insert(xref_id, start_xref);
+        self.write_all(format!("{xref_id} 0 obj\r\n{dictionary}\r\nstream\r\n").as_bytes())?;
+        self.write_all(&data)?;
+        self.write_all(b"\r\nendstream\r\nendobj\r\n")?;
+        self.write_all(format!("startxref\r\n{start_xref}\r\n%%EOF\r\n").as_bytes())
+    }
+
+    /// One seven-byte row per object, in the layout `/W [1 4 2]` declares: one byte of
+    /// type, four of offset-or-container, two of generation-or-index.
+    ///
+    /// Two bytes bound the index within a container at 65,535, and a container holds a
+    /// hundred, so the field cannot overflow before the four-byte object number does.
+    fn xref_rows(&self, size: u32) -> Vec<u8> {
+        let mut rows = Vec::with_capacity(size as usize * 7);
+        for id in 0..size {
+            let mut row = [0u8; 7];
+            match self.located.get(&id) {
+                Some(Location::InFile(offset)) => {
+                    row[0] = 1;
+                    row[1..5].copy_from_slice(&(*offset as u32).to_be_bytes());
+                }
+                Some(Location::InStream { container, index }) => {
+                    row[0] = 2;
+                    row[1..5].copy_from_slice(&container.to_be_bytes());
+                    row[5..7].copy_from_slice(&(*index as u16).to_be_bytes());
+                }
+                // Object 0 heads the free list, and nothing else should be missing.
+                None => {
+                    row[0] = 0;
+                    row[5..7].copy_from_slice(&65535u16.to_be_bytes());
+                }
+            }
+            rows.extend_from_slice(&row);
+        }
+        rows
     }
 
     /// The cross-reference table and the trailer that names its root.
@@ -784,7 +1006,11 @@ impl<'a, W: Write> PdfWriter<'a, W> {
     /// open — detectable only by trying.
     fn write_encrypt_dictionary(&mut self, id: u32) -> PdfResult<()> {
         let Some(artifacts) = self.artifacts.clone() else { return Ok(()) };
+        // Both, because the two cross-reference forms read different maps: leaving
+        // `located` unset made a cross-reference stream mark `/Encrypt` free, and a
+        // reader that cannot find the encryption dictionary cannot open the file.
         self.xref.insert(id, self.current_offset());
+        self.located.insert(id, Location::InFile(self.current_offset()));
 
         let hex = |bytes: &[u8]| hex::encode_upper(bytes);
         // /V 5 /R 6 with a single AES-256 crypt filter applied to both streams and

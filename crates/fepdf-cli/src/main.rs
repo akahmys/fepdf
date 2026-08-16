@@ -94,11 +94,8 @@ struct SaveArgs {
     /// Password carrying owner rights, if it differs from the one that opens the file
     #[arg(long = "owner-password", id = "owner_password", requires = "encrypt_password")]
     owner_password: Option<String>,
-    // Hidden: `SaveOptions::obj_stm` is carried to the SDK and read by nothing. The
-    // output holds zero `/ObjStm` either way, and passing it moves `samples/fy05.pdf`
-    // by one byte — the XMP instance identifier. ADR-0007.
-    /// Use Object Streams (ObjStm) for high-density compression
-    #[arg(long, hide = true)]
+    /// Pack objects into object streams (7.5.7), with a cross-reference stream
+    #[arg(long)]
     obj_stm: bool,
     // Hidden: nothing reads it. `--image-quality 20` on `samples/fy05.pdf`, which has
     // images, produces a byte-identical file. ADR-0007.

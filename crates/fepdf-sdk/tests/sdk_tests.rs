@@ -6,7 +6,6 @@
 use bytes::Bytes;
 use fepdf_sdk::{PdfDocument, PdfStandard};
 use std::fmt::Write as _;
-use std::io::Write;
 
 /// Assembles indirect objects into a file, cross-reference and trailer included.
 ///
@@ -97,36 +96,6 @@ fn test_upgrade_to_standard() {
     let catalog = doc.inner().arena().get_dict(cadh).unwrap();
     let gts_key = doc.inner().arena().name("GTS_PDFA14");
     assert!(catalog.contains_key(&gts_key));
-}
-
-#[test]
-fn test_object_stream_packer() {
-    use fepdf_sdk::obj_stm::ObjectStreamPacker;
-    let mut packer = ObjectStreamPacker::new();
-    assert_eq!(packer.count(), 0);
-
-    // Add dummy object serializations
-    packer
-        .add_object(5, |w| {
-            w.write_all(b"<< /Dummy 1 >>")?;
-            Ok(())
-        })
-        .unwrap();
-    assert_eq!(packer.count(), 1);
-
-    packer
-        .add_object(6, |w| {
-            w.write_all(b"[1 2 3]")?;
-            Ok(())
-        })
-        .unwrap();
-    assert_eq!(packer.count(), 2);
-
-    // Finish and verify no unwrap panics
-    let (n, first, full) = packer.finish();
-    assert_eq!(n, 2);
-    assert!(first > 0);
-    assert!(!full.is_empty());
 }
 
 #[test]

@@ -60,8 +60,6 @@ pub mod cloning;
 /// The internal interpreter module for processing content streams.
 pub mod interpreter;
 pub use interpreter::Interpreter;
-/// The internal obj_stm module for high-density object packing.
-pub mod obj_stm;
 /// Unified operation vocabulary for canonical document mutations.
 pub mod operation;
 /// The internal remediation module for structural repair.
@@ -852,6 +850,7 @@ impl PdfDocument {
         if options.compress {
             writer.set_compression(options.compression_level);
         }
+        writer.set_pack_objects(options.obj_stm);
         let mut encryption = Vec::new();
         if let Some(password) = &options.password {
             let (handler, artifacts) = Self::encryption_for(password, options, &mut encryption)?;

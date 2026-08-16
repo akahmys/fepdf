@@ -335,3 +335,67 @@ fn the_digest_follows_the_rest_of_the_file() {
         "two different files were signed over the same digest"
     );
 }
+
+/// A signed file may also be packed into object streams, but the signature dictionary
+/// may not be: its `/Contents` is a hole patched at a byte offset and its `/ByteRange`
+/// names offsets in the file, and an object inside a compressed container has neither.
+///
+/// Compression is on so the assertion means something. Without it a packed object's
+/// bytes still appear verbatim in the file, and the test passes whether or not the
+/// exclusion works.
+#[test]
+fn a_signature_is_not_packed_into_an_object_stream() {
+    let identity = identity();
+    let arena = PdfArena::new();
+
+    // Enough dictionaries that there is something to pack, and one stream to prove the
+    // container is compressed.
+    let mut page = BTreeMap::new();
+    page.insert(arena.name("Type"), Object::Name(arena.name("Page")));
+    page.insert(arena.name("Marker"), Object::Name(arena.name("PackMeAway")));
+    let page_h = arena.alloc_object(Object::Dictionary(arena.alloc_dict(page)));
+
+    let mut pages = BTreeMap::new();
+    pages.insert(arena.name("Type"), Object::Name(arena.name("Pages")));
+    pages.insert(
+        arena.name("Kids"),
+        Object::Array(arena.alloc_array(vec![Object::Reference(page_h)])),
+    );
+    pages.insert(arena.name("Count"), Object::Integer(1));
+    let pages_h = arena.alloc_object(Object::Dictionary(arena.alloc_dict(pages)));
+
+    let mut sig = BTreeMap::new();
+    sig.insert(arena.name("Type"), Object::Name(arena.name("Sig")));
+    let sig_h = arena.alloc_object(Object::Dictionary(arena.alloc_dict(sig)));
+
+    let mut catalog = BTreeMap::new();
+    catalog.insert(arena.name("Type"), Object::Name(arena.name("Catalog")));
+    catalog.insert(arena.name("Pages"), Object::Reference(pages_h));
+    catalog.insert(arena.name("Perms"), Object::Reference(sig_h));
+    let root = arena.alloc_object(Object::Dictionary(arena.alloc_dict(catalog)));
+
+    let mut pdf = Vec::new();
+    {
+        let mut writer = PdfWriter::new(&mut pdf, &arena);
+        writer.set_pack_objects(true);
+        writer.set_compression(9);
+        writer.sign_with(sig_h, &identity).expect("a signature");
+        writer.write_header("2.0").expect("a header");
+        writer.finish(root, None).expect("a signed, packed document");
+    }
+
+    let has = |needle: &[u8]| pdf.windows(needle.len()).any(|w| w == needle);
+    assert!(has(b"/Type /ObjStm"), "nothing was packed, so this proves nothing");
+    assert!(
+        !has(b"/PackMeAway"),
+        "the container is not compressed, so a packed object is still readable and \
+         finding /Type /Sig below would prove nothing"
+    );
+    assert!(has(b"/Type /Sig"), "the signature dictionary was packed into a container");
+
+    // And it still verifies, which is the property the exclusion protects.
+    let (range, contents) = read_signature(&pdf);
+    let taken =
+        cms::digest(&[&pdf[range[0]..range[0] + range[1]], &pdf[range[2]..range[2] + range[3]]]);
+    assert_eq!(cms::signed_digest(&contents).expect("a signature"), taken.to_vec());
+}
