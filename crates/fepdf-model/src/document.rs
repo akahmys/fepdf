@@ -133,12 +133,19 @@ impl Document {
     /// cryptographically bound to any operation, and 7.6.4.1 puts obeying it at
     /// `should` rather than `shall`. So this refuses nothing.
     ///
-    /// What it does refuse to do is stay quiet. Writing decrypts the objects, and a
-    /// trailer that still claimed `/Encrypt` over plain objects makes Acrobat report
-    /// error 135 — so `/Encrypt` goes, and the permissions go with it. The author's
-    /// declaration does not survive, and without this nothing said so: the engine took
-    /// a document reading "do not modify, do not reassemble", rewrote it, and produced
-    /// one that declares nothing at all.
+    /// What it does refuse to do is stay quiet, about two losses rather than one.
+    ///
+    /// The content changes because this engine normalises at load (`ARCHITECTURE.md`
+    /// §5.4): by the time a `Document` exists it already differs from the file, and no
+    /// code path writes a faithful copy — `samples/fy05.pdf` differs in 378 of 4,574
+    /// objects even with refinement turned off. So bit 4 is not something the engine
+    /// declines to honour; it is something the architecture cannot honour. The wording
+    /// says that rather than "wrote it anyway", which would imply a choice.
+    ///
+    /// The declaration goes too. A trailer still claiming `/Encrypt` over plain objects
+    /// makes Acrobat report error 135, so `/Encrypt` is dropped and `/P` with it. Until
+    /// this, the engine took a document reading "do not modify, do not reassemble",
+    /// rewrote it, and produced one declaring nothing at all — in silence.
     ///
     /// Only under [`Access::User`]. An owner password carries full access (7.6.4.1),
     /// including the right to change the permissions, so there is nothing to report.
@@ -163,8 +170,9 @@ impl Document {
                 "the document was opened with user access and its /P ({bits}) permits no {}",
                 denied.join(" and no ")
             ),
-            "wrote it anyway; /Encrypt cannot survive decryption, so the output declares \
-             no permissions at all",
+            "this engine normalises at load and has no path that writes a faithful copy, \
+             so the output is modified; /Encrypt cannot survive decryption either, so it \
+             declares no permissions at all",
         ))
     }
 
@@ -1047,7 +1055,15 @@ mod permission_notice {
         let decision = doc.permissions_lost_on_write().expect("a notice is owed");
         assert!(decision.found.contains("modification"), "{decision}");
         assert!(decision.found.contains("assembly"), "{decision}");
-        assert!(decision.action.contains("wrote it anyway"), "nothing is refused");
+        // The action describes what happened, never a refusal: /P is a declaration
+        // and 7.6.4.1 puts obeying it at `should`. It also must not imply a choice —
+        // normalisation at load means no faithful copy exists to write.
+        assert!(decision.action.contains("the output is modified"), "{decision}");
+        assert!(decision.action.contains("declares no permissions"), "{decision}");
+        assert!(
+            !decision.action.contains("refus") && !decision.action.contains("declined"),
+            "nothing is refused: {decision}"
+        );
     }
 
     #[test]
