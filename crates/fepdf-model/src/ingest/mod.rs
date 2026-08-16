@@ -76,6 +76,11 @@ impl Default for IngestionOptions {
     }
 }
 
+/// Fonts resolved during ingestion, keyed by object number.
+type FontCache = BTreeMap<u32, Arc<FontResource>>;
+/// For each stream, the fonts its resource dictionary names.
+type StreamContexts = BTreeMap<u32, BTreeMap<String, Arc<FontResource>>>;
+
 /// Brings a source document into a [`PdfArena`].
 pub struct Ingestor;
 
@@ -97,6 +102,8 @@ pub struct IngestedDocument {
     pub permissions: Option<i32>,
     /// Which password authenticated, when the document was encrypted.
     pub access: Option<fepdf_syntax::security::Access>,
+    /// What the source document was, for the output to record as its origin.
+    pub provenance: crate::document::Provenance,
 }
 
 impl Ingestor {
@@ -123,6 +130,10 @@ impl Ingestor {
         let security =
             crate::decrypt::unlock(&raw.arena, raw.trailer, password(options), &mut decisions)?;
 
+        // Before refinement, which replaces the metadata stream and normalises the
+        // objects: this is the last moment the source's own identity is visible.
+        let provenance = capture_provenance(&raw.arena, raw.trailer);
+
         report("2/4: Mapping objects and loading structure...");
         let arena = raw.arena;
         let (root_handle, info_handle) =
@@ -130,20 +141,8 @@ impl Ingestor {
         let temp_doc = Document::new(arena.clone(), root_handle, info_handle);
 
         report("3/4: Discovering font resources and stream contexts...");
-        let (font_indices, page_and_form_indices) = scan_ingested_objects(&arena);
-        let handle_font_cache = discover_fonts(&arena, &temp_doc, Some(&font_indices));
-
-        for font in handle_font_cache.values() {
-            for decision in &font.decisions {
-                decisions.push(decision.clone());
-            }
-        }
-
-        let global_font_registry = Self::build_global_font_registry(&arena, &handle_font_cache);
-        let mut stream_contexts =
-            map_stream_contexts(&arena, &handle_font_cache, Some(&page_and_form_indices));
-
-        merge_global_fonts_into_contexts(&mut stream_contexts, &global_font_registry);
+        let (handle_font_cache, stream_contexts) =
+            Self::discover_contexts(&arena, &temp_doc, &mut decisions);
 
         report("4/4: Performing active refinement and layout optimization...");
         let mut issues = decisions.into_entries();
@@ -164,7 +163,30 @@ impl Ingestor {
             security_method: security.method,
             permissions: security.permissions,
             access: security.access,
+            provenance,
         })
+    }
+
+    /// Resolves every font and maps each stream to the resources it draws with.
+    fn discover_contexts(
+        arena: &PdfArena,
+        temp_doc: &Document,
+        decisions: &mut crate::interpretation::DecisionLog,
+    ) -> (FontCache, StreamContexts) {
+        let (font_indices, page_and_form_indices) = scan_ingested_objects(arena);
+        let handle_font_cache = discover_fonts(arena, temp_doc, Some(&font_indices));
+
+        for font in handle_font_cache.values() {
+            for decision in &font.decisions {
+                decisions.push(decision.clone());
+            }
+        }
+
+        let global_font_registry = Self::build_global_font_registry(arena, &handle_font_cache);
+        let mut stream_contexts =
+            map_stream_contexts(arena, &handle_font_cache, Some(&page_and_form_indices));
+        merge_global_fonts_into_contexts(&mut stream_contexts, &global_font_registry);
+        (handle_font_cache, stream_contexts)
     }
 
     /// Finds the catalogue and the information dictionary.
@@ -249,6 +271,59 @@ impl Ingestor {
 /// The password to try, defaulting to the empty one every reader starts with.
 fn password(options: &IngestionOptions) -> &str {
     options.password.as_deref().unwrap_or("")
+}
+
+/// Reads the source's identity and how many signatures it carried.
+///
+/// `xmpMM:DocumentID` first, since it survives a producer's own edits; the trailer's
+/// `/ID[0]` otherwise, which is what a file without XMP has to offer.
+fn capture_provenance(
+    arena: &PdfArena,
+    trailer: Option<DictHandle>,
+) -> crate::document::Provenance {
+    let mut signatures = 0;
+    for handle in arena.all_dict_handles() {
+        if let Some(dict) = arena.get_dict(handle)
+            && dict.get(&arena.name("Type")).and_then(|o| o.resolve(arena).as_name())
+                == arena.get_name_by_str("Sig")
+            && arena.get_name_by_str("Sig").is_some()
+        {
+            signatures += 1;
+        }
+    }
+
+    crate::document::Provenance { source_id: source_document_id(arena, trailer), signatures }
+}
+
+/// `xmpMM:DocumentID` from the catalogue's metadata stream, else the trailer `/ID[0]`.
+fn source_document_id(arena: &PdfArena, trailer: Option<DictHandle>) -> Option<String> {
+    let trailer = trailer?;
+    if let Some(root) = trailer_reference(arena, trailer, "Root")
+        && let Some(Object::Dictionary(d)) = arena.get_object(root)
+        && let Some(catalog) = arena.get_dict(d)
+        && let Some(Object::Stream(_, payload)) =
+            catalog.get(&arena.name("Metadata")).map(|o| o.resolve(arena))
+        && let Ok(bytes) = arena.get_stream_bytes(&payload)
+    {
+        let xmp = String::from_utf8_lossy(&bytes);
+        if let Some(id) = between(&xmp, "<xmpMM:DocumentID>", "</xmpMM:DocumentID>") {
+            return Some(id);
+        }
+    }
+
+    let Some(Object::Array(h)) = arena.get_dict(trailer)?.get(&arena.name("ID")).cloned() else {
+        return None;
+    };
+    match arena.get_array(h)?.first()? {
+        Object::String(b) | Object::Hex(b) => Some(b.iter().map(|x| format!("{x:02x}")).collect()),
+        _ => None,
+    }
+}
+
+fn between(haystack: &str, open: &str, close: &str) -> Option<String> {
+    let start = haystack.find(open)? + open.len();
+    let end = haystack[start..].find(close)? + start;
+    Some(haystack[start..end].to_string())
 }
 
 /// An indirect reference held under `key` in the trailer.

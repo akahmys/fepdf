@@ -766,7 +766,7 @@ impl PdfDocument {
         }
         writer.write_header(version)?;
         writer.finish(root, info)?;
-        Ok(self.permissions_lost_on_write().into_iter().collect())
+        Ok(self.write_decisions())
     }
 
     /// Saves a linearized (Fast Web View) version of the document with custom options.
@@ -806,7 +806,7 @@ impl PdfDocument {
 
         writer.write_header(version)?;
         writer.finish(root, info)?;
-        Ok(self.permissions_lost_on_write().into_iter().collect())
+        Ok(self.write_decisions())
     }
 
     /// Signs the document and saves it. **Not implemented.**
@@ -1437,6 +1437,16 @@ impl PdfDocument {
     #[must_use]
     pub fn permissions_lost_on_write(&self) -> Option<Decision> {
         self.inner.permissions_lost_on_write()
+    }
+
+    /// Everything a write costs that the caller must know: permissions the source
+    /// declared, and signatures it carried.
+    fn write_decisions(&self) -> Vec<Decision> {
+        self.inner
+            .permissions_lost_on_write()
+            .into_iter()
+            .chain(self.inner.signatures_lost_on_write())
+            .collect()
     }
 
     /// Returns user permissions granted for this document.

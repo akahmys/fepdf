@@ -16,6 +16,21 @@ use parking_lot::RwLock;
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
+/// What the source document was, kept so the output can say what it derives from.
+///
+/// Saving produces a new document (ADR-0012): normalisation at load means the arena
+/// already differs from the file, the revision chain is merged to a single newest
+/// state, and no code path writes a faithful copy. The output is therefore a derived
+/// work, and this is what it derives *from*.
+#[derive(Debug, Clone, Default)]
+pub struct Provenance {
+    /// The source's `xmpMM:DocumentID`, or its trailer `/ID[0]` when it carried no XMP.
+    pub source_id: Option<String>,
+    /// Signature dictionaries the source carried (12.8). They cannot survive: a
+    /// signature covers a byte range, and these are not those bytes.
+    pub signatures: usize,
+}
+
 /// Refined PDF Catalog (Root) Dictionary (ISO 32000-2:2020 Clause 7.7.2)
 #[derive(Debug, Clone, FromPdfObject)]
 #[pdf_dict(clause = "7.7.2")]
@@ -79,6 +94,8 @@ pub struct Document {
     pub permissions: Option<i32>,
     /// Which password authenticated. `/P` restricts only [`Access::User`] (7.6.4.1).
     pub access: Option<fepdf_syntax::security::Access>,
+    /// What the source document was, for the output to record as its origin.
+    pub provenance: Provenance,
 }
 
 impl Document {
@@ -96,6 +113,7 @@ impl Document {
             security_method: "No Security".to_string(),
             permissions: None,
             access: None,
+            provenance: Provenance::default(),
         }
     }
 
@@ -124,6 +142,7 @@ impl Document {
             security_method: "No Security".to_string(),
             permissions: None,
             access: None,
+            provenance: Provenance::default(),
         }
     }
 
@@ -176,6 +195,29 @@ impl Document {
         ))
     }
 
+    /// What the source carried that this output cannot: signatures.
+    ///
+    /// A signature covers a byte range, and the output is not those bytes — this
+    /// engine normalises at load and writes no incremental update, so there is no path
+    /// by which a signature could remain valid. Carrying an invalid one forward would
+    /// be worse than dropping it, and dropping it silently is what this prevents.
+    ///
+    /// Not a refusal. Saving produces a new document (ADR-0012), and a new document
+    /// does not bear someone else's signature; `xmpMM:DerivedFrom` in the output says
+    /// what it came from.
+    #[must_use]
+    pub fn signatures_lost_on_write(&self) -> Option<crate::interpretation::Decision> {
+        if self.provenance.signatures == 0 {
+            return None;
+        }
+        Some(crate::interpretation::Decision::violation(
+            "12.8",
+            format!("the source carried {} digital signature(s)", self.provenance.signatures),
+            "the output is a new document derived from it, so they are not carried; \
+             a signature covers bytes this output does not reproduce",
+        ))
+    }
+
     /// Opens a PDF document from bytes with specific options.
     pub fn open(data: bytes::Bytes, options: &crate::ingest::IngestionOptions) -> PdfResult<Self> {
         let raw = crate::reader::load_document(&data)?;
@@ -186,6 +228,7 @@ impl Document {
         doc.security_method = ingested.security_method;
         doc.permissions = ingested.permissions;
         doc.access = ingested.access;
+        doc.provenance = ingested.provenance;
 
         // Populate font cache from ingestion
         {
@@ -1045,6 +1088,24 @@ mod permission_notice {
         doc.access = access;
         doc.permissions = permissions;
         doc
+    }
+
+    #[test]
+    fn a_source_signature_is_reported_as_not_carried() {
+        // A signature covers a byte range; the output is not those bytes. Carrying an
+        // invalid one forward would be worse than dropping it, and dropping it in
+        // silence is what this prevents.
+        let mut doc = with(None, None);
+        doc.provenance.signatures = 2;
+        let decision = doc.signatures_lost_on_write().expect("a notice is owed");
+        assert!(decision.found.contains('2'), "{decision}");
+        assert!(decision.action.contains("new document derived"), "{decision}");
+        assert!(!decision.action.contains("refus"), "nothing is refused: {decision}");
+    }
+
+    #[test]
+    fn an_unsigned_source_says_nothing() {
+        assert!(with(None, None).signatures_lost_on_write().is_none());
     }
 
     #[test]

@@ -1609,16 +1609,17 @@ fn handle_upgrade(
 
     let save_options: fepdf_sdk::SaveOptions = save.into();
 
-    // Linearising writes too, so it owes the same notice.
-    if let Some(decision) = doc.permissions_lost_on_write() {
-        eprintln!("{decision}");
-    }
-    if linearize {
-        doc.save_linearized(&output, "2.0", &save_options).map_err(|e| anyhow::anyhow!("{e:?}"))?;
+    // Both branches write, so both owe the notice. An earlier version called
+    // `permissions_lost_on_write` directly here and so reported only half of what a
+    // write costs once signatures joined it — which is the reason `save_*` returns the
+    // decisions rather than leaving each call site to remember what to ask for.
+    let decisions = if linearize {
+        doc.save_linearized(&output, "2.0", &save_options).map_err(|e| anyhow::anyhow!("{e:?}"))?
     } else {
         doc.save_with_options(&output, "2.0", &save_options)
-            .map_err(|e| anyhow::anyhow!("{e:?}"))?;
-    }
+            .map_err(|e| anyhow::anyhow!("{e:?}"))?
+    };
+    report_write_decisions(&decisions);
     println!("SUCCESS: Output saved to {}", output.display());
     Ok(())
 }

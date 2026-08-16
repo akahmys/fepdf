@@ -140,7 +140,7 @@ fn update_xmp_metadata(doc: &crate::Document, info: &MetadataInfo) -> crate::Pdf
             .ok_or_else(|| crate::error::PdfError::Other("Invalid Catalog".into()))?;
 
         let refined_map = build_refined_metadata_map(info);
-        let raw_xmp = crate::refine::metadata::info_to_xmp(&refined_map);
+        let raw_xmp = crate::refine::metadata::info_to_xmp_derived(&refined_map, &doc.provenance);
 
         // Append 2KB space padding and replace the read-only flag end="r" with writable flag end="w"
         let trimmed = raw_xmp.trim_end();

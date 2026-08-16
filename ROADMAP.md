@@ -208,11 +208,17 @@ Independent of A and B, and the area where a partial implementation is most harm
       `W n n` and grew by 52 bytes on every pass, while `W f` came back as `W n f` and
       lost the fill outright
       ([ADR-0011](docs/adr/0011-the-content-round-trip-must-be-a-fixed-point.md))
-- [ ] A faithful-copy path. Normalisation at load means opening a document already
-      differs from the file, so nothing that depends on the exact bytes — a signature
-      above all — can survive being written. `write_incremental_update` exists in the
-      writer with no caller; wiring it needs a writer that keeps the source bytes and
-      appends, which is a different mode from the one that exists
+- [x] Settle what a save *is*: it produces a new document derived from the input, not
+      an edit of it ([ADR-0012](docs/adr/0012-saving-produces-a-new-document.md)). The
+      revision chain is merged at load — fy05's three sections become one — so there is
+      no history to preserve by the time anything is written. Origin is recorded in
+      `xmpMM:DerivedFrom` and `xmpMM:OriginalDocumentID`; what the source carried and
+      the output cannot is reported at write time
+- [ ] A faithful-copy path, as a *second* save mode: keep the source bytes and append
+      an incremental update. `write_incremental_update` exists in the writer with no
+      caller. It needs a notion of which objects changed, which normalisation-at-load
+      destroys — so it is a different writer, not a flag. With it, a signature could
+      survive
 
 *Done when*: an AES-256 document written by Acrobat round-trips, and one written by
 fepdf opens in Acrobat.

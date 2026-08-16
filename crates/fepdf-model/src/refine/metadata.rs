@@ -259,12 +259,31 @@ fn parse_and_write_dates(info: &BTreeMap<PdfName, RefinedObject>, writer: &mut X
 
 /// Renders an `/Info` dictionary as an XMP packet.
 pub fn info_to_xmp(info: &BTreeMap<PdfName, RefinedObject>) -> String {
+    info_to_xmp_derived(info, &crate::document::Provenance::default())
+}
+
+/// Renders the packet, recording what the document was derived from.
+///
+/// Saving produces a new document, not an edited one (ADR-0012): the arena already
+/// differs from the file by the time anything is written, and no path produces a
+/// faithful copy. `xmpMM:DerivedFrom` and `xmpMM:OriginalDocumentID` are how XMP says
+/// exactly that, and they outlive a message on a terminal — a reader of the output can
+/// tell where it came from without having watched it being made.
+pub fn info_to_xmp_derived(
+    info: &BTreeMap<PdfName, RefinedObject>,
+    provenance: &crate::document::Provenance,
+) -> String {
     let mut writer = XmpWriter::new();
 
     write_basic_fields(info, &mut writer);
     writer.format("application/pdf");
     generate_and_write_uuids(info, &mut writer);
     parse_and_write_dates(info, &mut writer);
+
+    if let Some(source) = &provenance.source_id {
+        writer.derived_from().document_id(source);
+        writer.original_doc_id(source);
+    }
 
     writer.finish(None)
 }
