@@ -96,7 +96,7 @@ The reasoning is in [ADR-0012](docs/adr/0012-saving-produces-a-new-document.md).
 | **Edit interactive features** | Annotations, form fields and outlines can be read and reported. The only one it writes is a signature field, and only as part of signing. |
 | **Public-key security handlers** | 7.6.5 is recognised and reported, not implemented. |
 | **Run usefully in a browser** | `fepdf-wasm` opens a document and counts pages. Its `render_page` does nothing. |
-| **Pack objects by default** | 7.5.7 object streams are written with `--obj-stm`, and shrink every sample — `intel_sdm.pdf` goes from +131% to +1%. They are opt-in, so the default output is larger than it needs to be. |
+| **Produce a file you can read in a text editor** | Objects are packed into 7.5.7 object streams by default, which shrinks every sample — `intel_sdm.pdf` goes from +131% to +1% — and puts almost all of them inside a compressed container. `--no-obj-stm` writes the loose form ([ADR-0016](docs/adr/0016-objects-are-packed-by-default.md)). |
 
 Nineteen SDK operations report `NotImplemented` rather than pretending. Ten of Table
 29's thirty-two catalogue entries have a typed representation; the rest survive a round

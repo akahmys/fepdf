@@ -94,9 +94,10 @@ struct SaveArgs {
     /// Password carrying owner rights, if it differs from the one that opens the file
     #[arg(long = "owner-password", id = "owner_password", requires = "encrypt_password")]
     owner_password: Option<String>,
-    /// Pack objects into object streams (7.5.7), with a cross-reference stream
-    #[arg(long)]
-    obj_stm: bool,
+    /// Write loose objects and a classic cross-reference table, instead of packing
+    /// objects into object streams (7.5.7). Larger, and readable in a text editor
+    #[arg(long = "no-obj-stm")]
+    no_obj_stm: bool,
     /// Set the document's natural language, a BCP 47 tag (e.g. "en-US", "ja")
     #[arg(long)]
     lang: Option<String>,
@@ -134,7 +135,7 @@ impl From<SaveArgs> for fepdf_sdk::SaveOptions {
             strip: args.strip,
             password: args.password,
             owner_password: args.owner_password,
-            obj_stm: args.obj_stm,
+            obj_stm: !args.no_obj_stm,
             lang: args.lang,
             title: args.title,
             author: args.author,

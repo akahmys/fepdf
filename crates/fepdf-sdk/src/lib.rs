@@ -96,7 +96,12 @@ pub struct SaveOptions {
     /// The password that carries owner rights, when it differs from the one that opens
     /// the document. Ignored unless `password` is set.
     pub owner_password: Option<String>,
-    /// Whether to use Object Streams (ObjStm) for high-density compression.
+    /// Pack objects into object streams (7.5.7), with the cross-reference stream
+    /// (7.5.8) they require. **On by default**: it makes every corpus file smaller and
+    /// `samples/intel_sdm.pdf` less than half the size, and two independent readers get
+    /// the same text out either way ([ADR-0016]).
+    ///
+    /// [ADR-0016]: ../../../../docs/adr/0016-objects-are-packed-by-default.md
     pub obj_stm: bool,
     /// The catalogue's `/Lang` (14.9.2.1) — a BCP 47 tag such as `en-GB` or `ja`.
     pub lang: Option<String>,
@@ -136,7 +141,7 @@ impl Default for SaveOptions {
             strip: false,
             password: None,
             owner_password: None,
-            obj_stm: false,
+            obj_stm: true,
             lang: None,
             title: None,
             author: None,

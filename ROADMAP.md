@@ -248,9 +248,12 @@ Independent of A and B, and the area where a partial implementation is most harm
       table has no type 2 entry, so it cannot say where a packed object lives. Four
       things stay loose: streams, generation-non-zero objects, `/Encrypt`, and this
       engine's own addition — the signature dictionary, whose `/Contents` is a hole at a
-      byte offset. **Open**: whether to pack by default. Every sample gets smaller and
-      PDFKit reads all nine unchanged, but it changes every output byte for every caller,
-      so it is a product decision and not a measurement one
+      byte offset. **Packed by default** since a second independent reader was obtained
+      and agreed: PDFium — Chrome's engine, sharing no code with PDFKit — reads the same
+      text out of the packed file page by page on all nine, and opens a packed *and*
+      encrypted one with the password
+      ([ADR-0016](docs/adr/0016-objects-are-packed-by-default.md)). `--no-obj-stm` writes
+      the loose form, which is what to reach for when debugging the writer
 - [x] Implement or delete every `SaveArgs` option that did nothing. All five are
       decided. `--permissions` came live with encryption on write; `--lang` writes
       `/Lang` (14.9.2.1) and `--copyright` writes `dc:rights`. `--image-quality` and

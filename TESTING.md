@@ -131,7 +131,9 @@ Before submitting a Pull Request or completing a task:
       code is touched. Packing moves almost every object inside a compressed container
       reached through a type 2 entry, so a reader that gets the indirection wrong finds
       nothing rather than something subtly wrong — which makes this the bluntest of the
-      three cross-checks and the quickest to fail honestly.
+      three cross-checks and the quickest to fail honestly. Set `PDFIUM` to a Python that
+      has `pypdfium2` and a second, unrelated reader checks it too; the script's header
+      says how. That second reader is what made packing the default.
 - [ ] `./scripts/dev/status.sh` — the figures the documents quote, re-derived. A number
       that has gone stale shows up as a disagreement rather than reading as current.
 
