@@ -91,6 +91,26 @@ impl<'a> Sublimator<'a> {
         std::mem::take(&mut self.decisions)
     }
 
+    /// The next token, or `None` once the stream ends — recording why if it ended
+    /// because the lexer could not go on.
+    fn next_or_record(&mut self, lexer: &mut Lexer, total: usize) -> Option<Token> {
+        match lexer.next_token() {
+            Ok(Token::EOF) => None,
+            Ok(token) => Some(token),
+            Err(e) => {
+                self.decisions.push(crate::interpretation::Decision::violation(
+                    "7.8.2",
+                    format!(
+                        "content stream stopped lexing {} bytes in, of {total}: {e}",
+                        lexer.pos()
+                    ),
+                    "kept what had been read; the remainder of the stream is lost",
+                ));
+                None
+            }
+        }
+    }
+
     /// Turns a content stream's bytes into drawing commands.
     pub fn sublimate(&mut self, data: &[u8]) -> Vec<Command> {
         // DETECT CORRUPTION: If the stream looks like Rust debug output, attempt resurrection (ISO 32000-2:2020 Clause 7.8.2 Fallback)
@@ -103,10 +123,17 @@ impl<'a> Sublimator<'a> {
         let mut commands = Vec::new();
         let mut lexer = Lexer::new(bytes::Bytes::copy_from_slice(data));
 
-        while let Ok(token) = lexer.next_token() {
-            if token == Token::EOF {
-                break;
-            }
+        loop {
+            // `while let Ok(token) = ...` stood here: a lexer error ended the loop and
+            // discarded the rest of the stream in silence, however much remained.
+            //
+            // No corpus file reaches this, and none can today — `Lexer::next_token`
+            // returns `SyntaxResult` but has no path that returns `Err`, so the
+            // `Result` is vestigial. The guard is here because the signature permits
+            // failure and the silent-truncation behaviour would return with the first
+            // fallible branch anyone adds. Recorded, not corrected: this is not a
+            // defect that has been observed.
+            let Some(token) = self.next_or_record(&mut lexer, data.len()) else { break };
 
             match token {
                 Token::Keyword(kw) => {
