@@ -80,3 +80,11 @@ for keeping rather than removing the field held — the option was the right sha
 what was missing was the check.
 
 `color_policy` and `--relaxed-color` remain as described here.
+
+`SaveArgs` — named above as the place this method had not been applied — has now been
+audited, and every option it carried without reading is decided. `--permissions` became
+live when there was an `/Encrypt` to put `/P` in; `--lang` and `--copyright` were
+implemented; `--image-quality` and `--diff` were deleted. The audit's own conclusion
+held again: two of the five were a few lines of real work that nobody had done, and two
+were features wearing flags. Sorting one group from the other is the whole value of
+asking.

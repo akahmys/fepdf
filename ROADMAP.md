@@ -200,8 +200,10 @@ Independent of A and B, and the area where a partial implementation is most harm
 - [x] Encrypting on write, **AES-256 revision 6 only**. `--password` claimed to encrypt
       and produced a plaintext file: nothing called `set_security_handler`, so
       `encrypt_stream` was unreachable. It encrypts now. This engine reads five schemes
-      because files exist that use them, and writes one: output is always PDF 2.0, and
-      7.6.4.1 deprecates RC4 and the Algorithm 2 derivation in that same edition.
+      because files exist that use them, and writes one
+      ([ADR-0015](docs/adr/0015-this-engine-reads-five-encryption-schemes-and-writes-one.md)):
+      output is always PDF 2.0, and 7.6.4.1 deprecates RC4 and the Algorithm 2
+      derivation in that same edition.
       `SecurityHandler` could only authenticate against an `/Encrypt` that already
       existed; `encrypt_new` generates a key and runs Algorithms 8, 9 and 10 to make one.
       `--permissions` is un-hidden with it, taking the keywords `inspect encryption`
@@ -249,12 +251,15 @@ Independent of A and B, and the area where a partial implementation is most harm
       byte offset. **Open**: whether to pack by default. Every sample gets smaller and
       PDFKit reads all nine unchanged, but it changes every output byte for every caller,
       so it is a product decision and not a measurement one
-- [ ] Implement or delete the four `SaveArgs` options that still do nothing:
-      `--image-quality`, `--lang`, `--copyright` and `--diff`, which prints "Structural
-      diff would be displayed here (M67 enhancement)". All hidden under ADR-0007, which
-      asked for exactly this audit and named `SaveArgs` as the place it had not been
-      done. `--permissions` was the fifth and is now live: it was blocked on there being
-      an `/Encrypt` to put `/P` in
+- [x] Implement or delete every `SaveArgs` option that did nothing. All five are
+      decided. `--permissions` came live with encryption on write; `--lang` writes
+      `/Lang` (14.9.2.1) and `--copyright` writes `dc:rights`. `--image-quality` and
+      `--diff` are deleted: the first is a feature wearing a flag — decode and re-encode
+      every `DCTDecode` image, generation loss on something already lossy — and the
+      second printed "Structural diff would be displayed here (M67 enhancement)" for an
+      operation that is not an option on writing a file, and that
+      `examples/compare_documents.rs` already does properly. ADR-0007 asked for exactly
+      this audit and named `SaveArgs` as the place it had not been done
 - [x] Make the content round trip a fixed point. It was not: `W n` came back as
       `W n n` and grew by 52 bytes on every pass, while `W f` came back as `W n f` and
       lost the fill outright
