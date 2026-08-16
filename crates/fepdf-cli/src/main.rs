@@ -980,13 +980,12 @@ fn render_decisions_markdown(decisions: &[fepdf_sdk::Decision]) {
     }
 }
 
-/// Writes the document, first saying what its `/P` said about being rewritten.
+/// Writes the document and reports what the write cost.
 ///
-/// One function rather than a line at each of ten call sites, because the thing that
-/// must not happen is a write path that forgets. `/P` is a declaration and not a lock
-/// (7.6.4.1 puts obeying it at `should`), so nothing is refused — but decryption drops
-/// `/Encrypt`, the permissions go with it, and until this the engine rewrote a document
-/// saying "do not modify" into one saying nothing at all, in silence.
+/// `/P` is a declaration and not a lock — 7.6.4.1 puts obeying it at `should` — so
+/// nothing is refused. But decryption drops `/Encrypt`, the permissions go with it, and
+/// the engine used to rewrite a document saying "do not modify" into one saying nothing
+/// at all, in silence.
 ///
 /// stderr, so a redirected `>` output is unchanged.
 fn save_reporting_permissions(
@@ -994,10 +993,17 @@ fn save_reporting_permissions(
     output: &std::path::Path,
     save_options: &fepdf_sdk::SaveOptions,
 ) -> Result<()> {
-    if let Some(decision) = doc.permissions_lost_on_write() {
+    let decisions =
+        doc.save_with_options(output, "2.0", save_options).map_err(|e| anyhow::anyhow!("{e:?}"))?;
+    report_write_decisions(&decisions);
+    Ok(())
+}
+
+/// Prints what a write cost, if anything.
+fn report_write_decisions(decisions: &[fepdf_sdk::Decision]) {
+    for decision in decisions {
         eprintln!("{decision}");
     }
-    doc.save_with_options(output, "2.0", save_options).map_err(|e| anyhow::anyhow!("{e:?}"))
 }
 
 /// Reports what protects the document (7.6), and how far the engine conforms.

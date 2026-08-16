@@ -91,6 +91,10 @@ pub enum WorkerResponse {
     },
     DocumentSaved {
         path: std::path::PathBuf,
+        /// What the write cost, in the document's own terms. Empty for most files;
+        /// non-empty when the source declared restrictions the output cannot carry,
+        /// which the user is about to hand to someone else (7.6.4.2).
+        notices: Vec<String>,
     },
     Error(String),
 }
@@ -570,8 +574,9 @@ fn handle_save(
     };
 
     match res {
-        Ok(()) => {
-            let _ = tx.send(WorkerResponse::DocumentSaved { path });
+        Ok(decisions) => {
+            let notices = decisions.iter().map(ToString::to_string).collect();
+            let _ = tx.send(WorkerResponse::DocumentSaved { path, notices });
         }
         Err(e) => {
             let _ = tx.send(WorkerResponse::Error(format!("Failed to save PDF: {e}")));

@@ -164,7 +164,9 @@ Independent of A and B, and the area where a partial implementation is most harm
       obeying it at `should`. Refusing would over-read a soft declaration; the defect
       was that writing *erased* it in silence. Now recorded as a violation at write
       time, and only under user access — an owner password carries the right to change
-      the permissions
+      the permissions. The `save_*` methods return `Vec<Decision>` so the compiler asks
+      every caller what it intends to do with them; the GUI shows them after saving,
+      which is the only moment they are actionable
 - [x] Owner-password authentication for revisions 2–4 (Algorithm 7), which the access
       distinction needs and which 7.6.4.1 requires regardless: either password should
       open the document

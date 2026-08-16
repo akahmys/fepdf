@@ -686,8 +686,16 @@ impl PdfDocument {
         })
     }
 
-    /// Saves the document to a file with a specific version and default options.
-    pub fn save_as_version(&self, output_path: &Path, version: &str) -> PdfResult<()> {
+    /// Writes the document, returning what the write cost that the caller must know.
+    ///
+    /// The `Vec<Decision>` is not decoration. Decryption drops `/Encrypt`, so a
+    /// document whose `/P` forbade modification produces output declaring nothing —
+    /// and that used to happen in silence. Returning the decisions makes the compiler
+    /// ask every caller what it intends to do with them, which is the mechanism
+    /// ADR-0005 prefers over remembering: `let _ =` in a test is a caller saying it
+    /// does not assert on this, which is honest; a frontend ignoring it is visible in
+    /// review because it had to write the discard.
+    pub fn save_as_version(&self, output_path: &Path, version: &str) -> PdfResult<Vec<Decision>> {
         let options = SaveOptions {
             vacuum: self.vacuum,
             strip: self.strip,
@@ -703,7 +711,7 @@ impl PdfDocument {
         output_path: &Path,
         version: &str,
         options: &SaveOptions,
-    ) -> PdfResult<()> {
+    ) -> PdfResult<Vec<Decision>> {
         // 1. Update Metadata
         let mut metadata = self.inner.metadata();
 
@@ -739,7 +747,8 @@ impl PdfDocument {
         }
 
         if options.dry_run {
-            return Ok(());
+            // Nothing was written, so nothing was lost.
+            return Ok(Vec::new());
         }
 
         let file = std::fs::File::create(output_path).map_err(PdfError::Io)?;
@@ -755,7 +764,7 @@ impl PdfDocument {
         }
         writer.write_header(version)?;
         writer.finish(root, info)?;
-        Ok(())
+        Ok(self.permissions_lost_on_write().into_iter().collect())
     }
 
     /// Saves a linearized (Fast Web View) version of the document with custom options.
@@ -764,7 +773,7 @@ impl PdfDocument {
         output_path: &Path,
         version: &str,
         options: &SaveOptions,
-    ) -> PdfResult<()> {
+    ) -> PdfResult<Vec<Decision>> {
         // Linearization involves object reordering and hint tables.
         // For M67, we implement the object reordering phase.
 
@@ -795,7 +804,7 @@ impl PdfDocument {
 
         writer.write_header(version)?;
         writer.finish(root, info)?;
-        Ok(())
+        Ok(self.permissions_lost_on_write().into_iter().collect())
     }
 
     /// Signs the document and saves it with digital signature support.
@@ -805,7 +814,7 @@ impl PdfDocument {
         version: &str,
         options: &SaveOptions,
         sign_options: &SignOptions,
-    ) -> PdfResult<()> {
+    ) -> PdfResult<Vec<Decision>> {
         let arena = self.inner.arena();
         let sig_h = self.create_sig_dict(arena, sign_options);
         let widget_h = self.create_sig_widget(arena, sign_options, sig_h);
@@ -827,7 +836,7 @@ impl PdfDocument {
 
         writer.write_header(version)?;
         writer.finish(*self.inner.root_handle(), self.inner.info_handle())?;
-        Ok(())
+        Ok(self.permissions_lost_on_write().into_iter().collect())
     }
 
     fn create_sig_dict(&self, arena: &PdfArena, options: &SignOptions) -> Handle<Object> {

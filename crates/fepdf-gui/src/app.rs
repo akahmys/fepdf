@@ -470,11 +470,17 @@ impl FepdfApp {
                     self.ust_registry.audit_findings = findings;
                     ctx.request_repaint();
                 }
-                WorkerResponse::DocumentSaved { path } => {
-                    self.error = Some(format!(
-                        "Successfully exported compliant PDF to {}",
-                        path.file_name().unwrap_or(path.as_os_str()).display()
-                    ));
+                WorkerResponse::DocumentSaved { path, notices } => {
+                    // After the fact on purpose. The user could not have avoided this
+                    // by editing differently — fepdf normalises at load, so every write
+                    // is a modified write — but what they are about to hand on no longer
+                    // carries the source's declaration, and that is worth knowing.
+                    let name = path.file_name().unwrap_or(path.as_os_str()).display();
+                    self.error = Some(if notices.is_empty() {
+                        format!("Successfully exported compliant PDF to {name}")
+                    } else {
+                        format!("Exported to {name}\n{}", notices.join("\n"))
+                    });
                     ctx.request_repaint();
                 }
                 WorkerResponse::Error(err) => {
