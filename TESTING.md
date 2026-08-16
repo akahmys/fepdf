@@ -101,7 +101,7 @@ cargo check --workspace
 Before submitting a Pull Request or completing a task:
 
 - [ ] `./scripts/audit/verify_compliance.sh` completes with `=== AUDIT PASSED ===`.
-- [ ] `cargo test --workspace` passes with 0 failures (255 tests across 33 suites, 2026-08-17).
+- [ ] `cargo test --workspace` passes with 0 failures (258 tests across 34 suites, 2026-08-17).
 - [ ] `cargo clippy --workspace --all-targets -- -D warnings` is clean. `--all-targets` matters: without it tests, examples and benches are never linted.
 - [ ] `cargo fmt --all --check` reports no diff. Enforced as Rule 19 by the audit, so `make audit` covers it.
 - [ ] All integration tests are placed in `crates/*/tests/` following the Test Separation Policy. Binary crates (`fepdf`) are the exception: an integration test cannot reach into a binary, so their unit tests live in inline `#[cfg(test)] mod tests` blocks, which the rule permits.
@@ -126,6 +126,12 @@ Before submitting a Pull Request or completing a task:
       run it found that the writer emitted an unescaped carriage return in literal
       strings while the lexer read one back unchanged — two mistakes that cancelled, so
       the engine's own round trip was clean and had been for as long as anyone looked.
+- [ ] `./scripts/test/crosscheck_objstm.sh` — packs every sample and has PDFKit read it,
+      with the size change beside it. Only run when the writer or the cross-reference
+      code is touched. Packing moves almost every object inside a compressed container
+      reached through a type 2 entry, so a reader that gets the indirection wrong finds
+      nothing rather than something subtly wrong — which makes this the bluntest of the
+      three cross-checks and the quickest to fail honestly.
 - [ ] `./scripts/dev/status.sh` — the figures the documents quote, re-derived. A number
       that has gone stale shows up as a disagreement rather than reading as current.
 

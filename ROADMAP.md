@@ -238,11 +238,17 @@ Independent of A and B, and the area where a partial implementation is most harm
       compressed, because `SaveOptions` derived its default and `compress` was `false`
       while `fepdf-gui` had always set it `true` — the same operation, two answers, which
       is what Rule D exists to stop. `fy05.pdf` goes from +76% to −46%
-- [ ] Write object streams (7.5.7). `SaveOptions::obj_stm` is carried and read by
-      nothing, and the output holds zero `/ObjStm`. `intel_sdm.pdf` keeps 332,000 objects
-      in 8,043 containers and comes out **+132%** without them; every other corpus file
-      is now within 1% of its source or smaller. This is the one remaining size gap and
-      it is a feature, not a defect
+- [x] Write object streams (7.5.7), with the cross-reference streams (7.5.8) they
+      require. `SaveOptions::obj_stm` was carried and read by nothing; `--obj-stm` now
+      packs. `intel_sdm.pdf` keeps 323,066 of its objects in 8,044 containers and went
+      from **+131% to +1%**; every other sample shrank too — `volvo_xc90` +1% to −13%,
+      `unicode_16` −3% to −14%. The two are one switch because a classic cross-reference
+      table has no type 2 entry, so it cannot say where a packed object lives. Four
+      things stay loose: streams, generation-non-zero objects, `/Encrypt`, and this
+      engine's own addition — the signature dictionary, whose `/Contents` is a hole at a
+      byte offset. **Open**: whether to pack by default. Every sample gets smaller and
+      PDFKit reads all nine unchanged, but it changes every output byte for every caller,
+      so it is a product decision and not a measurement one
 - [ ] Implement or delete the four `SaveArgs` options that still do nothing:
       `--image-quality`, `--lang`, `--copyright` and `--diff`, which prints "Structural
       diff would be displayed here (M67 enhancement)". All hidden under ADR-0007, which
