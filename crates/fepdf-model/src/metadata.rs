@@ -212,13 +212,25 @@ fn commit_metadata_stream(
     ))
 }
 
+/// The RDF namespace, whose containers wrap almost every XMP value.
+const RDF_LI: (&str, &str) = ("http://www.w3.org/1999/02/22-rdf-syntax-ns#", "li");
+
+/// The text of an XMP property.
+///
+/// XMP wraps language alternatives and ordered values in `rdf:Alt`, `rdf:Seq` and
+/// `rdf:Bag`, so `dc:title` is never a bare string — it is an `rdf:Alt` holding one
+/// `rdf:li` per language. This used to take the first text node among the descendants,
+/// which in a packet written with indentation is the newline and spaces between
+/// `<dc:title>` and `<rdf:Alt>`. That is not nothing, so it overwrote the value read
+/// from `/Info`, and `dc:title` and `dc:description` came out empty on every file whose
+/// packet was indented — two of the nine corpus files lost their title on save.
 fn find_tag_text(doc: &roxmltree::Document, ns: &str, tag: &str) -> Option<String> {
-    doc.descendants().find(|n| n.has_tag_name((ns, tag))).and_then(|node| {
-        node.descendants()
-            .find(|n| n.is_text())
-            .map(|n| n.text().unwrap_or_default().to_string())
-            .or_else(|| node.text().map(|t| t.to_string()))
-    })
+    let node = doc.descendants().find(|n| n.has_tag_name((ns, tag)))?;
+    // A container yields its first item; a bare property yields its own text.
+    let source = node.descendants().find(|n| n.has_tag_name(RDF_LI)).unwrap_or(node);
+    let text: String = source.children().filter(|n| n.is_text()).filter_map(|n| n.text()).collect();
+    let text = text.trim();
+    (!text.is_empty()).then(|| text.to_string())
 }
 
 fn apply_xmp_metadata(doc: &roxmltree::Document, info: &mut MetadataInfo) {
@@ -262,6 +274,54 @@ fn apply_xmp_metadata(doc: &roxmltree::Document, info: &mut MetadataInfo) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// XMP indents. `dc:title` is an `rdf:Alt` of `rdf:li`, so the first text node
+    /// inside it is the whitespace before `<rdf:Alt>` — reading that and calling it the
+    /// title emptied the title of every file whose packet was written with indentation.
+    #[test]
+    fn an_indented_language_alternative_yields_its_value_not_its_indentation() {
+        let xml = r#"<x:xmpmeta xmlns:x="adobe:ns:meta/"
+            xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"
+            xmlns:dc="http://purl.org/dc/elements/1.1/">
+          <rdf:RDF><rdf:Description>
+            <dc:title>
+               <rdf:Alt>
+                  <rdf:li xml:lang="x-default">Intel 64 Manual</rdf:li>
+               </rdf:Alt>
+            </dc:title>
+          </rdf:Description></rdf:RDF>
+        </x:xmpmeta>"#;
+        let doc = roxmltree::Document::parse(xml).expect("well formed");
+        let dc = "http://purl.org/dc/elements/1.1/";
+        assert_eq!(find_tag_text(&doc, dc, "title").as_deref(), Some("Intel 64 Manual"));
+    }
+
+    /// A property that is whitespace only has no value, and must not displace the one
+    /// the `/Info` dictionary carries. `samples/fy05.pdf` is this case.
+    #[test]
+    fn a_whitespace_only_alternative_is_absent_rather_than_empty() {
+        let xml = r#"<x:xmpmeta xmlns:x="adobe:ns:meta/"
+            xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"
+            xmlns:dc="http://purl.org/dc/elements/1.1/">
+          <rdf:RDF><rdf:Description>
+            <dc:title><rdf:Alt><rdf:li xml:lang="x-default">   </rdf:li></rdf:Alt></dc:title>
+          </rdf:Description></rdf:RDF>
+        </x:xmpmeta>"#;
+        let doc = roxmltree::Document::parse(xml).expect("well formed");
+        assert_eq!(find_tag_text(&doc, "http://purl.org/dc/elements/1.1/", "title"), None);
+    }
+
+    /// A bare property still works: not every XMP value is wrapped in a container.
+    #[test]
+    fn a_bare_property_yields_its_own_text() {
+        let xml = r#"<x:xmpmeta xmlns:x="adobe:ns:meta/"
+            xmlns:pdf="http://ns.adobe.com/pdf/1.3/">
+          <pdf:Producer>Acrobat Distiller 24.0</pdf:Producer>
+        </x:xmpmeta>"#;
+        let doc = roxmltree::Document::parse(xml).expect("well formed");
+        let ns = "http://ns.adobe.com/pdf/1.3/";
+        assert_eq!(find_tag_text(&doc, ns, "Producer").as_deref(), Some("Acrobat Distiller 24.0"));
+    }
 
     #[test]
     fn test_metadata_info_default() {
