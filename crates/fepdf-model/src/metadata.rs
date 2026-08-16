@@ -52,12 +52,10 @@ pub struct MetadataInfo {
     pub mod_date: Option<String>,
 }
 
-/// Collects document metadata, preferring XMP over the `/Info` dictionary.
-pub fn extract_metadata(doc: &Document) -> MetadataInfo {
+/// Reads the `/Info` dictionary (14.3.3).
+fn read_info(doc: &Document) -> MetadataInfo {
     let arena = doc.arena();
     let mut info = MetadataInfo::default();
-
-    // 1. Extract from legacy Info dictionary
     if let Some(info_handle) = doc.info_handle()
         && let Some(obj) = arena.get_object(info_handle)
         && let Ok(pdf_info) = PdfInfo::from_pdf_object(obj, arena)
@@ -71,22 +69,155 @@ pub fn extract_metadata(doc: &Document) -> MetadataInfo {
         info.creation_date = pdf_info.creation_date;
         info.mod_date = pdf_info.mod_date;
     }
+    info
+}
 
-    // 2. Supplement with XMP Metadata from Catalog/Metadata stream
-    if let Some(Object::Dictionary(catalog_handle)) = arena.get_object(*doc.root_handle())
-        && let Some(catalog_dict) = arena.get_dict(catalog_handle)
-        && let Some(metadata_obj) = catalog_dict.get(&arena.name("Metadata"))
-    {
-        let resolved = metadata_obj.resolve(arena);
-        if let Ok(xml_data) = doc.decode_stream(&resolved)
-            && let Ok(xml_str) = std::str::from_utf8(&xml_data)
-            && let Ok(xml_doc) = roxmltree::Document::parse(xml_str)
-        {
-            apply_xmp_metadata(&xml_doc, &mut info);
+/// Reads the catalogue's own metadata stream (14.3.2), if it has one.
+fn read_catalog_xmp(doc: &Document) -> Option<MetadataInfo> {
+    let arena = doc.arena();
+    let Object::Dictionary(catalog_handle) = arena.get_object(*doc.root_handle())? else {
+        return None;
+    };
+    let metadata_obj = arena.get_dict(catalog_handle)?.get(&arena.name("Metadata"))?.clone();
+    let xml_data = doc.decode_stream(&metadata_obj.resolve(arena)).ok()?;
+    let xml_str = std::str::from_utf8(&xml_data).ok()?;
+    let xml_doc = roxmltree::Document::parse(xml_str).ok()?;
+    let mut info = MetadataInfo::default();
+    apply_xmp_metadata(&xml_doc, &mut info);
+    Some(info)
+}
+
+/// Collects document metadata, preferring XMP over the `/Info` dictionary.
+///
+/// After [`settle`] has run at ingest the two agree, so this returns the same answer
+/// whenever it is asked. It is the derivation, not the decision.
+pub fn extract_metadata(doc: &Document) -> MetadataInfo {
+    let mut info = read_info(doc);
+    if let Some(xmp) = read_catalog_xmp(doc) {
+        overlay(&mut info, xmp);
+    }
+    info
+}
+
+fn overlay(base: &mut MetadataInfo, top: MetadataInfo) {
+    let fields: [(&mut Option<String>, Option<String>); 8] = [
+        (&mut base.title, top.title),
+        (&mut base.author, top.author),
+        (&mut base.subject, top.subject),
+        (&mut base.keywords, top.keywords),
+        (&mut base.creator, top.creator),
+        (&mut base.producer, top.producer),
+        (&mut base.creation_date, top.creation_date),
+        (&mut base.mod_date, top.mod_date),
+    ];
+    for (slot, value) in fields {
+        if let Some(v) = value {
+            *slot = Some(v);
         }
     }
+}
 
-    info
+/// The two spellings of a date are the same date.
+///
+/// `/Info` writes `D:20240620213357Z` and XMP writes `2024-06-20T21:33:57Z` for the
+/// same instant, so comparing the strings reports a disagreement on almost every file
+/// that carries both. What matters is whether they name the same moment.
+fn same_date(a: &str, b: &str) -> bool {
+    match (
+        crate::refine::metadata::parse_date_string(a),
+        crate::refine::metadata::parse_date_string(b),
+    ) {
+        (Some(x), Some(y)) => x == y,
+        // Neither parses as a date, so fall back to what they say.
+        _ => a == b,
+    }
+}
+
+/// Settles a document's metadata into one state, at ingest.
+///
+/// 14.3.3 deprecates the `/Info` dictionary for everything but `CreationDate` and
+/// `ModDate`, and directs document-level metadata to a metadata stream instead. So the
+/// two can disagree, and a reader has to choose. This used to happen at save time and
+/// in silence: `/Info` was read, then every XMP field overwrote it with no comparison.
+/// `samples/fy05.pdf` says 2024-11-14 in `/Info` and 2024-11-08 in its packet, six days
+/// apart, and nothing said so.
+///
+/// XMP wins, because 14.3.3 says that is where the value belongs. The disagreement is
+/// recorded rather than swallowed, and the deprecated entries are moved out of `/Info`
+/// so that later readings of this document find one answer instead of two.
+pub fn settle(doc: &Document, decisions: &mut crate::interpretation::DecisionLog) -> MetadataInfo {
+    let from_info = read_info(doc);
+    let from_xmp = read_catalog_xmp(doc);
+    if let Some(xmp) = &from_xmp {
+        report_disagreement(&from_info, xmp, decisions);
+    }
+    let mut settled = from_info;
+    if let Some(xmp) = from_xmp {
+        overlay(&mut settled, xmp);
+    }
+    // The stream has to hold the settled value before `/Info` gives its copy up: a file
+    // whose metadata is only in `/Info` — six of the nine corpus files — would otherwise
+    // lose it. `doc` here is the document as ingested, whose provenance is empty, so
+    // this packet makes no claim about derivation. The save path writes that.
+    let _ = update_xmp_metadata(doc, &settled);
+    migrate_deprecated_info(doc, decisions);
+    settled
+}
+
+fn report_disagreement(
+    info: &MetadataInfo,
+    xmp: &MetadataInfo,
+    decisions: &mut crate::interpretation::DecisionLog,
+) {
+    let pairs: [(&str, &Option<String>, &Option<String>, bool); 8] = [
+        ("Title", &info.title, &xmp.title, false),
+        ("Author", &info.author, &xmp.author, false),
+        ("Subject", &info.subject, &xmp.subject, false),
+        ("Keywords", &info.keywords, &xmp.keywords, false),
+        ("Creator", &info.creator, &xmp.creator, false),
+        ("Producer", &info.producer, &xmp.producer, false),
+        ("CreationDate", &info.creation_date, &xmp.creation_date, true),
+        ("ModDate", &info.mod_date, &xmp.mod_date, true),
+    ];
+    for (key, left, right, is_date) in pairs {
+        let (Some(a), Some(b)) = (left, right) else { continue };
+        if a == b || (is_date && same_date(a, b)) {
+            continue;
+        }
+        decisions.push(crate::interpretation::Decision::ambiguity(
+            "14.3.3",
+            format!("/Info /{key} is {a:?} and the metadata stream says {b:?}"),
+            "took the metadata stream, which 14.3.3 makes the place for document-level \
+             metadata; the /Info value is not carried"
+                .to_string(),
+        ));
+    }
+}
+
+/// Removes from `/Info` the entries 14.3.3 deprecates, once they are held elsewhere.
+fn migrate_deprecated_info(doc: &Document, decisions: &mut crate::interpretation::DecisionLog) {
+    const DEPRECATED: [&str; 6] = ["Title", "Author", "Subject", "Keywords", "Creator", "Producer"];
+    let arena = doc.arena();
+    let Some(info_handle) = doc.info_handle() else { return };
+    let Some(Object::Dictionary(dh)) = arena.get_object(info_handle) else { return };
+    let Some(mut dict) = arena.get_dict(dh) else { return };
+
+    let found: Vec<&str> =
+        DEPRECATED.into_iter().filter(|k| dict.contains_key(&arena.name(k))).collect();
+    if found.is_empty() {
+        return;
+    }
+    for key in &found {
+        dict.remove(&arena.name(key));
+    }
+    arena.set_dict(dh, dict);
+    decisions.push(crate::interpretation::Decision::repaired(
+        "14.3.3",
+        format!("/Info carries {}, deprecated in PDF 2.0", found.join(", ")),
+        "moved to the document's metadata stream (14.3.2) and removed from /Info; \
+         CreationDate and ModDate stay, which 14.3.3 still allows"
+            .to_string(),
+    ));
 }
 
 /// Updates the document metadata in the arena.
@@ -224,13 +355,23 @@ const RDF_LI: (&str, &str) = ("http://www.w3.org/1999/02/22-rdf-syntax-ns#", "li
 /// `<dc:title>` and `<rdf:Alt>`. That is not nothing, so it overwrote the value read
 /// from `/Info`, and `dc:title` and `dc:description` came out empty on every file whose
 /// packet was indented — two of the nine corpus files lost their title on save.
+/// Whitespace around a value is layout; a value that *is* whitespace is a value. The
+/// two are told apart by the node, not the characters: a node with element children is
+/// a container, and text between its children is the pretty-printer's. A leaf's text is
+/// what the property says, even when every character of it is a space —
+/// `samples/fy05.pdf` titles itself with one ideographic space, and dropping it would
+/// make writing then reading the packet lose what it holds.
 fn find_tag_text(doc: &roxmltree::Document, ns: &str, tag: &str) -> Option<String> {
     let node = doc.descendants().find(|n| n.has_tag_name((ns, tag)))?;
     // A container yields its first item; a bare property yields its own text.
     let source = node.descendants().find(|n| n.has_tag_name(RDF_LI)).unwrap_or(node);
     let text: String = source.children().filter(|n| n.is_text()).filter_map(|n| n.text()).collect();
-    let text = text.trim();
-    (!text.is_empty()).then(|| text.to_string())
+    let trimmed = text.trim();
+    if !trimmed.is_empty() {
+        return Some(trimmed.to_string());
+    }
+    let is_container = source.children().any(|n| n.is_element());
+    (!is_container && !text.is_empty()).then_some(text)
 }
 
 fn apply_xmp_metadata(doc: &roxmltree::Document, info: &mut MetadataInfo) {
@@ -275,6 +416,118 @@ fn apply_xmp_metadata(doc: &roxmltree::Document, info: &mut MetadataInfo) {
 mod tests {
     use super::*;
 
+    /// The spellings differ on every file that carries both, so comparing the strings
+    /// would report a disagreement where there is none. Injecting a string comparison
+    /// puts two false ambiguities on `samples/print_sample.pdf`, which has none.
+    #[test]
+    fn the_two_spellings_of_one_instant_are_not_a_disagreement() {
+        assert!(same_date("D:20240620213357Z", "2024-06-20T21:33:57Z"));
+        assert!(same_date("D:20241108090536+09'00'", "2024-11-08T09:05:36+09:00"));
+        // fy05.pdf: six days apart, and a real disagreement.
+        assert!(!same_date("D:20241114200008+09'00'", "2024-11-08T09:08:18+09:00"));
+        // Neither parses, so the strings are all there is to go on.
+        assert!(same_date("not a date", "not a date"));
+        assert!(!same_date("not a date", "something else"));
+    }
+
+    /// A document whose `/Info` and metadata stream disagree, and whose `/Info` carries
+    /// entries 14.3.3 deprecates. Built rather than found: no corpus file has both a
+    /// title in each place *and* a disagreement, which is what has to be exercised.
+    fn info_and_xmp_disagree() -> Vec<u8> {
+        let xmp = "<?xpacket begin=\"\" id=\"W5M0MpCehiHzreSzNTczkc9d\"?>\
+<x:xmpmeta xmlns:x=\"adobe:ns:meta/\"><rdf:RDF \
+xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\">\
+<rdf:Description rdf:about=\"\" xmlns:dc=\"http://purl.org/dc/elements/1.1/\">\
+<dc:title>\n   <rdf:Alt>\n      <rdf:li xml:lang=\"x-default\">From the packet</rdf:li>\n   \
+</rdf:Alt>\n</dc:title></rdf:Description></rdf:RDF></x:xmpmeta><?xpacket end=\"r\"?>";
+
+        let bodies: [String; 5] = [
+            "<< /Type /Catalog /Pages 2 0 R /Metadata 4 0 R >>".to_string(),
+            "<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_string(),
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] >>".to_string(),
+            format!(
+                "<< /Type /Metadata /Subtype /XML /Length {} >>\nstream\n{xmp}\nendstream",
+                xmp.len()
+            ),
+            "<< /Title (From /Info) /Author (An Author) /Producer (A Producer) \
+             /CreationDate (D:20240101000000Z) /ModDate (D:20240101000000Z) >>"
+                .to_string(),
+        ];
+
+        let mut out = b"%PDF-2.0\n".to_vec();
+        let mut offsets = Vec::new();
+        for (i, body) in bodies.iter().enumerate() {
+            offsets.push(out.len());
+            out.extend_from_slice(format!("{} 0 obj\n{body}\nendobj\n", i + 1).as_bytes());
+        }
+        let xref_at = out.len();
+        out.extend_from_slice(b"xref\n0 6\n0000000000 65535 f \n");
+        for at in &offsets {
+            out.extend_from_slice(format!("{at:010} 00000 n \n").as_bytes());
+        }
+        out.extend_from_slice(
+            format!(
+                "trailer\n<< /Size 6 /Root 1 0 R /Info 5 0 R >>\nstartxref\n{xref_at}\n%%EOF\n"
+            )
+            .as_bytes(),
+        );
+        out
+    }
+
+    fn open_fixture(bytes: Vec<u8>) -> Document {
+        Document::open(bytes::Bytes::from(bytes), &crate::ingest::IngestionOptions::default())
+            .expect("the fixture is a readable document")
+    }
+
+    #[test]
+    fn settling_records_the_disagreement_and_takes_the_packet() {
+        let doc = open_fixture(info_and_xmp_disagree());
+        let said: Vec<String> = doc.decisions.entries().iter().map(|d| d.found.clone()).collect();
+        assert!(
+            said.iter().any(|f| f.contains("/Info /Title") && f.contains("From the packet")),
+            "the disagreement was not recorded: {said:?}"
+        );
+        assert_eq!(doc.metadata().title.as_deref(), Some("From the packet"));
+    }
+
+    #[test]
+    fn settling_moves_the_deprecated_entries_out_of_info() {
+        let doc = open_fixture(info_and_xmp_disagree());
+        let arena = doc.arena();
+        let Some(Object::Dictionary(dh)) = arena.get_object(doc.info_handle().expect("an /Info"))
+        else {
+            panic!("/Info is not a dictionary")
+        };
+        let dict = arena.get_dict(dh).expect("a readable /Info");
+        for gone in ["Title", "Author", "Producer"] {
+            assert!(!dict.contains_key(&arena.name(gone)), "/{gone} survived in /Info");
+        }
+        // 14.3.3 still allows these two, so they stay.
+        for kept in ["CreationDate", "ModDate"] {
+            assert!(dict.contains_key(&arena.name(kept)), "/{kept} was removed from /Info");
+        }
+        // What left /Info is reachable, which is the point of moving it rather than
+        // dropping it: /Author has nowhere else to live in this file.
+        assert_eq!(doc.metadata().author.as_deref(), Some("An Author"));
+    }
+
+    /// With settling off the document keeps both states and says nothing, which is what
+    /// every reading did before ADR-0013.
+    #[test]
+    fn settling_can_be_turned_off() {
+        let options =
+            crate::ingest::IngestionOptions { sublime_metadata: false, ..Default::default() };
+        let doc = Document::open(bytes::Bytes::from(info_and_xmp_disagree()), &options)
+            .expect("the fixture is a readable document");
+        assert!(doc.decisions.is_conforming(), "{:?}", doc.decisions.entries());
+        let arena = doc.arena();
+        let Some(Object::Dictionary(dh)) = arena.get_object(doc.info_handle().expect("an /Info"))
+        else {
+            panic!("/Info is not a dictionary")
+        };
+        assert!(arena.get_dict(dh).expect("a readable /Info").contains_key(&arena.name("Title")));
+    }
+
     /// XMP indents. `dc:title` is an `rdf:Alt` of `rdf:li`, so the first text node
     /// inside it is the whitespace before `<rdf:Alt>` — reading that and calling it the
     /// title emptied the title of every file whose packet was written with indentation.
@@ -296,10 +549,12 @@ mod tests {
         assert_eq!(find_tag_text(&doc, dc, "title").as_deref(), Some("Intel 64 Manual"));
     }
 
-    /// A property that is whitespace only has no value, and must not displace the one
-    /// the `/Info` dictionary carries. `samples/fy05.pdf` is this case.
+    /// A leaf whose text is entirely whitespace is holding that whitespace as its
+    /// value. `samples/fy05.pdf` titles itself with a single ideographic space, and
+    /// once `/Info` has handed its copy over at ingest the packet is the only place it
+    /// lives — so reading it back has to return what was written.
     #[test]
-    fn a_whitespace_only_alternative_is_absent_rather_than_empty() {
+    fn a_whitespace_only_alternative_keeps_its_value() {
         let xml = r#"<x:xmpmeta xmlns:x="adobe:ns:meta/"
             xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"
             xmlns:dc="http://purl.org/dc/elements/1.1/">
@@ -308,7 +563,8 @@ mod tests {
           </rdf:Description></rdf:RDF>
         </x:xmpmeta>"#;
         let doc = roxmltree::Document::parse(xml).expect("well formed");
-        assert_eq!(find_tag_text(&doc, "http://purl.org/dc/elements/1.1/", "title"), None);
+        let got = find_tag_text(&doc, "http://purl.org/dc/elements/1.1/", "title");
+        assert_eq!(got.as_deref(), Some("   "));
     }
 
     /// A bare property still works: not every XMP value is wrapped in a container.

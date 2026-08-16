@@ -32,11 +32,11 @@ pub enum ColorPolicy {
 pub struct IngestionOptions {
     /// Run the refinement passes (Pass 2) during ingestion.
     pub active_refinement: bool,
-    /// Recover legacy `/Info` metadata into XMP.
+    /// Settle `/Info` and the metadata stream into one state at ingest (ADR-0013).
     ///
-    /// **Not read.** Recovery runs unconditionally; setting this to `false` does not
-    /// stop it. Kept because the option is the right shape for the behaviour that
-    /// should exist — see [`ColorPolicy`] for the same situation and ADR-0007.
+    /// With this off the document keeps both, disagreements and all, and nothing is
+    /// recorded about them — which is what every reading did before ADR-0013. Requires
+    /// `active_refinement`, since settling runs after it.
     pub sublime_metadata: bool,
     /// How strictly colour definitions are validated.
     ///
@@ -145,14 +145,20 @@ impl Ingestor {
             Self::discover_contexts(&arena, &temp_doc, &mut decisions);
 
         report("4/4: Performing active refinement and layout optimization...");
-        let mut issues = decisions.into_entries();
         if options.active_refinement {
-            issues.append(&mut Self::perform_active_refinement(
-                &arena,
-                &handle_font_cache,
-                &stream_contexts,
-            ));
+            let extra =
+                Self::perform_active_refinement(&arena, &handle_font_cache, &stream_contexts);
+            for issue in extra {
+                decisions.push(issue);
+            }
+            // After refinement, because it replaces the metadata stream, and before the
+            // document is handed out, because the point of settling here is that every
+            // later reading finds one answer. See ADR-0013.
+            if options.sublime_metadata {
+                crate::metadata::settle(&temp_doc, &mut decisions);
+            }
         }
+        let issues = decisions.into_entries();
 
         Ok(IngestedDocument {
             arena,
