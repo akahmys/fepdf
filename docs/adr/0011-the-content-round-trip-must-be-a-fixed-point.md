@@ -68,9 +68,24 @@ marks on two.
 It also reported through `log::info!` only, which `ARCHITECTURE.md` §5.3 calls a silent
 acceptance and therefore a defect regardless of whether the output is right.
 
+## Rectangles at full precision
+
+`re` operands were written with `{}` where every other number in the serialiser uses
+`{:.6}`, so they came out as `0.12000000000000455` and `12.600000000000001`.
+
+The digits are not noise from nowhere. `re` gives x, y, width and height; the parser
+adds to reach x1 and y1, and the serialiser subtracts to recover width and height.
+Add-then-subtract on binary floating point does not return the input.
+
+Six places is finer than any rendering distinguishes and makes the value parse back to
+the same rectangle, so the round trip is a fixed point rather than merely a shorter
+string. It did **not** explain `fy05.pdf`'s eight extra characters, which was the
+reason for looking — that remains open.
+
 ## Decision
 
-Serialise `Clip` as `W`/`W*` alone, and delete the header-fill heuristic.
+Serialise `Clip` as `W`/`W*` alone, write `re` operands at six places, and delete the
+header-fill heuristic.
 
 Round-tripping content is now a fixed point up to the XMP instance identifier, and
 `serializer.rs` holds a test asserting exactly that for the clipping cases.
@@ -87,6 +102,10 @@ Round-tripping content is now a fixed point up to the XMP instance identifier, a
   ADR-0008 and ADR-0010: a well-meant correction, tuned to one file, that damaged
   others and said nothing. In all three the test was the same — *which files does it
   help?* — and in all three the answer was none.
+- The clipping tests asserted whole output strings and failed when `re` operands
+  changed format — a change unrelated to what they check. They compare operator
+  sequences now. A test that breaks on an improvement it does not cover is a test
+  written at the wrong altitude.
 - Idempotence is now an assertable property rather than an assumption. It was neither
   asserted nor measured before, and the 52 bytes had presumably been accumulating for
   as long as the serialiser existed.

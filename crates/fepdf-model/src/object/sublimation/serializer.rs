@@ -40,10 +40,25 @@ fn serialize_command(cmd: &Command, buf: &mut Vec<u8>) {
             buf.extend_from_slice(b" c\n");
         }
         Command::ClosePath => buf.extend_from_slice(b"h\n"),
+        // Six places, as every other number here is written. `{}` was used instead,
+        // which prints an `f64` in full: `re` operands came out as
+        // `0.12000000000000455` and `12.600000000000001`.
+        //
+        // The digits are not noise from nowhere. `re` gives x, y, width and height;
+        // the parser adds to get x1 and y1, and this subtracts to get them back, and
+        // add-then-subtract on binary floating point does not return the input. Six
+        // places is far finer than any rendering distinguishes, and it makes the round
+        // trip a fixed point: the value written parses back to the same rectangle.
         Command::Rect(rect) => {
             buf.extend_from_slice(
-                format!("{} {} {} {} re\n", rect.x0, rect.y0, rect.width(), rect.height())
-                    .as_bytes(),
+                format!(
+                    "{:.6} {:.6} {:.6} {:.6} re\n",
+                    rect.x0,
+                    rect.y0,
+                    rect.width(),
+                    rect.height()
+                )
+                .as_bytes(),
             );
         }
         Command::Fill(winding) => match winding {
@@ -335,19 +350,33 @@ mod clipping {
         String::from_utf8_lossy(&out).replace('\n', " ").trim().to_string()
     }
 
+    /// The operators, in order, with the operands dropped.
+    ///
+    /// These tests are about which operators survive and in what order, not about how
+    /// numbers are spelled. Asserting on the whole string made them fail when `re`
+    /// operands moved from `{}` to `{:.6}` — a change that had nothing to do with what
+    /// they were checking.
+    fn operators(source: &str) -> Vec<String> {
+        round_trip(source)
+            .split_whitespace()
+            .filter(|t| t.parse::<f64>().is_err())
+            .map(ToString::to_string)
+            .collect()
+    }
+
     #[test]
     fn clipping_then_painting_keeps_the_paint() {
         // The severe case. `W f` used to come back as `W n f`, where the `n` ends the
         // path before the `f` can fill it — the fill was gone, silently.
-        assert_eq!(round_trip("q 10 10 100 100 re W f Q"), "q 10 10 100 100 re W f Q");
-        assert_eq!(round_trip("q 10 10 100 100 re W* S Q"), "q 10 10 100 100 re W* S Q");
+        assert_eq!(operators("q 10 10 100 100 re W f Q"), ["q", "re", "W", "f", "Q"]);
+        assert_eq!(operators("q 10 10 100 100 re W* S Q"), ["q", "re", "W*", "S", "Q"]);
     }
 
     #[test]
     fn clipping_without_painting_does_not_grow() {
         // `W n` came back as `W n n`, and gained one more `n` on every pass:
         // samples/sample.pdf grew by exactly 52 bytes each time, 26 clips at two bytes.
-        assert_eq!(round_trip("q 10 10 100 100 re W n Q"), "q 10 10 100 100 re W n Q");
+        assert_eq!(operators("q 10 10 100 100 re W n Q"), ["q", "re", "W", "n", "Q"]);
     }
 
     #[test]
@@ -369,7 +398,7 @@ mod clipping {
 
     #[test]
     fn painting_without_clipping_is_untouched() {
-        assert_eq!(round_trip("q 10 10 100 100 re f Q"), "q 10 10 100 100 re f Q");
-        assert_eq!(round_trip("q 10 10 100 100 re S Q"), "q 10 10 100 100 re S Q");
+        assert_eq!(operators("q 10 10 100 100 re f Q"), ["q", "re", "f", "Q"]);
+        assert_eq!(operators("q 10 10 100 100 re S Q"), ["q", "re", "S", "Q"]);
     }
 }
