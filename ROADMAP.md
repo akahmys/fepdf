@@ -17,7 +17,7 @@ Understanding them is what remains.
 | :--- | :--- |
 | **7.3** Objects | Complete. Every type in the clause. |
 | **7.5** File structure | **Complete and in use.** Header scan, both cross-reference forms, `/Prev` chains, hybrid references, object streams, incremental updates, and recovery by scanning. `Document::open` reads the file itself; `lopdf` is gone. |
-| **7.6** Encryption | Every password handler the standard defines now decrypts: RC4 (V1/V2), AES-128 (V4/R4) and AES-256 (V5/R5, V5/R6) to Algorithms 1, 2, 2.A, 2.B and 4–6, with `/Perms` checked and both password roles authenticating. Verified against PDFKit on fourteen files; all of it was broken or absent ([ADR-0009](docs/adr/0009-permissions-are-thirty-two-bits-not-a-positive-integer.md)). **Remaining**: public-key handlers (7.6.5) remain a stub — signing brought in the CMS crate and certificate handling, but 7.6.5 needs `EnvelopedData`, which is a different structure from the `SignedData` signing uses; unencrypted wrappers (7.6.7) are recognised and reported. |
+| **7.6** Encryption | Every password handler the standard defines now decrypts: RC4 (V1/V2), AES-128 (V4/R4) and AES-256 (V5/R5, V5/R6) to Algorithms 1, 2, 2.A, 2.B and 4–6, with `/Perms` checked and both password roles authenticating. Verified against PDFKit on fourteen files; all of it was broken or absent ([ADR-0009](docs/adr/0009-permissions-are-thirty-two-bits-not-a-positive-integer.md)). Writing is AES-256 at revision 6 and nothing else, because output is always 2.0 and this edition deprecates the rest. **Remaining**: public-key handlers (7.6.5) remain a stub — signing brought in the CMS crate and certificate handling, but 7.6.5 needs `EnvelopedData`, which is a different structure from the `SignedData` signing uses; unencrypted wrappers (7.6.7) are recognised and reported. |
 | **7.7** Document structure | **10 of Table 29's 32** catalogue entries typed, measured by `status.sh` from `PdfCatalog`. Untyped entries survive a round trip but cannot be reasoned about; `inspect catalog` names which ones, per file. |
 | **PDF 2.0 additions** | **Six** catalogue entries have a spec type but no read or write path — `PageLabels`, `Threads`, `OutputIntents`, `OCProperties`, `Collection`, `AF`. `DPartRoot` has no type at all, contrary to what this table said before it was checked. `inspect catalog` reports the six as `type only`. |
 | **8–14** Content, text, interactive, tagged | Interpreter, fonts and UA-2 auditing exist; interactive features (12) can be *read* (`inspect interactive`), and signature fields (12.7.5.5, 12.8) can now be written and checked. The corpus exercises one annotation subtype of ~28 — all 29,973 are `/Link` — and no form field at all, so the form walk is exercised by a fixture and by this engine's own signed output. |
@@ -189,17 +189,26 @@ Independent of A and B, and the area where a partial implementation is most harm
       the `signing-certificate-v2` attribute ETSI EN 319 122-1 defines, because the
       subfilter is a claim to be CAdES. The field is invisible — `/Rect [0 0 0 0]`, no
       `/AP` — since a widget with a rectangle and no appearance stream is a box viewers
-      draw empty. **Scope**: fepdf signs only what it wrote itself, so the byte range is
+      draw empty. A signed file may also be encrypted; a signed or encrypted file may not
+      be linearized, and says so. **Scope**: fepdf signs only what it wrote itself, so the byte range is
       over its own output ([ADR-0014](docs/adr/0014-the-faithful-copy-path-is-not-built.md)).
       Verification reports coverage apart from the verdict, because appending after a
       signature leaves it valid over the part it covers — and says what it did *not*
       check: no trust store, no validity window, no revocation.
       `scripts/test/crosscheck_signature.sh` requires openssl and fepdf to agree on all
       nine samples, and proves it can fail by changing a byte
-- [ ] Encrypting on write. `--password` claimed to encrypt the output; nothing set the
-      writer's security handler, so the flag produced a plaintext file. Hidden and
-      renamed `--encrypt-password`, which also stopped it colliding with the password
-      that opens a document
+- [x] Encrypting on write, **AES-256 revision 6 only**. `--password` claimed to encrypt
+      and produced a plaintext file: nothing called `set_security_handler`, so
+      `encrypt_stream` was unreachable. It encrypts now. This engine reads five schemes
+      because files exist that use them, and writes one: output is always PDF 2.0, and
+      7.6.4.1 deprecates RC4 and the Algorithm 2 derivation in that same edition.
+      `SecurityHandler` could only authenticate against an `/Encrypt` that already
+      existed; `encrypt_new` generates a key and runs Algorithms 8, 9 and 10 to make one.
+      `--permissions` is un-hidden with it, taking the keywords `inspect encryption`
+      prints, from one table so the two directions cannot disagree. Giving no owner
+      password is recorded rather than defaulted in silence, because `/P` then restricts
+      nobody who can open the file. Verified by `scripts/test/crosscheck_encryption.sh`:
+      PDFKit opens all nine and reads the same text as the plain save
 - [ ] Public-key security handlers (**7.6.5**, not 7.6.4 as this line read until it was
       checked against the standard; 7.6.4 is the *standard* security handler). Signing
       brought in the `cms` crate, certificate decoding and the DER plumbing, so this is
@@ -234,11 +243,12 @@ Independent of A and B, and the area where a partial implementation is most harm
       in 8,043 containers and comes out **+132%** without them; every other corpus file
       is now within 1% of its source or smaller. This is the one remaining size gap and
       it is a feature, not a defect
-- [ ] Implement or delete the five other `SaveArgs` options that do nothing:
-      `--image-quality`, `--lang`, `--copyright`, `--permissions` and `--diff`, which
-      prints "Structural diff would be displayed here (M67 enhancement)". All hidden
-      under ADR-0007, which asked for exactly this audit and named `SaveArgs` as the
-      place it had not been done
+- [ ] Implement or delete the four `SaveArgs` options that still do nothing:
+      `--image-quality`, `--lang`, `--copyright` and `--diff`, which prints "Structural
+      diff would be displayed here (M67 enhancement)". All hidden under ADR-0007, which
+      asked for exactly this audit and named `SaveArgs` as the place it had not been
+      done. `--permissions` was the fifth and is now live: it was blocked on there being
+      an `/Encrypt` to put `/P` in
 - [x] Make the content round trip a fixed point. It was not: `W n` came back as
       `W n n` and grew by 52 bytes on every pass, while `W f` came back as `W n f` and
       lost the fill outright

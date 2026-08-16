@@ -89,7 +89,7 @@ The reasoning is in [ADR-0012](docs/adr/0012-saving-produces-a-new-document.md).
 
 | | |
 | :--- | :--- |
-| **Write encrypted files** | It reads every password-based scheme the standard defines — RC4, AES-128, AES-256 — but writes none. Output is unencrypted. |
+| **Write anything but AES-256** | It reads every password-based scheme the standard defines — RC4, AES-128, AES-256 — and writes one: AES-256 at revision 6, with `--encrypt-password`. Output is always PDF 2.0, and that edition deprecates the rest. |
 | **Sign a file it did not write** | It signs its own output — `publish sign` and `publish verify-signature` — and a signature it made covers the whole file. It cannot add one to someone else's file without rewriting it first, and a signature already in a document does not survive a save. [ADR-0014](docs/adr/0014-the-faithful-copy-path-is-not-built.md) is why. |
 | **Decide whether to trust a certificate** | `verify-signature` says whether the signature covers the bytes and is bound to the certificate it carries. It has no trust store, checks no validity window, and reads no revocation list — and says so in its output. |
 | **Preserve a file byte for byte** | There is no faithful-copy path. See above. |
