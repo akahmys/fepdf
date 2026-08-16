@@ -194,59 +194,58 @@ impl<'a> Sublimator<'a> {
             }
             "h" => vec![Command::ClosePath],
             "re" => self.pop_rect().map(Command::Rect).into_iter().collect(),
-            "f" | "F" | "f*" | "S" | "s" | "B" | "B*" | "b" | "b*" => {
-                // Heuristic: Suppress suspicious header bar fills that are likely PDF generator bugs.
-                // In Intel SDM, pages 2-4 have 're f' at the top where other pages have 're W n'.
-                if op == "f" {
-                    if let Some(Command::Rect(r)) = prev_commands.last() {
-                        if r.y1 > 700.0 && r.height() < 15.0 && r.width() > 500.0 {
-                            log::info!("[SUBLIMATE] Suppressing suspicious header fill at {r:?}");
-                            return vec![Command::RawOperator {
-                                name: "n".to_string(),
-                                operands: Vec::new(),
-                            }];
-                        }
+            // A heuristic stood here that replaced `f` with `n` — deleting the fill —
+            // whenever the preceding rectangle had `y1 > 700`, height under 15 and
+            // width over 500. Its comment named the file it was written for: "In Intel
+            // SDM, pages 2-4 have `re f` at the top where other pages have `re W n`".
+            //
+            // It fired 1,738 times on that file and 902 times on `samples/volvo_xc90.pdf`,
+            // where the rectangles it deleted were one point high and 681 wide, at
+            // y-coordinates above 9,000 — rules, not header bars. The `y1 > 700` test
+            // assumed a user space it had no way to check.
+            //
+            // Removing it changed no text on any corpus file, so it helped none and
+            // deleted marks on two. It also reported only through `log::info!`, which
+            // ARCHITECTURE.md §5.3 calls a silent acceptance and therefore a defect.
+            // Deciding a producer's fill is a bug, from its geometry, is not something
+            // this engine can know.
+            "f" | "F" | "f*" | "S" | "s" | "B" | "B*" | "b" | "b*" => match op {
+                "f" | "F" => vec![Command::Fill(WindingRule::NonZero)],
+                "f*" => vec![Command::Fill(WindingRule::EvenOdd)],
+                "S" => self.create_stroke().map(Command::Stroke).into_iter().collect(),
+                "s" => {
+                    let mut cmds = self.handle_operator("h", prev_commands);
+                    if let Some(s) = self.create_stroke() {
+                        cmds.push(Command::Stroke(s));
                     }
+                    cmds
                 }
-
-                match op {
-                    "f" | "F" => vec![Command::Fill(WindingRule::NonZero)],
-                    "f*" => vec![Command::Fill(WindingRule::EvenOdd)],
-                    "S" => self.create_stroke().map(Command::Stroke).into_iter().collect(),
-                    "s" => {
-                        let mut cmds = self.handle_operator("h", prev_commands);
-                        if let Some(s) = self.create_stroke() {
-                            cmds.push(Command::Stroke(s));
-                        }
-                        cmds
+                "B" => self
+                    .create_stroke()
+                    .map(|s| Command::FillStroke(WindingRule::NonZero, s))
+                    .into_iter()
+                    .collect(),
+                "B*" => self
+                    .create_stroke()
+                    .map(|s| Command::FillStroke(WindingRule::EvenOdd, s))
+                    .into_iter()
+                    .collect(),
+                "b" => {
+                    let mut cmds = self.handle_operator("h", prev_commands);
+                    if let Some(s) = self.create_stroke() {
+                        cmds.push(Command::FillStroke(WindingRule::NonZero, s));
                     }
-                    "B" => self
-                        .create_stroke()
-                        .map(|s| Command::FillStroke(WindingRule::NonZero, s))
-                        .into_iter()
-                        .collect(),
-                    "B*" => self
-                        .create_stroke()
-                        .map(|s| Command::FillStroke(WindingRule::EvenOdd, s))
-                        .into_iter()
-                        .collect(),
-                    "b" => {
-                        let mut cmds = self.handle_operator("h", prev_commands);
-                        if let Some(s) = self.create_stroke() {
-                            cmds.push(Command::FillStroke(WindingRule::NonZero, s));
-                        }
-                        cmds
-                    }
-                    "b*" => {
-                        let mut cmds = self.handle_operator("h", prev_commands);
-                        if let Some(s) = self.create_stroke() {
-                            cmds.push(Command::FillStroke(WindingRule::EvenOdd, s));
-                        }
-                        cmds
-                    }
-                    _ => Vec::new(),
+                    cmds
                 }
-            }
+                "b*" => {
+                    let mut cmds = self.handle_operator("h", prev_commands);
+                    if let Some(s) = self.create_stroke() {
+                        cmds.push(Command::FillStroke(WindingRule::EvenOdd, s));
+                    }
+                    cmds
+                }
+                _ => Vec::new(),
+            },
             "W" => vec![Command::Clip(WindingRule::NonZero)],
             "W*" => vec![Command::Clip(WindingRule::EvenOdd)],
             "Do" => self

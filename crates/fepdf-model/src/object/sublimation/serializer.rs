@@ -55,9 +55,17 @@ fn serialize_command(cmd: &Command, buf: &mut Vec<u8>) {
             crate::graphics::WindingRule::NonZero => buf.extend_from_slice(b"B\n"),
             crate::graphics::WindingRule::EvenOdd => buf.extend_from_slice(b"B*\n"),
         },
+        // `W` and `W*` alone. The painting operator that ends the path — `n`, `f`, `S`
+        // — is a separate command and follows on its own.
+        //
+        // Writing `W n` here made the mapping asymmetric: the parser turns bare `W`
+        // into `Clip` and leaves the following operator as its own command, so `W n`
+        // came back as `W n n` and grew by one on every pass. Worse, `W f` came back as
+        // `W n f`, where the `n` ends the path before the `f` can fill it — the fill
+        // was silently lost, and `W* S` lost its stroke the same way.
         Command::Clip(winding) => match winding {
-            crate::graphics::WindingRule::NonZero => buf.extend_from_slice(b"W n\n"),
-            crate::graphics::WindingRule::EvenOdd => buf.extend_from_slice(b"W* n\n"),
+            crate::graphics::WindingRule::NonZero => buf.extend_from_slice(b"W\n"),
+            crate::graphics::WindingRule::EvenOdd => buf.extend_from_slice(b"W*\n"),
         },
         Command::BeginText => buf.extend_from_slice(b"BT\n"),
         Command::EndText => buf.extend_from_slice(b"ET\n"),
@@ -309,4 +317,59 @@ pub fn serialize_image(
     let compressed = encoder.finish()?;
 
     Ok((compressed, vec!["FlateDecode".to_string()]))
+}
+
+#[cfg(test)]
+mod clipping {
+    //! `W` and `W*` set a clip; they do not end the path. Emitting the `n` for them
+    //! made the round trip both lossy and non-idempotent.
+
+    use super::*;
+    use crate::object::sublimation::parser::Sublimator;
+    use std::collections::BTreeMap;
+
+    fn round_trip(source: &str) -> String {
+        let fonts = BTreeMap::new();
+        let mut sublimator = Sublimator::new(&fonts);
+        let out = serialize_commands(&sublimator.sublimate(source.as_bytes()));
+        String::from_utf8_lossy(&out).replace('\n', " ").trim().to_string()
+    }
+
+    #[test]
+    fn clipping_then_painting_keeps_the_paint() {
+        // The severe case. `W f` used to come back as `W n f`, where the `n` ends the
+        // path before the `f` can fill it — the fill was gone, silently.
+        assert_eq!(round_trip("q 10 10 100 100 re W f Q"), "q 10 10 100 100 re W f Q");
+        assert_eq!(round_trip("q 10 10 100 100 re W* S Q"), "q 10 10 100 100 re W* S Q");
+    }
+
+    #[test]
+    fn clipping_without_painting_does_not_grow() {
+        // `W n` came back as `W n n`, and gained one more `n` on every pass:
+        // samples/sample.pdf grew by exactly 52 bytes each time, 26 clips at two bytes.
+        assert_eq!(round_trip("q 10 10 100 100 re W n Q"), "q 10 10 100 100 re W n Q");
+    }
+
+    #[test]
+    fn the_round_trip_is_a_fixed_point() {
+        // Idempotence is the property that was lost, and the one worth asserting:
+        // whatever the first pass produces, the second must reproduce exactly.
+        for source in [
+            "q 10 10 100 100 re W n Q",
+            "q 10 10 100 100 re W f Q",
+            "q 10 10 100 100 re W* S Q",
+            "q 10 10 100 100 re f Q",
+            "q 1 2 3 4 re W n BT /F1 12 Tf ET Q",
+        ] {
+            let once = round_trip(source);
+            let twice = round_trip(&once);
+            assert_eq!(once, twice, "not a fixed point: {source}");
+        }
+    }
+
+    #[test]
+    fn painting_without_clipping_is_untouched() {
+        assert_eq!(round_trip("q 10 10 100 100 re f Q"), "q 10 10 100 100 re f Q");
+        assert_eq!(round_trip("q 10 10 100 100 re S Q"), "q 10 10 100 100 re S Q");
+    }
 }

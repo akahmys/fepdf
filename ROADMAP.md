@@ -202,8 +202,17 @@ Independent of A and B, and the area where a partial implementation is most harm
       *pages*, five of them losing all their text, because the refinement pass
       synthesised a `/ToUnicode` keyed on glyph ids for a `CIDFontType0`
       ([ADR-0010](docs/adr/0010-a-synthesised-tounicode-keyed-on-glyphs-destroys-text.md))
-- [ ] Explain the eight characters it now *gains*: ±1 across 78 of 846 pages, which
+- [ ] Explain the eight characters `fy05.pdf` gains: ±1 across 78 of 846 pages, which
       looks like word spacing rather than content
+- [x] Make the content round trip a fixed point. It was not: `W n` came back as
+      `W n n` and grew by 52 bytes on every pass, while `W f` came back as `W n f` and
+      lost the fill outright
+      ([ADR-0011](docs/adr/0011-the-content-round-trip-must-be-a-fixed-point.md))
+- [ ] A faithful-copy path. Normalisation at load means opening a document already
+      differs from the file, so nothing that depends on the exact bytes — a signature
+      above all — can survive being written. `write_incremental_update` exists in the
+      writer with no caller; wiring it needs a writer that keeps the source bytes and
+      appends, which is a different mode from the one that exists
 
 *Done when*: an AES-256 document written by Acrobat round-trips, and one written by
 fepdf opens in Acrobat.
