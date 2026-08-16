@@ -182,7 +182,10 @@ Independent of A and B, and the area where a partial implementation is most harm
       four constants, and `verify-signature` passed an empty slice to the validator,
       discarded the result and returned success for every document including unsigned
       ones. Both now refuse and are hidden. Implementing them needs the same
-      ASN.1/CMS layer as 7.6.5, and is the more common feature by far
+      ASN.1/CMS layer as 7.6.5, and is the more common feature by far.
+      **Scope**: fepdf signs only what it wrote itself, so the byte range is over its
+      own output and no source bytes need preserving
+      ([ADR-0014](docs/adr/0014-the-faithful-copy-path-is-not-built.md))
 - [ ] Encrypting on write. `--password` claimed to encrypt the output; nothing set the
       writer's security handler, so the flag produced a plaintext file. Hidden and
       renamed `--encrypt-password`, which also stopped it colliding with the password
@@ -232,11 +235,6 @@ Independent of A and B, and the area where a partial implementation is most harm
       no history to preserve by the time anything is written. Origin is recorded in
       `xmpMM:DerivedFrom` and `xmpMM:OriginalDocumentID`; what the source carried and
       the output cannot is reported at write time
-- [ ] A faithful-copy path, as a *second* save mode: keep the source bytes and append
-      an incremental update. `write_incremental_update` exists in the writer with no
-      caller. It needs a notion of which objects changed, which normalisation-at-load
-      destroys — so it is a different writer, not a flag. With it, a signature could
-      survive
 
 *Done when*: an AES-256 document written by Acrobat round-trips, and one written by
 fepdf opens in Acrobat.
@@ -304,6 +302,12 @@ the operation vocabulary while 79% of it is hollow — the shape of the mistake 
 - **`fepdf-wasm` as a peer frontend.** Forty lines with an unimplemented renderer.
   Whether to build it is a product decision, not an architectural one.
 - **Writing PDF 1.7.** Output is 2.0; earlier versions are read-only targets.
+- **A faithful-copy path, and signing documents this engine did not produce.** The two
+  are one question: byte fidelity buys nothing else that another route does not, and
+  editing a signed file still reports as changed since signing whatever is preserved. A
+  tool that never rewrites the file is the right place for that, and there are such
+  tools ([ADR-0014](docs/adr/0014-the-faithful-copy-path-is-not-built.md)). Signing
+  fepdf's *own* output stays wanted and still needs CMS.
 
 ---
 

@@ -1,6 +1,6 @@
 # ADR-0012: Saving produces a new document, not an edited one
 
-- **Status**: Accepted
+- **Status**: Accepted; amended by ADR-0014
 - **Date**: 2026-08-16
 - **Commit**: the provenance work
 
@@ -88,6 +88,11 @@ permissions (7.6.4.2) and its signatures (12.8) — through the `Vec<Decision>` 
   It would be a second save mode — keep the source bytes, append an incremental update —
   and with it a signature could survive. Recorded in `ROADMAP.md`; nothing here
   forecloses it.
+
+  *[ADR-0014](0014-the-faithful-copy-path-is-not-built.md) closed it.* It could not have
+  been a second save mode — normalisation leaves nothing to compute "changed" against —
+  and the only thing byte fidelity buys that nothing else does is signing a document
+  this engine did not produce, which is now out of scope.
 - **Signing a document fepdf produced is still sound.** There is no prior signature to
   preserve and the bytes are the engine's own. What is not sound is signing a document
   derived from a signed one without saying so — the new signature would stand where
