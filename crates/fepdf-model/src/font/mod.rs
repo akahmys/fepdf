@@ -2327,7 +2327,7 @@ fn extract_font_name(
     {
         name = arena
             .get_name(fn_val)
-            .map(|n| crate::refine::text::recover_string(n.as_bytes()))
+            .map(|n| crate::refine::text::recover_name(n.as_bytes()))
             .unwrap_or(name);
     }
 
@@ -2348,7 +2348,7 @@ fn extract_font_name(
 fn resolve_name_or_string(arena: &PdfArena, o: &Object) -> Option<String> {
     match o.resolve(arena) {
         Object::Name(h) => {
-            arena.get_name(h).map(|n| crate::refine::text::recover_string(n.as_bytes()))
+            arena.get_name(h).map(|n| crate::refine::text::recover_name(n.as_bytes()))
         }
         Object::String(s) => Some(crate::refine::text::recover_string(&s)),
         _ => None,

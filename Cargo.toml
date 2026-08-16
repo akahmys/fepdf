@@ -64,8 +64,6 @@ xmp-writer = "0.3"
 # ISO 32000-2 7.6.4.3.3 step (a) requires it before the UTF-8 conversion.
 unicode-normalization = "0.1"
 roxmltree = "0.20"
-chardetng = "0.1"
-encoding_rs = "0.8"
 nom = "7.1"
 aes = "0.8"
 cbc = "0.1"

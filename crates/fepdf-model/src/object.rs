@@ -152,7 +152,7 @@ impl PdfName {
 
     /// Interns a name from raw bytes as they appeared in the file.
     pub fn from_bytes(bytes: &[u8]) -> Self {
-        Self(crate::refine::text::recover_string(bytes))
+        Self(crate::refine::text::recover_name(bytes))
     }
 
     /// The name as UTF-8, or an empty string if it is not valid UTF-8.

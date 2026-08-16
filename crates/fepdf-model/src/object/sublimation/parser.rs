@@ -48,7 +48,7 @@ impl<'a> Sublimator<'a> {
                 break;
             }
             let key = match token {
-                Token::Name(b) => crate::refine::text::recover_string(&b),
+                Token::Name(b) => crate::refine::text::recover_name(&b),
                 _ => continue,
             };
             let val = match lexer.next_token() {
@@ -768,7 +768,7 @@ impl<'a> Sublimator<'a> {
                 break;
             };
             let key = match key_token {
-                Token::Name(b) => crate::refine::text::recover_string(&b),
+                Token::Name(b) => crate::refine::text::recover_name(&b),
                 _ => continue, // Should be an error but let's be robust
             };
 
@@ -794,7 +794,7 @@ fn token_to_ir_object(token: Token) -> Option<IrObject> {
         Token::Real(f) => Some(IrObject::Real(f)),
         Token::String(s) => Some(IrObject::String(s)),
         Token::Hex(s) => Some(IrObject::Hex(s)),
-        Token::Name(n) => Some(IrObject::Name(crate::refine::text::recover_string(&n))),
+        Token::Name(n) => Some(IrObject::Name(crate::refine::text::recover_name(&n))),
         Token::Null => Some(IrObject::Null),
         _ => None,
     }
