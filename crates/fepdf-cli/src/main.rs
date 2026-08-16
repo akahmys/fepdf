@@ -18,14 +18,12 @@ struct IngestArgs {
     /// Disable active 2-pass refinement (UTF-8 normalization)
     #[arg(long)]
     no_refinement: bool,
-    // Hidden: `sublime_metadata` is carried through `IngestionOptions` but no
-    // ingestion path reads it, so this flag changes nothing. Measured by upgrading
-    // `samples/sample.pdf` with and without it and comparing with
-    // `examples/compare_documents.rs`: the only differing object is the XMP packet,
-    // which differs between two runs of identical flags anyway. Un-hide it when
-    // metadata recovery becomes conditional on the field.
-    /// Disable automatic conversion of Info to XMP
-    #[arg(long, hide = true)]
+    // Visible again: ADR-0007 hid this because nothing read `sublime_metadata`, and
+    // said un-hiding was the last step of implementing it rather than the first.
+    // ADR-0013 implemented it.
+    /// Keep /Info and the metadata stream as the file has them, rather than settling
+    /// them into one state and reporting where they disagree (14.3.3)
+    #[arg(long)]
     no_metadata_recovery: bool,
     // Hidden for the same reason: nothing reads `color_policy`. See ADR-0007.
     /// Use relaxed color validation policy
@@ -2286,11 +2284,12 @@ mod tests {
 
     /// Covers the mapping from flags to options and nothing beyond it.
     ///
-    /// Two of the fields asserted here — `sublime_metadata` and `color_policy` — are
-    /// carried faithfully and then read by nobody (ADR-0007). This test passed
+    /// `color_policy` is asserted here and read by nobody (ADR-0007). This test passed
     /// throughout, because setting a field correctly is all it ever claimed. Whether an
     /// option *does* anything is a question about ingestion, not about `From`, and it
-    /// is answered by varying one flag and comparing the documents that come out.
+    /// is answered by varying one flag and comparing the documents that come out —
+    /// which for `sublime_metadata`, now that ADR-0013 has made it live, the tests in
+    /// `fepdf_model::metadata` do.
     #[test]
     fn test_ingest_args_conversion() {
         let args = IngestArgs {

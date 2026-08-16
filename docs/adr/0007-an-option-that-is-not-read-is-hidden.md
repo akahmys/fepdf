@@ -1,6 +1,6 @@
 # ADR-0007: An option nothing reads is hidden, not removed
 
-- **Status**: Accepted
+- **Status**: Accepted; half discharged by ADR-0013
 - **Date**: 2026-08-15
 - **Commit**: the pre-Phase-B reconciliation
 
@@ -71,3 +71,12 @@ the record that the check is owed.
 - `open_repair` was found in the same sweep to carry a comment truncated mid-sentence
   (`document.rs`). Fixed in passing; noted because a comment explaining why a function
   is a delegation is the only thing standing between it and being read as a stub again.
+
+## Afterwards
+
+ADR-0013 made `sublime_metadata` live, and `--no-metadata-recovery` is visible again on
+the terms this record set: un-hiding as the last step of implementing it. The argument
+for keeping rather than removing the field held — the option was the right shape, and
+what was missing was the check.
+
+`color_policy` and `--relaxed-color` remain as described here.
