@@ -8,8 +8,13 @@
 
 The question was whether to move the `/Info` dictionary into XMP when a file is read.
 The first answer given was no — that reading should report the file as it is, and a
-migration of that kind belongs to refinement. That answer described `ARCHITECTURE.md`.
-It did not describe this engine:
+migration of that kind belongs to refinement.
+
+That answer was reasoned from `ARCHITECTURE.md` §5.4, which describes the **Reading**
+stage as placing each object in the arena as written with every tolerance recorded. All
+of which is true of that stage, and none of which is true of the pipeline it opens.
+Nothing in the document said what the composition amounts to, so it was possible to read
+one stage's property as the whole:
 
 | | Where it happens | How that was established |
 | :--- | :--- | :--- |
@@ -75,6 +80,11 @@ the stream where that clause puts them.
   that the save path happened to overwrite it from XMP. Under this policy that accident
   is gone. Decoding defects are now unrecoverable rather than merely wrong, which raises
   what a change to the reader has to prove.
-- **`ARCHITECTURE.md` describes a faithful reader and is wrong.** It has to be
-  reconciled, and the fact that a documented model was persuasive enough to nearly
-  settle this question the other way is the argument for doing it promptly.
+- **`ARCHITECTURE.md` was accurate stage by stage and silent about the whole.** Every
+  bullet in §5.4 was correct; what was missing was the sentence that follows from them
+  together, and any mention of the byte layer — four report types that take `&[u8]` and
+  appear nowhere in a document whose subject is layering. A document can mislead without
+  containing a false statement, and this one did: it was persuasive enough to nearly
+  settle this question the other way. §5.4 says both things now, and §5.3 gained the
+  second instance of its own rule about decisions that fire on conforming input, because
+  settling broke it on all nine samples before the rule was read again.

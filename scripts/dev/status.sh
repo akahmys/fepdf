@@ -85,7 +85,7 @@ for field in $(sed -n '/^pub struct IngestionOptions/,/^}/p' crates/fepdf-model/
         | grep -vE '^\s*[0-9]+:\s*//' | grep -v '\.field("' | grep -vc 'assert' | tr -d ' ')
     [ "$uses" -eq 0 ] && inert="$inert $field"
 done
-row "ingestion options nothing reads (expect 2)" "${inert:-none} "
+row "ingestion options nothing reads (expect 1)" "${inert:-none} "
 
 # The one encrypted sample, which is the only thing exercising clause 7.6. It read as
 # "1,140 pages, no errors" for as long as its content decrypted to noise (ADR-0009), so

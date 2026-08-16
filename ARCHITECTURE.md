@@ -100,18 +100,20 @@ working as intended, not a cycle.
 Status: **✅** exists as-is · **⚠️** partially landed · **🔄** code exists, lives elsewhere today · **🆕** new.
 
 `~Lines` is the *target* crate's size: for a crate that exists, what it holds today;
-for one that does not, the code that would move into it. Measured 2026-08-15.
+for one that does not, the code that would move into it. Measured 2026-08-16 with
+`find crates/<name>/src -name '*.rs' | xargs cat | wc -l`, so any figure here can be
+checked in one command.
 
 | Crate | Status | ~Lines | Responsibility |
 | :--- | :---: | ---: | :--- |
-| **`fepdf-syntax`** | ✅ | 1,500 | The byte layer: lexing and encryption/decryption. Depends on no model type, which is what lets the cryptography be reviewed on its own. Parsing and stream filters are *not* here — see §4. |
+| **`fepdf-syntax`** | ✅ | 1,960 | The byte layer: lexing and encryption/decryption. Depends on no model type, which is what lets the cryptography be reviewed on its own. Parsing and stream filters are *not* here — see §4. |
 | **`fepdf-font`** | ✅ (Audited ✅) | 3,700 | Font *programs*: CFF, TrueType, CMap, Adobe Glyph List, subsetting, reconstruction. Hardened against W/W2 out-of-bounds, CMap underflows (`e_val >= s_val`), and CID byte truncations. |
-| **`fepdf-model`** | ✅ | 14,800 | The document graph: `PdfArena`, `Handle<T>`, `Object`, page tree, metadata — and, since Phase A, the reader (7.5) and `writer.rs`. Hardened with pool overflow guards, cyclic `resolve` limits (`64`), and safe `Null` reference fallbacks. |
+| **`fepdf-model`** | ✅ | 18,100 | The document graph: `PdfArena`, `Handle<T>`, `Object`, page tree, metadata — and, since Phase A, the reader (7.5) and `writer.rs`. Hardened with pool overflow guards, cyclic `resolve` limits (`64`), and safe `Null` reference fallbacks. |
 | **`fepdf-content`** | ⚠️ partial | 2,300 | Content-stream interpreter, and the **`RenderBackend` contract** it drives (`TextGlyph`, `TextState`, `SMaskData`, path geometry). No GPU dependency. *The contract has landed (230 lines); the interpreter is the remaining ~2,100, still in `fepdf-sdk`.* |
 | **`fepdf-doc`** | 🔄 in sdk | 2,200 | Owns the **`Operation` vocabulary** (§5.1) and is its only interpreter: merge, split, rotate, tag, redact, upgrade. Also structure-tree handling, conformance auditing, remediation. |
 | **`fepdf-render`** | ✅ | 1,240 | A `RenderBackend` implementation on **Vello** + **wgpu**. Reached only through the SDK's optional `render` feature. |
 | **`fepdf`** | ⚠️ lives in `fepdf-sdk` | — | The public facade: `PdfDocument`, `SaveOptions`, `Operation`. It is the Rule A boundary in fact — frontends depend on it and on nothing below — but it is not yet a crate of its own. |
-| **`fepdf-cli`** | ✅ | 1,660 | Command-line binary (`fepdf`). |
+| **`fepdf-cli`** | ✅ | 2,310 | Command-line binary (`fepdf`). |
 | **`fepdf-gui`** | ✅ | 8,000 | Desktop application on **egui** + **eframe** + **wgpu**. |
 | **`fepdf-mcp`** | ✅ | 330 | Model Context Protocol server for AI assistants. |
 | **`fepdf-wasm`** | ✅ | 40 | WebAssembly bindings. Currently a stub — `render_page` is unimplemented. |
@@ -133,7 +135,7 @@ tree already shows a seam or a defect.
 `reconstruction`, `rescue`, `subset` are pure font-format work. The remaining 3,043
 existed solely to read font dictionaries, which is why they stayed in `fepdf-model`
 rather than moving with the rest. The split has since been made: `fepdf-font` is 3,700
-lines and `fepdf-model/src/font/` 3,130, both grown since the measurement.
+lines and `fepdf-model/src/font/` 3,100.
 
 **Resource resolution is part of the model, not a layer above it.** This engine
 resolves font dictionaries eagerly during ingestion rather than lazily at interpretation
@@ -294,9 +296,11 @@ Its options are an associated type, not a shared struct: `password` and
 per-format feature flags. An interface designed against one implementation is
 almost always wrong for the second, and this codebase keeps paying for building
 a container before its contents existed — `fepdf-resource`, an `Operation`
-vocabulary that is 79% stubs, and two ingestion options nothing reads
-([ADR-0007](docs/adr/0007-an-option-that-is-not-read-is-hidden.md)). When a second
-source exists, its real requirements reshape this.
+vocabulary of which 21 of 25 are stubs, and ingestion options nothing reads
+([ADR-0007](docs/adr/0007-an-option-that-is-not-read-is-hidden.md); one of the two
+became live with [ADR-0013](docs/adr/0013-a-document-is-one-normalised-state.md), and
+`color_policy` is the one that remains). When a second source exists, its real
+requirements reshape this.
 
 **What a second source owes.** A source hands back a `Document` whose arena already
 holds a catalogue, page tree, content streams and font resources. For a format such
@@ -342,12 +346,12 @@ of the standard, it records why, at the point of decision, with the clause. A si
 acceptance is a defect even when the output is right, because the next reader of the
 code cannot tell a deliberate choice from an oversight.
 
-**Current coverage is 29 sites**, up from one: `reader.rs` 15, `font/mod.rs` 8,
-`object/sublimation/parser.rs` 2, `ingest/mod.rs` 2, `refine/mod.rs` 1, `decrypt.rs` 1.
-The eleven places that previously detected non-conformance and merely `log::warn!` —
-missing font `/Subtype`, empty `/DescendantFonts`, undecodable CMap streams, unknown
-content-stream operators — were converted while the reader was replaced, which is
-where most of them sat.
+**Current coverage is 35 sites**, up from one: `reader.rs` 15, `font/mod.rs` 8,
+`object/sublimation/parser.rs` 3, `decrypt.rs` 2, `document.rs` 2, `ingest/mod.rs` 2,
+`metadata.rs` 2, `refine/mod.rs` 1. The eleven places that previously detected
+non-conformance and merely `log::warn!` — missing font `/Subtype`, empty
+`/DescendantFonts`, undecodable CMap streams, unknown content-stream operators — were
+converted while the reader was replaced, which is where most of them sat.
 
 One `log::warn!` remains in the engine, in `font/mod.rs`, and is deliberate: it reports
 which fonts *this machine* has, which is a property of the host and not of the
@@ -357,11 +361,20 @@ document, so it is not a decision about the input.
 log a constant rather than a signal. Reading an indirect `/Length` — which 7.3.8.2
 permits — was recorded as an `Ambiguity`, so `samples/sample.pdf` reported 31
 departures and `is_conforming` returned `false` for a clean file
-([ADR-0008](docs/adr/0008-an-indirect-length-is-not-an-ambiguity.md)). All nine samples
-now record nothing, and each readable malformed file records exactly its damage. When
-adding a decision point, check it against a conforming file as well as a broken one.
+([ADR-0008](docs/adr/0008-an-indirect-length-is-not-an-ambiguity.md)).
 
-*Counts measured 2026-08-15.*
+The rule has caught a second one since. Settling `/Info` against the metadata stream
+(§5.4) began by recording the move of the entries 14.3.3 deprecates — which every one
+of the nine samples carries, so every one of them grew a `Repaired` line. Carrying a
+deprecated entry is not non-conformance and moving it loses nothing, so it is not a
+decision; the disagreement that *does* lose something is, and that fires on one file.
+Eight samples record nothing and `samples/fy05.pdf` records its one real ambiguity.
+`metadata.rs` holds a test asserting exactly that, because the property is easy to
+break from a distance.
+
+When adding a decision point, check it against a conforming file as well as a broken
+one. `./scripts/dev/status.sh` re-derives the site count above, so a figure that has
+gone stale shows up as a disagreement rather than reading as current.
 
 ### 5.4 The Sublimation Pipeline: normalisation-at-load
 
@@ -370,7 +383,7 @@ pipeline spans `fepdf-syntax` → `fepdf-model`, which is why normalisation is a
 concern of the model rather than a crate of its own.
 
 ```
-Raw bytes ─► Reading ─► Pass 0: Decryption ─► Pass 2: Semantic ─► Document
+Raw bytes ─► Reading ─► Pass 0: Decryption ─► Pass 2: Semantic ─► Settling ─► Document
 ```
 
 - **Reading** (`reader::load_document`). Locates the header, walks the cross-reference
@@ -388,24 +401,72 @@ Raw bytes ─► Reading ─► Pass 0: Decryption ─► Pass 2: Semantic ─�
 - **Pass 2 — Semantic sublimation.** Re-encodes character mappings to eliminate legacy
   CJK mojibake, preserves exact path endpoints (`EndPath n`), harmonises graphics
   state, normalises colour, and validates PDF 2.0 structure integrity.
+- **Settling** (`metadata::settle`). Reconciles the two places a PDF may keep document
+  metadata — the `/Info` dictionary and the catalogue's metadata stream — into one,
+  recording where they disagreed. Runs after Pass 2 because Pass 2 rewrites the stream.
 
 Pass 1 no longer exists. It converted another library's object model into ours; the
 reader now produces the arena directly
 ([ADR-0003](docs/adr/0003-lopdf-was-not-providing-robustness.md)).
 
+**A `Document` is therefore one normalised state, not the file.** Everything above
+happens before application code sees anything, so by the time a `Document` exists the
+revision chain has been merged, the ciphertext is gone, and the metadata has one
+answer. Nothing later can put those back
+([ADR-0013](docs/adr/0013-a-document-is-one-normalised-state.md)).
+
+That leaves the question of how to see the file as written, and the answer is a second
+entry point rather than a mode of this one:
+
+| | Entry point | Reports | Commands |
+| :--- | :--- | :--- | :--- |
+| **Byte layer** | `reader::load_document` + Pass 0 | the file as written | `inspect structure`, `catalog`, `encryption`, `interactive` |
+| **Document layer** | `Document::open` | the document the engine made | `inspect info`, `text`, `tree`; all `edit` and `publish` |
+
+`FileStructure`, `CatalogReport`, `InteractiveReport` and `EncryptionReport` each take
+`&[u8]` and never see a refined arena. The two layers can disagree about the same file,
+and that is the design: they answer different questions. Before ADR-0013 named them,
+which one a command answered was an accident of how it had been written.
+
+**What the model cannot hold is lost here, with no later stage to recover it.** That is
+the price of normalising at load, and it is not hypothetical: the text decoder corrupted
+a conforming `/Title` at this point, and the only reason output was ever right was that
+the save path happened to overwrite the value from XMP. Changes to reading carry more
+weight than their size suggests.
+
 ### 5.5 Unified Extension Architecture (Anti-Ad-Hoc Policy)
 
-To prevent codebase drift, ad-hoc struct additions, or uncoordinated writer logic, all new backend capabilities MUST fit into one of four orthogonal domain namespaces owned by `fepdf-model` / `fepdf-doc`:
+To prevent drift, ad-hoc struct additions and uncoordinated writer logic, a new backend
+capability belongs in one of four domain namespaces owned by `fepdf-model` (and, once it
+exists, `fepdf-doc` — see [§6](#-6-migration)):
 
-1. **Metadata & Structure**: Portfolio (`/Collection`), Outlines (`/Outlines`), Optional Content (`/OCProperties`), Associated Files (`/AF`), Output Intents (`/OutputIntents`), Pronunciation (`/PL`).
-2. **Security & Provenance**: Crypt Revision 6 (AES-256-GCM), PKI PAdES Digital Signatures, Sublimation/Redaction.
-3. **Decorations & Annotations**: Watermarks, Bates Numbering, Hyperlinks (`/Link`), Stamps, Measurements (`/Measure`).
+1. **Metadata & Structure**: Portfolio (`/Collection`), Outlines (`/Outlines`), Optional
+   Content (`/OCProperties`), Associated Files (`/AF`), Output Intents
+   (`/OutputIntents`), Pronunciation (`/PL`).
+2. **Security & Provenance**: public-key security handlers (7.6.5), PAdES digital
+   signatures, redaction.
+3. **Decorations & Annotations**: watermarks, Bates numbering, hyperlinks (`/Link`),
+   stamps, measurements (`/Measure`).
 4. **Interactive Forms**: AcroForms, FDF/XFDF static data models.
 
-No feature is permitted to bypass the `Operation` vocabulary or inject un-audited dictionary mutations directly into frontends or serialisers.
+No feature may bypass the `Operation` vocabulary or inject un-audited dictionary
+mutations directly into frontends or serialisers.
 
-#### 5.3.1 Multi-Format Provider Architecture
-When introducing support for external document formats (e.g., Word `.docx`, Excel `.xlsx`, SVG, HTML), each format MUST follow Rule C by encapsulating its ingestion (reading) and emission (writing) within a dedicated format provider module/crate (e.g., `fepdf-import-docx`). Providers translate external formats into the `Operation` vocabulary or intermediate layout structures without exposing format-specific dependencies to `fepdf-model`.
+This list named "Crypt Revision 6 (AES-256-GCM)" until it was checked against the
+standard: revision 6 is implemented, and the string `GCM` does not occur anywhere in ISO
+32000-2. AES in this standard is CBC — "If using the AES algorithm, the Cipher Block
+Chaining (CBC) mode, which requires an initialization vector, is used." A namespace list
+is exactly where an invented detail survives longest, because nothing compiles against
+it.
+
+#### 5.5.1 Multi-Format Provider Architecture
+
+When introducing support for external document formats (Word `.docx`, Excel `.xlsx`,
+SVG, HTML), each format follows Rule C by keeping its ingestion and emission in one
+provider crate (`fepdf-import-docx`). Providers translate into the `Operation`
+vocabulary or intermediate layout structures without exposing format-specific
+dependencies to `fepdf-model`. See [§5.2](#52-document-sources) for what such a provider
+actually owes.
 
 ### 5.6 Safety invariants
 
