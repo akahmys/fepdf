@@ -242,6 +242,19 @@ impl Lexer {
                         break;
                     }
                 }
+                // 7.3.4.2: "An end-of-line marker appearing within a literal string
+                // without a preceding REVERSE SOLIDUS shall be treated as a byte value
+                // of (0Ah)". All three spellings collapse to one line feed, so a CRLF
+                // is one byte and not two. Returning the bytes as written was the
+                // reader half of a pair: this engine's writer emitted an unescaped
+                // carriage return, this read it back unchanged, and the two agreed with
+                // each other and with no one else.
+                b'\r' => {
+                    if self.data.get(self.pos + 1) == Some(&b'\n') {
+                        self.pos += 1;
+                    }
+                    result.push(b'\n');
+                }
                 _ => result.push(b),
             }
             self.pos += 1;
@@ -439,6 +452,27 @@ mod tests {
                 Token::RightDict,
             ]
         );
+    }
+
+    /// 7.3.4.2: an unescaped end-of-line inside a literal string is one line feed,
+    /// whichever of the three ways it was spelled. Reading a carriage return back as a
+    /// carriage return agreed with this engine's own writer and with no other reader.
+    #[test]
+    fn an_unescaped_end_of_line_in_a_string_is_one_line_feed() {
+        for (input, expected) in [
+            (&b"(a\rb)"[..], &b"a\nb"[..]),
+            (b"(a\nb)", b"a\nb"),
+            (b"(a\r\nb)", b"a\nb"),
+            // Escaped, they mean themselves, which is how a byte string survives.
+            (b"(a\\rb)", b"a\rb"),
+            (b"(a\\r\\nb)", b"a\r\nb"),
+        ] {
+            assert_eq!(
+                tokenize(input),
+                vec![Token::String(Bytes::copy_from_slice(expected))],
+                "tokenizing {input:?}"
+            );
+        }
     }
 
     #[test]

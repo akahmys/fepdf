@@ -464,6 +464,16 @@ impl<'a, W: Write> PdfWriter<'a, W> {
         Ok(())
     }
 
+    /// Writes a literal string, escaping every byte that would not survive being read
+    /// back (7.3.4.2).
+    ///
+    /// The carriage return is the one that is easy to miss. 7.3.4.2 says an end-of-line
+    /// marker inside a literal string, unescaped, "shall be treated as a byte value of
+    /// (0Ah)" — so a raw `\r` written here comes back as `\n`, and a raw `\r\n` comes
+    /// back as one byte instead of two. This escaped only the parentheses and the
+    /// backslash, and the resulting corruption was invisible for as long as the strings
+    /// were text: `fepdf`'s own lexer returned a raw `\r` unchanged, so the two mistakes
+    /// cancelled and every round trip through this engine was clean.
     fn write_string_literal(&mut self, s: &[u8]) -> PdfResult<()> {
         self.write_all(b"(")?;
         for &b in s {
@@ -471,6 +481,8 @@ impl<'a, W: Write> PdfWriter<'a, W> {
                 b'(' => self.write_all(b"\\(")?,
                 b')' => self.write_all(b"\\)")?,
                 b'\\' => self.write_all(b"\\\\")?,
+                b'\r' => self.write_all(b"\\r")?,
+                b'\n' => self.write_all(b"\\n")?,
                 _ => self.write_all(&[b])?,
             }
         }
