@@ -737,15 +737,11 @@ impl PdfDocument {
 
         fepdf_model::metadata::update_document_metadata(&self.inner, &metadata)?;
 
+        let mut stripped = fepdf_model::interpretation::DecisionLog::default();
         if options.strip {
-            // Further stripping: remove Metadata entry from catalog
-            let root_handle = *self.inner.root_handle();
-            let arena = self.inner.arena();
-            if let Ok(rdh) = self.inner.resolve_to_dict(root_handle) {
-                let mut dict = arena.get_dict(rdh).unwrap_or_default();
-                dict.remove(&arena.name("Metadata"));
-                arena.set_dict(rdh, dict);
-            }
+            // Every metadata stream, not only the catalogue's. Runs after the write
+            // above, which would otherwise put a fresh packet back.
+            fepdf_model::metadata::strip_metadata_streams(&self.inner, &mut stripped);
         }
 
         if options.dry_run {
@@ -766,7 +762,9 @@ impl PdfDocument {
         }
         writer.write_header(version)?;
         writer.finish(root, info)?;
-        Ok(self.write_decisions())
+        let mut decisions = self.write_decisions();
+        decisions.extend(stripped.into_entries());
+        Ok(decisions)
     }
 
     /// Saves a linearized (Fast Web View) version of the document with custom options.

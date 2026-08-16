@@ -416,6 +416,84 @@ fn apply_xmp_metadata(doc: &roxmltree::Document, info: &mut MetadataInfo) {
 mod tests {
     use super::*;
 
+    /// A document carrying metadata on an object as well as on the catalogue, which is
+    /// what `--strip` used to walk past: 14.3.2 lets any stream or dictionary that
+    /// represents a resource bear a `/Metadata` entry, and an Illustrator document
+    /// puts one on almost everything.
+    fn metadata_on_more_than_the_catalogue() -> Vec<u8> {
+        let packet = "<?xpacket begin=\"\" id=\"W5M0MpCehiHzreSzNTczkc9d\"?>\
+<x:xmpmeta xmlns:x=\"adobe:ns:meta/\"><rdf:RDF \
+xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\">\
+<rdf:Description rdf:about=\"\" xmlns:dc=\"http://purl.org/dc/elements/1.1/\">\
+<dc:creator><rdf:Seq><rdf:li>A Person</rdf:li></rdf:Seq></dc:creator>\
+</rdf:Description></rdf:RDF></x:xmpmeta><?xpacket end=\"r\"?>";
+        let stream = |body: &str| {
+            format!(
+                "<< /Type /Metadata /Subtype /XML /Length {} >>\nstream\n{body}\nendstream",
+                body.len()
+            )
+        };
+        let bodies: [String; 6] = [
+            "<< /Type /Catalog /Pages 2 0 R /Metadata 4 0 R >>".to_string(),
+            "<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_string(),
+            // 14.3.2: the page bears one too, and so does nothing else in this file.
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Metadata 6 0 R >>".to_string(),
+            stream(packet),
+            "<< /CreationDate (D:20240101000000Z) >>".to_string(),
+            stream(packet),
+        ];
+        let mut out = b"%PDF-2.0\n".to_vec();
+        let mut offsets = Vec::new();
+        for (i, body) in bodies.iter().enumerate() {
+            offsets.push(out.len());
+            out.extend_from_slice(format!("{} 0 obj\n{body}\nendobj\n", i + 1).as_bytes());
+        }
+        let xref_at = out.len();
+        out.extend_from_slice(b"xref\n0 7\n0000000000 65535 f \n");
+        for at in &offsets {
+            out.extend_from_slice(format!("{at:010} 00000 n \n").as_bytes());
+        }
+        out.extend_from_slice(
+            format!(
+                "trailer\n<< /Size 7 /Root 1 0 R /Info 5 0 R >>\nstartxref\n{xref_at}\n%%EOF\n"
+            )
+            .as_bytes(),
+        );
+        out
+    }
+
+    #[test]
+    fn stripping_reaches_metadata_on_objects_not_only_the_catalogue() {
+        let doc = open_fixture(metadata_on_more_than_the_catalogue());
+        let mut log = crate::interpretation::DecisionLog::default();
+        let report = strip_metadata_streams(&doc, &mut log);
+        assert!(report.entries >= 2, "only {} entries removed", report.entries);
+
+        let arena = doc.arena();
+        let key = arena.name("Metadata");
+        for dh in arena.all_dict_handles() {
+            let Some(dict) = arena.get_dict(dh) else { continue };
+            assert!(!dict.contains_key(&key), "a /Metadata entry survived the strip");
+        }
+        assert!(
+            log.entries().iter().any(|d| d.clause == "14.3.2"),
+            "the strip was not recorded: {:?}",
+            log.entries()
+        );
+    }
+
+    /// Nothing to strip is not a repair, and must not be reported as one.
+    #[test]
+    fn stripping_a_document_without_metadata_says_nothing() {
+        let doc = open_fixture(metadata_on_more_than_the_catalogue());
+        let mut log = crate::interpretation::DecisionLog::default();
+        strip_metadata_streams(&doc, &mut log);
+        let mut second = crate::interpretation::DecisionLog::default();
+        let report = strip_metadata_streams(&doc, &mut second);
+        assert_eq!(report, StripReport::default());
+        assert!(second.is_conforming(), "{:?}", second.entries());
+    }
+
     /// The spellings differ on every file that carries both, so comparing the strings
     /// would report a disagreement where there is none. Injecting a string comparison
     /// puts two false ambiguities on `samples/print_sample.pdf`, which has none.
@@ -597,4 +675,65 @@ xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\">\
         assert!(map.contains_key(&crate::object::PdfName::new("Title")));
         assert!(map.contains_key(&crate::object::PdfName::new("Author")));
     }
+}
+
+/// What stripping the metadata streams removed.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct StripReport {
+    /// `/Metadata` entries removed, at the catalogue and on individual objects.
+    pub entries: usize,
+    /// Distinct streams those entries pointed at, which no longer have a referrer.
+    pub streams: usize,
+}
+
+/// Removes every metadata stream the document carries (14.3.2).
+///
+/// `--strip` used to remove the catalogue's `/Metadata` and nothing else. On
+/// `samples/fy05.pdf` that left 198 of the file's 199 metadata streams in place,
+/// carrying a personal name in `dc:creator`, `xmpMM:History` with timestamps and
+/// software agents, the names of the fonts used, and thumbnail images of the artwork.
+/// A flag that says it strips descriptive metadata and removes one packet in 199 is the
+/// shape ADR-0007 hid other flags for, made harder to notice by doing something.
+///
+/// Removing the entries is enough to remove the streams: the writer traces from the
+/// catalogue, so a stream nothing refers to is not written. Measured on the corpus, no
+/// XMP packet survives `--strip` in any of the nine files, before or after inflating
+/// every stream in the output.
+///
+/// An earlier version of this also counted packets it believed were embedded inside
+/// other streams' payloads and reported them as beyond reach. They were not: they were
+/// metadata streams that omit the `/Type` "Table 347" requires, and they go with the
+/// rest. The count was an artifact of classifying objects by a search of their first
+/// 400 bytes, and it cost a decode of every stream in the file to compute.
+pub fn strip_metadata_streams(
+    doc: &Document,
+    decisions: &mut crate::interpretation::DecisionLog,
+) -> StripReport {
+    let arena = doc.arena();
+    let key = arena.name("Metadata");
+    let mut targets = std::collections::BTreeSet::new();
+    let mut report = StripReport::default();
+
+    for dh in arena.all_dict_handles() {
+        let Some(mut dict) = arena.get_dict(dh) else { continue };
+        let Some(value) = dict.remove(&key) else { continue };
+        arena.set_dict(dh, dict);
+        report.entries += 1;
+        if let Object::Reference(h) = value {
+            targets.insert(h);
+        }
+    }
+    report.streams = targets.len();
+    if report.entries > 0 {
+        decisions.push(crate::interpretation::Decision::repaired(
+            "14.3.2",
+            format!(
+                "{} /Metadata entries pointed at {} metadata streams",
+                report.entries, report.streams
+            ),
+            "removed every entry, at the catalogue and on individual objects; the streams              they named are left with no referrer and are not written"
+                .to_string(),
+        ));
+    }
+    report
 }
