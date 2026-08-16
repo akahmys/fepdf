@@ -128,9 +128,12 @@ def encrypt_streams(data: bytes, key: bytes) -> bytes:
     return bytes(out), count
 
 
-def build(source: bytes, revision: int, key_len: int, version: int) -> bytes:
+def build(
+    source: bytes, revision: int, key_len: int, version: int, p: int = -4
+) -> bytes:
     file_id = hashlib.md5(source[:4096]).digest()
-    p = -4  # everything permitted except the two reserved low bits
+    # -4 permits everything except the two reserved low bits. Table 22 counts bits
+    # from 1, so clearing bit 4 (modification) means clearing 1 << 3.
     o = owner_string(b"", b"", revision, key_len)
     key = file_key(b"", o, p, file_id, revision, key_len)
     u = user_string(key, file_id, revision)
@@ -233,7 +236,13 @@ def aes256_strings(
     return {"U": u, "UE": ue, "O": o, "OE": oe, "Perms": perms}
 
 
-def build_aes256(source: bytes, user: bytes = b"", owner: bytes = b"", revision: int = 6) -> bytes:
+def build_aes256(
+    source: bytes,
+    user: bytes = b"",
+    owner: bytes = b"",
+    revision: int = 6,
+    p: int = -4,
+) -> bytes:
     """An AES-256 revision 6 document, rebuilt rather than patched.
 
     AES adds an IV and padding, so a stream's ciphertext is longer than its plaintext
@@ -241,7 +250,6 @@ def build_aes256(source: bytes, user: bytes = b"", owner: bytes = b"", revision:
     the cross-reference rebuilt.
     """
     key = os.urandom(32)
-    p = -4
     strings = aes256_strings(user, key, p, True, owner, revision)
 
     objects = parse_objects(source)
@@ -374,6 +382,14 @@ def main() -> int:
     path = args.out / "aes256_saslprep.pdf"
     path.write_bytes(build_aes256(source, user=stored, owner=stored))
     print(f"  {path}  V5 R6, password typed {typed!r} stored as {stored.decode()!r}")
+
+    # A /P that actually denies something. Every other fixture here uses -4, which
+    # permits everything, so the notice a save gives about permissions it cannot carry
+    # (7.6.4.2) had never once fired on a file in this corpus.
+    denied = -4 & ~(1 << 3) & ~(1 << 5) & ~(1 << 10)  # bits 4, 6 and 11 of Table 22
+    path = args.out / "rc4_128_readonly.pdf"
+    path.write_bytes(build(source, revision=3, key_len=16, version=2, p=denied))
+    print(f"  {path}  /P {denied}: no modification, annotation or assembly")
     return 0
 
 
