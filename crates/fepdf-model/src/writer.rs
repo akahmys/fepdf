@@ -1823,8 +1823,10 @@ impl<'a, W: Write> PdfWriter<'a, W> {
         &mut self,
         s: LinState,
     ) -> PdfResult<()> {
-        println!(
-            "DEBUG_FINALIZE: first_shared_id={}, primary_count={}, obj_stm_count={}, shared_ids_len={}, first_page_groups_len={}",
+        // `println!`, so `publish upgrade --linearize` printed linearisation internals
+        // to the stdout its own output shares. `log::debug!` like the sibling below.
+        log::debug!(
+            "linearisation: first_shared_id={}, primary_count={}, obj_stm_count={}, shared_ids_len={}, first_page_groups_len={}",
             s.shared_ids.first().copied().unwrap_or(s.primary_count + s.obj_stm_count as u32),
             s.primary_count,
             s.obj_stm_count,
@@ -1848,7 +1850,7 @@ impl<'a, W: Write> PdfWriter<'a, W> {
         // The previous xref-based lookup was fragile (failed when root is in an obj_stm).
         let hint_obj_total_size = s.hint_size + 149;
         log::debug!(
-            "DEBUG_FINALIZE: primary_start_id={primary_start_id}, hint_pos={}, hint_obj_total_size={hint_obj_total_size}",
+            "linearisation: primary_start_id={primary_start_id}, hint_pos={}, hint_obj_total_size={hint_obj_total_size}",
             s.hint_pos
         );
 

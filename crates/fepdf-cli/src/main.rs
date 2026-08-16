@@ -63,11 +63,20 @@ impl From<IngestArgs> for fepdf_sdk::IngestionOptions {
 #[allow(clippy::struct_excessive_bools)]
 #[derive(clap::Args, Debug, Clone)]
 struct SaveArgs {
-    /// Opt-in for stream compression (FlateDecode)
+    // Was `--compress`, opting *in*. The GUI has always defaulted to compressing, so
+    // the same operation behaved differently depending on which frontend asked for it —
+    // and `publish upgrade` wrote 27 MB from a 15 MB source. The default lives in
+    // `SaveOptions` now and this inverts it.
+    /// Write streams uncompressed (FlateDecode is applied by default)
     #[arg(long)]
-    compress: bool,
+    no_compress: bool,
+    // Hidden because it names a choice that does not exist. The writer traces from the
+    // catalogue and writes only what it reaches, so an unreferenced object is dropped
+    // whether this is passed or not: `samples/fy05.pdf` goes from a highest object
+    // number of 4,680 to 4,575 either way. Unlike the flags below, the behaviour is
+    // there — what is missing is the option to decline it.
     /// Remove unreachable objects
-    #[arg(long)]
+    #[arg(long, hide = true)]
     vacuum: bool,
     /// Strip descriptive metadata
     #[arg(long)]
@@ -87,14 +96,22 @@ struct SaveArgs {
     /// Encrypt the output with a password
     #[arg(long = "encrypt-password", id = "encrypt_password", hide = true)]
     password: Option<String>,
+    // Hidden: `SaveOptions::obj_stm` is carried to the SDK and read by nothing. The
+    // output holds zero `/ObjStm` either way, and passing it moves `samples/fy05.pdf`
+    // by one byte — the XMP instance identifier. ADR-0007.
     /// Use Object Streams (ObjStm) for high-density compression
-    #[arg(long)]
+    #[arg(long, hide = true)]
     obj_stm: bool,
+    // Hidden: nothing reads it. `--image-quality 20` on `samples/fy05.pdf`, which has
+    // images, produces a byte-identical file. ADR-0007.
     /// Image re-compression quality (1-100)
-    #[arg(long)]
+    #[arg(long, hide = true)]
     image_quality: Option<u32>,
+    // Hidden: the save path matches on it and does nothing, under a comment saying
+    // where the value would go. The output carries no `/Lang` whatever is passed.
+    // ADR-0007.
     /// Set document primary language (e.g., "en-US", "ja-JP")
-    #[arg(long)]
+    #[arg(long, hide = true)]
     lang: Option<String>,
     /// Override document title
     #[arg(long)]
@@ -102,11 +119,16 @@ struct SaveArgs {
     /// Override document author
     #[arg(long)]
     author: Option<String>,
+    // Hidden: no code reads it. The string passed does not appear anywhere in the
+    // output. ADR-0007.
     /// Set copyright notice in XMP metadata
-    #[arg(long)]
+    #[arg(long, hide = true)]
     copyright: Option<String>,
+    // Hidden, and it cannot work until something else does: permissions live in
+    // `/Encrypt` (7.6.4.2), and this engine writes no `/Encrypt` — which is why
+    // `--encrypt-password` above is hidden too. Nothing reads the field either.
     /// Permission flags (e.g., "print,copy")
-    #[arg(long)]
+    #[arg(long, hide = true)]
     permissions: Option<String>,
     /// Text string encoding for non-ASCII characters (utf16be, utf8)
     #[arg(long, default_value = "utf16be")]
@@ -119,7 +141,7 @@ struct SaveArgs {
 impl From<SaveArgs> for fepdf_sdk::SaveOptions {
     fn from(args: SaveArgs) -> Self {
         Self {
-            compress: args.compress,
+            compress: !args.no_compress,
             compression_level: 9,
             vacuum: args.vacuum,
             strip: args.strip,
@@ -489,8 +511,11 @@ enum PublishSubcommands {
         /// Opt-in for Fast Web View (Linearization)
         #[arg(long)]
         linearize: bool,
-        /// Display internal structural diff after refinement
-        #[arg(long)]
+        // Hidden: it prints "INFO: Structural diff would be displayed here (M67
+        // enhancement)." and returns. A flag that announces its own absence is still a
+        // flag that does nothing. ADR-0007.
+        /// Show a structural diff of the changes
+        #[arg(long, hide = true)]
         diff: bool,
         /// Ingestion control options
         #[command(flatten)]

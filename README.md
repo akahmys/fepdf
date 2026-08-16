@@ -95,6 +95,7 @@ The reasoning is in [ADR-0012](docs/adr/0012-saving-produces-a-new-document.md).
 | **Edit interactive features** | Annotations, form fields and outlines can be read and reported. They cannot be changed. |
 | **Public-key security handlers** | 7.6.5 is recognised and reported, not implemented. |
 | **Run usefully in a browser** | `fepdf-wasm` opens a document and counts pages. Its `render_page` does nothing. |
+| **Write object streams** | 7.5.7 containers are read but not written. A file that relies on them heavily grows: `intel_sdm.pdf` comes out 132% larger. Everything else in the corpus is within 1% of its source or smaller. |
 
 Twenty-one SDK operations report `NotImplemented` rather than pretending. Ten of Table
 29's thirty-two catalogue entries have a typed representation; the rest survive a round

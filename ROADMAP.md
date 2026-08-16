@@ -208,11 +208,20 @@ Independent of A and B, and the area where a partial implementation is most harm
       glyph origins a thousandth of a point away and moved its line breaks on 78 of 846
       pages. Trimming the zeros takes the whole corpus to a zero delta — the first time
       `crosscheck_roundtrip.sh` has reported no difference on any file
-- [ ] Two images in `fy05.pdf` come out decompressed: `/Filter /FlateDecode` and 24,551
-      bytes in, no filter and 59,345 bytes out. Found once the number padding stopped
-      hiding it — the file's differing objects went from 378 to 3, and these are two of
-      the three. The output is 27 MB against a 15 MB source, so this is probably not
-      confined to two images
+- [x] Output larger than input. Not two images, as this line first read: nothing was
+      compressed, because `SaveOptions` derived its default and `compress` was `false`
+      while `fepdf-gui` had always set it `true` — the same operation, two answers, which
+      is what Rule D exists to stop. `fy05.pdf` goes from +76% to −46%
+- [ ] Write object streams (7.5.7). `SaveOptions::obj_stm` is carried and read by
+      nothing, and the output holds zero `/ObjStm`. `intel_sdm.pdf` keeps 332,000 objects
+      in 8,043 containers and comes out **+132%** without them; every other corpus file
+      is now within 1% of its source or smaller. This is the one remaining size gap and
+      it is a feature, not a defect
+- [ ] Implement or delete the five other `SaveArgs` options that do nothing:
+      `--image-quality`, `--lang`, `--copyright`, `--permissions` and `--diff`, which
+      prints "Structural diff would be displayed here (M67 enhancement)". All hidden
+      under ADR-0007, which asked for exactly this audit and named `SaveArgs` as the
+      place it had not been done
 - [x] Make the content round trip a fixed point. It was not: `W n` came back as
       `W n n` and grew by 52 bytes on every pass, while `W f` came back as `W n f` and
       lost the fill outright

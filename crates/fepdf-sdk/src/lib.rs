@@ -85,7 +85,7 @@ pub use fepdf_model::StringEncoding;
 
 /// Options for saving a PDF document.
 #[allow(clippy::struct_excessive_bools)]
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct SaveOptions {
     /// Whether to compress streams using FlateDecode.
     pub compress: bool,
@@ -117,6 +117,39 @@ pub struct SaveOptions {
     pub string_encoding: StringEncoding,
     /// Simulate saving and report results without writing to disk.
     pub dry_run: bool,
+}
+
+impl Default for SaveOptions {
+    /// Streams are compressed.
+    ///
+    /// This was `#[derive(Default)]`, so `compress` was `false`, and the two frontends
+    /// disagreed about the same operation: `fepdf-gui` sets `export_compress: true`
+    /// while `fepdf-cli` passed its `--compress` flag straight through, defaulting off.
+    /// Nothing recorded a reason for either. `ARCHITECTURE.md` §4 has the rotate case as
+    /// the previous instance of this exact shape, which is what Rule D exists to stop.
+    ///
+    /// The default matters: `publish upgrade` on `samples/fy05.pdf` wrote 27 MB from a
+    /// 15 MB source, and 8.4 MB with compression on. A tool whose ordinary output is
+    /// larger than its input has picked the wrong default, whatever the flag says.
+    fn default() -> Self {
+        Self {
+            compress: true,
+            compression_level: 9,
+            vacuum: false,
+            strip: false,
+            password: None,
+            obj_stm: false,
+            image_quality: None,
+            lang: None,
+            title: None,
+            author: None,
+            copyright: None,
+            creation_date: None,
+            permissions: None,
+            string_encoding: StringEncoding::default(),
+            dry_run: false,
+        }
+    }
 }
 
 /// Options for digitally signing a PDF document.
