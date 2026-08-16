@@ -6,12 +6,14 @@ Welcome to **fepdf**, an experimental, high-fidelity PDF 2.0 processing platform
 
 ## 🏛️ Governance Architecture & Document Structure
 
-The project rules, architecture specs, and operational protocols are modularized into five core documents:
+The project rules, architecture specs, and operational protocols are modularised into
+these documents. [Which document owns what](#-which-document-owns-what) below is the
+part to read when deciding where to write something.
 
 | Document | Focus & Scope | Description |
 | :--- | :--- | :--- |
 | 📘 **[AGENTS.md](AGENTS.md)** | **Constitution & Governance** | System vision, truth hierarchy, decision framework, and entry point. |
-| 🏛️ **[ARCHITECTURE.md](ARCHITECTURE.md)** | **System Design & Layering Rules** | The three rules that decide where code goes, target crate topology with per-crate migration status, `PdfArena` invariants, Sublimation Pipeline Pass 0/1/2, Vello renderer. |
+| 🏛️ **[ARCHITECTURE.md](ARCHITECTURE.md)** | **System Design & Layering Rules** | The rules that decide where code goes, target crate topology with per-crate migration status, `PdfArena` invariants, the Sublimation Pipeline and the two layers it produces, Vello renderer. |
 | 📋 **[PLANNING.md](PLANNING.md)** | **Planning & Discovery** | Implementation plans, architecture design, exploration protocols, and task breakdown. |
 | 💻 **[CODING.md](CODING.md)** | **Coding Rules & Architecture** | **RR-15 Protocol**, ISO 32000-2 pipeline, Vello rendering, and Rust 2024 coding standards. |
 | 🛡️ **[AUDITING.md](AUDITING.md)** | **Security, Compliance & Audit** | Static auditing, **`cargo-deny`** license checks, **`betterleaks`** PII protection, and Clippy lints. |
@@ -84,7 +86,12 @@ documents come to disagree.
 1. **Safety Over Speed**: Memory safety, determinism, and ISO compliance take precedence over premature optimization or prototyping.
 2. **Zero Unsafe**: `unsafe_code = "forbid"` is enforced across all workspace crates.
 3. **Automated Verification**: Every code change must be verifiable via `./scripts/audit/verify_compliance.sh`, `cargo deny`, `betterleaks`, and `cargo test`.
-4. **Log-First Diagnostics**: Diagnostics must be driven by empirical log evidence rather than assumptions.
+4. **Measure, do not assume**: A claim about this codebase is established by running
+   something, not by reading a document or a function name — see the hierarchy above.
+   Note that this is *not* "log-first": the engine holds exactly one `log::warn!` by
+   design, because a warning on stderr cannot tell a caller *this loaded* from *this was
+   conforming*. What the engine finds in a document it records as a `Decision`
+   (`ARCHITECTURE.md` §5.3); what you want to know about the engine you measure.
 
 ---
 

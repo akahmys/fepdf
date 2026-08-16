@@ -36,10 +36,11 @@ that decides on it**, rather than silently falling into a catch-all. That proper
 only achievable — and only worth anything — for enums we own and expect to grow.
 
 A blanket ban is not implementable. Matching on `&str`, `u8` or `usize` *requires* a
-wildcard, because the domain is open. Of the 143 syntactic `_ =>` arms in this
-workspace, 78 are of exactly that kind. A textual search cannot tell them apart from
-the ones that matter, which is why enforcement uses `clippy::wildcard_enum_match_arm`:
-it has type information and fires only on enums.
+wildcard, because the domain is open. There are 193 syntactic `_ =>` arms in this
+workspace (2026-08-16), and how many are of that kind cannot be established by reading
+the text — which is the argument, not a gap in it. Telling the two apart needs to know
+what the scrutinee's type is. So enforcement uses `clippy::wildcard_enum_match_arm`,
+which has that information and fires only on enums.
 
 **Forbidden** — wildcard arms over domain enums such as `ColorSpaceKind`,
 `SublimatedData`, `Color`, `PixelFormat`, and any enum added from here on. These gain
@@ -62,24 +63,22 @@ its reason, not as an inline `#[allow]`.
 
 ---
 
-## 🏛️ 2. ISO 32000-2 PDF 2.0 Engine Architecture
+## 🏛️ 2. What code must satisfy elsewhere
 
-### Normalization-at-Load (The Sublimation Pipeline)
-All physical bytes MUST pass through 3 normalization stages before application processing:
+This document says what code must satisfy. The design it satisfies lives in
+`ARCHITECTURE.md`, and repeating it here is how the two came to disagree: this section
+described a **Pass 1 (Arena Ingestion)** that [ADR-0003] removed when the reader stopped
+converting another library's object model, and it had said so for as long as the reader
+had been fepdf's own.
 
-1. **Pass 0 (Physical Normalization)**: Recursive stack-based decryption and XRef table repair. Strips residual `/Encrypt` dictionaries for Acrobat compatibility.
-2. **Pass 1 (Arena Ingestion)**: Expands object streams and stores objects in `PdfArena`. Generates stable handles (`Handle<Object>`).
-3. **Pass 2 (Semantic Sublimation)**: Re-encodes Unicode strings (eliminating legacy mojibake), restores path integrity (preserves EndPath `n`), and normalizes color states.
+- **The Sublimation Pipeline** — `ARCHITECTURE.md` §5.4. A `Document` is the normalised
+  state, not the file; the file is reached through the byte layer named in the same
+  section.
+- **`PdfArena` invariants** — `ARCHITECTURE.md` §5.6. Objects are reached through
+  `Handle<Object>`, never a pointer or a raw index, and traversal is deterministic
+  (Rule 10 above is the enforced half of this).
+- **Rendering and the GUI** — `ARCHITECTURE.md` §5.7. Vello compute shaders on wgpu,
+  `f64` preserved through path snapping and measurement, CJK font loading and
+  English/Japanese localisation in `fepdf-gui`.
 
-### Safety Invariant: `PdfArena`
-- Use `Handle<Object>` (ID + Generation) instead of direct pointers or raw indices.
-- Traverse object trees deterministically.
-
----
-
-## 🎨 3. GPU Rendering & GUI Conventions
-
-- **Compute Rasterization**: Render PDF page streams using **Vello** compute shaders (`fepdf-render`).
-- **UI Architecture**: Desktop GUI uses **egui** + **wgpu**.
-- **CAD Precision**: Path snapping and measurement tools must preserve sub-pixel double-precision (`f64`) coordinates before canvas rasterization.
-- **Localization**: User interface strings must support `egui` CJK font loading and English/Japanese localization strings.
+[ADR-0003]: docs/adr/0003-lopdf-was-not-providing-robustness.md

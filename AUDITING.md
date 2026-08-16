@@ -32,6 +32,13 @@ All workspace crates and third-party dependencies are continuously audited using
 - **Public Domain / Permissive**: `CC0-1.0`, `Unlicense`, `ISC`, `BSL-1.0`, `Zlib`, `MIT-0`
 - **Fonts & Special**: `OFL-1.1`, `Ubuntu-font-1.0`, `Unicode-3.0`, `Unicode-DFS-2016`, `MPL-2.0`, `NCSA`
 
+Four of these — `BSD-1-Clause`, `MIT-0`, `NCSA` and `Unicode-DFS-2016` — match no
+dependency in the current tree, and `cargo deny` says so on every run as an *unmatched
+license allowance*. The list is a standing policy rather than a description of the
+lockfile, so that is expected; it is worth reading the warnings rather than tuning them
+out, because the same wording appears when a dependency that *was* relying on an
+allowance is dropped.
+
 ### Forbidden Licenses
 - Strong copyleft licenses (e.g., `GPL-2.0`, `GPL-3.0`, `AGPL-3.0`) are strictly **denied** (`copyleft = "deny"`).
 
@@ -77,12 +84,29 @@ Execute the master audit script:
 ```
 
 ### Script Execution Criteria
-1. Function line limits (Rule 1).
-2. Absence of `unwrap`/`expect` (Rule 2).
-3. Zero `unsafe` blocks (Rule 3).
-4. Match exhaustiveness & no wildcard `=> _` (Rule 5).
-5. Zero `static mut` (Rule 7).
-6. No `HashMap`/`HashSet` in core crates (Rule 10).
-7. Zero Clippy warnings (`cargo clippy --workspace -- -D warnings`) (Rule 17).
-8. Pass `cargo deny check licenses` (Rule 16).
-9. Pass `betterleaks dir .` (Rule 18).
+
+Fourteen checks, in the order the script runs them. This list is derived from the
+script's own `[Rule N]` headings, which is the only way to keep the two in step — it
+named nine and omitted 11, 13, 14, 15 and 19, so five enforced rules read as unenforced.
+
+| | Check | Rule |
+| ---: | :--- | :--- |
+| 1 | Function line limits | 1 |
+| 2 | No `unwrap`/`expect` in production code | 2 |
+| 3 | No `unsafe` blocks | 3 |
+| 4 | No wildcard match arms over domain enums | 5 |
+| 5 | No `static mut` | 7 |
+| 6 | No non-deterministic collections in core crates | 10 |
+| 7 | No `String`/`anyhow` errors in a `Result` | 11 |
+| 8 | No `filter_map(Result::ok)` | 13 |
+| 9 | Test code separation — no standalone test files in `src/` | 14 |
+| 10 | No excessive cloning | 15 |
+| 11 | `cargo deny check licenses` | 16 |
+| 12 | `cargo clippy --workspace --all-targets -- -D warnings` | 17 |
+| 13 | `betterleaks dir .` | 18 |
+| 14 | `cargo fmt --all --check` | 19 |
+
+`CODING.md` states each rule; this table states only which of them the script enforces.
+Rules 4, 6, 8 and 20 are in `CODING.md` and are **not** here, because nothing automated
+checks them — `CODING.md` names code or architecture review for each, per the rule that
+a rule which is not checked is a comment.

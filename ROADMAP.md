@@ -21,8 +21,9 @@ Understanding them is what remains.
 | **7.7** Document structure | **10 of Table 29's 32** catalogue entries typed, measured by `status.sh` from `PdfCatalog`. Untyped entries survive a round trip but cannot be reasoned about; `inspect catalog` names which ones, per file. |
 | **PDF 2.0 additions** | **Six** catalogue entries have a spec type but no read or write path — `PageLabels`, `Threads`, `OutputIntents`, `OCProperties`, `Collection`, `AF`. `DPartRoot` has no type at all, contrary to what this table said before it was checked. `inspect catalog` reports the six as `type only`. |
 | **8–14** Content, text, interactive, tagged | Interpreter, fonts and UA-2 auditing exist; interactive features (12) can now be *read* (`inspect interactive`) but not edited. The corpus exercises one annotation subtype of ~28 — all 29,973 are `/Link` — and no form field at all. |
+| **14.3** Metadata | Settled at load into one state: `/Info` and the metadata stream are reconciled, disagreements recorded, and the entries 14.3.3 deprecates moved to where that clause puts them ([ADR-0013](docs/adr/0013-a-document-is-one-normalised-state.md)). Text strings decode to 7.9.2.2 — PDFDocEncoding from Annex D, or a byte order mark — after a Shift-JIS detector was found corrupting a conforming `/Title`. `--strip` removes every metadata stream, not the catalogue's alone. |
 
-One measurement worth carrying forward: 19 of 24 `Operation` variants are stubs that
+One measurement worth carrying forward: 21 of 25 `Operation` variants are stubs that
 now report rather than claim success. In the engine (`fepdf-model`, `fepdf-syntax`)
 the `log::warn!` count is down from 14 to one, and that one is deliberate: it reports
 which fonts *this machine* has, not anything the document says. Frontends still log
@@ -250,7 +251,7 @@ asserts text comes out of that sample, because asserting it *opens* passed throu
 
 ## Phase D — The catalogue and PDF 2.0 features
 
-Only now do the 19 stub operations become worth implementing, because reading exists
+Only now do the 21 stub operations become worth implementing, because reading exists
 to verify them against.
 
 - [ ] Type the remaining catalogue entries, `DSS`/`AF`/`DPartRoot` first — they are

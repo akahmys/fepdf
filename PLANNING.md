@@ -17,7 +17,10 @@ is a record of an earlier effort and is not maintained.
 2. **User Review Required**: Breaking changes, architectural choices, or design trade-offs.
 3. **Open Questions**: Unresolved requirements or ambiguities.
 4. **Proposed Changes**: Grouped logically by crate/component with `[NEW]`, `[MODIFY]`, or `[DELETE]` annotations.
-5. **Verification Plan**: Automated tests (`cargo test`), compliance audits, and manual verification steps.
+5. **Verification Plan**: `cargo test --workspace`, `./scripts/audit/verify_compliance.sh`,
+   and the checks in [TESTING.md](TESTING.md) that the release-mode suite cannot make —
+   `cli_smoke.sh` in a debug build, and `crosscheck_roundtrip.sh` against a second
+   implementation. State which one would fail if the change were wrong.
 
 ---
 
@@ -25,9 +28,19 @@ is a record of an earlier effort and is not maintained.
 
 Never guess implementation details, data schemas, or file locations. Follow this exploration protocol:
 
-1. **Log-First Diagnostics**: Inspect full error tracebacks and empirical logs before forming diagnostic hypotheses.
-2. **Complete Symbol Inspection**: View full struct, enum, and trait definitions rather than truncated code snippets.
-3. **Registry & Dependency Audit**: Check crate manifests (`Cargo.toml`), workspace dependencies, and module exports (`mod.rs` / `lib.rs`).
+1. **Measure, do not read.** Run something. A function's name, a doc comment and a
+   governance document are all claims about the code, and this project has reversed
+   decisions taken from each of them (`AGENTS.md`, Hierarchy of Truth). Note that
+   "log-first" is not available here even when it sounds right: the engine holds one
+   `log::warn!` by design, and what it finds in a document it records as a `Decision`
+   (`ARCHITECTURE.md` §5.3).
+2. **Establish the search finds nothing by making it find something.** An absent call
+   site, an unfired gate and a broken grep look identical. Put the thing back and watch
+   the check fail before believing it passes.
+3. **Complete symbol inspection.** View whole struct, enum and trait definitions rather
+   than truncated snippets.
+4. **Registry and dependency audit.** Check crate manifests (`Cargo.toml`), workspace
+   dependencies, and module exports (`mod.rs` / `lib.rs`).
 
 ---
 

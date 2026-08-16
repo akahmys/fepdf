@@ -101,9 +101,21 @@ cargo check --workspace
 Before submitting a Pull Request or completing a task:
 
 - [ ] `./scripts/audit/verify_compliance.sh` completes with `=== AUDIT PASSED ===`.
-- [ ] `cargo test --workspace` passes with 0 failures across all 66+ test suites.
+- [ ] `cargo test --workspace` passes with 0 failures (220 tests across 31 suites, 2026-08-16).
 - [ ] `cargo clippy --workspace --all-targets -- -D warnings` is clean. `--all-targets` matters: without it tests, examples and benches are never linted.
 - [ ] `cargo fmt --all --check` reports no diff. Enforced as Rule 19 by the audit, so `make audit` covers it.
 - [ ] All integration tests are placed in `crates/*/tests/` following the Test Separation Policy. Binary crates (`fepdf`) are the exception: an integration test cannot reach into a binary, so their unit tests live in inline `#[cfg(test)] mod tests` blocks, which the rule permits.
 - [ ] `cargo deny check licenses` returns `licenses ok`.
 - [ ] `.git/hooks/pre-commit` passes secret scanning without leaks.
+- [ ] `./scripts/test/cli_smoke.sh` — **a debug build**. Every other check in this list
+      runs `--release`, and clap's duplicate-argument check is a `debug_assert`: a
+      collision between two argument definitions once panicked seven subcommands while
+      the whole verification suite stayed green.
+- [ ] `./scripts/test/crosscheck_roundtrip.sh` — text preserved through a save, compared
+      against a second implementation. Internal measurement cannot find a page the
+      engine never built; this is what caught [ADR-0006] and [ADR-0010].
+- [ ] `./scripts/dev/status.sh` — the figures the documents quote, re-derived. A number
+      that has gone stale shows up as a disagreement rather than reading as current.
+
+[ADR-0006]: docs/adr/0006-a-container-may-not-overwrite-a-newer-revision.md
+[ADR-0010]: docs/adr/0010-a-synthesised-tounicode-keyed-on-glyphs-destroys-text.md

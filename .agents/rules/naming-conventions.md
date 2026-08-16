@@ -37,11 +37,18 @@ To distinguish between stable document-level references and volatile arena indic
 - **Terminology**: Retain specification terms (e.g., MediaBox) but adapt to Rust casing (`media_box`).
 - **Acronyms**: Treat as normal words (`PdfError` instead of `PDFError`).
 
-## 5. Multi-Pass Refinement Naming
-- **Standard**: Methods performing transformation phases MUST follow the `perform_pass_N_<action>` pattern.
-    - **Pass 0**: Physical Normalization.
-    - **Pass 1**: Structural Ingestion.
-    - **Pass 2**: Content Refinement.
+## 5. Pipeline Stage Naming
+- **Standard**: A stage of the load pipeline is named for what it does, not for its
+  position. The stages are described in `ARCHITECTURE.md` §5.4; the functions are
+  `reader::load_document`, `decrypt::unlock`, `Ingestor::perform_active_refinement` and
+  `metadata::settle`.
+- This section previously mandated `perform_pass_N_<action>` and listed a **Pass 1
+  (Structural Ingestion)** that [ADR-0003] removed. No method in the workspace has ever
+  matched the pattern, so it was a rule nothing followed describing a stage that did not
+  exist. Numbering a name fixes it to a position in a sequence that changes; `Pass 0`
+  survives in prose because the standard's clause order gives it a meaning.
+
+[ADR-0003]: ../../docs/adr/0003-lopdf-was-not-providing-robustness.md
 
 ## 6. Error Enumeration
 - **Standard**: `PdfError` variants must follow a "Result-of-Action" pattern.
