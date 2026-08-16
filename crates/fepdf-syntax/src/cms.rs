@@ -25,13 +25,13 @@ use cms::builder::{SignedDataBuilder, SignerInfoBuilder};
 use cms::cert::CertificateChoices;
 use cms::content_info::ContentInfo;
 use cms::signed_data::{EncapsulatedContentInfo, SignerIdentifier};
-use der::asn1::OctetString;
-use der::{Decode, Encode};
+use der::asn1::{OctetString, SetOfVec};
+use der::{Any, Decode, Encode, Reader};
 use rsa::pkcs1v15::SigningKey;
 use rsa::pkcs8::DecodePrivateKey;
 use sha2::{Digest, Sha256};
 use x509_cert::Certificate;
-use x509_cert::attr::AttributeTypeAndValue;
+use x509_cert::attr::{Attribute, AttributeTypeAndValue};
 
 fn crypto(message: impl Into<std::borrow::Cow<'static, str>>) -> SyntaxError {
     SyntaxError::Crypto(message.into())
@@ -56,6 +56,21 @@ impl SigningIdentity {
         Ok(Self { certificate, key: SigningKey::<Sha256>::new(key) })
     }
 
+    /// How many bytes [`sign_detached`] will produce for this identity.
+    ///
+    /// A PDF signature lives in a hole of a size fixed before the signature exists, so
+    /// the writer has to know this in advance. Every part of the structure is a fixed
+    /// size for a given identity — the certificate, the two attribute values, and an
+    /// RSA PKCS#1 v1.5 signature, which is always the width of the modulus — so the
+    /// answer is obtained by signing a digest-shaped input rather than estimated.
+    ///
+    /// # Errors
+    /// If the CMS structure cannot be assembled, which is the same failure signing
+    /// itself would hit, reported before a hole is reserved for it.
+    pub fn signature_len(&self) -> SyntaxResult<usize> {
+        sign_detached(&[0u8; 32], self).map(|der| der.len())
+    }
+
     /// The signer's common name, if the certificate states one.
     #[must_use]
     pub fn common_name(&self) -> Option<String> {
@@ -70,6 +85,49 @@ impl SigningIdentity {
             .and_then(|atv| atv.value.decode_as::<der::asn1::Utf8StringRef<'_>>().ok())
             .map(|s| s.as_str().to_string())
     }
+}
+
+/// RFC 5035 §4 `ESSCertIDv2`, reduced to the one field that carries meaning here.
+///
+/// `hashAlgorithm` is `DEFAULT id-sha256` and so is absent when the hash is SHA-256,
+/// which is the only one this engine takes; `issuerSerial` is `OPTIONAL` and states
+/// again what `SignerIdentifier` already states. The certificate hash is the part that
+/// does work.
+#[derive(der::Sequence)]
+struct EssCertIdV2 {
+    cert_hash: OctetString,
+}
+
+/// RFC 5035 §3 `SigningCertificateV2`, without the optional policy sequence.
+#[derive(der::Sequence)]
+struct SigningCertificateV2 {
+    certs: Vec<EssCertIdV2>,
+}
+
+/// Binds the signature to the certificate that made it.
+///
+/// Without this attribute a `SignedData` says only *some* key signed the digest: the
+/// certificate travels in an unsigned field, so substituting another one that chains to
+/// the same key leaves the signature verifying against a different identity. ETSI EN
+/// 319 122-1 requires the attribute for CAdES, which is why `/SubFilter
+/// /ETSI.CAdES.detached` can only be written once it is present.
+fn signing_certificate_v2(certificate: &Certificate) -> SyntaxResult<Attribute> {
+    let der =
+        certificate.to_der().map_err(|e| crypto(format!("cannot re-encode certificate: {e}")))?;
+    let hash = Sha256::digest(&der);
+    let cert_hash = OctetString::new(hash.as_slice())
+        .map_err(|e| crypto(format!("certificate hash is not an octet string: {e}")))?;
+    let reference = SigningCertificateV2 { certs: vec![EssCertIdV2 { cert_hash }] };
+    let encoded = reference
+        .to_der()
+        .map_err(|e| crypto(format!("cannot encode the certificate reference: {e}")))?;
+    let value = Any::from_der(&encoded)
+        .map_err(|e| crypto(format!("cannot wrap the certificate reference: {e}")))?;
+    let mut values = SetOfVec::new();
+    values
+        .insert(value)
+        .map_err(|e| crypto(format!("cannot assemble the certificate reference: {e}")))?;
+    Ok(Attribute { oid: const_oid::db::rfc5911::ID_AA_SIGNING_CERTIFICATE_V_2, values })
 }
 
 /// The digest a PDF signature is taken over: SHA-256 of the bytes `/ByteRange` names.
@@ -100,7 +158,7 @@ pub fn sign_detached(message_digest: &[u8], identity: &SigningIdentity) -> Synta
         issuer: identity.certificate.tbs_certificate.issuer.clone(),
         serial_number: identity.certificate.tbs_certificate.serial_number.clone(),
     });
-    let signer_info = SignerInfoBuilder::new(
+    let mut signer_info = SignerInfoBuilder::new(
         &identity.key,
         signer_id,
         sha256.clone(),
@@ -108,6 +166,9 @@ pub fn sign_detached(message_digest: &[u8], identity: &SigningIdentity) -> Synta
         Some(message_digest),
     )
     .map_err(|e| crypto(format!("could not describe the signer: {e}")))?;
+    signer_info
+        .add_signed_attribute(signing_certificate_v2(&identity.certificate)?)
+        .map_err(|e| crypto(format!("could not bind the certificate: {e}")))?;
 
     let mut builder = SignedDataBuilder::new(&content);
     let signed = builder
@@ -128,13 +189,36 @@ fn encode(signed: &ContentInfo) -> SyntaxResult<Vec<u8>> {
     signed.to_der().map_err(|e| crypto(format!("could not encode the signature: {e}")))
 }
 
+/// Trims the trailing padding a PDF `/Contents` carries.
+///
+/// The hole a signature is written into is sized before the signature exists, so what
+/// comes back out of `/Contents` is the DER followed by filler. DER itself is
+/// self-delimiting — the outer header states the length — so the structure can be cut
+/// out exactly rather than the padding guessed at by trimming zero bytes, which would
+/// also eat a final zero belonging to the signature.
+fn der_element(bytes: &[u8]) -> SyntaxResult<&[u8]> {
+    let mut reader = der::SliceReader::new(bytes)
+        .map_err(|e| crypto(format!("not a DER structure: {e}")))?;
+    let header =
+        der::Header::decode(&mut reader).map_err(|e| crypto(format!("not a DER structure: {e}")))?;
+    let start = u32::from(reader.position()) as usize;
+    let length = u32::from(header.length) as usize;
+    let end = start
+        .checked_add(length)
+        .filter(|&end| end <= bytes.len())
+        .ok_or_else(|| crypto("the DER structure states a length beyond its bytes"))?;
+    Ok(&bytes[..end])
+}
+
 /// Reads the digest a `SignedData` claims to cover, for verification.
+///
+/// Trailing padding is permitted, because `/Contents` always carries some.
 ///
 /// # Errors
 /// If the bytes are not a CMS `SignedData`, or carry no message-digest attribute.
 pub fn signed_digest(der: &[u8]) -> SyntaxResult<Vec<u8>> {
-    let info =
-        ContentInfo::from_der(der).map_err(|e| crypto(format!("not a CMS structure: {e}")))?;
+    let info = ContentInfo::from_der(der_element(der)?)
+        .map_err(|e| crypto(format!("not a CMS structure: {e}")))?;
     let signed: cms::signed_data::SignedData =
         info.content.decode_as().map_err(|e| crypto(format!("not CMS SignedData: {e}")))?;
     let signer = signed
@@ -241,5 +325,63 @@ mod signing {
     fn bytes_that_are_not_cms_are_refused() {
         assert!(signed_digest(b"not DER at all").is_err());
         assert!(signed_digest(&[]).is_err());
+    }
+
+    /// The hole is reserved before the signature exists, so the length has to be a
+    /// property of the identity and not of what is being signed. If this ever stops
+    /// holding, `/Contents` is sized against the wrong number.
+    #[test]
+    fn the_length_does_not_depend_on_the_digest() {
+        let identity = identity();
+        let reserved = identity.signature_len().expect("a length");
+        for message in [&b"one"[..], b"another", b"", b"a much longer message than either"] {
+            let der = sign_detached(&digest(&[message]), &identity).expect("a signature");
+            assert_eq!(der.len(), reserved, "signing {message:?} did not fit the reservation");
+        }
+    }
+
+    /// `/Contents` is a fixed-width hole, so what comes back out has filler after the
+    /// structure. Reading it must not depend on where the filler starts.
+    #[test]
+    fn padding_after_the_structure_is_tolerated() {
+        let identity = identity();
+        let taken = digest(&[b"the bytes the ByteRange names"]);
+        let der = sign_detached(&taken, &identity).expect("a signature");
+
+        let mut padded = der.clone();
+        padded.resize(der.len() + 512, 0);
+        assert_eq!(signed_digest(&padded).expect("a digest"), taken.to_vec());
+
+        // Not by trimming zero bytes: a structure whose last byte is zero survives.
+        let mut truncated = der.clone();
+        truncated.pop();
+        assert!(signed_digest(&truncated).is_err(), "a short structure was accepted");
+    }
+
+    /// ETSI EN 319 122-1 requires the certificate reference for CAdES, and
+    /// `/SubFilter /ETSI.CAdES.detached` is a claim to be CAdES. Without it the
+    /// signature names no signer: the certificate travels unsigned beside it.
+    #[test]
+    fn the_certificate_is_bound_into_the_signed_attributes() {
+        let identity = identity();
+        let der = sign_detached(&digest(&[b"a document"]), &identity).expect("a signature");
+        let info = ContentInfo::from_der(&der).expect("CMS");
+        let signed: cms::signed_data::SignedData = info.content.decode_as().expect("SignedData");
+        let signer = signed.signer_infos.0.as_slice().first().expect("a signer");
+        let attributes = signer.signed_attrs.as_ref().expect("signed attributes");
+        let reference = attributes
+            .iter()
+            .find(|a| a.oid == const_oid::db::rfc5911::ID_AA_SIGNING_CERTIFICATE_V_2)
+            .expect("no signing-certificate-v2 attribute");
+
+        // And it must be the hash of *this* certificate, not merely present.
+        let expected = Sha256::digest(identity.certificate.to_der().expect("DER"));
+        let value = reference.values.as_slice().first().expect("a value");
+        let parsed: SigningCertificateV2 =
+            value.decode_as().expect("not a SigningCertificateV2");
+        assert_eq!(
+            parsed.certs.first().expect("a certificate reference").cert_hash.as_bytes(),
+            expected.as_slice()
+        );
     }
 }
