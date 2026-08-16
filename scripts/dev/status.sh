@@ -37,7 +37,7 @@ frontend_logs=$(grep -rn "log::warn!\|log::error!" \
 row "frontend log sites (not a defect)" "$frontend_logs"
 
 stubs=$(grep -c 'PdfError::NotImplemented' crates/fepdf-sdk/src/lib.rs 2>/dev/null || echo 0)
-row "Operation stubs in the SDK (expect 19)" "$stubs"
+row "Operation stubs in the SDK (expect 21)" "$stubs"
 
 adrs=$(find docs/adr -name '0*.md' | wc -l | tr -d ' ')
 row "decision records" "$adrs"
@@ -127,6 +127,13 @@ if [ "${1:-}" = "--full" ]; then
         row "compliance audit" "PASSED"
     else
         row "compliance audit" "FAILED — run ./scripts/audit/verify_compliance.sh"
+    fi
+    # Release-only verification missed a regression that made seven subcommands panic
+    # before parsing anything: clap's duplicate-argument check is a `debug_assert`.
+    if ./scripts/test/cli_smoke.sh >/dev/null 2>&1; then
+        row "CLI starts (debug build)" "every subcommand"
+    else
+        row "CLI starts (debug build)" "FAILED — run ./scripts/test/cli_smoke.sh"
     fi
     # Three defects have been found only by reading the output with something else
     # (ADR-0006, ADR-0009, ADR-0010). None was visible to the engine's own comparison.

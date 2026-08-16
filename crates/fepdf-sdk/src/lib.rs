@@ -809,145 +809,29 @@ impl PdfDocument {
         Ok(self.permissions_lost_on_write().into_iter().collect())
     }
 
-    /// Signs the document and saves it with digital signature support.
+    /// Signs the document and saves it. **Not implemented.**
+    ///
+    /// This wrote a signature dictionary declaring `/SubFilter /adbe.pkcs7.detached`,
+    /// filled `/Contents` with 8,192 zero bytes, and set `/ByteRange` to
+    /// `[0 1000000000 1000000000 1000000000]` — four constants bearing no relation to
+    /// the file. Nothing computed a digest and nothing signed one.
+    ///
+    /// The output was therefore a document *asserting* that it had been signed and
+    /// carrying no signature, which is worse than an unsigned document: a signature is
+    /// a claim that the bytes have not been altered, and this one was empty. Refusing
+    /// is the honest behaviour until a real PKCS#7 signature can be produced, and the
+    /// machinery that built the fake one is gone rather than left to be called again.
+    ///
+    /// # Errors
+    /// Always. See `ROADMAP.md` Phase C for what implementing it needs.
     pub fn save_signed(
         &self,
-        output_path: &Path,
-        version: &str,
-        options: &SaveOptions,
-        sign_options: &SignOptions,
+        _output_path: &Path,
+        _version: &str,
+        _options: &SaveOptions,
+        _sign_options: &SignOptions,
     ) -> PdfResult<Vec<Decision>> {
-        let arena = self.inner.arena();
-        let sig_h = self.create_sig_dict(arena, sign_options);
-        let widget_h = self.create_sig_widget(arena, sign_options, sig_h);
-
-        self.add_sig_to_page(arena, sign_options.page_index, widget_h)?;
-        self.add_sig_to_catalog(arena, widget_h)?;
-
-        let file = std::fs::File::create(output_path).map_err(PdfError::Io)?;
-        let mut writer = crate::writer::PdfWriter::new(file, arena);
-        writer.set_string_encoding(options.string_encoding);
-        writer.add_signature_target(sig_h);
-
-        if options.vacuum {
-            writer.set_vacuum(true);
-        }
-        if options.compress {
-            writer.set_compression(options.compression_level);
-        }
-
-        writer.write_header(version)?;
-        writer.finish(*self.inner.root_handle(), self.inner.info_handle())?;
-        Ok(self.permissions_lost_on_write().into_iter().collect())
-    }
-
-    fn create_sig_dict(&self, arena: &PdfArena, options: &SignOptions) -> Handle<Object> {
-        let mut dict = std::collections::BTreeMap::new();
-        dict.insert(arena.name("Type"), Object::Name(arena.name("Sig")));
-        dict.insert(arena.name("Filter"), Object::Name(arena.name("Adobe.PPKLite")));
-        dict.insert(arena.name("SubFilter"), Object::Name(arena.name("adbe.pkcs7.detached")));
-
-        if let Some(r) = &options.reason {
-            dict.insert(arena.name("Reason"), Object::String(Bytes::from(r.clone())));
-        }
-        if let Some(l) = &options.location {
-            dict.insert(arena.name("Location"), Object::String(Bytes::from(l.clone())));
-        }
-        if let Some(c) = &options.contact_info {
-            dict.insert(arena.name("ContactInfo"), Object::String(Bytes::from(c.clone())));
-        }
-        if let Some(n) = &options.name {
-            dict.insert(arena.name("Name"), Object::String(Bytes::from(n.clone())));
-        }
-
-        let now =
-            chrono::Local::now().format("D:%Y%m%d%H%M%S%:z").to_string().replace(':', "'") + "'";
-        dict.insert(arena.name("M"), Object::String(Bytes::from(now)));
-        dict.insert(arena.name("Contents"), Object::Hex(vec![0u8; 8192].into()));
-
-        let br = vec![
-            Object::Integer(0),
-            Object::Integer(1_000_000_000),
-            Object::Integer(1_000_000_000),
-            Object::Integer(1_000_000_000),
-        ];
-        dict.insert(arena.name("ByteRange"), Object::Array(arena.alloc_array(br)));
-
-        arena.alloc_object(Object::Dictionary(arena.alloc_dict(dict)))
-    }
-
-    fn create_sig_widget(
-        &self,
-        arena: &PdfArena,
-        options: &SignOptions,
-        sig_h: Handle<Object>,
-    ) -> Handle<Object> {
-        let mut dict = std::collections::BTreeMap::new();
-        dict.insert(arena.name("Type"), Object::Name(arena.name("Annot")));
-        dict.insert(arena.name("Subtype"), Object::Name(arena.name("Widget")));
-        dict.insert(arena.name("FT"), Object::Name(arena.name("Sig")));
-        dict.insert(arena.name("T"), Object::String(Bytes::from("Signature1")));
-        dict.insert(arena.name("V"), Object::Reference(sig_h));
-        dict.insert(arena.name("F"), Object::Integer(4));
-
-        let rect = vec![
-            Object::Real(f64::from(options.rect[0])),
-            Object::Real(f64::from(options.rect[1])),
-            Object::Real(f64::from(options.rect[2])),
-            Object::Real(f64::from(options.rect[3])),
-        ];
-        dict.insert(arena.name("Rect"), Object::Array(arena.alloc_array(rect)));
-        arena.alloc_object(Object::Dictionary(arena.alloc_dict(dict)))
-    }
-
-    fn add_sig_to_page(
-        &self,
-        arena: &PdfArena,
-        page_idx: usize,
-        widget_h: Handle<Object>,
-    ) -> PdfResult<()> {
-        let page = self.inner.get_page(page_idx)?;
-        let dh = self.inner.resolve_to_dict(page.obj_handle())?;
-        let mut dict =
-            arena.get_dict(dh).ok_or_else(|| PdfError::Other("Page dict missing".into()))?;
-
-        let annots_k = arena.name("Annots");
-        let mut annots = if let Some(Object::Array(ah)) = dict.get(&annots_k) {
-            arena.get_array(*ah).unwrap_or_default()
-        } else {
-            Vec::new()
-        };
-        annots.push(Object::Reference(widget_h));
-        dict.insert(annots_k, Object::Array(arena.alloc_array(annots)));
-        arena.set_dict(dh, dict);
-        Ok(())
-    }
-
-    fn add_sig_to_catalog(&self, arena: &PdfArena, widget_h: Handle<Object>) -> PdfResult<()> {
-        let root_h = *self.inner.root_handle();
-        let Some(Object::Dictionary(rdh)) = arena.get_object(root_h) else { return Ok(()) };
-        let mut root_dict =
-            arena.get_dict(rdh).ok_or_else(|| PdfError::Other("Catalog dict missing".into()))?;
-
-        let mut acro_form =
-            if let Some(Object::Dictionary(afh)) = root_dict.get(&arena.name("AcroForm")) {
-                arena.get_dict(*afh).unwrap_or_default()
-            } else {
-                let mut af = std::collections::BTreeMap::new();
-                af.insert(arena.name("Fields"), Object::Array(arena.alloc_array(Vec::new())));
-                af
-            };
-
-        if let Some(Object::Array(fh)) = acro_form.get(&arena.name("Fields")) {
-            let mut fields = arena.get_array(*fh).unwrap_or_default();
-            fields.push(Object::Reference(widget_h));
-            acro_form.insert(arena.name("Fields"), Object::Array(arena.alloc_array(fields)));
-        }
-
-        acro_form.insert(arena.name("SigFlags"), Object::Integer(3));
-        root_dict.insert(arena.name("AcroForm"), Object::Dictionary(arena.alloc_dict(acro_form)));
-        arena.set_dict(rdh, root_dict);
-        Ok(())
+        Err(PdfError::NotImplemented("PdfDocument::save_signed"))
     }
 
     /// Returns the physical viewport of the page (MediaBox).
@@ -1353,10 +1237,18 @@ impl PdfDocument {
     }
 
     #[allow(clippy::needless_pass_by_ref_mut)]
-    fn apply_verify_digital_signature(&mut self, field_name: &str) -> PdfResult<()> {
-        // Pass 3: PKI Digital Signature & Timestamp verification
-        let _report = PkiValidator::validate_signature_bytes(field_name, &[])?;
-        Ok(())
+    /// **Not implemented.**
+    ///
+    /// This called `PkiValidator::validate_signature_bytes(field_name, &[])` — an empty
+    /// slice where the signature should be — discarded the result, and returned `Ok`.
+    /// Every document verified, including one with no signature at all. A verification
+    /// that cannot fail is worse than none, because its answer is indistinguishable
+    /// from a real one.
+    ///
+    /// # Errors
+    /// Always, until PKCS#7 verification exists to do the work.
+    fn apply_verify_digital_signature(&mut self, _field_name: &str) -> PdfResult<()> {
+        Err(PdfError::NotImplemented("Operation::VerifyDigitalSignature"))
     }
 
     #[allow(clippy::needless_pass_by_ref_mut)]

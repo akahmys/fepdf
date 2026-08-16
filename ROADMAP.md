@@ -176,6 +176,16 @@ Independent of A and B, and the area where a partial implementation is most harm
       *refuse* passwords, and refusing one a conforming reader accepts is the failure
       being fixed. Measured on a fixture whose `/U` stores the normalised form of a
       ligature — PDFKit opened it and fepdf did not
+- [ ] Digital signatures (12.8). `publish sign` wrote `/SubFilter
+      /adbe.pkcs7.detached` with 8,192 zero bytes for `/Contents` and a `/ByteRange` of
+      four constants, and `verify-signature` passed an empty slice to the validator,
+      discarded the result and returned success for every document including unsigned
+      ones. Both now refuse and are hidden. Implementing them needs the same
+      ASN.1/CMS layer as 7.6.5, and is the more common feature by far
+- [ ] Encrypting on write. `--password` claimed to encrypt the output; nothing set the
+      writer's security handler, so the flag produced a plaintext file. Hidden and
+      renamed `--encrypt-password`, which also stopped it colliding with the password
+      that opens a document
 - [ ] Public-key security handlers (**7.6.5**, not 7.6.4 as this line read until it was
       checked against the standard; 7.6.4 is the *standard* security handler). Needs a
       CMS/PKCS#7 layer and certificates to test against — the largest piece left here

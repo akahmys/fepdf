@@ -34,10 +34,9 @@ struct IngestArgs {
     /// Force fallback to system fonts if embedded font parsing fails
     #[arg(long)]
     force_fallback: bool,
+    // `IngestionOptions::password` was hardcoded `None` here, so every command that
+    // opens a document could only ever open one with an empty user password.
     /// Password to open an encrypted document with
-    ///
-    /// `IngestionOptions::password` was hardcoded `None` here, so every command that
-    /// opens a document could only ever open one with an empty user password.
     #[arg(long)]
     password: Option<String>,
 }
@@ -75,8 +74,20 @@ struct SaveArgs {
     /// Strip descriptive metadata
     #[arg(long)]
     strip: bool,
-    /// Encrypt with password
-    #[arg(long)]
+    // Hidden, and renamed so it stops colliding with the one that works.
+    //
+    // Nothing encrypts on write: `SaveOptions::password` reaches the writer's
+    // `security_handler` field through no path at all — `set_security_handler` has no
+    // caller, so `encrypt_stream` is unreachable. A user passing this got a plaintext
+    // file and was told nothing, which is ADR-0007's case again.
+    //
+    // The `id` matters as much as the flag. Both this and `IngestArgs::password`
+    // defaulted their clap id to the field name, so every command flattening both —
+    // `publish upgrade` and `publish sign` — panicked at startup. Only in debug builds,
+    // because clap's duplicate check is a `debug_assert`, which is why release-only
+    // verification never saw it.
+    /// Encrypt the output with a password
+    #[arg(long = "encrypt-password", id = "encrypt_password", hide = true)]
     password: Option<String>,
     /// Use Object Streams (ObjStm) for high-density compression
     #[arg(long)]
@@ -503,7 +514,13 @@ enum PublishSubcommands {
         #[command(flatten)]
         ingest: IngestArgs,
     },
+    // Hidden: signing is not implemented. It used to write a signature dictionary
+    // declaring PKCS#7 with 8,192 zero bytes for /Contents and a fabricated
+    // /ByteRange, producing a document that claimed to be signed and was not. Hidden
+    // rather than removed, on the precedent of the nineteen stub operations Phase A
+    // dealt with the same way.
     /// Digitally sign the PDF document
+    #[command(hide = true)]
     Sign {
         /// Input PDF file
         input: PathBuf,
@@ -531,7 +548,11 @@ enum PublishSubcommands {
         #[command(flatten)]
         save: SaveArgs,
     },
+    // Hidden for the same reason, and the more dangerous of the two: verification
+    // passed a `&[]` where the signature belonged, threw the result away, and returned
+    // success for every document — including unsigned ones.
     /// Verify a digital signature on a specific field
+    #[command(hide = true)]
     VerifySignature {
         /// Input PDF file
         input: PathBuf,
