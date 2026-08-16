@@ -42,6 +42,15 @@ nom.workspace = true
 reqwest.workspace = true
 rustls-native-certs.workspace = true
 
+# Making a throwaway certificate to sign with. Test-only on purpose: a checked-in
+# private key would be a checked-in private key, and `betterleaks` scans for them.
+[dev-dependencies]
+rsa = { workspace = true, features = ["sha2"] }
+sha2.workspace = true
+rand.workspace = true
+x509-cert = { version = "0.2", default-features = false, features = ["builder"] }
+der = { version = "0.7", features = ["derive"] }
+
 [features]
 debug-tools = []
 

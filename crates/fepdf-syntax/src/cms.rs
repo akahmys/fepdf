@@ -197,10 +197,10 @@ fn encode(signed: &ContentInfo) -> SyntaxResult<Vec<u8>> {
 /// out exactly rather than the padding guessed at by trimming zero bytes, which would
 /// also eat a final zero belonging to the signature.
 fn der_element(bytes: &[u8]) -> SyntaxResult<&[u8]> {
-    let mut reader = der::SliceReader::new(bytes)
+    let mut reader =
+        der::SliceReader::new(bytes).map_err(|e| crypto(format!("not a DER structure: {e}")))?;
+    let header = der::Header::decode(&mut reader)
         .map_err(|e| crypto(format!("not a DER structure: {e}")))?;
-    let header =
-        der::Header::decode(&mut reader).map_err(|e| crypto(format!("not a DER structure: {e}")))?;
     let start = u32::from(reader.position()) as usize;
     let length = u32::from(header.length) as usize;
     let end = start
@@ -208,6 +208,14 @@ fn der_element(bytes: &[u8]) -> SyntaxResult<&[u8]> {
         .filter(|&end| end <= bytes.len())
         .ok_or_else(|| crypto("the DER structure states a length beyond its bytes"))?;
     Ok(&bytes[..end])
+}
+
+/// How many of these bytes the CMS structure occupies, the rest being padding.
+///
+/// # Errors
+/// If the bytes do not begin with a DER element, or it states a length they cannot hold.
+pub fn content_info_len(der: &[u8]) -> SyntaxResult<usize> {
+    der_element(der).map(<[u8]>::len)
 }
 
 /// Reads the digest a `SignedData` claims to cover, for verification.
@@ -353,7 +361,7 @@ mod signing {
         assert_eq!(signed_digest(&padded).expect("a digest"), taken.to_vec());
 
         // Not by trimming zero bytes: a structure whose last byte is zero survives.
-        let mut truncated = der.clone();
+        let mut truncated = der;
         truncated.pop();
         assert!(signed_digest(&truncated).is_err(), "a short structure was accepted");
     }
@@ -377,8 +385,7 @@ mod signing {
         // And it must be the hash of *this* certificate, not merely present.
         let expected = Sha256::digest(identity.certificate.to_der().expect("DER"));
         let value = reference.values.as_slice().first().expect("a value");
-        let parsed: SigningCertificateV2 =
-            value.decode_as().expect("not a SigningCertificateV2");
+        let parsed: SigningCertificateV2 = value.decode_as().expect("not a SigningCertificateV2");
         assert_eq!(
             parsed.certs.first().expect("a certificate reference").cert_hash.as_bytes(),
             expected.as_slice()

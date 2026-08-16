@@ -18,6 +18,39 @@ pub enum StringEncoding {
     Utf8,
 }
 
+/// Room left over the length a signature is measured at.
+///
+/// For the RSA keys [`SigningIdentity`] takes today the measurement is exact — the
+/// signature is the width of the modulus and every other field is fixed — and a test in
+/// `fepdf-syntax` holds that. It is a property of the algorithm rather than of CMS: an
+/// ECDSA signature encodes two integers, whose DER length varies by a byte or two with
+/// the values. The margin costs a few bytes in the file and keeps the reservation from
+/// depending on which key was used.
+const SIGNATURE_SLACK: usize = 32;
+
+/// The width reserved for the four `/ByteRange` numbers, which are not known until the
+/// file is complete: `0 ` and three ten-digit offsets. Ten digits is every file this
+/// engine could write and several it could not.
+const BYTE_RANGE_WIDTH: usize = 34;
+
+/// What the writer needs to sign: which object carries the signature, and whose it is.
+struct Signature<'a> {
+    handle: Handle<Object>,
+    identity: &'a crate::cms::SigningIdentity,
+    reserved: usize,
+}
+
+/// Where the two fields that cannot be written until the file is finished ended up.
+///
+/// Both are recorded as they are written rather than searched for afterwards. Searching
+/// the object for `/Contents <` would find one inside a `/Reason` string just as
+/// happily, and a signature patched into the wrong place is a signature over the wrong
+/// bytes.
+struct SignatureHole {
+    byte_range: std::ops::Range<usize>,
+    contents: std::ops::Range<usize>,
+}
+
 /// A physical PDF writer that serializes objects resolved from an arena.
 pub struct PdfWriter<'a, W: Write> {
     inner: W,
@@ -27,7 +60,8 @@ pub struct PdfWriter<'a, W: Write> {
     compression_level: Option<u32>,
     id_map: BTreeMap<Handle<Object>, u32>,
     linearize: bool,
-    sig_handle: Option<Handle<Object>>,
+    signature: Option<Signature<'a>>,
+    hole: Option<SignatureHole>,
     string_encoding: StringEncoding,
     security_handler: Option<crate::security::SecurityHandler>,
     current_obj_id: u32,
@@ -48,7 +82,8 @@ impl<'a, W: Write> PdfWriter<'a, W> {
             compression_level: None,
             id_map: BTreeMap::new(),
             linearize: false,
-            sig_handle: None,
+            signature: None,
+            hole: None,
             string_encoding: StringEncoding::default(),
             security_handler: None,
             current_obj_id: 0,
@@ -69,9 +104,25 @@ impl<'a, W: Write> PdfWriter<'a, W> {
         self.string_encoding = encoding;
     }
 
-    /// Adds a handle to be targeted for digital signature patching.
-    pub fn add_signature_target(&mut self, handle: Handle<Object>) {
-        self.sig_handle = Some(handle);
+    /// Signs the file with `identity`, putting the signature in `handle`.
+    ///
+    /// `handle` must be a dictionary, and must **not** carry `/ByteRange` or
+    /// `/Contents`: a signature covers the file except itself, so neither value exists
+    /// until the file is complete, and the writer supplies both. A caller that could
+    /// state a byte range could state a wrong one, which is how the removed
+    /// implementation came to write four constants.
+    ///
+    /// # Errors
+    /// If the identity cannot produce a signature — reported here, before a hole has
+    /// been reserved for one that will not arrive.
+    pub fn sign_with(
+        &mut self,
+        handle: Handle<Object>,
+        identity: &'a crate::cms::SigningIdentity,
+    ) -> PdfResult<()> {
+        let reserved = identity.signature_len()? + SIGNATURE_SLACK;
+        self.signature = Some(Signature { handle, identity, reserved });
+        Ok(())
     }
 
     /// Writes the PDF header with the specified version string.
@@ -449,7 +500,11 @@ impl<'a, W: Write> PdfWriter<'a, W> {
             .arena
             .get_object(handle)
             .ok_or_else(|| PdfError::Other(format!("Object {id} missing").into()))?;
-        self.write_object(&obj)?;
+        if self.signature.as_ref().is_some_and(|s| s.handle == handle) {
+            self.write_signature_dict(&obj)?;
+        } else {
+            self.write_object(&obj)?;
+        }
         self.write_all(b"\r\nendobj\r\n")?;
         let end_pos = self.current_offset();
         self.obj_sizes.insert(id, end_pos.saturating_sub(start_pos));
@@ -463,11 +518,19 @@ impl<'a, W: Write> PdfWriter<'a, W> {
         info_handle: Option<Handle<Object>>,
     ) -> PdfResult<()> {
         if self.linearize {
+            // The hint tables state object sizes worked out ahead of the write, and the
+            // signature dictionary is the one object whose written size does not match
+            // what serialising it predicts. Rather than teach the estimate about the
+            // reservation, refuse: nothing asks for both, `save_signed` and
+            // `save_linearized` being separate paths.
+            if self.signature.is_some() {
+                return Err(PdfError::Other("a signed file cannot also be linearized".into()));
+            }
             self.finish_linearized(root_handle, info_handle)?;
         } else {
             self.finish_standard(root_handle, info_handle)?;
         }
-        self.patch_signatures()?;
+        self.patch_signature()?;
         self.inner.write_all(&self.buffer).map_err(PdfError::Io)?;
         self.inner.flush().map_err(PdfError::Io)?;
         Ok(())
@@ -503,72 +566,95 @@ impl<'a, W: Write> PdfWriter<'a, W> {
         Ok(())
     }
 
-    fn patch_signatures(&mut self) -> PdfResult<()> {
-        let Some(sig_h) = self.sig_handle else { return Ok(()) };
-        let id =
-            *self.id_map.get(&sig_h).ok_or_else(|| PdfError::Other("Sig object missing".into()))?;
-        let off =
-            *self.xref.get(&id).ok_or_else(|| PdfError::Other("Sig offset missing".into()))?;
+    /// Writes the signature dictionary, reserving the two fields the file has to be
+    /// finished before it can state.
+    ///
+    /// Neither placeholder goes through `write_object`, which is deliberate for
+    /// `/Contents`: 7.6.2 exempts it from encryption, and every other string in the file
+    /// is encrypted on the way out. Reserving it here means a future write-time security
+    /// handler cannot reach it.
+    fn write_signature_dict(&mut self, obj: &Object) -> PdfResult<()> {
+        let Some(dict_handle) = obj.as_dict_handle() else {
+            return Err(PdfError::Other("the signature object is not a dictionary".into()));
+        };
+        let dict = self
+            .arena
+            .get_dict(dict_handle)
+            .ok_or_else(|| PdfError::Other("the signature dictionary is missing".into()))?;
+        let reserved = self.signature.as_ref().map_or(0, |s| s.reserved);
 
-        let end = self.find_obj_end(off);
-        let (c_start, c_end) = self.find_contents_offsets(off, end)?;
-        let (br_start, br_end) = self.find_byte_range_offsets(off, end)?;
-
-        let br_str = format!(
-            "0 {:010} {:010} {:010}",
-            c_start - 1,
-            c_end + 1,
-            self.buffer.len() - (c_end + 1)
-        );
-        let br_bytes = br_str.as_bytes();
-        if br_bytes.len() > (br_end - br_start) {
-            return Err(PdfError::Other("ByteRange overflow".into()));
+        self.write_all(b"<<")?;
+        for (k, v) in &dict {
+            let name = self.arena.get_name_str(*k).unwrap_or_default();
+            if name == "ByteRange" || name == "Contents" {
+                return Err(PdfError::Other(
+                    format!("the caller set /{name} on a signature dictionary").into(),
+                ));
+            }
+            self.write_all(b"\r\n")?;
+            self.write_name(k)?;
+            self.write_all(b" ")?;
+            self.write_object(v)?;
         }
 
-        for i in br_start..br_end {
-            self.buffer[i] = b' ';
-        }
-        self.buffer[br_start..br_start + br_bytes.len()].copy_from_slice(br_bytes);
+        self.write_all(b"\r\n/ByteRange [")?;
+        let byte_range = self.current_offset()..self.current_offset() + BYTE_RANGE_WIDTH;
+        self.write_all(&[b'0'; BYTE_RANGE_WIDTH])?;
+        self.write_all(b"]\r\n/Contents <")?;
+        let contents = self.current_offset()..self.current_offset() + reserved * 2;
+        self.write_all(&vec![b'0'; reserved * 2])?;
+        self.write_all(b">\r\n>>")?;
+
+        self.hole = Some(SignatureHole { byte_range, contents });
         Ok(())
     }
 
-    fn find_obj_end(&self, start: usize) -> usize {
-        let mut end = start;
-        while end + 6 <= self.buffer.len() {
-            if &self.buffer[end..end + 6] == b"endobj" {
-                return end + 6;
-            }
-            end += 1;
+    /// Fills the hole reserved by [`Self::write_signature_dict`].
+    ///
+    /// The order is the whole of it. `/ByteRange` sits inside the range it describes, so
+    /// it has to be final before anything is hashed; the digest then covers the file
+    /// either side of `/Contents`, and the signature goes where the digest was taken
+    /// around.
+    fn patch_signature(&mut self) -> PdfResult<()> {
+        let Some(signature) = self.signature.take() else { return Ok(()) };
+        let hole = self.hole.take().ok_or_else(|| {
+            PdfError::Other("the signature object was never written; is it reachable?".into())
+        })?;
+
+        let gap_start = hole.contents.start - 1;
+        let gap_end = hole.contents.end + 1;
+        let stated =
+            format!("0 {gap_start} {gap_end} {}", self.buffer.len() - gap_end).into_bytes();
+        if stated.len() > hole.byte_range.len() {
+            return Err(PdfError::Other(
+                format!("this file needs a /ByteRange {} bytes wide", stated.len()).into(),
+            ));
         }
-        end
-    }
+        self.buffer[hole.byte_range.clone()].fill(b' ');
+        self.buffer[hole.byte_range.start..hole.byte_range.start + stated.len()]
+            .copy_from_slice(&stated);
 
-    fn find_contents_offsets(&self, start: usize, end: usize) -> PdfResult<(usize, usize)> {
-        let key = b"/Contents <";
-        let pos = self.buffer[start..end]
-            .windows(key.len())
-            .position(|w| w == key)
-            .ok_or_else(|| PdfError::Other("Missing /Contents".into()))?;
-        let c_start = start + pos + 11;
-        let c_end_pos = self.buffer[c_start..end]
-            .iter()
-            .position(|&b| b == b'>')
-            .ok_or_else(|| PdfError::Other("Missing end of /Contents".into()))?;
-        Ok((c_start, c_start + c_end_pos))
-    }
+        let taken = crate::cms::digest(&[&self.buffer[..gap_start], &self.buffer[gap_end..]]);
+        let der = crate::cms::sign_detached(&taken, signature.identity)?;
+        if der.len() * 2 > hole.contents.len() {
+            return Err(PdfError::Other(
+                format!(
+                    "the signature is {} bytes and {} were reserved",
+                    der.len(),
+                    hole.contents.len() / 2
+                )
+                .into(),
+            ));
+        }
 
-    fn find_byte_range_offsets(&self, start: usize, end: usize) -> PdfResult<(usize, usize)> {
-        let key = b"/ByteRange [";
-        let pos = self.buffer[start..end]
-            .windows(key.len())
-            .position(|w| w == key)
-            .ok_or_else(|| PdfError::Other("Missing /ByteRange".into()))?;
-        let br_start = start + pos + 12;
-        let br_end_pos = self.buffer[br_start..end]
-            .iter()
-            .position(|&b| b == b']')
-            .ok_or_else(|| PdfError::Other("Missing end of /ByteRange".into()))?;
-        Ok((br_start, br_start + br_end_pos))
+        // Hex, in place: the field keeps its width, and what the signature does not
+        // fill stays the zero padding a reader stops at once the DER is complete.
+        for (i, byte) in der.iter().enumerate() {
+            let digits = format!("{byte:02X}");
+            self.buffer[hole.contents.start + i * 2..hole.contents.start + i * 2 + 2]
+                .copy_from_slice(digits.as_bytes());
+        }
+        Ok(())
     }
 
     fn finish_standard(

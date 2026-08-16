@@ -35,6 +35,7 @@ pub mod ingest;
 /// Interactive features (clause 12): annotations, forms, actions, outlines.
 pub mod interactive;
 pub mod interpretation;
+pub use fepdf_syntax::cms;
 pub use fepdf_syntax::lexer;
 /// Document metadata, from XMP or the `/Info` dictionary.
 pub mod metadata;
