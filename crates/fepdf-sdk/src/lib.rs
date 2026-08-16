@@ -93,8 +93,11 @@ pub struct SaveOptions {
     pub vacuum: bool,
     /// Whether to strip descriptive metadata.
     pub strip: bool,
-    /// Optional encryption password.
+    /// Encrypt the output, and the password that opens it.
     pub password: Option<String>,
+    /// The password that carries owner rights, when it differs from the one that opens
+    /// the document. Ignored unless `password` is set.
+    pub owner_password: Option<String>,
     /// Whether to use Object Streams (ObjStm) for high-density compression.
     pub obj_stm: bool,
     /// Optional image re-compression quality (1-100).
@@ -136,6 +139,7 @@ impl Default for SaveOptions {
             vacuum: false,
             strip: false,
             password: None,
+            owner_password: None,
             obj_stm: false,
             image_quality: None,
             lang: None,
@@ -848,6 +852,11 @@ impl PdfDocument {
         if options.compress {
             writer.set_compression(options.compression_level);
         }
+        let mut encryption = Vec::new();
+        if let Some(password) = &options.password {
+            let (handler, artifacts) = Self::encryption_for(password, options, &mut encryption)?;
+            writer.encrypt_with(handler, artifacts);
+        }
         if let Some((identity, sign_options)) = signing {
             // The field goes into the arena that is about to be written, not into the
             // document: what is signed is this output, and nothing about the document
@@ -861,7 +870,41 @@ impl PdfDocument {
         writer.finish(root, info)?;
         let mut decisions = self.write_decisions();
         decisions.extend(stripped.into_entries());
+        decisions.extend(encryption);
         Ok(decisions)
+    }
+
+    /// Builds the handler for an encrypted save, recording what the options left open.
+    fn encryption_for(
+        password: &str,
+        options: &SaveOptions,
+        decisions: &mut Vec<Decision>,
+    ) -> PdfResult<(
+        fepdf_model::security::SecurityHandler,
+        fepdf_model::security::EncryptionArtifacts,
+    )> {
+        let permissions = match &options.permissions {
+            Some(list) => fepdf_model::encryption::permissions_from_keywords(list)?,
+            // Every bit granted. `/P` is a declaration this engine reports and does not
+            // enforce, and encrypting a document is not on its own a statement about
+            // what may be done with it once open.
+            None => -1,
+        };
+
+        let owner = options.owner_password.as_deref().unwrap_or(password);
+        if options.owner_password.is_none() {
+            // Worth saying out loud rather than defaulting in silence. The owner
+            // password lifts `/P` (7.6.4.1), so making it the open password means the
+            // permissions restrict nobody who can open the file — which is exactly the
+            // party they were meant to restrict.
+            decisions.push(Decision::ambiguity(
+                "7.6.4.1",
+                "no owner password was given",
+                "the open password carries owner rights, so /P restricts nobody who can open it",
+            ));
+        }
+
+        Ok(fepdf_model::security::SecurityHandler::encrypt_new(password, owner, permissions, true)?)
     }
 
     /// Saves a linearized (Fast Web View) version of the document with custom options.

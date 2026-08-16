@@ -64,6 +64,7 @@ pub struct PdfWriter<'a, W: Write> {
     hole: Option<SignatureHole>,
     string_encoding: StringEncoding,
     security_handler: Option<crate::security::SecurityHandler>,
+    artifacts: Option<crate::security::EncryptionArtifacts>,
     current_obj_id: u32,
     current_obj_gen: u16,
     recursion_depth: u32,
@@ -86,6 +87,7 @@ impl<'a, W: Write> PdfWriter<'a, W> {
             hole: None,
             string_encoding: StringEncoding::default(),
             security_handler: None,
+            artifacts: None,
             current_obj_id: 0,
             current_obj_gen: 0,
             recursion_depth: 0,
@@ -94,9 +96,21 @@ impl<'a, W: Write> PdfWriter<'a, W> {
         }
     }
 
-    /// Sets the security handler for encryption.
-    pub fn set_security_handler(&mut self, handler: crate::security::SecurityHandler) {
+    /// Encrypts the output, writing the `/Encrypt` dictionary that opens it again.
+    ///
+    /// The handler and the artifacts arrive together because they are two halves of one
+    /// thing: the handler holds the file key, which is never written, and the artifacts
+    /// are what a reader needs to recover it. Setting one without the other produces
+    /// either a file that cannot be opened or a file that is not encrypted, and both
+    /// used to be reachable — `set_security_handler` took the handler alone, had no
+    /// caller, and would have written ciphertext with no `/Encrypt` to describe it.
+    pub fn encrypt_with(
+        &mut self,
+        handler: crate::security::SecurityHandler,
+        artifacts: crate::security::EncryptionArtifacts,
+    ) {
         self.security_handler = Some(handler);
+        self.artifacts = Some(artifacts);
     }
 
     /// Sets the encoding for string literals (Standard or Unicode).
@@ -472,8 +486,10 @@ impl<'a, W: Write> PdfWriter<'a, W> {
     /// (0Ah)" — so a raw `\r` written here comes back as `\n`, and a raw `\r\n` comes
     /// back as one byte instead of two. This escaped only the parentheses and the
     /// backslash, and the resulting corruption was invisible for as long as the strings
-    /// were text: `fepdf`'s own lexer returned a raw `\r` unchanged, so the two mistakes
-    /// cancelled and every round trip through this engine was clean.
+    /// were text: `fepdf`'s own lexer returns a raw `\r` unchanged, so the two mistakes
+    /// cancelled and every round trip through this engine was clean. Encrypting made
+    /// every string a random byte sequence, one in 256 of which is a carriage return,
+    /// and PDFKit read the difference.
     fn write_string_literal(&mut self, s: &[u8]) -> PdfResult<()> {
         self.write_all(b"(")?;
         for &b in s {
@@ -537,6 +553,14 @@ impl<'a, W: Write> PdfWriter<'a, W> {
             // `save_linearized` being separate paths.
             if self.signature.is_some() {
                 return Err(PdfError::Other("a signed file cannot also be linearized".into()));
+            }
+            // The linearized path builds its own trailer, and nothing there writes an
+            // `/Encrypt` or names one. Encrypting the objects anyway would produce a
+            // file of ciphertext that declares itself plaintext — unopenable, and
+            // unopenable in the way that looks like corruption rather than like a
+            // password prompt.
+            if self.artifacts.is_some() {
+                return Err(PdfError::Other("an encrypted file cannot also be linearized".into()));
             }
             self.finish_linearized(root_handle, info_handle)?;
         } else {
@@ -693,7 +717,29 @@ impl<'a, W: Write> PdfWriter<'a, W> {
             self.write_indirect_object(current_id, 0, handle)?;
         }
 
-        let total_size = next_id;
+        // The `/Encrypt` dictionary is written last and is not in the arena, because it
+        // is not part of the document: nothing references it, the catalogue cannot reach
+        // it, and it describes the file rather than its contents.
+        let encrypt_id = self.artifacts.is_some().then(|| {
+            let id = next_id;
+            next_id += 1;
+            id
+        });
+        if let Some(id) = encrypt_id {
+            self.write_encrypt_dictionary(id)?;
+        }
+
+        self.write_xref_and_trailer(next_id, root_handle, info_handle, encrypt_id)
+    }
+
+    /// The cross-reference table and the trailer that names its root.
+    fn write_xref_and_trailer(
+        &mut self,
+        total_size: u32,
+        root_handle: Handle<Object>,
+        info_handle: Option<Handle<Object>>,
+        encrypt_id: Option<u32>,
+    ) -> PdfResult<()> {
         let start_xref = self.current_offset();
         self.write_all(format!("xref\r\n0 {total_size}\r\n0000000000 65535 f\r\n").as_bytes())?;
         for id in 1..total_size {
@@ -711,11 +757,54 @@ impl<'a, W: Write> PdfWriter<'a, W> {
                 self.write_all(format!("/Info {id} 0 R\r\n").as_bytes())?;
             }
         }
+        // The trailer's `/ID` is written here rather than through `write_object`, so it
+        // is not encrypted — which 7.6.2 requires, and which matters because a reader
+        // needs it before it has a key.
         self.write_all(format!("/ID [<{id_hex}> <{id_hex}>]\r\n").as_bytes())?;
+        if let Some(id) = encrypt_id {
+            self.write_all(format!("/Encrypt {id} 0 R\r\n").as_bytes())?;
+        }
         self.write_all(b">>\r\nstartxref\r\n")?;
         self.write_all(start_xref.to_string().as_bytes())?;
         self.write_all(b"\r\n%%EOF\r\n")?;
         Ok(())
+    }
+
+    /// Writes the `/Encrypt` dictionary, which is the one dictionary in the file whose
+    /// strings are not encrypted.
+    ///
+    /// 7.6.2: the strings in `/Encrypt` are exempt, and they have to be — `/U` is what a
+    /// reader checks the password against, so encrypting it under the key that password
+    /// unlocks would leave nothing able to open the file. This bypasses `write_object`
+    /// for that reason, the same way the signature `/Contents` does.
+    ///
+    /// The values come from [`crate::security::EncryptionArtifacts`] rather than from a
+    /// caller. A caller that could state `/U` could state one that does not match the
+    /// key the handler is encrypting with, and the result would be a file nobody can
+    /// open — detectable only by trying.
+    fn write_encrypt_dictionary(&mut self, id: u32) -> PdfResult<()> {
+        let Some(artifacts) = self.artifacts.clone() else { return Ok(()) };
+        self.xref.insert(id, self.current_offset());
+
+        let hex = |bytes: &[u8]| hex::encode_upper(bytes);
+        // /V 5 /R 6 with a single AES-256 crypt filter applied to both streams and
+        // strings. /Length is in bits here and in bytes inside the crypt filter, which
+        // is the standard's own inconsistency and not a transcription slip.
+        let dictionary = format!(
+            "<<\r\n/Filter /Standard\r\n/V 5\r\n/R 6\r\n/Length 256\r\n\
+             /CF << /StdCF << /CFM /AESV3 /AuthEvent /DocOpen /Length 32 >> >>\r\n\
+             /StmF /StdCF\r\n/StrF /StdCF\r\n\
+             /U <{}>\r\n/UE <{}>\r\n/O <{}>\r\n/OE <{}>\r\n/Perms <{}>\r\n\
+             /P {}\r\n/EncryptMetadata {}\r\n>>",
+            hex(&artifacts.u),
+            hex(&artifacts.ue),
+            hex(&artifacts.o),
+            hex(&artifacts.oe),
+            hex(&artifacts.perms),
+            artifacts.permissions,
+            artifacts.encrypt_metadata,
+        );
+        self.write_all(format!("{id} 0 obj\r\n{dictionary}\r\nendobj\r\n").as_bytes())
     }
 
     fn partition_and_collect_shared(

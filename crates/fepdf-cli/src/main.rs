@@ -83,19 +83,17 @@ struct SaveArgs {
     strip: bool,
     // Hidden, and renamed so it stops colliding with the one that works.
     //
-    // Nothing encrypts on write: `SaveOptions::password` reaches the writer's
-    // `security_handler` field through no path at all — `set_security_handler` has no
-    // caller, so `encrypt_stream` is unreachable. A user passing this got a plaintext
-    // file and was told nothing, which is ADR-0007's case again.
-    //
     // The `id` matters as much as the flag. Both this and `IngestArgs::password`
     // defaulted their clap id to the field name, so every command flattening both —
     // `publish upgrade` and `publish sign` — panicked at startup. Only in debug builds,
     // because clap's duplicate check is a `debug_assert`, which is why release-only
     // verification never saw it.
-    /// Encrypt the output with a password
-    #[arg(long = "encrypt-password", id = "encrypt_password", hide = true)]
+    /// Encrypt the output with a password (AES-256)
+    #[arg(long = "encrypt-password", id = "encrypt_password")]
     password: Option<String>,
+    /// Password carrying owner rights, if it differs from the one that opens the file
+    #[arg(long = "owner-password", id = "owner_password", requires = "encrypt_password")]
+    owner_password: Option<String>,
     // Hidden: `SaveOptions::obj_stm` is carried to the SDK and read by nothing. The
     // output holds zero `/ObjStm` either way, and passing it moves `samples/fy05.pdf`
     // by one byte — the XMP instance identifier. ADR-0007.
@@ -124,11 +122,13 @@ struct SaveArgs {
     /// Set copyright notice in XMP metadata
     #[arg(long, hide = true)]
     copyright: Option<String>,
-    // Hidden, and it cannot work until something else does: permissions live in
-    // `/Encrypt` (7.6.4.2), and this engine writes no `/Encrypt` — which is why
-    // `--encrypt-password` above is hidden too. Nothing reads the field either.
-    /// Permission flags (e.g., "print,copy")
-    #[arg(long, hide = true)]
+    // No longer hidden, and it was hidden for a reason that has gone: permissions live
+    // in `/Encrypt` (7.6.4.2), and this engine wrote no `/Encrypt`. It writes one now,
+    // so `/P` has somewhere to go. Without `--encrypt-password` there is still nowhere,
+    // which is what `requires` says.
+    /// Grant only these permissions: print, modify, copy, annotate, forms,
+    /// accessibility, assemble, print-high. Everything unnamed is denied
+    #[arg(long, requires = "encrypt_password")]
     permissions: Option<String>,
     /// Text string encoding for non-ASCII characters (utf16be, utf8)
     #[arg(long, default_value = "utf16be")]
@@ -146,6 +146,7 @@ impl From<SaveArgs> for fepdf_sdk::SaveOptions {
             vacuum: args.vacuum,
             strip: args.strip,
             password: args.password,
+            owner_password: args.owner_password,
             obj_stm: args.obj_stm,
             image_quality: args.image_quality,
             lang: args.lang,

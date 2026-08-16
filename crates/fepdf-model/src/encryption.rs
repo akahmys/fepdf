@@ -8,7 +8,7 @@
 
 use crate::arena::PdfArena;
 use crate::decrypt;
-use crate::error::PdfResult;
+use crate::error::{PdfError, PdfResult};
 use crate::handle::Handle;
 use crate::interpretation::Decision;
 use crate::object::{Object, PdfName};
@@ -123,16 +123,59 @@ pub struct EncryptionReport {
 /// `allowsDocumentChanges` true where bit 4 is clear. `/P` is `0xFFFFFBF4` and bit 4 is
 /// worth 8, so the bit really is clear; PDFKit's property is a higher-level judgement
 /// that does not map to it one for one. Report the bit.
-const PERMISSION_BITS: &[(u8, &str)] = &[
-    (3, "print"),
-    (4, "modify contents"),
-    (5, "copy or extract text and graphics"),
-    (6, "add or modify annotations and fill form fields"),
-    (9, "fill form fields, even with bit 6 clear"),
-    (10, "extract for accessibility (deprecated in PDF 2.0)"),
-    (11, "assemble: insert, rotate or delete pages"),
-    (12, "print at high resolution"),
+///
+/// Each row is the bit, the keyword `--permissions` accepts for it, and what it means.
+/// One table, both directions: reading a `/P` and writing one could not disagree while
+/// only one of them existed, and now that both do, a keyword naming a different bit
+/// from the one `inspect encryption` reports would be a vocabulary to learn twice.
+const PERMISSION_BITS: &[(u8, &str, &str)] = &[
+    (3, "print", "print"),
+    (4, "modify", "modify contents"),
+    (5, "copy", "copy or extract text and graphics"),
+    (6, "annotate", "add or modify annotations and fill form fields"),
+    (9, "forms", "fill form fields, even with bit 6 clear"),
+    (10, "accessibility", "extract for accessibility (deprecated in PDF 2.0)"),
+    (11, "assemble", "assemble: insert, rotate or delete pages"),
+    (12, "print-high", "print at high resolution"),
 ];
+
+/// The keywords `--permissions` takes, for a caller that has to list them.
+#[must_use]
+pub fn permission_keywords() -> Vec<&'static str> {
+    PERMISSION_BITS.iter().map(|(_, keyword, _)| *keyword).collect()
+}
+
+/// Builds a `/P` from a comma-separated list of keywords: what is named is granted.
+///
+/// Everything not named is denied, which is the direction that makes an empty list
+/// mean something — `--permissions ""` grants nothing, rather than silently granting
+/// all. The reserved bits follow Table 22: 1 and 2 are cleared, and the rest are set,
+/// because a reserved bit written the wrong way is a `/P` other readers disagree about.
+///
+/// # Errors
+/// If a keyword is not one of [`permission_keywords`], naming the ones that are.
+pub fn permissions_from_keywords(list: &str) -> PdfResult<i32> {
+    // Bits 1 and 2 shall be 0; bits 7, 8 and 13 upward shall be 1. Start from that, with
+    // all eight meaningful bits denied, and grant what was asked for.
+    let mut bits: u32 = !0b11;
+    for (bit, _, _) in PERMISSION_BITS {
+        bits &= !(1 << (bit - 1));
+    }
+
+    for keyword in list.split(',').map(str::trim).filter(|k| !k.is_empty()) {
+        let found = PERMISSION_BITS.iter().find(|(_, k, _)| *k == keyword).ok_or_else(|| {
+            PdfError::Other(
+                format!(
+                    "{keyword:?} is not a permission; the ones Table 22 defines are {}",
+                    permission_keywords().join(", ")
+                )
+                .into(),
+            )
+        })?;
+        bits |= 1 << (found.0 - 1);
+    }
+    Ok(bits.cast_signed())
+}
 
 impl EncryptionReport {
     /// Reads `bytes` and reports what protects it.
@@ -342,7 +385,7 @@ fn decode_permissions(bits: Option<i32>) -> Vec<Permission> {
     let Some(bits) = bits else { return Vec::new() };
     PERMISSION_BITS
         .iter()
-        .map(|(bit, meaning)| Permission {
+        .map(|(bit, _, meaning)| Permission {
             bit: *bit,
             meaning,
             granted: bits & (1 << (bit - 1)) != 0,

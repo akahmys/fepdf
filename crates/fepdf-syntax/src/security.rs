@@ -151,12 +151,80 @@ fn aes256_cbc_decrypt_no_padding(key: &[u8], data: &[u8]) -> Option<Vec<u8>> {
     Some(out)
 }
 
+/// AES-256 CBC encryption with a zero initialisation vector and no padding: the
+/// direction Algorithms 8(b) and 9(b) wrap the file key in.
+fn aes256_cbc_encrypt_no_padding(key: &[u8], data: &[u8]) -> Option<Vec<u8>> {
+    if !data.len().is_multiple_of(16) {
+        return None;
+    }
+    let cipher = Aes256::new_from_slice(key).ok()?;
+    let mut previous = [0u8; 16];
+    let mut out = Vec::with_capacity(data.len());
+    for chunk in data.chunks(16) {
+        let mut block = [0u8; 16];
+        for (i, byte) in chunk.iter().enumerate() {
+            block[i] = byte ^ previous[i];
+        }
+        cipher.encrypt_block(Block::from_mut_slice(&mut block));
+        previous = block;
+        out.extend_from_slice(&block);
+    }
+    Some(out)
+}
+
 /// AES-256 ECB decryption, which `/Perms` uses (2.A step (f)).
 fn aes256_ecb_decrypt(key: &[u8], data: &[u8]) -> Option<Vec<u8>> {
     let cipher = Aes256::new_from_slice(key).ok()?;
     let mut block: [u8; 16] = data.get(..16)?.try_into().ok()?;
     cipher.decrypt_block(Block::from_mut_slice(&mut block));
     Some(block.to_vec())
+}
+
+/// AES-256 ECB encryption, the direction Algorithm 10 builds `/Perms` in.
+fn aes256_ecb_encrypt(key: &[u8], data: &[u8]) -> Option<Vec<u8>> {
+    let cipher = Aes256::new_from_slice(key).ok()?;
+    let mut block: [u8; 16] = data.get(..16)?.try_into().ok()?;
+    cipher.encrypt_block(Block::from_mut_slice(&mut block));
+    Some(block.to_vec())
+}
+
+/// The `/Encrypt` entries a newly encrypted document has to carry.
+///
+/// These are the handler's public half: without them no reader can recover the key,
+/// and the handler itself holds the key, which must not be written anywhere. Keeping
+/// them apart is why this is a separate type rather than fields on the handler.
+#[derive(Debug, Clone)]
+pub struct EncryptionArtifacts {
+    /// `/U`: 32-byte validation hash, 8-byte validation salt, 8-byte key salt.
+    pub u: Vec<u8>,
+    /// `/UE`: the file key wrapped under the user password.
+    pub ue: Vec<u8>,
+    /// `/O`: like `/U`, hashed with the 48-byte `/U` appended.
+    pub o: Vec<u8>,
+    /// `/OE`: the file key wrapped under the owner password.
+    pub oe: Vec<u8>,
+    /// `/Perms`: `/P` encrypted under the file key, so that editing `/P` is detectable.
+    pub perms: Vec<u8>,
+    /// `/P`, as the signed 32-bit value 7.6.4.2 defines.
+    pub permissions: i32,
+    /// `/EncryptMetadata`.
+    pub encrypt_metadata: bool,
+}
+
+/// Algorithm 10: the `/Perms` block, which is `/P` under the file key.
+///
+/// The four random bytes at the end are required by the algorithm, and they are the
+/// reason `/Perms` is not a constant for a given `/P` and key.
+fn perms_block(file_key: &[u8], permissions: i32, encrypt_metadata: bool) -> SyntaxResult<Vec<u8>> {
+    use rand::RngCore;
+    let mut block = [0u8; 16];
+    block[..4].copy_from_slice(&permissions.cast_unsigned().to_le_bytes());
+    block[4..8].copy_from_slice(&[0xFF; 4]);
+    block[8] = if encrypt_metadata { b'T' } else { b'F' };
+    block[9..12].copy_from_slice(b"adb");
+    rand::thread_rng().fill_bytes(&mut block[12..16]);
+    aes256_ecb_encrypt(file_key, &block)
+        .ok_or_else(|| SyntaxError::Crypto("could not encrypt /Perms".into()))
 }
 
 /// A security handler for PDF encryption.
@@ -296,6 +364,81 @@ impl SecurityHandler {
         }
 
         hash[..spec.key_len].to_vec()
+    }
+
+    /// Encrypts a new document under AES-256, generating a fresh file key.
+    ///
+    /// This is the only scheme this engine *writes*. It reads five — RC4 at 40 and 128
+    /// bits, AES-128, and AES-256 at revisions 5 and 6 — because files exist that use
+    /// them. It writes one, because output is always PDF 2.0, and 7.6.4.1 deprecates
+    /// RC4 and the Algorithm 2 key derivation in that very edition. Writing a scheme
+    /// the standard tells readers to stop trusting, to a file that declares itself 2.0,
+    /// would be putting a weaker guarantee behind a newer number.
+    ///
+    /// Revision 6, not 5: revision 5 is Adobe's original extension, and its Algorithm
+    /// 2.A hashes once where 2.B is deliberately serial. Both are readable here; only
+    /// one is worth producing.
+    ///
+    /// The three algorithms this runs are 8 (`/U`, `/UE`), 9 (`/O`, `/OE`) and 10
+    /// (`/Perms`), and the salts are random per document — two files encrypted with the
+    /// same password share no `/U`, which is the point of a salt.
+    ///
+    /// **SASLprep is not applied**, matching [`Self::new_aes256`]: a password this
+    /// writes and this reads round-trips, and one outside ASCII may not survive a
+    /// conforming reader that does normalise. The gap is the same one, in both
+    /// directions.
+    ///
+    /// # Errors
+    /// If the platform's random source or the AES primitives fail, neither of which is
+    /// recoverable and neither of which should be papered over with a fixed key.
+    pub fn encrypt_new(
+        user_password: &str,
+        owner_password: &str,
+        permissions: i32,
+        encrypt_metadata: bool,
+    ) -> SyntaxResult<(Self, EncryptionArtifacts)> {
+        use rand::RngCore;
+        const REVISION: i32 = 6;
+
+        let mut file_key = vec![0u8; 32];
+        let mut salts = [0u8; 32];
+        rand::thread_rng().fill_bytes(&mut file_key);
+        rand::thread_rng().fill_bytes(&mut salts);
+
+        let truncate = |p: &str| p.as_bytes()[..p.len().min(127)].to_vec();
+        let user = truncate(user_password);
+        let owner = truncate(owner_password);
+
+        // Algorithm 8: /U is the validation hash followed by both salts, and /UE wraps
+        // the file key under a key derived from the second one.
+        let (u_validation, u_key) = (&salts[0..8], &salts[8..16]);
+        let mut u = hash_2a(REVISION, &user, u_validation, &[]);
+        u.extend_from_slice(u_validation);
+        u.extend_from_slice(u_key);
+        let ue = aes256_cbc_encrypt_no_padding(&hash_2a(REVISION, &user, u_key, &[]), &file_key)
+            .ok_or_else(|| SyntaxError::Crypto("could not wrap the file key for /UE".into()))?;
+
+        // Algorithm 9, which differs by hashing the whole 48-byte /U alongside the
+        // password. That is what binds the owner entry to this document's user entry.
+        let (o_validation, o_key) = (&salts[16..24], &salts[24..32]);
+        let mut o = hash_2a(REVISION, &owner, o_validation, &u);
+        o.extend_from_slice(o_validation);
+        o.extend_from_slice(o_key);
+        let oe = aes256_cbc_encrypt_no_padding(&hash_2a(REVISION, &owner, o_key, &u), &file_key)
+            .ok_or_else(|| SyntaxError::Crypto("could not wrap the file key for /OE".into()))?;
+
+        let perms = perms_block(&file_key, permissions, encrypt_metadata)?;
+
+        Ok((
+            Self {
+                encryption_key: file_key,
+                revision: REVISION,
+                is_aes: true,
+                encrypt_metadata,
+                access: Access::Owner,
+            },
+            EncryptionArtifacts { u, ue, o, oe, perms, permissions, encrypt_metadata },
+        ))
     }
 
     /// Retrieves the file encryption key from an AES-256 document: Algorithm 2.A.
@@ -828,6 +971,92 @@ mod tests {
             h.update(udata);
             h.finalize().into()
         }
+    }
+
+    /// The `/Encrypt` `encrypt_new` writes, read back the way a file's would be.
+    fn reopen(artifacts: &EncryptionArtifacts, password: &str) -> Option<SecurityHandler> {
+        SecurityHandler::new_aes256(
+            password,
+            &AesV5Spec {
+                u: &artifacts.u,
+                ue: &artifacts.ue,
+                o: &artifacts.o,
+                oe: &artifacts.oe,
+                revision: 6,
+                encrypt_metadata: artifacts.encrypt_metadata,
+            },
+        )
+    }
+
+    /// What is written has to be readable by the path that reads real files. That path
+    /// is the one verified against PDFKit on fourteen documents, so agreeing with it is
+    /// a stronger statement than agreeing with a second copy of the writing code.
+    #[test]
+    fn what_is_encrypted_can_be_opened_by_either_password() {
+        let (handler, artifacts) =
+            SecurityHandler::encrypt_new("open me", "own me", -3904, true).expect("a handler");
+
+        let as_user = reopen(&artifacts, "open me").expect("the user password should open it");
+        assert_eq!(as_user.file_key(), handler.file_key());
+        assert_eq!(as_user.access(), Access::User);
+
+        let as_owner = reopen(&artifacts, "own me").expect("the owner password should open it");
+        assert_eq!(as_owner.file_key(), handler.file_key(), "the two passwords hide one key");
+        assert_eq!(as_owner.access(), Access::Owner);
+    }
+
+    #[test]
+    fn a_wrong_password_does_not_open_it() {
+        let (_, artifacts) =
+            SecurityHandler::encrypt_new("open me", "own me", -1, true).expect("a handler");
+        assert!(reopen(&artifacts, "open mf").is_none());
+        assert!(reopen(&artifacts, "").is_none());
+        assert!(reopen(&artifacts, "own m").is_none());
+    }
+
+    /// Algorithm 10 exists so that editing `/P` without the key is detectable. If the
+    /// block this writes did not decrypt back to the `/P` beside it, every reader that
+    /// checks step (f) would report the file as tampered with.
+    #[test]
+    fn perms_decrypts_to_the_permissions_written_beside_it() {
+        for declared in [-1, -3904, -44, i32::MIN] {
+            let (handler, artifacts) =
+                SecurityHandler::encrypt_new("pw", "opw", declared, true).expect("a handler");
+            assert!(
+                handler.perms_agree(&artifacts.perms, declared),
+                "/Perms does not agree with /P {declared}"
+            );
+            assert!(!handler.perms_agree(&artifacts.perms, declared ^ 0x4), "any /P agreed");
+        }
+    }
+
+    /// Salts are per document. Two files encrypted with one password sharing a `/U`
+    /// would tell an observer they share a password, and would make one precomputation
+    /// serve both.
+    #[test]
+    fn two_documents_with_one_password_share_nothing() {
+        let (first_key, first) =
+            SecurityHandler::encrypt_new("same", "same", -1, true).expect("a handler");
+        let (second_key, second) =
+            SecurityHandler::encrypt_new("same", "same", -1, true).expect("a handler");
+        assert_ne!(first.u, second.u, "the /U entries are identical");
+        assert_ne!(first.ue, second.ue);
+        assert_ne!(first.o, second.o);
+        assert_ne!(first_key.file_key(), second_key.file_key(), "the file key was reused");
+    }
+
+    /// And the key it hands back actually encrypts: what one handler writes, a handler
+    /// rebuilt from the `/Encrypt` reads.
+    #[test]
+    fn data_encrypted_with_the_new_key_decrypts_after_reopening() {
+        let (handler, artifacts) =
+            SecurityHandler::encrypt_new("pw", "opw", -1, true).expect("a handler");
+        let plain = b"Hello, /Contents. This is longer than one AES block.";
+        let ciphertext = handler.encrypt_stream(plain, 7, 0).expect("ciphertext");
+        assert_ne!(&ciphertext[..], &plain[..], "the data was not encrypted");
+
+        let reopened = reopen(&artifacts, "pw").expect("a handler");
+        assert_eq!(reopened.decrypt_bytes(&ciphertext, 7, 0).expect("plaintext"), plain);
     }
 
     #[test]
