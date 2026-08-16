@@ -203,12 +203,16 @@ Independent of A and B, and the area where a partial implementation is most harm
       *pages*, five of them losing all their text, because the refinement pass
       synthesised a `/ToUnicode` keyed on glyph ids for a `CIDFontType0`
       ([ADR-0010](docs/adr/0010-a-synthesised-tounicode-keyed-on-glyphs-destroys-text.md))
-- [ ] Explain what `fy05.pdf` gains through a save. `crosscheck_roundtrip.sh` measures
-      it against PDFKit as **+61 characters, with 17 lost on pages that kept text** —
-      not the "+8" this line quoted, which was a figure from before the clipping and
-      `re` precision fixes and was carried forward without being re-run. It is the only
-      file in the corpus with a non-zero delta, and the 17 lost are the half that
-      matters
+- [x] Explain what `fy05.pdf` gains through a save. Every operand was padded to six
+      decimal places, so `1` went out as `1.000000`; PDFKit read the padded spelling to
+      glyph origins a thousandth of a point away and moved its line breaks on 78 of 846
+      pages. Trimming the zeros takes the whole corpus to a zero delta — the first time
+      `crosscheck_roundtrip.sh` has reported no difference on any file
+- [ ] Two images in `fy05.pdf` come out decompressed: `/Filter /FlateDecode` and 24,551
+      bytes in, no filter and 59,345 bytes out. Found once the number padding stopped
+      hiding it — the file's differing objects went from 378 to 3, and these are two of
+      the three. The output is 27 MB against a 15 MB source, so this is probably not
+      confined to two images
 - [x] Make the content round trip a fixed point. It was not: `W n` came back as
       `W n n` and grew by 52 bytes on every pass, while `W f` came back as `W n f` and
       lost the fill outright
