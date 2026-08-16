@@ -47,7 +47,7 @@ pub struct FepdfApp {
 
     // Digital Signature & Placement
     pub cert_path: Option<PathBuf>,
-    pub cert_password: String,
+    pub key_path: Option<PathBuf>,
     pub signature_position: Option<(usize, egui::Rect)>, // (page_index, rect in PDF user space)
     pub is_placing_signature: bool,
 
@@ -188,7 +188,7 @@ impl FepdfApp {
 
             // Signature Defaults
             cert_path: None,
-            cert_password: String::new(),
+            key_path: None,
             signature_position: None,
             is_placing_signature: false,
 

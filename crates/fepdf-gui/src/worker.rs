@@ -29,7 +29,7 @@ pub enum WorkerRequest {
         upgrade_pdf20: bool,
         redaction_zones: Vec<crate::redaction::RedactionZone>,
         cert_path: Option<std::path::PathBuf>,
-        cert_password: String,
+        key_path: Option<std::path::PathBuf>,
         signature_position: Option<(usize, [f32; 4])>,
     },
     Audit,
@@ -140,7 +140,7 @@ pub fn run_worker(rx: Receiver<WorkerRequest>, tx: Sender<WorkerResponse>, ctx: 
                 upgrade_pdf20,
                 redaction_zones,
                 cert_path,
-                cert_password,
+                key_path,
                 signature_position,
             } => {
                 text_cache.clear();
@@ -154,7 +154,7 @@ pub fn run_worker(rx: Receiver<WorkerRequest>, tx: Sender<WorkerResponse>, ctx: 
                     upgrade_pdf20,
                     redaction_zones,
                     cert_path,
-                    cert_password,
+                    key_path,
                     signature_position,
                     &tx,
                 );
@@ -518,7 +518,7 @@ fn handle_save(
     upgrade_pdf20: bool,
     redaction_zones: Vec<crate::redaction::RedactionZone>,
     cert_path: Option<std::path::PathBuf>,
-    _cert_password: String,
+    key_path: Option<std::path::PathBuf>,
     signature_position: Option<(usize, [f32; 4])>,
     tx: &Sender<WorkerResponse>,
 ) {
@@ -553,20 +553,30 @@ fn handle_save(
         ..fepdf_sdk::SaveOptions::default()
     };
 
-    let res = if let Some(cp) = cert_path {
-        // Read certificate file bytes
-        let cert_bytes = std::fs::read(&cp).unwrap_or_default();
-        let sign_opts = fepdf_sdk::SignOptions {
-            reason: Some("Signed via fepdf Production Studio".to_string()),
-            location: Some("Tokyo, Japan".to_string()),
-            contact_info: Some("support@fepdf.dev".to_string()),
-            name: Some("fepdf Digital Signer".to_string()),
-            certificate: Some(cert_bytes.clone()),
-            private_key: Some(cert_bytes),
-            page_index: signature_position.map_or(0, |(idx, _)| idx),
-            rect: signature_position.map_or([50.0, 50.0, 200.0, 100.0], |(_, rect)| rect),
-        };
-        doc.save_signed(&path, version, &options, &sign_opts)
+    let res = if let (Some(certificate), Some(key)) = (cert_path, key_path) {
+        // Read as-is and let the engine judge them. Reporting "not a PKCS#8 key" from
+        // the layer that knows what a key is beats guessing here, and `unwrap_or_default`
+        // used to turn an unreadable file into empty bytes and carry on.
+        let read =
+            |p: &std::path::Path| std::fs::read(p).map_err(|e| format!("{}: {e}", p.display()));
+        match (read(&certificate), read(&key)) {
+            (Ok(certificate), Ok(key)) => {
+                let sign_opts = fepdf_sdk::SignOptions {
+                    // Rule D: a frontend translates. The reason and location used to be
+                    // invented here — "Tokyo, Japan", a support address nobody gave —
+                    // and were signed into the document as if the user had said them.
+                    certificate: Some(certificate),
+                    private_key: Some(key),
+                    page_index: signature_position.map_or(0, |(idx, _)| idx),
+                    ..fepdf_sdk::SignOptions::default()
+                };
+                doc.save_signed(&path, version, &options, &sign_opts)
+            }
+            (Err(e), _) | (_, Err(e)) => {
+                let _ = tx.send(WorkerResponse::Error(format!("Failed to save PDF: {e}")));
+                return;
+            }
+        }
     } else if linearize {
         doc.save_linearized(&path, version, &options)
     } else {

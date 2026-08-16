@@ -152,6 +152,22 @@ impl Default for SaveOptions {
     }
 }
 
+/// `/M`, the time of signing, in the form 7.9.4 defines.
+///
+/// Local time with its offset, because that is what the clause asks for and what a
+/// reader shows; `%:z` would give `+09:00` where PDF writes `+09'00`.
+fn pdf_now() -> String {
+    let now = chrono::Local::now();
+    let offset = now.offset().local_minus_utc();
+    let (sign, seconds) = if offset < 0 { ('-', -offset) } else { ('+', offset) };
+    format!(
+        "D:{}{sign}{:02}'{:02}",
+        now.format("%Y%m%d%H%M%S"),
+        seconds / 3600,
+        seconds % 3600 / 60
+    )
+}
+
 /// Options for digitally signing a PDF document.
 #[derive(Debug, Clone, Default)]
 pub struct SignOptions {
@@ -169,8 +185,6 @@ pub struct SignOptions {
     pub private_key: Option<Vec<u8>>,
     /// Page index (0-based) to place the signature widget.
     pub page_index: usize,
-    /// Visual rectangle for the signature widget [x1, y1, x2, y2].
-    pub rect: [f32; 4],
 }
 
 /// Supported PDF modern standards for conversion.
@@ -747,7 +761,14 @@ impl PdfDocument {
         version: &str,
         options: &SaveOptions,
     ) -> PdfResult<Vec<Decision>> {
-        // 1. Update Metadata
+        self.write_out(output_path, version, options, None)
+    }
+
+    /// Applies the metadata the options ask for, returning what stripping cost.
+    fn settle_metadata(
+        &self,
+        options: &SaveOptions,
+    ) -> PdfResult<fepdf_model::interpretation::DecisionLog> {
         let mut metadata = self.inner.metadata();
 
         if let Some(v) = &options.title {
@@ -776,6 +797,42 @@ impl PdfDocument {
             // above, which would otherwise put a fresh packet back.
             fepdf_model::metadata::strip_metadata_streams(&self.inner, &mut stripped);
         }
+        Ok(stripped)
+    }
+
+    /// Describes the signature field for this save, from what the caller asked for.
+    fn signature_field(
+        identity: &fepdf_model::cms::SigningIdentity,
+        options: &SignOptions,
+    ) -> fepdf_model::interactive::SignatureField {
+        fepdf_model::interactive::SignatureField {
+            page_index: options.page_index,
+            field_name: "Signature1".to_string(),
+            signed_at: pdf_now(),
+            // Table 255 wants /Name only when the signature cannot supply it. The
+            // certificate usually can, so this is normally absent.
+            signer: identity.common_name().map_or_else(|| options.name.clone(), |_| None),
+            reason: options.reason.clone(),
+            location: options.location.clone(),
+            contact: options.contact_info.clone(),
+        }
+    }
+
+    /// The one write path, signed or not.
+    ///
+    /// Signing is not a different way of saving — it is the same file with two fields
+    /// filled in afterwards — so the two share this rather than running in parallel. A
+    /// signed document produced by a second code path would drift from the unsigned one
+    /// silently, and the difference would be invisible until a signature failed to
+    /// verify against a file nobody could reproduce.
+    fn write_out(
+        &self,
+        output_path: &Path,
+        version: &str,
+        options: &SaveOptions,
+        signing: Option<(&fepdf_model::cms::SigningIdentity, &SignOptions)>,
+    ) -> PdfResult<Vec<Decision>> {
+        let stripped = self.settle_metadata(options)?;
 
         if options.dry_run {
             // Nothing was written, so nothing was lost.
@@ -792,6 +849,15 @@ impl PdfDocument {
         writer.set_string_encoding(options.string_encoding);
         if options.compress {
             writer.set_compression(options.compression_level);
+        }
+        if let Some((identity, sign_options)) = signing {
+            // The field goes into the arena that is about to be written, not into the
+            // document: what is signed is this output, and nothing about the document
+            // this engine holds changes because a copy of it was signed.
+            let field = Self::signature_field(identity, sign_options);
+            let signature =
+                fepdf_model::interactive::add_signature_field(&final_arena, root, &field)?;
+            writer.sign_with(signature, identity)?;
         }
         writer.write_header(version)?;
         writer.finish(root, info)?;
@@ -840,29 +906,41 @@ impl PdfDocument {
         Ok(self.write_decisions())
     }
 
-    /// Signs the document and saves it. **Not implemented.**
+    /// Signs the document and saves it.
     ///
-    /// This wrote a signature dictionary declaring `/SubFilter /adbe.pkcs7.detached`,
-    /// filled `/Contents` with 8,192 zero bytes, and set `/ByteRange` to
-    /// `[0 1000000000 1000000000 1000000000]` — four constants bearing no relation to
-    /// the file. Nothing computed a digest and nothing signed one.
+    /// What is signed is *this output* — the file this call writes, byte for byte — and
+    /// not the document that was read. [ADR-0014] is why: normalising at load means the
+    /// engine no longer has the source bytes, so signing a document it did not produce
+    /// would sign something the user never saw. Signing its own output is exact.
     ///
-    /// The output was therefore a document *asserting* that it had been signed and
-    /// carrying no signature, which is worse than an unsigned document: a signature is
-    /// a claim that the bytes have not been altered, and this one was empty. Refusing
-    /// is the honest behaviour until a real PKCS#7 signature can be produced, and the
-    /// machinery that built the fake one is gone rather than left to be called again.
+    /// This wrote `/SubFilter /adbe.pkcs7.detached` with 8,192 zero bytes for
+    /// `/Contents` and a `/ByteRange` of four constants, and refused rather than keep
+    /// doing so. The refusal stood until the file could carry a signature that covers
+    /// it.
     ///
     /// # Errors
-    /// Always. See `ROADMAP.md` Phase C for what implementing it needs.
+    /// If no certificate and key were given, if they cannot be read, or if the write
+    /// fails. Both must be DER: a PEM file converts with `openssl x509 -outform der`
+    /// and `openssl pkcs8 -topk8 -nocrypt -outform der`.
+    ///
+    /// [ADR-0014]: ../../../../docs/adr/0014-the-faithful-copy-path-is-not-built.md
     pub fn save_signed(
         &self,
-        _output_path: &Path,
-        _version: &str,
-        _options: &SaveOptions,
-        _sign_options: &SignOptions,
+        output_path: &Path,
+        version: &str,
+        options: &SaveOptions,
+        sign_options: &SignOptions,
     ) -> PdfResult<Vec<Decision>> {
-        Err(PdfError::NotImplemented("PdfDocument::save_signed"))
+        let certificate = sign_options
+            .certificate
+            .as_deref()
+            .ok_or(PdfError::Crypto("signing needs a certificate".into()))?;
+        let key = sign_options
+            .private_key
+            .as_deref()
+            .ok_or(PdfError::Crypto("signing needs a private key".into()))?;
+        let identity = fepdf_model::cms::SigningIdentity::from_der(certificate, key)?;
+        self.write_out(output_path, version, options, Some((&identity, sign_options)))
     }
 
     /// Returns the physical viewport of the page (MediaBox).

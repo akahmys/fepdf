@@ -300,6 +300,224 @@ fn collect_pages(arena: &PdfArena, catalog: &Dict) -> Vec<Dict> {
     out
 }
 
+/// What a signature field says about itself (12.7.5.5 and Table 255).
+///
+/// The signature is not here: `/ByteRange` and `/Contents` are the writer's, because
+/// only the writer knows where in the file they land. This is the structure the
+/// signature hangs from.
+#[derive(Debug, Clone, Default)]
+pub struct SignatureField {
+    /// Which page carries the widget, counting from zero.
+    pub page_index: usize,
+    /// The field name, `/T`.
+    pub field_name: String,
+    /// `/M`, the time of signing, as a PDF date string. The caller supplies it: what
+    /// time it is is not something the object model should decide.
+    pub signed_at: String,
+    /// `/Name`. Table 255 puts this at "only when it is not possible to extract the
+    /// name from the signature", so a certificate that states a common name should
+    /// leave this `None` rather than repeat it.
+    pub signer: Option<String>,
+    /// `/Reason`.
+    pub reason: Option<String>,
+    /// `/Location`.
+    pub location: Option<String>,
+    /// `/ContactInfo`.
+    pub contact: Option<String>,
+}
+
+/// Adds an invisible signature field, returning the signature dictionary to be signed.
+///
+/// Invisible — `/Rect [0 0 0 0]` — because a visible signature is an appearance stream,
+/// and a widget with a rectangle and no `/AP` is a box viewers draw empty. The field
+/// still exists, is still listed in `/AcroForm`, and the signature it holds still covers
+/// the file; what it does not do is claim a picture that was never drawn.
+///
+/// `/SigFlags` is set to 3 — signatures exist, and the file is append-only. The second
+/// bit is a warning to other tools, and an accurate one: this engine rewrites documents
+/// whole ([ADR-0012]), so any save invalidates what it signed.
+///
+/// # Errors
+/// If the catalogue has no page tree, or `page_index` is past its last page.
+///
+/// [ADR-0012]: ../../../../docs/adr/0012-saving-produces-a-new-document.md
+pub fn add_signature_field(
+    arena: &PdfArena,
+    catalog: crate::handle::Handle<Object>,
+    field: &SignatureField,
+) -> PdfResult<crate::handle::Handle<Object>> {
+    let catalog_dict_handle = arena
+        .get_object(catalog)
+        .and_then(|o| o.as_dict_handle())
+        .ok_or_else(|| PdfError::Other("the catalogue is not a dictionary".into()))?;
+    let mut catalog_dict = arena
+        .get_dict(catalog_dict_handle)
+        .ok_or_else(|| PdfError::Other("the catalogue is missing".into()))?;
+
+    let pages = page_handles(arena, &catalog_dict);
+    let page = *pages.get(field.page_index).ok_or_else(|| {
+        PdfError::Other(
+            format!(
+                "the signature is for page {} of a document with {}",
+                field.page_index + 1,
+                pages.len()
+            )
+            .into(),
+        )
+    })?;
+
+    let signature_handle = signature_dictionary(arena, field);
+    let widget_handle = signature_widget(arena, field, signature_handle, page);
+
+    append_to_array(arena, page, "Annots", Object::Reference(widget_handle))?;
+    let form = acro_form(arena, &mut catalog_dict, catalog_dict_handle);
+    append_to_array(arena, form, "Fields", Object::Reference(widget_handle))?;
+    set_entry(arena, form, "SigFlags", Object::Integer(3))?;
+
+    Ok(signature_handle)
+}
+
+/// The `/Type /Sig` dictionary, minus the two fields the writer supplies.
+fn signature_dictionary(arena: &PdfArena, field: &SignatureField) -> crate::handle::Handle<Object> {
+    let mut signature: Dict = BTreeMap::new();
+    signature.insert(arena.name("Type"), Object::Name(arena.name("Sig")));
+    // 12.8.1: the handler that validates it, and the form the signature takes.
+    signature.insert(arena.name("Filter"), Object::Name(arena.name("Adobe.PPKLite")));
+    signature.insert(arena.name("SubFilter"), Object::Name(arena.name("ETSI.CAdES.detached")));
+    signature.insert(arena.name("M"), Object::Text(field.signed_at.clone()));
+    for (key, value) in [
+        ("Name", &field.signer),
+        ("Reason", &field.reason),
+        ("Location", &field.location),
+        ("ContactInfo", &field.contact),
+    ] {
+        if let Some(v) = value {
+            signature.insert(arena.name(key), Object::Text(v.clone()));
+        }
+    }
+    arena.alloc_object(Object::Dictionary(arena.alloc_dict(signature)))
+}
+
+/// The field and its widget, as one dictionary.
+///
+/// 12.7.5.5 allows a field with a single associated widget to be merged with it, which
+/// is what every producer does and what 12.5.6.19 permits.
+fn signature_widget(
+    arena: &PdfArena,
+    field: &SignatureField,
+    signature: crate::handle::Handle<Object>,
+    page: crate::handle::Handle<Object>,
+) -> crate::handle::Handle<Object> {
+    let mut widget: Dict = BTreeMap::new();
+    widget.insert(arena.name("Type"), Object::Name(arena.name("Annot")));
+    widget.insert(arena.name("Subtype"), Object::Name(arena.name("Widget")));
+    widget.insert(arena.name("FT"), Object::Name(arena.name("Sig")));
+    widget.insert(arena.name("T"), Object::Text(field.field_name.clone()));
+    widget.insert(arena.name("V"), Object::Reference(signature));
+    widget
+        .insert(arena.name("Rect"), Object::Array(arena.alloc_array(vec![Object::Integer(0); 4])));
+    // Table 167: Print (bit 3) so it survives printing, Locked (bit 8) so a viewer does
+    // not offer to move a field that has already been signed.
+    widget.insert(arena.name("F"), Object::Integer(132));
+    widget.insert(arena.name("P"), Object::Reference(page));
+    arena.alloc_object(Object::Dictionary(arena.alloc_dict(widget)))
+}
+
+/// The catalogue's `/AcroForm`, made if it is not there.
+fn acro_form(
+    arena: &PdfArena,
+    catalog: &mut Dict,
+    catalog_handle: DictHandle,
+) -> crate::handle::Handle<Object> {
+    if let Some(Object::Reference(h)) = catalog.get(&arena.name("AcroForm")) {
+        return *h;
+    }
+    let form = arena.alloc_object(Object::Dictionary(arena.alloc_dict(BTreeMap::new())));
+    catalog.insert(arena.name("AcroForm"), Object::Reference(form));
+    arena.set_dict(catalog_handle, catalog.clone());
+    form
+}
+
+/// Appends to a dictionary's array-valued entry, making the array if it is absent.
+///
+/// The entry may be the array itself or a reference to one; both occur, and a page whose
+/// `/Annots` is indirect is not a page whose annotations may be dropped.
+fn append_to_array(
+    arena: &PdfArena,
+    owner: crate::handle::Handle<Object>,
+    key: &str,
+    value: Object,
+) -> PdfResult<()> {
+    let handle = arena
+        .get_object(owner)
+        .and_then(|o| o.as_dict_handle())
+        .ok_or_else(|| PdfError::Other(format!("cannot add /{key} to a non-dictionary").into()))?;
+    let mut dict = arena.get_dict(handle).ok_or_else(|| {
+        PdfError::Other(format!("cannot add /{key} to a missing dictionary").into())
+    })?;
+
+    match dict.get(&arena.name(key)).and_then(|o| o.resolve(arena).as_array()) {
+        Some(array_handle) => {
+            let mut items = arena.get_array(array_handle).unwrap_or_default();
+            items.push(value);
+            arena.set_array(array_handle, items);
+        }
+        None => {
+            dict.insert(arena.name(key), Object::Array(arena.alloc_array(vec![value])));
+            arena.set_dict(handle, dict);
+        }
+    }
+    Ok(())
+}
+
+fn set_entry(
+    arena: &PdfArena,
+    owner: crate::handle::Handle<Object>,
+    key: &str,
+    value: Object,
+) -> PdfResult<()> {
+    let handle = arena
+        .get_object(owner)
+        .and_then(|o| o.as_dict_handle())
+        .ok_or_else(|| PdfError::Other(format!("cannot set /{key} on a non-dictionary").into()))?;
+    let mut dict = arena.get_dict(handle).ok_or_else(|| {
+        PdfError::Other(format!("cannot set /{key} on a missing dictionary").into())
+    })?;
+    dict.insert(arena.name(key), value);
+    arena.set_dict(handle, dict);
+    Ok(())
+}
+
+/// The page objects in order, by handle rather than by value: a widget has to name its
+/// page with `/P`, and a page has to be mutated to carry the widget.
+fn page_handles(arena: &PdfArena, catalog: &Dict) -> Vec<crate::handle::Handle<Object>> {
+    let mut out = Vec::new();
+    let Some(Object::Reference(root)) = catalog.get(&arena.name("Pages")) else {
+        return out;
+    };
+    let mut stack = vec![(*root, 0_u32)];
+    while let Some((handle, depth)) = stack.pop() {
+        if depth > 64 {
+            continue;
+        }
+        let Some(node) = arena.get_object(handle).and_then(|o| o.as_dict_handle()) else {
+            continue;
+        };
+        let Some(node) = arena.get_dict(node) else { continue };
+        match array_of(arena, node.get(&arena.name("Kids"))) {
+            Some(kids) => {
+                for kid in kids.into_iter().rev() {
+                    if let Object::Reference(kid) = kid {
+                        stack.push((kid, depth + 1));
+                    }
+                }
+            }
+            None => out.push(handle),
+        }
+    }
+    out
+}
+
 fn dict_of(arena: &PdfArena, object: &Object) -> Option<Dict> {
     let handle: DictHandle = object.resolve(arena).as_dict_handle()?;
     arena.get_dict(handle)

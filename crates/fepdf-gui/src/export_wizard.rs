@@ -70,12 +70,17 @@ impl ExportWizard {
         ui.heading(app.locale_mgr.tr(&app.active_language, "export_signature_heading"));
         ui.add_space(5.0);
 
+        // The engine takes a DER certificate and a DER PKCS#8 key. This asked for a
+        // PKCS#12 bundle and a password, then handed the bundle to the SDK as both the
+        // certificate *and* the key — which nothing noticed while signing refused
+        // outright. It asks for what it uses now, and the password box is gone with the
+        // format that needed one.
+        let der = ["der", "cer", "crt", "key", "pk8", "p8"];
         ui.horizontal(|ui| {
             if ui
                 .button(app.locale_mgr.tr(&app.active_language, "export_sig_select_cert"))
                 .clicked()
-                && let Some(p) =
-                    rfd::FileDialog::new().add_filter("PKCS#12", &["pfx", "p12"]).pick_file()
+                && let Some(p) = rfd::FileDialog::new().add_filter("DER", &der).pick_file()
             {
                 app.cert_path = Some(p);
             }
@@ -86,12 +91,20 @@ impl ExportWizard {
             }
         });
 
-        if app.cert_path.is_some() {
-            ui.horizontal(|ui| {
-                ui.label(app.locale_mgr.tr(&app.active_language, "export_sig_password"));
-                ui.add(egui::TextEdit::singleline(&mut app.cert_password).password(true));
-            });
+        ui.horizontal(|ui| {
+            if ui.button(app.locale_mgr.tr(&app.active_language, "export_sig_select_key")).clicked()
+                && let Some(p) = rfd::FileDialog::new().add_filter("DER", &der).pick_file()
+            {
+                app.key_path = Some(p);
+            }
+            if let Some(path) = &app.key_path {
+                ui.label(path.file_name().unwrap_or(path.as_os_str()).to_string_lossy());
+            } else {
+                ui.label(app.locale_mgr.tr(&app.active_language, "export_sig_no_key"));
+            }
+        });
 
+        if app.cert_path.is_some() && app.key_path.is_some() {
             ui.horizontal(|ui| {
                 if ui
                     .toggle_value(
@@ -103,23 +116,14 @@ impl ExportWizard {
                 {
                     app.show_export_wizard = false;
                 }
-                if let Some((page, rect)) = &app.signature_position {
-                    let mut text = app
-                        .locale_mgr
-                        .tr(&app.active_language, "export_sig_placed")
-                        .replace("{}", &(page + 1).to_string());
-                    // Bypassing clippy literal-string-with-formatting-args by replacing custom tag or constructing
-                    if text.contains("{x}") {
-                        text = text
-                            .replace("{x}", &format!("{:.1}", rect.min.x))
-                            .replace("{y}", &format!("{:.1}", rect.min.y));
-                    } else {
-                        // fallback or direct format using split curly braces to avoid clippy trigger
-                        text = text
-                            .replace(&format!("{}{}", "{:.1", "}"), &format!("{:.1}", rect.min.x))
-                            .replace(&format!("{}{}", "{:.1", "}"), &format!("{:.1}", rect.min.y));
-                    }
-                    ui.label(text);
+                // The page, and only the page: the field is invisible, so where on the
+                // page it was placed decides nothing.
+                if let Some((page, _)) = &app.signature_position {
+                    ui.label(
+                        app.locale_mgr
+                            .tr(&app.active_language, "export_sig_placed")
+                            .replace("{}", &(page + 1).to_string()),
+                    );
                 } else {
                     ui.label(app.locale_mgr.tr(&app.active_language, "export_sig_not_placed"));
                 }
@@ -203,7 +207,7 @@ impl ExportWizard {
                 upgrade_pdf20: app.export_upgrade_pdf20,
                 redaction_zones: app.redaction_manager.zones.clone(),
                 cert_path: app.cert_path.clone(),
-                cert_password: app.cert_password.clone(),
+                key_path: app.key_path.clone(),
                 signature_position: sig_pos,
             });
             true

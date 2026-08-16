@@ -537,33 +537,35 @@ enum PublishSubcommands {
         #[command(flatten)]
         ingest: IngestArgs,
     },
-    // Hidden: signing is not implemented. It used to write a signature dictionary
-    // declaring PKCS#7 with 8,192 zero bytes for /Contents and a fabricated
-    // /ByteRange, producing a document that claimed to be signed and was not. Hidden
-    // rather than removed, on the precedent of the nineteen stub operations Phase A
-    // dealt with the same way.
-    /// Digitally sign the PDF document
-    #[command(hide = true)]
+    /// Sign this engine's output with a certificate and key
+    ///
+    /// What is signed is the file this command writes, not the input: the engine
+    /// normalises a document at load, so the input's bytes no longer exist by the time
+    /// there is anything to sign (ADR-0014). Both files must be DER — convert PEM with
+    /// `openssl x509 -outform der` and `openssl pkcs8 -topk8 -nocrypt -outform der`.
     Sign {
         /// Input PDF file
         input: PathBuf,
         /// Output signed PDF file
         output: PathBuf,
+        /// DER-encoded X.509 certificate
+        #[arg(long)]
+        certificate: PathBuf,
+        /// DER-encoded PKCS#8 private key
+        #[arg(long)]
+        private_key: PathBuf,
         /// Reason for signing
         #[arg(long)]
         reason: Option<String>,
         /// Location of signing
         #[arg(long)]
         location: Option<String>,
-        /// Signer name
+        /// Signer name, used only if the certificate states none
         #[arg(long)]
         name: Option<String>,
-        /// Page number for the signature widget (default 1)
+        /// Page number carrying the signature field (default 1)
         #[arg(long, default_value_t = 1)]
         page: usize,
-        /// Visual rectangle [x1, y1, x2, y2]
-        #[arg(long, value_delimiter = ',', num_args = 4)]
-        rect: Option<Vec<f32>>,
         /// Ingestion control options
         #[command(flatten)]
         ingest: IngestArgs,
@@ -749,15 +751,27 @@ async fn main() -> Result<()> {
             PublishSubcommands::Sign {
                 input,
                 output,
+                certificate,
+                private_key,
                 reason,
                 location,
                 name,
                 page,
-                rect,
                 ingest,
                 save,
             } => {
-                handle_sign(input, output, reason, location, name, page, rect, ingest, save)?;
+                handle_sign(
+                    input,
+                    output,
+                    certificate,
+                    private_key,
+                    reason,
+                    location,
+                    name,
+                    page,
+                    ingest,
+                    save,
+                )?;
             }
             PublishSubcommands::VerifySignature { input, field, ingest } => {
                 handle_verify_signature(input, field, ingest)?;
@@ -1829,41 +1843,44 @@ fn handle_text(input: PathBuf, pages: Option<String>, ingest: IngestArgs) -> Res
 fn handle_sign(
     input: PathBuf,
     output: PathBuf,
+    certificate: PathBuf,
+    private_key: PathBuf,
     reason: Option<String>,
     location: Option<String>,
     name: Option<String>,
     page: usize,
-    rect: Option<Vec<f32>>,
     ingest: IngestArgs,
     save: SaveArgs,
 ) -> Result<()> {
-    println!("fepdf sign: {} -> {}", output.display(), input.display());
+    println!("fepdf sign: {} -> {}", input.display(), output.display());
     let data = std::fs::read(&input).with_context(|| "Failed to read input")?;
     let ingest_options: fepdf_sdk::IngestionOptions = ingest.into();
     let doc = PdfDocument::open_with_options(data.into(), &ingest_options)
         .map_err(|e| anyhow::anyhow!("{e:?}"))?;
 
-    let mut sign_options = fepdf_sdk::SignOptions {
+    let sign_options = fepdf_sdk::SignOptions {
         reason,
         location,
         name,
         page_index: page.saturating_sub(1),
+        certificate: Some(
+            std::fs::read(&certificate).with_context(|| "Failed to read the certificate")?,
+        ),
+        private_key: Some(
+            std::fs::read(&private_key).with_context(|| "Failed to read the private key")?,
+        ),
         ..Default::default()
     };
 
-    if let Some(r) = rect {
-        if r.len() == 4 {
-            sign_options.rect = [r[0], r[1], r[2], r[3]];
-        }
-    } else {
-        sign_options.rect = [50.0, 50.0, 200.0, 100.0]; // Default widget rect
-    }
-
     let save_options: fepdf_sdk::SaveOptions = save.into();
-    doc.save_signed(&output, "2.0", &save_options, &sign_options)
+    let decisions = doc
+        .save_signed(&output, "2.0", &save_options, &sign_options)
         .map_err(|e| anyhow::anyhow!("{e:?}"))?;
 
     println!("SUCCESS: Signed document saved to {}", output.display());
+    // The signature covers the output, so anything the write gave up is inside what was
+    // signed. A caller has to see that before trusting the file.
+    report_write_decisions(&decisions);
     Ok(())
 }
 
