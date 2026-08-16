@@ -37,7 +37,7 @@ frontend_logs=$(grep -rn "log::warn!\|log::error!" \
 row "frontend log sites (not a defect)" "$frontend_logs"
 
 stubs=$(grep -c 'PdfError::NotImplemented' crates/fepdf-sdk/src/lib.rs 2>/dev/null || echo 0)
-row "Operation stubs in the SDK (expect 21)" "$stubs"
+row "Operation stubs in the SDK (expect 19)" "$stubs"
 
 adrs=$(find docs/adr -name '0*.md' | wc -l | tr -d ' ')
 row "decision records" "$adrs"

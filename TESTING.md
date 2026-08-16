@@ -101,7 +101,7 @@ cargo check --workspace
 Before submitting a Pull Request or completing a task:
 
 - [ ] `./scripts/audit/verify_compliance.sh` completes with `=== AUDIT PASSED ===`.
-- [ ] `cargo test --workspace` passes with 0 failures (220 tests across 31 suites, 2026-08-16).
+- [ ] `cargo test --workspace` passes with 0 failures (246 tests across 32 suites, 2026-08-17).
 - [ ] `cargo clippy --workspace --all-targets -- -D warnings` is clean. `--all-targets` matters: without it tests, examples and benches are never linted.
 - [ ] `cargo fmt --all --check` reports no diff. Enforced as Rule 19 by the audit, so `make audit` covers it.
 - [ ] All integration tests are placed in `crates/*/tests/` following the Test Separation Policy. Binary crates (`fepdf`) are the exception: an integration test cannot reach into a binary, so their unit tests live in inline `#[cfg(test)] mod tests` blocks, which the rule permits.
@@ -114,6 +114,12 @@ Before submitting a Pull Request or completing a task:
 - [ ] `./scripts/test/crosscheck_roundtrip.sh` — text preserved through a save, compared
       against a second implementation. Internal measurement cannot find a page the
       engine never built; this is what caught [ADR-0006] and [ADR-0010].
+- [ ] `./scripts/test/crosscheck_signature.sh` — signs every sample and requires
+      `openssl cms -verify` and `publish verify-signature` to agree about each one. Only
+      run when signing is touched; it needs `openssl` on `PATH`. The engine's own tests
+      can say a signature matches the digest the engine computed, which is a smaller
+      claim than it sounds — the byte range and the digest are both its own work. The
+      script also flips a byte to prove the check can fail.
 - [ ] `./scripts/dev/status.sh` — the figures the documents quote, re-derived. A number
       that has gone stale shows up as a disagreement rather than reading as current.
 

@@ -293,7 +293,7 @@ Its options are an associated type, not a shared struct: `password` and
 per-format feature flags. An interface designed against one implementation is
 almost always wrong for the second, and this codebase keeps paying for building
 a container before its contents existed — `fepdf-resource`, an `Operation`
-vocabulary of which 21 of 25 are stubs, and ingestion options nothing reads
+vocabulary of which 19 of 24 are stubs, and ingestion options nothing reads
 ([ADR-0007](docs/adr/0007-an-option-that-is-not-read-is-hidden.md); one of the two
 became live with [ADR-0013](docs/adr/0013-a-document-is-one-normalised-state.md), and
 `color_policy` is the one that remains). When a second source exists, its real

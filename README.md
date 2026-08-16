@@ -90,14 +90,15 @@ The reasoning is in [ADR-0012](docs/adr/0012-saving-produces-a-new-document.md).
 | | |
 | :--- | :--- |
 | **Write encrypted files** | It reads every password-based scheme the standard defines — RC4, AES-128, AES-256 — but writes none. Output is unencrypted. |
-| **Sign, or verify a signature** | Signing reports `NotImplemented`. Existing signatures are listed, never validated, and do not survive a save. |
+| **Sign a file it did not write** | It signs its own output — `publish sign` and `publish verify-signature` — and a signature it made covers the whole file. It cannot add one to someone else's file without rewriting it first, and a signature already in a document does not survive a save. [ADR-0014](docs/adr/0014-the-faithful-copy-path-is-not-built.md) is why. |
+| **Decide whether to trust a certificate** | `verify-signature` says whether the signature covers the bytes and is bound to the certificate it carries. It has no trust store, checks no validity window, and reads no revocation list — and says so in its output. |
 | **Preserve a file byte for byte** | There is no faithful-copy path. See above. |
-| **Edit interactive features** | Annotations, form fields and outlines can be read and reported. They cannot be changed. |
+| **Edit interactive features** | Annotations, form fields and outlines can be read and reported. The only one it writes is a signature field, and only as part of signing. |
 | **Public-key security handlers** | 7.6.5 is recognised and reported, not implemented. |
 | **Run usefully in a browser** | `fepdf-wasm` opens a document and counts pages. Its `render_page` does nothing. |
 | **Write object streams** | 7.5.7 containers are read but not written. A file that relies on them heavily grows: `intel_sdm.pdf` comes out 132% larger. Everything else in the corpus is within 1% of its source or smaller. |
 
-Twenty-one SDK operations report `NotImplemented` rather than pretending. Ten of Table
+Nineteen SDK operations report `NotImplemented` rather than pretending. Ten of Table
 29's thirty-two catalogue entries have a typed representation; the rest survive a round
 trip but cannot be reasoned about, and `inspect catalog` names which ones for your file.
 

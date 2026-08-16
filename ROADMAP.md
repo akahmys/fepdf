@@ -17,13 +17,13 @@ Understanding them is what remains.
 | :--- | :--- |
 | **7.3** Objects | Complete. Every type in the clause. |
 | **7.5** File structure | **Complete and in use.** Header scan, both cross-reference forms, `/Prev` chains, hybrid references, object streams, incremental updates, and recovery by scanning. `Document::open` reads the file itself; `lopdf` is gone. |
-| **7.6** Encryption | Every password handler the standard defines now decrypts: RC4 (V1/V2), AES-128 (V4/R4) and AES-256 (V5/R5, V5/R6) to Algorithms 1, 2, 2.A, 2.B and 4–6, with `/Perms` checked and both password roles authenticating. Verified against PDFKit on fourteen files; all of it was broken or absent ([ADR-0009](docs/adr/0009-permissions-are-thirty-two-bits-not-a-positive-integer.md)). **Remaining**: public-key handlers (7.6.5) remain a stub; unencrypted wrappers (7.6.7) are recognised and reported. |
+| **7.6** Encryption | Every password handler the standard defines now decrypts: RC4 (V1/V2), AES-128 (V4/R4) and AES-256 (V5/R5, V5/R6) to Algorithms 1, 2, 2.A, 2.B and 4–6, with `/Perms` checked and both password roles authenticating. Verified against PDFKit on fourteen files; all of it was broken or absent ([ADR-0009](docs/adr/0009-permissions-are-thirty-two-bits-not-a-positive-integer.md)). **Remaining**: public-key handlers (7.6.5) remain a stub — signing brought in the CMS crate and certificate handling, but 7.6.5 needs `EnvelopedData`, which is a different structure from the `SignedData` signing uses; unencrypted wrappers (7.6.7) are recognised and reported. |
 | **7.7** Document structure | **10 of Table 29's 32** catalogue entries typed, measured by `status.sh` from `PdfCatalog`. Untyped entries survive a round trip but cannot be reasoned about; `inspect catalog` names which ones, per file. |
 | **PDF 2.0 additions** | **Six** catalogue entries have a spec type but no read or write path — `PageLabels`, `Threads`, `OutputIntents`, `OCProperties`, `Collection`, `AF`. `DPartRoot` has no type at all, contrary to what this table said before it was checked. `inspect catalog` reports the six as `type only`. |
-| **8–14** Content, text, interactive, tagged | Interpreter, fonts and UA-2 auditing exist; interactive features (12) can now be *read* (`inspect interactive`) but not edited. The corpus exercises one annotation subtype of ~28 — all 29,973 are `/Link` — and no form field at all. |
+| **8–14** Content, text, interactive, tagged | Interpreter, fonts and UA-2 auditing exist; interactive features (12) can be *read* (`inspect interactive`), and signature fields (12.7.5.5, 12.8) can now be written and checked. The corpus exercises one annotation subtype of ~28 — all 29,973 are `/Link` — and no form field at all, so the form walk is exercised by a fixture and by this engine's own signed output. |
 | **14.3** Metadata | Settled at load into one state: `/Info` and the metadata stream are reconciled, disagreements recorded, and the entries 14.3.3 deprecates moved to where that clause puts them ([ADR-0013](docs/adr/0013-a-document-is-one-normalised-state.md)). Text strings decode to 7.9.2.2 — PDFDocEncoding from Annex D, or a byte order mark — after a Shift-JIS detector was found corrupting a conforming `/Title`. `--strip` removes every metadata stream, not the catalogue's alone. |
 
-One measurement worth carrying forward: 21 of 25 `Operation` variants are stubs that
+One measurement worth carrying forward: 19 of 24 `Operation` variants are stubs that
 now report rather than claim success. In the engine (`fepdf-model`, `fepdf-syntax`)
 the `log::warn!` count is down from 14 to one, and that one is deliberate: it reports
 which fonts *this machine* has, not anything the document says. Frontends still log
@@ -177,22 +177,36 @@ Independent of A and B, and the area where a partial implementation is most harm
       *refuse* passwords, and refusing one a conforming reader accepts is the failure
       being fixed. Measured on a fixture whose `/U` stores the normalised form of a
       ligature — PDFKit opened it and fepdf did not
-- [ ] Digital signatures (12.8). `publish sign` wrote `/SubFilter
-      /adbe.pkcs7.detached` with 8,192 zero bytes for `/Contents` and a `/ByteRange` of
-      four constants, and `verify-signature` passed an empty slice to the validator,
-      discarded the result and returned success for every document including unsigned
-      ones. Both now refuse and are hidden. Implementing them needs the same
-      ASN.1/CMS layer as 7.6.5, and is the more common feature by far.
-      **Scope**: fepdf signs only what it wrote itself, so the byte range is over its
-      own output and no source bytes need preserving
-      ([ADR-0014](docs/adr/0014-the-faithful-copy-path-is-not-built.md))
+- [x] Digital signatures (12.8), both directions. `publish sign` wrote
+      `/SubFilter /adbe.pkcs7.detached` with 8,192 zero bytes for `/Contents` and a
+      `/ByteRange` of four constants; `verify-signature` passed an empty slice to a
+      validator that returned success for every document including unsigned ones. Both
+      now do the work. Signing is a two-pass write — the signature covers the file
+      except itself, so the writer reserves `/ByteRange` and `/Contents`, records where
+      it put them, then states the range, hashes what it names and fills the hole.
+      A caller may not supply either field: one that could state a byte range could
+      state a wrong one. `/SubFilter` is `ETSI.CAdES.detached`, which required adding
+      the `signing-certificate-v2` attribute ETSI EN 319 122-1 defines, because the
+      subfilter is a claim to be CAdES. The field is invisible — `/Rect [0 0 0 0]`, no
+      `/AP` — since a widget with a rectangle and no appearance stream is a box viewers
+      draw empty. **Scope**: fepdf signs only what it wrote itself, so the byte range is
+      over its own output ([ADR-0014](docs/adr/0014-the-faithful-copy-path-is-not-built.md)).
+      Verification reports coverage apart from the verdict, because appending after a
+      signature leaves it valid over the part it covers — and says what it did *not*
+      check: no trust store, no validity window, no revocation.
+      `scripts/test/crosscheck_signature.sh` requires openssl and fepdf to agree on all
+      nine samples, and proves it can fail by changing a byte
 - [ ] Encrypting on write. `--password` claimed to encrypt the output; nothing set the
       writer's security handler, so the flag produced a plaintext file. Hidden and
       renamed `--encrypt-password`, which also stopped it colliding with the password
       that opens a document
 - [ ] Public-key security handlers (**7.6.5**, not 7.6.4 as this line read until it was
-      checked against the standard; 7.6.4 is the *standard* security handler). Needs a
-      CMS/PKCS#7 layer and certificates to test against — the largest piece left here
+      checked against the standard; 7.6.4 is the *standard* security handler). Signing
+      brought in the `cms` crate, certificate decoding and the DER plumbing, so this is
+      smaller than it was — but not by as much as sharing the word "CMS" suggests:
+      7.6.5 wraps a seed in `EnvelopedData`, one recipient per certificate, and nothing
+      in the signing path builds or reads that. What it inherits is the dependency and
+      `SigningIdentity`, not the structure
 - [x] Unencrypted wrapper documents (7.6.7) — recognised and reported, which is all
       the clause can ask of a reader: the payload is encrypted by a handler *this*
       standard does not define, so naming the missing filter is the service. Each of

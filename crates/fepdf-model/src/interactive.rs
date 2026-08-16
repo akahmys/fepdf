@@ -7,6 +7,12 @@
 //! `/AcroForm` present declares `/DA`, `/DR` and an **empty** `/Fields`, so the field
 //! walk here is exercised by a hand-assembled fixture rather than by the corpus.
 //!
+//! That gap closed from the other end. [`add_signature_field`] writes a `/FT /Sig`
+//! field into this engine's own output, so `publish sign` followed by `inspect
+//! interactive` now walks a form this engine built — which is a weaker test than a
+//! foreign file would be, since a producer only ever agrees with itself, but it is one
+//! more reader of the walk than the corpus supplies.
+//!
 //! The outline is reported as total, visible, and declared. Comparing `/Count` with
 //! the size of the tree looked like a useful check and was not: 12.3.3 defines it as
 //! the *visible* count, so it differs on every outline with a collapsed branch — all
