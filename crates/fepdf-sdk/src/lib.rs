@@ -37,6 +37,7 @@ pub use fepdf_model::interactive::{
 };
 pub use fepdf_model::interpretation::{Decision, DecisionLog, Severity, Strictness};
 pub use fepdf_model::security::{Access, AesV5Spec, SecurityHandler};
+pub use fepdf_model::signature::{SignatureCheck, SignatureReport};
 pub use fepdf_model::{
     AFRelationship, AnnotationKind, AnnotationSpec, ArticleBead, ArticleThread, AssociatedFile,
     CollectionViewMode, Document, FormFieldSpec, FormValue, GeoSpatialAnchor, Handle, LayerGroup,
@@ -61,15 +62,12 @@ pub mod interpreter;
 pub use interpreter::Interpreter;
 /// The internal obj_stm module for high-density object packing.
 pub mod obj_stm;
-/// Pure Rust PKI Validation engine.
-pub mod pki_validator;
+/// Unified operation vocabulary for canonical document mutations.
+pub mod operation;
 /// The internal remediation module for structural repair.
 pub mod remediation;
 /// The internal structure module for UA-2 logical tree handling.
 pub mod structure;
-pub use pki_validator::{PkiValidator, SignatureAuditReport, SignatureStatus};
-/// Unified operation vocabulary for canonical document mutations.
-pub mod operation;
 pub use operation::{
     DecorationPosition, Operation, PageSelection, Quarter, RotateMode, StructElemUpdate,
 };
@@ -1225,9 +1223,6 @@ impl PdfDocument {
             Operation::SetPronunciationLexicon { lexicon_xml_bytes } => {
                 self.apply_set_pronunciation_lexicon(lexicon_xml_bytes)
             }
-            Operation::VerifyDigitalSignature { field_name } => {
-                self.apply_verify_digital_signature(&field_name)
-            }
             Operation::AddPageDecoration { pages, text, position } => {
                 self.apply_add_page_decoration(&pages, &text, &position)
             }
@@ -1343,21 +1338,6 @@ impl PdfDocument {
     fn apply_set_pronunciation_lexicon(&mut self, _bytes: Vec<u8>) -> PdfResult<()> {
         // Pass 1: Embed Pronunciation Lexicon (/PL)
         Err(PdfError::NotImplemented("Operation::SetPronunciationLexicon"))
-    }
-
-    #[allow(clippy::needless_pass_by_ref_mut)]
-    /// **Not implemented.**
-    ///
-    /// This called `PkiValidator::validate_signature_bytes(field_name, &[])` — an empty
-    /// slice where the signature should be — discarded the result, and returned `Ok`.
-    /// Every document verified, including one with no signature at all. A verification
-    /// that cannot fail is worse than none, because its answer is indistinguishable
-    /// from a real one.
-    ///
-    /// # Errors
-    /// Always, until PKCS#7 verification exists to do the work.
-    fn apply_verify_digital_signature(&mut self, _field_name: &str) -> PdfResult<()> {
-        Err(PdfError::NotImplemented("Operation::VerifyDigitalSignature"))
     }
 
     #[allow(clippy::needless_pass_by_ref_mut)]

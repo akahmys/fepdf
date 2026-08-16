@@ -76,19 +76,44 @@ for src in samples/*.pdf; do
         echo "  $name: EXTRACT FAILED"; sed 's/^/    /' "$WORK/$name.extract"; FAILED=1; continue
     fi
 
-    if openssl cms -verify -binary -inform der -in "$WORK/$name.der" \
+    if ! openssl cms -verify -binary -inform der -in "$WORK/$name.der" \
         -content "$WORK/$name.content" -certfile "$WORK/cert.pem" \
         -CAfile "$WORK/cert.pem" -no_check_time -partial_chain \
         -out /dev/null 2>"$WORK/$name.openssl"; then
-        echo "  $name: openssl verifies the signature over $(cat "$WORK/$name.extract")"
-    else
-        echo "  $name: OPENSSL REJECTED"; sed 's/^/    /' "$WORK/$name.openssl"; FAILED=1
+        echo "  $name: OPENSSL REJECTED"; sed 's/^/    /' "$WORK/$name.openssl"; FAILED=1; continue
     fi
+
+    # And fepdf's own verifier must agree with openssl about the same file. The two
+    # disagreeing either way is the interesting result: it means one of them is wrong
+    # about a signature the other accepts.
+    if ! target/release/fepdf publish verify-signature "$out" 2>&1 \
+            | grep -q ": verifies"; then
+        echo "  $name: OPENSSL ACCEPTS WHAT FEPDF REFUSES"
+        target/release/fepdf publish verify-signature "$out" 2>&1 | sed -n '3,6p' | sed 's/^/    /'
+        FAILED=1; continue
+    fi
+
+    echo "  $name: openssl and fepdf both verify it, over $(cat "$WORK/$name.extract")"
 done
+
+# The check has to be able to fail. A signature that accepts a changed byte is not a
+# signature, so this proves the whole path can say no before the passes above mean
+# anything.
+if [ "$FAILED" -eq 0 ]; then
+    python3 -c "
+import sys
+b = bytearray(open('$WORK/sample.pdf','rb').read()); b[200] ^= 1
+open('$WORK/tampered.pdf','wb').write(b)"
+    if target/release/fepdf publish verify-signature "$WORK/tampered.pdf" 2>&1 | grep -q "REFUSED"; then
+        echo "  (one byte changed: refused, so the check can fail)"
+    else
+        echo "  A CHANGED BYTE WAS ACCEPTED"; FAILED=1
+    fi
+fi
 
 echo
 if [ "$FAILED" -eq 0 ]; then
-    echo "every sample signs, and openssl verifies each signature over the bytes"
+    echo "every sample signs; openssl and fepdf agree on each, and both refuse a changed byte"
 else
     echo "FAILURES above"
 fi

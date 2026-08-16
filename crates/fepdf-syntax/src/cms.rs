@@ -74,17 +74,22 @@ impl SigningIdentity {
     /// The signer's common name, if the certificate states one.
     #[must_use]
     pub fn common_name(&self) -> Option<String> {
-        const COMMON_NAME: &str = "2.5.4.3";
-        self.certificate
-            .tbs_certificate
-            .subject
-            .0
-            .iter()
-            .flat_map(|rdn| rdn.0.iter())
-            .find(|atv: &&AttributeTypeAndValue| atv.oid.to_string() == COMMON_NAME)
-            .and_then(|atv| atv.value.decode_as::<der::asn1::Utf8StringRef<'_>>().ok())
-            .map(|s| s.as_str().to_string())
+        common_name(&self.certificate)
     }
+}
+
+/// The subject's common name, if the certificate states one.
+fn common_name(certificate: &Certificate) -> Option<String> {
+    const COMMON_NAME: &str = "2.5.4.3";
+    certificate
+        .tbs_certificate
+        .subject
+        .0
+        .iter()
+        .flat_map(|rdn| rdn.0.iter())
+        .find(|atv: &&AttributeTypeAndValue| atv.oid.to_string() == COMMON_NAME)
+        .and_then(|atv| atv.value.decode_as::<der::asn1::Utf8StringRef<'_>>().ok())
+        .map(|s| s.as_str().to_string())
 }
 
 /// RFC 5035 §4 `ESSCertIDv2`, reduced to the one field that carries meaning here.
@@ -254,6 +259,174 @@ pub fn signed_digest(der: &[u8]) -> SyntaxResult<Vec<u8>> {
     Ok(octets.as_bytes().to_vec())
 }
 
+/// A signature that verified, and who it says made it.
+///
+/// There is no trust in this. The certificate is whatever the signature carried, and
+/// nothing here builds a chain to a root, checks a revocation list, or compares the
+/// signing time against the certificate's validity. Saying "valid" without saying which
+/// question was answered is how a validator comes to report a self-signed throwaway as
+/// though a certificate authority had vouched for it.
+#[derive(Debug, Clone)]
+pub struct VerifiedSignature {
+    /// The signer's common name, when the certificate states one.
+    pub signer: Option<String>,
+    /// The certificate that made the signature, DER-encoded, for a caller that wants to
+    /// make the trust decision this does not make.
+    pub certificate: Vec<u8>,
+}
+
+/// Verifies a detached CMS `SignedData` covers `message_digest`, and was signed by the
+/// certificate it carries.
+///
+/// Four things are checked, and a failure in any of them is an error rather than a
+/// qualified pass: the structure covers the digest given; the signed attributes verify
+/// under the certificate's public key; the certificate is the one `SignerIdentifier`
+/// names; and `signing-certificate-v2` hashes that same certificate. The last is what
+/// stops the certificate — which travels outside the signature — from being swapped for
+/// another.
+///
+/// Trailing padding is permitted, because `/Contents` always carries some.
+///
+/// # Errors
+/// If the bytes are not a CMS `SignedData`, if anything above fails, or if the
+/// algorithms are ones this engine does not verify.
+pub fn verify_detached(der: &[u8], message_digest: &[u8]) -> SyntaxResult<VerifiedSignature> {
+    let info = ContentInfo::from_der(der_element(der)?)
+        .map_err(|e| crypto(format!("not a CMS structure: {e}")))?;
+    let signed: cms::signed_data::SignedData =
+        info.content.decode_as().map_err(|e| crypto(format!("not CMS SignedData: {e}")))?;
+
+    let signers = signed.signer_infos.0.as_slice();
+    let [signer] = signers else {
+        return Err(crypto(format!(
+            "a PDF signature carries one signer; this carries {}",
+            signers.len()
+        )));
+    };
+    let attributes = signer
+        .signed_attrs
+        .as_ref()
+        .ok_or_else(|| crypto("the signer carries no signed attributes"))?;
+
+    if attribute_value::<OctetString>(attributes, const_oid::db::rfc5911::ID_MESSAGE_DIGEST)?
+        .as_bytes()
+        != message_digest
+    {
+        return Err(crypto("the signature does not cover these bytes"));
+    }
+
+    let certificate = signer_certificate(&signed, &signer.sid)?;
+    let encoded = certificate
+        .to_der()
+        .map_err(|e| crypto(format!("cannot re-encode the certificate: {e}")))?;
+    let reference = attribute_value::<SigningCertificateV2>(
+        attributes,
+        const_oid::db::rfc5911::ID_AA_SIGNING_CERTIFICATE_V_2,
+    )?;
+    let bound = reference
+        .certs
+        .first()
+        .is_some_and(|c| c.cert_hash.as_bytes() == Sha256::digest(&encoded).as_slice());
+    if !bound {
+        return Err(crypto("the signature is not bound to the certificate it carries"));
+    }
+
+    verify_attributes(signer, &certificate, attributes)?;
+    Ok(VerifiedSignature { signer: common_name(&certificate), certificate: encoded })
+}
+
+/// The certificate `sid` names, out of the set the structure carries.
+///
+/// Taking the first certificate would verify a two-certificate bundle against whichever
+/// one happened to be first, which is a different statement about who signed.
+fn signer_certificate(
+    signed: &cms::signed_data::SignedData,
+    sid: &SignerIdentifier,
+) -> SyntaxResult<Certificate> {
+    let SignerIdentifier::IssuerAndSerialNumber(wanted) = sid else {
+        return Err(crypto("the signer is named by key identifier, which this does not resolve"));
+    };
+    signed
+        .certificates
+        .as_ref()
+        .ok_or_else(|| crypto("the signature carries no certificate"))?
+        .0
+        .iter()
+        .find_map(|choice| match choice {
+            CertificateChoices::Certificate(c) => (c.tbs_certificate.issuer == wanted.issuer
+                && c.tbs_certificate.serial_number == wanted.serial_number)
+                .then(|| c.clone()),
+            // An attribute certificate says what its holder may do, not who they are, so
+            // it can never be the certificate a signer is identified by.
+            CertificateChoices::Other(_) => None,
+        })
+        .ok_or_else(|| crypto("the signature carries no certificate for the signer it names"))
+}
+
+/// Verifies the signature over the signed attributes.
+///
+/// RFC 5652 §5.4: the attributes are hashed as an explicit `SET OF`, not with the
+/// `[0] IMPLICIT` tag they carry inside `SignerInfo`. Encoding them the way they are
+/// stored gives a digest that never matches.
+fn verify_attributes(
+    signer: &cms::signed_data::SignerInfo,
+    certificate: &Certificate,
+    attributes: &cms::signed_data::SignedAttributes,
+) -> SyntaxResult<()> {
+    if signer.digest_alg.oid != const_oid::db::rfc5912::ID_SHA_256 {
+        return Err(crypto(format!(
+            "the digest is {}, and this verifies SHA-256",
+            signer.digest_alg.oid
+        )));
+    }
+    const SHA256_WITH_RSA: der::asn1::ObjectIdentifier =
+        der::asn1::ObjectIdentifier::new_unwrap("1.2.840.113549.1.1.11");
+    const RSA: der::asn1::ObjectIdentifier =
+        der::asn1::ObjectIdentifier::new_unwrap("1.2.840.113549.1.1.1");
+    if !matches!(signer.signature_algorithm.oid, SHA256_WITH_RSA | RSA) {
+        return Err(crypto(format!(
+            "the signature is {}, and this verifies RSA PKCS#1 v1.5",
+            signer.signature_algorithm.oid
+        )));
+    }
+
+    let message =
+        attributes.to_der().map_err(|e| crypto(format!("cannot re-encode the attributes: {e}")))?;
+    let spki = certificate
+        .tbs_certificate
+        .subject_public_key_info
+        .to_der()
+        .map_err(|e| crypto(format!("cannot re-encode the public key: {e}")))?;
+    let key = <rsa::RsaPublicKey as rsa::pkcs8::DecodePublicKey>::from_public_key_der(&spki)
+        .map_err(|e| crypto(format!("the certificate carries no RSA public key: {e}")))?;
+    let signature = rsa::pkcs1v15::Signature::try_from(signer.signature.as_bytes())
+        .map_err(|e| crypto(format!("the signature is not an RSA signature: {e}")))?;
+
+    signature::Verifier::verify(
+        &rsa::pkcs1v15::VerifyingKey::<Sha256>::new(key),
+        &message,
+        &signature,
+    )
+    .map_err(|_| crypto("the signed attributes do not verify under the certificate's key"))
+}
+
+/// The one value of a single-valued signed attribute, decoded.
+fn attribute_value<'a, T: der::Choice<'a> + der::DecodeValue<'a>>(
+    attributes: &'a cms::signed_data::SignedAttributes,
+    oid: der::asn1::ObjectIdentifier,
+) -> SyntaxResult<T> {
+    attributes
+        .iter()
+        .find(|a| a.oid == oid)
+        .ok_or_else(|| crypto(format!("no {oid} attribute")))?
+        .values
+        .as_slice()
+        .first()
+        .ok_or_else(|| crypto(format!("the {oid} attribute is empty")))?
+        .decode_as()
+        .map_err(|e| crypto(format!("the {oid} attribute is not what it should be: {e}")))
+}
+
 #[cfg(test)]
 mod signing {
     use super::*;
@@ -364,6 +537,107 @@ mod signing {
         let mut truncated = der;
         truncated.pop();
         assert!(signed_digest(&truncated).is_err(), "a short structure was accepted");
+    }
+
+    /// What signing produces, verification accepts — and names the signer from the
+    /// certificate rather than from anything the caller supplied.
+    #[test]
+    fn a_signature_verifies_against_the_digest_it_covers() {
+        let identity = identity();
+        let taken = digest(&[b"the bytes the ByteRange names"]);
+        let der = sign_detached(&taken, &identity).expect("a signature");
+
+        let verified = verify_detached(&der, &taken).expect("the signature should verify");
+        assert_eq!(verified.signer.as_deref(), Some("fepdf test signer"));
+        assert!(!verified.certificate.is_empty());
+    }
+
+    /// The point of verifying: a different digest is a different document.
+    #[test]
+    fn a_signature_does_not_verify_against_other_bytes() {
+        let identity = identity();
+        let der = sign_detached(&digest(&[b"one document"]), &identity).expect("a signature");
+        let error = verify_detached(&der, &digest(&[b"another document"]))
+            .expect_err("a signature over other bytes");
+        assert!(error.to_string().contains("does not cover"), "{error}");
+    }
+
+    /// The certificate travels outside the signature, so swapping it must be caught.
+    /// This is what `signing-certificate-v2` is for, and the check that proves it does
+    /// something: the substituted certificate is structurally fine and self-consistent.
+    #[test]
+    fn a_substituted_certificate_is_refused() {
+        let taken = digest(&[b"a document"]);
+        let der = sign_detached(&taken, &identity()).expect("a signature");
+        let other = identity();
+        let other_der = other.certificate.to_der().expect("DER");
+
+        let info = ContentInfo::from_der(&der).expect("CMS");
+        let mut signed: cms::signed_data::SignedData =
+            info.content.decode_as().expect("SignedData");
+        // Keep the signer identifier consistent with the swap, so the only thing wrong
+        // is which certificate it is.
+        signed.certificates = Some(cms::signed_data::CertificateSet(
+            SetOfVec::try_from(vec![CertificateChoices::Certificate(other.certificate.clone())])
+                .expect("a set"),
+        ));
+        let mut signer = signed.signer_infos.0.as_slice()[0].clone();
+        signer.sid = SignerIdentifier::IssuerAndSerialNumber(cms::cert::IssuerAndSerialNumber {
+            issuer: other.certificate.tbs_certificate.issuer.clone(),
+            serial_number: other.certificate.tbs_certificate.serial_number,
+        });
+        signed.signer_infos =
+            cms::signed_data::SignerInfos(SetOfVec::try_from(vec![signer]).expect("a set"));
+
+        let swapped = ContentInfo {
+            content_type: const_oid::db::rfc5911::ID_SIGNED_DATA,
+            content: Any::encode_from(&signed).expect("an Any"),
+        }
+        .to_der()
+        .expect("DER");
+
+        assert!(other_der != der, "the test did not actually substitute anything");
+        let error = verify_detached(&swapped, &taken).expect_err("a substituted certificate");
+        assert!(error.to_string().contains("not bound to the certificate"), "{error}");
+    }
+
+    /// The cryptography, on its own. Every other refusal here is a structural check
+    /// that would still fire with the signature never verified at all; this one fails
+    /// only if the signed attributes are actually checked against the key.
+    #[test]
+    fn a_forged_signature_value_is_refused() {
+        let taken = digest(&[b"a document"]);
+        let der = sign_detached(&taken, &identity()).expect("a signature");
+        let info = ContentInfo::from_der(&der).expect("CMS");
+        let mut signed: cms::signed_data::SignedData =
+            info.content.decode_as().expect("SignedData");
+
+        let mut signer = signed.signer_infos.0.as_slice()[0].clone();
+        let mut bytes = signer.signature.as_bytes().to_vec();
+        bytes[0] ^= 0xFF; // same length, same structure, different number
+        signer.signature = OctetString::new(bytes).expect("an octet string");
+        signed.signer_infos =
+            cms::signed_data::SignerInfos(SetOfVec::try_from(vec![signer]).expect("a set"));
+
+        let forged = ContentInfo {
+            content_type: const_oid::db::rfc5911::ID_SIGNED_DATA,
+            content: Any::encode_from(&signed).expect("an Any"),
+        }
+        .to_der()
+        .expect("DER");
+
+        let error = verify_detached(&forged, &taken).expect_err("a forged signature");
+        assert!(error.to_string().contains("do not verify"), "{error}");
+    }
+
+    /// Padding is what `/Contents` gives back, so verification has to take it too.
+    #[test]
+    fn verification_tolerates_the_padding_contents_carries() {
+        let identity = identity();
+        let taken = digest(&[b"a document"]);
+        let mut der = sign_detached(&taken, &identity).expect("a signature");
+        der.resize(der.len() + 512, 0);
+        assert!(verify_detached(&der, &taken).is_ok());
     }
 
     /// ETSI EN 319 122-1 requires the certificate reference for CAdES, and

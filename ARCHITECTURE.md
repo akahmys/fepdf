@@ -241,9 +241,6 @@ pub enum Operation {
     SetOutputIntent { subtype: String, identifier: String, icc_profile_bytes: Option<Vec<u8>> },
     SetPronunciationLexicon { lexicon_xml_bytes: Vec<u8> },
 
-    // --- Security & Provenance Domain ---
-    VerifyDigitalSignature { field_name: String },
-
     // --- Decorations & Annotations Domain ---
     AddHyperlink { page: usize, rect: [f32; 4], destination: LinkDestination },
     AddPageDecorations { header: Option<String>, footer: Option<String>, watermark: Option<WatermarkSpec> },

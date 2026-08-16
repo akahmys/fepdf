@@ -518,16 +518,16 @@ fn page_handles(arena: &PdfArena, catalog: &Dict) -> Vec<crate::handle::Handle<O
     out
 }
 
-fn dict_of(arena: &PdfArena, object: &Object) -> Option<Dict> {
+pub(crate) fn dict_of(arena: &PdfArena, object: &Object) -> Option<Dict> {
     let handle: DictHandle = object.resolve(arena).as_dict_handle()?;
     arena.get_dict(handle)
 }
 
-fn array_of(arena: &PdfArena, object: Option<&Object>) -> Option<Vec<Object>> {
+pub(crate) fn array_of(arena: &PdfArena, object: Option<&Object>) -> Option<Vec<Object>> {
     arena.get_array(object?.resolve(arena).as_array()?)
 }
 
-fn name_of(arena: &PdfArena, object: &Object) -> Option<String> {
+pub(crate) fn name_of(arena: &PdfArena, object: &Object) -> Option<String> {
     match object.resolve(arena) {
         Object::Name(h) => arena.get_name_str(h),
         _ => None,

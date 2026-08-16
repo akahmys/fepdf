@@ -150,13 +150,6 @@ pub enum Operation {
         lexicon_xml_bytes: Vec<u8>,
     },
 
-    // --- Phase 2: Security & Provenance Domain Operations ---
-    /// Verify a digital signature on a specific signature field.
-    VerifyDigitalSignature {
-        /// Target signature field name.
-        field_name: String,
-    },
-
     // --- Phase 2: Decorations & Annotations Domain Operations ---
     /// Add page header, footer, or watermark text.
     AddPageDecoration {

@@ -44,6 +44,8 @@ pub mod parser;
 /// Building objects from the offsets the syntax layer located.
 pub mod reader;
 pub mod refine;
+/// Checking the signatures a file carries (12.8).
+pub mod signature;
 /// Where documents come from: the bytes-to-`Document` boundary.
 pub mod source;
 pub use fepdf_syntax::security;

@@ -8,7 +8,7 @@ use fepdf_model::{
     PublicKeyRecipientSpec, UnencryptedWrapperSpec, UserProperty, UserPropertyValue,
     VisibilityState,
 };
-use fepdf_sdk::{DecorationPosition, Operation, PageSelection, PkiValidator, SignatureStatus};
+use fepdf_sdk::{DecorationPosition, Operation, PageSelection};
 
 #[test]
 fn test_portfolio_domain_model() {
@@ -113,11 +113,18 @@ fn test_output_intent_domain_model() {
     }
 }
 
+/// A file with no signature reports no signature, rather than reporting a verdict.
+///
+/// This replaces a test of `PkiValidator`, which returned `Valid` and a `signer_name` of
+/// the literal string "Valid Signer" for any bytes that parsed as one DER element. The
+/// only branch of it that told the truth was the empty-input one, and that was the
+/// branch the test pinned.
 #[test]
-fn test_pki_validator_empty_stream() {
-    let report = PkiValidator::validate_signature_bytes("Sig1", &[]).unwrap();
-    assert_eq!(report.status, SignatureStatus::NotASignatureField);
-    assert_eq!(report.field_name, "Sig1");
+fn a_file_with_no_signature_reports_none() {
+    let bytes = std::fs::read("../../samples/sample.pdf").expect("a sample");
+    let report = fepdf_sdk::SignatureReport::survey(&bytes).expect("a report");
+    assert!(report.signatures.is_empty(), "found a signature in an unsigned file");
+    assert_eq!(report.unsigned_fields, 0);
 }
 
 #[test]

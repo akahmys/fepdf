@@ -573,17 +573,14 @@ enum PublishSubcommands {
         #[command(flatten)]
         save: SaveArgs,
     },
-    // Hidden for the same reason, and the more dangerous of the two: verification
-    // passed a `&[]` where the signature belonged, threw the result away, and returned
-    // success for every document — including unsigned ones.
-    /// Verify a digital signature on a specific field
-    #[command(hide = true)]
+    /// Check every signature a file carries
+    ///
+    /// Reports whether each signature verifies over the bytes its `/ByteRange` names,
+    /// and whether that range is the whole file. It does not decide whether the
+    /// certificate should be trusted — see the note it prints.
     VerifySignature {
         /// Input PDF file
         input: PathBuf,
-        /// Signature field name
-        #[arg(short, long)]
-        field: String,
         /// Ingestion control options
         #[command(flatten)]
         ingest: IngestArgs,
@@ -773,8 +770,8 @@ async fn main() -> Result<()> {
                     save,
                 )?;
             }
-            PublishSubcommands::VerifySignature { input, field, ingest } => {
-                handle_verify_signature(input, field, ingest)?;
+            PublishSubcommands::VerifySignature { input, ingest } => {
+                handle_verify_signature(input, ingest)?;
             }
         },
         Commands::Debug { sub } => match sub {
@@ -2279,23 +2276,54 @@ fn handle_geo(
     Ok(())
 }
 
-fn handle_verify_signature(input: PathBuf, field: String, ingest: IngestArgs) -> Result<()> {
-    println!("fepdf verify-signature: Verifying field '{field}' on {}", input.display());
+fn handle_verify_signature(input: PathBuf, ingest: IngestArgs) -> Result<()> {
+    println!("fepdf verify-signature: {}", input.display());
+    let _ = ingest;
     let data = std::fs::read(&input).with_context(|| "Failed to read input PDF")?;
-    let ingest_options: fepdf_sdk::IngestionOptions = ingest.into();
-    let mut doc = PdfDocument::open_with_options(data.into(), &ingest_options)
-        .map_err(|e| anyhow::anyhow!("{e:?}"))?;
+    // The byte layer, not `PdfDocument`: `/ByteRange` names offsets into this file, and
+    // a `Document` has already normalised them out of existence (ADR-0013).
+    let report = fepdf_sdk::SignatureReport::survey(&data).map_err(|e| anyhow::anyhow!("{e:?}"))?;
 
-    doc.apply(fepdf_sdk::Operation::VerifyDigitalSignature { field_name: field.clone() })
-        .map_err(|e| anyhow::anyhow!("{e:?}"))?;
+    println!("\n--- [ SIGNATURES (12.8) ] ---");
+    if report.signatures.is_empty() {
+        println!("  no signature — {} unsigned signature fields", report.unsigned_fields);
+    }
+    for (n, s) in report.signatures.iter().enumerate() {
+        let field = s.field.clone().unwrap_or_else(|| format!("(unnamed field {})", n + 1));
+        match &s.refused {
+            None => println!("  {field}: verifies"),
+            Some(why) => println!("  {field}: REFUSED — {why}"),
+        }
+        if let Some(signer) = &s.signer {
+            println!("    signer                   {signer}");
+        }
+        if let Some(sub_filter) = &s.sub_filter {
+            println!("    /SubFilter               {sub_filter}");
+        }
+        if let Some(at) = &s.signed_at {
+            println!("    /M                       {at} (the document's word)");
+        }
+        let (covered, total) = s.covered;
+        if s.covers_whole_file {
+            println!("    covers                   the whole file, {covered} of {total} bytes");
+        } else {
+            println!(
+                "    covers                   {covered} of {total} bytes — NOT the whole file"
+            );
+        }
+    }
+    if report.unsigned_fields > 0 && !report.signatures.is_empty() {
+        println!("  {} further signature fields hold no signature", report.unsigned_fields);
+    }
 
-    let report = fepdf_sdk::PkiValidator::validate_signature_bytes(&field, &[])
-        .map_err(|e| anyhow::anyhow!("{e:?}"))?;
+    // What was not asked is as important as what was. A verified signature here says
+    // the bytes have not changed since it was made and that it is bound to the
+    // certificate it carries; it says nothing about whether that certificate should be
+    // believed, which needs a trust store this engine does not have.
+    println!("\n  Not checked: whether the certificate is trusted, was valid when it");
+    println!("  signed, or has since been revoked.");
 
-    println!("\n--- [ DIGITAL SIGNATURE VERIFICATION REPORT ] ---");
-    println!("Field Name: {}", report.field_name);
-    println!("Status: {:?}", report.status);
-    println!("Summary: {}", report.summary);
+    render_decisions_text(&report.decisions);
     Ok(())
 }
 

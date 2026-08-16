@@ -218,6 +218,95 @@ fn an_unreachable_signature_is_refused() {
     );
 }
 
+/// A document with a real signature *field*, so that reading it back finds one — the
+/// minimal document above hangs the signature off `/Perms`, which no form lists.
+fn signed_with_a_field(identity: &SigningIdentity) -> Vec<u8> {
+    let arena = PdfArena::new();
+
+    let mut page = BTreeMap::new();
+    page.insert(arena.name("Type"), Object::Name(arena.name("Page")));
+    page.insert(
+        arena.name("MediaBox"),
+        Object::Array(arena.alloc_array(vec![
+            Object::Integer(0),
+            Object::Integer(0),
+            Object::Integer(612),
+            Object::Integer(792),
+        ])),
+    );
+    let page_h = arena.alloc_object(Object::Dictionary(arena.alloc_dict(page)));
+
+    let mut pages = BTreeMap::new();
+    pages.insert(arena.name("Type"), Object::Name(arena.name("Pages")));
+    pages.insert(
+        arena.name("Kids"),
+        Object::Array(arena.alloc_array(vec![Object::Reference(page_h)])),
+    );
+    pages.insert(arena.name("Count"), Object::Integer(1));
+    let pages_h = arena.alloc_object(Object::Dictionary(arena.alloc_dict(pages)));
+
+    let mut catalog = BTreeMap::new();
+    catalog.insert(arena.name("Type"), Object::Name(arena.name("Catalog")));
+    catalog.insert(arena.name("Pages"), Object::Reference(pages_h));
+    let root = arena.alloc_object(Object::Dictionary(arena.alloc_dict(catalog)));
+
+    let field = fepdf_model::interactive::SignatureField {
+        page_index: 0,
+        field_name: "Signature1".to_string(),
+        signed_at: "D:20260817000000+09'00".to_string(),
+        ..Default::default()
+    };
+    let sig_h = fepdf_model::interactive::add_signature_field(&arena, root, &field)
+        .expect("a signature field");
+    write(&arena, root, sig_h, identity).expect("a signed document")
+}
+
+/// The round trip that matters: what the writer signs, the reader verifies.
+#[test]
+fn a_file_this_engine_signed_verifies_when_read_back() {
+    let pdf = signed_with_a_field(&identity());
+    let report = fepdf_model::signature::SignatureReport::survey(&pdf).expect("a report");
+
+    let [signature] = &report.signatures[..] else {
+        panic!("expected one signature, found {}", report.signatures.len());
+    };
+    assert!(signature.verified(), "refused: {:?}", signature.refused);
+    assert_eq!(signature.field.as_deref(), Some("Signature1"));
+    assert_eq!(signature.sub_filter.as_deref(), Some("ETSI.CAdES.detached"));
+    assert_eq!(signature.signer.as_deref(), Some("fepdf test signer"));
+    assert!(signature.covers_whole_file);
+    assert_eq!(signature.covered.1, pdf.len());
+}
+
+/// One byte, anywhere in the covered range, and the signature is no longer over it.
+#[test]
+fn a_changed_byte_is_refused() {
+    let mut pdf = signed_with_a_field(&identity());
+    pdf[64] ^= 0x01;
+
+    let report = fepdf_model::signature::SignatureReport::survey(&pdf).expect("a report");
+    let [signature] = &report.signatures[..] else { panic!("expected one signature") };
+    assert!(!signature.verified(), "a changed byte was accepted");
+}
+
+/// Appending after a signature leaves it valid over what it covers, which is the whole
+/// of the attack: a reader that prints "signed" and stops has told the user the added
+/// bytes are signed too. `covers_whole_file` is the difference, so it is reported apart
+/// from the verdict rather than folded into it.
+#[test]
+fn bytes_appended_after_signing_still_verify_but_do_not_cover_the_file() {
+    let mut pdf = signed_with_a_field(&identity());
+    let signed_length = pdf.len();
+    pdf.extend_from_slice(b"\n%% appended after the signature\n");
+
+    let report = fepdf_model::signature::SignatureReport::survey(&pdf).expect("a report");
+    let [signature] = &report.signatures[..] else { panic!("expected one signature") };
+    assert!(signature.verified(), "refused: {:?}", signature.refused);
+    assert!(!signature.covers_whole_file, "the added bytes were reported as covered");
+    assert_eq!(signature.covered.1, pdf.len());
+    assert!(signature.covered.0 < signed_length);
+}
+
 /// A guard against the digest being taken over something constant, which would verify
 /// against any file at all: change a byte far from the signature and the digest moves.
 #[test]
