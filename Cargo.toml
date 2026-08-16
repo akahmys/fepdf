@@ -98,8 +98,6 @@ fepdf-font = { path = "crates/fepdf-font", version = "1.0.0" }
 fepdf-content = { path = "crates/fepdf-content", version = "1.0.0" }
 fepdf-render = { path = "crates/fepdf-render", version = "1.0.0" }
 fepdf-sdk = { path = "crates/fepdf-sdk", version = "1.0.0" }
-fepdf-mcp = { path = "crates/fepdf-mcp", version = "1.0.0" }
-fepdf-wasm = { path = "crates/fepdf-wasm", version = "1.0.0" }
 fepdf-macros = { path = "crates/fepdf-macros", version = "1.0.0" }
 
 # GUI, Web & CLI Ecosystem

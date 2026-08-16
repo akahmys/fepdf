@@ -8,6 +8,7 @@
 //! through the arena — a filter reads its own decode parameters from a PDF dictionary
 //! — so they belong with the model. See `ARCHITECTURE.md` §4.
 
+pub mod cms;
 pub mod lexer;
 pub mod security;
 pub mod xref;

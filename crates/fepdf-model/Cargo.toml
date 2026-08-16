@@ -39,16 +39,8 @@ rand.workspace = true
 md5.workspace = true
 hex.workspace = true
 nom.workspace = true
-x509-parser.workspace = true
 reqwest.workspace = true
-der.workspace = true
-spki.workspace = true
 rustls-native-certs.workspace = true
-rsa.workspace = true
-ecdsa.workspace = true
-p256.workspace = true
-signature.workspace = true
-sha1.workspace = true
 
 [features]
 debug-tools = []
