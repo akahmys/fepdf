@@ -52,10 +52,10 @@ fn serialize_command(cmd: &Command, buf: &mut Vec<u8>) {
         Command::Rect(rect) => {
             buf.extend_from_slice(
                 format!(
-                    "{:.6} {:.6} {:.6} {:.6} re\n",
-                    rect.x0,
-                    rect.y0,
-                    rect.width(),
+                    "{} {} {} {} re\n",
+                    num(rect.x0),
+                    num(rect.y0),
+                    num(rect.width()),
                     rect.height()
                 )
                 .as_bytes(),
@@ -85,36 +85,48 @@ fn serialize_command(cmd: &Command, buf: &mut Vec<u8>) {
         Command::BeginText => buf.extend_from_slice(b"BT\n"),
         Command::EndText => buf.extend_from_slice(b"ET\n"),
         Command::SetFont { font, size } => {
-            buf.extend_from_slice(format!("/{font} {size:.6} Tf\n").as_bytes());
+            buf.extend_from_slice(format!("/{font} {} Tf\n", num(*size)).as_bytes());
         }
         Command::SetFillColor(color) => match color {
             crate::graphics::Color::Gray(g) => {
-                buf.extend_from_slice(format!("{g:.6} g\n").as_bytes());
+                buf.extend_from_slice(format!("{} g\n", num(*g)).as_bytes());
             }
             crate::graphics::Color::Rgb(r, g, b) => {
-                buf.extend_from_slice(format!("{r:.6} {g:.6} {b:.6} rg\n").as_bytes());
+                buf.extend_from_slice(
+                    format!("{} {} {} rg\n", num(*r), num(*g), num(*b)).as_bytes(),
+                );
             }
             crate::graphics::Color::Cmyk(c, m, y, k) => {
-                buf.extend_from_slice(format!("{c:.6} {m:.6} {y:.6} {k:.6} k\n").as_bytes());
+                buf.extend_from_slice(
+                    format!("{} {} {} {} k\n", num(*c), num(*m), num(*y), num(*k)).as_bytes(),
+                );
             }
             crate::graphics::Color::Lab(l, a, b) => {
                 // Keep High-Fidelity color space (do not downgrade to RGB)
-                buf.extend_from_slice(format!("{l:.6} {a:.6} {b:.6} scn\n").as_bytes());
+                buf.extend_from_slice(
+                    format!("{} {} {} scn\n", num(*l), num(*a), num(*b)).as_bytes(),
+                );
             }
         },
         Command::SetStrokeColor(color) => match color {
             crate::graphics::Color::Gray(g) => {
-                buf.extend_from_slice(format!("{g:.6} G\n").as_bytes());
+                buf.extend_from_slice(format!("{} G\n", num(*g)).as_bytes());
             }
             crate::graphics::Color::Rgb(r, g, b) => {
-                buf.extend_from_slice(format!("{r:.6} {g:.6} {b:.6} RG\n").as_bytes());
+                buf.extend_from_slice(
+                    format!("{} {} {} RG\n", num(*r), num(*g), num(*b)).as_bytes(),
+                );
             }
             crate::graphics::Color::Cmyk(c, m, y, k) => {
-                buf.extend_from_slice(format!("{c:.6} {m:.6} {y:.6} {k:.6} K\n").as_bytes());
+                buf.extend_from_slice(
+                    format!("{} {} {} {} K\n", num(*c), num(*m), num(*y), num(*k)).as_bytes(),
+                );
             }
             crate::graphics::Color::Lab(l, a, b) => {
                 // Keep High-Fidelity color space (do not downgrade to RGB)
-                buf.extend_from_slice(format!("{l:.6} {a:.6} {b:.6} SCN\n").as_bytes());
+                buf.extend_from_slice(
+                    format!("{} {} {} SCN\n", num(*l), num(*a), num(*b)).as_bytes(),
+                );
             }
         },
         Command::ShowText(bytes) => {
@@ -136,48 +148,48 @@ fn serialize_command(cmd: &Command, buf: &mut Vec<u8>) {
                         buf.push(b'>');
                     }
                     TextArrayItem::Offset(o) => {
-                        buf.extend_from_slice(format!(" {o:.6}").as_bytes());
+                        buf.extend_from_slice(format!(" {}", num(*o)).as_bytes());
                     }
                 }
             }
             buf.extend_from_slice(b"] TJ\n");
         }
         Command::MoveText(p) => {
-            buf.extend_from_slice(format!("{:.6} {:.6} Td\n", p.x, p.y).as_bytes());
+            buf.extend_from_slice(format!("{} {} Td\n", num(p.x), num(p.y)).as_bytes());
         }
         Command::SetTextMatrix(affine) => {
             write_affine(affine, buf);
             buf.extend_from_slice(b" Tm\n");
         }
-        Command::SetCharSpacing(s) => buf.extend_from_slice(format!("{s:.6} Tc\n").as_bytes()),
-        Command::SetWordSpacing(s) => buf.extend_from_slice(format!("{s:.6} Tw\n").as_bytes()),
+        Command::SetCharSpacing(s) => buf.extend_from_slice(format!("{} Tc\n", num(*s)).as_bytes()),
+        Command::SetWordSpacing(s) => buf.extend_from_slice(format!("{} Tw\n", num(*s)).as_bytes()),
         Command::SetHorizontalScaling(s) => {
-            buf.extend_from_slice(format!("{s:.6} Tz\n").as_bytes());
+            buf.extend_from_slice(format!("{} Tz\n", num(*s)).as_bytes());
         }
         Command::SetTextRenderMode(m) => {
             buf.extend_from_slice(format!("{} Tr\n", *m as i32).as_bytes());
         }
-        Command::SetTextRise(s) => buf.extend_from_slice(format!("{s:.6} Ts\n").as_bytes()),
-        Command::SetTextLeading(s) => buf.extend_from_slice(format!("{s:.6} TL\n").as_bytes()),
+        Command::SetTextRise(s) => buf.extend_from_slice(format!("{} Ts\n", num(*s)).as_bytes()),
+        Command::SetTextLeading(s) => buf.extend_from_slice(format!("{} TL\n", num(*s)).as_bytes()),
         Command::MoveToNextLine => buf.extend_from_slice(b"T*\n"),
         Command::DrawXObject(name) => buf.extend_from_slice(format!("/{name} Do\n").as_bytes()),
-        Command::SetLineWidth(w) => buf.extend_from_slice(format!("{w:.6} w\n").as_bytes()),
+        Command::SetLineWidth(w) => buf.extend_from_slice(format!("{} w\n", num(*w)).as_bytes()),
         Command::SetLineCap(cap) => {
             buf.extend_from_slice(format!("{} J\n", *cap as i32).as_bytes());
         }
         Command::SetLineJoin(join) => {
             buf.extend_from_slice(format!("{} j\n", *join as i32).as_bytes());
         }
-        Command::SetMiterLimit(m) => buf.extend_from_slice(format!("{m:.6} M\n").as_bytes()),
+        Command::SetMiterLimit(m) => buf.extend_from_slice(format!("{} M\n", num(*m)).as_bytes()),
         Command::SetDashPattern(dash, phase) => {
             buf.push(b'[');
             for (i, d) in dash.iter().enumerate() {
                 if i > 0 {
                     buf.push(b' ');
                 }
-                buf.extend_from_slice(format!("{d:.6}").as_bytes());
+                buf.extend_from_slice(num(*d).as_bytes());
             }
-            buf.extend_from_slice(format!("] {phase:.6} d\n").as_bytes());
+            buf.extend_from_slice(format!("] {} d\n", num(*phase)).as_bytes());
         }
         Command::DrawInlineImage { width, height, format, data } => {
             write_inline_image(*width, *height, *format, data, buf);
@@ -212,13 +224,18 @@ fn serialize_command(cmd: &Command, buf: &mut Vec<u8>) {
             if let Some(r) = bbox {
                 buf.extend_from_slice(
                     format!(
-                        "{:.6} {:.6} {:.6} {:.6} {:.6} {:.6} d1\n",
-                        wx, wy, r.x0, r.y0, r.x1, r.y1
+                        "{} {} {} {} {} {} d1\n",
+                        num(*wx),
+                        num(*wy),
+                        num(r.x0),
+                        num(r.y0),
+                        num(r.x1),
+                        num(r.y1)
                     )
                     .as_bytes(),
                 );
             } else {
-                buf.extend_from_slice(format!("{wx:.6} {wy:.6} d0\n").as_bytes());
+                buf.extend_from_slice(format!("{} {} d0\n", num(*wx), num(*wy)).as_bytes());
             }
         }
         _ => {} // Other commands like SetWritingMode are internal and don't map to PDF operators
@@ -251,15 +268,44 @@ fn write_inline_image(
     buf.extend_from_slice(b"\nEI\n");
 }
 
+/// A number as PDF writes one (7.3.3).
+///
+/// Six places is the precision [ADR-0011] settled on: finer than any rendering
+/// distinguishes, and enough that a value parses back to what produced it, so the round
+/// trip is a fixed point. What it did not settle was the trailing zeros, and every
+/// operand went out padded to six of them — `1` became `1.000000` and a `TJ` adjustment
+/// of `-1000` became `-1000.000000`. That is 42% more content stream on
+/// `samples/fy05.pdf` page 6 (8,552 bytes to 12,106) saying exactly the same thing.
+///
+/// [ADR-0011]: ../../../../../docs/adr/0011-the-content-round-trip-must-be-a-fixed-point.md
+fn num(value: impl Copy + Into<f64>) -> String {
+    let text = format!("{:.6}", value.into());
+    let trimmed = text.trim_end_matches('0').trim_end_matches('.');
+    // `0.000000` trims to nothing and any negative that rounds to zero trims to `-0`,
+    // which is a number the standard allows and nobody means.
+    match trimmed {
+        "" | "-" | "-0" => "0".to_string(),
+        other => other.to_string(),
+    }
+}
+
 fn write_point(p: &Point, buf: &mut Vec<u8>) {
-    buf.extend_from_slice(format!("{:.6} {:.6}", p.x, p.y).as_bytes());
+    buf.extend_from_slice(format!("{} {}", num(p.x), num(p.y)).as_bytes());
 }
 
 fn write_affine(a: &Affine, buf: &mut Vec<u8>) {
     let c = a.as_coeffs();
     buf.extend_from_slice(
-        format!("{:.6} {:.6} {:.6} {:.6} {:.6} {:.6}", c[0], c[1], c[2], c[3], c[4], c[5])
-            .as_bytes(),
+        format!(
+            "{} {} {} {} {} {}",
+            num(c[0]),
+            num(c[1]),
+            num(c[2]),
+            num(c[3]),
+            num(c[4]),
+            num(c[5])
+        )
+        .as_bytes(),
     );
 }
 
@@ -267,7 +313,7 @@ fn write_ir_object(obj: &IrObject, buf: &mut Vec<u8>) {
     match obj {
         IrObject::Boolean(b) => buf.extend_from_slice(if *b { b"true" } else { b"false" }),
         IrObject::Integer(i) => buf.extend_from_slice(i.to_string().as_bytes()),
-        IrObject::Real(f) => buf.extend_from_slice(format!("{f:.6}").as_bytes()),
+        IrObject::Real(f) => buf.extend_from_slice(num(*f).as_bytes()),
         IrObject::String(b) => {
             buf.push(b'(');
             buf.extend_from_slice(&escape_pdf_string(b));
@@ -400,5 +446,55 @@ mod clipping {
     fn painting_without_clipping_is_untouched() {
         assert_eq!(operators("q 10 10 100 100 re f Q"), ["q", "re", "f", "Q"]);
         assert_eq!(operators("q 10 10 100 100 re S Q"), ["q", "re", "S", "Q"]);
+    }
+}
+
+#[cfg(test)]
+mod numbers {
+    use super::*;
+
+    /// Six places is the precision; six *zeros* is not part of it.
+    ///
+    /// Every operand went out padded, so `1` was written `1.000000` and a `TJ`
+    /// adjustment of `-1000` became `-1000.000000`. Both say the same thing, and
+    /// `samples/fy05.pdf` page 6 said it in 12,106 bytes instead of 8,552.
+    ///
+    /// It was not only size. PDFKit read the padded forms to glyph origins a
+    /// thousandth of a point from where it read the plain ones, which was enough to
+    /// move its line-break decisions on 78 of the file's 846 pages — the round-trip
+    /// difference `crosscheck_roundtrip.sh` had been reporting since it was written.
+    #[test]
+    fn a_whole_number_is_written_whole() {
+        assert_eq!(num(1.0), "1");
+        assert_eq!(num(-1000.0), "-1000");
+        assert_eq!(num(0.0), "0");
+        assert_eq!(num(37.0), "37");
+    }
+
+    #[test]
+    fn a_fraction_keeps_six_places_and_no_more() {
+        assert_eq!(num(127.64), "127.64");
+        assert_eq!(num(0.0151), "0.0151");
+        // ADR-0011: add-then-subtract does not return the input, and six places is
+        // what makes the value parse back to the rectangle that produced it.
+        assert_eq!(num(0.120_000_000_000_004_55), "0.12");
+        assert_eq!(num(12.600_000_000_000_001), "12.6");
+    }
+
+    /// A negative that rounds to zero must not come out as `-`.
+    #[test]
+    fn a_value_rounding_to_zero_is_zero() {
+        assert_eq!(num(-0.000_000_1), "0");
+        assert_eq!(num(-0.0), "0");
+        assert_eq!(num(0.000_000_4), "0");
+    }
+
+    /// 7.3.3 gives no exponent form for a real, so no magnitude may produce one.
+    #[test]
+    fn no_exponent_ever_reaches_the_file() {
+        for v in [1e-12, 1e12, -1e12, f64::MIN_POSITIVE] {
+            let s = num(v);
+            assert!(!s.contains('e') && !s.contains('E'), "{v} produced {s}");
+        }
     }
 }

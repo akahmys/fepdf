@@ -122,7 +122,12 @@ impl<'a, W: Write> PdfWriter<'a, W> {
             Object::Boolean(b) => self.write_all(if *b { b"true" } else { b"false" }),
             Object::Integer(i) => self.write_all(i.to_string().as_bytes()),
             Object::Real(f) => {
-                let s = format!("{f:.4}");
+                // Six places, as the content serialiser uses: the two had diverged, so
+                // a number in a dictionary was rounded harder than the same number in a
+                // content stream. Four places turned the source's 18.157801 into
+                // 18.1578, which is 378 of fy05.pdf's 4,574 objects differing for no
+                // reason anyone chose.
+                let s = format!("{f:.6}");
                 let trimmed = s.trim_end_matches('0').trim_end_matches('.');
                 self.write_all(trimmed.as_bytes())
             }
