@@ -280,9 +280,11 @@ pub fn info_to_xmp_derived(
     generate_and_write_uuids(info, &mut writer);
     parse_and_write_dates(info, &mut writer);
 
-    if let Some(source) = &provenance.source_id {
-        writer.derived_from().document_id(source);
-        writer.original_doc_id(source);
+    if let Some(parent) = &provenance.source_id {
+        writer.derived_from().document_id(parent);
+    }
+    if let Some(root) = &provenance.original_id {
+        writer.original_doc_id(root);
     }
 
     writer.finish(None)
@@ -295,4 +297,72 @@ pub fn create_metadata_stream(xmp: String) -> RefinedObject {
     dict.insert(PdfName::new("Subtype"), RefinedObject::Name(PdfName::new("XML")));
 
     RefinedObject::Stream(dict, Bytes::from(xmp))
+}
+
+#[cfg(test)]
+mod provenance {
+    //! What the output records about where it came from (ADR-0012).
+
+    use super::*;
+    use crate::document::Provenance;
+
+    fn packet(provenance: &Provenance) -> String {
+        info_to_xmp_derived(&BTreeMap::new(), provenance)
+    }
+
+    #[test]
+    fn a_first_save_names_the_source_as_both_parent_and_root() {
+        let p = Provenance {
+            source_id: Some("uuid:aaa".into()),
+            original_id: Some("uuid:aaa".into()),
+            signatures: 0,
+        };
+        let xmp = packet(&p);
+        assert!(xmp.contains("DerivedFrom"), "{xmp}");
+        assert!(xmp.contains("OriginalDocumentID"), "{xmp}");
+        assert_eq!(xmp.matches("uuid:aaa").count(), 2, "parent and root are the same file");
+    }
+
+    #[test]
+    fn a_later_save_keeps_the_root_and_moves_the_parent() {
+        // The defect this guards: writing the parent into both fields loses where the
+        // chain began, and two saves are enough to do it.
+        let p = Provenance {
+            source_id: Some("uuid:middle".into()),
+            original_id: Some("uuid:root".into()),
+            signatures: 0,
+        };
+        let xmp = packet(&p);
+        let derived = xmp.find("DerivedFrom").expect("present");
+        let original = xmp.find("OriginalDocumentID").expect("present");
+        assert!(xmp[derived..original].contains("uuid:middle"), "parent is the immediate one");
+        assert!(xmp[original..].contains("uuid:root"), "root survives the generation");
+        assert!(!xmp[original..].contains("uuid:middle"), "root is not overwritten");
+    }
+
+    #[test]
+    fn a_document_with_no_source_claims_no_origin() {
+        // Nothing to derive from means nothing to say, not an empty element.
+        let xmp = packet(&Provenance::default());
+        assert!(!xmp.contains("DerivedFrom"), "{xmp}");
+        assert!(!xmp.contains("OriginalDocumentID"), "{xmp}");
+    }
+
+    #[test]
+    fn the_packet_does_not_grow_with_generations() {
+        // The record is two single values, not a list: repeated saves overwrite them.
+        // A growing packet would be a different design and a worse one for a tool that
+        // is run in a loop.
+        let first = packet(&Provenance {
+            source_id: Some("uuid:aaa".into()),
+            original_id: Some("uuid:aaa".into()),
+            signatures: 0,
+        });
+        let tenth = packet(&Provenance {
+            source_id: Some("uuid:jjj".into()),
+            original_id: Some("uuid:aaa".into()),
+            signatures: 0,
+        });
+        assert_eq!(first.len(), tenth.len());
+    }
 }

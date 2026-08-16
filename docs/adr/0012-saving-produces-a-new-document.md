@@ -51,11 +51,25 @@ naming it settles what to do about the rest:
   `should`; a signature's absence is a fact about the output, not a violation the
   engine commits.
 
-What replaces the loss is a record of origin. `xmpMM:DerivedFrom` and
-`xmpMM:OriginalDocumentID` carry the source's `xmpMM:DocumentID`, or its trailer
-`/ID[0]` when it had no XMP. A message on a terminal is gone when the terminal is; a
-reader of the output can ask it where it came from without having watched it being
-made.
+What replaces the loss is a record of origin. A message on a terminal is gone when the
+terminal is; a reader of the output can ask it where it came from without having
+watched it being made.
+
+The two fields say different things, and conflating them was the first version's
+mistake:
+
+- `xmpMM:DerivedFrom` — the **immediate parent**, so it changes with every save.
+- `xmpMM:OriginalDocumentID` — the **root of the chain**, so it propagates unchanged.
+  Taken from the source's own `OriginalDocumentID` if it has one, and otherwise from
+  its `DocumentID`, because then the source is the root.
+
+Writing the parent into both loses where the chain began, and two saves were enough to
+do it. Both are single values rather than lists, so repeated saves overwrite rather
+than accumulate: the packet is the same size at the tenth generation as at the first,
+which matters for a tool that gets run in a loop.
+
+The source's `xmpMM:DocumentID` is read at ingest, before refinement replaces the
+metadata stream; a file with no XMP contributes its trailer `/ID[0]` instead.
 
 The write path also reports what the source carried and the output does not — its
 permissions (7.6.4.2) and its signatures (12.8) — through the `Vec<Decision>` that

@@ -25,7 +25,15 @@ use std::sync::Arc;
 #[derive(Debug, Clone, Default)]
 pub struct Provenance {
     /// The source's `xmpMM:DocumentID`, or its trailer `/ID[0]` when it carried no XMP.
+    /// This is the immediate parent, and becomes `xmpMM:DerivedFrom`.
     pub source_id: Option<String>,
+    /// The root of the derivation chain: the source's own `xmpMM:OriginalDocumentID`
+    /// if it had one, and otherwise its `DocumentID`, because then *it* is the root.
+    ///
+    /// Kept separately from `source_id` because the two diverge the moment a document
+    /// is saved twice. Writing the parent into both makes the second save forget where
+    /// the chain began, which is the one thing `OriginalDocumentID` is for.
+    pub original_id: Option<String>,
     /// Signature dictionaries the source carried (12.8). They cannot survive: a
     /// signature covers a byte range, and these are not those bytes.
     pub signatures: usize,

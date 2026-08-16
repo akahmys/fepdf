@@ -292,26 +292,49 @@ fn capture_provenance(
         }
     }
 
-    crate::document::Provenance { source_id: source_document_id(arena, trailer), signatures }
+    let (source_id, original_id) = source_identity(arena, trailer);
+    crate::document::Provenance { source_id, original_id, signatures }
 }
 
-/// `xmpMM:DocumentID` from the catalogue's metadata stream, else the trailer `/ID[0]`.
-fn source_document_id(arena: &PdfArena, trailer: Option<DictHandle>) -> Option<String> {
-    let trailer = trailer?;
-    if let Some(root) = trailer_reference(arena, trailer, "Root")
-        && let Some(Object::Dictionary(d)) = arena.get_object(root)
-        && let Some(catalog) = arena.get_dict(d)
-        && let Some(Object::Stream(_, payload)) =
-            catalog.get(&arena.name("Metadata")).map(|o| o.resolve(arena))
-        && let Ok(bytes) = arena.get_stream_bytes(&payload)
+/// The source's identity: its own id, and the root of the chain it belongs to.
+///
+/// The root is the source's `xmpMM:OriginalDocumentID` when it has one — it is already
+/// part of a chain and the root propagates unchanged — and otherwise its own id,
+/// because then the source *is* the root.
+///
+/// Writing the parent into both is what the first version did, and two saves were
+/// enough to lose the beginning of the chain.
+fn source_identity(
+    arena: &PdfArena,
+    trailer: Option<DictHandle>,
+) -> (Option<String>, Option<String>) {
+    let Some(trailer) = trailer else { return (None, None) };
+    if let Some(xmp) = source_xmp(arena, trailer)
+        && let Some(id) = between(&xmp, "<xmpMM:DocumentID>", "</xmpMM:DocumentID>")
     {
-        let xmp = String::from_utf8_lossy(&bytes);
-        if let Some(id) = between(&xmp, "<xmpMM:DocumentID>", "</xmpMM:DocumentID>") {
-            return Some(id);
-        }
+        let root = between(&xmp, "<xmpMM:OriginalDocumentID>", "</xmpMM:OriginalDocumentID>")
+            .unwrap_or_else(|| id.clone());
+        return (Some(id), Some(root));
     }
+    let id = trailer_file_id(arena, trailer);
+    (id.clone(), id)
+}
 
-    let Some(Object::Array(h)) = arena.get_dict(trailer)?.get(&arena.name("ID")).cloned() else {
+/// The catalogue's metadata stream, as text.
+fn source_xmp(arena: &PdfArena, trailer: DictHandle) -> Option<String> {
+    let root = trailer_reference(arena, trailer, "Root")?;
+    let Object::Dictionary(d) = arena.get_object(root)? else { return None };
+    let catalog = arena.get_dict(d)?;
+    let Object::Stream(_, payload) = catalog.get(&arena.name("Metadata"))?.resolve(arena) else {
+        return None;
+    };
+    let bytes = arena.get_stream_bytes(&payload).ok()?;
+    Some(String::from_utf8_lossy(&bytes).into_owned())
+}
+
+/// The trailer's `/ID[0]`, which is what a file without XMP has to offer.
+fn trailer_file_id(arena: &PdfArena, trailer: DictHandle) -> Option<String> {
+    let Object::Array(h) = arena.get_dict(trailer)?.get(&arena.name("ID")).cloned()? else {
         return None;
     };
     match arena.get_array(h)?.first()? {
