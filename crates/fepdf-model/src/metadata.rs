@@ -155,12 +155,14 @@ pub fn settle(doc: &Document, decisions: &mut crate::interpretation::DecisionLog
     if let Some(xmp) = from_xmp {
         overlay(&mut settled, xmp);
     }
-    // The stream has to hold the settled value before `/Info` gives its copy up: a file
-    // whose metadata is only in `/Info` — six of the nine corpus files — would otherwise
-    // lose it. `doc` here is the document as ingested, whose provenance is empty, so
-    // this packet makes no claim about derivation. The save path writes that.
-    let _ = update_xmp_metadata(doc, &settled);
-    migrate_deprecated_info(doc, decisions);
+    // Only once the stream holds the value may `/Info` give up its copy: a file whose
+    // metadata is only in `/Info` — six of the nine corpus files — would otherwise lose
+    // it, and if the write fails there is nowhere else for the entries to live. `doc`
+    // here is the document as ingested, whose provenance is empty, so this packet makes
+    // no claim about derivation; the save path writes that.
+    if update_xmp_metadata(doc, &settled).is_ok() {
+        migrate_deprecated_info(doc);
+    }
     settled
 }
 
@@ -195,29 +197,27 @@ fn report_disagreement(
 }
 
 /// Removes from `/Info` the entries 14.3.3 deprecates, once they are held elsewhere.
-fn migrate_deprecated_info(doc: &Document, decisions: &mut crate::interpretation::DecisionLog) {
+///
+/// Not recorded as a `Decision`. Carrying them is deprecated, not non-conformant, and
+/// moving them loses nothing — the value is in the metadata stream before this runs, and
+/// `CreationDate` and `ModDate`, which 14.3.3 still allows, stay put. All nine corpus
+/// files carry some, so recording it would put a line in every log and make the log a
+/// constant rather than a signal (`ARCHITECTURE.md` §5.3). What *is* recorded is the
+/// case where something is lost: `/Info` and the stream disagreeing, which is one file.
+fn migrate_deprecated_info(doc: &Document) {
     const DEPRECATED: [&str; 6] = ["Title", "Author", "Subject", "Keywords", "Creator", "Producer"];
     let arena = doc.arena();
     let Some(info_handle) = doc.info_handle() else { return };
     let Some(Object::Dictionary(dh)) = arena.get_object(info_handle) else { return };
     let Some(mut dict) = arena.get_dict(dh) else { return };
 
-    let found: Vec<&str> =
-        DEPRECATED.into_iter().filter(|k| dict.contains_key(&arena.name(k))).collect();
-    if found.is_empty() {
-        return;
+    let mut moved = false;
+    for key in DEPRECATED {
+        moved |= dict.remove(&arena.name(key)).is_some();
     }
-    for key in &found {
-        dict.remove(&arena.name(key));
+    if moved {
+        arena.set_dict(dh, dict);
     }
-    arena.set_dict(dh, dict);
-    decisions.push(crate::interpretation::Decision::repaired(
-        "14.3.3",
-        format!("/Info carries {}, deprecated in PDF 2.0", found.join(", ")),
-        "moved to the document's metadata stream (14.3.2) and removed from /Info; \
-         CreationDate and ModDate stay, which 14.3.3 still allows"
-            .to_string(),
-    ));
 }
 
 /// Updates the document metadata in the arena.
@@ -415,6 +415,29 @@ fn apply_xmp_metadata(doc: &roxmltree::Document, info: &mut MetadataInfo) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Moving the deprecated entries is not a departure and must not be logged as one.
+    ///
+    /// `ARCHITECTURE.md` §5.3: a decision that fires on conforming input is worse than
+    /// none, because it makes the log a constant rather than a signal. All nine corpus
+    /// files carry deprecated `/Info` entries, so recording the move put a line in every
+    /// one of their logs — the same shape ADR-0008 removed.
+    #[test]
+    fn moving_the_deprecated_entries_is_not_recorded() {
+        // The disagreement in this fixture is a real loss, so exactly one decision is
+        // expected: the ambiguity. Not two.
+        let doc = open_fixture(info_and_xmp_disagree());
+        let taken = doc.decisions.entries();
+        assert_eq!(taken.len(), 1, "{taken:?}");
+        assert_eq!(taken[0].severity, crate::interpretation::Severity::Ambiguity);
+    }
+
+    /// A file whose `/Info` and metadata stream agree loses nothing at all, and says so.
+    #[test]
+    fn a_document_that_loses_nothing_records_nothing() {
+        let doc = open_fixture(metadata_on_more_than_the_catalogue());
+        assert!(doc.decisions.is_conforming(), "{:?}", doc.decisions.entries());
+    }
 
     /// A document carrying metadata on an object as well as on the catalogue, which is
     /// what `--strip` used to walk past: 14.3.2 lets any stream or dictionary that
