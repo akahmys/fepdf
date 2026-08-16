@@ -114,6 +114,9 @@ if [ -d target/encrypted ]; then
 else
     row "target/encrypted/*.pdf" "absent — python3 scripts/test/make_encrypted.py"
 fi
+if [ ! -f target/encrypted/wrapper.pdf ]; then
+    row "target/encrypted/wrapper.pdf" "absent — python3 scripts/test/make_wrapper.py"
+fi
 
 if [ "${1:-}" = "--full" ]; then
     echo

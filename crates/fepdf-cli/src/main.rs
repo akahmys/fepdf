@@ -1030,8 +1030,15 @@ fn conformance_label(c: fepdf_sdk::Conformance) -> &'static str {
 
 fn render_encryption_text(r: &fepdf_sdk::EncryptionReport, input: &std::path::Path) {
     println!("fepdf encryption: {}", input.display());
+    render_payload_text(r);
     if !r.encrypted {
-        println!("\n  no /Encrypt — the document is not protected");
+        // A wrapper carries no `/Encrypt` and is emphatically protected, so the
+        // absence of one does not settle the question on its own.
+        if r.payload.is_some() {
+            println!("\n  the wrapper itself carries no /Encrypt, as 7.6.7 intends");
+        } else {
+            println!("\n  no /Encrypt — the document is not protected");
+        }
         render_decisions_text(&r.decisions);
         return;
     }
@@ -1118,6 +1125,38 @@ fn render_encryption_markdown(r: &fepdf_sdk::EncryptionReport, input: &std::path
 
 fn opt<T: std::fmt::Display>(value: Option<T>) -> String {
     value.map_or_else(|| "—".to_string(), |v| v.to_string())
+}
+
+/// Reports an encrypted payload, when the file is an unencrypted wrapper (7.6.7).
+///
+/// Nothing here decrypts anything, and cannot: the payload is protected by a handler
+/// this standard does not define. Naming the filter is the service the clause exists to
+/// provide — a reader without it can still tell the user what they need.
+fn render_payload_text(r: &fepdf_sdk::EncryptionReport) {
+    let Some(p) = &r.payload else { return };
+    println!("\n--- [ ENCRYPTED PAYLOAD (7.6.7) ] ---");
+    println!("  this file is an unencrypted wrapper; its content is embedded and encrypted");
+    println!(
+        "  required filter   /{}{}",
+        p.filter,
+        match &p.filter_version {
+            Some(v) => format!(" version {v}"),
+            None => String::new(),
+        }
+    );
+    if let Some(name) = &p.file_name {
+        println!("  payload file      {name}");
+    }
+    if let Some(desc) = &p.description {
+        println!("  producer says     {desc}");
+    }
+    println!("  this engine does not implement that filter, so the payload stays sealed");
+    for condition in &p.conditions_met {
+        println!("    met      {condition}");
+    }
+    for condition in &p.conditions_unmet {
+        println!("    NOT MET  {condition}");
+    }
 }
 
 /// Reports what a reader could interact with (clause 12).

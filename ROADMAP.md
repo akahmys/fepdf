@@ -17,7 +17,7 @@ Understanding them is what remains.
 | :--- | :--- |
 | **7.3** Objects | Complete. Every type in the clause. |
 | **7.5** File structure | **Complete and in use.** Header scan, both cross-reference forms, `/Prev` chains, hybrid references, object streams, incremental updates, and recovery by scanning. `Document::open` reads the file itself; `lopdf` is gone. |
-| **7.6** Encryption | Every password handler the standard defines now decrypts: RC4 (V1/V2), AES-128 (V4/R4) and AES-256 (V5/R5, V5/R6) to Algorithms 1, 2, 2.A, 2.B and 4–6, with `/Perms` checked and both password roles authenticating. Verified against PDFKit on fourteen files; all of it was broken or absent ([ADR-0009](docs/adr/0009-permissions-are-thirty-two-bits-not-a-positive-integer.md)). **Remaining**: public-key (7.6.4) and unencrypted wrapper (7.6.7) are stubs. |
+| **7.6** Encryption | Every password handler the standard defines now decrypts: RC4 (V1/V2), AES-128 (V4/R4) and AES-256 (V5/R5, V5/R6) to Algorithms 1, 2, 2.A, 2.B and 4–6, with `/Perms` checked and both password roles authenticating. Verified against PDFKit on fourteen files; all of it was broken or absent ([ADR-0009](docs/adr/0009-permissions-are-thirty-two-bits-not-a-positive-integer.md)). **Remaining**: public-key handlers (7.6.5) remain a stub; unencrypted wrappers (7.6.7) are recognised and reported. |
 | **7.7** Document structure | **10 of Table 29's 32** catalogue entries typed, measured by `status.sh` from `PdfCatalog`. Untyped entries survive a round trip but cannot be reasoned about; `inspect catalog` names which ones, per file. |
 | **PDF 2.0 additions** | **Six** catalogue entries have a spec type but no read or write path — `PageLabels`, `Threads`, `OutputIntents`, `OCProperties`, `Collection`, `AF`. `DPartRoot` has no type at all, contrary to what this table said before it was checked. `inspect catalog` reports the six as `type only`. |
 | **8–14** Content, text, interactive, tagged | Interpreter, fonts and UA-2 auditing exist; interactive features (12) can now be *read* (`inspect interactive`) but not edited. The corpus exercises one annotation subtype of ~28 — all 29,973 are `/Link` — and no form field at all. |
@@ -176,8 +176,14 @@ Independent of A and B, and the area where a partial implementation is most harm
       *refuse* passwords, and refusing one a conforming reader accepts is the failure
       being fixed. Measured on a fixture whose `/U` stores the normalised form of a
       ligature — PDFKit opened it and fepdf did not
-- [ ] Public-key encryption (7.6.4)
-- [ ] Unencrypted wrapper documents (7.6.7)
+- [ ] Public-key security handlers (**7.6.5**, not 7.6.4 as this line read until it was
+      checked against the standard; 7.6.4 is the *standard* security handler). Needs a
+      CMS/PKCS#7 layer and certificates to test against — the largest piece left here
+- [x] Unencrypted wrapper documents (7.6.7) — recognised and reported, which is all
+      the clause can ask of a reader: the payload is encrypted by a handler *this*
+      standard does not define, so naming the missing filter is the service. Each of
+      the clause's conditions is reported separately, met or not, because a producer
+      that gets four of five right has still said what filter is needed
 - [x] A corpus of encrypted files as regression tests — five, built independently:
       RC4 40- and 128-bit, AES-256 at revisions 5 and 6, and one with distinct user and
       owner passwords. `scripts/test/aes.py` is a pure-Python AES checked against

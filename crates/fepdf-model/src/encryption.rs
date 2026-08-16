@@ -53,6 +53,30 @@ pub struct CryptFilter {
     pub for_strings: bool,
 }
 
+/// An encrypted payload carried by an unencrypted wrapper document (7.6.7).
+///
+/// The wrapper itself is plain; the real document is embedded, encrypted by a handler
+/// this standard does not define. There is therefore nothing to decrypt here and no
+/// pretence of it — the point of the clause is that a reader without the filter can
+/// still tell the user *which* filter is missing.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EncryptedPayload {
+    /// `/EP /Subtype`: the name of the cryptographic filter needed (Table 28).
+    pub filter: String,
+    /// `/EP /Version`, if the producer gave one. Read as text, not a number: the
+    /// standard's own note says the periods separate integers.
+    pub filter_version: Option<String>,
+    /// `/F` or `/UF` from the file specification.
+    pub file_name: Option<String>,
+    /// `/Desc`, which is where a producer puts the instructions the clause asks for.
+    pub description: Option<String>,
+    /// Which of 7.6.7's conditions the file actually meets. A file failing some of
+    /// them is still worth reporting, and saying which is more use than a verdict.
+    pub conditions_met: Vec<String>,
+    /// Conditions the clause requires that this file does not meet.
+    pub conditions_unmet: Vec<String>,
+}
+
 /// The document's security, as declared and as handled.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EncryptionReport {
@@ -85,6 +109,8 @@ pub struct EncryptionReport {
     /// Which password authenticated: `"user"`, `"owner"`, or absent. 7.6.4.1 restricts
     /// only user access by `/P`, so `unlocked` alone does not say enough.
     pub access: Option<String>,
+    /// An encrypted payload, when the document is an unencrypted wrapper (7.6.7).
+    pub payload: Option<EncryptedPayload>,
     /// Decisions taken reading and unlocking.
     pub decisions: Vec<Decision>,
 }
@@ -120,10 +146,18 @@ impl EncryptionReport {
         // succeeds — Acrobat reports error 135 for a file whose trailer still claims
         // encryption over plain objects — so asking afterwards reports every readable
         // encrypted document as having none, which is what this did first.
+        // 7.6.7 first, and outside the encrypted branch: a wrapper document is itself
+        // *unencrypted*. Reporting it only for files with an `/Encrypt` would miss
+        // every one of them, which is the whole population.
+        let payload = raw
+            .trailer
+            .and_then(|t| catalogue(&raw.arena, t))
+            .and_then(|c| read_payload(&raw.arena, &c));
+
         let Some(encrypt) = raw.trailer.and_then(|t| encryption_dict(&raw.arena, t)) else {
             let mut decisions = raw.decisions.clone();
             decrypt::unlock(&raw.arena, raw.trailer, password, &mut decisions)?;
-            return Ok(Self::unencrypted(decisions.entries().to_vec()));
+            return Ok(Self::unencrypted(decisions.entries().to_vec(), payload));
         };
 
         let mut decisions = raw.decisions.clone();
@@ -155,6 +189,7 @@ impl EncryptionReport {
             permissions: decode_permissions(security.permissions),
             conformance,
             conformance_note,
+            payload,
             unlocked,
             access: security.access.map(|a| match a {
                 fepdf_syntax::security::Access::User => "user".to_string(),
@@ -164,7 +199,7 @@ impl EncryptionReport {
         })
     }
 
-    fn unencrypted(decisions: Vec<Decision>) -> Self {
+    fn unencrypted(decisions: Vec<Decision>, payload: Option<EncryptedPayload>) -> Self {
         Self {
             encrypted: false,
             handler: None,
@@ -180,8 +215,99 @@ impl EncryptionReport {
             conformance_note: "the document declares no /Encrypt",
             unlocked: true,
             access: None,
+            payload,
             decisions,
         }
+    }
+}
+
+/// Whether this file is an unencrypted wrapper, and what its payload needs (7.6.7).
+///
+/// Every condition the clause states is checked and reported individually, met or not.
+/// A producer that gets four of five right has still told the reader what filter is
+/// missing, which is the whole purpose; a single boolean would discard that.
+fn read_payload(arena: &PdfArena, catalog: &Dict) -> Option<EncryptedPayload> {
+    let (mut met, mut unmet) = (Vec::new(), Vec::new());
+    let mut note = |ok: bool, what: &str| {
+        if ok {
+            met.push(what.to_string());
+        } else {
+            unmet.push(what.to_string());
+        }
+    };
+
+    // "shall include a Collection dictionary ... setting the collection View to H"
+    let collection = catalog.get(&arena.name("Collection")).and_then(|c| as_dict(arena, c));
+    note(collection.is_some(), "/Collection in the catalogue");
+    note(
+        collection.as_ref().is_some_and(|c| {
+            matches!(c.get(&arena.name("View")).and_then(|v| match v {
+                Object::Name(h) => arena.get_name_str(*h),
+                _ => None,
+            }), Some(v) if v == "H")
+        }),
+        "/Collection /View /H",
+    );
+
+    // "the EmbeddedFiles name tree shall contain exactly one entry"
+    let embedded = catalog
+        .get(&arena.name("Names"))
+        .and_then(|n| as_dict(arena, n))
+        .and_then(|n| n.get(&arena.name("EmbeddedFiles")).and_then(|e| as_dict(arena, e)))
+        .and_then(|e| e.get(&arena.name("Names")).and_then(|a| as_array(arena, a)));
+    note(
+        embedded.as_ref().is_some_and(|names| names.len() == 2),
+        "exactly one entry in the EmbeddedFiles name tree",
+    );
+
+    // "and as an entry in the AF array in the document catalog"
+    let af = catalog.get(&arena.name("AF")).and_then(|a| as_array(arena, a));
+    note(af.as_ref().is_some_and(|a| !a.is_empty()), "/AF names the payload");
+
+    // The file specification itself, reached through /AF.
+    let spec = af.as_ref().and_then(|a| a.first()).and_then(|f| as_dict(arena, f))?;
+    note(
+        matches!(name_in(arena, &spec, "AFRelationship").as_deref(), Some("EncryptedPayload")),
+        "/AFRelationship /EncryptedPayload",
+    );
+
+    let ep = spec.get(&arena.name("EP")).and_then(|e| as_dict(arena, e))?;
+    let filter = name_in(arena, &ep, "Subtype")?;
+    note(true, "/EP /Subtype names the filter");
+
+    Some(EncryptedPayload {
+        filter,
+        filter_version: name_in(arena, &ep, "Version"),
+        file_name: text_in(arena, &spec, "UF").or_else(|| text_in(arena, &spec, "F")),
+        description: text_in(arena, &spec, "Desc"),
+        conditions_met: met,
+        conditions_unmet: unmet,
+    })
+}
+
+fn as_array(arena: &PdfArena, object: &Object) -> Option<Vec<Object>> {
+    match object {
+        Object::Array(h) => arena.get_array(*h),
+        Object::Reference(h) => match arena.get_object(*h)? {
+            Object::Array(a) => arena.get_array(a),
+            _ => None,
+        },
+        _ => None,
+    }
+}
+
+fn name_in(arena: &PdfArena, dict: &Dict, key: &str) -> Option<String> {
+    match dict.get(&arena.name(key))?.resolve(arena) {
+        Object::Name(h) => arena.get_name_str(h),
+        _ => None,
+    }
+}
+
+fn text_in(arena: &PdfArena, dict: &Dict, key: &str) -> Option<String> {
+    match dict.get(&arena.name(key))?.resolve(arena) {
+        Object::String(b) | Object::Hex(b) => Some(String::from_utf8_lossy(&b).into_owned()),
+        Object::Text(t) => Some(t),
+        _ => None,
     }
 }
 
@@ -268,6 +394,12 @@ fn read_crypt_filters(arena: &PdfArena, encrypt: &Dict) -> Vec<CryptFilter> {
 
 type Dict = BTreeMap<Handle<PdfName>, Object>;
 
+/// The document catalogue, which 7.6.7's markers hang from.
+fn catalogue(arena: &PdfArena, trailer: DictHandle) -> Option<Dict> {
+    let root = arena.get_dict(trailer)?.get(&arena.name("Root")).cloned()?;
+    as_dict(arena, &root)
+}
+
 fn encryption_dict(arena: &PdfArena, trailer: DictHandle) -> Option<Dict> {
     let value = arena.get_dict(trailer)?.get(&arena.name("Encrypt")).cloned()?;
     as_dict(arena, &value)
@@ -338,6 +470,104 @@ mod tests {
     #[test]
     fn an_absent_permissions_field_yields_no_claims() {
         assert!(decode_permissions(None).is_empty());
+    }
+
+    /// 7.6.7 recognition, on documents assembled to meet or miss each condition.
+    mod wrapper {
+        use super::*;
+
+        /// A wrapper meeting every condition the clause states.
+        fn wrapper(view: &str, relationship: &str, entries: usize) -> Vec<u8> {
+            let names: String = (0..entries).map(|i| format!("(p{i}) 6 0 R ")).collect();
+            let objects: Vec<String> = vec![
+                format!(
+                    "<< /Type /Catalog /Pages 2 0 R /Names 8 0 R /AF [6 0 R] \
+                     /Collection << /Type /Collection /View /{view} >> >>"
+                ),
+                "<< /Type /Pages /Kids [3 0 R] /Count 1 >>".into(),
+                "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] >>".into(),
+                "null".into(),
+                "null".into(),
+                format!(
+                    "<< /Type /Filespec /F (payload.pdf) /AFRelationship /{relationship} \
+                     /EP << /Type /EncryptedPayload /Subtype /AcmeCustomCrypto /Version /1.0 >> >>"
+                ),
+                "null".into(),
+                "<< /EmbeddedFiles 9 0 R >>".into(),
+                format!("<< /Names [{names}] >>"),
+            ];
+
+            let mut out = String::from("%PDF-2.0\n");
+            let mut offsets = Vec::new();
+            for (i, body) in objects.iter().enumerate() {
+                offsets.push(out.len());
+                out.push_str(&format!("{} 0 obj\n{body}\nendobj\n", i + 1));
+            }
+            let xref_at = out.len();
+            out.push_str(&format!("xref\n0 {}\n0000000000 65535 f \n", objects.len() + 1));
+            for off in &offsets {
+                out.push_str(&format!("{off:010} 00000 n \n"));
+            }
+            out.push_str(&format!(
+                "trailer\n<< /Size {} /Root 1 0 R >>\nstartxref\n{xref_at}\n%%EOF\n",
+                objects.len() + 1
+            ));
+            out.into_bytes()
+        }
+
+        #[test]
+        fn a_conforming_wrapper_names_its_filter() {
+            let r =
+                EncryptionReport::survey(&wrapper("H", "EncryptedPayload", 1), "").expect("reads");
+            let p = r.payload.expect("recognised");
+            assert_eq!(p.filter, "AcmeCustomCrypto");
+            assert_eq!(p.filter_version.as_deref(), Some("1.0"));
+            assert_eq!(p.file_name.as_deref(), Some("payload.pdf"));
+            assert!(p.conditions_unmet.is_empty(), "{:?}", p.conditions_unmet);
+            // The wrapper is itself unencrypted, which is the point of the clause.
+            assert!(!r.encrypted);
+        }
+
+        #[test]
+        fn each_condition_is_reported_separately() {
+            // A producer that gets four of five right has still said which filter is
+            // needed, and that is the service 7.6.7 exists to provide. A single
+            // boolean would throw it away.
+            let r =
+                EncryptionReport::survey(&wrapper("D", "EncryptedPayload", 1), "").expect("reads");
+            let p = r.payload.expect("still recognised");
+            assert_eq!(p.filter, "AcmeCustomCrypto");
+            assert!(
+                p.conditions_unmet.iter().any(|c| c.contains("/View /H")),
+                "{:?}",
+                p.conditions_unmet
+            );
+            assert!(p.conditions_met.iter().any(|c| c.contains("/AFRelationship")));
+        }
+
+        #[test]
+        fn more_than_one_embedded_file_is_flagged() {
+            // "the EmbeddedFiles name tree shall contain exactly one entry".
+            let r =
+                EncryptionReport::survey(&wrapper("H", "EncryptedPayload", 3), "").expect("reads");
+            let p = r.payload.expect("recognised");
+            assert!(
+                p.conditions_unmet.iter().any(|c| c.contains("exactly one entry")),
+                "{:?}",
+                p.conditions_unmet
+            );
+        }
+
+        #[test]
+        fn an_ordinary_document_is_not_a_wrapper() {
+            // The check runs on every file, encrypted or not, so a false positive here
+            // would appear on the whole corpus.
+            let plain = b"%PDF-2.0\n1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n\
+                          2 0 obj\n<< /Type /Pages /Kids [] /Count 0 >>\nendobj\n\
+                          trailer\n<< /Root 1 0 R >>\n";
+            let r = EncryptionReport::survey(plain, "").ok();
+            assert!(r.is_none_or(|r| r.payload.is_none()));
+        }
     }
 
     #[test]
