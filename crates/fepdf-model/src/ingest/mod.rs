@@ -46,6 +46,10 @@ pub struct IngestionOptions {
     pub force_fallback: bool,
     /// Password used to decrypt an encrypted document.
     pub password: Option<String>,
+    /// The DER certificate and PKCS#8 private key a public-key encrypted document
+    /// (7.6.5) was addressed to. A password will not open one of those, and this will
+    /// not open a password-protected one; a document takes exactly one kind.
+    pub recipient: Option<(Vec<u8>, Vec<u8>)>,
     /// Invoked with progress messages during a long ingestion.
     pub progress_callback: Option<std::sync::Arc<dyn Fn(String) + Send + Sync>>,
 }
@@ -58,6 +62,7 @@ impl std::fmt::Debug for IngestionOptions {
             .field("color_policy", &self.color_policy)
             .field("force_fallback", &self.force_fallback)
             .field("password", &self.password)
+            .field("recipient", &self.recipient.is_some())
             .field("progress_callback", &self.progress_callback.is_some())
             .finish()
     }
@@ -71,6 +76,7 @@ impl Default for IngestionOptions {
             color_policy: ColorPolicy::Strict,
             force_fallback: false,
             password: None,
+            recipient: None,
             progress_callback: None,
         }
     }
@@ -127,8 +133,10 @@ impl Ingestor {
         };
         report("1/4: Decrypting and normalizing document...");
         let mut decisions = raw.decisions;
+        let identity = recipient_identity(options)?;
+        let credentials = credentials(options, identity.as_ref());
         let security =
-            crate::decrypt::unlock(&raw.arena, raw.trailer, password(options), &mut decisions)?;
+            crate::decrypt::unlock(&raw.arena, raw.trailer, credentials, &mut decisions)?;
 
         // Before refinement, which replaces the metadata stream and normalises the
         // objects: this is the last moment the source's own identity is visible.
@@ -274,9 +282,31 @@ impl Ingestor {
     }
 }
 
-/// The password to try, defaulting to the empty one every reader starts with.
-fn password(options: &IngestionOptions) -> &str {
-    options.password.as_deref().unwrap_or("")
+/// The recipient identity, decoded here rather than carried in the options.
+///
+/// A malformed certificate is then reported when the document is opened, instead of
+/// being silently carried as "no credential" into a report that says the file could not
+/// be unlocked — which names the wrong problem.
+fn recipient_identity(
+    options: &IngestionOptions,
+) -> crate::PdfResult<Option<crate::cms::RecipientIdentity>> {
+    options
+        .recipient
+        .as_ref()
+        .map(|(certificate, key)| crate::cms::RecipientIdentity::from_der(certificate, key))
+        .transpose()
+        .map_err(Into::into)
+}
+
+/// What to offer the document.
+///
+/// The empty password is the default because that is what every reader starts with: a
+/// document whose user password is empty still has to be decrypted.
+fn credentials<'a>(
+    options: &'a IngestionOptions,
+    recipient: Option<&'a crate::cms::RecipientIdentity>,
+) -> crate::decrypt::Credentials<'a> {
+    crate::decrypt::Credentials { password: options.password.as_deref().unwrap_or(""), recipient }
 }
 
 /// Reads the source's identity and how many signatures it carried.

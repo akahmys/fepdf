@@ -9,6 +9,7 @@
 //! round-trips, which would not survive being modelled as a struct with named fields.
 
 use crate::arena::PdfArena;
+use crate::decrypt::Credentials;
 use crate::document::PdfCatalog;
 use crate::error::PdfResult;
 use crate::handle::Handle;
@@ -129,7 +130,7 @@ impl CatalogReport {
         // file's *ciphertext*: `samples/unicode_16.pdf` listed `/Lang` as a 32-byte
         // string, which is one AES block and an IV, not a language tag.
         let mut decisions = raw.decisions.clone();
-        crate::decrypt::unlock(&raw.arena, raw.trailer, "", &mut decisions)?;
+        crate::decrypt::unlock(&raw.arena, raw.trailer, Credentials::default(), &mut decisions)?;
         let root = raw
             .trailer
             .and_then(|t| raw.arena.get_dict(t))

@@ -20,6 +20,7 @@
 //! not a signal (ADR-0008).
 
 use crate::arena::PdfArena;
+use crate::decrypt::Credentials;
 use crate::document::DictHandle;
 use crate::error::{PdfError, PdfResult};
 use crate::object::Object;
@@ -109,7 +110,7 @@ impl InteractiveReport {
         // file's *ciphertext*: `samples/unicode_16.pdf` listed `/Lang` as a 32-byte
         // string, which is one AES block and an IV, not a language tag.
         let mut decisions = raw.decisions.clone();
-        crate::decrypt::unlock(&raw.arena, raw.trailer, "", &mut decisions)?;
+        crate::decrypt::unlock(&raw.arena, raw.trailer, Credentials::default(), &mut decisions)?;
         let arena = &raw.arena;
         let catalog = raw
             .trailer

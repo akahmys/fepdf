@@ -182,7 +182,7 @@ impl EncryptionReport {
     ///
     /// # Errors
     /// Fails only when the file cannot be read at all.
-    pub fn survey(bytes: &[u8], password: &str) -> PdfResult<Self> {
+    pub fn survey(bytes: &[u8], credentials: decrypt::Credentials<'_>) -> PdfResult<Self> {
         let raw = reader::load_document(bytes)?;
 
         // Read the dictionary *before* unlocking. `unlock` drops `/Encrypt` when it
@@ -199,12 +199,12 @@ impl EncryptionReport {
 
         let Some(encrypt) = raw.trailer.and_then(|t| encryption_dict(&raw.arena, t)) else {
             let mut decisions = raw.decisions.clone();
-            decrypt::unlock(&raw.arena, raw.trailer, password, &mut decisions)?;
+            decrypt::unlock(&raw.arena, raw.trailer, credentials, &mut decisions)?;
             return Ok(Self::unencrypted(decisions.entries().to_vec(), payload));
         };
 
         let mut decisions = raw.decisions.clone();
-        let security = decrypt::unlock(&raw.arena, raw.trailer, password, &mut decisions)?;
+        let security = decrypt::unlock(&raw.arena, raw.trailer, credentials, &mut decisions)?;
         let unlocked = raw
             .trailer
             .and_then(|t| raw.arena.get_dict(t))
@@ -560,8 +560,11 @@ mod tests {
 
         #[test]
         fn a_conforming_wrapper_names_its_filter() {
-            let r =
-                EncryptionReport::survey(&wrapper("H", "EncryptedPayload", 1), "").expect("reads");
+            let r = EncryptionReport::survey(
+                &wrapper("H", "EncryptedPayload", 1),
+                decrypt::Credentials::default(),
+            )
+            .expect("reads");
             let p = r.payload.expect("recognised");
             assert_eq!(p.filter, "AcmeCustomCrypto");
             assert_eq!(p.filter_version.as_deref(), Some("1.0"));
@@ -576,8 +579,11 @@ mod tests {
             // A producer that gets four of five right has still said which filter is
             // needed, and that is the service 7.6.7 exists to provide. A single
             // boolean would throw it away.
-            let r =
-                EncryptionReport::survey(&wrapper("D", "EncryptedPayload", 1), "").expect("reads");
+            let r = EncryptionReport::survey(
+                &wrapper("D", "EncryptedPayload", 1),
+                decrypt::Credentials::default(),
+            )
+            .expect("reads");
             let p = r.payload.expect("still recognised");
             assert_eq!(p.filter, "AcmeCustomCrypto");
             assert!(
@@ -591,8 +597,11 @@ mod tests {
         #[test]
         fn more_than_one_embedded_file_is_flagged() {
             // "the EmbeddedFiles name tree shall contain exactly one entry".
-            let r =
-                EncryptionReport::survey(&wrapper("H", "EncryptedPayload", 3), "").expect("reads");
+            let r = EncryptionReport::survey(
+                &wrapper("H", "EncryptedPayload", 3),
+                decrypt::Credentials::default(),
+            )
+            .expect("reads");
             let p = r.payload.expect("recognised");
             assert!(
                 p.conditions_unmet.iter().any(|c| c.contains("exactly one entry")),
@@ -608,7 +617,7 @@ mod tests {
             let plain = b"%PDF-2.0\n1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n\
                           2 0 obj\n<< /Type /Pages /Kids [] /Count 0 >>\nendobj\n\
                           trailer\n<< /Root 1 0 R >>\n";
-            let r = EncryptionReport::survey(plain, "").ok();
+            let r = EncryptionReport::survey(plain, decrypt::Credentials::default()).ok();
             assert!(r.is_none_or(|r| r.payload.is_none()));
         }
     }

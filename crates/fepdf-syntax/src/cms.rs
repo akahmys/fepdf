@@ -259,6 +259,139 @@ pub fn signed_digest(der: &[u8]) -> SyntaxResult<Vec<u8>> {
     Ok(octets.as_bytes().to_vec())
 }
 
+/// The certificate and private key a document was encrypted *to* (7.6.5).
+///
+/// The mirror of [`SigningIdentity`]: that one proves who wrote a document, this one
+/// proves who may read it. They are separate types because they are separate roles and
+/// a certificate is usually issued for one or the other — the fixture this was built
+/// against refuses to be a recipient without the `keyEncipherment` usage bit.
+pub struct RecipientIdentity {
+    certificate: Certificate,
+    key: rsa::RsaPrivateKey,
+}
+
+impl RecipientIdentity {
+    /// Reads a DER-encoded X.509 certificate and a PKCS#8 private key.
+    ///
+    /// # Errors
+    /// If either fails to decode, or the key is not one this engine can decrypt with.
+    pub fn from_der(certificate: &[u8], private_key: &[u8]) -> SyntaxResult<Self> {
+        let certificate = Certificate::from_der(certificate)
+            .map_err(|e| crypto(format!("certificate is not valid DER: {e}")))?;
+        let key = rsa::RsaPrivateKey::from_pkcs8_der(private_key)
+            .map_err(|e| crypto(format!("private key is not a PKCS#8 RSA key: {e}")))?;
+        Ok(Self { certificate, key })
+    }
+}
+
+/// What one recipient's envelope holds: the seed the file key is derived from, and the
+/// permissions that recipient was granted.
+#[derive(Debug, Clone)]
+pub struct Envelope {
+    /// The 20-byte key derivation seed.
+    pub seed: Vec<u8>,
+    /// `/P` for this recipient, when the envelope carries it. 7.6.5 gives each
+    /// recipient its own, which is the one thing public-key encryption does that the
+    /// standard handler cannot.
+    pub permissions: Option<i32>,
+}
+
+/// Opens one `/Recipients` entry, if it was addressed to this identity.
+///
+/// Returns `Ok(None)` when the envelope names other recipients but not this one, which
+/// is not an error: a document encrypted to several people has an entry for each, and a
+/// reader tries them until one opens.
+///
+/// # Errors
+/// If the bytes are not CMS `EnvelopedData`, or the entry is addressed to this identity
+/// and still fails to open — which means the file is damaged rather than not ours.
+pub fn open_envelope(der: &[u8], identity: &RecipientIdentity) -> SyntaxResult<Option<Envelope>> {
+    let info = ContentInfo::from_der(der_element(der)?)
+        .map_err(|e| crypto(format!("a /Recipients entry is not a CMS structure: {e}")))?;
+    let enveloped: cms::enveloped_data::EnvelopedData =
+        info.content.decode_as().map_err(|e| crypto(format!("not CMS EnvelopedData: {e}")))?;
+
+    let Some(encrypted_key) = ours(&enveloped, &identity.certificate) else {
+        return Ok(None);
+    };
+    // 7.6.5 and RFC 5652 §6.2.1 both allow OAEP, but every producer met so far uses
+    // PKCS#1 v1.5, and guessing wrong here fails closed rather than silently.
+    let content_key = identity.key.decrypt(rsa::Pkcs1v15Encrypt, &encrypted_key).map_err(|_| {
+        crypto("this identity is a recipient but its key did not open the envelope")
+    })?;
+
+    let content = decrypt_envelope(&enveloped.encrypted_content, &content_key)?;
+    if content.len() < 20 {
+        return Err(crypto("the envelope holds no 20-byte seed"));
+    }
+    // 20 bytes of seed, and four of permissions when the producer included them.
+    let permissions = (content.len() >= 24)
+        .then(|| i32::from_be_bytes([content[20], content[21], content[22], content[23]]));
+    Ok(Some(Envelope { seed: content[..20].to_vec(), permissions }))
+}
+
+/// The encrypted key from the `RecipientInfo` addressed to this certificate.
+fn ours(
+    enveloped: &cms::enveloped_data::EnvelopedData,
+    certificate: &Certificate,
+) -> Option<Vec<u8>> {
+    enveloped.recip_infos.0.as_slice().iter().find_map(|recipient| {
+        let cms::enveloped_data::RecipientInfo::Ktri(ktri) = recipient else {
+            // Key agreement, key encryption keys and passwords are other ways to be a
+            // recipient. This engine decrypts to an RSA certificate, which is key
+            // transport, and says so rather than pretending the entry is not ours.
+            return None;
+        };
+        let matches = match &ktri.rid {
+            cms::enveloped_data::RecipientIdentifier::IssuerAndSerialNumber(wanted) => {
+                wanted.issuer == certificate.tbs_certificate.issuer
+                    && wanted.serial_number == certificate.tbs_certificate.serial_number
+            }
+            cms::enveloped_data::RecipientIdentifier::SubjectKeyIdentifier(wanted) => certificate
+                .tbs_certificate
+                .subject_public_key_info
+                .subject_public_key
+                .as_bytes()
+                .is_some_and(|spki| sha1::Sha1::digest(spki).as_slice() == wanted.0.as_bytes()),
+        };
+        matches.then(|| ktri.enc_key.as_bytes().to_vec())
+    })
+}
+
+/// Decrypts the enveloped content with the key the recipient info gave up.
+fn decrypt_envelope(
+    encrypted: &cms::enveloped_data::EncryptedContentInfo,
+    key: &[u8],
+) -> SyntaxResult<Vec<u8>> {
+    let ciphertext = encrypted
+        .encrypted_content
+        .as_ref()
+        .ok_or_else(|| crypto("the envelope carries no encrypted content"))?;
+    const AES_CBC: [der::asn1::ObjectIdentifier; 3] = [
+        der::asn1::ObjectIdentifier::new_unwrap("2.16.840.1.101.3.4.1.2"),
+        der::asn1::ObjectIdentifier::new_unwrap("2.16.840.1.101.3.4.1.22"),
+        der::asn1::ObjectIdentifier::new_unwrap("2.16.840.1.101.3.4.1.42"),
+    ];
+    let algorithm = &encrypted.content_enc_alg;
+    if !AES_CBC.contains(&algorithm.oid) {
+        // RC2, DES and triple DES are also permitted by the clause and are not
+        // implemented: naming what was found beats decrypting it to noise.
+        return Err(crypto(format!(
+            "the envelope is encrypted with {}, and this decrypts AES-CBC",
+            algorithm.oid
+        )));
+    }
+    let iv: OctetString = algorithm
+        .parameters
+        .as_ref()
+        .ok_or_else(|| crypto("the envelope states no initialisation vector"))?
+        .decode_as()
+        .map_err(|e| crypto(format!("the initialisation vector is not an octet string: {e}")))?;
+
+    crate::security::aes_cbc_decrypt_padded(key, iv.as_bytes(), ciphertext.as_bytes())
+        .ok_or_else(|| crypto("the envelope content did not decrypt"))
+}
+
 /// A signature that verified, and who it says made it.
 ///
 /// There is no trust in this. The certificate is whatever the signature carried, and

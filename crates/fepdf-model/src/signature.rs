@@ -21,6 +21,7 @@
 //! [ADR-0013]: ../../../../docs/adr/0013-a-document-is-one-normalised-state.md
 
 use crate::arena::PdfArena;
+use crate::decrypt::Credentials;
 use crate::error::{PdfError, PdfResult};
 use crate::interactive::{array_of, dict_of, name_of};
 use crate::object::Object;
@@ -80,7 +81,7 @@ impl SignatureReport {
     pub fn survey(bytes: &[u8]) -> PdfResult<Self> {
         let raw = reader::load_document(bytes)?;
         let mut decisions = raw.decisions.clone();
-        crate::decrypt::unlock(&raw.arena, raw.trailer, "", &mut decisions)?;
+        crate::decrypt::unlock(&raw.arena, raw.trailer, Credentials::default(), &mut decisions)?;
         let arena = &raw.arena;
         let catalog = raw
             .trailer

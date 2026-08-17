@@ -180,6 +180,52 @@ fn aes256_ecb_decrypt(key: &[u8], data: &[u8]) -> Option<Vec<u8>> {
     Some(block.to_vec())
 }
 
+/// AES CBC decryption with an explicit initialisation vector and PKCS#7 padding.
+///
+/// Separate from [`SecurityHandler::decrypt_with_key`], which takes its IV from the
+/// first sixteen bytes of the data as PDF streams carry it. A CMS envelope puts the IV
+/// in the algorithm parameters instead, so the two cannot share a signature without one
+/// of them lying about where the IV came from.
+pub(crate) fn aes_cbc_decrypt_padded(key: &[u8], iv: &[u8], data: &[u8]) -> Option<Vec<u8>> {
+    if data.is_empty() || !data.len().is_multiple_of(16) {
+        return None;
+    }
+    let mut previous: [u8; 16] = iv.try_into().ok()?;
+    let mut out = Vec::with_capacity(data.len());
+    let decrypt: Box<dyn Fn(&mut [u8; 16])> = match key.len() {
+        16 => {
+            let c = Aes128::new_from_slice(key).ok()?;
+            Box::new(move |b| c.decrypt_block(Block::from_mut_slice(b)))
+        }
+        32 => {
+            let c = Aes256::new_from_slice(key).ok()?;
+            Box::new(move |b| c.decrypt_block(Block::from_mut_slice(b)))
+        }
+        _ => return None,
+    };
+    for chunk in data.chunks(16) {
+        let mut block: [u8; 16] = chunk.try_into().ok()?;
+        let saved = block;
+        decrypt(&mut block);
+        for (i, byte) in block.iter_mut().enumerate() {
+            *byte ^= previous[i];
+        }
+        previous = saved;
+        out.extend_from_slice(&block);
+    }
+    // PKCS#7: the last byte says how many were added, and all of them say it.
+    let pad = *out.last()? as usize;
+    if pad == 0
+        || pad > 16
+        || pad > out.len()
+        || !out[out.len() - pad..].iter().all(|&b| b as usize == pad)
+    {
+        return None;
+    }
+    out.truncate(out.len() - pad);
+    Some(out)
+}
+
 /// AES-256 ECB encryption, the direction Algorithm 10 builds `/Perms` in.
 fn aes256_ecb_encrypt(key: &[u8], data: &[u8]) -> Option<Vec<u8>> {
     let cipher = Aes256::new_from_slice(key).ok()?;
@@ -439,6 +485,82 @@ impl SecurityHandler {
             },
             EncryptionArtifacts { u, ue, o, oe, perms, permissions, encrypt_metadata },
         ))
+    }
+
+    /// Opens a public-key encrypted document (7.6.5).
+    ///
+    /// Unlike every password handler, the file key is not derived *from* a credential —
+    /// it is derived from a seed that a credential unwraps. Each `/Recipients` entry is
+    /// a CMS `EnvelopedData` holding the same 20-byte seed encrypted to one
+    /// certificate, and the key is the digest of that seed followed by **every**
+    /// recipient entry, in the order the array gives them. Hashing the entries is what
+    /// binds the key to the recipient list: adding a reader changes the key, so a
+    /// document cannot be quietly re-addressed.
+    ///
+    /// Returns `None` when no entry is addressed to this identity, which is the same
+    /// answer a wrong password gets.
+    ///
+    /// `/KDFSalt` is **not** part of this. It appears in the same dictionary and
+    /// belongs to PDF 2.0's document MAC, which is a different feature; treating it as
+    /// key material would produce a key nothing else computes.
+    ///
+    /// # Errors
+    /// If an entry is addressed to this identity and still fails to open.
+    pub fn open_public_key(
+        recipients: &[Vec<u8>],
+        identity: &crate::cms::RecipientIdentity,
+        key_len: usize,
+        encrypt_metadata: bool,
+    ) -> SyntaxResult<Option<Self>> {
+        let mut opened = None;
+        for entry in recipients {
+            if let Some(envelope) = crate::cms::open_envelope(entry, identity)? {
+                opened = Some(envelope);
+                break;
+            }
+        }
+        let Some(envelope) = opened else { return Ok(None) };
+
+        // SHA-256 for the 256-bit key of `/CFM /AESV3`, SHA-1 for everything earlier.
+        // The digest is truncated to the key length either way.
+        let digest = if key_len > 20 {
+            let mut hash = Sha256::new();
+            hash.update(&envelope.seed);
+            for entry in recipients {
+                hash.update(entry);
+            }
+            if !encrypt_metadata {
+                hash.update([0xFF; 4]);
+            }
+            hash.finalize().to_vec()
+        } else {
+            let mut hash = sha1::Sha1::new();
+            hash.update(&envelope.seed);
+            for entry in recipients {
+                hash.update(entry);
+            }
+            if !encrypt_metadata {
+                hash.update([0xFF; 4]);
+            }
+            hash.finalize().to_vec()
+        };
+        if digest.len() < key_len {
+            return Err(SyntaxError::Crypto(
+                format!("a {key_len}-byte key cannot come from a {}-byte digest", digest.len())
+                    .into(),
+            ));
+        }
+
+        Ok(Some(Self {
+            encryption_key: digest[..key_len].to_vec(),
+            revision: if key_len > 20 { 6 } else { 4 },
+            is_aes: true,
+            encrypt_metadata,
+            // 7.6.5 gives each recipient its own permissions, so there is no owner and
+            // user distinction to make: whoever opened it holds what their envelope
+            // granted them.
+            access: Access::User,
+        }))
     }
 
     /// Retrieves the file encryption key from an AES-256 document: Algorithm 2.A.

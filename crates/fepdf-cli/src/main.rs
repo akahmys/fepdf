@@ -37,6 +37,12 @@ struct IngestArgs {
     /// Password to open an encrypted document with
     #[arg(long)]
     password: Option<String>,
+    /// DER certificate a public-key encrypted document (7.6.5) was addressed to
+    #[arg(long = "recipient-certificate", requires = "recipient_key")]
+    recipient_certificate: Option<PathBuf>,
+    /// DER PKCS#8 private key for that certificate
+    #[arg(long = "recipient-key", id = "recipient_key", requires = "recipient_certificate")]
+    recipient_key: Option<PathBuf>,
 }
 
 impl From<IngestArgs> for fepdf_sdk::IngestionOptions {
@@ -51,6 +57,18 @@ impl From<IngestArgs> for fepdf_sdk::IngestionOptions {
             },
             force_fallback: args.force_fallback,
             password: args.password,
+            // Read here rather than in the engine: a path that does not exist is the
+            // frontend's problem, and a certificate that does not parse is the
+            // engine's. Keeping the two apart means the message names the right one.
+            recipient: match (args.recipient_certificate, args.recipient_key) {
+                (Some(certificate), Some(key)) => Some((
+                    std::fs::read(&certificate)
+                        .unwrap_or_else(|e| panic!("cannot read {}: {e}", certificate.display())),
+                    std::fs::read(&key)
+                        .unwrap_or_else(|e| panic!("cannot read {}: {e}", key.display())),
+                )),
+                _ => None,
+            },
             progress_callback: None,
         }
     }
@@ -243,6 +261,12 @@ enum InspectSubcommands {
         /// Password to open the document with
         #[arg(long, default_value = "")]
         password: String,
+        /// DER certificate a public-key encrypted document (7.6.5) was addressed to
+        #[arg(long, requires = "key")]
+        certificate: Option<PathBuf>,
+        /// DER PKCS#8 private key for that certificate
+        #[arg(long, id = "key", requires = "certificate")]
+        private_key: Option<PathBuf>,
     },
     /// Report interactive features: annotations, form fields, actions, outline
     Interactive {
@@ -641,8 +665,14 @@ async fn main() -> Result<()> {
             InspectSubcommands::Catalog { input, format, all } => {
                 handle_catalog(&input, &format, all)?;
             }
-            InspectSubcommands::Encryption { input, format, password } => {
-                handle_encryption(&input, &format, &password)?;
+            InspectSubcommands::Encryption {
+                input,
+                format,
+                password,
+                certificate,
+                private_key,
+            } => {
+                handle_encryption(&input, &format, &password, certificate, private_key)?;
             }
             InspectSubcommands::Interactive { input, format } => {
                 handle_interactive(&input, &format)?;
@@ -1034,10 +1064,29 @@ fn report_write_decisions(decisions: &[fepdf_sdk::Decision]) {
 }
 
 /// Reports what protects the document (7.6), and how far the engine conforms.
-fn handle_encryption(input: &std::path::Path, format: &str, password: &str) -> Result<()> {
+fn handle_encryption(
+    input: &std::path::Path,
+    format: &str,
+    password: &str,
+    certificate: Option<PathBuf>,
+    private_key: Option<PathBuf>,
+) -> Result<()> {
     let data = std::fs::read(input).with_context(|| "Failed to read input")?;
-    let report = fepdf_sdk::EncryptionReport::survey(&data, password)
-        .map_err(|e| anyhow::anyhow!("{e:?}"))?;
+    let identity = match (certificate, private_key) {
+        (Some(certificate), Some(key)) => Some(
+            fepdf_sdk::RecipientIdentity::from_der(
+                &std::fs::read(&certificate).with_context(|| "Failed to read the certificate")?,
+                &std::fs::read(&key).with_context(|| "Failed to read the private key")?,
+            )
+            .map_err(|e| anyhow::anyhow!("{e:?}"))?,
+        ),
+        _ => None,
+    };
+    let report = fepdf_sdk::EncryptionReport::survey(
+        &data,
+        fepdf_sdk::Credentials { password, recipient: identity.as_ref() },
+    )
+    .map_err(|e| anyhow::anyhow!("{e:?}"))?;
 
     match format {
         "json" => println!("{}", serde_json::to_string_pretty(&report)?),
@@ -2335,6 +2384,8 @@ mod tests {
             relaxed_color: true,
             force_fallback: false,
             password: None,
+            recipient_certificate: None,
+            recipient_key: None,
         };
         let opts: fepdf_sdk::IngestionOptions = args.into();
         assert!(!opts.active_refinement);

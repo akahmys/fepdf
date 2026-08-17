@@ -25,6 +25,8 @@ pub use fepdf_model::font::{GlyphTrace, TraceContext};
 // unreachable by name, ARCHITECTURE.md Rule A is enforced by Cargo rather than by
 // review.
 pub use fepdf_model::catalog::{CatalogEntry, CatalogReport, Support};
+pub use fepdf_model::cms::RecipientIdentity;
+pub use fepdf_model::decrypt::Credentials;
 pub use fepdf_model::encryption::{
     Conformance, CryptFilter, EncryptedPayload, EncryptionReport, Permission,
 };

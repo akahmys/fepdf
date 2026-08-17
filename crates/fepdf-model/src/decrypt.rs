@@ -36,16 +36,42 @@ impl Default for Security {
     }
 }
 
+/// What a reader offers a document to get in.
+///
+/// A password for the standard handler, and a certificate with its private key for a
+/// public-key one (7.6.5). The two are not interchangeable and a document takes exactly
+/// one kind, so this is a struct rather than a choice: a caller supplies what it has
+/// and the document decides which it needed.
+#[derive(Default, Clone, Copy)]
+pub struct Credentials<'a> {
+    /// The password to try. Every reader starts with the empty one.
+    pub password: &'a str,
+    /// The identity a public-key encrypted document may have been addressed to.
+    pub recipient: Option<&'a crate::cms::RecipientIdentity>,
+}
+
+impl<'a> Credentials<'a> {
+    /// Just a password, which is what every caller but ingestion has.
+    #[must_use]
+    pub fn password(password: &'a str) -> Self {
+        Self { password, recipient: None }
+    }
+}
+
 /// Decrypts every object in place, returning what protection the file used.
 ///
 /// A document with no `/Encrypt` is left untouched and reports "No Security". A
-/// document whose handler cannot be built — an unsupported revision, or a wrong
-/// password — is also left untouched, and that is recorded rather than raised: the
-/// caller can still inspect the file's structure.
+/// document whose handler cannot be built — an unsupported revision, a wrong password,
+/// or a certificate it was not addressed to — is also left untouched, and that is
+/// recorded rather than raised: the caller can still inspect the file's structure.
+/// `/Encrypt` is removed once the document is unlocked.
+///
+/// # Errors
+/// If an object cannot be rewritten after decryption.
 pub fn unlock(
     arena: &PdfArena,
     trailer: Option<DictHandle>,
-    password: &str,
+    credentials: Credentials<'_>,
     decisions: &mut DecisionLog,
 ) -> PdfResult<Security> {
     let Some(trailer) = trailer else { return Ok(Security::default()) };
@@ -54,7 +80,7 @@ pub fn unlock(
     };
 
     let mut security = describe(arena, &encrypt);
-    let Some(handler) = build_handler(arena, trailer, &encrypt, password, decisions) else {
+    let Some(handler) = build_handler(arena, trailer, &encrypt, credentials, decisions) else {
         decisions.push(Decision::violation(
             "7.6.1",
             format!("{} could not be unlocked", security.method),
@@ -93,10 +119,22 @@ fn encryption_dict(arena: &PdfArena, trailer: DictHandle) -> Option<(Dict, Optio
 
 /// Names the handler for reporting, without attempting to unlock anything.
 fn describe(arena: &PdfArena, encrypt: &Dict) -> Security {
-    let method = match integer(arena, encrypt, "V").unwrap_or(0) {
-        5 => "Password Security (AES-256)",
-        4 => "Password Security (AES-128)",
-        _ => "Password Security (Standard)",
+    // The handler comes first: `/V` says how the key is sized, not what unlocks the
+    // document. Reading only `/V` reported a certificate-encrypted file as "Password
+    // Security (AES-256) could not be unlocked", which names the wrong credential and
+    // sends the reader looking for a password that does not exist.
+    let method = if name_of(arena, encrypt, "Filter").as_deref() == Some("Adobe.PubSec") {
+        match integer(arena, encrypt, "V").unwrap_or(0) {
+            5 => "Certificate Security (AES-256)",
+            4 => "Certificate Security (AES-128)",
+            _ => "Certificate Security",
+        }
+    } else {
+        match integer(arena, encrypt, "V").unwrap_or(0) {
+            5 => "Password Security (AES-256)",
+            4 => "Password Security (AES-128)",
+            _ => "Password Security (Standard)",
+        }
     };
     Security { method: method.to_string(), permissions: permissions(arena, encrypt), access: None }
 }
@@ -123,12 +161,20 @@ fn build_handler(
     arena: &PdfArena,
     trailer: DictHandle,
     encrypt: &Dict,
-    password: &str,
+    credentials: Credentials<'_>,
     decisions: &mut DecisionLog,
 ) -> Option<SecurityHandler> {
     let version = integer(arena, encrypt, "V").unwrap_or(0);
     let revision = integer(arena, encrypt, "R").unwrap_or(0);
     let id = first_file_id(arena, trailer);
+    let password = credentials.password;
+
+    // 7.6.5: a public-key handler names itself in /Filter and derives its key from a
+    // seed in /Recipients rather than from a password. It has no /R and no /O or /U,
+    // so the checks below would all read absent values.
+    if name_of(arena, encrypt, "Filter").as_deref() == Some("Adobe.PubSec") {
+        return build_public_key(arena, encrypt, credentials.recipient, decisions);
+    }
 
     if version == 5 && (revision == 5 || revision == 6) {
         return build_aes256(arena, encrypt, &saslprep(password), revision, decisions);
@@ -278,6 +324,89 @@ fn key_bytes(arena: &PdfArena, encrypt: &Dict) -> Option<usize> {
 /// `/V 4` files exist with `/CFM /V2`, which is RC4 under a crypt filter. Assuming AES
 /// from `/V` alone decrypts those to noise, which is what the handler did: `is_aes`
 /// was set `true` at both construction sites and no code path could clear it.
+/// Builds a handler for a public-key encrypted document (7.6.5).
+///
+/// Records rather than fails when no credential was offered: a reader that was given
+/// only a password has not got this wrong, it has been handed a document of a kind it
+/// was not asked to open.
+fn build_public_key(
+    arena: &PdfArena,
+    encrypt: &Dict,
+    recipient: Option<&crate::cms::RecipientIdentity>,
+    decisions: &mut DecisionLog,
+) -> Option<SecurityHandler> {
+    let Some(identity) = recipient else {
+        decisions.push(Decision::violation(
+            "7.6.5",
+            "the document is encrypted to a certificate",
+            "no certificate and key were offered, so it stays encrypted",
+        ));
+        return None;
+    };
+
+    let recipients = recipients(arena, encrypt);
+    if recipients.is_empty() {
+        decisions.push(Decision::violation(
+            "7.6.5",
+            "a public-key handler with no /Recipients",
+            "left the document encrypted; there is no seed to derive a key from",
+        ));
+        return None;
+    }
+
+    let key_len = key_bytes(arena, encrypt).unwrap_or(32);
+    let encrypt_metadata = boolean(arena, encrypt, "EncryptMetadata").unwrap_or(true);
+    match SecurityHandler::open_public_key(&recipients, identity, key_len, encrypt_metadata) {
+        Ok(handler) => handler,
+        Err(why) => {
+            decisions.push(Decision::violation(
+                "7.6.5",
+                format!("a /Recipients entry could not be opened: {why}"),
+                "left the document encrypted",
+            ));
+            None
+        }
+    }
+}
+
+/// The `/Recipients` entries, wherever this version keeps them.
+///
+/// 7.6.5: for `/V` 4 and 5 they sit in the crypt filter that `/StmF` names, because a
+/// crypt filter may address a different set of people from the document as a whole.
+/// Earlier versions put one array at the top of `/Encrypt`. A file that uses crypt
+/// filters and also carries a top-level array is not this engine's problem to reconcile
+/// — the filter's own list is the one governing its streams.
+fn recipients(arena: &PdfArena, encrypt: &Dict) -> Vec<Vec<u8>> {
+    let from_filter = entry_in(arena, encrypt, "CF")
+        .and_then(|o| as_dict(arena, &o))
+        .and_then(|cf| {
+            let named = name_of(arena, encrypt, "StmF").unwrap_or_else(|| "Identity".to_string());
+            cf.get(&arena.name(&named)).and_then(|o| as_dict(arena, o))
+        })
+        .map(|filter| strings(arena, &filter, "Recipients"))
+        .unwrap_or_default();
+    if from_filter.is_empty() { strings(arena, encrypt, "Recipients") } else { from_filter }
+}
+
+/// A dictionary entry that is an array of byte strings, or a single one.
+fn strings(arena: &PdfArena, dict: &Dict, key: &str) -> Vec<Vec<u8>> {
+    match dict.get(&arena.name(key)).map(|o| o.resolve(arena)) {
+        Some(Object::Array(h)) => arena
+            .get_array(h)
+            .unwrap_or_default()
+            .iter()
+            .filter_map(|o| match o.resolve(arena) {
+                Object::String(b) | Object::Hex(b) => Some(b.to_vec()),
+                _ => None,
+            })
+            .collect(),
+        // A crypt filter that is not the document default carries one entry, not an
+        // array of them.
+        Some(Object::String(b) | Object::Hex(b)) => vec![b.to_vec()],
+        _ => Vec::new(),
+    }
+}
+
 fn crypt_filter_method(arena: &PdfArena, encrypt: &Dict) -> Cipher {
     let Some(cf) = entry_in(arena, encrypt, "CF").and_then(|o| as_dict(arena, &o)) else {
         return Cipher::Rc4;
