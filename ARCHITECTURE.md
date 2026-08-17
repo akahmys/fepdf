@@ -343,9 +343,11 @@ of the standard, it records why, at the point of decision, with the clause. A si
 acceptance is a defect even when the output is right, because the next reader of the
 code cannot tell a deliberate choice from an oversight.
 
-**Current coverage is 35 sites**, up from one: `reader.rs` 15, `font/mod.rs` 8,
-`object/sublimation/parser.rs` 3, `decrypt.rs` 2, `document.rs` 2, `ingest/mod.rs` 2,
-`metadata.rs` 2, `refine/mod.rs` 1. The eleven places that previously detected
+**Current coverage is 39 sites**, up from one: `reader.rs` 15, `font/mod.rs` 8,
+`decrypt.rs` 6, `object/sublimation/parser.rs` 3, `document.rs` 2, `ingest/mod.rs` 2,
+`metadata.rs` 2, `refine/mod.rs` 1. `decrypt.rs` gained four with clause 7.6: three
+report a public-key document that could not be opened and why, and one an object stream
+that would not expand after decryption. The eleven places that previously detected
 non-conformance and merely `log::warn!` — missing font `/Subtype`, empty
 `/DescendantFonts`, undecodable CMap streams, unknown content-stream operators — were
 converted while the reader was replaced, which is where most of them sat.
