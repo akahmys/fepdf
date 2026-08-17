@@ -296,6 +296,69 @@ pub struct Envelope {
     pub permissions: Option<i32>,
 }
 
+/// Seals the seed for one recipient, producing a `/Recipients` entry (7.6.5).
+///
+/// Only the certificate is needed — encrypting to someone requires their public key and
+/// nothing of yours, which is why writing this takes a certificate where reading it
+/// takes a certificate *and* a key.
+///
+/// The content is the 20-byte seed followed by four bytes of permissions, and it is the
+/// same seed for every recipient: 7.6.5 gives each their own permissions but one key.
+///
+/// # Errors
+/// If the certificate carries no usable RSA public key, or the envelope cannot be built.
+pub fn seal_envelope(seed: &[u8], permissions: i32, certificate: &[u8]) -> SyntaxResult<Vec<u8>> {
+    use cms::builder::{
+        ContentEncryptionAlgorithm, EnvelopedDataBuilder, KeyEncryptionInfo,
+        KeyTransRecipientInfoBuilder,
+    };
+
+    let certificate = Certificate::from_der(certificate)
+        .map_err(|e| crypto(format!("recipient certificate is not valid DER: {e}")))?;
+    let spki = certificate
+        .tbs_certificate
+        .subject_public_key_info
+        .to_der()
+        .map_err(|e| crypto(format!("cannot re-encode the recipient's public key: {e}")))?;
+    let public = <rsa::RsaPublicKey as rsa::pkcs8::DecodePublicKey>::from_public_key_der(&spki)
+        .map_err(|e| crypto(format!("the recipient certificate carries no RSA key: {e}")))?;
+
+    let mut content = seed.to_vec();
+    content.extend_from_slice(&permissions.to_be_bytes());
+
+    let rid = cms::enveloped_data::RecipientIdentifier::IssuerAndSerialNumber(
+        cms::cert::IssuerAndSerialNumber {
+            issuer: certificate.tbs_certificate.issuer.clone(),
+            serial_number: certificate.tbs_certificate.serial_number,
+        },
+    );
+    let mut rng = rand::thread_rng();
+    let recipient =
+        KeyTransRecipientInfoBuilder::new(rid, KeyEncryptionInfo::Rsa(public), &mut rng)
+            .map_err(|e| crypto(format!("could not describe the recipient: {e}")))?;
+
+    // AES-256-CBC for the envelope, which is what 7.6.5 permits and what every producer
+    // met so far writes; RC2 and the DES variants the clause also allows are read here
+    // and not produced, for the reason ADR-0015 gives about the standard handler.
+    let mut rng = rand::thread_rng();
+    let mut builder =
+        EnvelopedDataBuilder::new(None, &content, ContentEncryptionAlgorithm::Aes256Cbc, None)
+            .map_err(|e| crypto(format!("could not start the envelope: {e}")))?;
+    let enveloped = builder
+        .add_recipient_info(recipient)
+        .map_err(|e| crypto(format!("could not add the recipient: {e}")))?
+        .build_with_rng(&mut rng)
+        .map_err(|e| crypto(format!("could not seal the envelope: {e}")))?;
+
+    ContentInfo {
+        content_type: const_oid::db::rfc5911::ID_ENVELOPED_DATA,
+        content: Any::encode_from(&enveloped)
+            .map_err(|e| crypto(format!("could not wrap the envelope: {e}")))?,
+    }
+    .to_der()
+    .map_err(|e| crypto(format!("could not encode the envelope: {e}")))
+}
+
 /// Opens one `/Recipients` entry, if it was addressed to this identity.
 ///
 /// Returns `Ok(None)` when the envelope names other recipients but not this one, which

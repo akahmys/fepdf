@@ -132,11 +132,12 @@ impl Ingestor {
             }
         };
         report("1/4: Decrypting and normalizing document...");
-        let mut decisions = raw.decisions;
+        let mut decisions = raw.decisions.clone();
         let identity = recipient_identity(options)?;
         let credentials = credentials(options, identity.as_ref());
-        let security =
-            crate::decrypt::unlock(&raw.arena, raw.trailer, credentials, &mut decisions)?;
+        let security = crate::decrypt::unlock_raw(&raw, credentials, &mut decisions)?;
+
+        refuse_if_locked_shut(&security, &raw)?;
 
         // Before refinement, which replaces the metadata stream and normalises the
         // objects: this is the last moment the source's own identity is visible.
@@ -280,6 +281,31 @@ impl Ingestor {
         }
         all_issues
     }
+}
+
+/// Refuses a document that was not unlocked and keeps its structure encrypted.
+///
+/// A document whose objects are packed holds its catalogue and page tree *inside* the
+/// containers, so failing to unlock one leaves nothing to read at all — not even the
+/// structure that `unlock`'s own decision promises is still readable. Saying so beats
+/// the symptom the next step raises, which is "Object Handle(1) is not a dictionary":
+/// that describes what broke, not why.
+fn refuse_if_locked_shut(
+    security: &crate::decrypt::Security,
+    raw: &RawDocument,
+) -> crate::PdfResult<()> {
+    if security.access.is_none() && !raw.deferred_object_streams.is_empty() {
+        return Err(crate::PdfError::Ingestion {
+            context: "Encryption".into(),
+            message: format!(
+                "{} was not unlocked, and this document keeps its structure in object \
+                 streams (7.5.7), so there is nothing to read without a key",
+                security.method
+            )
+            .into(),
+        });
+    }
+    Ok(())
 }
 
 /// The recipient identity, decoded here rather than carried in the options.

@@ -76,6 +76,37 @@ for src in samples/*.pdf; do
     echo "  $name: opens with the certificate, $(wc -c < "$WORK/$name.got" | tr -d ' ') bytes, unchanged"
 done
 
+# The other direction: what this engine *writes* to a certificate, it has to read back.
+# Weaker than the checks above — an engine agreeing with itself is the weakest statement
+# available — but it exercises the sealing side, which the fixtures cannot: they are
+# built by openssl and say nothing about whether this engine can produce one.
+#
+# Deliberately not gated on the loop above. The fixture builder's own bugs must not stop
+# the writing side being checked; they are unrelated code.
+if [ -f "$WORK/sample/cert.der" ]; then
+    target/release/fepdf publish upgrade samples/sample.pdf "$WORK/written.pdf" \
+        --encrypt-to "$WORK/sample/cert.der" >/dev/null 2>&1
+    target/release/fepdf inspect text samples/sample.pdf 2>/dev/null | tail -n +2 > "$WORK/w.want"
+    target/release/fepdf inspect text "$WORK/written.pdf" \
+        --recipient-certificate "$WORK/sample/cert.der" \
+        --recipient-key "$WORK/sample/key.der" 2>/dev/null | tail -n +2 > "$WORK/w.got"
+    if diff -q "$WORK/w.want" "$WORK/w.got" >/dev/null; then
+        echo "  (--encrypt-to: what this engine sealed, it reads back unchanged)"
+    else
+        echo "  WHAT THIS ENGINE SEALED IT CANNOT READ BACK"; FAILED=1
+    fi
+
+    # And the certificate is genuinely required. The output is packed by default, so
+    # its structure is inside the encrypted containers and it does not open at all —
+    # the message says that rather than reporting the missing catalogue it causes.
+    if target/release/fepdf inspect text "$WORK/written.pdf" 2>&1 \
+            | grep -q "was not unlocked"; then
+        echo "  (--encrypt-to output refuses to open without one, and says why)"
+    else
+        echo "  THE WRITTEN DOCUMENT OPENED WITHOUT A CERTIFICATE"; FAILED=1
+    fi
+fi
+
 # The check has to be able to fail. A document that opens without the key it was
 # addressed to is not encrypted, and one that opens with the wrong key is worse.
 if [ "$FAILED" -eq 0 ]; then

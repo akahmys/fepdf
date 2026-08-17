@@ -81,7 +81,7 @@ impl SignatureReport {
     pub fn survey(bytes: &[u8]) -> PdfResult<Self> {
         let raw = reader::load_document(bytes)?;
         let mut decisions = raw.decisions.clone();
-        crate::decrypt::unlock(&raw.arena, raw.trailer, Credentials::default(), &mut decisions)?;
+        crate::decrypt::unlock_raw(&raw, Credentials::default(), &mut decisions)?;
         let arena = &raw.arena;
         let catalog = raw
             .trailer

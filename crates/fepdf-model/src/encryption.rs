@@ -199,12 +199,12 @@ impl EncryptionReport {
 
         let Some(encrypt) = raw.trailer.and_then(|t| encryption_dict(&raw.arena, t)) else {
             let mut decisions = raw.decisions.clone();
-            decrypt::unlock(&raw.arena, raw.trailer, credentials, &mut decisions)?;
+            decrypt::unlock_raw(&raw, credentials, &mut decisions)?;
             return Ok(Self::unencrypted(decisions.entries().to_vec(), payload));
         };
 
         let mut decisions = raw.decisions.clone();
-        let security = decrypt::unlock(&raw.arena, raw.trailer, credentials, &mut decisions)?;
+        let security = decrypt::unlock_raw(&raw, credentials, &mut decisions)?;
         let unlocked = raw
             .trailer
             .and_then(|t| raw.arena.get_dict(t))

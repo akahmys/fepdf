@@ -83,6 +83,8 @@ pub struct PdfWriter<'a, W: Write> {
     string_encoding: StringEncoding,
     security_handler: Option<crate::security::SecurityHandler>,
     artifacts: Option<crate::security::EncryptionArtifacts>,
+    /// The `/Recipients` entries, when the document is encrypted to certificates.
+    recipients: Option<Vec<Vec<u8>>>,
     pack_objects: bool,
     /// Where each object went, for the cross-reference stream to record.
     located: BTreeMap<u32, Location>,
@@ -112,6 +114,7 @@ impl<'a, W: Write> PdfWriter<'a, W> {
             string_encoding: StringEncoding::default(),
             security_handler: None,
             artifacts: None,
+            recipients: None,
             pack_objects: false,
             located: BTreeMap::new(),
             inside_object_stream: false,
@@ -138,6 +141,21 @@ impl<'a, W: Write> PdfWriter<'a, W> {
     ) {
         self.security_handler = Some(handler);
         self.artifacts = Some(artifacts);
+    }
+
+    /// Encrypts the output to certificates (7.6.5), writing the `/Recipients` that open
+    /// it again.
+    ///
+    /// The same pairing as [`Self::encrypt_with`] and for the same reason: the handler
+    /// holds the key, the entries are what recovers it, and either alone produces a file
+    /// that is unopenable or unencrypted.
+    pub fn encrypt_to(
+        &mut self,
+        handler: crate::security::SecurityHandler,
+        recipients: Vec<Vec<u8>>,
+    ) {
+        self.security_handler = Some(handler);
+        self.recipients = Some(recipients);
     }
 
     /// Sets the encoding for string literals (Standard or Unicode).
@@ -761,7 +779,7 @@ impl<'a, W: Write> PdfWriter<'a, W> {
         // The `/Encrypt` dictionary is written last and is not in the arena, because it
         // is not part of the document: nothing references it, the catalogue cannot reach
         // it, and it describes the file rather than its contents.
-        let encrypt_id = self.artifacts.is_some().then(|| {
+        let encrypt_id = (self.artifacts.is_some() || self.recipients.is_some()).then(|| {
             let id = next_id;
             next_id += 1;
             id
@@ -992,6 +1010,37 @@ impl<'a, W: Write> PdfWriter<'a, W> {
         Ok(())
     }
 
+    /// The `/Encrypt` dictionary of a document encrypted to certificates (7.6.5).
+    ///
+    /// `/Recipients` sits inside the crypt filter rather than at the top, which is where
+    /// `/V` 4 and 5 put it — and where the reader looks for it. There is no `/O`, `/U`
+    /// or `/P` here: the permissions travel inside each recipient's envelope, because
+    /// 7.6.5 gives each of them their own.
+    ///
+    /// `/SubFilter /adbe.pkcs7.s5` is the one that goes with `/V 5`; `s3` and `s4`
+    /// belong to the older versions this does not write, for the reason [ADR-0015]
+    /// gives about the standard handler.
+    ///
+    /// [ADR-0015]: ../../../../docs/adr/0015-this-engine-reads-five-encryption-schemes-and-writes-one.md
+    fn write_public_key_encrypt_dictionary(
+        &mut self,
+        id: u32,
+        recipients: &[Vec<u8>],
+    ) -> PdfResult<()> {
+        let entries = recipients
+            .iter()
+            .map(|entry| format!("<{}>", hex::encode_upper(entry)))
+            .collect::<Vec<_>>()
+            .join(" ");
+        let dictionary = format!(
+            "<<\r\n/Filter /Adobe.PubSec\r\n/SubFilter /adbe.pkcs7.s5\r\n/V 5\r\n/Length 256\r\n\
+             /EncryptMetadata true\r\n/StmF /DefaultCryptFilter\r\n/StrF /DefaultCryptFilter\r\n\
+             /CF << /DefaultCryptFilter << /CFM /AESV3 /AuthEvent /DocOpen /Length 256\r\n\
+             /Recipients [ {entries} ] >> >>\r\n>>"
+        );
+        self.write_all(format!("{id} 0 obj\r\n{dictionary}\r\nendobj\r\n").as_bytes())
+    }
+
     /// Writes the `/Encrypt` dictionary, which is the one dictionary in the file whose
     /// strings are not encrypted.
     ///
@@ -1005,13 +1054,16 @@ impl<'a, W: Write> PdfWriter<'a, W> {
     /// key the handler is encrypting with, and the result would be a file nobody can
     /// open — detectable only by trying.
     fn write_encrypt_dictionary(&mut self, id: u32) -> PdfResult<()> {
-        let Some(artifacts) = self.artifacts.clone() else { return Ok(()) };
         // Both, because the two cross-reference forms read different maps: leaving
         // `located` unset made a cross-reference stream mark `/Encrypt` free, and a
         // reader that cannot find the encryption dictionary cannot open the file.
         self.xref.insert(id, self.current_offset());
         self.located.insert(id, Location::InFile(self.current_offset()));
 
+        if let Some(recipients) = self.recipients.clone() {
+            return self.write_public_key_encrypt_dictionary(id, &recipients);
+        }
+        let Some(artifacts) = self.artifacts.clone() else { return Ok(()) };
         let hex = |bytes: &[u8]| hex::encode_upper(bytes);
         // /V 5 /R 6 with a single AES-256 crypt filter applied to both streams and
         // strings. /Length is in bits here and in bytes inside the crypt filter, which

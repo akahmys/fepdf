@@ -130,7 +130,7 @@ impl CatalogReport {
         // file's *ciphertext*: `samples/unicode_16.pdf` listed `/Lang` as a 32-byte
         // string, which is one AES block and an IV, not a language tag.
         let mut decisions = raw.decisions.clone();
-        crate::decrypt::unlock(&raw.arena, raw.trailer, Credentials::default(), &mut decisions)?;
+        crate::decrypt::unlock_raw(&raw, Credentials::default(), &mut decisions)?;
         let root = raw
             .trailer
             .and_then(|t| raw.arena.get_dict(t))

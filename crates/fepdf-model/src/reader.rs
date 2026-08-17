@@ -261,6 +261,15 @@ pub struct RawDocument {
     pub trailer: Option<DictHandle>,
     /// What had to be decided to read the file.
     pub decisions: DecisionLog,
+    /// Object streams left unexpanded because the file is encrypted, as
+    /// `(container, member)` pairs taken from the cross-reference.
+    ///
+    /// A container is a stream, so its bytes are ciphertext until Pass 0 has run.
+    /// Expanding it before then parses ciphertext as though it were objects, which
+    /// yields nonsense that overwrites the arena slots the real objects belong in. The
+    /// pairs come from the cross-reference rather than from the container's own index,
+    /// because reading that index needs the decryption that has not happened yet.
+    pub deferred_object_streams: Vec<(u32, u32)>,
 }
 
 /// A handle to a dictionary, spelt out because the type is otherwise unwieldy.
@@ -302,9 +311,25 @@ pub fn load_document(bytes: &[u8]) -> PdfResult<RawDocument> {
 
     let arena = PdfArena::new();
     let (records, trailer) = locate_objects(bytes, base, &arena, &mut decisions);
-    populate_arena(bytes, base, &records, &arena, &mut decisions);
+    let encrypted = trailer
+        .is_some_and(|t| arena.get_dict(t).is_some_and(|d| d.contains_key(&arena.name("Encrypt"))));
+    populate_arena(bytes, base, &records, &arena, &mut decisions, encrypted);
 
-    Ok(RawDocument { arena, version, trailer, decisions })
+    // Only when it matters: an unencrypted file has already been expanded, and handing
+    // back pairs for it would invite a second expansion that changes nothing.
+    let deferred_object_streams = if encrypted {
+        records
+            .iter()
+            .filter_map(|(number, record)| match record {
+                XrefRecord::InObjectStream { container, .. } => Some((*container, *number)),
+                XrefRecord::InFile { .. } | XrefRecord::Free { .. } => None,
+            })
+            .collect()
+    } else {
+        Vec::new()
+    };
+
+    Ok(RawDocument { arena, version, trailer, decisions, deferred_object_streams })
 }
 
 /// Collects every cross-reference record, falling back to a scan of the file.
@@ -362,6 +387,7 @@ fn populate_arena(
     records: &BTreeMap<u32, XrefRecord>,
     arena: &PdfArena,
     decisions: &mut DecisionLog,
+    encrypted: bool,
 ) {
     let highest = records.keys().copied().max().unwrap_or(0);
     for _ in 0..=highest {
@@ -381,8 +407,31 @@ fn populate_arena(
         }
     }
 
+    // The container objects themselves are placed either way — Pass 0 needs them in the
+    // arena to decrypt. Only their *contents* wait.
     for container in containers {
-        place_from_container(bytes, base, container, records, arena, decisions);
+        if encrypted {
+            place_direct_container(bytes, base, container, records, arena, decisions);
+        } else {
+            place_from_container(bytes, base, container, records, arena, decisions);
+        }
+    }
+}
+
+/// Places an object stream without expanding it, for a file that is still encrypted.
+fn place_direct_container(
+    bytes: &[u8],
+    base: usize,
+    container: u32,
+    records: &BTreeMap<u32, XrefRecord>,
+    arena: &PdfArena,
+    decisions: &mut DecisionLog,
+) {
+    let Some(offset) = records.get(&container).and_then(XrefRecord::offset) else {
+        return;
+    };
+    if let Ok(at) = usize::try_from(offset) {
+        place_direct(bytes, base, container, at as u64, arena, decisions);
     }
 }
 

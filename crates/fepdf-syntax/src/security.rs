@@ -521,27 +521,64 @@ impl SecurityHandler {
         }
         let Some(envelope) = opened else { return Ok(None) };
 
+        Ok(Some(Self::from_public_key_seed(&envelope.seed, recipients, key_len, encrypt_metadata)?))
+    }
+
+    /// Encrypts a new document to one or more certificates (7.6.5).
+    ///
+    /// Takes certificates and no keys: encrypting to someone needs their public half and
+    /// nothing of yours. Every recipient gets the same seed sealed to their own
+    /// certificate, and therefore the same file key — 7.6.5 varies the *permissions* per
+    /// recipient, not the key.
+    ///
+    /// # Errors
+    /// If any certificate carries no usable RSA public key, or an envelope cannot be
+    /// sealed. Refuses an empty recipient list: a document nobody can open is not
+    /// something to produce quietly.
+    pub fn encrypt_to_certificates(
+        certificates: &[Vec<u8>],
+        permissions: i32,
+        encrypt_metadata: bool,
+    ) -> SyntaxResult<(Self, Vec<Vec<u8>>)> {
+        use rand::RngCore;
+        if certificates.is_empty() {
+            return Err(SyntaxError::Crypto(
+                "a public-key encrypted document needs at least one recipient".into(),
+            ));
+        }
+        let mut seed = [0u8; 20];
+        rand::thread_rng().fill_bytes(&mut seed);
+
+        let recipients = certificates
+            .iter()
+            .map(|certificate| crate::cms::seal_envelope(&seed, permissions, certificate))
+            .collect::<SyntaxResult<Vec<_>>>()?;
+
+        let handler = Self::from_public_key_seed(&seed, &recipients, 32, encrypt_metadata)?;
+        Ok((handler, recipients))
+    }
+
+    /// The derivation 7.6.5.3 defines, shared by both directions.
+    ///
+    /// One function on purpose. Writing and reading each need this, and two copies of a
+    /// key derivation agree with each other for exactly as long as nobody edits one:
+    /// the failure mode is a document this engine can open and nothing else can, which
+    /// is indistinguishable from success until someone else tries.
+    fn from_public_key_seed(
+        seed: &[u8],
+        recipients: &[Vec<u8>],
+        key_len: usize,
+        encrypt_metadata: bool,
+    ) -> SyntaxResult<Self> {
         // SHA-256 for the 256-bit key of `/CFM /AESV3`, SHA-1 for everything earlier.
         // The digest is truncated to the key length either way.
         let digest = if key_len > 20 {
             let mut hash = Sha256::new();
-            hash.update(&envelope.seed);
-            for entry in recipients {
-                hash.update(entry);
-            }
-            if !encrypt_metadata {
-                hash.update([0xFF; 4]);
-            }
+            public_key_digest_input(&mut hash, seed, recipients, encrypt_metadata);
             hash.finalize().to_vec()
         } else {
             let mut hash = sha1::Sha1::new();
-            hash.update(&envelope.seed);
-            for entry in recipients {
-                hash.update(entry);
-            }
-            if !encrypt_metadata {
-                hash.update([0xFF; 4]);
-            }
+            public_key_digest_input(&mut hash, seed, recipients, encrypt_metadata);
             hash.finalize().to_vec()
         };
         if digest.len() < key_len {
@@ -551,7 +588,7 @@ impl SecurityHandler {
             ));
         }
 
-        Ok(Some(Self {
+        Ok(Self {
             encryption_key: digest[..key_len].to_vec(),
             revision: if key_len > 20 { 6 } else { 4 },
             is_aes: true,
@@ -560,9 +597,28 @@ impl SecurityHandler {
             // user distinction to make: whoever opened it holds what their envelope
             // granted them.
             access: Access::User,
-        }))
+        })
     }
+}
 
+/// What 7.6.5.3 hashes: the seed, every recipient entry in order, and — only when the
+/// metadata is left as plaintext — four bytes of `0xFF`.
+fn public_key_digest_input(
+    hash: &mut impl Digest,
+    seed: &[u8],
+    recipients: &[Vec<u8>],
+    encrypt_metadata: bool,
+) {
+    hash.update(seed);
+    for entry in recipients {
+        hash.update(entry);
+    }
+    if !encrypt_metadata {
+        hash.update([0xFF; 4]);
+    }
+}
+
+impl SecurityHandler {
     /// Retrieves the file encryption key from an AES-256 document: Algorithm 2.A.
     ///
     /// Tries the password as the user's, then as the owner's, and returns `None` when
@@ -1179,6 +1235,117 @@ mod tests {
 
         let reopened = reopen(&artifacts, "pw").expect("a handler");
         assert_eq!(reopened.decrypt_bytes(&ciphertext, 7, 0).expect("plaintext"), plain);
+    }
+
+    /// A throwaway RSA identity that may be a recipient. Made here rather than checked
+    /// in, for the reason `cms.rs` gives: a private key in the tree is a private key in
+    /// the tree.
+    fn recipient(serial: u32) -> (Vec<u8>, crate::cms::RecipientIdentity) {
+        use der::Encode;
+        use rsa::pkcs8::EncodePrivateKey;
+        use std::str::FromStr;
+        use x509_cert::builder::{Builder, CertificateBuilder, Profile};
+
+        let key = rsa::RsaPrivateKey::new(&mut rand::thread_rng(), 2048).expect("a key");
+        let signing = rsa::pkcs1v15::SigningKey::<Sha256>::new(key.clone());
+        let builder = CertificateBuilder::new(
+            Profile::Root,
+            // Distinct per certificate, as a real issuer's are. Two certificates
+            // sharing an issuer and a serial make `RecipientIdentifier` ambiguous, and
+            // the first version of these tests built exactly that and read the
+            // resulting false match as an engine defect.
+            x509_cert::serial_number::SerialNumber::from(serial),
+            x509_cert::time::Validity::from_now(std::time::Duration::from_hours(1))
+                .expect("a validity"),
+            x509_cert::name::Name::from_str(&format!("CN=fepdf recipient {serial}"))
+                .expect("a name"),
+            x509_cert::spki::SubjectPublicKeyInfoOwned::from_key(key.to_public_key())
+                .expect("a key"),
+            &signing,
+        )
+        .expect("a builder");
+        let certificate: x509_cert::Certificate =
+            builder.build::<rsa::pkcs1v15::Signature>().expect("a certificate");
+        let der = certificate.to_der().expect("DER");
+        let identity = crate::cms::RecipientIdentity::from_der(
+            &der,
+            key.to_pkcs8_der().expect("PKCS#8").as_bytes(),
+        )
+        .expect("an identity");
+        (der, identity)
+    }
+
+    /// What is sealed can be opened, and by the certificate it was sealed to.
+    #[test]
+    fn a_document_encrypted_to_a_certificate_opens_with_its_key() {
+        let (certificate, identity) = recipient(1);
+        let (handler, recipients) =
+            SecurityHandler::encrypt_to_certificates(&[certificate], -1, true).expect("sealed");
+
+        let opened = SecurityHandler::open_public_key(&recipients, &identity, 32, true)
+            .expect("no failure")
+            .expect("the recipient should be able to open it");
+        assert_eq!(opened.file_key(), handler.file_key(), "the two derived different keys");
+    }
+
+    #[test]
+    fn a_certificate_it_was_not_addressed_to_does_not_open_it() {
+        let (certificate, _) = recipient(1);
+        let (_, stranger) = recipient(2);
+        let (_, recipients) =
+            SecurityHandler::encrypt_to_certificates(&[certificate], -1, true).expect("sealed");
+        assert!(
+            SecurityHandler::open_public_key(&recipients, &stranger, 32, true)
+                .expect("no failure")
+                .is_none(),
+            "a stranger opened it"
+        );
+    }
+
+    /// Several recipients, one key. 7.6.5 varies the permissions per recipient and not
+    /// the key, so each of them has to arrive at the same one.
+    #[test]
+    fn every_recipient_derives_the_same_key() {
+        let (first_der, first) = recipient(1);
+        let (second_der, second) = recipient(2);
+        let (handler, recipients) =
+            SecurityHandler::encrypt_to_certificates(&[first_der, second_der], -1, true)
+                .expect("sealed");
+        assert_eq!(recipients.len(), 2, "one envelope per recipient");
+
+        for identity in [&first, &second] {
+            let opened = SecurityHandler::open_public_key(&recipients, identity, 32, true)
+                .expect("no failure")
+                .expect("this recipient should open it");
+            assert_eq!(opened.file_key(), handler.file_key());
+        }
+    }
+
+    /// The derivation hashes every entry, so the recipient list is part of the key. A
+    /// document cannot be re-addressed by appending an envelope to `/Recipients`.
+    #[test]
+    fn adding_a_recipient_afterwards_changes_the_key() {
+        let (certificate, identity) = recipient(1);
+        let (_, mut recipients) =
+            SecurityHandler::encrypt_to_certificates(&[certificate], -1, true).expect("sealed");
+        let honest = SecurityHandler::open_public_key(&recipients, &identity, 32, true)
+            .expect("no failure")
+            .expect("opens");
+
+        recipients.push(recipients[0].clone());
+        let tampered = SecurityHandler::open_public_key(&recipients, &identity, 32, true)
+            .expect("no failure")
+            .expect("still opens, with a different key");
+        assert_ne!(
+            honest.file_key(),
+            tampered.file_key(),
+            "the recipient list is not bound into the key"
+        );
+    }
+
+    #[test]
+    fn encrypting_to_nobody_is_refused() {
+        assert!(SecurityHandler::encrypt_to_certificates(&[], -1, true).is_err());
     }
 
     #[test]

@@ -74,6 +74,89 @@ pub fn unlock(
     credentials: Credentials<'_>,
     decisions: &mut DecisionLog,
 ) -> PdfResult<Security> {
+    unlock_expanding(arena, trailer, credentials, &[], decisions)
+}
+
+/// Unlocks a document the reader has just produced.
+///
+/// Takes the whole [`RawDocument`] rather than its parts so that the deferred object
+/// streams cannot be left behind: passing them separately is a thing a caller can
+/// forget, and forgetting it is the defect this exists to prevent — the arena keeps the
+/// nonsense that expanding ciphertext produced, and the document reads as damaged.
+///
+/// # Errors
+/// If an object cannot be rewritten after decryption.
+pub fn unlock_raw(
+    raw: &crate::reader::RawDocument,
+    credentials: Credentials<'_>,
+    decisions: &mut DecisionLog,
+) -> PdfResult<Security> {
+    unlock_expanding(&raw.arena, raw.trailer, credentials, &raw.deferred_object_streams, decisions)
+}
+
+/// [`unlock`], then expands the object streams the reader could not (7.5.7 with 7.6).
+///
+/// A container is a stream, so until the file is decrypted its bytes are ciphertext and
+/// expanding it produces nonsense in the arena slots the real objects belong in. The
+/// reader therefore leaves an encrypted file's containers whole and hands back the
+/// `(container, member)` pairs its cross-reference named; they are expanded here, once
+/// there is a key.
+///
+/// The pairs are what keeps [ADR-0006] honoured: a later revision may have replaced one
+/// of a container's objects with a direct one, and the cross-reference is what says so.
+/// Expanding from the container's own index instead would resurrect the older copy.
+///
+/// # Errors
+/// If an object cannot be rewritten after decryption.
+///
+/// [ADR-0006]: ../../../../docs/adr/0006-a-container-may-not-overwrite-a-newer-revision.md
+pub fn unlock_expanding(
+    arena: &PdfArena,
+    trailer: Option<DictHandle>,
+    credentials: Credentials<'_>,
+    deferred: &[(u32, u32)],
+    decisions: &mut DecisionLog,
+) -> PdfResult<Security> {
+    let security = unlock_objects(arena, trailer, credentials, decisions)?;
+    if !deferred.is_empty() && security.access.is_some() {
+        expand_deferred(arena, deferred, decisions);
+    }
+    Ok(security)
+}
+
+/// Expands each container the reader deferred, placing only the members the
+/// cross-reference still assigns to it.
+fn expand_deferred(arena: &PdfArena, deferred: &[(u32, u32)], decisions: &mut DecisionLog) {
+    let mut by_container: BTreeMap<u32, Vec<u32>> = BTreeMap::new();
+    for (container, member) in deferred {
+        by_container.entry(*container).or_default().push(*member);
+    }
+
+    for (container, members) in by_container {
+        let Some(object) = arena.get_object(Handle::new(container)) else { continue };
+        match crate::reader::expand_object_stream(&object, arena, decisions) {
+            Ok(inner) => {
+                for placed in inner {
+                    if members.contains(&placed.number) {
+                        arena.set_object(Handle::new(placed.number), placed.object);
+                    }
+                }
+            }
+            Err(e) => decisions.push(Decision::violation(
+                "7.5.7",
+                format!("object stream {container} could not be expanded after decryption: {e}"),
+                "the objects it carried are unavailable",
+            )),
+        }
+    }
+}
+
+fn unlock_objects(
+    arena: &PdfArena,
+    trailer: Option<DictHandle>,
+    credentials: Credentials<'_>,
+    decisions: &mut DecisionLog,
+) -> PdfResult<Security> {
     let Some(trailer) = trailer else { return Ok(Security::default()) };
     let Some((encrypt, exclude)) = encryption_dict(arena, trailer) else {
         return Ok(Security::default());

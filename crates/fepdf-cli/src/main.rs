@@ -112,6 +112,10 @@ struct SaveArgs {
     /// Password carrying owner rights, if it differs from the one that opens the file
     #[arg(long = "owner-password", id = "owner_password", requires = "encrypt_password")]
     owner_password: Option<String>,
+    /// Encrypt the output to this DER certificate (7.6.5). Repeat for more recipients.
+    /// Only the certificate is needed — encrypting to someone uses their public half
+    #[arg(long = "encrypt-to", id = "encrypt_to", conflicts_with = "encrypt_password")]
+    encrypt_to: Vec<PathBuf>,
     /// Write loose objects and a classic cross-reference table, instead of packing
     /// objects into object streams (7.5.7). Larger, and readable in a text editor
     #[arg(long = "no-obj-stm")]
@@ -132,9 +136,14 @@ struct SaveArgs {
     // in `/Encrypt` (7.6.4.2), and this engine wrote no `/Encrypt`. It writes one now,
     // so `/P` has somewhere to go. Without `--encrypt-password` there is still nowhere,
     // which is what `requires` says.
+    // No clap constraint: `requires` takes one argument and `/P` needs *either*
+    // encryption flag. `required_unless_present_any` says the opposite of what it reads
+    // like — it made `--permissions` mandatory on every save — so the check is below,
+    // where the message can say why.
     /// Grant only these permissions: print, modify, copy, annotate, forms,
-    /// accessibility, assemble, print-high. Everything unnamed is denied
-    #[arg(long, requires = "encrypt_password")]
+    /// accessibility, assemble, print-high. Everything unnamed is denied. Needs one of
+    /// --encrypt-password or --encrypt-to, since /P lives in /Encrypt
+    #[arg(long)]
     permissions: Option<String>,
     /// Text string encoding for non-ASCII characters (utf16be, utf8)
     #[arg(long, default_value = "utf16be")]
@@ -142,6 +151,23 @@ struct SaveArgs {
     /// Perform simulation without writing output file
     #[arg(long)]
     dry_run: bool,
+}
+
+impl SaveArgs {
+    /// Rejects a combination clap cannot express.
+    ///
+    /// `/P` lives in `/Encrypt` (7.6.4.2), so asking for permissions without asking for
+    /// encryption is asking for a value with nowhere to go — which is the state
+    /// `--permissions` was hidden in for as long as nothing wrote an `/Encrypt` at all.
+    fn check(&self) -> Result<()> {
+        if self.permissions.is_some() && self.password.is_none() && self.encrypt_to.is_empty() {
+            anyhow::bail!(
+                "--permissions needs --encrypt-password or --encrypt-to: /P lives in \
+                 /Encrypt, and an unencrypted file has none"
+            );
+        }
+        Ok(())
+    }
 }
 
 impl From<SaveArgs> for fepdf_sdk::SaveOptions {
@@ -153,6 +179,13 @@ impl From<SaveArgs> for fepdf_sdk::SaveOptions {
             strip: args.strip,
             password: args.password,
             owner_password: args.owner_password,
+            recipients: args
+                .encrypt_to
+                .iter()
+                .map(|p| {
+                    std::fs::read(p).unwrap_or_else(|e| panic!("cannot read {}: {e}", p.display()))
+                })
+                .collect(),
             obj_stm: !args.no_obj_stm,
             lang: args.lang,
             title: args.title,
@@ -816,6 +849,7 @@ fn handle_merge(
     }
 
     let merged = PdfDocument::merge(sources).map_err(|e| anyhow::anyhow!("{e:?}"))?;
+    save.check()?;
     let save_options: fepdf_sdk::SaveOptions = save.into();
     save_reporting_permissions(&merged, &output, &save_options)?;
     println!("SUCCESS: Merged output saved to {}", output.display());
@@ -841,6 +875,7 @@ fn handle_split(
 
     let extracted = doc.extract_pages(target_indices).map_err(|e| anyhow::anyhow!("{e:?}"))?;
 
+    save.check()?;
     let save_options: fepdf_sdk::SaveOptions = save.into();
     save_reporting_permissions(&extracted, &output, &save_options)?;
     println!("SUCCESS: Extracted output saved to {}", output.display());
@@ -1657,6 +1692,7 @@ fn handle_upgrade(
         doc.upgrade_to_standard(std).map_err(|e| anyhow::anyhow!("{e:?}"))?;
     }
 
+    save.check()?;
     let save_options: fepdf_sdk::SaveOptions = save.into();
 
     // Both branches write, so both owe the notice. An earlier version called
@@ -1686,6 +1722,7 @@ fn handle_repair(
     let doc = PdfDocument::open_and_repair_with_options(data.into(), &ingest_options)
         .map_err(|e| anyhow::anyhow!("{e:?}"))?;
 
+    save.check()?;
     let save_options: fepdf_sdk::SaveOptions = save.into();
     save_reporting_permissions(&doc, &output, &save_options)?;
     println!("SUCCESS: Repaired output saved to {}", output.display());
@@ -1719,6 +1756,7 @@ fn handle_rotate(
     })
     .map_err(|e| anyhow::anyhow!("{e:?}"))?;
 
+    save.check()?;
     let save_options: fepdf_sdk::SaveOptions = save.into();
     save_reporting_permissions(&doc, &output, &save_options)?;
     println!("SUCCESS: Rotated output saved to {}", output.display());
@@ -1816,6 +1854,7 @@ fn handle_retag(
         doc.retag_document().map_err(|e| anyhow::anyhow!("{e:?}"))?;
     }
 
+    save.check()?;
     let save_options: fepdf_sdk::SaveOptions = save.into();
     save_reporting_permissions(&doc, &output, &save_options)?;
     println!("SUCCESS: Re-tagged document saved to {}", output.display());
@@ -1885,6 +1924,7 @@ fn handle_sign(
         ..Default::default()
     };
 
+    save.check()?;
     let save_options: fepdf_sdk::SaveOptions = save.into();
     let decisions = doc
         .save_signed(&output, "2.0", &save_options, &sign_options)
@@ -2153,6 +2193,7 @@ fn handle_portfolio(
     doc.apply(fepdf_sdk::Operation::CreatePortfolio(portfolio))
         .map_err(|e| anyhow::anyhow!("{e:?}"))?;
 
+    save.check()?;
     let save_options: fepdf_sdk::SaveOptions = save.into();
     save_reporting_permissions(&doc, &output, &save_options)?;
     println!("SUCCESS: Portfolio saved to {}", output.display());
@@ -2183,6 +2224,7 @@ fn handle_bates(
     };
     doc.apply(op).map_err(|e| anyhow::anyhow!("{e:?}"))?;
 
+    save.check()?;
     let save_options: fepdf_sdk::SaveOptions = save.into();
     save_reporting_permissions(&doc, &output, &save_options)?;
     println!("SUCCESS: Output with Bates numbering saved to {}", output.display());
@@ -2222,6 +2264,7 @@ fn handle_attach(
     doc.apply(fepdf_sdk::Operation::AttachAssociatedFile(af))
         .map_err(|e| anyhow::anyhow!("{e:?}"))?;
 
+    save.check()?;
     let save_options: fepdf_sdk::SaveOptions = save.into();
     save_reporting_permissions(&doc, &output, &save_options)?;
     println!("SUCCESS: PDF with Associated File saved to {}", output.display());
@@ -2254,6 +2297,7 @@ fn handle_page_label(
 
     doc.apply(fepdf_sdk::Operation::SetPageLabels(labels)).map_err(|e| anyhow::anyhow!("{e:?}"))?;
 
+    save.check()?;
     let save_options: fepdf_sdk::SaveOptions = save.into();
     save_reporting_permissions(&doc, &output, &save_options)?;
     println!("SUCCESS: PDF with updated page labels saved to {}", output.display());
@@ -2286,6 +2330,7 @@ fn handle_geo(
     doc.apply(fepdf_sdk::Operation::SetGeospatialAnchor(anchor))
         .map_err(|e| anyhow::anyhow!("{e:?}"))?;
 
+    save.check()?;
     let save_options: fepdf_sdk::SaveOptions = save.into();
     save_reporting_permissions(&doc, &output, &save_options)?;
     println!("SUCCESS: PDF with GIS anchor saved to {}", output.display());

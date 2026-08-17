@@ -98,6 +98,12 @@ pub struct SaveOptions {
     /// The password that carries owner rights, when it differs from the one that opens
     /// the document. Ignored unless `password` is set.
     pub owner_password: Option<String>,
+    /// DER certificates to encrypt the output to (7.6.5), one entry per recipient.
+    ///
+    /// Certificates and no keys: encrypting to someone needs their public half and
+    /// nothing of yours. Mutually exclusive with `password` — a document takes one
+    /// handler, and 7.6.4 and 7.6.5 are different handlers.
+    pub recipients: Vec<Vec<u8>>,
     /// Pack objects into object streams (7.5.7), with the cross-reference stream
     /// (7.5.8) they require. **On by default**: it makes every corpus file smaller and
     /// `samples/intel_sdm.pdf` less than half the size, and two independent readers get
@@ -143,6 +149,7 @@ impl Default for SaveOptions {
             strip: false,
             password: None,
             owner_password: None,
+            recipients: Vec::new(),
             obj_stm: true,
             lang: None,
             title: None,
@@ -860,10 +867,7 @@ impl PdfDocument {
         }
         writer.set_pack_objects(options.obj_stm);
         let mut encryption = Vec::new();
-        if let Some(password) = &options.password {
-            let (handler, artifacts) = Self::encryption_for(password, options, &mut encryption)?;
-            writer.encrypt_with(handler, artifacts);
-        }
+        Self::apply_encryption(&mut writer, options, &mut encryption)?;
         if let Some((identity, sign_options)) = signing {
             // The field goes into the arena that is about to be written, not into the
             // document: what is signed is this output, and nothing about the document
@@ -879,6 +883,42 @@ impl PdfDocument {
         decisions.extend(stripped.into_entries());
         decisions.extend(encryption);
         Ok(decisions)
+    }
+
+    /// Encrypts the output, by password or to certificates, or leaves it plain.
+    ///
+    /// The two are exclusive because a document has one `/Encrypt` and 7.6.4 and 7.6.5
+    /// are different handlers. Refusing beats picking one: a caller that asked for both
+    /// has a bug, and silently honouring whichever was checked first hides it.
+    fn apply_encryption<W: std::io::Write>(
+        writer: &mut crate::writer::PdfWriter<'_, W>,
+        options: &SaveOptions,
+        decisions: &mut Vec<Decision>,
+    ) -> PdfResult<()> {
+        if options.password.is_some() && !options.recipients.is_empty() {
+            return Err(PdfError::Crypto(
+                "a document is encrypted with a password or to certificates, not both".into(),
+            ));
+        }
+        if let Some(password) = &options.password {
+            let (handler, artifacts) = Self::encryption_for(password, options, decisions)?;
+            writer.encrypt_with(handler, artifacts);
+        } else if !options.recipients.is_empty() {
+            let permissions = match &options.permissions {
+                Some(list) => fepdf_model::encryption::permissions_from_keywords(list)?,
+                // Every bit granted, as for the standard handler: encrypting a document
+                // is not on its own a statement about what may be done with it.
+                None => -1,
+            };
+            let (handler, entries) =
+                fepdf_model::security::SecurityHandler::encrypt_to_certificates(
+                    &options.recipients,
+                    permissions,
+                    true,
+                )?;
+            writer.encrypt_to(handler, entries);
+        }
+        Ok(())
     }
 
     /// Builds the handler for an encrypted save, recording what the options left open.
