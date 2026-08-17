@@ -73,6 +73,99 @@ pub struct PdfCatalog {
     #[pdf_key("AA")]
     /// `/AA`: additional actions triggered by document events.
     pub additional_actions: Option<Object>,
+    #[pdf_key("PageMode")]
+    /// `/PageMode`: what a viewer shows beside the page when the document opens.
+    pub page_mode: Option<PageMode>,
+    #[pdf_key("PageLayout")]
+    /// `/PageLayout`: how a viewer arranges the pages.
+    pub page_layout: Option<PageLayout>,
+    #[pdf_key("Lang")]
+    /// `/Lang`: the natural language of the document's text (14.9.2.1), as a BCP 47 tag.
+    ///
+    /// Written by `--lang` since clause 14.9 landed and read as untyped until now — the
+    /// engine could set it and not say what it was.
+    pub lang: Option<String>,
+}
+
+/// `/PageMode` (Table 29): what a viewer shows alongside the page.
+///
+/// `Other` keeps a name this list does not have rather than folding it to a default.
+/// The set has grown twice — `UseOC` in 1.5, `UseAttachments` in 1.6 — so a file may
+/// legitimately carry a value newer than this code, and mapping that to `UseNone` would
+/// be inventing an answer. Nothing is lost, and a caller can see it was unrecognised.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub enum PageMode {
+    /// Neither outlines nor thumbnails.
+    UseNone,
+    /// The outline pane.
+    UseOutlines,
+    /// The thumbnail pane.
+    UseThumbs,
+    /// Full-screen, with no viewer chrome.
+    FullScreen,
+    /// The optional content group pane (1.5).
+    UseOC,
+    /// The attachments pane (1.6).
+    UseAttachments,
+    /// A name the standard does not define here, kept verbatim.
+    Other(String),
+}
+
+/// `/PageLayout` (Table 29): how a viewer arranges the pages.
+///
+/// `Other` for the same reason as [`PageMode::Other`].
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub enum PageLayout {
+    /// One page at a time.
+    SinglePage,
+    /// One column, scrolling.
+    OneColumn,
+    /// Two columns, odd-numbered pages to the left.
+    TwoColumnLeft,
+    /// Two columns, odd-numbered pages to the right.
+    TwoColumnRight,
+    /// Two pages at a time, odd-numbered to the left (1.5).
+    TwoPageLeft,
+    /// Two pages at a time, odd-numbered to the right (1.5).
+    TwoPageRight,
+    /// A name the standard does not define here, kept verbatim.
+    Other(String),
+}
+
+impl crate::object::FromPdfObject for PageMode {
+    fn from_pdf_object(obj: Object, arena: &PdfArena) -> PdfResult<Self> {
+        Ok(match named(&obj, arena)?.as_str() {
+            "UseNone" => Self::UseNone,
+            "UseOutlines" => Self::UseOutlines,
+            "UseThumbs" => Self::UseThumbs,
+            "FullScreen" => Self::FullScreen,
+            "UseOC" => Self::UseOC,
+            "UseAttachments" => Self::UseAttachments,
+            other => Self::Other(other.to_string()),
+        })
+    }
+}
+
+impl crate::object::FromPdfObject for PageLayout {
+    fn from_pdf_object(obj: Object, arena: &PdfArena) -> PdfResult<Self> {
+        Ok(match named(&obj, arena)?.as_str() {
+            "SinglePage" => Self::SinglePage,
+            "OneColumn" => Self::OneColumn,
+            "TwoColumnLeft" => Self::TwoColumnLeft,
+            "TwoColumnRight" => Self::TwoColumnRight,
+            "TwoPageLeft" => Self::TwoPageLeft,
+            "TwoPageRight" => Self::TwoPageRight,
+            other => Self::Other(other.to_string()),
+        })
+    }
+}
+
+/// The name an object is, for the two catalogue entries whose values are names.
+fn named(obj: &Object, arena: &PdfArena) -> PdfResult<String> {
+    obj.resolve(arena)
+        .as_name()
+        .and_then(|h| arena.get_name_str(h))
+        .ok_or_else(|| crate::PdfError::Parse { pos: 0, message: "expected a name".into() })
 }
 
 /// Type alias for a dictionary handle to satisfy clippy complexity rules.
