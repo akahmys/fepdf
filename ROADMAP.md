@@ -7,9 +7,10 @@ always 2.0.
 That distinction sets the work. Round-trip fidelity already holds: the arena preserves
 objects it has no typed view of. Measured across all nine samples by comparing
 `inspect catalog` on the input with `inspect catalog` on the output — no catalogue key
-is ever lost, and the four the corpus carries without a typed view — `Dests`,
-`PageLabels`, `Threads` and `Type` — come back with the same shape, `volvo_xc90.pdf`'s
-`/Dests` still `dictionary[651]`. Only two differences appear, both by design: `/Metadata` is *added*
+is ever lost, and the three the corpus carries without a typed view — `PageLabels`,
+`Threads` and `Type` — come back with the same shape, `intel_sdm.pdf`'s `/PageLabels`
+still a one-entry dictionary. (`Dests` was a fourth until it was typed.) Only two
+differences appear, both by design: `/Metadata` is *added*
 where the source had none, because output always carries XMP, and object numbers are
 renumbered, because saving produces a new document
 ([ADR-0012](docs/adr/0012-saving-produces-a-new-document.md)). `bokutokitan.pdf`'s
@@ -31,9 +32,9 @@ rather than a rewording of it.
 | **7.3** Objects | Complete. Every type in the clause. |
 | **7.5** File structure | **Complete and in use.** Header scan, both cross-reference forms, `/Prev` chains, hybrid references, object streams, incremental updates, and recovery by scanning. `Document::open` reads the file itself; `lopdf` is gone. |
 | **7.6** Encryption | Every password handler the standard defines now decrypts: RC4 (V1/V2), AES-128 (V4/R4) and AES-256 (V5/R5, V5/R6) to Algorithms 1, 2, 2.A, 2.B and 4–6, with `/Perms` checked and both password roles authenticating. Verified against PDFKit on fourteen files; all of it was broken or absent ([ADR-0009](docs/adr/0009-permissions-are-thirty-two-bits-not-a-positive-integer.md)). Writing is AES-256 at revision 6 and nothing else, because output is always 2.0 and this edition deprecates the rest. Public-key handlers (7.6.5) are **read and written** — a `/Adobe.PubSec` document opens with the certificate it was addressed to, which neither Chrome nor Firefox will do, and `--encrypt-to` produces one. Unencrypted wrappers (7.6.7) are recognised and reported. **Clause 7.6 is otherwise complete.** |
-| **7.7** Document structure | **14 of Table 29's 32** catalogue entries typed, measured by `status.sh` from `PdfCatalog`. Untyped entries survive a round trip but cannot be reasoned about; `inspect catalog` names which ones, per file. |
+| **7.7** Document structure | **15 of Table 29's 32** catalogue entries typed, measured by `status.sh` from `PdfCatalog`. Untyped entries survive a round trip but cannot be reasoned about; `inspect catalog` names which ones, per file. **The 15 are not 15 domain types.** Counted: five are (`PageMode`, `PageLayout`, `Dests`, `ViewerPreferences`, `Lang`) and ten are `Option<Object>` or a bare handle — a field name over the arena, which is a real improvement on nothing and much less than the word "typed" suggests. `Support::Typed` means "`PdfCatalog` declares it", so `inspect catalog` currently reports both alike. |
 | **PDF 2.0 additions** | **Six** catalogue entries have a spec type but no read or write path — `PageLabels`, `Threads`, `OutputIntents`, `OCProperties`, `Collection`, `AF`. `DPartRoot` has no type at all, contrary to what this table said before it was checked. `inspect catalog` reports the six as `type only`. Of the six, only `PageLabels` (2 files) and `Threads` (1) occur in the corpus at all; `DSS`, `AF` and `DPartRoot` occur zero times, which is why Phase D types by measured occurrence and not by which clause added them. |
-| **8–14** Content, text, interactive, tagged | Interpreter, fonts and UA-2 auditing exist; interactive features (12) can be *read* (`inspect interactive`), and signature fields (12.7.5.5, 12.8) can now be written and checked. Every page of every sample now yields its text: `scn` with a pattern name (8.6.8.2) was read as a grey component, which cost `fy05.pdf` six pages and — because extraction stopped at the first failure — the 718 after them. A pattern is consumed but not painted. The corpus exercises one annotation subtype of ~28 — all 29,973 are `/Link` — and no form field at all, so the form walk is exercised by a fixture and by this engine's own signed output. |
+| **8–14** Content, text, interactive, tagged | Interpreter, fonts and UA-2 auditing exist; interactive features (12) can be *read* (`inspect interactive`), and signature fields (12.7.5.5, 12.8) can now be written and checked. Named destinations (12.3.2) **resolve**, through both of 12.3.2.3's forms and the name tree (7.9.6) one of them needs — which found a link in `intel_sdm.pdf` that goes nowhere, `(G3.7717)`, referenced three times and declared in none of that file's 279,501 destinations. Every page of every sample now yields its text: `scn` with a pattern name (8.6.8.2) was read as a grey component, which cost `fy05.pdf` six pages and — because extraction stopped at the first failure — the 718 after them. A pattern is consumed but not painted. The corpus exercises one annotation subtype of ~28 — all 29,973 are `/Link` — and no form field at all, so the form walk is exercised by a fixture and by this engine's own signed output. |
 | **14.3** Metadata | Settled at load into one state: `/Info` and the metadata stream are reconciled, disagreements recorded, and the entries 14.3.3 deprecates moved to where that clause puts them ([ADR-0013](docs/adr/0013-a-document-is-one-normalised-state.md)). Text strings decode to 7.9.2.2 — PDFDocEncoding from Annex D, or a byte order mark — after a Shift-JIS detector was found corrupting a conforming `/Title`. `--strip` removes every metadata stream, not the catalogue's alone. |
 
 One measurement worth carrying forward: 19 of 24 `Operation` variants are stubs that
@@ -379,8 +380,10 @@ to verify them against.
       says those three appear **zero** times, and typing them first would be a container
       built before its contents — the shape this codebase keeps paying for. Measured
       order: `ViewerPreferences` (6 files, done), `PageMode` (4, done), `Lang` (4, done),
-      `PageLayout` (2, done), `Dests` (1). `Type` is in all nine and is the constant
-      `/Catalog`, so it wants validating rather than typing
+      `PageLayout` (2, done), `Dests` (1, done). `Type` is in all nine and is the constant
+      `/Catalog`, so it wants validating rather than typing. **The order is spent**: every
+      Table 29 entry the corpus carries now has a field. What is left is either absent
+      from the corpus or, as `Type` is, a constant
 - [x] `PageMode`, `PageLayout` and `Lang` — 10 of 32 typed becomes 13. The two name
       entries are enums with an `Other(String)` arm: their value sets grew in 1.5 and
       1.6, so a file may carry a name newer than this code, and folding that to a default
@@ -397,6 +400,18 @@ to verify them against.
       not a subsystem, which is exactly what `DSS`, `AF` and `DPartRoot` are not.
       `PdfDocument::viewer_direction` no longer walks the raw dictionary for one key, and
       `Document::catalog()` now exists so the next entry has somewhere to be read from
+- [x] `Dests` — 14 of 32 becomes 15, and measuring first turned one catalogue entry into
+      a feature. `ROADMAP.md` had it as "one file", true of the *entry*: only
+      `volvo_xc90.pdf` carries a catalogue `/Dests`, 651 destinations. But 12.3.2.3 gives
+      named destinations a second form, the `/Dests` name tree under `/Names`, and
+      `intel_sdm.pdf` declares **279,501** there with 25,946 links resolving through it.
+      Typing the entry alone would have covered 651 of 280,152. So: `Destination` over
+      Table 151's eight forms, name-tree walking (7.9.6 — nothing in the workspace had
+      any), and resolution of both forms, which are separate lookups because the standard
+      keeps them in separate places and the corpus supplies one file of each
+- [x] Found by it, which is the point: `intel_sdm.pdf` references `(G3.7717)` three times
+      and declares it nowhere. One broken link in a 5,000-page manual, and nothing in this
+      engine could have said so before. `inspect interactive` now names it
 - [ ] Implement operations in order of how much of the standard they unlock:
       catalogue edits (`UpdateOutlines`, `SetOutputIntent`, `UpdateLayers`,
       `SetPageLabels`) before page elements (`AddAnnotation`, `SetFormFieldValue`)

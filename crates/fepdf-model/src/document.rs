@@ -79,6 +79,13 @@ pub struct PdfCatalog {
     #[pdf_key("PageLayout")]
     /// `/PageLayout`: how a viewer arranges the pages.
     pub page_layout: Option<PageLayout>,
+    #[pdf_key("Dests")]
+    /// `/Dests`: named destinations, keyed by name (12.3.2.3, PDF 1.1).
+    ///
+    /// The 1.2 form lives under `/Names` instead, and `NamedDestinations` reads both —
+    /// see [`crate::destination`] for why typing only this one would have covered 651
+    /// destinations out of 279,501.
+    pub dests: Option<crate::destination::DestsDictionary>,
     #[pdf_key("ViewerPreferences")]
     /// `/ViewerPreferences`: how the document asks to be presented (12.2).
     pub viewer_preferences: Option<ViewerPreferences>,

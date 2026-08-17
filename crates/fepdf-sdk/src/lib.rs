@@ -27,6 +27,7 @@ pub use fepdf_model::font::{GlyphTrace, TraceContext};
 pub use fepdf_model::catalog::{CatalogEntry, CatalogReport, Support};
 pub use fepdf_model::cms::RecipientIdentity;
 pub use fepdf_model::decrypt::Credentials;
+pub use fepdf_model::destination::{Destination, Lookup, NamedDestinations, Target, View};
 // The whole of `/ViewerPreferences`, not just the struct: its fields are public and
 // typed, so a frontend that cannot name `Duplex` cannot read `duplex` — and naming
 // `fepdf_model` to get it is what Rule A forbids.
@@ -41,7 +42,7 @@ pub use fepdf_model::font::FontResource;
 pub use fepdf_model::graphics::Rect;
 pub use fepdf_model::ingest::{ColorPolicy, IngestionOptions};
 pub use fepdf_model::interactive::{
-    AnnotationCensus, FormFields, InteractiveReport, Outline as OutlineSummary,
+    AnnotationCensus, DestinationCensus, FormFields, InteractiveReport, Outline as OutlineSummary,
 };
 pub use fepdf_model::interpretation::{Decision, DecisionLog, Severity, Strictness};
 pub use fepdf_model::security::{Access, AesV5Spec, SecurityHandler};

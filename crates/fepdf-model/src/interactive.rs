@@ -21,6 +21,7 @@
 
 use crate::arena::PdfArena;
 use crate::decrypt::Credentials;
+use crate::destination::{Lookup, NamedDestinations};
 use crate::document::DictHandle;
 use crate::error::{PdfError, PdfResult};
 use crate::object::Object;
@@ -39,6 +40,57 @@ pub struct AnnotationCensus {
     pub pages_with: usize,
     /// Annotations with no `/Subtype`, which 12.5.2 requires.
     pub without_subtype: usize,
+}
+
+/// Destinations (12.3.2): what the document declares, and what points at them.
+///
+/// Declared and referenced are counted separately because they are separate facts and
+/// the corpus separates them cleanly. `volvo_xc90.pdf` declares 651 and references 698,
+/// so a name is reused; `intel_sdm.pdf` declares 279,501 and references 25,946, so most
+/// of what it declares nothing points at. Reporting one number for "destinations" would
+/// have said neither.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct DestinationCensus {
+    /// Declared in the catalogue's `/Dests` dictionary, keyed by name (PDF 1.1).
+    pub declared_by_name: usize,
+    /// Declared in the `/Dests` name tree under `/Names`, keyed by string (PDF 1.2).
+    pub declared_by_string: usize,
+    /// Declared, but not readable as a destination — a form Table 151 does not define,
+    /// or a first element that is not a page. Counted rather than dropped, so a total
+    /// cannot quietly mean "the ones that parsed".
+    pub unreadable: usize,
+    /// References written in place as an array, needing no lookup.
+    pub inline: usize,
+    /// References a declared destination answered.
+    pub resolved: usize,
+    /// Distinct names that nothing declares — links that go nowhere. Held by name
+    /// rather than counted, because the name is what makes it actionable, and
+    /// deduplicated because one missing destination referenced twice is one defect.
+    pub dangling: Vec<String>,
+    /// How many references those names account for, which is **not** `dangling.len()`.
+    ///
+    /// Both are needed, and the first version of this report had only the first: adding
+    /// it to `inline` and `resolved` gave `intel_sdm.pdf` 25,951 references where an
+    /// independent count said 25,946. The difference was `(G3.7717)` being referenced
+    /// three times — one broken destination, three broken links, and a total that had
+    /// silently mixed a count of names into a count of uses.
+    pub dangling_references: usize,
+}
+
+impl DestinationCensus {
+    /// Destinations the document declares, across both of 12.3.2.3's forms.
+    #[must_use]
+    pub fn declared(&self) -> usize {
+        self.declared_by_name + self.declared_by_string
+    }
+
+    /// References to a destination, however written. Provided rather than left to the
+    /// caller because getting it wrong is not hypothetical — see
+    /// [`DestinationCensus::dangling_references`].
+    #[must_use]
+    pub fn referenced(&self) -> usize {
+        self.inline + self.resolved + self.dangling_references
+    }
 }
 
 /// The interactive form (12.7), if the catalogue declares one.
@@ -95,6 +147,8 @@ pub struct InteractiveReport {
     pub outline: Outline,
     /// Actions by `/S`, from `/OpenAction`, annotation `/A` and `/AA` entries.
     pub actions: Vec<(String, usize)>,
+    /// Destinations, declared and referenced.
+    pub destinations: DestinationCensus,
     /// What the engine decided while reading this file (§5.3).
     pub decisions: Vec<crate::interpretation::Decision>,
 }
@@ -120,44 +174,93 @@ impl InteractiveReport {
             .ok_or_else(|| PdfError::Arena("the file names no catalogue".into()))?;
 
         let pages = collect_pages(arena, &catalog);
-        let mut actions: BTreeMap<String, usize> = BTreeMap::new();
-        record_actions(arena, &catalog, &mut actions);
+        let named = NamedDestinations::collect(arena, &catalog);
+        let mut tally = Tally::new(&named);
+        record_actions(arena, &catalog, &mut tally);
 
-        let annotations = census_annotations(arena, &pages, &mut actions);
+        let annotations = census_annotations(arena, &pages, &mut tally);
         let form = read_form(arena, &catalog);
-        let outline = read_outline(arena, &catalog);
+        let outline = read_outline(arena, &catalog, &mut tally);
 
-        let mut actions: Vec<(String, usize)> = actions.into_iter().collect();
-        actions.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(&b.0)));
-
+        let (actions, destinations) = tally.finish(&named);
         Ok(Self {
             pages: pages.len(),
             annotations,
             form,
             outline,
             actions,
+            destinations,
             decisions: decisions.entries().to_vec(),
         })
     }
 
     /// Whether the document offers nothing to interact with.
+    ///
+    /// Destinations count. `bokutokitan.pdf` carries `/OpenAction [3 0 R /Fit]` — a
+    /// destination array rather than an action dictionary — and has no annotation, field
+    /// or outline, so without this the report found the destination and then printed
+    /// "nothing interactive" over it.
     #[must_use]
     pub fn is_empty(&self) -> bool {
         self.annotations.total == 0
             && self.form.fields == 0
             && self.outline.total == 0
             && self.actions.is_empty()
+            && self.destinations.declared() == 0
+            && self.destinations.referenced() == 0
     }
 }
 
 type Dict = BTreeMap<crate::handle::Handle<crate::object::PdfName>, Object>;
 
+/// What the three walks accumulate as they go.
+///
+/// One struct rather than two `&mut` parameters threaded through four functions: the
+/// walks visit the same dictionaries — an annotation carries both an `/A` and a `/Dest`
+/// — so counting actions and destinations in one pass is what avoids walking
+/// `intel_sdm.pdf`'s 5,000 pages and 25,946 annotations twice.
+struct Tally<'a> {
+    actions: BTreeMap<String, usize>,
+    destinations: DestinationCensus,
+    named: &'a NamedDestinations,
+    /// Dangling names, deduplicated and in the order first seen.
+    dangling: BTreeMap<String, usize>,
+}
+
+impl<'a> Tally<'a> {
+    fn new(named: &'a NamedDestinations) -> Self {
+        Self {
+            actions: BTreeMap::new(),
+            destinations: DestinationCensus::default(),
+            named,
+            dangling: BTreeMap::new(),
+        }
+    }
+
+    /// Resolves one `/Dest` or `/GoTo` `/D` and records what it turned out to name.
+    fn destination(&mut self, arena: &PdfArena, object: &Object) {
+        match self.named.resolve(object, arena) {
+            Lookup::Inline(_) => self.destinations.inline += 1,
+            Lookup::Named(_) => self.destinations.resolved += 1,
+            Lookup::Dangling(name) => *self.dangling.entry(name).or_default() += 1,
+            Lookup::Unreadable => self.destinations.unreadable += 1,
+        }
+    }
+
+    fn finish(mut self, named: &NamedDestinations) -> (Vec<(String, usize)>, DestinationCensus) {
+        self.destinations.declared_by_name = named.by_name.len();
+        self.destinations.declared_by_string = named.by_string.len();
+        self.destinations.unreadable += named.unreadable;
+        self.destinations.dangling_references = self.dangling.values().sum();
+        self.destinations.dangling = self.dangling.into_keys().collect();
+        let mut actions: Vec<(String, usize)> = self.actions.into_iter().collect();
+        actions.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(&b.0)));
+        (actions, self.destinations)
+    }
+}
+
 /// Counts annotations by subtype, folding their actions into `actions`.
-fn census_annotations(
-    arena: &PdfArena,
-    pages: &[Dict],
-    actions: &mut BTreeMap<String, usize>,
-) -> AnnotationCensus {
+fn census_annotations(arena: &PdfArena, pages: &[Dict], tally: &mut Tally) -> AnnotationCensus {
     let mut c = AnnotationCensus::default();
     let mut by_subtype: BTreeMap<String, usize> = BTreeMap::new();
     for page in pages {
@@ -172,7 +275,7 @@ fn census_annotations(
                 Some(sub) => *by_subtype.entry(sub).or_default() += 1,
                 None => c.without_subtype += 1,
             }
-            record_actions(arena, &d, actions);
+            record_actions(arena, &d, tally);
         }
     }
     c.by_subtype = by_subtype.into_iter().collect();
@@ -226,7 +329,7 @@ fn read_form(arena: &PdfArena, catalog: &Dict) -> FormFields {
 }
 
 /// Reads `/Outlines`, comparing what `/Count` claims with what the links reach.
-fn read_outline(arena: &PdfArena, catalog: &Dict) -> Outline {
+fn read_outline(arena: &PdfArena, catalog: &Dict, tally: &mut Tally) -> Outline {
     let mut out = Outline::default();
     let Some(root) = catalog.get(&arena.name("Outlines")).and_then(|o| dict_of(arena, o)) else {
         return out;
@@ -251,6 +354,7 @@ fn read_outline(arena: &PdfArena, catalog: &Dict) -> Outline {
         if shown {
             out.visible += 1;
         }
+        record_actions(arena, &d, tally);
         let open = !matches!(d.get(&arena.name("Count")), Some(Object::Integer(n)) if *n < 0);
         if let Some(first) = d.get(&arena.name("First")) {
             queue.push((first.clone(), depth + 1, shown && open));
@@ -262,17 +366,44 @@ fn read_outline(arena: &PdfArena, catalog: &Dict) -> Outline {
     out
 }
 
-/// Folds `/A`, `/OpenAction` and every `/AA` entry of `dict` into `out`, by `/S`.
-fn record_actions(arena: &PdfArena, dict: &Dict, out: &mut BTreeMap<String, usize>) {
+/// Folds `/A`, `/OpenAction` and every `/AA` entry of `dict` into the tally by `/S`,
+/// and every destination they or `dict` itself name.
+///
+/// `/Dest` belongs to whatever carries it — an annotation or an outline item — while a
+/// `/GoTo` action names its destination in `/D`. Both are the same lookup and are
+/// counted the same way.
+///
+/// Only `/GoTo` is followed into `/D`. `/GoToR` and `/GoToE` also carry one, but it
+/// names a destination in *another* file, so resolving it here would report every
+/// remote link as dangling. Neither occurs in the corpus, which is why this is the
+/// standard's word rather than a measurement.
+fn record_actions(arena: &PdfArena, dict: &Dict, tally: &mut Tally) {
+    if let Some(dest) = dict.get(&arena.name("Dest")) {
+        tally.destination(arena, dest);
+    }
     for key in ["A", "OpenAction"] {
-        if let Some(action) = dict.get(&arena.name(key)).and_then(|a| dict_of(arena, a)) {
-            *out.entry(action_kind(arena, &action)).or_default() += 1;
+        let Some(entry) = dict.get(&arena.name(key)) else { continue };
+        match dict_of(arena, entry) {
+            Some(action) => {
+                let kind = action_kind(arena, &action);
+                if kind == "GoTo"
+                    && let Some(d) = action.get(&arena.name("D"))
+                {
+                    tally.destination(arena, d);
+                }
+                *tally.actions.entry(kind).or_default() += 1;
+            }
+            // `/OpenAction` may be a destination array rather than an action dictionary
+            // (12.3.2), which `bokutokitan.pdf` uses: `[3 0 R /Fit]`. Before this it was
+            // neither counted as an action nor seen as a destination.
+            None => tally.destination(arena, entry),
         }
     }
     if let Some(aa) = dict.get(&arena.name("AA")).and_then(|a| dict_of(arena, a)) {
         for value in aa.values() {
             if let Some(inner) = dict_of(arena, value) {
-                *out.entry(format!("AA/{}", action_kind(arena, &inner))).or_default() += 1;
+                *tally.actions.entry(format!("AA/{}", action_kind(arena, &inner))).or_default() +=
+                    1;
             }
         }
     }

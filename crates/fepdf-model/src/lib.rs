@@ -18,6 +18,8 @@ pub mod color;
 pub mod content;
 /// Unlocking an encrypted document (ISO 7.6).
 pub mod decrypt;
+/// Destinations (12.3.2) and the name tree that holds them (7.9.6).
+pub mod destination;
 /// The document model: catalogue, page tree, pages.
 pub mod document;
 /// What protects a document, and how far the engine conforms in handling it (7.6).
