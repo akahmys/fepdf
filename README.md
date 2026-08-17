@@ -94,7 +94,7 @@ The reasoning is in [ADR-0012](docs/adr/0012-saving-produces-a-new-document.md).
 | **Decide whether to trust a certificate** | `verify-signature` says whether the signature covers the bytes and is bound to the certificate it carries. It has no trust store, checks no validity window, and reads no revocation list — and says so in its output. |
 | **Preserve a file byte for byte** | There is no faithful-copy path. See above. |
 | **Edit interactive features** | Annotations, form fields and outlines can be read and reported. The only one it writes is a signature field, and only as part of signing. |
-| **Encrypt to a certificate** | 7.6.5 documents can be *read* with `--recipient-certificate` and `--recipient-key`, which is more than Chrome or Firefox will do — neither implements the clause. Writing one is not implemented. |
+| **Read a certificate-encrypted file in a browser** | fepdf reads *and writes* 7.6.5 — `--encrypt-to` to seal, `--recipient-certificate` with `--recipient-key` to open. Chrome and Firefox implement neither, so what this produces they cannot read. |
 | **Run usefully in a browser** | `fepdf-wasm` opens a document and counts pages. Its `render_page` does nothing. |
 | **Produce a file you can read in a text editor** | Objects are packed into 7.5.7 object streams by default, which shrinks every sample — `intel_sdm.pdf` goes from +131% to +1% — and puts almost all of them inside a compressed container. `--no-obj-stm` writes the loose form ([ADR-0016](docs/adr/0016-objects-are-packed-by-default.md)). |
 

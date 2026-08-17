@@ -101,7 +101,7 @@ cargo check --workspace
 Before submitting a Pull Request or completing a task:
 
 - [ ] `./scripts/audit/verify_compliance.sh` completes with `=== AUDIT PASSED ===`.
-- [ ] `cargo test --workspace` passes with 0 failures (261 tests across 34 suites, 2026-08-17).
+- [ ] `cargo test --workspace` passes with 0 failures (269 tests across 35 suites, 2026-08-17).
 - [ ] `cargo clippy --workspace --all-targets -- -D warnings` is clean. `--all-targets` matters: without it tests, examples and benches are never linted.
 - [ ] `cargo fmt --all --check` reports no diff. Enforced as Rule 19 by the audit, so `make audit` covers it.
 - [ ] All integration tests are placed in `crates/*/tests/` following the Test Separation Policy. Binary crates (`fepdf`) are the exception: an integration test cannot reach into a binary, so their unit tests live in inline `#[cfg(test)] mod tests` blocks, which the rule permits.
