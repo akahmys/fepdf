@@ -180,7 +180,13 @@ impl RenderBackend for CollectorBackend {
                 || name_lower.contains("black");
         }
         for glyph in glyphs {
-            let adv_scaled = (f64::from(glyph.width) * size) / 1000.0;
+            let raw_width = if glyph.width.abs() < f32::EPSILON {
+                let is_cjk = glyph.unicode.chars().any(|c| (c as u32) >= 0x2E80);
+                if is_cjk { 1000.0 } else { 500.0 }
+            } else {
+                glyph.width
+            };
+            let adv_scaled = (f64::from(raw_width) * size) / 1000.0;
             width += adv_scaled;
             text.push_str(&glyph.unicode);
         }

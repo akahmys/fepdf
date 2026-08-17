@@ -441,6 +441,22 @@ the operation vocabulary while 79% of it is hollow — the shape of the mistake 
 - [x] `fepdf` as its own crate — renamed from `fepdf-sdk`, completing the target topology
       ([ADR-0005](docs/adr/0005-layering-rules-are-enforced-by-cargo.md)).
 
+## Phase F — Deep Architectural & Structural Robustness Hardening
+
+Addressing structural edge cases, resource exhaustion guards, and semantic cross-system invariants:
+
+- [x] **Tagged PDF Structure Tree Integrity on Page Deletion** (`fepdf-doc`):
+      Automatically decouple / prune dangling `/Pg` page handle references from `/StructTreeRoot`
+      when pages are deleted, and verify `/Pg` validity in Matterhorn PDF/UA-2 audit.
+- [x] **Content Stream Stack Depth Limits & DoS Defense** (`fepdf-content`):
+      Enforce `MAX_GSTATE_STACK_DEPTH = 64` on `q`/`Q` and `MAX_MARKED_STACK_DEPTH = 64` on
+      `BMC`/`BDC`/`EMC` to prevent recursion and heap exhaustion attacks.
+- [x] **Upfront Precondition Validation for Mutation Operations** (`fepdf-doc`):
+      Validate page indices, ranges, and target handles upfront before mutating arena state,
+      guaranteeing operation atomicity.
+- [x] **Fallback Font Metric Bounds Heuristics** (`fepdf`):
+      Provide safe non-zero advance width heuristics for text spans when font `/Widths` are missing.
+
 ## Not planned
 
 - **A DOCX converter.** The `DocumentSource` boundary exists so one has a place to go

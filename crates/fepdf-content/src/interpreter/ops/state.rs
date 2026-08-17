@@ -1,13 +1,17 @@
 use crate::interpreter::Interpreter;
 use fepdf_model::{FromPdfObject, LineCap, LineJoin, Matrix, Object, PdfName, PdfResult};
 
+const MAX_GSTATE_STACK_DEPTH: usize = 64;
+
 impl Interpreter<'_> {
     #[allow(clippy::many_single_char_names)]
     pub(crate) fn handle_state_operator(&mut self, op: &str) -> PdfResult<()> {
         match op {
             "q" => {
-                self.state_stack.push(self.state.clone());
-                self.backend.push_state();
+                if self.state_stack.len() < MAX_GSTATE_STACK_DEPTH {
+                    self.state_stack.push(self.state.clone());
+                    self.backend.push_state();
+                }
             }
             "Q" => {
                 let current_clips = self.state.clip_count;

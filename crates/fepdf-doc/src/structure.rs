@@ -103,53 +103,77 @@ impl<'a> MatterhornAuditor<'a> {
     pub fn audit(&self, root: Handle<Object>) -> PdfResult<Vec<AuditFinding>> {
         let mut findings = Vec::new();
         let mut visitor = StructureVisitor::new(self.arena, root);
-
         let mut last_heading_level = 0;
 
         while let Some(element_handle) = visitor.next_element() {
-            let element =
-                StructElement::from_pdf_object(Object::Reference(element_handle), self.arena)?;
-
-            // Skip structure elements that lack /S (Subtype) — non-fatal, real-world PDFs may omit it.
-            let Some(subtype_handle) = element.subtype else {
-                continue;
-            };
-
-            let tag_name = self
-                .arena
-                .get_name(subtype_handle)
-                .ok_or_else(|| PdfError::Other("Tag name not found".into()))?;
-            let tag_str = tag_name.as_str();
-
-            // 1. Heading Hierarchy Check (Matterhorn Checkpoint 14)
-            if tag_str.starts_with('H')
-                && tag_str.len() == 2
-                && let Ok(level) = tag_str[1..].parse::<i32>()
-            {
-                if level > last_heading_level + 1 {
-                    findings.push(AuditFinding {
-                        checkpoint: "14-001".into(),
-                        severity: "Error".into(),
-                        message: format!(
-                            "Heading level skipped: {tag_str} follows {last_heading_level}"
-                        ),
-                        handle_id: Some(element_handle.index()),
-                    });
-                }
-                last_heading_level = level;
-            }
-
-            // 2. Alt-text Check (Matterhorn Checkpoint 13)
-            if tag_str == "Figure" && element.alt.is_none() {
-                findings.push(AuditFinding {
-                    checkpoint: "13-001".into(),
-                    severity: "Error".into(),
-                    message: "Figure element missing /Alt text".into(),
-                    handle_id: Some(element_handle.index()),
-                });
-            }
+            self.audit_element(element_handle, &mut last_heading_level, &mut findings)?;
         }
 
         Ok(findings)
+    }
+
+    fn audit_element(
+        &self,
+        element_handle: Handle<Object>,
+        last_heading: &mut i32,
+        findings: &mut Vec<AuditFinding>,
+    ) -> PdfResult<()> {
+        let element =
+            StructElement::from_pdf_object(Object::Reference(element_handle), self.arena)?;
+        let Some(subtype_handle) = element.subtype else {
+            return Ok(());
+        };
+        let tag_name = self
+            .arena
+            .get_name(subtype_handle)
+            .ok_or_else(|| PdfError::Other("Tag name not found".into()))?;
+        let tag_str = tag_name.as_str();
+
+        if tag_str.starts_with('H')
+            && tag_str.len() == 2
+            && let Ok(lvl) = tag_str[1..].parse::<i32>()
+        {
+            if lvl > *last_heading + 1 {
+                findings.push(AuditFinding {
+                    checkpoint: "14-001".into(),
+                    severity: "Error".into(),
+                    message: format!("Heading level skipped: {tag_str} follows {last_heading}"),
+                    handle_id: Some(element_handle.index()),
+                });
+            }
+            *last_heading = lvl;
+        }
+
+        if tag_str == "Figure" && element.alt.is_none() {
+            findings.push(AuditFinding {
+                checkpoint: "13-001".into(),
+                severity: "Error".into(),
+                message: "Figure element missing /Alt text".into(),
+                handle_id: Some(element_handle.index()),
+            });
+        }
+
+        if let Some(finding) = check_dangling_page(self.arena, element_handle) {
+            findings.push(finding);
+        }
+        Ok(())
+    }
+}
+
+fn check_dangling_page(arena: &PdfArena, elem_h: Handle<Object>) -> Option<AuditFinding> {
+    let dh = arena.get_object(elem_h)?.as_dict_handle()?;
+    let dict = arena.get_dict(dh)?;
+    let Object::Reference(pg_h) = dict.get(&arena.name("Pg"))? else {
+        return None;
+    };
+    if arena.get_object(*pg_h).is_none() {
+        Some(AuditFinding {
+            checkpoint: "01-002".into(),
+            severity: "Error".into(),
+            message: "Structure element references non-existent page".into(),
+            handle_id: Some(elem_h.index()),
+        })
+    } else {
+        None
     }
 }
