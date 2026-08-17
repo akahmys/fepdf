@@ -86,8 +86,11 @@ for src in samples/*.pdf; do
     # And fepdf's own verifier must agree with openssl about the same file. The two
     # disagreeing either way is the interesting result: it means one of them is wrong
     # about a signature the other accepts.
-    if ! target/release/fepdf publish verify-signature "$out" 2>&1 \
-            | grep -q ": verifies"; then
+    # Captured, not piped: `pipefail` reports the *command's* status, and these
+    # commands exit non-zero by design when they refuse, so a pipeline hides whether
+    # grep matched. That trap made `crosscheck_pubsec.sh` blame its own fixtures.
+    verdict=$(target/release/fepdf publish verify-signature "$out" 2>&1 || true)
+    if ! printf '%s' "$verdict" | grep -q ": verifies"; then
         echo "  $name: OPENSSL ACCEPTS WHAT FEPDF REFUSES"
         target/release/fepdf publish verify-signature "$out" 2>&1 | sed -n '3,6p' | sed 's/^/    /'
         FAILED=1; continue
@@ -104,7 +107,8 @@ if [ "$FAILED" -eq 0 ]; then
 import sys
 b = bytearray(open('$WORK/sample.pdf','rb').read()); b[200] ^= 1
 open('$WORK/tampered.pdf','wb').write(b)"
-    if target/release/fepdf publish verify-signature "$WORK/tampered.pdf" 2>&1 | grep -q "REFUSED"; then
+    verdict=$(target/release/fepdf publish verify-signature "$WORK/tampered.pdf" 2>&1 || true)
+    if printf '%s' "$verdict" | grep -q "REFUSED"; then
         echo "  (one byte changed: refused, so the check can fail)"
     else
         echo "  A CHANGED BYTE WAS ACCEPTED"; FAILED=1

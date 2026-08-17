@@ -1884,9 +1884,28 @@ fn handle_text(input: PathBuf, pages: Option<String>, ingest: IngestArgs) -> Res
         }
     }
 
+    // One page that will not extract does not make the other 845 unreadable. This
+    // returned on the first failure, so `samples/fy05.pdf` — whose page 128 fails with
+    // "Expected number" — yielded 127 pages of its 846 and exited non-zero, having
+    // printed no hint that the rest existed. The failure goes to stderr with the others,
+    // and the exit status reports that something was lost.
+    let mut failed = Vec::new();
     for idx in target_indices {
-        let text = doc.extract_text(idx).map_err(|e| anyhow::anyhow!("{e:?}"))?;
-        println!("\n--- [ PAGE {} ] ---\n{}", idx + 1, text);
+        match doc.extract_text(idx) {
+            Ok(text) => println!("\n--- [ PAGE {} ] ---\n{}", idx + 1, text),
+            Err(e) => {
+                eprintln!("  page {}: no text extracted — {e:?}", idx + 1);
+                failed.push(idx + 1);
+            }
+        }
+    }
+    if !failed.is_empty() {
+        eprintln!(
+            "  {} of {page_count} pages yielded no text: {}",
+            failed.len(),
+            failed.iter().map(ToString::to_string).collect::<Vec<_>>().join(", ")
+        );
+        anyhow::bail!("{} pages could not be extracted", failed.len());
     }
     Ok(())
 }

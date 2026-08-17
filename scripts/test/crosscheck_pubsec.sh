@@ -11,13 +11,13 @@
 # with the engine reading it. The test is that the text out of the encrypted file equals
 # the text out of the plaintext one it was made from — the whole file, not a page count.
 #
-# **Known limitation**: the builder rewrites PDF syntax with regular expressions and is
-# intermittently wrong on `samples/fy05.pdf`, producing a file that will not parse. The
-# input changes between runs — a fresh XMP instance identifier moves every offset — so
-# the failure comes and goes. It is checked for separately below and reported as the
-# builder's fault, because it is: the same engine reads a correctly built fixture of the
-# same document. Fixing it properly means a real parser rather than a regular expression,
-# which is a bigger tool than this needs to be.
+# The comparison is on the text, not on the exit status. `inspect text` exits non-zero
+# when any page fails to extract, and `samples/fy05.pdf` has six that do — a defect of
+# its own, unrelated to encryption and present on the plaintext file. With `pipefail`
+# that non-zero status made this script report fy05 as unreadable, which was read as the
+# fixture builder being at fault and written down as such in three places. It was not:
+# the fixture is correct, and the two texts match exactly. Comparing content says what
+# this check is actually for.
 set -uo pipefail
 cd "$(dirname "$0")/../.." || exit 1
 
@@ -50,23 +50,21 @@ for src in samples/*.pdf; do
         echo "  $name: FIXTURE FAILED"; tail -3 "$WORK/$name.log" | sed 's/^/    /'; FAILED=1; continue
     fi
 
-    # Blame the right side. `make_pubsec.py` rewrites the file with regular expressions
-    # and is intermittently wrong on `fy05.pdf` — the source changes between runs, so
-    # the failure moves. If the *structure* of the fixture will not parse, the builder
-    # produced a broken file and the engine never got as far as the key.
+    # A fixture that will not parse is the builder's bug, and the engine never got as
+    # far as the key. Worth telling apart from a decryption failure.
     if ! target/release/fepdf inspect structure "$WORK/$name/pubsec.pdf" >/dev/null 2>&1; then
         echo "  $name: the fixture builder produced a file that will not parse — its bug, not the engine's"
         FAILED=1; continue
     fi
 
+    # Exit status deliberately ignored: it reports pages that would not extract from the
+    # plaintext either, which is a different defect and not this check's business.
     target/release/fepdf inspect text "$WORK/$name.plain.pdf" 2>/dev/null | tail -n +2 \
-        > "$WORK/$name.want"
-    if ! target/release/fepdf inspect text "$WORK/$name/pubsec.pdf" \
-            --recipient-certificate "$WORK/$name/cert.der" \
-            --recipient-key "$WORK/$name/key.der" 2>/dev/null | tail -n +2 \
-            > "$WORK/$name.got"; then
-        echo "  $name: FEPDF COULD NOT OPEN IT"; FAILED=1; continue
-    fi
+        > "$WORK/$name.want" || true
+    target/release/fepdf inspect text "$WORK/$name/pubsec.pdf" \
+        --recipient-certificate "$WORK/$name/cert.der" \
+        --recipient-key "$WORK/$name/key.der" 2>/dev/null | tail -n +2 \
+        > "$WORK/$name.got" || true
 
     if ! diff -q "$WORK/$name.want" "$WORK/$name.got" >/dev/null; then
         echo "  $name: THE DECRYPTED TEXT DIFFERS FROM THE PLAINTEXT"
@@ -86,10 +84,11 @@ done
 if [ -f "$WORK/sample/cert.der" ]; then
     target/release/fepdf publish upgrade samples/sample.pdf "$WORK/written.pdf" \
         --encrypt-to "$WORK/sample/cert.der" >/dev/null 2>&1
-    target/release/fepdf inspect text samples/sample.pdf 2>/dev/null | tail -n +2 > "$WORK/w.want"
+    target/release/fepdf inspect text samples/sample.pdf 2>/dev/null | tail -n +2 \
+        > "$WORK/w.want" || true
     target/release/fepdf inspect text "$WORK/written.pdf" \
         --recipient-certificate "$WORK/sample/cert.der" \
-        --recipient-key "$WORK/sample/key.der" 2>/dev/null | tail -n +2 > "$WORK/w.got"
+        --recipient-key "$WORK/sample/key.der" 2>/dev/null | tail -n +2 > "$WORK/w.got" || true
     if diff -q "$WORK/w.want" "$WORK/w.got" >/dev/null; then
         echo "  (--encrypt-to: what this engine sealed, it reads back unchanged)"
     else
@@ -99,8 +98,12 @@ if [ -f "$WORK/sample/cert.der" ]; then
     # And the certificate is genuinely required. The output is packed by default, so
     # its structure is inside the encrypted containers and it does not open at all —
     # the message says that rather than reporting the missing catalogue it causes.
-    if target/release/fepdf inspect text "$WORK/written.pdf" 2>&1 \
-            | grep -q "was not unlocked"; then
+    # Captured first, not piped: `pipefail` makes `cmd | grep` report *cmd's* status,
+    # and a refusal exits non-zero by design — so the pipeline failed even when grep
+    # found what it was looking for. That is the same trap that made this script blame
+    # its own fixture builder for fy05.
+    said=$(target/release/fepdf inspect text "$WORK/written.pdf" 2>&1 || true)
+    if printf '%s' "$said" | grep -q "was not unlocked"; then
         echo "  (--encrypt-to output refuses to open without one, and says why)"
     else
         echo "  THE WRITTEN DOCUMENT OPENED WITHOUT A CERTIFICATE"; FAILED=1
@@ -110,8 +113,8 @@ fi
 # The check has to be able to fail. A document that opens without the key it was
 # addressed to is not encrypted, and one that opens with the wrong key is worse.
 if [ "$FAILED" -eq 0 ]; then
-    if target/release/fepdf inspect text "$WORK/sample/pubsec.pdf" 2>&1 \
-            | grep -q "7.6.5 : the document is encrypted to a certificate"; then
+    said=$(target/release/fepdf inspect text "$WORK/sample/pubsec.pdf" 2>&1 || true)
+    if printf '%s' "$said" | grep -q "7.6.5 : the document is encrypted to a certificate"; then
         echo "  (with no certificate: refused, and says which kind it wanted)"
     else
         echo "  IT OPENED WITHOUT A CERTIFICATE"; FAILED=1
@@ -122,9 +125,10 @@ if [ "$FAILED" -eq 0 ]; then
         -addext "keyUsage=critical,keyEncipherment" 2>/dev/null
     openssl x509 -in "$WORK/other.crt" -outform der -out "$WORK/other.cert.der"
     openssl pkcs8 -topk8 -nocrypt -in "$WORK/other.pem" -outform der -out "$WORK/other.key.der"
-    if target/release/fepdf inspect text "$WORK/sample/pubsec.pdf" \
-            --recipient-certificate "$WORK/other.cert.der" \
-            --recipient-key "$WORK/other.key.der" 2>&1 | grep -q "7.6.1 :.*could not be unlocked"; then
+    said=$(target/release/fepdf inspect text "$WORK/sample/pubsec.pdf" \
+        --recipient-certificate "$WORK/other.cert.der" \
+        --recipient-key "$WORK/other.key.der" 2>&1 || true)
+    if printf '%s' "$said" | grep -q "7.6.1 :.*could not be unlocked"; then
         echo "  (a certificate it was not addressed to: refused)"
     else
         echo "  A STRANGER'S CERTIFICATE OPENED THE DOCUMENT"; FAILED=1
