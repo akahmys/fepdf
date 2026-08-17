@@ -42,6 +42,10 @@ impl ThumbnailSidebar {
                     },
                 );
 
+                if ui.input(|ins| ins.pointer.any_released()) {
+                    egui::DragAndDrop::clear_payload(ui.ctx());
+                }
+
                 let target_index = hovered_item_target.unwrap_or(app.total_pages);
                 Self::handle_external_drop(app, ui, panel_rect, target_index);
                 Self::render_external_hover(app, ui, panel_rect);
@@ -90,6 +94,10 @@ impl ThumbnailSidebar {
                             ui.add_space(16.0);
                         });
                     });
+
+                if ui.input(|ins| ins.pointer.any_released()) {
+                    egui::DragAndDrop::clear_payload(ui.ctx());
+                }
 
                 let target_index = hovered_item_target.unwrap_or(app.total_pages);
                 Self::handle_external_drop(app, ui, panel_rect, target_index);
@@ -205,9 +213,22 @@ impl ThumbnailSidebar {
             if hovered_ext && response.hovered() {
                 let indicator_y =
                     if hovered_target == Some(i + 1) { rect.max.y } else { rect.min.y };
+                let indicator_color = egui::Color32::from_rgb(0, 120, 215);
+                let line_min_x = rect.min.x + 2.0;
+                let line_max_x = rect.max.x - 2.0;
                 ui.painter().line_segment(
-                    [egui::pos2(rect.min.x, indicator_y), egui::pos2(rect.max.x, indicator_y)],
-                    egui::Stroke::new(3.0_f32, egui::Color32::from_rgb(0, 120, 215)),
+                    [egui::pos2(line_min_x, indicator_y), egui::pos2(line_max_x, indicator_y)],
+                    egui::Stroke::new(3.0_f32, indicator_color),
+                );
+                ui.painter().circle_filled(
+                    egui::pos2(line_min_x, indicator_y),
+                    4.0,
+                    indicator_color,
+                );
+                ui.painter().circle_filled(
+                    egui::pos2(line_max_x, indicator_y),
+                    4.0,
+                    indicator_color,
                 );
             }
 
@@ -216,22 +237,8 @@ impl ThumbnailSidebar {
             }
 
             let dragged_from = egui::DragAndDrop::payload::<usize>(ui.ctx()).map(|p| *p);
-            let mut reorder_target = None;
-
-            if let Some(from_idx) = dragged_from
-                && from_idx != i
-                && response.hovered()
-            {
-                let indicator_y = if from_idx < i { rect.max.y } else { rect.min.y };
-                ui.painter().line_segment(
-                    [egui::pos2(rect.min.x, indicator_y), egui::pos2(rect.max.x, indicator_y)],
-                    egui::Stroke::new(3.0_f32, egui::Color32::from_rgb(0, 120, 215)),
-                );
-
-                if ui.input(|ins| ins.pointer.any_released()) {
-                    reorder_target = Some((from_idx, i));
-                }
-            }
+            let is_drag_source = dragged_from == Some(i);
+            let reorder_target = Self::handle_page_reorder_drag(ui, rect, i, dragged_from);
 
             if response.clicked() {
                 let shift = ui.input(|ins| ins.modifiers.shift);
@@ -318,9 +325,54 @@ impl ThumbnailSidebar {
                 size,
                 is_selected,
                 is_visible,
+                is_drag_source,
             );
         });
         hovered_target
+    }
+
+    fn handle_page_reorder_drag(
+        ui: &mut egui::Ui,
+        rect: egui::Rect,
+        i: usize,
+        dragged_from: Option<usize>,
+    ) -> Option<(usize, usize)> {
+        let from_idx = dragged_from?;
+        let pointer_pos = ui.input(|ins| ins.pointer.interact_pos().or(ins.pointer.latest_pos()));
+        let pos = pointer_pos?;
+
+        if !rect.contains(pos) {
+            return None;
+        }
+
+        let is_bottom = pos.y > rect.center().y;
+        let (indicator_y, target_idx) = if !is_bottom {
+            let target = if from_idx < i { i.saturating_sub(1) } else { i };
+            (rect.min.y, target)
+        } else {
+            let target = if from_idx < i { i } else { i + 1 };
+            (rect.max.y, target)
+        };
+
+        if target_idx != from_idx {
+            let indicator_color = egui::Color32::from_rgb(0, 120, 215);
+            let line_min_x = rect.min.x + 2.0;
+            let line_max_x = rect.max.x - 2.0;
+            ui.painter().line_segment(
+                [egui::pos2(line_min_x, indicator_y), egui::pos2(line_max_x, indicator_y)],
+                egui::Stroke::new(3.5_f32, indicator_color),
+            );
+            ui.painter().circle_filled(egui::pos2(line_min_x, indicator_y), 4.0, indicator_color);
+            ui.painter().circle_filled(egui::pos2(line_max_x, indicator_y), 4.0, indicator_color);
+
+            ui.ctx().set_cursor_icon(egui::CursorIcon::Grabbing);
+
+            if ui.input(|ins| ins.pointer.any_released()) {
+                return Some((from_idx, target_idx));
+            }
+        }
+
+        None
     }
 
     /// Maps the portion of the page currently inside the viewport onto the thumbnail,
@@ -370,6 +422,7 @@ impl ThumbnailSidebar {
         size: egui::Vec2,
         is_selected: bool,
         is_visible: bool,
+        is_drag_source: bool,
     ) {
         let rendered_thumb = if let (Some(r), Some(rs)) =
             (&mut app.vello_renderer, frame.wgpu_render_state())
@@ -411,6 +464,20 @@ impl ThumbnailSidebar {
                 "⌛",
                 egui::FontId::proportional(14.0),
                 egui::Color32::from_rgb(150, 155, 165),
+            );
+        }
+
+        if is_drag_source {
+            ui.painter().rect_filled(
+                mini_page_rect,
+                2.0,
+                egui::Color32::from_rgba_unmultiplied(255, 255, 255, 150),
+            );
+            ui.painter().rect_stroke(
+                mini_page_rect,
+                2.0,
+                egui::Stroke::new(2.0_f32, egui::Color32::from_rgb(0, 120, 215)),
+                egui::StrokeKind::Inside,
             );
         }
 
@@ -473,9 +540,22 @@ impl ThumbnailSidebar {
             if hovered_ext && response.hovered() {
                 let indicator_x =
                     if hovered_target == Some(i + 1) { rect.max.x } else { rect.min.x };
+                let indicator_color = egui::Color32::from_rgb(0, 120, 215);
+                let line_min_y = rect.min.y + 2.0;
+                let line_max_y = rect.max.y - 2.0;
                 ui.painter().line_segment(
-                    [egui::pos2(indicator_x, rect.min.y), egui::pos2(indicator_x, rect.max.y)],
-                    egui::Stroke::new(3.0_f32, egui::Color32::from_rgb(0, 120, 215)),
+                    [egui::pos2(indicator_x, line_min_y), egui::pos2(indicator_x, line_max_y)],
+                    egui::Stroke::new(3.0_f32, indicator_color),
+                );
+                ui.painter().circle_filled(
+                    egui::pos2(indicator_x, line_min_y),
+                    4.0,
+                    indicator_color,
+                );
+                ui.painter().circle_filled(
+                    egui::pos2(indicator_x, line_max_y),
+                    4.0,
+                    indicator_color,
                 );
             }
 
@@ -484,22 +564,9 @@ impl ThumbnailSidebar {
             }
 
             let dragged_from = egui::DragAndDrop::payload::<usize>(ui.ctx()).map(|p| *p);
-            let mut reorder_target = None;
-
-            if let Some(from_idx) = dragged_from
-                && from_idx != i
-                && response.hovered()
-            {
-                let indicator_x = if from_idx < i { rect.max.x } else { rect.min.x };
-                ui.painter().line_segment(
-                    [egui::pos2(indicator_x, rect.min.y), egui::pos2(indicator_x, rect.max.y)],
-                    egui::Stroke::new(3.0_f32, egui::Color32::from_rgb(0, 120, 215)),
-                );
-
-                if ui.input(|ins| ins.pointer.any_released()) {
-                    reorder_target = Some((from_idx, i));
-                }
-            }
+            let is_drag_source = dragged_from == Some(i);
+            let reorder_target =
+                Self::handle_page_reorder_drag_horizontal(ui, rect, i, dragged_from);
 
             if response.clicked() {
                 let shift = ui.input(|ins| ins.modifiers.shift);
@@ -587,9 +654,54 @@ impl ThumbnailSidebar {
                 size,
                 is_selected,
                 is_visible,
+                is_drag_source,
             );
         });
         hovered_target
+    }
+
+    fn handle_page_reorder_drag_horizontal(
+        ui: &mut egui::Ui,
+        rect: egui::Rect,
+        i: usize,
+        dragged_from: Option<usize>,
+    ) -> Option<(usize, usize)> {
+        let from_idx = dragged_from?;
+        let pointer_pos = ui.input(|ins| ins.pointer.interact_pos().or(ins.pointer.latest_pos()));
+        let pos = pointer_pos?;
+
+        if !rect.contains(pos) {
+            return None;
+        }
+
+        let is_right = pos.x > rect.center().x;
+        let (indicator_x, target_idx) = if !is_right {
+            let target = if from_idx < i { i.saturating_sub(1) } else { i };
+            (rect.min.x, target)
+        } else {
+            let target = if from_idx < i { i } else { i + 1 };
+            (rect.max.x, target)
+        };
+
+        if target_idx != from_idx {
+            let indicator_color = egui::Color32::from_rgb(0, 120, 215);
+            let line_min_y = rect.min.y + 2.0;
+            let line_max_y = rect.max.y - 2.0;
+            ui.painter().line_segment(
+                [egui::pos2(indicator_x, line_min_y), egui::pos2(indicator_x, line_max_y)],
+                egui::Stroke::new(3.5_f32, indicator_color),
+            );
+            ui.painter().circle_filled(egui::pos2(indicator_x, line_min_y), 4.0, indicator_color);
+            ui.painter().circle_filled(egui::pos2(indicator_x, line_max_y), 4.0, indicator_color);
+
+            ui.ctx().set_cursor_icon(egui::CursorIcon::Grabbing);
+
+            if ui.input(|ins| ins.pointer.any_released()) {
+                return Some((from_idx, target_idx));
+            }
+        }
+
+        None
     }
 
     fn render_thumbnail_context_menu(
