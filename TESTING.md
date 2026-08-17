@@ -153,7 +153,12 @@ Before submitting a Pull Request or completing a task:
       it, long enough for the paragraph to still name two keys as untyped that had since
       been typed. Renumbering and the always-written `/Metadata` are normalised away;
       verified by renaming one key to a same-length name so the offsets still land, which
-      the comparison reports as one differing entry out of seven.
+      the comparison reports as one differing entry out of seven. A third comparison
+      covers named destinations (12.3.2), which the catalogue check cannot: `/Dests`
+      surviving as a key says nothing about whether the references into it still find
+      their targets, and both of that clause's forms are indirect while saving renumbers
+      every object. Verified the same way — renaming one declared key in `unicode_16.pdf`
+      to a same-length hex string turns its four references into four dangling links.
       `status.sh --full` runs it.
 - [ ] `./scripts/dev/status.sh` — the figures the documents quote, re-derived. A number
       that has gone stale shows up as a disagreement rather than reading as current.

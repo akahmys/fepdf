@@ -148,6 +148,42 @@ for src in samples/*.pdf; do
     fi
 done
 
+# Named destinations still resolve after a save. A different property from the catalogue
+# comparison above, and one nothing else here covers: `/Dests` surviving as a key says
+# nothing about whether the *references* into it still find their targets. Both of
+# 12.3.2.3's forms are indirect — the 1.1 dictionary's values point at pages, and the 1.2
+# name tree points at destinations through `/Kids` — and saving renumbers every object,
+# so a writer that renumbered inconsistently would leave a file whose links all dangle
+# while every catalogue key was still present.
+#
+# The whole section is compared, dangling names included. `intel_sdm.pdf` references
+# `(G3.7717)` three times and declares it nowhere; a save must neither invent it nor lose
+# the other 25,943. Verified by injection on a real file: renaming one declared key in
+# `unicode_16.pdf` to a same-length hex string turns its four references into four
+# dangling links and the report names `G100066`.
+echo "--- named destinations still resolve after a save ---"
+destinations() {
+    target/release/fepdf inspect interactive "$1" 2>/dev/null | awk '/DESTINATIONS/,/ACTIONS/'
+}
+for src in samples/*.pdf; do
+    b=$(basename "$src" .pdf)
+    out="$WORK/$b.default.pdf"
+    [ -f "$out" ] || continue
+    destinations "$src" > "$WORK/dest.want"
+    destinations "$out" > "$WORK/dest.got"
+    if diff -q "$WORK/dest.want" "$WORK/dest.got" >/dev/null; then
+        # A file with nothing interactive prints no such section at all, so it compares
+        # equal for free. Said out loud rather than shown as a blank line, because an
+        # empty comparison passing is not the same as a property holding.
+        summary=$(grep -E 'referenced|none declared' "$WORK/dest.want" | tr -s ' ' | paste -sd' ' -)
+        printf '  %-14s %s\n' "$b" "${summary:-(nothing interactive — no destinations either way)}"
+    else
+        echo "  $b: DESTINATIONS DID NOT SURVIVE THE SAVE"
+        diff "$WORK/dest.want" "$WORK/dest.got" | head -6 | sed 's/^/      /'
+        FAILED=1
+    fi
+done
+
 # The matrix, on files small enough to run it on. Three switches: whether objects are
 # packed, which handler encrypts, and whether the file is signed.
 echo "--- the combinations, on two samples ---"
