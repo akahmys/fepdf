@@ -157,7 +157,15 @@ impl<'a> Interpreter<'a> {
                         log::debug!("[TYPE3] op={}, stack={:?}", op_str, self.stack);
                     }
                     self.op_index += 1;
-                    self.execute_operator(&op_str)?;
+                    // Named, because the operand errors below cannot see which operator
+                    // asked for them. "Expected number" on its own says nothing about
+                    // where in a content stream to look, and six pages of
+                    // `samples/fy05.pdf` failed with exactly that and nothing else.
+                    self.execute_operator(&op_str).map_err(|e| {
+                        PdfError::Other(
+                            format!("operator {op_str} at {}: {e}", self.op_index).into(),
+                        )
+                    })?;
                 }
                 _ => {
                     let obj = parser.parse_object()?;
@@ -403,7 +411,13 @@ impl<'a> Interpreter<'a> {
                     let refined = ir_to_refined(op);
                     self.stack.push(fepdf_model::commit_to_arena(self.doc.arena(), refined, 0));
                 }
-                self.execute_operator(name)
+                // Named, because the operand errors cannot see which operator asked for
+                // them. "Expected number" on its own says nothing about where in a
+                // content stream to look, and six pages of `samples/fy05.pdf` failed
+                // with exactly that and nothing else.
+                self.execute_operator(name).map_err(|e| {
+                    PdfError::Other(format!("operator {name} {operands:?}: {e}").into())
+                })
             }
         }
     }
