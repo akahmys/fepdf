@@ -134,6 +134,13 @@ Before submitting a Pull Request or completing a task:
       three cross-checks and the quickest to fail honestly. Set `PDFIUM` to a Python that
       has `pypdfium2` and a second, unrelated reader checks it too; the script's header
       says how. That second reader is what made packing the default.
+- [ ] `./scripts/test/crosscheck_pubsec.sh` — builds certificate-encrypted documents
+      with openssl and reads them back. Only run when clause 7.6 is touched. It runs
+      backwards from the other cross-checks because there is no reader to compare
+      against: pdf.js, PDFium and qpdf all decline the clause, so an independent
+      *producer* stands in for an independent reader. Its fixture builder is
+      intermittently wrong on `fy05.pdf`; the script parses the fixture first and says
+      so, rather than reporting it as the engine's fault.
 - [ ] `./scripts/dev/status.sh` — the figures the documents quote, re-derived. A number
       that has gone stale shows up as a disagreement rather than reading as current.
 

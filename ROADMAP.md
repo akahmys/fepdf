@@ -17,7 +17,7 @@ Understanding them is what remains.
 | :--- | :--- |
 | **7.3** Objects | Complete. Every type in the clause. |
 | **7.5** File structure | **Complete and in use.** Header scan, both cross-reference forms, `/Prev` chains, hybrid references, object streams, incremental updates, and recovery by scanning. `Document::open` reads the file itself; `lopdf` is gone. |
-| **7.6** Encryption | Every password handler the standard defines now decrypts: RC4 (V1/V2), AES-128 (V4/R4) and AES-256 (V5/R5, V5/R6) to Algorithms 1, 2, 2.A, 2.B and 4–6, with `/Perms` checked and both password roles authenticating. Verified against PDFKit on fourteen files; all of it was broken or absent ([ADR-0009](docs/adr/0009-permissions-are-thirty-two-bits-not-a-positive-integer.md)). Writing is AES-256 at revision 6 and nothing else, because output is always 2.0 and this edition deprecates the rest. **Remaining**: public-key handlers (7.6.5) remain a stub — signing brought in the CMS crate and certificate handling, but 7.6.5 needs `EnvelopedData`, which is a different structure from the `SignedData` signing uses; unencrypted wrappers (7.6.7) are recognised and reported. |
+| **7.6** Encryption | Every password handler the standard defines now decrypts: RC4 (V1/V2), AES-128 (V4/R4) and AES-256 (V5/R5, V5/R6) to Algorithms 1, 2, 2.A, 2.B and 4–6, with `/Perms` checked and both password roles authenticating. Verified against PDFKit on fourteen files; all of it was broken or absent ([ADR-0009](docs/adr/0009-permissions-are-thirty-two-bits-not-a-positive-integer.md)). Writing is AES-256 at revision 6 and nothing else, because output is always 2.0 and this edition deprecates the rest. Public-key handlers (7.6.5) can be **read** — a `/Adobe.PubSec` document opens with the certificate it was addressed to, which neither Chrome nor Firefox will do — but not written. Unencrypted wrappers (7.6.7) are recognised and reported. **Clause 7.6 is otherwise complete.** |
 | **7.7** Document structure | **10 of Table 29's 32** catalogue entries typed, measured by `status.sh` from `PdfCatalog`. Untyped entries survive a round trip but cannot be reasoned about; `inspect catalog` names which ones, per file. |
 | **PDF 2.0 additions** | **Six** catalogue entries have a spec type but no read or write path — `PageLabels`, `Threads`, `OutputIntents`, `OCProperties`, `Collection`, `AF`. `DPartRoot` has no type at all, contrary to what this table said before it was checked. `inspect catalog` reports the six as `type only`. |
 | **8–14** Content, text, interactive, tagged | Interpreter, fonts and UA-2 auditing exist; interactive features (12) can be *read* (`inspect interactive`), and signature fields (12.7.5.5, 12.8) can now be written and checked. The corpus exercises one annotation subtype of ~28 — all 29,973 are `/Link` — and no form field at all, so the form walk is exercised by a fixture and by this engine's own signed output. |
@@ -211,13 +211,20 @@ Independent of A and B, and the area where a partial implementation is most harm
       password is recorded rather than defaulted in silence, because `/P` then restricts
       nobody who can open the file. Verified by `scripts/test/crosscheck_encryption.sh`:
       PDFKit opens all nine and reads the same text as the plain save
-- [ ] Public-key security handlers (**7.6.5**, not 7.6.4 as this line read until it was
-      checked against the standard; 7.6.4 is the *standard* security handler). Signing
-      brought in the `cms` crate, certificate decoding and the DER plumbing, so this is
-      smaller than it was — but not by as much as sharing the word "CMS" suggests:
-      7.6.5 wraps a seed in `EnvelopedData`, one recipient per certificate, and nothing
-      in the signing path builds or reads that. What it inherits is the dependency and
-      `SigningIdentity`, not the structure
+- [x] Public-key security handlers (**7.6.5**, not 7.6.4 as this line read until it was
+      checked against the standard; 7.6.4 is the *standard* security handler) — **reading**.
+      `--recipient-certificate` and `--recipient-key` open a `/Adobe.PubSec` document. The
+      key is derived from a 20-byte seed unwrapped from a CMS `EnvelopedData`, digested
+      together with every `/Recipients` entry in order, which is what binds the key to
+      the recipient list. `/KDFSalt` is in the same dictionary and is *not* key material —
+      it belongs to PDF 2.0's document MAC. `/Recipients` lives in the crypt filter for
+      `/V` 4 and 5, not at the top of `/Encrypt`. Verified backwards, because there is
+      nothing to compare against: pdf.js rejects any non-Standard `/Filter`, PDFium
+      handles only Standard, and qpdf documents that it does not support this. So an
+      independent producer makes the file and fepdf has to get the plaintext back —
+      pyHanko's output and `make_pubsec.py`'s both read byte-identically to the plaintext
+      they were made from. **Writing is not implemented**: files exist that need reading,
+      and two major readers cannot open them at all, which is where the value is
 - [x] Unencrypted wrapper documents (7.6.7) — recognised and reported, which is all
       the clause can ask of a reader: the payload is encrypted by a handler *this*
       standard does not define, so naming the missing filter is the service. Each of
