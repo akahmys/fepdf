@@ -100,28 +100,28 @@ working as intended, not a cycle.
 Status: **✅** exists as-is · **⚠️** partially landed · **🔄** code exists, lives elsewhere today · **🆕** new.
 
 `~Lines` is the *target* crate's size: for a crate that exists, what it holds today;
-for one that does not, the code that would move into it. Measured 2026-08-16 with
+for one that does not, the code that would move into it. Measured 2026-08-18 with
 `find crates/<name>/src -name '*.rs' | xargs cat | wc -l`, so any figure here can be
 checked in one command.
 
 | Crate | Status | ~Lines | Responsibility |
 | :--- | :---: | ---: | :--- |
-| **`fepdf-syntax`** | ✅ | 1,960 | The byte layer: lexing and encryption/decryption. Depends on no model type, which is what lets the cryptography be reviewed on its own. Parsing and stream filters are *not* here — see §4. |
-| **`fepdf-font`** | ✅ (Audited ✅) | 3,700 | Font *programs*: CFF, TrueType, CMap, Adobe Glyph List, subsetting, reconstruction. Hardened against W/W2 out-of-bounds, CMap underflows (`e_val >= s_val`), and CID byte truncations. |
-| **`fepdf-model`** | ✅ | 18,100 | The document graph: `PdfArena`, `Handle<T>`, `Object`, page tree, metadata — and, since Phase A, the reader (7.5) and `writer.rs`. Hardened with pool overflow guards, cyclic `resolve` limits (`64`), and safe `Null` reference fallbacks. |
-| **`fepdf-content`** | ⚠️ partial | 2,300 | Content-stream interpreter, and the **`RenderBackend` contract** it drives (`TextGlyph`, `TextState`, `SMaskData`, path geometry). No GPU dependency. *The contract has landed (230 lines); the interpreter is the remaining ~2,100, still in `fepdf-sdk`.* |
-| **`fepdf-doc`** | 🔄 in sdk | 2,200 | Owns the **`Operation` vocabulary** (§5.1) and is its only interpreter: merge, split, rotate, tag, redact, upgrade. Also structure-tree handling, conformance auditing, remediation. |
+| **`fepdf-syntax`** | ✅ | 3,380 | The byte layer: lexing and encryption/decryption. Depends on no model type, which is what lets the cryptography be reviewed on its own. Parsing and stream filters are *not* here — see §4. |
+| **`fepdf-font`** | ✅ (Audited ✅) | 3,710 | Font *programs*: CFF, TrueType, CMap, Adobe Glyph List, subsetting, reconstruction. Hardened against W/W2 out-of-bounds, CMap underflows (`e_val >= s_val`), and CID byte truncations. |
+| **`fepdf-model`** | ✅ | 20,700 | The document graph: `PdfArena`, `Handle<T>`, `Object`, page tree, metadata — and, since Phase A, the reader (7.5) and `writer.rs`. Hardened with pool overflow guards, cyclic `resolve` limits (`64`), and safe `Null` reference fallbacks. |
+| **`fepdf-content`** | ✅ | 2,380 | Content-stream interpreter, and the **`RenderBackend` contract** it drives (`TextGlyph`, `TextState`, `SMaskData`, path geometry). No GPU dependency. |
+| **`fepdf-doc`** | ✅ | 2,960 | Owns the **`Operation` vocabulary** (§5.1) and is its only interpreter: 24 canonical mutation operations across 5 domains. Also structure-tree handling, conformance auditing, remediation. |
 | **`fepdf-render`** | ✅ | 1,240 | A `RenderBackend` implementation on **Vello** + **wgpu**. Reached only through the SDK's optional `render` feature. |
-| **`fepdf`** | ⚠️ lives in `fepdf-sdk` | — | The public facade: `PdfDocument`, `SaveOptions`, `Operation`. It is the Rule A boundary in fact — frontends depend on it and on nothing below — but it is not yet a crate of its own. |
-| **`fepdf-cli`** | ✅ | 2,310 | Command-line binary (`fepdf`). |
-| **`fepdf-gui`** | ✅ | 8,000 | Desktop application on **egui** + **eframe** + **wgpu**. |
+| **`fepdf`** | ✅ | 1,610 | The public facade: `PdfDocument`, `SaveOptions`, `Operation`. It is the Rule A boundary in fact — frontends depend on it and on nothing below. |
+| **`fepdf-cli`** | ✅ | 2,510 | Command-line binary (`fepdf`). |
+| **`fepdf-gui`** | ✅ | 8,020 | Desktop application on **egui** + **eframe** + **wgpu**. |
 | **`fepdf-mcp`** | ✅ | 330 | Model Context Protocol server for AI assistants. |
 | **`fepdf-wasm`** | ✅ | 40 | WebAssembly bindings. Currently a stub — `render_page` is unimplemented. |
 | **`fepdf-macros`** | ✅ | 170 | Compile-time procedural macros. |
 
 Two `RenderBackend` implementations besides the GPU one — `TextExtractionBackend` and
-`CollectorBackend` — sit alongside the operations, in `fepdf-sdk` until `fepdf-doc` is
-split out. Neither pulls in a GPU, which is exactly what Rule B makes possible.
+`CollectorBackend` — sit alongside the operations, in `fepdf-doc`. Neither pulls in a GPU,
+which is exactly what Rule B makes possible.
 
 ---
 
@@ -497,22 +497,16 @@ behaviour or API and need their own tests.
 | # | Step | Effect | Risk |
 | :-: | :--- | :--- | :---: |
 | 0 | Reconcile the two `rotate` implementations | ✅ **Done**, as part of step 4. `RotateMode` + `Quarter` make the divergence unrepresentable | Low |
-| 1 | Move the `RenderBackend` contract and its types from `fepdf-render` into `fepdf-content` | ✅ **Done.** GPU became opt-in; WASM dropped to zero GPU dependencies | Low |
-| 2 | Extract the PDF-free half of `font/` into `fepdf-font` | ✅ **Done.** 3,700 lines are independently testable | Low |
-| 3 | Move struct-tree handling out of `fepdf-gui` into `fepdf-doc` | ✅ **Done** into `fepdf-sdk`, pending its split. The GUI calls `extract_struct_tree()`; the Rule A leak is closed | Medium |
-| 4 | Introduce `Operation`; reduce the CLI subcommands and `WorkerRequest` to adapters over it | ✅ **Done** in `fepdf-sdk`, pending its split into `fepdf-doc`. Rule D is structural | Medium |
+| 1 | Move the `RenderBackend` contract and its types from `fepdf-render` into `fepdf-content` | ✅ **Done.** Content-stream interpreter and backend contract live in `fepdf-content`; GPU is opt-in | Low |
+| 2 | Extract the PDF-free half of `font/` into `fepdf-font` | ✅ **Done.** 3,710 lines are independently testable | Low |
+| 3 | Move struct-tree handling out of `fepdf-gui` into `fepdf-doc` | ✅ **Done.** Extracted into `fepdf-doc`. The GUI calls `extract_struct_tree()`; the Rule A leak is closed | Medium |
+| 4 | Introduce `Operation`; reduce the CLI subcommands and `WorkerRequest` to adapters over it | ✅ **Done.** Extracted into `fepdf-doc` with all 24 operations implemented and modularized. Rule D is structural | Medium |
 | 5 | Move `writer` into `fepdf-model` (core) | ✅ **Done.** Restores the read/write round trip in `fepdf-model` (Rule C); `fepdf-sdk` re-exports for compatibility | Low |
-| 6 | Introduce the `fepdf` facade | Rule A becomes enforceable; touches all four frontends | High |
+| 6 | Introduce the `fepdf` facade | ✅ **Done.** `fepdf-sdk` renamed to `fepdf`, establishing the public facade crate and completing the target topology | Low |
 
-Steps 0–5 are complete. Steps 3 and 4 landed in `fepdf-sdk` rather than in a
-`fepdf-doc` of its own: the code moved out of the presentation layer, which was the
-point, but the crate boundary is still to be drawn. That remainder is Phase E in
-[`ROADMAP.md`](ROADMAP.md), deliberately deferred until the operation vocabulary has
-contents to own.
-
-Step 6 delivers most of the usability gain and should follow 1–5, not precede them.
-The current API cannot hide its internals — reaching a catalogue requires
-`doc.inner().catalog_handle()`, which is the symptom the facade removes.
+Steps 0–6 are complete. The target crate topology (§2) is fully realised with
+`fepdf` as the top-level public facade crate, and `fepdf-doc` and `fepdf-content`
+owning document mutation and content interpretation respectively.
 
 **Deliberately not planned.** Splitting `fepdf-doc` into separate operation and
 verification crates: auditing and remediation act on the same document surface, so

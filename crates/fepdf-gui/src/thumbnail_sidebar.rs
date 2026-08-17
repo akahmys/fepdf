@@ -597,7 +597,7 @@ impl ThumbnailSidebar {
         app: &crate::app::FepdfApp,
         response: &egui::Response,
         i: usize,
-    ) -> (Option<fepdf_sdk::Quarter>, Option<(usize, usize)>, bool, bool, bool) {
+    ) -> (Option<fepdf::Quarter>, Option<(usize, usize)>, bool, bool, bool) {
         let mut action_rotate = None;
         let mut action_move = None;
         let mut action_duplicate = false;
@@ -606,7 +606,7 @@ impl ThumbnailSidebar {
 
         response.context_menu(|ui| {
             if ui.button(app.locale_mgr.tr(&app.active_language, "rotate_right_90")).clicked() {
-                action_rotate = Some(fepdf_sdk::Quarter::Q90);
+                action_rotate = Some(fepdf::Quarter::Q90);
                 ui.close_kind(egui::UiKind::Menu);
             }
             ui.separator();

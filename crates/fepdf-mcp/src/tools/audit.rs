@@ -1,6 +1,6 @@
 use crate::{McpError, McpResult};
 use bytes::Bytes;
-use fepdf_sdk::{IssueSeverity, PdfDocument};
+use fepdf::{IssueSeverity, PdfDocument};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use std::fs;

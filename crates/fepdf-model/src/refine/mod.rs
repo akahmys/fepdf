@@ -137,6 +137,8 @@ pub struct RefineContext<'a> {
     pub contexts: &'a BTreeMap<u32, BTreeMap<String, Arc<FontResource>>>,
     /// Subsetted font programs to substitute, keyed by the stream's handle.
     pub distilled: &'a BTreeMap<Handle<Object>, Arc<Vec<u8>>>,
+    /// How strictly color spaces and palettes are validated.
+    pub color_policy: crate::ingest::ColorPolicy,
 }
 
 impl ParallelRefinery {
@@ -255,6 +257,7 @@ impl ParallelRefinery {
                 Self::refine_dict_entry(context, number, &name, &value, depth, issues);
             refined.insert(name, refined_value);
         }
+        color::refine_palette(&mut refined, context.color_policy, issues);
         refined
     }
 

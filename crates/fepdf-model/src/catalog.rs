@@ -242,13 +242,11 @@ mod tests {
     }
 
     #[test]
-    fn coverage_reports_more_gaps_than_support() {
-        // The claim this command exists to make checkable: most of the catalogue is
-        // not understood. If this ever inverts, the roadmap's framing has changed and
-        // the documents need revisiting rather than this assertion relaxing.
+    fn coverage_reports_all_table_29_entries_typed() {
         let coverage = CatalogReport::coverage();
         let typed = coverage.iter().filter(|(_, s)| *s == Support::Typed).count();
         assert_eq!(typed, PdfCatalog::pdf_keys().len(), "coverage must agree with the struct");
-        assert!(typed < coverage.len() / 2, "{typed} of {} are typed", coverage.len());
+        assert_eq!(typed, coverage.len(), "{typed} of {} are typed", coverage.len());
+        assert_eq!(typed, 32, "all 32 ISO 32000-2 Table 29 entries are typed");
     }
 }

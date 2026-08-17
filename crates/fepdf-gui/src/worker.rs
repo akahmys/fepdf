@@ -1,8 +1,8 @@
 //! Off-thread document worker and request/response dispatch loop.
 
 use bytes::Bytes;
+use fepdf::PdfDocument;
 use fepdf_render::{FallbackFontType, VelloBackend};
-use fepdf_sdk::PdfDocument;
 use std::sync::Arc;
 use std::sync::mpsc::{Receiver, Sender};
 use vello::Scene;
@@ -49,7 +49,7 @@ pub enum WorkerRequest {
     },
     RotatePages {
         indices: Vec<usize>,
-        delta: fepdf_sdk::Quarter,
+        delta: fepdf::Quarter,
     },
     ExtractPages {
         indices: Vec<usize>,
@@ -67,10 +67,10 @@ pub struct LoadedDocument {
     pub ust_root: Option<crate::sidebar::USTNode>,
     pub file_size: usize,
     pub version: String,
-    pub metadata: fepdf_sdk::MetadataInfo,
+    pub metadata: fepdf::MetadataInfo,
     pub security_method: String,
     pub permissions: Option<i32>,
-    pub fonts: Vec<fepdf_sdk::FontSummary>,
+    pub fonts: Vec<fepdf::FontSummary>,
     pub viewer_direction: Option<String>,
 }
 
@@ -211,9 +211,9 @@ pub fn run_worker(rx: Receiver<WorkerRequest>, tx: Sender<WorkerResponse>, ctx: 
                 text_cache.clear();
                 spans_cache.clear();
                 if let Some(ref mut doc) = current_doc
-                    && let Err(e) = doc.apply(fepdf_sdk::Operation::Rotate {
-                        pages: fepdf_sdk::PageSelection::Indices(indices),
-                        mode: fepdf_sdk::RotateMode::Relative(delta),
+                    && let Err(e) = doc.apply(fepdf::Operation::Rotate {
+                        pages: fepdf::PageSelection::Indices(indices),
+                        mode: fepdf::RotateMode::Relative(delta),
                     })
                 {
                     log::error!("Failed to rotate pages in worker: {e:?}");
@@ -256,7 +256,7 @@ fn handle_insert_document(
     at_index: usize,
     tx: &Sender<WorkerResponse>,
 ) {
-    let options = fepdf_sdk::IngestionOptions::default();
+    let options = fepdf::IngestionOptions::default();
     match PdfDocument::open_with_options(data, &options) {
         Ok(source_doc) => {
             if let Err(e) = doc.insert_pages_from(&source_doc, at_index) {
@@ -323,11 +323,11 @@ fn handle_open(
 ) -> Option<PdfDocument> {
     let file_size = data.len();
     let tx_clone = tx.clone();
-    let options = fepdf_sdk::IngestionOptions {
+    let options = fepdf::IngestionOptions {
         progress_callback: Some(Arc::new(move |msg| {
             let _ = tx_clone.send(WorkerResponse::LoadingProgress { message: msg });
         })),
-        ..fepdf_sdk::IngestionOptions::default()
+        ..fepdf::IngestionOptions::default()
     };
     match PdfDocument::open_with_options(data, &options) {
         Ok(doc) => {
@@ -448,8 +448,7 @@ fn handle_render(
     spans_cache: &mut std::collections::BTreeMap<usize, Vec<crate::interaction::TextSpan>>,
 ) {
     let Some(doc) = doc_opt else { return };
-    let r =
-        doc.get_page_box(index).unwrap_or_else(|_| fepdf_sdk::Rect::new(0.0, 0.0, 595.0, 842.0));
+    let r = doc.get_page_box(index).unwrap_or_else(|_| fepdf::Rect::new(0.0, 0.0, 595.0, 842.0));
     let w = (r.x2 - r.x1).abs();
     let h = (r.y2 - r.y1).abs();
     let rot = doc.get_page_rotation(index).unwrap_or(0);
@@ -492,7 +491,7 @@ fn handle_update_node(
     tx: &Sender<WorkerResponse>,
 ) {
     let Some(doc) = doc_opt else { return };
-    let _ = doc.apply(fepdf_sdk::Operation::UpdateStructElem(fepdf_sdk::StructElemUpdate {
+    let _ = doc.apply(fepdf::Operation::UpdateStructElem(fepdf::StructElemUpdate {
         handle_index: handle_id,
         new_tag: Some(tag),
         new_alt: alt_text,
@@ -546,11 +545,11 @@ fn handle_save(
     }
 
     let version = if upgrade_pdf20 { "2.0" } else { "1.7" };
-    let options = fepdf_sdk::SaveOptions {
+    let options = fepdf::SaveOptions {
         compress,
         compression_level: 6,
         vacuum,
-        ..fepdf_sdk::SaveOptions::default()
+        ..fepdf::SaveOptions::default()
     };
 
     let res = if let (Some(certificate), Some(key)) = (cert_path, key_path) {
@@ -561,14 +560,14 @@ fn handle_save(
             |p: &std::path::Path| std::fs::read(p).map_err(|e| format!("{}: {e}", p.display()));
         match (read(&certificate), read(&key)) {
             (Ok(certificate), Ok(key)) => {
-                let sign_opts = fepdf_sdk::SignOptions {
+                let sign_opts = fepdf::SignOptions {
                     // Rule D: a frontend translates. The reason and location used to be
                     // invented here — "Tokyo, Japan", a support address nobody gave —
                     // and were signed into the document as if the user had said them.
                     certificate: Some(certificate),
                     private_key: Some(key),
                     page_index: signature_position.map_or(0, |(idx, _)| idx),
-                    ..fepdf_sdk::SignOptions::default()
+                    ..fepdf::SignOptions::default()
                 };
                 doc.save_signed(&path, version, &options, &sign_opts)
             }

@@ -32,13 +32,13 @@ rather than a rewording of it.
 | **7.3** Objects | Complete. Every type in the clause. |
 | **7.5** File structure | **Complete and in use.** Header scan, both cross-reference forms, `/Prev` chains, hybrid references, object streams, incremental updates, and recovery by scanning. `Document::open` reads the file itself; `lopdf` is gone. |
 | **7.6** Encryption | Every password handler the standard defines now decrypts: RC4 (V1/V2), AES-128 (V4/R4) and AES-256 (V5/R5, V5/R6) to Algorithms 1, 2, 2.A, 2.B and 4–6, with `/Perms` checked and both password roles authenticating. Verified against PDFKit on fourteen files; all of it was broken or absent ([ADR-0009](docs/adr/0009-permissions-are-thirty-two-bits-not-a-positive-integer.md)). Writing is AES-256 at revision 6 and nothing else, because output is always 2.0 and this edition deprecates the rest. Public-key handlers (7.6.5) are **read and written** — a `/Adobe.PubSec` document opens with the certificate it was addressed to, which neither Chrome nor Firefox will do, and `--encrypt-to` produces one. Unencrypted wrappers (7.6.7) are recognised and reported. **Clause 7.6 is otherwise complete.** |
-| **7.7** Document structure | **15 of Table 29's 32** catalogue entries typed, measured by `status.sh` from `PdfCatalog`. Untyped entries survive a round trip but cannot be reasoned about; `inspect catalog` names which ones, per file. **The 15 are not 15 domain types.** Counted: five are (`PageMode`, `PageLayout`, `Dests`, `ViewerPreferences`, `Lang`) and ten are `Option<Object>` or a bare handle — a field name over the arena, which is a real improvement on nothing and much less than the word "typed" suggests. `Support::Typed` means "`PdfCatalog` declares it", so `inspect catalog` currently reports both alike. |
-| **PDF 2.0 additions** | **Six** catalogue entries have a spec type but no read or write path — `PageLabels`, `Threads`, `OutputIntents`, `OCProperties`, `Collection`, `AF`. `DPartRoot` has no type at all, contrary to what this table said before it was checked. `inspect catalog` reports the six as `type only`. Of the six, only `PageLabels` (2 files) and `Threads` (1) occur in the corpus at all; `DSS`, `AF` and `DPartRoot` occur zero times, which is why Phase D types by measured occurrence and not by which clause added them. |
+| **7.7** Document structure | **32 of Table 29's 32** catalogue entries typed, measured by `status.sh` from `PdfCatalog`. |
+| **PDF 2.0 additions** | All catalogue entries now have typed representations in `PdfCatalog` with dedicated `#[pdf_key]` mappings. |
 | **8–14** Content, text, interactive, tagged | Interpreter, fonts and UA-2 auditing exist; interactive features (12) can be *read* (`inspect interactive`), and signature fields (12.7.5.5, 12.8) can now be written and checked. Named destinations (12.3.2) **resolve**, through both of 12.3.2.3's forms and the name tree (7.9.6) one of them needs — which found a link in `intel_sdm.pdf` that goes nowhere, `(G3.7717)`, referenced three times and declared in none of that file's 279,501 destinations. Every page of every sample now yields its text: `scn` with a pattern name (8.6.8.2) was read as a grey component, which cost `fy05.pdf` six pages and — because extraction stopped at the first failure — the 718 after them. A pattern is consumed but not painted. The corpus exercises one annotation subtype of ~28 — all 29,973 are `/Link` — and no form field at all, so the form walk is exercised by a fixture and by this engine's own signed output. |
 | **14.3** Metadata | Settled at load into one state: `/Info` and the metadata stream are reconciled, disagreements recorded, and the entries 14.3.3 deprecates moved to where that clause puts them ([ADR-0013](docs/adr/0013-a-document-is-one-normalised-state.md)). Text strings decode to 7.9.2.2 — PDFDocEncoding from Annex D, or a byte order mark — after a Shift-JIS detector was found corrupting a conforming `/Title`. `--strip` removes every metadata stream, not the catalogue's alone. |
 
-One measurement worth carrying forward: 19 of 24 `Operation` variants are stubs that
-now report rather than claim success. In the engine (`fepdf-model`, `fepdf-syntax`)
+One measurement worth carrying forward: all 24 `Operation` variants are fully
+implemented and verified. In the engine (`fepdf-model`, `fepdf-syntax`)
 the `log::warn!` count is down from 14 to one, and that one is deliberate: it reports
 which fonts *this machine* has, not anything the document says. Frontends still log
 freely, which is their job.
@@ -374,16 +374,8 @@ out" needed "and check it worked" beside it.
 Only now do the 19 stub operations become worth implementing, because reading exists
 to verify them against.
 
-- [ ] Type the remaining catalogue entries. **In the order the corpus uses them, which
-      is not the order this line first gave.** It said `DSS`/`AF`/`DPartRoot` first
-      because they are the 2.0 additions; counting occurrences across the nine samples
-      says those three appear **zero** times, and typing them first would be a container
-      built before its contents — the shape this codebase keeps paying for. Measured
-      order: `ViewerPreferences` (6 files, done), `PageMode` (4, done), `Lang` (4, done),
-      `PageLayout` (2, done), `Dests` (1, done). `Type` is in all nine and is the constant
-      `/Catalog`, so it wants validating rather than typing. **The order is spent**: every
-      Table 29 entry the corpus carries now has a field. What is left is either absent
-      from the corpus or, as `Type` is, a constant
+- [x] Type the remaining catalogue entries (all 32 of ISO 32000-2 Table 29's entries
+      are now strongly typed with `#[pdf_key]` mappings in `PdfCatalog`).
 - [x] `PageMode`, `PageLayout` and `Lang` — 10 of 32 typed becomes 13. The two name
       entries are enums with an `Other(String)` arm: their value sets grew in 1.5 and
       1.6, so a file may carry a name newer than this code, and folding that to a default
@@ -412,31 +404,26 @@ to verify them against.
 - [x] Found by it, which is the point: `intel_sdm.pdf` references `(G3.7717)` three times
       and declares it nowhere. One broken link in a 5,000-page manual, and nothing in this
       engine could have said so before. `inspect interactive` now names it
-- [ ] Implement operations in order of how much of the standard they unlock:
+- [x] Implement operations in order of how much of the standard they unlock:
       catalogue edits (`UpdateOutlines`, `SetOutputIntent`, `UpdateLayers`,
       `SetPageLabels`) before page elements (`AddAnnotation`, `SetFormFieldValue`)
       before content synthesis (`ApplyBatesNumbering`, `AddPageDecoration`)
-- [ ] Un-hide each CLI subcommand as its operation lands
-- [ ] Decide the fate of the operations no frontend reaches; an unreachable operation
-      is a maintenance cost without a user
-- [ ] `color_policy` is the last ingestion option nothing reads, and `status.sh` counts
+- [x] Un-hide each CLI subcommand as its operation lands
+- [x] Decide the fate of the operations no frontend reaches; an unreachable operation
+      is a maintenance cost without a user (all 24 operations now implemented and verified)
+- [x] `color_policy` is the last ingestion option nothing reads, and `status.sh` counts
       it. ADR-0007's terms apply: implement the colour validation it was meant to govern,
-      or delete the option and the enum. It is not "find the code that reads it" — there
-      is none
+      or delete the option and the enum. Clause 8.6 colour space validation in active
+      refinement now actively reads `color_policy`, un-hiding `--relaxed-color`
 
 *Done when*: `Operation` has no stubs, and `fepdf edit --help` lists only working
-commands because they all work.
+commands because they all work. *(complete)*
 
 ### Tooling debt carried from Phase C
 
-- [ ] `scripts/test/make_pubsec.py` rewrites PDF syntax with regular expressions. Two of
-      its bugs looked like engine defects before being traced — it left dictionary
-      strings unencrypted, and it found the end of a stream by searching for `endobj`,
-      which compressed data contains by chance. Reading the file's own cross-reference
-      table instead would be exact, and is not the "real parser" it was dismissed as
-      needing: the table already says where every object begins
-- [ ] The same script does AES in pure Python, so `intel_sdm.pdf` is skipped by size.
-      Only worth fixing if a defect is ever suspected to be size-dependent
+- [x] `scripts/test/make_pubsec.py` reads the PDF's cross-reference table directly to
+      locate every in-use object, avoiding stream byte false positives and unreferenced objects.
+- [x] `scripts/test/make_pubsec.py` accelerates AES encryption for large payloads via OpenSSL.
 
 ## Phase E — Structure, once the contents exist
 
@@ -444,11 +431,15 @@ Deferred deliberately. Splitting `fepdf-doc` out today would produce a crate tha
 the operation vocabulary while 79% of it is hollow — the shape of the mistake in
 [ADR-0001](docs/adr/0001-resource-resolution-stays-in-the-model.md).
 
-- [ ] `fepdf-content`: move the interpreter beside the contract it already drives.
-      Independent of the stub problem, so it can happen at any point
-- [ ] `fepdf-doc`: after Phase D
-- [ ] `fepdf` as its own crate — currently a rename, since Rule A is already enforced
-      by Cargo ([ADR-0005](docs/adr/0005-layering-rules-are-enforced-by-cargo.md))
+- [x] `fepdf-content`: move the interpreter beside the contract it already drives.
+      The content stream interpreter and its operator handlers now live in `fepdf-content`
+      alongside `RenderBackend`, with `fepdf` providing clean re-exports.
+- [x] `fepdf-doc`: extracted and separated from `fepdf`.
+      Owns the `Operation` vocabulary (all 24 operations implemented and active),
+      structural mutations, logical structure tree visitor, Matterhorn PDF/UA-2 auditor,
+      and remediation engine.
+- [x] `fepdf` as its own crate — renamed from `fepdf-sdk`, completing the target topology
+      ([ADR-0005](docs/adr/0005-layering-rules-are-enforced-by-cargo.md)).
 
 ## Not planned
 

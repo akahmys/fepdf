@@ -13,7 +13,7 @@ path = "src/main.rs"
 
 [dependencies]
 fepdf-render.workspace = true
-fepdf-sdk.workspace = true
+fepdf.workspace = true
 vello.workspace = true
 kurbo.workspace = true
 egui.workspace = true

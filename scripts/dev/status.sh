@@ -32,12 +32,12 @@ engine_logs=$(grep -rn "log::warn!\|log::error!" \
     crates/fepdf-model/src crates/fepdf-syntax/src --include="*.rs" 2>/dev/null | wc -l | tr -d ' ')
 row "engine log::warn!/error! sites (expect 1)" "$engine_logs"
 frontend_logs=$(grep -rn "log::warn!\|log::error!" \
-    crates/fepdf-cli/src crates/fepdf-gui/src crates/fepdf-sdk/src crates/fepdf-mcp/src \
+    crates/fepdf-cli/src crates/fepdf-gui/src crates/fepdf/src crates/fepdf-mcp/src \
     crates/fepdf-render/src --include="*.rs" 2>/dev/null | wc -l | tr -d ' ')
 row "frontend log sites (not a defect)" "$frontend_logs"
 
-stubs=$(grep -c 'PdfError::NotImplemented' crates/fepdf-sdk/src/lib.rs 2>/dev/null || echo 0)
-row "Operation stubs in the SDK (expect 19)" "$stubs"
+stubs=$(grep -c 'PdfError::NotImplemented' crates/fepdf/src/lib.rs crates/fepdf-doc/src/lib.rs 2>/dev/null || true)
+row "Operation stubs in the engine (expect 0)" "$stubs"
 
 adrs=$(find docs/adr -name '0*.md' | wc -l | tr -d ' ')
 row "decision records" "$adrs"
@@ -85,7 +85,7 @@ for field in $(sed -n '/^pub struct IngestionOptions/,/^}/p' crates/fepdf-model/
         | grep -vE '^\s*[0-9]+:\s*//' | grep -v '\.field("' | grep -vc 'assert' | tr -d ' ')
     [ "$uses" -eq 0 ] && inert="$inert $field"
 done
-row "ingestion options nothing reads (expect 1)" "${inert:-none} "
+row "ingestion options nothing reads (expect 0)" "${inert:-none} "
 
 # The one encrypted sample, which is the only thing exercising clause 7.6. It read as
 # "1,140 pages, no errors" for as long as its content decrypted to noise (ADR-0009), so

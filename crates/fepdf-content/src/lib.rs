@@ -9,7 +9,11 @@
 //! present. See `ARCHITECTURE.md` Rule B: a crate that defines a contract does not
 //! depend on its implementations.
 
+/// The content stream interpreter that translates PDF operators into [RenderBackend] calls.
+pub mod interpreter;
 pub mod path;
+
+pub use interpreter::{Interpreter, Type3Advance};
 
 use fepdf_model::graphics::TextRenderingMode;
 pub use fepdf_model::graphics::WindingRule;

@@ -13,12 +13,11 @@ use std::sync::Arc;
 mod discovery;
 pub use discovery::*;
 
-/// Policy for color validation.
+/// Policy for color validation (ISO 32000-2 Clause 8.6).
 ///
-/// **Not consulted by any ingestion path.** The type and the field exist; the
-/// colour validation they were meant to govern does not. Its CLI flag is hidden
-/// rather than removed (ADR-0007). Implementing the policy means making this the
-/// input to a real check, not finding the code that already reads it.
+/// Controls whether malformed colour space definitions (e.g. unknown names,
+/// missing parameter dictionaries, or missing profile streams) are rejected
+/// as violations (`Strict`) or repaired with standard fallbacks (`Relaxed`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ColorPolicy {
     /// Reject colour definitions that violate the specification.
@@ -39,8 +38,6 @@ pub struct IngestionOptions {
     /// `active_refinement`, since settling runs after it.
     pub sublime_metadata: bool,
     /// How strictly colour definitions are validated.
-    ///
-    /// **Not read.** See [`ColorPolicy`].
     pub color_policy: ColorPolicy,
     /// Substitute bundled fonts when an embedded program fails to parse.
     pub force_fallback: bool,
@@ -115,6 +112,31 @@ pub struct IngestedDocument {
 impl Ingestor {
     /// Ingests a document that the reader has already placed into an arena.
     ///
+    fn execute_active_refinement_pass(
+        temp_doc: &Document,
+        handle_font_cache: &BTreeMap<u32, Arc<FontResource>>,
+        stream_contexts: &BTreeMap<u32, BTreeMap<String, Arc<FontResource>>>,
+        options: &IngestionOptions,
+        decisions: &mut crate::interpretation::DecisionLog,
+    ) {
+        if options.active_refinement {
+            let extra = Self::perform_active_refinement(
+                temp_doc.arena(),
+                handle_font_cache,
+                stream_contexts,
+                options.color_policy,
+            );
+            for issue in extra {
+                decisions.push(issue);
+            }
+            if options.sublime_metadata {
+                crate::metadata::settle(temp_doc, decisions);
+            }
+        }
+    }
+
+    /// Ingests a document that the reader has already placed into an arena.
+    ///
     /// The remaining passes are:
     /// 1. **Pass 0 (Normalization)**: decrypts every object and drops `/Encrypt`.
     /// 2. **Pass 1.5 (Context Discovery)**: discovers fonts and maps them to streams.
@@ -138,9 +160,6 @@ impl Ingestor {
         let security = crate::decrypt::unlock_raw(&raw, credentials, &mut decisions)?;
 
         refuse_if_locked_shut(&security, &raw)?;
-
-        // Before refinement, which replaces the metadata stream and normalises the
-        // objects: this is the last moment the source's own identity is visible.
         let provenance = capture_provenance(&raw.arena, raw.trailer);
 
         report("2/4: Mapping objects and loading structure...");
@@ -154,19 +173,13 @@ impl Ingestor {
             Self::discover_contexts(&arena, &temp_doc, &mut decisions);
 
         report("4/4: Performing active refinement and layout optimization...");
-        if options.active_refinement {
-            let extra =
-                Self::perform_active_refinement(&arena, &handle_font_cache, &stream_contexts);
-            for issue in extra {
-                decisions.push(issue);
-            }
-            // After refinement, because it replaces the metadata stream, and before the
-            // document is handed out, because the point of settling here is that every
-            // later reading finds one answer. See ADR-0013.
-            if options.sublime_metadata {
-                crate::metadata::settle(&temp_doc, &mut decisions);
-            }
-        }
+        Self::execute_active_refinement_pass(
+            &temp_doc,
+            &handle_font_cache,
+            &stream_contexts,
+            options,
+            &mut decisions,
+        );
         let issues = decisions.into_entries();
 
         Ok(IngestedDocument {
@@ -263,6 +276,7 @@ impl Ingestor {
         arena: &PdfArena,
         handle_font_cache: &BTreeMap<u32, Arc<FontResource>>,
         stream_contexts: &BTreeMap<u32, BTreeMap<String, Arc<FontResource>>>,
+        color_policy: ColorPolicy,
     ) -> Vec<crate::interpretation::Decision> {
         let distilled_fonts = BTreeMap::new();
         let context = RefineContext {
@@ -270,6 +284,7 @@ impl Ingestor {
             fonts: handle_font_cache,
             contexts: stream_contexts,
             distilled: &distilled_fonts,
+            color_policy,
         };
         let refined_results = ParallelRefinery::refine_all(&context);
 

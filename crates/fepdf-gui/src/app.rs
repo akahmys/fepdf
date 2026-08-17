@@ -72,13 +72,13 @@ pub struct FepdfApp {
     pub locale_mgr: crate::locale::LocaleManager,
     pub active_language: String,
     pub show_settings_modal: bool,
-    pub doc_metadata: Option<fepdf_sdk::MetadataInfo>,
+    pub doc_metadata: Option<fepdf::MetadataInfo>,
     pub doc_file_size: Option<usize>,
     pub doc_version: Option<String>,
     pub doc_security_method: Option<String>,
     pub doc_permissions: Option<i32>,
     pub doc_page_sizes: Vec<(f64, f64)>,
-    pub doc_fonts: Vec<fepdf_sdk::FontSummary>,
+    pub doc_fonts: Vec<fepdf::FontSummary>,
 }
 
 impl FepdfApp {
@@ -770,7 +770,7 @@ impl FepdfApp {
         let _ = self.tx_worker.send(WorkerRequest::RemovePages { indices });
     }
 
-    pub fn rotate_pages(&mut self, indices: Vec<usize>, delta: fepdf_sdk::Quarter) {
+    pub fn rotate_pages(&mut self, indices: Vec<usize>, delta: fepdf::Quarter) {
         if indices.is_empty() || self.total_pages == 0 {
             return;
         }
@@ -795,7 +795,7 @@ impl FepdfApp {
     }
 
     #[allow(dead_code)]
-    pub fn rotate_selected_pages(&mut self, delta: fepdf_sdk::Quarter) {
+    pub fn rotate_selected_pages(&mut self, delta: fepdf::Quarter) {
         let targets = if !self.selected_pages.is_empty() {
             self.selected_pages.iter().copied().collect()
         } else if self.total_pages > 0 && self.view.active_page < self.total_pages {
@@ -806,7 +806,7 @@ impl FepdfApp {
         self.rotate_pages(targets, delta);
     }
 
-    pub fn rotate_page_action(&mut self, clicked_idx: usize, delta: fepdf_sdk::Quarter) {
+    pub fn rotate_page_action(&mut self, clicked_idx: usize, delta: fepdf::Quarter) {
         let targets = if self.selected_pages.contains(&clicked_idx) {
             self.selected_pages.iter().copied().collect()
         } else {

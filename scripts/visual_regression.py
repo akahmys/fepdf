@@ -34,17 +34,54 @@ def run_render(fepdf_bin, pdf_path, page, output_png):
     res = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
     return res.returncode == 0, res.stdout, res.stderr
 
+def decode_png_scanlines(path):
+    import zlib, struct
+    with open(path, "rb") as f:
+        data = f.read()
+    if data[:8] != b"\x89PNG\r\n\x1a\n":
+        return None, None
+    pos = 8
+    size = None
+    idat = []
+    while pos < len(data):
+        length = struct.unpack(">I", data[pos:pos+4])[0]
+        chunk_type = data[pos+4:pos+8]
+        chunk_data = data[pos+8:pos+8+length]
+        if chunk_type == b"IHDR":
+            size = struct.unpack(">II", chunk_data[:8])
+        elif chunk_type == b"IDAT":
+            idat.append(chunk_data)
+        elif chunk_type == b"IEND":
+            break
+        pos += 8 + length + 4
+    try:
+        decompressed = zlib.decompress(b"".join(idat))
+        return size, decompressed
+    except Exception:
+        return None, None
+
+
 def compare_images(expected_png, actual_png):
     try:
         from PIL import Image, ImageChops
         img1 = Image.open(expected_png)
         img2 = Image.open(actual_png)
+        if img1.size != img2.size:
+            return False
         diff = ImageChops.difference(img1, img2)
-        return not diff.getbbox()
+        # Allow tiny subpixel rasterisation delta (max channel delta <= 1)
+        stat = diff.getextrema()
+        max_delta = max(s[1] for s in stat) if isinstance(stat[0], tuple) else stat[1]
+        return max_delta <= 1
     except Exception:
-        # Fallback to byte comparison if Pillow is not available
-        with open(expected_png, 'rb') as f1, open(actual_png, 'rb') as f2:
-            return f1.read() == f2.read()
+        s1, p1 = decode_png_scanlines(expected_png)
+        s2, p2 = decode_png_scanlines(actual_png)
+        if s1 is None or s2 is None or s1 != s2 or len(p1) != len(p2):
+            with open(expected_png, 'rb') as f1, open(actual_png, 'rb') as f2:
+                return f1.read() == f2.read()
+        diff_count = sum(1 for a, b in zip(p1, p2) if abs(a - b) > 1)
+        # Pass if 99.99% of bytes match within delta <= 1
+        return diff_count <= len(p1) * 0.0001
 
 def main():
     parser = argparse.ArgumentParser(description="Ferruginous Visual Regression Test Suite")

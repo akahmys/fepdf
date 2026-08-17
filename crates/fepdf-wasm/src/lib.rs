@@ -3,7 +3,7 @@
 //! Provides a JavaScript-friendly interface for document loading and rendering.
 
 use bytes::Bytes;
-use fepdf_sdk::PdfDocument as SdkDocument;
+use fepdf::PdfDocument as SdkDocument;
 use wasm_bindgen::prelude::*;
 
 /// A JavaScript-friendly wrapper for a PDF document.

@@ -1,6 +1,6 @@
 use crate::{McpError, McpResult};
 use bytes::Bytes;
-use fepdf_sdk::PdfDocument;
+use fepdf::PdfDocument;
 use schemars::JsonSchema;
 use serde::Deserialize;
 use std::fs;
@@ -23,7 +23,7 @@ pub async fn render_page_impl(args: RenderArgs) -> Result<String, String> {
 fn render_page_internal(args: RenderArgs) -> McpResult<String> {
     let data = fs::read(&args.path).map_err(McpError::from)?;
     let doc = PdfDocument::open(Bytes::from(data))
-        .map_err(|e: fepdf_sdk::PdfError| McpError::Pdf(e.to_string()))?;
+        .map_err(|e: fepdf::PdfError| McpError::Pdf(e.to_string()))?;
 
     let output_dir = PathBuf::from("artifacts/screenshots");
     if !output_dir.exists() {
@@ -38,7 +38,7 @@ fn render_page_internal(args: RenderArgs) -> McpResult<String> {
     let output_path = output_dir.join(filename);
 
     doc.render_page_to_file(args.page_number, &output_path)
-        .map_err(|e: fepdf_sdk::PdfError| McpError::Pdf(e.to_string()))?;
+        .map_err(|e: fepdf::PdfError| McpError::Pdf(e.to_string()))?;
 
     Ok(output_path.to_string_lossy().to_string())
 }

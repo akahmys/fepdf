@@ -69,12 +69,19 @@ def envelope(out, seed, permissions):
 def aes_cbc_encrypt(key, data):
     """AES-256-CBC with a random IV and PKCS#7 padding.
 
-    `aes.py`, not a subprocess: this is called once per string and once per stream, and
-    `samples/intel_sdm.pdf` flattened has 332,000 objects. It is still an independent
-    implementation — a pure-Python AES checked against FIPS-197 — and the asymmetric
-    half, which is the part worth being paranoid about, is still openssl's.
+    Uses `openssl enc` for large stream data (> 1024 bytes) for speed, and `aes.py`
+    (pure Python checked against FIPS-197) for inline strings without subprocess overhead.
+    Both produce identical output.
     """
     iv = secrets.token_bytes(16)
+    if len(data) > 1024:
+        p = subprocess.run(
+            ["openssl", "enc", "-aes-256-cbc", "-K", key.hex(), "-iv", iv.hex()],
+            input=data,
+            capture_output=True,
+            check=True,
+        )
+        return iv + p.stdout
     return iv + aes.cbc_encrypt(key, iv, aes.pkcs7(data))
 
 
@@ -113,30 +120,89 @@ def main():
 
 
 def parse_objects(pdf):
-    """Every `N 0 obj ... endobj` in the source, verbatim, plus the /Root number.
+    """Every `N 0 obj ... endobj` in the source using its cross-reference table.
 
-    A stream's end comes from its `/Length`, not from searching for `endobj`. Searching
-    worked on most files and failed on `samples/fy05.pdf` about half the time, because
-    compressed data contains the bytes `endobj` by chance often enough to matter — and
-    the file changes between runs, so the failure moved. It looked like an engine bug
-    for two rounds of investigation.
-
-    Still narrow in one way: it wants loose objects, which is what `--no-obj-stm` is for.
+    Reading the file's own cross-reference table says exactly where every in-use object
+    starts, avoiding false matches in stream bytes or unreferenced objects.
     """
+    startxref_idx = pdf.rfind(b"startxref")
+    if startxref_idx == -1:
+        raise SystemExit("No startxref found in PDF; use --no-obj-stm output")
+    match = re.search(rb"startxref\s+(\d+)", pdf[startxref_idx:])
+    if not match:
+        raise SystemExit("Malformed startxref")
+    
+    offsets = {}
+    curr_offset = int(match.group(1))
+    trailer_root = None
+
+    while curr_offset is not None:
+        pos = curr_offset
+        if pdf[pos:pos + 4] != b"xref":
+            raise SystemExit("Expected classic xref table; use --no-obj-stm output")
+        pos += 4
+        while pos < len(pdf):
+            while pos < len(pdf) and pdf[pos:pos + 1] in b" \t\r\n":
+                pos += 1
+            if pdf[pos:pos + 7] == b"trailer":
+                pos += 7
+                break
+            m = re.match(rb"(\d+)\s+(\d+)", pdf[pos:])
+            if not m:
+                break
+            first_obj, count = int(m.group(1)), int(m.group(2))
+            pos += m.end()
+            for i in range(count):
+                while pos < len(pdf) and pdf[pos:pos + 1] in b" \r\n":
+                    pos += 1
+                entry_line = pdf[pos:pos + 20]
+                pos += 20
+                em = re.match(rb"(\d{10})\s+(\d{5})\s+([nf])", entry_line)
+                if em:
+                    obj_num = first_obj + i
+                    off = int(em.group(1))
+                    if em.group(3) == b"n" and obj_num not in offsets and off > 0:
+                        offsets[obj_num] = off
+        trailer_m = re.search(rb"<<(.*?)>>", pdf[pos:], re.DOTALL)
+        if trailer_m:
+            trailer_text = trailer_m.group(1)
+            if trailer_root is None:
+                rm = re.search(rb"/Root\s+(\d+)\s+0\s+R", trailer_text)
+                if rm:
+                    trailer_root = int(rm.group(1))
+            pm = re.search(rb"/Prev\s+(\d+)", trailer_text)
+            curr_offset = int(pm.group(1)) if pm else None
+        else:
+            curr_offset = None
+
+    if trailer_root is None:
+        rm = re.search(rb"/Root\s+(\d+)\s+0\s+R", pdf)
+        if rm:
+            trailer_root = int(rm.group(1))
+        else:
+            raise SystemExit("No /Root found in trailer")
+
     objects = {}
-    for match in re.finditer(rb"(?m)^(\d+) 0 obj\r?\n?", pdf):
-        number = int(match.group(1))
-        body_start = match.end()
-        stream = re.compile(rb"stream\r?\n").search(pdf, body_start)
-        end = pdf.find(b"endobj", body_start)
-        if stream and stream.start() < end:
-            length = re.search(rb"/Length\s+(\d+)", pdf[body_start:stream.start()])
-            if not length:
-                raise SystemExit(f"object {number} has no direct /Length; use --no-obj-stm output")
-            end = pdf.find(b"endobj", stream.end() + int(length.group(1)))
-        objects[number] = pdf[body_start:end].rstrip(b"\r\n")
-    root = re.search(rb"/Root\s+(\d+) 0 R", pdf)
-    return objects, int(root.group(1))
+    for obj_num, off in offsets.items():
+        m = re.match(rb"(\d+)\s+(\d+)\s+obj\r?\n?", pdf[off:])
+        if not m:
+            continue
+        body_start = off + m.end()
+        stream_m = re.search(rb"stream\r?\n", pdf[body_start:])
+        endobj_idx = pdf.find(b"endobj", body_start)
+        if stream_m and (body_start + stream_m.start() < endobj_idx):
+            dict_part = pdf[body_start:body_start + stream_m.start()]
+            len_m = re.search(rb"/Length\s+(\d+)", dict_part)
+            if not len_m:
+                raise SystemExit(f"Object {obj_num} has no direct /Length; use --no-obj-stm output")
+            stream_len = int(len_m.group(1))
+            stream_data_start = body_start + stream_m.end()
+            end = pdf.find(b"endobj", stream_data_start + stream_len)
+        else:
+            end = endobj_idx
+        objects[obj_num] = pdf[body_start:end].rstrip(b"\r\n")
+
+    return objects, trailer_root
 
 
 def encrypt_object(number, body, key):

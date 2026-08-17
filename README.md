@@ -108,16 +108,17 @@ disagreement rather than reading as current.
 
 ## The crates
 
-| Crate | |
-| :--- | :--- |
-| `fepdf-model` | The engine: objects, file structure, encryption, fonts, refinement |
-| `fepdf-syntax` | Lexer and cryptographic primitives, and nothing else |
-| `fepdf-sdk` | The API most callers want |
-| `fepdf-cli` | The `fepdf` command |
-| `fepdf-gui` | Desktop application (egui, wgpu, Vello) with CAD measurement and redaction |
-| `fepdf-render`, `fepdf-font`, `fepdf-content` | Rendering, font programs, content streams |
-| `fepdf-mcp` | Model Context Protocol server for structural diagnostics |
-| `fepdf-wasm` | WebAssembly bindings — a stub, see above |
+| `fepdf` | The public facade and API most callers want (`PdfDocument`, `SaveOptions`, `Operation`) |
+| `fepdf-doc` | Canonical mutation operations vocabulary, PDF/UA-2 audit, structure trees, and remediation |
+| `fepdf-model` | The engine: objects, arena, document graph, xref, reader and writer |
+| `fepdf-syntax` | Lexer and cryptographic primitives (RC4, AES-256, CMS signatures) |
+| `fepdf-content` | Content-stream interpreter and backend rendering contract |
+| `fepdf-font` | Font programs: CFF, TrueType, CMap, subsetting, reconstruction |
+| `fepdf-render` | GPU vector rasteriser on Vello + wgpu |
+| `fepdf-cli` | The `fepdf` command-line binary |
+| `fepdf-gui` | Desktop application (egui, wgpu, Vello) with visual inspection and redaction |
+| `fepdf-mcp` | Model Context Protocol server for structural diagnostics and tooling |
+| `fepdf-wasm` | WebAssembly bindings |
 
 ## Contributing
 

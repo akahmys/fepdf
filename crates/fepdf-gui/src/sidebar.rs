@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 /// Presentation node for structure tree hierarchy in GUI.
-pub use fepdf_sdk::StructureTreeNode as USTNode;
+pub use fepdf::StructureTreeNode as USTNode;
 
 #[derive(Serialize, Deserialize)]
 pub struct USTRegistry {
@@ -313,13 +313,13 @@ impl SidebarPanel {
         tx_worker: &std::sync::mpsc::Sender<crate::worker::WorkerRequest>,
         pdf_name: &Option<String>,
         total_pages: usize,
-        metadata: &Option<fepdf_sdk::MetadataInfo>,
+        metadata: &Option<fepdf::MetadataInfo>,
         file_size: Option<usize>,
         pdf_version: &Option<String>,
         security_method: &Option<String>,
         permissions: Option<i32>,
         page_sizes: &[(f64, f64)],
-        fonts: &[fepdf_sdk::FontSummary],
+        fonts: &[fepdf::FontSummary],
         locale_mgr: &crate::locale::LocaleManager,
         active_lang: &str,
     ) {
@@ -386,13 +386,13 @@ impl SidebarPanel {
         ui: &mut egui::Ui,
         pdf_name: &Option<String>,
         total_pages: usize,
-        metadata: &Option<fepdf_sdk::MetadataInfo>,
+        metadata: &Option<fepdf::MetadataInfo>,
         file_size: Option<usize>,
         pdf_version: &Option<String>,
         security_method: &Option<String>,
         permissions: Option<i32>,
         page_sizes: &[(f64, f64)],
-        fonts: &[fepdf_sdk::FontSummary],
+        fonts: &[fepdf::FontSummary],
         locale_mgr: &crate::locale::LocaleManager,
         active_lang: &str,
     ) {
@@ -506,7 +506,7 @@ impl SidebarPanel {
                         // `render_row` takes `&str`, so these borrow from the metadata
                         // rather than copying it out field by field.
                         const EMPTY: &str = "-";
-                        let field = |pick: fn(&fepdf_sdk::MetadataInfo) -> Option<&String>| {
+                        let field = |pick: fn(&fepdf::MetadataInfo) -> Option<&String>| {
                             metadata.as_ref().and_then(pick).map_or(EMPTY, String::as_str)
                         };
                         let title = field(|m| m.title.as_ref());

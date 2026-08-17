@@ -47,8 +47,11 @@ cargo test --workspace
 - **`fepdf-render`**:
   - `tests/path_tests.rs`: Bezier curves, path bounds, transformation matrices.
   - `tests/text_tests.rs`: Text positioning and text matrix initialization.
-- **`fepdf-sdk`**:
-  - `src/tests.rs`: Color space conversions, object stream packing, R5 key derivation, document upgrade & retagging.
+- **`fepdf`**:
+  - `tests/sdk_tests.rs`: Facade API, color conversions, rotation modes, document lifecycle.
+  - `tests/backend_operations_test.rs`: Document mutation operations execution.
+  - `tests/encrypted_objstm_test.rs`: Encrypted object stream ingestion.
+  - `tests/pattern_color_test.rs`: Pattern color extraction.
 - **`fepdf-mcp`**:
   - `tests/mcp_server_tests.rs`: Model Context Protocol server error display and schema validation.
 

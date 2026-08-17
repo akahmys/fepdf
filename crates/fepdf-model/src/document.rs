@@ -91,10 +91,58 @@ pub struct PdfCatalog {
     pub viewer_preferences: Option<ViewerPreferences>,
     #[pdf_key("Lang")]
     /// `/Lang`: the natural language of the document's text (14.9.2.1), as a BCP 47 tag.
-    ///
-    /// Written by `--lang` since clause 14.9 landed and read as untyped until now — the
-    /// engine could set it and not say what it was.
     pub lang: Option<String>,
+    #[pdf_key("Type")]
+    /// `/Type`: the type of PDF object this dictionary describes; must be `Catalog` (7.7.2).
+    pub catalog_type: Option<Handle<PdfName>>,
+    #[pdf_key("PageLabels")]
+    /// `/PageLabels`: number tree mapping page indices to page labels (12.4.2).
+    pub page_labels: Option<Object>,
+    #[pdf_key("Threads")]
+    /// `/Threads`: array of article thread dictionaries (12.4.3).
+    pub threads: Option<Object>,
+    #[pdf_key("OutputIntents")]
+    /// `/OutputIntents`: array of output intent dictionaries (14.11.2).
+    pub output_intents: Option<Object>,
+    #[pdf_key("OCProperties")]
+    /// `/OCProperties`: optional content properties dictionary (8.11).
+    pub oc_properties: Option<Object>,
+    #[pdf_key("Collection")]
+    /// `/Collection`: collection dictionary for document portfolios (12.3.5).
+    pub collection: Option<Object>,
+    #[pdf_key("AF")]
+    /// `/AF`: array of file specification dictionaries for associated files (14.13).
+    pub associated_files: Option<Object>,
+    #[pdf_key("Extensions")]
+    /// `/Extensions`: developer extensions dictionary (7.12).
+    pub extensions: Option<Object>,
+    #[pdf_key("URI")]
+    /// `/URI`: document-level URI dictionary (12.6.4.7).
+    pub uri: Option<Object>,
+    #[pdf_key("SpiderInfo")]
+    /// `/SpiderInfo`: Web Capture information dictionary (14.10.2).
+    pub spider_info: Option<Object>,
+    #[pdf_key("PieceInfo")]
+    /// `/PieceInfo`: page-piece dictionary (14.5).
+    pub piece_info: Option<Object>,
+    #[pdf_key("Perms")]
+    /// `/Perms`: permissions dictionary (12.8.4).
+    pub perms: Option<Object>,
+    #[pdf_key("Legal")]
+    /// `/Legal`: legal attestation dictionary (12.8.5).
+    pub legal: Option<Object>,
+    #[pdf_key("Requirements")]
+    /// `/Requirements`: requirement dictionaries array (12.10).
+    pub requirements: Option<Object>,
+    #[pdf_key("NeedsRendering")]
+    /// `/NeedsRendering`: flag indicating whether appearance streams must be generated (12.7.2).
+    pub needs_rendering: Option<bool>,
+    #[pdf_key("DSS")]
+    /// `/DSS`: Document Security Store dictionary (12.8.4.3).
+    pub dss: Option<Object>,
+    #[pdf_key("DPartRoot")]
+    /// `/DPartRoot`: Document Part hierarchy root dictionary (14.12).
+    pub dpart_root: Option<Object>,
 }
 
 /// `/ViewerPreferences` (12.2, Table 147): how the document asks to be presented.
@@ -824,6 +872,11 @@ impl Document {
             .ok_or_else(|| PdfError::Other("Page index out of bounds".into()))?;
         let parent_chain = self.get_parent_chain(*page_handle);
         Ok(Page::new(&self.arena, *page_handle, parent_chain))
+    }
+
+    /// Returns the handle of a specific page by its 0-based index.
+    pub fn get_page_handle(&self, index: usize) -> Option<Handle<Object>> {
+        self.pages.get(index).copied()
     }
 
     /// Page order swap operation (O(1) logical swap with immediate B-tree arena synchronization)

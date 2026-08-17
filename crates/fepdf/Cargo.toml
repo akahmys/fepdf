@@ -1,0 +1,52 @@
+[package]
+name = "fepdf"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+fepdf-model.workspace = true
+fepdf-content.workspace = true
+fepdf-doc.workspace = true
+# Rasterisation is opt-in: only `render_page_to_file` needs it, and pulling
+# vello + wgpu into every SDK consumer is not free. See ARCHITECTURE.md Rule B.
+fepdf-render = { workspace = true, optional = true }
+kurbo.workspace = true
+thiserror.workspace = true
+serde.workspace = true
+bytes.workspace = true
+ttf-parser.workspace = true
+skrifa.workspace = true
+roxmltree.workspace = true
+image = { workspace = true, optional = true }
+tokio.workspace = true
+pollster = { workspace = true, optional = true }
+flate2.workspace = true
+chrono.workspace = true
+log.workspace = true
+env_logger.workspace = true
+hex.workspace = true
+md5.workspace = true
+x509-parser.workspace = true
+
+[features]
+default = []
+## Enables `PdfDocument::render_page_to_file`, backed by Vello + wgpu.
+render = ["dep:fepdf-render", "dep:pollster", "dep:image"]
+## Forwards fepdf-model's glyph tracing, used by `fepdf debug trace-font`.
+debug-tools = ["fepdf-model/debug-tools"]
+
+[lints]
+workspace = true
+
+[[example]]
+name = "render_all_samples"
+required-features = ["render"]
+
+[[example]]
+name = "render_japanese_samples"
+required-features = ["render"]
+

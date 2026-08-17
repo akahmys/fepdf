@@ -4,7 +4,7 @@
 set -e
 
 ERROR=0
-TARGET_DIRS="crates/fepdf-syntax crates/fepdf-font crates/fepdf-model crates/fepdf-content crates/fepdf-render crates/fepdf-sdk crates/fepdf-mcp crates/fepdf-wasm crates/fepdf-gui crates/fepdf-cli"
+TARGET_DIRS="crates/fepdf-syntax crates/fepdf-font crates/fepdf-model crates/fepdf-content crates/fepdf-doc crates/fepdf-render crates/fepdf crates/fepdf-mcp crates/fepdf-wasm crates/fepdf-gui crates/fepdf-cli"
 
 # Ensure cargo is available
 if ! command -v cargo &> /dev/null; then
@@ -185,11 +185,9 @@ done <<< "$rule5_raw"
 echo "[Rule 7] Checking for static mut..."
 grep -rn "static mut" $TARGET_DIRS --include="*.rs" && { echo "  FAIL: Global mutable state found"; ERROR=1; } || echo "  PASS"
 
-# Rule 10: Determinism (no HashMap/HashSet in the crates that decide byte output)
-#
-# fepdf-sdk owns the writer, so iteration order there reaches the produced
-# PDF just as directly as it does in core. It was previously unchecked.
-RULE10_DIRS="crates/fepdf-syntax crates/fepdf-model crates/fepdf-content crates/fepdf-render crates/fepdf-sdk"
+# fepdf owns the facade and writer delegation, so iteration order there reaches
+# the produced PDF just as directly as it does in model/doc.
+RULE10_DIRS="crates/fepdf-syntax crates/fepdf-model crates/fepdf-content crates/fepdf-doc crates/fepdf-render crates/fepdf"
 echo "[Rule 10] Checking for non-deterministic collections..."
 rule10_failed=0
 while read -r file; do

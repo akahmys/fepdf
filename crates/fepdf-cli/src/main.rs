@@ -4,7 +4,7 @@
 
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
-use fepdf_sdk::{PdfDocument, PdfStandard, TraceContext};
+use fepdf::{PdfDocument, PdfStandard, TraceContext};
 use inquire::Confirm;
 use std::path::PathBuf;
 
@@ -25,9 +25,10 @@ struct IngestArgs {
     /// them into one state and reporting where they disagree (14.3.3)
     #[arg(long)]
     no_metadata_recovery: bool,
-    // Hidden for the same reason: nothing reads `color_policy`. See ADR-0007.
+    // Visible again: ADR-0007 hid this because nothing read `color_policy`.
+    // Color space validation (Clause 8.6) in active refinement now reads it.
     /// Use relaxed color validation policy
-    #[arg(long, hide = true)]
+    #[arg(long)]
     relaxed_color: bool,
     /// Force fallback to system fonts if embedded font parsing fails
     #[arg(long)]
@@ -45,15 +46,15 @@ struct IngestArgs {
     recipient_key: Option<PathBuf>,
 }
 
-impl From<IngestArgs> for fepdf_sdk::IngestionOptions {
+impl From<IngestArgs> for fepdf::IngestionOptions {
     fn from(args: IngestArgs) -> Self {
         Self {
             active_refinement: !args.no_refinement,
             sublime_metadata: !args.no_metadata_recovery,
             color_policy: if args.relaxed_color {
-                fepdf_sdk::ColorPolicy::Relaxed
+                fepdf::ColorPolicy::Relaxed
             } else {
-                fepdf_sdk::ColorPolicy::Strict
+                fepdf::ColorPolicy::Strict
             },
             force_fallback: args.force_fallback,
             password: args.password,
@@ -170,7 +171,7 @@ impl SaveArgs {
     }
 }
 
-impl From<SaveArgs> for fepdf_sdk::SaveOptions {
+impl From<SaveArgs> for fepdf::SaveOptions {
     fn from(args: SaveArgs) -> Self {
         Self {
             compress: !args.no_compress,
@@ -193,8 +194,8 @@ impl From<SaveArgs> for fepdf_sdk::SaveOptions {
             copyright: args.copyright,
             permissions: args.permissions,
             string_encoding: match args.string_encoding.to_lowercase().as_str() {
-                "utf8" => fepdf_sdk::StringEncoding::Utf8,
-                _ => fepdf_sdk::StringEncoding::Utf16BE,
+                "utf8" => fepdf::StringEncoding::Utf8,
+                _ => fepdf::StringEncoding::Utf16BE,
             },
             creation_date: None,
             dry_run: args.dry_run,
@@ -411,10 +412,6 @@ enum EditSubcommands {
         save: SaveArgs,
     },
     /// Create a PDF Portfolio / Collection
-    // Hidden until the backing Operation is implemented: it currently returns
-    // PdfError::NotImplemented, so listing it in --help would advertise a
-    // capability the tool does not have.
-    #[command(hide = true)]
     Portfolio {
         /// Output PDF portfolio file
         #[arg(short, long)]
@@ -433,10 +430,6 @@ enum EditSubcommands {
         save: SaveArgs,
     },
     /// Apply Bates numbering to PDF pages
-    // Hidden until the backing Operation is implemented: it currently returns
-    // PdfError::NotImplemented, so listing it in --help would advertise a
-    // capability the tool does not have.
-    #[command(hide = true)]
     Bates {
         /// Input PDF file
         input: PathBuf,
@@ -460,10 +453,6 @@ enum EditSubcommands {
         save: SaveArgs,
     },
     /// Attach an Associated File (/AF) to PDF
-    // Hidden until the backing Operation is implemented: it currently returns
-    // PdfError::NotImplemented, so listing it in --help would advertise a
-    // capability the tool does not have.
-    #[command(hide = true)]
     Attach {
         /// Input PDF file
         input: PathBuf,
@@ -487,10 +476,6 @@ enum EditSubcommands {
         save: SaveArgs,
     },
     /// Set page numbering labels (/PageLabels)
-    // Hidden until the backing Operation is implemented: it currently returns
-    // PdfError::NotImplemented, so listing it in --help would advertise a
-    // capability the tool does not have.
-    #[command(hide = true)]
     PageLabel {
         /// Input PDF file
         input: PathBuf,
@@ -511,10 +496,6 @@ enum EditSubcommands {
         save: SaveArgs,
     },
     /// Set GIS geographic anchor (/Geo)
-    // Hidden until the backing Operation is implemented: it currently returns
-    // PdfError::NotImplemented, so listing it in --help would advertise a
-    // capability the tool does not have.
-    #[command(hide = true)]
     Geo {
         /// Input PDF file
         input: PathBuf,
@@ -839,7 +820,7 @@ fn handle_merge(
 ) -> Result<()> {
     println!("fepdf merge: Combining {} files into {}", inputs.len(), output.display());
     let mut sources = Vec::new();
-    let ingest_options: fepdf_sdk::IngestionOptions = ingest.into();
+    let ingest_options: fepdf::IngestionOptions = ingest.into();
     for path in inputs {
         let data =
             std::fs::read(&path).with_context(|| format!("Failed to read {}", path.display()))?;
@@ -850,7 +831,7 @@ fn handle_merge(
 
     let merged = PdfDocument::merge(sources).map_err(|e| anyhow::anyhow!("{e:?}"))?;
     save.check()?;
-    let save_options: fepdf_sdk::SaveOptions = save.into();
+    let save_options: fepdf::SaveOptions = save.into();
     save_reporting_permissions(&merged, &output, &save_options)?;
     println!("SUCCESS: Merged output saved to {}", output.display());
     Ok(())
@@ -865,7 +846,7 @@ fn handle_split(
 ) -> Result<()> {
     println!("fepdf split: Extracting pages from {}", input.display());
     let data = std::fs::read(&input).with_context(|| "Failed to read input")?;
-    let ingest_options: fepdf_sdk::IngestionOptions = ingest.into();
+    let ingest_options: fepdf::IngestionOptions = ingest.into();
     let doc = PdfDocument::open_with_options(data.into(), &ingest_options)
         .map_err(|e| anyhow::anyhow!("{e:?}"))?;
     let page_count = doc.page_count().map_err(|e| anyhow::anyhow!("{e:?}"))?;
@@ -876,14 +857,14 @@ fn handle_split(
     let extracted = doc.extract_pages(target_indices).map_err(|e| anyhow::anyhow!("{e:?}"))?;
 
     save.check()?;
-    let save_options: fepdf_sdk::SaveOptions = save.into();
+    let save_options: fepdf::SaveOptions = save.into();
     save_reporting_permissions(&extracted, &output, &save_options)?;
     println!("SUCCESS: Extracted output saved to {}", output.display());
     Ok(())
 }
 
 fn render_summary_markdown(
-    summary: &fepdf_sdk::DocumentSummary,
+    summary: &fepdf::DocumentSummary,
     input: &std::path::Path,
     audit: bool,
 ) -> Result<()> {
@@ -898,7 +879,7 @@ fn render_summary_markdown(
     Ok(())
 }
 
-fn render_general_info(summary: &fepdf_sdk::DocumentSummary) {
+fn render_general_info(summary: &fepdf::DocumentSummary) {
     println!("\n## General Information");
     println!("\n| Property | Value |");
     println!("| :--- | :--- |");
@@ -924,7 +905,7 @@ fn render_general_info(summary: &fepdf_sdk::DocumentSummary) {
     }
 }
 
-fn render_font_audit(summary: &fepdf_sdk::DocumentSummary) {
+fn render_font_audit(summary: &fepdf::DocumentSummary) {
     let embedded_count = summary.fonts.iter().filter(|f| f.is_embedded).count();
     let total_fonts = summary.fonts.len();
 
@@ -946,23 +927,20 @@ fn render_font_audit(summary: &fepdf_sdk::DocumentSummary) {
     }
 }
 
-fn render_compliance_markdown(summary: &fepdf_sdk::DocumentSummary) -> Result<()> {
+fn render_compliance_markdown(summary: &fepdf::DocumentSummary) -> Result<()> {
     let errors = summary
         .compliance
         .issues
         .iter()
         .filter(|i| {
-            matches!(
-                i.severity,
-                fepdf_sdk::IssueSeverity::Error | fepdf_sdk::IssueSeverity::Critical
-            )
+            matches!(i.severity, fepdf::IssueSeverity::Error | fepdf::IssueSeverity::Critical)
         })
         .count();
     let warnings = summary
         .compliance
         .issues
         .iter()
-        .filter(|i| matches!(i.severity, fepdf_sdk::IssueSeverity::Warning))
+        .filter(|i| matches!(i.severity, fepdf::IssueSeverity::Warning))
         .count();
     println!("\n## Compliance Audit (UA-2)");
     println!("**Summary**: {errors} Errors, {warnings} Warnings");
@@ -972,10 +950,10 @@ fn render_compliance_markdown(summary: &fepdf_sdk::DocumentSummary) -> Result<()
         println!("| :--- | :--- | :--- |");
         for issue in &summary.compliance.issues {
             let icon = match issue.severity {
-                fepdf_sdk::IssueSeverity::Critical => "🚨",
-                fepdf_sdk::IssueSeverity::Error => "❌",
-                fepdf_sdk::IssueSeverity::Warning => "⚠️",
-                fepdf_sdk::IssueSeverity::Info => "ℹ️",
+                fepdf::IssueSeverity::Critical => "🚨",
+                fepdf::IssueSeverity::Error => "❌",
+                fepdf::IssueSeverity::Warning => "⚠️",
+                fepdf::IssueSeverity::Info => "ℹ️",
             };
             println!("| {} {:?} | {} | {} |", icon, issue.severity, issue.standard, issue.message);
         }
@@ -995,7 +973,7 @@ fn render_compliance_markdown(summary: &fepdf_sdk::DocumentSummary) -> Result<()
 
 fn render_summary_text(
     doc: &PdfDocument,
-    summary: &fepdf_sdk::DocumentSummary,
+    summary: &fepdf::DocumentSummary,
     audit: bool,
     structure: bool,
 ) -> Result<()> {
@@ -1022,7 +1000,7 @@ fn handle_info(input: PathBuf, format: String, ingest: IngestArgs) -> Result<()>
         println!("fepdf info: Analyzing {}", input.display());
     }
     let data = std::fs::read(&input).with_context(|| "Failed to read input")?;
-    let ingest_options: fepdf_sdk::IngestionOptions = ingest.into();
+    let ingest_options: fepdf::IngestionOptions = ingest.into();
     let doc = PdfDocument::open_with_options(data.into(), &ingest_options)
         .map_err(|e| anyhow::anyhow!("{e:?}"))?;
     let summary = doc.get_summary().map_err(|e| anyhow::anyhow!("{e:?}"))?;
@@ -1041,25 +1019,25 @@ fn handle_info(input: PathBuf, format: String, ingest: IngestArgs) -> Result<()>
 /// `info`, `audit`, `catalog`, `interactive` and `structure`. Before this, only the
 /// audit showed them, and it showed them laundered: every decision reached the summary
 /// as a compliance issue at `Warning`, whatever severity the engine had assigned.
-fn render_decisions_text(decisions: &[fepdf_sdk::Decision]) {
+fn render_decisions_text(decisions: &[fepdf::Decision]) {
     println!("\n--- [ DECISIONS TAKEN READING (5.3) ] ---");
     if decisions.is_empty() {
         println!("  none — the file was read without departing from the standard");
         return;
     }
-    let count = |s: fepdf_sdk::Severity| decisions.iter().filter(|d| d.severity == s).count();
+    let count = |s: fepdf::Severity| decisions.iter().filter(|d| d.severity == s).count();
     println!(
         "  {} ambiguities, {} repairs, {} violations",
-        count(fepdf_sdk::Severity::Ambiguity),
-        count(fepdf_sdk::Severity::Repaired),
-        count(fepdf_sdk::Severity::Violation)
+        count(fepdf::Severity::Ambiguity),
+        count(fepdf::Severity::Repaired),
+        count(fepdf::Severity::Violation)
     );
     for d in decisions {
         println!("  {d}");
     }
 }
 
-fn render_decisions_markdown(decisions: &[fepdf_sdk::Decision]) {
+fn render_decisions_markdown(decisions: &[fepdf::Decision]) {
     println!("\n## Decisions taken reading\n");
     if decisions.is_empty() {
         println!("None — the file was read without departing from the standard.");
@@ -1083,7 +1061,7 @@ fn render_decisions_markdown(decisions: &[fepdf_sdk::Decision]) {
 fn save_reporting_permissions(
     doc: &PdfDocument,
     output: &std::path::Path,
-    save_options: &fepdf_sdk::SaveOptions,
+    save_options: &fepdf::SaveOptions,
 ) -> Result<()> {
     let decisions =
         doc.save_with_options(output, "2.0", save_options).map_err(|e| anyhow::anyhow!("{e:?}"))?;
@@ -1092,7 +1070,7 @@ fn save_reporting_permissions(
 }
 
 /// Prints what a write cost, if anything.
-fn report_write_decisions(decisions: &[fepdf_sdk::Decision]) {
+fn report_write_decisions(decisions: &[fepdf::Decision]) {
     for decision in decisions {
         eprintln!("{decision}");
     }
@@ -1109,7 +1087,7 @@ fn handle_encryption(
     let data = std::fs::read(input).with_context(|| "Failed to read input")?;
     let identity = match (certificate, private_key) {
         (Some(certificate), Some(key)) => Some(
-            fepdf_sdk::RecipientIdentity::from_der(
+            fepdf::RecipientIdentity::from_der(
                 &std::fs::read(&certificate).with_context(|| "Failed to read the certificate")?,
                 &std::fs::read(&key).with_context(|| "Failed to read the private key")?,
             )
@@ -1117,9 +1095,9 @@ fn handle_encryption(
         ),
         _ => None,
     };
-    let report = fepdf_sdk::EncryptionReport::survey(
+    let report = fepdf::EncryptionReport::survey(
         &data,
-        fepdf_sdk::Credentials { password, recipient: identity.as_ref() },
+        fepdf::Credentials { password, recipient: identity.as_ref() },
     )
     .map_err(|e| anyhow::anyhow!("{e:?}"))?;
 
@@ -1131,15 +1109,15 @@ fn handle_encryption(
     Ok(())
 }
 
-fn conformance_label(c: fepdf_sdk::Conformance) -> &'static str {
+fn conformance_label(c: fepdf::Conformance) -> &'static str {
     match c {
-        fepdf_sdk::Conformance::Implemented => "implemented",
-        fepdf_sdk::Conformance::NonConformant => "NON-CONFORMANT",
-        fepdf_sdk::Conformance::Unsupported => "UNSUPPORTED",
+        fepdf::Conformance::Implemented => "implemented",
+        fepdf::Conformance::NonConformant => "NON-CONFORMANT",
+        fepdf::Conformance::Unsupported => "UNSUPPORTED",
     }
 }
 
-fn render_encryption_text(r: &fepdf_sdk::EncryptionReport, input: &std::path::Path) {
+fn render_encryption_text(r: &fepdf::EncryptionReport, input: &std::path::Path) {
     println!("fepdf encryption: {}", input.display());
     render_payload_text(r);
     if !r.encrypted {
@@ -1192,7 +1170,7 @@ fn render_encryption_text(r: &fepdf_sdk::EncryptionReport, input: &std::path::Pa
     render_decisions_text(&r.decisions);
 }
 
-fn render_encryption_permissions(r: &fepdf_sdk::EncryptionReport) {
+fn render_encryption_permissions(r: &fepdf::EncryptionReport) {
     println!("\n--- [ PERMISSIONS (7.6.4.2, Table 22) ] ---");
     let Some(bits) = r.permission_bits else {
         println!("  /P is absent or unreadable");
@@ -1206,7 +1184,7 @@ fn render_encryption_permissions(r: &fepdf_sdk::EncryptionReport) {
     }
 }
 
-fn render_encryption_markdown(r: &fepdf_sdk::EncryptionReport, input: &std::path::Path) {
+fn render_encryption_markdown(r: &fepdf::EncryptionReport, input: &std::path::Path) {
     println!("# Encryption: {}", input.display());
     if !r.encrypted {
         println!("\nNo `/Encrypt` — the document is not protected.");
@@ -1243,7 +1221,7 @@ fn opt<T: std::fmt::Display>(value: Option<T>) -> String {
 /// Nothing here decrypts anything, and cannot: the payload is protected by a handler
 /// this standard does not define. Naming the filter is the service the clause exists to
 /// provide — a reader without it can still tell the user what they need.
-fn render_payload_text(r: &fepdf_sdk::EncryptionReport) {
+fn render_payload_text(r: &fepdf::EncryptionReport) {
     let Some(p) = &r.payload else { return };
     println!("\n--- [ ENCRYPTED PAYLOAD (7.6.7) ] ---");
     println!("  this file is an unencrypted wrapper; its content is embedded and encrypted");
@@ -1273,8 +1251,7 @@ fn render_payload_text(r: &fepdf_sdk::EncryptionReport) {
 /// Reports what a reader could interact with (clause 12).
 fn handle_interactive(input: &std::path::Path, format: &str) -> Result<()> {
     let data = std::fs::read(input).with_context(|| "Failed to read input")?;
-    let report =
-        fepdf_sdk::InteractiveReport::survey(&data).map_err(|e| anyhow::anyhow!("{e:?}"))?;
+    let report = fepdf::InteractiveReport::survey(&data).map_err(|e| anyhow::anyhow!("{e:?}"))?;
 
     match format {
         "json" => println!("{}", serde_json::to_string_pretty(&report)?),
@@ -1284,7 +1261,7 @@ fn handle_interactive(input: &std::path::Path, format: &str) -> Result<()> {
     Ok(())
 }
 
-fn render_interactive_text(r: &fepdf_sdk::InteractiveReport, input: &std::path::Path) {
+fn render_interactive_text(r: &fepdf::InteractiveReport, input: &std::path::Path) {
     println!("fepdf interactive: {}", input.display());
     if r.is_empty() {
         println!(
@@ -1310,7 +1287,7 @@ fn render_interactive_text(r: &fepdf_sdk::InteractiveReport, input: &std::path::
     render_decisions_text(&r.decisions);
 }
 
-fn render_interactive_annotations(r: &fepdf_sdk::InteractiveReport) {
+fn render_interactive_annotations(r: &fepdf::InteractiveReport) {
     println!("\n--- [ ANNOTATIONS (12.5) ] ---");
     if r.annotations.total == 0 {
         println!("  none");
@@ -1328,7 +1305,7 @@ fn render_interactive_annotations(r: &fepdf_sdk::InteractiveReport) {
     }
 }
 
-fn render_interactive_form(r: &fepdf_sdk::InteractiveReport) {
+fn render_interactive_form(r: &fepdf::InteractiveReport) {
     println!("\n--- [ FORM (12.7) ] ---");
     if !r.form.declared {
         println!("  no /AcroForm");
@@ -1346,7 +1323,7 @@ fn render_interactive_form(r: &fepdf_sdk::InteractiveReport) {
     }
 }
 
-fn render_interactive_outline(r: &fepdf_sdk::InteractiveReport) {
+fn render_interactive_outline(r: &fepdf::InteractiveReport) {
     println!("\n--- [ OUTLINE (12.3.3) ] ---");
     if !r.outline.present {
         println!("  no /Outlines");
@@ -1366,7 +1343,7 @@ fn render_interactive_outline(r: &fepdf_sdk::InteractiveReport) {
 /// things and the corpus separates them: `volvo_xc90.pdf` declares 651 and references
 /// 698, `intel_sdm.pdf` declares 279,501 and references 25,946. A single "destinations"
 /// figure would have said neither.
-fn render_interactive_destinations(r: &fepdf_sdk::InteractiveReport) {
+fn render_interactive_destinations(r: &fepdf::InteractiveReport) {
     let d = &r.destinations;
     println!("\n--- [ DESTINATIONS (12.3.2) ] ---");
     let declared = d.declared();
@@ -1417,7 +1394,7 @@ fn render_interactive_destinations(r: &fepdf_sdk::InteractiveReport) {
     }
 }
 
-fn render_interactive_markdown(r: &fepdf_sdk::InteractiveReport, input: &std::path::Path) {
+fn render_interactive_markdown(r: &fepdf::InteractiveReport, input: &std::path::Path) {
     println!("# Interactive features: {}", input.display());
     println!("\n| Feature | Value |");
     println!("| :--- | :--- |");
@@ -1464,7 +1441,7 @@ fn render_interactive_markdown(r: &fepdf_sdk::InteractiveReport, input: &std::pa
 /// from "what is in this document" into "what the engine understands at all".
 fn handle_catalog(input: &std::path::Path, format: &str, all: bool) -> Result<()> {
     let data = std::fs::read(input).with_context(|| "Failed to read input")?;
-    let report = fepdf_sdk::CatalogReport::survey(&data).map_err(|e| anyhow::anyhow!("{e:?}"))?;
+    let report = fepdf::CatalogReport::survey(&data).map_err(|e| anyhow::anyhow!("{e:?}"))?;
 
     match format {
         "json" => println!("{}", serde_json::to_string_pretty(&report)?),
@@ -1474,15 +1451,15 @@ fn handle_catalog(input: &std::path::Path, format: &str, all: bool) -> Result<()
     Ok(())
 }
 
-fn support_label(s: fepdf_sdk::Support) -> &'static str {
+fn support_label(s: fepdf::Support) -> &'static str {
     match s {
-        fepdf_sdk::Support::Typed => "typed",
-        fepdf_sdk::Support::TypeOnly => "type only",
-        fepdf_sdk::Support::Untyped => "untyped",
+        fepdf::Support::Typed => "typed",
+        fepdf::Support::TypeOnly => "type only",
+        fepdf::Support::Untyped => "untyped",
     }
 }
 
-fn render_catalog_text(r: &fepdf_sdk::CatalogReport, input: &std::path::Path, all: bool) {
+fn render_catalog_text(r: &fepdf::CatalogReport, input: &std::path::Path, all: bool) {
     println!("fepdf catalog: {}", input.display());
 
     let (read, type_only, preserved) = r.support_counts();
@@ -1524,7 +1501,7 @@ fn render_catalog_text(r: &fepdf_sdk::CatalogReport, input: &std::path::Path, al
     render_decisions_text(&r.decisions);
 }
 
-fn render_catalog_markdown(r: &fepdf_sdk::CatalogReport, input: &std::path::Path) {
+fn render_catalog_markdown(r: &fepdf::CatalogReport, input: &std::path::Path) {
     println!("# Catalogue: {}", input.display());
     println!("\n| Key | Support | In 7.7.2 | Value |");
     println!("| :--- | :--- | :---: | :--- |");
@@ -1550,8 +1527,7 @@ fn render_catalog_markdown(r: &fepdf_sdk::CatalogReport, input: &std::path::Path
 /// `Document`, which is why it stays fast on a file with 341,321 objects.
 fn handle_structure(input: &std::path::Path, format: &str) -> Result<()> {
     let data = std::fs::read(input).with_context(|| "Failed to read input")?;
-    let structure =
-        fepdf_sdk::FileStructure::survey(&data).map_err(|e| anyhow::anyhow!("{e:?}"))?;
+    let structure = fepdf::FileStructure::survey(&data).map_err(|e| anyhow::anyhow!("{e:?}"))?;
 
     match format {
         "json" => println!("{}", serde_json::to_string_pretty(&structure)?),
@@ -1561,7 +1537,7 @@ fn handle_structure(input: &std::path::Path, format: &str) -> Result<()> {
     Ok(())
 }
 
-fn render_structure_text(s: &fepdf_sdk::FileStructure, input: &std::path::Path) {
+fn render_structure_text(s: &fepdf::FileStructure, input: &std::path::Path) {
     println!("fepdf structure: {}", input.display());
 
     println!("\n--- [ FILE ] ---");
@@ -1580,7 +1556,7 @@ fn render_structure_text(s: &fepdf_sdk::FileStructure, input: &std::path::Path) 
     render_structure_decisions(s);
 }
 
-fn render_structure_revisions(s: &fepdf_sdk::FileStructure) {
+fn render_structure_revisions(s: &fepdf::FileStructure) {
     println!("\n--- [ REVISIONS (7.5.6) ] ---");
     if s.revisions.is_empty() {
         println!("  none readable — the cross-reference was reconstructed by scanning");
@@ -1602,7 +1578,7 @@ fn render_structure_revisions(s: &fepdf_sdk::FileStructure) {
     }
 }
 
-fn render_structure_objects(s: &fepdf_sdk::FileStructure) {
+fn render_structure_objects(s: &fepdf::FileStructure) {
     println!("\n--- [ OBJECTS ] ---");
     if s.objects.from_scan {
         println!("Source:           recovered by scanning; the cross-reference gave nothing");
@@ -1625,11 +1601,11 @@ fn render_structure_objects(s: &fepdf_sdk::FileStructure) {
     }
 }
 
-fn render_structure_decisions(s: &fepdf_sdk::FileStructure) {
+fn render_structure_decisions(s: &fepdf::FileStructure) {
     render_decisions_text(&s.decisions);
 }
 
-fn render_structure_markdown(s: &fepdf_sdk::FileStructure, input: &std::path::Path) {
+fn render_structure_markdown(s: &fepdf::FileStructure, input: &std::path::Path) {
     println!("# File structure: {}", input.display());
     println!("\n| Property | Value |");
     println!("| :--- | :--- |");
@@ -1674,7 +1650,7 @@ fn handle_audit(input: PathBuf, format: String, ingest: IngestArgs) -> Result<()
         println!("fepdf audit: Performing compliance check on {}", input.display());
     }
     let data = std::fs::read(&input).with_context(|| "Failed to read input")?;
-    let ingest_options: fepdf_sdk::IngestionOptions = ingest.into();
+    let ingest_options: fepdf::IngestionOptions = ingest.into();
     let doc = PdfDocument::open_with_options(data.into(), &ingest_options)
         .map_err(|e| anyhow::anyhow!("{e:?}"))?;
     let summary = doc.get_summary().map_err(|e| anyhow::anyhow!("{e:?}"))?;
@@ -1690,7 +1666,7 @@ fn handle_audit(input: PathBuf, format: String, ingest: IngestArgs) -> Result<()
 fn handle_debug_dump(input: PathBuf, obj_id: u32, _gen_num: u16, ingest: IngestArgs) -> Result<()> {
     println!("fepdf debug dump: Object {obj_id} from {}", input.display());
     let data = std::fs::read(&input).with_context(|| "Failed to read input")?;
-    let ingest_options: fepdf_sdk::IngestionOptions = ingest.into();
+    let ingest_options: fepdf::IngestionOptions = ingest.into();
     let doc = PdfDocument::open_with_options(data.into(), &ingest_options)
         .map_err(|e| anyhow::anyhow!("{e:?}"))?;
 
@@ -1702,7 +1678,7 @@ fn handle_debug_dump(input: PathBuf, obj_id: u32, _gen_num: u16, ingest: IngestA
 fn handle_debug_structure(input: PathBuf, ingest: IngestArgs) -> Result<()> {
     println!("fepdf debug structure: Hierarchical tree for {}", input.display());
     let data = std::fs::read(&input).with_context(|| "Failed to read input")?;
-    let ingest_options: fepdf_sdk::IngestionOptions = ingest.into();
+    let ingest_options: fepdf::IngestionOptions = ingest.into();
     let doc = PdfDocument::open_with_options(data.into(), &ingest_options)
         .map_err(|e| anyhow::anyhow!("{e:?}"))?;
 
@@ -1714,7 +1690,7 @@ fn handle_debug_structure(input: PathBuf, ingest: IngestArgs) -> Result<()> {
 fn handle_debug_stats(input: PathBuf, ingest: IngestArgs) -> Result<()> {
     println!("fepdf debug stats: Analyzing memory usage for {}", input.display());
     let data = std::fs::read(&input).with_context(|| "Failed to read input")?;
-    let ingest_options: fepdf_sdk::IngestionOptions = ingest.into();
+    let ingest_options: fepdf::IngestionOptions = ingest.into();
     let doc = PdfDocument::open_with_options(data.into(), &ingest_options)
         .map_err(|e| anyhow::anyhow!("{e:?}"))?;
 
@@ -1749,7 +1725,7 @@ fn handle_upgrade(
     }
 
     let data = std::fs::read(&input).with_context(|| "Failed to read input")?;
-    let ingest_options: fepdf_sdk::IngestionOptions = ingest.into();
+    let ingest_options: fepdf::IngestionOptions = ingest.into();
     let mut doc = PdfDocument::open_with_options(data.into(), &ingest_options)
         .map_err(|e| anyhow::anyhow!("{e:?}"))?;
 
@@ -1768,7 +1744,7 @@ fn handle_upgrade(
     }
 
     save.check()?;
-    let save_options: fepdf_sdk::SaveOptions = save.into();
+    let save_options: fepdf::SaveOptions = save.into();
 
     // Both branches write, so both owe the notice. An earlier version called
     // `permissions_lost_on_write` directly here and so reported only half of what a
@@ -1793,12 +1769,12 @@ fn handle_repair(
 ) -> Result<()> {
     println!("fepdf repair: Attempting to salvage corrupted document {}", input.display());
     let data = std::fs::read(&input).with_context(|| "Failed to read input")?;
-    let ingest_options: fepdf_sdk::IngestionOptions = ingest.into();
+    let ingest_options: fepdf::IngestionOptions = ingest.into();
     let doc = PdfDocument::open_and_repair_with_options(data.into(), &ingest_options)
         .map_err(|e| anyhow::anyhow!("{e:?}"))?;
 
     save.check()?;
-    let save_options: fepdf_sdk::SaveOptions = save.into();
+    let save_options: fepdf::SaveOptions = save.into();
     save_reporting_permissions(&doc, &output, &save_options)?;
     println!("SUCCESS: Repaired output saved to {}", output.display());
     Ok(())
@@ -1814,7 +1790,7 @@ fn handle_rotate(
 ) -> Result<()> {
     println!("fepdf rotate: Rotating pages in {} by {angle} degrees...", input.display());
     let data = std::fs::read(&input).with_context(|| "Failed to read input")?;
-    let ingest_options: fepdf_sdk::IngestionOptions = ingest.into();
+    let ingest_options: fepdf::IngestionOptions = ingest.into();
     let mut doc = PdfDocument::open_with_options(data.into(), &ingest_options)
         .map_err(|e| anyhow::anyhow!("{e:?}"))?;
 
@@ -1822,17 +1798,17 @@ fn handle_rotate(
     let range_str = pages.unwrap_or_else(|| "all".to_string());
     let target_pages = parse_page_range(&range_str, page_count)?;
 
-    let quarter = fepdf_sdk::Quarter::from_degrees(angle)
+    let quarter = fepdf::Quarter::from_degrees(angle)
         .ok_or_else(|| anyhow::anyhow!("Angle must be a multiple of 90 degrees"))?;
 
-    doc.apply(fepdf_sdk::Operation::Rotate {
-        pages: fepdf_sdk::PageSelection::Indices(target_pages),
-        mode: fepdf_sdk::RotateMode::Absolute(quarter),
+    doc.apply(fepdf::Operation::Rotate {
+        pages: fepdf::PageSelection::Indices(target_pages),
+        mode: fepdf::RotateMode::Absolute(quarter),
     })
     .map_err(|e| anyhow::anyhow!("{e:?}"))?;
 
     save.check()?;
-    let save_options: fepdf_sdk::SaveOptions = save.into();
+    let save_options: fepdf::SaveOptions = save.into();
     save_reporting_permissions(&doc, &output, &save_options)?;
     println!("SUCCESS: Rotated output saved to {}", output.display());
     Ok(())
@@ -1850,7 +1826,7 @@ fn handle_render(
         input.display()
     );
     let data = std::fs::read(&input).with_context(|| "Failed to read input")?;
-    let ingest_options: fepdf_sdk::IngestionOptions = ingest.into();
+    let ingest_options: fepdf::IngestionOptions = ingest.into();
     let mut doc = PdfDocument::open_with_options(data.into(), &ingest_options)
         .map_err(|e| anyhow::anyhow!("{e:?}"))?;
 
@@ -1863,7 +1839,7 @@ fn handle_render(
     ];
     for path in mincho_paths {
         if let Ok(data) = std::fs::read(path) {
-            system_fonts.insert(fepdf_sdk::FallbackFontType::Serif, std::sync::Arc::new(data));
+            system_fonts.insert(fepdf::FallbackFontType::Serif, std::sync::Arc::new(data));
             break;
         }
     }
@@ -1875,8 +1851,8 @@ fn handle_render(
     for path in gothic_paths {
         if let Ok(data) = std::fs::read(path) {
             let arc = std::sync::Arc::new(data);
-            system_fonts.insert(fepdf_sdk::FallbackFontType::SansSerif, arc.clone());
-            system_fonts.entry(fepdf_sdk::FallbackFontType::Default).or_insert(arc);
+            system_fonts.insert(fepdf::FallbackFontType::SansSerif, arc.clone());
+            system_fonts.entry(fepdf::FallbackFontType::Default).or_insert(arc);
             break;
         }
     }
@@ -1905,7 +1881,7 @@ fn handle_retag(
         output.display()
     );
     let data = std::fs::read(&input).with_context(|| "Failed to read input")?;
-    let ingest_options: fepdf_sdk::IngestionOptions = ingest.into();
+    let ingest_options: fepdf::IngestionOptions = ingest.into();
     let mut doc = PdfDocument::open_with_options(data.into(), &ingest_options)
         .map_err(|e| anyhow::anyhow!("{e:?}"))?;
 
@@ -1930,7 +1906,7 @@ fn handle_retag(
     }
 
     save.check()?;
-    let save_options: fepdf_sdk::SaveOptions = save.into();
+    let save_options: fepdf::SaveOptions = save.into();
     save_reporting_permissions(&doc, &output, &save_options)?;
     println!("SUCCESS: Re-tagged document saved to {}", output.display());
     Ok(())
@@ -1939,7 +1915,7 @@ fn handle_retag(
 fn handle_text(input: PathBuf, pages: Option<String>, ingest: IngestArgs) -> Result<()> {
     println!("fepdf text: Extracting text from {}", input.display());
     let data = std::fs::read(&input).with_context(|| "Failed to read input")?;
-    let ingest_options: fepdf_sdk::IngestionOptions = ingest.into();
+    let ingest_options: fepdf::IngestionOptions = ingest.into();
     let doc = PdfDocument::open_with_options(data.into(), &ingest_options)
         .map_err(|e| anyhow::anyhow!("{e:?}"))?;
 
@@ -2000,11 +1976,11 @@ fn handle_sign(
 ) -> Result<()> {
     println!("fepdf sign: {} -> {}", input.display(), output.display());
     let data = std::fs::read(&input).with_context(|| "Failed to read input")?;
-    let ingest_options: fepdf_sdk::IngestionOptions = ingest.into();
+    let ingest_options: fepdf::IngestionOptions = ingest.into();
     let doc = PdfDocument::open_with_options(data.into(), &ingest_options)
         .map_err(|e| anyhow::anyhow!("{e:?}"))?;
 
-    let sign_options = fepdf_sdk::SignOptions {
+    let sign_options = fepdf::SignOptions {
         reason,
         location,
         name,
@@ -2019,7 +1995,7 @@ fn handle_sign(
     };
 
     save.check()?;
-    let save_options: fepdf_sdk::SaveOptions = save.into();
+    let save_options: fepdf::SaveOptions = save.into();
     let decisions = doc
         .save_signed(&output, "2.0", &save_options, &sign_options)
         .map_err(|e| anyhow::anyhow!("{e:?}"))?;
@@ -2033,7 +2009,7 @@ fn handle_sign(
 
 fn handle_credits() -> Result<()> {
     println!("\n--- [ OPEN SOURCE CREDITS ] ---");
-    println!("fepdf and fepdf-sdk are powered by the following excellent libraries:\n");
+    println!("fepdf is powered by the following excellent libraries:\n");
 
     let credits = [
         ("pdf-writer", "Apache-2.0", "Efficient PDF object serialization"),
@@ -2085,7 +2061,7 @@ fn parse_page_range(range_str: &str, max_pages: usize) -> Result<Vec<usize>> {
     Ok(pages)
 }
 
-fn render_general_text(summary: &fepdf_sdk::DocumentSummary) {
+fn render_general_text(summary: &fepdf::DocumentSummary) {
     println!("\n--- [ DOCUMENT SUMMARY ] ---");
     println!("Version:    {}", summary.version);
     println!("Pages:      {}", summary.page_count);
@@ -2097,7 +2073,7 @@ fn render_general_text(summary: &fepdf_sdk::DocumentSummary) {
     }
 }
 
-fn render_font_text(summary: &fepdf_sdk::DocumentSummary) {
+fn render_font_text(summary: &fepdf::DocumentSummary) {
     println!("\n--- [ FONT AUDIT ] ---");
     let embedded_count = summary.fonts.iter().filter(|f| f.is_embedded).count();
     println!("Total Fonts: {} (Embedded: {})", summary.fonts.len(), embedded_count);
@@ -2128,7 +2104,7 @@ fn render_font_text(summary: &fepdf_sdk::DocumentSummary) {
     }
 }
 
-fn render_audit_text(summary: &fepdf_sdk::DocumentSummary) {
+fn render_audit_text(summary: &fepdf::DocumentSummary) {
     println!("\n--- [ COMPLIANCE AUDIT ] ---");
     if summary.compliance.issues.is_empty() {
         println!("SUCCESS: No major issues found.");
@@ -2150,7 +2126,7 @@ fn handle_extract_font(
     ingest: IngestArgs,
 ) -> Result<()> {
     let data = std::fs::read(&input).with_context(|| "Failed to read input")?;
-    let ingest_options: fepdf_sdk::IngestionOptions = ingest.into();
+    let ingest_options: fepdf::IngestionOptions = ingest.into();
     let doc = PdfDocument::open_with_options(data.into(), &ingest_options)
         .map_err(|e| anyhow::anyhow!("{e:?}"))?;
 
@@ -2174,7 +2150,7 @@ fn handle_extract_font(
     Ok(())
 }
 
-fn trace_single_font(font: &fepdf_sdk::FontResource, name: &str, obj_id: u32, target_char: char) {
+fn trace_single_font(font: &fepdf::FontResource, name: &str, obj_id: u32, target_char: char) {
     println!("\n--- [ FONT: {name} ] ---");
     println!("Object: {obj_id}");
 
@@ -2215,7 +2191,7 @@ fn handle_debug_trace_glyph(
 
     let target_char = parse_unicode(&unicode_str)?;
     let data = std::fs::read(&input).with_context(|| "Failed to read input")?;
-    let ingest_options: fepdf_sdk::IngestionOptions = ingest.into();
+    let ingest_options: fepdf::IngestionOptions = ingest.into();
     let doc = PdfDocument::open_with_options(data.into(), &ingest_options)
         .map_err(|e| anyhow::anyhow!("{e:?}"))?;
 
@@ -2268,7 +2244,7 @@ fn handle_portfolio(
             .map_or_else(|| "file".to_string(), |n| n.to_string_lossy().to_string());
         let data = std::fs::read(&file_path)
             .with_context(|| format!("Failed to read file {}", file_path.display()))?;
-        items.push(fepdf_sdk::PortfolioItem {
+        items.push(fepdf::PortfolioItem {
             filename: file_name,
             mime_type: None,
             description: None,
@@ -2277,18 +2253,18 @@ fn handle_portfolio(
         });
     }
 
-    let portfolio = fepdf_sdk::PortfolioCollection {
-        view_mode: fepdf_sdk::CollectionViewMode::Details,
+    let portfolio = fepdf::PortfolioCollection {
+        view_mode: fepdf::CollectionViewMode::Details,
         initial_document: None,
         items,
     };
 
     let mut doc = PdfDocument::create_empty().map_err(|e| anyhow::anyhow!("{e:?}"))?;
-    doc.apply(fepdf_sdk::Operation::CreatePortfolio(portfolio))
+    doc.apply(fepdf::Operation::CreatePortfolio(portfolio))
         .map_err(|e| anyhow::anyhow!("{e:?}"))?;
 
     save.check()?;
-    let save_options: fepdf_sdk::SaveOptions = save.into();
+    let save_options: fepdf::SaveOptions = save.into();
     save_reporting_permissions(&doc, &output, &save_options)?;
     println!("SUCCESS: Portfolio saved to {}", output.display());
     Ok(())
@@ -2305,21 +2281,21 @@ fn handle_bates(
 ) -> Result<()> {
     println!("fepdf bates: Applying Bates numbering to {}", input.display());
     let data = std::fs::read(&input).with_context(|| "Failed to read input")?;
-    let ingest_options: fepdf_sdk::IngestionOptions = ingest.into();
+    let ingest_options: fepdf::IngestionOptions = ingest.into();
     let mut doc = PdfDocument::open_with_options(data.into(), &ingest_options)
         .map_err(|e| anyhow::anyhow!("{e:?}"))?;
 
-    let op = fepdf_sdk::Operation::ApplyBatesNumbering {
-        pages: fepdf_sdk::PageSelection::All,
+    let op = fepdf::Operation::ApplyBatesNumbering {
+        pages: fepdf::PageSelection::All,
         prefix,
         start_number,
         digits,
-        position: fepdf_sdk::DecorationPosition::BottomRight,
+        position: fepdf::DecorationPosition::BottomRight,
     };
     doc.apply(op).map_err(|e| anyhow::anyhow!("{e:?}"))?;
 
     save.check()?;
-    let save_options: fepdf_sdk::SaveOptions = save.into();
+    let save_options: fepdf::SaveOptions = save.into();
     save_reporting_permissions(&doc, &output, &save_options)?;
     println!("SUCCESS: Output with Bates numbering saved to {}", output.display());
     Ok(())
@@ -2342,24 +2318,23 @@ fn handle_attach(
         .map_or_else(|| "attached".to_string(), |n| n.to_string_lossy().to_string());
 
     let relationship = match relationship_str.to_lowercase().as_str() {
-        "source" => fepdf_sdk::AFRelationship::Source,
-        "supplement" => fepdf_sdk::AFRelationship::Supplement,
-        "alternative" => fepdf_sdk::AFRelationship::Alternative,
-        _ => fepdf_sdk::AFRelationship::Data,
+        "source" => fepdf::AFRelationship::Source,
+        "supplement" => fepdf::AFRelationship::Supplement,
+        "alternative" => fepdf::AFRelationship::Alternative,
+        _ => fepdf::AFRelationship::Data,
     };
 
     let af =
-        fepdf_sdk::AssociatedFile { filename: file_name, relationship, mime_type, data: file_data };
+        fepdf::AssociatedFile { filename: file_name, relationship, mime_type, data: file_data };
 
-    let ingest_options: fepdf_sdk::IngestionOptions = ingest.into();
+    let ingest_options: fepdf::IngestionOptions = ingest.into();
     let mut doc = PdfDocument::open_with_options(data.into(), &ingest_options)
         .map_err(|e| anyhow::anyhow!("{e:?}"))?;
 
-    doc.apply(fepdf_sdk::Operation::AttachAssociatedFile(af))
-        .map_err(|e| anyhow::anyhow!("{e:?}"))?;
+    doc.apply(fepdf::Operation::AttachAssociatedFile(af)).map_err(|e| anyhow::anyhow!("{e:?}"))?;
 
     save.check()?;
-    let save_options: fepdf_sdk::SaveOptions = save.into();
+    let save_options: fepdf::SaveOptions = save.into();
     save_reporting_permissions(&doc, &output, &save_options)?;
     println!("SUCCESS: PDF with Associated File saved to {}", output.display());
     Ok(())
@@ -2375,24 +2350,24 @@ fn handle_page_label(
 ) -> Result<()> {
     println!("fepdf page-label: Setting page labels on {}", input.display());
     let data = std::fs::read(&input).with_context(|| "Failed to read input PDF")?;
-    let ingest_options: fepdf_sdk::IngestionOptions = ingest.into();
+    let ingest_options: fepdf::IngestionOptions = ingest.into();
     let mut doc = PdfDocument::open_with_options(data.into(), &ingest_options)
         .map_err(|e| anyhow::anyhow!("{e:?}"))?;
 
     let style = match style_str.to_lowercase().as_str() {
-        "lower-roman" => fepdf_sdk::PageLabelStyle::LowerRoman,
-        "upper-roman" => fepdf_sdk::PageLabelStyle::UpperRoman,
-        "lower-alpha" => fepdf_sdk::PageLabelStyle::LowerAlpha,
-        "upper-alpha" => fepdf_sdk::PageLabelStyle::UpperAlpha,
-        _ => fepdf_sdk::PageLabelStyle::Decimal,
+        "lower-roman" => fepdf::PageLabelStyle::LowerRoman,
+        "upper-roman" => fepdf::PageLabelStyle::UpperRoman,
+        "lower-alpha" => fepdf::PageLabelStyle::LowerAlpha,
+        "upper-alpha" => fepdf::PageLabelStyle::UpperAlpha,
+        _ => fepdf::PageLabelStyle::Decimal,
     };
 
-    let labels = vec![fepdf_sdk::PageLabelSpec { start_page: 0, style, prefix, start_number: 1 }];
+    let labels = vec![fepdf::PageLabelSpec { start_page: 0, style, prefix, start_number: 1 }];
 
-    doc.apply(fepdf_sdk::Operation::SetPageLabels(labels)).map_err(|e| anyhow::anyhow!("{e:?}"))?;
+    doc.apply(fepdf::Operation::SetPageLabels(labels)).map_err(|e| anyhow::anyhow!("{e:?}"))?;
 
     save.check()?;
-    let save_options: fepdf_sdk::SaveOptions = save.into();
+    let save_options: fepdf::SaveOptions = save.into();
     save_reporting_permissions(&doc, &output, &save_options)?;
     println!("SUCCESS: PDF with updated page labels saved to {}", output.display());
     Ok(())
@@ -2409,11 +2384,11 @@ fn handle_geo(
 ) -> Result<()> {
     println!("fepdf geo: Setting GIS anchor ({lat}, {lon}) on {}", input.display());
     let data = std::fs::read(&input).with_context(|| "Failed to read input PDF")?;
-    let ingest_options: fepdf_sdk::IngestionOptions = ingest.into();
+    let ingest_options: fepdf::IngestionOptions = ingest.into();
     let mut doc = PdfDocument::open_with_options(data.into(), &ingest_options)
         .map_err(|e| anyhow::anyhow!("{e:?}"))?;
 
-    let anchor = fepdf_sdk::GeoSpatialAnchor {
+    let anchor = fepdf::GeoSpatialAnchor {
         page: 0,
         latitude: lat,
         longitude: lon,
@@ -2421,11 +2396,11 @@ fn handle_geo(
         crs_wkt: crs,
     };
 
-    doc.apply(fepdf_sdk::Operation::SetGeospatialAnchor(anchor))
+    doc.apply(fepdf::Operation::SetGeospatialAnchor(anchor))
         .map_err(|e| anyhow::anyhow!("{e:?}"))?;
 
     save.check()?;
-    let save_options: fepdf_sdk::SaveOptions = save.into();
+    let save_options: fepdf::SaveOptions = save.into();
     save_reporting_permissions(&doc, &output, &save_options)?;
     println!("SUCCESS: PDF with GIS anchor saved to {}", output.display());
     Ok(())
@@ -2437,7 +2412,7 @@ fn handle_verify_signature(input: PathBuf, ingest: IngestArgs) -> Result<()> {
     let data = std::fs::read(&input).with_context(|| "Failed to read input PDF")?;
     // The byte layer, not `PdfDocument`: `/ByteRange` names offsets into this file, and
     // a `Document` has already normalised them out of existence (ADR-0013).
-    let report = fepdf_sdk::SignatureReport::survey(&data).map_err(|e| anyhow::anyhow!("{e:?}"))?;
+    let report = fepdf::SignatureReport::survey(&data).map_err(|e| anyhow::anyhow!("{e:?}"))?;
 
     println!("\n--- [ SIGNATURES (12.8) ] ---");
     if report.signatures.is_empty() {
@@ -2526,9 +2501,9 @@ mod tests {
             recipient_certificate: None,
             recipient_key: None,
         };
-        let opts: fepdf_sdk::IngestionOptions = args.into();
+        let opts: fepdf::IngestionOptions = args.into();
         assert!(!opts.active_refinement);
         assert!(opts.sublime_metadata);
-        assert_eq!(opts.color_policy, fepdf_sdk::ColorPolicy::Relaxed);
+        assert_eq!(opts.color_policy, fepdf::ColorPolicy::Relaxed);
     }
 }

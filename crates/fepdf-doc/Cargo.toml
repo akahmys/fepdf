@@ -1,0 +1,28 @@
+[package]
+name = "fepdf-doc"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+# ARCHITECTURE.md 5.1: owns the Operation vocabulary and document mutations.
+# Operates on the document model without depending on any frontend or GPU rendering.
+[dependencies]
+fepdf-model.workspace = true
+fepdf-content.workspace = true
+kurbo.workspace = true
+thiserror.workspace = true
+serde.workspace = true
+bytes.workspace = true
+flate2.workspace = true
+chrono.workspace = true
+log.workspace = true
+roxmltree.workspace = true
+x509-parser.workspace = true
+md5.workspace = true
+hex.workspace = true
+
+[lints]
+workspace = true

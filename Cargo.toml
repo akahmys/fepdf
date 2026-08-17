@@ -5,8 +5,9 @@ members = [
     "crates/fepdf-model",
     "crates/fepdf-font",
     "crates/fepdf-content",
+    "crates/fepdf-doc",
     "crates/fepdf-render",
-    "crates/fepdf-sdk",
+    "crates/fepdf",
     "crates/fepdf-mcp",
     "crates/fepdf-wasm",
     "crates/fepdf-gui",
@@ -96,8 +97,9 @@ fepdf-syntax = { path = "crates/fepdf-syntax", version = "1.0.0" }
 fepdf-model = { path = "crates/fepdf-model", version = "1.0.0" }
 fepdf-font = { path = "crates/fepdf-font", version = "1.0.0" }
 fepdf-content = { path = "crates/fepdf-content", version = "1.0.0" }
+fepdf-doc = { path = "crates/fepdf-doc", version = "1.0.0" }
 fepdf-render = { path = "crates/fepdf-render", version = "1.0.0" }
-fepdf-sdk = { path = "crates/fepdf-sdk", version = "1.0.0" }
+fepdf = { path = "crates/fepdf", version = "1.0.0" }
 fepdf-macros = { path = "crates/fepdf-macros", version = "1.0.0" }
 
 # GUI, Web & CLI Ecosystem

@@ -1,7 +1,7 @@
 //! Renders sample pages for visual inspection.
 
+use fepdf::{Interpreter, PdfDocument};
 use fepdf_render::VelloBackend;
-use fepdf_sdk::{Interpreter, PdfDocument};
 use kurbo::Affine;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
