@@ -20,7 +20,7 @@ Understanding them is what remains.
 | **7.6** Encryption | Every password handler the standard defines now decrypts: RC4 (V1/V2), AES-128 (V4/R4) and AES-256 (V5/R5, V5/R6) to Algorithms 1, 2, 2.A, 2.B and 4–6, with `/Perms` checked and both password roles authenticating. Verified against PDFKit on fourteen files; all of it was broken or absent ([ADR-0009](docs/adr/0009-permissions-are-thirty-two-bits-not-a-positive-integer.md)). Writing is AES-256 at revision 6 and nothing else, because output is always 2.0 and this edition deprecates the rest. Public-key handlers (7.6.5) are **read and written** — a `/Adobe.PubSec` document opens with the certificate it was addressed to, which neither Chrome nor Firefox will do, and `--encrypt-to` produces one. Unencrypted wrappers (7.6.7) are recognised and reported. **Clause 7.6 is otherwise complete.** |
 | **7.7** Document structure | **10 of Table 29's 32** catalogue entries typed, measured by `status.sh` from `PdfCatalog`. Untyped entries survive a round trip but cannot be reasoned about; `inspect catalog` names which ones, per file. |
 | **PDF 2.0 additions** | **Six** catalogue entries have a spec type but no read or write path — `PageLabels`, `Threads`, `OutputIntents`, `OCProperties`, `Collection`, `AF`. `DPartRoot` has no type at all, contrary to what this table said before it was checked. `inspect catalog` reports the six as `type only`. |
-| **8–14** Content, text, interactive, tagged | Interpreter, fonts and UA-2 auditing exist; interactive features (12) can be *read* (`inspect interactive`), and signature fields (12.7.5.5, 12.8) can now be written and checked. The corpus exercises one annotation subtype of ~28 — all 29,973 are `/Link` — and no form field at all, so the form walk is exercised by a fixture and by this engine's own signed output. |
+| **8–14** Content, text, interactive, tagged | Interpreter, fonts and UA-2 auditing exist; interactive features (12) can be *read* (`inspect interactive`), and signature fields (12.7.5.5, 12.8) can now be written and checked. Every page of every sample now yields its text: `scn` with a pattern name (8.6.8.2) was read as a grey component, which cost `fy05.pdf` six pages and — because extraction stopped at the first failure — the 718 after them. A pattern is consumed but not painted. The corpus exercises one annotation subtype of ~28 — all 29,973 are `/Link` — and no form field at all, so the form walk is exercised by a fixture and by this engine's own signed output. |
 | **14.3** Metadata | Settled at load into one state: `/Info` and the metadata stream are reconciled, disagreements recorded, and the entries 14.3.3 deprecates moved to where that clause puts them ([ADR-0013](docs/adr/0013-a-document-is-one-normalised-state.md)). Text strings decode to 7.9.2.2 — PDFDocEncoding from Annex D, or a byte order mark — after a Shift-JIS detector was found corrupting a conforming `/Title`. `--strip` removes every metadata stream, not the catalogue's alone. |
 
 One measurement worth carrying forward: 19 of 24 `Operation` variants are stubs that
@@ -299,7 +299,7 @@ Round-tripping the whole corpus through `publish upgrade` and reading the output
 PDFKit is now a standing check. It found the one thing internal comparison could not:
 `fy05.pdf` was losing whole pages of text to a `/ToUnicode` the engine synthesised for
 it ([ADR-0010](docs/adr/0010-a-synthesised-tounicode-keyed-on-glyphs-destroys-text.md)).
-Thirteen of fourteen files now come back with their text intact.
+All seventeen files now come back with their text intact, at a zero delta.
 
 ### Why the corpus item is not optional
 
@@ -312,9 +312,46 @@ reads, and both were the same noise.
 What caught it was reading the file with something else. `scripts/dev/status.sh` now
 asserts text comes out of that sample, because asserting it *opens* passed throughout.
 
+## Phase C′ — The hole in the cross-checks
+
+Not a clause. A method gap, found three times in one day, each time the same shape:
+**an independent reader was asked and this engine was not.**
+
+| Found | Independent reader said | This engine | Since |
+| :--- | :--- | :--- | :--- |
+| Encryption through object streams | PDFKit read it | could not read its own output | reachable for one day, latent longer |
+| `inspect text` stopping at the first bad page | PDFKit read 846 | reported 127 and exited non-zero | at least the 2026-08-10 rename |
+| `scn` with a pattern name (8.6.8.2) | PDFKit read the page | six pages failed | at least the 2026-08-10 rename |
+
+"At least" because `git log -S` stops at the rename that touched every file; the repository
+begins 2026-04-11, so the true answer is somewhere in that four months and is not worth
+the archaeology. The first defect is different in kind: the reader has always expanded
+object streams before decrypting, and packing by default is what made that reachable.
+
+`crosscheck_roundtrip.sh` measures text with PDFKit on both sides of a save, so it
+answers "did writing lose anything" and cannot answer "can this engine read what it
+just wrote". The other three cross-checks inherited the shape: `crosscheck_objstm.sh`
+asked PDFKit whether a packed *and encrypted* file was readable and PDFKit said yes,
+correctly — the writer was right the whole time, and nobody asked the reader.
+
+Three from one gap is enough to expect a fourth.
+
+- [ ] A cross-check that reads every produced file back **with this engine** and
+      compares against the same engine's reading of the input. Cheap — no second
+      implementation needed — and orthogonal to the existing four, which all ask
+      somebody else
+- [ ] Extend it over the combinations rather than the features: encryption × object
+      streams was broken and each alone was fine. Signing × encryption × packing is
+      three switches and eight states, and only the ones anyone tried are known good
+- [ ] Make `scripts/dev/status.sh --full` run it, since it is the one check that needs
+      no second implementation and therefore no excuse
+
+*Done when*: a defect of this shape is caught by the suite rather than by writing the
+next feature on top of it.
+
 ## Phase D — The catalogue and PDF 2.0 features
 
-Only now do the 21 stub operations become worth implementing, because reading exists
+Only now do the 19 stub operations become worth implementing, because reading exists
 to verify them against.
 
 - [ ] Type the remaining catalogue entries, `DSS`/`AF`/`DPartRoot` first — they are
@@ -326,9 +363,24 @@ to verify them against.
 - [ ] Un-hide each CLI subcommand as its operation lands
 - [ ] Decide the fate of the operations no frontend reaches; an unreachable operation
       is a maintenance cost without a user
+- [ ] `color_policy` is the last ingestion option nothing reads, and `status.sh` counts
+      it. ADR-0007's terms apply: implement the colour validation it was meant to govern,
+      or delete the option and the enum. It is not "find the code that reads it" — there
+      is none
 
 *Done when*: `Operation` has no stubs, and `fepdf edit --help` lists only working
 commands because they all work.
+
+### Tooling debt carried from Phase C
+
+- [ ] `scripts/test/make_pubsec.py` rewrites PDF syntax with regular expressions. Two of
+      its bugs looked like engine defects before being traced — it left dictionary
+      strings unencrypted, and it found the end of a stream by searching for `endobj`,
+      which compressed data contains by chance. Reading the file's own cross-reference
+      table instead would be exact, and is not the "real parser" it was dismissed as
+      needing: the table already says where every object begins
+- [ ] The same script does AES in pure Python, so `intel_sdm.pdf` is skipped by size.
+      Only worth fixing if a defect is ever suspected to be size-dependent
 
 ## Phase E — Structure, once the contents exist
 
@@ -355,7 +407,11 @@ the operation vocabulary while 79% of it is hollow — the shape of the mistake 
   editing a signed file still reports as changed since signing whatever is preserved. A
   tool that never rewrites the file is the right place for that, and there are such
   tools ([ADR-0014](docs/adr/0014-the-faithful-copy-path-is-not-built.md)). Signing
-  fepdf's *own* output stays wanted and still needs CMS.
+  fepdf's *own* output was the part worth having, and it is done.
+- **Painting a pattern.** `scn` with a pattern name is consumed and the fill left
+  unchanged. Painting one needs `Color` to be able to say "a pattern" and the backends
+  to render it; adding the variant first would be a container before its contents.
+  Text extraction, which is what the corpus exercises, does not depend on it.
 
 ---
 
