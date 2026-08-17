@@ -142,6 +142,14 @@ if [ "${1:-}" = "--full" ]; then
     else
         row "round trip vs PDFKit" "FAILED — run ./scripts/test/crosscheck_roundtrip.sh"
     fi
+    # And three found only by reading it back with *this* engine, which the check above
+    # cannot do: it measures both sides with PDFKit. Needs no second implementation, so
+    # it runs here rather than being one more script somebody has to remember.
+    if ./scripts/test/crosscheck_selfread.sh >/dev/null 2>&1; then
+        row "reads back its own output" "every combination"
+    else
+        row "reads back its own output" "FAILED — run ./scripts/test/crosscheck_selfread.sh"
+    fi
 else
     echo
     echo "  (--full also runs the tests, the compliance audit and the PDFKit cross-check)"

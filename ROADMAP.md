@@ -336,18 +336,24 @@ correctly — the writer was right the whole time, and nobody asked the reader.
 
 Three from one gap is enough to expect a fourth.
 
-- [ ] A cross-check that reads every produced file back **with this engine** and
-      compares against the same engine's reading of the input. Cheap — no second
-      implementation needed — and orthogonal to the existing four, which all ask
-      somebody else
-- [ ] Extend it over the combinations rather than the features: encryption × object
-      streams was broken and each alone was fine. Signing × encryption × packing is
-      three switches and eight states, and only the ones anyone tried are known good
-- [ ] Make `scripts/dev/status.sh --full` run it, since it is the one check that needs
-      no second implementation and therefore no excuse
+- [x] `scripts/test/crosscheck_selfread.sh` reads every produced file back with this
+      engine and compares against the same engine's reading of the input — 21 states
+      across packing, both encryption handlers and signing. No second implementation,
+      so `status.sh --full` runs it
+- [x] Combinations rather than features, which is what the matrix is for: injecting the
+      encryption-through-object-streams defect fails exactly the four *packed and
+      encrypted* states and leaves the loose ones green
+- [x] **A comparison cannot see a symmetric defect**, which injection found rather than
+      reasoning: with the `scn` defect put back, every combination still compared equal,
+      because the reader loses the same pages on both sides. Two of the three defects
+      were that shape. The check therefore also asserts that every page of every sample
+      extracts at all — the exit status the comparison discards — and *that* is what
+      catches them
 
-*Done when*: a defect of this shape is caught by the suite rather than by writing the
-next feature on top of it.
+*Done when*: **done.** All three defects that motivated this are caught by the script,
+verified by putting each back. The third finding is the one worth carrying: a round-trip
+comparison is blind to anything the reader gets wrong consistently, so "compare in with
+out" needed "and check it worked" beside it.
 
 ## Phase D — The catalogue and PDF 2.0 features
 

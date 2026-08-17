@@ -142,6 +142,13 @@ Before submitting a Pull Request or completing a task:
       status: `inspect text` exits non-zero when a page will not extract, and
       `samples/fy05.pdf` has six that do not — on the plaintext file as much as the
       encrypted one.
+- [ ] `./scripts/test/crosscheck_selfread.sh` — reads every file this engine writes back
+      **with this engine**, across 21 combinations of packing, encryption and signing.
+      The only cross-check needing no second implementation, and the only one that can
+      answer "can it read what it just wrote" — the other four measure both sides with
+      somebody else, so they are silent on it. It also asserts every page of every sample
+      extracts, because a comparison is blind to a defect the reader makes on both sides.
+      `status.sh --full` runs it.
 - [ ] `./scripts/dev/status.sh` — the figures the documents quote, re-derived. A number
       that has gone stale shows up as a disagreement rather than reading as current.
 
