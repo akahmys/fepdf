@@ -102,6 +102,52 @@ for src in samples/*.pdf; do
     check default "$src" --
 done
 
+# The catalogue survives, key for key. `ROADMAP.md` opens by claiming round-trip
+# fidelity already holds for entries the engine has no typed view of; that claim went
+# unchecked long enough to name two keys as untyped that had since been typed. This is
+# the check, so the next such drift is a failure rather than a paragraph.
+#
+# Two differences are expected and normalised away. Object numbers are renumbered
+# because saving produces a new document (ADR-0012), so only the key and the value's
+# *shape* are compared, not the `N 0 R` before it. `/Metadata` is added where the source
+# had none, because output always carries XMP — so it is dropped from the input side
+# only when the input lacked it, which still catches a *lost* `/Metadata`.
+#
+# `/Pages` is compared by key alone. Its value legitimately changes shape:
+# `bokutokitan.pdf`'s page-tree root carries an inheritable `/MediaBox` that the writer
+# resolves onto each page, so `dictionary[4]` becomes `dictionary[3]` while nothing is
+# lost. That is the single normalised state (ADR-0013), and it is the one entry where
+# the shape is not the fact worth comparing.
+echo "--- the catalogue survives, key for key ---"
+catalog_keys() {
+    target/release/fepdf inspect catalog "$1" 2>/dev/null \
+        | awk '/ENTRIES/,/WHAT THE/' \
+        | awk '/^  [A-Z]/ {
+            key = $1; $1 = ""; $2 = ""; $3 = "";       # drop key, support, in-7.7.2
+            gsub(/[0-9]+ 0 R -> /, "");                # object numbers are renumbered
+            sub(/^ +/, "");
+            print key, (key == "Pages" ? "" : $0);
+        }' | sort
+}
+for src in samples/*.pdf; do
+    b=$(basename "$src" .pdf)
+    out="$WORK/$b.default.pdf"
+    [ -f "$out" ] || continue
+    catalog_keys "$src" > "$WORK/cat.want"
+    if grep -q '^Metadata ' "$WORK/cat.want"; then
+        catalog_keys "$out" > "$WORK/cat.got"
+    else
+        catalog_keys "$out" | grep -v '^Metadata ' > "$WORK/cat.got"
+    fi
+    if diff -q "$WORK/cat.want" "$WORK/cat.got" >/dev/null; then
+        printf '  %-14s %s entries, unchanged\n' "$b" "$(wc -l < "$WORK/cat.want" | tr -d ' ')"
+    else
+        echo "  $b: THE CATALOGUE CHANGED ACROSS THE ROUND TRIP"
+        diff "$WORK/cat.want" "$WORK/cat.got" | head -6 | sed 's/^/      /'
+        FAILED=1
+    fi
+done
+
 # The matrix, on files small enough to run it on. Three switches: whether objects are
 # packed, which handler encrypts, and whether the file is signed.
 echo "--- the combinations, on two samples ---"

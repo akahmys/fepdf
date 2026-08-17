@@ -148,6 +148,12 @@ Before submitting a Pull Request or completing a task:
       answer "can it read what it just wrote" — the other four measure both sides with
       somebody else, so they are silent on it. It also asserts every page of every sample
       extracts, because a comparison is blind to a defect the reader makes on both sides.
+      And it compares the *catalogue* in against the catalogue out, key by key, with the
+      value's shape — `ROADMAP.md` opened with that claim for months and nothing checked
+      it, long enough for the paragraph to still name two keys as untyped that had since
+      been typed. Renumbering and the always-written `/Metadata` are normalised away;
+      verified by renaming one key to a same-length name so the offsets still land, which
+      the comparison reports as one differing entry out of seven.
       `status.sh --full` runs it.
 - [ ] `./scripts/dev/status.sh` — the figures the documents quote, re-derived. A number
       that has gone stale shows up as a disagreement rather than reading as current.

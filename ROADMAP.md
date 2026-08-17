@@ -5,9 +5,22 @@ one that round-trips it. PDF 1.7 and earlier are **read-only** targets; output i
 always 2.0.
 
 That distinction sets the work. Round-trip fidelity already holds: the arena preserves
-objects it has no typed view of, verified key-for-key on a catalogue carrying
-`PageLabels`, `ViewerPreferences`, `Threads` and `AcroForm`, none of which are typed.
-Understanding them is what remains.
+objects it has no typed view of. Measured across all nine samples by comparing
+`inspect catalog` on the input with `inspect catalog` on the output — no catalogue key
+is ever lost, and the four the corpus carries without a typed view — `Dests`,
+`PageLabels`, `Threads` and `Type` — come back with the same shape, `volvo_xc90.pdf`'s
+`/Dests` still `dictionary[651]`. Only two differences appear, both by design: `/Metadata` is *added*
+where the source had none, because output always carries XMP, and object numbers are
+renumbered, because saving produces a new document
+([ADR-0012](docs/adr/0012-saving-produces-a-new-document.md)). `bokutokitan.pdf`'s
+page-tree root loses its `/MediaBox` and each page gains one, which is inheritance
+resolved into the single normalised state
+([ADR-0013](docs/adr/0013-a-document-is-one-normalised-state.md)), not a dropped key.
+Understanding these entries is what remains. This paragraph used to assert the same
+thing "verified key-for-key" while citing `ViewerPreferences` and `AcroForm` as untyped
+examples, by which time both were typed and no test checked the verification — so
+`crosscheck_selfread.sh` now makes the comparison, and the claim is the measurement
+rather than a rewording of it.
 
 ---
 
