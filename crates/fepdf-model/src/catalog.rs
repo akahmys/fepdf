@@ -32,8 +32,13 @@ pub enum Support {
     /// exist, and this makes it visible per entry.
     TypeOnly,
     /// No typed view. The arena preserves the entry, so it round-trips; anything the
-    /// engine does with it is ad hoc — `/ViewerPreferences` and `/Lang` are read
-    /// directly in `fepdf-sdk`, for instance, without passing through a type.
+    /// engine does with it is ad hoc — reached by walking the raw dictionary for one
+    /// key at a time, without passing through a type. `/ViewerPreferences` and `/Lang`
+    /// were the examples here until they were typed, and what that looked like is worth
+    /// keeping: `viewer_direction` resolved `/Root`, then `/ViewerPreferences`, then
+    /// `/Direction`, and returned the name as a `String` — so a caller could not tell a
+    /// value the standard defines from one it does not, and the other seventeen entries
+    /// of Table 147 had no reader at all.
     Untyped,
 }
 

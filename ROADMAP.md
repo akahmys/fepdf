@@ -18,7 +18,7 @@ Understanding them is what remains.
 | **7.3** Objects | Complete. Every type in the clause. |
 | **7.5** File structure | **Complete and in use.** Header scan, both cross-reference forms, `/Prev` chains, hybrid references, object streams, incremental updates, and recovery by scanning. `Document::open` reads the file itself; `lopdf` is gone. |
 | **7.6** Encryption | Every password handler the standard defines now decrypts: RC4 (V1/V2), AES-128 (V4/R4) and AES-256 (V5/R5, V5/R6) to Algorithms 1, 2, 2.A, 2.B and 4–6, with `/Perms` checked and both password roles authenticating. Verified against PDFKit on fourteen files; all of it was broken or absent ([ADR-0009](docs/adr/0009-permissions-are-thirty-two-bits-not-a-positive-integer.md)). Writing is AES-256 at revision 6 and nothing else, because output is always 2.0 and this edition deprecates the rest. Public-key handlers (7.6.5) are **read and written** — a `/Adobe.PubSec` document opens with the certificate it was addressed to, which neither Chrome nor Firefox will do, and `--encrypt-to` produces one. Unencrypted wrappers (7.6.7) are recognised and reported. **Clause 7.6 is otherwise complete.** |
-| **7.7** Document structure | **13 of Table 29's 32** catalogue entries typed, measured by `status.sh` from `PdfCatalog`. Untyped entries survive a round trip but cannot be reasoned about; `inspect catalog` names which ones, per file. |
+| **7.7** Document structure | **14 of Table 29's 32** catalogue entries typed, measured by `status.sh` from `PdfCatalog`. Untyped entries survive a round trip but cannot be reasoned about; `inspect catalog` names which ones, per file. |
 | **PDF 2.0 additions** | **Six** catalogue entries have a spec type but no read or write path — `PageLabels`, `Threads`, `OutputIntents`, `OCProperties`, `Collection`, `AF`. `DPartRoot` has no type at all, contrary to what this table said before it was checked. `inspect catalog` reports the six as `type only`. Of the six, only `PageLabels` (2 files) and `Threads` (1) occur in the corpus at all; `DSS`, `AF` and `DPartRoot` occur zero times, which is why Phase D types by measured occurrence and not by which clause added them. |
 | **8–14** Content, text, interactive, tagged | Interpreter, fonts and UA-2 auditing exist; interactive features (12) can be *read* (`inspect interactive`), and signature fields (12.7.5.5, 12.8) can now be written and checked. Every page of every sample now yields its text: `scn` with a pattern name (8.6.8.2) was read as a grey component, which cost `fy05.pdf` six pages and — because extraction stopped at the first failure — the 718 after them. A pattern is consumed but not painted. The corpus exercises one annotation subtype of ~28 — all 29,973 are `/Link` — and no form field at all, so the form walk is exercised by a fixture and by this engine's own signed output. |
 | **14.3** Metadata | Settled at load into one state: `/Info` and the metadata stream are reconciled, disagreements recorded, and the entries 14.3.3 deprecates moved to where that clause puts them ([ADR-0013](docs/adr/0013-a-document-is-one-normalised-state.md)). Text strings decode to 7.9.2.2 — PDFDocEncoding from Annex D, or a byte order mark — after a Shift-JIS detector was found corrupting a conforming `/Title`. `--strip` removes every metadata stream, not the catalogue's alone. |
@@ -365,14 +365,25 @@ to verify them against.
       because they are the 2.0 additions; counting occurrences across the nine samples
       says those three appear **zero** times, and typing them first would be a container
       built before its contents — the shape this codebase keeps paying for. Measured
-      order: `ViewerPreferences` (6 files), `PageMode` (4), `Lang` (4), `PageLayout` (2),
-      `Dests` (1). `Type` is in all nine and is the constant `/Catalog`, so it wants
-      validating rather than typing
+      order: `ViewerPreferences` (6 files, done), `PageMode` (4, done), `Lang` (4, done),
+      `PageLayout` (2, done), `Dests` (1). `Type` is in all nine and is the constant
+      `/Catalog`, so it wants validating rather than typing
 - [x] `PageMode`, `PageLayout` and `Lang` — 10 of 32 typed becomes 13. The two name
       entries are enums with an `Other(String)` arm: their value sets grew in 1.5 and
       1.6, so a file may carry a name newer than this code, and folding that to a default
       would invent an answer where keeping it loses nothing. `Lang` closes an asymmetry
       made in the same session it was created — `--lang` wrote it and nothing read it
+- [x] `ViewerPreferences` — 13 of 32 typed becomes 14, and the largest of these entries:
+      Table 147's eighteen keys plus four name enums. **Every field is an `Option`,
+      including the five booleans the table defaults to `false`**, because a document that
+      says nothing must not come back stating a viewer's policy as its own — and
+      `fy05.pdf` carries an *empty* `/ViewerPreferences`, which under defaulting would
+      read identically to a producer who had deliberately written those five. Only two of
+      the eighteen keys occur in the corpus (`DisplayDocTitle` in four files, `Direction`
+      in one); the rest are typed anyway because Table 147 is one dictionary of scalars,
+      not a subsystem, which is exactly what `DSS`, `AF` and `DPartRoot` are not.
+      `PdfDocument::viewer_direction` no longer walks the raw dictionary for one key, and
+      `Document::catalog()` now exists so the next entry has somewhere to be read from
 - [ ] Implement operations in order of how much of the standard they unlock:
       catalogue edits (`UpdateOutlines`, `SetOutputIntent`, `UpdateLayers`,
       `SetPageLabels`) before page elements (`AddAnnotation`, `SetFormFieldValue`)

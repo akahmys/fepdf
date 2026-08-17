@@ -79,12 +79,215 @@ pub struct PdfCatalog {
     #[pdf_key("PageLayout")]
     /// `/PageLayout`: how a viewer arranges the pages.
     pub page_layout: Option<PageLayout>,
+    #[pdf_key("ViewerPreferences")]
+    /// `/ViewerPreferences`: how the document asks to be presented (12.2).
+    pub viewer_preferences: Option<ViewerPreferences>,
     #[pdf_key("Lang")]
     /// `/Lang`: the natural language of the document's text (14.9.2.1), as a BCP 47 tag.
     ///
     /// Written by `--lang` since clause 14.9 landed and read as untyped until now — the
     /// engine could set it and not say what it was.
     pub lang: Option<String>,
+}
+
+/// `/ViewerPreferences` (12.2, Table 147): how the document asks to be presented.
+///
+/// The most common untyped catalogue entry — six of the nine samples carry one — and
+/// until now the only thing reading it was `PdfDocument::viewer_direction`, which walked
+/// the raw dictionary looking for one key. That is the "any handling is ad hoc" the
+/// roadmap means by untyped.
+///
+/// **Every field is an `Option`, including the booleans that Table 147 gives defaults
+/// for.** A document that says nothing must not come back claiming `false`: "unstated"
+/// and "explicitly off" are different facts, the first belongs to the viewer's policy
+/// and the second to the document, and a report that conflates them cannot say what the
+/// file declares. The corpus makes the point — `fy05.pdf` carries an *empty*
+/// `/ViewerPreferences`, which under defaulting would read identically to four
+/// deliberate `false`s.
+///
+/// Only two of these keys occur in the corpus at all: `DisplayDocTitle` in four files
+/// and `Direction` in one. The rest are typed because Table 147 is one dictionary of
+/// scalars rather than a subsystem — unlike `DSS`, `AF` and `DPartRoot`, which are
+/// absent from the corpus *and* would each need machinery, which is why Phase D leaves
+/// them for later.
+#[derive(Debug, Clone, FromPdfObject)]
+#[pdf_dict(clause = "12.2")]
+pub struct ViewerPreferences {
+    #[pdf_key("HideToolbar")]
+    /// Hide the viewer's toolbars.
+    pub hide_toolbar: Option<bool>,
+    #[pdf_key("HideMenubar")]
+    /// Hide the viewer's menu bar.
+    pub hide_menubar: Option<bool>,
+    #[pdf_key("HideWindowUI")]
+    /// Hide scroll bars and other window furniture.
+    pub hide_window_ui: Option<bool>,
+    #[pdf_key("FitWindow")]
+    /// Resize the window to the first page.
+    pub fit_window: Option<bool>,
+    #[pdf_key("CenterWindow")]
+    /// Centre the window on the screen.
+    pub center_window: Option<bool>,
+    #[pdf_key("DisplayDocTitle")]
+    /// Show `dc:title` in the title bar instead of the file name (1.4).
+    ///
+    /// The one entry the corpus actually exercises: four files set it, three true and
+    /// one false. PDF/UA requires it true, which is why an accessibility-minded
+    /// producer sets it.
+    pub display_doc_title: Option<bool>,
+    #[pdf_key("NonFullScreenPageMode")]
+    /// What to show on leaving full-screen. Table 147 allows four of [`PageMode`]'s
+    /// values — not `FullScreen`, which would be circular, and not `UseAttachments`.
+    pub non_full_screen_page_mode: Option<PageMode>,
+    #[pdf_key("Direction")]
+    /// Reading order for spreads (1.3).
+    pub direction: Option<Direction>,
+    #[pdf_key("ViewArea")]
+    /// Which page boundary to display. **Deprecated in PDF 2.0**, and typed anyway
+    /// because files written before it exist and this engine reads 1.7.
+    pub view_area: Option<PageBoundary>,
+    #[pdf_key("ViewClip")]
+    /// Which page boundary to clip to when displaying. Deprecated in PDF 2.0.
+    pub view_clip: Option<PageBoundary>,
+    #[pdf_key("PrintArea")]
+    /// Which page boundary to print. Deprecated in PDF 2.0.
+    pub print_area: Option<PageBoundary>,
+    #[pdf_key("PrintClip")]
+    /// Which page boundary to clip to when printing. Deprecated in PDF 2.0.
+    pub print_clip: Option<PageBoundary>,
+    #[pdf_key("PrintScaling")]
+    /// The print dialogue's default scaling (1.6).
+    pub print_scaling: Option<PrintScaling>,
+    #[pdf_key("Duplex")]
+    /// The print dialogue's default duplex handling (1.7).
+    pub duplex: Option<Duplex>,
+    #[pdf_key("PickTrayByPDFSize")]
+    /// Choose the paper tray by page size (1.7).
+    pub pick_tray_by_pdf_size: Option<bool>,
+    #[pdf_key("PrintPageRange")]
+    /// Page ranges for the print dialogue, as pairs of first and last (1.7).
+    ///
+    /// The array is reached and its elements are resolvable; the pairs are not turned
+    /// into a range type, because no corpus file carries this and a domain type nothing
+    /// exercises is a container before its contents.
+    pub print_page_range: Option<Handle<Vec<Object>>>,
+    #[pdf_key("NumCopies")]
+    /// The print dialogue's default copy count (1.7).
+    pub num_copies: Option<i64>,
+    #[pdf_key("Enforce")]
+    /// Which preferences a viewer should enforce rather than offer (2.0).
+    ///
+    /// Reached as an array, for the same reason as `print_page_range`.
+    pub enforce: Option<Handle<Vec<Object>>>,
+}
+
+/// `/Direction` (Table 147): reading order for two-page spreads.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub enum Direction {
+    /// Left to right.
+    L2R,
+    /// Right to left, which includes vertical Japanese written right to left.
+    R2L,
+    /// A name the standard does not define here, kept verbatim.
+    Other(String),
+}
+
+impl Direction {
+    /// The name this value was read from, so a report can print what the file said
+    /// rather than a Rust identifier — including for `Other`, where the two differ.
+    #[must_use]
+    pub fn as_name(&self) -> &str {
+        match self {
+            Self::L2R => "L2R",
+            Self::R2L => "R2L",
+            Self::Other(name) => name,
+        }
+    }
+}
+
+/// A page boundary, as the deprecated `/ViewArea` family names one (14.11.2).
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub enum PageBoundary {
+    /// `/MediaBox`.
+    MediaBox,
+    /// `/CropBox`.
+    CropBox,
+    /// `/BleedBox`.
+    BleedBox,
+    /// `/TrimBox`.
+    TrimBox,
+    /// `/ArtBox`.
+    ArtBox,
+    /// A name the standard does not define here, kept verbatim.
+    Other(String),
+}
+
+/// `/PrintScaling` (Table 147).
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub enum PrintScaling {
+    /// No scaling: one PDF unit to one device unit.
+    None,
+    /// Whatever the viewer would do anyway.
+    AppDefault,
+    /// A name the standard does not define here, kept verbatim.
+    Other(String),
+}
+
+/// `/Duplex` (Table 147).
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub enum Duplex {
+    /// One side only.
+    Simplex,
+    /// Two-sided, flipping about the short edge.
+    DuplexFlipShortEdge,
+    /// Two-sided, flipping about the long edge.
+    DuplexFlipLongEdge,
+    /// A name the standard does not define here, kept verbatim.
+    Other(String),
+}
+
+impl crate::object::FromPdfObject for Direction {
+    fn from_pdf_object(obj: Object, arena: &PdfArena) -> PdfResult<Self> {
+        Ok(match named(&obj, arena)?.as_str() {
+            "L2R" => Self::L2R,
+            "R2L" => Self::R2L,
+            other => Self::Other(other.to_string()),
+        })
+    }
+}
+
+impl crate::object::FromPdfObject for PageBoundary {
+    fn from_pdf_object(obj: Object, arena: &PdfArena) -> PdfResult<Self> {
+        Ok(match named(&obj, arena)?.as_str() {
+            "MediaBox" => Self::MediaBox,
+            "CropBox" => Self::CropBox,
+            "BleedBox" => Self::BleedBox,
+            "TrimBox" => Self::TrimBox,
+            "ArtBox" => Self::ArtBox,
+            other => Self::Other(other.to_string()),
+        })
+    }
+}
+
+impl crate::object::FromPdfObject for PrintScaling {
+    fn from_pdf_object(obj: Object, arena: &PdfArena) -> PdfResult<Self> {
+        Ok(match named(&obj, arena)?.as_str() {
+            "None" => Self::None,
+            "AppDefault" => Self::AppDefault,
+            other => Self::Other(other.to_string()),
+        })
+    }
+}
+
+impl crate::object::FromPdfObject for Duplex {
+    fn from_pdf_object(obj: Object, arena: &PdfArena) -> PdfResult<Self> {
+        Ok(match named(&obj, arena)?.as_str() {
+            "Simplex" => Self::Simplex,
+            "DuplexFlipShortEdge" => Self::DuplexFlipShortEdge,
+            "DuplexFlipLongEdge" => Self::DuplexFlipLongEdge,
+            other => Self::Other(other.to_string()),
+        })
+    }
 }
 
 /// `/PageMode` (Table 29): what a viewer shows alongside the page.
@@ -520,6 +723,23 @@ impl Document {
     /// Returns the catalog dictionary handle.
     pub fn catalog_handle(&self) -> Option<Handle<Object>> {
         Some(self.root)
+    }
+
+    /// The catalogue (7.7.2) as a typed value.
+    ///
+    /// Reads the dictionary afresh on each call rather than caching: the arena is the
+    /// document's one normalised state (ADR-0013) and anything that edits the catalogue
+    /// edits it there, so a cached struct would be a second copy free to disagree.
+    ///
+    /// # Errors
+    /// Fails when `/Root` does not resolve, or resolves to something that is not a
+    /// conforming catalogue.
+    pub fn catalog(&self) -> PdfResult<PdfCatalog> {
+        let object = self
+            .arena
+            .get_object(self.root)
+            .ok_or_else(|| PdfError::Arena("/Root does not resolve".into()))?;
+        PdfCatalog::from_pdf_object(object, &self.arena)
     }
 
     /// Returns the handle to the document info dictionary, if it exists.

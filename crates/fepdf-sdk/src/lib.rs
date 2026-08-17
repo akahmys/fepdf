@@ -27,6 +27,12 @@ pub use fepdf_model::font::{GlyphTrace, TraceContext};
 pub use fepdf_model::catalog::{CatalogEntry, CatalogReport, Support};
 pub use fepdf_model::cms::RecipientIdentity;
 pub use fepdf_model::decrypt::Credentials;
+// The whole of `/ViewerPreferences`, not just the struct: its fields are public and
+// typed, so a frontend that cannot name `Duplex` cannot read `duplex` — and naming
+// `fepdf_model` to get it is what Rule A forbids.
+pub use fepdf_model::document::{
+    Direction, Duplex, PageBoundary, PageLayout, PageMode, PrintScaling, ViewerPreferences,
+};
 pub use fepdf_model::encryption::{
     Conformance, CryptFilter, EncryptedPayload, EncryptionReport, Permission,
 };
@@ -1643,33 +1649,23 @@ impl PdfDocument {
         self.inner.arena().get_stats()
     }
 
+    /// How the document asks to be presented (`/ViewerPreferences`, 12.2).
+    ///
+    /// `None` means the catalogue carries no such dictionary. An *empty* one — which
+    /// `samples/fy05.pdf` has — comes back as `Some` with every field `None`, because
+    /// declaring nothing and declaring nothing at all are different facts.
+    pub fn viewer_preferences(&self) -> Option<ViewerPreferences> {
+        self.inner.catalog().ok()?.viewer_preferences
+    }
+
     /// Returns the reading direction specified in ViewerPreferences, if any.
     pub fn viewer_direction(&self) -> Option<String> {
-        let cah = self.inner.catalog_handle()?;
-        let cadh = self.inner.resolve_to_dict(cah).ok()?;
-        let dict = self.inner.arena().get_dict(cadh)?;
-        let vp_obj = dict.get(&self.inner.arena().name("ViewerPreferences"))?;
-        let vp_dh = vp_obj.resolve(self.inner.arena()).as_dict_handle()?;
-        let vp_dict = self.inner.arena().get_dict(vp_dh)?;
-        let dir_obj = vp_dict.get(&self.inner.arena().name("Direction"))?;
-        let name_handle = dir_obj.resolve(self.inner.arena()).as_name()?;
-        self.inner.arena().get_name(name_handle).map(|n| n.as_str().to_string())
+        Some(self.viewer_preferences()?.direction?.as_name().to_string())
     }
 
     /// Returns the natural language identifier (`/Lang`) of the document, if specified.
     pub fn language(&self) -> Option<String> {
-        let cah = self.inner.catalog_handle()?;
-        let cadh = self.inner.resolve_to_dict(cah).ok()?;
-        let dict = self.inner.arena().get_dict(cadh)?;
-        let lang_obj = dict.get(&self.inner.arena().name("Lang"))?;
-        let resolved = lang_obj.resolve(self.inner.arena());
-        if let Some(s) = resolved.as_string() {
-            String::from_utf8(s.to_vec()).ok()
-        } else if let Some(nh) = resolved.as_name() {
-            self.inner.arena().get_name(nh).map(|n| n.as_str().to_string())
-        } else {
-            None
-        }
+        self.inner.catalog().ok()?.lang
     }
 
     /// Applies physical redaction boxes to a target page.
