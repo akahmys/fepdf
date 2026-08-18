@@ -13,7 +13,7 @@ use crate::error::PdfError;
 use crate::font::{FallbackFontType, FontResource};
 use crate::{FromPdfObject, Handle, Object, PdfArena, PdfName, PdfResult};
 use parking_lot::RwLock;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
 /// What the source document was, kept so the output can say what it derives from.
@@ -898,6 +898,58 @@ impl Document {
         self.pages.insert(to, page);
         self.rebuild_page_tree_in_arena()?;
         Ok(())
+    }
+
+    /// Batch page reorder operation (moves multiple pages specified by `source_indices` to `target_insert_pos`).
+    pub fn reorder_pages_batch(
+        &mut self,
+        source_indices: &[usize],
+        target_insert_pos: usize,
+    ) -> PdfResult<std::ops::Range<usize>> {
+        if source_indices.is_empty() {
+            return Ok(0..0);
+        }
+        let total = self.pages.len();
+        if target_insert_pos > total {
+            return Err(PdfError::Other("Target index out of bounds".into()));
+        }
+        for &idx in source_indices {
+            if idx >= total {
+                return Err(PdfError::Other("Source index out of bounds".into()));
+            }
+        }
+
+        let selected_set: BTreeSet<usize> = source_indices.iter().copied().collect();
+        let selected_before_target =
+            source_indices.iter().filter(|&&idx| idx < target_insert_pos).count();
+        let insert_idx_in_remaining = target_insert_pos.saturating_sub(selected_before_target);
+
+        let mut remaining_pages = Vec::with_capacity(total - selected_set.len());
+        let mut moving_pages = Vec::with_capacity(selected_set.len());
+
+        for (i, page) in self.pages.drain(..).enumerate() {
+            if selected_set.contains(&i) {
+                moving_pages.push((i, page));
+            } else {
+                remaining_pages.push(page);
+            }
+        }
+
+        moving_pages.sort_by_key(|(orig_idx, _)| *orig_idx);
+        let count = moving_pages.len();
+        let clamped_insert_idx = insert_idx_in_remaining.min(remaining_pages.len());
+
+        let mut new_pages = Vec::with_capacity(total);
+        new_pages.extend(remaining_pages.drain(..clamped_insert_idx));
+        for (_, page) in moving_pages {
+            new_pages.push(page);
+        }
+        new_pages.extend(remaining_pages);
+
+        self.pages = new_pages;
+        self.rebuild_page_tree_in_arena()?;
+
+        Ok(clamped_insert_idx..(clamped_insert_idx + count))
     }
 
     /// Page removal operation (O(1) logical removal with immediate B-tree arena synchronization)

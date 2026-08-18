@@ -237,8 +237,11 @@ impl ThumbnailSidebar {
             }
 
             let dragged_from = egui::DragAndDrop::payload::<usize>(ui.ctx()).map(|p| *p);
-            let is_drag_source = dragged_from == Some(i);
-            let reorder_target = Self::handle_page_reorder_drag(ui, rect, i, dragged_from);
+            let is_drag_source = dragged_from == Some(i)
+                || (dragged_from.is_some()
+                    && app.selected_pages.contains(&dragged_from.unwrap_or(usize::MAX))
+                    && app.selected_pages.contains(&i));
+            let reorder_target = Self::handle_page_reorder_drag(app, ui, rect, i, dragged_from);
 
             if response.clicked() {
                 let shift = ui.input(|ins| ins.modifiers.shift);
@@ -272,28 +275,11 @@ impl ThumbnailSidebar {
                 }
             }
 
-            let (action_rotate, action_move, action_duplicate, action_extract, action_delete) =
-                Self::render_thumbnail_context_menu(app, &response, i);
-
-            if let Some(delta) = action_rotate {
-                app.rotate_page_action(i, delta);
-            } else if let Some((from_idx, target_idx)) = reorder_target {
-                app.reorder_page(from_idx, target_idx);
-            } else if let Some((from_idx, target_idx)) = action_move {
-                app.reorder_page(from_idx, target_idx);
-            } else if action_duplicate {
-                app.duplicate_page(i);
-            } else if action_extract {
-                let indices = if app.selected_pages.contains(&i) {
-                    app.selected_pages.iter().copied().collect()
-                } else {
-                    vec![i]
-                };
-                let _ = app.tx_worker.send(crate::worker::WorkerRequest::ExtractPages { indices });
-            } else if action_delete {
-                app.selected_pages.clear();
-                app.selected_pages.insert(i);
-                app.remove_selected_pages();
+            let menu_action = Self::render_thumbnail_context_menu(app, &response, i);
+            if let Some(action) = menu_action {
+                Self::handle_thumbnail_menu_action(app, action, i);
+            } else if let Some((sources, target_insert_pos)) = reorder_target {
+                app.reorder_pages_batch(&sources, target_insert_pos);
             }
 
             let page_stroke = if is_selected {
@@ -332,11 +318,12 @@ impl ThumbnailSidebar {
     }
 
     fn handle_page_reorder_drag(
+        app: &crate::app::FepdfApp,
         ui: &mut egui::Ui,
         rect: egui::Rect,
         i: usize,
         dragged_from: Option<usize>,
-    ) -> Option<(usize, usize)> {
+    ) -> Option<(Vec<usize>, usize)> {
         let from_idx = dragged_from?;
         let pointer_pos = ui.input(|ins| ins.pointer.interact_pos().or(ins.pointer.latest_pos()));
         let pos = pointer_pos?;
@@ -345,16 +332,24 @@ impl ThumbnailSidebar {
             return None;
         }
 
-        let is_bottom = pos.y > rect.center().y;
-        let (indicator_y, target_idx) = if !is_bottom {
-            let target = if from_idx < i { i.saturating_sub(1) } else { i };
-            (rect.min.y, target)
+        let sources: Vec<usize> = if app.selected_pages.contains(&from_idx) {
+            app.selected_pages.iter().copied().collect()
         } else {
-            let target = if from_idx < i { i } else { i + 1 };
-            (rect.max.y, target)
+            vec![from_idx]
         };
 
-        if target_idx != from_idx {
+        let is_bottom = pos.y > rect.center().y;
+        let (indicator_y, target_insert_pos) =
+            if !is_bottom { (rect.min.y, i) } else { (rect.max.y, i + 1) };
+
+        let selected_before = sources.iter().filter(|&&idx| idx < target_insert_pos).count();
+        let insert_idx_in_remaining = target_insert_pos.saturating_sub(selected_before);
+        let is_identity = sources
+            .iter()
+            .enumerate()
+            .all(|(offset, &orig)| orig == insert_idx_in_remaining + offset);
+
+        if !is_identity {
             let indicator_color = egui::Color32::from_rgb(0, 120, 215);
             let line_min_x = rect.min.x + 2.0;
             let line_max_x = rect.max.x - 2.0;
@@ -368,7 +363,7 @@ impl ThumbnailSidebar {
             ui.ctx().set_cursor_icon(egui::CursorIcon::Grabbing);
 
             if ui.input(|ins| ins.pointer.any_released()) {
-                return Some((from_idx, target_idx));
+                return Some((sources, target_insert_pos));
             }
         }
 
@@ -564,9 +559,12 @@ impl ThumbnailSidebar {
             }
 
             let dragged_from = egui::DragAndDrop::payload::<usize>(ui.ctx()).map(|p| *p);
-            let is_drag_source = dragged_from == Some(i);
+            let is_drag_source = dragged_from == Some(i)
+                || (dragged_from.is_some()
+                    && app.selected_pages.contains(&dragged_from.unwrap_or(usize::MAX))
+                    && app.selected_pages.contains(&i));
             let reorder_target =
-                Self::handle_page_reorder_drag_horizontal(ui, rect, i, dragged_from);
+                Self::handle_page_reorder_drag_horizontal(app, ui, rect, i, dragged_from);
 
             if response.clicked() {
                 let shift = ui.input(|ins| ins.modifiers.shift);
@@ -600,28 +598,11 @@ impl ThumbnailSidebar {
                 }
             }
 
-            let (action_rotate, action_move, action_duplicate, action_extract, action_delete) =
-                Self::render_thumbnail_context_menu(app, &response, i);
-
-            if let Some(delta) = action_rotate {
-                app.rotate_page_action(i, delta);
-            } else if let Some((from_idx, target_idx)) = reorder_target {
-                app.reorder_page(from_idx, target_idx);
-            } else if let Some((from_idx, target_idx)) = action_move {
-                app.reorder_page(from_idx, target_idx);
-            } else if action_duplicate {
-                app.duplicate_page(i);
-            } else if action_extract {
-                let indices = if app.selected_pages.contains(&i) {
-                    app.selected_pages.iter().copied().collect()
-                } else {
-                    vec![i]
-                };
-                let _ = app.tx_worker.send(crate::worker::WorkerRequest::ExtractPages { indices });
-            } else if action_delete {
-                app.selected_pages.clear();
-                app.selected_pages.insert(i);
-                app.remove_selected_pages();
+            let menu_action = Self::render_thumbnail_context_menu(app, &response, i);
+            if let Some(action) = menu_action {
+                Self::handle_thumbnail_menu_action(app, action, i);
+            } else if let Some((sources, target_insert_pos)) = reorder_target {
+                app.reorder_pages_batch(&sources, target_insert_pos);
             }
 
             let page_stroke = if is_selected {
@@ -661,11 +642,12 @@ impl ThumbnailSidebar {
     }
 
     fn handle_page_reorder_drag_horizontal(
+        app: &crate::app::FepdfApp,
         ui: &mut egui::Ui,
         rect: egui::Rect,
         i: usize,
         dragged_from: Option<usize>,
-    ) -> Option<(usize, usize)> {
+    ) -> Option<(Vec<usize>, usize)> {
         let from_idx = dragged_from?;
         let pointer_pos = ui.input(|ins| ins.pointer.interact_pos().or(ins.pointer.latest_pos()));
         let pos = pointer_pos?;
@@ -674,16 +656,24 @@ impl ThumbnailSidebar {
             return None;
         }
 
-        let is_right = pos.x > rect.center().x;
-        let (indicator_x, target_idx) = if !is_right {
-            let target = if from_idx < i { i.saturating_sub(1) } else { i };
-            (rect.min.x, target)
+        let sources: Vec<usize> = if app.selected_pages.contains(&from_idx) {
+            app.selected_pages.iter().copied().collect()
         } else {
-            let target = if from_idx < i { i } else { i + 1 };
-            (rect.max.x, target)
+            vec![from_idx]
         };
 
-        if target_idx != from_idx {
+        let is_right = pos.x > rect.center().x;
+        let (indicator_x, target_insert_pos) =
+            if !is_right { (rect.min.x, i) } else { (rect.max.x, i + 1) };
+
+        let selected_before = sources.iter().filter(|&&idx| idx < target_insert_pos).count();
+        let insert_idx_in_remaining = target_insert_pos.saturating_sub(selected_before);
+        let is_identity = sources
+            .iter()
+            .enumerate()
+            .all(|(offset, &orig)| orig == insert_idx_in_remaining + offset);
+
+        if !is_identity {
             let indicator_color = egui::Color32::from_rgb(0, 120, 215);
             let line_min_y = rect.min.y + 2.0;
             let line_max_y = rect.max.y - 2.0;
@@ -697,7 +687,7 @@ impl ThumbnailSidebar {
             ui.ctx().set_cursor_icon(egui::CursorIcon::Grabbing);
 
             if ui.input(|ins| ins.pointer.any_released()) {
-                return Some((from_idx, target_idx));
+                return Some((sources, target_insert_pos));
             }
         }
 
@@ -705,104 +695,317 @@ impl ThumbnailSidebar {
     }
 
     fn render_thumbnail_context_menu(
-        // RR-15 Limit: GUI - Render thumbnail context menu for page reordering and rotation
+        // RR-15 Limit: GUI - Render thumbnail context menu for page reordering, selection, and editing
         app: &crate::app::FepdfApp,
         response: &egui::Response,
         i: usize,
-    ) -> (Option<fepdf::Quarter>, Option<(usize, usize)>, bool, bool, bool) {
-        let mut action_rotate = None;
-        let mut action_move = None;
-        let mut action_duplicate = false;
-        let mut action_extract = false;
-        let mut action_delete = false;
+    ) -> Option<ThumbnailMenuAction> {
+        let mut action = None;
 
         response.context_menu(|ui| {
-            if ui.button(app.locale_mgr.tr(&app.active_language, "rotate_right_90")).clicked() {
-                action_rotate = Some(fepdf::Quarter::Q90);
+            Self::render_select_submenu(app, ui, &mut action);
+            Self::render_edit_submenu(app, ui, &mut action, i);
+            Self::render_move_submenu(app, ui, &mut action, i);
+        });
+
+        action
+    }
+
+    fn render_select_submenu(
+        app: &crate::app::FepdfApp,
+        ui: &mut egui::Ui,
+        action: &mut Option<ThumbnailMenuAction>,
+    ) {
+        ui.menu_button(app.locale_mgr.tr(&app.active_language, "menu_select"), |ui| {
+            if ui.button(app.locale_mgr.tr(&app.active_language, "menu_select_all")).clicked() {
+                *action = Some(ThumbnailMenuAction::Select(ThumbnailSelectAction::All));
+                ui.close_kind(egui::UiKind::Menu);
+            }
+            if ui.button(app.locale_mgr.tr(&app.active_language, "menu_select_even")).clicked() {
+                *action = Some(ThumbnailMenuAction::Select(ThumbnailSelectAction::Even));
+                ui.close_kind(egui::UiKind::Menu);
+            }
+            if ui.button(app.locale_mgr.tr(&app.active_language, "menu_select_odd")).clicked() {
+                *action = Some(ThumbnailMenuAction::Select(ThumbnailSelectAction::Odd));
                 ui.close_kind(egui::UiKind::Menu);
             }
             ui.separator();
-            if ui.button(app.locale_mgr.tr(&app.active_language, "page_setup_menu")).clicked() {
-                // Future modal open for scale setup
+            let has_selection = !app.selected_pages.is_empty();
+            if ui
+                .add_enabled(
+                    has_selection,
+                    egui::Button::new(app.locale_mgr.tr(&app.active_language, "menu_select_clear")),
+                )
+                .clicked()
+            {
+                *action = Some(ThumbnailMenuAction::Select(ThumbnailSelectAction::Clear));
                 ui.close_kind(egui::UiKind::Menu);
             }
-            if ui.button(app.locale_mgr.tr(&app.active_language, "page_duplicate")).clicked() {
-                action_duplicate = true;
+        });
+    }
+
+    fn render_edit_submenu(
+        app: &crate::app::FepdfApp,
+        ui: &mut egui::Ui,
+        action: &mut Option<ThumbnailMenuAction>,
+        _i: usize,
+    ) {
+        let has_selection = !app.selected_pages.is_empty();
+        ui.add_enabled_ui(has_selection, |ui| {
+            ui.menu_button(app.locale_mgr.tr(&app.active_language, "menu_edit"), |ui| {
+                Self::render_edit_primary_items(app, ui, action);
+                Self::render_edit_secondary_items(app, ui, action);
+            });
+        });
+    }
+
+    fn render_edit_primary_items(
+        app: &crate::app::FepdfApp,
+        ui: &mut egui::Ui,
+        action: &mut Option<ThumbnailMenuAction>,
+    ) {
+        if ui.button(app.locale_mgr.tr(&app.active_language, "menu_edit_rotate_90")).clicked() {
+            *action =
+                Some(ThumbnailMenuAction::Edit(ThumbnailEditAction::Rotate(fepdf::Quarter::Q90)));
+            ui.close_kind(egui::UiKind::Menu);
+        }
+        if ui.button(app.locale_mgr.tr(&app.active_language, "menu_edit_scale")).clicked() {
+            *action = Some(ThumbnailMenuAction::Edit(ThumbnailEditAction::Scale));
+            ui.close_kind(egui::UiKind::Menu);
+        }
+        if ui.button(app.locale_mgr.tr(&app.active_language, "menu_edit_duplicate")).clicked() {
+            *action = Some(ThumbnailMenuAction::Edit(ThumbnailEditAction::Duplicate));
+            ui.close_kind(egui::UiKind::Menu);
+        }
+        Self::render_insert_submenu(app, ui, action);
+    }
+
+    fn render_edit_secondary_items(
+        app: &crate::app::FepdfApp,
+        ui: &mut egui::Ui,
+        action: &mut Option<ThumbnailMenuAction>,
+    ) {
+        if ui.button(app.locale_mgr.tr(&app.active_language, "menu_edit_replace")).clicked() {
+            *action = Some(ThumbnailMenuAction::Edit(ThumbnailEditAction::Replace));
+            ui.close_kind(egui::UiKind::Menu);
+        }
+        if ui.button(app.locale_mgr.tr(&app.active_language, "menu_edit_extract")).clicked() {
+            *action = Some(ThumbnailMenuAction::Edit(ThumbnailEditAction::Extract));
+            ui.close_kind(egui::UiKind::Menu);
+        }
+        ui.separator();
+        if ui.button(app.locale_mgr.tr(&app.active_language, "menu_edit_delete")).clicked() {
+            *action = Some(ThumbnailMenuAction::Edit(ThumbnailEditAction::Delete));
+            ui.close_kind(egui::UiKind::Menu);
+        }
+    }
+
+    fn render_insert_submenu(
+        app: &crate::app::FepdfApp,
+        ui: &mut egui::Ui,
+        action: &mut Option<ThumbnailMenuAction>,
+    ) {
+        ui.menu_button(app.locale_mgr.tr(&app.active_language, "menu_edit_insert"), |ui| {
+            if ui.button(app.locale_mgr.tr(&app.active_language, "page_insert_file")).clicked() {
+                *action = Some(ThumbnailMenuAction::Edit(ThumbnailEditAction::InsertFile));
                 ui.close_kind(egui::UiKind::Menu);
             }
-            ui.menu_button(app.locale_mgr.tr(&app.active_language, "page_insert_menu"), |ui| {
-                if ui.button(app.locale_mgr.tr(&app.active_language, "page_insert_file")).clicked()
-                {
+            if ui.button(app.locale_mgr.tr(&app.active_language, "page_insert_blank")).clicked() {
+                *action = Some(ThumbnailMenuAction::Edit(ThumbnailEditAction::InsertBlank));
+                ui.close_kind(egui::UiKind::Menu);
+            }
+        });
+    }
+
+    fn render_move_submenu(
+        app: &crate::app::FepdfApp,
+        ui: &mut egui::Ui,
+        action: &mut Option<ThumbnailMenuAction>,
+        _i: usize,
+    ) {
+        let has_selection = !app.selected_pages.is_empty();
+        ui.add_enabled_ui(has_selection, |ui| {
+            ui.menu_button(app.locale_mgr.tr(&app.active_language, "menu_move"), |ui| {
+                if ui.button(app.locale_mgr.tr(&app.active_language, "menu_move_first")).clicked() {
+                    *action = Some(ThumbnailMenuAction::Move(ThumbnailMoveAction::First));
                     ui.close_kind(egui::UiKind::Menu);
                 }
-                if ui.button(app.locale_mgr.tr(&app.active_language, "page_insert_blank")).clicked()
-                {
+                if ui.button(app.locale_mgr.tr(&app.active_language, "menu_move_prev")).clicked() {
+                    *action = Some(ThumbnailMenuAction::Move(ThumbnailMoveAction::Prev));
+                    ui.close_kind(egui::UiKind::Menu);
+                }
+                if ui.button(app.locale_mgr.tr(&app.active_language, "menu_move_next")).clicked() {
+                    *action = Some(ThumbnailMenuAction::Move(ThumbnailMoveAction::Next));
+                    ui.close_kind(egui::UiKind::Menu);
+                }
+                if ui.button(app.locale_mgr.tr(&app.active_language, "menu_move_last")).clicked() {
+                    *action = Some(ThumbnailMenuAction::Move(ThumbnailMoveAction::Last));
                     ui.close_kind(egui::UiKind::Menu);
                 }
             });
-            if ui.button(app.locale_mgr.tr(&app.active_language, "page_replace_menu")).clicked() {
-                ui.close_kind(egui::UiKind::Menu);
-            }
-            if ui.button(app.locale_mgr.tr(&app.active_language, "page_extract_menu")).clicked() {
-                action_extract = true;
-                ui.close_kind(egui::UiKind::Menu);
-            }
-            ui.separator();
+        });
+    }
 
-            // 4 Move Options: Move to Top, Move Previous, Move Next, Move to Bottom
-            let can_move_top = i > 0;
-            let can_move_prev = i > 0;
-            let can_move_next = i < app.total_pages.saturating_sub(1);
-            let can_move_bottom = i < app.total_pages.saturating_sub(1);
-
-            let top_btn = ui.add_enabled(
-                can_move_top,
-                egui::Button::new(app.locale_mgr.tr(&app.active_language, "reorder_move_top")),
-            );
-            if top_btn.clicked() {
-                action_move = Some((i, 0));
-                ui.close_kind(egui::UiKind::Menu);
+    fn handle_selection_menu_action(app: &mut crate::app::FepdfApp, action: ThumbnailSelectAction) {
+        match action {
+            ThumbnailSelectAction::All => {
+                app.selected_pages = (0..app.total_pages).collect();
             }
-
-            let prev_btn = ui.add_enabled(
-                can_move_prev,
-                egui::Button::new(app.locale_mgr.tr(&app.active_language, "reorder_move_up")),
-            );
-            if prev_btn.clicked() {
-                action_move = Some((i, i - 1));
-                ui.close_kind(egui::UiKind::Menu);
+            ThumbnailSelectAction::Even => {
+                app.selected_pages =
+                    (0..app.total_pages).filter(|&idx| (idx + 1) % 2 == 0).collect();
             }
-
-            let next_btn = ui.add_enabled(
-                can_move_next,
-                egui::Button::new(app.locale_mgr.tr(&app.active_language, "reorder_move_down")),
-            );
-            if next_btn.clicked() {
-                action_move = Some((i, i + 1));
-                ui.close_kind(egui::UiKind::Menu);
+            ThumbnailSelectAction::Odd => {
+                app.selected_pages =
+                    (0..app.total_pages).filter(|&idx| (idx + 1) % 2 != 0).collect();
             }
-
-            let bottom_btn = ui.add_enabled(
-                can_move_bottom,
-                egui::Button::new(app.locale_mgr.tr(&app.active_language, "reorder_move_bottom")),
-            );
-            if bottom_btn.clicked() {
-                action_move = Some((i, app.total_pages.saturating_sub(1)));
-                ui.close_kind(egui::UiKind::Menu);
+            ThumbnailSelectAction::Clear => {
+                app.selected_pages.clear();
             }
+        }
+    }
 
-            if app.total_pages > 1 {
-                ui.separator();
-                if ui
-                    .button(app.locale_mgr.tr(&app.active_language, "reorder_delete_page"))
-                    .clicked()
-                {
-                    action_delete = true;
-                    ui.close_kind(egui::UiKind::Menu);
+    fn handle_edit_menu_action(
+        app: &mut crate::app::FepdfApp,
+        action: ThumbnailEditAction,
+        i: usize,
+    ) {
+        match action {
+            ThumbnailEditAction::Rotate(delta) => {
+                app.rotate_page_action(i, delta);
+            }
+            ThumbnailEditAction::Scale
+            | ThumbnailEditAction::InsertBlank
+            | ThumbnailEditAction::Replace => {}
+            ThumbnailEditAction::Duplicate => {
+                app.duplicate_page(i);
+            }
+            ThumbnailEditAction::InsertFile => {
+                Self::insert_document_from_file(app, i + 1);
+            }
+            ThumbnailEditAction::Extract => {
+                let indices = if app.selected_pages.contains(&i) {
+                    app.selected_pages.iter().copied().collect()
+                } else {
+                    vec![i]
+                };
+                let _ = app.tx_worker.send(crate::worker::WorkerRequest::ExtractPages { indices });
+            }
+            ThumbnailEditAction::Delete => {
+                if !app.selected_pages.contains(&i) {
+                    app.selected_pages.clear();
+                    app.selected_pages.insert(i);
+                }
+                app.remove_selected_pages();
+            }
+        }
+    }
+
+    fn handle_move_menu_action(
+        app: &mut crate::app::FepdfApp,
+        action: ThumbnailMoveAction,
+        i: usize,
+    ) {
+        let sources: Vec<usize> = if app.selected_pages.contains(&i) {
+            app.selected_pages.iter().copied().collect()
+        } else {
+            vec![i]
+        };
+        if sources.is_empty() {
+            return;
+        }
+        let total = app.total_pages;
+        let min_selected = *sources.iter().min().unwrap_or(&0);
+        let max_selected = *sources.iter().max().unwrap_or(&0);
+
+        match action {
+            ThumbnailMoveAction::First => {
+                app.reorder_pages_batch(&sources, 0);
+            }
+            ThumbnailMoveAction::Last => {
+                app.reorder_pages_batch(&sources, total);
+            }
+            ThumbnailMoveAction::Prev => {
+                if min_selected > 0 {
+                    let prev_target = (0..min_selected)
+                        .rev()
+                        .find(|idx| !app.selected_pages.contains(idx))
+                        .unwrap_or(0);
+                    app.reorder_pages_batch(&sources, prev_target);
                 }
             }
-        });
-
-        (action_rotate, action_move, action_duplicate, action_extract, action_delete)
+            ThumbnailMoveAction::Next => {
+                if max_selected < total.saturating_sub(1) {
+                    let next_target = (max_selected + 1..total)
+                        .find(|idx| !app.selected_pages.contains(idx))
+                        .map_or(total, |idx| idx + 1);
+                    app.reorder_pages_batch(&sources, next_target);
+                }
+            }
+        }
     }
+
+    fn insert_document_from_file(app: &mut crate::app::FepdfApp, at_index: usize) {
+        if let Some(path) = rfd::FileDialog::new().add_filter("PDF", &["pdf"]).pick_file()
+            && let Ok(bytes) = std::fs::read(&path)
+        {
+            let _ = app.tx_worker.send(crate::worker::WorkerRequest::InsertDocument {
+                data: bytes::Bytes::from(bytes),
+                at_index,
+            });
+        }
+    }
+
+    fn handle_thumbnail_menu_action(
+        app: &mut crate::app::FepdfApp,
+        action: ThumbnailMenuAction,
+        i: usize,
+    ) {
+        match action {
+            ThumbnailMenuAction::Select(select_action) => {
+                Self::handle_selection_menu_action(app, select_action);
+            }
+            ThumbnailMenuAction::Edit(edit_action) => {
+                Self::handle_edit_menu_action(app, edit_action, i);
+            }
+            ThumbnailMenuAction::Move(move_action) => {
+                Self::handle_move_menu_action(app, move_action, i);
+            }
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ThumbnailSelectAction {
+    All,
+    Even,
+    Odd,
+    Clear,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ThumbnailEditAction {
+    Rotate(fepdf::Quarter),
+    Scale,
+    Duplicate,
+    InsertFile,
+    InsertBlank,
+    Replace,
+    Extract,
+    Delete,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ThumbnailMoveAction {
+    First,
+    Prev,
+    Next,
+    Last,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ThumbnailMenuAction {
+    Select(ThumbnailSelectAction),
+    Edit(ThumbnailEditAction),
+    Move(ThumbnailMoveAction),
 }

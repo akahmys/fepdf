@@ -394,6 +394,15 @@ impl PdfDocument {
         self.inner.reorder_page(from, to)
     }
 
+    /// Moves multiple pages specified by `source_indices` to `target_insert_pos`.
+    pub fn reorder_pages_batch(
+        &mut self,
+        source_indices: &[usize],
+        target_insert_pos: usize,
+    ) -> PdfResult<std::ops::Range<usize>> {
+        self.inner.reorder_pages_batch(source_indices, target_insert_pos)
+    }
+
     /// Removes a page at the specified 0-based index.
     pub fn remove_page(&mut self, index: usize) -> PdfResult<()> {
         self.inner.remove_page(index)

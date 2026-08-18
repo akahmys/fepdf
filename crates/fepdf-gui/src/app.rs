@@ -668,15 +668,48 @@ impl FepdfApp {
         self.page_layouts = layouts;
     }
 
+    #[allow(dead_code)]
     pub fn reorder_page(&mut self, from: usize, to: usize) {
         if from >= self.total_pages || to >= self.total_pages || from == to {
             return;
         }
+        let target_pos = if to > from { to + 1 } else { to };
+        self.reorder_pages_batch(&[from], target_pos);
+    }
 
-        if from < self.doc_page_sizes.len() && to < self.doc_page_sizes.len() {
-            let item = self.doc_page_sizes.remove(from);
-            self.doc_page_sizes.insert(to, item);
+    pub fn reorder_pages_batch(&mut self, source_indices: &[usize], target_insert_pos: usize) {
+        if source_indices.is_empty() || target_insert_pos > self.total_pages {
+            return;
         }
+
+        let selected_set: BTreeSet<usize> = source_indices.iter().copied().collect();
+        let selected_before_target =
+            source_indices.iter().filter(|&&idx| idx < target_insert_pos).count();
+        let insert_idx_in_remaining = target_insert_pos.saturating_sub(selected_before_target);
+
+        let mut remaining_sizes =
+            Vec::with_capacity(self.doc_page_sizes.len().saturating_sub(selected_set.len()));
+        let mut moving_sizes = Vec::with_capacity(selected_set.len());
+
+        for (i, size) in self.doc_page_sizes.drain(..).enumerate() {
+            if selected_set.contains(&i) {
+                moving_sizes.push((i, size));
+            } else {
+                remaining_sizes.push(size);
+            }
+        }
+
+        moving_sizes.sort_by_key(|(orig_idx, _)| *orig_idx);
+        let count = moving_sizes.len();
+        let clamped_insert_idx = insert_idx_in_remaining.min(remaining_sizes.len());
+
+        let mut new_sizes = Vec::with_capacity(self.total_pages);
+        new_sizes.extend(remaining_sizes.drain(..clamped_insert_idx));
+        for (_, size) in moving_sizes {
+            new_sizes.push(size);
+        }
+        new_sizes.extend(remaining_sizes);
+        self.doc_page_sizes = new_sizes;
 
         self.scenes.clear();
         self.raw_texts.clear();
@@ -685,31 +718,14 @@ impl FepdfApp {
 
         self.compute_layouts();
 
-        let mut new_selected = BTreeSet::new();
-        for &idx in &self.selected_pages {
-            if idx == from {
-                new_selected.insert(to);
-            } else if from < to && idx > from && idx <= to {
-                new_selected.insert(idx - 1);
-            } else if to < from && idx >= to && idx < from {
-                new_selected.insert(idx + 1);
-            } else {
-                new_selected.insert(idx);
-            }
-        }
-        self.selected_pages = new_selected;
+        let new_range = clamped_insert_idx..(clamped_insert_idx + count);
+        self.selected_pages = new_range.collect();
+        self.last_selected_page = Some(clamped_insert_idx);
 
-        if let Some(last) = self.last_selected_page {
-            if last == from {
-                self.last_selected_page = Some(to);
-            } else if from < to && last > from && last <= to {
-                self.last_selected_page = Some(last - 1);
-            } else if to < from && last >= to && last < from {
-                self.last_selected_page = Some(last + 1);
-            }
-        }
-
-        let _ = self.tx_worker.send(WorkerRequest::ReorderPages { from, to });
+        let _ = self.tx_worker.send(WorkerRequest::ReorderPagesBatch {
+            source_indices: source_indices.to_vec(),
+            target_insert_pos,
+        });
     }
 
     pub fn duplicate_page(&mut self, index: usize) {

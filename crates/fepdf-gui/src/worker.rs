@@ -33,9 +33,9 @@ pub enum WorkerRequest {
         signature_position: Option<(usize, [f32; 4])>,
     },
     Audit,
-    ReorderPages {
-        from: usize,
-        to: usize,
+    ReorderPagesBatch {
+        source_indices: Vec<usize>,
+        target_insert_pos: usize,
     },
     RemovePages {
         indices: Vec<usize>,
@@ -164,13 +164,13 @@ pub fn run_worker(rx: Receiver<WorkerRequest>, tx: Sender<WorkerResponse>, ctx: 
                 handle_audit(current_doc.as_ref(), &tx);
                 ctx.request_repaint();
             }
-            WorkerRequest::ReorderPages { from, to } => {
+            WorkerRequest::ReorderPagesBatch { source_indices, target_insert_pos } => {
                 text_cache.clear();
                 spans_cache.clear();
                 if let Some(ref mut doc) = current_doc
-                    && let Err(e) = doc.reorder_page(from, to)
+                    && let Err(e) = doc.reorder_pages_batch(&source_indices, target_insert_pos)
                 {
-                    log::error!("Failed to reorder page in worker: {e:?}");
+                    log::error!("Failed to batch reorder pages in worker: {e:?}");
                 }
                 ctx.request_repaint();
             }
