@@ -453,6 +453,7 @@ impl<'a> Interpreter<'a> {
             }
             "J" | "j" | "w" | "M" | "d" | "i" => self.handle_state_operator(op),
             "SCN" | "scn" | "sc" | "SC" => self.handle_color_operator(op),
+            "sh" => self.handle_shading_operator(),
             _ => {
                 if !op.is_empty() {
                     log::warn!("Unknown or unhandled operator: {op}");

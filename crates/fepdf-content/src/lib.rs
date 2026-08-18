@@ -17,7 +17,10 @@ pub use interpreter::{Interpreter, Type3Advance};
 
 use fepdf_model::graphics::TextRenderingMode;
 pub use fepdf_model::graphics::WindingRule;
-use fepdf_model::{BlendMode, Color, PixelFormat, StrokeStyle};
+pub use fepdf_model::{
+    AxialShading, BlendMode, Color, ColorStop, Paint, PatternSpec, PixelFormat, RadialShading,
+    ShadingSpec, StrokeStyle,
+};
 use kurbo::{Affine, BezPath};
 use std::sync::Arc;
 
@@ -99,6 +102,20 @@ pub trait RenderBackend {
     fn set_fill_color(&mut self, color: Color);
     /// Sets the current stroke colour.
     fn set_stroke_color(&mut self, color: Color);
+    /// Sets the current fill paint (Solid or Pattern/Shading).
+    fn set_fill_paint(&mut self, paint: &Paint) {
+        if let Paint::Solid(col) = paint {
+            self.set_fill_color(*col);
+        }
+    }
+    /// Sets the current stroke paint (Solid or Pattern/Shading).
+    fn set_stroke_paint(&mut self, paint: &Paint) {
+        if let Paint::Solid(col) = paint {
+            self.set_stroke_color(*col);
+        }
+    }
+    /// Paints a shading directly across the current clip region (`sh` operator, ISO 32000-2 8.7.4.5.2).
+    fn paint_shading(&mut self, _shading: &ShadingSpec) {}
     /// Sets the current blend mode.
     fn set_blend_mode(&mut self, mode: BlendMode);
     /// Draws a decoded image, optionally masked.

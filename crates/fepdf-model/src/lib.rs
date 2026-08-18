@@ -63,7 +63,8 @@ pub use writer::{PdfWriter, StringEncoding};
 
 pub use fepdf_macros::FromPdfObject;
 pub use graphics::{
-    BlendMode, Color, LineCap, LineJoin, Matrix, PixelFormat, StrokeStyle, WindingRule,
+    AxialShading, BlendMode, Color, ColorStop, LineCap, LineJoin, Matrix, Paint, PatternSpec,
+    PixelFormat, RadialShading, ShadingSpec, StrokeStyle, WindingRule,
 };
 pub use handle::Handle;
 pub use ingest::Ingestor;

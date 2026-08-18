@@ -201,6 +201,110 @@ impl FontMetrics {
     }
 }
 
+/// Classification of font category for advance width estimation heuristics.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum FontCategory {
+    /// Monospaced font (fixed pitch, e.g. Courier, Consolas).
+    Monospace,
+    /// Proportional Serif font (e.g. Times, Georgia, Mincho).
+    Serif,
+    /// Proportional Sans-Serif font (e.g. Helvetica, Arial, Gothic).
+    #[default]
+    SansSerif,
+    /// CJK font (Chinese, Japanese, Korean).
+    Cjk,
+    /// Symbolic or Dingbat font.
+    Symbol,
+}
+
+impl FontCategory {
+    /// Classifies font category from base font name and descriptor flags.
+    pub fn from_name_and_flags(base_font: &str, flags: u32, is_cid_keyed: bool) -> Self {
+        let name_lower = base_font.to_ascii_lowercase();
+        if is_cid_keyed
+            || name_lower.contains("mincho")
+            || name_lower.contains("gothic")
+            || name_lower.contains("明朝")
+            || name_lower.contains("ゴシック")
+            || name_lower.contains("song")
+            || name_lower.contains("kai")
+            || name_lower.contains("heiti")
+            || name_lower.contains("batang")
+            || name_lower.contains("dotum")
+        {
+            return Self::Cjk;
+        }
+        // Bit 1 of Flags is FixedPitch (1 << 0)
+        if (flags & 1) != 0
+            || name_lower.contains("courier")
+            || name_lower.contains("mono")
+            || name_lower.contains("consolas")
+        {
+            return Self::Monospace;
+        }
+        // Bit 2 of Flags is Serif (1 << 1)
+        if (flags & (1 << 1)) != 0
+            || name_lower.contains("times")
+            || name_lower.contains("serif")
+            || name_lower.contains("georgia")
+            || name_lower.contains("palatino")
+        {
+            return Self::Serif;
+        }
+        // Bit 3 of Flags is Symbolic (1 << 2)
+        if (flags & (1 << 2)) != 0
+            || name_lower.contains("symbol")
+            || name_lower.contains("dingbat")
+            || name_lower.contains("wingdings")
+        {
+            return Self::Symbol;
+        }
+        Self::SansSerif
+    }
+
+    /// Estimates advance width (in 1/1000 em units) for a given character code or Unicode scalar.
+    pub fn estimate_char_width(self, char_code: u32) -> f32 {
+        match self {
+            Self::Monospace => 600.0,
+            Self::Cjk => {
+                if char_code < 0x80 {
+                    500.0
+                } else {
+                    1000.0
+                }
+            }
+            Self::Symbol => 600.0,
+            Self::Serif => Self::estimate_proportional_width(char_code, true),
+            Self::SansSerif => Self::estimate_proportional_width(char_code, false),
+        }
+    }
+
+    fn estimate_proportional_width(code: u32, is_serif: bool) -> f32 {
+        match code {
+            0x20 => 250.0,
+            // Narrow characters (i, j, l, t, f, r, punctuation)
+            0x69 /* 'i' */ | 0x6C /* 'l' */ => if is_serif { 278.0 } else { 222.0 },
+            0x6A /* 'j' */ | 0x74 /* 't' */ | 0x66 /* 'f' */ | 0x72 /* 'r' */ => if is_serif { 333.0 } else { 278.0 },
+            0x49 /* 'I' */ | 0x4A /* 'J' */ => if is_serif { 361.0 } else { 278.0 },
+            0x21 /* '!' */ | 0x2E /* '.' */ | 0x2C /* ',' */ | 0x3A /* ':' */ | 0x3B /* ';' */ | 0x27 /* '\'' */ | 0x7C /* '|' */ => 250.0,
+            // Wide characters (m, w, M, W, @, %)
+            0x6D /* 'm' */ | 0x77 /* 'w' */ => if is_serif { 778.0 } else { 833.0 },
+            0x4D /* 'M' */ | 0x57 /* 'W' */ => if is_serif { 889.0 } else { 833.0 },
+            0x40 /* '@' */ | 0x25 /* '%' */ => 850.0,
+            // Digits
+            0x30..=0x39 /* '0'..='9' */ => 500.0,
+            // Uppercase letters
+            0x41..=0x5A /* 'A'..='Z' */ => if is_serif { 680.0 } else { 667.0 },
+            // Lowercase letters
+            0x61..=0x7A /* 'a'..='z' */ => if is_serif { 500.0 } else { 520.0 },
+            // Default ASCII
+            0..=0x7F => 500.0,
+            // Default full-width / non-ASCII
+            _ => 1000.0,
+        }
+    }
+}
+
 /// Detects writing mode (Horizontal=0, Vertical=1) from Encoding or CMap.
 pub fn detect_wmode(dict: &BTreeMap<Handle<PdfName>, Object>, arena: &PdfArena) -> i32 {
     let enc_obj = dict.get(&arena.name("Encoding"));
@@ -237,6 +341,46 @@ pub fn detect_wmode(dict: &BTreeMap<Handle<PdfName>, Object>, arena: &PdfArena) 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_font_category_classification() {
+        assert_eq!(
+            FontCategory::from_name_and_flags("CourierNew", 0, false),
+            FontCategory::Monospace
+        );
+        assert_eq!(FontCategory::from_name_and_flags("Times-Roman", 0, false), FontCategory::Serif);
+        assert_eq!(
+            FontCategory::from_name_and_flags("Helvetica", 0, false),
+            FontCategory::SansSerif
+        );
+        assert_eq!(FontCategory::from_name_and_flags("MS-Gothic", 0, false), FontCategory::Cjk);
+        assert_eq!(FontCategory::from_name_and_flags("Symbol", 0, false), FontCategory::Symbol);
+        assert_eq!(
+            FontCategory::from_name_and_flags("CustomFont", 1 << 0, false),
+            FontCategory::Monospace
+        );
+        assert_eq!(
+            FontCategory::from_name_and_flags("CustomFont", 1 << 1, false),
+            FontCategory::Serif
+        );
+    }
+
+    #[test]
+    fn test_font_category_advance_width_estimation() {
+        let sans = FontCategory::SansSerif;
+        assert_eq!(sans.estimate_char_width(0x20), 250.0);
+        assert_eq!(sans.estimate_char_width(b'i' as u32), 222.0);
+        assert_eq!(sans.estimate_char_width(b'm' as u32), 833.0);
+        assert_eq!(sans.estimate_char_width(b'a' as u32), 520.0);
+
+        let mono = FontCategory::Monospace;
+        assert_eq!(mono.estimate_char_width(b'i' as u32), 600.0);
+        assert_eq!(mono.estimate_char_width(b'w' as u32), 600.0);
+
+        let cjk = FontCategory::Cjk;
+        assert_eq!(cjk.estimate_char_width(b'A' as u32), 500.0);
+        assert_eq!(cjk.estimate_char_width(0x4E00), 1000.0);
+    }
 
     #[test]
     fn test_font_metrics_out_of_bounds_safety() {

@@ -3,10 +3,95 @@
 /// Typed schema helpers for graphics dictionaries.
 pub mod schema;
 
+use crate::document::extensions::MeshShadingSpec;
 use crate::object::{FromPdfObject, Object};
 use crate::{PdfArena, PdfError, PdfResult};
 use kurbo::Affine;
 use serde::{Deserialize, Serialize};
+
+/// A color stop in a gradient or shading, specifying an offset in [0, 1] and a Color.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct ColorStop {
+    /// Offset along the gradient axis in [0.0, 1.0].
+    pub offset: f32,
+    /// Color at this stop.
+    pub color: Color,
+}
+
+impl ColorStop {
+    /// Creates a new ColorStop.
+    pub fn new(offset: f32, color: Color) -> Self {
+        Self { offset: offset.clamp(0.0, 1.0), color }
+    }
+}
+
+/// PDF Type 2 Axial Shading (ISO 32000-2 Section 8.7.4.3).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AxialShading {
+    /// Start and end coordinates `[x0, y0, x1, y1]`.
+    pub coords: [f64; 4],
+    /// Color stops defining the linear transition.
+    pub stops: Vec<ColorStop>,
+    /// Whether to extend the shading beyond the start and end points `[extend_start, extend_end]`.
+    pub extend: [bool; 2],
+}
+
+/// PDF Type 3 Radial Shading (ISO 32000-2 Section 8.7.4.4).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct RadialShading {
+    /// Starting circle center/radius and ending circle center/radius `[x0, y0, r0, x1, y1, r1]`.
+    pub coords: [f64; 6],
+    /// Color stops defining the radial transition.
+    pub stops: Vec<ColorStop>,
+    /// Whether to extend the shading beyond the start and end circles `[extend_start, extend_end]`.
+    pub extend: [bool; 2],
+}
+
+/// Shading specification (ISO 32000-2 Section 8.7.4).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub enum ShadingSpec {
+    /// Type 2 Axial (Linear) Shading.
+    Axial(AxialShading),
+    /// Type 3 Radial Shading.
+    Radial(RadialShading),
+    /// Type 4 to 7 Free/Lattice/Patch Mesh Shading.
+    Mesh(MeshShadingSpec),
+}
+
+/// Pattern specification (ISO 32000-2 Section 8.7).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub enum PatternSpec {
+    /// Type 2 Shading Pattern.
+    Shading(ShadingSpec),
+    /// Type 1 Tiling Pattern.
+    Tiling {
+        /// Pattern cell bounding box `[min_x, min_y, max_x, max_y]`.
+        bbox: [f64; 4],
+        /// Horizontal spacing between pattern cells.
+        x_step: f64,
+        /// Vertical spacing between pattern cells.
+        y_step: f64,
+        /// Optional pattern transformation matrix.
+        matrix: Option<Matrix>,
+        /// Pattern content stream instructions/bytes.
+        content_bytes: Vec<u8>,
+    },
+}
+
+/// General paint style (Solid color or Pattern/Shading).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub enum Paint {
+    /// Solid color.
+    Solid(Color),
+    /// Pattern or Shading.
+    Pattern(PatternSpec),
+}
+
+impl From<Color> for Paint {
+    fn from(color: Color) -> Self {
+        Paint::Solid(color)
+    }
+}
 
 /// PDF Color representation.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]

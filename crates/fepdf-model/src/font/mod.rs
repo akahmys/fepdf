@@ -6,6 +6,7 @@ pub mod loader;
 /// Glyph metrics: widths, bounding boxes and vertical advances.
 pub mod metrics;
 pub use fepdf_font::reconstruction::{FontReconstructor, ReconstructedFont};
+pub use metrics::{FontCategory, FontMetrics, detect_wmode};
 /// Typed schema for font dictionaries.
 pub mod schema;
 
@@ -144,8 +145,6 @@ enum EmbeddedFormat {
     /// No embedded program at all.
     Absent,
 }
-
-pub use metrics::FontMetrics;
 
 #[derive(Default)]
 struct DescendantResult {
@@ -1364,7 +1363,17 @@ impl FontResource {
             return 1000.0; // Default vertical advance
         }
 
-        *self.widths.get(&cid).unwrap_or(&self.default_width)
+        if let Some(w) = self.widths.get(&cid) {
+            return *w;
+        }
+
+        if self.widths.is_empty() && (self.default_width == 1000.0 || self.default_width == 0.0) {
+            let cat =
+                FontCategory::from_name_and_flags(self.base_font.as_str(), 0, self.is_cid_keyed);
+            return cat.estimate_char_width(cid);
+        }
+
+        self.default_width
     }
 
     fn format_cid_chars(cmap: &mut String, gid_to_uni: &[(u32, String)]) {
@@ -1533,6 +1542,11 @@ impl FontResource {
     pub fn glyph_width_by_cid(&self, cid: u32) -> f32 {
         if let Some(w) = self.widths.get(&cid) {
             return *w;
+        }
+        if self.widths.is_empty() && (self.default_width == 1000.0 || self.default_width == 0.0) {
+            let cat =
+                FontCategory::from_name_and_flags(self.base_font.as_str(), 0, self.is_cid_keyed);
+            return cat.estimate_char_width(cid);
         }
         self.default_width
     }

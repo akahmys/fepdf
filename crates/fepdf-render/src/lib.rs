@@ -27,7 +27,9 @@ pub mod headless;
 pub mod text;
 
 use fepdf_model::graphics::TextRenderingMode;
-use fepdf_model::{BlendMode, Color, LineCap, LineJoin, PixelFormat, StrokeStyle};
+use fepdf_model::{
+    BlendMode, Color, LineCap, LineJoin, Paint, PatternSpec, PixelFormat, ShadingSpec, StrokeStyle,
+};
 use kurbo::{Affine, BezPath, Cap, Join, Stroke};
 use std::sync::Arc;
 use vello::Scene;
@@ -54,6 +56,8 @@ struct VelloState {
     transform: Affine,
     fill_color: Color,
     stroke_color: Color,
+    fill_paint: Option<Paint>,
+    stroke_paint: Option<Paint>,
     fill_alpha: f64,
     stroke_alpha: f64,
     blend_mode: BlendMode,
@@ -125,6 +129,8 @@ impl VelloBackend {
                 transform: Affine::IDENTITY,
                 fill_color: Color::Gray(0.0),
                 stroke_color: Color::Gray(0.0),
+                fill_paint: None,
+                stroke_paint: None,
                 fill_alpha: 1.0,
                 stroke_alpha: 1.0,
                 blend_mode: BlendMode::Normal,
@@ -455,7 +461,11 @@ impl RenderBackend for VelloBackend {
         if !has_move_to(path) {
             return;
         }
-        let brush = to_vello_brush(color, self.state.fill_alpha as f32);
+        let brush = if let Some(ref paint) = self.state.fill_paint {
+            to_vello_paint_brush(paint, self.state.fill_alpha as f32)
+        } else {
+            to_vello_brush(color, self.state.fill_alpha as f32)
+        };
         let vello_rule = match rule {
             WindingRule::NonZero => vello::peniko::Fill::NonZero,
             WindingRule::EvenOdd => vello::peniko::Fill::EvenOdd,
@@ -469,7 +479,11 @@ impl RenderBackend for VelloBackend {
         if !has_move_to(path) {
             return;
         }
-        let brush = to_vello_brush(color, self.state.stroke_alpha as f32);
+        let brush = if let Some(ref paint) = self.state.stroke_paint {
+            to_vello_paint_brush(paint, self.state.stroke_alpha as f32)
+        } else {
+            to_vello_brush(color, self.state.stroke_alpha as f32)
+        };
         let mut stroke = Stroke::new(style.width);
         let cap = match style.cap {
             LineCap::Butt => Cap::Butt,
@@ -524,9 +538,28 @@ impl RenderBackend for VelloBackend {
     }
     fn set_fill_color(&mut self, color: Color) {
         self.state.fill_color = color;
+        self.state.fill_paint = None;
     }
     fn set_stroke_color(&mut self, color: Color) {
         self.state.stroke_color = color;
+        self.state.stroke_paint = None;
+    }
+    fn set_fill_paint(&mut self, paint: &Paint) {
+        self.state.fill_paint = Some(paint.clone());
+        if let Paint::Solid(c) = paint {
+            self.state.fill_color = *c;
+        }
+    }
+    fn set_stroke_paint(&mut self, paint: &Paint) {
+        self.state.stroke_paint = Some(paint.clone());
+        if let Paint::Solid(c) = paint {
+            self.state.stroke_color = *c;
+        }
+    }
+    fn paint_shading(&mut self, shading: &ShadingSpec) {
+        let brush = to_vello_shading_brush(shading, self.state.fill_alpha as f32);
+        let rect = kurbo::Rect::new(-10000.0, -10000.0, 10000.0, 10000.0);
+        self.scene.fill(vello::peniko::Fill::NonZero, self.state.transform, &brush, None, &rect);
     }
     fn set_blend_mode(&mut self, mode: BlendMode) {
         self.state.blend_mode = mode;
@@ -703,5 +736,71 @@ fn to_vello_brush(color: &Color, alpha: f32) -> vello::peniko::Brush {
             vello::peniko::Brush::Solid(vello::peniko::Color::from_rgba8(r_u8, g_u8, b_u8, a))
         }
         Color::Lab(..) => to_vello_brush(&color.to_rgb(), alpha),
+    }
+}
+
+fn to_peniko_color(color: &Color, alpha: f32) -> vello::peniko::Color {
+    let rgb = color.to_rgb();
+    let a = (alpha.clamp(0.0, 1.0) * 255.0) as u8;
+    if let Color::Rgb(r, g, b) = rgb {
+        let r_u8 = (r.clamp(0.0, 1.0) * 255.0) as u8;
+        let g_u8 = (g.clamp(0.0, 1.0) * 255.0) as u8;
+        let b_u8 = (b.clamp(0.0, 1.0) * 255.0) as u8;
+        vello::peniko::Color::from_rgba8(r_u8, g_u8, b_u8, a)
+    } else {
+        vello::peniko::Color::from_rgba8(0, 0, 0, a)
+    }
+}
+
+fn to_vello_shading_brush(shading: &ShadingSpec, alpha: f32) -> vello::peniko::Brush {
+    match shading {
+        ShadingSpec::Axial(axial) => {
+            let p0 = kurbo::Point::new(axial.coords[0], axial.coords[1]);
+            let p1 = kurbo::Point::new(axial.coords[2], axial.coords[3]);
+            let stops: Vec<vello::peniko::ColorStop> = axial
+                .stops
+                .iter()
+                .map(|s| vello::peniko::ColorStop {
+                    offset: s.offset,
+                    color: to_peniko_color(&s.color, alpha).into(),
+                })
+                .collect();
+            let mut grad = vello::peniko::Gradient::new_linear(p0, p1);
+            grad.stops = stops.as_slice().into();
+            vello::peniko::Brush::Gradient(grad)
+        }
+        ShadingSpec::Radial(radial) => {
+            let p0 = kurbo::Point::new(radial.coords[0], radial.coords[1]);
+            let r0 = radial.coords[2] as f32;
+            let p1 = kurbo::Point::new(radial.coords[3], radial.coords[4]);
+            let r1 = radial.coords[5] as f32;
+            let stops: Vec<vello::peniko::ColorStop> = radial
+                .stops
+                .iter()
+                .map(|s| vello::peniko::ColorStop {
+                    offset: s.offset,
+                    color: to_peniko_color(&s.color, alpha).into(),
+                })
+                .collect();
+            let mut grad = vello::peniko::Gradient::new_two_point_radial(p0, r0, p1, r1);
+            grad.stops = stops.as_slice().into();
+            vello::peniko::Brush::Gradient(grad)
+        }
+        ShadingSpec::Mesh(_) => vello::peniko::Brush::Solid(vello::peniko::Color::from_rgba8(
+            0,
+            0,
+            0,
+            (alpha.clamp(0.0, 1.0) * 255.0) as u8,
+        )),
+    }
+}
+
+fn to_vello_paint_brush(paint: &Paint, alpha: f32) -> vello::peniko::Brush {
+    match paint {
+        Paint::Solid(col) => to_vello_brush(col, alpha),
+        Paint::Pattern(PatternSpec::Shading(shading)) => to_vello_shading_brush(shading, alpha),
+        Paint::Pattern(PatternSpec::Tiling { .. }) => vello::peniko::Brush::Solid(
+            vello::peniko::Color::from_rgba8(0, 0, 0, (alpha.clamp(0.0, 1.0) * 255.0) as u8),
+        ),
     }
 }
