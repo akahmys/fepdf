@@ -1,3 +1,5 @@
+//! Digital signature verification tool.
+
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
@@ -23,7 +25,7 @@ pub struct SignatureReport {
 }
 
 /// Implementation of the verify_signatures tool.
-pub async fn verify_signatures_impl(args: VerifySignaturesArgs) -> Result<String, String> {
+pub fn verify_signatures_impl(args: VerifySignaturesArgs) -> Result<String, String> {
     use fepdf::PdfDocument;
     let path = std::path::Path::new(&args.path);
     let data = std::fs::read(path).map_err(|e| format!("Failed to read file: {e}"))?;

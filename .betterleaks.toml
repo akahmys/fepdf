@@ -1,0 +1,9 @@
+title = "fepdf betterleaks config"
+
+[allowlist]
+description = "Ignore build artifacts and samples"
+paths = [
+    '''target''',
+    '''artifacts''',
+    '''samples''',
+]

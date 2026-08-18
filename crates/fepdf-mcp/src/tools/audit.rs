@@ -1,3 +1,5 @@
+//! Document structural and ISO compliance audit tool.
+
 use crate::{McpError, McpResult};
 use bytes::Bytes;
 use fepdf::{IssueSeverity, PdfDocument};
@@ -33,7 +35,7 @@ pub struct Finding {
 }
 
 /// Implementation of the structural audit logic.
-pub async fn audit_document_impl(args: AuditArgs) -> Result<String, String> {
+pub fn audit_document_impl(args: AuditArgs) -> Result<String, String> {
     audit_document_internal(args).map_err(|e| e.to_string())
 }
 

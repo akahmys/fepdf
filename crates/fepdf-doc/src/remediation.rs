@@ -501,7 +501,7 @@ impl HeuristicEngine {
         let page_dh = doc.resolve_to_dict(page_obj_h)?;
         let page_dict = arena.get_dict(page_dh).unwrap_or_default();
         if let Some(contents) = page_dict.get(&arena.name("Contents")) {
-            let data = doc.decode_stream(contents)?;
+            let data = decode_page_contents(doc, contents)?;
             let rewriter = fepdf_model::content::ContentRewriter::new(arena, data);
             let mut mapping_refs = BTreeMap::new();
             for (k, (v1, v2)) in &op_to_mcid {
@@ -669,7 +669,7 @@ pub fn apply_physical_redaction_to_page(
     let page_dict = arena.get_dict(page_dh).unwrap_or_default();
 
     if let Some(contents) = page_dict.get(&arena.name("Contents")) {
-        let data = doc.decode_stream(contents)?;
+        let data = decode_page_contents(doc, contents)?;
 
         // 1. Collect text spans with op_indices
         let mut collector = CollectorBackend::new();
@@ -705,4 +705,30 @@ pub fn apply_physical_redaction_to_page(
     }
 
     Ok(())
+}
+
+fn decode_page_contents(doc: &Document, contents: &Object) -> PdfResult<bytes::Bytes> {
+    let arena = doc.arena();
+    let resolved = match contents {
+        Object::Reference(h) => doc.resolve(h)?,
+        _ => contents.clone(),
+    };
+    match resolved {
+        Object::Array(ah) => {
+            let mut merged = Vec::new();
+            if let Some(arr) = arena.get_array(ah) {
+                for item in arr {
+                    let resolved_item = match item {
+                        Object::Reference(h) => doc.resolve(&h)?,
+                        _ => item,
+                    };
+                    let part = doc.decode_stream(&resolved_item)?;
+                    merged.extend_from_slice(&part);
+                    merged.push(b'\n');
+                }
+            }
+            Ok(bytes::Bytes::from(merged))
+        }
+        _ => doc.decode_stream(&resolved),
+    }
 }

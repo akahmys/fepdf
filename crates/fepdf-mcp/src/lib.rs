@@ -25,6 +25,10 @@ pub enum McpError {
 /// Result type for MCP operations.
 pub type McpResult<T> = Result<T, McpError>;
 
+/// MCP prompts for accessibility audit and remediation.
+pub mod prompts;
+/// MCP resources for live inspection of PDF structures.
+pub mod resources;
 /// The core server implementation logic.
 pub mod server;
 /// The library of tools available to the MCP server.

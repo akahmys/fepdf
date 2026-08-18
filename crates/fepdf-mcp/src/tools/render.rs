@@ -1,3 +1,5 @@
+//! Page rasterisation and screenshot tool.
+
 use crate::{McpError, McpResult};
 use bytes::Bytes;
 use fepdf::PdfDocument;
@@ -16,7 +18,7 @@ pub struct RenderArgs {
 }
 
 /// Implementation of the page rendering logic for the MCP tool.
-pub async fn render_page_impl(args: RenderArgs) -> Result<String, String> {
+pub fn render_page_impl(args: RenderArgs) -> Result<String, String> {
     render_page_internal(args).map_err(|e| e.to_string())
 }
 

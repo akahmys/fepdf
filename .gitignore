@@ -21,8 +21,6 @@ Cargo.lock
 .agent/knowledge/
 .agent/recordings/
 **/target/
-.betterleaks.toml
-.gitleaks.toml
 
 # Temporary artifacts
 temp_*.pdf
