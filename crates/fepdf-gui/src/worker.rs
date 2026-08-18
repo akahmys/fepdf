@@ -47,6 +47,11 @@ pub enum WorkerRequest {
         data: Bytes,
         at_index: usize,
     },
+    ReplaceDocument {
+        data: Bytes,
+        at_index: usize,
+        count: usize,
+    },
     RotatePages {
         indices: Vec<usize>,
         delta: fepdf::Quarter,
@@ -207,6 +212,14 @@ pub fn run_worker(rx: Receiver<WorkerRequest>, tx: Sender<WorkerResponse>, ctx: 
                 }
                 ctx.request_repaint();
             }
+            WorkerRequest::ReplaceDocument { data, at_index, count } => {
+                text_cache.clear();
+                spans_cache.clear();
+                if let Some(ref mut doc) = current_doc {
+                    handle_replace_document(doc, data, at_index, count, &tx);
+                }
+                ctx.request_repaint();
+            }
             WorkerRequest::RotatePages { indices, delta } => {
                 text_cache.clear();
                 spans_cache.clear();
@@ -311,6 +324,78 @@ fn handle_insert_document(
             log::error!("Failed to open dropped document for insertion: {e:?}");
             let _ =
                 tx.send(WorkerResponse::Error(format!("Failed to open dropped document: {e:?}")));
+        }
+    }
+}
+
+fn handle_replace_document(
+    // RR-15 Limit: Dispatcher - handles page replacement from external document in worker thread
+    doc: &mut PdfDocument,
+    data: Bytes,
+    at_index: usize,
+    count: usize,
+    tx: &Sender<WorkerResponse>,
+) {
+    let options = fepdf::IngestionOptions::default();
+    match PdfDocument::open_with_options(data, &options) {
+        Ok(source_doc) => {
+            for _ in 0..count {
+                if at_index < doc.page_count().unwrap_or(0) {
+                    let _ = doc.remove_page(at_index);
+                }
+            }
+            if let Err(e) = doc.insert_pages_from(&source_doc, at_index) {
+                log::error!("Failed to replace pages in worker: {e:?}");
+                let _ = tx.send(WorkerResponse::Error(format!("Failed to replace pages: {e:?}")));
+                return;
+            }
+            let num_pages = doc.page_count().unwrap_or(0);
+            let mut page_sizes = Vec::with_capacity(num_pages);
+            for i in 0..num_pages {
+                page_sizes.push(doc.get_page_size(i).unwrap_or((595.0, 842.0)));
+            }
+
+            let mut next_id = 0;
+            let mut ust_root = resolve_struct_tree_root(doc, &mut next_id);
+            if ust_root.is_none() {
+                ust_root = Some(crate::sidebar::USTNode {
+                    id: 0,
+                    tag: "Document".to_string(),
+                    title: "PDF Document Catalog (Untagged)".to_string(),
+                    alt_text: None,
+                    rect: None,
+                    page_index: None,
+                    handle_index: None,
+                    children: Vec::new(),
+                });
+            }
+
+            let version = doc.get_summary().ok().map_or_else(|| "1.7".to_string(), |s| s.version);
+            let metadata = doc.metadata();
+            let security_method = doc.security_method();
+            let permissions = doc.permissions();
+            let fonts = doc.fonts();
+            let viewer_direction = doc.viewer_direction();
+
+            let _ = tx.send(WorkerResponse::DocumentLoaded(Box::new(LoadedDocument {
+                name: None,
+                num_pages,
+                page_sizes,
+                ust_root,
+                file_size: 0,
+                version,
+                metadata,
+                security_method,
+                permissions,
+                fonts,
+                viewer_direction,
+            })));
+        }
+        Err(e) => {
+            log::error!("Failed to open document for replacement: {e:?}");
+            let _ = tx.send(WorkerResponse::Error(format!(
+                "Failed to open document for replacement: {e:?}"
+            )));
         }
     }
 }

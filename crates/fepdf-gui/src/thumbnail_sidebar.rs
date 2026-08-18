@@ -705,7 +705,6 @@ impl ThumbnailSidebar {
         response.context_menu(|ui| {
             Self::render_select_submenu(app, ui, &mut action);
             Self::render_edit_submenu(app, ui, &mut action, i);
-            Self::render_move_submenu(app, ui, &mut action, i);
         });
 
         action
@@ -721,12 +720,12 @@ impl ThumbnailSidebar {
                 *action = Some(ThumbnailMenuAction::Select(ThumbnailSelectAction::All));
                 ui.close_kind(egui::UiKind::Menu);
             }
-            if ui.button(app.locale_mgr.tr(&app.active_language, "menu_select_even")).clicked() {
-                *action = Some(ThumbnailMenuAction::Select(ThumbnailSelectAction::Even));
-                ui.close_kind(egui::UiKind::Menu);
-            }
             if ui.button(app.locale_mgr.tr(&app.active_language, "menu_select_odd")).clicked() {
                 *action = Some(ThumbnailMenuAction::Select(ThumbnailSelectAction::Odd));
+                ui.close_kind(egui::UiKind::Menu);
+            }
+            if ui.button(app.locale_mgr.tr(&app.active_language, "menu_select_even")).clicked() {
+                *action = Some(ThumbnailMenuAction::Select(ThumbnailSelectAction::Even));
                 ui.close_kind(egui::UiKind::Menu);
             }
             ui.separator();
@@ -744,60 +743,91 @@ impl ThumbnailSidebar {
         });
     }
 
+    fn is_contiguous_selection(selected: &std::collections::BTreeSet<usize>) -> bool {
+        let (Some(&min), Some(&max)) = (selected.iter().min(), selected.iter().max()) else {
+            return true;
+        };
+        max.saturating_sub(min) + 1 == selected.len()
+    }
+
     fn render_edit_submenu(
         app: &crate::app::FepdfApp,
         ui: &mut egui::Ui,
         action: &mut Option<ThumbnailMenuAction>,
-        _i: usize,
+        i: usize,
     ) {
         let has_selection = !app.selected_pages.is_empty();
         ui.add_enabled_ui(has_selection, |ui| {
             ui.menu_button(app.locale_mgr.tr(&app.active_language, "menu_edit"), |ui| {
-                Self::render_edit_primary_items(app, ui, action);
-                Self::render_edit_secondary_items(app, ui, action);
+                Self::render_rotate_submenu(app, ui, action);
+                if ui.button(app.locale_mgr.tr(&app.active_language, "menu_edit_scale")).clicked() {
+                    *action = Some(ThumbnailMenuAction::Edit(ThumbnailEditAction::Scale));
+                    ui.close_kind(egui::UiKind::Menu);
+                }
+                Self::render_move_submenu(app, ui, action, i);
+                Self::render_insert_submenu(app, ui, action);
+                if ui.button(app.locale_mgr.tr(&app.active_language, "menu_edit_extract")).clicked()
+                {
+                    *action = Some(ThumbnailMenuAction::Edit(ThumbnailEditAction::Extract));
+                    ui.close_kind(egui::UiKind::Menu);
+                }
+                let can_replace = Self::is_contiguous_selection(&app.selected_pages);
+                if ui
+                    .add_enabled(
+                        can_replace,
+                        egui::Button::new(
+                            app.locale_mgr.tr(&app.active_language, "menu_edit_replace"),
+                        ),
+                    )
+                    .clicked()
+                {
+                    *action = Some(ThumbnailMenuAction::Edit(ThumbnailEditAction::Replace));
+                    ui.close_kind(egui::UiKind::Menu);
+                }
+                if ui
+                    .button(app.locale_mgr.tr(&app.active_language, "menu_edit_duplicate"))
+                    .clicked()
+                {
+                    *action = Some(ThumbnailMenuAction::Edit(ThumbnailEditAction::Duplicate));
+                    ui.close_kind(egui::UiKind::Menu);
+                }
+                ui.separator();
+                if ui.button(app.locale_mgr.tr(&app.active_language, "menu_edit_delete")).clicked()
+                {
+                    *action = Some(ThumbnailMenuAction::Edit(ThumbnailEditAction::Delete));
+                    ui.close_kind(egui::UiKind::Menu);
+                }
             });
         });
     }
 
-    fn render_edit_primary_items(
+    fn render_rotate_submenu(
         app: &crate::app::FepdfApp,
         ui: &mut egui::Ui,
         action: &mut Option<ThumbnailMenuAction>,
     ) {
-        if ui.button(app.locale_mgr.tr(&app.active_language, "menu_edit_rotate_90")).clicked() {
-            *action =
-                Some(ThumbnailMenuAction::Edit(ThumbnailEditAction::Rotate(fepdf::Quarter::Q90)));
-            ui.close_kind(egui::UiKind::Menu);
-        }
-        if ui.button(app.locale_mgr.tr(&app.active_language, "menu_edit_scale")).clicked() {
-            *action = Some(ThumbnailMenuAction::Edit(ThumbnailEditAction::Scale));
-            ui.close_kind(egui::UiKind::Menu);
-        }
-        if ui.button(app.locale_mgr.tr(&app.active_language, "menu_edit_duplicate")).clicked() {
-            *action = Some(ThumbnailMenuAction::Edit(ThumbnailEditAction::Duplicate));
-            ui.close_kind(egui::UiKind::Menu);
-        }
-        Self::render_insert_submenu(app, ui, action);
-    }
-
-    fn render_edit_secondary_items(
-        app: &crate::app::FepdfApp,
-        ui: &mut egui::Ui,
-        action: &mut Option<ThumbnailMenuAction>,
-    ) {
-        if ui.button(app.locale_mgr.tr(&app.active_language, "menu_edit_replace")).clicked() {
-            *action = Some(ThumbnailMenuAction::Edit(ThumbnailEditAction::Replace));
-            ui.close_kind(egui::UiKind::Menu);
-        }
-        if ui.button(app.locale_mgr.tr(&app.active_language, "menu_edit_extract")).clicked() {
-            *action = Some(ThumbnailMenuAction::Edit(ThumbnailEditAction::Extract));
-            ui.close_kind(egui::UiKind::Menu);
-        }
-        ui.separator();
-        if ui.button(app.locale_mgr.tr(&app.active_language, "menu_edit_delete")).clicked() {
-            *action = Some(ThumbnailMenuAction::Edit(ThumbnailEditAction::Delete));
-            ui.close_kind(egui::UiKind::Menu);
-        }
+        ui.menu_button(app.locale_mgr.tr(&app.active_language, "menu_edit_rotate"), |ui| {
+            if ui.button(app.locale_mgr.tr(&app.active_language, "menu_edit_rotate_cw")).clicked() {
+                *action = Some(ThumbnailMenuAction::Edit(ThumbnailEditAction::Rotate(
+                    fepdf::Quarter::Q90,
+                )));
+                ui.close_kind(egui::UiKind::Menu);
+            }
+            if ui.button(app.locale_mgr.tr(&app.active_language, "menu_edit_rotate_ccw")).clicked()
+            {
+                *action = Some(ThumbnailMenuAction::Edit(ThumbnailEditAction::Rotate(
+                    fepdf::Quarter::Q270,
+                )));
+                ui.close_kind(egui::UiKind::Menu);
+            }
+            if ui.button(app.locale_mgr.tr(&app.active_language, "menu_edit_rotate_180")).clicked()
+            {
+                *action = Some(ThumbnailMenuAction::Edit(ThumbnailEditAction::Rotate(
+                    fepdf::Quarter::Q180,
+                )));
+                ui.close_kind(egui::UiKind::Menu);
+            }
+        });
     }
 
     fn render_insert_submenu(
@@ -823,26 +853,23 @@ impl ThumbnailSidebar {
         action: &mut Option<ThumbnailMenuAction>,
         _i: usize,
     ) {
-        let has_selection = !app.selected_pages.is_empty();
-        ui.add_enabled_ui(has_selection, |ui| {
-            ui.menu_button(app.locale_mgr.tr(&app.active_language, "menu_move"), |ui| {
-                if ui.button(app.locale_mgr.tr(&app.active_language, "menu_move_first")).clicked() {
-                    *action = Some(ThumbnailMenuAction::Move(ThumbnailMoveAction::First));
-                    ui.close_kind(egui::UiKind::Menu);
-                }
-                if ui.button(app.locale_mgr.tr(&app.active_language, "menu_move_prev")).clicked() {
-                    *action = Some(ThumbnailMenuAction::Move(ThumbnailMoveAction::Prev));
-                    ui.close_kind(egui::UiKind::Menu);
-                }
-                if ui.button(app.locale_mgr.tr(&app.active_language, "menu_move_next")).clicked() {
-                    *action = Some(ThumbnailMenuAction::Move(ThumbnailMoveAction::Next));
-                    ui.close_kind(egui::UiKind::Menu);
-                }
-                if ui.button(app.locale_mgr.tr(&app.active_language, "menu_move_last")).clicked() {
-                    *action = Some(ThumbnailMenuAction::Move(ThumbnailMoveAction::Last));
-                    ui.close_kind(egui::UiKind::Menu);
-                }
-            });
+        ui.menu_button(app.locale_mgr.tr(&app.active_language, "menu_move"), |ui| {
+            if ui.button(app.locale_mgr.tr(&app.active_language, "menu_move_first")).clicked() {
+                *action = Some(ThumbnailMenuAction::Move(ThumbnailMoveAction::First));
+                ui.close_kind(egui::UiKind::Menu);
+            }
+            if ui.button(app.locale_mgr.tr(&app.active_language, "menu_move_prev")).clicked() {
+                *action = Some(ThumbnailMenuAction::Move(ThumbnailMoveAction::Prev));
+                ui.close_kind(egui::UiKind::Menu);
+            }
+            if ui.button(app.locale_mgr.tr(&app.active_language, "menu_move_next")).clicked() {
+                *action = Some(ThumbnailMenuAction::Move(ThumbnailMoveAction::Next));
+                ui.close_kind(egui::UiKind::Menu);
+            }
+            if ui.button(app.locale_mgr.tr(&app.active_language, "menu_move_last")).clicked() {
+                *action = Some(ThumbnailMenuAction::Move(ThumbnailMoveAction::Last));
+                ui.close_kind(egui::UiKind::Menu);
+            }
         });
     }
 
@@ -874,9 +901,16 @@ impl ThumbnailSidebar {
             ThumbnailEditAction::Rotate(delta) => {
                 app.rotate_page_action(i, delta);
             }
-            ThumbnailEditAction::Scale
-            | ThumbnailEditAction::InsertBlank
-            | ThumbnailEditAction::Replace => {}
+            ThumbnailEditAction::Scale | ThumbnailEditAction::InsertBlank => {}
+            ThumbnailEditAction::Replace => {
+                let (start_idx, count) = if app.selected_pages.is_empty() {
+                    (i, 1)
+                } else {
+                    let min = *app.selected_pages.iter().min().unwrap_or(&i);
+                    (min, app.selected_pages.len())
+                };
+                Self::replace_document_from_file(app, start_idx, count);
+            }
             ThumbnailEditAction::Duplicate => {
                 app.duplicate_page(i);
             }
@@ -898,6 +932,18 @@ impl ThumbnailSidebar {
                 }
                 app.remove_selected_pages();
             }
+        }
+    }
+
+    fn replace_document_from_file(app: &mut crate::app::FepdfApp, at_index: usize, count: usize) {
+        if let Some(path) = rfd::FileDialog::new().add_filter("PDF", &["pdf"]).pick_file()
+            && let Ok(bytes) = std::fs::read(&path)
+        {
+            let _ = app.tx_worker.send(crate::worker::WorkerRequest::ReplaceDocument {
+                data: bytes::Bytes::from(bytes),
+                at_index,
+                count,
+            });
         }
     }
 

@@ -24,30 +24,36 @@ jobs:
             target: aarch64-apple-darwin
             artifact_name: fepdf-macos-arm64
             binaries: "fepdf fepdf-gui"
+            packages: "fepdf-cli fepdf-gui"
           - os: macos-14
             target: x86_64-apple-darwin
             artifact_name: fepdf-macos-x64
             binaries: "fepdf fepdf-gui"
+            packages: "fepdf-cli fepdf-gui"
           
           # Windows Targets (64-bit & 32-bit)
           - os: windows-2022
             target: x86_64-pc-windows-msvc
             artifact_name: fepdf-windows-x64
             binaries: "fepdf.exe fepdf-gui.exe"
+            packages: "fepdf-cli fepdf-gui"
           - os: windows-2022
             target: i686-pc-windows-msvc
             artifact_name: fepdf-windows-x86
             binaries: "fepdf.exe fepdf-gui.exe"
+            packages: "fepdf-cli fepdf-gui"
 
           # Linux Targets (Static CLI & Dynamic GUI)
           - os: ubuntu-latest
             target: x86_64-unknown-linux-musl
             artifact_name: fepdf-linux-static-x64
             binaries: "fepdf" # CLI statically linked
+            packages: "fepdf-cli"
           - os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
             artifact_name: fepdf-linux-dynamic-x64
             binaries: "fepdf-gui" # GUI dynamically linked for graphics support
+            packages: "fepdf-gui"
 
     steps:
     - name: Disable Symlinks on Windows
@@ -79,9 +85,7 @@ jobs:
     - name: Build Binaries (Release Mode)
       shell: bash
       run: |
-        for bin in ${{ matrix.binaries }}; do
-          # Strip extension for Cargo package matching
-          pkg=$(echo $bin | sed 's/\.exe//')
+        for pkg in ${{ matrix.packages }}; do
           cargo build --release --target ${{ matrix.target }} -p $pkg
         done
 
