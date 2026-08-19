@@ -29,7 +29,24 @@ impl Interpreter<'_> {
                 };
 
                 match sub_str {
-                    "Image" => self.render_image_xobject(&dict, sd)?,
+                    // An image that will not decode is skipped, not propagated.
+                    //
+                    // Every remaining text failure in the external corpus was this: a
+                    // `/CCITTFaxDecode` or `/JPXDecode` image XObject, and in one file
+                    // `/XXXDecode` — a filter invented for the test, which no codec can
+                    // ever handle. An image carries no text, so decoding one would not
+                    // produce any; what the failure did was abort the content stream and
+                    // take the page's *real* text with it.
+                    //
+                    // Not recorded as a `Decision`: the interpreter holds `&Document` and
+                    // the log needs `&mut`, so reaching it would change `extract_text`'s
+                    // signature across the SDK to carry a note about a picture. That is a
+                    // real gap in §5.3's coverage and is written down rather than hidden.
+                    "Image" => {
+                        if let Err(e) = self.render_image_xobject(&dict, sd) {
+                            log::debug!("[content] image {name:?} not drawn: {e:?}");
+                        }
+                    }
                     "Form" => match sd.as_ref() {
                         fepdf_model::object::SublimatedData::Commands { items: cmds, .. } => {
                             self.execute_form_commands(&dict, cmds)?;

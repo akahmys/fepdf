@@ -844,9 +844,25 @@ impl Document {
                 let raw_bytes = self.arena.get_stream_bytes(data)?;
                 self.arena.process_filters(&raw_bytes, &dict)
             }
-            _ => Err(PdfError::Filter {
+            // Naming what arrived, because what arrives is the diagnosis. A page whose
+            // `/Contents` did not parse leaves a `Null` in the slot, and this reported
+            // "Object is not a stream" — true, uninformative, and pointing at the wrong
+            // stage. `UnknownFilter-PageContentStream.pdf` closes its content stream
+            // dictionary with a single `>`; the reader already records that as a
+            // violation naming the object and the offset, and this message sent the
+            // reader looking at filters instead.
+            other => Err(PdfError::Filter {
                 filter: "None".into(),
-                message: "Object is not a stream".into(),
+                message: format!(
+                    "expected a stream, found {}",
+                    match other {
+                        Object::Null => "null — the object did not parse; see the decisions",
+                        Object::Dictionary(_) => "a dictionary with no stream data",
+                        Object::Reference(_) => "an unresolved reference",
+                        _ => "another kind of object",
+                    }
+                )
+                .into(),
             }),
         }
     }

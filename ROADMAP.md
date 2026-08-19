@@ -30,7 +30,7 @@ rather than a rewording of it.
 | ISO 32000-2 | State |
 | :--- | :--- |
 | **7.3** Objects | Complete. Every type in the clause. |
-| **7.4** Filters | **Six of the ten**, and every filter that is a plain byte transformation rather than an image codec. `FlateDecode`, `LZWDecode`, `ASCIIHexDecode`, `ASCII85Decode` and `RunLengthDecode` decode, with Table 8's predictors reaching LZW as they do Flate, and `DCTDecode` reads JPEG; `Crypt` is handled in the security layer (7.6); `ZstandardDecode` is implemented and is not one of the ten. Table 6's abbreviations are matched too — `/AHx` appears seven times in one external file, and only `Fl` and `DCT` were recognised before. Still absent, all three image codecs: `CCITTFaxDecode` (2 external files), `JPXDecode` (3), `JBIG2Decode` (0). **This row did not exist until a corpus this project did not choose forced it**, and the four filters added here occur in zero of the nine files in `samples/`. |
+| **7.4** Filters | **Six of the ten**, and the four that are missing block no text — measured, not assumed: `CCITTFaxDecode`, `JPXDecode` and `JBIG2Decode` arrive as image XObjects, and an image the engine cannot decode is now skipped rather than aborting the page. Every filter that is a plain byte transformation decodes. `FlateDecode`, `LZWDecode`, `ASCIIHexDecode`, `ASCII85Decode` and `RunLengthDecode` decode, with Table 8's predictors reaching LZW as they do Flate, and `DCTDecode` reads JPEG; `Crypt` is handled in the security layer (7.6); `ZstandardDecode` is implemented and is not one of the ten. Table 6's abbreviations are matched too — `/AHx` appears seven times in one external file, and only `Fl` and `DCT` were recognised before. Still absent, all three image codecs: `CCITTFaxDecode` (2 external files), `JPXDecode` (3), `JBIG2Decode` (0). **This row did not exist until a corpus this project did not choose forced it**, and the four filters added here occur in zero of the nine files in `samples/`. |
 | **7.5** File structure | **Complete and in use.** Header scan, both cross-reference forms, `/Prev` chains, hybrid references, object streams, incremental updates, and recovery by scanning. `Document::open` reads the file itself; `lopdf` is gone. |
 | **7.6** Encryption | Every password handler the standard defines now decrypts: RC4 (V1/V2), AES-128 (V4/R4) and AES-256 (V5/R5, V5/R6) to Algorithms 1, 2, 2.A, 2.B and 4–6, with `/Perms` checked and both password roles authenticating. Verified against PDFKit on fourteen files; all of it was broken or absent ([ADR-0009](docs/adr/0009-permissions-are-thirty-two-bits-not-a-positive-integer.md)). Writing is AES-256 at revision 6 and nothing else, because output is always 2.0 and this edition deprecates the rest. Public-key handlers (7.6.5) are **read and written** — a `/Adobe.PubSec` document opens with the certificate it was addressed to, which neither Chrome nor Firefox will do, and `--encrypt-to` produces one. Unencrypted wrappers (7.6.7) are recognised and reported. **Clause 7.6 is otherwise complete.** |
 | **7.7** Document structure | Every one of Table 29's 32 entries is a field of `PdfCatalog` — and **6 of the 32 are modelled**, meaning the field's type says what the entry holds. The other 26 are `Option<Object>` or a bare arena handle: reachable by name, contents as opaque as before the field existed. Both figures come from `status.sh`, and `inspect catalog` reports them per file, because the first number alone went 15 → 32 in one session while the second moved by one. Untyped entries still round-trip; `inspect catalog` names which ones cannot be read into. |
@@ -475,7 +475,7 @@ The first run, on an engine whose every roadmap box was ticked, and where it sta
 | opened | 240 | **242** |
 | **panicked** | **1** | **0** |
 | refused with a message | 1 | 0 |
-| every page extracted | 233 of 240 | 236 of 242 |
+| every page extracted | 233 of 240 | 241 of 242 |
 | written back | 240 of 240 | 242 of 242 |
 
 - [x] The panic. `get_index_item` in `fepdf-font` read a CFF INDEX with every offset
@@ -502,10 +502,17 @@ The first run, on an engine whose every roadmap box was ticked, and where it sta
       now and the injection fails it. Three of the hand-written expectations in the same
       test file were also wrong while the decoder was right, so the `ASCII85Decode` table
       is generated from an unrelated implementation instead
-- [ ] The three image codecs — `CCITTFaxDecode` (2 external files), `JPXDecode` (3),
-      `JBIG2Decode` (0). Each is a substantial decoder rather than a byte transformation,
-      and none of them blocks *text*: they arrive as image XObjects. Worth doing when
-      rendering those images matters, and not before
+- [x] The three image codecs, **not built, and the line above them was wrong about why
+      they mattered.** It read as though `CCITTFaxDecode` and `JPXDecode` were what stopped
+      those files yielding text. Measured: in all four the filter is on an `/XObject
+      /Subtype /Image`, never on a content stream — so decoding one produces pixels and no
+      text at all. One of the four uses `/XXXDecode`, a filter invented for the test suite,
+      which settles it: no codec will ever fix that file. What blocked the text was that a
+      failing image aborted the content stream and took the page's real text with it, and
+      an image is now skipped instead. Four files recovered without a line of codec.
+      `JBIG2Decode` occurs zero times in either corpus. All three remain unbuilt and are
+      still gated on rendering those images mattering — which is what the original line
+      said, for a reason it did not have
 - [x] `Object Handle<Object>(8) is not a dictionary`, from
       `UnknownFilter-Linearized.pdf` — the message Phase A closes by saying the reader no
       longer produces. The file is linearized and its **first** cross-reference stream is
@@ -528,10 +535,14 @@ The first run, on an engine whose every roadmap box was ticked, and where it sta
       reference now lives in the *text* state, so `q` and `Q` save and restore it as they
       must, and `Tf` and `gs` each clear the other. PDFKit read 327 characters from that
       page and this engine read none; it now reads all twelve runs
-- [ ] Decide what belongs in the repeatable suite. `measure_external_corpus.sh` exits
-      non-zero only on a panic: refusing a deliberately malformed file and saying why is
-      a correct outcome, and most of this corpus is such files, so a refusal count is
-      information rather than a verdict
+- [x] Decided. `measure_external_corpus.sh` exits non-zero **only on a panic**, and that
+      is the whole verdict it is entitled to: most of this corpus is deliberately
+      malformed, so refusing a file and saying why is a correct outcome and a refusal
+      count is information. It sits in `TESTING.md`'s checklist to be run when the reader,
+      the fonts or the filters are touched, against the debug binary as well as the
+      release one, and it is **not** in `status.sh --full` because it needs a fetched
+      corpus and the network. The counts it prints go in this table, where a regression
+      shows up as a disagreement
 
 *Done when*: the filters clause 7.4 lists either decode or are declined for a stated
 reason, and a run over the external corpus panics zero times from a debug build.
