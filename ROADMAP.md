@@ -30,6 +30,7 @@ rather than a rewording of it.
 | ISO 32000-2 | State |
 | :--- | :--- |
 | **7.3** Objects | Complete. Every type in the clause. |
+| **7.4** Filters | **Two of the ten filters clause 7.4 lists.** `FlateDecode` and `DCTDecode` decode; `Crypt` is handled in the security layer (7.6); `ZstandardDecode` is implemented and is not one of the ten. Absent: `ASCIIHexDecode`, `ASCII85Decode`, `LZWDecode`, `RunLengthDecode`, `CCITTFaxDecode`, `JBIG2Decode`, `JPXDecode` — grepped, and the four that are plain byte transformations rather than image codecs appear nowhere in the workspace. **This row did not exist until a corpus this project did not choose forced it.** All nine files in `samples/` are Flate, so nothing had ever asked. |
 | **7.5** File structure | **Complete and in use.** Header scan, both cross-reference forms, `/Prev` chains, hybrid references, object streams, incremental updates, and recovery by scanning. `Document::open` reads the file itself; `lopdf` is gone. |
 | **7.6** Encryption | Every password handler the standard defines now decrypts: RC4 (V1/V2), AES-128 (V4/R4) and AES-256 (V5/R5, V5/R6) to Algorithms 1, 2, 2.A, 2.B and 4–6, with `/Perms` checked and both password roles authenticating. Verified against PDFKit on fourteen files; all of it was broken or absent ([ADR-0009](docs/adr/0009-permissions-are-thirty-two-bits-not-a-positive-integer.md)). Writing is AES-256 at revision 6 and nothing else, because output is always 2.0 and this edition deprecates the rest. Public-key handlers (7.6.5) are **read and written** — a `/Adobe.PubSec` document opens with the certificate it was addressed to, which neither Chrome nor Firefox will do, and `--encrypt-to` produces one. Unencrypted wrappers (7.6.7) are recognised and reported. **Clause 7.6 is otherwise complete.** |
 | **7.7** Document structure | Every one of Table 29's 32 entries is a field of `PdfCatalog` — and **6 of the 32 are modelled**, meaning the field's type says what the entry holds. The other 26 are `Option<Object>` or a bare arena handle: reachable by name, contents as opaque as before the field existed. Both figures come from `status.sh`, and `inspect catalog` reports them per file, because the first number alone went 15 → 32 in one session while the second moved by one. Untyped entries still round-trip; `inspect catalog` names which ones cannot be read into. |
@@ -456,6 +457,55 @@ Addressing structural edge cases, resource exhaustion guards, and semantic cross
       guaranteeing operation atomicity.
 - [x] **Fallback Font Metric Bounds Heuristics** (`fepdf`):
       Provide safe non-zero advance width heuristics for text spans when font `/Widths` are missing.
+
+## Phase G — Measured against files this project did not choose
+
+Every "zero occurrences in the corpus, so defer" judgement above is bounded by the nine
+files in `samples/`, and this project picked all nine. `scripts/test/fetch_external_corpus.sh`
+brings in 242 it did not — 37 from `pdf-association/pdf-differences`, where real
+implementations legitimately disagree, and 205 Isartor files, each breaking one specific
+clause with the clause in its filename. `scripts/test/measure_external_corpus.sh` runs
+the engine over them, in release and in debug, and counts what fails.
+
+The first run, on an engine whose every roadmap box was ticked:
+
+| | |
+| :--- | ---: |
+| files | 242 |
+| opened | 240 |
+| **panicked** | **1** |
+| refused with a message | 1 |
+| every page extracted | 233 of 240 |
+| written back | 240 of 240 |
+
+- [x] The panic. `get_index_item` in `fepdf-font` read a CFF INDEX with every offset
+      unchecked, and `isartor-6-3-2-t01-fail-b.pdf` named an item one byte past the end:
+      *"the len is 37458 but the index is 37458"*. The function already returned `Option`
+      and every caller already handled `None`, so bounds-checking each read was the whole
+      fix. That file now opens and reports what it actually is — a font program in no
+      recognised format, skipped, with a system font substituted, which is what Isartor
+      6-3-2 exists to test. **Phase F is titled "structural integrity and DoS stack
+      limits" and is ticked; nine files could not produce a panic and 242 produced one
+      immediately.**
+- [ ] Clause 7.4. Seven of the ten filters are absent and four of those seven —
+      `ASCIIHexDecode`, `ASCII85Decode`, `LZWDecode`, `RunLengthDecode` — are plain byte
+      transformations, not image codecs, and are what stops text coming out. `LZWDecode`
+      is the one an older file is most likely to need. This is the largest gap the
+      external corpus found and the roadmap had no row for the clause
+- [ ] `Object Handle<Object>(8) is not a dictionary`, from
+      `UnknownFilter-Linearized.pdf`. Phase A closes by saying the reader "now fails with
+      a message that says so rather than `Object Handle<Object>(0) is not a dictionary`".
+      That message is still reachable, on a file the nine samples do not resemble
+- [ ] `NegativeFontSize.pdf` extracts nothing and reports `Other("No font")`. A negative
+      `Tf` size is legal and flips the text; whether the font genuinely fails to resolve
+      or the size is being rejected has not been established
+- [ ] Decide what belongs in the repeatable suite. `measure_external_corpus.sh` exits
+      non-zero only on a panic: refusing a deliberately malformed file and saying why is
+      a correct outcome, and most of this corpus is such files, so a refusal count is
+      information rather than a verdict
+
+*Done when*: the filters clause 7.4 lists either decode or are declined for a stated
+reason, and a run over the external corpus panics zero times from a debug build.
 
 ## Not planned
 

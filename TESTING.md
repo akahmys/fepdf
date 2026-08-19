@@ -163,6 +163,17 @@ Before submitting a Pull Request or completing a task:
       every object. Verified the same way — renaming one declared key in `unicode_16.pdf`
       to a same-length hex string turns its four references into four dangling links.
       `status.sh --full` runs it.
+- [ ] `./scripts/test/fetch_external_corpus.sh` then
+      `./scripts/test/measure_external_corpus.sh` — 242 files this project did not
+      choose: 37 from `pdf-association/pdf-differences` and 205 Isartor files. Run when
+      the reader, the fonts or the filters are touched. The nine files in `samples/` were
+      picked by this project and every "zero occurrences, so defer" judgement in
+      `ROADMAP.md` is bounded by them; on its first run this found a panic in CFF INDEX
+      reading that nine files had never produced, and that clause 7.4 has seven of its
+      ten filters missing with no row in the roadmap for the clause. Run it against the
+      **debug** binary too — arithmetic overflow panics there and wraps in release. It
+      exits non-zero only on a panic, because most of this corpus is deliberately
+      malformed and a reasoned refusal is a correct outcome.
 - [ ] `./scripts/dev/status.sh` — the figures the documents quote, re-derived. A number
       that has gone stale shows up as a disagreement rather than reading as current.
       It exits non-zero when a row *stopped being about the code*: every counter here
