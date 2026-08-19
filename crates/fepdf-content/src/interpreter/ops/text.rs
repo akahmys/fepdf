@@ -119,6 +119,9 @@ impl Interpreter<'_> {
                 let size = self.pop_f64()?;
                 let name = self.pop_name()?;
                 self.state.text_state.font = Some(name.clone());
+                // `Tf` and an `ExtGState` `/Font` are two ways to say the same thing, so
+                // the later one wins and clears the other.
+                self.state.text_state.font_ref = None;
                 self.state.text_state.font_size = size;
                 let _ = self.resolve_font_resource(&name).map_err(|e| {
                     log::debug!("[SDK] Failed to resolve font {}: {:?}", name.as_str(), e);
@@ -288,19 +291,32 @@ impl Interpreter<'_> {
         Ok(())
     }
 
-    #[allow(clippy::useless_let_if_seq)]
-    pub(crate) fn show_text(&mut self, text: &[u8]) -> PdfResult<()> {
-        let font_name = self
+    /// The font in force, however it was selected.
+    ///
+    /// `Tf` names a resource; an `ExtGState` `/Font` gives the dictionary directly
+    /// (Table 57). Both end here so that no caller has to know which happened.
+    pub(crate) fn current_font(&mut self) -> PdfResult<std::sync::Arc<FontResource>> {
+        if let Some(handle) = self.state.text_state.font_ref {
+            return self.get_font(handle, None);
+        }
+        let name = self
             .state
             .text_state
             .font
             .as_ref()
-            .ok_or_else(|| PdfError::Other("No font".into()))?
+            .ok_or_else(|| {
+                PdfError::Other("no font is selected: neither Tf nor an ExtGState /Font".into())
+            })?
             .clone();
-        let res = self.resolve_font_resource(&font_name).map_err(|e| {
-            log::debug!("[SDK] show_text failed to resolve font {}: {:?}", font_name.as_str(), e);
+        self.resolve_font_resource(&name).map_err(|e| {
+            log::debug!("[SDK] failed to resolve font {}: {:?}", name.as_str(), e);
             e
-        })?;
+        })
+    }
+
+    #[allow(clippy::useless_let_if_seq)]
+    pub(crate) fn show_text(&mut self, text: &[u8]) -> PdfResult<()> {
+        let res = self.current_font()?;
         let glyphs: Vec<TextGlyph> = self.map_text_to_glyphs(text, &res)?;
 
         let tm = self.text_matrices.as_ref().map(|m| m.tm).unwrap_or_default();
@@ -369,14 +385,7 @@ impl Interpreter<'_> {
     }
 
     pub(crate) fn render_type3_glyphs(&mut self, glyphs: &[TextGlyph]) -> PdfResult<(f64, f64)> {
-        let font_name = self
-            .state
-            .text_state
-            .font
-            .as_ref()
-            .ok_or_else(|| PdfError::Other("No font".into()))?
-            .clone();
-        let res = self.resolve_font_resource(&font_name)?;
+        let res = self.current_font()?;
 
         let _font_matrix = res.font_matrix.unwrap_or([0.001, 0.0, 0.0, 0.001, 0.0, 0.0]);
         let mut total_adv_x = 0.0;

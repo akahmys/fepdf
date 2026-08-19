@@ -1,5 +1,6 @@
 use crate::interpreter::Interpreter;
-use fepdf_model::{FromPdfObject, LineCap, LineJoin, Matrix, Object, PdfName, PdfResult};
+use fepdf_model::{FromPdfObject, Handle, LineCap, LineJoin, Matrix, Object, PdfName, PdfResult};
+use std::collections::BTreeMap;
 
 const MAX_GSTATE_STACK_DEPTH: usize = 64;
 
@@ -75,6 +76,29 @@ impl Interpreter<'_> {
         Ok(())
     }
 
+    /// Table 57's `/Font`: `[font size]`, where the font is an indirect reference to a
+    /// font dictionary rather than a resource name.
+    ///
+    /// Ignored until `NegativeFontSize.pdf` was measured — its page sets the font this
+    /// way before it ever reaches a `Tf`, so `show_text` found no font, failed, and took
+    /// the whole content stream with it. PDFKit read 327 characters from that page and
+    /// this engine read none.
+    fn apply_gs_font(&mut self, gs_dict: &BTreeMap<Handle<PdfName>, Object>) {
+        let key = self.doc.arena().intern_name(PdfName::new("Font"));
+        let Some(entry) = gs_dict.get(&key) else { return };
+        let Some(pair) = entry.resolve(self.doc.arena()).as_array() else { return };
+        let Some(items) = self.doc.arena().get_array(pair) else { return };
+        let [font, size] = &items[..] else { return };
+        let Some(handle) = font.as_reference() else { return };
+
+        self.state.text_state.font_ref = Some(handle);
+        // At most one of the two is ever set: whichever of `Tf` and `gs` came last wins.
+        self.state.text_state.font = None;
+        if let Some(size) = size.resolve(self.doc.arena()).as_f64() {
+            self.state.text_state.font_size = size;
+        }
+    }
+
     fn handle_gs_operator(&mut self, name: &PdfName) -> PdfResult<()> {
         let entry =
             self.find_resource(&self.doc.arena().intern_name(PdfName::new("ExtGState")), name)?;
@@ -86,6 +110,7 @@ impl Interpreter<'_> {
             let ca_up_key = self.doc.arena().intern_name(PdfName::new("CA"));
             let bm_key = self.doc.arena().intern_name(PdfName::new("BM"));
             let smask_key = self.doc.arena().intern_name(PdfName::new("SMask"));
+            self.apply_gs_font(&gs_dict);
 
             if let Some(ca) = gs_dict.get(&ca_key).and_then(|o| o.as_f64()) {
                 self.state.fill_alpha = ca;

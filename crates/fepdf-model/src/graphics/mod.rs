@@ -426,6 +426,17 @@ pub struct TextState {
     pub wmode: u8,
     /// Resource name of the selected font (`Tf`).
     pub font: Option<crate::object::PdfName>,
+    /// The font dictionary itself, when an `ExtGState` selected it rather than `Tf`.
+    ///
+    /// Table 57's `/Font` entry is `[font size]`, where the font is an **indirect
+    /// reference to a font dictionary** and not a resource name — so it cannot be held
+    /// in the field above, and a page that sets its font this way had none at all. It
+    /// lives in the text state rather than beside the interpreter because `gs` changes
+    /// the graphics state, which means `q` and `Q` must save and restore it.
+    ///
+    /// At most one of this and `font` is set: whichever of `Tf` and `gs` came last wins,
+    /// and each clears the other.
+    pub font_ref: Option<crate::handle::Handle<crate::object::Object>>,
     /// Font size in text-space units (`Tf`).
     pub font_size: f64,
     /// How glyphs are painted (`Tr`).
@@ -444,6 +455,7 @@ impl Default for TextState {
             horizontal_scaling: 100.0,
             leading: 0.0,
             font: None,
+            font_ref: None,
             font_size: 1.0,
             wmode: 0,
             rendering_mode: TextRenderingMode::Fill,

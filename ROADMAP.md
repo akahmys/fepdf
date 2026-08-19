@@ -475,7 +475,7 @@ The first run, on an engine whose every roadmap box was ticked, and where it sta
 | opened | 240 | **242** |
 | **panicked** | **1** | **0** |
 | refused with a message | 1 | 0 |
-| every page extracted | 233 of 240 | 235 of 242 |
+| every page extracted | 233 of 240 | 236 of 242 |
 | written back | 240 of 240 | 242 of 242 |
 
 - [x] The panic. `get_index_item` in `fepdf-font` read a CFF INDEX with every offset
@@ -519,9 +519,15 @@ The first run, on an engine whose every roadmap box was ticked, and where it sta
       that was read: a scan cannot tell a current object from a superseded one lying
       elsewhere (ADR-0006), so where a readable section has an answer that answer stands.
       The file opens, and PDFKit still cannot open it at all
-- [ ] `NegativeFontSize.pdf` extracts nothing and reports `Other("No font")`. A negative
-      `Tf` size is legal and flips the text; whether the font genuinely fails to resolve
-      or the size is being rejected has not been established
+- [x] `NegativeFontSize.pdf` extracted nothing and reported `Other("No font")`. Neither
+      guess in this line was right: the negative size is read fine, and the font does not
+      fail to resolve — there was **no font selected at all**. Six of the file's twelve
+      runs choose their font through an `ExtGState` `/Font` (Table 57), which is
+      `[font size]` with an indirect reference rather than a resource name, and the
+      interpreter read `ca`, `CA`, `BM` and `SMask` from `gs` and ignored `/Font`. The
+      reference now lives in the *text* state, so `q` and `Q` save and restore it as they
+      must, and `Tf` and `gs` each clear the other. PDFKit read 327 characters from that
+      page and this engine read none; it now reads all twelve runs
 - [ ] Decide what belongs in the repeatable suite. `measure_external_corpus.sh` exits
       non-zero only on a panic: refusing a deliberately malformed file and saying why is
       a correct outcome, and most of this corpus is such files, so a refusal count is
