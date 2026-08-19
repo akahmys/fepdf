@@ -28,6 +28,20 @@ pub trait PdfSchema {
     /// "which entries are typed" has one answer that cannot drift from the struct.
     /// `catalog.rs` reports the catalogue's gaps against it.
     fn pdf_keys() -> &'static [&'static str];
+
+    /// Each declared key with the Rust type its field holds, as written in the struct.
+    ///
+    /// Declaring a key and *modelling* what it holds are different achievements, and
+    /// counting them together overstates the second. A field typed `Option<Object>` makes
+    /// the entry reachable by name and tells a caller nothing about its contents; a field
+    /// typed `Option<ViewerPreferences>` says what is in it. `catalog.rs` separates the
+    /// two on this, so the distinction is derived from the struct rather than asserted by
+    /// a list somebody has to remember to update.
+    ///
+    /// No default implementation on purpose. One returning `&[]` would classify every key
+    /// of an un-updated type as unmodelled, in silence — the failure this crate keeps
+    /// finding and removing.
+    fn pdf_key_types() -> &'static [(&'static str, &'static str)];
 }
 
 impl FromPdfObject for Handle<BTreeMap<Handle<PdfName>, Object>> {

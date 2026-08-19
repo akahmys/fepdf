@@ -2,7 +2,8 @@ use super::{render_decisions_markdown, render_decisions_text};
 
 pub fn support_label(s: fepdf::Support) -> &'static str {
     match s {
-        fepdf::Support::Typed => "typed",
+        fepdf::Support::Modelled => "modelled",
+        fepdf::Support::Declared => "declared",
         fepdf::Support::TypeOnly => "type only",
         fepdf::Support::Untyped => "untyped",
     }
@@ -11,7 +12,7 @@ pub fn support_label(s: fepdf::Support) -> &'static str {
 pub fn render_catalog_text(r: &fepdf::CatalogReport, input: &std::path::Path, all: bool) {
     println!("fepdf catalog: {}", input.display());
 
-    let (read, type_only, preserved) = r.support_counts();
+    let (modelled, declared, type_only, preserved) = r.support_counts();
     println!("\n--- [ ENTRIES ({}) ] ---", r.entries.len());
     println!("  {:<18} {:<11} {:<8} value", "key", "support", "in 7.7.2");
     for e in &r.entries {
@@ -25,16 +26,17 @@ pub fn render_catalog_text(r: &fepdf::CatalogReport, input: &std::path::Path, al
     }
 
     println!("\n--- [ WHAT THE ENGINE CAN DO WITH THEM ] ---");
-    println!("  typed:     {read} — a field of PdfCatalog, so it can be reasoned about");
+    println!("  modelled:  {modelled} — a field whose type says what the entry holds");
+    println!("  declared:  {declared} — a field typed Object; reachable, contents opaque");
     println!("  type only: {type_only} — a type for its contents exists; no read path");
     println!("  untyped:   {preserved} — round-trips; any handling is ad hoc");
-    let untyped = r.untyped();
-    if !untyped.is_empty() {
+    let unmodelled = r.unmodelled();
+    if !unmodelled.is_empty() {
         println!(
-            "\n  {} of {} entries have no typed view: {}",
-            untyped.len(),
+            "\n  {} of {} entries the engine cannot read the contents of: {}",
+            unmodelled.len(),
             r.entries.len(),
-            untyped.iter().map(|e| e.key.as_str()).collect::<Vec<_>>().join(" ")
+            unmodelled.iter().map(|e| e.key.as_str()).collect::<Vec<_>>().join(" ")
         );
     }
 
@@ -63,8 +65,10 @@ pub fn render_catalog_markdown(r: &fepdf::CatalogReport, input: &std::path::Path
             e.value
         );
     }
-    let (read, type_only, preserved) = r.support_counts();
-    println!("\nTyped {read}, type only {type_only}, untyped {preserved}.");
+    let (modelled, declared, type_only, preserved) = r.support_counts();
+    println!(
+        "\nModelled {modelled}, declared {declared}, type only {type_only}, untyped {preserved}."
+    );
     println!("\nAbsent Table 29 keys: {}.", r.absent.len());
     render_decisions_markdown(&r.decisions);
 }

@@ -113,6 +113,17 @@ if anchored "$catalog_row" 'pub struct PdfCatalog' crates/fepdf-model/src \
         typed=$(printf '%s' "$catalog_src" | grep -c '#\[pdf_key(' | tr -d ' ')
         table29=$(printf '%s' "$ANCHORED" | grep -c '^    ("' | tr -d ' ')
         row "$catalog_row" "$typed of $table29"
+        # Declaring a key and modelling what it holds are different achievements, and
+        # the first number alone overstates the second: it went 15 -> 32 in one session
+        # while the entries whose contents the engine can read moved by one. A field
+        # typed `Option<Object>` hands back what the arena already had.
+        #
+        # `catalog.rs::models_contents` is the authority and `inspect catalog` reports
+        # per file; this mirrors its list so the headline figure carries its own caveat.
+        passthrough=$(printf '%s' "$catalog_src" \
+            | grep -cE 'pub [a-z_]+: (Option<)?(Object|Handle<Object>|Handle<PdfName>|Handle<Vec<Object>>|Vec<Object>)>?,' \
+            | tr -d ' ')
+        row "  of which model their contents" "$((typed - passthrough))"
     fi
 fi
 

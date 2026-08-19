@@ -251,6 +251,11 @@ impl crate::object::PdfSchema for DestsDictionary {
         // The keys *are* the destination names, so there is no fixed set to list.
         &[]
     }
+
+    fn pdf_key_types() -> &'static [(&'static str, &'static str)] {
+        // Likewise: every value is a `Destination`, and none of them is a fixed key.
+        &[]
+    }
 }
 
 /// Every named destination the document declares, by the form that declared it.

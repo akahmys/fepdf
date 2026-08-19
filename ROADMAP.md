@@ -7,9 +7,9 @@ always 2.0.
 That distinction sets the work. Round-trip fidelity already holds: the arena preserves
 objects it has no typed view of. Measured across all nine samples by comparing
 `inspect catalog` on the input with `inspect catalog` on the output — no catalogue key
-is ever lost, and the three the corpus carries without a typed view — `PageLabels`,
-`Threads` and `Type` — come back with the same shape, `intel_sdm.pdf`'s `/PageLabels`
-still a one-entry dictionary. (`Dests` was a fourth until it was typed.) Only two
+is ever lost, and the entries the engine cannot read the contents of come back with the
+same shape — `intel_sdm.pdf` carries eleven, of which nine are `Option<Object>` fields,
+and its `/PageLabels` is a one-entry dictionary on both sides. Only two
 differences appear, both by design: `/Metadata` is *added*
 where the source had none, because output always carries XMP, and object numbers are
 renumbered, because saving produces a new document
@@ -32,9 +32,9 @@ rather than a rewording of it.
 | **7.3** Objects | Complete. Every type in the clause. |
 | **7.5** File structure | **Complete and in use.** Header scan, both cross-reference forms, `/Prev` chains, hybrid references, object streams, incremental updates, and recovery by scanning. `Document::open` reads the file itself; `lopdf` is gone. |
 | **7.6** Encryption | Every password handler the standard defines now decrypts: RC4 (V1/V2), AES-128 (V4/R4) and AES-256 (V5/R5, V5/R6) to Algorithms 1, 2, 2.A, 2.B and 4–6, with `/Perms` checked and both password roles authenticating. Verified against PDFKit on fourteen files; all of it was broken or absent ([ADR-0009](docs/adr/0009-permissions-are-thirty-two-bits-not-a-positive-integer.md)). Writing is AES-256 at revision 6 and nothing else, because output is always 2.0 and this edition deprecates the rest. Public-key handlers (7.6.5) are **read and written** — a `/Adobe.PubSec` document opens with the certificate it was addressed to, which neither Chrome nor Firefox will do, and `--encrypt-to` produces one. Unencrypted wrappers (7.6.7) are recognised and reported. **Clause 7.6 is otherwise complete.** |
-| **7.7** Document structure | **32 of Table 29's 32** catalogue entries typed, measured by `status.sh` from `PdfCatalog`. |
-| **PDF 2.0 additions** | All catalogue entries now have typed representations in `PdfCatalog` with dedicated `#[pdf_key]` mappings. |
-| **8–14** Content, text, interactive, tagged | Interpreter, fonts and UA-2 auditing exist; interactive features (12) can be *read* (`inspect interactive`), and signature fields (12.7.5.5, 12.8) can now be written and checked. Named destinations (12.3.2) **resolve**, through both of 12.3.2.3's forms and the name tree (7.9.6) one of them needs — which found a link in `intel_sdm.pdf` that goes nowhere, `(G3.7717)`, referenced three times and declared in none of that file's 279,501 destinations. Every page of every sample now yields its text: `scn` with a pattern name (8.6.8.2) was read as a grey component, which cost `fy05.pdf` six pages and — because extraction stopped at the first failure — the 718 after them. A pattern is consumed but not painted. The corpus exercises one annotation subtype of ~28 — all 29,973 are `/Link` — and no form field at all, so the form walk is exercised by a fixture and by this engine's own signed output. |
+| **7.7** Document structure | Every one of Table 29's 32 entries is a field of `PdfCatalog` — and **6 of the 32 are modelled**, meaning the field's type says what the entry holds. The other 26 are `Option<Object>` or a bare arena handle: reachable by name, contents as opaque as before the field existed. Both figures come from `status.sh`, and `inspect catalog` reports them per file, because the first number alone went 15 → 32 in one session while the second moved by one. Untyped entries still round-trip; `inspect catalog` names which ones cannot be read into. |
+| **PDF 2.0 additions** | `inspect catalog` reports **zero** `type only` entries, and the reason is not that the six gained readers. `PageLabels`, `Threads`, `OutputIntents`, `OCProperties`, `Collection` and `AF` each became an `Option<Object>` field, which moves them from "no field" to "a field whose contents are opaque" — the spec types (`PageLabelSpec`, `ArticleThread`, `OutputIntent`, …) are still not what the catalogue reads into. `DPartRoot` has no type at all, contrary to what this table said before it was checked. Of the six, only `PageLabels` (2 files) and `Threads` (1) occur in the corpus; `DSS`, `AF` and `DPartRoot` occur zero times and now have fields anyway, which is the container-before-contents shape Phase D was ordered to avoid. |
+| **8–14** Content, text, interactive, tagged | Interpreter, fonts and UA-2 auditing exist; interactive features (12) can be *read* (`inspect interactive`), and signature fields (12.7.5.5, 12.8) can now be written and checked. Named destinations (12.3.2) **resolve**, through both of 12.3.2.3's forms and the name tree (7.9.6) one of them needs — which found a link in `intel_sdm.pdf` that goes nowhere, `(G3.7717)`, referenced three times and declared in none of that file's 279,501 destinations. Every page of every sample now yields its text: `scn` with a pattern name (8.6.8.2) was read as a grey component, which cost `fy05.pdf` six pages and — because extraction stopped at the first failure — the 718 after them. A pattern is now painted, through `Paint::Pattern(PatternSpec)`. The corpus exercises one annotation subtype of ~28 — all 29,973 are `/Link` — and no form field at all, so the form walk is exercised by a fixture and by this engine's own signed output. |
 | **14.3** Metadata | Settled at load into one state: `/Info` and the metadata stream are reconciled, disagreements recorded, and the entries 14.3.3 deprecates moved to where that clause puts them ([ADR-0013](docs/adr/0013-a-document-is-one-normalised-state.md)). Text strings decode to 7.9.2.2 — PDFDocEncoding from Annex D, or a byte order mark — after a Shift-JIS detector was found corrupting a conforming `/Title`. `--strip` removes every metadata stream, not the catalogue's alone. |
 
 One measurement worth carrying forward: all 24 `Operation` variants are fully
@@ -471,10 +471,12 @@ Addressing structural edge cases, resource exhaustion guards, and semantic cross
   tool that never rewrites the file is the right place for that, and there are such
   tools ([ADR-0014](docs/adr/0014-the-faithful-copy-path-is-not-built.md)). Signing
   fepdf's *own* output was the part worth having, and it is done.
-- **Painting a pattern.** `scn` with a pattern name is consumed and the fill left
-  unchanged. Painting one needs `Color` to be able to say "a pattern" and the backends
-  to render it; adding the variant first would be a container before its contents.
-  Text extraction, which is what the corpus exercises, does not depend on it.
+- ~~**Painting a pattern.**~~ **Built.** This said `scn` with a pattern name was
+  consumed and the fill left unchanged, and that adding the variant first would be a
+  container before its contents. `Paint::Pattern(PatternSpec)` and the interpreter's
+  `handle_pattern_color` exist, so the entry is wrong rather than out of date — kept
+  visible rather than deleted, because a "Not planned" list that quietly loses the items
+  that got built cannot be trusted about the ones that did not.
 
 ---
 

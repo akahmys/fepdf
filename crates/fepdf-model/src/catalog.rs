@@ -21,25 +21,61 @@ use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
 /// How far the engine can go with a catalogue entry.
+///
+/// `Typed` used to be one level, and it hid the thing this report exists to show. Once
+/// every Table 29 key had a field, `inspect catalog` reported `untyped: 0` on every file
+/// — a tool whose module doc opens "The point is the gaps" showing none. The count had
+/// gone from 15 to 32 while the number of entries the engine could say anything about
+/// moved by one. Declaring a key and modelling what it holds are different achievements
+/// and are now counted apart.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Support {
-    /// A field of [`PdfCatalog`], so the entry has a typed view. Derived from the
-    /// struct's `#[pdf_key]` attributes, never asserted here.
-    Typed,
-    /// No typed view, but a spec type for the entry's contents exists. Nothing names
+    /// A field of [`PdfCatalog`] whose type says what the entry *holds* —
+    /// `Option<ViewerPreferences>`, `Option<DestsDictionary>`, `Option<PageMode>`. The
+    /// engine can reason about the value, not merely reach it.
+    Modelled,
+    /// A field of [`PdfCatalog`] typed `Object` or a bare arena handle. The entry is
+    /// reachable by name and round-trips, and its contents are exactly as opaque as they
+    /// were before the field existed: `Option<Object>` hands back whatever the arena
+    /// already held. Worth having — a caller can find it without walking the raw
+    /// dictionary — and worth not counting as understanding.
+    Declared,
+    /// Not a field, but a spec type for the entry's contents exists. Nothing names
     /// the key, so it is neither read nor written whatever the type suggests —
     /// `ARCHITECTURE.md` §5.2 calls this building a container before its contents
     /// exist, and this makes it visible per entry.
     TypeOnly,
-    /// No typed view. The arena preserves the entry, so it round-trips; anything the
-    /// engine does with it is ad hoc — reached by walking the raw dictionary for one
-    /// key at a time, without passing through a type. `/ViewerPreferences` and `/Lang`
-    /// were the examples here until they were typed, and what that looked like is worth
-    /// keeping: `viewer_direction` resolved `/Root`, then `/ViewerPreferences`, then
-    /// `/Direction`, and returned the name as a `String` — so a caller could not tell a
-    /// value the standard defines from one it does not, and the other seventeen entries
-    /// of Table 147 had no reader at all.
+    /// Not a field at all. The arena preserves the entry, so it round-trips; anything
+    /// the engine does with it is ad hoc — reached by walking the raw dictionary for one
+    /// key at a time. `/ViewerPreferences` and `/Lang` were the examples here until they
+    /// were modelled, and what that looked like is worth keeping: `viewer_direction`
+    /// resolved `/Root`, then `/ViewerPreferences`, then `/Direction`, and returned the
+    /// name as a `String` — so a caller could not tell a value the standard defines from
+    /// one it does not, and the other seventeen entries of Table 147 had no reader.
     Untyped,
+}
+
+impl Support {
+    /// Whether the engine can say anything about the entry's *contents*.
+    #[must_use]
+    pub fn models_contents(self) -> bool {
+        matches!(self, Self::Modelled)
+    }
+}
+
+/// The arena's own types. A field of one of these names the entry and returns what was
+/// already there; anything else is a type this engine wrote to describe the contents.
+///
+/// Listed rather than inferred because there is no way to ask the compiler "is this a
+/// domain type", and the set is small, closed and belongs to this crate.
+const PASSTHROUGH_TYPES: &[&str] =
+    &["Object", "Handle<Object>", "Handle<PdfName>", "Handle<Vec<Object>>", "Vec<Object>"];
+
+/// Whether a field's declared type describes the entry's contents.
+fn models_contents(rust_type: &str) -> bool {
+    let inner =
+        rust_type.strip_prefix("Option<").and_then(|t| t.strip_suffix('>')).unwrap_or(rust_type);
+    !PASSTHROUGH_TYPES.contains(&inner)
 }
 
 /// Every key ISO 32000-2 Table 29 defines for the document catalogue, and whether a
@@ -90,8 +126,8 @@ const TABLE_29: &[(&str, bool)] = &[
 /// The support level for one key: typed if `PdfCatalog` declares it, otherwise
 /// whatever Table 29 above says about a type existing for its contents.
 fn support_for(key: &str) -> Support {
-    if PdfCatalog::pdf_keys().contains(&key) {
-        return Support::Typed;
+    if let Some((_, rust_type)) = PdfCatalog::pdf_key_types().iter().find(|(k, _)| *k == key) {
+        return if models_contents(rust_type) { Support::Modelled } else { Support::Declared };
     }
     match TABLE_29.iter().find(|(k, _)| *k == key) {
         Some((_, true)) => Support::TypeOnly,
@@ -167,18 +203,23 @@ impl CatalogReport {
         Ok(Self { entries, absent, decisions: decisions.entries().to_vec() })
     }
 
-    /// How many present entries fall at each level of support.
+    /// How many present entries fall at each level of support: modelled, declared,
+    /// type-only, untyped.
     #[must_use]
-    pub fn support_counts(&self) -> (usize, usize, usize) {
+    pub fn support_counts(&self) -> (usize, usize, usize, usize) {
         let n = |s: Support| self.entries.iter().filter(|e| e.support == s).count();
-        (n(Support::Typed), n(Support::TypeOnly), n(Support::Untyped))
+        (n(Support::Modelled), n(Support::Declared), n(Support::TypeOnly), n(Support::Untyped))
     }
 
-    /// Present entries with no typed view — what `ROADMAP.md` means by an entry that
-    /// survives a round trip but cannot be reasoned about, for one specific file.
+    /// Present entries whose contents the engine cannot say anything about — what
+    /// `ROADMAP.md` means by an entry that survives a round trip but cannot be reasoned
+    /// about, for one specific file.
+    ///
+    /// A `Declared` entry counts here. Its field makes the entry reachable; it does not
+    /// make the value legible, and this list is about the value.
     #[must_use]
-    pub fn untyped(&self) -> Vec<&CatalogEntry> {
-        self.entries.iter().filter(|e| e.support != Support::Typed).collect()
+    pub fn unmodelled(&self) -> Vec<&CatalogEntry> {
+        self.entries.iter().filter(|e| !e.support.models_contents()).collect()
     }
 
     /// Every Table 29 key, with the support the engine claims for it. Independent of
@@ -241,12 +282,51 @@ mod tests {
         assert_eq!(before, 32, "ISO 32000-2 Table 29 defines 32 entries");
     }
 
+    /// Naming an entry and modelling it are counted apart, and the difference is derived
+    /// from the struct rather than listed here.
+    ///
+    /// This replaces a test that asserted all 32 entries were `Typed`. That assertion was
+    /// true and locked in the overstatement it should have caught: 26 of the 32 fields are
+    /// `Option<Object>`, which returns what the arena already held. No ratio is asserted
+    /// below — a ratio would fail on progress — only that the distinction is live and that
+    /// the two counts still add up to what the struct declares.
     #[test]
-    fn coverage_reports_all_table_29_entries_typed() {
+    fn declaring_a_key_is_counted_apart_from_modelling_it() {
         let coverage = CatalogReport::coverage();
-        let typed = coverage.iter().filter(|(_, s)| *s == Support::Typed).count();
-        assert_eq!(typed, PdfCatalog::pdf_keys().len(), "coverage must agree with the struct");
-        assert_eq!(typed, coverage.len(), "{typed} of {} are typed", coverage.len());
-        assert_eq!(typed, 32, "all 32 ISO 32000-2 Table 29 entries are typed");
+        let count = |want: Support| coverage.iter().filter(|(_, s)| *s == want).count();
+        let modelled = count(Support::Modelled);
+        let declared = count(Support::Declared);
+
+        assert_eq!(
+            modelled + declared,
+            PdfCatalog::pdf_key_types().len(),
+            "coverage must agree with the struct"
+        );
+        assert_eq!(modelled + declared, 32, "every Table 29 key has a field");
+        assert!(modelled > 0 && declared > 0, "both levels must be reachable to be a signal");
+
+        // The two ends of the distinction, by name, so a change to the classifier that
+        // collapsed it would fail here rather than quietly report full coverage again.
+        assert_eq!(support_for("ViewerPreferences"), Support::Modelled, "a domain type");
+        assert_eq!(support_for("PageMode"), Support::Modelled);
+        assert_eq!(support_for("Dests"), Support::Modelled);
+        assert_eq!(support_for("DSS"), Support::Declared, "Option<Object>, zero in the corpus");
+        assert_eq!(support_for("DPartRoot"), Support::Declared);
+        assert_eq!(support_for("Metadata"), Support::Declared);
+    }
+
+    /// The classifier reads the type as the macro writes it, whitespace already stripped.
+    #[test]
+    fn the_arenas_own_types_do_not_count_as_modelling() {
+        assert!(!models_contents("Option<Object>"));
+        assert!(!models_contents("Object"));
+        assert!(!models_contents("Option<Handle<Object>>"));
+        assert!(!models_contents("Handle<Object>"));
+        assert!(!models_contents("Option<Handle<PdfName>>"));
+
+        assert!(models_contents("Option<ViewerPreferences>"));
+        assert!(models_contents("Option<PageMode>"));
+        assert!(models_contents("Option<String>"), "a text string is 7.9.2.2, not the arena");
+        assert!(models_contents("Option<bool>"));
     }
 }
