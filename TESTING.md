@@ -43,6 +43,10 @@ cargo test --workspace
   - `tests/security_tests.rs`: R4 AES-128 and R5 AES-256 security handlers.
   - `tests/object_tests.rs`: Object reference resolution, name deduplication, dictionary traversal.
   - `tests/schema_tests.rs`: Font & ExtGState ISO schema expansion.
+  - `tests/filter_tests.rs`: Clause 7.4 filters, against the worked example in 7.4.4.2
+    and an `ASCII85Decode` table generated from an unrelated implementation. Three
+    hand-written expectations in the first version were wrong while the decoder was
+    right, which is why the vectors that can be generated now are.
   - `tests/mapping_tests.rs`: Unicode/CID mapping & encoding reconciliation.
 - **`fepdf-render`**:
   - `tests/path_tests.rs`: Bezier curves, path bounds, transformation matrices.

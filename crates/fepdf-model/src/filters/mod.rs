@@ -6,8 +6,30 @@ use crate::error::PdfError;
 use crate::object::Object;
 use bytes::Bytes;
 
+pub mod ascii;
 pub mod flate;
+pub mod lzw;
 pub mod predictor;
+pub mod runlength;
+
+/// The filters of clause 7.4 that are plain byte transformations rather than image
+/// codecs, including the Table 6 abbreviations that only inline images may use (7.8.6).
+///
+/// Split out of `decode_stream` so that neither function exceeds the length RR-15 allows;
+/// they are one decision expressed in two places only because of that limit.
+fn decode_byte_filter(
+    filter_name: &str,
+    input: &[u8],
+    params: Option<&Object>,
+    arena: &PdfArena,
+) -> PdfResult<Bytes> {
+    match filter_name {
+        "LZWDecode" | "LZW" => lzw::LzwFilter.decode(input, params, arena),
+        "ASCIIHexDecode" | "AHx" => ascii::AsciiHexFilter.decode(input, params, arena),
+        "ASCII85Decode" | "A85" => ascii::Ascii85Filter.decode(input, params, arena),
+        _ => runlength::RunLengthFilter.decode(input, params, arena),
+    }
+}
 
 /// A trait for decoding PDF stream filters.
 pub trait DecodingFilter {
@@ -32,11 +54,18 @@ pub fn decode_stream(
         return Ok(Bytes::from(decoded));
     }
 
+    // Table 6 gives every filter an abbreviation for use in inline images (7.8.6), and
+    // producers use them: `/AHx` appears seven times in one external file and `/A85` and
+    // `/LZW` once each. Only `Fl` and `DCT` were matched before, so a stream naming any
+    // of the others by its short name was refused for the wrong reason — not "this engine
+    // cannot decode that" but "this engine has not heard of that".
     match filter_name {
         "FlateDecode" | "Fl" => {
             let decoder = flate::FlateFilter;
             decoder.decode(input, params, arena)
         }
+        "LZWDecode" | "LZW" | "ASCIIHexDecode" | "AHx" | "ASCII85Decode" | "A85"
+        | "RunLengthDecode" | "RL" => decode_byte_filter(filter_name, input, params, arena),
         "ZstandardDecode" | "Zstd" => {
             let decoded = zstd::decode_all(input).map_err(|e| PdfError::Filter {
                 filter: filter_name.to_string().into(),
