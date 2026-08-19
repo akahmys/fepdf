@@ -472,11 +472,11 @@ The first run, on an engine whose every roadmap box was ticked, and where it sta
 | | first run | now |
 | :--- | ---: | ---: |
 | files | 242 | 242 |
-| opened | 240 | 241 |
+| opened | 240 | **242** |
 | **panicked** | **1** | **0** |
-| refused with a message | 1 | 1 |
-| every page extracted | 233 of 240 | 235 of 241 |
-| written back | 240 of 240 | 241 of 241 |
+| refused with a message | 1 | 0 |
+| every page extracted | 233 of 240 | 235 of 242 |
+| written back | 240 of 240 | 242 of 242 |
 
 - [x] The panic. `get_index_item` in `fepdf-font` read a CFF INDEX with every offset
       unchecked, and `isartor-6-3-2-t01-fail-b.pdf` named an item one byte past the end:
@@ -506,10 +506,19 @@ The first run, on an engine whose every roadmap box was ticked, and where it sta
       `JBIG2Decode` (0). Each is a substantial decoder rather than a byte transformation,
       and none of them blocks *text*: they arrive as image XObjects. Worth doing when
       rendering those images matters, and not before
-- [ ] `Object Handle<Object>(8) is not a dictionary`, from
-      `UnknownFilter-Linearized.pdf`. Phase A closes by saying the reader "now fails with
-      a message that says so rather than `Object Handle<Object>(0) is not a dictionary`".
-      That message is still reachable, on a file the nine samples do not resemble
+- [x] `Object Handle<Object>(8) is not a dictionary`, from
+      `UnknownFilter-Linearized.pdf` — the message Phase A closes by saying the reader no
+      longer produces. The file is linearized and its **first** cross-reference stream is
+      `/Filter /XXXDecode`, so the trailing section read fine and the leading one did not.
+      A section that failed to read was dropped by an `if let Ok(..)` that said nothing,
+      and the fallback scan only ran when the records were *empty* — which they were not.
+      The file lost its catalogue and eleven other objects, all of them physically present
+      in the bytes, and `inspect structure` reported "read without departing from the
+      standard". The loss is now a `Decision` naming the offset and the filter, and a scan
+      fills the holes the surviving sections do not cover. It **never overrides** a section
+      that was read: a scan cannot tell a current object from a superseded one lying
+      elsewhere (ADR-0006), so where a readable section has an answer that answer stands.
+      The file opens, and PDFKit still cannot open it at all
 - [ ] `NegativeFontSize.pdf` extracts nothing and reports `Other("No font")`. A negative
       `Tf` size is legal and flips the text; whether the font genuinely fails to resolve
       or the size is being rejected has not been established

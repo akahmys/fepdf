@@ -341,14 +341,32 @@ fn locate_objects(
 ) -> (BTreeMap<u32, XrefRecord>, Option<DictHandle>) {
     let mut records = BTreeMap::new();
     let mut trailer = None;
+    let mut unreadable_sections = 0;
 
     if let Some(start) = xref::find_startxref(bytes) {
         // Oldest first, so a later section overrides an earlier definition.
         for at in xref::section_chain(bytes, start.saturating_add(base as u64)) {
             let Ok(offset) = usize::try_from(at) else { continue };
-            if let Ok(section) = read_xref_section(bytes, offset, arena, decisions) {
-                records.extend(section.entries);
-                trailer = section.trailer.or(trailer);
+            match read_xref_section(bytes, offset, arena, decisions) {
+                Ok(section) => {
+                    records.extend(section.entries);
+                    trailer = section.trailer.or(trailer);
+                }
+                // A section that cannot be read used to be skipped by an `if let Ok`,
+                // which lost every object it indexed and said nothing.
+                // `UnknownFilter-Linearized.pdf` is a linearized file whose *first*
+                // cross-reference stream is `/Filter /XXXDecode`: the trailing section
+                // read fine, so the records were not empty, the scan below never ran,
+                // and the file reported "read without departing from the standard"
+                // having lost its catalogue and eleven other objects.
+                Err(e) => {
+                    unreadable_sections += 1;
+                    decisions.push(Decision::repaired(
+                        "7.5.8",
+                        format!("the cross-reference section at {offset} could not be read: {e}"),
+                        "kept the sections that could, and scanned for what they do not cover",
+                    ));
+                }
             }
         }
     }
@@ -363,6 +381,8 @@ fn locate_objects(
         records.extend(
             scanned.into_iter().map(|(n, o)| (n, XrefRecord::InFile { offset: o, generation: 0 })),
         );
+    } else if unreadable_sections > 0 {
+        fill_gaps_by_scanning(bytes, &mut records, decisions);
     }
 
     if trailer.is_none() {
@@ -378,6 +398,37 @@ fn locate_objects(
         ));
     }
     (records, trailer)
+}
+
+/// Adds objects the surviving cross-reference sections do not describe.
+///
+/// Only for numbers with no record at all: a section that *was* read is authoritative for
+/// what it covers, and a scan cannot tell a current object from a superseded one lying
+/// earlier in the file. So this fills holes and never overrides, which makes it safe to
+/// run whenever any section was lost and pointless to run when none was.
+fn fill_gaps_by_scanning(
+    bytes: &[u8],
+    records: &mut BTreeMap<u32, XrefRecord>,
+    decisions: &mut DecisionLog,
+) {
+    let recovered: Vec<(u32, u64)> = xref::scan_indirect_objects(bytes)
+        .into_iter()
+        .filter(|(number, _)| !records.contains_key(number))
+        .collect();
+    if recovered.is_empty() {
+        return;
+    }
+    decisions.push(Decision::repaired(
+        "7.5.4",
+        format!(
+            "{} objects were indexed only by a section that could not be read",
+            recovered.len()
+        ),
+        "found them by scanning the file, without overriding any section that was read",
+    ));
+    records.extend(
+        recovered.into_iter().map(|(n, o)| (n, XrefRecord::InFile { offset: o, generation: 0 })),
+    );
 }
 
 /// Places every object in the arena at the slot matching its number.
