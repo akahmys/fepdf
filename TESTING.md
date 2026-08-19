@@ -165,6 +165,11 @@ Before submitting a Pull Request or completing a task:
       `status.sh --full` runs it.
 - [ ] `./scripts/dev/status.sh` — the figures the documents quote, re-derived. A number
       that has gone stale shows up as a disagreement rather than reading as current.
+      It exits non-zero when a row *stopped being about the code*: every counter here
+      returns a number and 0 is legal for most of them, so an anchor that moves reports a
+      false figure rather than no figure. That happened — the CLI was split into
+      `args.rs`, `commands/` and `formatters/`, and `inspect subcommands` read 0 against
+      a truth of 8 for as long as nobody checked by hand.
 
 [ADR-0006]: docs/adr/0006-a-container-may-not-overwrite-a-newer-revision.md
 [ADR-0010]: docs/adr/0010-a-synthesised-tounicode-keyed-on-glyphs-destroys-text.md
