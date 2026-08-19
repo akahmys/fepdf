@@ -1895,25 +1895,41 @@ fn skip_index(data: &[u8], pos: usize) -> usize {
     pos + is + off - 1
 }
 
+/// One item of a CFF INDEX, by position.
+///
+/// Every offset here comes out of the file, and every read was unchecked. A font whose
+/// INDEX names an item running past the end walked straight off the buffer:
+/// `isartor-6-3-2-t01-fail-b.pdf` panicked with "the len is 37458 but the index is
+/// 37458" — one byte past — where an error was the correct answer. The nine files in
+/// `samples/` contain no such font and never produced it; 205 files this project did not
+/// choose produced it on the first run.
+///
+/// The function already returned `Option` and every caller already handles `None`, so
+/// bounds-checking each read is the whole fix. Arithmetic is checked too, because a
+/// wrapped offset panics in a debug build before `get` ever sees it — and `cli_smoke.sh`
+/// runs a debug build for exactly that class of reason.
 fn get_index_item(data: &[u8], ip: usize, i: usize) -> Option<Vec<u8>> {
-    let count = u16::from_be_bytes([data[ip], data[ip + 1]]) as usize;
+    let count = u16::from_be_bytes([*data.get(ip)?, *data.get(ip + 1)?]) as usize;
     if i >= count {
         return None;
     }
-    let os = data[ip + 2] as usize;
-    let mut s = 0;
-    let mut e = 0;
-    let sp = ip + 3 + i * os;
-    let ep = sp + os;
-    for j in 0..os {
-        s = (s << 8) | data[sp + j] as usize;
+    let offset_size = *data.get(ip + 2)? as usize;
+    let start_pos = ip.checked_add(3)?.checked_add(i.checked_mul(offset_size)?)?;
+    let end_pos = start_pos.checked_add(offset_size)?;
+
+    let mut s = 0usize;
+    let mut e = 0usize;
+    for j in 0..offset_size {
+        s = (s << 8) | *data.get(start_pos + j)? as usize;
+        e = (e << 8) | *data.get(end_pos + j)? as usize;
     }
-    for j in 0..os {
-        e = (e << 8) | data[ep + j] as usize;
-    }
-    let ds = ip + 3 + (count + 1) * os + s - 1;
-    let de = ip + 3 + (count + 1) * os + e - 1;
-    if de <= data.len() { Some(data[ds..de].to_vec()) } else { None }
+
+    let base = ip.checked_add(3)?.checked_add(count.checked_add(1)?.checked_mul(offset_size)?)?;
+    let ds = base.checked_add(s)?.checked_sub(1)?;
+    let de = base.checked_add(e)?.checked_sub(1)?;
+    // `ds <= de` was not checked either. A backwards pair panics on the slice even when
+    // both ends are inside the buffer, which the `de <= data.len()` guard alone allows.
+    if ds <= de && de <= data.len() { Some(data[ds..de].to_vec()) } else { None }
 }
 
 fn parse_dict_number(d: &[u8]) -> (i32, usize) {
@@ -2091,5 +2107,39 @@ mod tests {
         fn quad_to(&mut self, _: f32, _: f32, _: f32, _: f32) {}
         fn curve_to(&mut self, _: f32, _: f32, _: f32, _: f32, _: f32, _: f32) {}
         fn close(&mut self) {}
+    }
+}
+
+#[cfg(test)]
+mod index_bounds_tests {
+    use super::get_index_item;
+
+    /// A CFF INDEX whose offsets run past the end of the buffer must return `None`.
+    ///
+    /// `isartor-6-3-2-t01-fail-b.pdf` panicked here — "the len is 37458 but the index is
+    /// 37458", one byte past — because every read in this function indexed the slice
+    /// directly. None of the nine files in `samples/` contains such a font, which is why
+    /// it took a corpus this project did not choose to find it.
+    #[test]
+    fn an_index_pointing_past_the_end_is_declined_rather_than_panicking() {
+        // count = 1, offset size = 1, offsets [1, 200] — the item ends far outside.
+        let data = [0x00, 0x01, 0x01, 0x01, 0xC8];
+        assert_eq!(get_index_item(&data, 0, 0), None);
+
+        // Truncated before the offsets can even be read.
+        assert_eq!(get_index_item(&[0x00, 0x01], 0, 0), None);
+        assert_eq!(get_index_item(&[0x00, 0x01, 0x01], 0, 0), None);
+
+        // An `ip` past the end of the buffer entirely.
+        assert_eq!(get_index_item(&data, 900, 0), None);
+
+        // Backwards offsets: both ends inside the buffer, and the slice would still
+        // panic. The old guard checked only the far end.
+        let backwards = [0x00, 0x01, 0x01, 0x05, 0x02, 0, 0, 0, 0, 0];
+        assert_eq!(get_index_item(&backwards, 0, 0), None);
+
+        // And an item that is genuinely present still comes back.
+        let good = [0x00, 0x01, 0x01, 0x01, 0x03, b'h', b'i'];
+        assert_eq!(get_index_item(&good, 0, 0), Some(vec![b'h', b'i']));
     }
 }
