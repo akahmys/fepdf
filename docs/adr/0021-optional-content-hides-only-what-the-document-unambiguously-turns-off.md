@@ -2,7 +2,7 @@
 
 - **Status**: Accepted
 - **Date**: 2026-08-21
-- **Commit**: *(the commit that adds `fepdf-model/src/optional_content.rs`)*
+- **Commit**: 09a51f7
 
 ## Context
 
