@@ -48,6 +48,7 @@ fepdf inspect info report.pdf        # metadata and a font summary
 fepdf inspect text report.pdf        # extracted text
 fepdf inspect audit report.pdf       # compliance audit against ISO 32000-2 and UA-2
 fepdf inspect tree report.pdf        # the logical structure tree
+fepdf inspect coverage *.pdf         # how much of what these files contain it reads
 ```
 
 `structure`, `catalog`, `encryption` and `interactive` report **the file as written** —
@@ -98,9 +99,21 @@ The reasoning is in [ADR-0012](docs/adr/0012-saving-produces-a-new-document.md).
 | **Run usefully in a browser** | `fepdf-wasm` opens a document and counts pages. Its `render_page` does nothing. |
 | **Produce a file you can read in a text editor** | Objects are packed into 7.5.7 object streams by default, which shrinks every sample — `intel_sdm.pdf` goes from +131% to +1% — and puts almost all of them inside a compressed container. `--no-obj-stm` writes the loose form ([ADR-0016](docs/adr/0016-objects-are-packed-by-default.md)). |
 
-Nineteen SDK operations report `NotImplemented` rather than pretending. Ten of Table
-29's thirty-two catalogue entries have a typed representation; the rest survive a round
-trip but cannot be reasoned about, and `inspect catalog` names which ones for your file.
+All thirty-two of Table 29's catalogue entries have a field and **twenty** have a type
+that says what the entry holds — every key those corpora carry except `/Type`, whose
+value the clause fixes. The twelve that no file carries are declined a reader on purpose,
+and `inspect catalog` names them
+([ADR-0017](docs/adr/0017-declaring-a-catalogue-key-is-not-modelling-it.md)). It also
+reports how much of each entry's *own* table its reader covers, because "modelled" is a
+statement about the entry and not about everything beneath it: `/AcroForm` reads 4 of
+Table 224's 8
+([ADR-0020](docs/adr/0020-a-modelled-entry-reports-how-much-of-its-own-table-it-reads.md)).
+
+`inspect coverage` puts a number on the whole thing across a corpus — the share of the
+constructs your files actually contain whose *contents* the engine reads. Over the nine
+samples and 242 external files it is 88%. It is a proxy and
+[ADR-0019](docs/adr/0019-semantic-understanding-is-measured-against-what-a-corpus-presents.md)
+says what it is not.
 
 [ROADMAP.md](ROADMAP.md) has the measured state clause by clause, and
 `./scripts/dev/status.sh` re-derives those numbers so a stale one shows up as a

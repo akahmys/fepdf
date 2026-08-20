@@ -320,6 +320,17 @@ pub enum InspectSubcommands {
         #[command(flatten)]
         ingest: IngestArgs,
     },
+    /// Report how much of what these files present the engine reads the contents of
+    Coverage {
+        /// Input PDF files. More than one is the point: the figure is over a corpus.
+        inputs: Vec<PathBuf>,
+        /// Output format (text, json, markdown)
+        #[arg(short, long, default_value = "text")]
+        format: String,
+        /// List every construct that has no reader, per axis
+        #[arg(long)]
+        unread: bool,
+    },
 }
 
 #[derive(Subcommand, Debug)]

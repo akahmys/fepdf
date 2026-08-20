@@ -343,14 +343,40 @@ of the standard, it records why, at the point of decision, with the clause. A si
 acceptance is a defect even when the output is right, because the next reader of the
 code cannot tell a deliberate choice from an oversight.
 
-**Current coverage is 39 sites**, up from one: `reader.rs` 15, `font/mod.rs` 8,
-`decrypt.rs` 6, `object/sublimation/parser.rs` 3, `document.rs` 2, `ingest/mod.rs` 2,
-`metadata.rs` 2, `refine/mod.rs` 1. `decrypt.rs` gained four with clause 7.6: three
+**Current coverage is 58 sites**, up from one: `reader.rs` 17, `refine/color.rs` 12,
+`font/mod.rs` 8, `decrypt.rs` 6, `document.rs` 4, `interpreter/ops/xobject.rs` 3,
+`object/sublimation/parser.rs` 3, `ingest/mod.rs` 2, `metadata.rs` 2,
+`refine/mod.rs` 1. The three in `fepdf-content` are the newest and the reason the
+count moved: an image whose filter this engine cannot decode is skipped so that the
+page's text survives, and that skip is now recorded rather than logged
+([ADR-0018](docs/adr/0018-interpreting-a-page-can-add-to-the-decision-log.md)). The
+`status.sh` row had to learn to search that crate before it could see them. This
+paragraph read 39 while
+`status.sh` reported 53 — the drift the row exists to surface, surfaced and then not
+folded back, and the larger half of it is a whole file the list never had:
+`refine/color.rs` records clause 8.6 twice per defect, the `Violation` under
+`ColorPolicy::Strict` and the `Repaired` substitution of `/DeviceRGB` under
+`Relaxed`. `decrypt.rs` gained four with clause 7.6: three
 report a public-key document that could not be opened and why, and one an object stream
 that would not expand after decryption. The eleven places that previously detected
 non-conformance and merely `log::warn!` — missing font `/Subtype`, empty
 `/DescendantFonts`, undecodable CMap streams, unknown content-stream operators — were
 converted while the reader was replaced, which is where most of them sat.
+
+**A site is not a firing, and which sites can fire depends on the command.** Over the
+251 files of both corpora, `inspect structure` reports 11 decisions in total, from five
+clauses and all of them the reader's: 7.5.4 four, 7.5.8 four, and one each of 7.3.8.2,
+7.5.2 and 7.5.7. `inspect info` adds a twelfth on one file — a page tree whose root the
+file does not contain (7.7.3.2), which `find_all_pages` used to drop in silence. The font, decryption and colour sites contribute nothing to that
+figure, because inspecting the structure does not run those paths — not because they
+are dead. `isartor-6-3-2-t01-fail-b.pdf` makes the difference visible: `inspect
+structure` reports no decision on it, and `inspect text` on the same file reports a
+`Violation` of 9.9, a font program in no recognised format, skipped for a system font.
+So `is_conforming` answers "no departure **in what has been examined**", and the log is
+only as complete as the work the caller asked for. That is now the documented meaning
+rather than an accident of which command was run: the log is behind a lock, a page being
+interpreted can add to it, and `inspect text` prints what reading decided before the
+text and what interpreting decided after it (ADR-0018).
 
 One `log::warn!` remains in the engine, in `font/mod.rs`, and is deliberate: it reports
 which fonts *this machine* has, which is a property of the host and not of the

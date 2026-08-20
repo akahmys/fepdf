@@ -13,6 +13,7 @@
 use crate::arena::PdfArena;
 use crate::error::PdfResult;
 use crate::interpretation::{Decision, DecisionLog, Severity};
+use crate::object::Object;
 use crate::reader::{self, XrefForm};
 use fepdf_syntax::xref::{self, XrefRecord};
 use serde::{Deserialize, Serialize};
@@ -60,6 +61,29 @@ pub struct ObjectStream {
     pub carries: usize,
 }
 
+/// One stream filter the file names (7.4), and where it sits.
+///
+/// Counted by walking the arena rather than by searching the bytes, because searching
+/// the bytes cannot see it: `grep -l CCITTFaxDecode` over both corpora finds **zero**
+/// files where this census finds two, since the name is inside a `/FlateDecode`d object
+/// stream. A judgement about which codecs are worth building rests on this count, so
+/// the instrument had to be one that can read what it is counting.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FilterUse {
+    /// The filter's name exactly as the file writes it, abbreviations included — Table 6
+    /// lets `/AHx` mean `/ASCIIHexDecode`, and a census that folded them together would
+    /// hide which spelling a producer used.
+    pub name: String,
+    /// How many streams name it.
+    pub streams: usize,
+    /// How many of those are image XObjects. An image carries no text, so a filter that
+    /// only ever appears here cannot be what stops a page yielding its words — the
+    /// measurement that moved the three image codecs out of the way of clause 7.4.
+    pub on_images: usize,
+    /// Whether this engine decodes it.
+    pub decoded: bool,
+}
+
 /// A file's layout, and what had to be decided to read it.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FileStructure {
@@ -83,6 +107,8 @@ pub struct FileStructure {
     pub superseded: usize,
     /// Every decision the reader took, in the order taken.
     pub decisions: Vec<Decision>,
+    /// Which filters the file's streams name, most used first.
+    pub filters: Vec<FilterUse>,
 }
 
 /// Walks the cross-reference chain once, yielding the per-revision facts, the merged
@@ -166,6 +192,74 @@ fn take_census(
     (census, object_streams)
 }
 
+/// Every filter the file's streams name, and how many of them are on images.
+///
+/// Walks **streams**, not dictionaries. The first version of this walked every
+/// dictionary holding a `/Filter` key on the reasoning that only a stream may have one,
+/// and the corpus refuted it immediately: two files reported a filter called
+/// `/Standard`, which is the *security handler* named by the encryption dictionary
+/// (Table 20), and a signature dictionary names `/Adobe.PPKLite` the same way. Asking
+/// the arena for its streams cannot make that mistake.
+///
+/// It does find every stream, which is the point — including the cross-reference
+/// streams that carry the file's own index. Not hypothetical:
+/// `UnknownFilter-Linearized.pdf` names `/XXXDecode` on two of them, and nothing that
+/// reads only page content would ever see it.
+///
+/// **Inline images are not counted** (7.8.6). Their filters are written inside a
+/// content stream, in Table 6's abbreviated form, and reaching them means interpreting
+/// the page rather than walking the arena. So a `/AHx` that occurs only inline is
+/// absent from this table, and the table says streams rather than filters for that
+/// reason.
+fn take_filter_census(arena: &PdfArena) -> Vec<FilterUse> {
+    let filter_key = arena.name("Filter");
+    let subtype_key = arena.name("Subtype");
+    let image = arena.name("Image");
+
+    let mut counts: BTreeMap<String, (usize, usize)> = BTreeMap::new();
+    for i in 0..arena.object_count() {
+        let Some(Object::Stream(dh, _)) = arena.get_object(crate::handle::Handle::new(i)) else {
+            continue;
+        };
+        let Some(dict) = arena.get_dict(dh) else { continue };
+        let Some(filter) = dict.get(&filter_key) else { continue };
+        let on_image = dict
+            .get(&subtype_key)
+            .and_then(|o| o.resolve(arena).as_name())
+            .is_some_and(|n| n == image);
+
+        let mut names = Vec::new();
+        match filter.resolve(arena) {
+            Object::Name(h) => names.extend(arena.get_name_str(h)),
+            Object::Array(ah) => {
+                for item in arena.get_array(ah).unwrap_or_default() {
+                    if let Some(h) = item.resolve(arena).as_name() {
+                        names.extend(arena.get_name_str(h));
+                    }
+                }
+            }
+            _ => {}
+        }
+        for name in names {
+            let entry = counts.entry(name).or_insert((0, 0));
+            entry.0 += 1;
+            entry.1 += usize::from(on_image);
+        }
+    }
+
+    let mut uses: Vec<FilterUse> = counts
+        .into_iter()
+        .map(|(name, (streams, on_images))| FilterUse {
+            decoded: crate::filters::is_decoded(&name),
+            name,
+            streams,
+            on_images,
+        })
+        .collect();
+    uses.sort_by(|a, b| b.streams.cmp(&a.streams).then(a.name.cmp(&b.name)));
+    uses
+}
+
 impl FileStructure {
     /// Reads `bytes` and reports its layout.
     ///
@@ -211,7 +305,8 @@ impl FileStructure {
             encrypted,
             declares_root,
             superseded: superseded.len(),
-            decisions: raw.decisions.entries().to_vec(),
+            decisions: raw.decisions.entries(),
+            filters: take_filter_census(&raw.arena),
         })
     }
 
@@ -412,5 +507,85 @@ mod tests {
             .and_then(|(at, _)| text[at + 9..].split_whitespace().next())
             .and_then(|n| n.parse().ok())
             .unwrap_or(0)
+    }
+
+    /// A file with one image XObject, one content stream, and a dictionary that carries
+    /// `/Filter` without being a stream — the shape that broke the first census.
+    fn file_with_an_undecodable_image() -> Vec<u8> {
+        let content = "q 10 0 0 10 0 0 cm /ImgX Do Q";
+        let image = "\x01\x02\x03\x04";
+        let bodies = [
+            "<< /Type /Catalog /Pages 2 0 R >>".to_string(),
+            "<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_string(),
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 10 10] \
+              /Resources << /XObject << /ImgX 5 0 R >> >> /Contents 4 0 R >>"
+                .to_string(),
+            format!("<< /Length {} >>\nstream\n{content}\nendstream", content.len()),
+            format!(
+                "<< /Type /XObject /Subtype /Image /Width 1 /Height 1 /ColorSpace /DeviceGray \
+                  /BitsPerComponent 8 /Filter /XXXDecode /Length {} >>\nstream\n{image}\nendstream",
+                image.len()
+            ),
+            // Not a stream, and `/Filter` here names a security handler (Table 20).
+            "<< /Filter /Standard /V 2 /R 3 >>".to_string(),
+        ];
+        let mut out = b"%PDF-2.0\n".to_vec();
+        let mut offsets = Vec::new();
+        for (i, body) in bodies.iter().enumerate() {
+            offsets.push(out.len());
+            out.extend_from_slice(format!("{} 0 obj\n{body}\nendobj\n", i + 1).as_bytes());
+        }
+        let table_at = out.len();
+        out.extend_from_slice(
+            format!("xref\n0 {}\n0000000000 65535 f \n", bodies.len() + 1).as_bytes(),
+        );
+        for offset in &offsets {
+            out.extend_from_slice(format!("{offset:010} 00000 n \n").as_bytes());
+        }
+        out.extend_from_slice(
+            format!(
+                "trailer\n<< /Size {} /Root 1 0 R >>\nstartxref\n{table_at}\n%%EOF\n",
+                bodies.len() + 1
+            )
+            .as_bytes(),
+        );
+        out
+    }
+
+    /// The census names the filter, says it is on an image, and says it is not decoded.
+    ///
+    /// All three matter separately: the name is what a codec would have to implement,
+    /// "on an image" is why not implementing it costs no text, and "not decoded" is the
+    /// engine reporting its own gap rather than the roadmap asserting it.
+    #[test]
+    fn an_undecodable_image_filter_is_counted_as_one() {
+        let s = FileStructure::survey(&file_with_an_undecodable_image()).expect("surveys");
+        let unknown = s
+            .filters
+            .iter()
+            .find(|f| f.name == "XXXDecode")
+            .unwrap_or_else(|| panic!("the census missed it: {:?}", s.filters));
+        assert_eq!(unknown.streams, 1);
+        assert_eq!(unknown.on_images, 1, "it is on an /XObject /Subtype /Image");
+        // `/CCITTFaxDecode` stood here, then `/JPXDecode`, and each in turn gained a
+        // decoder — which is the check working rather than failing. What is left is a
+        // filter the test suites invented, which no engine will ever decode, and that is
+        // now the only thing the census's "not decoded" column can honestly name.
+        assert!(!unknown.decoded, "no engine decodes a filter the standard does not define");
+    }
+
+    /// `/Filter` in an encryption dictionary is a security handler, not a stream filter.
+    ///
+    /// The first census walked every dictionary holding the key, on the reasoning that
+    /// only a stream may carry one. Two files of the external corpus reported a filter
+    /// called `/Standard` within minutes, which is the handler named by Table 20.
+    #[test]
+    fn a_security_handler_is_not_counted_as_a_stream_filter() {
+        let s = FileStructure::survey(&file_with_an_undecodable_image()).expect("surveys");
+        assert!(
+            !s.filters.iter().any(|f| f.name == "Standard"),
+            "the encryption dictionary is not a stream: {:?}",
+            s.filters
+        );
     }
 }

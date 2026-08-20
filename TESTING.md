@@ -160,7 +160,14 @@ Before submitting a Pull Request or completing a task:
       it, long enough for the paragraph to still name two keys as untyped that had since
       been typed. Renumbering and the always-written `/Metadata` are normalised away;
       verified by renaming one key to a same-length name so the offsets still land, which
-      the comparison reports as one differing entry out of seven. A third comparison
+      the comparison reports as one differing entry out of seven. Since Phase K it also
+      compares what the catalogue **says** — the entries are read now, so a save that
+      preserved `/MarkInfo` as a dictionary while losing `/Marked` inside it is visible,
+      where before there was `dictionary[3]` against `dictionary[3]`. That comparison
+      found one difference on its first run and it was the expected one:
+      `bokutokitan.pdf`'s page-tree root carries an inheritable `/MediaBox` the writer
+      resolves onto each page (ADR-0013), normalised away like the others. A third
+      comparison
       covers named destinations (12.3.2), which the catalogue check cannot: `/Dests`
       surviving as a key says nothing about whether the references into it still find
       their targets, and both of that clause's forms are indirect while saving renumbers
@@ -178,6 +185,21 @@ Before submitting a Pull Request or completing a task:
       **debug** binary too — arithmetic overflow panics there and wraps in release. It
       exits non-zero only on a panic, because most of this corpus is deliberately
       malformed and a reasoned refusal is a correct outcome.
+- [ ] `cargo run --example make_scan_fixtures -p fepdf-model` then
+      `./scripts/test/crosscheck_image.sh` — the only check that looks at a *picture*.
+      The other five compare text and structure, so the image codecs had nothing
+      independent to answer to: neither corpus holds a scan. The fixtures are encoded by
+      implementations that are not the decoders under test, and PDFKit renders the same
+      files. Four numbers per file — the mean luminance of each quadrant — so that
+      antialiasing does not fail it and an inversion, a flip or a wrong stride each read
+      differently. Run it when a codec, `PixelFormat`, or anything in `draw_image`
+      changes. Verified by removing the JBIG2 polarity flip: `DISAGREE by 255`.
+- [ ] `fepdf inspect coverage samples/*.pdf target/external/*/*.pdf` — the share of the
+      constructs those files actually contain whose contents the engine reads, per axis
+      (ADR-0019). Run it when a reader is added or a type changes: it is the only check
+      here that answers "did that make the engine understand more", and it cannot be
+      raised by adding a type for something no file carries. A minute over `samples/`
+      alone, so `status.sh` runs it under `--full` and not in the default view.
 - [ ] `./scripts/dev/status.sh` — the figures the documents quote, re-derived. A number
       that has gone stale shows up as a disagreement rather than reading as current.
       It exits non-zero when a row *stopped being about the code*: every counter here

@@ -4,6 +4,17 @@
 one that round-trips it. PDF 1.7 and earlier are **read-only** targets; output is
 always 2.0.
 
+That goal is not a predicate, and no run of `status.sh` can report it true or false;
+every phase below states a completion condition, and the line they are all under had
+none. Phase I gave it the nearest thing that can be measured: **the share of the
+constructs a corpus actually presents whose contents this engine reads** — 96% over the
+nine samples and 88% over both corpora, after Phase K took the catalogue axis from 5 of
+20 to 19 of 20. What is left is 23 annotation entries, on subtypes that occur once or
+twice; three filters; and `/Type`. `fepdf inspect coverage` reports it and
+[ADR-0019](docs/adr/0019-semantic-understanding-is-measured-against-what-a-corpus-presents.md)
+records what it is not: a proxy, silent about whether what was read was read correctly,
+and bounded by a corpus that flatters an engine when it presents little.
+
 That distinction sets the work. Round-trip fidelity already holds: the arena preserves
 objects it has no typed view of. Measured across all nine samples by comparing
 `inspect catalog` on the input with `inspect catalog` on the output — no catalogue key
@@ -30,12 +41,12 @@ rather than a rewording of it.
 | ISO 32000-2 | State |
 | :--- | :--- |
 | **7.3** Objects | Complete. Every type in the clause. |
-| **7.4** Filters | **Six of the ten**, and the four that are missing block no text — measured, not assumed: `CCITTFaxDecode`, `JPXDecode` and `JBIG2Decode` arrive as image XObjects, and an image the engine cannot decode is now skipped rather than aborting the page. Every filter that is a plain byte transformation decodes. `FlateDecode`, `LZWDecode`, `ASCIIHexDecode`, `ASCII85Decode` and `RunLengthDecode` decode, with Table 8's predictors reaching LZW as they do Flate, and `DCTDecode` reads JPEG; `Crypt` is handled in the security layer (7.6); `ZstandardDecode` is implemented and is not one of the ten. Table 6's abbreviations are matched too — `/AHx` appears seven times in one external file, and only `Fl` and `DCT` were recognised before. Still absent, all three image codecs: `CCITTFaxDecode` (2 external files), `JPXDecode` (3), `JBIG2Decode` (0). **This row did not exist until a corpus this project did not choose forced it**, and the four filters added here occur in zero of the nine files in `samples/`. |
+| **7.4** Filters | **Nine of the ten** since Phase M built `CCITTFaxDecode`, `JBIG2Decode` and `JPXDecode` — the tenth is `Crypt`, which the security layer handles (7.6). `inspect structure` takes a census of which filters a file's streams name, so this row is re-derivable per file rather than remembered. Across both corpora: `/FlateDecode` 224 files, `/DCTDecode` 12, `/XXXDecode` 8, `/JPXDecode` 3, `/CCITTFaxDecode` 2, `/LZWDecode` 2, `/ASCIIHexDecode` 1, `/JBIG2Decode` **none** — and every stream carrying a codec this engine lacks is an image, 3 of 3 and 2 of 2. Every filter that is a plain byte transformation decodes. `FlateDecode`, `LZWDecode`, `ASCIIHexDecode`, `ASCII85Decode` and `RunLengthDecode` decode, with Table 8's predictors reaching LZW as they do Flate, and `DCTDecode` reads JPEG; `Crypt` is handled in the security layer (7.6); `ZstandardDecode` is implemented and is not one of the ten. Table 6's abbreviations are matched too — `/AHx` appears seven times in one external file, and only `Fl` and `DCT` were recognised before. The three image codecs were absent until Phase M, declined by Phase L on a measurement that could not speak to the use case that reopened them; an image that still will not decode is skipped rather than aborting the page, and says what it cost. **This row did not exist until a corpus this project did not choose forced it.** |
 | **7.5** File structure | **Complete and in use.** Header scan, both cross-reference forms, `/Prev` chains, hybrid references, object streams, incremental updates, and recovery by scanning. `Document::open` reads the file itself; `lopdf` is gone. |
 | **7.6** Encryption | Every password handler the standard defines now decrypts: RC4 (V1/V2), AES-128 (V4/R4) and AES-256 (V5/R5, V5/R6) to Algorithms 1, 2, 2.A, 2.B and 4–6, with `/Perms` checked and both password roles authenticating. Verified against PDFKit on fourteen files; all of it was broken or absent ([ADR-0009](docs/adr/0009-permissions-are-thirty-two-bits-not-a-positive-integer.md)). Writing is AES-256 at revision 6 and nothing else, because output is always 2.0 and this edition deprecates the rest. Public-key handlers (7.6.5) are **read and written** — a `/Adobe.PubSec` document opens with the certificate it was addressed to, which neither Chrome nor Firefox will do, and `--encrypt-to` produces one. Unencrypted wrappers (7.6.7) are recognised and reported. **Clause 7.6 is otherwise complete.** |
-| **7.7** Document structure | Every one of Table 29's 32 entries is a field of `PdfCatalog` — and **6 of the 32 are modelled**, meaning the field's type says what the entry holds. The other 26 are `Option<Object>` or a bare arena handle: reachable by name, contents as opaque as before the field existed. Both figures come from `status.sh`, and `inspect catalog` reports them per file, because the first number alone went 15 → 32 in one session while the second moved by one. Untyped entries still round-trip; `inspect catalog` names which ones cannot be read into. |
-| **PDF 2.0 additions** | `inspect catalog` reports **zero** `type only` entries, and the reason is not that the six gained readers. `PageLabels`, `Threads`, `OutputIntents`, `OCProperties`, `Collection` and `AF` each became an `Option<Object>` field, which moves them from "no field" to "a field whose contents are opaque" — the spec types (`PageLabelSpec`, `ArticleThread`, `OutputIntent`, …) are still not what the catalogue reads into. `DPartRoot` has no type at all, contrary to what this table said before it was checked. Of the six, only `PageLabels` (2 files) and `Threads` (1) occur in the corpus; `DSS`, `AF` and `DPartRoot` occur zero times and now have fields anyway, which is the container-before-contents shape Phase D was ordered to avoid. |
-| **8–14** Content, text, interactive, tagged | Interpreter, fonts and UA-2 auditing exist; interactive features (12) can be *read* (`inspect interactive`), and signature fields (12.7.5.5, 12.8) can now be written and checked. Named destinations (12.3.2) **resolve**, through both of 12.3.2.3's forms and the name tree (7.9.6) one of them needs — which found a link in `intel_sdm.pdf` that goes nowhere, `(G3.7717)`, referenced three times and declared in none of that file's 279,501 destinations. Every page of every sample now yields its text: `scn` with a pattern name (8.6.8.2) was read as a grey component, which cost `fy05.pdf` six pages and — because extraction stopped at the first failure — the 718 after them. A pattern is now painted, through `Paint::Pattern(PatternSpec)`. The corpus exercises one annotation subtype of ~28 — all 29,973 are `/Link` — and no form field at all, so the form walk is exercised by a fixture and by this engine's own signed output. |
+| **7.7** Document structure | Every one of Table 29's 32 entries is a field of `PdfCatalog`, and after Phase K **20 are modelled** — the field's type says what the entry holds. Measured against the 251 files of both corpora, 12 of the 32 keys occur in no file at all and are **declined a reader** for that reason, recorded in the code as `catalog::ABSENT_FROM_BOTH_CORPORA`; of the twenty keys those files do carry, **19 are modelled**, and the one that is not is `/Type`, whose value 7.7.2 fixes at `/Catalog`. That figure is qualified where it is printed: `inspect catalog` reports, per entry, how much of the entry's *own* table its reader covers — `/AcroForm` is modelled and reads 4 of Table 224's 8 ([ADR-0020](docs/adr/0020-a-modelled-entry-reports-how-much-of-its-own-table-it-reads.md)). |
+| **PDF 2.0 additions** | `inspect catalog` reports **zero** `type only` entries, and the reason is not that the six gained readers. `PageLabels`, `Threads`, `OutputIntents`, `OCProperties`, `Collection` and `AF` each became an `Option<Object>` field, which moves them from "no field" to "a field whose contents are opaque" — the spec types (`PageLabelSpec`, `ArticleThread`, `OutputIntent`, …) are still not what the catalogue reads into. `DPartRoot` has no type at all, contrary to what this table said before it was checked. Phase K then gave `PageLabels`, `Threads`, `OutputIntents` and `OCProperties` real readers — the four of the six the corpora present — and declined `Collection` and `AF`, which they do not. Of the six, `PageLabels` and `Threads` were the only ones to occur when the corpus was the nine samples — 2 files and 1. Across all 251 the order changes: `OutputIntents` 64, `PageLabels` 4, `OCProperties` and `Threads` 1 each, and `Collection` and `AF` still zero, as do `DSS` and `DPartRoot`, which have fields anyway — the container-before-contents shape Phase D was ordered to avoid. |
+| **8–14** Content, text, interactive, tagged | Interpreter, fonts and UA-2 auditing exist; interactive features (12) can be *read* (`inspect interactive`), and signature fields (12.7.5.5, 12.8) can now be written and checked. Named destinations (12.3.2) **resolve**, through both of 12.3.2.3's forms and the name tree (7.9.6) one of them needs — which found a link in `intel_sdm.pdf` that goes nowhere, `(G3.7717)`, referenced three times and declared in none of that file's 279,501 destinations. Every page of every sample now yields its text: `scn` with a pattern name (8.6.8.2) was read as a grey component, which cost `fy05.pdf` six pages and — because extraction stopped at the first failure — the 718 after them. A pattern is now painted, through `Paint::Pattern(PatternSpec)`. `samples/` exercises one annotation subtype — all 29,973 of its annotations are `/Link` — and this row said that of *the corpus* for as long as there was only one. The 242 external files carry 82 annotations across **16** subtypes and four terminal form fields, so both walks now run on files this project did not choose. `PdfAnnotation` held seven entries of Table 166 and no `/AP`, which made a `/Redact` and a `/Watermark` the same object to this engine; Phase J took it to all nineteen, added Table 172 for the markup subtypes and readers for the six subtypes either corpus writes more than once, and the form walk now reads `/V`, `/DA`, `/Ff` and `/T` with 12.7.4.2's inheritance. **17 distinct entries across the remaining subtypes still have no reader**, each on an annotation that occurs once or twice, and `inspect interactive` names them per subtype. Every one of the 30,055 annotations parses. **Optional content is not honoured while drawing**: `BDC` discards its property list, so content inside an `/OC` section is painted whether its group is on or off (Phase N). |
 | **14.3** Metadata | Settled at load into one state: `/Info` and the metadata stream are reconciled, disagreements recorded, and the entries 14.3.3 deprecates moved to where that clause puts them ([ADR-0013](docs/adr/0013-a-document-is-one-normalised-state.md)). Text strings decode to 7.9.2.2 — PDFDocEncoding from Annex D, or a byte order mark — after a Shift-JIS detector was found corrupting a conforming `/Title`. `--strip` removes every metadata stream, not the catalogue's alone. |
 
 One measurement worth carrying forward: all 24 `Operation` variants are fully
@@ -547,14 +558,507 @@ The first run, on an engine whose every roadmap box was ticked, and where it sta
 *Done when*: the filters clause 7.4 lists either decode or are declined for a stated
 reason, and a run over the external corpus panics zero times from a debug build.
 
+## Phase H — A decision the interpreter takes is still a decision
+
+`ARCHITECTURE.md` §5.3 says a departure from the standard is recorded rather than
+logged, and one place in the engine cannot honour it. `ops/xobject.rs` skips an image
+that will not decode and reaches `log::debug!`, because `Interpreter` holds `&Document`
+and `DecisionLog::push` needs `&mut`; the comment there says so, which is better than
+hiding it and is not the same as fixing it. The shape of that defect has already been
+paid for once — `UnknownFilter-Linearized.pdf` lost its catalogue and eleven objects
+while `inspect structure` reported "read without departing from the standard".
+
+- [x] The log is reachable from `&Document`. `DecisionLog` holds
+      `Mutex<Vec<Decision>>`, `push` takes `&self`, and `Document::record` is how the
+      interpreter reaches it. `entries()` returns a snapshot rather than a borrow, because
+      a caller holding a guard while a page is interpreted would deadlock against the
+      interpreter recording into it. The alternative — returning the decisions from
+      `render_page` and `extract_text` — was the SDK-wide signature change the comment
+      declined to make, and it lands a content-level departure somewhere `inspect
+      structure` will not print it ([ADR-0018](docs/adr/0018-interpreting-a-page-can-add-to-the-decision-log.md))
+- [x] What that costs is recorded: `is_conforming` answers "no departure **in what has
+      been examined**". It always did — `isartor-6-3-2-t01-fail-b.pdf` reports nothing
+      under `inspect structure` and a 9.9 `Violation` under `inspect text`, because one
+      of those loads fonts — and the change is that the partiality is stated instead of
+      unnoticed. `inspect text` prints the two apart, reading before the text and
+      interpreting after it
+- [x] `status.sh` searches `fepdf-content` as well, and the row moved 53 → 56. It
+      searched `fepdf-model` and `fepdf-syntax` only, so it would have reported this
+      phase as having changed nothing — a measurement blind to what it measures
+- [x] A `/Filter` census in `inspect structure`, taken by walking the arena's **streams**.
+      grep cannot take it: searching both corpora for `CCITTFaxDecode` finds zero files
+      where the census finds two, because the name sits inside a `/FlateDecode`d object
+      stream. The first version walked dictionaries instead, on the reasoning that only
+      a stream carries `/Filter`, and two files reported a filter called `/Standard` —
+      the security handler of Table 20. Across 251 files: `/FlateDecode` 224 files,
+      `/DCTDecode` 12, `/XXXDecode` 8, `/JPXDecode` 3, `/CCITTFaxDecode` 2,
+      `/LZWDecode` 2, `/ASCIIHexDecode` 1, and **`/JBIG2Decode` none**. Every stream
+      carrying a codec this engine lacks is an image: JPX 3 of 3, CCITT 2 of 2
+
+*Done when*: **done.** Each of the four files that skips an image says so as a
+`Violation` naming the filter — `/CCITTFaxDecode`, `/JPXDecode` and `/XXXDecode`, one
+per file — citing **7.4** when the filter is not in the filter table and **8.9.5** when
+it is one this engine has and the image dictionary still could not be honoured. The
+decision-site row moved with it, and `measure_external_corpus.sh` panics zero times from
+both builds.
+
+## Phase I — Give the goal a completion condition
+
+The line above every phase — "an engine that understands ISO 32000-2 semantically" — is
+not a predicate, and `status.sh` closes by saying so. Phases A–G each stated what *done*
+meant in terms a run could check; the sentence they sit under never did, so "is it met"
+has no answer rather than a negative one.
+
+What can be checked is narrower, and naming it as narrower is the point. Of the
+constructs the two corpora actually present, how many does the engine read the
+*contents* of? The denominator is measured rather than enumerated from the standard —
+across 251 files, 20 of Table 29's 32 catalogue keys, 16 annotation subtypes, 2 of the
+four field types and 13 action kinds — so a construct that never arrives can neither
+raise the figure nor lower it. Arlington's machine-readable model
+(`external/arlington/tsv/latest`, 613 object definitions, already a submodule) says what
+each key is supposed to hold, which makes the numerator a comparison rather than a
+self-assessment.
+
+- [x] Defined, per axis, in `fepdf-model::coverage`, and reported by `fepdf inspect
+      coverage`. Three axes have a denominator the engine can enumerate from a file
+      without judgement — catalogue entries (7.7.2), annotation entries per subtype
+      (12.5) and stream filters (7.4). Actions (12.6) are the obvious fourth and are
+      left out on purpose: "reads an action" has no settled meaning here, and an axis
+      whose numerator is a judgement call is one the figure can be argued into
+- [x] [ADR-0019](docs/adr/0019-semantic-understanding-is-measured-against-what-a-corpus-presents.md)
+      records what the number is **not** — a proxy, silent about whether what was read
+      was read *correctly*, and bounded by a corpus that flatters an engine when it
+      presents little
+- [x] `status.sh --full` prints it, naming which corpus it was measured over, and the
+      `Next` section points at the command instead of explaining why there is none. Not
+      in the default view: it is a minute over `samples/` alone, 47 seconds of which is
+      `intel_sdm.pdf` surveyed three times, and that view is meant to be instant
+- [x] The container test is a test, not a paragraph:
+      `a_construct_no_file_carries_counts_in_neither_direction` asserts that a key the
+      file does not carry is in neither the numerator nor the denominator. `/DPartRoot`
+      has a field, occurs in none of the 251 files, and appears in neither
+
+*Done when*: **done.** The goal line has a number — **61% over `samples/`** (17 of 28
+constructs) and **82% over both corpora** (190 of 231), with the per-axis rows above it
+because the total is weighted by how many constructs an axis presents. The measurement
+immediately said something the prose had not: catalogue entries are 5 of 20 across both
+corpora, which is the weakest axis by a distance and is what Phase K is for.
+
+## Phase J — Read the interactive features the corpus does present
+
+The premise this was deferred on has expired, and the row above said so for longer than
+it was true. `samples/` carries 29,973 annotations of which every one is `/Link`; the
+242 external files carry 82 across **16** subtypes — `Link` 29, `Popup` 18, `Circle` 12,
+`Movie` 5, `Stamp` 4, `Widget` 4, and one each of `3D`, `Caret`, `FileAttachment`,
+`PolyLine`, `Polygon`, `Redact`, `Screen`, `Sound`, `Watermark` and
+`SomePrivateCustomAnnotationType`, which is not a subtype the standard defines and is
+worth keeping visible for that reason. Four foreign files carry a terminal form field
+each — `isartor-6-3-4-t01-fail-f` (`/Btn`), `isartor-6-9-t01-fail-a` (`/Tx`, with
+`/NeedAppearances true`) and `isartor-6-9-t02-fail-a` and `-b` (`/Btn`) — so the form
+walk is no longer exercised only by a fixture and by this engine's own signature field.
+
+So the gap is not that nothing reaches this code. It is that `PdfAnnotation` reads seven
+entries of Table 166 and nothing else: no `/AP`, no subtype-specific entry. A `Redact`
+and a `Watermark` are the same object to this engine, distinguishable only by the name
+it counted them under.
+
+- [x] `PdfAnnotation` reads Table 166 entire — nineteen entries where it held seven —
+      including `/AP` as a modelled [`Appearance`], which keeps "one appearance stream"
+      apart from "a set of states with `/AS` selecting one". `/F` became the flags of
+      Table 167 rather than an integer, `/C` a colour whose *length* decides its space,
+      `/Border` the array of Table 168. One of the seven was not being read at all:
+      `kind` carried no `#[pdf_key]`, so the macro looked for `/kind`, and every
+      annotation in both corpora reported `/Type` as an entry with no reader
+- [x] Subtype-specific entries, in the order the corpus presents them, **stopping where
+      the corpus stops saying anything**: `/Link` (30,002), `/Popup` (18), `/Circle`
+      (12), `/Movie` (5), `/Stamp` (4) and `/Widget` (4) are every subtype either corpus
+      writes more than once, and each has a reader. The other ten occur exactly once
+      each and get none — a sample of one is not a reason to build a type. Table 172 is
+      read for all nineteen markup subtypes at once, which is where `/T`, `/Popup`,
+      `/Subj` and `/CreationDate` live
+- [x] The form walk reads `/V`, `/DA`, `/Ff`, `/T` and `/Kids`, and `/FT`, `/Ff`, `/V`
+      and `/DA` are **inherited** down `/Kids` as 12.7.4.2 requires, so a kid stating
+      none of them is no longer a field of no type. Fully qualified names are assembled
+      on the way down. `/Ch` and `/Sig` occur zero times outside this engine's own output
+      and get no reader
+- [x] Written down, and it changes what more corpus would be *for*. Of Table 166's
+      nineteen entries, **five are never written by any of the 30,055 annotations** —
+      `/OC`, `/AF`, `/ca`, `/BM`, `/Lang`, which is every 2.0 addition plus optional
+      content — and four of Table 172's nine are absent too (`/IRT`, `/RT`, `/IT`,
+      `/ExData`). Thirteen of the 28 subtypes never appear at all: `/Text`, `/FreeText`,
+      `/Line`, `/Square`, `/Highlight`, `/Underline`, `/Squiggly`, `/StrikeOut`, `/Ink`,
+      `/PrinterMark`, `/TrapNetwork`, `/RichMedia`, `/Projection`. The four form fields
+      are flat — no `/Kids` hierarchy exists in either corpus, so inheritance is
+      exercised only by the fixture. `pdf-association/pdf20examples` stays the candidate
+      and is **not fetched yet**: what it would buy is now a list rather than a hope
+
+*Done when*: **done.** `inspect interactive` reports, per subtype, which entries the file
+writes and which of them were read — `/Link`, `/Popup`, `/Circle` and even
+`/SomePrivateCustomAnnotationType` now read every entry they carry, and 17 distinct
+entries across the remaining subtypes have no reader and are named. The claim is checked
+rather than derived: every one of the 30,055 annotations is parsed into `PdfAnnotation`,
+0 fail, and injecting a defect into `/Border` takes `volvo_xc90.pdf` to 844 of 844.
+
+## Phase K — The catalogue's contents, in the order the corpus asks for them
+
+Thirty-two keys are fields and six model their contents; the other 26 are the subject of
+[ADR-0017](docs/adr/0017-declaring-a-catalogue-key-is-not-modelling-it.md). Modelling
+all 26 is not the work, because 12 of them occur in no file of either corpus, and
+building a reader for those is the container-before-contents shape Phase D was ordered
+to avoid. Across 251 files, 20 of the 32 keys occur at all:
+
+| Occurrences | Key | State |
+| ---: | :--- | :--- |
+| 251, 251 | `Pages`, `Type` | declared |
+| 219, 182 | `PageMode`, `PageLayout` | modelled |
+| 217, 210, 208 | `Outlines`, `Metadata`, `OpenAction` | declared |
+| 64, 34 | `OutputIntents`, `Names` | declared |
+| 7, 5, 1 | `ViewerPreferences`, `Lang`, `Dests` | modelled |
+| 5, 4, 4, 4, 3 | `AcroForm`, `MarkInfo`, `PageLabels`, `StructTreeRoot`, `Version` | declared |
+| 1, 1, 1 | `AA`, `OCProperties`, `Threads` | declared |
+| **0** | `Extensions`, `URI`, `SpiderInfo`, `PieceInfo`, `Perms`, `Legal`, `Requirements`, `Collection`, `DSS`, `AF`, `DPartRoot` | declared, and reached by nothing |
+| **0** | `NeedsRendering` | **modelled**, and reached by nothing |
+
+So "6 of 32 modelled" is, against what the corpora actually contain, five of the twenty
+keys that occur — plus one, `NeedsRendering`, that nothing reaches. The fifteen declared
+keys that do occur split three ways, and the split is the plan:
+
+- [x] **`Type` is a check, not a type.** It is the one key the corpora carry that stays
+      `Declared`, and
+      `every_key_the_corpora_carry_is_modelled_except_the_one_that_is_an_assertion`
+      asserts it is the only one — so a second would be a failure rather than a drift
+- [x] **The five that were wiring** needed less than a reader in one sense and more in
+      another: the machinery existed, and none of it was reachable *from the entry*.
+      `/Metadata` now decodes the XMP packet and reads what it says, `/Names` reports
+      which of Table 31's ten trees a document declares and how many names each holds,
+      and `/Pages` and `/StructTreeRoot` are `Located<T>` — the contents **and** the
+      handle, because the page walk and the structure-tree visitor descend from the
+      latter
+- [x] **The nine that needed one**, all built: `/OpenAction` — both of its shapes, a
+      destination array and an action dictionary, and the corpus writes both — `/AA`,
+      `/OutputIntents`, `/AcroForm`, `/MarkInfo`, `/PageLabels`, `/Version`,
+      `/OCProperties` and `/Threads`
+- [x] The types in `document/extensions.rs` are not these readers, and the new module
+      says so beside each entry where a same-named type sits in the other one:
+      `OutputIntent` there carries `icc_profile_bytes`, because it is an argument to an
+      `Operation` that *writes* one
+- [x] The twelve that occur zero times are **declined in the code**, as
+      `catalog::ABSENT_FROM_BOTH_CORPORA` with the measurement that justifies them, and
+      `inspect catalog --all` marks each one "declined — no file of either corpus carries
+      one". `the_keys_no_file_carries_did_not_gain_readers` is the container rule
+      enforced from the other side: it fails if one of them is ever modelled.
+      `/NeedsRendering` is the single exception and is named as such, because ADR-0017
+      left it there
+- [x] **And the figure was qualified before it could be quoted**
+      ([ADR-0020](docs/adr/0020-a-modelled-entry-reports-how-much-of-its-own-table-it-reads.md)).
+      19 of 20 is the shape of the number ADR-0017 exists to prevent, one level down, so
+      `inspect catalog` gained an `own table` column: `/AcroForm` is modelled and reads
+      **4 of Table 224's 8**, leaving `/Fields`, `/CO`, `/DR` and `/XFA` as objects. The
+      expectation written into that test first was two; the measurement said four
+
+*Done when*: **done.** `status.sh` reports 19 of the 20 keys a corpus carries, beside the
+12 it declines and the 32 it declares — three numbers where one used to stand.
+`crosscheck_selfread.sh` compares what the catalogue *says* across a round trip rather
+than which keys survived, and on its first run found the one difference ADR-0013 predicts
+— `bokutokitan.pdf`'s inherited `/MediaBox` — which is how a check earns the claim that
+it can see contents. The catalogue axis of the coverage index went **5 of 20 to 19 of
+20**, and the index as a whole from 82% to **88%** over both corpora, 96% over
+`samples/`.
+
+## Phase L — The three image codecs, declined in writing rather than by omission
+
+`CCITTFaxDecode` (2 files), `JPXDecode` (3) and `JBIG2Decode` (0) remain unbuilt, and
+Phase G established that none of them blocks a single character of text. What is
+missing is not the codecs but the record: a file whose image was dropped currently says
+so to `log::debug!`, which Phase H fixes, and the decision not to build them is written
+in this document rather than reported by the engine.
+
+- [x] The judgement is measured. An image occupies the unit square transformed by the
+      CTM (8.9.5.2), so **the determinant of that matrix is its area** — no rendering
+      required, which is what makes this answerable on every file rather than on the ones
+      a GPU is available for. The skip decision now names it: *"it covers 11.2% of the
+      page"*. Across both corpora that is the whole bill for the two missing codecs:
+
+      | File | Filter | Cost |
+      | :--- | :--- | :--- |
+      | `382252…` | `/CCITTFaxDecode` | 3.9% of its page |
+      | `4387ba…` | `/CCITTFaxDecode` | 3.9% of its page |
+      | `UnknownFilter-Linearized` | `/JPXDecode` | 11.2% |
+      | `UnknownFilter-objstm` | `/JPXDecode` | 11.2% |
+      | `UnknownFilter-xrefstm` | `/JPXDecode` | **never reached** — see below |
+      | `JBIG2Decode` | — | nothing; it occurs in no file |
+
+- [x] **Not built**, and the measurement makes the refusal stronger rather than weaker.
+      Four images, none covering more than an eighth of its page, is what the two codecs
+      would buy. `JBIG2Decode` occurs zero times in either corpus. `JPXDecode` has no
+      pure-Rust decoder worth depending on, and a C one has to clear
+      `unsafe_code = "forbid"` and `deny.toml`'s licence allowlist before it is a
+      candidate at all. `CCITTFaxDecode` is still the one that closes cleanly — T.4 and
+      T.6 in roughly 600 lines with no dependency — and is still the first to build if
+      those two pages ever matter
+- [x] **And the measurement found something that is not about codecs at all.**
+      `UnknownFilter-xrefstm.pdf` never reports a skipped image because it reports **no
+      pages**: its `/Pages` names object 5, which was indexed only by a cross-reference
+      stream written with `/XXXDecode`, and the recovery scan cannot find what is not in
+      the bytes. `find_all_pages` swallowed both of its failures — `if let Ok(..)` on
+      reaching the root and `let _ =` on walking it — so `inspect info` said "Pages: 0"
+      about a file with a page in it, and `is_conforming` stayed true. That is the same
+      shape as the catalogue lost to an `if let Ok(..)` in Phase G, and it is now a
+      `Violation` of 7.7.3.2 naming the object. It fires on **one** file of 251
+
+*Done when*: **done.** The engine reports the codec it lacks, on the file that needs one,
+with what it cost — and the answer is small enough that "not built" is now a measurement
+rather than a preference. Building them stays gated on those pages mattering, which is
+what the Phase G entry said and what this makes checkable.
+
+## Phase M — Scanned documents
+
+Phase L declined the three image codecs on a measurement, and named the condition that
+would reopen the question: *building them stays gated on rendering those images
+mattering*. It matters — the engine is wanted for real scanned documents — and the
+measurement that justified the refusal cannot speak to that. **Both corpora are
+born-digital.** `JBIG2Decode` occurring zero times across 251 files is not evidence that
+JBIG2 is rare; it is evidence that neither corpus contains a scan.
+
+One of Phase L's stated reasons has also simply expired. It said `JPXDecode` had "no
+pure-Rust decoder worth depending on"; `hayro-jpeg2000` is one, tested against 20,000
+images scraped from real PDFs, and its sibling crates cover the other two. All three
+forbid `unsafe` or are pure safe Rust, all three are `Apache-2.0 OR MIT`, and their
+dependencies are optional.
+
+- [x] **`CCITTFaxDecode`** (7.4.6), through `hayro-ccitt`. Table 12's parameters are read
+      — `/K` chooses Group 4, Group 3 1D or Group 3 2D by its *sign*, `/Columns`
+      defaults to 1728, `/BlackIs1` decides which bit is ink, `/EncodedByteAlign` and
+      `/EndOfLine` and `/EndOfBlock` are honoured — and `/Rows` falls back to the image
+      dictionary's `/Height`, which is the one fact a filter needs that its own
+      parameters do not carry. Output is **one bit per pixel with each row starting on a
+      byte boundary**, which is what 8.9.5.1 says image data is; the filter does not
+      expand it and does not convert it to a colour. Both files of the corpus that carry
+      a CCITT image now draw it, and the filter axis of the coverage index went 4 of 7
+      to **5 of 7**
+- [x] A behaviour change worth naming: a `/DCTDecode` stream whose bytes are a **PNG**
+      is now refused rather than decoded. `image::ImageReader::with_guessed_format`
+      sniffed the real format and decoded it anyway — leniency by accident, since it
+      then returned RGB whatever the image dictionary said. Two files of the corpus do
+      this, and both now report it, naming the bytes it found: *"Illegal start
+      bytes:8950"*. The page's text is unaffected
+- [x] Three defects found on the way, none of them about codecs:
+      **`DCTDecode` was converting colour inside the filter** — `image`'s `DynamicImage`
+      has no CMYK variant, so every JPEG came back as three components, and 160 of the
+      178 JPEGs in the two corpora are `/DeviceGray`, described as one. **The image's
+      component count was taken from the colour space *family*** — `[/ICCBased …]` is
+      438 of 1,053 images and carries its count in `/N`, `[/Separation …]` is one
+      component and was read as three. **A soft mask of a different size was skipped in
+      silence**, where 8.9.5.4 says it is scaled to the image
+- [x] **One contract for every filter, before two more arrive.** `DecodingFilter` covered
+      the five byte transformations and neither image codec, because `CCITTFaxDecode`
+      needs a fact its signature had no room for — that exception had already split the
+      entry point into two functions. `FilterContext` carries the parameters, the arena
+      and the image's `/Height`; `filter_for` maps a name to a unit and is the only place
+      that mapping exists. Swapping a codec is now writing another unit and changing one
+      arm, with nothing outside `filters/` aware of which crate decodes.
+      **`is_decoded` is derived from that table**, so the hand-written second list is
+      gone and with it the test that existed to catch the two disagreeing
+- [x] **`JBIG2Decode`** (7.4.7), through `hayro-jbig2`. The unknown is settled: the
+      mechanism is `Image::new_embedded(data, globals)`, which is Annex D.3's *embedded*
+      organisation — the one PDF uses — and `/JBIG2Globals` is read from `/DecodeParms`
+      and put through the filter pipeline first, since a globals stream is usually
+      `/FlateDecode`d itself. **The two conventions are opposite and the filter inverts**:
+      a JBIG2 codestream says 1 for black, a PDF image of one bit per component says 0,
+      and a filter that passed the samples through would render every scan as its own
+      negative. That is checked rather than reasoned — a JBIG2 page assembled segment by
+      segment in the test, decoded both ways round, once over a white page and once over
+      a black one
+- [x] The dependency is trimmed to what is used: `default-features = false`, which drops
+      a SIMD crate and an `image` bridge. There is no JBIG2 file in either corpus to
+      benchmark against, and taking a dependency for an unmeasured gain is the shape this
+      project keeps removing
+- [x] The packing is shared. Both bilevel codecs pack one bit per pixel with each row on
+      a byte boundary (8.9.5.1), and they arrive at it from opposite directions — CCITT
+      reports whiteness, JBIG2 blackness — so `filters::bilevel` holds the packer and
+      each adapter says which it has
+- [x] **`JPXDecode`** (7.4.9), through `hayro-jpeg2000`, and the PDF-side rule with it:
+      **7.4.9 makes `/ColorSpace` optional for a JPX image and for no other**, because
+      the codestream carries its own. So the interpreter asks the dictionary first and
+      the codestream only when the dictionary is silent, which is the order the clause
+      gives. Without that a greyscale JPX would be read three bytes at a time — the
+      defect `DCTDecode` was found committing on 160 images
+- [x] Verified where it counts: **three JPX files of the external corpus**, which this
+      project did not write. Two of them render, and `crosscheck_image.sh` puts our
+      rendering beside PDFKit's — `252 244 245 188` against `253 245 245 189`, agreement
+      within one part in 255. That is better evidence than any fixture, and it arrived
+      because the corpus had files this phase could finally read
+- [x] **Test material, without a sample to be had.** No scan exists in either corpus and
+      none was available, so the material is *made* — and made so that nothing checks
+      only itself:
+      - `examples/make_scan_fixtures.rs` writes a page whose image is **encoded by a
+        different implementation from the decoder under test**: `fax` for Group 4, and
+        JBIG2 segments assembled by hand from T.88 §7.2
+      - `scripts/test/crosscheck_image.sh` asks **PDFKit** what it sees in the same file,
+        which is the standard the other five cross-checks hold to and the answer to "what
+        is it compared against"
+      - The comparator is four numbers — the mean luminance of each quadrant — because
+        two renderers legitimately disagree about an edge and never about which quarter
+        of the page is black. It also says *which way*: `fepdf 254 0 0 0` against
+        `PDFKit 0 255 255 255` is an inversion, and that is what removing the JBIG2
+        polarity flip produces
+      - Verified to fail: with the inversion removed, `DISAGREE by 255`. Its own first
+        run failed too, and the fault was the comparator's — it read a bitmap context's
+        memory as if row zero were the bottom. An asymmetric fixture is what caught it
+- [x] **Two defects the fixture found**, both of which a real scan would have found on
+      the first day and neither corpus could:
+      **a `/DeviceGray` image at one bit per component** — the commonest image in a
+      scanned document — reached the GPU as a buffer eight times too short, and
+      `Queue::write_texture` killed the process. Sub-byte samples are expanded to bytes
+      now, as an indexed image already was. And **a buffer shorter than the dictionary
+      describes is a `Violation` of 8.9.5.1** rather than a crash
+*Done when*: **done.** The filter census reports `yes` for all three, a scanned page
+renders, and what it is compared against is something this project did not produce. **All
+three report `yes`**, a scanned page renders, and nine files agree with PDFKit within one part in 255
+— five of them files this project did not write. Clause 7.4 is **nine of its ten**, with
+`Crypt` handled in the security layer instead.
+
+What remains open is not a codec, so it is not here. `/SMaskInData`, the file
+`crosscheck_image.sh` is red on, and the visual suite that does not run have moved to
+Phases N and O — sorted by what they *do* rather than by which phase happened to find
+them.
+
+## The rule this list is now sorted by
+
+Phases G to M were driven by a corpus, and it worked: measuring against files this
+project did not choose found a panic, a lost catalogue, twelve false claims in a document
+and a rendering defect on 160 images. It also failed once, in a way worth stating as a
+rule.
+
+Phase L declined three image codecs because they occurred in two, three and zero files of
+251. That measurement was sound and the conclusion was wrong, because **both corpora are
+born-digital test files** — 205 Isartor files each breaking one PDF/A clause, 37 targeted
+at implementation differences, nine samples this project chose. A scanned page appears in
+none of them. "Zero occurrences" measured the corpus, not the world.
+
+> **A corpus can justify building something. Only a use case can justify not building it.**
+
+Every refusal below now carries a reason of the second kind, or moves to a phase. The
+entries that could only say "zero in the corpus" are the ones that moved, and they are
+the same entries a business document would have exercised on its first day: attachments,
+long-term signatures, choice fields, layers.
+
+## Phase N — What the engine gets wrong
+
+Not gaps. Four places where a file is read, drawn, and the answer is wrong — which is
+worse than refusing it, because nothing says so.
+
+- [ ] **Optional content is ignored while drawing.** `BDC` pops its property list and
+      discards it (`ops/marked.rs`, "Skeleton: just pop for now"), so content inside an
+      `/OC` marked-content section is painted whether or not its group is on. Hidden
+      layers become visible: the non-printing layer of a drawing, the other language of a
+      bilingual page, a "draft" underlay. `fepdf-doc` can **write** `/OCProperties`
+      through an `Operation`, so the engine creates layers it then ignores.
+      `/OCProperties` gained a reader in Phase K; nothing consults it
+- [ ] **A page tree inside an object stream is not recovered.**
+      `UnknownFilter-xrefstm.pdf` reports no pages and PDFKit renders it. Its `/Pages` is
+      object 5, which lives inside an object stream, and the cross-reference that says
+      which container is written with `/XXXDecode`. The recovery scan looks for
+      `N 0 obj` in the bytes and an object inside a compressed container is not there to
+      be found. Same shape as Phase G's fix: expand every `/Type /ObjStm` that can be
+      found and adopt what is inside, never overriding a section that was read (ADR-0006)
+- [ ] **Headless rendering fails on a small page.** A 64×32 page produced *"Copy at
+      offset 0 for 8192 bytes would end up overrunning the bounds of the Source buffer of
+      size 1024"* from wgpu. Worked around by enlarging a fixture, which is not a fix and
+      not an explanation
+- [ ] **`/SMaskInData` is not implemented.** Its default is 0 — ignore any alpha the
+      codestream carries — and a JPX image asking for 1 or 2 gets that treatment
+      silently, so a transparent image is drawn opaque
+
+*Done when*: `crosscheck_image.sh` is green on every file it can compare, a page with a
+hidden layer renders without it, and the small-page failure is either fixed or explained
+in a sentence that names the cause.
+
+## Phase O — The holes in the checking
+
+Phase M could not check its own work against anything it had not written, and said so.
+That is not a scanned-image problem; it is the same hole in four places.
+
+- [ ] **Neither corpus contains a business document.** No attachment, no long-term
+      signature, no choice field, no layer, no redaction — which is why every one of
+      those reads as "zero occurrences" and was declined on that basis. Fetching a corpus
+      that contains them is what turns the decisions in "What the engine promises" from
+      guesses into measurements. `pdf-association/pdf20examples` remains the candidate,
+      and the rule from Phase G holds: it lands in `target/`, never in `samples/`
+- [ ] **JBIG2 has never met an image this project did not assemble.** CCITT and JPX were
+      confirmed against real files of the external corpus; JBIG2's only evidence is a page
+      built segment by segment in a test, which checks the decoder against its author's
+      reading of T.88 and nothing else
+- [ ] **`verify_visuals.sh` runs a test target that does not exist.** `visual_regression`
+      is not in `fepdf-render`; the script cannot pass and has not for as long as anyone
+      has run it. `crosscheck_image.sh` covers images against PDFKit, and text, layout
+      and colour are covered by nothing
+- [ ] **The rest of `docs/specs/` is unaudited.** `omissions.md` was checked and twelve
+      of its claims were false, so it is archived. Four documents of the same era —
+      `sdk_design.md`, `app_design.md`, `refinery_engine.md`, `charter_redesign_*.md` —
+      have not been read against the code
+
+*Done when*: every check in `TESTING.md` can pass, a corpus that contains a business
+document has been measured against, and no document under `docs/specs/` makes a claim
+that a command contradicts.
+
+## Read broadly, write 2.0
+
+The seven capabilities this section used to list as open questions divide on one line,
+and the line is a decision that has now been taken: **the faithful-copy path and general
+PDF 1.7 output are out of scope.**
+
+Three of the seven were about *writing*, and that settles them together:
+
+- **PDF/A-3 output.** A-3 is PDF 1.7, so it is unreachable, and an e-invoice in the
+  Factur-X or ZUGFeRD form cannot be produced. Where the recipient accepts **PDF/A-4f**
+  — 2.0-based, and it does allow embedded files — the case is served; where a recipient
+  requires A-3, that is a use case this engine does not serve.
+- **Signing a document this engine did not write.**
+  [ADR-0014](docs/adr/0014-the-faithful-copy-path-is-not-built.md) already said the two
+  were one question, so deciding the faithful copy decided this.
+- **Encryption other than AES-256 R6.** "Do not write what 2.0 deprecates" and "do not
+  write versions before 2.0" are the same rule
+  ([ADR-0015](docs/adr/0015-this-engine-reads-five-encryption-schemes-and-writes-one.md)).
+
+The remaining four are about *reading*, and reading is where this engine is meant to be
+broad — it already reads five encryption schemes and writes one. They were declined on
+corpus counts alone, which the rule above disqualifies as a reason, so they are open
+questions rather than refusals:
+
+| | What is not read | What makes it necessary |
+| :--- | :--- | :--- |
+| **P1** | **`/Ch` choice fields.** A dropdown or list box is walked, and its options and value are not read | Any government or business form. Declined from a corpus containing four form fields in total |
+| **P2** | **`/AF` associated files (14.13).** An attached file — the XML of an e-invoice, a source document — is reachable and not read | Any document that carries another, and reading a PDF/A-3 even where one cannot be written |
+| **P3** | **`/DSS` and `/Perms`.** Long-term validation data, and the permissions a signature sets (DocMDP) | *Reporting* on a signed document somebody else produced — which survives the decision above, where producing that data does not |
+| **P4** | **What a document *does* when opened.** `/JavaScript`, `/Launch` and embedded-file payloads are counted by kind and never read | Security screening. The coverage index excludes actions because "reads an action" has no settled meaning (ADR-0019); "does this run code" has one |
+
+None of the four can be sized until Phase O fetches a corpus that contains a business
+document, which is the same sentence in both directions: they were declined for want of
+one, and they cannot be planned without one.
+
 ## Not planned
+
+What is left after the rule above: refusals resting on the nature of the thing rather
+than on how often a corpus happened to contain it.
 
 - **A DOCX converter.** The `DocumentSource` boundary exists so one has a place to go
   (`ARCHITECTURE.md` §5.2), but writing it means a layout engine — style resolution,
   line breaking, pagination — which shares almost nothing with reading PDF.
 - **`fepdf-wasm` as a peer frontend.** Forty lines with an unimplemented renderer.
   Whether to build it is a product decision, not an architectural one.
-- **Writing PDF 1.7.** Output is 2.0; earlier versions are read-only targets.
+- **Writing PDF 1.7, and the faithful-copy path.** Output is 2.0 and earlier versions
+  are read-only; a file this engine did not write is not signed
+  ([ADR-0014](docs/adr/0014-the-faithful-copy-path-is-not-built.md)). Decided rather
+  than deferred, and what it costs is written out under "Read broadly, write 2.0" —
+  PDF/A-3 output, and therefore an e-invoice for a recipient who will not take PDF/A-4f.
+- **Reading an entry no corpus carries and no use case names.** Twelve keys of Table 29
+  are declined in the code (`catalog::ABSENT_FROM_BOTH_CORPORA`) and ten annotation
+  subtypes occur once each. `/AF`, `/DSS` and `/Perms` were on that list until the rule
+  above moved them; the rest stay, and a test holds the line from the other side.
+- **Multimedia: `/Movie`, `/Sound`, `/Screen`, `/3D`.** Clause 13.4 is deprecated in
+  2.0, and reading it would be building for a subsystem the standard is retiring.
+- **XFA.** Deprecated in 2.0, and a second form model besides the one that works.
 - **A faithful-copy path, and signing documents this engine did not produce.** The two
   are one question: byte fidelity buys nothing else that another route does not, and
   editing a signed file still reports as changed since signing whatever is preserved. A
@@ -577,15 +1081,35 @@ robust and ISO-compliant PDF 2.0 toolkit". Several of those completions did not
 survive measurement: `open_repair` returned without repairing, `ColorPolicy` was never
 read, and five `fepdf edit` subcommands reported success while writing nothing.
 
-`ColorPolicy` is still not read, and a second ingestion option turned out to share the
-condition; both flags are now hidden rather than advertised
-([ADR-0007](docs/adr/0007-an-option-that-is-not-read-is-hidden.md)). Naming a defect is
-not fixing it — `./scripts/dev/status.sh` now counts them, so the gap is measured
-rather than remembered.
+`ColorPolicy` was hidden rather than advertised while nothing read it, along with a
+second ingestion option that shared the condition
+([ADR-0007](docs/adr/0007-an-option-that-is-not-read-is-hidden.md)). **Both are read
+now** — colour space validation in the refinery consults the policy, and
+`status.sh` reports "ingestion options nothing reads: none". One flag stays hidden,
+`--vacuum`, and for the opposite reason: the behaviour is unconditional, so what is
+missing is the option to *decline* it. Naming a defect is not fixing it —
+`./scripts/dev/status.sh` counts them, so the gap is measured rather than remembered,
+and this paragraph said "still not read" for as long as nobody checked the row against
+the sentence.
+
+That era left a second document behind, and it was worse than the roadmap.
+`docs/specs/omissions.md` described "intentional simplifications relative to ISO 32000-2"
+and **twelve of its specific claims were checked in one sitting; none held** — CCITTFax
+and JBIG2 "fully implemented in Phase 12" through a crate that has never been in
+`Cargo.lock`, `RunLengthDecode` listed as unimplemented when it is implemented, ICC
+colour management through a dependency that does not exist, an Arlington predicate
+engine that was never written. It is archived under `docs/history/archive/` with the
+check beside each claim, rather than deleted: removing the evidence of a documentation
+failure removes the proof that it happened.
+
+Nothing replaces it, deliberately. A second document saying what is implemented is a
+second place to go stale, and that file is what the second one becomes.
 
 Each phase here therefore states what *done* means in terms that can be measured, and
 the current state above is what the code does today rather than what it was intended
 to do.
 
-*Updated 2026-08-15, from measurements taken against the sample corpus and a set of
-deliberately malformed files.*
+*Updated 2026-08-20. The figures above come from the sample corpus, a set of
+deliberately malformed files, and the 242 external files of Phase G; the catalogue,
+annotation and form-field counts in Phases J and K were taken by running `inspect
+catalog` and `inspect interactive` over all 251 and aggregating the JSON.*

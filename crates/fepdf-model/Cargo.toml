@@ -19,6 +19,9 @@ thiserror.workspace = true
 kurbo.workspace = true
 flate2.workspace = true
 image.workspace = true
+zune-jpeg.workspace = true
+zune-core.workspace = true
+hayro-ccitt.workspace = true
 roxmltree.workspace = true
 moxcms.workspace = true
 xmp-writer.workspace = true
@@ -41,10 +44,13 @@ hex.workspace = true
 nom.workspace = true
 reqwest.workspace = true
 rustls-native-certs.workspace = true
+hayro-jbig2.workspace = true
+hayro-jpeg2000.workspace = true
 
 # Making a throwaway certificate to sign with. Test-only on purpose: a checked-in
 # private key would be a checked-in private key, and `betterleaks` scans for them.
 [dev-dependencies]
+fax.workspace = true
 rsa = { workspace = true, features = ["sha2"] }
 sha2.workspace = true
 rand.workspace = true

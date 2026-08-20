@@ -148,6 +148,67 @@ for src in samples/*.pdf; do
     fi
 done
 
+# What the catalogue *says*, not just which keys it has.
+#
+# The check above compares keys and the shape of each value, which is all it could do
+# while 26 of Table 29's 32 entries were `Option<Object>` — `dictionary[3]` against
+# `dictionary[3]`, with `/MarkInfo`'s `/Marked` invisible inside it. Phase K gave those
+# entries readers, so `inspect catalog --format json` now carries the *reading*, and a
+# save that preserved the dictionary while losing what it held is a difference this can
+# see.
+#
+# Three normalisations, and the third was found by running this. Object numbers change
+# because saving produces a new document (ADR-0012), and they serialise as
+# `{"index": N, "_phantom": null}`, so every one of those is flattened to a constant.
+# `/Metadata` is regenerated on every write — output always carries XMP — so the packet's
+# own properties are dropped; the key surviving is what the check above already asserts.
+#
+# And the page tree root's **inheritable** attributes are dropped: `bokutokitan.pdf`
+# carries a `/MediaBox` there that the writer resolves onto each page, which is the one
+# normalised state (ADR-0013) rather than a loss. That is the same reason the check above
+# compares `/Pages` by key alone — this found it independently on its first run, which is
+# the evidence that it can see contents and not only shapes.
+echo "--- the catalogue still says the same things ---"
+catalog_reading() {
+    target/release/fepdf inspect catalog --format json "$1" 2>/dev/null | python3 -c '
+import json, sys
+INHERITED = {"media_box", "resources", "rotate"}
+def strip(node, inside_pages=False):
+    if isinstance(node, dict):
+        if "index" in node and "_phantom" in node:
+            return "REF"
+        return {
+            k: strip(v, inside_pages or k == "pages")
+            for k, v in node.items()
+            if k != "metadata" and not (inside_pages and k in INHERITED)
+        }
+    if isinstance(node, list):
+        return [strip(v, inside_pages) for v in node]
+    return node
+doc = json.load(sys.stdin)
+reading = doc.get("reading")
+print(json.dumps(strip(reading), indent=1, sort_keys=True) if reading is not None else "NO READING")
+'
+}
+for src in samples/*.pdf; do
+    b=$(basename "$src" .pdf)
+    out="$WORK/$b.default.pdf"
+    [ -f "$out" ] || continue
+    catalog_reading "$src" > "$WORK/read.want"
+    catalog_reading "$out" > "$WORK/read.got"
+    if [ "$(cat "$WORK/read.want")" = "NO READING" ]; then
+        echo "  $b: THE CATALOGUE OF THE INPUT DOES NOT READ AS TABLE 29"
+        FAILED=1
+    elif diff -q "$WORK/read.want" "$WORK/read.got" >/dev/null; then
+        printf '  %-14s %s lines of reading, unchanged\n' "$b" \
+            "$(wc -l < "$WORK/read.want" | tr -d ' ')"
+    else
+        echo "  $b: WHAT THE CATALOGUE SAYS CHANGED ACROSS THE ROUND TRIP"
+        diff "$WORK/read.want" "$WORK/read.got" | head -8 | sed 's/^/      /'
+        FAILED=1
+    fi
+done
+
 # Named destinations still resolve after a save. A different property from the catalogue
 # comparison above, and one nothing else here covers: `/Dests` surviving as a key says
 # nothing about whether the *references* into it still find their targets. Both of

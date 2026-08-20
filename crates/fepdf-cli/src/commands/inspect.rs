@@ -62,10 +62,10 @@ pub fn handle_text(input: PathBuf, pages: Option<String>, ingest: IngestArgs) ->
     // decisions block in the middle of extracted text would corrupt it. Silence here
     // would be worse — text pulled from a file the engine had to repair is exactly the
     // case a caller needs told about.
-    let decisions = doc.decisions();
-    if !decisions.is_empty() {
+    let taken_reading = doc.decisions();
+    if !taken_reading.is_empty() {
         eprintln!("--- [ DECISIONS TAKEN READING (5.3) ] ---");
-        for d in decisions {
+        for d in &taken_reading {
             eprintln!("  {d}");
         }
     }
@@ -85,6 +85,19 @@ pub fn handle_text(input: PathBuf, pages: Option<String>, ingest: IngestArgs) ->
             }
         }
     }
+    // Interpreting a page is reading too, and what it decides arrives after the text
+    // rather than before it — an image whose filter this engine cannot decode is
+    // skipped mid-stream (ADR-0018). Reported apart from the block above because the
+    // two answer different questions: one is what the *file* needed to be read at all,
+    // the other is what this run of the interpreter gave up on.
+    let taken_interpreting = doc.decisions();
+    if taken_interpreting.len() > taken_reading.len() {
+        eprintln!("--- [ DECISIONS TAKEN INTERPRETING (5.3) ] ---");
+        for d in &taken_interpreting[taken_reading.len()..] {
+            eprintln!("  {d}");
+        }
+    }
+
     if !failed.is_empty() {
         eprintln!(
             "  {} of {page_count} pages yielded no text: {}",
@@ -173,6 +186,91 @@ pub fn handle_structure(input: &Path, format: &str) -> Result<()> {
         _ => render_structure_text(&structure, input),
     }
     Ok(())
+}
+
+/// A whole-number percentage, or `None` when nothing was presented — which is not the
+/// same as none of it being read, and must not print as 0%.
+fn percent(part: usize, whole: usize) -> Option<usize> {
+    (whole > 0).then(|| part * 100 / whole)
+}
+
+/// Reports the coverage index over a set of files (`fepdf-model::coverage`).
+///
+/// Takes many inputs where every other `inspect` subcommand takes one, because the
+/// figure is about a *corpus*: the denominator is the constructs those files present,
+/// and one file's denominator is not a measurement of anything.
+///
+/// A file that will not survey is counted and named rather than dropped. A coverage
+/// figure that quietly skipped what it could not read would improve every time the
+/// engine got worse.
+pub fn handle_coverage(inputs: &[PathBuf], format: &str, unread: bool) -> Result<()> {
+    if inputs.is_empty() {
+        anyhow::bail!("give at least one file: the figure is over a corpus");
+    }
+    let mut total = fepdf::Coverage::default();
+    let mut measured = 0usize;
+    let mut refused: Vec<String> = Vec::new();
+    for input in inputs {
+        match std::fs::read(input)
+            .map_err(|e| e.to_string())
+            .and_then(|data| fepdf::Coverage::of(&data).map_err(|e| format!("{e:?}")))
+        {
+            Ok(c) => {
+                total.merge(&c);
+                measured += 1;
+            }
+            Err(why) => refused.push(format!("{}: {why}", input.display())),
+        }
+    }
+
+    if format == "json" {
+        println!("{}", serde_json::to_string_pretty(&total.axes())?);
+        return Ok(());
+    }
+
+    render_coverage(&total, measured, inputs.len(), unread);
+    for why in &refused {
+        eprintln!("  not measured — {why}");
+    }
+    Ok(())
+}
+
+/// The axes, the total, and what the total is not.
+fn render_coverage(total: &fepdf::Coverage, measured: usize, of: usize, unread: bool) {
+    println!("fepdf coverage: {measured} of {of} files");
+    println!("\n  {:<22} {:<8} {:>9} {:>6}  of them", "axis", "clause", "presented", "read");
+    for axis in total.axes() {
+        println!(
+            "  {:<22} {:<8} {:>9} {:>6}  {}",
+            axis.axis,
+            axis.clause,
+            axis.presented,
+            axis.read,
+            percent(axis.read, axis.presented)
+                .map_or_else(|| "—  nothing presented".to_string(), |p| format!("{p}%"))
+        );
+    }
+    let (read, presented) = total.total();
+    if let Some(p) = percent(read, presented) {
+        println!("\n  {read} of {presented} constructs read — {p}%");
+    }
+    println!(
+        "  A proxy for understanding, not a measure of it: it says nothing about \n  \
+         whether what was read was read correctly (ADR-0019)."
+    );
+
+    if !unread {
+        return;
+    }
+    for (axis, _) in fepdf::COVERAGE_AXES {
+        let missing = total.unread(axis);
+        if !missing.is_empty() {
+            println!("\n  no reader — {axis} ({})", missing.len());
+            for construct in &missing {
+                println!("      {construct}");
+            }
+        }
+    }
 }
 
 pub fn handle_tree(input: PathBuf, ingest: IngestArgs) -> Result<()> {

@@ -95,6 +95,22 @@ fn read_catalog_xmp(doc: &Document) -> Option<MetadataInfo> {
     Some(info)
 }
 
+/// What an XMP packet says, without needing a whole document to ask.
+///
+/// `read_catalog_xmp` reaches the packet through a [`Document`], which the catalogue's
+/// own reader cannot do — it has an arena and nothing else. The parsing is the same and
+/// lives here, beside the reconciliation that consumes it.
+///
+/// `None` when the bytes are not valid UTF-8 or not valid XML. A damaged packet is a
+/// fact about the file, not a reason to report that it has no metadata.
+#[must_use]
+pub fn read_xmp_packet(bytes: &[u8]) -> Option<MetadataInfo> {
+    let xml_doc = roxmltree::Document::parse(std::str::from_utf8(bytes).ok()?).ok()?;
+    let mut info = MetadataInfo::default();
+    apply_xmp_metadata(&xml_doc, &mut info);
+    Some(info)
+}
+
 /// Collects document metadata, preferring XMP over the `/Info` dictionary.
 ///
 /// After [`settle`] has run at ingest the two agree, so this returns the same answer

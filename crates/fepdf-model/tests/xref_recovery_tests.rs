@@ -177,3 +177,56 @@ fn the_scan_does_not_override_a_section_that_was_read() {
         "the table named the object at {old_three} and the scan overrode it: {width}"
     );
 }
+
+/// A catalogue whose `/Pages` names an object the file does not contain.
+///
+/// The shape of `UnknownFilter-xrefstm.pdf`, where object 5 — the page tree root — was
+/// indexed only by a cross-reference stream written with `/XXXDecode`, and the recovery
+/// scan does not find it because it is not in the bytes to be found.
+fn file_whose_page_tree_root_is_missing() -> Vec<u8> {
+    let bodies: [(u32, &str); 2] = [
+        ("1", "<< /Type /Catalog /Pages 5 0 R >>"),
+        ("2", "<< /Type /Page /MediaBox [0 0 200 200] >>"),
+    ]
+    .map(|(n, b)| (n.parse().unwrap(), b));
+    let mut out = b"%PDF-2.0\n".to_vec();
+    let mut offsets = Vec::new();
+    for (number, body) in bodies {
+        offsets.push(out.len());
+        out.extend_from_slice(format!("{number} 0 obj\n{body}\nendobj\n").as_bytes());
+    }
+    let table_at = out.len();
+    out.extend_from_slice(b"xref\n0 3\n0000000000 65535 f \n");
+    for offset in &offsets {
+        out.extend_from_slice(format!("{offset:010} 00000 n \n").as_bytes());
+    }
+    out.extend_from_slice(
+        format!("trailer\n<< /Size 3 /Root 1 0 R >>\nstartxref\n{table_at}\n%%EOF\n").as_bytes(),
+    );
+    out
+}
+
+/// A page tree that cannot be reached is **recorded**, not reported as an empty document.
+///
+/// `find_all_pages` swallowed both of its failures — `if let Ok(..)` on reaching the root
+/// and `let _ =` on walking it — so `inspect info` said "Pages: 0" about a file with a
+/// page in it and `is_conforming` stayed true. The same shape as the catalogue lost to an
+/// `if let Ok(..)` in Phase G, found this time by asking what a skipped image costs.
+#[test]
+fn a_page_tree_that_cannot_be_reached_is_reported() {
+    let doc = fepdf_model::document::Document::open(
+        file_whose_page_tree_root_is_missing().into(),
+        &fepdf_model::ingest::IngestionOptions::default(),
+    )
+    .expect("the file still opens — losing the pages is not a reason to refuse it");
+
+    assert_eq!(doc.pages.len(), 0, "the page tree root is not in the file");
+    let taken = doc.decisions.entries();
+    let lost = taken
+        .iter()
+        .find(|d| d.clause == "7.7.3.2")
+        .unwrap_or_else(|| panic!("the loss was not recorded: {taken:?}"));
+    assert_eq!(lost.severity, fepdf_model::interpretation::Severity::Violation);
+    assert!(lost.found.contains("object 5"), "the object is named: {}", lost.found);
+    assert!(!doc.decisions.is_conforming());
+}

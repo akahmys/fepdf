@@ -88,3 +88,89 @@ fn a_decodable_image_is_not_skipped_along_with_them() {
     let text = document.extract_text(0).expect("extracts");
     assert!(text.contains("TEXT AFTER THE IMAGE"));
 }
+
+/// Surviving the image is not enough: what was dropped has to be *reported*.
+///
+/// This site recorded nothing until ADR-0018 — it reached `log::debug!` and a comment
+/// explaining that the interpreter held `&Document` while the log needed `&mut`. A page
+/// whose picture had been silently discarded was indistinguishable from one that had
+/// none, which is the same shape of defect as `UnknownFilter-Linearized.pdf` losing its
+/// catalogue while `inspect structure` called the file conforming.
+#[test]
+fn the_image_the_engine_skipped_is_recorded_as_a_decision() {
+    let document = PdfDocument::open_with_options(
+        page_drawing_an_undecodable_image("XXXDecode").into(),
+        &IngestionOptions::default(),
+    )
+    .expect("the file opens");
+
+    // Before a page is interpreted, nothing has decided anything about its images.
+    // The log grows when the work is done, which is what `is_conforming` now means.
+    assert!(
+        !document.decisions().iter().any(|d| d.found.contains("image XObject")),
+        "no image decision can exist before the content stream runs"
+    );
+
+    document.extract_text(0).expect("the page still extracts");
+
+    let decisions = document.decisions();
+    let skip = decisions
+        .iter()
+        .find(|d| d.found.contains("image XObject"))
+        .unwrap_or_else(|| panic!("the skip was not recorded: {decisions:?}"));
+    assert_eq!(skip.severity, fepdf::Severity::Violation, "something was dropped");
+    assert_eq!(skip.clause, "7.4", "the file named a filter that is not in the filter table");
+    assert!(skip.found.contains("/XXXDecode"), "the filter is named: {}", skip.found);
+    assert!(skip.found.contains("/ImgX"), "the image is named: {}", skip.found);
+}
+
+/// A filter the engine knows but cannot apply to *this* data is a different fact, and
+/// cites a different clause: 7.4 says which filters exist, 8.9.5 governs the image
+/// dictionary that could not be honoured.
+#[test]
+fn a_filter_that_is_known_but_fails_cites_the_image_clause_instead() {
+    let document = PdfDocument::open_with_options(
+        page_drawing_an_undecodable_image("FlateDecode").into(),
+        &IngestionOptions::default(),
+    )
+    .expect("the file opens");
+    document.extract_text(0).expect("the page still extracts");
+
+    let decisions = document.decisions();
+    let skip = decisions
+        .iter()
+        .find(|d| d.found.contains("image XObject"))
+        .unwrap_or_else(|| panic!("the skip was not recorded: {decisions:?}"));
+    assert_eq!(skip.clause, "8.9.5", "/FlateDecode is a filter this engine has: {}", skip.found);
+}
+
+/// What was lost is measured, not just named: the decision says how much of the page
+/// the image would have covered.
+///
+/// "A picture was dropped" and "62% of this page is missing" are different facts, and
+/// the second is the one that decides whether a codec is worth building (ROADMAP Phase
+/// L). No rendering is involved — an image occupies the unit square transformed by the
+/// CTM (8.9.5.2), so the determinant of that matrix is its area in user space.
+#[test]
+fn the_decision_says_how_much_of_the_page_went_with_it() {
+    let document = PdfDocument::open_with_options(
+        page_drawing_an_undecodable_image("JPXDecode").into(),
+        &IngestionOptions::default(),
+    )
+    .expect("the file opens");
+    document.extract_text(0).expect("the page still extracts");
+
+    let decisions = document.decisions();
+    let skip = decisions
+        .iter()
+        .find(|d| d.found.contains("image XObject"))
+        .unwrap_or_else(|| panic!("the skip was not recorded: {decisions:?}"));
+
+    // The fixture draws it under `100 0 0 67 20 120 cm` on a 300×200 page: 6,700 square
+    // points of 60,000, which is 11.2%.
+    assert!(
+        skip.found.contains("11.2% of the page"),
+        "the cost is measured, not asserted: {}",
+        skip.found
+    );
+}

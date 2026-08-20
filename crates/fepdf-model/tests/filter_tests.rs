@@ -122,13 +122,30 @@ fn run_length_reads_literal_runs_and_repeats() {
 }
 
 /// A filter this engine does not implement must say so by name, not be mistaken for one
-/// it does. The dispatch matches abbreviations now, and `CCF` must not reach `DCT`.
+/// it does.
+///
+/// `CCITTFaxDecode` and `CCF` stood in this list until Phase M built them — which is the
+/// check doing its job, since a filter that gains a decoder must stop being an example
+/// of one that has none.
 #[test]
 fn an_unimplemented_filter_is_named_rather_than_guessed() {
     let arena = PdfArena::new();
-    for name in ["CCITTFaxDecode", "CCF", "JBIG2Decode", "JPXDecode", "NoSuchDecode"] {
+    for name in ["JBIG2Decode", "JPXDecode", "NoSuchDecode"] {
         let err = decode_stream(name, b"anything", None, &arena).expect_err(name);
         assert!(format!("{err:?}").contains(name), "{name} was not named in {err:?}");
+    }
+}
+
+/// Table 6's abbreviation reaches the same decoder as the long name, and not a
+/// neighbouring one: `CCF` must not land in `DCT`.
+#[test]
+fn the_ccitt_abbreviation_reaches_the_ccitt_decoder() {
+    let arena = PdfArena::new();
+    for name in ["CCITTFaxDecode", "CCF"] {
+        let err = decode_stream(name, b"anything", None, &arena).expect_err(name);
+        let message = format!("{err:?}");
+        assert!(message.contains("CCITTFaxDecode"), "{name} landed elsewhere: {message}");
+        assert!(!message.contains("Unsupported filter"), "{name} is implemented: {message}");
     }
 }
 

@@ -89,8 +89,13 @@ row "decision records" "$adrs"
 
 # ARCHITECTURE.md 5.3 quotes this. It read "one site" for as long as it took Phase A to
 # convert the other eleven, which is the drift this row exists to make visible.
+#
+# `fepdf-content` is searched too, and was not until Phase H put a decision there. The
+# interpreter is as much the engine as the reader is — it decides to skip an image whose
+# filter cannot be decoded — and a row that could not see it would have reported that
+# phase as having changed nothing.
 decisions=$(grep -rn "Decision::ambiguity\|Decision::repaired\|Decision::violation" \
-    crates/fepdf-model/src crates/fepdf-syntax/src --include="*.rs" 2>/dev/null \
+    crates/fepdf-model/src crates/fepdf-syntax/src crates/fepdf-content/src --include="*.rs" 2>/dev/null \
     | grep -vc "interpretation.rs" | tr -d ' ')
 row "Decision sites in the engine" "$decisions"
 
@@ -124,6 +129,21 @@ if anchored "$catalog_row" 'pub struct PdfCatalog' crates/fepdf-model/src \
             | grep -cE 'pub [a-z_]+: (Option<)?(Object|Handle<Object>|Handle<PdfName>|Handle<Vec<Object>>|Vec<Object>)>?,' \
             | tr -d ' ')
         row "  of which model their contents" "$((typed - passthrough))"
+        # Against 32 the figure flatters: twelve of those keys occur in no file of
+        # either corpus, so a reader for one would be a container before its contents.
+        # `catalog.rs::ABSENT_FROM_BOTH_CORPORA` is the measured list and this counts it,
+        # so the two cannot drift.
+        if anchored "  of which no corpus file carries" 'ABSENT_FROM_BOTH_CORPORA' \
+                crates/fepdf-model/src '/ABSENT_FROM_BOTH_CORPORA/,/^\];/p'; then
+            declined=$(printf '%s' "$ANCHORED" | grep -cE '^    "' | tr -d ' ')
+            row "  of which no corpus file carries" "$declined — declined a reader"
+            # The `- 1` is `/NeedsRendering`: modelled, and carried by no file of either
+            # corpus. It is the one exception ADR-0017 left behind, and it cannot drift
+            # unnoticed — `the_keys_no_file_carries_did_not_gain_readers` asserts that it
+            # is the only one, so a second would fail the suite rather than this row.
+            row "  modelled, of the keys a corpus carries" \
+                "$((typed - passthrough - 1)) of $((table29 - declined))"
+        fi
     fi
 fi
 
@@ -166,6 +186,13 @@ if [ -f samples/unicode_16.pdf ]; then
     fi
 fi
 
+# The goal line, made into a figure. `ROADMAP.md` opens with "understands ISO 32000-2
+# semantically", which is not a predicate; this is the nearest thing that can be
+# reported (ADR-0019). Not run by default because it is a minute over `samples/` alone —
+# 47 seconds of that is `intel_sdm.pdf`, surveyed three times — and this view is meant
+# to be instant. `--full` runs it.
+row "semantic coverage (ADR-0019)" "fepdf inspect coverage samples/*.pdf"
+
 echo
 bold "Corpus"
 samples=$(find samples -name '*.pdf' 2>/dev/null | wc -l | tr -d ' ')
@@ -185,6 +212,22 @@ if [ ! -f target/encrypted/wrapper.pdf ]; then
 fi
 
 if [ "${1:-}" = "--full" ]; then
+    echo
+    bold "The goal, as far as it can be measured"
+    # Over `samples/` alone unless the external corpus has been fetched, and the row
+    # says which — a coverage figure whose corpus is unstated is not a measurement.
+    coverage_files="samples/*.pdf"
+    coverage_of="samples/ only"
+    if [ -n "$(find target/external -name '*.pdf' -print -quit 2>/dev/null)" ]; then
+        coverage_files="samples/*.pdf target/external/*/*.pdf"
+        coverage_of="samples/ and the external corpus"
+    fi
+    # shellcheck disable=SC2086
+    cargo run -q --release -p fepdf-cli -- inspect coverage $coverage_files 2>/dev/null \
+        | grep -E '^  (catalogue|annotation|stream|[0-9]+ of)' \
+        | while IFS= read -r line; do printf '  %s\n' "$line"; done
+    row "measured over" "$coverage_of"
+
     echo
     bold "Verification"
     passed=$(cargo test --workspace 2>&1 | awk '/^test result/ {p += $4; f += $6} END {print p "/" p + f}')
@@ -232,10 +275,16 @@ if [ -n "$next_phase" ]; then
 else
     echo "  Every box in ROADMAP.md is checked."
     echo
-    echo "  That is not the same as the goal being met. The goal — \"an engine that"
-    echo "  understands ISO 32000-2 semantically\" — is not a predicate, so no run of this"
-    echo "  script can report it true or false. Phases A-F each had a completion condition"
-    echo "  that could be checked and each was checked; the line above them never had one."
+    echo "  That is not the same as the goal being met, and it is no longer the case that"
+    echo "  nothing can be said about it. The goal — \"an engine that understands"
+    echo "  ISO 32000-2 semantically\" — is still not a predicate; what can be reported is"
+    echo "  how much of what a corpus presents this engine reads the contents of:"
+    echo
+    echo "      fepdf inspect coverage samples/*.pdf target/external/*/*.pdf"
+    echo
+    echo "  That figure is a proxy and ADR-0019 says what it is not. Phases A-L each had a"
+    echo "  completion condition that could be checked; the line above them now has one"
+    echo "  too, and it is a number rather than a yes."
 fi
 
 echo

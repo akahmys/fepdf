@@ -16,7 +16,31 @@ pub fn render_structure_text(s: &fepdf::FileStructure, input: &std::path::Path) 
 
     render_structure_revisions(s);
     render_structure_objects(s);
+    render_structure_filters(s);
     render_structure_decisions(s);
+}
+
+/// Which filters the file's streams name (7.4), and whether this engine decodes them.
+///
+/// Reported here rather than left to a text search, because a text search cannot find
+/// them: the name usually sits inside a compressed object stream. `on images` is the
+/// column that settles what a missing codec costs — a filter that only ever appears
+/// there holds no text, so building it would add pixels and nothing else.
+pub fn render_structure_filters(s: &fepdf::FileStructure) {
+    if s.filters.is_empty() {
+        return;
+    }
+    println!("\n--- [ FILTERS (7.4) ] ---");
+    println!("  {:<20} {:>8} {:>10}  decoded", "filter", "streams", "on images");
+    for f in &s.filters {
+        println!(
+            "  /{:<19} {:>8} {:>10}  {}",
+            f.name,
+            f.streams,
+            f.on_images,
+            if f.decoded { "yes" } else { "NO" }
+        );
+    }
 }
 
 pub fn render_structure_revisions(s: &fepdf::FileStructure) {
@@ -96,6 +120,8 @@ pub fn render_structure_markdown(s: &fepdf::FileStructure, input: &std::path::Pa
         );
     }
 
+    render_filters_markdown(s);
+
     println!("\n## Decisions\n");
     if s.is_conforming() {
         println!("None — the file was read without departing from the standard.");
@@ -105,5 +131,23 @@ pub fn render_structure_markdown(s: &fepdf::FileStructure, input: &std::path::Pa
         for d in &s.decisions {
             println!("| {:?} | {} | {} | {} |", d.severity, d.clause, d.found, d.action);
         }
+    }
+}
+
+fn render_filters_markdown(s: &fepdf::FileStructure) {
+    if s.filters.is_empty() {
+        return;
+    }
+    println!("\n## Filters (7.4)\n");
+    println!("| Filter | Streams | On images | Decoded |");
+    println!("| :--- | ---: | ---: | :---: |");
+    for f in &s.filters {
+        println!(
+            "| `/{}` | {} | {} | {} |",
+            f.name,
+            f.streams,
+            f.on_images,
+            if f.decoded { "yes" } else { "**no**" }
+        );
     }
 }

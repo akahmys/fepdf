@@ -215,7 +215,7 @@ fn number(object: &Object, arena: &PdfArena) -> Option<f32> {
 /// A named type rather than the `BTreeMap` alone, so that `unreadable` travels with the
 /// entries. A count of destinations that silently omitted the ones that would not parse
 /// would be the more convenient number and the less true one.
-#[derive(Debug, Clone, Default, PartialEq)]
+#[derive(Debug, Clone, Default, PartialEq, serde::Serialize)]
 pub struct DestsDictionary {
     /// The destinations, by the name that declares each.
     pub entries: BTreeMap<String, Destination>,

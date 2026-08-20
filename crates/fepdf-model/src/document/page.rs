@@ -114,28 +114,9 @@ impl<'a> Page<'a> {
     }
 }
 
-/// PDF Annotation Dictionary (ISO 32000-2:2020 Clause 12.5)
-#[derive(Debug, Clone, FromPdfObject)]
-#[pdf_dict(clause = "12.5")]
-pub struct PdfAnnotation {
-    /// `/Type`, normally `Annot`.
-    pub kind: Option<PdfName>,
-    #[pdf_key("Subtype")]
-    /// `/Subtype`: the annotation's kind.
-    pub subtype: PdfName,
-    #[pdf_key("Rect")]
-    /// `/Rect`: where the annotation sits on the page.
-    pub rect: crate::graphics::Rect,
-    #[pdf_key("Contents")]
-    /// `/Contents`: the annotation's text.
-    pub contents: Option<String>,
-    #[pdf_key("P")]
-    /// `/P`: the page this annotation belongs to.
-    pub page: Option<Handle<crate::Object>>,
-    #[pdf_key("NM")]
-    /// `/NM`: the annotation's unique name.
-    pub name: Option<String>,
-    #[pdf_key("F")]
-    /// `/F`: annotation flags.
-    pub flags: Option<i64>,
-}
+/// PDF Annotation Dictionary (12.5).
+///
+/// Defined in [`crate::annotation`] and re-exported here, where it used to live. It held
+/// seven of Table 166's nineteen entries and knew nothing of any subtype; the entries it
+/// now reads, and the survey that decided which subtypes get readers, are in that module.
+pub use crate::annotation::PdfAnnotation;

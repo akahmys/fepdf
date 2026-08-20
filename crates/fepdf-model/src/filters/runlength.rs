@@ -10,9 +10,7 @@
 //! is legal, simple and old fail for no reason a user could act on.
 
 use crate::PdfResult;
-use crate::arena::PdfArena;
-use crate::filters::DecodingFilter;
-use crate::object::Object;
+use crate::filters::{DecodingFilter, FilterContext};
 use bytes::Bytes;
 
 const END_OF_DATA: u8 = 128;
@@ -21,12 +19,7 @@ const END_OF_DATA: u8 = 128;
 pub struct RunLengthFilter;
 
 impl DecodingFilter for RunLengthFilter {
-    fn decode(
-        &self,
-        input: &[u8],
-        _params: Option<&Object>,
-        _arena: &PdfArena,
-    ) -> PdfResult<Bytes> {
+    fn decode(&self, input: &[u8], _cx: &FilterContext<'_>) -> PdfResult<Bytes> {
         let mut out = Vec::with_capacity(input.len() * 2);
         let mut i = 0;
         while let Some(&length) = input.get(i) {

@@ -419,15 +419,42 @@ fn convert_mono_mask(
     data
 }
 
-fn apply_image_smask(rgba_data: &mut [u8], mask: &SMaskData) {
+/// Multiplies the image's alpha by a soft mask (8.9.5.4).
+///
+/// **The mask is scaled to the image**, which the clause requires and this did not do:
+/// it was applied only when the two agreed on both dimensions, and skipped in silence
+/// otherwise. A soft mask smaller than the image it masks is not an edge case — it is
+/// how producers keep the file small — so the common shape was the one that went
+/// missing, and a half-transparent logo came out opaque with nothing said.
+///
+/// Nearest neighbour, deliberately. The alternative is interpolating alpha, which
+/// invents coverage the file did not state and softens the very edges a mask exists to
+/// make sharp.
+///
+/// Every read of `mask.data` is bounds-checked. A mask whose stream is shorter than its
+/// own `/Width × /Height` is a malformed file, not a reason to panic in a renderer.
+fn apply_image_smask(rgba_data: &mut [u8], width: u32, height: u32, mask: &SMaskData) {
+    if mask.width == 0 || mask.height == 0 || width == 0 || height == 0 {
+        return;
+    }
     for (i, chunk) in rgba_data.chunks_exact_mut(4).enumerate() {
+        let (x, y) = (i as u32 % width, i as u32 / width);
+        if y >= height {
+            break;
+        }
+        // Nearest neighbour: the sample this pixel's centre falls on.
+        let mx = (x * mask.width / width).min(mask.width - 1) as usize;
+        let my = (y * mask.height / height).min(mask.height - 1) as usize;
+        let at = my * mask.width as usize + mx;
+        let sample = |n: usize| mask.data.get(n).copied().unwrap_or(255);
+
         let mask_val = match mask.format {
-            PixelFormat::Gray8 => mask.data[i],
-            PixelFormat::Rgba8 => mask.data[i * 4 + 3],
+            PixelFormat::Gray8 => sample(at),
+            PixelFormat::Rgba8 => sample(at * 4 + 3),
             PixelFormat::Rgb8 => {
-                let r = f64::from(mask.data[i * 3]);
-                let g = f64::from(mask.data[i * 3 + 1]);
-                let b = f64::from(mask.data[i * 3 + 2]);
+                let r = f64::from(sample(at * 3));
+                let g = f64::from(sample(at * 3 + 1));
+                let b = f64::from(sample(at * 3 + 2));
                 0.114f64.mul_add(b, 0.587f64.mul_add(g, 0.299 * r)) as u8
             }
             // Formats carrying no usable alpha channel leave the pixel opaque.
@@ -582,11 +609,8 @@ impl RenderBackend for VelloBackend {
             format,
         );
 
-        if let Some(mask) = &smask
-            && mask.width == width
-            && mask.height == height
-        {
-            apply_image_smask(&mut rgba_data, mask);
+        if let Some(mask) = &smask {
+            apply_image_smask(&mut rgba_data, width, height, mask);
         }
 
         let image = ImageData {
@@ -802,5 +826,71 @@ fn to_vello_paint_brush(paint: &Paint, alpha: f32) -> vello::peniko::Brush {
         Paint::Pattern(PatternSpec::Tiling { .. }) => vello::peniko::Brush::Solid(
             vello::peniko::Color::from_rgba8(0, 0, 0, (alpha.clamp(0.0, 1.0) * 255.0) as u8),
         ),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn opaque(width: u32, height: u32) -> Vec<u8> {
+        vec![255; (width * height * 4) as usize]
+    }
+
+    /// A soft mask smaller than its image is **scaled onto it**, not skipped.
+    ///
+    /// This was applied only when the two agreed on both dimensions, and dropped in
+    /// silence otherwise — so the common case, a small mask over a large image, did
+    /// nothing at all. 8.9.5.4 says the mask is scaled to the image.
+    #[test]
+    fn a_mask_of_a_different_size_is_scaled_onto_the_image() {
+        // Two mask samples across: the left half transparent, the right half opaque.
+        let mask =
+            SMaskData { data: vec![0, 255], width: 2, height: 1, format: PixelFormat::Gray8 };
+        let (w, h) = (4, 2);
+        let mut rgba = opaque(w, h);
+        apply_image_smask(&mut rgba, w, h, &mask);
+
+        let alpha = |x: u32, y: u32| rgba[((y * w + x) * 4 + 3) as usize];
+        assert_eq!((alpha(0, 0), alpha(1, 0)), (0, 0), "the left half takes the first sample");
+        assert_eq!((alpha(2, 0), alpha(3, 0)), (255, 255), "the right half takes the second");
+        assert_eq!((alpha(0, 1), alpha(3, 1)), (0, 255), "and every row does the same");
+    }
+
+    /// The same size still works, which is what it used to do and all it used to do.
+    #[test]
+    fn a_mask_of_the_same_size_is_applied_sample_for_sample() {
+        let mask = SMaskData {
+            data: vec![0, 64, 128, 255],
+            width: 2,
+            height: 2,
+            format: PixelFormat::Gray8,
+        };
+        let mut rgba = opaque(2, 2);
+        apply_image_smask(&mut rgba, 2, 2, &mask);
+        let alphas: Vec<u8> = rgba.chunks_exact(4).map(|p| p[3]).collect();
+        assert_eq!(alphas, vec![0, 64, 128, 255]);
+    }
+
+    /// A mask whose data is shorter than it claims does not panic the renderer.
+    ///
+    /// It is a malformed file, and every read is bounds-checked so that it stays one.
+    #[test]
+    fn a_mask_shorter_than_it_claims_leaves_the_rest_opaque() {
+        let mask = SMaskData { data: vec![0], width: 4, height: 4, format: PixelFormat::Gray8 };
+        let mut rgba = opaque(4, 4);
+        apply_image_smask(&mut rgba, 4, 4, &mask);
+        let alphas: Vec<u8> = rgba.chunks_exact(4).map(|p| p[3]).collect();
+        assert_eq!(alphas[0], 0, "the one sample it has");
+        assert!(alphas[1..].iter().all(|a| *a == 255), "the rest stay opaque");
+    }
+
+    /// A mask with no area is ignored rather than dividing by zero.
+    #[test]
+    fn a_mask_with_no_area_changes_nothing() {
+        let mask = SMaskData { data: vec![], width: 0, height: 0, format: PixelFormat::Gray8 };
+        let mut rgba = opaque(2, 2);
+        apply_image_smask(&mut rgba, 2, 2, &mask);
+        assert!(rgba.chunks_exact(4).all(|p| p[3] == 255));
     }
 }

@@ -58,6 +58,38 @@ moxcms = "0.8"
 
 # Image Processing (Refined)
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "tiff"] }
+# JPEG, directly. `image` decodes into a `DynamicImage`, which has no CMYK variant — so
+# every JPEG came back as RGB whatever the file said, and a `/DeviceGray` or
+# `/DeviceCMYK` image dictionary then described a buffer with the wrong number of
+# components. Reaching the decoder underneath `image` keeps the samples in the colour
+# space the image dictionary declares. Already in the tree: `image` depends on it.
+zune-jpeg = "0.5"
+zune-core = "0.5"
+# CCITT Group 3 and 4 (7.4.6), the compression of a scanned page. Pure Rust and
+# `unsafe` forbidden by a crate attribute. Chosen over `fax`, which is already in the
+# tree by accident through `image`'s unused `tiff` feature, because `hayro-jbig2`
+# depends on this one: JBIG2's generic regions may be MMR-coded, and MMR *is* T.6. One
+# CCITT implementation rather than two.
+hayro-ccitt = "0.3"
+# Test-only, and deliberately a *different* implementation from the decoder: `fax`
+# encodes Group 4, `hayro-ccitt` decodes it, and a fixture that survives both is
+# evidence neither could give alone. Already in the tree — `image`'s `tiff` feature
+# pulls it — so this makes a use of it that is on purpose.
+fax = "0.2"
+# JBIG2 (7.4.7), the compression of scanned text. Same author, same licence, same
+# `unsafe`-forbidden crate attribute, and it depends on `hayro-ccitt` because a JBIG2
+# generic region may be MMR-coded and MMR *is* T.6.
+#
+# `default-features = false`: the default pulls `fearless_simd` for speed and an `image`
+# bridge this engine does not use. There is no JBIG2 file in either corpus to benchmark
+# against, and taking a SIMD dependency for an unmeasured gain is the shape this project
+# keeps removing.
+hayro-jbig2 = { version = "0.3", default-features = false, features = ["std"] }
+# JPEG 2000 (7.4.9). Phase L declined this codec saying there was "no pure-Rust decoder
+# worth depending on", which had stopped being true: this one is tested against 20,000
+# images scraped from real PDFs and most of the OpenJPEG suite. Same licence and author
+# as the two above; every one of its dependencies is optional, so this takes none.
+hayro-jpeg2000 = { version = "0.4", default-features = false }
 
 # Metadata & Encoding
 xmp-writer = "0.3"

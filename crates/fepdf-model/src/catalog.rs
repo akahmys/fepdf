@@ -68,8 +68,18 @@ impl Support {
 ///
 /// Listed rather than inferred because there is no way to ask the compiler "is this a
 /// domain type", and the set is small, closed and belongs to this crate.
-const PASSTHROUGH_TYPES: &[&str] =
-    &["Object", "Handle<Object>", "Handle<PdfName>", "Handle<Vec<Object>>", "Vec<Object>"];
+const PASSTHROUGH_TYPES: &[&str] = &[
+    "Object",
+    "Handle<Object>",
+    "Handle<PdfName>",
+    "Handle<Vec<Object>>",
+    "Vec<Object>",
+    // `Located<T>` pairs a value with the handle it was read from, so `Located<Object>`
+    // is an `Object` that has learnt where it lives — reachable, and no more legible
+    // than before. Listed so the wrapper cannot become a way to have a passthrough
+    // classified as a reader.
+    "Located<Object>",
+];
 
 /// Whether a field's declared type describes the entry's contents.
 fn models_contents(rust_type: &str) -> bool {
@@ -123,6 +133,36 @@ const TABLE_29: &[(&str, bool)] = &[
     ("DPartRoot", false),
 ];
 
+/// The Table 29 keys that occur in **no file of either corpus**, and are therefore
+/// declined a reader.
+///
+/// Measured 2026-08-20 by running `inspect catalog` over all 251 files — the nine in
+/// `samples/` and the 242 of `scripts/test/fetch_external_corpus.sh` — and folding the
+/// results together. Twenty of Table 29's thirty-two keys occur; these twelve do not.
+///
+/// The list is here rather than in a document because it is a *refusal*, and a refusal
+/// that lives only in prose is one nobody is reminded of. Building a reader for one of
+/// these would be a container before its contents — the shape Phase D was ordered to
+/// avoid and [ADR-0017](../../docs/adr/0017-declaring-a-catalogue-key-is-not-modelling-it.md)
+/// records the cost of. `the_keys_no_file_carries_did_not_gain_readers` holds the line.
+///
+/// A key leaving this list is a *finding*: it means a corpus arrived that presents
+/// something these two do not, and the case for reading it has changed.
+pub const ABSENT_FROM_BOTH_CORPORA: &[&str] = &[
+    "Extensions",
+    "URI",
+    "SpiderInfo",
+    "PieceInfo",
+    "Perms",
+    "Legal",
+    "Requirements",
+    "Collection",
+    "NeedsRendering",
+    "DSS",
+    "AF",
+    "DPartRoot",
+];
+
 /// The support level for one key: typed if `PdfCatalog` declares it, otherwise
 /// whatever Table 29 above says about a type existing for its contents.
 fn support_for(key: &str) -> Support {
@@ -133,6 +173,51 @@ fn support_for(key: &str) -> Support {
         Some((_, true)) => Support::TypeOnly,
         Some((_, false)) | None => Support::Untyped,
     }
+}
+
+/// How much of a *modelled* entry's own table the reader for it covers.
+///
+/// The question ADR-0017 asked about the catalogue, asked one level down. Phase K took
+/// the catalogue from 6 modelled entries to 20, and "modelled" there means the reader
+/// reads that entry's scalars — not that everything beneath it is understood.
+/// `/AcroForm` reads `/NeedAppearances` and `/SigFlags` and leaves `/DR`, a resource
+/// dictionary, as an `Object`. Without this the headline figure would say 19 of 20 and
+/// invite exactly the reading ADR-0017 was written to prevent.
+///
+/// `None` for an entry whose reader is not a fixed set of keys: a number tree, a name
+/// tree, an XMP packet, or a value that is one of two shapes.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+pub struct InnerCoverage {
+    /// Keys of the entry's own table that the reader models the contents of.
+    pub modelled: usize,
+    /// Keys the reader names at all.
+    pub declared: usize,
+}
+
+/// The reader for each modelled entry whose table is a fixed set of keys.
+///
+/// A list, because there is no way to ask the compiler "which type reads this key" —
+/// the field's type is a string by the time `pdf_key_types` reports it. It is checked
+/// rather than trusted: `every_entry_with_a_fixed_table_is_listed` fails when a
+/// modelled entry gains a reader and nobody adds it here.
+type TableKeys = fn() -> &'static [(&'static str, &'static str)];
+const ENTRY_TABLES: &[(&str, TableKeys)] = &[
+    ("AcroForm", <crate::document::entries::AcroForm as PdfSchema>::pdf_key_types),
+    ("AA", <crate::document::entries::AdditionalActions as PdfSchema>::pdf_key_types),
+    ("MarkInfo", <crate::document::entries::MarkInfo as PdfSchema>::pdf_key_types),
+    ("OCProperties", <crate::document::entries::OptionalContent as PdfSchema>::pdf_key_types),
+    ("Outlines", <crate::document::entries::OutlineRoot as PdfSchema>::pdf_key_types),
+    ("Pages", <crate::document::entries::PageTreeRoot as PdfSchema>::pdf_key_types),
+    ("StructTreeRoot", <crate::document::entries::StructTreeRoot as PdfSchema>::pdf_key_types),
+    ("ViewerPreferences", <crate::document::ViewerPreferences as PdfSchema>::pdf_key_types),
+];
+
+/// How much of `key`'s own table its reader covers, when that table is a fixed set.
+fn inner_coverage(key: &str) -> Option<InnerCoverage> {
+    let (_, keys) = ENTRY_TABLES.iter().find(|(k, _)| *k == key)?;
+    let types = keys();
+    let modelled = types.iter().filter(|(_, t)| models_contents(t)).count();
+    Some(InnerCoverage { modelled, declared: types.len() - modelled })
 }
 
 /// One catalogue entry as this file writes it.
@@ -146,6 +231,10 @@ pub struct CatalogEntry {
     pub standard: bool,
     /// How far the engine can go with it.
     pub support: Support,
+    /// For a modelled entry whose own table is a fixed set of keys, how much of that
+    /// table the reader covers. See [`InnerCoverage`].
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub inner: Option<InnerCoverage>,
 }
 
 /// The catalogue of one document, and what the engine can make of it.
@@ -158,6 +247,21 @@ pub struct CatalogReport {
     /// What the engine decided while reading this file (§5.3). Carried by every
     /// report so that "how was this read" travels with "what was found".
     pub decisions: Vec<Decision>,
+    /// The catalogue as the engine *read* it, when it reads as Table 29.
+    ///
+    /// The entries above say which keys are present and how far the engine can go with
+    /// each; this is how far it actually went on this file. `None` when the catalogue
+    /// does not parse — which is itself reported, by the audit, with the entry named.
+    ///
+    /// It exists so a round trip can be checked on contents rather than on shape:
+    /// `crosscheck_selfread.sh` could compare `dictionary[3]` with `dictionary[3]` and
+    /// nothing finer while 26 of the 32 entries were `Option<Object>`.
+    ///
+    /// Written but not read back: `skip_deserializing`, because a `PdfCatalog` is a view
+    /// of an arena and reconstructing one from JSON would be a second, unowned copy of
+    /// the document's state — the thing ADR-0013 exists to prevent.
+    #[serde(skip_serializing_if = "Option::is_none", default, skip_deserializing)]
+    pub reading: Option<PdfCatalog>,
 }
 
 impl CatalogReport {
@@ -188,6 +292,7 @@ impl CatalogReport {
                 value: describe(&raw.arena, value),
                 standard: TABLE_29.iter().any(|(k, _)| *k == key),
                 support: support_for(&key),
+                inner: inner_coverage(&key),
                 key,
             });
         }
@@ -200,7 +305,9 @@ impl CatalogReport {
             .map(|(k, _)| (*k).to_string())
             .collect();
 
-        Ok(Self { entries, absent, decisions: decisions.entries().to_vec() })
+        let reading =
+            <PdfCatalog as crate::object::FromPdfObject>::from_pdf_object(root, &raw.arena).ok();
+        Ok(Self { entries, absent, decisions: decisions.entries(), reading })
     }
 
     /// How many present entries fall at each level of support: modelled, declared,
@@ -312,7 +419,112 @@ mod tests {
         assert_eq!(support_for("Dests"), Support::Modelled);
         assert_eq!(support_for("DSS"), Support::Declared, "Option<Object>, zero in the corpus");
         assert_eq!(support_for("DPartRoot"), Support::Declared);
-        assert_eq!(support_for("Metadata"), Support::Declared);
+        assert_eq!(support_for("Metadata"), Support::Modelled, "Phase K: the XMP packet");
+
+        // `/Type` is the one key the corpus carries that stays `Declared`, and it is
+        // deliberate: 7.7.2 fixes its value at `/Catalog`, so a reader for it is an
+        // assertion rather than a type, and it belongs with the audit.
+        assert_eq!(support_for("Type"), Support::Declared);
+    }
+
+    /// The refusal holds: no key that neither corpus carries has a reader.
+    ///
+    /// This is the container rule as a test rather than as a paragraph. Phase K built
+    /// fourteen readers, one for each entry the corpora present, and stopped — and the
+    /// way to be sure it stopped is to check the other twelve from the other side.
+    #[test]
+    fn the_keys_no_file_carries_did_not_gain_readers() {
+        for key in ABSENT_FROM_BOTH_CORPORA {
+            assert!(
+                TABLE_29.iter().any(|(k, _)| k == key),
+                "/{key} is not a Table 29 key, so the list has drifted"
+            );
+            if *key == "NeedsRendering" {
+                // The one exception, and it predates the rule being enforced here:
+                // ADR-0017 records it as the single field added in that session whose
+                // type describes what it holds — a `bool` — for an entry no file carries.
+                // Kept visible rather than quietly excluded.
+                assert_eq!(support_for(key), Support::Modelled);
+                continue;
+            }
+            assert_eq!(
+                support_for(key),
+                Support::Declared,
+                "/{key} occurs in no file of either corpus and must not have a reader"
+            );
+        }
+        assert_eq!(ABSENT_FROM_BOTH_CORPORA.len(), 12);
+    }
+
+    /// Every key the corpora *do* carry has a reader, save the one that is a check.
+    #[test]
+    fn every_key_the_corpora_carry_is_modelled_except_the_one_that_is_an_assertion() {
+        let unread: Vec<&str> = TABLE_29
+            .iter()
+            .map(|(k, _)| *k)
+            .filter(|k| !ABSENT_FROM_BOTH_CORPORA.contains(k))
+            .filter(|k| support_for(k) != Support::Modelled)
+            .collect();
+        assert_eq!(
+            unread,
+            vec!["Type"],
+            "7.7.2 fixes /Type at /Catalog, so a reader for it is an assertion; \
+             anything else here is an entry the corpus presents and nothing reads"
+        );
+    }
+
+    /// Every modelled entry whose table is a fixed set of keys is listed in
+    /// `ENTRY_TABLES`, so the nested figure cannot quietly stop covering one.
+    ///
+    /// The exceptions are named rather than skipped: a number tree, a name tree, an XMP
+    /// packet, an array of dictionaries, a value that is one of two shapes, and two
+    /// scalars. None of those is a table of keys, so there is nothing to report a
+    /// fraction of.
+    #[test]
+    fn every_entry_with_a_fixed_table_is_listed() {
+        const NOT_A_TABLE_OF_KEYS: &[&str] = &[
+            "PageLabels",     // a number tree (7.9.7)
+            "Names",          // ten name trees (7.9.6)
+            "Metadata",       // an XMP packet, which is XML
+            "OpenAction",     // a destination or an action
+            "OutputIntents",  // an array of them
+            "Threads",        // an array of them
+            "Dests",          // keyed by the destination names themselves
+            "PageMode",       // a name
+            "PageLayout",     // a name
+            "Lang",           // a text string
+            "Version",        // a name of the form M.m
+            "NeedsRendering", // a boolean
+        ];
+        for (key, _) in TABLE_29 {
+            if support_for(key) != Support::Modelled || NOT_A_TABLE_OF_KEYS.contains(key) {
+                continue;
+            }
+            assert!(
+                inner_coverage(key).is_some(),
+                "/{key} is modelled and its table is a fixed set of keys, so ENTRY_TABLES \
+                 must name its reader"
+            );
+        }
+    }
+
+    /// The nested figure says what the headline cannot: `/AcroForm` is a modelled
+    /// catalogue entry that reads **four of its own eight**.
+    ///
+    /// The expectation written here first was two, on the reasoning that `/DR` and
+    /// `/XFA` were the opaque ones. The measurement said four: `/Fields` and `/CO` are
+    /// arrays of objects, named and no more legible than that. Being wrong about it by a
+    /// factor of two, in the file that defines the classifier, is the argument for
+    /// deriving the figure rather than asserting it in a paragraph.
+    #[test]
+    fn a_modelled_entry_reports_how_much_of_its_own_table_it_reads() {
+        let form = inner_coverage("AcroForm").expect("listed");
+        assert_eq!(form.modelled + form.declared, 8, "Table 224 has eight entries");
+        assert_eq!(form.modelled, 4, "/NeedAppearances, /SigFlags, /DA and /Q");
+        assert_eq!(form.declared, 4, "/Fields, /CO, /DR and /XFA are named, not read");
+
+        let mark = inner_coverage("MarkInfo").expect("listed");
+        assert_eq!(mark.declared, 0, "three booleans, all read");
     }
 
     /// The classifier reads the type as the macro writes it, whitespace already stripped.

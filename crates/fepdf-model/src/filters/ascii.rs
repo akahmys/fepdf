@@ -10,22 +10,15 @@
 //! `/AHx` seven times in one more.
 
 use crate::PdfResult;
-use crate::arena::PdfArena;
 use crate::error::PdfError;
-use crate::filters::DecodingFilter;
-use crate::object::Object;
+use crate::filters::{DecodingFilter, FilterContext};
 use bytes::Bytes;
 
 /// `ASCIIHexDecode` (7.4.2): pairs of hex digits, `>` ends the data.
 pub struct AsciiHexFilter;
 
 impl DecodingFilter for AsciiHexFilter {
-    fn decode(
-        &self,
-        input: &[u8],
-        _params: Option<&Object>,
-        _arena: &PdfArena,
-    ) -> PdfResult<Bytes> {
+    fn decode(&self, input: &[u8], _cx: &FilterContext<'_>) -> PdfResult<Bytes> {
         let mut out = Vec::with_capacity(input.len() / 2);
         let mut high: Option<u8> = None;
         for &byte in input {
@@ -68,12 +61,7 @@ fn hex_value(byte: u8) -> Option<u8> {
 pub struct Ascii85Filter;
 
 impl DecodingFilter for Ascii85Filter {
-    fn decode(
-        &self,
-        input: &[u8],
-        _params: Option<&Object>,
-        _arena: &PdfArena,
-    ) -> PdfResult<Bytes> {
+    fn decode(&self, input: &[u8], _cx: &FilterContext<'_>) -> PdfResult<Bytes> {
         let mut out = Vec::with_capacity(input.len() * 4 / 5);
         let mut group = [0u8; 5];
         let mut n = 0;

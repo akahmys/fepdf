@@ -7,6 +7,8 @@
 
 extern crate self as fepdf_model;
 
+/// Annotations (12.5): Table 166, and the subtypes the corpus carries.
+pub mod annotation;
 /// Handle-addressed storage for every object in a document.
 pub mod arena;
 /// Conformance auditing against the published standards.
@@ -16,6 +18,8 @@ pub mod catalog;
 pub mod color;
 /// Content stream rewriting.
 pub mod content;
+/// How much of what a corpus presents the engine reads the contents of.
+pub mod coverage;
 /// Unlocking an encrypted document (ISO 7.6).
 pub mod decrypt;
 /// Destinations (12.3.2) and the name tree that holds them (7.9.6).

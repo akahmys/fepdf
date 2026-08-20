@@ -29,18 +29,23 @@ pub use fepdf_model::destination::{Destination, Lookup, NamedDestinations, Targe
 // The whole of `/ViewerPreferences`, not just the struct: its fields are public and
 // typed, so a frontend that cannot name `Duplex` cannot read `duplex` — and naming
 // `fepdf_model` to get it is what Rule A forbids.
+pub use fepdf_model::catalog::ABSENT_FROM_BOTH_CORPORA as CATALOGUE_KEYS_NO_CORPUS_CARRIES;
+pub use fepdf_model::coverage::{AXES as COVERAGE_AXES, AxisCoverage, Coverage};
 pub use fepdf_model::document::{
     Direction, Duplex, PageBoundary, PageLayout, PageMode, PrintScaling, ViewerPreferences,
 };
 pub use fepdf_model::encryption::{
     Conformance, CryptFilter, EncryptedPayload, EncryptionReport, Permission,
 };
-pub use fepdf_model::file_structure::{FileStructure, ObjectCensus, ObjectStream, Revision};
+pub use fepdf_model::file_structure::{
+    FileStructure, FilterUse, ObjectCensus, ObjectStream, Revision,
+};
 pub use fepdf_model::font::FontResource;
 pub use fepdf_model::graphics::Rect;
 pub use fepdf_model::ingest::{ColorPolicy, IngestionOptions};
 pub use fepdf_model::interactive::{
-    AnnotationCensus, DestinationCensus, FormFields, InteractiveReport, Outline as OutlineSummary,
+    AnnotationCensus, AnnotationEntry, DestinationCensus, FormField, FormFields, InteractiveReport,
+    Outline as OutlineSummary, SubtypeCensus,
 };
 pub use fepdf_model::interpretation::{Decision, DecisionLog, Severity, Strictness};
 pub use fepdf_model::security::{Access, AesV5Spec, SecurityHandler};
@@ -369,8 +374,12 @@ impl PdfDocument {
     /// Reaching these previously meant asking for a whole [`DocumentSummary`], which
     /// walks the fonts and runs the compliance audit. A caller that only wants to know
     /// whether the file was conforming should not have to pay for that.
+    ///
+    /// A snapshot, not a borrow: the log grows while the document is used — an image
+    /// skipped during text extraction is recorded when it happens — so what this
+    /// returns is what had been decided by the time it was called (ADR-0018).
     #[must_use]
-    pub fn decisions(&self) -> &[Decision] {
+    pub fn decisions(&self) -> Vec<Decision> {
         self.inner.decisions.entries()
     }
 
@@ -1152,6 +1161,10 @@ impl PdfDocument {
         let page = self.inner.get_page(index)?;
         let res_dh = page.resources_handle();
         let mut interpreter = Interpreter::new(backend, &self.inner, res_dh, initial_transform);
+        // So that an image the engine cannot decode can say how much of *this page* it
+        // would have covered, rather than only that one was dropped (ROADMAP Phase L).
+        let box_ = page.media_box();
+        interpreter.set_page_area((box_.x2 - box_.x1).abs() * (box_.y2 - box_.y1).abs());
 
         let resolved_contents = self.resolve_page_contents(&page)?;
         self.execute_interpreter(&mut interpreter, resolved_contents)?;
@@ -1381,7 +1394,7 @@ impl PdfDocument {
             metadata: self.inner.metadata(),
             fonts: self.inner.fonts(),
             compliance: ComplianceSummary { issues, iso_clauses },
-            decisions: self.inner.decisions.entries().to_vec(),
+            decisions: self.inner.decisions.entries(),
         })
     }
 

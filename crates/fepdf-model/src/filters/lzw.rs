@@ -14,7 +14,7 @@
 use crate::PdfResult;
 use crate::arena::PdfArena;
 use crate::error::PdfError;
-use crate::filters::{DecodingFilter, predictor};
+use crate::filters::{DecodingFilter, FilterContext, predictor};
 use crate::object::Object;
 use bytes::Bytes;
 
@@ -29,7 +29,8 @@ const END_OF_DATA: u16 = 257;
 pub struct LzwFilter;
 
 impl DecodingFilter for LzwFilter {
-    fn decode(&self, input: &[u8], params: Option<&Object>, arena: &PdfArena) -> PdfResult<Bytes> {
+    fn decode(&self, input: &[u8], cx: &FilterContext<'_>) -> PdfResult<Bytes> {
+        let (params, arena) = (cx.params, cx.arena);
         let early_change =
             params.and_then(|p| int_param(p, arena, "EarlyChange")).unwrap_or(1).clamp(0, 1) as u16;
         let mut decoded = decode_lzw(input, early_change)?;

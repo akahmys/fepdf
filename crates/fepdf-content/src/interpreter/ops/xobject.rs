@@ -1,4 +1,5 @@
 use crate::interpreter::Interpreter;
+use fepdf_model::interpretation::Decision;
 use fepdf_model::object::sublimation::Command;
 use fepdf_model::{Handle, Object, PdfError, PdfName, PdfResult};
 use std::collections::BTreeMap;
@@ -38,13 +39,14 @@ impl Interpreter<'_> {
                     // produce any; what the failure did was abort the content stream and
                     // take the page's *real* text with it.
                     //
-                    // Not recorded as a `Decision`: the interpreter holds `&Document` and
-                    // the log needs `&mut`, so reaching it would change `extract_text`'s
-                    // signature across the SDK to carry a note about a picture. That is a
-                    // real gap in §5.3's coverage and is written down rather than hidden.
+                    // Recorded, not logged (`ARCHITECTURE.md` §5.3). This site read
+                    // `log::debug!` and a comment saying why it could not do better:
+                    // the interpreter holds `&Document` and `DecisionLog::push` needed
+                    // `&mut`. The log is behind a lock now, so the skip reaches the same
+                    // place the reader's decisions do (ADR-0018).
                     "Image" => {
                         if let Err(e) = self.render_image_xobject(&dict, sd) {
-                            log::debug!("[content] image {name:?} not drawn: {e:?}");
+                            self.record_skipped_image(&dict, name.as_str(), &e);
                         }
                     }
                     "Form" => match sd.as_ref() {
@@ -227,6 +229,99 @@ impl Interpreter<'_> {
         Ok(())
     }
 
+    /// Records an image the engine gave up on, with the filter that stopped it.
+    ///
+    /// The filter is read from the image's own dictionary rather than from the error,
+    /// because the error says what failed and the caller needs to know what the file
+    /// asked for: `/CCITTFaxDecode` and `/JPXDecode` are codecs this engine has decided
+    /// not to build (ROADMAP Phase L), and `/XXXDecode` is a filter invented for a test
+    /// suite that no engine will ever decode. Those are different facts about the
+    /// document and the message says which one it is.
+    fn record_skipped_image(
+        &self,
+        dict: &BTreeMap<Handle<PdfName>, Object>,
+        name: &str,
+        error: &PdfError,
+    ) {
+        let filters = self.filters_named_by(dict);
+
+        // How much of the page went with it. An image occupies the unit square
+        // transformed by the CTM (8.9.5.2), so the determinant of that matrix *is* its
+        // area in default user space — no rendering required, which is what makes this
+        // measurable on every file rather than on the ones a GPU is available for.
+        let covered = self.cost_of_losing_it();
+
+        // Clause 7.4 when the file named a filter this engine does not decode, because
+        // that is a statement about the filter table; 8.9.5 otherwise, because then the
+        // image dictionary itself is what could not be honoured.
+        let unsupported = matches!(error, PdfError::Filter { message, .. } if message.starts_with("Unsupported filter"));
+        let decision = match (&filters, unsupported) {
+            (Some(f), true) => Decision::violation(
+                "7.4",
+                format!(
+                    "image XObject /{name} is encoded with {f}, which this engine does not \
+                     decode; it covers {covered}"
+                ),
+                "skipped the image; the rest of the content stream, including its text, was interpreted",
+            ),
+            (Some(f), false) => Decision::violation(
+                "8.9.5",
+                format!(
+                    "image XObject /{name} ({f}) covering {covered} could not be decoded: {error}"
+                ),
+                "skipped the image; the rest of the content stream, including its text, was interpreted",
+            ),
+            (None, _) => Decision::violation(
+                "8.9.5",
+                format!("image XObject /{name} covering {covered} could not be decoded: {error}"),
+                "skipped the image; the rest of the content stream, including its text, was interpreted",
+            ),
+        };
+        self.doc.record(decision);
+    }
+
+    /// The filters an image dictionary names, as they are written.
+    ///
+    /// One name or an array of them (7.4.1), and the array matters: a `/JPXDecode`
+    /// wrapped in `/FlateDecode` is a different fact from either alone.
+    fn filters_named_by(&self, dict: &BTreeMap<Handle<PdfName>, Object>) -> Option<String> {
+        let arena = self.doc.arena();
+        let named = |h| arena.get_name(h).map(|n| format!("/{}", n.as_str()));
+        dict.get(&arena.intern_name(PdfName::new("Filter")))
+            .map(|o| o.resolve(arena))
+            .map(|o| match o {
+                Object::Name(h) => named(h).unwrap_or_default(),
+                Object::Array(ah) => arena
+                    .get_array(ah)
+                    .unwrap_or_default()
+                    .iter()
+                    .filter_map(|item| item.resolve(arena).as_name())
+                    .filter_map(named)
+                    .collect::<Vec<_>>()
+                    .join(" "),
+                _ => String::new(),
+            })
+            .filter(|f| !f.is_empty())
+    }
+
+    /// What losing the image at the current `CTM` costs, in words.
+    ///
+    /// As a share of the page where the page is known, and in square points otherwise —
+    /// a form XObject and a Type 3 glyph stream have no page to be a fraction of. Zero
+    /// area is worth saying out loud: an image drawn under a degenerate matrix paints
+    /// nothing, so losing it costs nothing, and that is the answer for a file whose
+    /// image no page draws at all.
+    fn cost_of_losing_it(&self) -> String {
+        let area = self.state.ctm.as_affine().determinant().abs();
+        if area <= f64::EPSILON {
+            return "no area of the page — the matrix in force paints nothing".to_string();
+        }
+        match self.page_area {
+            Some(page) => format!("{:.1}% of the page", area / page * 100.0),
+            None => format!("{area:.0} square points"),
+        }
+    }
+
     pub(crate) fn render_image_xobject(
         &mut self,
         dict: &BTreeMap<Handle<PdfName>, Object>,
@@ -283,7 +378,7 @@ impl Interpreter<'_> {
                     fepdf_model::graphics::PixelFormat::MonoMask
                 }
             } else {
-                self.detect_pixel_format(dict)
+                self.image_layout(dict, &data)
             };
 
             let decoded = self.doc.arena().process_filters(&data, dict)?;
@@ -348,38 +443,183 @@ impl Interpreter<'_> {
             None
         };
 
+        // Sub-byte samples become bytes before a backend sees them, the way an indexed
+        // image already did. A scanned page is `/DeviceGray` at one bit per component —
+        // the commonest image in a scanned document and, until Phase M's own fixture
+        // crashed the renderer with it, one neither corpus contained.
+        let bits = dict
+            .get(&self.doc.arena().intern_name(PdfName::new("BitsPerComponent")))
+            .and_then(|o| o.resolve(self.doc.arena()).as_integer())
+            .unwrap_or(8);
+        let decoded = match expand_sub_byte_gray(&decoded, width, height, bits, format) {
+            Some(expanded) => bytes::Bytes::from(expanded),
+            None => decoded,
+        };
+
+        // What the dictionary describes and what arrived must agree. They did not, and
+        // the buffer went to the GPU anyway: `Queue::write_texture` refused it and the
+        // process died — a malformed image is a document defect, not a crash.
+        if let Some(needed) = bytes_needed(width, height, format)
+            && decoded.len() < needed
+        {
+            self.doc.record(Decision::violation(
+                "8.9.5.1",
+                format!(
+                    "an image XObject describes {needed} bytes of samples and carries {}",
+                    decoded.len()
+                ),
+                "skipped the image; drawing it would have read past the data",
+            ));
+            return Ok(());
+        }
+
         self.backend.draw_image(&decoded, width, height, format, smask_data);
         Ok(())
     }
 
+    /// How the decoded samples are laid out, from the image's `/ColorSpace` (8.6).
+    ///
+    /// **What this decides is the number of components per sample**, and getting it
+    /// wrong does not shift a colour — it walks the buffer at the wrong stride and
+    /// renders noise. So the question asked here is "how many components", and the
+    /// colour space's *identity* is a separate matter that colour management would own.
+    ///
+    /// The family name alone does not answer it. `[/ICCBased stream]` carries `/N`, and
+    /// the corpus's largest group of images by far is exactly that — 438 of 1,053 — so
+    /// assuming three there is assuming for most of the pictures in the corpus.
+    /// `[/Separation …]` is one component and `[/DeviceN [names] …]` is as many as it
+    /// names. Both were read as three.
+    ///
+    /// A one-component space that is not grey — `/Separation`, `/DeviceN` with one
+    /// colorant — is reported as `Gray8` because that is its *shape*. Painting it
+    /// correctly means running the tint transform, which nothing here does yet; reading
+    /// it at the right stride is the difference between a wrong colour and a wrecked
+    /// image.
     fn detect_pixel_format(
         &self,
         dict: &BTreeMap<Handle<PdfName>, Object>,
     ) -> fepdf_model::graphics::PixelFormat {
-        let cs_key = self.doc.arena().intern_name(PdfName::new("ColorSpace"));
-        let cs_obj = dict.get(&cs_key).map(|o: &Object| o.resolve(self.doc.arena()));
+        pixel_format_of(self.doc.arena(), dict)
+    }
 
-        let cs_name = match cs_obj {
-            Some(Object::Name(h)) => self.doc.arena().get_name(h).map(|n| n.as_str().to_string()),
-            Some(Object::Array(h)) => {
-                // For Array color spaces like [/Indexed /DeviceRGB ...], use the first element
-                self.doc
-                    .arena()
-                    .get_array(h)
-                    .and_then(|a| a.first().cloned())
-                    .and_then(|o| o.resolve(self.doc.arena()).as_name())
-                    .and_then(|nh| self.doc.arena().get_name(nh))
-                    .map(|n| n.as_str().to_string())
-            }
-            _ => None,
+    /// The layout of an image, asking the codestream when the dictionary does not say.
+    ///
+    /// 7.4.9 makes `/ColorSpace` **optional for a `/JPXDecode` image and no other**: the
+    /// codestream carries its own, and where the dictionary does state one it overrides.
+    /// So this asks the dictionary first and the data only when the dictionary is silent
+    /// — which is the order the clause gives, not a preference.
+    fn image_layout(
+        &self,
+        dict: &BTreeMap<Handle<PdfName>, Object>,
+        encoded: &[u8],
+    ) -> fepdf_model::graphics::PixelFormat {
+        let arena = self.doc.arena();
+        if dict.contains_key(&arena.intern_name(PdfName::new("ColorSpace"))) {
+            return pixel_format_of(arena, dict);
         }
-        .unwrap_or_else(|| "DeviceRGB".to_string());
+        if names_filter(arena, dict, "JPXDecode")
+            && let Some(from_codestream) = fepdf_model::filters::jpx::layout(encoded)
+        {
+            return from_codestream;
+        }
+        pixel_format_of(arena, dict)
+    }
+}
 
-        match cs_name.as_str() {
-            "DeviceGray" | "G" | "Gray" => fepdf_model::graphics::PixelFormat::Gray8,
-            "DeviceCMYK" | "CMYK" => fepdf_model::graphics::PixelFormat::Cmyk8,
-            "Indexed" | "I" => fepdf_model::graphics::PixelFormat::Rgb8,
-            _ => fepdf_model::graphics::PixelFormat::Rgb8,
+/// Whether the stream's `/Filter` names `wanted`, in either of its two forms.
+fn names_filter(
+    arena: &fepdf_model::arena::PdfArena,
+    dict: &BTreeMap<Handle<PdfName>, Object>,
+    wanted: &str,
+) -> bool {
+    let Some(filter) = dict.get(&arena.intern_name(PdfName::new("Filter"))) else {
+        return false;
+    };
+    let named = |h| arena.get_name(h).is_some_and(|n| n.as_str() == wanted);
+    match filter.resolve(arena) {
+        Object::Name(h) => named(h),
+        Object::Array(ah) => arena
+            .get_array(ah)
+            .unwrap_or_default()
+            .iter()
+            .filter_map(|o| o.resolve(arena).as_name())
+            .any(named),
+        _ => false,
+    }
+}
+
+/// See [`Interpreter::detect_pixel_format`]. A free function because it is a pure
+/// question about a dictionary, and one that needs testing without a whole backend.
+pub(crate) fn pixel_format_of(
+    arena: &fepdf_model::arena::PdfArena,
+    dict: &BTreeMap<Handle<PdfName>, Object>,
+) -> fepdf_model::graphics::PixelFormat {
+    {
+        use fepdf_model::graphics::PixelFormat;
+        let Some(cs) = dict.get(&arena.intern_name(PdfName::new("ColorSpace"))) else {
+            return PixelFormat::Rgb8;
+        };
+
+        match cs.resolve(arena) {
+            Object::Name(h) => match arena.get_name(h).map(|n| n.as_str().to_string()).as_deref() {
+                Some("DeviceGray" | "CalGray" | "G" | "Gray") => PixelFormat::Gray8,
+                Some("DeviceCMYK" | "CMYK") => PixelFormat::Cmyk8,
+                _ => PixelFormat::Rgb8,
+            },
+            Object::Array(ah) => components_of_array(arena, ah),
+            _ => PixelFormat::Rgb8,
+        }
+    }
+}
+
+/// The layout of an array colour space — the forms 8.6.5 and 8.6.6 define.
+fn components_of_array(
+    arena: &fepdf_model::arena::PdfArena,
+    array: Handle<Vec<Object>>,
+) -> fepdf_model::graphics::PixelFormat {
+    {
+        use fepdf_model::graphics::PixelFormat;
+        let items = arena.get_array(array).unwrap_or_default();
+        let family = items
+            .first()
+            .and_then(|o| o.resolve(arena).as_name())
+            .and_then(|h| arena.get_name(h))
+            .map(|n| n.as_str().to_string())
+            .unwrap_or_default();
+
+        match family.as_str() {
+            // Expanded to RGB before it reaches a backend (`expand_indexed_image`).
+            "Indexed" | "I" => PixelFormat::Rgb8,
+            "CalGray" => PixelFormat::Gray8,
+            "CalRGB" | "Lab" => PixelFormat::Rgb8,
+            // One colorant, whatever it is named.
+            "Separation" => PixelFormat::Gray8,
+            "DeviceN" => match items.get(1).and_then(|o| o.resolve(arena).as_array()) {
+                Some(names) => match arena.get_array(names).map_or(0, |n| n.len()) {
+                    1 => PixelFormat::Gray8,
+                    4 => PixelFormat::Cmyk8,
+                    _ => PixelFormat::Rgb8,
+                },
+                None => PixelFormat::Rgb8,
+            },
+            // `/N` is required, and is the whole answer (8.6.5.5).
+            "ICCBased" => {
+                let n = items
+                    .get(1)
+                    .map(|o| o.resolve(arena))
+                    .and_then(|stream| match stream {
+                        Object::Stream(dh, _) => arena.get_dict(dh),
+                        _ => None,
+                    })
+                    .and_then(|d| d.get(&arena.intern_name(PdfName::new("N"))).cloned())
+                    .and_then(|o| o.resolve(arena).as_integer());
+                match n {
+                    Some(1) => PixelFormat::Gray8,
+                    Some(4) => PixelFormat::Cmyk8,
+                    _ => PixelFormat::Rgb8,
+                }
+            }
+            _ => PixelFormat::Rgb8,
         }
     }
 }
@@ -415,6 +655,71 @@ fn get_indexed_cs_info(
         _ => None,
     }?;
     Some((base_name, hival, lookup_bytes))
+}
+
+/// How many bytes `width × height` samples occupy in `format`.
+///
+/// `None` for the one-bit stencils, whose layout is bits with each row padded to a byte
+/// — `PixelFormat` carries no bit depth, so those are the formats where the length is
+/// not this arithmetic.
+fn bytes_needed(
+    width: u32,
+    height: u32,
+    format: fepdf_model::graphics::PixelFormat,
+) -> Option<usize> {
+    use fepdf_model::graphics::PixelFormat;
+    let per_pixel = match format {
+        PixelFormat::Gray8 => 1,
+        PixelFormat::Rgb8 => 3,
+        PixelFormat::Cmyk8 | PixelFormat::Rgba8 => 4,
+        PixelFormat::MonoMask | PixelFormat::MonoMaskInverted => return None,
+    };
+    Some(width as usize * height as usize * per_pixel)
+}
+
+/// Expands samples of fewer than eight bits to one byte each (8.9.5.1).
+///
+/// A scanned page is `/DeviceGray` with `/BitsPerComponent 1`, and `PixelFormat` has no
+/// depth to carry that — `Gray8` means a byte a pixel. So the expansion happens here,
+/// exactly as `expand_indexed_image` already expands a palette, and the bit depth stops
+/// existing above this line.
+///
+/// Rows are padded to a byte boundary in the source and not in the result, which is the
+/// whole reason this cannot be a simple bit-by-bit walk of the buffer.
+///
+/// `None` when there is nothing to expand: eight bits already, or a stencil mask, whose
+/// bits the backend reads itself because what it paints them is the fill colour.
+fn expand_sub_byte_gray(
+    data: &[u8],
+    width: u32,
+    height: u32,
+    bits: i64,
+    format: fepdf_model::graphics::PixelFormat,
+) -> Option<Vec<u8>> {
+    use fepdf_model::graphics::PixelFormat;
+    if format != PixelFormat::Gray8 || !(1..8).contains(&bits) {
+        return None;
+    }
+    let bits = u32::try_from(bits).ok()?;
+    let max = (1_u32 << bits) - 1;
+    let stride = (width as usize * bits as usize).div_ceil(8);
+
+    let mut out = Vec::with_capacity(width as usize * height as usize);
+    for y in 0..height as usize {
+        let row = data.get(y * stride..(y + 1) * stride)?;
+        for x in 0..width {
+            let at = x * bits;
+            let (byte, shift) = ((at / 8) as usize, at % 8);
+            // A sample may straddle two bytes when the depth is not a power of two that
+            // divides eight — four bits never do, two and one never do, so this reads at
+            // most two.
+            let window = u32::from(*row.get(byte)?) << 8
+                | u32::from(row.get(byte + 1).copied().unwrap_or(0));
+            let sample = (window >> (16 - shift - bits)) & max;
+            out.push(u8::try_from(sample * 255 / max).unwrap_or(255));
+        }
+    }
+    Some(out)
 }
 
 fn expand_indexed_image(
@@ -454,4 +759,93 @@ fn expand_indexed_image(
         }
     }
     Some(rgb)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use fepdf_model::arena::PdfArena;
+    use fepdf_model::graphics::PixelFormat;
+
+    /// An image dictionary carrying just a `/ColorSpace`, parsed the way a file writes it.
+    fn image_with(colour_space: &str) -> (PdfArena, BTreeMap<Handle<PdfName>, Object>) {
+        let arena = PdfArena::new();
+        let source = format!("<< /Width 2 /Height 2 /ColorSpace {colour_space} >>\n");
+        let mut parser = fepdf_model::parser::Parser::new(bytes::Bytes::from(source), &arena);
+        let Object::Dictionary(dh) = parser.parse_object().expect("parses") else {
+            panic!("a dictionary");
+        };
+        let dict = arena.get_dict(dh).expect("in the arena");
+        (arena, dict)
+    }
+
+    /// The device spaces, which are the easy half.
+    #[test]
+    fn a_device_space_gives_its_own_component_count() {
+        for (space, expected) in [
+            ("/DeviceGray", PixelFormat::Gray8),
+            ("/CalGray", PixelFormat::Gray8),
+            ("/DeviceRGB", PixelFormat::Rgb8),
+            ("/DeviceCMYK", PixelFormat::Cmyk8),
+        ] {
+            let (arena, dict) = image_with(space);
+            assert_eq!(pixel_format_of(&arena, &dict), expected, "{space}");
+        }
+    }
+
+    /// `[/ICCBased stream]` carries `/N`, and **the family name does not answer the
+    /// question** — 438 of the 1,053 images in the two corpora are this shape, so
+    /// assuming three components here is assuming for most of the pictures there are.
+    #[test]
+    fn an_icc_based_space_takes_its_count_from_n() {
+        for (n, expected) in
+            [(1, PixelFormat::Gray8), (3, PixelFormat::Rgb8), (4, PixelFormat::Cmyk8)]
+        {
+            let arena = PdfArena::new();
+            let profile = arena.alloc_dict(BTreeMap::from([(arena.name("N"), Object::Integer(n))]));
+            let space = arena.alloc_array(vec![
+                Object::Name(arena.name("ICCBased")),
+                Object::Stream(
+                    profile,
+                    std::sync::Arc::new(fepdf_model::object::SublimatedData::Raw(
+                        bytes::Bytes::new(),
+                    )),
+                ),
+            ]);
+            let dict = BTreeMap::from([(arena.name("ColorSpace"), Object::Array(space))]);
+            assert_eq!(pixel_format_of(&arena, &dict), expected, "/N {n}");
+        }
+    }
+
+    /// A `/Separation` is one colorant, so one component — it was read as three.
+    ///
+    /// Reported as `Gray8` for its *shape*, not its colour: painting it properly means
+    /// running the tint transform, and nothing here does yet. Reading it at the right
+    /// stride is the difference between a wrong colour and a wrecked image.
+    #[test]
+    fn a_separation_is_one_component_and_a_device_n_is_as_many_as_it_names() {
+        let (arena, dict) = image_with("[/Separation /Spot /DeviceCMYK null]");
+        assert_eq!(pixel_format_of(&arena, &dict), PixelFormat::Gray8);
+
+        let (arena, dict) = image_with("[/DeviceN [/C /M /Y /K] /DeviceCMYK null]");
+        assert_eq!(pixel_format_of(&arena, &dict), PixelFormat::Cmyk8);
+
+        let (arena, dict) = image_with("[/DeviceN [/Spot] /DeviceCMYK null]");
+        assert_eq!(pixel_format_of(&arena, &dict), PixelFormat::Gray8);
+    }
+
+    /// `/Indexed` is expanded to RGB before a backend sees it.
+    #[test]
+    fn an_indexed_space_is_reported_as_what_it_expands_to() {
+        let (arena, dict) = image_with("[/Indexed /DeviceRGB 255 <00>]");
+        assert_eq!(pixel_format_of(&arena, &dict), PixelFormat::Rgb8);
+    }
+
+    /// No `/ColorSpace` at all — an `/ImageMask` has none, and the caller handles that
+    /// before asking. Anything else falls back rather than refusing.
+    #[test]
+    fn an_image_with_no_colour_space_falls_back_to_rgb() {
+        let arena = PdfArena::new();
+        assert_eq!(pixel_format_of(&arena, &BTreeMap::new()), PixelFormat::Rgb8);
+    }
 }

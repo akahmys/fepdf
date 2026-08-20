@@ -33,15 +33,49 @@ pub fn render_interactive_annotations(r: &fepdf::InteractiveReport) {
         return;
     }
     println!("  {} across {} of {} pages", r.annotations.total, r.annotations.pages_with, r.pages);
-    for (subtype, n) in &r.annotations.by_subtype {
-        println!("    {subtype:<18} {n:>7}");
-    }
     if r.annotations.without_subtype > 0 {
-        println!(
-            "    {:<18} {:>7}  /Subtype is required (12.5.2)",
-            "(missing)", r.annotations.without_subtype
-        );
+        println!("  {} carry no /Subtype, which 12.5.2 requires", r.annotations.without_subtype);
     }
+
+    // Per subtype, the entries the file writes and whether they were read. Counting
+    // annotations by subtype was the whole report until Phase J, and it could not
+    // distinguish a `/Redact` from a `/Watermark` by anything but the name.
+    for sub in &r.annotations.subtypes {
+        println!(
+            "\n  /{:<16} {:>7}   {} of {} entries read",
+            sub.subtype,
+            sub.count,
+            sub.read(),
+            sub.entries.len()
+        );
+        let unread: Vec<&fepdf::AnnotationEntry> = sub.entries.iter().filter(|e| !e.read).collect();
+        let read: Vec<&fepdf::AnnotationEntry> = sub.entries.iter().filter(|e| e.read).collect();
+        if !read.is_empty() {
+            println!("      read      {}", join_entries(&read));
+        }
+        if !unread.is_empty() {
+            println!("      NOT read  {}", join_entries(&unread));
+        }
+    }
+    let unread = r.annotations.unread_entries();
+    if unread > 0 {
+        println!("\n  {unread} distinct entries across all subtypes have no reader");
+    }
+    if r.annotations.unreadable > 0 {
+        println!(
+            "  {} annotations did not parse into the common entries of Table 166",
+            r.annotations.unreadable
+        );
+        if let Some(why) = &r.annotations.first_failure {
+            println!("      first: {why}");
+        }
+    }
+}
+
+/// `/Key×n` for each entry, so the count that makes an entry worth reading is visible
+/// beside its name rather than in a separate table.
+fn join_entries(entries: &[&fepdf::AnnotationEntry]) -> String {
+    entries.iter().map(|e| format!("/{}×{}", e.key, e.annotations)).collect::<Vec<_>>().join(" ")
 }
 
 pub fn render_interactive_form(r: &fepdf::InteractiveReport) {
@@ -57,8 +91,36 @@ pub fn render_interactive_form(r: &fepdf::InteractiveReport) {
     if let Some(needs) = r.form.needs_appearances {
         println!("  /NeedAppearances {needs}");
     }
+    println!(
+        "  form /DA {}   form /DR {}",
+        if r.form.has_default_appearance { "yes" } else { "no" },
+        if r.form.has_default_resources { "yes" } else { "no" }
+    );
+    if r.form.too_deep > 0 {
+        println!("  {} fields nest deeper than the walk descends", r.form.too_deep);
+    }
     if r.form.fields == 0 {
         println!("  the form declares no fields, so there is nothing to fill");
+        return;
+    }
+
+    println!("\n  {:<28} {:<5} {:<10} /V", "field (12.7.4.2)", "/FT", "/Ff");
+    for f in r.form.terminal.iter().take(50) {
+        println!(
+            "  {:<28} {:<5} {:<10} {}",
+            f.qualified_name.as_deref().unwrap_or("(unnamed)"),
+            f.field_type.as_deref().unwrap_or("—"),
+            f.flags.map_or_else(|| "—".to_string(), |n| n.to_string()),
+            f.value.as_deref().unwrap_or("(unset)")
+        );
+        // A variable-text field with no /DA anywhere has no way to draw its own value
+        // (12.7.4.3); reported per field because the form's /DA can supply it.
+        if !f.has_default_appearance && !r.form.has_default_appearance {
+            println!("      no /DA on the field or the form (12.7.4.3)");
+        }
+    }
+    if r.form.terminal.len() > 50 {
+        println!("  … and {} more", r.form.terminal.len() - 50);
     }
 }
 
@@ -155,12 +217,21 @@ pub fn render_interactive_markdown(r: &fepdf::InteractiveReport, input: &std::pa
         );
     }
 
-    if !r.annotations.by_subtype.is_empty() {
+    if !r.annotations.subtypes.is_empty() {
         println!("\n## Annotation subtypes\n");
-        println!("| Subtype | Count |");
-        println!("| :--- | ---: |");
-        for (subtype, n) in &r.annotations.by_subtype {
-            println!("| `{subtype}` | {n} |");
+        println!("| Subtype | Count | Entries read | With no reader |");
+        println!("| :--- | ---: | ---: | :--- |");
+        for sub in &r.annotations.subtypes {
+            let unread: Vec<String> =
+                sub.entries.iter().filter(|e| !e.read).map(|e| format!("`/{}`", e.key)).collect();
+            println!(
+                "| `{}` | {} | {} of {} | {} |",
+                sub.subtype,
+                sub.count,
+                sub.read(),
+                sub.entries.len(),
+                if unread.is_empty() { "—".to_string() } else { unread.join(" ") }
+            );
         }
     }
     if !r.actions.is_empty() {

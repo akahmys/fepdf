@@ -1,17 +1,25 @@
 //! Interactive features (clause 12): annotations, form fields, actions, outlines.
 //!
 //! Surveyed before it was written (`examples/interactive_survey.rs`), and the survey
-//! shaped it twice. All 29,973 annotations in the sample corpus are `/Link`, so a
+//! shaped it three times. All 29,973 annotations in the sample corpus are `/Link`, so a
 //! report that only counted annotations would say almost nothing — the subtype
 //! breakdown is the information. And no sample carries a single form field: the one
 //! `/AcroForm` present declares `/DA`, `/DR` and an **empty** `/Fields`, so the field
-//! walk here is exercised by a hand-assembled fixture rather than by the corpus.
+//! walk was exercised by a hand-assembled fixture rather than by the corpus.
 //!
-//! That gap closed from the other end. [`add_signature_field`] writes a `/FT /Sig`
-//! field into this engine's own output, so `publish sign` followed by `inspect
-//! interactive` now walks a form this engine built — which is a weaker test than a
-//! foreign file would be, since a producer only ever agrees with itself, but it is one
-//! more reader of the walk than the corpus supplies.
+//! That gap closed from two ends. [`add_signature_field`] writes a `/FT /Sig` field into
+//! this engine's own output, so `publish sign` followed by `inspect interactive` walks a
+//! form this engine built — a weaker test than a foreign file, since a producer only
+//! agrees with itself. Then the external corpus supplied four foreign fields, in four
+//! Isartor files, one `/Tx` and three `/Btn`.
+//!
+//! The third shaping is Phase J, and it changed what is reported rather than what is
+//! counted. Sixteen subtypes across both corpora and the census could distinguish none
+//! of them by anything but the name it counted them under, because [`AnnotationCensus`]
+//! was a count. It now reports, per subtype, **which entries the file writes and which
+//! of them this engine read** — and it reads them rather than claiming to: every one of
+//! the 30,055 annotations is parsed into [`crate::annotation::PdfAnnotation`], and one
+//! that will not parse is counted rather than passed over.
 //!
 //! The outline is reported as total, visible, and declared. Comparing `/Count` with
 //! the size of the tree looked like a useful check and was not: 12.3.3 defines it as
@@ -24,7 +32,7 @@ use crate::decrypt::Credentials;
 use crate::destination::{Lookup, NamedDestinations};
 use crate::document::DictHandle;
 use crate::error::{PdfError, PdfResult};
-use crate::object::Object;
+use crate::object::{FromPdfObject, Object};
 use crate::reader;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -36,10 +44,79 @@ pub struct AnnotationCensus {
     pub total: usize,
     /// Count per `/Subtype`, most frequent first.
     pub by_subtype: Vec<(String, usize)>,
+    /// Per subtype, the entries the file writes and whether this engine reads them.
+    pub subtypes: Vec<SubtypeCensus>,
     /// How many pages carry at least one.
     pub pages_with: usize,
     /// Annotations with no `/Subtype`, which 12.5.2 requires.
     pub without_subtype: usize,
+    /// Annotations whose common entries would not parse into [`crate::annotation::PdfAnnotation`].
+    ///
+    /// Counted, because "this engine reads `/AP`" is otherwise a claim about a struct
+    /// rather than about a document — the same reason `DestinationCensus::unreadable`
+    /// exists. `entries` above says the engine *has* a reader for a key; this says the
+    /// reader survived contact with the file.
+    pub unreadable: usize,
+    /// What stopped the first unreadable one, for a caller who has to act on it.
+    pub first_failure: Option<String>,
+}
+
+impl AnnotationCensus {
+    /// Distinct entries the file writes that this engine has no reader for.
+    ///
+    /// The headline number for "what does the engine not understand about the
+    /// annotations in this document", and the reason the per-subtype detail exists: a
+    /// count of annotations says how much there is, not how much of it was read.
+    #[must_use]
+    pub fn unread_entries(&self) -> usize {
+        let mut keys: Vec<&str> = self
+            .subtypes
+            .iter()
+            .flat_map(|s| s.entries.iter().filter(|e| !e.read).map(|e| e.key.as_str()))
+            .collect();
+        keys.sort_unstable();
+        keys.dedup();
+        keys.len()
+    }
+}
+
+/// One `/Subtype`, and what its annotations actually carry.
+///
+/// The count alone was the whole report until Phase J, and it said almost nothing: 16
+/// subtypes across both corpora, of which this engine could distinguish exactly none
+/// beyond the name it counted them under. What a caller needs is which *entries* were
+/// read, so a gap is a fact about a file rather than an inference from a roadmap.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SubtypeCensus {
+    /// The `/Subtype` name, or `(none)` for an annotation that omits it.
+    pub subtype: String,
+    /// How many annotations of this subtype the document carries.
+    pub count: usize,
+    /// Every entry any of them writes, most widely written first.
+    pub entries: Vec<AnnotationEntry>,
+}
+
+impl SubtypeCensus {
+    /// How many of the entries written here have a reader.
+    #[must_use]
+    pub fn read(&self) -> usize {
+        self.entries.iter().filter(|e| e.read).count()
+    }
+}
+
+/// One entry an annotation dictionary carries.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AnnotationEntry {
+    /// The key, without its slash.
+    pub key: String,
+    /// How many annotations of this subtype write it.
+    pub annotations: usize,
+    /// Whether this engine reads it into a typed field, for this subtype.
+    ///
+    /// Per subtype, because it is: `/Parent` is read on a `/Popup` and on a `/Widget`
+    /// and on nothing else, and reporting it as universally read would overstate what
+    /// the engine does with a `/Circle`.
+    pub read: bool,
 }
 
 /// Destinations (12.3.2): what the document declares, and what points at them.
@@ -94,6 +171,12 @@ impl DestinationCensus {
 }
 
 /// The interactive form (12.7), if the catalogue declares one.
+///
+/// Four terminal fields exist across both corpora — three `/Btn` and one `/Tx`, in four
+/// Isartor files — and until Phase J this counted them and read nothing out of them.
+/// Four is not many, and it is four more than the nine samples supply: the walk had been
+/// exercised only by a hand-built fixture and by this engine's own signature field,
+/// which is a producer agreeing with itself.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct FormFields {
     /// Whether `/AcroForm` is present.
@@ -104,6 +187,43 @@ pub struct FormFields {
     pub by_type: Vec<(String, usize)>,
     /// `/NeedAppearances`, when the form states it.
     pub needs_appearances: Option<bool>,
+    /// Whether the form declares a default appearance string (`/DA`) of its own.
+    pub has_default_appearance: bool,
+    /// Whether it declares the resources (`/DR`) that `/DA` is written against.
+    pub has_default_resources: bool,
+    /// Every terminal field, in the order the walk reaches them.
+    pub terminal: Vec<FormField>,
+    /// Fields whose `/Kids` nest deeper than the walk descends, and are therefore not
+    /// counted. Zero everywhere in both corpora; reported because a silent truncation is
+    /// how a count comes to mean "the ones that fitted".
+    pub too_deep: usize,
+}
+
+/// One terminal field of the form (12.7.4).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FormField {
+    /// `/T`: the field's own name — *not* the fully qualified one, which is every
+    /// ancestor's `/T` joined by full stops.
+    pub name: Option<String>,
+    /// The fully qualified name (12.7.4.2), which is what a caller filling a form needs.
+    pub qualified_name: Option<String>,
+    /// `/FT`: `Btn`, `Tx`, `Ch` or `Sig`, inherited from an ancestor when the field
+    /// itself omits it.
+    pub field_type: Option<String>,
+    /// `/Ff`: the flags of Tables 227, 228, 230 and 232, whose meaning depends on `/FT`
+    /// — bit 15 is `Radio` on a button and `Multiline` on nothing else. Reported as the
+    /// integer, because interpreting it without the type would be a guess.
+    pub flags: Option<i64>,
+    /// `/V`: the value, rendered as text. A `/Btn` holds a name, a `/Tx` a string, a
+    /// `/Ch` either, and a `/Sig` a dictionary — so this says what is there rather than
+    /// pretending the four are one type.
+    pub value: Option<String>,
+    /// Whether the field carries its own `/DA`. Required on a variable-text field when
+    /// the form has none (12.7.4.3), which is what `isartor-6-9-t01` breaks.
+    pub has_default_appearance: bool,
+    /// Whether the field is also its own widget annotation — the common case, and the
+    /// reason a form walk and an annotation walk can reach the same dictionary.
+    pub is_widget: bool,
 }
 
 /// The outline (12.3.3).
@@ -263,6 +383,8 @@ impl<'a> Tally<'a> {
 fn census_annotations(arena: &PdfArena, pages: &[Dict], tally: &mut Tally) -> AnnotationCensus {
     let mut c = AnnotationCensus::default();
     let mut by_subtype: BTreeMap<String, usize> = BTreeMap::new();
+    // subtype -> key -> how many annotations of that subtype write it.
+    let mut entries: BTreeMap<String, BTreeMap<String, usize>> = BTreeMap::new();
     for page in pages {
         let list = array_of(arena, page.get(&arena.name("Annots"))).unwrap_or_default();
         if !list.is_empty() {
@@ -271,19 +393,80 @@ fn census_annotations(arena: &PdfArena, pages: &[Dict], tally: &mut Tally) -> An
         for annot in list {
             c.total += 1;
             let Some(d) = dict_of(arena, &annot) else { continue };
-            match d.get(&arena.name("Subtype")).and_then(|s| name_of(arena, s)) {
-                Some(sub) => *by_subtype.entry(sub).or_default() += 1,
-                None => c.without_subtype += 1,
+            let subtype = match d.get(&arena.name("Subtype")).and_then(|s| name_of(arena, s)) {
+                Some(sub) => {
+                    *by_subtype.entry(sub.clone()).or_default() += 1;
+                    sub
+                }
+                None => {
+                    c.without_subtype += 1;
+                    // Counted under a name no `/Subtype` can collide with, so that an
+                    // annotation missing the entry 12.5.2 requires still reports what it
+                    // carries instead of vanishing from the detail.
+                    "(none)".to_string()
+                }
+            };
+            // Parsing, not just naming. A key the struct declares is a claim; a
+            // `PdfAnnotation` that comes back out of the arena is a measurement.
+            if let Err(why) =
+                crate::annotation::PdfAnnotation::from_pdf_object(annot.clone(), arena)
+            {
+                c.unreadable += 1;
+                c.first_failure.get_or_insert_with(|| format!("/{subtype}: {why}"));
+            }
+            let seen = entries.entry(subtype).or_default();
+            for key in d.keys() {
+                if let Some(k) = arena.get_name_str(*key) {
+                    *seen.entry(k).or_default() += 1;
+                }
             }
             record_actions(arena, &d, tally);
         }
     }
     c.by_subtype = by_subtype.into_iter().collect();
     c.by_subtype.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(&b.0)));
+
+    c.subtypes = c
+        .by_subtype
+        .iter()
+        .map(|(subtype, count)| (subtype.clone(), *count))
+        .chain((c.without_subtype > 0).then(|| ("(none)".to_string(), c.without_subtype)))
+        .map(|(subtype, count)| report_subtype(&subtype, count, entries.get(&subtype)))
+        .collect();
     c
 }
 
+/// One subtype's entries, marked against what the engine reads for that subtype.
+///
+/// What is read is asked of the structs themselves through
+/// [`crate::annotation::entries_read_for`], so it cannot drift from the code the way a
+/// hand-kept list of seven keys did.
+fn report_subtype(
+    subtype: &str,
+    count: usize,
+    written: Option<&BTreeMap<String, usize>>,
+) -> SubtypeCensus {
+    let read = crate::annotation::entries_read_for(subtype);
+    let mut entries: Vec<AnnotationEntry> = written
+        .map(|keys| {
+            keys.iter()
+                .map(|(key, n)| AnnotationEntry {
+                    read: read.contains(&key.as_str()),
+                    key: key.clone(),
+                    annotations: *n,
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    entries.sort_by(|a, b| b.annotations.cmp(&a.annotations).then(a.key.cmp(&b.key)));
+    SubtypeCensus { subtype: subtype.to_string(), count, entries }
+}
+
 /// Reads `/AcroForm`, walking `/Fields` through `/Kids` to the terminal fields.
+///
+/// `/FT`, `/Ff`, `/V` and `/DA` are **inheritable** (12.7.4.2): a field that omits one
+/// takes its parent's. The walk therefore carries the inherited state down rather than
+/// reading each dictionary alone, which is also how the qualified name is assembled.
 fn read_form(arena: &PdfArena, catalog: &Dict) -> FormFields {
     let mut form = FormFields::default();
     let Some(acro) = catalog.get(&arena.name("AcroForm")).and_then(|a| dict_of(arena, a)) else {
@@ -294,38 +477,121 @@ fn read_form(arena: &PdfArena, catalog: &Dict) -> FormFields {
         Object::Boolean(b) => Some(*b),
         _ => None,
     });
+    form.has_default_appearance = acro.contains_key(&arena.name("DA"));
+    form.has_default_resources = acro.contains_key(&arena.name("DR"));
 
     let mut by_type: BTreeMap<String, usize> = BTreeMap::new();
-    let mut queue: Vec<(Object, u32)> = array_of(arena, acro.get(&arena.name("Fields")))
+    let mut queue: Vec<(Object, u32, Inherited)> = array_of(arena, acro.get(&arena.name("Fields")))
         .unwrap_or_default()
         .into_iter()
-        .map(|f| (f, 0))
+        .map(|f| (f, 0, Inherited::default()))
         .collect();
-    while let Some((node, depth)) = queue.pop() {
+    while let Some((node, depth, inherited)) = queue.pop() {
         if depth > 64 {
+            form.too_deep += 1;
             continue;
         }
         let Some(d) = dict_of(arena, &node) else { continue };
+        let here = inherited.and(arena, &d);
         match array_of(arena, d.get(&arena.name("Kids"))) {
             // A node with /Kids that are themselves fields is not terminal. Widget
             // kids are a different thing, but they carry no /FT of their own, so
             // recursing into them costs nothing and finds nothing.
             Some(kids) if !kids.is_empty() => {
-                queue.extend(kids.into_iter().map(|k| (k, depth + 1)));
+                queue.extend(kids.into_iter().map(|k| (k, depth + 1, here.clone())));
             }
             Some(_) | None => {
                 form.fields += 1;
-                let ft = d
-                    .get(&arena.name("FT"))
-                    .and_then(|s| name_of(arena, s))
-                    .unwrap_or_else(|| "(none)".into());
-                *by_type.entry(ft).or_default() += 1;
+                *by_type
+                    .entry(here.field_type.clone().unwrap_or_else(|| "(none)".into()))
+                    .or_default() += 1;
+                form.terminal.push(FormField {
+                    name: d.get(&arena.name("T")).and_then(|t| string_of(arena, t)),
+                    qualified_name: here.qualified_name(),
+                    field_type: here.field_type.clone(),
+                    flags: here.flags,
+                    value: here.value.clone(),
+                    has_default_appearance: here.has_default_appearance,
+                    is_widget: name_of_key(arena, &d, "Subtype").as_deref() == Some("Widget"),
+                });
             }
         }
     }
     form.by_type = by_type.into_iter().collect();
     form.by_type.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(&b.0)));
     form
+}
+
+/// The field entries 12.7.4.2 lets a field take from its ancestors.
+#[derive(Debug, Clone, Default)]
+struct Inherited {
+    /// Each ancestor's `/T`, which together make the qualified name.
+    path: Vec<String>,
+    field_type: Option<String>,
+    flags: Option<i64>,
+    value: Option<String>,
+    has_default_appearance: bool,
+}
+
+impl Inherited {
+    /// This state, with anything the dictionary states itself overriding it.
+    fn and(&self, arena: &PdfArena, d: &Dict) -> Self {
+        let mut next = self.clone();
+        if let Some(t) = d.get(&arena.name("T")).and_then(|t| string_of(arena, t)) {
+            next.path.push(t);
+        }
+        if let Some(ft) = name_of_key(arena, d, "FT") {
+            next.field_type = Some(ft);
+        }
+        if let Some(Object::Integer(n)) = d.get(&arena.name("Ff")).map(|f| f.resolve(arena)) {
+            next.flags = Some(n);
+        }
+        if let Some(v) = d.get(&arena.name("V")) {
+            next.value = Some(render_value(arena, v));
+        }
+        next.has_default_appearance |= d.contains_key(&arena.name("DA"));
+        next
+    }
+
+    /// The fully qualified name (12.7.4.2): every ancestor's `/T`, joined by full stops.
+    /// A field with no `/T` anywhere in its chain has none, which is legal.
+    fn qualified_name(&self) -> Option<String> {
+        (!self.path.is_empty()).then(|| self.path.join("."))
+    }
+}
+
+/// `/V` as text, saying what kind of value it is when it is not one.
+///
+/// The four field types hold four different things — a name, a string, either, and a
+/// signature dictionary — and a reader that returned `Option<String>` from only the
+/// string case would report a checked checkbox and an unsigned signature identically as
+/// "no value".
+fn render_value(arena: &PdfArena, value: &Object) -> String {
+    match value.resolve(arena) {
+        Object::Name(h) => arena.get_name_str(h).map_or_else(|| "/?".into(), |n| format!("/{n}")),
+        Object::String(_) | Object::Hex(_) => {
+            string_of(arena, value).unwrap_or_else(|| "(unreadable)".into())
+        }
+        Object::Array(h) => {
+            format!("({} values)", arena.get_array(h).map_or(0, |a| a.len()))
+        }
+        Object::Dictionary(..) | Object::Stream(..) => "(dictionary)".into(),
+        other => format!("{other:?}"),
+    }
+}
+
+fn name_of_key(arena: &PdfArena, d: &Dict, key: &str) -> Option<String> {
+    d.get(&arena.name(key)).and_then(|v| name_of(arena, v))
+}
+
+/// A text string (7.9.2.2), decoded the way the rest of the engine decodes one — by
+/// byte order mark, or PDFDocEncoding from Annex D.
+fn string_of(arena: &PdfArena, object: &Object) -> Option<String> {
+    match object.resolve(arena) {
+        Object::Text(s) => Some(s),
+        Object::String(b) | Object::Hex(b) => Some(crate::refine::text::recover_string(&b)),
+        _ => None,
+    }
 }
 
 /// Reads `/Outlines`, comparing what `/Count` claims with what the links reach.
@@ -694,7 +960,8 @@ mod tests {
         ); // 1
         push("<< /Type /Pages /Kids [3 0 R] /Count 1 >>".into()); // 2
         push(
-            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Annots [4 0 R 5 0 R] >>".into(),
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Annots [4 0 R 5 0 R 11 0 R] >>"
+                .into(),
         ); // 3
         push(
             "<< /Type /Annot /Subtype /Link /Rect [0 0 10 10] \
@@ -710,9 +977,15 @@ mod tests {
         push("null".into()); // 9
 
         push("<< /Fields [11 0 R 12 0 R] /NeedAppearances true >>".into()); // 10 AcroForm
-        push("<< /FT /Tx /T (name) >>".into()); // 11 terminal
-        push("<< /T (group) /Kids [13 0 R 14 0 R] >>".into()); // 12 non-terminal
-        push("<< /FT /Btn /T (yes) >>".into()); // 13
+        // Every entry `FIELD_ENTRIES_READ` claims, on one field, and it is its own
+        // widget — the shape all four fields in the external corpus take.
+        push(
+            "<< /Type /Annot /Subtype /Widget /Rect [0 0 20 20] /FT /Tx /T (name) /Ff 4097               /V (typed in) /DA (/Helv 0 Tf 0 g) >>"
+                .into(),
+        ); // 11 terminal
+        // /FT and /Ff are inheritable (12.7.4.2): the kids state neither.
+        push("<< /T (group) /FT /Btn /Ff 32768 /Kids [13 0 R 14 0 R] >>".into()); // 12
+        push("<< /T (yes) /V /On >>".into()); // 13
         push("<< /FT /Sig /T (sig) >>".into()); // 14
 
         for _ in 15..20 {
@@ -746,12 +1019,94 @@ mod tests {
     #[test]
     fn annotations_are_counted_by_subtype() {
         let r = InteractiveReport::survey(&interactive_document()).expect("reads");
-        assert_eq!(r.annotations.total, 2);
+        assert_eq!(r.annotations.total, 3);
         assert_eq!(r.annotations.pages_with, 1);
         assert_eq!(r.annotations.without_subtype, 0);
         let subtypes: Vec<&str> =
             r.annotations.by_subtype.iter().map(|(s, _)| s.as_str()).collect();
         assert!(subtypes.contains(&"Link") && subtypes.contains(&"Text"));
+        assert!(subtypes.contains(&"Widget"), "the /Tx field is its own widget");
+    }
+
+    /// The claim that an entry is "read" is checked by reading it.
+    ///
+    /// `entries` is derived from the structs, so it says what the engine *declares* a
+    /// reader for. Whether that reader survives a real dictionary is a different
+    /// question, and the answer across both corpora is that all 30,055 annotations
+    /// parse. Injecting a defect — `/Border` demanding five elements instead of three —
+    /// takes `volvo_xc90.pdf` from 0 unreadable to 844.
+    #[test]
+    fn an_annotation_that_will_not_parse_is_counted_rather_than_passed_over() {
+        let r = InteractiveReport::survey(&interactive_document()).expect("reads");
+        assert_eq!(r.annotations.unreadable, 0, "{:?}", r.annotations.first_failure);
+        assert_eq!(r.annotations.total, 3);
+    }
+
+    /// Per subtype, which entries the file writes and which of them were read.
+    ///
+    /// The census counted annotations and stopped, which said nothing about how much of
+    /// one the engine understood: 16 subtypes across both corpora and not one of them
+    /// distinguishable by anything but the name it was counted under.
+    #[test]
+    fn each_subtype_reports_the_entries_it_carries_and_whether_they_were_read() {
+        let r = InteractiveReport::survey(&interactive_document()).expect("reads");
+        let link = r
+            .annotations
+            .subtypes
+            .iter()
+            .find(|s| s.subtype == "Link")
+            .expect("the /Link is reported");
+        let entry = |key: &str| link.entries.iter().find(|e| e.key == key);
+        assert!(entry("A").is_some_and(|e| e.read), "12.5.6.5 defines /A on a link");
+        assert!(entry("Rect").is_some_and(|e| e.read), "Table 166");
+        assert!(entry("Type").is_some_and(|e| e.read), "/Type is read, not /kind");
+
+        // A `/Text` is a markup annotation, so its own subtype entries are unread while
+        // Table 172's are read — the distinction the per-subtype report exists to make.
+        let text = r.annotations.subtypes.iter().find(|s| s.subtype == "Text").expect("reported");
+        assert!(text.entries.iter().all(|e| e.read), "it writes only common entries");
+    }
+
+    /// The entries `FIELD_ENTRIES_READ` claims are the ones the walk actually reads.
+    ///
+    /// The list cannot be derived — the reader is a walk, not a struct — so it is
+    /// checked. Field 11 writes every one of them.
+    #[test]
+    fn the_widget_entries_this_engine_reads_are_the_ones_the_form_walk_reads() {
+        let r = InteractiveReport::survey(&interactive_document()).expect("reads");
+        let field = r
+            .form
+            .terminal
+            .iter()
+            .find(|f| f.qualified_name.as_deref() == Some("name"))
+            .expect("the /Tx field is walked");
+        assert_eq!(field.field_type.as_deref(), Some("Tx"), "/FT");
+        assert_eq!(field.flags, Some(4097), "/Ff");
+        assert_eq!(field.value.as_deref(), Some("typed in"), "/V");
+        assert!(field.has_default_appearance, "/DA");
+        assert!(field.is_widget, "it is its own widget annotation");
+        assert!(
+            r.form.terminal.iter().any(|f| f.qualified_name.as_deref() == Some("group.yes")),
+            "/Kids: {:?}",
+            r.form.terminal
+        );
+    }
+
+    /// `/FT`, `/Ff` and `/V` are inheritable (12.7.4.2), and a kid that states none of
+    /// them is not a field of no type.
+    #[test]
+    fn a_field_takes_what_its_parent_declares() {
+        let r = InteractiveReport::survey(&interactive_document()).expect("reads");
+        let kid = r
+            .form
+            .terminal
+            .iter()
+            .find(|f| f.qualified_name.as_deref() == Some("group.yes"))
+            .expect("the kid is walked");
+        assert_eq!(kid.field_type.as_deref(), Some("Btn"), "inherited from /Parent");
+        assert_eq!(kid.flags, Some(32768), "inherited");
+        assert_eq!(kid.value.as_deref(), Some("/On"), "its own /V, a name not a string");
+        assert!(!kid.has_default_appearance, "neither it nor its parent writes /DA");
     }
 
     #[test]
@@ -764,6 +1119,7 @@ mod tests {
         assert_eq!(r.form.fields, 3, "one direct, two under /Kids: {:?}", r.form.by_type);
         let kinds: Vec<&str> = r.form.by_type.iter().map(|(s, _)| s.as_str()).collect();
         assert!(kinds.contains(&"Tx") && kinds.contains(&"Btn") && kinds.contains(&"Sig"));
+        assert_eq!(r.form.too_deep, 0);
     }
 
     #[test]

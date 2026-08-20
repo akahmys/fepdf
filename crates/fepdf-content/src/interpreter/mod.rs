@@ -64,6 +64,14 @@ pub struct Interpreter<'a> {
     pub(crate) in_type3_glyph: bool,
     /// The initial transformation matrix (device transform).
     pub(crate) initial_transform: kurbo::Affine,
+    /// The page's area in square points, when the caller knows which page this is.
+    ///
+    /// Only one thing reads it: an image the engine cannot decode reports **how much of
+    /// the page it would have covered**, which is the difference between "a picture was
+    /// dropped" and "62% of this page is missing". Optional because the interpreter also
+    /// runs over form XObjects and Type 3 glyph streams, where there is no page to be a
+    /// fraction of.
+    pub(crate) page_area: Option<f64>,
 }
 
 impl<'a> Interpreter<'a> {
@@ -99,7 +107,17 @@ impl<'a> Interpreter<'a> {
             type3_advance: None,
             in_type3_glyph: false,
             initial_transform,
+            page_area: None,
         }
+    }
+
+    /// Tells the interpreter how large the page is, in square points.
+    ///
+    /// A setter rather than a constructor argument: `Interpreter::new` has six callers
+    /// and five of them have no page — the remediation walks, the visual audit and the
+    /// sample renderers all drive it over content they have already chosen.
+    pub fn set_page_area(&mut self, area: f64) {
+        self.page_area = (area > 0.0).then_some(area);
     }
 
     pub(crate) fn update_backend_transform(&mut self) {

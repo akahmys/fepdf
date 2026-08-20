@@ -1,5 +1,7 @@
 pub mod conformance;
 /// ISO 32000-2 Extended domain models.
+/// What the catalogue's entries hold (Table 29), read.
+pub mod entries;
 pub mod extensions;
 /// Pages and the page tree.
 pub mod page;
@@ -40,39 +42,54 @@ pub struct Provenance {
 }
 
 /// Refined PDF Catalog (Root) Dictionary (ISO 32000-2:2020 Clause 7.7.2)
-#[derive(Debug, Clone, FromPdfObject)]
+///
+/// `Serialize` so that what the engine *read* can be compared, not just which keys
+/// survived. `crosscheck_selfread.sh` compared the catalogue key for key and by the
+/// shape of each value, which is all it could do while 26 of the 32 entries were
+/// `Option<Object>`; now that they are read, a save that preserved `/MarkInfo` as a
+/// dictionary while losing `/Marked` inside it is a difference something can see.
+#[derive(Debug, Clone, FromPdfObject, serde::Serialize)]
 #[pdf_dict(clause = "7.7.2")]
 pub struct PdfCatalog {
     #[pdf_key("Pages")]
-    /// `/Pages`: root of the page tree.
-    pub pages: Handle<Object>,
+    /// `/Pages`: root of the page tree (7.7.3.2).
+    ///
+    /// What the root *declares* — the page count it claims, and the attributes its pages
+    /// inherit. The pages themselves are `Document::pages`, with inheritance already
+    /// resolved into each one (ADR-0013).
+    pub pages: Option<entries::Located<entries::PageTreeRoot>>,
     #[pdf_key("StructTreeRoot")]
-    /// `/StructTreeRoot`: root of the logical structure tree.
-    pub struct_tree_root: Option<Handle<Object>>,
+    /// `/StructTreeRoot`: root of the logical structure tree (14.7.4.2).
+    pub struct_tree_root: Option<entries::Located<entries::StructTreeRoot>>,
     #[pdf_key("MarkInfo")]
-    /// `/MarkInfo`: whether the document is tagged.
-    pub mark_info: Option<Object>,
+    /// `/MarkInfo`: whether the document is tagged (14.7.1).
+    pub mark_info: Option<entries::MarkInfo>,
     #[pdf_key("Metadata")]
-    /// `/Metadata`: the XMP metadata stream.
-    pub metadata: Option<Object>,
+    /// `/Metadata`: the XMP metadata stream (14.3.2), decoded and read.
+    pub metadata: Option<entries::XmpMetadata>,
     #[pdf_key("Version")]
-    /// `/Version`: a version overriding the file header.
-    pub version: Option<Handle<PdfName>>,
+    /// `/Version`: a version overriding the file header (7.7.2). The later of the two
+    /// wins, so a reader that ignores it reads a 2.0 file as whatever the header says.
+    pub version: Option<entries::DeclaredVersion>,
     #[pdf_key("AcroForm")]
-    /// `/AcroForm`: interactive form definition.
-    pub acro_form: Option<Object>,
+    /// `/AcroForm`: the interactive form's own settings (12.7.2). The fields are walked
+    /// by [`crate::interactive::FormFields`], which needs the whole document.
+    pub acro_form: Option<entries::AcroForm>,
     #[pdf_key("Names")]
-    /// `/Names`: the document's name dictionaries.
-    pub names: Option<Object>,
+    /// `/Names`: which of Table 31's name trees the document declares, and how many
+    /// names each holds (7.7.4).
+    pub names: Option<entries::NameDictionary>,
     #[pdf_key("Outlines")]
-    /// `/Outlines`: the bookmark tree.
-    pub outlines: Option<Object>,
+    /// `/Outlines`: what the root of the bookmark tree declares (12.3.3). The tree is
+    /// walked by [`crate::interactive::Outline`], which compares `/Count` with it.
+    pub outlines: Option<entries::OutlineRoot>,
     #[pdf_key("OpenAction")]
-    /// `/OpenAction`: action performed when the document opens.
-    pub open_action: Option<Object>,
+    /// `/OpenAction`: what happens when the document opens (12.6) — a destination
+    /// written in place, or an action. Both forms occur in the corpus.
+    pub open_action: Option<entries::TriggeredAction>,
     #[pdf_key("AA")]
-    /// `/AA`: additional actions triggered by document events.
-    pub additional_actions: Option<Object>,
+    /// `/AA`: actions triggered by document events (12.6.3, Table 197).
+    pub additional_actions: Option<entries::AdditionalActions>,
     #[pdf_key("PageMode")]
     /// `/PageMode`: what a viewer shows beside the page when the document opens.
     pub page_mode: Option<PageMode>,
@@ -96,17 +113,19 @@ pub struct PdfCatalog {
     /// `/Type`: the type of PDF object this dictionary describes; must be `Catalog` (7.7.2).
     pub catalog_type: Option<Handle<PdfName>>,
     #[pdf_key("PageLabels")]
-    /// `/PageLabels`: number tree mapping page indices to page labels (12.4.2).
-    pub page_labels: Option<Object>,
+    /// `/PageLabels`: what a viewer shows instead of a page index (12.4.2), as the
+    /// ranges the number tree holds.
+    pub page_labels: Option<entries::PageLabels>,
     #[pdf_key("Threads")]
-    /// `/Threads`: array of article thread dictionaries (12.4.3).
-    pub threads: Option<Object>,
+    /// `/Threads`: the articles the document defines (12.4.3).
+    pub threads: Option<entries::ArticleThreads>,
     #[pdf_key("OutputIntents")]
-    /// `/OutputIntents`: array of output intent dictionaries (14.11.2).
-    pub output_intents: Option<Object>,
+    /// `/OutputIntents`: what the file was prepared to be printed on (14.11.5), and
+    /// which standard each intent claims.
+    pub output_intents: Option<entries::OutputIntents>,
     #[pdf_key("OCProperties")]
-    /// `/OCProperties`: optional content properties dictionary (8.11).
-    pub oc_properties: Option<Object>,
+    /// `/OCProperties`: the optional content the document defines (8.11.4.3).
+    pub oc_properties: Option<entries::OptionalContent>,
     #[pdf_key("Collection")]
     /// `/Collection`: collection dictionary for document portfolios (12.3.5).
     pub collection: Option<Object>,
@@ -165,7 +184,7 @@ pub struct PdfCatalog {
 /// scalars rather than a subsystem — unlike `DSS`, `AF` and `DPartRoot`, which are
 /// absent from the corpus *and* would each need machinery, which is why Phase D leaves
 /// them for later.
-#[derive(Debug, Clone, FromPdfObject)]
+#[derive(Debug, Clone, FromPdfObject, serde::Serialize)]
 #[pdf_dict(clause = "12.2")]
 pub struct ViewerPreferences {
     #[pdf_key("HideToolbar")]
@@ -458,6 +477,17 @@ pub struct Document {
 }
 
 impl Document {
+    /// Records a decision taken about this document, through a shared reference.
+    ///
+    /// The interpreter holds `&Document` and departs from the standard while it runs —
+    /// an image whose filter this engine cannot decode is skipped, and the page's text
+    /// survives because of it. That departure belongs in the same log as the ones the
+    /// reader takes, so that one question — "what did the engine decide about this
+    /// file" — has one answer (`ARCHITECTURE.md` §5.3, ADR-0018).
+    pub fn record(&self, decision: crate::interpretation::Decision) {
+        self.decisions.push(decision);
+    }
+
     /// Creates a new document wrapper.
     pub fn new(arena: PdfArena, root: Handle<Object>, info: Option<Handle<Object>>) -> Self {
         Self {
@@ -488,13 +518,7 @@ impl Document {
             root,
             info,
             pages: Vec::new(),
-            decisions: {
-                let mut log = crate::interpretation::DecisionLog::default();
-                for d in issues {
-                    log.push(d);
-                }
-                log
-            },
+            decisions: crate::interpretation::DecisionLog::from(issues),
             system_fonts: Arc::new(BTreeMap::new()),
             font_cache: Arc::new(RwLock::new(BTreeMap::new())),
             force_fallback: false,
@@ -1123,10 +1147,37 @@ impl Document {
     }
 
     /// Returns a list of all page object handles in the document.
+    ///
+    /// **A page tree that will not walk is recorded, not swallowed.** Both failures here
+    /// were `if let Ok(..)` and `let _ =`, which is the shape that cost this engine a
+    /// catalogue and eleven objects once already (Phase G). It cost pages too:
+    /// `UnknownFilter-xrefstm.pdf` names `/Pages 5 0 R`, object 5 was indexed only by a
+    /// cross-reference stream written with `/XXXDecode`, and the recovery scan does not
+    /// find it — so the walk failed, the failure was dropped, and `inspect info` reported
+    /// **"Pages: 0"** about a file that has one. Reported as a `Violation`: something was
+    /// lost, and 7.7.3.2 requires a page tree with at least one leaf, so this cannot fire
+    /// on a conforming document.
     pub fn find_all_pages(&self) -> Vec<Handle<Object>> {
         let mut pages = Vec::new();
-        if let Ok(root) = self.get_pages_root() {
-            let _ = self.walk_pages_recursive(root, &mut pages, 0);
+        match self.get_pages_root() {
+            Ok(root) => {
+                if let Err(why) = self.walk_pages_recursive(root, &mut pages, 0) {
+                    self.record(crate::interpretation::Decision::violation(
+                        "7.7.3.2",
+                        format!("the page tree could not be walked: {why}"),
+                        format!(
+                            "kept the {} pages reached before it stopped; the rest of the \
+                             tree is not in this document",
+                            pages.len()
+                        ),
+                    ));
+                }
+            }
+            Err(why) => self.record(crate::interpretation::Decision::violation(
+                "7.7.3.2",
+                format!("the catalogue's page tree could not be reached: {why}"),
+                "reported the document as having no pages, because none can be found",
+            )),
         }
         pages
     }
@@ -1182,8 +1233,15 @@ impl Document {
             .arena
             .get_object(self.root)
             .ok_or_else(|| PdfError::Other("Missing document catalog".into()))?;
-        let catalog = PdfCatalog::from_pdf_object(catalog_obj, &self.arena)?;
-        Ok(catalog.pages)
+        // The one entry, not the whole catalogue: a document's pages must not become
+        // unreachable because some other entry of Table 29 will not parse.
+        entries::entry::<entries::Located<entries::PageTreeRoot>>(
+            &self.arena,
+            &catalog_obj,
+            "Pages",
+        )?
+        .and_then(|p| p.reference)
+        .ok_or_else(|| PdfError::Other("The catalogue names no page tree (7.7.2)".into()))
     }
 
     fn get_node_count(&self, dict: &BTreeMap<Handle<PdfName>, Object>) -> usize {
@@ -1204,6 +1262,13 @@ impl Document {
     }
 
     /// Returns high-level compliance information about the document.
+    ///
+    /// A catalogue that will not read as Table 29 yields the default rather than an
+    /// error. "This document does not say it is tagged" is what a catalogue nobody can
+    /// read amounts to, and the failure itself is already reported — `audit/compliance.rs`
+    /// parses the same catalogue and records what stopped it as an issue, with the entry
+    /// named. No `Decision` is raised here: a decision site in a method nothing calls
+    /// would inflate the count in `status.sh` with something that can never fire.
     pub fn compliance_info(&self) -> PdfResult<conformance::ComplianceInfo> {
         let mut info = conformance::ComplianceInfo::default();
 
@@ -1211,31 +1276,19 @@ impl Document {
             .arena
             .get_object(self.root)
             .ok_or_else(|| PdfError::Other("Missing document catalog".into()))?;
-        let catalog = PdfCatalog::from_pdf_object(catalog_obj, &self.arena)?;
+        let Ok(catalog) = PdfCatalog::from_pdf_object(catalog_obj, &self.arena) else {
+            return Ok(info);
+        };
 
         // 1. Check for /StructTreeRoot
         info.has_struct_tree = catalog.struct_tree_root.is_some();
 
-        // 2. Check for /MarkInfo -> /Marked true
-        if let Some(mark_info_obj) = catalog.mark_info {
-            let marked_key = self.arena.name("Marked");
-            if let Some(mark_dict) = mark_info_obj
-                .resolve(&self.arena)
-                .as_dict_handle()
-                .and_then(|h| self.arena.get_dict(h))
-                && let Some(marked) =
-                    mark_dict.get(&marked_key).and_then(|o| o.resolve(&self.arena).as_bool())
-            {
-                info.is_marked = marked;
-            }
-        }
+        // 2. Check for /MarkInfo -> /Marked true. Eleven lines of raw-dictionary walking
+        // until `/MarkInfo` was typed (Phase K); the entry says this itself now.
+        info.is_marked = catalog.mark_info.and_then(|m| m.marked).unwrap_or(false);
 
         // 3. Extract Metadata Conformance
-        let pdf_20 = catalog
-            .version
-            .and_then(|n| self.arena.get_name(n))
-            .map(|n| n.as_str() == "2.0")
-            .unwrap_or(false);
+        let pdf_20 = catalog.version.and_then(|v| v.numbers()) == Some((2, 0));
 
         if info.has_struct_tree && pdf_20 {
             info.metadata.pdf_ua_part = Some(2);
@@ -1245,13 +1298,20 @@ impl Document {
     }
 
     /// Returns the handle to the Structure Tree Root dictionary, if it exists.
+    ///
+    /// The one entry, for the reason `get_pages_root` gives: auditing a document's
+    /// structure must not depend on the legibility of `/MarkInfo`.
     pub fn get_structure_root(&self) -> PdfResult<Option<Handle<Object>>> {
         let catalog_obj = self
             .arena
             .get_object(self.root)
             .ok_or_else(|| PdfError::Other("Missing document catalog".into()))?;
-        let catalog = PdfCatalog::from_pdf_object(catalog_obj, &self.arena)?;
-        Ok(catalog.struct_tree_root)
+        Ok(entries::entry::<entries::Located<entries::StructTreeRoot>>(
+            &self.arena,
+            &catalog_obj,
+            "StructTreeRoot",
+        )?
+        .and_then(|s| s.reference))
     }
 
     /// Returns the document metadata.

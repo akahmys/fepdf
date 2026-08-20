@@ -111,45 +111,112 @@ impl std::fmt::Display for Decision {
 }
 
 /// Every decision taken while reading one document.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+///
+/// **Behind a lock, so that a decision taken through `&Document` can still be
+/// recorded.** Reading a file is not the only moment the engine departs from the
+/// standard: interpreting a page skips an image whose filter it cannot decode, and the
+/// interpreter holds a shared reference. Until this lock existed that departure reached
+/// `log::debug!` and nothing else — §5.3 says the engine records rather than logs, and
+/// one place in it could not. The alternative was to return the decisions from
+/// `render_page` and `extract_text`, which puts a departure somewhere `inspect
+/// structure` will not print and changes every caller's signature to carry a note about
+/// a picture (ADR-0018).
+///
+/// The consequence is that the log **grows as the document is used**, so
+/// [`DecisionLog::is_conforming`] answers "no departure in what has been examined"
+/// rather than "no departure". That was always true — a file whose pages are never
+/// interpreted has never been fully read — and the lock makes it visible rather than
+/// introducing it.
+#[derive(Default)]
 pub struct DecisionLog {
-    entries: Vec<Decision>,
+    entries: parking_lot::Mutex<Vec<Decision>>,
 }
 
 impl DecisionLog {
-    /// Records a decision.
-    pub fn push(&mut self, decision: Decision) {
+    /// Records a decision. Takes `&self`, so a shared reference is enough.
+    pub fn push(&self, decision: Decision) {
         log::debug!("{decision}");
-        self.entries.push(decision);
+        self.entries.lock().push(decision);
     }
 
-    /// Every decision, in the order they were taken.
-    #[must_use]
     /// Consumes the log, yielding the decisions it recorded.
+    #[must_use]
     pub fn into_entries(self) -> Vec<Decision> {
-        self.entries
+        self.entries.into_inner()
     }
 
     /// The decisions recorded so far, in the order they were taken.
-    pub fn entries(&self) -> &[Decision] {
-        &self.entries
+    ///
+    /// A snapshot rather than a borrow: the log is behind a lock, and a caller holding
+    /// a guard while interpreting a page would deadlock against the interpreter that
+    /// records into it. Logs are small — 11 decisions across 251 files of both corpora
+    /// — so copying one is not a cost worth designing around.
+    #[must_use]
+    pub fn entries(&self) -> Vec<Decision> {
+        self.entries.lock().clone()
     }
 
-    /// Whether the document was read without any departure from the standard.
+    /// How many decisions have been recorded.
+    #[must_use]
+    pub fn len(&self) -> usize {
+        self.entries.lock().len()
+    }
+
+    /// Whether nothing has been recorded. The same question as
+    /// [`DecisionLog::is_conforming`], under the name a reader of a collection expects.
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.entries.lock().is_empty()
+    }
+
+    /// Whether the document was read without any departure from the standard **in what
+    /// has been examined so far**. See the type's documentation.
     #[must_use]
     pub fn is_conforming(&self) -> bool {
-        self.entries.is_empty()
+        self.entries.lock().is_empty()
     }
 
     /// Decisions at or above `severity`.
-    pub fn at_least(&self, severity: Severity) -> impl Iterator<Item = &Decision> + '_ {
-        self.entries.iter().filter(move |d| d.severity >= severity)
+    #[must_use]
+    pub fn at_least(&self, severity: Severity) -> Vec<Decision> {
+        self.entries.lock().iter().filter(|d| d.severity >= severity).cloned().collect()
     }
 
     /// Whether `strictness` should reject a document carrying these decisions.
     #[must_use]
     pub fn rejects_under(&self, strictness: Strictness) -> bool {
-        strictness == Strictness::Strict && self.at_least(Severity::Violation).next().is_some()
+        strictness == Strictness::Strict
+            && self.entries.lock().iter().any(|d| d.severity >= Severity::Violation)
+    }
+}
+
+impl std::fmt::Debug for DecisionLog {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_tuple("DecisionLog").field(&*self.entries.lock()).finish()
+    }
+}
+
+impl Clone for DecisionLog {
+    fn clone(&self) -> Self {
+        Self { entries: parking_lot::Mutex::new(self.entries.lock().clone()) }
+    }
+}
+
+impl From<Vec<Decision>> for DecisionLog {
+    fn from(entries: Vec<Decision>) -> Self {
+        Self { entries: parking_lot::Mutex::new(entries) }
+    }
+}
+
+impl Serialize for DecisionLog {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        self.entries.lock().serialize(serializer)
+    }
+}
+
+impl<'de> Deserialize<'de> for DecisionLog {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        Vec::<Decision>::deserialize(deserializer).map(Self::from)
     }
 }
 
@@ -166,7 +233,7 @@ mod tests {
 
     #[test]
     fn lenient_accepts_what_strict_refuses() {
-        let mut log = DecisionLog::default();
+        let log = DecisionLog::default();
         log.push(Decision::violation(
             "9.6.2",
             "font dictionary with no /Subtype",
@@ -180,7 +247,7 @@ mod tests {
     fn repairs_alone_do_not_fail_a_strict_read() {
         // A wrong /Length is repairable without losing anything, so it must not
         // reject a document that a producer would otherwise consider valid output.
-        let mut log = DecisionLog::default();
+        let log = DecisionLog::default();
         log.push(Decision::repaired(
             "7.3.8.2",
             "/Length 5, stream ran 4096 bytes",
@@ -192,11 +259,11 @@ mod tests {
 
     #[test]
     fn severity_filtering_is_ordered() {
-        let mut log = DecisionLog::default();
+        let log = DecisionLog::default();
         log.push(Decision::ambiguity("", "text string without BOM", "decoded as PDFDocEncoding"));
         log.push(Decision::violation("9.6.2", "missing /Subtype", "treated as Type1"));
-        assert_eq!(log.at_least(Severity::Ambiguity).count(), 2);
-        assert_eq!(log.at_least(Severity::Violation).count(), 1);
+        assert_eq!(log.at_least(Severity::Ambiguity).len(), 2);
+        assert_eq!(log.at_least(Severity::Violation).len(), 1);
     }
 
     #[test]

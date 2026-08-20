@@ -1,10 +1,8 @@
 //! FlateDecode Filter (ISO 32000-2:2020 Clause 7.4.4)
 
 use crate::PdfResult;
-use crate::arena::PdfArena;
 use crate::error::PdfError;
-use crate::filters::{DecodingFilter, predictor};
-use crate::object::Object;
+use crate::filters::{DecodingFilter, FilterContext, predictor};
 use bytes::Bytes;
 use flate2::read::ZlibDecoder;
 use std::io::Read;
@@ -15,7 +13,8 @@ const MAX_DECOMPRESSED_SIZE: u64 = 128 * 1024 * 1024; // 128 MB
 pub struct FlateFilter;
 
 impl DecodingFilter for FlateFilter {
-    fn decode(&self, input: &[u8], params: Option<&Object>, arena: &PdfArena) -> PdfResult<Bytes> {
+    fn decode(&self, input: &[u8], cx: &FilterContext<'_>) -> PdfResult<Bytes> {
+        let (params, arena) = (cx.params, cx.arena);
         let mut decoder = ZlibDecoder::new(input).take(MAX_DECOMPRESSED_SIZE + 1);
         let mut decoded = Vec::new();
 

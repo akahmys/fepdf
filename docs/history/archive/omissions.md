@@ -1,3 +1,34 @@
+> **Archived 2026-08-20, and not maintained.** This is a record of an earlier effort, in
+> the sense `PLANNING.md` uses of everything under `docs/history/archive/`. It is kept
+> because deleting the evidence of a documentation failure removes the only proof that it
+> happened — the same reason `ROADMAP.md`'s "Not planned" list keeps its struck-through
+> entry for a feature that got built.
+>
+> **Almost every specific claim below is false**, and was when written. It belongs to the
+> era `ROADMAP.md` describes under "How this roadmap differs from its predecessor": the
+> roadmap that marked twenty-seven phases complete against work that did not survive
+> measurement. Twelve claims were checked on 2026-08-20 and none of them held:
+>
+> | Claim | What is true |
+> | :--- | :--- |
+> | CCITTFax and JBIG2 "fully implemented in Phase 12" via `fax` and `justbig2` | `justbig2` has never been in `Cargo.lock`. `CCITTFaxDecode` was implemented for the first time in Phase M, through `hayro-ccitt`. **JBIG2 is not implemented.** |
+> | JPXDecode "supported ... via hayro-jpeg2000" | Not a dependency. `inspect structure` reports `decoded: NO` for it. |
+> | "Unimplemented Items: `RunLengthDecode`" | It is implemented — `filters/runlength.rs`. |
+> | ICCBased "fully supported (via lcms2-rs)" | `lcms2` is not in `Cargo.lock`. |
+> | Mesh gradients types 4–7, "recursive subdivision of Coons Patches and Tensor-Product Patches" | The interpreter reads shading **types 2 and 3**. `MeshShadingType` exists as an argument to an `Operation` that *writes* one, which is a different thing. |
+> | Type 3 fonts "excluded due to the risk of recursive calls" | The interpreter executes Type 3 glyph streams (`in_type3_glyph`, `type3_advance`). |
+> | "all internal processing has been replaced with iterative processing ... completely eliminates concerns about stack overflows" | The page tree and name tree walks recurse, bounded at depth 32 and 64. That satisfies `CODING.md` Rule 6, which forbids *unbounded* recursion — the claim overstates both the rule and the compliance. |
+> | AcroForm "APIs for bulk retrieval (export) and setting (import) of field values ... in JSON format" | No such API exists. |
+> | Signatures verified with "`rsa` / `ed25519-dalek`" | `ed25519-dalek` is not in `Cargo.lock`. |
+> | RichMedia and 3D "validation via the Arlington model" | Arlington is a shell wrapper around an external Python tool (`scripts/audit/arlington_audit.sh`). Nothing in the engine reads it. |
+> | "Arlington Predicates: In Phase 17, an AST parser and recursive evaluation engine using `nom` were fully implemented" | There is no predicate parser. `nom` parses content streams (`object/sublimation/resurrection.rs`). |
+> | "`TaggedPdfValidator` verifies compliance with Clause 14.8" | No such type. The UA-2 auditor is `MatterhornAuditor`. |
+>
+> What the engine actually supports is in [`ROADMAP.md`](../../../ROADMAP.md), clause by
+> clause, and `./scripts/dev/status.sh` re-derives the figures it quotes so a stale one
+> shows up as a disagreement. There is deliberately no second document saying what is
+> implemented; this file is what the second one becomes.
+
 # Implementation Limits and Simplifications Regarding ISO 32000-2 Compliance
 
 This document records the items where intentional simplifications or limitations have been established relative to the full implementation of the ISO 32000-2:2020 (PDF 2.0) specification in the development of the fepdf PDF engine. These decisions are the result of prioritizing compliance with the Reliable Rust-15 (RR-15) coding rules and ensuring deterministic behavior in mission-critical environments.
