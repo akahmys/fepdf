@@ -343,15 +343,19 @@ of the standard, it records why, at the point of decision, with the clause. A si
 acceptance is a defect even when the output is right, because the next reader of the
 code cannot tell a deliberate choice from an oversight.
 
-**Current coverage is 58 sites**, up from one: `reader.rs` 17, `refine/color.rs` 12,
-`font/mod.rs` 8, `decrypt.rs` 6, `document.rs` 4, `interpreter/ops/xobject.rs` 3,
-`object/sublimation/parser.rs` 3, `ingest/mod.rs` 2, `metadata.rs` 2,
-`refine/mod.rs` 1. The three in `fepdf-content` are the newest and the reason the
+**Current coverage is 64 sites**, up from one: `reader.rs` 17, `refine/color.rs` 12,
+`font/mod.rs` 8, `decrypt.rs` 6, `document.rs` 4, `interpreter/ops/xobject.rs` 4,
+`object/sublimation/parser.rs` 3, `optional_content.rs` 3, `ingest/mod.rs` 2,
+`interpreter/ops/marked.rs` 2, `metadata.rs` 2, `refine/mod.rs` 1 (2026-08-21). The three in `fepdf-content` are the newest and the reason the
 count moved: an image whose filter this engine cannot decode is skipped so that the
 page's text survives, and that skip is now recorded rather than logged
 ([ADR-0018](docs/adr/0018-interpreting-a-page-can-add-to-the-decision-log.md)). The
-`status.sh` row had to learn to search that crate before it could see them. This
-paragraph read 39 while
+`status.sh` row had to learn to search that crate before it could see them. The five
+newest are optional content (8.11): three where `/OCProperties` or its default
+configuration will not read, and two where a `/OC` entry names no group this engine can
+find — each of which draws the content rather than hiding it, so the log is the only place
+the doubt is visible ([ADR-0021](docs/adr/0021-optional-content-hides-only-what-the-document-unambiguously-turns-off.md)).
+This paragraph read 39 while
 `status.sh` reported 53 — the drift the row exists to surface, surfaced and then not
 folded back, and the larger half of it is a whole file the list never had:
 `refine/color.rs` records clause 8.6 twice per defect, the `Violation` under
@@ -511,6 +515,14 @@ handle glyph mapping, Japanese fallback fonts, and Type 3 precipitation.
 
 Because the contract is separate, the same interpreter drives text extraction and
 geometry collection without a GPU present.
+
+One thing sits between the interpreter and whichever backend answers: `canvas` withholds
+the five calls that put marks on a page while an optional-content group is off (8.11),
+and forwards everything else, so the state a hidden section leaves behind is the state the
+operators after it inherit. It is a wrapper rather than a check at each painting site
+because the symptom of forgetting one such check is a layer that should be off appearing
+on the page, with nothing to fail
+([ADR-0021](docs/adr/0021-optional-content-hides-only-what-the-document-unambiguously-turns-off.md)).
 
 ---
 

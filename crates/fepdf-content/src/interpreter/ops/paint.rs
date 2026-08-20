@@ -1,3 +1,4 @@
+use crate::RenderBackend;
 use crate::interpreter::Interpreter;
 use crate::path::PathBuilder;
 use fepdf_model::PdfResult;

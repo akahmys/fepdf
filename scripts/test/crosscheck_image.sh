@@ -11,6 +11,12 @@
 # with the images encoded by implementations that are **not** the decoders under test.
 # This asks a second *renderer* about the same files.
 #
+# `make_layer_fixtures.rs` writes three more, for optional content (8.11): a hidden layer,
+# a `/BaseState /OFF`, and the control with the layer on. **Three and not thirteen** —
+# PDFKit honours only those two constructions and paints the other eleven the engine now
+# hides, so the rest are held by `crates/fepdf/tests/optional_content_test.rs` against the
+# clause instead. See ADR-0021.
+#
 # **Four numbers, not a pixel diff.** Each fixture is black in one quadrant, and the
 # comparator is the mean luminance of each quadrant. Two renderers legitimately disagree
 # about an edge; they do not disagree about which quarter of the page is black. And the
@@ -89,6 +95,10 @@ if [ ! -d target/scans ]; then
     echo "fixtures absent — cargo run --example make_scan_fixtures -p fepdf-model"
     exit 1
 fi
+if [ ! -d target/layers ]; then
+    echo "fixtures absent — cargo run --example make_layer_fixtures -p fepdf-model"
+    exit 1
+fi
 
 cargo build --release -q -p fepdf --features render --example page_quadrants || exit 1
 ours=target/release/examples/page_quadrants
@@ -104,7 +114,8 @@ skipped=0
 # The made fixtures, and any file of the external corpus that carries a codec — those
 # are files this project did not write, which is what the fixtures cannot be.
 printf '%-30s %-24s %-24s %s\n' file fepdf PDFKit verdict
-for input in target/scans/*.pdf target/external/pdf-differences/UnknownFilter-*.pdf; do
+for input in target/scans/*.pdf target/layers/*.pdf \
+             target/external/pdf-differences/UnknownFilter-*.pdf; do
     [ -e "$input" ] || continue
     name=$(basename "$input" .pdf)
 

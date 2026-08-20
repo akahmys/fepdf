@@ -367,19 +367,27 @@ pub struct ArticleThread {
 }
 
 /// `/OCProperties` (8.11.4.3, Table 98): the optional content the document defines.
+///
+/// This reader existed through Phase K and **nothing consulted it**, which is what made
+/// `BDC` discarding its property list invisible: the document's word on which layers were
+/// off was reachable, and no drawing path asked. [`crate::optional_content`] is what asks
+/// now, and it enters through here rather than walking the raw dictionary a second time.
 #[derive(Debug, Clone, FromPdfObject, Serialize, Deserialize)]
 #[pdf_dict(clause = "8.11.4.3")]
 pub struct OptionalContent {
     #[pdf_key("OCGs")]
-    /// `/OCGs`: every optional content group in the document.
+    /// `/OCGs`: every optional content group in the document. Named, not walked — a
+    /// group's *state* comes from the configuration below, not from this list, and the
+    /// one thing the list decides is what `/BaseState /OFF` means.
     pub groups: Option<Handle<Vec<Object>>>,
     #[pdf_key("D")]
-    /// `/D`: the default configuration — which groups are on when the file opens.
-    /// Reachable, not modelled: a configuration is a dictionary of its own (Table 100)
-    /// and one file in either corpus carries any of this.
-    pub default_configuration: Option<Object>,
+    /// `/D`: the default configuration — which groups are on when the file opens
+    /// (Table 100). Modelled, because this entry alone decides what is drawn.
+    pub default_configuration: Option<crate::optional_content::OptionalContentConfiguration>,
     #[pdf_key("Configs")]
-    /// `/Configs`: alternative configurations a viewer may offer.
+    /// `/Configs`: alternative configurations a viewer may *offer*. Named, not modelled:
+    /// offering one is a user interface, and applying one that the document did not make
+    /// default would be this engine choosing which layers a reader sees.
     pub configurations: Option<Handle<Vec<Object>>>,
 }
 

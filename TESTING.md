@@ -185,7 +185,8 @@ Before submitting a Pull Request or completing a task:
       **debug** binary too — arithmetic overflow panics there and wraps in release. It
       exits non-zero only on a panic, because most of this corpus is deliberately
       malformed and a reasoned refusal is a correct outcome.
-- [ ] `cargo run --example make_scan_fixtures -p fepdf-model` then
+- [ ] `cargo run --example make_scan_fixtures -p fepdf-model` and
+      `cargo run --example make_layer_fixtures -p fepdf-model`, then
       `./scripts/test/crosscheck_image.sh` — the only check that looks at a *picture*.
       The other five compare text and structure, so the image codecs had nothing
       independent to answer to: neither corpus holds a scan. The fixtures are encoded by
@@ -194,6 +195,13 @@ Before submitting a Pull Request or completing a task:
       antialiasing does not fail it and an inversion, a flip or a wrong stride each read
       differently. Run it when a codec, `PixelFormat`, or anything in `draw_image`
       changes. Verified by removing the JBIG2 polarity flip: `DISAGREE by 255`.
+
+      The layer fixtures are three of the thirteen optional-content constructions, and
+      the other ten are deliberately not here: PDFKit paints them, so putting them in
+      would make this red against a defect that is not this engine's. They are held by
+      `crates/fepdf/tests/optional_content_test.rs` against clause 8.11 instead
+      ([ADR-0021](docs/adr/0021-optional-content-hides-only-what-the-document-unambiguously-turns-off.md)).
+      Run this when anything in `fepdf-content::canvas` or `optional_content` changes.
 - [ ] `fepdf inspect coverage samples/*.pdf target/external/*/*.pdf` — the share of the
       constructs those files actually contain whose contents the engine reads, per axis
       (ADR-0019). Run it when a reader is added or a type changes: it is the only check

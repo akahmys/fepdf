@@ -1,3 +1,4 @@
+use crate::RenderBackend;
 use crate::interpreter::Interpreter;
 use fepdf_model::interpretation::Decision;
 use fepdf_model::object::sublimation::Command;
@@ -13,6 +14,16 @@ impl Interpreter<'_> {
         if let Object::Stream(dh, _) = xobj
             && let Some(dict) = self.doc.arena().get_dict(dh)
         {
+            // 8.11.3.2: an `/OC` here turns the whole XObject off, image or form. Checked
+            // before the subtype, because "is this drawn at all" is answered the same way
+            // for both — and before the form's state is saved, so a hidden form costs
+            // nothing but the lookup.
+            let oc_key = self.doc.arena().intern_name(PdfName::new("OC"));
+            if let Some(entry) = dict.get(&oc_key).cloned()
+                && self.optional_content_hides(&entry, &format!("XObject /{}", name.as_str()))
+            {
+                return Ok(());
+            }
             let subtype_key = self.doc.arena().intern_name(PdfName::new("Subtype"));
             if let Some(sub) =
                 dict.get(&subtype_key).and_then(|o| o.resolve(self.doc.arena()).as_name())
@@ -127,7 +138,7 @@ impl Interpreter<'_> {
         }
 
         // 4. Recursive Execute
-        self.execute_commands(cmds)?;
+        self.in_nested_content(|me| me.execute_commands(cmds))?;
 
         // 5. Cleanup
         if pushed {
@@ -208,7 +219,7 @@ impl Interpreter<'_> {
         }
 
         // 4. Recursive Execute
-        self.execute_raw(&decoded)?;
+        self.in_nested_content(|me| me.execute_raw(&decoded))?;
 
         // 5. Cleanup
         if pushed {

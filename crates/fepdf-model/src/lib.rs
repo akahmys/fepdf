@@ -46,6 +46,8 @@ pub use fepdf_syntax::lexer;
 /// Document metadata, from XMP or the `/Info` dictionary.
 pub mod metadata;
 pub mod object;
+/// Optional content: which layers a document turns off (8.11).
+pub mod optional_content;
 pub mod parser;
 /// Building objects from the offsets the syntax layer located.
 pub mod reader;

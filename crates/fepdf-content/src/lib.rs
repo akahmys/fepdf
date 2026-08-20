@@ -9,6 +9,7 @@
 //! present. See `ARCHITECTURE.md` Rule B: a crate that defines a contract does not
 //! depend on its implementations.
 
+mod canvas;
 /// The content stream interpreter that translates PDF operators into [RenderBackend] calls.
 pub mod interpreter;
 pub mod path;

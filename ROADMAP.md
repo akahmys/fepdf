@@ -45,8 +45,8 @@ rather than a rewording of it.
 | **7.5** File structure | **Complete and in use.** Header scan, both cross-reference forms, `/Prev` chains, hybrid references, object streams, incremental updates, and recovery by scanning. `Document::open` reads the file itself; `lopdf` is gone. |
 | **7.6** Encryption | Every password handler the standard defines now decrypts: RC4 (V1/V2), AES-128 (V4/R4) and AES-256 (V5/R5, V5/R6) to Algorithms 1, 2, 2.A, 2.B and 4–6, with `/Perms` checked and both password roles authenticating. Verified against PDFKit on fourteen files; all of it was broken or absent ([ADR-0009](docs/adr/0009-permissions-are-thirty-two-bits-not-a-positive-integer.md)). Writing is AES-256 at revision 6 and nothing else, because output is always 2.0 and this edition deprecates the rest. Public-key handlers (7.6.5) are **read and written** — a `/Adobe.PubSec` document opens with the certificate it was addressed to, which neither Chrome nor Firefox will do, and `--encrypt-to` produces one. Unencrypted wrappers (7.6.7) are recognised and reported. **Clause 7.6 is otherwise complete.** |
 | **7.7** Document structure | Every one of Table 29's 32 entries is a field of `PdfCatalog`, and after Phase K **20 are modelled** — the field's type says what the entry holds. Measured against the 251 files of both corpora, 12 of the 32 keys occur in no file at all and are **declined a reader** for that reason, recorded in the code as `catalog::ABSENT_FROM_BOTH_CORPORA`; of the twenty keys those files do carry, **19 are modelled**, and the one that is not is `/Type`, whose value 7.7.2 fixes at `/Catalog`. That figure is qualified where it is printed: `inspect catalog` reports, per entry, how much of the entry's *own* table its reader covers — `/AcroForm` is modelled and reads 4 of Table 224's 8 ([ADR-0020](docs/adr/0020-a-modelled-entry-reports-how-much-of-its-own-table-it-reads.md)). |
-| **PDF 2.0 additions** | `inspect catalog` reports **zero** `type only` entries, and the reason is not that the six gained readers. `PageLabels`, `Threads`, `OutputIntents`, `OCProperties`, `Collection` and `AF` each became an `Option<Object>` field, which moves them from "no field" to "a field whose contents are opaque" — the spec types (`PageLabelSpec`, `ArticleThread`, `OutputIntent`, …) are still not what the catalogue reads into. `DPartRoot` has no type at all, contrary to what this table said before it was checked. Phase K then gave `PageLabels`, `Threads`, `OutputIntents` and `OCProperties` real readers — the four of the six the corpora present — and declined `Collection` and `AF`, which they do not. Of the six, `PageLabels` and `Threads` were the only ones to occur when the corpus was the nine samples — 2 files and 1. Across all 251 the order changes: `OutputIntents` 64, `PageLabels` 4, `OCProperties` and `Threads` 1 each, and `Collection` and `AF` still zero, as do `DSS` and `DPartRoot`, which have fields anyway — the container-before-contents shape Phase D was ordered to avoid. |
-| **8–14** Content, text, interactive, tagged | Interpreter, fonts and UA-2 auditing exist; interactive features (12) can be *read* (`inspect interactive`), and signature fields (12.7.5.5, 12.8) can now be written and checked. Named destinations (12.3.2) **resolve**, through both of 12.3.2.3's forms and the name tree (7.9.6) one of them needs — which found a link in `intel_sdm.pdf` that goes nowhere, `(G3.7717)`, referenced three times and declared in none of that file's 279,501 destinations. Every page of every sample now yields its text: `scn` with a pattern name (8.6.8.2) was read as a grey component, which cost `fy05.pdf` six pages and — because extraction stopped at the first failure — the 718 after them. A pattern is now painted, through `Paint::Pattern(PatternSpec)`. `samples/` exercises one annotation subtype — all 29,973 of its annotations are `/Link` — and this row said that of *the corpus* for as long as there was only one. The 242 external files carry 82 annotations across **16** subtypes and four terminal form fields, so both walks now run on files this project did not choose. `PdfAnnotation` held seven entries of Table 166 and no `/AP`, which made a `/Redact` and a `/Watermark` the same object to this engine; Phase J took it to all nineteen, added Table 172 for the markup subtypes and readers for the six subtypes either corpus writes more than once, and the form walk now reads `/V`, `/DA`, `/Ff` and `/T` with 12.7.4.2's inheritance. **17 distinct entries across the remaining subtypes still have no reader**, each on an annotation that occurs once or twice, and `inspect interactive` names them per subtype. Every one of the 30,055 annotations parses. **Optional content is not honoured while drawing**: `BDC` discards its property list, so content inside an `/OC` section is painted whether its group is on or off (Phase N). |
+| **PDF 2.0 additions** | `inspect catalog` reports **zero** `type only` entries, and the reason is not that the six gained readers. `PageLabels`, `Threads`, `OutputIntents`, `OCProperties`, `Collection` and `AF` each became an `Option<Object>` field, which moves them from "no field" to "a field whose contents are opaque" — the spec types (`PageLabelSpec`, `ArticleThread`, `OutputIntent`, …) are still not what the catalogue reads into. `DPartRoot` has no type at all, contrary to what this table said before it was checked. Phase K then gave `PageLabels`, `Threads`, `OutputIntents` and `OCProperties` real readers — the four of the six the corpora present, and `/OCProperties` was the one of those four that nothing read *from*, until Phase N made the renderer enter through it — and declined `Collection` and `AF`, which they do not. Of the six, `PageLabels` and `Threads` were the only ones to occur when the corpus was the nine samples — 2 files and 1. Across all 251 the order changes: `OutputIntents` 64, `PageLabels` 4, `OCProperties` and `Threads` 1 each, and `Collection` and `AF` still zero, as do `DSS` and `DPartRoot`, which have fields anyway — the container-before-contents shape Phase D was ordered to avoid. |
+| **8–14** Content, text, interactive, tagged | Interpreter, fonts and UA-2 auditing exist; interactive features (12) can be *read* (`inspect interactive`), and signature fields (12.7.5.5, 12.8) can now be written and checked. Named destinations (12.3.2) **resolve**, through both of 12.3.2.3's forms and the name tree (7.9.6) one of them needs — which found a link in `intel_sdm.pdf` that goes nowhere, `(G3.7717)`, referenced three times and declared in none of that file's 279,501 destinations. Every page of every sample now yields its text: `scn` with a pattern name (8.6.8.2) was read as a grey component, which cost `fy05.pdf` six pages and — because extraction stopped at the first failure — the 718 after them. A pattern is now painted, through `Paint::Pattern(PatternSpec)`. `samples/` exercises one annotation subtype — all 29,973 of its annotations are `/Link` — and this row said that of *the corpus* for as long as there was only one. The 242 external files carry 82 annotations across **16** subtypes and four terminal form fields, so both walks now run on files this project did not choose. `PdfAnnotation` held seven entries of Table 166 and no `/AP`, which made a `/Redact` and a `/Watermark` the same object to this engine; Phase J took it to all nineteen, added Table 172 for the markup subtypes and readers for the six subtypes either corpus writes more than once, and the form walk now reads `/V`, `/DA`, `/Ff` and `/T` with 12.7.4.2's inheritance. **17 distinct entries across the remaining subtypes still have no reader**, each on an annotation that occurs once or twice, and `inspect interactive` names them per subtype. Every one of the 30,055 annotations parses. **Optional content is now honoured while drawing.** `BDC` discarded its property list, so an `/OC` section was painted whether its group was on or off, and `/OCProperties` — read since Phase K — was consulted by nothing. Clause 8.11 is read: the default configuration's `/BaseState`, `/ON`, `/OFF`, `/Intent` and `/AS`, membership dictionaries with all four `/P` policies and `/VE` expressions, and the `/OC` entry on an XObject. Thirteen constructions were put to PDFKit and it honours **two** of them, so eleven are held to the clause by 26 tests rather than to a second implementation ([ADR-0021](docs/adr/0021-optional-content-hides-only-what-the-document-unambiguously-turns-off.md)). Nothing is hidden on a doubt: an `/OC` that will not resolve draws and records a `Decision`. |
 | **14.3** Metadata | Settled at load into one state: `/Info` and the metadata stream are reconciled, disagreements recorded, and the entries 14.3.3 deprecates moved to where that clause puts them ([ADR-0013](docs/adr/0013-a-document-is-one-normalised-state.md)). Text strings decode to 7.9.2.2 — PDFDocEncoding from Annex D, or a byte order mark — after a Shift-JIS detector was found corrupting a conforming `/Title`. `--strip` removes every metadata stream, not the catalogue's alone. |
 
 One measurement worth carrying forward: all 24 `Operation` variants are fully
@@ -945,16 +945,31 @@ long-term signatures, choice fields, layers.
 
 ## Phase N — What the engine gets wrong
 
-Not gaps. Four places where a file is read, drawn, and the answer is wrong — which is
-worse than refusing it, because nothing says so.
+Not gaps. Five places where a file is read, drawn or written and the answer is wrong —
+which is worse than refusing it, because nothing says so. The fifth was found by fixing
+the first, which is the usual way: an engine that honours a construct correctly is the
+thing that can tell you it never wrote one.
 
-- [ ] **Optional content is ignored while drawing.** `BDC` pops its property list and
-      discards it (`ops/marked.rs`, "Skeleton: just pop for now"), so content inside an
-      `/OC` marked-content section is painted whether or not its group is on. Hidden
-      layers become visible: the non-printing layer of a drawing, the other language of a
+- [x] **Optional content is ignored while drawing.** `BDC` popped its property list and
+      discarded it (`ops/marked.rs`, "Skeleton: just pop for now"), so content inside an
+      `/OC` marked-content section was painted whether or not its group was on. Hidden
+      layers became visible: the non-printing layer of a drawing, the other language of a
       bilingual page, a "draft" underlay. `fepdf-doc` can **write** `/OCProperties`
-      through an `Operation`, so the engine creates layers it then ignores.
-      `/OCProperties` gained a reader in Phase K; nothing consults it
+      through an `Operation`, so the engine created layers it then ignored.
+      `/OCProperties` gained a reader in Phase K and nothing consulted it — which is what
+      made the defect invisible, and is why the fix enters through that reader rather than
+      walking the raw dictionary again.
+
+      Built as `fepdf-model::optional_content`, with the gate behind the backend trait
+      (`fepdf-content::canvas`) so a painting site cannot be added without it. Marks are
+      withheld; `q`, `Q`, `cm`, the clip stack and the colour still run, because the
+      operators after `EMC` inherit what the hidden ones left. **Thirteen constructions
+      were put to PDFKit and it honours two** — a group in `/OFF` and a `/BaseState /OFF`
+      — painting an `/OC` on an XObject, every OCMD policy, a `/VE` expression, a
+      `/Usage` applied through `/AS`, and a section nested inside a hidden one. Those two
+      are fixtures for `crosscheck_image.sh` with a control; the other eleven are 26 tests
+      against the clause
+      ([ADR-0021](docs/adr/0021-optional-content-hides-only-what-the-document-unambiguously-turns-off.md))
 - [ ] **A page tree inside an object stream is not recovered.**
       `UnknownFilter-xrefstm.pdf` reports no pages and PDFKit renders it. Its `/Pages` is
       object 5, which lives inside an object stream, and the cross-reference that says
@@ -966,13 +981,22 @@ worse than refusing it, because nothing says so.
       offset 0 for 8192 bytes would end up overrunning the bounds of the Source buffer of
       size 1024"* from wgpu. Worked around by enlarging a fixture, which is not a fix and
       not an explanation
+- [ ] **The layers the engine *writes* have no content in them.** Found by the optional
+      content work above. `apply_update_layers` writes the OCG dictionaries and a default
+      configuration with `/ON`, `/OFF` and `/Order`, and **nothing is ever marked `/OC`**
+      — no content stream, no XObject, no annotation — so every group it creates is empty
+      whatever its state. `LayerGroup::printable` is dropped on the floor with it: no
+      `/Usage` is written, so the flag a caller sets cannot reach the file, and
+      `LayerGroup::id` is never used either. The read side now honours all of this
+      correctly, which is what makes the write side's silence visible
 - [ ] **`/SMaskInData` is not implemented.** Its default is 0 — ignore any alpha the
       codestream carries — and a JPX image asking for 1 or 2 gets that treatment
       silently, so a transparent image is drawn opaque
 
 *Done when*: `crosscheck_image.sh` is green on every file it can compare, a page with a
-hidden layer renders without it, and the small-page failure is either fixed or explained
-in a sentence that names the cause.
+hidden layer renders without it, the small-page failure is either fixed or explained in a
+sentence that names the cause, and a layer this engine writes contains something — read
+back by the reader that now honours it, which is a round trip rather than a claim.
 
 ## Phase O — The holes in the checking
 
@@ -1109,7 +1133,7 @@ Each phase here therefore states what *done* means in terms that can be measured
 the current state above is what the code does today rather than what it was intended
 to do.
 
-*Updated 2026-08-20. The figures above come from the sample corpus, a set of
+*Updated 2026-08-21. The figures above come from the sample corpus, a set of
 deliberately malformed files, and the 242 external files of Phase G; the catalogue,
 annotation and form-field counts in Phases J and K were taken by running `inspect
 catalog` and `inspect interactive` over all 251 and aggregating the JSON.*

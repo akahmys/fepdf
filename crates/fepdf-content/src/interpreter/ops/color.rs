@@ -1,3 +1,4 @@
+use crate::RenderBackend;
 use crate::interpreter::Interpreter;
 use fepdf_model::graphics::Color;
 use fepdf_model::{Paint, PdfName, PdfResult};

@@ -1,4 +1,5 @@
 #![allow(clippy::suboptimal_flops)]
+use crate::RenderBackend;
 use crate::interpreter::{Interpreter, Type3Advance};
 use crate::{TextGlyph, TextState};
 use fepdf_model::font::FontResource;
@@ -449,7 +450,10 @@ impl Interpreter<'_> {
         self.type3_advance = None;
         self.in_type3_glyph = true;
         let old_stack = std::mem::take(&mut self.state_stack);
-        if let Err(e) = self.execute(stream_h) {
+        // A glyph stream gets its own marked-content stack for the same reason a form
+        // does: an unbalanced `EMC` inside one glyph must not reveal a hidden section
+        // that the text it belongs to sits inside.
+        if let Err(e) = self.in_nested_content(|me| me.execute(stream_h)) {
             log::error!("[SDK] Failed to execute Type 3 glyph {glyph_name}: {e:?}");
         }
         self.state_stack = old_stack;

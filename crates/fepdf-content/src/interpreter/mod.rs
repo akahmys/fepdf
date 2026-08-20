@@ -1,8 +1,11 @@
 use crate::RenderBackend;
+use crate::canvas::Canvas;
+use crate::interpreter::ops::marked::MarkedSection;
 use crate::path::PathBuilder;
 use fepdf_model::graphics::{GraphicsState, Rect, TextMatrices, WindingRule};
 use fepdf_model::lexer::Token;
 use fepdf_model::object::sublimation::Command;
+use fepdf_model::optional_content::OptionalContentState;
 use fepdf_model::parser::Parser;
 use fepdf_model::{Document, Handle, Object, PdfError, PdfName, PdfResult};
 use std::collections::{BTreeMap, BTreeSet};
@@ -31,8 +34,9 @@ pub mod ops;
 
 /// A content stream interpreter that translates PDF operators into [RenderBackend] calls.
 pub struct Interpreter<'a> {
-    /// The rendering backend used to draw items.
-    pub(crate) backend: &'a mut dyn RenderBackend,
+    /// The rendering backend used to draw items, behind the gate that withholds marks
+    /// while an optional-content section is off (`crate::canvas`).
+    pub(crate) backend: Canvas<'a>,
     /// The document being interpreted.
     pub(crate) doc: &'a Document,
     /// Stack of resource dictionaries for hierarchical lookup (Form XObjects).
@@ -64,6 +68,17 @@ pub struct Interpreter<'a> {
     pub(crate) in_type3_glyph: bool,
     /// The initial transformation matrix (device transform).
     pub(crate) initial_transform: kurbo::Affine,
+    /// Which optional content groups the document turns off (8.11), read on the first
+    /// `/OC` this interpreter meets.
+    ///
+    /// Lazy: `None` means "not read yet", and a page carrying no `/OC` at all never
+    /// touches the catalogue — which is every page of both corpora, since the one file of
+    /// the 251 that declares `/OCProperties` declares an empty `/OCGs`.
+    pub(crate) optional_content: Option<OptionalContentState>,
+    /// The optional-content sections open at this point in the stream, and whether each
+    /// one hid what followed. `EMC` needs to know which, and the depth cannot be taken
+    /// from the canvas alone: a section that was *visible* also has to be closed.
+    pub(crate) marked_sections: Vec<MarkedSection>,
     /// The page's area in square points, when the caller knows which page this is.
     ///
     /// Only one thing reads it: an image the engine cannot decode reports **how much of
@@ -90,7 +105,7 @@ impl<'a> Interpreter<'a> {
         backend.set_transform(initial_transform);
 
         Self {
-            backend,
+            backend: Canvas::new(backend),
             doc,
             resource_stack: vec![initial_resources],
             stack: Vec::new(),
@@ -106,6 +121,8 @@ impl<'a> Interpreter<'a> {
             op_index: 0,
             type3_advance: None,
             in_type3_glyph: false,
+            optional_content: None,
+            marked_sections: Vec::new(),
             initial_transform,
             page_area: None,
         }
@@ -392,7 +409,26 @@ impl<'a> Interpreter<'a> {
                 self.stack.push(Object::Name(name_h));
                 self.handle_xobject_operator()
             }
-            Command::BeginMarkedContent { .. } | Command::EndMarkedContent => Ok(()),
+            // The sublimated form of `BDC`/`EMC`. The property list arrives as an
+            // `IrObject`, which has no reference variant — so a name is turned back into
+            // one the resource lookup can use, and anything else becomes the `Null` that
+            // `membership` reports as naming no group. Neither loses information: 8.11.2
+            // requires a group to be an indirect object, and an `IrObject` that is not a
+            // name was never one.
+            Command::BeginMarkedContent { tag, properties } => {
+                let operand = properties.as_ref().map(|ir| match ir {
+                    fepdf_model::object::sublimation::IrObject::Name(name) => {
+                        Object::Name(self.doc.arena().intern_name(PdfName::new(name)))
+                    }
+                    _ => Object::Null,
+                });
+                self.begin_marked_content(tag, operand.as_ref());
+                Ok(())
+            }
+            Command::EndMarkedContent => {
+                self.end_marked_content();
+                Ok(())
+            }
             Command::DrawInlineImage { width, height, format, data } => {
                 self.backend.draw_image(data, *width, *height, *format, None);
                 Ok(())
@@ -520,6 +556,26 @@ impl<'a> Interpreter<'a> {
                 .ok_or_else(|| PdfError::Other("Invalid name handle".into())),
             _ => Err(PdfError::Other("Expected name".into())),
         }
+    }
+
+    /// Runs a nested content stream — a form XObject, a Type 3 glyph — with a
+    /// marked-content stack of its own.
+    ///
+    /// A stream that leaves sections open, or closes ones it never opened, must not
+    /// change what happens after the `Do` that invoked it. The *canvas* depth is carried
+    /// in rather than reset: a form invoked from inside a hidden section is still hidden,
+    /// and it is restored afterwards so an unbalanced `EMC` inside the form cannot bring
+    /// the enclosing section back.
+    pub(crate) fn in_nested_content<T>(
+        &mut self,
+        run: impl FnOnce(&mut Self) -> PdfResult<T>,
+    ) -> PdfResult<T> {
+        let enclosing = std::mem::take(&mut self.marked_sections);
+        let hidden = self.backend.hidden_depth();
+        let outcome = run(self);
+        self.marked_sections = enclosing;
+        self.backend.restore_hidden_depth(hidden);
+        outcome
     }
 
     pub(crate) fn find_resource(
