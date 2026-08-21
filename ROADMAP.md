@@ -1088,16 +1088,46 @@ That is not a scanned-image problem; it is the same hole in four places.
       the coverage index counted *private* catalogue keys against itself, so three junk
       keys in one file cost four percentage points of a figure that is supposed to
       describe this engine
-- [ ] **JBIG2 has never met an image this project did not assemble.** CCITT and JPX were
-      confirmed against real files of the external corpus; JBIG2's only evidence is a page
-      built segment by segment in a test, which checks the decoder against its author's
-      reading of T.88 and nothing else. `/SMaskInData` was the same shape and is no longer
-      — its fixtures come out of OpenJPEG — but **no file of either corpus carries one**,
-      so what has never been measured is how producers actually write it
-- [ ] **`verify_visuals.sh` runs a test target that does not exist.** `visual_regression`
-      is not in `fepdf-render`; the script cannot pass and has not for as long as anyone
-      has run it. `crosscheck_image.sh` covers images against PDFKit, and text, layout
-      and colour are covered by nothing
+- [x] **JBIG2 has never met an image this project did not assemble.** True, and still
+      true: Phase O-1 doubled the corpus to 524 files and `/JBIG2Decode` occurs in
+      **none** of them. No JBIG2 encoder is reachable here either, so the fixture cannot
+      be made by somebody else the way `/SMaskInData`'s were made by OpenJPEG.
+
+      **But "checks the decoder against its author's reading of T.88 and nothing else"
+      was wrong twice.** The decoding is `hayro-jbig2`'s, not this project's — what this
+      project wrote is the plumbing: `/JBIG2Globals`, the blackness-to-whiteness
+      inversion, and the packing. And the fixture has been compared against **PDFKit**
+      since `crosscheck_image.sh` existed: a second implementation of T.88 accepts the
+      segments and paints the same quadrant black, which is not nothing.
+
+      **What was genuinely unchecked is now checked.** `/JBIG2Globals` — the entry the
+      module says is "not optional in practice", because a producer that compresses a
+      hundred pages puts the shared segments in one stream — was exercised by no fixture
+      at all. `jbig2_globals.pdf` puts the page information segment there and the region
+      in the image's own stream; both renderers decode it identically, and **ignoring the
+      entry makes it render blank while leaving `jbig2.pdf` untouched**, which is the
+      proof the old fixture could not have given.
+
+      What is left, stated plainly rather than closed: the fixtures are **MMR**-coded, so
+      the arithmetic coder, the generic-region templates, the symbol dictionaries and the
+      text regions — the parts that make JBIG2 something other than Group 4 — are
+      exercised by nothing here. That is a property of `hayro-jbig2` rather than of this
+      code, and the honest way to change it is a real scanned file, which no corpus this
+      project can reach has yet supplied
+- [x] **`verify_visuals.sh` runs a test target that does not exist.** `visual_regression`
+      is not in `fepdf-render`; the script could not pass and had not for as long as
+      anyone had run it — `cargo test` exits 101 with *"no test target named
+      `visual_regression`"*. **Deleted**, because nothing referenced it: `TESTING.md`, the
+      `Makefile` and `AGENTS.md` all name `scripts/visual_regression.py`, which is a
+      different suite and a working one.
+
+      The second half of this entry was **false**, and running the other script is how
+      that was found: "text, layout and colour are covered by nothing" — they are covered
+      by `visual_regression.py`, which renders four sample pages and compares them against
+      baselines in `samples/references/`, and passes 4 of 4. What is true is narrower and
+      now written where the suite is listed: the baselines are this engine's own output,
+      so it detects *change* and not correctness. Against a second renderer, text and
+      layout are still covered by nothing
 - [ ] **The rest of `docs/specs/` is unaudited.** `omissions.md` was checked and twelve
       of its claims were false, so it is archived. Four documents of the same era —
       `sdk_design.md`, `app_design.md`, `refinery_engine.md`, `charter_redesign_*.md` —

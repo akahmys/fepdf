@@ -79,7 +79,21 @@ expected result, not a gap.
 
 ## 🖼️ 3. Visual Regression Testing
 
-GPU compute rendering fidelity via **Vello** is verified against canonical baseline reference images.
+GPU compute rendering fidelity via **Vello** is verified against baseline images in
+`samples/references/`, four pages chosen for what they exercise: Latin text, Japanese
+text, print colour, and a page that is mostly vector art.
+
+**It detects change, not correctness.** The baselines are this engine's own output,
+frozen — so the suite answers "does this still render what it rendered yesterday" and
+cannot answer "is that right". The check that asks a *second* renderer is
+`crosscheck_image.sh`, and it compares images and layers rather than text. Text, layout
+and colour are covered here and against nobody else, which is worth knowing before
+trusting a pass.
+
+`scripts/test/verify_visuals.sh` used to sit beside this, running
+`cargo test --package fepdf-render --test visual_regression`. There has never been such a
+test target, so it exited 101 every time it was run and nothing referenced it. Deleted
+rather than repaired: it duplicated a suite that works.
 
 ### Run Visual Regression Tests
 ```bash

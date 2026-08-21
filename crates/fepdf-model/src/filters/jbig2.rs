@@ -13,6 +13,11 @@
 //! it is the *embedded* organisation of Annex D.3 that PDF uses rather than a standalone
 //! JBIG2 file.
 //!
+//! **The entry is exercised by `target/scans/jbig2_globals.pdf`**, which puts the page
+//! information segment in `/JBIG2Globals` and the region in the image's own stream.
+//! Removing this lookup makes that file render blank while leaving `jbig2.pdf` — where
+//! everything is in one stream — passing, which is why one fixture had to become two.
+//!
 //! **The two conventions are opposite, and inverting is the filter's job.** A JBIG2
 //! codestream says 1 for black; a PDF image of one bit per component says 0 for black.
 //! `hayro-jbig2` reports blackness and [`super::bilevel::Bitmap`] stores whiteness, so

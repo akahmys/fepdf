@@ -40,6 +40,22 @@ fn main() -> std::io::Result<()> {
     std::fs::write("target/scans/jbig2.pdf", &jbig2)?;
     println!("target/scans/jbig2.pdf     {} bytes", jbig2.len());
 
+    // The same picture with its page information segment moved into `/JBIG2Globals`.
+    //
+    // **The entry this module was built to honour, and nothing exercised it.** A producer
+    // that compresses a hundred pages puts the shared segments in one stream and codes
+    // each page against it; without the entry reaching the decoder such a page comes out
+    // blank. `jbig2.pdf` carries everything in the image's own stream, so it would pass
+    // with the plumbing removed — which is the definition of a check that is not one.
+    let jbig2_split = page_with_image_and_globals(
+        "JBIG2Decode",
+        "<< /JBIG2Globals 6 0 R >>",
+        &segment(1, 38, &jbig2_region()),
+        Some(&segment(0, 48, &jbig2_page_info())),
+    );
+    std::fs::write("target/scans/jbig2_globals.pdf", &jbig2_split)?;
+    println!("target/scans/jbig2_globals.pdf {} bytes", jbig2_split.len());
+
     println!(
         "\n  {COLUMNS}×{ROWS}, black in the top-left quarter.\n  \
          Compare with: ./scripts/test/crosscheck_image.sh"
@@ -61,6 +77,14 @@ fn group4() -> Vec<u8> {
 /// The image as an embedded JBIG2 page (Annex D.3): a page information segment and one
 /// generic region, MMR-coded — which is T.6, the same coding Group 4 uses.
 fn jbig2_page() -> Vec<u8> {
+    let mut out = segment(0, 48, &jbig2_page_info());
+    out.extend(segment(1, 38, &jbig2_region()));
+    out
+}
+
+/// The page information segment (T.88 §7.4.8), for a file that puts it in
+/// `/JBIG2Globals` instead of in the page's own stream.
+fn jbig2_page_info() -> Vec<u8> {
     let mut page_info = Vec::new();
     page_info.extend_from_slice(&u32::from(COLUMNS).to_be_bytes());
     page_info.extend_from_slice(&u32::from(ROWS).to_be_bytes());
@@ -68,7 +92,11 @@ fn jbig2_page() -> Vec<u8> {
     page_info.extend_from_slice(&0_u32.to_be_bytes()); // y resolution, unstated
     page_info.push(0x01); // lossless, default pixel white
     page_info.extend_from_slice(&0_u16.to_be_bytes()); // not striped
+    page_info
+}
 
+/// The immediate generic region that carries the picture.
+fn jbig2_region() -> Vec<u8> {
     let mut region = Vec::new();
     region.extend_from_slice(&u32::from(COLUMNS).to_be_bytes());
     region.extend_from_slice(&u32::from(ROWS).to_be_bytes());
@@ -77,10 +105,7 @@ fn jbig2_page() -> Vec<u8> {
     region.push(0x00); // combine by OR
     region.push(0x01); // generic region flags: MMR
     region.extend_from_slice(&group4()); // MMR is T.6
-
-    let mut out = segment(0, 48, &page_info);
-    out.extend(segment(1, 38, &region));
-    out
+    region
 }
 
 /// One segment header and its data (T.88 §7.2): number, flags, no referred-to segments,
@@ -98,34 +123,54 @@ fn segment(number: u32, kind: u8, data: &[u8]) -> Vec<u8> {
 /// A one-page PDF whose page *is* the image, one point per pixel, so a renderer has no
 /// scaling to disagree about.
 fn page_with_image(filter: &str, parms: &str, data: &[u8]) -> Vec<u8> {
+    page_with_image_and_globals(filter, parms, data, None)
+}
+
+/// The same, with an optional sixth object the `/DecodeParms` may point at.
+fn page_with_image_and_globals(
+    filter: &str,
+    parms: &str,
+    data: &[u8],
+    globals: Option<&[u8]>,
+) -> Vec<u8> {
     let content = format!("q {COLUMNS} 0 0 {ROWS} 0 0 cm /Im0 Do Q");
-    let bodies = [
-        "<< /Type /Catalog /Pages 2 0 R >>".to_string(),
-        "<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_string(),
-        format!(
-            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 {COLUMNS} {ROWS}] \
-             /Resources << /XObject << /Im0 5 0 R >> >> /Contents 4 0 R >>"
+    let mut bodies: Vec<(String, Option<&[u8]>)> = vec![
+        ("<< /Type /Catalog /Pages 2 0 R >>".to_string(), None),
+        ("<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_string(), None),
+        (
+            format!(
+                "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 {COLUMNS} {ROWS}] \
+                 /Resources << /XObject << /Im0 5 0 R >> >> /Contents 4 0 R >>"
+            ),
+            None,
         ),
-        format!("<< /Length {} >>\nstream\n{content}\nendstream", content.len()),
-        format!(
-            "<< /Type /XObject /Subtype /Image /Width {COLUMNS} /Height {ROWS} \
-             /ColorSpace /DeviceGray /BitsPerComponent 1 /Filter /{filter} \
-             /DecodeParms {parms} /Length {} >>\nstream\n\u{0}endstream",
-            data.len()
+        (format!("<< /Length {} >>\nstream\n{content}\nendstream", content.len()), None),
+        (
+            format!(
+                "<< /Type /XObject /Subtype /Image /Width {COLUMNS} /Height {ROWS} \
+                 /ColorSpace /DeviceGray /BitsPerComponent 1 /Filter /{filter} \
+                 /DecodeParms {parms} /Length {} >>\nstream\n",
+                data.len()
+            ),
+            Some(data),
         ),
     ];
+    if let Some(globals) = globals {
+        bodies.push((format!("<< /Length {} >>\nstream\n", globals.len()), Some(globals)));
+    }
 
     let mut out = b"%PDF-2.0\n".to_vec();
     let mut offsets = Vec::new();
-    for (i, body) in bodies.iter().enumerate() {
+    for (i, (body, binary)) in bodies.iter().enumerate() {
         offsets.push(out.len());
-        // The image's bytes are binary and go in verbatim; every other body is text.
-        if let Some(head) = body.strip_suffix("\u{0}endstream") {
-            out.extend_from_slice(format!("{} 0 obj\n{head}", i + 1).as_bytes());
-            out.extend_from_slice(data);
-            out.extend_from_slice(b"\nendstream\nendobj\n");
-        } else {
-            out.extend_from_slice(format!("{} 0 obj\n{body}\nendobj\n", i + 1).as_bytes());
+        // A stream's bytes are binary and go in verbatim; every other body is text.
+        out.extend_from_slice(format!("{} 0 obj\n{body}", i + 1).as_bytes());
+        match binary {
+            Some(bytes) => {
+                out.extend_from_slice(bytes);
+                out.extend_from_slice(b"\nendstream\nendobj\n");
+            }
+            None => out.extend_from_slice(b"\nendobj\n"),
         }
     }
 
