@@ -418,6 +418,76 @@ fn an_image_xobject_with_a_hidden_oc_is_not_drawn() {
     assert!(recorder.painted_bottom_right(), "the rest of the page went with it");
 }
 
+// --- the two forms a real file used, and this engine did not read -------------------
+
+/// **A membership dictionary may be written in place.** 8.11.2 requires the *group* to be
+/// an indirect object, because only a reference gives it the identity `/OFF` names; an
+/// OCMD needs none, since it reaches its groups through `/OCGs`. Conflating the two made
+/// every inline OCMD unreadable, and unreadable means drawn.
+///
+/// Found on `pdf20examples/pdf20-utf8-test.pdf`, whose form XObjects carry
+/// `/OC << /Type /OCMD /OCGs 3 0 R >>` with both layers off. PDFKit hides them; this
+/// engine drew them until the corpus that contains the file was fetched.
+#[test]
+fn an_ocmd_written_in_place_is_read_rather_than_refused() {
+    let form = stream(
+        "/Type /XObject /Subtype /Form /BBox [0 0 200 200] \
+         /OC << /Type /OCMD /OCGs [5 0 R] >>",
+        TOP_LEFT,
+    );
+    let file = page(
+        "/OCProperties << /OCGs [5 0 R] /D << /OFF [5 0 R] >> >>",
+        "/XObject << /Fm0 6 0 R >>",
+        &format!("/Fm0 Do\n{BOTTOM_RIGHT}"),
+        &[group(""), form],
+    );
+    assert_hidden("an inline OCMD", &draw(file));
+}
+
+/// Table 97 lets `/OCGs` be one group instead of an array, and the same file writes it
+/// that way. Reading only the array form made an OCMD with one group look like an OCMD
+/// with none — which is visible, so the layer was drawn for the second reason as well.
+#[test]
+fn an_ocmd_naming_a_single_group_rather_than_an_array_is_read() {
+    let file = page(
+        "/OCProperties << /OCGs [5 0 R] /D << /OFF [5 0 R] >> >>",
+        "/Properties << /MC0 6 0 R >>",
+        &marked(TOP_LEFT),
+        &[group(""), "<< /Type /OCMD /OCGs 5 0 R >>".to_string()],
+    );
+    assert_hidden("an OCMD whose /OCGs is one reference", &draw(file));
+}
+
+/// Both at once, which is the shape the file actually writes.
+#[test]
+fn an_inline_ocmd_naming_a_single_group_is_read() {
+    let form = stream(
+        "/Type /XObject /Subtype /Form /BBox [0 0 200 200] \
+         /OC << /Type /OCMD /OCGs 5 0 R >>",
+        TOP_LEFT,
+    );
+    let file = page(
+        "/OCProperties << /OCGs [5 0 R] /D << /OFF [5 0 R] >> >>",
+        "/XObject << /Fm0 6 0 R >>",
+        &format!("/Fm0 Do\n{BOTTOM_RIGHT}"),
+        &[group(""), form],
+    );
+    assert_hidden("pdf20-utf8-test's shape", &draw(file));
+}
+
+/// The half of the old rule that was right, and stays: a *group* written in place names
+/// nothing `/OCProperties` could have turned off, so it is drawn and recorded.
+#[test]
+fn a_group_written_in_place_still_names_nothing() {
+    let file = page(
+        "/OCProperties << /OCGs [5 0 R] /D << /OFF [5 0 R] >> >>",
+        "/Properties << /MC0 << /Type /OCG /Name (Layer) >> >>",
+        &marked(TOP_LEFT),
+        &[group("")],
+    );
+    assert_drawn("an OCG written in place", &draw(file));
+}
+
 // --- nesting, and what may not follow a section out ----------------------------------
 
 /// The `EMC` of a section opened *inside* a hidden one must not bring the page back.

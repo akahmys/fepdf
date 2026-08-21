@@ -1095,11 +1095,18 @@ impl PdfDocument {
         if rot == 90 || rot == 270 { Ok((h, w)) } else { Ok((w, h)) }
     }
 
-    fn resolve_page_contents(&self, page: &Page) -> PdfResult<Object> {
-        let contents_obj = page
-            .resolve_attribute("Contents")
-            .ok_or_else(|| PdfError::Other("Page has no contents".into()))?;
-
+    /// The page's content stream, or `None` where 7.7.3.3 allows it to have none.
+    ///
+    /// `/Contents` is **optional**: a page without one is empty, and it is a shape that
+    /// occurs — a page whose only mark is an annotation's appearance stream. This
+    /// returned `Err("Page has no contents")`, so rendering such a page failed and
+    /// `extract_text` failed with it. Seven files of the corpus fetched for Phase O-1 are
+    /// exactly that, and they were counted as text-extraction failures until the corpus
+    /// arrived to disagree — a check firing on conforming input, which ADR-0008 is about.
+    fn resolve_page_contents(&self, page: &Page) -> PdfResult<Option<Object>> {
+        let Some(contents_obj) = page.resolve_attribute("Contents") else {
+            return Ok(None);
+        };
         let resolved_contents = match contents_obj {
             Object::Reference(h) => {
                 log::debug!("[SDK] Resolving Contents reference {h:?}");
@@ -1107,7 +1114,7 @@ impl PdfDocument {
             }
             _ => contents_obj,
         };
-        Ok(resolved_contents)
+        Ok(Some(resolved_contents))
     }
 
     fn execute_interpreter(
@@ -1166,8 +1173,9 @@ impl PdfDocument {
         let box_ = page.media_box();
         interpreter.set_page_area((box_.x2 - box_.x1).abs() * (box_.y2 - box_.y1).abs());
 
-        let resolved_contents = self.resolve_page_contents(&page)?;
-        self.execute_interpreter(&mut interpreter, resolved_contents)?;
+        if let Some(resolved_contents) = self.resolve_page_contents(&page)? {
+            self.execute_interpreter(&mut interpreter, resolved_contents)?;
+        }
         Ok(())
     }
 

@@ -85,8 +85,19 @@ impl Coverage {
 
         // 7.7.2 — a key counts when the file carries it, and is read when its field
         // says what it holds rather than handing back the arena's own object.
+        //
+        // **Table 29's keys only.** A catalogue may carry private keys, and the corpus
+        // fetched for Phase O-1 carries three — `/XXCustom`, `/XXData` and a sixty-eight
+        // character one. Nothing can ever read them: their meaning belongs to the
+        // application that wrote them, and preserving them is the whole of what a
+        // conforming reader owes. Counting them lowered this figure for doing the only
+        // correct thing, and worse, it let a *producer* move it: three junk keys in one
+        // file cost four percentage points, which is not a property of this engine.
         let catalog = CatalogReport::survey(bytes)?;
         for entry in &catalog.entries {
+            if !entry.standard {
+                continue;
+            }
             c.present("catalogue entries", &entry.key);
             if entry.support == Support::Modelled {
                 c.mark_read("catalogue entries", &entry.key);
@@ -183,9 +194,14 @@ mod tests {
 
     /// A file carrying two catalogue keys, one annotation and one filtered stream.
     fn small_document() -> Vec<u8> {
+        document_with_catalogue_extra("")
+    }
+
+    /// The same file with `extra` added to its catalogue, offsets kept honest.
+    fn document_with_catalogue_extra(extra: &str) -> Vec<u8> {
         let content = "BT ET";
         let bodies = [
-            "<< /Type /Catalog /Pages 2 0 R /PageMode /UseNone >>".to_string(),
+            format!("<< /Type /Catalog /Pages 2 0 R /PageMode /UseNone {extra} >>"),
             "<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_string(),
             "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 10 10] /Contents 4 0 R \
               /Annots [5 0 R] >>"
@@ -255,6 +271,29 @@ mod tests {
         assert!(unread.contains(&"Type".to_string()), "typed `Handle<PdfName>`: {unread:?}");
         assert!(!unread.contains(&"PageMode".to_string()), "typed `Option<PageMode>`");
         assert!(!unread.contains(&"Pages".to_string()), "Phase K: `Located<PageTreeRoot>`");
+    }
+
+    /// A key the standard does not define is not part of the 7.7.2 axis.
+    ///
+    /// The corpus fetched for Phase O-1 carries three private catalogue keys, and they
+    /// were counted as presented-and-unread — so a producer's private extension lowered
+    /// this engine's figure, and no reader could ever have raised it back. The
+    /// denominator is what the *clause* defines and the files carry, not everything a
+    /// dictionary happens to hold.
+    #[test]
+    fn a_private_catalogue_key_is_outside_the_axis() {
+        let c = Coverage::of(&document_with_catalogue_extra("/XXPrivate (anything)"))
+            .expect("measures");
+        let axis = c.axes().into_iter().find(|a| a.axis == "catalogue entries").expect("axis");
+        let plain = Coverage::of(&small_document()).expect("measures");
+        let before =
+            plain.axes().into_iter().find(|a| a.axis == "catalogue entries").expect("axis");
+        assert_eq!(
+            (axis.presented, axis.read),
+            (before.presented, before.read),
+            "a key nothing can read must not move the figure either way"
+        );
+        assert!(!c.unread("catalogue entries").contains(&"XXPrivate".to_string()));
     }
 
     /// A filter the engine decodes counts; the axis is per name, not per stream.

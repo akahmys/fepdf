@@ -407,23 +407,27 @@ impl OptionalContentState {
     /// XObject, or the property list of a `/OC BDC`.
     #[must_use]
     pub fn membership(&self, arena: &PdfArena, oc: &Object) -> Membership {
-        let Some(handle) = oc.as_reference() else {
-            // 8.11.2 requires a group to be an indirect object, and 8.11.3.1's property
-            // list is a reference into `/Properties`. A dictionary written in place has
-            // no identity to match against `/OFF`, so nothing here can turn it off.
+        let Some(dict) = dict_of(arena, oc) else {
             return Membership::Unreadable(
-                "the /OC entry is written in place, so it names no group (8.11.2)".to_string(),
+                "the /OC entry is not a dictionary (8.11.3.2)".to_string(),
             );
         };
-        let Some(dict) = arena.get_object(handle).and_then(|obj| dict_of(arena, &obj)) else {
-            return Membership::Unreadable(format!(
-                "the /OC entry points at object {}, which is not a dictionary",
-                handle.index()
-            ));
-        };
+        // **A membership dictionary may be written in place; a group may not.** Only the
+        // second needs an identity, because only the second is what `/OFF` names — an
+        // OCMD reaches its groups through `/OCGs`, which carries the references itself.
+        // Conflating the two cost this engine a real file: `pdf20examples`'s
+        // `pdf20-utf8-test.pdf` writes `/OC << /Type /OCMD /OCGs 3 0 R >>` on a form
+        // XObject, and both of its layers are off, and it was drawn.
         if name_at(arena, &dict, "Type").is_some_and(|name| name.as_str() == "OCMD") {
             return self.membership_of_ocmd(arena, &dict);
         }
+        let Some(handle) = oc.as_reference() else {
+            return Membership::Unreadable(
+                "the /OC entry is a group written in place, which names nothing \
+                 `/OCProperties` could turn off (8.11.2)"
+                    .to_string(),
+            );
+        };
         if self.is_on(handle) { Membership::Visible } else { Membership::Hidden }
     }
 
@@ -441,7 +445,7 @@ impl OptionalContentState {
                 ),
             };
         }
-        let groups = referenced_groups(arena, dict.get(&arena.name("OCGs")));
+        let groups = membership_groups(arena, dict.get(&arena.name("OCGs")));
         if groups.is_empty() {
             // Table 97 allows `/OCGs` to be absent, and says nothing about what an empty
             // set means under `/AllOn`. Visible, per this module's opening note.
@@ -652,6 +656,21 @@ fn retain_considered(
             .unwrap_or_else(Intents::viewing);
         intent.meets(&wanted)
     });
+}
+
+/// The groups an OCMD's `/OCGs` names (Table 97).
+///
+/// **One group or an array of them**, and the single form is not a curiosity: it is what
+/// `pdf20-utf8-test.pdf` writes, and reading only the array form made an OCMD with one
+/// group look like an OCMD with none — which this module reads as visible, so a layer
+/// that was off was drawn.
+fn membership_groups(arena: &PdfArena, entry: Option<&Object>) -> Vec<Handle<Object>> {
+    match entry.map(|obj| obj.resolve(arena)) {
+        Some(Object::Array(_)) => referenced_groups(arena, entry),
+        // A single group is named by the reference itself; resolving it would lose the
+        // handle, which is the identity.
+        _ => entry.and_then(Object::as_reference).into_iter().collect(),
+    }
 }
 
 /// The indirect objects an array names, in order, ignoring elements that are not

@@ -7,18 +7,31 @@
 # beyond `/XYZ` and `/Fit`. A corpus assembled by somebody else, to be hard, is the only
 # way to find out what that selection has been hiding.
 #
-# Two sources, 242 files, about 9 MB:
+# Three sources:
 #
 #   pdf-association/pdf-differences  37 files, Apache-2.0. Targeted PDFs where real
 #                                    implementations legitimately disagree — the
 #                                    "does this engine read what others read" question,
 #                                    one construct per file.
-#   veraPDF Isartor test files      205 files. The PDF/A-1 violation suite: each file
-#                                    breaks one specific clause and the filename says
-#                                    which, so a failure is diagnosable rather than a
-#                                    mystery. Note these are *deliberately* invalid
-#                                    PDF/A; almost all are valid ISO 32000, so refusing
-#                                    to read one is a finding, not a pass.
+#   pdf-association/pdf20examples     7 files, CC BY-SA 4.0. The PDF Association's own
+#                                    PDF 2.0 examples, which is the version this engine
+#                                    writes.
+#   veraPDF corpus                   Isartor plus six sections. Isartor is the PDF/A-1
+#                                    violation suite: each file breaks one specific
+#                                    clause and the filename says which, so a failure is
+#                                    diagnosable rather than a mystery. These are
+#                                    *deliberately* invalid PDF/A; almost all are valid
+#                                    ISO 32000, so refusing to read one is a finding, not
+#                                    a pass.
+#
+# **Why the veraPDF sections beyond Isartor.** Phase O-1 asked for a corpus containing a
+# business document — an attachment, a signature with validation data, a choice field, a
+# layer — because four reading decisions were declined for want of one, and a corpus that
+# presents nothing cannot justify either building or declining. `pdf20examples` was the
+# roadmap's candidate and does not answer it: seven files demonstrating 2.0 syntax, with
+# no attachment and no form among them. The veraPDF sections do carry some of it —
+# `PDF_A-3b` and `PDF_A-4f` exist *because* PDF/A-3 and A-4f are the parts that embed
+# other documents — so they are fetched and then measured rather than assumed.
 #
 # Not committed and not in `samples/`. `samples/*.pdf` is nine files and several
 # measurements quote that number; adding to it would silently change them. This lands in
@@ -62,10 +75,52 @@ fetch_sparse() {  # $1 repo url, $2 branch, $3 sparse pattern, $4 dest name, $5 
     echo "  $4: $n files"
 }
 
+# Several sections out of one repository, cloned once. Calling `fetch_sparse` seven times
+# would pay for seven tree fetches of a repository whose trees are the expensive part.
+fetch_sections() {  # $1 repo url, $2 branch, then `section=destname` pairs
+    local url="$1" branch="$2"
+    shift 2
+    local work="$DEST/.multi.git" pending=() pair section dest
+    for pair in "$@"; do
+        dest="${pair##*=}"
+        if [ -d "$DEST/$dest" ] && [ -n "$(find "$DEST/$dest" -name '*.pdf' -print -quit 2>/dev/null)" ]; then
+            echo "  $dest: already present ($(find "$DEST/$dest" -name '*.pdf' | wc -l | tr -d ' ') files)"
+        else
+            pending+=("$pair")
+        fi
+    done
+    [ ${#pending[@]} -eq 0 ] && return 0
+
+    rm -rf "$work"
+    if ! git clone --quiet --depth 1 --filter=blob:none --sparse --branch "$branch" "$url" "$work" 2>/dev/null; then
+        echo "  CLONE FAILED — $url"
+        return 1
+    fi
+    local patterns=()
+    for pair in "${pending[@]}"; do patterns+=("${pair%%=*}/*"); done
+    ( cd "$work" && git sparse-checkout set --no-cone "${patterns[@]}" >/dev/null 2>&1 )
+    for pair in "${pending[@]}"; do
+        section="${pair%%=*}"; dest="${pair##*=}"
+        mkdir -p "$DEST/$dest"
+        # Flattened, and the leaf name kept: veraPDF nests by clause and the names already
+        # carry it, so the directories only make the loops that read this longer.
+        find "$work/$section" -name '*.pdf' -exec cp {} "$DEST/$dest/" \; 2>/dev/null
+        echo "  $dest: $(find "$DEST/$dest" -name '*.pdf' | wc -l | tr -d ' ') files"
+    done
+    rm -rf "$work"
+}
+
 echo "--- fetching a corpus this project did not choose ---"
 fetch_sparse https://github.com/pdf-association/pdf-differences.git main '/*' pdf-differences ''
-fetch_sparse https://github.com/veraPDF/veraPDF-corpus.git staging 'Isartor test files/*' \
-    isartor 'Isartor test files' 
+fetch_sparse https://github.com/pdf-association/pdf20examples.git master '/*' pdf20examples ''
+fetch_sections https://github.com/veraPDF/veraPDF-corpus.git staging \
+    'Isartor test files=isartor' \
+    'PDF_A-3b=pdfa3' \
+    'PDF_A-4f=pdfa4f' \
+    'PDF_A-4e=pdfa4e' \
+    'PDF_UA-2=pdfua2' \
+    'TWG test files=twg' \
+    'ISO 32000-2=iso32000-2'
 
 total=$(find "$DEST" -name '*.pdf' 2>/dev/null | wc -l | tr -d ' ')
 cat > "$DEST/README.md" <<EOMD
@@ -77,7 +132,8 @@ $total PDFs.
 | Directory | Source | Licence |
 | :--- | :--- | :--- |
 | \`pdf-differences/\` | github.com/pdf-association/pdf-differences | Apache-2.0 |
-| \`isartor/\` | github.com/veraPDF/veraPDF-corpus, \`Isartor test files\` | none stated at the repository root |
+| \`pdf20examples/\` | github.com/pdf-association/pdf20examples | CC BY-SA 4.0 |
+| \`isartor/\`, \`pdfa3/\`, \`pdfa4e/\`, \`pdfa4f/\`, \`pdfua2/\`, \`twg/\`, \`iso32000-2/\` | github.com/veraPDF/veraPDF-corpus | none stated at the repository root |
 
 These exist to be measured against, not to be shipped. \`target/\` is ignored by git.
 

@@ -8,9 +8,11 @@ That goal is not a predicate, and no run of `status.sh` can report it true or fa
 every phase below states a completion condition, and the line they are all under had
 none. Phase I gave it the nearest thing that can be measured: **the share of the
 constructs a corpus actually presents whose contents this engine reads** — 96% over the
-nine samples and 88% over both corpora, after Phase K took the catalogue axis from 5 of
-20 to 19 of 20. What is left is 23 annotation entries, on subtypes that occur once or
-twice; three filters; and `/Type`. `fepdf inspect coverage` reports it and
+nine samples and 88% over all 524 files, after Phase K took the catalogue axis from 5 of
+20 to 19 of 20 and Phase O-1 took it to **21 of 22** by fetching a corpus that presents
+two more. What is left is 29 annotation entries, on subtypes that occur once or twice;
+one filter; and `/Type`. The corpus doubled and the figure moved by one point, which is
+the property it exists to have: a bigger denominator is the honest direction. `fepdf inspect coverage` reports it and
 [ADR-0019](docs/adr/0019-semantic-understanding-is-measured-against-what-a-corpus-presents.md)
 records what it is not: a proxy, silent about whether what was read was read correctly,
 and bounded by a corpus that flatters an engine when it presents little.
@@ -41,12 +43,12 @@ rather than a rewording of it.
 | ISO 32000-2 | State |
 | :--- | :--- |
 | **7.3** Objects | Complete. Every type in the clause. |
-| **7.4** Filters | **Nine of the ten** since Phase M built `CCITTFaxDecode`, `JBIG2Decode` and `JPXDecode` — the tenth is `Crypt`, which the security layer handles (7.6). `inspect structure` takes a census of which filters a file's streams name, so this row is re-derivable per file rather than remembered. Across both corpora: `/FlateDecode` 224 files, `/DCTDecode` 12, `/XXXDecode` 8, `/JPXDecode` 3, `/CCITTFaxDecode` 2, `/LZWDecode` 2, `/ASCIIHexDecode` 1, `/JBIG2Decode` **none** — and every stream carrying a codec this engine lacks is an image, 3 of 3 and 2 of 2. Every filter that is a plain byte transformation decodes. `FlateDecode`, `LZWDecode`, `ASCIIHexDecode`, `ASCII85Decode` and `RunLengthDecode` decode, with Table 8's predictors reaching LZW as they do Flate, and `DCTDecode` reads JPEG; `Crypt` is handled in the security layer (7.6); `ZstandardDecode` is implemented and is not one of the ten. Table 6's abbreviations are matched too — `/AHx` appears seven times in one external file, and only `Fl` and `DCT` were recognised before. The three image codecs were absent until Phase M, declined by Phase L on a measurement that could not speak to the use case that reopened them; an image that still will not decode is skipped rather than aborting the page, and says what it cost. **This row did not exist until a corpus this project did not choose forced it.** |
+| **7.4** Filters | **Nine of the ten** since Phase M built `CCITTFaxDecode`, `JBIG2Decode` and `JPXDecode` — the tenth is `Crypt`, which the security layer handles (7.6). `inspect structure` takes a census of which filters a file's streams name, so this row is re-derivable per file rather than remembered. Across all 524 files: `/FlateDecode` 485 files, `/DCTDecode` 21, `/XXXDecode` 8, `/JPXDecode` 3, `/LZWDecode` 3, `/CCITTFaxDecode` 2, `/ASCIIHexDecode` 1, `/JBIG2Decode` **still none** — Phase O-1 doubled the corpus and did not produce one, which is what leaves O-2 open. Every stream carrying a codec this engine lacks is an image. Every filter that is a plain byte transformation decodes. `FlateDecode`, `LZWDecode`, `ASCIIHexDecode`, `ASCII85Decode` and `RunLengthDecode` decode, with Table 8's predictors reaching LZW as they do Flate, and `DCTDecode` reads JPEG; `Crypt` is handled in the security layer (7.6); `ZstandardDecode` is implemented and is not one of the ten. Table 6's abbreviations are matched too — `/AHx` appears seven times in one external file, and only `Fl` and `DCT` were recognised before. The three image codecs were absent until Phase M, declined by Phase L on a measurement that could not speak to the use case that reopened them; an image that still will not decode is skipped rather than aborting the page, and says what it cost. **This row did not exist until a corpus this project did not choose forced it.** |
 | **7.5** File structure | **Complete and in use.** Header scan, both cross-reference forms, `/Prev` chains, hybrid references, object streams, incremental updates, and recovery by scanning. `Document::open` reads the file itself; `lopdf` is gone. Recovery has **two** halves since Phase N: a scan finds objects written `N G obj`, and an object stored inside a `/Type /ObjStm` is not written that way — so every container in the file is expanded too, filling holes and never overriding a section that read ([ADR-0006](docs/adr/0006-a-container-may-not-overwrite-a-newer-revision.md)). Having only the first half cost `UnknownFilter-xrefstm.pdf` its page tree, which is object 5 inside object stream 2. |
 | **7.6** Encryption | Every password handler the standard defines now decrypts: RC4 (V1/V2), AES-128 (V4/R4) and AES-256 (V5/R5, V5/R6) to Algorithms 1, 2, 2.A, 2.B and 4–6, with `/Perms` checked and both password roles authenticating. Verified against PDFKit on fourteen files; all of it was broken or absent ([ADR-0009](docs/adr/0009-permissions-are-thirty-two-bits-not-a-positive-integer.md)). Writing is AES-256 at revision 6 and nothing else, because output is always 2.0 and this edition deprecates the rest. Public-key handlers (7.6.5) are **read and written** — a `/Adobe.PubSec` document opens with the certificate it was addressed to, which neither Chrome nor Firefox will do, and `--encrypt-to` produces one. Unencrypted wrappers (7.6.7) are recognised and reported. **Clause 7.6 is otherwise complete.** |
-| **7.7** Document structure | Every one of Table 29's 32 entries is a field of `PdfCatalog`, and after Phase K **20 are modelled** — the field's type says what the entry holds. Measured against the 251 files of both corpora, 12 of the 32 keys occur in no file at all and are **declined a reader** for that reason, recorded in the code as `catalog::ABSENT_FROM_BOTH_CORPORA`; of the twenty keys those files do carry, **19 are modelled**, and the one that is not is `/Type`, whose value 7.7.2 fixes at `/Catalog`. That figure is qualified where it is printed: `inspect catalog` reports, per entry, how much of the entry's *own* table its reader covers — `/AcroForm` is modelled and reads 4 of Table 224's 8 ([ADR-0020](docs/adr/0020-a-modelled-entry-reports-how-much-of-its-own-table-it-reads.md)). |
+| **7.7** Document structure | Every one of Table 29's 32 entries is a field of `PdfCatalog`, and **22 are modelled** — the field's type says what the entry holds. Measured against all 524 files, 10 of the 32 keys occur in no file at all and are **declined a reader** for that reason, recorded in the code as `catalog::ABSENT_FROM_BOTH_CORPORA`; of the twenty-two keys those files do carry, **21 are modelled**, and the one that is not is `/Type`, whose value 7.7.2 fixes at `/Catalog`. **Two keys left that list in Phase O-1** — `/AF` went from zero files to seventeen when PDF/A-3 and PDF/A-4f arrived, and `/PieceInfo` to one — and both gained readers in the same change, which is the rule working: a corpus justifies building, never declining. That figure is qualified where it is printed: `inspect catalog` reports, per entry, how much of the entry's *own* table its reader covers — `/AcroForm` is modelled and reads 4 of Table 224's 8 ([ADR-0020](docs/adr/0020-a-modelled-entry-reports-how-much-of-its-own-table-it-reads.md)). |
 | **PDF 2.0 additions** | `inspect catalog` reports **zero** `type only` entries, and the reason is not that the six gained readers. `PageLabels`, `Threads`, `OutputIntents`, `OCProperties`, `Collection` and `AF` each became an `Option<Object>` field, which moves them from "no field" to "a field whose contents are opaque" — the spec types (`PageLabelSpec`, `ArticleThread`, `OutputIntent`, …) are still not what the catalogue reads into. `DPartRoot` has no type at all, contrary to what this table said before it was checked. Phase K then gave `PageLabels`, `Threads`, `OutputIntents` and `OCProperties` real readers — the four of the six the corpora present, and `/OCProperties` was the one of those four that nothing read *from*, until Phase N made the renderer enter through it — and declined `Collection` and `AF`, which they do not. Of the six, `PageLabels` and `Threads` were the only ones to occur when the corpus was the nine samples — 2 files and 1. Across all 251 the order changes: `OutputIntents` 64, `PageLabels` 4, `OCProperties` and `Threads` 1 each, and `Collection` and `AF` still zero, as do `DSS` and `DPartRoot`, which have fields anyway — the container-before-contents shape Phase D was ordered to avoid. |
-| **8–14** Content, text, interactive, tagged | Interpreter, fonts and UA-2 auditing exist; interactive features (12) can be *read* (`inspect interactive`), and signature fields (12.7.5.5, 12.8) can now be written and checked. Named destinations (12.3.2) **resolve**, through both of 12.3.2.3's forms and the name tree (7.9.6) one of them needs — which found a link in `intel_sdm.pdf` that goes nowhere, `(G3.7717)`, referenced three times and declared in none of that file's 279,501 destinations. Every page of every sample now yields its text: `scn` with a pattern name (8.6.8.2) was read as a grey component, which cost `fy05.pdf` six pages and — because extraction stopped at the first failure — the 718 after them. A pattern is now painted, through `Paint::Pattern(PatternSpec)`. `samples/` exercises one annotation subtype — all 29,973 of its annotations are `/Link` — and this row said that of *the corpus* for as long as there was only one. The 242 external files carry 82 annotations across **16** subtypes and four terminal form fields, so both walks now run on files this project did not choose. `PdfAnnotation` held seven entries of Table 166 and no `/AP`, which made a `/Redact` and a `/Watermark` the same object to this engine; Phase J took it to all nineteen, added Table 172 for the markup subtypes and readers for the six subtypes either corpus writes more than once, and the form walk now reads `/V`, `/DA`, `/Ff` and `/T` with 12.7.4.2's inheritance. **17 distinct entries across the remaining subtypes still have no reader**, each on an annotation that occurs once or twice, and `inspect interactive` names them per subtype. Every one of the 30,055 annotations parses. **Optional content is now honoured while drawing.** `BDC` discarded its property list, so an `/OC` section was painted whether its group was on or off, and `/OCProperties` — read since Phase K — was consulted by nothing. Clause 8.11 is read: the default configuration's `/BaseState`, `/ON`, `/OFF`, `/Intent` and `/AS`, membership dictionaries with all four `/P` policies and `/VE` expressions, and the `/OC` entry on an XObject. Thirteen constructions were put to PDFKit and it honours **two** of them, so eleven are held to the clause by 26 tests rather than to a second implementation ([ADR-0021](docs/adr/0021-optional-content-hides-only-what-the-document-unambiguously-turns-off.md)). Nothing is hidden on a doubt: an `/OC` that will not resolve draws and records a `Decision`. |
+| **8–14** Content, text, interactive, tagged | Interpreter, fonts and UA-2 auditing exist; interactive features (12) can be *read* (`inspect interactive`), and signature fields (12.7.5.5, 12.8) can now be written and checked. Named destinations (12.3.2) **resolve**, through both of 12.3.2.3's forms and the name tree (7.9.6) one of them needs — which found a link in `intel_sdm.pdf` that goes nowhere, `(G3.7717)`, referenced three times and declared in none of that file's 279,501 destinations. Every page of every sample now yields its text: `scn` with a pattern name (8.6.8.2) was read as a grey component, which cost `fy05.pdf` six pages and — because extraction stopped at the first failure — the 718 after them. A pattern is now painted, through `Paint::Pattern(PatternSpec)`. `samples/` exercises one annotation subtype — all 29,973 of its annotations are `/Link` — and this row said that of *the corpus* for as long as there was only one. The 515 external files carry 125 annotations across **18** subtypes and twelve terminal form fields, so both walks run on files this project did not choose. `PdfAnnotation` held seven entries of Table 166 and no `/AP`, which made a `/Redact` and a `/Watermark` the same object to this engine; Phase J took it to all nineteen, added Table 172 for the markup subtypes and readers for the six subtypes either corpus writes more than once, and the form walk now reads `/V`, `/DA`, `/Ff` and `/T` with 12.7.4.2's inheritance. **29 distinct entries across the remaining subtypes still have no reader**, each on an annotation that occurs once or twice, and `inspect interactive` names them per subtype. Every one of the 30,098 annotations parses. **Optional content is now honoured while drawing.** `BDC` discarded its property list, so an `/OC` section was painted whether its group was on or off, and `/OCProperties` — read since Phase K — was consulted by nothing. Clause 8.11 is read: the default configuration's `/BaseState`, `/ON`, `/OFF`, `/Intent` and `/AS`, membership dictionaries with all four `/P` policies and `/VE` expressions, and the `/OC` entry on an XObject. Thirteen constructions were put to PDFKit and it honours **two** of them, so eleven are held to the clause by 30 tests rather than to a second implementation ([ADR-0021](docs/adr/0021-optional-content-hides-only-what-the-document-unambiguously-turns-off.md)). Nothing is hidden on a doubt: an `/OC` that will not resolve draws and records a `Decision`. Two of those thirty tests exist because Phase O-1's corpus caught the reader out on a real file — an OCMD written *in place*, with `/OCGs` naming a single group rather than an array, and both of `pdf20-utf8-test.pdf`'s layers drawn although the file turns them off. |
 | **14.3** Metadata | Settled at load into one state: `/Info` and the metadata stream are reconciled, disagreements recorded, and the entries 14.3.3 deprecates moved to where that clause puts them ([ADR-0013](docs/adr/0013-a-document-is-one-normalised-state.md)). Text strings decode to 7.9.2.2 — PDFDocEncoding from Annex D, or a byte order mark — after a Shift-JIS detector was found corrupting a conforming `/Title`. `--strip` removes every metadata stream, not the catalogue's alone. |
 
 One measurement worth carrying forward: all 24 `Operation` variants are fully
@@ -1059,12 +1061,33 @@ reproducing a failure is the thing that can tell you it was filed under the wron
 Phase M could not check its own work against anything it had not written, and said so.
 That is not a scanned-image problem; it is the same hole in four places.
 
-- [ ] **Neither corpus contains a business document.** No attachment, no long-term
+- [x] **Neither corpus contains a business document.** No attachment, no long-term
       signature, no choice field, no layer, no redaction — which is why every one of
-      those reads as "zero occurrences" and was declined on that basis. Fetching a corpus
-      that contains them is what turns the decisions in "What the engine promises" from
-      guesses into measurements. `pdf-association/pdf20examples` remains the candidate,
-      and the rule from Phase G holds: it lands in `target/`, never in `samples/`
+      those read as "zero occurrences" and was declined on that basis.
+
+      **The candidate this entry named was the wrong one, and measuring it is how that
+      was found.** `pdf-association/pdf20examples` is seven files demonstrating 2.0
+      syntax; it carries no attachment and no form. What does carry them is the rest of
+      the veraPDF corpus, whose Isartor section this project already used: `PDF_A-3b` and
+      `PDF_A-4f` exist *because* those are the parts of the standard that embed other
+      documents. Six sections and `pdf20examples` were fetched — 515 external files, up
+      from 242 — into `target/`, never `samples/`, as Phase G's rule requires.
+
+      **What it settled, and what it did not.** `/AF` went from zero files to **17** and
+      `/PieceInfo` to one, so both left `ABSENT_FROM_BOTH_CORPORA` and both were built —
+      the rule is that a corpus justifies building. `/JavaScript`, `/Launch`,
+      `/ImportData` and `/SetOCGState` now occur, so **P4 has a corpus**. `/DSS` and
+      `/Perms` occur in **no file**, and of twelve terminal form fields none is a `/Ch`,
+      so **P1 and P3 are still unmeasurable** — which is a finding, not a failure to look.
+
+      **Three defects, found because the files are foreign.** A page with no `/Contents`
+      is legal and this engine returned an error for it, so seven files counted as
+      text-extraction failures. An OCMD written *in place* was refused as unreadable, and
+      an OCMD naming a single group rather than an array read as naming none — together,
+      `pdf20-utf8-test.pdf` drew two layers it had turned off, which PDFKit hides. And
+      the coverage index counted *private* catalogue keys against itself, so three junk
+      keys in one file cost four percentage points of a figure that is supposed to
+      describe this engine
 - [ ] **JBIG2 has never met an image this project did not assemble.** CCITT and JPX were
       confirmed against real files of the external corpus; JBIG2's only evidence is a page
       built segment by segment in a test, which checks the decoder against its author's
@@ -1108,16 +1131,18 @@ broad — it already reads five encryption schemes and writes one. They were dec
 corpus counts alone, which the rule above disqualifies as a reason, so they are open
 questions rather than refusals:
 
-| | What is not read | What makes it necessary |
-| :--- | :--- | :--- |
-| **P1** | **`/Ch` choice fields.** A dropdown or list box is walked, and its options and value are not read | Any government or business form. Declined from a corpus containing four form fields in total |
-| **P2** | **`/AF` associated files (14.13).** An attached file — the XML of an e-invoice, a source document — is reachable and not read | Any document that carries another, and reading a PDF/A-3 even where one cannot be written |
-| **P3** | **`/DSS` and `/Perms`.** Long-term validation data, and the permissions a signature sets (DocMDP) | *Reporting* on a signed document somebody else produced — which survives the decision above, where producing that data does not |
-| **P4** | **What a document *does* when opened.** `/JavaScript`, `/Launch` and embedded-file payloads are counted by kind and never read | Security screening. The coverage index excludes actions because "reads an action" has no settled meaning (ADR-0019); "does this run code" has one |
+| | What is not read | What makes it necessary | What the corpus says |
+| :--- | :--- | :--- | :--- |
+| **P1** | **`/Ch` choice fields.** A dropdown or list box is walked, and its options and value are not read | Any government or business form | **Still nothing.** Twelve terminal fields across 524 files, six `/Btn` and six `/Tx`. Up from four, and not one choice field |
+| **P2** | ~~**`/AF` associated files (14.13).**~~ **Built.** | Any document that carries another, and reading a PDF/A-3 even where one cannot be written | **17 files**, the moment PDF/A-3 and PDF/A-4f arrived. `FileSpecification` reads Table 43, `/AFRelationship` included — an e-invoice's `/Data` and its `/Source` are different facts |
+| **P3** | **`/DSS` and `/Perms`.** Long-term validation data, and the permissions a signature sets (DocMDP) | *Reporting* on a signed document somebody else produced — which survives the decision above, where producing that data does not | **Still nothing.** Neither key occurs in any of the 524 files |
+| **P4** | **What a document *does* when opened.** `/JavaScript`, `/Launch` and embedded-file payloads are counted by kind and never read | Security screening. The coverage index excludes actions because "reads an action" has no settled meaning (ADR-0019); "does this run code" has one | **Present, barely.** `/JavaScript` 2 plus one on `/AA`, `/Launch` 2, `/ImportData` 2, `/SetOCGState` 1 |
 
-None of the four can be sized until Phase O fetches a corpus that contains a business
-document, which is the same sentence in both directions: they were declined for want of
-one, and they cannot be planned without one.
+Phase O-1 fetched the corpus and the column above is what it answered. **P2 is done.** P4
+can now be planned against files rather than against a guess. P1 and P3 remain
+unsizeable, and the reason has changed: it is no longer "nobody has looked" but "a corpus
+of 524 files assembled by three other projects contains none of it", which is a much
+better argument for a *use case* being what justifies them, if anything does.
 
 ## Not planned
 
@@ -1134,12 +1159,18 @@ than on how often a corpus happened to contain it.
   ([ADR-0014](docs/adr/0014-the-faithful-copy-path-is-not-built.md)). Decided rather
   than deferred, and what it costs is written out under "Read broadly, write 2.0" —
   PDF/A-3 output, and therefore an e-invoice for a recipient who will not take PDF/A-4f.
-- **Reading an entry no corpus carries and no use case names.** Twelve keys of Table 29
-  are declined in the code (`catalog::ABSENT_FROM_BOTH_CORPORA`) and ten annotation
-  subtypes occur once each. `/AF`, `/DSS` and `/Perms` were on that list until the rule
-  above moved them; the rest stay, and a test holds the line from the other side.
+- **Reading an entry no corpus carries and no use case names.** **Ten** keys of Table 29
+  are declined in the code (`catalog::ABSENT_FROM_BOTH_CORPORA`), down from twelve:
+  Phase O-1 presented `/AF` and `/PieceInfo` and both were built. `/DSS` and `/Perms`
+  were moved off the list by the rule above and are still carried by no file at all, so
+  they remain open questions rather than refusals. A test holds the line from the other
+  side.
 - **Multimedia: `/Movie`, `/Sound`, `/Screen`, `/3D`.** Clause 13.4 is deprecated in
-  2.0, and reading it would be building for a subsystem the standard is retiring.
+  2.0, and reading it would be building for a subsystem the standard is retiring. Phase
+  O-1's corpus does carry them — `/3D` ten times, `/Movie` five, `/RichMedia` three,
+  `/Sound` and `/Screen` once each — which changes the premise and not the refusal: this
+  one rests on the standard retiring the clause, which is a reason a corpus cannot
+  overturn.
 - **XFA.** Deprecated in 2.0, and a second form model besides the one that works.
 - **A faithful-copy path, and signing documents this engine did not produce.** The two
   are one question: byte fidelity buys nothing else that another route does not, and
@@ -1192,6 +1223,6 @@ the current state above is what the code does today rather than what it was inte
 to do.
 
 *Updated 2026-08-22. The figures above come from the sample corpus, a set of
-deliberately malformed files, and the 242 external files of Phase G; the catalogue,
+deliberately malformed files, and the 515 external files Phases G and O fetched; the catalogue,
 annotation and form-field counts in Phases J and K were taken by running `inspect
 catalog` and `inspect interactive` over all 251 and aggregating the JSON.*

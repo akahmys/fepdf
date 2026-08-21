@@ -111,10 +111,15 @@ tolerance=12
 status=0
 compared=0
 skipped=0
-# The made fixtures, and any file of the external corpus that carries a codec — those
-# are files this project did not write, which is what the fixtures cannot be.
-printf '%-30s %-24s %-24s %s\n' file fepdf PDFKit verdict
+printf '%-34s %-24s %-24s %s\n' file fepdf PDFKit verdict
+# The made fixtures, the files of the external corpus that carry a codec, and the three
+# that carry **optional content** — those last are the independent oracle the layer work
+# did not have, and they earned their place: `pdf20-utf8-test.pdf` is where this engine
+# was found drawing two layers a file had turned off, because their `/OC` is an OCMD
+# written in place with a single `/OCGs` reference and neither form was read.
 for input in target/scans/*.pdf target/layers/*.pdf \
+             target/external/pdf20examples/pdf20-utf8-test.pdf \
+             target/external/pdfua2/8.7-t02-*.pdf \
              target/external/pdf-differences/UnknownFilter-*.pdf; do
     [ -e "$input" ] || continue
     name=$(basename "$input" .pdf)
@@ -126,12 +131,12 @@ for input in target/scans/*.pdf target/layers/*.pdf \
         # engine opens it and PDFKit does not (Phase G), so there is no second opinion to
         # be had — and a check that quietly passed on a file nobody read would be the
         # vacuous pass `crosscheck_roundtrip.sh` already had to remove once.
-        printf '%-30s %-24s %-24s %s\n' "$name" "${mine:-—}" "—" "not comparable — PDFKit will not open it"
+        printf '%-34s %-24s %-24s %s\n' "$name" "${mine:-—}" "—" "not comparable — PDFKit will not open it"
         skipped=$((skipped + 1))
         continue
     fi
     if [ -z "$mine" ]; then
-        printf '%-30s %-24s %-24s %s\n' "$name" "—" "$theirs" "THIS ENGINE RENDERED NOTHING"
+        printf '%-34s %-24s %-24s %s\n' "$name" "—" "$theirs" "THIS ENGINE RENDERED NOTHING"
         status=1
         continue
     fi
@@ -143,7 +148,7 @@ for input in target/scans/*.pdf target/layers/*.pdf \
         for (i = 1; i <= n; i++) { d = x[i] - y[i]; if (d < 0) d = -d; if (d > worst) worst = d }
         printf (worst <= t) ? "agree (worst %d)" : "DISAGREE by %d", worst
     }')
-    printf '%-30s %-24s %-24s %s\n' "$name" "$mine" "$theirs" "$verdict"
+    printf '%-34s %-24s %-24s %s\n' "$name" "$mine" "$theirs" "$verdict"
     case "$verdict" in DISAGREE*) status=1 ;; esac
 done
 

@@ -130,8 +130,9 @@ pub struct PdfCatalog {
     /// `/Collection`: collection dictionary for document portfolios (12.3.5).
     pub collection: Option<Object>,
     #[pdf_key("AF")]
-    /// `/AF`: array of file specification dictionaries for associated files (14.13).
-    pub associated_files: Option<Object>,
+    /// `/AF`: the files this document carries (14.13), read since a corpus presented
+    /// seventeen of them.
+    pub associated_files: Option<entries::AssociatedFiles>,
     #[pdf_key("Extensions")]
     /// `/Extensions`: developer extensions dictionary (7.12).
     pub extensions: Option<Object>,
@@ -142,8 +143,9 @@ pub struct PdfCatalog {
     /// `/SpiderInfo`: Web Capture information dictionary (14.10.2).
     pub spider_info: Option<Object>,
     #[pdf_key("PieceInfo")]
-    /// `/PieceInfo`: page-piece dictionary (14.5).
-    pub piece_info: Option<Object>,
+    /// `/PieceInfo`: private data left by the applications that touched the document
+    /// (14.5), keyed by the name each calls itself.
+    pub piece_info: Option<entries::PieceInfo>,
     #[pdf_key("Perms")]
     /// `/Perms`: permissions dictionary (12.8.4).
     pub perms: Option<Object>,

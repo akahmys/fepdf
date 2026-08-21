@@ -274,6 +274,127 @@ impl FromPdfObject for ArticleThreads {
     }
 }
 
+/// One file specification (7.11.3, Table 43): another document, named and reachable.
+///
+/// The contents of `/AF`, and of the `/EmbeddedFiles` name tree. Modelled as far as the
+/// *specification* goes — what the file is called, what it is to this document, and where
+/// its bytes are. The bytes themselves are behind `/EF`, which is a dictionary of streams
+/// keyed by which of Table 43's naming conventions supplied the name; extracting one is a
+/// walk rather than a value, so it is named here and not read.
+#[derive(Debug, Clone, FromPdfObject, Serialize, Deserialize)]
+#[pdf_dict(clause = "7.11.3")]
+pub struct FileSpecification {
+    #[pdf_key("Type")]
+    /// `/Type`, `Filespec` when written.
+    pub kind: Option<PdfName>,
+    #[pdf_key("UF")]
+    /// `/UF`: the file name as Unicode, which 7.11.3 prefers over `/F` and which every
+    /// file of the corpus that carries one writes.
+    pub unicode_name: Option<String>,
+    #[pdf_key("F")]
+    /// `/F`: the file name in the PDF's own encoding.
+    pub name: Option<String>,
+    #[pdf_key("Desc")]
+    /// `/Desc`: what the attachment is, in the producer's words.
+    pub description: Option<String>,
+    #[pdf_key("AFRelationship")]
+    /// `/AFRelationship` (14.13): what this file *is* to the document that carries it —
+    /// `/Source`, `/Data`, `/Alternative`, `/Supplement`, `/EncryptedPayload`. The entry
+    /// that makes an attachment more than a blob: an e-invoice's XML is `/Data` and its
+    /// human-readable original is `/Source`, and a reader that could not tell them apart
+    /// would have to guess which one to act on.
+    pub relationship: Option<PdfName>,
+    #[pdf_key("FS")]
+    /// `/FS`: the file system the name is to be read against. `/URL` means `/F` is a URL.
+    pub file_system: Option<PdfName>,
+    #[pdf_key("EF")]
+    /// `/EF`: the embedded file streams, keyed as `/F` and `/UF` are. Named, not walked.
+    pub embedded: Option<Object>,
+    #[pdf_key("RF")]
+    /// `/RF`: related files, one array per `/EF` key. Named, not walked.
+    pub related: Option<Object>,
+    #[pdf_key("ID")]
+    /// `/ID`: a two-element file identifier, for finding the file again elsewhere.
+    pub id: Option<Handle<Vec<Object>>>,
+    #[pdf_key("V")]
+    /// `/V`: whether the file has changed since the reference was made.
+    pub volatile: Option<bool>,
+    #[pdf_key("Thumb")]
+    /// `/Thumb`: a thumbnail image for the attachment. Named, not decoded.
+    pub thumbnail: Option<Object>,
+    #[pdf_key("CI")]
+    /// `/CI`: collection item data, for a portfolio's columns. Named, not read.
+    pub collection_item: Option<Object>,
+}
+
+/// `/AF` (14.13): the files this document carries, with what would not read counted.
+///
+/// **Declined until a corpus presented one.** Neither of the first two corpora carried a
+/// single `/AF`, so 14.13 was an open question rather than a refusal — a reader built
+/// then would have been a container before its contents. Phase O-1 fetched PDF/A-3 and
+/// PDF/A-4f files, which exist *because* those are the parts of the standard that embed
+/// other documents, and seventeen of them carry one.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct AssociatedFiles {
+    /// Each specification, in the order the array writes them.
+    pub files: Vec<FileSpecification>,
+    /// Elements present in the array but not readable as a file specification.
+    pub unreadable: usize,
+}
+
+impl FromPdfObject for AssociatedFiles {
+    fn from_pdf_object(obj: Object, arena: &PdfArena) -> PdfResult<Self> {
+        read_array(arena, &obj, "/AF").map(|(files, unreadable)| Self { files, unreadable })
+    }
+}
+
+/// What one application left in `/PieceInfo` (14.5, Table 322).
+#[derive(Debug, Clone, FromPdfObject, Serialize, Deserialize)]
+#[pdf_dict(clause = "14.5")]
+pub struct PieceData {
+    #[pdf_key("LastModified")]
+    /// `/LastModified`: when that application last touched its data. Required, and the
+    /// only entry of the table whose meaning the *standard* fixes.
+    pub last_modified: Option<String>,
+    #[pdf_key("Private")]
+    /// `/Private`: the application's own data, in whatever shape it chose. Reachable and
+    /// not modelled, and that is not a gap: 14.5 defines no structure for it, so a type
+    /// here would be describing one producer's habits as though they were the standard.
+    pub private: Option<Object>,
+}
+
+/// `/PieceInfo` (14.5): private data left by the applications that touched the document.
+///
+/// **Keyed by application name, not by a table.** Each key is whatever the producer calls
+/// itself — the one file that carries this writes `/pdfa_Name` — so the reader reports the
+/// names and what each left, and the entry has no "own table" figure to give.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct PieceInfo {
+    /// Each application, by the name it goes under, in the order the dictionary sorts.
+    pub applications: Vec<(String, PieceData)>,
+    /// Keys whose value would not read as Table 322 describes one.
+    pub unreadable: usize,
+}
+
+impl FromPdfObject for PieceInfo {
+    fn from_pdf_object(obj: Object, arena: &PdfArena) -> PdfResult<Self> {
+        let dict = dict_of(arena, &obj)
+            .ok_or_else(|| PdfError::Other("/PieceInfo is not a dictionary (14.5)".into()))?;
+        let mut out = Self::default();
+        for (name, value) in dict {
+            let Some(name) = arena.get_name(name) else {
+                out.unreadable += 1;
+                continue;
+            };
+            match PieceData::from_pdf_object(value, arena) {
+                Ok(data) => out.applications.push((name.as_str().to_string(), data)),
+                Err(_) => out.unreadable += 1,
+            }
+        }
+        Ok(out)
+    }
+}
+
 /// Reads an array of `T`, counting the elements that will not read rather than failing.
 ///
 /// One malformed element out of 64 is a defect in that element. Refusing the whole entry

@@ -136,9 +136,16 @@ const TABLE_29: &[(&str, bool)] = &[
 /// The Table 29 keys that occur in **no file of either corpus**, and are therefore
 /// declined a reader.
 ///
-/// Measured 2026-08-20 by running `inspect catalog` over all 251 files — the nine in
-/// `samples/` and the 242 of `scripts/test/fetch_external_corpus.sh` — and folding the
-/// results together. Twenty of Table 29's thirty-two keys occur; these twelve do not.
+/// Measured 2026-08-22 by running `inspect catalog` over all 524 files — the nine in
+/// `samples/` and the 515 of `scripts/test/fetch_external_corpus.sh` — and folding the
+/// results together. Twenty-two of Table 29's thirty-two keys occur; these ten do not.
+///
+/// **Two keys left this list when the corpus grew**, which is what the paragraph below
+/// says such a departure means. `/AF` went from zero files to seventeen the moment
+/// PDF/A-3 and PDF/A-4f files were fetched — those parts of the standard exist to embed
+/// other documents — and `/PieceInfo` to one. Both gained readers in the same change:
+/// the rule is that a corpus can justify *building*, and these two are now built rather
+/// than declined.
 ///
 /// The list is here rather than in a document because it is a *refusal*, and a refusal
 /// that lives only in prose is one nobody is reminded of. Building a reader for one of
@@ -152,14 +159,12 @@ pub const ABSENT_FROM_BOTH_CORPORA: &[&str] = &[
     "Extensions",
     "URI",
     "SpiderInfo",
-    "PieceInfo",
     "Perms",
     "Legal",
     "Requirements",
     "Collection",
     "NeedsRendering",
     "DSS",
-    "AF",
     "DPartRoot",
 ];
 
@@ -453,7 +458,7 @@ mod tests {
                 "/{key} occurs in no file of either corpus and must not have a reader"
             );
         }
-        assert_eq!(ABSENT_FROM_BOTH_CORPORA.len(), 12);
+        assert_eq!(ABSENT_FROM_BOTH_CORPORA.len(), 10);
     }
 
     /// Every key the corpora *do* carry has a reader, save the one that is a check.
@@ -495,6 +500,8 @@ mod tests {
             "Lang",           // a text string
             "Version",        // a name of the form M.m
             "NeedsRendering", // a boolean
+            "AF",             // an array of file specifications (7.11.3)
+            "PieceInfo",      // keyed by the names applications call themselves (14.5)
         ];
         for (key, _) in TABLE_29 {
             if support_for(key) != Support::Modelled || NOT_A_TABLE_OF_KEYS.contains(key) {
