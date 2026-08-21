@@ -18,6 +18,10 @@ For prescriptive constraints, see `.agents/rules/gpu-rendering.md`.
 ## 2. High-Fidelity CJK Decoding
 
 - **Boundary Precision**: Multi-byte character decoding (CMap) accurately detects byte-length boundaries (1-byte vs 2-byte) based on the specific CMap's range definitions.
-- **Fail-Safe Mapping**: If a character mapping is missing, the engine falls back to a diagnostic placeholder (e.g., `.notdef`) and logs the incident, rather than silently guessing or shifting indices.
+- **Fail-Safe Mapping**: If a character mapping is missing, the engine falls back rather
+  than silently guessing or shifting indices. (Checked 2026-08-22: there is no `.notdef`
+  placeholder in the font or interpreter code, and it does **not** log — the engine holds
+  exactly one `log::warn!` by design, and what it finds in a document it records as a
+  `Decision`. `status.sh` re-derives that count.)
 - **WMode Fidelity**: Vertical writing (WMode=1) metrics are applied strictly according to the CIDFont's W/W2 dictionaries.
 - **Glyph Replacement Integrity**: During Japanese CID-keyed font rendering, certain whitespace CIDs (e.g., CID 1, 2, 3) are correctly resolved to space glyphs to prevent "White Page" regressions in documents where Unicode mapping is missing.

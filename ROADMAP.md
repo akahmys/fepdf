@@ -1056,7 +1056,7 @@ Five entries, and the last two were found by fixing the first three — an engin
 honours a construct correctly is the thing that can tell you it never wrote one, and
 reproducing a failure is the thing that can tell you it was filed under the wrong cause.
 
-## Phase O — The holes in the checking
+## Phase O — The holes in the checking *(complete)*
 
 Phase M could not check its own work against anything it had not written, and said so.
 That is not a scanned-image problem; it is the same hole in four places.
@@ -1128,14 +1128,37 @@ That is not a scanned-image problem; it is the same hole in four places.
       now written where the suite is listed: the baselines are this engine's own output,
       so it detects *change* and not correctness. Against a second renderer, text and
       layout are still covered by nothing
-- [ ] **The rest of `docs/specs/` is unaudited.** `omissions.md` was checked and twelve
-      of its claims were false, so it is archived. Four documents of the same era —
-      `sdk_design.md`, `app_design.md`, `refinery_engine.md`, `charter_redesign_*.md` —
-      have not been read against the code
+- [x] **The rest of `docs/specs/` is unaudited.** `omissions.md` was checked and twelve
+      of its claims were false, so it is archived. **Seven** documents remained, not the
+      four this entry named — `core-pipeline.md`, `rendering.md` and `sdk-pipeline.md`
+      were not on the list and are the newest and most accurate of them.
 
-*Done when*: every check in `TESTING.md` can pass, a corpus that contains a business
-document has been measured against, and no document under `docs/specs/` makes a claim
-that a command contradicts.
+      Every claim a command could check was checked. `sdk_design.md` and `app_design.md`
+      are **archived** with the audit beside each claim, in the shape `omissions.md` set:
+      between them they name nine source files, a directory, five crates and four types
+      that do not exist, five wrong dependency versions, the CLI binary called the GUI,
+      and the Arlington predicate engine for the second time. `charter_redesign_*.md` was
+      **moved to `docs/history/`** — a dated deliberation record is a historical document
+      and belongs where those are, which is the only thing wrong with it.
+
+      The other three were **corrected in place**, because most of each was true and
+      archiving a mostly-true document loses more than it proves: `Handle` has no
+      generation bits, there is no `SafetyBitmask`, the text-encoding detector was
+      *removed* for corrupting a conforming `/Title`, Zstd skips exactly the two stream
+      kinds the line named as its examples, the decryption walk recurses (safely, for
+      reasons the document did not give), and the `.notdef` fallback that "logs the
+      incident" neither exists nor could log. Each correction carries the date it was
+      checked
+
+*Done when*: **done.** Every check in `TESTING.md` passes and the one that could not is
+deleted. A corpus of 515 foreign files has been measured against, and it moved four
+decisions and found three defects. No document under `docs/specs/` makes a claim a
+command contradicts — two were archived with the evidence, one was moved to where
+historical documents live, and three were corrected with the date they were checked.
+
+What Phase O did **not** close is written where it belongs rather than here: `/DSS`,
+`/Perms` and `/Ch` occur in none of the 524 files, and JBIG2's arithmetic coder has still
+never met an image. Both are now measurements rather than assumptions.
 
 ## Read broadly, write 2.0
 

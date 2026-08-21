@@ -1,3 +1,29 @@
+> **Archived 2026-08-22, and not maintained.** A record of an earlier design, in the
+> sense `PLANNING.md` uses of everything under `docs/history/archive/`, kept for the same
+> reason `omissions.md` beside it is: deleting the evidence of a documentation failure
+> removes the only proof that it happened.
+>
+> **Checked against the code on 2026-08-22 (Phase O-4), and most of it is contradicted.**
+> It sat in `docs/specs/` under a README saying the directory is not authoritative, which
+> is true and was not enough — a document naming a dependency version reads as a fact
+> whatever the directory says.
+>
+> | Claim | What is true |
+> | :--- | :--- |
+> | Links `RR-15` and `HDD` to `.antigravity/rules/*.md` | No such directory. |
+> | `fepdf-sdk`, `fepdf-ui`, `arlington`, `loader`, `engine` crates | None of the five exists. The crates are listed in `ARCHITECTURE.md` §2. |
+> | `DisplayList`, `DrawOp`, `SystemBridge`, `PdfEditor` | None of the four exists anywhere in the workspace. |
+> | "Pull-type Architecture where the Engine generates a `DisplayList`" | The interpreter pushes calls at a `RenderBackend` trait; there is no display list. |
+> | "Validate: Perform dictionary validation using `arlington`" | Arlington is a shell wrapper around an external Python tool and nothing in the engine reads it. |
+> | WGPU 28.0 | 29. |
+> | egui/eframe 0.33.1 | 0.34. |
+> | winit 0.30 | Not a direct dependency. |
+> | "Flagship GUI (`fepdf`)" | `fepdf` is the **CLI** binary. The GUI is `fepdf-gui`. |
+> | Rust 1.94 / Edition 2024, Vello, `RenderBackend`, `verify_compliance.sh` | True. |
+>
+> What the design is **now** is in [`ARCHITECTURE.md`](../../../ARCHITECTURE.md); how it
+> came to be is in [`docs/adr/`](../../adr/README.md).
+
 # Technical Specification: fepdf UI
 
 > [!IMPORTANT]

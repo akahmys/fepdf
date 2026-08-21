@@ -1,3 +1,32 @@
+> **Archived 2026-08-22, and not maintained.** A record of an earlier design, in the
+> sense `PLANNING.md` uses of everything under `docs/history/archive/`, kept for the same
+> reason `omissions.md` beside it is: deleting the evidence of a documentation failure
+> removes the only proof that it happened.
+>
+> **Checked against the code on 2026-08-22 (Phase O-4), and most of it is contradicted.**
+> It sat in `docs/specs/` under a README saying the directory is not authoritative, which
+> is true and was not enough — a document naming a dependency version reads as a fact
+> whatever the directory says.
+>
+> | Claim | What is true |
+> | :--- | :--- |
+> | Links `RR-15` and `HDD` to `.antigravity/rules/*.md` | No such directory. The rules are `CODING.md` and `.agents/rules/`. |
+> | `trailer.rs`, `resolver.rs`, `graphics.rs`, `editor.rs` | None of the four exists. |
+> | `serialize/object.rs`, `serialize/increment.rs` | No `serialize/` directory. The writer is one file, `writer.rs`. |
+> | "Non-Destructive Editing (Incremental Update): Append mode" | Saving produces a **new document** ([ADR-0012](../../adr/0012-saving-produces-a-new-document.md)), and the faithful-copy path is deliberately not built ([ADR-0014](../../adr/0014-the-faithful-copy-path-is-not-built.md)). |
+> | Parser: `nom` 7.1 | `nom` is used, in `object/sublimation/resurrection.rs` — for content streams, not for the file. |
+> | Compression: `miniz_oxide` 0.7 | Not a direct dependency; `flate2` decodes `/FlateDecode`. |
+> | Image Filters: `jpeg-decoder` 0.3.2 | Not in `Cargo.lock` at all. JPEG is `zune-jpeg` 0.5. |
+> | `hayro-jpeg2000` 0.3.4 | 0.4. |
+> | Cryptography: `md-5` 0.10 | The crate is `md5`, at 0.8. |
+> | `SublimatedData::Commands(Vec<Command>)`, three variants | Four variants, and `Commands { items }` is a struct variant. `Image` is missing from the list. |
+> | "Dynamic Verification ... via the Arlington Model predicate evaluation engine" | There is none. The same claim got `omissions.md` archived. |
+> | `MAX_WS_ITER`, `MAX_STR_LEN` | Neither constant exists. The parser's limit is `MAX_RECURSION_DEPTH`, 512. |
+> | Graphics State "based on ISO 32000-2 Table 51" | `GraphicsState` exists and the listed fields are close, but `font_size` and the text fields live on a nested `text_state`. |
+>
+> What the design is **now** is in [`ARCHITECTURE.md`](../../../ARCHITECTURE.md); how it
+> came to be is in [`docs/adr/`](../../adr/README.md).
+
 # Technical Specification: fepdf SDK
 
 > [!IMPORTANT]

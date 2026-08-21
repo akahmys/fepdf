@@ -20,7 +20,12 @@ fepdf operates on the principles of **"Normalization-at-Load"** and **"Delayed N
         *   Map physical `ObjectId` pairs to logical `Handle<Object>` pointers, decoupling the logical document structure from physical file offsets.
         *   Heuristically repair corrupted or fragmented XRef tables during the inhalation process.
     *   **Pass 0 Decryption**:
-        *   **Iterative Traversal**: Decrypt all strings and streams using a stack-based, non-recursive walk to mitigate stack overflow risks in deeply nested object graphs.
+        *   **Bounded Traversal**: Decrypt every string and stream by walking the object
+            graph within each indirect object. (Checked 2026-08-22: the walk **recurses** —
+            `decrypt.rs`, "Rewrites one value, recursing through arrays and dictionaries".
+            It is safe for two reasons the older wording did not give: references are not
+            followed, so no cycle is reachable, and the parser refuses nesting deeper than
+            `MAX_RECURSION_DEPTH`, 512, so the depth is bounded before decryption sees it.)
         *   **Fidelity Cleanup**: Explicitly remove the `/Encrypt` entry from the trailer post-decryption to satisfy strict ISO 32000-2 requirements and prevent legacy viewer errors (e.g., Error 135).
 *   **State**: Objects reside in the `PdfArena` as a flat, addressable set of logical handles.
 
