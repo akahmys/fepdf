@@ -14,11 +14,16 @@
 //! Both the raw codestream and the JP2 container occur in PDF, and `hayro-jpeg2000`
 //! reads both.
 //!
-//! **`/SMaskInData` is not implemented.** Its default is 0 — *ignore any alpha the
-//! codestream carries* — and that is what happens here: the colour channels are
-//! interleaved and an alpha channel is dropped. A file asking for 1 or 2 gets the
-//! default treatment, silently, and that is a gap rather than a decision. It is recorded
-//! in `ROADMAP.md` rather than left to be discovered.
+//! **`/SMaskInData` (Table 89) decides what happens to a fourth channel.** Its default is
+//! 0 — *ignore any alpha the codestream carries* — and for as long as that was the only
+//! behaviour, a file asking for 1 or 2 got the default silently and a transparent image
+//! was drawn opaque. [`decode_keeping_alpha`] is the other answer: the alpha comes back
+//! beside the colour, and the caller in [`crate::filters::decode_image`] turns it into
+//! the soft mask the image dictionary said was in there.
+//!
+//! The two are one function with a flag rather than two decoders, because the split is
+//! the same work either way — `data_u8` interleaves every component, so an alpha channel
+//! is dropped or kept at the same place.
 
 use crate::PdfResult;
 use crate::error::PdfError;
@@ -38,32 +43,69 @@ impl DecodingFilter for JpxFilter {
 
 /// Decodes a JPEG 2000 image, returning its samples and the layout they are in.
 ///
+/// Any alpha the codestream carries is dropped, which is what `/SMaskInData` 0 — the
+/// default — asks for. [`decode_keeping_alpha`] is the same decode for a file that asks
+/// for 1 or 2.
+///
 /// # Errors
 /// Fails when the codestream does not parse or decode.
 pub fn decode(input: &[u8]) -> PdfResult<(Bytes, PixelFormat)> {
+    decode_keeping_alpha(input, false).map(|(samples, format, _)| (samples, format))
+}
+
+/// Decodes a JPEG 2000 image, keeping the extra channel as a soft mask.
+///
+/// Returns the colour samples, their layout, and the alpha — `None` when the codestream
+/// has no channel beyond its colour space's, which is a file claiming a mask it did not
+/// encode and is the caller's to report.
+///
+/// `premultiplied` is `/SMaskInData` 2: the colour has already been multiplied by the
+/// alpha, and the backends here take straight alpha, so it is divided back out. A pixel
+/// whose alpha is zero has no colour to recover — every product is zero — and stays
+/// black rather than being invented.
+///
+/// # Errors
+/// Fails when the codestream does not parse or decode.
+pub fn decode_keeping_alpha(
+    input: &[u8],
+    premultiplied: bool,
+) -> PdfResult<(Bytes, PixelFormat, Option<Bytes>)> {
     let image =
         Image::new(input, &DecodeSettings::default()).map_err(|e| refuse(&format!("{e:?}")))?;
     let colours = usize::from(image.color_space().num_channels());
     let format = format_of(image.color_space())
-        .ok_or_else(|| refuse(&format!("{} components is not a layout PDF describes", colours)))?;
+        .ok_or_else(|| refuse(&format!("{colours} components is not a layout PDF describes")))?;
 
     let mut context = DecoderContext::default();
     let decoded = image.decode(&mut context).map_err(|e| refuse(&format!("{e:?}")))?;
 
-    // `/SMaskInData` defaults to 0: any alpha the codestream carries is not part of the
-    // image. `data_u8` interleaves every component, so an alpha channel is dropped here
-    // rather than asked for and thrown away.
-    let components = decoded.components();
-    let samples = if components.len() > colours {
-        let interleaved = decoded.data_u8();
-        interleaved
-            .chunks_exact(components.len())
-            .flat_map(|px| px[..colours].iter().copied())
-            .collect()
-    } else {
-        decoded.data_u8()
-    };
-    Ok((Bytes::from(samples), format))
+    let stride = decoded.components().len();
+    if stride <= colours {
+        return Ok((Bytes::from(decoded.data_u8()), format, None));
+    }
+
+    // `data_u8` interleaves every component, so the split is one pass whether the alpha
+    // is being kept or thrown away.
+    let interleaved = decoded.data_u8();
+    let mut samples = Vec::with_capacity(interleaved.len() / stride * colours);
+    let mut alpha = Vec::with_capacity(interleaved.len() / stride);
+    for pixel in interleaved.chunks_exact(stride) {
+        let opacity = pixel[colours];
+        for channel in &pixel[..colours] {
+            samples.push(if premultiplied { unmultiply(*channel, opacity) } else { *channel });
+        }
+        alpha.push(opacity);
+    }
+    Ok((Bytes::from(samples), format, Some(Bytes::from(alpha))))
+}
+
+/// One channel of a premultiplied pixel, divided back out (`/SMaskInData` 2).
+fn unmultiply(channel: u8, opacity: u8) -> u8 {
+    if opacity == 0 {
+        return 0;
+    }
+    let recovered = u32::from(channel) * 255 / u32::from(opacity);
+    u8::try_from(recovered.min(255)).unwrap_or(255)
 }
 
 /// How many components a sample of this codestream has, without decoding it.

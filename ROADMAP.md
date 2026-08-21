@@ -918,10 +918,10 @@ three report `yes`**, a scanned page renders, and nine files agree with PDFKit w
 — five of them files this project did not write. Clause 7.4 is **nine of its ten**, with
 `Crypt` handled in the security layer instead.
 
-What remains open is not a codec, so it is not here. `/SMaskInData`, the file
-`crosscheck_image.sh` is red on, and the visual suite that does not run have moved to
-Phases N and O — sorted by what they *do* rather than by which phase happened to find
-them.
+What remained open was not a codec, so it was not here: `/SMaskInData`, the file
+`crosscheck_image.sh` was red on, and the visual suite that does not run moved to Phases N
+and O — sorted by what they *do* rather than by which phase happened to find them. The
+first two are done; the third is Phase O-3.
 
 ## The rule this list is now sorted by
 
@@ -1014,9 +1014,20 @@ thing that can tell you it never wrote one.
       alone, so a page whose resources are indirect had them *replaced* and a page that
       inherits them had them *shadowed*; adding a header could blank the page it was
       added to
-- [ ] **`/SMaskInData` is not implemented.** Its default is 0 — ignore any alpha the
-      codestream carries — and a JPX image asking for 1 or 2 gets that treatment
-      silently, so a transparent image is drawn opaque
+- [x] **`/SMaskInData` is not implemented.** Its default is 0 — ignore any alpha the
+      codestream carries — and a JPX image asking for 1 or 2 got that treatment
+      silently, so a transparent image was drawn opaque.
+
+      All three of Table 89's values are read now: 1 keeps the fourth channel as the
+      image's soft mask, and 2 does the same after dividing the alpha back out of the
+      colour, because the backends here take straight alpha. A value the table does not
+      define, a file claiming a mask its codestream does not carry, and a file carrying
+      both `/SMaskInData` and `/SMask` — which 8.9.5.2 forbids together — are each read
+      the safe way and **recorded**, which is the half that was missing more than the
+      decode was. Checked against codestreams encoded by **OpenJPEG**, not by the decoder
+      under test, following `make_scan_fixtures.rs`: neither corpus carries a
+      `/SMaskInData` at all and its one JPX image is plain RGB, so there was nothing here
+      to check against
 
 *Done when*: `crosscheck_image.sh` is green on every file it can compare, a page with a
 hidden layer renders without it, the small-page failure is either fixed or explained in a
@@ -1037,7 +1048,9 @@ That is not a scanned-image problem; it is the same hole in four places.
 - [ ] **JBIG2 has never met an image this project did not assemble.** CCITT and JPX were
       confirmed against real files of the external corpus; JBIG2's only evidence is a page
       built segment by segment in a test, which checks the decoder against its author's
-      reading of T.88 and nothing else
+      reading of T.88 and nothing else. `/SMaskInData` was the same shape and is no longer
+      — its fixtures come out of OpenJPEG — but **no file of either corpus carries one**,
+      so what has never been measured is how producers actually write it
 - [ ] **`verify_visuals.sh` runs a test target that does not exist.** `visual_regression`
       is not in `fepdf-render`; the script cannot pass and has not for as long as anyone
       has run it. `crosscheck_image.sh` covers images against PDFKit, and text, layout

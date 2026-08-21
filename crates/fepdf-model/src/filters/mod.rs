@@ -6,6 +6,9 @@ use crate::error::PdfError;
 use crate::object::Object;
 use bytes::Bytes;
 
+/// An object dictionary, spelt out because the type is otherwise unwieldy.
+type Dict = std::collections::BTreeMap<crate::handle::Handle<crate::object::PdfName>, Object>;
+
 pub mod ascii;
 pub(crate) mod bilevel;
 pub mod ccitt;
@@ -165,18 +168,10 @@ pub mod zstd_filter {
 }
 
 /// Orchestrates multi-filter decoding for a stream dictionary.
-pub fn process_arena_filters(
-    data: &[u8],
-    dict: &std::collections::BTreeMap<crate::handle::Handle<crate::object::PdfName>, Object>,
-    arena: &PdfArena,
-) -> PdfResult<Bytes> {
+pub fn process_arena_filters(data: &[u8], dict: &Dict, arena: &PdfArena) -> PdfResult<Bytes> {
     let filter_key = arena.intern_name(crate::object::PdfName::new("Filter"));
     let params_key = arena.intern_name(crate::object::PdfName::new("DecodeParms"));
-    // Only `/CCITTFaxDecode` reads it, and only when its own `/Rows` is absent.
-    let rows = dict
-        .get(&arena.intern_name(crate::object::PdfName::new("Height")))
-        .and_then(|o| o.resolve(arena).as_integer())
-        .and_then(|h| u32::try_from(h).ok());
+    let rows = image_rows(dict, arena);
 
     let mut current_data = Bytes::copy_from_slice(data);
 
@@ -206,7 +201,7 @@ pub fn process_arena_filters(
 fn decode_filter_chain(
     data: &[u8],
     filters: crate::handle::Handle<Vec<Object>>,
-    dict: &std::collections::BTreeMap<crate::handle::Handle<crate::object::PdfName>, Object>,
+    dict: &Dict,
     arena: &PdfArena,
     rows: Option<u32>,
 ) -> PdfResult<Bytes> {
@@ -229,6 +224,133 @@ fn decode_filter_chain(
         }
     }
     Ok(current_data)
+}
+
+/// What `/SMaskInData` (8.9.5.2, Table 89) says about a `/JPXDecode` image's fourth
+/// channel.
+///
+/// Only this filter can carry one: every other image in a PDF describes its transparency
+/// in a separate `/SMask` stream, and this one may have it inside the codestream.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum SoftMaskInData {
+    /// 0, the default: whatever alpha the data carries is not part of the image.
+    #[default]
+    Ignored,
+    /// 1: the data carries a soft mask, and the colour is not premultiplied by it.
+    Present,
+    /// 2: the data carries a soft mask, and the colour **is** premultiplied by it.
+    Premultiplied,
+}
+
+impl SoftMaskInData {
+    /// Whether the image claims to carry its own mask.
+    #[must_use]
+    pub const fn expects_a_mask(self) -> bool {
+        matches!(self, Self::Present | Self::Premultiplied)
+    }
+}
+
+/// Reads `/SMaskInData` from an image dictionary.
+///
+/// # Errors
+/// Returns the value the file wrote when it is not one of Table 89's three. The caller
+/// records it: 8.9.5.2 defines 0, 1 and 2 and nothing else, and reading a `3` as the
+/// default is a choice about non-conforming input rather than a fact about the file.
+pub fn soft_mask_in_data(dict: &Dict, arena: &PdfArena) -> Result<SoftMaskInData, i64> {
+    let key = arena.intern_name(crate::object::PdfName::new("SMaskInData"));
+    match dict.get(&key).and_then(|entry| entry.resolve(arena).as_integer()) {
+        None | Some(0) => Ok(SoftMaskInData::Ignored),
+        Some(1) => Ok(SoftMaskInData::Present),
+        Some(2) => Ok(SoftMaskInData::Premultiplied),
+        Some(other) => Err(other),
+    }
+}
+
+/// An image's samples, with the soft mask its own data carried.
+pub struct DecodedImage {
+    /// The colour samples, in the layout the dictionary or the codestream gives.
+    pub samples: Bytes,
+    /// One byte of opacity per pixel, when `/SMaskInData` asked for it **and** the
+    /// codestream had a channel to give. `None` for both "not asked for" and "asked for
+    /// and not there" — the caller knows which it asked and reports the second.
+    pub soft_mask: Option<Bytes>,
+}
+
+/// Decodes an image stream, keeping the soft mask `/SMaskInData` asks for.
+///
+/// The same chain [`process_arena_filters`] runs, with one difference: where the last
+/// filter is `/JPXDecode` and `in_data` asks for a mask, that step keeps the alpha
+/// instead of dropping it. Last, because 7.4.9 puts `/JPXDecode` there — it produces
+/// image samples, so nothing can follow it — and because a filter in the middle of a
+/// chain has no alpha to speak of.
+///
+/// # Errors
+/// Fails for the reasons the chain does: a filter this engine cannot decode, or data
+/// that will not decode with it.
+pub fn decode_image(
+    data: &[u8],
+    dict: &Dict,
+    arena: &PdfArena,
+    in_data: SoftMaskInData,
+) -> PdfResult<DecodedImage> {
+    let chain = named_filters(dict, arena);
+    if !in_data.expects_a_mask() || chain.last().map(|(name, _)| name.as_str()) != Some("JPXDecode")
+    {
+        return Ok(DecodedImage {
+            samples: process_arena_filters(data, dict, arena)?,
+            soft_mask: None,
+        });
+    }
+    let rows = image_rows(dict, arena);
+    let mut current = Bytes::copy_from_slice(data);
+    let last = chain.len().saturating_sub(1);
+    for (i, (name, params)) in chain.iter().enumerate() {
+        if i == last {
+            let premultiplied = in_data == SoftMaskInData::Premultiplied;
+            let (samples, _, mask) = jpx::decode_keeping_alpha(&current, premultiplied)?;
+            return Ok(DecodedImage { samples, soft_mask: mask });
+        }
+        let cx = FilterContext::new(params.as_ref(), arena).in_image(rows);
+        current = decode_with(name, &current, &cx)?;
+    }
+    Ok(DecodedImage { samples: current, soft_mask: None })
+}
+
+/// The filters a stream names, in order, each with the `/DecodeParms` at its index.
+///
+/// Both of 7.4.1's forms — one name with one parameter dictionary, or an array of each —
+/// flattened to the same shape. An element that is not a name is skipped rather than
+/// failing the stream, which is what [`decode_filter_chain`] does with it too.
+fn named_filters(dict: &Dict, arena: &PdfArena) -> Vec<(String, Option<Object>)> {
+    let filter_key = arena.intern_name(crate::object::PdfName::new("Filter"));
+    let params_key = arena.intern_name(crate::object::PdfName::new("DecodeParms"));
+    let named = |handle| arena.get_name(handle).map(|n| n.as_str().to_string());
+    let Some(filters) = dict.get(&filter_key).map(|o| o.resolve(arena)) else { return Vec::new() };
+    let params = dict.get(&params_key).map(|o| o.resolve(arena));
+    match filters {
+        Object::Name(h) => named(h).map(|name| vec![(name, params)]).unwrap_or_default(),
+        Object::Array(ah) => {
+            let at = |i: usize| match params.as_ref() {
+                Some(Object::Array(ph)) => arena.get_array(*ph).and_then(|a| a.get(i).cloned()),
+                _ => None,
+            };
+            arena
+                .get_array(ah)
+                .unwrap_or_default()
+                .iter()
+                .enumerate()
+                .filter_map(|(i, item)| Some((named(item.resolve(arena).as_name()?)?, at(i))))
+                .collect()
+        }
+        _ => Vec::new(),
+    }
+}
+
+/// The image's `/Height`, which only `/CCITTFaxDecode` reads and only without its own.
+fn image_rows(dict: &Dict, arena: &PdfArena) -> Option<u32> {
+    dict.get(&arena.intern_name(crate::object::PdfName::new("Height")))
+        .and_then(|o| o.resolve(arena).as_integer())
+        .and_then(|h| u32::try_from(h).ok())
 }
 
 #[cfg(test)]

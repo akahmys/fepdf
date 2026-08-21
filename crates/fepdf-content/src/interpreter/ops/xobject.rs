@@ -1,5 +1,6 @@
 use crate::RenderBackend;
 use crate::interpreter::Interpreter;
+use fepdf_model::filters::SoftMaskInData;
 use fepdf_model::interpretation::Decision;
 use fepdf_model::object::sublimation::Command;
 use fepdf_model::{Handle, Object, PdfError, PdfName, PdfResult};
@@ -333,6 +334,25 @@ impl Interpreter<'_> {
         }
     }
 
+    /// What `/SMaskInData` asks for, with a value Table 89 does not define recorded.
+    ///
+    /// Reading a `3` as the default would be this engine's choice presented as the file's
+    /// word — the distinction ADR-0008 draws, and the reason this is not just a
+    /// `unwrap_or_default`.
+    fn soft_mask_in_data(&self, dict: &BTreeMap<Handle<PdfName>, Object>) -> SoftMaskInData {
+        match fepdf_model::filters::soft_mask_in_data(dict, self.doc.arena()) {
+            Ok(asked) => asked,
+            Err(written) => {
+                self.doc.record(Decision::violation(
+                    "8.9.5.2",
+                    format!("/SMaskInData is {written}, and Table 89 defines 0, 1 and 2"),
+                    "read it as 0: any alpha the image data carries is not part of the image",
+                ));
+                SoftMaskInData::Ignored
+            }
+        }
+    }
+
     pub(crate) fn render_image_xobject(
         &mut self,
         dict: &BTreeMap<Handle<PdfName>, Object>,
@@ -340,6 +360,12 @@ impl Interpreter<'_> {
     ) -> PdfResult<()> {
         let width_key = self.doc.arena().intern_name(PdfName::new("Width"));
         let height_key = self.doc.arena().intern_name(PdfName::new("Height"));
+
+        // 8.9.5.2: only a `/JPXDecode` image can carry its transparency inside its own
+        // data, and only when `/SMaskInData` says so. Read before the decode, because it
+        // decides whether the fourth channel is kept or dropped.
+        let in_data = self.soft_mask_in_data(dict);
+        let mut in_data_mask = None;
 
         let (width, height, format, decoded) = if let fepdf_model::object::SublimatedData::Image {
             width,
@@ -392,7 +418,9 @@ impl Interpreter<'_> {
                 self.image_layout(dict, &data)
             };
 
-            let decoded = self.doc.arena().process_filters(&data, dict)?;
+            let image = fepdf_model::filters::decode_image(&data, dict, self.doc.arena(), in_data)?;
+            in_data_mask = image.soft_mask;
+            let decoded = image.samples;
             let (format, decoded) =
                 if let Some(expanded) = expand_indexed_image(self.doc.arena(), dict, &decoded) {
                     (fepdf_model::graphics::PixelFormat::Rgb8, bytes::Bytes::from(expanded))
@@ -403,7 +431,34 @@ impl Interpreter<'_> {
         };
 
         let smask_key = self.doc.arena().intern_name(PdfName::new("SMask"));
-        let smask_data = if let Some(smask_obj) = dict.get(&smask_key) {
+        if in_data.expects_a_mask() && dict.contains_key(&smask_key) {
+            // 8.9.5.2 says `/SMask` shall not be present when `/SMaskInData` is non-zero.
+            // The one inside the data wins: the file put it there deliberately, and the
+            // colour of a premultiplied image has already been divided back out against
+            // it, so pairing those samples with a different mask would be wrong twice.
+            self.doc.record(Decision::violation(
+                "8.9.5.2",
+                "an image carries both /SMask and a non-zero /SMaskInData",
+                "used the mask inside the image data, which is the one the samples match",
+            ));
+        }
+        let smask_data = if let Some(mask) = in_data_mask {
+            Some(crate::SMaskData {
+                data: mask.to_vec(),
+                width,
+                height,
+                format: fepdf_model::graphics::PixelFormat::Gray8,
+            })
+        } else if in_data.expects_a_mask() {
+            // The dictionary claims a mask the codestream did not encode. Drawn opaque,
+            // which is what happened silently before any of this existed.
+            self.doc.record(Decision::violation(
+                "8.9.5.2",
+                "/SMaskInData asks for a soft mask the image data does not carry",
+                "drew the image opaque",
+            ));
+            None
+        } else if let Some(smask_obj) = dict.get(&smask_key) {
             let smask_stream = smask_obj.resolve(self.doc.arena());
             if let Object::Stream(dh, ref sd) = smask_stream {
                 let smask_dict = self

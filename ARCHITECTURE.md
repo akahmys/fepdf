@@ -343,8 +343,8 @@ of the standard, it records why, at the point of decision, with the clause. A si
 acceptance is a defect even when the output is right, because the next reader of the
 code cannot tell a deliberate choice from an oversight.
 
-**Current coverage is 66 sites**, up from one: `reader.rs` 19, `refine/color.rs` 12,
-`font/mod.rs` 8, `decrypt.rs` 6, `document.rs` 4, `interpreter/ops/xobject.rs` 4,
+**Current coverage is 69 sites**, up from one: `reader.rs` 19, `refine/color.rs` 12,
+`font/mod.rs` 8, `interpreter/ops/xobject.rs` 7, `decrypt.rs` 6, `document.rs` 4,
 `object/sublimation/parser.rs` 3, `optional_content.rs` 3, `ingest/mod.rs` 2,
 `interpreter/ops/marked.rs` 2, `metadata.rs` 2, `refine/mod.rs` 1 (2026-08-22). The three in `fepdf-content` are the newest and the reason the
 count moved: an image whose filter this engine cannot decode is skipped so that the
