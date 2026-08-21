@@ -42,7 +42,7 @@ rather than a rewording of it.
 | :--- | :--- |
 | **7.3** Objects | Complete. Every type in the clause. |
 | **7.4** Filters | **Nine of the ten** since Phase M built `CCITTFaxDecode`, `JBIG2Decode` and `JPXDecode` — the tenth is `Crypt`, which the security layer handles (7.6). `inspect structure` takes a census of which filters a file's streams name, so this row is re-derivable per file rather than remembered. Across both corpora: `/FlateDecode` 224 files, `/DCTDecode` 12, `/XXXDecode` 8, `/JPXDecode` 3, `/CCITTFaxDecode` 2, `/LZWDecode` 2, `/ASCIIHexDecode` 1, `/JBIG2Decode` **none** — and every stream carrying a codec this engine lacks is an image, 3 of 3 and 2 of 2. Every filter that is a plain byte transformation decodes. `FlateDecode`, `LZWDecode`, `ASCIIHexDecode`, `ASCII85Decode` and `RunLengthDecode` decode, with Table 8's predictors reaching LZW as they do Flate, and `DCTDecode` reads JPEG; `Crypt` is handled in the security layer (7.6); `ZstandardDecode` is implemented and is not one of the ten. Table 6's abbreviations are matched too — `/AHx` appears seven times in one external file, and only `Fl` and `DCT` were recognised before. The three image codecs were absent until Phase M, declined by Phase L on a measurement that could not speak to the use case that reopened them; an image that still will not decode is skipped rather than aborting the page, and says what it cost. **This row did not exist until a corpus this project did not choose forced it.** |
-| **7.5** File structure | **Complete and in use.** Header scan, both cross-reference forms, `/Prev` chains, hybrid references, object streams, incremental updates, and recovery by scanning. `Document::open` reads the file itself; `lopdf` is gone. |
+| **7.5** File structure | **Complete and in use.** Header scan, both cross-reference forms, `/Prev` chains, hybrid references, object streams, incremental updates, and recovery by scanning. `Document::open` reads the file itself; `lopdf` is gone. Recovery has **two** halves since Phase N: a scan finds objects written `N G obj`, and an object stored inside a `/Type /ObjStm` is not written that way — so every container in the file is expanded too, filling holes and never overriding a section that read ([ADR-0006](docs/adr/0006-a-container-may-not-overwrite-a-newer-revision.md)). Having only the first half cost `UnknownFilter-xrefstm.pdf` its page tree, which is object 5 inside object stream 2. |
 | **7.6** Encryption | Every password handler the standard defines now decrypts: RC4 (V1/V2), AES-128 (V4/R4) and AES-256 (V5/R5, V5/R6) to Algorithms 1, 2, 2.A, 2.B and 4–6, with `/Perms` checked and both password roles authenticating. Verified against PDFKit on fourteen files; all of it was broken or absent ([ADR-0009](docs/adr/0009-permissions-are-thirty-two-bits-not-a-positive-integer.md)). Writing is AES-256 at revision 6 and nothing else, because output is always 2.0 and this edition deprecates the rest. Public-key handlers (7.6.5) are **read and written** — a `/Adobe.PubSec` document opens with the certificate it was addressed to, which neither Chrome nor Firefox will do, and `--encrypt-to` produces one. Unencrypted wrappers (7.6.7) are recognised and reported. **Clause 7.6 is otherwise complete.** |
 | **7.7** Document structure | Every one of Table 29's 32 entries is a field of `PdfCatalog`, and after Phase K **20 are modelled** — the field's type says what the entry holds. Measured against the 251 files of both corpora, 12 of the 32 keys occur in no file at all and are **declined a reader** for that reason, recorded in the code as `catalog::ABSENT_FROM_BOTH_CORPORA`; of the twenty keys those files do carry, **19 are modelled**, and the one that is not is `/Type`, whose value 7.7.2 fixes at `/Catalog`. That figure is qualified where it is printed: `inspect catalog` reports, per entry, how much of the entry's *own* table its reader covers — `/AcroForm` is modelled and reads 4 of Table 224's 8 ([ADR-0020](docs/adr/0020-a-modelled-entry-reports-how-much-of-its-own-table-it-reads.md)). |
 | **PDF 2.0 additions** | `inspect catalog` reports **zero** `type only` entries, and the reason is not that the six gained readers. `PageLabels`, `Threads`, `OutputIntents`, `OCProperties`, `Collection` and `AF` each became an `Option<Object>` field, which moves them from "no field" to "a field whose contents are opaque" — the spec types (`PageLabelSpec`, `ArticleThread`, `OutputIntent`, …) are still not what the catalogue reads into. `DPartRoot` has no type at all, contrary to what this table said before it was checked. Phase K then gave `PageLabels`, `Threads`, `OutputIntents` and `OCProperties` real readers — the four of the six the corpora present, and `/OCProperties` was the one of those four that nothing read *from*, until Phase N made the renderer enter through it — and declined `Collection` and `AF`, which they do not. Of the six, `PageLabels` and `Threads` were the only ones to occur when the corpus was the nine samples — 2 files and 1. Across all 251 the order changes: `OutputIntents` 64, `PageLabels` 4, `OCProperties` and `Threads` 1 each, and `Collection` and `AF` still zero, as do `DSS` and `DPartRoot`, which have fields anyway — the container-before-contents shape Phase D was ordered to avoid. |
@@ -970,13 +970,23 @@ thing that can tell you it never wrote one.
       are fixtures for `crosscheck_image.sh` with a control; the other eleven are 26 tests
       against the clause
       ([ADR-0021](docs/adr/0021-optional-content-hides-only-what-the-document-unambiguously-turns-off.md))
-- [ ] **A page tree inside an object stream is not recovered.**
-      `UnknownFilter-xrefstm.pdf` reports no pages and PDFKit renders it. Its `/Pages` is
-      object 5, which lives inside an object stream, and the cross-reference that says
-      which container is written with `/XXXDecode`. The recovery scan looks for
+- [x] **A page tree inside an object stream is not recovered.**
+      `UnknownFilter-xrefstm.pdf` reported no pages while PDFKit rendered it. Its `/Pages`
+      is object 5, which lives inside an object stream, and the cross-reference that says
+      which container is written with `/XXXDecode`. The recovery scan looked for
       `N 0 obj` in the bytes and an object inside a compressed container is not there to
-      be found. Same shape as Phase G's fix: expand every `/Type /ObjStm` that can be
-      found and adopt what is inside, never overriding a section that was read (ADR-0006)
+      be found.
+
+      Fixed as the entry said: every `/Type /ObjStm` the file contains is found and what
+      it carries is adopted, filling holes and never overriding a section that read
+      (ADR-0006). The adoption adds `InObjectStream` records rather than writing objects,
+      so the expansion goes through the ordinary path and the existing guard covers it
+      unchanged. Containers are found by searching the bytes for `/ObjStm` and attributing
+      each hit to the nearest preceding `N G obj` — a false positive is rejected by the
+      parse, and parsing every object to ask would cost `intel_sdm.pdf` 332,814 parses on
+      a path that exists for damaged files. **`crosscheck_image.sh` is now green on every
+      file it can compare**, and `UnknownFilter-Linearized.pdf` recovered three more
+      objects on the way
 - [ ] **Headless rendering fails on a small page.** A 64×32 page produced *"Copy at
       offset 0 for 8192 bytes would end up overrunning the bounds of the Source buffer of
       size 1024"* from wgpu. Worked around by enlarging a fixture, which is not a fix and
@@ -1133,7 +1143,7 @@ Each phase here therefore states what *done* means in terms that can be measured
 the current state above is what the code does today rather than what it was intended
 to do.
 
-*Updated 2026-08-21. The figures above come from the sample corpus, a set of
+*Updated 2026-08-22. The figures above come from the sample corpus, a set of
 deliberately malformed files, and the 242 external files of Phase G; the catalogue,
 annotation and form-field counts in Phases J and K were taken by running `inspect
 catalog` and `inspect interactive` over all 251 and aggregating the JSON.*

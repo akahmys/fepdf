@@ -15,6 +15,7 @@ use crate::parser::Parser;
 use bytes::Bytes;
 use fepdf_syntax::lexer::{Lexer, Token};
 use fepdf_syntax::xref::{self, XrefRecord};
+use std::collections::btree_map::Entry;
 use std::collections::{BTreeMap, BTreeSet};
 
 /// One indirect object as written in the file.
@@ -371,18 +372,8 @@ fn locate_objects(
         }
     }
 
-    if records.is_empty() {
-        let scanned = xref::scan_indirect_objects(bytes);
-        decisions.push(Decision::repaired(
-            "7.5.4",
-            "the cross-reference could not be read",
-            format!("scanned the file and found {} objects", scanned.len()),
-        ));
-        records.extend(
-            scanned.into_iter().map(|(n, o)| (n, XrefRecord::InFile { offset: o, generation: 0 })),
-        );
-    } else if unreadable_sections > 0 {
-        fill_gaps_by_scanning(bytes, &mut records, decisions);
+    if records.is_empty() || unreadable_sections > 0 {
+        recover_unreachable_objects(bytes, base, &mut records, arena, decisions);
     }
 
     if trailer.is_none() {
@@ -398,6 +389,37 @@ fn locate_objects(
         ));
     }
     (records, trailer)
+}
+
+/// Finds what a damaged cross-reference leaves unreachable, in both places it hides.
+///
+/// An object can be missing from the records for two reasons, and only one of them used
+/// to be answered: it is written in the file as `N G obj` and the section indexing it was
+/// lost, or it is stored inside a container and is not written that way at all. A scan
+/// finds the first kind and cannot find the second, so the two halves run together or the
+/// second is silently missing — which is how `UnknownFilter-xrefstm.pdf` came to report
+/// no pages.
+fn recover_unreachable_objects(
+    bytes: &[u8],
+    base: usize,
+    records: &mut BTreeMap<u32, XrefRecord>,
+    arena: &PdfArena,
+    decisions: &mut DecisionLog,
+) {
+    if records.is_empty() {
+        let scanned = xref::scan_indirect_objects(bytes);
+        decisions.push(Decision::repaired(
+            "7.5.4",
+            "the cross-reference could not be read",
+            format!("scanned the file and found {} objects", scanned.len()),
+        ));
+        records.extend(
+            scanned.into_iter().map(|(n, o)| (n, XrefRecord::InFile { offset: o, generation: 0 })),
+        );
+    } else {
+        fill_gaps_by_scanning(bytes, records, decisions);
+    }
+    adopt_object_stream_members(bytes, base, records, arena, decisions);
 }
 
 /// Adds objects the surviving cross-reference sections do not describe.
@@ -429,6 +451,117 @@ fn fill_gaps_by_scanning(
     records.extend(
         recovered.into_iter().map(|(n, o)| (n, XrefRecord::InFile { offset: o, generation: 0 })),
     );
+}
+
+/// Adopts what an object stream carries, for objects no surviving section describes.
+///
+/// The scan beside this one looks for `N G obj` in the bytes, and an object stored inside
+/// a `/Type /ObjStm` is not written that way — so a damaged cross-reference loses every
+/// compressed object and nothing notices. `UnknownFilter-xrefstm.pdf` is the file that
+/// shows what it costs: its page tree root is object 5, which lives inside object stream
+/// 2, and the only section indexing it is written `/XXXDecode`. This engine reported the
+/// file as having no pages while PDFKit rendered it.
+///
+/// **Fills holes, never overrides** — the rule the scan beside it follows, and
+/// [ADR-0006](../../../docs/adr/0006-a-container-may-not-overwrite-a-newer-revision.md)'s
+/// reason for it: a section that *was* read is authoritative for what it covers, and a
+/// container found by scanning cannot tell a current object from one a later revision
+/// replaced. What this adds is `InObjectStream` records, so the expansion itself goes
+/// through the ordinary path in `populate_arena` and `current_container` guards it exactly
+/// as it guards a container the cross-reference named.
+fn adopt_object_stream_members(
+    bytes: &[u8],
+    base: usize,
+    records: &mut BTreeMap<u32, XrefRecord>,
+    arena: &PdfArena,
+    decisions: &mut DecisionLog,
+) {
+    let scanned = xref::scan_indirect_objects(bytes);
+    let mut adopted = 0_usize;
+    for container in object_stream_candidates(bytes, &scanned) {
+        let Some(offset) = scanned.get(&container).copied() else { continue };
+        let Ok(at) = usize::try_from(offset) else { continue };
+        let Ok(parsed) = parse_indirect_at(bytes, at.saturating_add(base), arena, decisions) else {
+            continue;
+        };
+        match members_of_container(&parsed.object, arena) {
+            // Not a container: the byte search matched `/ObjStm` somewhere else, which is
+            // what it is allowed to do because this is the check.
+            Ok(None) => {}
+            Ok(Some(members)) => {
+                for (index, number) in members.into_iter().enumerate() {
+                    let Ok(index) = u32::try_from(index) else { continue };
+                    if let Entry::Vacant(slot) = records.entry(number) {
+                        slot.insert(XrefRecord::InObjectStream { container, index });
+                        adopted += 1;
+                    }
+                }
+            }
+            Err(e) => decisions.push(Decision::violation(
+                "7.5.7",
+                format!(
+                    "object stream {container} was found by scanning and could not be read: {e}"
+                ),
+                "the objects it carries stay unavailable",
+            )),
+        }
+    }
+    if adopted > 0 {
+        decisions.push(Decision::repaired(
+            "7.5.7",
+            format!(
+                "objects indexed only by a section that could not be read, and stored \
+                 inside an object stream: {adopted}"
+            ),
+            "expanded the containers found in the file, without overriding any section that was read",
+        ));
+    }
+}
+
+/// The objects whose bytes name them a `/Type /ObjStm`, by number.
+///
+/// A byte search attributed to the nearest preceding `N G obj`, rather than parsing every
+/// object in the file to ask each one: this runs on a file whose cross-reference is
+/// already damaged, and `intel_sdm.pdf` carries 332,814 objects. A `/ObjStm` occurring in
+/// somebody's content stream is a false positive, which [`members_of_container`] rejects.
+fn object_stream_candidates(bytes: &[u8], scanned: &BTreeMap<u32, u64>) -> BTreeSet<u32> {
+    let by_offset: BTreeMap<u64, u32> = scanned.iter().map(|(n, o)| (*o, *n)).collect();
+    let mut found = BTreeSet::new();
+    let mut from = 0_usize;
+    while let Some(p) = bytes[from..].windows(7).position(|w| w == b"/ObjStm") {
+        let at = from.saturating_add(p);
+        from = at.saturating_add(7);
+        if let Some((_, &number)) = by_offset.range(..=at as u64).next_back() {
+            found.insert(number);
+        }
+    }
+    found
+}
+
+/// The object numbers a container's pair table names (7.5.7), in order.
+///
+/// Only the table is read. The bodies are parsed once, by [`place_from_container`], and
+/// reading them here to learn the numbers would parse every compressed object twice.
+///
+/// `Ok(None)` means the object is not an object stream at all — the difference between
+/// that and a container this engine could not decode is the difference between a false
+/// positive and a defect, and only the second is worth recording.
+fn members_of_container(stream: &Object, arena: &PdfArena) -> PdfResult<Option<Vec<u32>>> {
+    let Object::Stream(dict_h, data) = stream else { return Ok(None) };
+    let Some(dict) = arena.get_dict(*dict_h) else { return Ok(None) };
+    let is_container = dict
+        .get(&arena.name("Type"))
+        .and_then(|entry| entry.resolve(arena).as_name())
+        .and_then(|name| arena.get_name(name))
+        .is_some_and(|name| name.as_str() == "ObjStm");
+    if !is_container {
+        return Ok(None);
+    }
+    let raw = arena.get_stream_bytes(data).unwrap_or_default();
+    let decoded = crate::filters::process_arena_filters(&raw, &dict, arena)?;
+    let first = integer_entry(&dict, arena, "First")
+        .ok_or_else(|| PdfError::Parse { pos: 0, message: "object stream has no /First".into() })?;
+    Ok(Some(read_pairs(&decoded, first).into_iter().map(|(number, _)| number).collect()))
 }
 
 /// Places every object in the arena at the slot matching its number.
@@ -1013,7 +1146,7 @@ mod tests {
         push(
             &mut out,
             &format!(
-                "4 0 obj\n<< /Type /ObjStm /N 2 /First 8 /Length {} >>\nstream\n{payload}\nendstream\nendobj\n",
+                "4 0 obj\n<< /Type /ObjStm /N 2 /First 9 /Length {} >>\nstream\n{payload}\nendstream\nendobj\n",
                 payload.len()
             ),
         );
@@ -1067,6 +1200,109 @@ mod tests {
         let doc = load_document(&bytes).expect("the file should read");
         // Object 4 is the container; it stays addressable under its own number.
         assert!(matches!(doc.arena.get_object(Handle::new(4)), Some(Object::Stream(_, _))));
+    }
+
+    /// A file whose newest cross-reference cannot be read, with a page-tree-shaped object
+    /// living inside a container.
+    ///
+    /// The shape of `target/external/pdf-differences/UnknownFilter-xrefstm.pdf`, small
+    /// enough to reason about: object 4 is a `/Type /ObjStm` carrying objects 5 and 6;
+    /// object 5 is *also* written directly and indexed by a section that reads; object 6
+    /// is indexed only by the section that does not. So the file says both things at once
+    /// — fill this hole, and do not touch that one.
+    fn container_behind_an_unreadable_section() -> Vec<u8> {
+        let mut out = Vec::new();
+        let push = |out: &mut Vec<u8>, s: &str| out.extend_from_slice(s.as_bytes());
+        push(&mut out, "%PDF-2.0\n");
+
+        // The pair table is nine bytes: `5 0 6 24 `. Object 5 starts the body and object
+        // 6 follows it 24 bytes later, one past the 23 the first dictionary occupies.
+        let payload = "5 0 6 24 << /V (in container) >> << /V (only here) >>";
+        let container_at = out.len();
+        push(
+            &mut out,
+            &format!(
+                "4 0 obj\n<< /Type /ObjStm /N 2 /First 9 /Length {} >>\nstream\n{payload}\nendstream\nendobj\n",
+                payload.len()
+            ),
+        );
+        let direct_five_at = out.len();
+        push(&mut out, "5 0 obj\n<< /V (direct) >>\nendobj\n");
+
+        // Section A, readable: two subsections, so it indexes the container and object 5's
+        // direct copy and says **nothing at all** about object 6. The distinction is the
+        // point — an `f` entry for 6 would be this section stating that the object does
+        // not exist, and a container found by scanning may not contradict that.
+        let section_a = out.len();
+        push(&mut out, "xref\n0 1\n0000000000 65535 f \n4 2\n");
+        push(&mut out, &format!("{container_at:010} 00000 n \n"));
+        push(&mut out, &format!("{direct_five_at:010} 00000 n \n"));
+        push(&mut out, "trailer\n<< /Size 8 >>\n");
+
+        // Section B, newest and unreadable: a cross-reference stream whose filter no
+        // codec will ever handle, exactly as the corpus file writes it.
+        let section_b = out.len();
+        push(
+            &mut out,
+            &format!(
+                "7 0 obj\n<< /Type /XRef /Filter /XXXDecode /W [1 2 1] /Size 8 /Prev {section_a} /Length 4 >>\nstream\nabcd\nendstream\nendobj\n"
+            ),
+        );
+        push(&mut out, &format!("startxref\n{section_b}\n%%EOF\n"));
+        out
+    }
+
+    #[test]
+    fn an_object_only_a_container_holds_is_recovered_when_the_section_is_not() {
+        let bytes = container_behind_an_unreadable_section();
+        let doc = load_document(&bytes).expect("the file should read");
+        // Object 6 is written nowhere in the bytes as `6 0 obj`, so the scan beside this
+        // one cannot find it. Before the containers were expanded it stayed null, which
+        // is how `UnknownFilter-xrefstm.pdf` came to report no pages.
+        assert_eq!(value_of(&doc.arena, 6).as_deref(), Some("only here"));
+    }
+
+    #[test]
+    fn a_recovered_container_does_not_override_a_section_that_was_read() {
+        let bytes = container_behind_an_unreadable_section();
+        let doc = load_document(&bytes).expect("the file should read");
+        // ADR-0006, in the recovery path: the readable section puts object 5 in the file,
+        // and the container's older copy of it must not win. Adopting a container
+        // wholesale rather than hole by hole would return "in container" here.
+        assert_eq!(value_of(&doc.arena, 5).as_deref(), Some("direct"));
+    }
+
+    #[test]
+    fn adopting_a_container_is_recorded_rather_than_done_quietly() {
+        let bytes = container_behind_an_unreadable_section();
+        let doc = load_document(&bytes).expect("the file should read");
+        let entries = doc.decisions.entries();
+        let adopted = entries
+            .iter()
+            .find(|d| d.clause == "7.5.7")
+            .expect("the file did not say it had recovered a compressed object");
+        assert!(adopted.found.contains(": 1"), "the count is part of the report: {adopted:?}");
+    }
+
+    #[test]
+    fn objstm_written_inside_somebody_elses_stream_is_not_mistaken_for_a_container() {
+        // The container search is a byte search, so it matches this. Parsing is the check:
+        // object 4 is a stream and its `/Type` is not `/ObjStm`, so nothing is adopted from
+        // it and nothing is recorded — a false positive is not a defect to report.
+        let mut bytes = container_behind_an_unreadable_section();
+        let extra = "8 0 obj\n<< /Length 9 >>\nstream\n(/ObjStm)\nendstream\nendobj\n";
+        let at = bytes.windows(9).position(|w| w == b"startxref").expect("has a startxref");
+        bytes.splice(at..at, extra.bytes());
+        let doc = load_document(&bytes).expect("the file should still read");
+        assert_eq!(value_of(&doc.arena, 6).as_deref(), Some("only here"));
+        assert!(
+            !doc.decisions
+                .entries()
+                .iter()
+                .any(|d| d.found.contains("could not be read: ")
+                    && d.found.contains("object stream 8")),
+            "a /ObjStm inside a content stream was reported as a broken container"
+        );
     }
 
     #[test]
