@@ -943,12 +943,10 @@ entries that could only say "zero in the corpus" are the ones that moved, and th
 the same entries a business document would have exercised on its first day: attachments,
 long-term signatures, choice fields, layers.
 
-## Phase N — What the engine gets wrong
+## Phase N — What the engine gets wrong *(complete)*
 
-Not gaps. Five places where a file is read, drawn or written and the answer is wrong —
-which is worse than refusing it, because nothing says so. The fifth was found by fixing
-the first, which is the usual way: an engine that honours a construct correctly is the
-thing that can tell you it never wrote one.
+Not gaps. Five places where a file was read, drawn or written and the answer was wrong —
+which is worse than refusing it, because nothing says so.
 
 - [x] **Optional content is ignored while drawing.** `BDC` popped its property list and
       discarded it (`ops/marked.rs`, "Skeleton: just pop for now"), so content inside an
@@ -987,10 +985,26 @@ thing that can tell you it never wrote one.
       a path that exists for damaged files. **`crosscheck_image.sh` is now green on every
       file it can compare**, and `UnknownFilter-Linearized.pdf` recovered three more
       objects on the way
-- [ ] **Headless rendering fails on a small page.** A 64×32 page produced *"Copy at
+- [x] **Headless rendering fails on a small page.** A 64×32 page produced *"Copy at
       offset 0 for 8192 bytes would end up overrunning the bounds of the Source buffer of
       size 1024"* from wgpu. Worked around by enlarging a fixture, which is not a fix and
-      not an explanation
+      not an explanation — and, it turns out, not a workaround either.
+
+      **It was neither a small page nor a rendering defect, and the arithmetic names it.**
+      A 64×32 image at *one bit per component* decodes to 256 bytes; a backend reading one
+      byte per pixel makes 256 pixels of RGBA out of them — 1024 bytes — against a texture
+      of 64×32 that wants 8192. Eight times too short, which is the same `/DeviceGray`
+      scan defect Phase M records fixing in the commit that filed this entry; nobody
+      connected the two. The page size never entered into it, and enlarging the fixture
+      did not help: 256×128 fails identically, by the same factor, which is how the
+      "workaround" was shown to be a coincidence.
+
+      Reproduced by reverting Phase M's two fixes and getting that message back **byte for
+      byte**, then closed by the thing that was actually missing: neither
+      `expand_sub_byte_gray` nor the short-buffer guard beside it had a single test.
+      `crates/fepdf/tests/image_sample_count_test.rs` covers both, at the level the defect
+      lives at — the bytes handed across the backend contract, which needs no GPU — and
+      each half fails when the other is removed
 - [x] **The layers the engine *writes* have no content in them.** Found by the optional
       content work above. `apply_update_layers` wrote the OCG dictionaries and a default
       configuration with `/ON`, `/OFF` and `/Order`, and **nothing was ever marked `/OC`**
@@ -1029,10 +1043,16 @@ thing that can tell you it never wrote one.
       `/SMaskInData` at all and its one JPX image is plain RGB, so there was nothing here
       to check against
 
-*Done when*: `crosscheck_image.sh` is green on every file it can compare, a page with a
-hidden layer renders without it, the small-page failure is either fixed or explained in a
-sentence that names the cause, and a layer this engine writes contains something — read
-back by the reader that now honours it, which is a round trip rather than a claim.
+*Done when*: **done.** `crosscheck_image.sh` is green on every file it can compare — 13
+compared, 1 without a second opinion, where it was red on `UnknownFilter-xrefstm.pdf`. A
+page with a hidden layer renders without it. The small-page failure is explained in a
+sentence that names the cause, and the two fixes that had already closed it without anyone
+noticing now have tests. A layer this engine writes contains something, read back by the
+reader that honours it. And a transparent JPX image is no longer drawn opaque.
+
+Five entries, and the last two were found by fixing the first three — an engine that
+honours a construct correctly is the thing that can tell you it never wrote one, and
+reproducing a failure is the thing that can tell you it was filed under the wrong cause.
 
 ## Phase O — The holes in the checking
 
