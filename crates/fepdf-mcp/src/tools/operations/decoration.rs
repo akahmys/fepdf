@@ -21,6 +21,9 @@ pub struct AddPageDecorationArgs {
     pub text: String,
     /// Position ("top_left", "top_center", "top_right", "bottom_left", "bottom_center", "bottom_right").
     pub position: String,
+    /// Name of an existing optional content layer to put the decoration in, so a reader
+    /// can turn it off. The layer must already exist — see `update_layers`.
+    pub layer: Option<String>,
 }
 
 /// Arguments for applying Bates numbering.
@@ -115,7 +118,7 @@ pub fn add_page_decoration_impl(args: AddPageDecorationArgs) -> Result<String, S
         }
         _ => PageSelection::All,
     };
-    let op = Operation::AddPageDecoration { pages, text: args.text, position };
+    let op = Operation::AddPageDecoration { pages, text: args.text, position, layer: args.layer };
     execute_single_op(&args.input_path, &args.output_path, op, "Page decoration added")
 }
 

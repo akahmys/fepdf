@@ -76,15 +76,23 @@ pub enum VisibilityState {
 }
 
 /// A single Layer / Optional Content Group (ISO 32000-2 Section 8.11).
+///
+/// **`name` is the identity.** This carried an `id` beside it, for as long as nothing
+/// wrote either one anywhere a reader could find: 8.11's Table 96 gives a group `/Name`
+/// and nothing else that identifies it, so a second identifier had no slot in the file to
+/// go to and no operation could have referred to a layer by it. `Operation::AddPageDecoration`
+/// names the layer it puts content in by `name`, which is also what a viewer's layer
+/// panel shows. Two layers sharing a name are the caller's ambiguity to avoid; the first
+/// one wins.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct LayerGroup {
-    /// Unique identifier for the layer.
-    pub id: String,
-    /// User-facing display name.
+    /// User-facing display name, and what an operation names this layer by.
     pub name: String,
     /// Default visibility state.
     pub default_state: VisibilityState,
-    /// Whether layer is printable.
+    /// Whether the layer should be printed. Reaches the file as a `/Usage` `/Print`
+    /// state with a `/AS` entry that applies it (8.11.4.5) — without the second the
+    /// first is a description nothing acts on.
     pub printable: bool,
 }
 

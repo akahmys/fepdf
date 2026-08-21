@@ -36,12 +36,12 @@ pub struct UpdateOutlinesArgs {
 /// Layer definition for OCG layers.
 #[derive(Deserialize, JsonSchema)]
 pub struct LayerArg {
-    /// Unique identifier of the layer.
-    pub id: Option<String>,
-    /// User-visible name of the layer.
+    /// User-visible name of the layer, and what `add_page_decoration` names it by.
     pub name: String,
     /// Default visibility state ("on", "off").
     pub default_state: Option<String>,
+    /// Whether the layer should be printed. Default: true.
+    pub printable: Option<bool>,
 }
 
 /// Arguments for updating optional content properties / layers.
@@ -128,18 +128,14 @@ pub fn update_layers_impl(args: UpdateLayersArgs) -> Result<String, String> {
     let layers = args
         .layers
         .into_iter()
-        .enumerate()
-        .map(|(idx, l)| {
+        .map(|l| {
             let state = match l.default_state.as_deref() {
                 Some("off") => VisibilityState::Off,
                 _ => VisibilityState::On,
             };
-            LayerGroup {
-                id: l.id.unwrap_or_else(|| format!("Layer_{idx}")),
-                name: l.name,
-                default_state: state,
-                printable: true,
-            }
+            // `printable` was hard-coded `true` here, under a `LayerGroup` that did not
+            // write it and an `id` this synthesised as `Layer_{idx}` for nobody to read.
+            LayerGroup { name: l.name, default_state: state, printable: l.printable != Some(false) }
         })
         .collect();
 

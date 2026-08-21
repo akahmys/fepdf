@@ -7,6 +7,7 @@ use crate::operation::{
 use bytes::Bytes;
 use fepdf_model::arena::PdfArena;
 use fepdf_model::object::SublimatedData;
+use fepdf_model::reader::DictHandle;
 use fepdf_model::{Document, Handle, Object, PdfError, PdfResult};
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -244,6 +245,16 @@ pub fn apply_update_outlines(doc: &Document, outlines: OutlineTree) -> PdfResult
 }
 
 /// Updates Optional Content Groups (OCG layers, Clause 8.11).
+///
+/// Writes the groups, the default configuration, and — since Phase N — the `/Usage` that
+/// carries [`crate::LayerGroup::printable`] into the file with the `/AS` entry that
+/// applies it. Without the second, a `/Usage` is a description no viewer acts on
+/// (8.11.4.5), which is how "printable" set by a caller reached the file as nothing at
+/// all.
+///
+/// Putting *content* in one of these groups is `Operation::AddPageDecoration`'s job. The
+/// two used to have no connection: this wrote layers, and nothing anywhere was ever
+/// marked `/OC`, so every group the engine created was empty whatever its state.
 pub fn apply_update_layers(doc: &Document, layers: OptionalContentProperties) -> PdfResult<()> {
     let arena = doc.arena();
     let mut ocg_refs = Vec::new();
@@ -254,6 +265,7 @@ pub fn apply_update_layers(doc: &Document, layers: OptionalContentProperties) ->
         let mut ocg_dict = BTreeMap::new();
         ocg_dict.insert(arena.name("Type"), Object::Name(arena.name("OCG")));
         ocg_dict.insert(arena.name("Name"), Object::String(Bytes::from(layer.name)));
+        ocg_dict.insert(arena.name("Usage"), Object::Dictionary(print_usage(doc, layer.printable)));
         let ocg_dh = arena.alloc_dict(ocg_dict);
         let ocg_h = arena.alloc_object(Object::Dictionary(ocg_dh));
         ocg_refs.push(Object::Reference(ocg_h));
@@ -267,7 +279,8 @@ pub fn apply_update_layers(doc: &Document, layers: OptionalContentProperties) ->
     let ocgs_ah = arena.alloc_array(ocg_refs.clone());
     let on_ah = arena.alloc_array(on_refs);
     let off_ah = arena.alloc_array(off_refs);
-    let order_ah = arena.alloc_array(ocg_refs);
+    let order_ah = arena.alloc_array(ocg_refs.clone());
+    let as_ah = arena.alloc_array(vec![Object::Dictionary(print_application(doc, &ocg_refs))]);
 
     let mut d_dict = BTreeMap::new();
     d_dict.insert(arena.name("Name"), Object::String(Bytes::from("Default")));
@@ -275,6 +288,7 @@ pub fn apply_update_layers(doc: &Document, layers: OptionalContentProperties) ->
     d_dict.insert(arena.name("ON"), Object::Array(on_ah));
     d_dict.insert(arena.name("OFF"), Object::Array(off_ah));
     d_dict.insert(arena.name("Order"), Object::Array(order_ah));
+    d_dict.insert(arena.name("AS"), Object::Array(as_ah));
     let d_dh = arena.alloc_dict(d_dict);
 
     let mut oc_props = BTreeMap::new();
@@ -290,6 +304,38 @@ pub fn apply_update_layers(doc: &Document, layers: OptionalContentProperties) ->
         arena.set_dict(cadh, cdict);
     }
     Ok(())
+}
+
+/// A group's `/Usage`, carrying whether it should be printed (8.11.4.4, Table 103).
+///
+/// Only `/Print`. Whether the layer is *visible* is what the configuration's `/ON` and
+/// `/OFF` say, and writing a `/View` state beside them would be the same fact twice, free
+/// to disagree with itself.
+fn print_usage(doc: &Document, printable: bool) -> DictHandle {
+    let arena = doc.arena();
+    let state = if printable { "ON" } else { "OFF" };
+    let mut print = BTreeMap::new();
+    print.insert(arena.name("PrintState"), Object::Name(arena.name(state)));
+    let mut usage = BTreeMap::new();
+    usage.insert(arena.name("Print"), Object::Dictionary(arena.alloc_dict(print)));
+    arena.alloc_dict(usage)
+}
+
+/// The `/AS` entry that makes those `/Usage` dictionaries take effect (8.11.4.5, Table 101).
+///
+/// A usage dictionary on its own changes nothing: 8.11.4.5 puts the acting in the
+/// *application*, which has to name both the event and the category. One entry covering
+/// every group, because every group above is written with a `/Print` usage.
+fn print_application(doc: &Document, groups: &[Object]) -> DictHandle {
+    let arena = doc.arena();
+    let mut application = BTreeMap::new();
+    application.insert(arena.name("Event"), Object::Name(arena.name("Print")));
+    application.insert(arena.name("OCGs"), Object::Array(arena.alloc_array(groups.to_vec())));
+    application.insert(
+        arena.name("Category"),
+        Object::Array(arena.alloc_array(vec![Object::Name(arena.name("Print"))])),
+    );
+    arena.alloc_dict(application)
 }
 
 /// Attaches an associated file to the catalogue (Clause 14.13).

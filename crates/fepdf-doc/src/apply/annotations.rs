@@ -204,23 +204,42 @@ fn calculate_decoration_coords(
     }
 }
 
+/// The resource dictionary a page's content is interpreted under (7.7.3.4).
+///
+/// Both callers below used to reach for `/Resources` on the page dictionary alone and
+/// build a fresh empty one when it was not there — which is wrong twice over. A page
+/// whose `/Resources` is an indirect reference had it **replaced** by the empty
+/// dictionary, and a page that *inherits* one from the page tree had it **shadowed**, so
+/// the fonts and XObjects its own content stream names stopped resolving. Adding a
+/// decoration is not supposed to be able to blank a page.
+fn ensure_page_resources(
+    doc: &Document,
+    page_h: Handle<Object>,
+    page_dict: &mut BTreeMap<Handle<PdfName>, Object>,
+) -> Handle<BTreeMap<Handle<PdfName>, Object>> {
+    let arena = doc.arena();
+    let key = arena.name("Resources");
+    if let Some(dh) = page_dict.get(&key).and_then(|entry| entry.resolve(arena).as_dict_handle()) {
+        return dh;
+    }
+    // `Page::resources_handle` walks the parent chain, and returns a fresh dictionary
+    // only when nothing in the tree carries one. Naming it on the page settles the
+    // inheritance into the one state a document is (ADR-0013) rather than shadowing it.
+    let chain = doc.get_parent_chain(page_h);
+    let inherited = fepdf_model::Page::new(arena, page_h, chain).resources_handle();
+    page_dict.insert(key, Object::Dictionary(inherited));
+    inherited
+}
+
 fn ensure_helvetica_in_page_dict(
-    arena: &PdfArena,
+    doc: &Document,
+    page_h: Handle<Object>,
     page_dict: &mut BTreeMap<Handle<PdfName>, Object>,
 ) {
-    let res_key = arena.name("Resources");
+    let arena = doc.arena();
     let font_key = arena.name("Font");
     let helv_key = arena.name("Helvetica");
-
-    let res_dh = if let Some(res_obj) = page_dict.get(&res_key)
-        && let Some(dh) = res_obj.as_dict_handle()
-    {
-        dh
-    } else {
-        let dh = arena.alloc_dict(BTreeMap::new());
-        page_dict.insert(res_key, Object::Dictionary(dh));
-        dh
-    };
+    let res_dh = ensure_page_resources(doc, page_h, page_dict);
 
     let mut res_dict = arena.get_dict(res_dh).unwrap_or_default();
     let font_dh = if let Some(font_obj) = res_dict.get(&font_key)
@@ -251,6 +270,7 @@ fn overlay_text_on_page(
     page_h: Handle<Object>,
     text: &str,
     position: &DecorationPosition,
+    layer: Option<Handle<Object>>,
 ) -> PdfResult<()> {
     let arena = doc.arena();
     let page_dh = doc.resolve_to_dict(page_h)?;
@@ -262,8 +282,15 @@ fn overlay_text_on_page(
     let (x, y) = calculate_decoration_coords(&mbox, position);
 
     let escaped_text = text.replace('\\', "\\\\").replace('(', "\\(").replace(')', "\\)");
-    let stream_content =
+    let drawing =
         format!("q\nBT\n/Helvetica 10 Tf\n1 0 0 1 {x:.2} {y:.2} Tm\n({escaped_text}) Tj\nET\nQ\n");
+    let stream_content = match layer {
+        Some(group) => {
+            let tag = name_layer_in_page(doc, page_h, &mut page_dict, group);
+            format!("/OC /{tag} BDC\n{drawing}EMC\n")
+        }
+        None => drawing,
+    };
 
     let stream_dict = arena.alloc_dict(BTreeMap::new());
     let stream_obj = Object::Stream(
@@ -272,7 +299,7 @@ fn overlay_text_on_page(
     );
     let stream_h = arena.alloc_object(stream_obj);
 
-    ensure_helvetica_in_page_dict(arena, &mut page_dict);
+    ensure_helvetica_in_page_dict(doc, page_h, &mut page_dict);
 
     let contents_key = arena.name("Contents");
     let mut contents_items = if let Some(existing_contents) = page_dict.get(&contents_key) {
@@ -292,13 +319,73 @@ fn overlay_text_on_page(
     Ok(())
 }
 
+/// Gives a page's `/Properties` a name for `group`, and returns it (8.11.3.1).
+///
+/// A `/OC BDC` names its group through the page's resources, not by writing the
+/// reference inline: 8.11.2 requires a group to be an indirect object, and an inline
+/// dictionary would name nothing `/OCProperties` could turn off. The name is chosen past
+/// whatever the page already carries, so a second decoration does not take the first
+/// one's slot.
+fn name_layer_in_page(
+    doc: &Document,
+    page_h: Handle<Object>,
+    page_dict: &mut BTreeMap<Handle<PdfName>, Object>,
+    group: Handle<Object>,
+) -> String {
+    let arena = doc.arena();
+    let res_dh = ensure_page_resources(doc, page_h, page_dict);
+    let mut resources = arena.get_dict(res_dh).unwrap_or_default();
+    let properties_key = arena.name("Properties");
+    let properties_dh = resources
+        .get(&properties_key)
+        .and_then(|entry| entry.resolve(arena).as_dict_handle())
+        .unwrap_or_else(|| {
+            let fresh = arena.alloc_dict(BTreeMap::new());
+            resources.insert(properties_key, Object::Dictionary(fresh));
+            fresh
+        });
+    arena.set_dict(res_dh, resources);
+
+    let mut properties = arena.get_dict(properties_dh).unwrap_or_default();
+    // A page that already names this group keeps the name it gave it. Decorating every
+    // page of a document puts the same group in one shared resource dictionary when the
+    // tree carries one, and a fresh entry per page would grow it without saying anything
+    // new.
+    let reference = Object::Reference(group);
+    if let Some(existing) = properties.iter().find(|(_, value)| **value == reference)
+        && let Some(name) = arena.get_name(*existing.0)
+    {
+        return name.as_str().to_string();
+    }
+    let tag = format!("fepdfOC{}", properties.len());
+    properties.insert(arena.name(&tag), reference);
+    arena.set_dict(properties_dh, properties);
+    tag
+}
+
 /// Overlays header/footer text decorations onto pages.
+///
+/// # Errors
+/// Fails when `layer` names an optional content group the document does not declare.
+/// Drawing it unconditionally instead would put the decoration on every page of a
+/// document whose author asked for a layer they could switch off.
 pub fn apply_add_page_decoration(
     doc: &Document,
     pages: &PageSelection,
     text: &str,
     position: &DecorationPosition,
+    layer: Option<&str>,
 ) -> PdfResult<()> {
+    let group = match layer {
+        Some(name) => {
+            Some(fepdf_model::optional_content::group_named(doc, name)?.ok_or_else(|| {
+                PdfError::Other(
+                    format!("no optional content group is named {name:?}; add it first").into(),
+                )
+            })?)
+        }
+        None => None,
+    };
     let count = doc.page_count()?;
     let indices = match pages {
         PageSelection::All => (0..count).collect(),
@@ -309,7 +396,7 @@ pub fn apply_add_page_decoration(
         if idx < count
             && let Some(page_h) = doc.get_page_handle(idx)
         {
-            overlay_text_on_page(doc, page_h, text, position)?;
+            overlay_text_on_page(doc, page_h, text, position, group)?;
         }
     }
     Ok(())
@@ -336,7 +423,7 @@ pub fn apply_bates_numbering(
         {
             let num = start_number + i as u64;
             let bates_text = format!("{prefix}{num:0digits$}");
-            overlay_text_on_page(doc, page_h, &bates_text, position)?;
+            overlay_text_on_page(doc, page_h, &bates_text, position, None)?;
         }
     }
     Ok(())

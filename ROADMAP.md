@@ -991,14 +991,29 @@ thing that can tell you it never wrote one.
       offset 0 for 8192 bytes would end up overrunning the bounds of the Source buffer of
       size 1024"* from wgpu. Worked around by enlarging a fixture, which is not a fix and
       not an explanation
-- [ ] **The layers the engine *writes* have no content in them.** Found by the optional
-      content work above. `apply_update_layers` writes the OCG dictionaries and a default
-      configuration with `/ON`, `/OFF` and `/Order`, and **nothing is ever marked `/OC`**
-      — no content stream, no XObject, no annotation — so every group it creates is empty
-      whatever its state. `LayerGroup::printable` is dropped on the floor with it: no
-      `/Usage` is written, so the flag a caller sets cannot reach the file, and
-      `LayerGroup::id` is never used either. The read side now honours all of this
-      correctly, which is what makes the write side's silence visible
+- [x] **The layers the engine *writes* have no content in them.** Found by the optional
+      content work above. `apply_update_layers` wrote the OCG dictionaries and a default
+      configuration with `/ON`, `/OFF` and `/Order`, and **nothing was ever marked `/OC`**
+      — no content stream, no XObject, no annotation — so every group it created was empty
+      whatever its state. `LayerGroup::printable` was dropped on the floor with it, and
+      `LayerGroup::id` was never used at all.
+
+      `Operation::AddPageDecoration` gained a `layer`, naming a group by its `/Name`, and
+      wraps the overlay in `/OC … BDC`/`EMC` with the group reached through the page's
+      `/Properties`. `printable` reaches the file as a `/Usage` `/Print` state **and** the
+      `/AS` entry that applies it — 8.11.4.5 puts the acting in the application, so
+      without the second the first is a description nothing consults. `LayerGroup::id` is
+      gone: Table 96 gives a group `/Name` and nothing else, so a second identifier had no
+      slot in the file to reach and no operation could have referred to a layer by it.
+      Naming a layer the document does not declare is refused rather than drawn
+      unconditionally.
+
+      Held by a **round trip**: the file is written, opened again and drawn, and the
+      decoration reaches the backend exactly when its layer is on. Found on the way and
+      fixed with it — the decoration path reached for `/Resources` on the page dictionary
+      alone, so a page whose resources are indirect had them *replaced* and a page that
+      inherits them had them *shadowed*; adding a header could blank the page it was
+      added to
 - [ ] **`/SMaskInData` is not implemented.** Its default is 0 — ignore any alpha the
       codestream carries — and a JPX image asking for 1 or 2 gets that treatment
       silently, so a transparent image is drawn opaque

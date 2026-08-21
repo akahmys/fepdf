@@ -126,6 +126,7 @@ fn test_decoration_and_annotation_tools() {
         pages: Some("all".into()),
         text: "CONFIDENTIAL".into(),
         position: "top_center".into(),
+        layer: None,
     });
     assert!(dec_res.is_ok());
 
@@ -203,9 +204,9 @@ fn test_metadata_and_structure_tools() {
         input_path: out_outline,
         output_path: out_layers.clone(),
         layers: vec![LayerArg {
-            id: Some("L1".into()),
             name: "Background".into(),
             default_state: Some("on".into()),
+            printable: Some(false),
         }],
     });
     assert!(layers_res.is_ok());

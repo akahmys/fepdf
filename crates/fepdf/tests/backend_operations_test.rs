@@ -62,7 +62,6 @@ fn test_outline_tree_domain_model() {
 fn test_optional_content_properties() {
     let layers = OptionalContentProperties {
         layers: vec![LayerGroup {
-            id: "layer_electrical".to_string(),
             name: "Electrical Wiring".to_string(),
             default_state: VisibilityState::On,
             printable: true,
@@ -416,7 +415,6 @@ fn test_tier1_operations_execution() {
     // 6. UpdateLayers
     let layers = OptionalContentProperties {
         layers: vec![LayerGroup {
-            id: "ocg_1".to_string(),
             name: "Layer 1".to_string(),
             default_state: VisibilityState::On,
             printable: true,
@@ -466,6 +464,7 @@ fn test_tier2_tier3_operations_execution() {
         pages: PageSelection::All,
         text: "CONFIDENTIAL DRAFT".to_string(),
         position: DecorationPosition::TopCenter,
+        layer: None,
     })
     .expect("AddPageDecoration failed");
 

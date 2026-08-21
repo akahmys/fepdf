@@ -37,8 +37,8 @@ pub fn apply_operation(doc: &mut Document, op: Operation) -> PdfResult<()> {
         Operation::SetPronunciationLexicon { lexicon_xml_bytes } => {
             metadata::apply_set_pronunciation_lexicon(doc, lexicon_xml_bytes)
         }
-        Operation::AddPageDecoration { pages, text, position } => {
-            annotations::apply_add_page_decoration(doc, &pages, &text, &position)
+        Operation::AddPageDecoration { pages, text, position, layer } => {
+            annotations::apply_add_page_decoration(doc, &pages, &text, &position, layer.as_deref())
         }
         Operation::ApplyBatesNumbering { pages, prefix, start_number, digits, position } => {
             annotations::apply_bates(doc, &pages, &prefix, start_number, digits, &position)

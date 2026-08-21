@@ -662,8 +662,35 @@ fn referenced_groups(arena: &PdfArena, array: Option<&Object>) -> Vec<Handle<Obj
     arena.get_array(handle).unwrap_or_default().iter().filter_map(Object::as_reference).collect()
 }
 
+/// The optional content group a document calls `name`, if it has one (Table 96).
+///
+/// The lookup an operation needs to put content *into* a layer: `/OC` names a group by
+/// indirect reference, and a caller has a display name. First match wins, because 8.11
+/// does not require `/Name` to be unique and a document that repeats one has not said
+/// which it means.
+///
+/// # Errors
+/// Fails when the catalogue cannot be read.
+pub fn group_named(doc: &Document, name: &str) -> PdfResult<Option<Handle<Object>>> {
+    let arena = doc.arena();
+    let Some(root) = doc.catalog_handle().and_then(|handle| arena.get_object(handle)) else {
+        return Ok(None);
+    };
+    let Some(properties) = entries::entry::<OptionalContent>(arena, &root, "OCProperties")? else {
+        return Ok(None);
+    };
+    let declared = referenced_groups(arena, properties.groups.map(Object::Array).as_ref());
+    Ok(declared.into_iter().find(|handle| {
+        group_at(arena, *handle).and_then(|group| group.name).as_deref() == Some(name)
+    }))
+}
+
 /// One group, read through the handle that names it (Table 96).
-fn group_at(arena: &PdfArena, handle: Handle<Object>) -> Option<OptionalContentGroup> {
+///
+/// Public because [`group_named`] hands back a handle — what an `/OC` entry needs — and a
+/// caller that wants the group's own entries would otherwise have to reimplement this.
+#[must_use]
+pub fn group_at(arena: &PdfArena, handle: Handle<Object>) -> Option<OptionalContentGroup> {
     OptionalContentGroup::from_pdf_object(Object::Reference(handle), arena).ok()
 }
 

@@ -161,6 +161,17 @@ pub enum Operation {
         text: String,
         /// Position on the page.
         position: DecorationPosition,
+        /// The optional content group to put the decoration in, by its
+        /// [`crate::LayerGroup`] name (8.11.3.1). `None` draws it unconditionally.
+        ///
+        /// This is what makes a layer contain something. `UpdateLayers` writes the
+        /// groups and, before this existed, nothing was ever marked `/OC` — so every
+        /// group the engine created was empty whatever its state, and a document could
+        /// not carry a "draft" underlay a reader could turn off. The layer must already
+        /// exist: naming one the document does not have is refused rather than ignored,
+        /// because a decoration that silently became unconditional is the failure this
+        /// entry exists to remove.
+        layer: Option<String>,
     },
     /// Apply Bates numbering to pages.
     ApplyBatesNumbering {
