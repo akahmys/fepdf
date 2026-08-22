@@ -60,7 +60,7 @@ the answer — each PDF processor chooses which subsets of PDF functionality to 
 shall comply for the ones it chose, and PDF 2.0 deliberately abandoned the notion of a
 "conforming reader" that the subset standards keep. So declining ECMAScript is a choice
 the conformance model provides for, not a gap; what would not be conforming is claiming
-the subset and not doing it. `/Requirements` with `EnableJavaScripts` (12.10) is how a
+the subset and not doing it. `/Requirements` with `EnableJavaScripts` (12.11) is how a
 document declares it needs the subset, and reading *that* is the honest interface.
 
 **This does not become a coverage axis.** ADR-0019's argument survives intact: the

@@ -353,6 +353,8 @@ fn render_actions_text(report: &fepdf::ActionReport, input: &Path, full: bool) {
         println!("  {:<28} {}", action.kind, says_line(action, full));
     }
 
+    render_requirements(report);
+
     println!("\n--- [ WHAT THIS DOCUMENT CAN DO (12.6) ] ---");
     let capabilities = report.capabilities();
     if capabilities.is_empty() {
@@ -379,6 +381,28 @@ fn render_actions_text(report: &fepdf::ActionReport, input: &Path, full: bool) {
             "\n  {} object(s) in an action position would not read as one, and are counted \
              rather than passed over",
             report.unreadable
+        );
+    }
+}
+
+/// What the document declares it needs a processor to support (12.11), and which of
+/// those this one is known not to satisfy.
+fn render_requirements(report: &fepdf::ActionReport) {
+    if report.requirements.is_empty() {
+        return;
+    }
+    let unmet = report.unmet_requirements();
+    println!("\n--- [ WHAT THE DOCUMENT SAYS IT NEEDS (12.11) ] ---");
+    for requirement in &report.requirements {
+        let verdict = if unmet.iter().any(|u| u.requirement == requirement.requirement) {
+            "  <- this processor does not do this"
+        } else {
+            ""
+        };
+        println!(
+            "  /{:<24} penalty {}{verdict}",
+            requirement.requirement.as_str(),
+            requirement.penalty.unwrap_or(100)
         );
     }
 }

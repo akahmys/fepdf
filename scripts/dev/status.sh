@@ -137,12 +137,26 @@ if anchored "$catalog_row" 'pub struct PdfCatalog' crates/fepdf-model/src \
                 crates/fepdf-model/src '/ABSENT_FROM_BOTH_CORPORA/,/^\];/p'; then
             declined=$(printf '%s' "$ANCHORED" | grep -cE '^    "' | tr -d ' ')
             row "  of which no corpus file carries" "$declined — declined a reader"
-            # The `- 1` is `/NeedsRendering`: modelled, and carried by no file of either
-            # corpus. It is the one exception ADR-0017 left behind, and it cannot drift
-            # unnoticed — `the_keys_no_file_carries_did_not_gain_readers` asserts that it
-            # is the only one, so a second would fail the suite rather than this row.
+            # Some modelled keys are carried by no file, and they have to come out of the
+            # numerator or it counts them against a denominator they are not in.
+            # `/NeedsRendering` is the exception ADR-0017 left behind; the rest are in
+            # `BUILT_FOR_A_USE_CASE`, built on a reason that is not a corpus count.
+            #
+            # **Derived, not written down.** This was `- 1` for `/NeedsRendering` alone,
+            # under a comment saying a second one would fail the test suite before it
+            # reached this row. That stopped being true the moment the suite learned about
+            # `BUILT_FOR_A_USE_CASE`, and the row went quietly wrong — 22 of 22, with
+            # `/Type` counted as read. A number a test no longer guards has to be derived.
+            use_case=0
+            # The range stops at the *declaration's* `];`, not at the file's next one:
+            # `/BUILT_FOR_A_USE_CASE/,/^\];/p` ran past the end of the const and counted
+            # `ABSENT_FROM_BOTH_CORPORA` too, which read 13 of 22.
+            if anchored "" 'BUILT_FOR_A_USE_CASE: ' crates/fepdf-model/src \
+                    '/BUILT_FOR_A_USE_CASE: /,/\];/p'; then
+                use_case=$(printf '%s' "$ANCHORED" | grep -cE '\("[A-Za-z]+", *"' | tr -d ' ')
+            fi
             row "  modelled, of the keys a corpus carries" \
-                "$((typed - passthrough - 1)) of $((table29 - declined))"
+                "$((typed - passthrough - 1 - use_case)) of $((table29 - declined))"
         fi
     fi
 fi

@@ -274,6 +274,53 @@ impl FromPdfObject for ArticleThreads {
     }
 }
 
+/// One requirement a document declares (12.11, Table 273).
+#[derive(Debug, Clone, FromPdfObject, Serialize, Deserialize)]
+#[pdf_dict(clause = "12.11")]
+pub struct Requirement {
+    #[pdf_key("Type")]
+    /// `/Type`, `Requirement` when written.
+    pub kind: Option<PdfName>,
+    #[pdf_key("S")]
+    /// `/S`: the feature or capability the document needs — `EnableJavaScripts`,
+    /// `AcroFormInteract`, `OCInteract`, `Attachment`. Table 275 lists them.
+    pub requirement: PdfName,
+    #[pdf_key("V")]
+    /// `/V`: the minimum version that satisfies it. Absent means any version does.
+    pub version: Option<Object>,
+    #[pdf_key("RH")]
+    /// `/RH`: handlers to disable where this processor can check the requirement itself.
+    /// Named, not modelled — it steers a plug-in architecture this engine does not have.
+    pub handlers: Option<Object>,
+    #[pdf_key("Penalty")]
+    /// `/Penalty`: 0 to 100, how bad it is to go ahead without the requirement. 100 by
+    /// default, which is the document saying "do not".
+    pub penalty: Option<i64>,
+}
+
+/// `/Requirements` (12.11): what the document says a processor must support to handle it.
+///
+/// **Built for a use case rather than for a corpus.** No file of either corpus carries
+/// one, so `ABSENT_FROM_BOTH_CORPORA` still names the key — the fact has not changed.
+/// What changed is that there is now something to do with it: this engine does not
+/// execute ECMAScript (12.6.4.17), 6.3.2.1 lets a processor choose its subsets, and
+/// `EnableJavaScripts` is how a *document* says it needs that one. Reading it is the
+/// difference between declining a subset and declining it silently.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct DocumentRequirements {
+    /// Each requirement, in the order the array writes them.
+    pub required: Vec<Requirement>,
+    /// Elements present in the array but not readable as a requirement.
+    pub unreadable: usize,
+}
+
+impl FromPdfObject for DocumentRequirements {
+    fn from_pdf_object(obj: Object, arena: &PdfArena) -> PdfResult<Self> {
+        read_array(arena, &obj, "/Requirements")
+            .map(|(required, unreadable)| Self { required, unreadable })
+    }
+}
+
 /// One file specification (7.11.3, Table 43): another document, named and reachable.
 ///
 /// The contents of `/AF`, and of the `/EmbeddedFiles` name tree. Modelled as far as the

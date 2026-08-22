@@ -19,7 +19,7 @@
 //! running it conforming: each processor chooses which subsets of PDF functionality to
 //! support and complies for the ones it chose — PDF 2.0 deliberately has no "conforming
 //! reader". A document that needs the subset can say so, in `/Requirements` with
-//! `EnableJavaScripts` (12.10), and saying so is the honest interface between the two.
+//! `EnableJavaScripts` (12.11), and saying so is the honest interface between the two.
 //!
 //! **Every place an action can hang is walked**, because a screen that missed one would
 //! be worse than none: `/OpenAction`, the catalogue's `/AA`, the document-level
@@ -30,6 +30,7 @@
 
 use crate::arena::PdfArena;
 use crate::document::Document;
+use crate::document::entries::{DocumentRequirements, Requirement};
 use crate::error::PdfResult;
 use crate::handle::Handle;
 use crate::object::{Object, PdfName};
@@ -186,11 +187,23 @@ pub struct ReachableAction {
     pub says: Option<Says>,
 }
 
+/// The requirement names (12.11, Table 275) this processor is known **not** to satisfy.
+///
+/// A short list on purpose. Claiming to satisfy a requirement is a claim that goes stale;
+/// claiming *not* to satisfy one is a decision this project has taken and written down.
+/// `EnableJavaScripts` is that decision: 12.6.4.17 says a processor shall execute an
+/// ECMAScript action on invocation, and 6.3.2.1 lets a processor choose which subsets it
+/// supports. This one is not chosen, so a document asking for it is asking for something
+/// it will not get, and the caller is told rather than left to find out.
+pub const NOT_SATISFIED: &[&str] = &["EnableJavaScripts"];
+
 /// Everything a document can do, and what has to happen first.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct ActionReport {
     /// Every action reachable from anywhere, in the order the walk finds them.
     pub actions: Vec<ReachableAction>,
+    /// What the document declares a processor must support to handle it (12.11).
+    pub requirements: Vec<Requirement>,
     /// Objects in an action position that would not read as an action dictionary.
     /// Counted rather than skipped: a screen that silently dropped one would report a
     /// document as doing less than it does.
@@ -211,12 +224,35 @@ impl ActionReport {
         };
         let Some(catalog) = dict_of(arena, &catalog) else { return Ok(out) };
 
+        out.requirements = crate::document::entries::entry::<DocumentRequirements>(
+            arena,
+            &Object::Dictionary(arena.alloc_dict(catalog.clone())),
+            "Requirements",
+        )
+        .ok()
+        .flatten()
+        .map(|declared| declared.required)
+        .unwrap_or_default();
+
         out.take(arena, catalog.get(&arena.name("OpenAction")), &Trigger::DocumentOpened);
         out.take_additional_actions(arena, &catalog, &|event| Trigger::DocumentEvent(event));
         out.take_document_scripts(arena, &catalog);
         out.take_pages(doc, arena);
         out.take_form_fields(arena, &catalog);
         Ok(out)
+    }
+
+    /// The requirements this document declares that this processor does not satisfy.
+    ///
+    /// The honest half of declining a subset: 6.3.2.1 permits the decline, and 12.11 is
+    /// how a document says it needs the subset anyway. Where the two meet, somebody has
+    /// to be told.
+    #[must_use]
+    pub fn unmet_requirements(&self) -> Vec<&Requirement> {
+        self.requirements
+            .iter()
+            .filter(|r| NOT_SATISFIED.contains(&r.requirement.as_str()))
+            .collect()
     }
 
     /// The actions that fire with no interaction at all.

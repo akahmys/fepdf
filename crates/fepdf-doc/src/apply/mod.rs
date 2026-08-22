@@ -2,6 +2,8 @@
 
 /// Annotation, form field, action, and decoration operation handlers.
 pub mod annotations;
+/// Building a field's appearance from its value (12.7.4.3).
+pub mod appearance;
 /// Portfolio, outline, layer, associated file, and metadata operation handlers.
 pub mod metadata;
 /// Page rotation, reordering, removal, and page label operation handlers.

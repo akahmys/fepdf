@@ -155,6 +155,11 @@ const TABLE_29: &[(&str, bool)] = &[
 ///
 /// A key leaving this list is a *finding*: it means a corpus arrived that presents
 /// something these two do not, and the case for reading it has changed.
+///
+/// A key **staying** on it can still gain a reader, and `BUILT_FOR_A_USE_CASE` is where
+/// that is written down. The list records a measurement — no file carries this — and a
+/// measurement cannot forbid building something; that is the rule Phase L cost this
+/// project. What the list forbids is building on *no* reason at all.
 pub const ABSENT_FROM_BOTH_CORPORA: &[&str] = &[
     "Extensions",
     "URI",
@@ -167,6 +172,16 @@ pub const ABSENT_FROM_BOTH_CORPORA: &[&str] = &[
     "DSS",
     "DPartRoot",
 ];
+
+/// Keys no corpus file carries that were built anyway, because a use case named them.
+///
+/// One so far. `/Requirements` (12.11) is how a document declares it needs a capability
+/// the processor may not have, and this engine deliberately does not execute ECMAScript
+/// (12.6.4.17) — a subset 6.3.2.1 lets a processor decline. Reading `/Requirements` is
+/// the difference between declining it and declining it in silence, and no corpus was
+/// going to supply that argument.
+pub const BUILT_FOR_A_USE_CASE: &[(&str, &str)] =
+    &[("Requirements", "a document declares the subsets it needs; this engine declines one")];
 
 /// The support level for one key: typed if `PdfCatalog` declares it, otherwise
 /// whatever Table 29 above says about a type existing for its contents.
@@ -444,6 +459,15 @@ mod tests {
                 TABLE_29.iter().any(|(k, _)| k == key),
                 "/{key} is not a Table 29 key, so the list has drifted"
             );
+            if let Some((_, why)) = BUILT_FOR_A_USE_CASE.iter().find(|(k, _)| k == key) {
+                // Built on a reason that is not a count, which the list's own note allows.
+                assert_eq!(
+                    support_for(key),
+                    Support::Modelled,
+                    "/{key} is listed as built for a use case ({why}) and has no reader"
+                );
+                continue;
+            }
             if *key == "NeedsRendering" {
                 // The one exception, and it predates the rule being enforced here:
                 // ADR-0017 records it as the single field added in that session whose
@@ -502,6 +526,7 @@ mod tests {
             "NeedsRendering", // a boolean
             "AF",             // an array of file specifications (7.11.3)
             "PieceInfo",      // keyed by the names applications call themselves (14.5)
+            "Requirements",   // an array of requirement dictionaries (12.11)
         ];
         for (key, _) in TABLE_29 {
             if support_for(key) != Support::Modelled || NOT_A_TABLE_OF_KEYS.contains(key) {

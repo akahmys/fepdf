@@ -1,5 +1,6 @@
 #![allow(clippy::cast_possible_wrap, clippy::cast_possible_truncation)]
 
+use crate::apply::appearance;
 use crate::operation::{
     AnnotationKind, AnnotationSpec, DecorationPosition, FormFieldSpec, FormValue, GeoSpatialAnchor,
     MeasurementScale, MeshShadingSpec, MeshShadingType, PageSelection, PdfAction, TransitionSpec,
@@ -7,6 +8,7 @@ use crate::operation::{
 };
 use bytes::Bytes;
 use fepdf_model::arena::PdfArena;
+use fepdf_model::interpretation::Decision;
 use fepdf_model::object::{PdfName, SublimatedData};
 use fepdf_model::{Document, Handle, Object, PdfError, PdfResult};
 use std::collections::BTreeMap;
@@ -627,9 +629,13 @@ pub fn apply_set_form_field_value(doc: &Document, field: FormFieldSpec) -> PdfRe
         return Ok(());
     };
 
-    let mut acro_dict = arena.get_dict(acro_dh).unwrap_or_default();
-    acro_dict.insert(arena.name("NeedAppearances"), Object::Boolean(true));
-    arena.set_dict(acro_dh, acro_dict.clone());
+    // `/NeedAppearances` is **not** written. 0.3 lists it among the entries PDF 2.0
+    // deprecates, and this engine's rule is not to write what 2.0 deprecates (ADR-0015,
+    // which applied it to encryption). Setting it was a producer saying "reader, you work
+    // it out" with an entry the reader is no longer obliged to honour; the appearance is
+    // built here instead, as 12.7.4.3 describes.
+    let acro_dict = arena.get_dict(acro_dh).unwrap_or_default();
+    report_scripts_not_run(doc, &acro_dict, &field.name);
 
     if let Some(fields_obj) = acro_dict.get(&arena.name("Fields")) {
         let fields = match fields_obj {
@@ -645,11 +651,118 @@ pub fn apply_set_form_field_value(doc: &Document, field: FormFieldSpec) -> PdfRe
                 && let Some(Object::Dictionary(fdh)) = arena.get_object(fh)
                 && update_form_field_value_in_dict(arena, fdh, &field.name, &field.value)
             {
+                refresh_appearance(doc, fdh, &acro_dict, &field.value)?;
                 break;
             }
         }
     }
     Ok(())
+}
+
+/// Rebuilds the appearance of the widget a field's value is shown through (12.7.4.3).
+///
+/// A field and its widget may be one object or two: a single-widget field merges them,
+/// and a field with several widgets keeps them in `/Kids`. Both are handled, because a
+/// merged field whose appearance was left alone looks exactly like one that has no widget.
+fn refresh_appearance(
+    doc: &Document,
+    field_dh: Handle<BTreeMap<Handle<PdfName>, Object>>,
+    acro: &BTreeMap<Handle<PdfName>, Object>,
+    value: &FormValue,
+) -> PdfResult<()> {
+    let arena = doc.arena();
+    let field = arena.get_dict(field_dh).unwrap_or_default();
+    // `/DA` and `/Q` are inheritable (12.7.4.2); the form's own are the fallback.
+    let da = text_entry(arena, &field, "DA")
+        .or_else(|| text_entry(arena, acro, "DA"))
+        .unwrap_or_else(|| "/Helv 0 Tf 0 g".to_string());
+    let quadding = field
+        .get(&arena.name("Q"))
+        .or_else(|| acro.get(&arena.name("Q")))
+        .and_then(|q| q.resolve(arena).as_integer())
+        .unwrap_or(0);
+
+    for widget in widgets_of(arena, field_dh) {
+        match value {
+            FormValue::Text(text) | FormValue::Choice(text) => {
+                appearance::set_text_appearance(doc, widget, acro, &da, quadding, text)?;
+            }
+            FormValue::Boolean(on) => {
+                appearance::set_button_state(doc, widget, if *on { "Yes" } else { "Off" });
+            }
+        }
+    }
+    Ok(())
+}
+
+/// The widgets a field is shown through: its `/Kids`, or the field itself when the two
+/// are merged into one object (12.7.4.1).
+fn widgets_of(
+    arena: &PdfArena,
+    field_dh: Handle<BTreeMap<Handle<PdfName>, Object>>,
+) -> Vec<Handle<BTreeMap<Handle<PdfName>, Object>>> {
+    let field = arena.get_dict(field_dh).unwrap_or_default();
+    let kids = field
+        .get(&arena.name("Kids"))
+        .map(|k| k.resolve(arena))
+        .and_then(|k| match k {
+            Object::Array(ah) => arena.get_array(ah),
+            _ => None,
+        })
+        .unwrap_or_default();
+    let widgets: Vec<_> =
+        kids.iter().filter_map(|kid| kid.resolve(arena).as_dict_handle()).collect();
+    if widgets.is_empty() { vec![field_dh] } else { widgets }
+}
+
+/// Says what the scripts this processor does not run would have done (12.6.3).
+///
+/// **Setting one value can be the start of a cascade.** 12.6.3 says the effects of a
+/// field-related action are limited only by the action itself and may make any other
+/// modification to the document, and names the example directly: modifying a field value
+/// can trigger calculations and further formatting for *other* fields. This engine does
+/// not execute ECMAScript (12.6.4.17), which 6.3.2.1 permits — each processor chooses its
+/// subsets — but a caller writing a value into a form that calculates has to be told, or
+/// it gets a document whose fields disagree with each other and no sign that they do.
+fn report_scripts_not_run(
+    doc: &Document,
+    acro: &BTreeMap<Handle<PdfName>, Object>,
+    field_name: &str,
+) {
+    let arena = doc.arena();
+    let calculated = acro
+        .get(&arena.name("CO"))
+        .map(|co| co.resolve(arena))
+        .and_then(|co| match co {
+            Object::Array(ah) => arena.get_array(ah),
+            _ => None,
+        })
+        .map_or(0, |order| order.len());
+    if calculated == 0 {
+        return;
+    }
+    doc.record(Decision::violation(
+        "12.6.3",
+        format!(
+            "the form declares {calculated} field(s) in its calculation order, and setting              {field_name} would have run their ECMAScript"
+        ),
+        "wrote the value and did not run the scripts; fields computed from it are now stale",
+    ));
+}
+
+/// A text string entry, whichever of the two string forms it was written in.
+fn text_entry(
+    arena: &PdfArena,
+    dict: &BTreeMap<Handle<PdfName>, Object>,
+    key: &str,
+) -> Option<String> {
+    match dict.get(&arena.name(key))?.resolve(arena) {
+        Object::Text(text) => Some(text),
+        Object::String(bytes) | Object::Hex(bytes) => {
+            Some(String::from_utf8_lossy(&bytes).into_owned())
+        }
+        _ => None,
+    }
 }
 
 /// Alias for `apply_bates_numbering`.

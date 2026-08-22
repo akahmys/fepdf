@@ -153,8 +153,10 @@ pub struct PdfCatalog {
     /// `/Legal`: legal attestation dictionary (12.8.5).
     pub legal: Option<Object>,
     #[pdf_key("Requirements")]
-    /// `/Requirements`: requirement dictionaries array (12.10).
-    pub requirements: Option<Object>,
+    /// `/Requirements`: what the document says a processor must support to handle it
+    /// (12.11). Read because this engine declines a subset the standard lets it decline,
+    /// and this is how a document asks for that subset.
+    pub requirements: Option<entries::DocumentRequirements>,
     #[pdf_key("NeedsRendering")]
     /// `/NeedsRendering`: flag indicating whether appearance streams must be generated (12.7.2).
     pub needs_rendering: Option<bool>,
