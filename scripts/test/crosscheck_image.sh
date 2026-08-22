@@ -113,12 +113,17 @@ compared=0
 skipped=0
 printf '%-34s %-24s %-24s %s\n' file fepdf PDFKit verdict
 # The made fixtures, the files of the external corpus that carry a codec, and the three
-# that carry **optional content** — those last are the independent oracle the layer work
-# did not have, and they earned their place: `pdf20-utf8-test.pdf` is where this engine
+# that carry **optional content** or an **annotation appearance** — those last are the
+# independent oracles the layer and annotation work did not have, and they earned their
+# place. `PDF 2.0 UTF-8 string and annotation.pdf` is a page with no `/Contents` at all
+# whose only mark is an annotation's appearance: this engine drew it blank while every
+# other reader painted it, which is 6.3.2.2 asking for something that was not there.
+# The optional content one: `pdf20-utf8-test.pdf` is where this engine
 # was found drawing two layers a file had turned off, because their `/OC` is an OCMD
 # written in place with a single `/OCGs` reference and neither form was read.
 for input in target/scans/*.pdf target/layers/*.pdf \
              target/external/pdf20examples/pdf20-utf8-test.pdf \
+             "target/external/pdf20examples/PDF 2.0 UTF-8 string and annotation.pdf" \
              target/external/pdfua2/8.7-t02-*.pdf \
              target/external/pdf-differences/UnknownFilter-*.pdf; do
     [ -e "$input" ] || continue

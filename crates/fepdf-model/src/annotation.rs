@@ -682,3 +682,119 @@ mod tests {
         );
     }
 }
+
+/// Where an annotation's appearance goes on the page (12.5.5, "Algorithm: appearance
+/// streams").
+///
+/// **Not a matter of taste, and easy to get wrong in a way that looks nearly right.** The
+/// appearance is a form XObject with its own coordinate system; the annotation says where
+/// it belongs with `/Rect`. The clause spells the mapping out in three steps, and the
+/// middle one is the part a naive implementation skips:
+///
+/// 1. Transform the appearance's `/BBox` by its `/Matrix`. That produces a quadrilateral
+///    of arbitrary orientation, and the *transformed appearance box* is the smallest
+///    upright rectangle around it — not the quadrilateral, and not the original box.
+/// 2. Compute `A`, which scales and translates that upright rectangle onto `/Rect`.
+/// 3. The answer is `Matrix × A`, so the appearance's own matrix still applies **inside**
+///    the mapping rather than being replaced by it.
+///
+/// A transformed box with no width or height cannot be scaled onto anything, so the
+/// appearance is placed at the rectangle's corner without scaling rather than divided by
+/// zero.
+#[must_use]
+pub fn appearance_placement(
+    bbox: [f64; 4],
+    matrix: crate::graphics::Matrix,
+    rect: &crate::graphics::Rect,
+) -> crate::graphics::Matrix {
+    let corners = [(bbox[0], bbox[1]), (bbox[2], bbox[1]), (bbox[2], bbox[3]), (bbox[0], bbox[3])];
+    let m = matrix.0;
+    let mapped: Vec<(f64, f64)> = corners
+        .iter()
+        .map(|(x, y)| (m[0].mul_add(*x, m[2] * *y) + m[4], m[1].mul_add(*x, m[3] * *y) + m[5]))
+        .collect();
+    let (mut lo_x, mut lo_y, mut hi_x, mut hi_y) =
+        (f64::INFINITY, f64::INFINITY, f64::NEG_INFINITY, f64::NEG_INFINITY);
+    for (x, y) in mapped {
+        lo_x = lo_x.min(x);
+        lo_y = lo_y.min(y);
+        hi_x = hi_x.max(x);
+        hi_y = hi_y.max(y);
+    }
+
+    let (rect_x, rect_y) = (rect.x1.min(rect.x2), rect.y1.min(rect.y2));
+    let (rect_w, rect_h) = ((rect.x2 - rect.x1).abs(), (rect.y2 - rect.y1).abs());
+    let (box_w, box_h) = (hi_x - lo_x, hi_y - lo_y);
+    let sx = if box_w > 0.0 { rect_w / box_w } else { 1.0 };
+    let sy = if box_h > 0.0 { rect_h / box_h } else { 1.0 };
+    let a = crate::graphics::Matrix::new(
+        sx,
+        0.0,
+        0.0,
+        sy,
+        sx.mul_add(-lo_x, rect_x),
+        sy.mul_add(-lo_y, rect_y),
+    );
+    // `AA = Matrix x A` in the clause's row-vector notation means *apply `Matrix`, then
+    // `A`*. `Matrix::concat` applies its argument first, so the two names sit the other
+    // way round — writing `matrix.concat(&a)` scales before rotating and puts a rotated
+    // appearance outside the rectangle it was measured against.
+    a.concat(&matrix)
+}
+
+#[cfg(test)]
+mod appearance_tests {
+    use super::appearance_placement;
+    use crate::graphics::{Matrix, Rect};
+
+    /// An identity matrix and a bbox at the origin: the appearance is scaled onto the
+    /// rectangle and moved to its corner.
+    #[test]
+    fn an_upright_appearance_is_scaled_onto_the_rectangle() {
+        let placed = appearance_placement(
+            [0.0, 0.0, 10.0, 10.0],
+            Matrix::default(),
+            &Rect::new(100.0, 200.0, 120.0, 240.0),
+        );
+        assert!((placed.0[0] - 2.0).abs() < 1e-9, "x scales 10 to 20: {placed:?}");
+        assert!((placed.0[3] - 4.0).abs() < 1e-9, "y scales 10 to 40: {placed:?}");
+        assert!((placed.0[4] - 100.0).abs() < 1e-9);
+        assert!((placed.0[5] - 200.0).abs() < 1e-9);
+    }
+
+    /// **The step a naive implementation skips.** A rotated `/Matrix` turns the bbox into
+    /// a quadrilateral, and what gets mapped onto `/Rect` is the smallest upright
+    /// rectangle around it. Rotating a 20x10 box by 90 degrees makes it 10 wide and 20
+    /// tall, so a square rectangle scales it by 2 in x and 1 in y — not by 1 and 1.
+    #[test]
+    fn a_rotated_appearance_is_measured_by_its_upright_extent() {
+        let quarter_turn = Matrix::new(0.0, 1.0, -1.0, 0.0, 0.0, 0.0);
+        let placed = appearance_placement(
+            [0.0, 0.0, 20.0, 10.0],
+            quarter_turn,
+            &Rect::new(0.0, 0.0, 20.0, 20.0),
+        );
+        // AA = Matrix x A, so the rotation survives and the scale is A's.
+        let corner = |x: f64, y: f64| {
+            let m = placed.0;
+            (m[0].mul_add(x, m[2] * y) + m[4], m[1].mul_add(x, m[3] * y) + m[5])
+        };
+        let (x0, y0) = corner(0.0, 0.0);
+        let (x1, y1) = corner(20.0, 10.0);
+        assert!((x0.min(x1) - 0.0).abs() < 1e-9, "the box lands on the rectangle: {x0} {x1}");
+        assert!((x0.max(x1) - 20.0).abs() < 1e-9);
+        assert!((y0.min(y1) - 0.0).abs() < 1e-9);
+        assert!((y0.max(y1) - 20.0).abs() < 1e-9);
+    }
+
+    /// A degenerate box is placed rather than divided by.
+    #[test]
+    fn a_bounding_box_with_no_area_does_not_divide_by_zero() {
+        let placed = appearance_placement(
+            [5.0, 5.0, 5.0, 5.0],
+            Matrix::default(),
+            &Rect::new(10.0, 20.0, 30.0, 40.0),
+        );
+        assert!(placed.0.iter().all(|v| v.is_finite()), "{placed:?}");
+    }
+}

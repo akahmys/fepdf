@@ -15,7 +15,7 @@
 //! cargo run --release --example page_quadrants -p fepdf --features render -- file.pdf
 //! ```
 
-use fepdf::{Interpreter, PdfDocument};
+use fepdf::PdfDocument;
 use fepdf_render::VelloBackend;
 use fepdf_render::headless::render_to_bytes;
 
@@ -36,11 +36,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // PDF counts up from the bottom and a raster counts down from the top.
     let transform = kurbo::Affine::scale_non_uniform(1.0, -1.0)
         * kurbo::Affine::translate((0.0, -f64::from(height)));
-    let mut interpreter =
-        Interpreter::new(&mut backend, document.inner(), page.resources_handle(), transform);
-    for contents in page.contents_handles() {
-        let _ = interpreter.execute(contents);
-    }
+    // `render_page` and not an interpreter built here: the page's own contents are only
+    // half of what a reader draws, and this example exists to be compared against one
+    // that draws the other half. Building the interpreter directly skipped every
+    // annotation appearance, so the comparison could not have caught their absence.
+    // The outcome is deliberately not propagated: this is a *comparator*, and its answer
+    // is what reached the page. A file whose content stream will not decode still draws
+    // its annotations, and refusing to report four numbers for it would make the
+    // comparison silent exactly where the two renderers are most likely to differ.
+    let _ = document.render_page(0, &mut backend, transform);
 
     let pixels = render_to_bytes(backend.scene(), width, height).await?;
     let quadrants = quadrant_means(&pixels, width, height);

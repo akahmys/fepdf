@@ -94,8 +94,15 @@ row "decision records" "$adrs"
 # interpreter is as much the engine as the reader is — it decides to skip an image whose
 # filter cannot be decoded — and a row that could not see it would have reported that
 # phase as having changed nothing.
+# The crate list has had to grow twice, and both times the row under-reported until it
+# did. Phase H added `fepdf-content` — an image skipped mid-page is a decision. This adds
+# `fepdf-doc` and `fepdf`, which gained sites when a form field learnt to say its scripts
+# had not run and an annotation appearance learnt to say `/AS` named no state. A row that
+# names the places it looks will keep missing new ones, so the list is the thing to check
+# when the figure looks too round.
 decisions=$(grep -rn "Decision::ambiguity\|Decision::repaired\|Decision::violation" \
-    crates/fepdf-model/src crates/fepdf-syntax/src crates/fepdf-content/src --include="*.rs" 2>/dev/null \
+    crates/fepdf-model/src crates/fepdf-syntax/src crates/fepdf-content/src \
+    crates/fepdf-doc/src crates/fepdf/src --include="*.rs" 2>/dev/null \
     | grep -vc "interpretation.rs" | tr -d ' ')
 row "Decision sites in the engine" "$decisions"
 

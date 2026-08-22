@@ -343,10 +343,13 @@ of the standard, it records why, at the point of decision, with the clause. A si
 acceptance is a defect even when the output is right, because the next reader of the
 code cannot tell a deliberate choice from an oversight.
 
-**Current coverage is 69 sites**, up from one: `reader.rs` 19, `refine/color.rs` 12,
+**Current coverage is 75 sites**, up from one: `reader.rs` 19, `refine/color.rs` 12,
 `font/mod.rs` 8, `interpreter/ops/xobject.rs` 7, `decrypt.rs` 6, `document.rs` 4,
-`object/sublimation/parser.rs` 3, `optional_content.rs` 3, `ingest/mod.rs` 2,
-`interpreter/ops/marked.rs` 2, `metadata.rs` 2, `refine/mod.rs` 1 (2026-08-22). The three in `fepdf-content` are the newest and the reason the
+`object/sublimation/parser.rs` 3, `optional_content.rs` 3, `fepdf/lib.rs` 3,
+`ingest/mod.rs` 2, `interpreter/ops/marked.rs` 2, `metadata.rs` 2,
+`apply/appearance.rs` 2, `refine/mod.rs` 1, `apply/annotations.rs` 1 (2026-08-22).
+The `status.sh` row searched three crates and the newest sites are in two more, so it
+read 69 where the figure was 75 — the same drift it caught in Phase H, in a new place. The three in `fepdf-content` are the newest and the reason the
 count moved: an image whose filter this engine cannot decode is skipped so that the
 page's text survives, and that skip is now recorded rather than logged
 ([ADR-0018](docs/adr/0018-interpreting-a-page-can-add-to-the-decision-log.md)). The
@@ -515,6 +518,13 @@ handle glyph mapping, Japanese fallback fonts, and Type 3 precipitation.
 
 Because the contract is separate, the same interpreter drives text extraction and
 geometry collection without a GPU present.
+
+Rendering a page is **two** walks, because 6.3.2.2 asks for two: the content streams, and
+then the appearance stream of every annotation that has one and is not hidden by its flags
+(12.5.5). Each appearance is a form XObject with its own coordinates and resources, so it
+gets its own interpreter with the placement 12.5.5's algorithm computes
+([ADR-0023](docs/adr/0023-a-renderer-that-skips-annotation-appearances-is-not-conforming.md)).
+A content stream that will not decode no longer cancels the second walk.
 
 One thing sits between the interpreter and whichever backend answers: `canvas` withholds
 the five calls that put marks on a page while an optional-content group is off (8.11),
