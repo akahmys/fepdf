@@ -36,7 +36,6 @@ proc-macro2 = "1.0"
 rayon = "1.10"
 parking_lot = "0.12"
 id-arena = "2.2"
-zstd = "0.13"
 
 # PDF Physical Engine
 flate2 = "1.0"
@@ -110,10 +109,8 @@ hex = "0.4"
 
 # Cryptography & Certificates
 x509-parser = "0.16"
-reqwest = { version = "0.11", default-features = false, features = ["blocking", "rustls-tls"] }
 der = { version = "0.7", features = ["derive"] }
 spki = "0.7"
-rustls-native-certs = "0.7"
 rsa = { version = "0.9", features = ["sha2"] }
 ecdsa = "0.16"
 p256 = { version = "0.13", features = ["ecdsa", "pkcs8"] }

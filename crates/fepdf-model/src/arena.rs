@@ -336,8 +336,8 @@ impl PdfArena {
                     data: data.to_vec(),
                 }
             } else {
-                // Compress large non-content streams (images, fonts) with Zstd
-                let compressed = zstd::encode_all(&*data, 3)
+                // Compress large non-content streams (images, fonts) in memory.
+                let compressed = crate::filters::flate::deflate(&data)
                     .map_err(|e| crate::PdfError::Other(e.to_string().into()))?;
                 SublimatedData::Compressed { original_len: data.len(), data: compressed }
             }
@@ -359,7 +359,7 @@ impl PdfArena {
         match data {
             crate::object::SublimatedData::Raw(b) => Ok(b.clone()),
             crate::object::SublimatedData::Compressed { data, .. } => {
-                let decoded = zstd::decode_all(&**data)
+                let decoded = crate::filters::flate::inflate(data)
                     .map_err(|e| crate::PdfError::Other(e.to_string().into()))?;
                 Ok(bytes::Bytes::from(decoded))
             }

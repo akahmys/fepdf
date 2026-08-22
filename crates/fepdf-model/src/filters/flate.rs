@@ -41,3 +41,29 @@ impl DecodingFilter for FlateFilter {
         Ok(Bytes::from(decoded))
     }
 }
+
+/// Compresses bytes for the arena's in-memory form, not for a file.
+///
+/// `SublimatedData::Compressed` never reaches a writer — `PdfArena::get_stream_bytes`
+/// expands it first — so this is a memory trade and not a `/FlateDecode` stream. It lives
+/// beside the filter because the codec is the same one, and because a second compression
+/// crate is what made the engine depend on C.
+///
+/// # Errors
+/// Fails only when the encoder does, which for an in-memory writer means allocation.
+pub fn deflate(input: &[u8]) -> std::io::Result<Vec<u8>> {
+    use std::io::Write as _;
+    let mut encoder = flate2::write::ZlibEncoder::new(Vec::new(), flate2::Compression::default());
+    encoder.write_all(input)?;
+    encoder.finish()
+}
+
+/// Expands what [`deflate`] produced.
+///
+/// # Errors
+/// Fails when the bytes are not what `deflate` wrote.
+pub fn inflate(input: &[u8]) -> std::io::Result<Vec<u8>> {
+    let mut decoded = Vec::new();
+    ZlibDecoder::new(input).take(MAX_DECOMPRESSED_SIZE + 1).read_to_end(&mut decoded)?;
+    Ok(decoded)
+}

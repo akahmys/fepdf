@@ -89,7 +89,6 @@ pub fn filter_for(filter_name: &str) -> Option<&'static dyn DecodingFilter> {
         "ASCIIHexDecode" | "AHx" => &ascii::AsciiHexFilter,
         "ASCII85Decode" | "A85" => &ascii::Ascii85Filter,
         "RunLengthDecode" | "RL" => &runlength::RunLengthFilter,
-        "ZstandardDecode" | "Zstd" => &zstd_filter::ZstdFilter,
         "DCTDecode" | "DCT" => &jpeg::JpegFilter,
         "CCITTFaxDecode" | "CCF" => &ccitt::CcittFilter,
         "JBIG2Decode" => &jbig2::Jbig2Filter,
@@ -115,20 +114,13 @@ pub fn decode_stream(
 ///
 /// The whole dispatch: a name becomes a unit, and the unit decodes. Every arm that used
 /// to be here — a match with a `FlateFilter` in one branch, a helper for the byte
-/// transformations, an inline `zstd::decode_all`, and two image codecs that had escaped
+/// transformations, an inline Zstd decoder, and two image codecs that had escaped
 /// the trait entirely — is now one unit each, listed in [`filter_for`].
 ///
 /// # Errors
 /// Fails when no filter of that name is decoded, and propagates whatever the filter says
 /// about data it cannot decode.
 pub fn decode_with(filter_name: &str, input: &[u8], cx: &FilterContext<'_>) -> PdfResult<Bytes> {
-    // Before the name is trusted: a "lie filter", where the dictionary says `/FlateDecode`
-    // and the bytes are Zstd. The magic number settles it, and no filter's own decoder
-    // would survive being handed the wrong format.
-    if input.starts_with(&[0x28, 0xB5, 0x2F, 0xFD]) {
-        return zstd_filter::decompress(input, "Zstd(Heuristic)");
-    }
-
     // Table 6 gives every filter an abbreviation for use in inline images (7.8.6), and
     // producers use them: `/AHx` appears seven times in one external file and `/A85` and
     // `/LZW` once each. Only `Fl` and `DCT` were matched before, so a stream naming any
@@ -140,31 +132,6 @@ pub fn decode_with(filter_name: &str, input: &[u8], cx: &FilterContext<'_>) -> P
             message: format!("Unsupported filter: {filter_name}").into(),
         })?
         .decode(input, cx)
-}
-
-/// `/ZstandardDecode`, which is not one of clause 7.4's ten.
-///
-/// Implemented because a producer in the wild writes it and the engine reads what
-/// arrives; it is named here rather than in the clause's table for the same reason.
-pub mod zstd_filter {
-    use super::{Bytes, DecodingFilter, FilterContext, PdfError, PdfResult};
-
-    /// The unit [`super::filter_for`] hands `/ZstandardDecode` to.
-    pub struct ZstdFilter;
-
-    impl DecodingFilter for ZstdFilter {
-        fn decode(&self, input: &[u8], _cx: &FilterContext<'_>) -> PdfResult<Bytes> {
-            decompress(input, "ZstandardDecode")
-        }
-    }
-
-    /// Shared with the magic-number heuristic, which reports a different filter name
-    /// because what it found is not what the dictionary claimed.
-    pub(super) fn decompress(input: &[u8], named: &'static str) -> PdfResult<Bytes> {
-        zstd::decode_all(input)
-            .map(Bytes::from)
-            .map_err(|e| PdfError::Filter { filter: named.into(), message: e.to_string().into() })
-    }
 }
 
 /// Orchestrates multi-filter decoding for a stream dictionary.
@@ -374,15 +341,6 @@ mod tests {
     }
 
     #[test]
-    fn test_zstd_decode_stream() {
-        let arena = PdfArena::new();
-        let raw_data = b"fepdf PDF Zstd Compression Stream";
-        let compressed = zstd::encode_all(&raw_data[..], 3).unwrap();
-        let decoded = decode_stream("ZstandardDecode", &compressed, None, &arena).unwrap();
-        assert_eq!(&decoded[..], raw_data);
-    }
-
-    #[test]
     fn test_unknown_filter_error() {
         let arena = PdfArena::new();
         let result = decode_stream("NonExistentFilter", b"data", None, &arena);
@@ -453,7 +411,7 @@ mod tests {
             assert_eq!(filter, name, "refused by its own name");
             assert!(message.starts_with("Unsupported filter"), "{message}");
         }
-        for name in ["FlateDecode", "Fl", "AHx", "A85", "RL", "CCF", "DCT", "Zstd", "JBIG2Decode"] {
+        for name in ["FlateDecode", "Fl", "AHx", "A85", "RL", "CCF", "DCT", "JBIG2Decode"] {
             assert!(is_decoded(name), "{name} has a unit");
         }
     }

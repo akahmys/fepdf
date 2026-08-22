@@ -365,7 +365,7 @@ fn commit_stream_to_arena(
         // Do NOT decode or re-compress images/fonts to internal format during refine.
         crate::object::SublimatedData::Raw(bytes)
     } else if bytes.len() > 4096 {
-        let compressed = zstd::encode_all(&*bytes, 3).unwrap_or_else(|_| bytes.to_vec());
+        let compressed = crate::filters::flate::deflate(&bytes).unwrap_or_else(|_| bytes.to_vec());
         crate::object::SublimatedData::Compressed { original_len: bytes.len(), data: compressed }
     } else {
         crate::object::SublimatedData::Raw(bytes)

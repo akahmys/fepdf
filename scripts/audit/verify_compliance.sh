@@ -255,6 +255,34 @@ cargo check --quiet || ERROR=1
 echo "[Rule 17] Running clippy audit..."
 cargo clippy --workspace --all-targets -- -D warnings || ERROR=1
 
+# Rule 9: Pure Rust
+#
+# The line is compiled foreign source, not FFI — `std` links libc and always will, so a
+# rule against FFI would be a rule against the language. What no Rust tool audits is a
+# vendored C library: clippy, the `unsafe` ban and the rest of RR-15 stop at the language
+# boundary. `cc` is how a Rust build compiles C and nothing compiles C without it, so its
+# absence from every member's tree is the whole check.
+#
+# It was written after three dependencies were removed to make it pass, two of which no
+# line of code referenced (ADR-0024).
+echo "[Rule 9] Checking for dependencies that compile C..."
+C_BUILDERS=""
+for member in $(cargo metadata --no-deps --format-version 1 2>/dev/null \
+        | python3 -c "import sys,json;print(' '.join(p['name'] for p in json.load(sys.stdin)['packages']))"); do
+    if cargo tree -p "$member" --prefix none 2>/dev/null | grep -q '^cc v'; then
+        C_BUILDERS="$C_BUILDERS $member"
+    fi
+done
+if [ -n "$C_BUILDERS" ]; then
+    echo "  FAIL: these crates pull a dependency that compiles C:$C_BUILDERS"
+    for member in $C_BUILDERS; do
+        cargo tree -p "$member" -i cc 2>/dev/null | head -8 | sed 's/^/    /'
+    done
+    ERROR=1
+else
+    echo "  PASS"
+fi
+
 # Rule 19: Formatting
 #
 # Previously only `make fmt` checked this, and nothing forced anyone to run it,

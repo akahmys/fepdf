@@ -20,6 +20,7 @@ Derived from aerospace safety principles, the **RR-15 (Reliable Rust-15)** rules
 | **Rule 6** | Stack Safety | Unbounded recursion is forbidden. Use heap-based loops with `Vec`. | Code review |
 | **Rule 7** | Global State | `static mut` and global mutable state are forbidden. | Automated grep check |
 | **Rule 8** | Invalid State | Use type-safe `enum` states instead of boolean flags or nested `Option`s. | Architecture review |
+| **Rule 9** | Pure Rust | No dependency may compile C or C++ source, or bind a third-party native library. Platform API bindings the standard library already needs are not this. | `./scripts/audit/verify_compliance.sh` |
 | **Rule 10** | Determinism | `HashMap` and `HashSet` are forbidden in core pipelines. Use `BTreeMap`, `BTreeSet`, or `PdfArena`. | Automated grep check |
 | **Rule 11** | Error Transparency | Return typed `thiserror` enums. String-based errors (`Result<T, String>`) are forbidden in core APIs. | Automated grep check |
 | **Rule 13** | Error Swallowing | `filter_map(Result::ok)` and silent error swallowing are forbidden. | Automated grep check |
@@ -28,6 +29,30 @@ Derived from aerospace safety principles, the **RR-15 (Reliable Rust-15)** rules
 | **Rule 17** | Type Explicitly | Explicitly specify floating-point types (`1.0_f32`, `2.5_f32`) to prevent Edition 2024 inference fallbacks. | Clippy / Compiler |
 | **Rule 19** | Formatting | The tree must satisfy `cargo fmt --all --check`. | `./scripts/audit/verify_compliance.sh` |
 | **Rule 20** | Recorded Interpretation | Where the engine accepts input the standard does not describe, it MUST record a `Decision` naming the clause and what was done. A silent acceptance is a defect even when the output is right. | Code review / ARCHITECTURE.md §5.3 |
+
+### Rule 9 in detail: where the line is
+
+"Pure Rust" cannot mean "no FFI", because `std` links libc and every program on every
+platform reaches the operating system through a C ABI. A rule that forbade that would
+forbid the language.
+
+The line that *is* checkable, and the one that matters, is **whether a build compiles
+foreign source**. A dependency that ships a C library and builds it takes a compiler, a
+cross-compilation story, and a body of code that no Rust tool audits — `cargo clippy`,
+the `unsafe` ban and RR-15 all stop at the language boundary. So:
+
+| | Example | |
+| :--- | :--- | :--- |
+| **Forbidden** | `zstd-sys`, `libz-sys`, `openssl-sys`, `ring`, a QuickJS binding | Compiles vendored C; pulls `cc` as a build dependency |
+| **Allowed** | `core-foundation-sys`, `windows-sys`, `libc` | Declares the platform's own API, which `std` already does |
+
+Enforced as: **no crate named `cc` in any workspace member's dependency tree**. That is one
+`cargo tree` per crate and it is exact — `cc` is how a Rust build compiles C, and nothing
+compiles C without it.
+
+The rule was stated after the fact, which is worth admitting: three dependencies had to go
+before it could pass, and **two of them were never used by a line of code**
+([ADR-0024](docs/adr/0024-pure-rust-is-a-rule-and-therefore-has-a-check.md)).
 
 ### Rule 5 in detail: what "no wildcards" can and cannot mean
 

@@ -260,7 +260,12 @@ pub enum SublimatedData {
         /// Uncompressed byte data of the image pixels.
         data: Vec<u8>,
     },
-    /// Zstd-compressed raw bytes (for Images/Fonts/Thumbnails).
+    /// Deflate-compressed raw bytes, held only in memory (Images/Fonts/Thumbnails).
+    ///
+    /// The codec is an implementation detail: this form never reaches a file, because
+    /// `PdfArena::get_stream_bytes` expands it before the writer sees a stream. It was
+    /// Zstd until Zstd's only Rust binding turned out to be the engine's last C
+    /// dependency; `flate2` was already here and is pure Rust.
     Compressed {
         /// Uncompressed byte size.
         original_len: usize,

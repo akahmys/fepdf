@@ -32,7 +32,6 @@ read-fonts.workspace = true
 ttf-parser.workspace = true
 parking_lot.workspace = true
 pdf-writer.workspace = true
-zstd.workspace = true
 aes.workspace = true
 cbc.workspace = true
 pbkdf2.workspace = true
@@ -42,8 +41,6 @@ rand.workspace = true
 md5.workspace = true
 hex.workspace = true
 nom.workspace = true
-reqwest.workspace = true
-rustls-native-certs.workspace = true
 hayro-jbig2.workspace = true
 hayro-jpeg2000.workspace = true
 
