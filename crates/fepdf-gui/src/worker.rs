@@ -1,8 +1,8 @@
 //! Off-thread document worker and request/response dispatch loop.
 
 use bytes::Bytes;
+use fepdf::{FallbackFontType, VelloBackend};
 use fepdf::{Operation, PageSelection, PdfDocument};
-use fepdf_render::{FallbackFontType, VelloBackend};
 use std::sync::Arc;
 use std::sync::mpsc::{Receiver, Sender};
 use vello::Scene;

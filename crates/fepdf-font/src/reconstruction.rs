@@ -2077,37 +2077,19 @@ mod tests {
         assert_eq!(dis.tables[0].1, b"DATA");
     }
 
-    #[test]
-    #[ignore]
-    fn test_reconstructed_font_parsing() {
-        let path = "exports/font-0003.otf";
-        if let Ok(data) = std::fs::read(path) {
-            println!("Testing font: {} ({} bytes)", path, data.len());
-            match ttf_parser::Face::parse(&data, 0) {
-                Ok(face) => {
-                    println!("Success! Glyphs: {}", face.number_of_glyphs());
-                    assert!(face.tables().cff.is_some() || face.tables().cff2.is_some());
-
-                    // Try to draw GID 1
-                    let mut builder = NoopBuilder;
-                    let outline_res = face.outline_glyph(ttf_parser::GlyphId(1), &mut builder);
-                    assert!(outline_res.is_some(), "GID 1 outline extraction FAILED");
-                }
-                Err(e) => {
-                    panic!("Failed to parse reconstructed font: {e:?}");
-                }
-            }
-        }
-    }
-
-    struct NoopBuilder;
-    impl ttf_parser::OutlineBuilder for NoopBuilder {
-        fn move_to(&mut self, _: f32, _: f32) {}
-        fn line_to(&mut self, _: f32, _: f32) {}
-        fn quad_to(&mut self, _: f32, _: f32, _: f32, _: f32) {}
-        fn curve_to(&mut self, _: f32, _: f32, _: f32, _: f32, _: f32, _: f32) {}
-        fn close(&mut self) {}
-    }
+    // `test_reconstructed_font_parsing` stood here, `#[ignore]`d, reading
+    // `exports/font-0003.otf` — a path no fixture produces, in a directory
+    // `DIRECTORY_LAYOUT.md` does not register. It had therefore never run, in either
+    // sense: the attribute stopped it, and the file was not there if the attribute had
+    // not. A test that has never executed is not evidence of anything, and this one read
+    // as coverage of font reconstruction. `TESTING.md` records the same removal being
+    // made once before for the same reason.
+    //
+    // What it was reaching for is worth building: parse a reconstructed font with an
+    // independent implementation and pull an outline out of GID 1. That needs a fixture
+    // this crate generates, not a file left behind by a debug command. Its `NoopBuilder`
+    // went with it — clippy under `-D warnings` named it the moment its only constructor
+    // was gone, which is more than the ignored test had managed in its whole existence.
 }
 
 #[cfg(test)]

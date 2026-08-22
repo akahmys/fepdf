@@ -1447,6 +1447,28 @@ figure below came out of one command, and the commands are here.
       what `status.sh` needs is the figure. Two of the three C dependencies and forty-five
       of these were invisible to every check this project has, and both were found by
       hand, twice, four days apart
+- [x] **A frontend reached past the facade, and the rule that would have caught it was
+      stated one notch too narrow.** `ARCHITECTURE.md` §7 claimed "no frontend declares
+      `fepdf-model`", which was true; §2's topology puts every frontend above `fepdf` and
+      nothing else, which was not. `fepdf-gui` declared `fepdf-render` directly and never
+      enabled the facade's `render` feature — reaching the GPU crate around the opt-in
+      [ADR-0004](docs/adr/0004-rule-b-makes-the-gpu-dependency-optional.md) exists to
+      provide. It used two names, both re-exported by the facade, so the fix was one line
+      of `Cargo.toml`. All four frontends now declare `fepdf` and nothing else, and
+      `status.sh` counts the exceptions rather than asserting there are none
+
+      ```bash
+      ./scripts/dev/status.sh | grep 'not the facade'      # 0
+      ```
+
+- [x] **`fepdf debug extract-font` wrote outside every registered directory.** A
+      root-level `exports/`: unregistered in `DIRECTORY_LAYOUT.md`, **not git-ignored**,
+      and never created — so the write failed unless the user had made the directory, and
+      left untracked files in the repository root when they had. Three defects in one
+      line, none of which any check could see. It writes to `out/exports/` now. The
+      `#[ignore]`d test that read from the same path had never run in either sense — the
+      attribute stopped it, and the file was not there if the attribute had not — and was
+      removed, which `TESTING.md` records happening once before for the same reason
 - [ ] **`fepdf-mcp` names 24 of the 30 operations as tools.** It named all of them until
       Rule D added six, and it is the frontend whose whole job is to expose the vocabulary
       — a tool is the serialised form of an operation (ARCHITECTURE §5.1). All thirty are

@@ -149,6 +149,23 @@ decisions=$(grep -rn "Decision::ambiguity\|Decision::repaired\|Decision::violati
     | grep -vc "interpretation.rs" | tr -d ' ')
 row "Decision sites in the engine" "$decisions"
 
+# Rule A, the version Cargo can enforce: a frontend declares `fepdf` and no other crate
+# of this workspace. ARCHITECTURE.md 7 claimed only that no frontend declares
+# `fepdf-model` — true, and narrower than the topology in 2, which puts every frontend
+# above the facade and nothing else. `fepdf-gui` declared `fepdf-render` directly and did
+# not enable the facade's `render` feature, so it reached the GPU crate around the opt-in
+# that ADR-0004 exists to provide. It needed two names, `VelloBackend` and
+# `FallbackFontType`, and the facade re-exports both.
+#
+# The row counts internal dependencies that are not `fepdf`, over the four frontends.
+frontend_deps=0
+for crate_name in $FRONTEND_CRATES; do
+    extra=$(grep -oE '^fepdf[a-z-]*' "crates/$crate_name/Cargo.toml" 2>/dev/null \
+        | sort -u | grep -vx "fepdf" | grep -vx "$crate_name" | wc -l | tr -d ' ')
+    frontend_deps=$((frontend_deps + extra))
+done
+row "Rule A: frontend deps that are not the facade (expect 0)" "$frontend_deps"
+
 # ARCHITECTURE.md 4 justified Rule A with "9 references and 2". Cargo has since made
 # both impossible (5.7), so anything but 0 means a frontend gained a direct dependency.
 leak=$(grep -rn "PdfArena\|Handle<" \

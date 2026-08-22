@@ -25,13 +25,22 @@ This document defines the canonical directory structure of fepdf. Adherence to t
 
 1.  **Consolidation**: All static resources MUST reside within `assets/`. Prohibit root-level resource directories (e.g., `resources/`).
 2.  **Output Isolation**: All dynamically generated files MUST reside within `out/`.
-    (Checked 2026-08-22: **not held.** Three writers use `out/artifacts/` —
-    `scripts/dev/render_pages.sh`, `scripts/test/batch_process.sh` — and three use a
-    root-level `artifacts/`: `crates/fepdf/examples/render_all_samples.rs`,
+    (Checked 2026-08-22: **not held, in two different ways.** Three writers use
+    `out/artifacts/` — `scripts/dev/render_pages.sh`, `scripts/test/batch_process.sh` —
+    and three use a root-level `artifacts/`: `crates/fepdf/examples/render_all_samples.rs`,
     `render_japanese_samples.rs` and `scripts/test/hiragana_render_test.sh`. Both are
-    git-ignored, so nothing was ever going to notice. Registering `target/` above is the
-    same omission caught earlier: the rule in §4 says every root directory must be
-    registered, and the one holding 515 corpus files was not.)
+    git-ignored, so nothing was ever going to notice.
+
+    The second was worse and is fixed: `fepdf debug extract-font` wrote to a root-level
+    **`exports/`**, which is unregistered, **not git-ignored**, and never created — so the
+    write failed unless the user had made the directory by hand, and left untracked files
+    in the repository root when they had. It writes to the registered `out/exports/` now
+    and creates it. A `#[ignore]`d test in `fepdf-font` read a file from that same path,
+    which meant it could not have run even without the attribute; it was removed.
+
+    Registering `target/` above is the same omission from the other direction: §4 says
+    every root directory must be registered, and the one holding 515 corpus files was
+    not.)
 3.  **Script Categorization**:
     *   `scripts/audit/`: Compliance, security, and static analysis.
     *   `scripts/dev/`: Developer productivity and UI utilities.

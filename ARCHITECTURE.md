@@ -688,10 +688,23 @@ decision, not an architectural one.
 
 Architecture rules that are not checked become comments. These are:
 
-- **Rules A–C**: enforced by Cargo. No frontend declares `fepdf-model`, so a model type
-  cannot be named from `fepdf-cli`, `fepdf-gui`, `fepdf-mcp` or `fepdf-wasm` at all —
-  reaching for one is a compile error, not a review finding. The facade re-exports
-  what frontends legitimately need.
+- **Rules A–C**: enforced by Cargo, and the claim used to be narrower than the topology.
+  It said "no frontend declares `fepdf-model`" — true, and it left room for what was
+  actually there: **`fepdf-gui` declared `fepdf-render`**, reaching the GPU crate directly
+  rather than through the facade's `render` feature, which is the opt-in
+  [ADR-0004](docs/adr/0004-rule-b-makes-the-gpu-dependency-optional.md) exists to provide.
+  It needed two names, `VelloBackend` and `FallbackFontType`, and the facade re-exports
+  both, so the fix was one line of `Cargo.toml` and one `use`.
+
+  **All four frontends now declare `fepdf` and nothing else**, which is what §2's diagram
+  has always drawn. `status.sh` counts internal dependencies that are not the facade and
+  expects 0, alongside the older row that greps for arena types — the first is structural
+  and the second catches a type that arrives some other way. Verified by putting the
+  `fepdf-render` line back and watching the row read 1.
+
+  `fepdf-render` declares `fepdf` as a **dev-dependency**, for its own tests. That is not
+  the cycle it looks like: it does not exist in the build graph of anything that links
+  `fepdf-render`.
 - **Rule D**: enforced by construction, and for four phases that was an assertion rather
   than a fact — the facade exposed ten document-mutating `&mut self` methods beside the
   vocabulary, and frontends called them at eight sites (§5.1). The tell was that this row

@@ -63,7 +63,14 @@ pub fn handle_extract_font(
         let data = resource.reconstructed_data.as_ref().or(resource.data.as_ref());
         if let Some(arc_data) = data {
             let extension = if resource.reconstructed_data.is_some() { "otf" } else { "cid" };
-            let filename = format!("exports/font-{obj_id:04}.{extension}");
+            // `out/exports/` is where `docs/conventions/DIRECTORY_LAYOUT.md` registers
+            // extracted assets. This wrote to a root-level `exports/` — unregistered,
+            // not git-ignored, and never created, so `fs::write` failed unless the user
+            // had made the directory by hand and left untracked files in the repository
+            // root when they had.
+            let dir = std::path::Path::new("out/exports");
+            std::fs::create_dir_all(dir).with_context(|| "Failed to create out/exports")?;
+            let filename = dir.join(format!("font-{obj_id:04}.{extension}")).display().to_string();
             std::fs::write(&filename, &**arc_data).with_context(|| "Failed to write output")?;
             println!("SUCCESS: Extracted font to {} ({} bytes)", filename, arc_data.len());
         } else {

@@ -12,8 +12,7 @@ name = "fepdf-gui"
 path = "src/main.rs"
 
 [dependencies]
-fepdf-render.workspace = true
-fepdf.workspace = true
+fepdf = { workspace = true, features = ["render"] }
 vello.workspace = true
 kurbo.workspace = true
 egui.workspace = true
