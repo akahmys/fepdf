@@ -44,6 +44,55 @@ rather than a rewording of it.
 
 ---
 
+## The subsets this processor has chosen
+
+**PDF 2.0 has no "conforming reader", and says so.** 6.3.2.1 replaces it with a rule:
+each PDF processor chooses which subsets of PDF functionality to support, and shall
+comply with the applicable provisions for the ones it chose. The NOTE beside it explains
+why — PDF/A, PDF/UA and the rest define a conforming reader *because* they restrict
+processing, and 2.0 is too general for the notion to be useful.
+
+That makes "full support" definable rather than meaningless: choose every subset and
+comply with every provision. It is worth knowing what that costs before deciding not to.
+The whole document carries **5,891 `shall`** (331 of them `shall not`), 414 `should` and
+1,329 `may`; clause 2 pulls in **81 other documents** whose content *constitutes
+requirements of this one* — among them ISO 14739-1 (PRC), ECMA-363 (U3D),
+ISO/DIS 21757-1 (ECMAScript for PDF), XFA 3.3, the PostScript Language Reference,
+SMIL 3.0, MathML 3.0 and the four ETSI CAdES/PAdES parts. "Implement PDF 2.0" is
+"implement eighty-one documents", which is why 6.3.2.1 provides the escape and why every
+implementation in the world takes it.
+
+```bash
+target/release/fepdf inspect text docs/specs/ISO_32000-2_sponsored-ec2.pdf > /tmp/iso.txt
+grep -o '\bshall\b' /tmp/iso.txt | wc -l          # 5891
+```
+
+So this section is the escape, taken deliberately and written down. It is not new policy:
+**"Not planned" and "Read broadly, write 2.0" below have been the subset declaration all
+along**, and this only says so in the standard's vocabulary — which is what makes it
+checkable rather than a matter of taste.
+
+| Subset (6.3.1) | Chosen | What it commits this project to |
+| :--- | :--- | :--- |
+| **PDF reader** — interpret a document to display, print or extract data | **yes**, broadly | Reading 1.x as well as 2.0, including files that are wrong in recoverable ways (ADR-0003). This is the subset the coverage index measures. |
+| **PDF processor providing rendering** (6.3.2.2) | **yes** | Two `shall`s: render the page contents as defined, and render the appearance stream of every annotation that has one unless its flags say otherwise; and respect the optional content definitions. Both are met — the second only since [ADR-0023](docs/adr/0023-a-renderer-that-skips-annotation-appearances-is-not-conforming.md). **Phase P is what is chosen and not yet complied with.** |
+| **PDF writer** (6.3.2.1) | **yes**, for 2.0 only | Output shall conform, and nothing 2.0 deprecates is written — the rule that settled encryption at AES-256 R6 ([ADR-0015](docs/adr/0015-this-engine-reads-five-encryption-schemes-and-writes-one.md)) and, later, made a field value build its appearance instead of setting `/NeedAppearances`. Writing 1.7, and amending a file this engine did not produce, are **not** chosen ([ADR-0014](docs/adr/0014-the-faithful-copy-path-is-not-built.md)). |
+| **Interactive PDF processor** (6.3.2.3) | **claimed by `fepdf-gui`, and not met** | 6.3.1 makes anything that interacts with a user while processing a file one of these, which `fepdf-gui` is; 6.3.2.3 then requires support for **all** the interactive aspects of optional content. The GUI has no layer control at all — `grep` finds no `/OCProperties` and no toggle. Either it gains one or it is not this class, and today it is this class and does not comply. |
+| **ECMAScript actions** (12.6.4.17) | **no** | Read, reported and never executed ([ADR-0022](docs/adr/0022-what-a-document-does-is-a-settled-question-where-reads-an-action-is-not.md)). The language is ISO/DIS 21757-1, not this document. |
+| **Multimedia** (13.2–13.7) | **no** | 13.4 is deprecated in 2.0; PRC and U3D are two more standards. |
+| **XFA** (Adobe XFA 3.3) | **no** | Deprecated in 2.0, and a second form model beside the one that works. |
+
+**What a declaration is for.** `/Requirements` (12.11) is how a *document* says which
+subsets it needs, and `inspect actions` reports the ones this processor does not satisfy.
+The table above is the other side of that exchange: without it, "this processor does not
+do this" is an assertion in a source file; with it, the two can be compared. The one
+requirement type named so far is `EnableJavaScripts`, in `actions::NOT_SATISFIED`.
+
+**What this table is not.** It is not a claim that every provision of a chosen subset is
+met — Phase P is the standing evidence that it is not, and the rendering row points at it.
+A subset declaration is what makes that sentence sayable: "not implemented" and "chosen
+and not complied with" are different, and only the second is a defect.
+
 ## Where the engine actually stands
 
 | ISO 32000-2 | State |
@@ -1219,6 +1268,14 @@ functions cannot be.
       matters is a question for a corpus that has not been asked: no file has been
       surveyed for `/HT` in an `ExtGState`, and that survey is the first step rather than
       the implementation
+- [ ] **`fepdf-gui` is an interactive PDF processor and does not meet 6.3.2.3.** 6.3.1
+      makes anything that interacts with a user while processing a file one of these, and
+      the GUI is one; 6.3.2.3 then requires support for **all** the interactive aspects of
+      optional content (8.11). There is no layer control — `grep` finds no `/OCProperties`
+      and no toggle anywhere under `crates/fepdf-gui/src`. The engine can now answer which
+      groups are on and hide what is off, so what is missing is the panel, not the
+      reading. Either the GUI gains one or it stops being this class, and it cannot stop
+      being it while it opens documents for a person
 - [ ] **The engine logs eight conclusions about documents to stderr.** ARCHITECTURE §5.3
       says a departure from the standard is recorded as a `Decision`, not logged, because
       a warning on stderr cannot tell a caller *this loaded* from *this was conforming*.
@@ -1244,8 +1301,9 @@ cargo run --example make_colour_fixtures -p fepdf-model
 
 *Done when*: a `/Separation` fill and a stitching gradient agree with PDFKit in
 `crosscheck_image.sh`; the shading and halftone entries are either built or declined
-against a measurement of what the corpora present; and the engine's `log::warn!` count is
-one again, over a row that searches every crate the engine is made of.
+against a measurement of what the corpora present; the engine's `log::warn!` count is one
+again, over a row that searches every crate the engine is made of; and `fepdf-gui` either
+lets a reader turn a layer off or is no longer described as opening documents for one.
 
 **What this phase is not.** It is not a list of everything clause 8 to 11 contains. Nine
 (Text) and eleven (Transparency) were **not re-measured** in the pass that produced it,

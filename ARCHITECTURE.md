@@ -204,6 +204,12 @@ stream may not overwrite a newer revision of what it carries
 
 ---
 
+**Which subsets this processor claims** is not here. 6.3.2.1 makes that the thing
+conformance is measured against, and the declaration lives beside the refusals it
+formalises, in [`ROADMAP.md`](ROADMAP.md#the-subsets-this-processor-has-chosen) — reading
+broadly, rendering, writing 2.0 and nothing else. This document says what the design *is*;
+that one says what it has undertaken to be.
+
 ## 🛡️ 5. Cross-Cutting Concerns
 
 ### 5.1 The operation vocabulary
