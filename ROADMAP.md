@@ -128,7 +128,7 @@ survive that test as refusals — nothing here depends on them, and both are dep
 | **PDF 2.0 additions** | `inspect catalog` reports **zero** `type only` entries, and the reason is not that the six gained readers. `PageLabels`, `Threads`, `OutputIntents`, `OCProperties`, `Collection` and `AF` each became an `Option<Object>` field, which moves them from "no field" to "a field whose contents are opaque" — the spec types (`PageLabelSpec`, `ArticleThread`, `OutputIntent`, …) are still not what the catalogue reads into. `DPartRoot` has no type at all, contrary to what this table said before it was checked. Phase K then gave `PageLabels`, `Threads`, `OutputIntents` and `OCProperties` real readers — the four of the six the corpora present, and `/OCProperties` was the one of those four that nothing read *from*, until Phase N made the renderer enter through it — and declined `Collection` and `AF`, which they do not. Of the six, `PageLabels` and `Threads` were the only ones to occur when the corpus was the nine samples — 2 files and 1. Across the 251 files the corpus then held the order changes: `OutputIntents` 64, `PageLabels` 4, `OCProperties` and `Threads` 1 each, and `Collection` and `AF` still zero, as do `DSS` and `DPartRoot`, which have fields anyway. **These counts have not been re-derived against the 524**, and one of them is known to have moved — Phase O-1 took `/AF` from zero files to seventeen, which is the sentence two rows above — the container-before-contents shape Phase D was ordered to avoid. |
 | **8** Graphics | **Optional content (8.11) is honoured while drawing.** `BDC` discarded its property list, so an `/OC` section was painted whether its group was on or off, and `/OCProperties` — read since Phase K — was consulted by nothing. The default configuration's `/BaseState`, `/ON`, `/OFF`, `/Intent` and `/AS` are read, with membership dictionaries, all four `/P` policies and `/VE` expressions. Thirteen constructions were put to PDFKit and it honours **two**, so eleven are held to the clause by 30 tests ([ADR-0021](docs/adr/0021-optional-content-hides-only-what-the-document-unambiguously-turns-off.md)); two of those exist because Phase O-1's corpus caught the reader out on a real file. A pattern is painted, through `Paint::Pattern(PatternSpec)` — `scn` with a pattern name (8.6.8.2) had been read as a grey component, which cost `fy05.pdf` six pages and the 718 after them. **Two colour defects are open and measured**, both from the same root: `/Separation` and `/DeviceN` (8.6.6) evaluate no tint transform, so a spot colour at full tint renders *white* where PDFKit renders black; and a shading (8.7.4) reads only `/C0` and `/C1`, ignoring `/FunctionType`, so a stitching function — the ordinary multi-stop gradient — renders black-to-white. Shading types **2 and 3 only**; 4 to 7 are not read. Phase P. |
 | **9** Text | Fonts load, simple and composite, with the CMap and encoding work Phase 12-era sessions cycled on; every page of every sample yields its text. **Not re-measured** in the pass that produced the rows above, so what this row says is carried forward from when it was written rather than re-derived. |
-| **10** Rendering | 6.3.2.2 binds anything that draws a page with two `shall`s, and both are met: optional content is honoured (8.11) and **annotation appearance streams are drawn** (12.5.5) — the second was not done at all until Phase P found the clause, and a page whose only mark was an annotation came out blank while every other reader painted it ([ADR-0023](docs/adr/0023-a-renderer-that-skips-annotation-appearances-is-not-conforming.md)). What the clause's own subclauses ask for is thinner: the **PDF function evaluator (7.10)** now exists — types 0, 2, 3 and 4 — which fixed clause 8's two measured colour defects, though `/DeviceCMYK` to RGB is still not colour managed. **10.5 and 10.6 are declined on their own clauses**: 10.6.1 exempts continuous-tone devices from halftoning and this engine is one, and `/TR`/`/TR2` are deprecated in 2.0, which 3.15 defines as "should be ignored by a PDF processor". 10.7's scan conversion is Vello's, and 10.8's separations follow the colour gap. Phase P. |
+| **10** Rendering | 6.3.2.2 binds anything that draws a page with two `shall`s, and both are met: optional content is honoured (8.11) and **annotation appearance streams are drawn** (12.5.5) — the second was not done at all until Phase P found the clause, and a page whose only mark was an annotation came out blank while every other reader painted it ([ADR-0023](docs/adr/0023-a-renderer-that-skips-annotation-appearances-is-not-conforming.md)). What the clause's own subclauses ask for is thinner: the **PDF function evaluator (7.10)** now exists — types 0, 2, 3 and 4 — which fixed clause 8's two measured colour defects, though `/DeviceCMYK` to RGB is still not colour managed. **10.5 and 10.6 are declined on their own clauses**: 10.6.1 exempts continuous-tone devices from halftoning and this engine is one, and `/TR`/`/TR2` are deprecated in 2.0, which 3.15 defines as "should be ignored by a PDF processor". 10.7's scan conversion is Vello's — including the antialiasing seam between adjacent mesh triangles, which is a scan-conversion artefact rather than a shading one and is answered by growing each triangle half a device pixel. 10.8's separations follow the colour gap. Phase P. |
 | **11** Transparency | Blend modes, constant alpha and soft masks reach the backend, and the transparency-group clauses are cited in the code. **Not re-measured**, and the depth of 11.6 and 11.7 in particular is unverified — this row is a statement about citations, not about behaviour. |
 | **12** Interactive features | Read through `inspect interactive`, and signature fields (12.7.5.5, 12.8) can be written and checked. Named destinations (12.3.2) **resolve**, through both of 12.3.2.3's forms and the name tree (7.9.6) one of them needs — which found a link in `intel_sdm.pdf` that goes nowhere, `(G3.7717)`, referenced three times and declared in none of that file's 279,501 destinations. `samples/` exercises one annotation subtype — all 29,973 of its annotations are `/Link` — and this row said that of *the corpus* for as long as there was only one; the 515 external files carry 125 annotations across **18** subtypes and twelve terminal form fields. `PdfAnnotation` held seven entries of Table 166 and no `/AP`, which made a `/Redact` and a `/Watermark` the same object; Phase J took it to all nineteen. **29 distinct entries across the remaining subtypes still have no reader**, each on an annotation that occurs once or twice. All 30,098 annotations parse. **What a document *does* is read** (`inspect actions`, 12.6): every place an action can hang, what it lets the document do, and whether the reader has to touch anything first — which found the only two files of 524 that run code on open ([ADR-0022](docs/adr/0022-what-a-document-does-is-a-settled-question-where-reads-an-action-is-not.md)). **Setting a field value builds the appearance** (12.7.4.3) instead of writing `/NeedAppearances`, which 2.0 deprecates; a form declaring a calculation order is told its ECMAScript was not run — **a `Violation` of 12.6.3, and the sentence that decided ADR-0026**, because it is this engine reporting that it undertook form editing and cannot finish it — and `/Requirements` (12.11) reports the subsets a document asks for that this processor does not deliver. `EnableJavaScripts` is the one name on that list, and since 2026-08-22 it is there as **chosen and not yet met** rather than as a refusal. |
 | **13** Multimedia | Declined, and not a gap: 13.4 is deprecated in 2.0 and reading it would be building for a subsystem the standard is retiring. The corpus does carry it — `/3D` ten times, `/Movie` five, `/RichMedia` three — which changes the premise and not the refusal. |
@@ -1334,11 +1334,50 @@ functions cannot be.
       ```bash
       cargo run --release -p fepdf --features render --example page_quadrants -- target/colour/separation.pdf
       ```
-- [ ] **Shading types 4 to 7 are not read.** The interpreter matches `2` and `3` and
-      nothing else, so the four mesh types produce no paint. `MeshShadingSpec` exists as
-      an argument to an `Operation` that *writes* one, which is a different thing — and
-      the archived `omissions.md` claimed these were implemented, which is why the claim
-      is stated here as a measurement instead
+- [x] **Shading types 4 to 7 are not read.** All four are now, in
+      `fepdf-model::graphics::mesh`, and all four agree with PDFKit:
+
+      | | fepdf | PDFKit |
+      | :--- | :--- | :--- |
+      | type 4, free-form triangle mesh | `128 253 253 253` | `126 255 255 255` |
+      | type 5, lattice-form triangle mesh | `128 253 253 253` | `126 255 255 255` |
+      | type 6, Coons patch mesh | `127 253 253 254` | `126 255 253 255` |
+      | type 7, tensor-product patch mesh | `127 253 253 254` | `126 255 253 255` |
+
+      **Four types, one output.** 8.7.4.5.8 says the Coons patch "is actually a special
+      case of the tensor-product patch" with its four interior control points implied by
+      the boundary, so type 6 becomes a type 7, the surface is evaluated on a grid, and
+      every type ends as triangles with a colour at each corner. `target/mesh/` holds one
+      fixture per type, each painting the **same** ramp from a different encoding, so a
+      type that decodes wrongly stands out against the other three rather than against
+      nothing.
+
+      Three things the work turned up:
+
+      - **Adjacent triangles antialias against each other and leave white between them.**
+        Each covers about half the pixels along a shared edge and the two halves
+        composite over the page rather than over one another, so every internal edge is a
+        pale seam. The quadrant read **137** where it should read 127, and **170** on the
+        patch types, which subdivide far more finely. Setting the subdivision to zero gave
+        exactly 127 on both — which is how a seam was told apart from a decoding error,
+        since either one only tells you the number is wrong. Fixed by growing each
+        triangle half a device pixel.
+      - **`MeshShadingSpec` was the *write* spec, and `ShadingSpec::Mesh` held it.** A
+        type, a colour-space name and raw bytes: the argument to the `Operation` that
+        writes a mesh. Nothing ever constructed that variant, so the read side had a case
+        it could not fill — this entry said as much, and the fix was to give the variant a
+        decoded mesh instead.
+      - **A test that cannot fail proves nothing, and one of these nearly didn't.** The
+        check that a Coons patch equals the tensor patch with the same interior is the
+        only thing that verifies 8.7.4.5.8's four equations were transcribed correctly.
+        Perturbing one coefficient was reported as *passing* — because `rustfmt` had split
+        the table one tuple per line and the `sed` that was meant to break it matched
+        nothing. Trap 1 in the handover notes, live.
+
+      ```bash
+      cargo run --example make_mesh_fixtures -p fepdf-model
+      ./scripts/test/crosscheck_image.sh      # type4 to type7, agree (worst 2)
+      ```
 - [x] **Halftones (10.6) have no code at all, and are declined — on the clause, not on
       the corpus.** The survey was the first step and it has been run;
       `crates/fepdf/examples/survey_extgstate.rs` is the command that re-derives it.
@@ -1468,9 +1507,9 @@ cargo run --example make_colour_fixtures -p fepdf-model
 ```
 
 *Done when*: a `/Separation` fill and a stitching gradient agree with PDFKit in
-`crosscheck_image.sh`, or diverge on a cause that has been run down and pinned; the
-shading entry is either built or declined against a measurement of what the corpora
-present, and the halftone one is declined on 10.6.1; `/DeviceCMYK` reaches the raster
+`crosscheck_image.sh`, or diverge on a cause that has been run down and pinned; the four
+mesh shading types are read and agree with PDFKit, and the halftone entry is declined on
+10.6.1; `/DeviceCMYK` reaches the raster
 through something better than `(1 − c)(1 − k)`; the engine's `log::warn!` count is three again — the host-property ones
 — over a row that searches every crate the engine is made of; and `fepdf-gui` either lets
 a reader turn a layer off or is no longer described as opening documents for one.

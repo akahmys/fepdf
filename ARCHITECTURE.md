@@ -126,19 +126,19 @@ for c in crates/*/; do
 done
 ```
 
-`fepdf-model` and `fepdf-content` grew in Phase P: the function evaluator (7.10) and the
-colour-space resolver are 1,227 lines of the first — `src/function/` 1,025 and
-`src/color/space.rs` 202 — and the interpreter changes that reach them are most of the
-second.
+`fepdf-model` and `fepdf-content` grew in Phase P: the function evaluator (7.10), the
+colour-space resolver (8.6) and the mesh decoder (8.7.4.5.5 to 8.7.4.5.8) are the first's
+`src/function/`, `src/color/space.rs` and `src/graphics/mesh.rs`, and the interpreter
+changes that reach them are most of the second.
 
 | Crate | Status | ~Lines | Responsibility |
 | :--- | :---: | ---: | :--- |
 | **`fepdf-syntax`** | ✅ | 3,377 | The byte layer: lexing and encryption/decryption. Depends on no model type, which is what lets the cryptography be reviewed on its own. Parsing and stream filters are *not* here — see §4. |
 | **`fepdf-font`** | ✅ (Audited ✅) | 3,740 | Font *programs*: CFF, TrueType, CMap, Adobe Glyph List, subsetting, reconstruction. Hardened against W/W2 out-of-bounds, CMap underflows (`e_val >= s_val`), and CID byte truncations. |
-| **`fepdf-model`** | ✅ | 28,553 | The document graph: `PdfArena`, `Handle<T>`, `Object`, page tree, metadata — and, since Phase A, the reader (7.5) and `writer.rs`. Hardened with pool overflow guards, cyclic `resolve` limits (`64`), and safe `Null` reference fallbacks. |
-| **`fepdf-content`** | ✅ | 3,818 | Content-stream interpreter, and the **`RenderBackend` contract** it drives (`TextGlyph`, `TextState`, `SMaskData`, path geometry). No GPU dependency. |
+| **`fepdf-model`** | ✅ | 29,165 | The document graph: `PdfArena`, `Handle<T>`, `Object`, page tree, metadata — and, since Phase A, the reader (7.5) and `writer.rs`. Hardened with pool overflow guards, cyclic `resolve` limits (`64`), and safe `Null` reference fallbacks. |
+| **`fepdf-content`** | ✅ | 3,915 | Content-stream interpreter, and the **`RenderBackend` contract** it drives (`TextGlyph`, `TextState`, `SMaskData`, path geometry). No GPU dependency. |
 | **`fepdf-doc`** | ✅ | 3,744 | Owns the **`Operation` vocabulary** (§5.1) and is its only interpreter: **30** canonical mutation operations. Also structure-tree handling, conformance auditing, remediation. Grew by six when Rule D was enforced and the facade's mutating methods became operations. |
-| **`fepdf-render`** | ✅ | 1,430 | A `RenderBackend` implementation on **Vello** + **wgpu**. Reached only through the facade's optional `render` feature. |
+| **`fepdf-render`** | ✅ | 1,548 | A `RenderBackend` implementation on **Vello** + **wgpu**. Reached only through the facade's optional `render` feature. |
 | **`fepdf`** | ✅ | 1,652 | The public facade: `PdfDocument`, `SaveOptions`, `Operation`. It is the Rule A boundary in fact — frontends depend on it and on nothing below. Lost 167 lines when ten document-mutating methods left for the vocabulary (§5.1); `duplicate_page` and `insert_pages_from` were not passthroughs but arena work, and belonged with the cloner in `fepdf-doc`. |
 | **`fepdf-cli`** | ✅ | 3,027 | Command-line binary (`fepdf`). |
 | **`fepdf-gui`** | ✅ | 8,354 | Desktop application on **egui** + **eframe** + **wgpu**. |

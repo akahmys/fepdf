@@ -3,8 +3,11 @@
 /// Typed schema helpers for graphics dictionaries.
 pub mod schema;
 
+pub mod mesh;
+
+pub use mesh::{FlatTriangle, MeshTriangle, TriangleMesh};
+
 use crate::color::ResolvedColorSpace;
-use crate::document::extensions::MeshShadingSpec;
 use crate::object::{FromPdfObject, Object};
 use crate::{PdfArena, PdfError, PdfResult};
 use kurbo::Affine;
@@ -56,8 +59,13 @@ pub enum ShadingSpec {
     Axial(AxialShading),
     /// Type 3 Radial Shading.
     Radial(RadialShading),
-    /// Type 4 to 7 Free/Lattice/Patch Mesh Shading.
-    Mesh(MeshShadingSpec),
+    /// Types 4 to 7, decoded to triangles with a colour at each corner (8.7.4.5.5).
+    ///
+    /// **Not `MeshShadingSpec`**, which this variant used to hold: that is the argument
+    /// to the `Operation` that *writes* a mesh — a type, a colour space name and the raw
+    /// bytes — and reusing it here meant the read side had a variant it could never fill.
+    /// Nothing constructed this before Phase P.
+    Mesh(TriangleMesh),
 }
 
 /// Pattern specification (ISO 32000-2 Section 8.7).

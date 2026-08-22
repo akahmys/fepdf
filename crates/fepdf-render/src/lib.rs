@@ -596,6 +596,24 @@ impl RenderBackend for VelloBackend {
         }
     }
     fn paint_shading(&mut self, shading: &ShadingSpec) {
+        // A mesh is painted as itself rather than through a brush: Vello fills a path
+        // with one colour, so a Gouraud triangle has no brush, and the model hands back
+        // flat pieces small enough that the difference is under a pixel.
+        if let ShadingSpec::Mesh(mesh) = shading {
+            let alpha = self.state.fill_alpha as f32;
+            let bleed = seam_bleed(self.state.transform);
+            for triangle in mesh.flatten() {
+                let brush = vello::peniko::Brush::Solid(to_peniko_color(&triangle.color, alpha));
+                self.scene.fill(
+                    vello::peniko::Fill::NonZero,
+                    self.state.transform,
+                    &brush,
+                    None,
+                    &grown_triangle(triangle.points, bleed),
+                );
+            }
+            return;
+        }
         let brush = to_vello_shading_brush(shading, self.state.fill_alpha as f32);
         let rect = kurbo::Rect::new(-10000.0, -10000.0, 10000.0, 10000.0);
         self.scene.fill(vello::peniko::Fill::NonZero, self.state.transform, &brush, None, &rect);
@@ -830,13 +848,75 @@ fn to_vello_shading_brush(shading: &ShadingSpec, alpha: f32) -> vello::peniko::B
             grad.stops = stops.as_slice().into();
             vello::peniko::Brush::Gradient(grad)
         }
-        ShadingSpec::Mesh(_) => vello::peniko::Brush::Solid(vello::peniko::Color::from_rgba8(
-            0,
-            0,
-            0,
-            (alpha.clamp(0.0, 1.0) * 255.0) as u8,
-        )),
+        // A mesh has a colour per vertex and a brush has one colour, so there is no
+        // brush that represents it. `paint_shading` draws the triangles instead; this
+        // arm is only reached through a *pattern* fill, where one brush is all the caller
+        // can take, and the mean is a better answer than the black that used to be here.
+        ShadingSpec::Mesh(mesh) => {
+            vello::peniko::Brush::Solid(to_peniko_color(&mesh_average(mesh), alpha))
+        }
     }
+}
+
+/// How far, in user space, to grow each mesh triangle so neighbours overlap.
+///
+/// **Adjacent triangles antialias against each other and leave white between them.** Each
+/// covers about half of the pixels along a shared edge, and the two halves composite over
+/// the page rather than over one another, so every internal edge is a pale seam. Measured
+/// on `target/mesh/type4.pdf`, whose quadrant should read 127: the seams took it to 137,
+/// and 170 on the patch types, which subdivide far more finely. Setting the subdivision
+/// to zero gave exactly 127 on both — which is how the seams were told apart from a
+/// decoding error, since either one produces a number that is merely wrong.
+///
+/// Half a device pixel, converted back through the CTM. Growing an opaque fill into its
+/// neighbour is invisible when the two differ by less than the tolerance that produced
+/// them; leaving the gap is not.
+fn seam_bleed(transform: Affine) -> f64 {
+    let [a, b, c, d, _, _] = transform.as_coeffs();
+    let scale = b.mul_add(-c, a * d).abs().sqrt();
+    if scale > f64::EPSILON { 0.5 / scale } else { 0.0 }
+}
+
+/// One triangle, with each corner pushed out from the centroid by `bleed`.
+fn grown_triangle(points: [(f64, f64); 3], bleed: f64) -> kurbo::BezPath {
+    let centre = (
+        (points[0].0 + points[1].0 + points[2].0) / 3.0,
+        (points[0].1 + points[1].1 + points[2].1) / 3.0,
+    );
+    let grown = points.map(|(x, y)| {
+        let (dx, dy) = (x - centre.0, y - centre.1);
+        let len = dx.hypot(dy);
+        if len <= f64::EPSILON {
+            kurbo::Point::new(x, y)
+        } else {
+            kurbo::Point::new((dx / len).mul_add(bleed, x), (dy / len).mul_add(bleed, y))
+        }
+    });
+    let mut path = kurbo::BezPath::new();
+    path.move_to(grown[0]);
+    path.line_to(grown[1]);
+    path.line_to(grown[2]);
+    path.close_path();
+    path
+}
+
+/// The mean of every corner colour in a mesh, for the one place a mesh must become a
+/// single brush.
+fn mesh_average(mesh: &fepdf_model::graphics::TriangleMesh) -> Color {
+    let mut total = (0.0_f64, 0.0_f64, 0.0_f64);
+    let mut count = 0.0_f64;
+    for triangle in &mesh.triangles {
+        for color in &triangle.colors {
+            if let Color::Rgb(r, g, b) = color.to_rgb() {
+                total = (total.0 + r, total.1 + g, total.2 + b);
+                count += 1.0;
+            }
+        }
+    }
+    if count == 0.0 {
+        return Color::Gray(0.0);
+    }
+    Color::Rgb(total.0 / count, total.1 / count, total.2 / count)
 }
 
 fn to_vello_paint_brush(paint: &Paint, alpha: f32) -> vello::peniko::Brush {

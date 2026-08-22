@@ -424,6 +424,22 @@ pub(crate) fn parse_shading_object(
                 extend,
             }))
         }
+        // 8.7.4.5.5 to 8.7.4.5.8: the four mesh types. Unlike 1 to 3 these "shall be
+        // represented as streams", so the geometry is in the bytes rather than the
+        // dictionary and the shading object has to be a stream to carry any.
+        4..=7 => {
+            let fepdf_model::Object::Stream(_, ref sd) = resolved else {
+                return None;
+            };
+            let bytes = arena.get_stream_bytes(sd).ok()?;
+            let mesh = fepdf_model::graphics::TriangleMesh::parse(
+                i64::from(shading_type),
+                &dict,
+                &bytes,
+                arena,
+            )?;
+            Some(fepdf_model::ShadingSpec::Mesh(mesh))
+        }
         _ => None,
     }
 }
