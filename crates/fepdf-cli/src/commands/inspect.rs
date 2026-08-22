@@ -284,3 +284,117 @@ pub fn handle_tree(input: PathBuf, ingest: IngestArgs) -> Result<()> {
     println!("\n--- [ DOCUMENT STRUCTURE ] ---\n{tree}");
     Ok(())
 }
+
+/// Reports what the document *does* when opened, and what it takes to fire each action.
+///
+/// A different question from `inspect interactive`, which counts actions by `/S`. This
+/// says what each one lets the document do and whether the reader has to touch anything
+/// first — the question ADR-0019 says "reads an action" does not have.
+pub fn handle_actions(input: &Path, format: &str, full: bool) -> Result<()> {
+    let data = std::fs::read(input).with_context(|| "Failed to read input")?;
+    let document = fepdf::PdfDocument::open(data.into()).map_err(|e| anyhow::anyhow!("{e:?}"))?;
+    let report = fepdf::ActionReport::of(document.inner()).map_err(|e| anyhow::anyhow!("{e:?}"))?;
+
+    match format {
+        "json" => println!("{}", serde_json::to_string_pretty(&report)?),
+        "markdown" => render_actions_markdown(&report, input),
+        _ => render_actions_text(&report, input, full),
+    }
+    Ok(())
+}
+
+/// What an action says, on one line unless the caller asked for all of it.
+fn says_line(action: &fepdf::ReachableAction, full: bool) -> String {
+    let Some(says) = &action.says else { return String::new() };
+    let text = match says {
+        fepdf::Says::Script(s)
+        | fepdf::Says::File(s)
+        | fepdf::Says::Url(s)
+        | fepdf::Says::Name(s) => s,
+    };
+    let flat = text.split_whitespace().collect::<Vec<_>>().join(" ");
+    if full || flat.chars().count() <= 60 {
+        return flat;
+    }
+    let cut: String = flat.chars().take(57).collect();
+    format!("{cut}...")
+}
+
+/// The trigger, in the words a reader of the report thinks in.
+fn trigger_line(trigger: &fepdf::Trigger) -> String {
+    match trigger {
+        fepdf::Trigger::DocumentOpened => "the document is opened".to_string(),
+        fepdf::Trigger::DocumentScript(name) => format!("the document is opened ({name})"),
+        fepdf::Trigger::DocumentEvent(event) => format!("document /AA /{event}"),
+        fepdf::Trigger::PageEvent { page, event } => format!("page {} /AA /{event}", page + 1),
+        fepdf::Trigger::AnnotationActivated { page, subtype } => {
+            format!("page {} · a /{subtype} is activated", page + 1)
+        }
+        fepdf::Trigger::AnnotationEvent { page, event } => {
+            format!("page {} · annotation /AA /{event}", page + 1)
+        }
+        fepdf::Trigger::FieldEvent { field, event } => {
+            format!("field {} /AA /{event}", field.as_deref().unwrap_or("(unnamed)"))
+        }
+        fepdf::Trigger::Chained => "after the action before it".to_string(),
+    }
+}
+
+/// The report as text.
+fn render_actions_text(report: &fepdf::ActionReport, input: &Path, full: bool) {
+    println!("fepdf actions: {}\n", input.display());
+
+    println!("--- [ WHAT RUNS WITHOUT THE READER DOING ANYTHING ] ---");
+    let unprompted = report.without_interaction();
+    if unprompted.is_empty() {
+        println!("  nothing — every action here waits for the reader");
+    }
+    for action in &unprompted {
+        println!("  {:<28} {}", action.kind, says_line(action, full));
+    }
+
+    println!("\n--- [ WHAT THIS DOCUMENT CAN DO (12.6) ] ---");
+    let capabilities = report.capabilities();
+    if capabilities.is_empty() {
+        println!("  nothing — the document carries no action at all");
+    }
+    for (capability, count) in &capabilities {
+        println!("  {:<34} {count:>4}", capability.label());
+    }
+
+    println!("\n--- [ EVERY ACTION ({}) ] ---", report.actions.len());
+    if !report.actions.is_empty() {
+        println!("  {:<44} {:<16} says", "fires when", "action");
+    }
+    for action in &report.actions {
+        println!(
+            "  {:<44} {:<16} {}",
+            trigger_line(&action.trigger),
+            action.kind,
+            says_line(action, full)
+        );
+    }
+    if report.unreadable > 0 {
+        println!(
+            "\n  {} object(s) in an action position would not read as one, and are counted \
+             rather than passed over",
+            report.unreadable
+        );
+    }
+}
+
+/// The report as Markdown.
+fn render_actions_markdown(report: &fepdf::ActionReport, input: &Path) {
+    println!("# Actions: {}\n", input.display());
+    println!("| Fires when | Action | Lets the document | Says |");
+    println!("| :--- | :--- | :--- | :--- |");
+    for action in &report.actions {
+        println!(
+            "| {} | `/{}` | {} | `{}` |",
+            trigger_line(&action.trigger),
+            action.kind,
+            action.capability.label(),
+            says_line(action, false)
+        );
+    }
+}

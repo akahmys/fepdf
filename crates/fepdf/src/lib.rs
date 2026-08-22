@@ -29,6 +29,7 @@ pub use fepdf_model::destination::{Destination, Lookup, NamedDestinations, Targe
 // The whole of `/ViewerPreferences`, not just the struct: its fields are public and
 // typed, so a frontend that cannot name `Duplex` cannot read `duplex` — and naming
 // `fepdf_model` to get it is what Rule A forbids.
+pub use fepdf_model::actions::{ActionReport, Capability, ReachableAction, Says, Trigger};
 pub use fepdf_model::catalog::ABSENT_FROM_BOTH_CORPORA as CATALOGUE_KEYS_NO_CORPUS_CARRIES;
 pub use fepdf_model::coverage::{AXES as COVERAGE_AXES, AxisCoverage, Coverage};
 pub use fepdf_model::document::{

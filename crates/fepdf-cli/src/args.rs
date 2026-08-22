@@ -320,6 +320,17 @@ pub enum InspectSubcommands {
         #[command(flatten)]
         ingest: IngestArgs,
     },
+    /// Report what the document does when opened, and what it takes to fire each action
+    Actions {
+        /// Input PDF file
+        input: PathBuf,
+        /// Output format (text, json, markdown)
+        #[arg(short, long, default_value = "text")]
+        format: String,
+        /// Print each script and target in full rather than to one line
+        #[arg(long)]
+        full: bool,
+    },
     /// Report how much of what these files present the engine reads the contents of
     Coverage {
         /// Input PDF files. More than one is the point: the figure is over a corpus.

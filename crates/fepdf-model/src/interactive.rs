@@ -266,6 +266,13 @@ pub struct InteractiveReport {
     /// The outline.
     pub outline: Outline,
     /// Actions by `/S`, from `/OpenAction`, annotation `/A` and `/AA` entries.
+    ///
+    /// **A census of what hangs off those, and not of everything a document runs.** A
+    /// script in the `/Names /JavaScript` tree is pointed at by nothing and runs when the
+    /// file opens, so it is absent here — two files of the external corpus are exactly
+    /// that, and they are the only two of 524 that run code without the reader touching
+    /// anything. [`crate::actions::ActionReport`] is the complete walk, and it reports
+    /// *when* each one fires rather than only how many there are.
     pub actions: Vec<(String, usize)>,
     /// Destinations, declared and referenced.
     pub destinations: DestinationCensus,

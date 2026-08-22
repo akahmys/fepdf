@@ -8,6 +8,8 @@
 extern crate self as fepdf_model;
 
 /// Annotations (12.5): Table 166, and the subtypes the corpus carries.
+/// What a document does when opened, and what has to happen first (12.6).
+pub mod actions;
 pub mod annotation;
 /// Handle-addressed storage for every object in a document.
 pub mod arena;

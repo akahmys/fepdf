@@ -50,6 +50,9 @@ async fn main() -> Result<()> {
             InspectSubcommands::Structure { input, format } => {
                 inspect::handle_structure(&input, &format)?;
             }
+            InspectSubcommands::Actions { input, format, full } => {
+                inspect::handle_actions(&input, &format, full)?;
+            }
             InspectSubcommands::Coverage { inputs, format, unread } => {
                 inspect::handle_coverage(&inputs, &format, unread)?;
             }
