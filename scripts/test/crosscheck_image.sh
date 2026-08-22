@@ -99,6 +99,10 @@ if [ ! -d target/layers ]; then
     echo "fixtures absent — cargo run --example make_layer_fixtures -p fepdf-model"
     exit 1
 fi
+if [ ! -d target/colour ]; then
+    echo "fixtures absent — cargo run --example make_colour_fixtures -p fepdf-model"
+    exit 1
+fi
 
 cargo build --release -q -p fepdf --features render --example page_quadrants || exit 1
 ours=target/release/examples/page_quadrants
@@ -121,7 +125,10 @@ printf '%-34s %-24s %-24s %s\n' file fepdf PDFKit verdict
 # The optional content one: `pdf20-utf8-test.pdf` is where this engine
 # was found drawing two layers a file had turned off, because their `/OC` is an OCMD
 # written in place with a single `/OCGs` reference and neither form was read.
-for input in target/scans/*.pdf target/layers/*.pdf \
+# `target/colour/` is **expected to disagree**, and is here for that reason: it is where
+# ROADMAP.md's Phase P numbers come from, and a phase that quotes four numbers has to leave
+# the command that re-derives them. They go green when 7.10 gets an evaluator.
+for input in target/scans/*.pdf target/layers/*.pdf target/colour/*.pdf \
              target/external/pdf20examples/pdf20-utf8-test.pdf \
              "target/external/pdf20examples/PDF 2.0 UTF-8 string and annotation.pdf" \
              target/external/pdfua2/8.7-t02-*.pdf \

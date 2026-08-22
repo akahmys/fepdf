@@ -199,9 +199,13 @@ Before submitting a Pull Request or completing a task:
       **debug** binary too — arithmetic overflow panics there and wraps in release. It
       exits non-zero only on a panic, because most of this corpus is deliberately
       malformed and a reasoned refusal is a correct outcome.
-- [ ] `cargo run --example make_scan_fixtures -p fepdf-model` and
-      `cargo run --example make_layer_fixtures -p fepdf-model`, then
+- [ ] `cargo run --example make_scan_fixtures -p fepdf-model`,
+      `make_layer_fixtures` and `make_colour_fixtures`, then
       `./scripts/test/crosscheck_image.sh` — the only check that looks at a *picture*.
+      **It is currently red, and is meant to be**: `target/colour/` holds the two files
+      ROADMAP.md's Phase P quotes, and they disagree with PDFKit until clause 7.10 gets a
+      function evaluator. Everything else in it agrees within one part in 255, so a third
+      red line is a regression and the two named ones are not.
       The other five compare text and structure, so the image codecs had nothing
       independent to answer to: neither corpus holds a scan. The fixtures are encoded by
       implementations that are not the decoders under test, and PDFKit renders the same

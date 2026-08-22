@@ -10,9 +10,15 @@ none. Phase I gave it the nearest thing that can be measured: **the share of the
 constructs a corpus actually presents whose contents this engine reads** — 96% over the
 nine samples and 88% over all 524 files, after Phase K took the catalogue axis from 5 of
 20 to 19 of 20 and Phase O-1 took it to **21 of 22** by fetching a corpus that presents
-two more. What is left is 29 annotation entries, on subtypes that occur once or twice;
-one filter; and `/Type`. The corpus doubled and the figure moved by one point, which is
-the property it exists to have: a bigger denominator is the honest direction. `fepdf inspect coverage` reports it and
+two more. What is left *on those axes* is 29 annotation entries, on subtypes that occur once or
+twice; one filter; and `/Type`. The corpus doubled and the figure moved by one point,
+which is the property it exists to have: a bigger denominator is the honest direction.
+
+**And the axes are not the whole of it**, which Phase P is the record of. Three axes were
+chosen because their denominators can be enumerated from a file; colour spaces, shadings
+and functions cannot be, and are exactly where the engine was found rendering the wrong
+picture. A number that only counts what it can count says nothing about the rest, and this
+paragraph read as though it did. `fepdf inspect coverage` reports it and
 [ADR-0019](docs/adr/0019-semantic-understanding-is-measured-against-what-a-corpus-presents.md)
 records what it is not: a proxy, silent about whether what was read was read correctly,
 and bounded by a corpus that flatters an engine when it presents little.
@@ -48,14 +54,25 @@ rather than a rewording of it.
 | **7.6** Encryption | Every password handler the standard defines now decrypts: RC4 (V1/V2), AES-128 (V4/R4) and AES-256 (V5/R5, V5/R6) to Algorithms 1, 2, 2.A, 2.B and 4–6, with `/Perms` checked and both password roles authenticating. Verified against PDFKit on fourteen files; all of it was broken or absent ([ADR-0009](docs/adr/0009-permissions-are-thirty-two-bits-not-a-positive-integer.md)). Writing is AES-256 at revision 6 and nothing else, because output is always 2.0 and this edition deprecates the rest. Public-key handlers (7.6.5) are **read and written** — a `/Adobe.PubSec` document opens with the certificate it was addressed to, which neither Chrome nor Firefox will do, and `--encrypt-to` produces one. Unencrypted wrappers (7.6.7) are recognised and reported. **Clause 7.6 is otherwise complete.** |
 | **7.7** Document structure | Every one of Table 29's 32 entries is a field of `PdfCatalog`, and **23 are modelled** — the field's type says what the entry holds. Measured against all 524 files, 10 of the 32 keys occur in no file at all and are **declined a reader** for that reason, recorded in the code as `catalog::ABSENT_FROM_BOTH_CORPORA`; of the twenty-two keys those files do carry, **21 are modelled**, and the one that is not is `/Type`, whose value 7.7.2 fixes at `/Catalog`. **Two keys left that list in Phase O-1** — `/AF` went from zero files to seventeen when PDF/A-3 and PDF/A-4f arrived, and `/PieceInfo` to one — and both gained readers in the same change, which is the rule working: a corpus justifies building, never declining. That figure is qualified where it is printed: `inspect catalog` reports, per entry, how much of the entry's *own* table its reader covers — `/AcroForm` is modelled and reads 4 of Table 224's 8 ([ADR-0020](docs/adr/0020-a-modelled-entry-reports-how-much-of-its-own-table-it-reads.md)). |
 | **PDF 2.0 additions** | `inspect catalog` reports **zero** `type only` entries, and the reason is not that the six gained readers. `PageLabels`, `Threads`, `OutputIntents`, `OCProperties`, `Collection` and `AF` each became an `Option<Object>` field, which moves them from "no field" to "a field whose contents are opaque" — the spec types (`PageLabelSpec`, `ArticleThread`, `OutputIntent`, …) are still not what the catalogue reads into. `DPartRoot` has no type at all, contrary to what this table said before it was checked. Phase K then gave `PageLabels`, `Threads`, `OutputIntents` and `OCProperties` real readers — the four of the six the corpora present, and `/OCProperties` was the one of those four that nothing read *from*, until Phase N made the renderer enter through it — and declined `Collection` and `AF`, which they do not. Of the six, `PageLabels` and `Threads` were the only ones to occur when the corpus was the nine samples — 2 files and 1. Across all 251 the order changes: `OutputIntents` 64, `PageLabels` 4, `OCProperties` and `Threads` 1 each, and `Collection` and `AF` still zero, as do `DSS` and `DPartRoot`, which have fields anyway — the container-before-contents shape Phase D was ordered to avoid. |
-| **8–14** Content, text, interactive, tagged | Interpreter, fonts and UA-2 auditing exist; interactive features (12) can be *read* (`inspect interactive`), and signature fields (12.7.5.5, 12.8) can now be written and checked. **What a document *does* is read too** (`inspect actions`, 12.6): every place an action can hang, what it lets the document do, and whether the reader has to touch anything first — which found the only two files of 524 that run code on open ([ADR-0022](docs/adr/0022-what-a-document-does-is-a-settled-question-where-reads-an-action-is-not.md)). **Annotation appearance streams are drawn** (12.5.5), which 6.3.2.2 requires of anything that renders a page and which this engine did not do at all — a page whose only mark is an annotation came out blank while every other reader painted it ([ADR-0023](docs/adr/0023-a-renderer-that-skips-annotation-appearances-is-not-conforming.md)). `Hidden` and `NoView` stop it, `Print` alone does not, `/OC` on an annotation is honoured for the first time, and the placement follows 12.5.5's algorithm including the upright-extent step a rotated `/Matrix` needs. **Setting a field value builds the appearance** (12.7.4.3) instead of writing `/NeedAppearances`, which 2.0 deprecates and this engine's own rule forbids writing; quadding is honoured because the font named in `/DA` is loaded from `/DR` and measured. A form that declares a calculation order is told that its ECMAScript was not run, and `/Requirements` (12.11) reports the subsets a document asks for that this processor declines. Named destinations (12.3.2) **resolve**, through both of 12.3.2.3's forms and the name tree (7.9.6) one of them needs — which found a link in `intel_sdm.pdf` that goes nowhere, `(G3.7717)`, referenced three times and declared in none of that file's 279,501 destinations. Every page of every sample now yields its text: `scn` with a pattern name (8.6.8.2) was read as a grey component, which cost `fy05.pdf` six pages and — because extraction stopped at the first failure — the 718 after them. A pattern is now painted, through `Paint::Pattern(PatternSpec)`. `samples/` exercises one annotation subtype — all 29,973 of its annotations are `/Link` — and this row said that of *the corpus* for as long as there was only one. The 515 external files carry 125 annotations across **18** subtypes and twelve terminal form fields, so both walks run on files this project did not choose. `PdfAnnotation` held seven entries of Table 166 and no `/AP`, which made a `/Redact` and a `/Watermark` the same object to this engine; Phase J took it to all nineteen, added Table 172 for the markup subtypes and readers for the six subtypes either corpus writes more than once, and the form walk now reads `/V`, `/DA`, `/Ff` and `/T` with 12.7.4.2's inheritance. **29 distinct entries across the remaining subtypes still have no reader**, each on an annotation that occurs once or twice, and `inspect interactive` names them per subtype. Every one of the 30,098 annotations parses. **Optional content is now honoured while drawing.** `BDC` discarded its property list, so an `/OC` section was painted whether its group was on or off, and `/OCProperties` — read since Phase K — was consulted by nothing. Clause 8.11 is read: the default configuration's `/BaseState`, `/ON`, `/OFF`, `/Intent` and `/AS`, membership dictionaries with all four `/P` policies and `/VE` expressions, and the `/OC` entry on an XObject. Thirteen constructions were put to PDFKit and it honours **two** of them, so eleven are held to the clause by 30 tests rather than to a second implementation ([ADR-0021](docs/adr/0021-optional-content-hides-only-what-the-document-unambiguously-turns-off.md)). Nothing is hidden on a doubt: an `/OC` that will not resolve draws and records a `Decision`. Two of those thirty tests exist because Phase O-1's corpus caught the reader out on a real file — an OCMD written *in place*, with `/OCGs` naming a single group rather than an array, and both of `pdf20-utf8-test.pdf`'s layers drawn although the file turns them off. |
+| **8** Graphics | **Optional content (8.11) is honoured while drawing.** `BDC` discarded its property list, so an `/OC` section was painted whether its group was on or off, and `/OCProperties` — read since Phase K — was consulted by nothing. The default configuration's `/BaseState`, `/ON`, `/OFF`, `/Intent` and `/AS` are read, with membership dictionaries, all four `/P` policies and `/VE` expressions. Thirteen constructions were put to PDFKit and it honours **two**, so eleven are held to the clause by 30 tests ([ADR-0021](docs/adr/0021-optional-content-hides-only-what-the-document-unambiguously-turns-off.md)); two of those exist because Phase O-1's corpus caught the reader out on a real file. A pattern is painted, through `Paint::Pattern(PatternSpec)` — `scn` with a pattern name (8.6.8.2) had been read as a grey component, which cost `fy05.pdf` six pages and the 718 after them. **Two colour defects are open and measured**, both from the same root: `/Separation` and `/DeviceN` (8.6.6) evaluate no tint transform, so a spot colour at full tint renders *white* where PDFKit renders black; and a shading (8.7.4) reads only `/C0` and `/C1`, ignoring `/FunctionType`, so a stitching function — the ordinary multi-stop gradient — renders black-to-white. Shading types **2 and 3 only**; 4 to 7 are not read. Phase P. |
+| **9** Text | Fonts load, simple and composite, with the CMap and encoding work Phase 12-era sessions cycled on; every page of every sample yields its text. **Not re-measured** in the pass that produced the rows above, so what this row says is carried forward from when it was written rather than re-derived. |
+| **10** Rendering | 6.3.2.2 binds anything that draws a page with two `shall`s, and both are met: optional content is honoured (8.11) and **annotation appearance streams are drawn** (12.5.5) — the second was not done at all until Phase P found the clause, and a page whose only mark was an annotation came out blank while every other reader painted it ([ADR-0023](docs/adr/0023-a-renderer-that-skips-annotation-appearances-is-not-conforming.md)). What the clause's own subclauses ask for is thinner: **there is no PDF function evaluator (7.10)** — no type 0, 2, 3 or 4 — which is what 10.5's transfer functions would need and what clause 8's colour defects above are caused by; **halftones (10.6) have no code at all**; 10.7's scan conversion is Vello's, and 10.8's separations follow the colour gap. Phase P. |
+| **11** Transparency | Blend modes, constant alpha and soft masks reach the backend, and the transparency-group clauses are cited in the code. **Not re-measured**, and the depth of 11.6 and 11.7 in particular is unverified — this row is a statement about citations, not about behaviour. |
+| **12** Interactive features | Read through `inspect interactive`, and signature fields (12.7.5.5, 12.8) can be written and checked. Named destinations (12.3.2) **resolve**, through both of 12.3.2.3's forms and the name tree (7.9.6) one of them needs — which found a link in `intel_sdm.pdf` that goes nowhere, `(G3.7717)`, referenced three times and declared in none of that file's 279,501 destinations. `samples/` exercises one annotation subtype — all 29,973 of its annotations are `/Link` — and this row said that of *the corpus* for as long as there was only one; the 515 external files carry 125 annotations across **18** subtypes and twelve terminal form fields. `PdfAnnotation` held seven entries of Table 166 and no `/AP`, which made a `/Redact` and a `/Watermark` the same object; Phase J took it to all nineteen. **29 distinct entries across the remaining subtypes still have no reader**, each on an annotation that occurs once or twice. All 30,098 annotations parse. **What a document *does* is read** (`inspect actions`, 12.6): every place an action can hang, what it lets the document do, and whether the reader has to touch anything first — which found the only two files of 524 that run code on open ([ADR-0022](docs/adr/0022-what-a-document-does-is-a-settled-question-where-reads-an-action-is-not.md)). **Setting a field value builds the appearance** (12.7.4.3) instead of writing `/NeedAppearances`, which 2.0 deprecates; a form declaring a calculation order is told its ECMAScript was not run, and `/Requirements` (12.11) reports the subsets a document asks for that this processor declines. |
+| **13** Multimedia | Declined, and not a gap: 13.4 is deprecated in 2.0 and reading it would be building for a subsystem the standard is retiring. The corpus does carry it — `/3D` ten times, `/Movie` five, `/RichMedia` three — which changes the premise and not the refusal. |
+| **14** Document interchange | Marked content (14.6) is read and acted on. Logical structure (14.7) is walked and UA-2 audited. Associated files (14.13) gained a reader when Phase O-1 presented seventeen of them, and page-piece dictionaries (14.5) one. **Not re-measured** beyond those. |
 | **14.3** Metadata | Settled at load into one state: `/Info` and the metadata stream are reconciled, disagreements recorded, and the entries 14.3.3 deprecates moved to where that clause puts them ([ADR-0013](docs/adr/0013-a-document-is-one-normalised-state.md)). Text strings decode to 7.9.2.2 — PDFDocEncoding from Annex D, or a byte order mark — after a Shift-JIS detector was found corrupting a conforming `/Title`. `--strip` removes every metadata stream, not the catalogue's alone. |
 
 One measurement worth carrying forward: all 24 `Operation` variants are fully
-implemented and verified. In the engine (`fepdf-model`, `fepdf-syntax`)
-the `log::warn!` count is down from 14 to one, and that one is deliberate: it reports
-which fonts *this machine* has, not anything the document says. Frontends still log
-freely, which is their job.
+implemented and verified. In `fepdf-model` and `fepdf-syntax` the `log::warn!` count is
+down from 14 to one, and that one is deliberate: it reports which fonts *this machine*
+has, not anything the document says.
+
+**That sentence used to say "in the engine", and the engine is bigger than those two
+crates.** `fepdf-content` holds **eight** more, one of which discards *"Unknown or
+unhandled operator"* to stderr — a conclusion about the document, which §5.3 says is a
+`Decision`. The `status.sh` row that reports this figure searches the same two crates, so
+it could not have said so. Phase P. Frontends still log freely, which is their job.
 
 `./scripts/dev/status.sh` re-derives these figures, so a number that has gone stale
 shows up as a disagreement rather than reading as current.
@@ -1045,8 +1062,9 @@ which is worse than refusing it, because nothing says so.
       `/SMaskInData` at all and its one JPX image is plain RGB, so there was nothing here
       to check against
 
-*Done when*: **done.** `crosscheck_image.sh` is green on every file it can compare — 13
-compared, 1 without a second opinion, where it was red on `UnknownFilter-xrefstm.pdf`. A
+*Done when*: **done.** `crosscheck_image.sh` was green on every file it could compare —
+13 compared, 1 without a second opinion, where it had been red on
+`UnknownFilter-xrefstm.pdf`. (It is red again, on two files Phase P added deliberately.) A
 page with a hidden layer renders without it. The small-page failure is explained in a
 sentence that names the cause, and the two fixes that had already closed it without anyone
 noticing now have tests. A layer this engine writes contains something, read back by the
@@ -1159,6 +1177,81 @@ historical documents live, and three were corrected with the date they were chec
 What Phase O did **not** close is written where it belongs rather than here: `/DSS`,
 `/Perms` and `/Ch` occur in none of the 524 files, and JBIG2's arithmetic coder has still
 never met an image. Both are now measurements rather than assumptions.
+
+## Phase P — What the rendering subset owes
+
+Phase N asked what the engine gets wrong and found five things by looking at the roadmap.
+This phase found four by looking at **the standard**, read with this engine — `inspect
+text` over the copy in `docs/specs/`, 1020 pages in 3.7 seconds — and then measuring the
+clauses that turned up against PDFKit.
+
+**The shape of the roadmap was hiding them.** Clause 7 had five rows in the table above
+and clauses 8 to 14 had one between them, so Graphics, Text, Rendering and Transparency —
+four clauses, 31 subclauses — shared a line that talked about annotations. Splitting that
+row is the first half of this phase; the entries below are what became visible when it was
+split. The coverage index did not help either, and could not: its three axes were chosen
+because their denominators can be enumerated from a file, and colour spaces, shadings and
+functions cannot be.
+
+- [ ] **There is no PDF function evaluator (7.10), and two visible defects come from it.**
+      No type 0 (sampled), 2 (exponential), 3 (stitching) or 4 (PostScript calculator).
+      The only `evaluate` in the workspace is the `/VE` one Phase N wrote for optional
+      content. Measured against PDFKit on files built for the purpose:
+
+      | | fepdf | PDFKit |
+      | :--- | :--- | :--- |
+      | `/Separation` fill at tint 1.0 | `254 254 254 254` | `25 255 255 255` |
+      | red→green→blue stitching gradient | `62 190 62 190` | `112 89 112 89` |
+
+      A spot colour at full tint renders **white** where it should be black:
+      `fallback_sc` reads the single tint component as a grey level, and `/Separation`
+      inverts that sense — 1.0 is full ink. Every print-oriented PDF uses this. And a
+      shading reads only `/C0` and `/C1`, never looking at `/FunctionType`, so a
+      stitching function — the ordinary way a multi-stop gradient is written — falls back
+      to black-to-white. One evaluator fixes both, and is the floor 10.5's transfer
+      functions and 10.6's halftones would stand on
+- [ ] **Shading types 4 to 7 are not read.** The interpreter matches `2` and `3` and
+      nothing else, so the four mesh types produce no paint. `MeshShadingSpec` exists as
+      an argument to an `Operation` that *writes* one, which is a different thing — and
+      the archived `omissions.md` claimed these were implemented, which is why the claim
+      is stated here as a measurement instead
+- [ ] **Halftones (10.6) have no code at all.** Not a citation, not a type. Whether that
+      matters is a question for a corpus that has not been asked: no file has been
+      surveyed for `/HT` in an `ExtGState`, and that survey is the first step rather than
+      the implementation
+- [ ] **The engine logs eight conclusions about documents to stderr.** ARCHITECTURE §5.3
+      says a departure from the standard is recorded as a `Decision`, not logged, because
+      a warning on stderr cannot tell a caller *this loaded* from *this was conforming*.
+      `fepdf-content` holds eight `log::warn!` sites — an unresolvable font, a failed
+      Type 3 glyph, and *"Unknown or unhandled operator"*, which is a content stream doing
+      something this engine does not implement and saying so where nothing can act on it.
+      The `status.sh` row reports "expect 1" and searches only `fepdf-model` and
+      `fepdf-syntax`, so it reads 1 and is wrong for the same reason the decision-site row
+      was before Phase H taught it a third crate — and the annotation and appearance work
+      taught it a fourth and fifth
+
+**`crosscheck_image.sh` is red, on purpose.** `target/colour/` holds the two files the
+numbers above come from, and they are in the comparison rather than beside it: a phase
+that quotes four numbers has to leave the command that re-derives them, and a check that
+is green while a defect stands is a check that has been told not to look. It reports
+`DISAGREE by 229` on the separation and `by 101` on the gradient, which is how far from
+right the picture is rather than merely that it is.
+
+```text
+cargo run --example make_colour_fixtures -p fepdf-model
+./scripts/test/crosscheck_image.sh
+```
+
+*Done when*: a `/Separation` fill and a stitching gradient agree with PDFKit in
+`crosscheck_image.sh`; the shading and halftone entries are either built or declined
+against a measurement of what the corpora present; and the engine's `log::warn!` count is
+one again, over a row that searches every crate the engine is made of.
+
+**What this phase is not.** It is not a list of everything clause 8 to 11 contains. Nine
+(Text) and eleven (Transparency) were **not re-measured** in the pass that produced it,
+and their rows above say so rather than implying a verdict. Naming four measured things
+is worth more than listing thirty unmeasured ones, which is what the row this phase split
+had been doing.
 
 ## Read broadly, write 2.0
 
@@ -1279,7 +1372,7 @@ Each phase here therefore states what *done* means in terms that can be measured
 the current state above is what the code does today rather than what it was intended
 to do.
 
-*Updated 2026-08-22. The figures above come from the sample corpus, a set of
+*Updated 2026-08-22 (Phase P). The figures above come from the sample corpus, a set of
 deliberately malformed files, and the 515 external files Phases G and O fetched; the catalogue,
 annotation and form-field counts in Phases J and K were taken by running `inspect
 catalog` and `inspect interactive` over all 251 and aggregating the JSON.*
