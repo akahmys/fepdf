@@ -2,7 +2,7 @@
 
 - **Status**: Accepted
 - **Date**: 2026-08-22
-- **Commit**: (this change)
+- **Commit**: 90e0ade
 
 ## Context
 
