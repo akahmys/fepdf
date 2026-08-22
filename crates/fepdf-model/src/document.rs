@@ -758,8 +758,15 @@ impl Document {
     pub fn load_system_fonts(&mut self) {
         let mut fonts = BTreeMap::new();
 
-        // 1. First check the configured resource directory
-        let resource_dir = crate::resource_dir("resources");
+        // 1. First check the configured resource directory.
+        //
+        // `assets` and not `resources`: the five faces were renamed from `resources/fonts`
+        // to `assets/fonts` on 2026-05-16 (d71083d, a pure R100 rename) and this default
+        // stayed behind, here and in `VelloBackend::load_system_fonts`. Nothing noticed
+        // because *this* loader falls through to the platform paths below and finds real
+        // fonts anyway; the renderer's copy has no such fallback and its map was simply
+        // empty for three months.
+        let resource_dir = crate::resource_dir("assets");
         let base_path = std::path::Path::new(&resource_dir).join("fonts");
         let mappings = [
             (crate::font::FallbackFontType::Serif, "serif.ttf"),
@@ -790,6 +797,12 @@ impl Document {
         if !missing_types.is_empty() {
             self.load_platform_fallback_fonts(&mut fonts, &missing_types);
         }
+
+        // `Default` is what a font resource gets when nothing about it suggests a face,
+        // and it is in no `missing_types` list above — so nothing ever put it in the map
+        // and every lookup for it missed. `fepdf-cli`'s `publish` command had been
+        // patching that by hand, alone, which is the tell that it belonged here.
+        seed_default_face(&mut fonts);
 
         self.system_fonts = Arc::new(fonts);
     }
@@ -1585,6 +1598,30 @@ impl Document {
         handle: Handle<Object>,
     ) -> Option<std::sync::Arc<crate::object::SublimatedData>> {
         self.arena.get_sublimated_data(handle)
+    }
+}
+
+/// Gives `FallbackFontType::Default` a face, copying whichever general-purpose one was
+/// found.
+///
+/// A font resource that says nothing about its shape infers `Default`, and no loader
+/// populated that key, so the lookup missed and the caller got no data at all. Sans
+/// first because a face chosen for "no preference" should be the plainest available.
+fn seed_default_face(fonts: &mut BTreeMap<crate::font::FallbackFontType, Arc<Vec<u8>>>) {
+    use crate::font::FallbackFontType;
+    if fonts.contains_key(&FallbackFontType::Default) {
+        return;
+    }
+    for source in [
+        FallbackFontType::SansSerif,
+        FallbackFontType::Serif,
+        FallbackFontType::Monospace,
+        FallbackFontType::JapaneseSans,
+    ] {
+        if let Some(data) = fonts.get(&source).cloned() {
+            fonts.insert(FallbackFontType::Default, data);
+            return;
+        }
     }
 }
 

@@ -1412,24 +1412,36 @@ functions cannot be.
       ./scripts/test/crosscheck_image.sh      # standard14, agree (worst 5)
       ```
 
-- [ ] **Two font-fallback faults that were not the cause, and are still faults.**
-      `VelloBackend::load_system_fonts` reads `resources/fonts/*.ttf`; the directory does
-      not exist and the bundled faces are in `assets/fonts/`, so the backend's own
-      fallback map is **always empty** and it logs five warnings saying so on every run.
-      `Document::load_system_fonts` looks in the same wrong place and then falls back to
-      platform paths, which is why the model's map is populated and the renderer's is not.
-      And `FallbackFontType::Default` is in no `missing_types` list, so nothing inserts
-      it — `fepdf-cli`'s `publish` command patches that by hand, alone.
+- [x] **Two font-fallback faults that were not the cause, and are still faults.** Both
+      fixed. `resource_dir("resources")` in `Document::load_system_fonts` and
+      `VelloBackend::load_system_fonts` pointed at a directory that stopped existing on
+      **2026-05-16**: `d71083d` renamed `resources/fonts` to `assets/fonts` as a pure
+      `R100` rename and left the two defaults behind. The model falls through to platform
+      paths and found real fonts anyway, which is why nothing noticed; the renderer has no
+      such fallback, so its map was empty outright and it logged five warnings on every
+      run for three months.
 
-      `assets/fonts/*.ttf` are **symlinks into `/System/Library/Fonts`, tracked in git**,
-      so the bundled faces are macOS-only and are not really bundled.
+      `FallbackFontType::Default` — what a font infers when nothing about it suggests a
+      face — was in no `missing_types` list, so nothing put it in the map and every lookup
+      for it missed. `fepdf-cli`'s `publish` command had been patching that by hand and
+      alone, which is the tell that it belonged in the loader.
 
-- [ ] **A glyph that will not draw is silent.** `render_single_glyph` returns a success
-      flag and `show_text` discards it. Nothing above the backend can tell a page that
-      drew from a page that laid out invisible text — which is how the entry above stayed
-      hidden. The two `Decision` sites the renderer gained in Phase P cover a *font* that
-      never arrived and an outline `skrifa` refused; neither covers a glyph that resolved
-      to nothing, which was the case that mattered.
+- [x] **A glyph that will not draw is silent.** `show_text` counts what it painted and
+      records a 9.6 `Violation` when a run laid out glyphs and painted **none** of them:
+      *"a run of 7 glyphs in /Helvetica yielded no outline at all"*. Verified by putting
+      the standard-14 defect back and watching it fire, and by its silence on all nine
+      conforming samples.
+
+      **Per run, not per glyph, and the difference was measured rather than guessed.** A
+      per-glyph version fired twice on `samples/volvo_xc90.pdf` — and those two turned out
+      not to be failures at all but a **blank** glyph: a CID glyph at index 1 with an
+      empty outline and no `/ToUnicode` to say it was a space. `extract_path` had been
+      treating an outline with no contours as undrawable, which paints the same nothing as
+      a blank glyph does, so the difference had never shown. A glyph the font does not
+      have is the failure; a glyph with nothing in it is a space.
+
+      That is the instrument the entry above needed and did not have: a page that lays out
+      text correctly and invisibly now says so.
 
 - [x] **Shading types 4 to 7 are not read.** All four are now, in
       `fepdf-model::graphics::mesh`, and all four agree with PDFKit:

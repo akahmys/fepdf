@@ -93,7 +93,10 @@ impl VelloBackend {
     /// Loads the bundled fallback fonts from the configured resource directory.
     pub fn load_system_fonts() -> Arc<std::collections::BTreeMap<FallbackFontType, Arc<Vec<u8>>>> {
         let mut fonts = std::collections::BTreeMap::new();
-        let resource_dir = fepdf_model::resource_dir("resources");
+        // `assets`, not `resources`: see `Document::load_system_fonts`. This copy has no
+        // platform fallback under it, so the wrong default left the map empty outright —
+        // five warnings on every run, and no substitute face for any font.
+        let resource_dir = fepdf_model::resource_dir("assets");
         let base_path = std::path::Path::new(&resource_dir).join("fonts");
 
         let mappings = [
@@ -108,7 +111,14 @@ impl VelloBackend {
             let path = base_path.join(filename);
             match std::fs::read(&path) {
                 Ok(data) => {
-                    fonts.insert(ftype, Arc::new(data));
+                    let data = Arc::new(data);
+                    // A face for "no preference" as well as for the shape it names, so a
+                    // font resource that infers `Default` finds something. Nothing
+                    // populated that key anywhere until Phase P.
+                    if ftype == FallbackFontType::SansSerif {
+                        fonts.insert(FallbackFontType::Default, Arc::clone(&data));
+                    }
+                    fonts.insert(ftype, data);
                 }
                 Err(e) => {
                     log::warn!(
@@ -752,6 +762,7 @@ impl RenderBackend for VelloBackend {
         let data_ref = data_arc.as_deref().map_or(&[][..], |v| v.as_slice());
         let brush = to_vello_brush(&self.state.fill_color, self.state.fill_alpha as f32);
         let mut advance_offset = 0.0;
+        let mut painted = 0_usize;
         for glyph in glyphs {
             let ctx = GlyphRenderContext {
                 size,
@@ -764,7 +775,7 @@ impl RenderBackend for VelloBackend {
                 data_ref,
                 brush: &brush,
             };
-            let (new_advance, _success) = Self::render_single_glyph(
+            let (new_advance, drew) = Self::render_single_glyph(
                 &mut self.scene,
                 &mut self.skrifa_bridge,
                 &self.system_fonts,
@@ -772,7 +783,29 @@ impl RenderBackend for VelloBackend {
                 glyph,
                 &ctx,
             );
+            painted += usize::from(drew);
             advance_offset = new_advance;
+        }
+
+        // A run that laid out characters and painted none of them. **Per run, not per
+        // glyph**: one glyph with an empty outline is ordinary — `samples/volvo_xc90.pdf`
+        // has two, a CID glyph that draws to nothing — while a whole run drawing nothing
+        // means the text is on the page, correctly spaced, and invisible.
+        //
+        // That is precisely what a standard-14 font did before Phase P, on every run of
+        // every page, and nothing above the backend could tell: `show_text` took the
+        // success flag from each glyph and bound it to `_success`.
+        if painted == 0 && !glyphs.is_empty() {
+            self.decisions.push(fepdf_model::interpretation::Decision::violation(
+                "9.6",
+                format!(
+                    "a run of {} glyphs in /{} yielded no outline at all",
+                    glyphs.len(),
+                    self.state.font_name.as_deref().unwrap_or("(unnamed)")
+                ),
+                "advanced the text position and drew nothing; the text is laid out and \
+                 invisible",
+            ));
         }
     }
 }

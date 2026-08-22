@@ -295,11 +295,15 @@ impl SkrifaBridge {
             return None;
         }
 
-        let path = Self::draw_glyph_path(&font, final_gid, &mut self.decisions)?;
-        let seg_count = path.segments().count();
-        if seg_count == 0 && !self.is_blank_char(unicode) {
-            return None;
-        }
-        Some(path)
+        // An outline with no contours is a **blank glyph**, not a failure: the glyph is
+        // present in the font and has nothing to draw. Filling an empty path and
+        // returning `None` paint the same nothing, so the difference never showed —
+        // until the caller started counting what it drew, and `samples/volvo_xc90.pdf`
+        // reported two glyphs as undrawable that are simply blank (a CID glyph at index
+        // 1, with no `/ToUnicode` to say so).
+        //
+        // The case that *is* a failure is a glyph the font does not have, which
+        // `draw_glyph_path` reports by returning `None` above.
+        Self::draw_glyph_path(&font, final_gid, &mut self.decisions)
     }
 }

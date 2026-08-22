@@ -459,12 +459,12 @@ of the standard, it records why, at the point of decision, with the clause. A si
 acceptance is a defect even when the output is right, because the next reader of the
 code cannot tell a deliberate choice from an oversight.
 
-**Current coverage is 84 sites**, up from one, re-derived 2026-08-22: `reader.rs` 19,
+**Current coverage is 85 sites**, up from one, re-derived 2026-08-23: `reader.rs` 19,
 `refine/color.rs` 12, `font/mod.rs` 8, `interpreter/ops/xobject.rs` 7, `decrypt.rs` 6,
 `document.rs` 4, `interpreter/ops/color.rs` 4, `fepdf/lib.rs` 3, `optional_content.rs` 3,
 `object/sublimation/parser.rs` 3, `metadata.rs` 2, `ingest/mod.rs` 2,
 `apply/appearance.rs` 2, `interpreter/ops/marked.rs` 2, `interpreter/mod.rs` 2,
-`fepdf-render/text.rs` 1, `fepdf-render/lib.rs` 1, `refine/mod.rs` 1,
+`fepdf-render/text.rs` 1, `fepdf-render/lib.rs` 2, `refine/mod.rs` 1,
 `apply/annotations.rs` 1, `interpreter/ops/text.rs` 1.
 
 **The row that counts them named five crates, and `fepdf-render` was not one.** So when
