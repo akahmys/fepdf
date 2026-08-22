@@ -188,6 +188,14 @@ impl SkrifaBridge {
         char_code: u32,
         cid_to_gid_map: Option<&BTreeMap<u32, u32>>,
     ) -> GlyphId {
+        // A font that embeds no program yields no glyph indices, only
+        // `SYSTEM_FALLBACK_BASE + a character` (see `fepdf_model::font`). Resolving that
+        // character in the substitute face is this half of the convention, and it was
+        // missing: the marker went to `skrifa` as a literal index, glyph 1000072 had no
+        // outline, and every standard-14 font drew nothing.
+        if let Some(c) = fepdf_model::font::system_fallback_char(final_gid_in) {
+            return font.charmap().map(c).unwrap_or_else(|| GlyphId::new(0));
+        }
         let mut final_gid = GlyphId::new(final_gid_in);
 
         if is_fallback

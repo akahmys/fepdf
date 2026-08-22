@@ -10,6 +10,33 @@ pub use metrics::{FontCategory, FontMetrics, detect_wmode};
 /// Typed schema for font dictionaries.
 pub mod schema;
 
+/// The base of the glyph-identifier range that is **not** glyph identifiers.
+///
+/// When a font embeds no program, the model has no glyph indices to give: the document's
+/// character codes mean something only in a face this machine happens to have. It answers
+/// with `SYSTEM_FALLBACK_BASE + the Unicode scalar value` so the *renderer*, which is the
+/// half holding the substitute face, can look the character up in that face's charmap.
+///
+/// **This was a bare `1_000_000` written in two places in this file and understood in
+/// none.** The renderer passed the marker to `skrifa` as a literal glyph index, found no
+/// outline at glyph 1000072, and drew nothing — silently, because the caller discarded
+/// the success flag. A minimal page setting `/Helvetica` and showing "HELLO" rendered
+/// blank while PDFKit painted it. A convention needs both ends, and naming it is what
+/// makes the second end findable.
+pub const SYSTEM_FALLBACK_BASE: u32 = 1_000_000;
+
+/// Marks `c` as a character to resolve in the host's substitute face.
+#[must_use]
+pub const fn system_fallback_gid(c: char) -> u32 {
+    SYSTEM_FALLBACK_BASE + c as u32
+}
+
+/// The character a marker stands for, or `None` if this is an ordinary glyph index.
+#[must_use]
+pub fn system_fallback_char(gid: u32) -> Option<char> {
+    char::from_u32(gid.checked_sub(SYSTEM_FALLBACK_BASE)?)
+}
+
 #[derive(
     Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, serde::Serialize, serde::Deserialize,
 )]
@@ -1890,7 +1917,7 @@ impl FontResource {
 
         if let Some(c) = hint {
             log::debug!("[FONT] Falling back to system font for: U+{:04X} ({:?})", c as u32, c);
-            return Some(1_000_000 + c as u32);
+            return Some(system_fallback_gid(c));
         }
 
         if cid != 0 {
@@ -2016,7 +2043,7 @@ impl FontResource {
         if !self.is_embedded()
             && let Some(c) = unicode_hint
         {
-            return Ok(Some(1_000_000 + c as u32));
+            return Ok(Some(system_fallback_gid(c)));
         }
         let mut hint = unicode_hint;
         let mut glyph_name_resolved = None;

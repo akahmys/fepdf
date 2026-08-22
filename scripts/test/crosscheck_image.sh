@@ -107,6 +107,10 @@ if [ ! -d target/mesh ]; then
     echo "fixtures absent — cargo run --example make_mesh_fixtures -p fepdf-model"
     exit 1
 fi
+if [ ! -d target/fonts ]; then
+    echo "fixtures absent — cargo run --example make_font_fixtures -p fepdf-model"
+    exit 1
+fi
 
 cargo build --release -q -p fepdf --features render --example page_quadrants || exit 1
 ours=target/release/examples/page_quadrants
@@ -157,10 +161,19 @@ printf '%-34s %-24s %-24s %s\n' file fepdf PDFKit verdict
 # the other three rather than against nothing. They are also where the antialiasing seam
 # between adjacent mesh triangles was found: all four read light until each triangle was
 # grown by half a device pixel, and types 6 and 7 read 170 against an expected 127.
+# `target/fonts/` is a page whose only mark is text in a font the file does not embed —
+# the commonest thing in PDF that is not a rectangle, and the one shape no other fixture
+# here has, because the rest are deliberately font-free so the host cannot change their
+# answer. The cost of that discipline was a blind spot exactly this size: standard-14
+# fonts rendered **nothing at all** and this comparator never looked at a page using one.
+# Without the fix it reads `254 254 254 254` against PDFKit's `202 246 249 255`.
+# This one *does* depend on the host having a substitute face; PDFKit needs one too, and
+# the same machine supplies both.
 # `target/colour/` is **expected to disagree**, and is here for that reason: it is where
 # ROADMAP.md's Phase P numbers come from, and a phase that quotes four numbers has to leave
 # the command that re-derives them. They go green when 7.10 gets an evaluator.
 for input in target/scans/*.pdf target/layers/*.pdf target/colour/*.pdf target/mesh/*.pdf \
+             target/fonts/*.pdf \
              target/external/pdf20examples/pdf20-utf8-test.pdf \
              "target/external/pdf20examples/PDF 2.0 UTF-8 string and annotation.pdf" \
              target/external/pdfua2/8.7-t02-*.pdf \

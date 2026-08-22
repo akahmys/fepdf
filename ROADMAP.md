@@ -1376,22 +1376,60 @@ functions cannot be.
         DefaultCMYK,DefaultRGB,DefaultGray samples/*.pdf target/external/*/*.pdf
       ```
 
-- [ ] **A font with no embedded program renders nothing.** `DefaultRGBColourSpaces.pdf`
-      draws the words RED, GREEN and BLUE in `/Helvetica` — a standard-14 font with no
-      `/FontFile`. PDFKit paints them; this engine paints **330,000 white pixels and
-      nothing else**, while `inspect text` extracts every word. Rendering and extraction
-      disagree about whether the page has content.
+- [x] **A font with no embedded program renders nothing.** Fixed. A minimal page setting
+      `/Helvetica` and showing five characters read `254 254 254 254` — paper — where
+      PDFKit read `233 239 217 230`. It now reads `235 240 219 233`.
 
-      `VelloBackend::load_system_fonts` reads `resources/fonts/*.ttf`, a directory that
-      does not exist — the bundled faces are in `assets/fonts/`. `Document::load_system_fonts`
-      looks in the same wrong place and then **falls back to platform font paths**, which
-      is why text extraction and metrics work and only the renderer is blind. Setting
-      `FEPDF_RESOURCES=assets` does not fix it either: the interpreter asks
-      `system_fonts` for `FallbackFontType::Default`, and nothing ever inserts that key —
-      only `fepdf-cli`'s `publish` command does, by hand.
+      **The cause was a convention with one end.** A font that embeds no program has no
+      glyph indices to give: its character codes mean something only in a face the *host*
+      happens to have. `fepdf-model` answered with `1_000_000 + the character` as a
+      marker, in two places, and **nothing anywhere read it back**. The renderer passed
+      the marker to `skrifa` as a literal glyph index, glyph 1000072 had no outline, and
+      it drew nothing. The marker is `SYSTEM_FALLBACK_BASE` now, with the two helpers that
+      make the other end findable.
 
-      Three faults on one path, and the quadrant comparator could not see any of them:
-      the words are small, so a blank page and a painted one differ by 4 out of 255.
+      **It failed silently by construction.** `render_single_glyph` returns
+      `(advance, success)` and `show_text` binds the second to `_success`. A glyph that
+      would not draw advanced the pen and painted nothing, so the text was laid out
+      correctly and invisibly.
+
+      **No fixture could see it, and that was deliberate.** Every other file under
+      `target/` is font-free on purpose — `make_colour_fixtures` says so in its header,
+      because a fixture whose answer depends on the host fails for reasons that are not
+      defects. The blind spot was exactly the size of that discipline:
+      `target/fonts/standard14.pdf` now covers it, and reads `254 254 254 254` against
+      PDFKit's `202 246 249 255` — **DISAGREE by 52** — with the fix removed.
+
+      Two things this did *not* turn out to be, both of which looked likely and were
+      measured away: `VelloBackend::load_system_fonts` reads `resources/fonts`, which does
+      not exist (the faces are symlinks in `assets/fonts`), and nothing ever inserts
+      `FallbackFontType::Default` into the map the interpreter asks. Both are real and
+      neither was the cause — the trace showed `has_data: true` reaching the backend all
+      along. They are the entry below.
+
+      ```bash
+      cargo run --example make_font_fixtures -p fepdf-model
+      ./scripts/test/crosscheck_image.sh      # standard14, agree (worst 5)
+      ```
+
+- [ ] **Two font-fallback faults that were not the cause, and are still faults.**
+      `VelloBackend::load_system_fonts` reads `resources/fonts/*.ttf`; the directory does
+      not exist and the bundled faces are in `assets/fonts/`, so the backend's own
+      fallback map is **always empty** and it logs five warnings saying so on every run.
+      `Document::load_system_fonts` looks in the same wrong place and then falls back to
+      platform paths, which is why the model's map is populated and the renderer's is not.
+      And `FallbackFontType::Default` is in no `missing_types` list, so nothing inserts
+      it — `fepdf-cli`'s `publish` command patches that by hand, alone.
+
+      `assets/fonts/*.ttf` are **symlinks into `/System/Library/Fonts`, tracked in git**,
+      so the bundled faces are macOS-only and are not really bundled.
+
+- [ ] **A glyph that will not draw is silent.** `render_single_glyph` returns a success
+      flag and `show_text` discards it. Nothing above the backend can tell a page that
+      drew from a page that laid out invisible text — which is how the entry above stayed
+      hidden. The two `Decision` sites the renderer gained in Phase P cover a *font* that
+      never arrived and an outline `skrifa` refused; neither covers a glyph that resolved
+      to nothing, which was the case that mattered.
 
 - [x] **Shading types 4 to 7 are not read.** All four are now, in
       `fepdf-model::graphics::mesh`, and all four agree with PDFKit:
