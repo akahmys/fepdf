@@ -1,7 +1,7 @@
 //! Off-thread document worker and request/response dispatch loop.
 
 use bytes::Bytes;
-use fepdf::PdfDocument;
+use fepdf::{Operation, PageSelection, PdfDocument};
 use fepdf_render::{FallbackFontType, VelloBackend};
 use std::sync::Arc;
 use std::sync::mpsc::{Receiver, Sender};
@@ -173,7 +173,10 @@ pub fn run_worker(rx: Receiver<WorkerRequest>, tx: Sender<WorkerResponse>, ctx: 
                 text_cache.clear();
                 spans_cache.clear();
                 if let Some(ref mut doc) = current_doc
-                    && let Err(e) = doc.reorder_pages_batch(&source_indices, target_insert_pos)
+                    && let Err(e) = doc.apply(Operation::ReorderBatch {
+                        sources: source_indices,
+                        target: target_insert_pos,
+                    })
                 {
                     log::error!("Failed to batch reorder pages in worker: {e:?}");
                 }
@@ -183,11 +186,15 @@ pub fn run_worker(rx: Receiver<WorkerRequest>, tx: Sender<WorkerResponse>, ctx: 
                 text_cache.clear();
                 spans_cache.clear();
                 if let Some(ref mut doc) = current_doc {
-                    indices.sort_unstable_by(|a, b| b.cmp(a));
-                    for idx in indices {
-                        if let Err(e) = doc.remove_page(idx) {
-                            log::error!("Failed to remove page {idx} in worker: {e:?}");
-                        }
+                    // One operation, not a descending loop. Sorting the indices so that
+                    // removing one did not move the next was the frontend doing the
+                    // engine's arithmetic; `RemovePages` takes the set and owns the order.
+                    indices.sort_unstable();
+                    indices.dedup();
+                    if let Err(e) =
+                        doc.apply(Operation::RemovePages(PageSelection::Indices(indices)))
+                    {
+                        log::error!("Failed to remove pages in worker: {e:?}");
                     }
                 }
                 ctx.request_repaint();
@@ -196,7 +203,8 @@ pub fn run_worker(rx: Receiver<WorkerRequest>, tx: Sender<WorkerResponse>, ctx: 
                 text_cache.clear();
                 spans_cache.clear();
                 if let Some(ref mut doc) = current_doc
-                    && let Err(e) = doc.duplicate_page(index)
+                    && let Err(e) =
+                        doc.apply(Operation::DuplicatePages(PageSelection::Single(index)))
                 {
                     log::error!("Failed to duplicate page {index} in worker: {e:?}");
                 }
@@ -262,142 +270,93 @@ fn resolve_struct_tree_root(
     doc.extract_struct_tree()
 }
 
+/// Re-reads everything the UI shows about a document, after its page set changed.
+///
+/// Both handlers below had their own copy of this — forty lines each, identical but for
+/// the error string. Two copies of "what the UI needs to know" is how one of them comes to
+/// answer a question the other does not.
+fn reload_after_page_change(doc: &PdfDocument, tx: &Sender<WorkerResponse>) {
+    let num_pages = doc.page_count().unwrap_or(0);
+    let mut page_sizes = Vec::with_capacity(num_pages);
+    for i in 0..num_pages {
+        page_sizes.push(doc.get_page_size(i).unwrap_or((595.0, 842.0)));
+    }
+
+    let mut next_id = 0;
+    let ust_root = resolve_struct_tree_root(doc, &mut next_id).or_else(|| {
+        Some(crate::sidebar::USTNode {
+            id: 0,
+            tag: "Document".to_string(),
+            title: "PDF Document Catalog (Untagged)".to_string(),
+            alt_text: None,
+            rect: None,
+            page_index: None,
+            handle_index: None,
+            children: Vec::new(),
+        })
+    });
+
+    let version = doc.get_summary().ok().map_or_else(|| "1.7".to_string(), |s| s.version);
+    let _ = tx.send(WorkerResponse::DocumentLoaded(Box::new(LoadedDocument {
+        name: None,
+        num_pages,
+        page_sizes,
+        ust_root,
+        file_size: 0,
+        version,
+        metadata: doc.metadata(),
+        security_method: doc.security_method(),
+        permissions: doc.permissions(),
+        fonts: doc.fonts(),
+        viewer_direction: doc.viewer_direction(),
+    })));
+}
+
+/// Inserts every page of a dropped document at `at_index`.
+///
+/// The source is handed over as bytes and opened inside `apply`. This used to open it
+/// here and call `PdfDocument::insert_pages_from`, which is a mutation outside the
+/// `Operation` vocabulary — Rule D, and one of the eight sites that had left it.
 fn handle_insert_document(
-    // RR-15 Limit: Dispatcher - handles page insertion from external document in worker thread
     doc: &mut PdfDocument,
     data: Bytes,
     at_index: usize,
     tx: &Sender<WorkerResponse>,
 ) {
-    let options = fepdf::IngestionOptions::default();
-    match PdfDocument::open_with_options(data, &options) {
-        Ok(source_doc) => {
-            if let Err(e) = doc.insert_pages_from(&source_doc, at_index) {
-                log::error!("Failed to insert pages in worker: {e:?}");
-                let _ = tx.send(WorkerResponse::Error(format!("Failed to insert pages: {e:?}")));
-                return;
-            }
-            let num_pages = doc.page_count().unwrap_or(0);
-            let mut page_sizes = Vec::with_capacity(num_pages);
-            for i in 0..num_pages {
-                page_sizes.push(doc.get_page_size(i).unwrap_or((595.0, 842.0)));
-            }
-
-            let mut next_id = 0;
-            let mut ust_root = resolve_struct_tree_root(doc, &mut next_id);
-
-            if ust_root.is_none() {
-                ust_root = Some(crate::sidebar::USTNode {
-                    id: 0,
-                    tag: "Document".to_string(),
-                    title: "PDF Document Catalog (Untagged)".to_string(),
-                    alt_text: None,
-                    rect: None,
-                    page_index: None,
-                    handle_index: None,
-                    children: Vec::new(),
-                });
-            }
-
-            let version = doc.get_summary().ok().map_or_else(|| "1.7".to_string(), |s| s.version);
-            let metadata = doc.metadata();
-            let security_method = doc.security_method();
-            let permissions = doc.permissions();
-            let fonts = doc.fonts();
-            let viewer_direction = doc.viewer_direction();
-
-            let _ = tx.send(WorkerResponse::DocumentLoaded(Box::new(LoadedDocument {
-                name: None,
-                num_pages,
-                page_sizes,
-                ust_root,
-                file_size: 0,
-                version,
-                metadata,
-                security_method,
-                permissions,
-                fonts,
-                viewer_direction,
-            })));
-        }
-        Err(e) => {
-            log::error!("Failed to open dropped document for insertion: {e:?}");
-            let _ =
-                tx.send(WorkerResponse::Error(format!("Failed to open dropped document: {e:?}")));
-        }
+    if let Err(e) = doc.apply(Operation::InsertFrom { source: data.to_vec(), at: at_index }) {
+        log::error!("Failed to insert pages in worker: {e:?}");
+        let _ = tx.send(WorkerResponse::Error(format!("Failed to insert pages: {e:?}")));
+        return;
     }
+    reload_after_page_change(doc, tx);
 }
 
+/// Replaces `count` pages at `at_index` with every page of a dropped document.
+///
+/// Two operations, in the order the name says: the removal first, so the insertion lands
+/// where the removed run was.
 fn handle_replace_document(
-    // RR-15 Limit: Dispatcher - handles page replacement from external document in worker thread
     doc: &mut PdfDocument,
     data: Bytes,
     at_index: usize,
     count: usize,
     tx: &Sender<WorkerResponse>,
 ) {
-    let options = fepdf::IngestionOptions::default();
-    match PdfDocument::open_with_options(data, &options) {
-        Ok(source_doc) => {
-            for _ in 0..count {
-                if at_index < doc.page_count().unwrap_or(0) {
-                    let _ = doc.remove_page(at_index);
-                }
-            }
-            if let Err(e) = doc.insert_pages_from(&source_doc, at_index) {
-                log::error!("Failed to replace pages in worker: {e:?}");
-                let _ = tx.send(WorkerResponse::Error(format!("Failed to replace pages: {e:?}")));
-                return;
-            }
-            let num_pages = doc.page_count().unwrap_or(0);
-            let mut page_sizes = Vec::with_capacity(num_pages);
-            for i in 0..num_pages {
-                page_sizes.push(doc.get_page_size(i).unwrap_or((595.0, 842.0)));
-            }
-
-            let mut next_id = 0;
-            let mut ust_root = resolve_struct_tree_root(doc, &mut next_id);
-            if ust_root.is_none() {
-                ust_root = Some(crate::sidebar::USTNode {
-                    id: 0,
-                    tag: "Document".to_string(),
-                    title: "PDF Document Catalog (Untagged)".to_string(),
-                    alt_text: None,
-                    rect: None,
-                    page_index: None,
-                    handle_index: None,
-                    children: Vec::new(),
-                });
-            }
-
-            let version = doc.get_summary().ok().map_or_else(|| "1.7".to_string(), |s| s.version);
-            let metadata = doc.metadata();
-            let security_method = doc.security_method();
-            let permissions = doc.permissions();
-            let fonts = doc.fonts();
-            let viewer_direction = doc.viewer_direction();
-
-            let _ = tx.send(WorkerResponse::DocumentLoaded(Box::new(LoadedDocument {
-                name: None,
-                num_pages,
-                page_sizes,
-                ust_root,
-                file_size: 0,
-                version,
-                metadata,
-                security_method,
-                permissions,
-                fonts,
-                viewer_direction,
-            })));
-        }
-        Err(e) => {
-            log::error!("Failed to open document for replacement: {e:?}");
-            let _ = tx.send(WorkerResponse::Error(format!(
-                "Failed to open document for replacement: {e:?}"
-            )));
-        }
+    let page_count = doc.page_count().unwrap_or(0);
+    let doomed: Vec<usize> = (at_index..at_index + count).filter(|i| *i < page_count).collect();
+    if !doomed.is_empty()
+        && let Err(e) = doc.apply(Operation::RemovePages(PageSelection::Indices(doomed)))
+    {
+        log::error!("Failed to remove pages being replaced: {e:?}");
+        let _ = tx.send(WorkerResponse::Error(format!("Failed to replace pages: {e:?}")));
+        return;
     }
+    if let Err(e) = doc.apply(Operation::InsertFrom { source: data.to_vec(), at: at_index }) {
+        log::error!("Failed to replace pages in worker: {e:?}");
+        let _ = tx.send(WorkerResponse::Error(format!("Failed to replace pages: {e:?}")));
+        return;
+    }
+    reload_after_page_change(doc, tx);
 }
 
 fn handle_open(

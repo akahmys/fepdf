@@ -53,9 +53,22 @@ cargo test --workspace
   - `tests/text_tests.rs`: Text positioning and text matrix initialization.
 - **`fepdf`**:
   - `tests/sdk_tests.rs`: Facade API, color conversions, rotation modes, document lifecycle.
+    Since Rule D removed the facade's mutating methods it exercises them as `Operation`s,
+    which is what a caller now has. Two of its cases cover `DuplicatePages`: the ordering
+    one was verified by putting the bug back, and the measured failure was worse than the
+    one predicted when it was written — page 0 cloned three times rather than a
+    mis-ordering, because after the first insertion the remaining indices name clones.
   - `tests/backend_operations_test.rs`: Document mutation operations execution.
   - `tests/encrypted_objstm_test.rs`: Encrypted object stream ingestion.
   - `tests/pattern_color_test.rs`: Pattern color extraction.
+- **`fepdf-doc`**:
+  - `tests/operation_json_tests.rs`: the `Operation` vocabulary as JSON, which is a public
+    interface — `fepdf-mcp`'s `apply_operation` tool deserialises a caller's string into
+    one. This crate had **no `tests/` directory at all** until Rule D moved six operations
+    into it, so the vocabulary's serialised form had never been exercised. Its
+    `variant_name` function matches every variant with no wildcard, so RR-15 Rule 5 turns
+    a new operation into a compile error here until someone decides what its JSON is —
+    verified by adding a variant and watching `E0004`.
 - **`fepdf-mcp`**:
   - `tests/mcp_server_tests.rs`: Model Context Protocol server error display and schema validation.
 

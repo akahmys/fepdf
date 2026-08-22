@@ -36,7 +36,8 @@ pub fn handle_upgrade(
         if (std == PdfStandard::A4 || std == PdfStandard::X6) && icc_profile.is_none() {
             println!("ADVICE: No --icc-profile specified. Defaulting to standard sRGB.");
         }
-        doc.upgrade_to_standard(std).map_err(|e| anyhow::anyhow!("{e:?}"))?;
+        doc.apply(fepdf::Operation::Upgrade { standard: std })
+            .map_err(|e| anyhow::anyhow!("{e:?}"))?;
     }
 
     save.check()?;

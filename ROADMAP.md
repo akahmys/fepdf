@@ -135,8 +135,10 @@ survive that test as refusals — nothing here depends on them, and both are dep
 | **14** Document interchange | Marked content (14.6) is read and acted on. Logical structure (14.7) is walked and UA-2 audited. Associated files (14.13) gained a reader when Phase O-1 presented seventeen of them, and page-piece dictionaries (14.5) one. **Not re-measured** beyond those. |
 | **14.3** Metadata | Settled at load into one state: `/Info` and the metadata stream are reconciled, disagreements recorded, and the entries 14.3.3 deprecates moved to where that clause puts them ([ADR-0013](docs/adr/0013-a-document-is-one-normalised-state.md)). Text strings decode to 7.9.2.2 — PDFDocEncoding from Annex D, or a byte order mark — after a Shift-JIS detector was found corrupting a conforming `/Title`. `--strip` removes every metadata stream, not the catalogue's alone. |
 
-One measurement worth carrying forward: all 24 `Operation` variants are fully
-implemented and verified. In `fepdf-model` and `fepdf-syntax` the `log::warn!` count is
+One measurement worth carrying forward: all **30** `Operation` variants are fully
+implemented and verified — 24 until Phase Q enforced Rule D, which turned six of the
+facade's mutating methods into operations and left `apply` as the only way to change a
+document. In `fepdf-model` and `fepdf-syntax` the `log::warn!` count is
 down from 14 to one, and that one is deliberate: it reports which fonts *this machine*
 has, not anything the document says.
 
@@ -517,7 +519,7 @@ to verify them against.
       before content synthesis (`ApplyBatesNumbering`, `AddPageDecoration`)
 - [x] Un-hide each CLI subcommand as its operation lands
 - [x] Decide the fate of the operations no frontend reaches; an unreachable operation
-      is a maintenance cost without a user (all 24 operations now implemented and verified)
+      is a maintenance cost without a user (all operations implemented and verified)
 - [x] `color_policy` is the last ingestion option nothing reads, and `status.sh` counts
       it. ADR-0007's terms apply: implement the colour validation it was meant to govern,
       or delete the option and the enum. Clause 8.6 colour space validation in active
@@ -542,7 +544,7 @@ the operation vocabulary while 79% of it is hollow — the shape of the mistake 
       The content stream interpreter and its operator handlers now live in `fepdf-content`
       alongside `RenderBackend`, with `fepdf` providing clean re-exports.
 - [x] `fepdf-doc`: extracted and separated from `fepdf`.
-      Owns the `Operation` vocabulary (all 24 operations implemented and active),
+      Owns the `Operation` vocabulary (all operations implemented and active),
       structural mutations, logical structure tree visitor, Matterhorn PDF/UA-2 auditor,
       and remediation engine.
 - [x] `fepdf` as its own crate — renamed from `fepdf-sdk`, completing the target topology
@@ -1359,24 +1361,54 @@ document on 2026-08-22 found the rule broken, the crate sizes stale by up to 5.8
 **None of this was hidden. It was unmeasured, which is not the same as unknowable**: every
 figure below came out of one command, and the commands are here.
 
-- [ ] **Rule D does not hold: eight frontend call sites mutate documents outside the
-      vocabulary.** The facade exposes each mutation twice — as an `Operation` variant and
-      as a plain `&mut self` method — so a frontend can leave the vocabulary without
+- [x] **Rule D did not hold: eight frontend call sites mutated documents outside the
+      vocabulary.** The facade exposed each mutation twice — as an `Operation` variant and
+      as a plain `&mut self` method — so a frontend could leave the vocabulary without
       re-implementing anything, which is the failure Rule D was written to prevent in a
-      form it did not anticipate. `fepdf-gui` calls `remove_page` twice while
-      `Operation::RemovePages` exists and the GUI never builds it: **two ways to remove a
+      form it did not anticipate. `fepdf-gui` called `remove_page` twice while
+      `Operation::RemovePages` existed and the GUI never built it: **two ways to remove a
       page, with nothing comparing them**, which is §4's rotate divergence in its early
-      form. The other five have no `Operation` at all — `insert_pages_from`,
-      `duplicate_page`, `upgrade_to_standard`, `retag_document` — and three of those were
-      *planned* as operations (`InsertFrom`, `Retag`, `Upgrade`), built as methods, and
-      left in `ARCHITECTURE.md` looking like a description of the code. Closing this means
-      four new operations and then removing the methods, so the choice stops being
-      available. `status.sh` derives the method list from the facade rather than listing
-      it, and was verified by adding a ninth bypass to the WASM stub and watching the row
-      read 9
+      form.
+
+      **Fixed by removing the alternative rather than by policing it.** Ten mutating
+      methods left `crates/fepdf/src/lib.rs` — the eight called ones plus `swap_pages` and
+      `add_ltv_info`, which had no caller anywhere — and six became operations:
+      `ReorderBatch`, `DuplicatePages`, `InsertFrom`, `AddLtvInfo`, `Retag`, `Upgrade`. The
+      vocabulary is 24 → **30** and `apply` is the only way in.
+
+      **`swap_pages` became the tenth and got deleted instead.** Removing the facade method
+      left `Document::swap_pages` reachable from nothing, and it turned out that a public
+      swap had existed at *two* levels with no caller in four frontends and no test at
+      either. It was not given a variant, on the criterion
+      [ADR-0026](docs/adr/0026-the-engine-takes-the-ecmascript-subset-because-it-already-owes-it.md)
+      states: a capability is required when work already undertaken depends on it, and
+      nothing did. Two `Reorder`s express a swap when a caller appears, and then it gets
+      built against one — which is [ADR-0007](docs/adr/0007-an-option-that-is-not-read-is-hidden.md)
+      applied to an API instead of to an options struct.
+
+      Four things the work turned up, none of them predicted:
+
+      - **A check that greps call sites could not do this.** The row this phase first
+        added missed `reorder_pages_batch` (its signature spans two lines) and counted
+        `app.duplicate_page`, which is the GUI's own method sharing a name. The row now
+        counts `&mut self` methods in one file and expects 0, verified by adding one back
+        with a multi-line signature.
+      - **Two of the ten were not passthroughs.** `duplicate_page` and `insert_pages_from`
+        held arena work and the object cloner — document logic in the crate that exists to
+        expose it. `fepdf` fell 1,809 → 1,642 lines; `fepdf-doc` rose to 3,748.
+      - **The frontend was doing the engine's arithmetic**, sorting indices descending so
+        that removing one page did not move the next. Getting that wrong in
+        `DuplicatePages` is not a mis-ordering: selecting three pages and inserting
+        ascending clones page 0 **three times**, because after the first insertion the
+        remaining indices name clones. Measured by putting the bug in; a test asserts the
+        page widths.
+      - **`ARCHITECTURE.md`'s fictional enum had been right about three of them.**
+        `InsertFrom`, `Retag` and `Upgrade` were planned as operations and built as
+        methods, which is how the rule came to be broken. Enforcing it was largely
+        building what the document had claimed for four phases.
 
       ```bash
-      ./scripts/dev/status.sh | grep 'Rule D'      # 8, expected 0
+      ./scripts/dev/status.sh | grep 'Rule D'      # 0
       ```
 
 - [x] **The engine/frontend log split was not a partition, so three crates were in
@@ -1415,6 +1447,15 @@ figure below came out of one command, and the commands are here.
       what `status.sh` needs is the figure. Two of the three C dependencies and forty-five
       of these were invisible to every check this project has, and both were found by
       hand, twice, four days apart
+- [ ] **`fepdf-mcp` names 24 of the 30 operations as tools.** It named all of them until
+      Rule D added six, and it is the frontend whose whole job is to expose the vocabulary
+      — a tool is the serialised form of an operation (ARCHITECTURE §5.1). All thirty are
+      *reachable*, through the generic `apply_operation` tool that deserialises any
+      `Operation` from a JSON string; what the six lack is a named tool with a schema, so
+      a caller has to know the variant exists to ask for it. That generic tool is also the
+      evidence for [ADR-0025](docs/adr/0025-a-script-processor-is-a-frontend-not-a-subsystem.md)'s
+      claim that a script frontend needs almost no bridge: the JSON-to-`Operation` path
+      already exists and is in use
 - [ ] **`fepdf-wasm::render_page` returns `Ok(())` having drawn nothing.** Not
       unimplemented — *silently successful*, which is worse: a caller is told it worked and
       gets a blank canvas. Either it renders, or it returns an error saying it does not.
@@ -1423,7 +1464,9 @@ figure below came out of one command, and the commands are here.
 
 *Done when*: `status.sh` reports 0 Rule D bypasses and 3 engine log sites over derived
 crate lists; unused dependency declarations have a row; and `fepdf-wasm` either renders or
-says it cannot.
+says it cannot. **Two of the five are done**: Rule D reads 0 and the log row reads 16 over
+a derived list, which is the truth it was built to tell rather than the number anyone
+wanted. Converting the thirteen is Phase P.
 
 **What this phase is not.** It is not a documentation pass. Every item is a property of
 the code that a document asserted and nothing verified — the documents were where the

@@ -94,9 +94,22 @@ pub mod struct_tree {
     pub use fepdf_doc::struct_tree::*;
 }
 pub use fepdf_doc::{
-    AuditFinding, DecorationPosition, MatterhornAuditor, Operation, PageSelection, Quarter,
-    RotateMode, StructElemUpdate, StructureTreeNode, StructureTreeVisitor, StructureVisitor,
-    apply_operation, apply_physical_redaction_to_page,
+    AuditFinding,
+    DecorationPosition,
+    MatterhornAuditor,
+    Operation,
+    PageSelection,
+    // `PdfStandard` moved here from this file when `Operation::Upgrade` came to carry it:
+    // a type an operation holds has to live with the vocabulary.
+    PdfStandard,
+    Quarter,
+    RotateMode,
+    StructElemUpdate,
+    StructureTreeNode,
+    StructureTreeVisitor,
+    StructureVisitor,
+    apply_operation,
+    apply_physical_redaction_to_page,
 };
 /// The internal writer module for generating PDF files.
 pub mod writer;
@@ -221,19 +234,6 @@ pub struct SignOptions {
     pub page_index: usize,
 }
 
-/// Supported PDF modern standards for conversion.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum PdfStandard {
-    /// PDF/A-4 (ISO 19005-4:2020) for long-term archiving.
-    A4,
-    /// PDF/X-6 (ISO 15930-9:2020) for professional printing.
-    X6,
-    /// PDF/UA-2 (ISO 14289-2:2024) for universal accessibility.
-    UA2,
-    /// ISO 32000-2 (PDF 2.0) base compliance.
-    ISO32000_2,
-}
-
 /// Summary of document properties and structural health.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct DocumentSummary {
@@ -336,40 +336,6 @@ impl PdfDocument {
         &self.inner
     }
 
-    /// Adds Document Security Store (DSS) for PAdES LTV support.
-    pub fn add_ltv_info(&mut self, certificates: Vec<Vec<u8>>) -> PdfResult<()> {
-        let arena = self.inner.arena();
-        let mut dss_dict = std::collections::BTreeMap::new();
-
-        let mut cert_refs = Vec::new();
-        for cert_data in certificates {
-            let mut stream_dict = std::collections::BTreeMap::new();
-            #[allow(clippy::cast_possible_wrap)]
-            stream_dict.insert(arena.name("Length"), Object::Integer(cert_data.len() as i64));
-            let stream_h = arena.alloc_dict(stream_dict);
-            let stream_ref = arena.alloc_object(Object::Stream(
-                stream_h,
-                std::sync::Arc::new(fepdf_model::object::SublimatedData::Raw(bytes::Bytes::from(
-                    cert_data,
-                ))),
-            ));
-            cert_refs.push(Object::Reference(stream_ref));
-        }
-
-        if !cert_refs.is_empty() {
-            dss_dict.insert(arena.name("Certs"), Object::Array(arena.alloc_array(cert_refs)));
-        }
-
-        if let Some(cah) = self.inner.catalog_handle() {
-            let cadh = self.inner.resolve_to_dict(cah)?;
-            let mut catalog = arena.get_dict(cadh).unwrap_or_default();
-            catalog.insert(arena.name("DSS"), Object::Dictionary(arena.alloc_dict(dss_dict)));
-            arena.set_dict(cadh, catalog);
-        }
-
-        Ok(())
-    }
-
     /// What the engine decided where the input departed from the standard.
     ///
     /// Reaching these previously meant asking for a whole [`DocumentSummary`], which
@@ -394,85 +360,26 @@ impl PdfDocument {
         self.inner.get_page(index)
     }
 
-    /// Swaps the order of two pages.
-    pub fn swap_pages(&mut self, a: usize, b: usize) -> PdfResult<()> {
-        self.inner.swap_pages(a, b)
-    }
-
-    /// Moves page at `from` index to `to` index.
-    pub fn reorder_page(&mut self, from: usize, to: usize) -> PdfResult<()> {
-        self.inner.reorder_page(from, to)
-    }
-
-    /// Moves multiple pages specified by `source_indices` to `target_insert_pos`.
-    pub fn reorder_pages_batch(
-        &mut self,
-        source_indices: &[usize],
-        target_insert_pos: usize,
-    ) -> PdfResult<std::ops::Range<usize>> {
-        self.inner.reorder_pages_batch(source_indices, target_insert_pos)
-    }
-
-    /// Removes a page at the specified 0-based index.
-    pub fn remove_page(&mut self, index: usize) -> PdfResult<()> {
-        self.inner.remove_page(index)
-    }
-
-    /// Duplicates a page at `index` and inserts the cloned page immediately after it.
-    pub fn duplicate_page(&mut self, index: usize) -> PdfResult<()> {
-        let page_count = self.page_count()?;
-        if index >= page_count {
-            return Err(PdfError::Arena(format!("Page index {index} out of bounds").into()));
-        }
-
-        let source_page = self.inner.get_page(index)?;
-        let source_dh = self.inner.resolve_to_dict(source_page.obj_handle())?;
-
-        let arena = self.inner.arena();
-        let cloned_obj = {
-            let mut cloner = cloning::ObjectCloner::new(arena, arena);
-            cloner.clone_object(&Object::Dictionary(source_dh))?
-        };
-
-        if let Object::Dictionary(dh) = cloned_obj {
-            let target_page_h = self.inner.arena().alloc_object(Object::Dictionary(dh));
-            self.inner.pages.insert(index + 1, target_page_h);
-            self.inner.rebuild_page_tree_in_arena()?;
-        }
-
-        Ok(())
-    }
-
-    /// Inserts pages from another document into this document at `at_index`.
-    pub fn insert_pages_from(&mut self, source: &PdfDocument, at_index: usize) -> PdfResult<usize> {
-        let source_page_count = source.page_count()?;
-        if source_page_count == 0 {
-            return Ok(0);
-        }
-
-        let clamped_index = at_index.min(self.inner.pages.len());
-        let mut cloner = cloning::ObjectCloner::new(source.inner.arena(), self.inner.arena());
-
-        let mut new_page_handles = Vec::with_capacity(source_page_count);
-
-        for i in 0..source_page_count {
-            let source_page = source.inner.get_page(i)?;
-            let source_dh = source.inner.resolve_to_dict(source_page.obj_handle())?;
-            let cloned = cloner.clone_object(&Object::Dictionary(source_dh))?;
-            if let Object::Dictionary(dh) = cloned {
-                let target_page_h = self.inner.arena().alloc_object(Object::Dictionary(dh));
-                new_page_handles.push(target_page_h);
-            }
-        }
-
-        let inserted_count = new_page_handles.len();
-        for (i, h) in new_page_handles.into_iter().enumerate() {
-            self.inner.pages.insert(clamped_index + i, h);
-        }
-
-        self.inner.rebuild_page_tree_in_arena()?;
-        Ok(inserted_count)
-    }
+    // --- Rule D: there are no other document mutators here, and that is the check. ---
+    //
+    // Ten used to sit in this block: `add_ltv_info`, `swap_pages`, `reorder_page`,
+    // `reorder_pages_batch`, `remove_page`, `duplicate_page`, `insert_pages_from`,
+    // `upgrade_to_standard`, `retag_document` and `set_page_rotation`. Each exposed a
+    // mutation the `Operation` vocabulary either already carried or should have, so a
+    // frontend could leave the vocabulary without re-implementing anything — which is not
+    // the escape ARCHITECTURE §5.1's Rule D was written to block, and it was taken at
+    // eight call sites across `fepdf-gui` and `fepdf-cli`.
+    //
+    // §7 called Rule D "enforced by construction" while nothing enforced it. It is
+    // enforced by construction now: `apply` is the only way in, so the alternative is
+    // unrepresentable rather than discouraged — the same move `RotateMode` and `Quarter`
+    // made for the rotate divergence that created the rule.
+    //
+    // `status.sh` counts the `&mut self` methods in this file that are not `apply` and
+    // not the four that configure saving. The row expects 0. Adding a mutating method
+    // here is what makes it fail, which is the point: the check reads one file rather
+    // than grepping four frontends for method names, and so cannot be fooled by a
+    // frontend that happens to define a method of the same name.
 
     /// Sets the system fallback fonts for the document (Phase 4).
     pub fn set_system_fonts(&mut self, fonts: BTreeMap<FallbackFontType, Arc<Vec<u8>>>) {
@@ -1335,59 +1242,6 @@ impl PdfDocument {
         None
     }
 
-    /// Upgrades the document to a specific standard (A-4, X-6, UA-2).
-    pub fn upgrade_to_standard(&mut self, standard: PdfStandard) -> PdfResult<()> {
-        let arena = self.inner.arena();
-        match standard {
-            PdfStandard::ISO32000_2 => {
-                arena.set_version(2.0);
-            }
-            PdfStandard::A4 => {
-                arena.set_version(2.0);
-                if let Some(cah) = self.inner.catalog_handle() {
-                    if let Ok(cadh) = self.inner.resolve_to_dict(cah) {
-                        let mut catalog = arena.get_dict(cadh).unwrap_or_default();
-                        let gts_key = arena.intern_name(PdfName::new("GTS_PDFA14"));
-                        catalog
-                            .insert(gts_key, Object::Name(arena.intern_name(PdfName::new("Yes"))));
-                        arena.set_dict(cadh, catalog);
-                    }
-                }
-            }
-            PdfStandard::UA2 => {
-                arena.set_version(2.0);
-                if let Some(cah) = self.inner.catalog_handle() {
-                    if let Ok(cadh) = self.inner.resolve_to_dict(cah) {
-                        let mut catalog = arena.get_dict(cadh).unwrap_or_default();
-                        let ua_key = arena.intern_name(PdfName::new("PdfUA"));
-                        catalog.insert(ua_key, Object::Integer(2));
-                        arena.set_dict(cadh, catalog);
-                    }
-                }
-            }
-            PdfStandard::X6 => {
-                arena.set_version(2.0);
-                if let Some(cah) = self.inner.catalog_handle() {
-                    if let Ok(cadh) = self.inner.resolve_to_dict(cah) {
-                        let mut catalog = arena.get_dict(cadh).unwrap_or_default();
-                        let gts_key = arena.intern_name(PdfName::new("GTS_PDFX"));
-                        catalog.insert(
-                            gts_key,
-                            Object::Name(arena.intern_name(PdfName::new("PDFX6"))),
-                        );
-                        arena.set_dict(cadh, catalog);
-                    }
-                }
-            }
-        }
-        Ok(())
-    }
-
-    /// Primary entry point for re-tagging a document automatically.
-    pub fn retag_document(&mut self) -> PdfResult<()> {
-        crate::remediation::retag(&mut self.inner)
-    }
-
     /// Returns a list of potential structural remediations for the document.
     pub fn get_remediation_candidates(
         &self,
@@ -1481,17 +1335,6 @@ impl PdfDocument {
             return Ok(normalized.rem_euclid(360));
         }
         Ok(0)
-    }
-
-    /// Sets the rotation of a specific page.
-    pub fn set_page_rotation(&mut self, index: usize, angle: i32) -> PdfResult<()> {
-        let page = self.inner.get_page(index)?;
-        let page_dh = self.inner.resolve_to_dict(page.obj_handle())?;
-        let arena = self.inner.arena();
-        let mut dict = arena.get_dict(page_dh).unwrap_or_default();
-        dict.insert(arena.name("Rotate"), Object::Integer(i64::from(angle)));
-        arena.set_dict(page_dh, dict);
-        Ok(())
     }
 
     /// Extracts the presentation-ready logical structure tree.

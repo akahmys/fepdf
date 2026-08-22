@@ -80,6 +80,23 @@ pub enum PageSelection {
     Indices(Vec<usize>),
 }
 
+/// Supported PDF modern standards for conversion.
+///
+/// Lived in the facade until `Operation::Upgrade` needed it. A type an operation carries
+/// has to live with the vocabulary: the facade may re-export it, and cannot own it
+/// without `fepdf-doc` depending upwards.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum PdfStandard {
+    /// PDF/A-4 (ISO 19005-4:2020) for long-term archiving.
+    A4,
+    /// PDF/X-6 (ISO 15930-9:2020) for professional printing.
+    X6,
+    /// PDF/UA-2 (ISO 14289-2:2024) for universal accessibility.
+    UA2,
+    /// ISO 32000-2 (PDF 2.0) base compliance.
+    ISO32000_2,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 /// Parameters for updating a structural element in the document.
 pub struct StructElemUpdate {
@@ -127,6 +144,50 @@ pub enum Operation {
     },
     /// Remove specified pages.
     RemovePages(PageSelection),
+    /// Move several pages to a new position, as one movement rather than a sequence.
+    ///
+    /// Distinct from `Reorder`, which moves one page: moving a set one at a time makes
+    /// every index after the first depend on the moves before it, and the two frontends
+    /// that offered a multi-page drag both got that wrong in their own way.
+    ReorderBatch {
+        /// The 0-based indices to move, in the document's current numbering.
+        sources: Vec<usize>,
+        /// Where the moved run is inserted, in that same numbering.
+        target: usize,
+    },
+    /// Duplicate pages, each clone placed immediately after its original.
+    DuplicatePages(PageSelection),
+    /// Insert every page of another document, given as the bytes of that document.
+    ///
+    /// The source is bytes rather than a handle to an open document because an operation
+    /// is a value: it has to serialise, and `fepdf-mcp` reaches `apply` through JSON. The
+    /// GUI already carried the bytes and opened them inside its worker, so this costs it
+    /// nothing.
+    InsertFrom {
+        /// The complete source document.
+        source: Vec<u8>,
+        /// The 0-based position to insert at, clamped to the page count.
+        at: usize,
+    },
+    /// Add a Document Security Store (`/DSS`, 12.8.4.3) carrying validation certificates.
+    ///
+    /// **Untested, and the only piece of `/DSS` that exists.** It was a facade method
+    /// nothing called and no test exercised — code that writes a security structure, in
+    /// the crate that is supposed to only expose them. It is here rather than deleted
+    /// because the vocabulary is where the rest of long-term validation would go, and
+    /// here rather than left alone because a mutation outside the vocabulary is how two
+    /// implementations of one thing get started (Rule D).
+    AddLtvInfo {
+        /// DER-encoded certificates, one stream each.
+        certificates: Vec<Vec<u8>>,
+    },
+    /// Rebuild the document's logical structure from heuristics (14.7).
+    Retag,
+    /// Rewrite the catalogue and version for a target standard.
+    Upgrade {
+        /// The standard to declare.
+        standard: PdfStandard,
+    },
     /// Update a structural element's tag or Alt text.
     UpdateStructElem(StructElemUpdate),
     /// Delete a structural element by handle index.

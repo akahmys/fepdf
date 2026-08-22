@@ -21,6 +21,16 @@ pub fn apply_operation(doc: &mut Document, op: Operation) -> PdfResult<()> {
     match op {
         Operation::Rotate { pages, mode } => page::apply_rotate(doc, &pages, &mode),
         Operation::Reorder { from, to } => page::apply_reorder(doc, from, to),
+        Operation::ReorderBatch { sources, target } => {
+            page::apply_reorder_batch(doc, &sources, target).map(|_| ())
+        }
+        Operation::DuplicatePages(pages) => page::apply_duplicate_pages(doc, &pages),
+        Operation::InsertFrom { source, at } => {
+            page::apply_insert_from(doc, &source, at).map(|_| ())
+        }
+        Operation::AddLtvInfo { certificates } => security::apply_add_ltv_info(doc, certificates),
+        Operation::Retag => crate::remediation::retag(doc),
+        Operation::Upgrade { standard } => page::apply_upgrade(doc, standard),
         Operation::RemovePages(pages) => page::apply_remove_pages(doc, &pages),
         Operation::SetPageLabels(labels) => page::apply_set_page_labels(doc, labels),
         Operation::UpdateStructElem(u) => structure::apply_update_struct(doc, u),

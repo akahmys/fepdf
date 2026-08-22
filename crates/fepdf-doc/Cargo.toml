@@ -18,3 +18,9 @@ bytes.workspace = true
 
 [lints]
 workspace = true
+
+[dev-dependencies]
+# Only the tests need this: `Operation`'s JSON is a public interface — `fepdf-mcp`
+# deserialises a caller's string into one — and nothing exercised it until Rule D moved
+# six operations here.
+serde_json.workspace = true

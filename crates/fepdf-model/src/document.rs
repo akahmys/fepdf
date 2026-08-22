@@ -923,15 +923,17 @@ impl Document {
         self.pages.get(index).copied()
     }
 
-    /// Page order swap operation (O(1) logical swap with immediate B-tree arena synchronization)
-    pub fn swap_pages(&mut self, a: usize, b: usize) -> PdfResult<()> {
-        if a >= self.pages.len() || b >= self.pages.len() {
-            return Err(PdfError::Other("Index out of bounds".into()));
-        }
-        self.pages.swap(a, b);
-        self.rebuild_page_tree_in_arena()?;
-        Ok(())
-    }
+    // `swap_pages` stood here, and went when Rule D removed the facade method that was its
+    // only route out of this crate. Nothing called either one, and no test touched them:
+    // a public swap in the model, a public swap in the facade, and not one caller in four
+    // frontends or in any test. It was never given an `Operation` because nothing had ever
+    // asked for one.
+    //
+    // Deleted rather than given a variant, on the criterion ADR-0026 states: a capability
+    // is required when work already undertaken depends on it, and nothing here does. Two
+    // `Operation::Reorder`s express a swap if a caller ever needs one, and then it will be
+    // built against a caller instead of before one — which is the failure this codebase
+    // keeps paying for (ADR-0007).
 
     /// Page reorder operation (moves page from `from` index to `to` index with immediate page tree reconstruction)
     pub fn reorder_page(&mut self, from: usize, to: usize) -> PdfResult<()> {

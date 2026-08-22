@@ -145,7 +145,7 @@ pub fn handle_retag(
         }
     } else {
         println!("Running automatic heuristic re-tagging rules...");
-        doc.retag_document().map_err(|e| anyhow::anyhow!("{e:?}"))?;
+        doc.apply(fepdf::Operation::Retag).map_err(|e| anyhow::anyhow!("{e:?}"))?;
     }
 
     save.check()?;

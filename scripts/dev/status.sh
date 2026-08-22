@@ -100,16 +100,28 @@ frontend_logs=$(grep -rn "log::warn!\|log::error!" $frontend_dirs --include="*.r
 row "frontend log sites (not a defect)" "$frontend_logs"
 
 # Rule D (ARCHITECTURE.md 5.1): every document mutation is an `Operation`, and only
-# `fepdf-doc` interprets it. Section 7 called that "enforced by construction" — which was
-# an assertion, not a mechanism, and it was false: the facade also exposes the mutation
-# as a plain method, so a frontend can call one instead of building the value. Both
-# halves are derived here rather than listed, because the facade grows.
-mutators=$(grep -oE '^    pub fn [a-z_]+\(&mut self' crates/fepdf/src/lib.rs \
-    | sed 's/.*pub fn //; s/(&mut self//' | grep -vx "apply" | grep -vE '^set_(vacuum|strip|password|system_fonts)$')
-bypass=$(for m in $mutators; do
-    grep -rn "\.$m(" $frontend_dirs --include="*.rs" 2>/dev/null
-done | wc -l | tr -d ' ')
-row "Rule D: frontend mutations bypassing Operation (expect 0)" "$bypass"
+# `fepdf-doc` interprets it. Section 7 called that "enforced by construction" while
+# nothing enforced it — the facade exposed each mutation twice, as a variant and as a
+# plain method, and eight frontend call sites used the method.
+#
+# The first version of this row grepped the four frontends for each facade mutator's
+# name. It was wrong twice over: it missed `reorder_pages_batch`, whose signature spans
+# two lines, and it counted `app.duplicate_page` in `fepdf-gui`, which is the GUI's own
+# method that happens to share a name. A check that greps call sites cannot tell those
+# apart.
+#
+# So the property moved into the type instead. The mutators are gone from the facade, and
+# what is counted is the facade itself: `&mut self` methods that are not `apply` and not
+# the four that configure saving rather than change the document. One file, no receivers
+# to disambiguate, and a frontend cannot bypass a vocabulary that is the only way in.
+# Adding a mutating method to `crates/fepdf/src/lib.rs` is what makes this fail.
+facade_mutators=$(awk '
+    /^    pub fn [a-z_]+/ { sig = $0; name = $0; sub(/^.*pub fn /, "", name); sub(/[(<].*$/, "", name); collecting = 1 }
+    collecting && !/^    pub fn / { sig = sig " " $0 }
+    collecting && /\{[[:space:]]*$/ { if (sig ~ /&mut self/) print name; collecting = 0 }
+' crates/fepdf/src/lib.rs | sort -u | grep -vx "apply" \
+    | grep -vE '^set_(vacuum|strip|password|system_fonts)$' | wc -l | tr -d ' ')
+row "Rule D: document mutators on the facade besides apply (expect 0)" "$facade_mutators"
 
 stubs=$(grep -rho 'PdfError::NotImplemented' crates/fepdf/src crates/fepdf-doc/src \
     --include="*.rs" 2>/dev/null | wc -l | tr -d ' ')

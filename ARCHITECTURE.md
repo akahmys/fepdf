@@ -111,7 +111,7 @@ find crates/<name>/src -name '*.rs' | xargs cat | wc -l
 so any figure here can be checked in one command — which is the only reason the drift was
 visible. The 2026-08-18 figures had gone stale everywhere but `fepdf-syntax`, and one was
 stale by 5.8×: `fepdf-mcp` read 330 while it held 1,902, having become the only frontend
-that constructs all 24 operations. A size that is quoted and not re-derived says what the
+that constructed all 24 operations of the day. A size that is quoted and not re-derived says what the
 crate *was* for.
 
 Every crate below the facade is now larger than the row that described it, so nothing here
@@ -123,12 +123,12 @@ should be read as a budget.
 | **`fepdf-font`** | ✅ (Audited ✅) | 3,758 | Font *programs*: CFF, TrueType, CMap, Adobe Glyph List, subsetting, reconstruction. Hardened against W/W2 out-of-bounds, CMap underflows (`e_val >= s_val`), and CID byte truncations. |
 | **`fepdf-model`** | ✅ | 27,281 | The document graph: `PdfArena`, `Handle<T>`, `Object`, page tree, metadata — and, since Phase A, the reader (7.5) and `writer.rs`. Hardened with pool overflow guards, cyclic `resolve` limits (`64`), and safe `Null` reference fallbacks. |
 | **`fepdf-content`** | ✅ | 3,645 | Content-stream interpreter, and the **`RenderBackend` contract** it drives (`TextGlyph`, `TextState`, `SMaskData`, path geometry). No GPU dependency. |
-| **`fepdf-doc`** | ✅ | 3,519 | Owns the **`Operation` vocabulary** (§5.1) and is its only interpreter: 24 canonical mutation operations in seven groups, six of which the source labels. Also structure-tree handling, conformance auditing, remediation. |
+| **`fepdf-doc`** | ✅ | 3,748 | Owns the **`Operation` vocabulary** (§5.1) and is its only interpreter: **30** canonical mutation operations. Also structure-tree handling, conformance auditing, remediation. Grew by six when Rule D was enforced and the facade's mutating methods became operations. |
 | **`fepdf-render`** | ✅ | 1,430 | A `RenderBackend` implementation on **Vello** + **wgpu**. Reached only through the facade's optional `render` feature. |
-| **`fepdf`** | ✅ | 1,809 | The public facade: `PdfDocument`, `SaveOptions`, `Operation`. It is the Rule A boundary in fact — frontends depend on it and on nothing below. |
+| **`fepdf`** | ✅ | 1,642 | The public facade: `PdfDocument`, `SaveOptions`, `Operation`. It is the Rule A boundary in fact — frontends depend on it and on nothing below. Lost 167 lines when ten document-mutating methods left for the vocabulary (§5.1); `duplicate_page` and `insert_pages_from` were not passthroughs but arena work, and belonged with the cloner in `fepdf-doc`. |
 | **`fepdf-cli`** | ✅ | 3,019 | Command-line binary (`fepdf`). |
-| **`fepdf-gui`** | ✅ | 8,395 | Desktop application on **egui** + **eframe** + **wgpu**. |
-| **`fepdf-mcp`** | ✅ | 1,902 | Model Context Protocol server for AI assistants. **The most complete frontend by some distance**: it constructs all 24 `Operation` variants, where `fepdf-cli` constructs 6 and `fepdf-gui` 2. That is the shape §5.1 predicted — a tool is the serialised form of an operation — arriving on its own. |
+| **`fepdf-gui`** | ✅ | 8,354 | Desktop application on **egui** + **eframe** + **wgpu**. |
+| **`fepdf-mcp`** | ✅ | 1,902 | Model Context Protocol server for AI assistants. **The most complete frontend by some distance**: 24 of the 30 `Operation` variants, where `fepdf-cli` constructs 8 and `fepdf-gui` 6. That is the shape §5.1 predicted — a tool is the serialised form of an operation — arriving on its own. The six it does not construct are the ones Rule D produced, and it should gain them. |
 | **`fepdf-wasm`** | ✅ | 40 | WebAssembly bindings. Currently a stub, and worse than unimplemented: `render_page` **returns `Ok(())` having drawn nothing**, so a caller is told it succeeded and gets a blank canvas. It also constructs no `Operation` at all, which is why the §5.1 diagram no longer lists it as a frontend that does. |
 | **`fepdf-macros`** | ✅ | 183 | Compile-time procedural macros. |
 
@@ -232,11 +232,11 @@ Every document mutation is a value of one type, defined in `fepdf-doc` and re-ex
 through the facade. Frontends construct it; only `fepdf-doc` interprets it.
 
 ```
-   fepdf-cli    argv          ─┐     6 of 24 variants
-   fepdf-gui    button press  ─┤     2 of 24
+   fepdf-cli    argv          ─┐      8 of 30 variants
+   fepdf-gui    button press  ─┤      6 of 30
    fepdf-mcp    tool call     ─┼─►  Operation  ─►  fepdf-doc::apply
    fepdf-wasm   —             ─┘     (a value)      (the only implementation)
-                                     24 variants
+                                     30 variants      and the only way in
 ```
 
 Ambiguity that used to live in prose becomes a type. The rotate divergence in §4 was
@@ -248,6 +248,12 @@ pub enum Operation {
     Rotate { pages: PageSelection, mode: RotateMode },
     Reorder { from: usize, to: usize },
     RemovePages(PageSelection),
+    ReorderBatch { sources: Vec<usize>, target: usize },
+    DuplicatePages(PageSelection),
+    InsertFrom { source: Vec<u8>, at: usize },
+    AddLtvInfo { certificates: Vec<Vec<u8>> },
+    Retag,
+    Upgrade { standard: PdfStandard },
     UpdateStructElem(StructElemUpdate),
     DeleteStructElem { handle_index: u32 },
 
@@ -298,7 +304,12 @@ not exist** — `InsertFrom`, `Retag`, `Redact`, `Upgrade`, `CreateLayer`,
 `SetLayerVisibility`, `AddHyperlink`, `AddStamp`, `AddPageDecorations` — and omitted
 **twelve that did**, including everything Phases 5 to 7 added. It was the plan, written
 before the code and never re-read against it, in the section that defines the rule the
-rest of the architecture leans on. Re-derive it with:
+rest of the architecture leans on.
+
+Three of those nine now exist, and the plan turned out to have been right about them:
+`InsertFrom`, `Retag` and `Upgrade` were built as facade *methods* instead, which is
+precisely how Rule D came to be broken. Enforcing the rule was largely a matter of
+building what this listing had claimed for four phases. Re-derive it with:
 
 ```bash
 sed -n '/^pub enum Operation {/,/^}/p' crates/fepdf-doc/src/operation.rs | grep -oE '^    [A-Z][A-Za-z]*'
@@ -317,13 +328,13 @@ A caller must now say which it means, and `Quarter` makes 45° unconstructible.
 - **Testability.** An operation sequence can be applied and asserted without starting
   a GUI or spawning a process.
 
-**Rule D does not hold today, and nothing was checking.** The rule says every mutation is
-an `Operation`; §7 called that "enforced by construction". It is not enforced by anything,
-because the facade exposes each mutation *twice* — as a variant and as a plain `&mut self`
-method — and a frontend that calls the method has re-implemented nothing but has still
-left the vocabulary. Measured 2026-08-22, **eight frontend call sites do exactly that**:
+**Rule D did not hold, and what was checking said it did.** The rule says every mutation
+is an `Operation`; §7 called that "enforced by construction". Nothing enforced it, because
+the facade exposed each mutation *twice* — as a variant and as a plain `&mut self` method —
+and a frontend that called the method had re-implemented nothing but had still left the
+vocabulary. Eight frontend call sites did exactly that:
 
-| Where | Method | Is there an `Operation`? |
+| Where | Method | Was there an `Operation`? |
 | :--- | :--- | :--- |
 | `fepdf-gui/src/worker.rs` ×2 | `remove_page` | **yes** — `RemovePages`, unused by the GUI |
 | `fepdf-gui/src/worker.rs` ×2 | `insert_pages_from` | no |
@@ -332,17 +343,37 @@ left the vocabulary. Measured 2026-08-22, **eight frontend call sites do exactly
 | `fepdf-cli/src/commands/edit.rs` | `retag_document` | no |
 
 The first row is the rotate divergence of §4 in its early form: two ways to remove a page,
-one of them the vocabulary and one of them not, with nothing comparing them. The rest are
-the reason the fictional enum above is worth reading rather than deleting — `InsertFrom`,
-`Retag` and `Upgrade` were *planned* as operations, built as methods, and the plan stayed
-in this document looking like a description of the code.
+one of them the vocabulary and one of them not, with nothing comparing them.
 
-`status.sh` now derives both halves — the facade's `&mut self` methods, minus the four
-that configure saving rather than change the document, and the frontend directories — and
-reports the count. It was verified by adding a ninth bypass to the WASM stub and watching
-the row read 9. Closing it is a phase, not an edit: four operations do not exist yet.
+**It holds now, and by construction rather than by assertion.** Ten mutating methods left
+the facade — the eight above plus `swap_pages` and `add_ltv_info`, which had **no caller
+anywhere** — and six became operations. `apply` is the only way in, so a frontend has
+nothing to reach for. That is the same move `RotateMode` and `Quarter` made for the
+divergence that created the rule: make the alternative unrepresentable rather than
+discouraged.
 
-**What this is not.** The GUI keeps its worker thread: `WorkerRequest` remains, but as
+What the enforcement taught, in order of how much it cost to learn:
+
+- **A check that greps call sites cannot do this job.** The first version of the
+  `status.sh` row searched the four frontends for each facade mutator's name. It missed
+  `reorder_pages_batch`, whose signature spans two lines, and it counted
+  `app.duplicate_page` — the GUI's *own* method, which merely shares a name. The row now
+  reads `crates/fepdf/src/lib.rs` alone and counts `&mut self` methods that are not `apply`
+  and not the four that configure saving. One file, no receivers to disambiguate. Verified
+  by adding a method back with a multi-line signature, which the old version could not see
+  and the new one reads as 1.
+- **Two of the ten were not passthroughs.** `duplicate_page` and `insert_pages_from` held
+  arena work and the object cloner — document logic in the crate that exists to expose it.
+  Their new home in `fepdf-doc` is where `ObjectCloner` already lived.
+- **The frontend was doing the engine's arithmetic.** The GUI removed pages by sorting
+  indices descending and looping, so that removing one did not move the next. `RemovePages`
+  takes the set and owns the order. `DuplicatePages` had to solve the same problem, and
+  getting it wrong is not a mis-ordering: selecting three pages and inserting ascending
+  clones page 0 three times, because after the first insertion the remaining indices name
+  clones. A test asserts the widths and was verified by putting the bug in.
+- **`fepdf-mcp` now constructs 24 of 30** rather than all of them, and should gain the six.
+
+**What this is not.** The GUI keeps its worker thread:**What this is not.** The GUI keeps its worker thread: `WorkerRequest` remains, but as
 a thin envelope (`Execute(Operation)`, plus genuinely GUI-only messages such as
 `RenderPage`). Off-thread execution is a GUI concern; the *meaning* of an operation is
 not. Equally, this is not "the GUI drives the CLI as a subprocess" — the GUI is a
@@ -630,7 +661,7 @@ behaviour or API and need their own tests.
 | 1 | Move the `RenderBackend` contract and its types from `fepdf-render` into `fepdf-content` | ✅ **Done.** Content-stream interpreter and backend contract live in `fepdf-content`; GPU is opt-in | Low |
 | 2 | Extract the PDF-free half of `font/` into `fepdf-font` | ✅ **Done.** 3,710 lines are independently testable | Low |
 | 3 | Move struct-tree handling out of `fepdf-gui` into `fepdf-doc` | ✅ **Done.** Extracted into `fepdf-doc`. The GUI calls `extract_struct_tree()`; the Rule A leak is closed | Medium |
-| 4 | Introduce `Operation`; reduce the CLI subcommands and `WorkerRequest` to adapters over it | ✅ **Done.** Extracted into `fepdf-doc` with all 24 operations implemented and modularized. Rule D is structural | Medium |
+| 4 | Introduce `Operation`; reduce the CLI subcommands and `WorkerRequest` to adapters over it | ✅ **Done**, and for the first time in the sense it was written — the vocabulary was introduced *beside* the facade's mutating methods for four phases, and both were called. Removing the methods finished it: 30 operations, and `apply` is the only way in | Medium |
 | 5 | Move `writer` into `fepdf-model` (core) | ✅ **Done.** Restores the read/write round trip in `fepdf-model` (Rule C) | Low |
 | 6 | Introduce the `fepdf` facade | ✅ **Done.** `fepdf-sdk` renamed to `fepdf`, establishing the public facade crate and completing the target topology | Low |
 
@@ -661,13 +692,14 @@ Architecture rules that are not checked become comments. These are:
   cannot be named from `fepdf-cli`, `fepdf-gui`, `fepdf-mcp` or `fepdf-wasm` at all —
   reaching for one is a compile error, not a review finding. The facade re-exports
   what frontends legitimately need.
-- **Rule D**: **not enforced by construction, and the claim that it was is what hid the
-  breach.** The premise — "mutations exist only as `Operation` values" — is false: the
-  facade also exposes nine document-mutating `&mut self` methods, and frontends call them
-  at eight sites (§5.1). "Enforced by construction" named no tool, which is the tell; every
-  other row here names one. It is now a `status.sh` row that derives the method list from
-  the facade rather than hard-coding it, so a method added tomorrow is in scope the day it
-  lands. The row is expected to read 0 and reads 8.
+- **Rule D**: enforced by construction, and for four phases that was an assertion rather
+  than a fact — the facade exposed ten document-mutating `&mut self` methods beside the
+  vocabulary, and frontends called them at eight sites (§5.1). The tell was that this row
+  named no tool while every other one did. The methods are gone; `apply` is the only way
+  in; and the claim is now backed by a `status.sh` row that counts `&mut self` methods on
+  the facade and expects 0. **The rule and its check disagreed for longer than the rule
+  had been true**, which is the argument for never writing "by construction" without
+  naming what would notice.
 - **RR-15 protocol**: [`CODING.md`](CODING.md), checked by
   [`scripts/audit/verify_compliance.sh`](scripts/audit/verify_compliance.sh).
 - **Lints**: `cargo clippy --workspace --all-targets -- -D warnings`. `--all-targets`

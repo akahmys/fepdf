@@ -4,7 +4,7 @@
 
 #![allow(clippy::float_cmp)]
 use bytes::Bytes;
-use fepdf::{PdfDocument, PdfStandard};
+use fepdf::{Operation, PageSelection, PdfDocument, PdfStandard, Quarter, RotateMode};
 use std::fmt::Write as _;
 
 /// Assembles indirect objects into a file, cross-reference and trailer included.
@@ -84,11 +84,11 @@ fn test_upgrade_to_standard() {
     assert_eq!(doc.inner().arena().version(), 1.7);
 
     // Upgrade to modern PDF 2.0
-    doc.upgrade_to_standard(PdfStandard::ISO32000_2).unwrap();
+    doc.apply(Operation::Upgrade { standard: PdfStandard::ISO32000_2 }).unwrap();
     assert_eq!(doc.inner().arena().version(), 2.0);
 
     // Upgrade to PDF/A-4 standard and check GTS tag
-    doc.upgrade_to_standard(PdfStandard::A4).unwrap();
+    doc.apply(Operation::Upgrade { standard: PdfStandard::A4 }).unwrap();
     assert_eq!(doc.inner().arena().version(), 2.0);
 
     let cah = doc.inner().catalog_handle().unwrap();
@@ -102,7 +102,7 @@ fn test_upgrade_to_standard() {
 fn test_heuristic_retag_execution() {
     let data = get_minimal_pdf();
     let mut doc = PdfDocument::open(data).unwrap();
-    let res = doc.retag_document();
+    let res = doc.apply(Operation::Retag);
     assert!(res.is_ok());
 }
 
@@ -178,6 +178,28 @@ fn get_multipage_pdf(count: usize) -> Bytes {
     assemble(&bodies, count + 2)
 }
 
+/// Like `get_multipage_pdf`, but every page is a different width, so a test can say
+/// *which* page it is looking at. These pages carry no content stream, so text cannot.
+fn get_distinguishable_pdf(count: usize) -> Bytes {
+    let pages_number = count + 1;
+    let mut bodies: Vec<String> = (0..count)
+        .map(|i| {
+            let width = 100 + i * 10;
+            format!("<< /Type /Page /Parent {pages_number} 0 R /MediaBox [0 0 {width} 792] >>")
+        })
+        .collect();
+    let kids: Vec<String> = (1..=count).map(|n| format!("{n} 0 R")).collect();
+    bodies.push(format!("<< /Type /Pages /Kids [{}] /Count {count} >>", kids.join(" ")));
+    bodies.push(format!("<< /Type /Catalog /Pages {pages_number} 0 R >>"));
+    assemble(&bodies, count + 2)
+}
+
+/// The widths of every page, in order.
+fn widths(doc: &PdfDocument) -> Vec<u32> {
+    #![allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    (0..doc.page_count().unwrap()).map(|i| doc.get_page_size(i).unwrap().0 as u32).collect()
+}
+
 #[test]
 fn test_reorder_and_remove_pages() {
     let data = get_multipage_pdf(3);
@@ -185,11 +207,11 @@ fn test_reorder_and_remove_pages() {
     assert_eq!(doc.page_count().unwrap(), 3);
 
     // Test reorder page
-    assert!(doc.reorder_page(0, 2).is_ok());
+    assert!(doc.apply(Operation::Reorder { from: 0, to: 2 }).is_ok());
     assert_eq!(doc.page_count().unwrap(), 3);
 
     // Test remove page
-    assert!(doc.remove_page(1).is_ok());
+    assert!(doc.apply(Operation::RemovePages(PageSelection::Single(1))).is_ok());
     assert_eq!(doc.page_count().unwrap(), 2);
 }
 
@@ -198,14 +220,52 @@ fn test_insert_pages_from() {
     let data1 = get_multipage_pdf(2);
     let data2 = get_multipage_pdf(3);
     let mut doc1 = PdfDocument::open(data1).unwrap();
-    let doc2 = PdfDocument::open(data2).unwrap();
 
     assert_eq!(doc1.page_count().unwrap(), 2);
-    assert_eq!(doc2.page_count().unwrap(), 3);
 
-    let inserted = doc1.insert_pages_from(&doc2, 1).unwrap();
-    assert_eq!(inserted, 3);
+    doc1.apply(Operation::InsertFrom { source: data2.to_vec(), at: 1 }).unwrap();
     assert_eq!(doc1.page_count().unwrap(), 5);
+}
+
+/// `Rotate` with `Absolute`, which is what `set_page_rotation` did before Rule D removed
+/// it from the facade. `Quarter` is why the operation cannot express the 45° the old
+/// signature accepted (ARCHITECTURE §5.1).
+fn rotate_to(doc: &mut PdfDocument, page: usize, quarter: Quarter) -> fepdf::PdfResult<()> {
+    doc.apply(Operation::Rotate {
+        pages: PageSelection::Single(page),
+        mode: RotateMode::Absolute(quarter),
+    })
+}
+
+/// Duplicating several pages at once must place each clone after *its own* original.
+///
+/// The failure this guards is an ascending loop: insert after page 0, and page 1's clone
+/// lands after what is now page 2. `apply_duplicate_pages` walks the selection descending
+/// so that each insertion leaves the indices still to be handled where they were.
+///
+/// Verified by putting the loop back in ascending order, and the measured failure is
+/// worse than the one predicted when this was written: not a mis-ordering but
+/// `100 100 100 100 110 120` — **page 0 cloned three times**, because after the first
+/// insertion indices 1 and 2 name clones rather than the originals they were chosen from.
+#[test]
+fn duplicating_several_pages_keeps_each_clone_beside_its_original() {
+    let mut doc = PdfDocument::open(get_distinguishable_pdf(3)).unwrap();
+    assert_eq!(widths(&doc), vec![100, 110, 120]);
+
+    doc.apply(Operation::DuplicatePages(PageSelection::Indices(vec![0, 1, 2]))).unwrap();
+    assert_eq!(
+        widths(&doc),
+        vec![100, 100, 110, 110, 120, 120],
+        "clones are not beside their originals"
+    );
+}
+
+/// A selection naming a page the document does not have is refused, not silently dropped.
+#[test]
+fn duplicating_a_page_that_is_not_there_is_an_error() {
+    let mut doc = PdfDocument::open(get_multipage_pdf(2)).unwrap();
+    assert!(doc.apply(Operation::DuplicatePages(PageSelection::Single(5))).is_err());
+    assert_eq!(doc.page_count().unwrap(), 2);
 }
 
 #[test]
@@ -216,17 +276,17 @@ fn test_page_rotation() {
     assert_eq!(doc.get_page_rotation(0).unwrap(), 0);
     let (w0, h0) = doc.get_page_size(0).unwrap();
 
-    assert!(doc.set_page_rotation(0, 90).is_ok());
+    assert!(rotate_to(&mut doc, 0, Quarter::Q90).is_ok());
     assert_eq!(doc.get_page_rotation(0).unwrap(), 90);
     let (w90, h90) = doc.get_page_size(0).unwrap();
     assert_eq!((w90, h90), (h0, w0));
 
-    assert!(doc.set_page_rotation(0, 180).is_ok());
+    assert!(rotate_to(&mut doc, 0, Quarter::Q180).is_ok());
     assert_eq!(doc.get_page_rotation(0).unwrap(), 180);
     let (w180, h180) = doc.get_page_size(0).unwrap();
     assert_eq!((w180, h180), (w0, h0));
 
-    assert!(doc.set_page_rotation(0, 270).is_ok());
+    assert!(rotate_to(&mut doc, 0, Quarter::Q270).is_ok());
     assert_eq!(doc.get_page_rotation(0).unwrap(), 270);
     let (w270, h270) = doc.get_page_size(0).unwrap();
     assert_eq!((w270, h270), (h0, w0));
@@ -235,7 +295,7 @@ fn test_page_rotation() {
 #[test]
 fn rotate_absolute_sets_the_angle_regardless_of_current_rotation() {
     let mut doc = PdfDocument::open(get_multipage_pdf(2)).unwrap();
-    doc.set_page_rotation(0, 90).unwrap();
+    rotate_to(&mut doc, 0, Quarter::Q90).unwrap();
 
     doc.apply(fepdf::Operation::Rotate {
         pages: fepdf::PageSelection::Single(0),
@@ -250,7 +310,7 @@ fn rotate_absolute_sets_the_angle_regardless_of_current_rotation() {
 #[test]
 fn rotate_relative_accumulates_and_wraps() {
     let mut doc = PdfDocument::open(get_multipage_pdf(2)).unwrap();
-    doc.set_page_rotation(0, 90).unwrap();
+    rotate_to(&mut doc, 0, Quarter::Q90).unwrap();
 
     doc.apply(fepdf::Operation::Rotate {
         pages: fepdf::PageSelection::Single(0),
