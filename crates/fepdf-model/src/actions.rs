@@ -191,10 +191,19 @@ pub struct ReachableAction {
 ///
 /// A short list on purpose. Claiming to satisfy a requirement is a claim that goes stale;
 /// claiming *not* to satisfy one is a decision this project has taken and written down.
-/// `EnableJavaScripts` is that decision: 12.6.4.17 says a processor shall execute an
-/// ECMAScript action on invocation, and 6.3.2.1 lets a processor choose which subsets it
-/// supports. This one is not chosen, so a document asking for it is asking for something
-/// it will not get, and the caller is told rather than left to find out.
+///
+/// **`EnableJavaScripts` changed meaning on 2026-08-22 and the entry stayed.** It used to
+/// say the subset was *not chosen* — 6.3.2.1 lets a processor decline, so a document
+/// asking for it was asking for something it would not get. ADR-0026 took the subset, and
+/// the reason was not that a corpus asked: `SetFormFieldValue` records a `Violation` of
+/// 12.6.3 on every form that declares a calculation order, so form editing was undertaken
+/// and cannot be finished without it. The entry therefore now reports **chosen and not
+/// yet met** (ROADMAP Phase R), which is a defect rather than a refusal.
+///
+/// What the caller is told is the same either way, and that is the point of reporting the
+/// requirement rather than the reasoning: a document asking for this still will not get
+/// it today. The entry leaves this list when the scripts run, not when the decision was
+/// taken.
 pub const NOT_SATISFIED: &[&str] = &["EnableJavaScripts"];
 
 /// Everything a document can do, and what has to happen first.
@@ -244,9 +253,11 @@ impl ActionReport {
 
     /// The requirements this document declares that this processor does not satisfy.
     ///
-    /// The honest half of declining a subset: 6.3.2.1 permits the decline, and 12.11 is
-    /// how a document says it needs the subset anyway. Where the two meet, somebody has
-    /// to be told.
+    /// The honest half of a subset this processor does not deliver: 12.11 is how a
+    /// document says it needs one, and where that meets a name in `NOT_SATISFIED`,
+    /// somebody has to be told. The reason a name is on that list — declined under
+    /// 6.3.2.1, or chosen and not yet built — does not change what the document does not
+    /// get, so it is not encoded here.
     #[must_use]
     pub fn unmet_requirements(&self) -> Vec<&Requirement> {
         self.requirements

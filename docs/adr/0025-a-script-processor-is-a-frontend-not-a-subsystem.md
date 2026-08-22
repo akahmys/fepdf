@@ -1,6 +1,6 @@
 # ADR-0025: A script processor is a frontend, not a subsystem
 
-- **Status**: Accepted
+- **Status**: Accepted. The *whether* it left open was answered the same day by [ADR-0026](0026-the-engine-takes-the-ecmascript-subset-because-it-already-owes-it.md) — the subset is taken. Everything below is about shape and stands unchanged.
 - **Date**: 2026-08-22
 - **Commit**: a90e90a
 
@@ -109,10 +109,16 @@ claims for the want of exactly that.
 - **Nothing is built yet.** This records the shape so the first step can be a measurement
   rather than a construction: run the corpus's six `/JavaScript` scripts against a minimal
   `app`/`this`, count how many complete, and find out whether boa's coverage and the
-  `&mut Document` borrow are what this needs. Phase Q.
-- **The motive is still thin, and the rule from Phase L still holds.** Of 524 files, two
-  run code on open and `/AA /C` occurs zero times. A corpus is a reason to build and never
-  a reason not to — but it is a reason to keep the first step small and cheap to discard.
+  `&mut Document` borrow are what this needs. Phase R.
+- **The motive looked thin and the measurement was the wrong one.** Of 524 files, two run
+  code on open and `/AA /C` occurs zero times — which was written here as a reason to keep
+  the first step small, and was being used elsewhere as a reason to wait. ADR-0026 found
+  the argument circular: a capability that does not exist has no users. The motive was
+  never in the corpus. It was in `apply/annotations.rs`, where setting a field value in a
+  form with a calculation order records a `Violation` of 12.6.3 — this engine reporting
+  that it undertook form editing and cannot finish it. **A corpus this thin is a
+  requirement on the builder rather than a verdict**: it means fixtures, as Phase M and
+  Phase P both needed.
 - **This design assumes Rule D, which does not currently hold.** Eight frontend call sites
   mutate documents through facade methods instead of operations (ARCHITECTURE §5.1), and
   four of the mutations they perform have no `Operation` at all. A script frontend built

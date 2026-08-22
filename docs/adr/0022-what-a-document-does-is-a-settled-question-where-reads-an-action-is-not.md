@@ -1,6 +1,6 @@
 # ADR-0022: "What can this document do" is a settled question where "reads an action" is not
 
-- **Status**: Accepted
+- **Status**: Amended by [ADR-0026](0026-the-engine-takes-the-ecmascript-subset-because-it-already-owes-it.md) — the refusal is reversed; everything about *reading* actions stands
 - **Date**: 2026-08-22
 - **Commit**: 465ccb2
 
@@ -55,7 +55,14 @@ deprecates — the only `/Launch` in the corpus writes no `/F` at all, so readin
 undeprecated entry alone reports it as launching nothing.
 
 **Reading without running is conforming, and the standard says which sentence makes it
-so.** 12.6.4.17 has a `shall`: on invocation a processor executes the script. 6.3.2.1 has
+so.** *(Amended 2026-08-22 by ADR-0026. Every sentence in this paragraph is still true and
+the subset is nonetheless taken: what follows establishes that declining is **permitted**,
+and it was read — here and in `ROADMAP.md`'s subset table — as establishing that declining
+was **chosen**. It was not. 6.3.2.1 read as a test rather than as permission says a subset
+is required when work already undertaken depends on it, and `SetFormFieldValue` records a
+`Violation` of 12.6.3 on every form with a calculation order. The paragraph below is
+preserved unedited, because the gap between "may decline" and "did decline" is the thing
+worth being able to see.)* 12.6.4.17 has a `shall`: on invocation a processor executes the script. 6.3.2.1 has
 the answer — each PDF processor chooses which subsets of PDF functionality to support and
 shall comply for the ones it chose, and PDF 2.0 deliberately abandoned the notion of a
 "conforming reader" that the subset standards keep. So declining ECMAScript is a choice

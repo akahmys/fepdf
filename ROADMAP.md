@@ -78,7 +78,7 @@ checkable rather than a matter of taste.
 | **PDF processor providing rendering** (6.3.2.2) | **yes** | Two `shall`s: render the page contents as defined, and render the appearance stream of every annotation that has one unless its flags say otherwise; and respect the optional content definitions. Both are met — the second only since [ADR-0023](docs/adr/0023-a-renderer-that-skips-annotation-appearances-is-not-conforming.md). **Phase P is what is chosen and not yet complied with.** |
 | **PDF writer** (6.3.2.1) | **yes**, for 2.0 only | Output shall conform, and nothing 2.0 deprecates is written — the rule that settled encryption at AES-256 R6 ([ADR-0015](docs/adr/0015-this-engine-reads-five-encryption-schemes-and-writes-one.md)) and, later, made a field value build its appearance instead of setting `/NeedAppearances`. Writing 1.7, and amending a file this engine did not produce, are **not** chosen ([ADR-0014](docs/adr/0014-the-faithful-copy-path-is-not-built.md)). |
 | **Interactive PDF processor** (6.3.2.3) | **claimed by `fepdf-gui`, and not met** | 6.3.1 makes anything that interacts with a user while processing a file one of these, which `fepdf-gui` is; 6.3.2.3 then requires support for **all** the interactive aspects of optional content. The GUI has no layer control at all — `grep` finds no `/OCProperties` and no toggle. Either it gains one or it is not this class, and today it is this class and does not comply. |
-| **ECMAScript actions** (12.6.4.17) | **no** | Read, reported and never executed ([ADR-0022](docs/adr/0022-what-a-document-does-is-a-settled-question-where-reads-an-action-is-not.md)). The language is ISO/DIS 21757-1, not this document. |
+| **ECMAScript actions** (12.6.4.17) | **yes**, for document and field scripting — **and not met** | Taken 2026-08-22 ([ADR-0026](docs/adr/0026-the-engine-takes-the-ecmascript-subset-because-it-already-owes-it.md)), reversing [ADR-0022](docs/adr/0022-what-a-document-does-is-a-settled-question-where-reads-an-action-is-not.md)'s refusal. Not because a corpus asked — it does not — but because **`SetFormFieldValue` already records a `Violation` of 12.6.3 on every form with a calculation order**, saying it wrote the value and left the computed fields stale. Work already undertaken depends on the subset, which is 6.3.2.1 read as a test rather than as permission. Scope: 12.6.4.17's execution, and of ISO/DIS 21757-1 the objects form scripts reach for (`app`, `this`, `Field`, `event`, `util`, `color`) — **not** `Collab`, `security`, SOAP, media or the XFA bindings. Engine: boa ([ADR-0024](docs/adr/0024-pure-rust-is-a-rule-and-therefore-has-a-check.md)). Shape: a fifth frontend over `Operation` ([ADR-0025](docs/adr/0025-a-script-processor-is-a-frontend-not-a-subsystem.md)). Phase R. |
 | **Multimedia** (13.2–13.7) | **no** | 13.4 is deprecated in 2.0; PRC and U3D are two more standards. |
 | **XFA** (Adobe XFA 3.3) | **no** | Deprecated in 2.0, and a second form model beside the one that works. |
 
@@ -97,9 +97,24 @@ do this" is an assertion in a source file; with it, the two can be compared. The
 requirement type named so far is `EnableJavaScripts`, in `actions::NOT_SATISFIED`.
 
 **What this table is not.** It is not a claim that every provision of a chosen subset is
-met — Phase P is the standing evidence that it is not, and the rendering row points at it.
-A subset declaration is what makes that sentence sayable: "not implemented" and "chosen
-and not complied with" are different, and only the second is a defect.
+met — **three rows are chosen and not met**, and each points at the phase that owes it:
+rendering at Phase P, the interactive processor at Phase P, ECMAScript at Phase R. A
+subset declaration is what makes that sentence sayable: "not implemented" and "chosen and
+not complied with" are different, and only the second is a defect.
+
+**Taking a subset therefore creates a defect where a conforming refusal stood**, and the
+ECMAScript row is the case. That is not an argument against taking it. It is what deciding
+looks like when the declaration is honest: the alternative was to leave the question
+undecided and call the resulting silence a choice, which is what
+[ADR-0026](docs/adr/0026-the-engine-takes-the-ecmascript-subset-because-it-already-owes-it.md)
+found had happened.
+
+**How a row gets decided.** Not by demand — a capability that does not exist has no users,
+and Phase L's rule already says a corpus is grounds for building and never for declining.
+The test is the one 6.3.2.1 supplies when read as a test: **a subset is required when the
+engine has already undertaken work whose correctness depends on it.** Multimedia and XFA
+survive that test as refusals — nothing here depends on them, and both are deprecated in
+2.0. ECMAScript did not.
 
 ## Where the engine actually stands
 
@@ -115,7 +130,7 @@ and not complied with" are different, and only the second is a defect.
 | **9** Text | Fonts load, simple and composite, with the CMap and encoding work Phase 12-era sessions cycled on; every page of every sample yields its text. **Not re-measured** in the pass that produced the rows above, so what this row says is carried forward from when it was written rather than re-derived. |
 | **10** Rendering | 6.3.2.2 binds anything that draws a page with two `shall`s, and both are met: optional content is honoured (8.11) and **annotation appearance streams are drawn** (12.5.5) — the second was not done at all until Phase P found the clause, and a page whose only mark was an annotation came out blank while every other reader painted it ([ADR-0023](docs/adr/0023-a-renderer-that-skips-annotation-appearances-is-not-conforming.md)). What the clause's own subclauses ask for is thinner: **there is no PDF function evaluator (7.10)** — no type 0, 2, 3 or 4 — which is what 10.5's transfer functions would need and what clause 8's colour defects above are caused by; **halftones (10.6) have no code at all**; 10.7's scan conversion is Vello's, and 10.8's separations follow the colour gap. Phase P. |
 | **11** Transparency | Blend modes, constant alpha and soft masks reach the backend, and the transparency-group clauses are cited in the code. **Not re-measured**, and the depth of 11.6 and 11.7 in particular is unverified — this row is a statement about citations, not about behaviour. |
-| **12** Interactive features | Read through `inspect interactive`, and signature fields (12.7.5.5, 12.8) can be written and checked. Named destinations (12.3.2) **resolve**, through both of 12.3.2.3's forms and the name tree (7.9.6) one of them needs — which found a link in `intel_sdm.pdf` that goes nowhere, `(G3.7717)`, referenced three times and declared in none of that file's 279,501 destinations. `samples/` exercises one annotation subtype — all 29,973 of its annotations are `/Link` — and this row said that of *the corpus* for as long as there was only one; the 515 external files carry 125 annotations across **18** subtypes and twelve terminal form fields. `PdfAnnotation` held seven entries of Table 166 and no `/AP`, which made a `/Redact` and a `/Watermark` the same object; Phase J took it to all nineteen. **29 distinct entries across the remaining subtypes still have no reader**, each on an annotation that occurs once or twice. All 30,098 annotations parse. **What a document *does* is read** (`inspect actions`, 12.6): every place an action can hang, what it lets the document do, and whether the reader has to touch anything first — which found the only two files of 524 that run code on open ([ADR-0022](docs/adr/0022-what-a-document-does-is-a-settled-question-where-reads-an-action-is-not.md)). **Setting a field value builds the appearance** (12.7.4.3) instead of writing `/NeedAppearances`, which 2.0 deprecates; a form declaring a calculation order is told its ECMAScript was not run, and `/Requirements` (12.11) reports the subsets a document asks for that this processor declines. |
+| **12** Interactive features | Read through `inspect interactive`, and signature fields (12.7.5.5, 12.8) can be written and checked. Named destinations (12.3.2) **resolve**, through both of 12.3.2.3's forms and the name tree (7.9.6) one of them needs — which found a link in `intel_sdm.pdf` that goes nowhere, `(G3.7717)`, referenced three times and declared in none of that file's 279,501 destinations. `samples/` exercises one annotation subtype — all 29,973 of its annotations are `/Link` — and this row said that of *the corpus* for as long as there was only one; the 515 external files carry 125 annotations across **18** subtypes and twelve terminal form fields. `PdfAnnotation` held seven entries of Table 166 and no `/AP`, which made a `/Redact` and a `/Watermark` the same object; Phase J took it to all nineteen. **29 distinct entries across the remaining subtypes still have no reader**, each on an annotation that occurs once or twice. All 30,098 annotations parse. **What a document *does* is read** (`inspect actions`, 12.6): every place an action can hang, what it lets the document do, and whether the reader has to touch anything first — which found the only two files of 524 that run code on open ([ADR-0022](docs/adr/0022-what-a-document-does-is-a-settled-question-where-reads-an-action-is-not.md)). **Setting a field value builds the appearance** (12.7.4.3) instead of writing `/NeedAppearances`, which 2.0 deprecates; a form declaring a calculation order is told its ECMAScript was not run — **a `Violation` of 12.6.3, and the sentence that decided ADR-0026**, because it is this engine reporting that it undertook form editing and cannot finish it — and `/Requirements` (12.11) reports the subsets a document asks for that this processor does not deliver. `EnableJavaScripts` is the one name on that list, and since 2026-08-22 it is there as **chosen and not yet met** rather than as a refusal. |
 | **13** Multimedia | Declined, and not a gap: 13.4 is deprecated in 2.0 and reading it would be building for a subsystem the standard is retiring. The corpus does carry it — `/3D` ten times, `/Movie` five, `/RichMedia` three — which changes the premise and not the refusal. |
 | **14** Document interchange | Marked content (14.6) is read and acted on. Logical structure (14.7) is walked and UA-2 audited. Associated files (14.13) gained a reader when Phase O-1 presented seventeen of them, and page-piece dictionaries (14.5) one. **Not re-measured** beyond those. |
 | **14.3** Metadata | Settled at load into one state: `/Info` and the metadata stream are reconciled, disagreements recorded, and the entries 14.3.3 deprecates moved to where that clause puts them ([ADR-0013](docs/adr/0013-a-document-is-one-normalised-state.md)). Text strings decode to 7.9.2.2 — PDFDocEncoding from Annex D, or a byte order mark — after a Shift-JIS detector was found corrupting a conforming `/Title`. `--strip` removes every metadata stream, not the catalogue's alone. |
@@ -1416,49 +1431,77 @@ divergence *showed*, not where it lived. `ARCHITECTURE.md` has been corrected in
 says at each point what was checked and when, because a line that is silently right today
 is indistinguishable from one that is silently stale.
 
-## Phase R — Whether this engine runs the document's code
+## Phase R — Running the document's code
 
-[ADR-0022](docs/adr/0022-what-a-document-does-is-a-settled-question-where-reads-an-action-is-not.md)
-declined ECMAScript and 6.3.2.1 makes that conforming.
-[ADR-0024](docs/adr/0024-pure-rust-is-a-rule-and-therefore-has-a-check.md) settled which
-engine it would be if that were reversed — boa, because Rule 9 forbids compiling C and
-QuickJS cannot satisfy it.
-[ADR-0025](docs/adr/0025-a-script-processor-is-a-frontend-not-a-subsystem.md) settles the
-shape: **a script processor is a fifth frontend**, translating into the same `Operation`
-vocabulary the CLI, GUI and MCP server use, with no path of its own into the document.
+**The subset is taken** ([ADR-0026](docs/adr/0026-the-engine-takes-the-ecmascript-subset-because-it-already-owes-it.md)),
+so this phase is no longer a question about whether to build. It is a chosen subset that
+is not met, which the table above makes a defect rather than a gap.
 
-That collapses the design. The question "what may a script change?" — which 12.6.3's
-NOTE 2 answers with "any other modification to the document", and which the first draft
-answered by inventing a narrower result type — becomes *what the API can change*, which is
-the bound every other frontend already has.
+The decision rests on one sentence the engine had already written about itself. Setting a
+value in a form that declares a calculation order records a **`Violation` of 12.6.3** —
+"wrote the value and did not run the scripts; fields computed from it are now stale". Form
+editing was undertaken; it cannot be finished without this. No corpus count and no user
+appears anywhere in that argument, and none should: a capability that does not exist has
+no users.
 
-**The first step is a measurement, not a feature.**
+The engine is **boa** ([ADR-0024](docs/adr/0024-pure-rust-is-a-rule-and-therefore-has-a-check.md)),
+and the shape is a **fifth frontend** translating into `Operation`
+([ADR-0025](docs/adr/0025-a-script-processor-is-a-frontend-not-a-subsystem.md)) — reads
+through the existing queries, writes through the vocabulary, no third path. What a script
+may do is what the API may do, which is the bound every other frontend already has.
 
-- [ ] **Run the corpus's six `/JavaScript` scripts and count how many complete.** Behind
-      `--features script`, with `app` and `this` and nothing else. Two things stop being
-      guesses: whether boa's coverage is enough — the crate describes itself as
-      implementing *some* of the language — and how much of ISO/DIS 21757-1 the real
-      scripts touch. The harness exists: `inspect actions --format json` already emits
-      every script in the corpus
-- [ ] **Establish that `&mut Document` can be held across boa calls.** ADR-0025 names this
-      as the one unverified risk in the design. Operations must apply *during* the run,
-      because the Keystroke → Validate → Calculate → Format cascade requires a script to
-      read back what it just set. If that borrow will not sit in a `boa_engine::Context`,
-      the decision reopens
-- [ ] **Fix Rule D first, or build on a rule that is not holding.** Phase Q. A script
-      frontend routed entirely through `Operation` would be *more* conforming to Rule D
-      than `fepdf-gui` currently is, which is an argument for the order, not against the
-      design
+**Ordered on cost and dependency, not on doubt.** Phase P is broader and far cheaper — one
+function evaluator (7.10) fixes a spot colour rendering white on every print-oriented file
+— and Phase Q holds Rule D, which this design leans on and which has eight open breaches.
+A script frontend routed entirely through `Operation` would be *more* conforming to Rule D
+than `fepdf-gui` is today, which is why Q comes first rather than why R can wait.
 
-**The motive is still thin and this phase does not pretend otherwise.** Of 524 files, two
-run code on open and `/AA /C` — a field calculation, the thing form scripting exists for —
-occurs **zero** times. Phase L's rule holds: a corpus justifies building and never
-justifies declining. It does justify keeping the first step small and cheap to throw away,
-which is what the entry above is.
+- [ ] **Establish that `&mut Document` can be held across boa calls.** The one unverified
+      risk in ADR-0025's design, and it comes first because a negative answer changes the
+      design rather than the schedule. Operations must apply *during* the run: the
+      Keystroke → Validate → Calculate → Format cascade requires a script to read back
+      what it just set, so collecting changes and applying them afterwards will not do
+- [ ] **Run the corpus's six `/JavaScript` scripts under `--features script`** with `app`
+      and `this` and nothing else, and count how many complete. Two guesses become
+      numbers: whether boa's coverage is enough — the crate calls itself an implementation
+      of *some* of the language — and how much of ISO/DIS 21757-1 real scripts touch. The
+      harness exists: `inspect actions --format json` already emits every script in the
+      corpus
+- [ ] **Write the fixtures, because the corpus cannot validate this.** Six scripts across
+      524 files, and `/AA /C` — a field calculation, the thing form scripting exists for —
+      occurs **zero** times. That is not a reason to decline; it is a statement about what
+      can be *verified*, and the answer is the one Phase M and Phase P already used:
+      `make_scan_fixtures.rs` and `make_colour_fixtures.rs` have a third sibling. Used
+      correctly, a thin corpus is a requirement on the builder
+- [ ] **`Operation::RunDocumentScripts { trigger }`, and nothing implicit.** No existing
+      write path gains an execution: `crosscheck_selfread.sh` asserts every combination
+      reads back exactly as its input does, and an automatic run inside
+      `SetFormFieldValue` could break that. The `/CO` `Decision` is what tells a caller
+      there is something to run
+- [ ] **Determinism is injected.** `ScriptEnvironment { now, seed, viewer_version }`, because
+      `new Date()`, `Math.random` and `app.viewerVersion` are host properties and `app` is
+      ours to write. RR-15's determinism rules bind anything that decides output
+- [ ] **`/CO` supplies the calculation order** — the engine already reads it, at the one
+      site that records the `Violation`. The recursion guard cannot be "do not calculate a
+      field twice", because 12.6.3 permits A → B → A; it is a bounded iteration count that
+      records a `Decision` when it stops
+- [ ] **Adobe's helpers may be `.js`, on two conditions.** `AFSimple_Calculate` and
+      `AFNumber_Format` are easier to maintain in the language they were written for, and
+      PDF.js demonstrates it. But **`verify_compliance.sh`'s fifteen checks are all Rust**
+      — not the function-length limit, not the error types, not determinism — so each
+      helper carries a test that fails when the helper is broken, and `status.sh` gains a
+      row counting the lines no audit covers. `AUDITING.md` was citing two rules
+      `CODING.md` did not state, and nothing went red
 
-*Done when*: a number exists for how many of the corpus's scripts run to completion under
-boa, and the borrow question has an answer. Whether to go further is a decision to take
-after those, not before.
+*Done when*: setting a field value in a form that declares a calculation order no longer
+records a `Violation` of 12.6.3, because the calculation ran; the subset row above reads
+**met**; and the fixtures say what "ran" means for each of the seven forms in the corpus
+that carry `/CO`.
+
+**What this phase is not.** It is not XFA, `Collab`, `security`, SOAP or media — ADR-0026
+names the scope, and nothing this engine has undertaken depends on those. It is also not a
+promise that boa is sufficient: the first two entries exist to find that out, and a
+negative answer on the borrow reopens ADR-0025 rather than this decision.
 
 ## Read broadly, write 2.0
 
