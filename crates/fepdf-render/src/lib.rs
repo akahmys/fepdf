@@ -372,10 +372,13 @@ fn convert_cmyk8(image_data: &[u8]) -> Vec<u8> {
         let m = f64::from(chunk[1]) / 255.0;
         let y = f64::from(chunk[2]) / 255.0;
         let k = f64::from(chunk[3]) / 255.0;
-        let r = ((1.0 - c) * (1.0 - k) * 255.0) as u8;
-        let g = ((1.0 - m) * (1.0 - k) * 255.0) as u8;
-        let b = ((1.0 - y) * (1.0 - k) * 255.0) as u8;
-        data.extend_from_slice(&[r, g, b, 255]);
+        // 10.4.2.5, through the one implementation of it (`Color::to_rgb`), so a
+        // CMYK image and a CMYK fill cannot drift apart.
+        let Color::Rgb(r, g, b) = Color::Cmyk(c, m, y, k).to_rgb() else {
+            continue;
+        };
+        let byte = |v: f64| (v.clamp(0.0, 1.0) * 255.0) as u8;
+        data.extend_from_slice(&[byte(r), byte(g), byte(b), 255]);
     }
     data
 }
@@ -787,15 +790,12 @@ fn to_vello_brush(color: &Color, alpha: f32) -> vello::peniko::Brush {
             let b_u8 = (b.clamp(0.0, 1.0) * 255.0) as u8;
             vello::peniko::Brush::Solid(vello::peniko::Color::from_rgba8(r_u8, g_u8, b_u8, a))
         }
-        Color::Cmyk(c, m, y, k) => {
-            // Simple CMYK to RGB conversion
-            let r = (1.0 - c) * (1.0 - k);
-            let g = (1.0 - m) * (1.0 - k);
-            let b = (1.0 - y) * (1.0 - k);
-            let r_u8 = (r.clamp(0.0, 1.0) * 255.0) as u8;
-            let g_u8 = (g.clamp(0.0, 1.0) * 255.0) as u8;
-            let b_u8 = (b.clamp(0.0, 1.0) * 255.0) as u8;
-            vello::peniko::Brush::Solid(vello::peniko::Color::from_rgba8(r_u8, g_u8, b_u8, a))
+        Color::Cmyk(..) => {
+            // Was a second, different implementation of CMYK to RGB — the naive
+            // `(1 − c)(1 − k)` — sitting beside `Color::to_rgb`'s. Two conversions for
+            // one clause means fixing 10.4.2.5 in one place leaves the other wrong, so
+            // this defers rather than repeats.
+            to_vello_brush(&color.to_rgb(), alpha)
         }
         Color::Lab(..) => to_vello_brush(&color.to_rgb(), alpha),
     }

@@ -1312,28 +1312,87 @@ functions cannot be.
       ./scripts/test/crosscheck_image.sh      # gradient agrees; separation pinned
       ```
 
-- [ ] **`/DeviceCMYK` to RGB is not colour managed, and the module said it was.**
-      `Color::to_rgb` uses `(1 − c)(1 − k)`, so K = 1 reaches the raster as `0 0 0` where
-      PDFKit — putting Apple's Generic CMYK profile through it — gets `26 25 25`. That is
-      the whole of the remaining `separation.pdf` gap, and it is why that file is pinned
-      rather than agreeing.
+- [x] **`/DeviceCMYK` to RGB is not colour managed, and the module said it was.** The
+      entry was right that the conversion was wrong and wrong about why. It is not that
+      the conversion is uncalibrated — **the standard specifies one and this engine was
+      not using it.**
 
-      **`color/mod.rs` opened with "strict color management using `moxcms` to ensure
-      high-fidelity CMYK -> RGB conversion" for as long as it has existed.** `moxcms`
-      parses ICC profiles there and does nothing else. The header is corrected in place
-      and says what was measured, because a module that claims to be colour managed is
-      not where anyone goes looking for a naive formula — this is the `AGENTS.md`
-      hierarchy's case exactly, and the fifth time a document has been the place a
-      divergence *showed* rather than where it lived.
+      **10.4.2.5, "Conversion from DeviceCMYK to DeviceRGB":**
 
-      Not fixed here, and deliberately: it changes every CMYK fill, stroke and image in a
-      515-file corpus, `/DeviceCMYK` is device-dependent by the standard so "agrees with
-      PDFKit" means "adopts Apple's profile", and the fixture that would measure it is not
-      the one 7.10 was built against.
+      > `red = 1.0 − min(1.0, cyan + black)`
+
+      `Color::to_rgb` used `(1 − c) × (1 − k)`, the textbook naive product. The two agree
+      wherever one of the pair is 0 or 1 — which is every case a casual test picks,
+      including the `/Separation` fixture, whose `K = 1` gives black either way. At
+      `c = 0.5, k = 0.5` the clause gives **0** and the product gives **0.25**.
+
+      10.4.2.1 offers these algorithms to a processor that is not ICC-enabled, which this
+      one is not, so they are the conformant answer rather than a stopgap.
+
+      **The conversion existed three times and two were about to be missed.**
+      `to_vello_brush` carried a second copy of the naive formula beside `Color::to_rgb`'s,
+      and `convert_cmyk8` a third for images — so fixing the clause in one place would
+      have left a CMYK fill and a CMYK image disagreeing. Both defer to `to_rgb` now.
+
+      **`separation.pdf` stays pinned, and the reason changed entirely.** It is not "we
+      are uncalibrated and should not be": 8.6.4.4 leaves DeviceCMYK device-dependent,
+      this engine follows 10.4.2.5, PDFKit is ICC-enabled and follows 10.3 with Apple's
+      Generic CMYK profile. **Both are conformant.** Matching PDFKit would mean adopting
+      Apple's profile, which is not a correctness argument.
 
       ```bash
-      cargo run --release -p fepdf --features render --example page_quadrants -- target/colour/separation.pdf
+      cargo test -p fepdf-model --test device_colour_tests   # the c=0.5,k=0.5 case
       ```
+
+- [ ] **`/DefaultCMYK`, `/DefaultRGB` and `/DefaultGray` are a `shall` and nothing reads
+      them.** 8.6.5.6: when a device colour space is selected, the resource dictionary's
+      `/ColorSpace` subdictionary is checked for the corresponding default, and "if such
+      an entry is present, **its value shall be used** as the colour space for the
+      operation currently being performed". `grep` finds none of the three names anywhere
+      in the workspace.
+
+      Measured over both corpora, by asking each document's interned names rather than
+      grepping bytes — an entry in an object stream is invisible to `grep`:
+
+      | name | files |
+      | :--- | ---: |
+      | `/DefaultRGB` | 30, including `DefaultRGBColourSpaces.pdf` and `-inherit.pdf`, built for this |
+      | `/DefaultCMYK` | 3, one of them **`samples/fy05.pdf`** |
+      | `/DefaultGray` | 0 |
+
+      One of the nine conforming samples carries an entry this engine ignores. The clause
+      also reaches the base of an `/Indexed` space, the underlying space of a `/Pattern`
+      and the alternate of a `/Separation`, so it is wider than the `cs` operator.
+
+      **Implementing it alone may change no pixel**, and that is worth knowing before
+      starting: the test files remap to `/CalRGB`, and this engine reads a `CalRGB` as
+      three components and passes them through as if they were `DeviceRGB` — so the
+      remapping would land on a space it treats identically. The observable half is
+      8.6.5.3's `CalRGB` transform, which is the entry that should be written next to
+      this one.
+
+      ```bash
+      cargo run --release -p fepdf --example survey_names -- \
+        DefaultCMYK,DefaultRGB,DefaultGray samples/*.pdf target/external/*/*.pdf
+      ```
+
+- [ ] **A font with no embedded program renders nothing.** `DefaultRGBColourSpaces.pdf`
+      draws the words RED, GREEN and BLUE in `/Helvetica` — a standard-14 font with no
+      `/FontFile`. PDFKit paints them; this engine paints **330,000 white pixels and
+      nothing else**, while `inspect text` extracts every word. Rendering and extraction
+      disagree about whether the page has content.
+
+      `VelloBackend::load_system_fonts` reads `resources/fonts/*.ttf`, a directory that
+      does not exist — the bundled faces are in `assets/fonts/`. `Document::load_system_fonts`
+      looks in the same wrong place and then **falls back to platform font paths**, which
+      is why text extraction and metrics work and only the renderer is blind. Setting
+      `FEPDF_RESOURCES=assets` does not fix it either: the interpreter asks
+      `system_fonts` for `FallbackFontType::Default`, and nothing ever inserts that key —
+      only `fepdf-cli`'s `publish` command does, by hand.
+
+      Three faults on one path, and the quadrant comparator could not see any of them:
+      the words are small, so a blank page and a painted one differ by 4 out of 255.
+
 - [x] **Shading types 4 to 7 are not read.** All four are now, in
       `fepdf-model::graphics::mesh`, and all four agree with PDFKit:
 

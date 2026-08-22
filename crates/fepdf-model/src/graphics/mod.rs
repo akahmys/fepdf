@@ -125,10 +125,18 @@ impl Color {
             Color::Rgb(..) => *self,
             Color::Gray(g) => Color::Rgb(g, g, g),
             Color::Cmyk(c, m, y, k) => {
-                let r = (1.0 - c) * (1.0 - k);
-                let g = (1.0 - m) * (1.0 - k);
-                let b = (1.0 - y) * (1.0 - k);
-                Color::Rgb(r, g, b)
+                // 10.4.2.5: "red = 1.0 − min(1.0, cyan + black)", and the same for the
+                // other two. The black component is *added* to each of the others and the
+                // sum complemented.
+                //
+                // **This was `(1 − c) × (1 − k)`**, which is the textbook naive
+                // conversion and is not what the standard says. The two agree only where
+                // one of the pair is 0 or 1: at c = 0.5, k = 0.5 the clause gives 0 and
+                // the product gives 0.25. 10.4.2.1 offers these algorithms to a processor
+                // that is not ICC-enabled, which this one is not, so they are the
+                // conformant answer rather than a stopgap.
+                let channel = |ink: f64| 1.0 - (ink + k).clamp(0.0, 1.0);
+                Color::Rgb(channel(c), channel(m), channel(y))
             }
             Color::Lab(l, a, b) => {
                 // 1. Convert CIELAB to XYZ using D65 Standard Illuminant

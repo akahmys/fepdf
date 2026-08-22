@@ -1,15 +1,19 @@
 //! Color Space Management (ISO 32000-2 Clause 8.6)
 //!
 //! `moxcms` parses ICC profiles here, and that is all it does. **This header used to
-//! claim it gave "high-fidelity CMYK -> RGB conversion", and it does not**:
-//! `Color::to_rgb` converts `/DeviceCMYK` with the naive `(1 − c)(1 − k)` formula and
-//! never consults a profile. Measured on `target/colour/separation.pdf`, where K = 1
-//! reaches this engine's raster as `0 0 0` and PDFKit's — which does put a CMYK profile
-//! through it — as `26 25 25`. `ROADMAP.md` Phase P carries the entry.
+//! claim it gave "high-fidelity CMYK -> RGB conversion", and it does not**: no profile is
+//! consulted for a device space. What `Color::to_rgb` now does is 10.4.2.5, the
+//! conversion 10.4.2.1 offers a processor that is not ICC-enabled — and what it *did* was
+//! the naive `(1 − c)(1 − k)`, which is neither.
 //!
-//! Corrected rather than deleted, because the claim is the reason nobody looked: a
-//! module that says it is colour managed is not somewhere you go looking for a naive
-//! formula. `AGENTS.md`, Hierarchy of Truth — measurement outranks documentation.
+//! Corrected rather than deleted, because the claim is the reason nobody looked: a module
+//! that says it is colour managed is not somewhere you go looking for a naive formula.
+//! `AGENTS.md`, Hierarchy of Truth — measurement outranks documentation.
+//!
+//! On `target/colour/separation.pdf` this engine's raster reads `0 0 0` where PDFKit's
+//! reads `26 25 25`, and **both are conformant**: 8.6.4.4 leaves DeviceCMYK
+//! device-dependent, PDFKit is ICC-enabled and follows 10.3. `ROADMAP.md` Phase P carries
+//! the entry and `crosscheck_image.sh` pins the divergence.
 //!
 //! [`ResolvedColorSpace`] is the other half of this clause: the spaces whose components
 //! are not a colour until a function runs (8.6.6).

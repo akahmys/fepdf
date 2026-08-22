@@ -127,7 +127,7 @@ tolerance=12
 expected_divergence() {
     case "$1" in
     separation)
-        echo "0 254 254 254|DeviceCMYK to RGB is not colour managed here: K=1 goes to 0 0 0 by the naive formula while PDFKit puts Apple's Generic CMYK profile through it and gets 26 25 25. The tint transform itself is right — this is the quadrant going black rather than white, which is what Phase P measured. ROADMAP Phase P names the conversion as its own entry"
+        echo "0 254 254 254|This engine follows 10.4.2.5, the conversion 10.4.2.1 offers a processor that is not ICC-enabled: K=1 gives 0 0 0. PDFKit is ICC-enabled and follows 10.3, putting Apple's Generic CMYK profile through it for 26 25 25. Both are conformant and 8.6.4.4 leaves DeviceCMYK device-dependent, so this is a divergence rather than a defect on either side"
         ;;
     UnknownFilter-ICC)
         echo "204 241 244 188|The ICC profile stream carries /Filter /XXXDecode and cannot be decoded. 8.6.5.5 and Table 65 make /Alternate default to the space /N determines, so /N 4 means DeviceCMYK and '1 0 0 0 scn' is cyan. PDFKit logs a CoreGraphics error and paints the square 0 0 0. Measured both ways with a colour histogram, not inferred from the means"
