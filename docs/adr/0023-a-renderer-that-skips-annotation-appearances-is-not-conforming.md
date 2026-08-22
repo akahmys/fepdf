@@ -2,7 +2,7 @@
 
 - **Status**: Accepted
 - **Date**: 2026-08-22
-- **Commit**: *(the commit that adds `render_annotations`)*
+- **Commit**: d97c8e0
 
 ## Context
 
