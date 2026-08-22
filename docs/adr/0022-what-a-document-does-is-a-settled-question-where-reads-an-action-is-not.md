@@ -54,6 +54,15 @@ chain off any of them. The `/JS` payload is read from a string **or a stream**, 
 deprecates — the only `/Launch` in the corpus writes no `/F` at all, so reading the
 undeprecated entry alone reports it as launching nothing.
 
+**Reading without running is conforming, and the standard says which sentence makes it
+so.** 12.6.4.17 has a `shall`: on invocation a processor executes the script. 6.3.2.1 has
+the answer — each PDF processor chooses which subsets of PDF functionality to support and
+shall comply for the ones it chose, and PDF 2.0 deliberately abandoned the notion of a
+"conforming reader" that the subset standards keep. So declining ECMAScript is a choice
+the conformance model provides for, not a gap; what would not be conforming is claiming
+the subset and not doing it. `/Requirements` with `EnableJavaScripts` (12.10) is how a
+document declares it needs the subset, and reading *that* is the honest interface.
+
 **This does not become a coverage axis.** ADR-0019's argument survives intact: the
 denominator would still be undefinable, and adding an axis whose numerator is "we read
 `/S` and one payload key" would let the index rise for work that understood nothing more.

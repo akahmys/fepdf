@@ -14,6 +14,13 @@
 //! different fact from the same script in `/OpenAction`, and both are different from a
 //! `/Launch` naming `TextPad.exe` — all three of which are files of the external corpus.
 //!
+//! **Executing is a subset this processor has not chosen.** 12.6.4.17 says a processor
+//! *shall* execute the script on invocation, and 6.3.2.1 is what makes reading it without
+//! running it conforming: each processor chooses which subsets of PDF functionality to
+//! support and complies for the ones it chose — PDF 2.0 deliberately has no "conforming
+//! reader". A document that needs the subset can say so, in `/Requirements` with
+//! `EnableJavaScripts` (12.10), and saying so is the honest interface between the two.
+//!
 //! **Every place an action can hang is walked**, because a screen that missed one would
 //! be worse than none: `/OpenAction`, the catalogue's `/AA`, the document-level
 //! `/Names /JavaScript` tree, each page's `/AA`, each annotation's `/A` and `/AA`, each
@@ -43,7 +50,12 @@ const MAX_DEPTH: usize = 64;
 /// [`Capability::Undefined`] rather than quietly in the harmless group.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub enum Capability {
-    /// Runs a script: `/JavaScript` (12.6.4.16).
+    /// Runs a script: `/JavaScript` (12.6.4.17).
+    ///
+    /// The clause is titled **ECMAScript actions**: PDF 2.0 renamed the language
+    /// throughout and kept `JavaScript` as the keyword for compatibility. The language
+    /// itself is normative by reference to ISO/DIS 21757-1 and is not defined in
+    /// ISO 32000-2 at all.
     RunsCode,
     /// Starts another program, or opens another file with one: `/Launch` (12.6.4.6).
     LaunchesAnother,
@@ -98,7 +110,7 @@ pub enum Trigger {
     /// `/OpenAction` — the document is opened and this runs (12.3.2).
     DocumentOpened,
     /// A script in the `/Names /JavaScript` tree, which runs when the document opens
-    /// (12.6.4.16). Carries the name it is filed under.
+    /// (12.6.4.17). Carries the name it is filed under.
     DocumentScript(String),
     /// The catalogue's `/AA`: before the document is closed, saved or printed.
     DocumentEvent(String),
@@ -273,7 +285,11 @@ impl ActionReport {
         }
     }
 
-    /// The `/Names /JavaScript` tree (12.6.4.16), whose scripts run when the file opens.
+    /// The `/Names /JavaScript` tree (12.6.4.17), whose scripts run when the file opens.
+    ///
+    /// Not an inference: the clause says all the actions in this tree shall be executed
+    /// when the document is opened. It is the one place an action fires that nothing in
+    /// the document points at.
     fn take_document_scripts(&mut self, arena: &PdfArena, catalog: &Dict) {
         let Some(names) = catalog.get(&arena.name("Names")).and_then(|n| dict_of(arena, n)) else {
             return;
@@ -378,7 +394,7 @@ fn says_of(arena: &PdfArena, action: &Dict, kind: &str) -> Option<Says> {
     }
 }
 
-/// `/JS`, which 12.6.4.16 allows to be a string or a stream — a long script is a stream.
+/// `/JS`, which 12.6.4.17 allows to be a string or a stream — a long script is a stream.
 fn script_of(arena: &PdfArena, action: &Dict) -> Option<String> {
     let entry = action.get(&arena.name("JS"))?;
     match entry.resolve(arena) {
