@@ -2,7 +2,7 @@
 
 - **Status**: Accepted
 - **Date**: 2026-08-22
-- **Commit**: *(the commit that takes the subset)*
+- **Commit**: 51c2b61
 
 ## Context
 
