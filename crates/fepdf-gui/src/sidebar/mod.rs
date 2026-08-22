@@ -2,6 +2,7 @@ mod accessibility;
 mod attachments;
 mod bookmarks;
 mod document_info;
+mod layers;
 mod structure_tree;
 pub mod ust_registry;
 
@@ -13,6 +14,7 @@ use std::sync::mpsc::Sender;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum LeftTab {
+    Layers,
     DocumentInfo,
     Bookmarks,
     Attachments,
@@ -55,6 +57,7 @@ impl SidebarPanel {
             let tabs = [
                 (LeftTab::DocumentInfo, "\u{e0cc}", locale_mgr.tr(active_lang, "tab_doc_info")),
                 (LeftTab::Bookmarks, "\u{e060}", locale_mgr.tr(active_lang, "tab_bookmarks")),
+                (LeftTab::Layers, "\u{e21b}", locale_mgr.tr(active_lang, "tab_layers")),
                 (LeftTab::Attachments, "\u{e12d}", locale_mgr.tr(active_lang, "tab_attachments")),
                 (LeftTab::Structure, "\u{e33c}", locale_mgr.tr(active_lang, "tab_structure")),
                 (LeftTab::Properties, "\u{e29a}", locale_mgr.tr(active_lang, "tab_properties")),
@@ -97,11 +100,15 @@ impl SidebarPanel {
         permissions: Option<i32>,
         page_sizes: &[(f64, f64)],
         fonts: &[fepdf::FontSummary],
+        layers: &[fepdf::LayerRow],
         locale_mgr: &LocaleManager,
         active_lang: &str,
     ) {
         ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Wrap);
         ui.vertical(|ui| match self.active_left_tab {
+            LeftTab::Layers => {
+                layers::show_layers(ui, layers, tx_worker, locale_mgr, active_lang);
+            }
             LeftTab::DocumentInfo => {
                 document_info::show_document_info(
                     ui,

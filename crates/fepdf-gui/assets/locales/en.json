@@ -30,7 +30,6 @@
   "tag_popup_selected": "Selected Text:",
   "tag_popup_instruction": "Select tag level to assign to structure tree:",
   "tag_popup_cancel": "Cancel",
-
   "tab_doc_info": "Document Info",
   "tab_bookmarks": "Bookmarks",
   "tab_attachments": "Attachments",
@@ -103,7 +102,6 @@
   "alt_text_card_edit_btn": "Edit Alt-Text",
   "alt_text_card_save_btn": "Save",
   "alt_text_card_cancel_btn": "Cancel",
-
   "export_title": "💾 Production Studio Export Wizard",
   "export_confirm_btn": "🚀 Confirm & Export PDF",
   "export_options_heading": "Export & Compliance Options",
@@ -128,11 +126,9 @@
   "export_draft_save_fail": "Failed to write draft JSON file",
   "export_draft_loaded": "Draft JSON loaded successfully",
   "export_draft_load_fail": "Invalid draft JSON structure",
-
   "inspector_title": "🔍 Arlington Dictionary Inspector",
   "inspector_filter": "Filter:",
   "inspector_clear": "Clear",
-
   "cmd_palette_title": "⌨ Command Palette",
   "cmd_load_pdf": "Load PDF",
   "cmd_load_pdf_desc": "Load a new PDF document",
@@ -211,5 +207,8 @@
   "menu_move_first": "To Beginning",
   "menu_move_prev": "Previous",
   "menu_move_next": "Next",
-  "menu_move_last": "To End"
+  "menu_move_last": "To End",
+  "tab_layers": "Layers",
+  "layers_none": "This document presents no optional content. A document may carry layers and still list none: /Order decides which are presented, and it defaults to empty.",
+  "layers_locked": "This layer is locked by the document (/Locked) and its state cannot be changed here."
 }

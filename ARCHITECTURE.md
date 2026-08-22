@@ -141,7 +141,7 @@ changes that reach them are most of the second.
 | **`fepdf-render`** | ✅ | 1,548 | A `RenderBackend` implementation on **Vello** + **wgpu**. Reached only through the facade's optional `render` feature. |
 | **`fepdf`** | ✅ | 1,652 | The public facade: `PdfDocument`, `SaveOptions`, `Operation`. It is the Rule A boundary in fact — frontends depend on it and on nothing below. Lost 167 lines when ten document-mutating methods left for the vocabulary (§5.1); `duplicate_page` and `insert_pages_from` were not passthroughs but arena work, and belonged with the cloner in `fepdf-doc`. |
 | **`fepdf-cli`** | ✅ | 3,027 | Command-line binary (`fepdf`). |
-| **`fepdf-gui`** | ✅ | 8,354 | Desktop application on **egui** + **eframe** + **wgpu**. |
+| **`fepdf-gui`** | ✅ | 8,507 | Desktop application on **egui** + **eframe** + **wgpu**. |
 | **`fepdf-mcp`** | ✅ | 1,902 | Model Context Protocol server for AI assistants. **The most complete frontend by some distance**: 24 of the 30 `Operation` variants, where `fepdf-cli` constructs 8 and `fepdf-gui` 6. That is the shape §5.1 predicted — a tool is the serialised form of an operation — arriving on its own. The six it does not construct are the ones Rule D produced, and it should gain them. |
 | **`fepdf-wasm`** | ✅ | 40 | WebAssembly bindings. Currently a stub, and worse than unimplemented: `render_page` **returns `Ok(())` having drawn nothing**, so a caller is told it succeeded and gets a blank canvas. It also constructs no `Operation` at all, which is why the §5.1 diagram no longer lists it as a frontend that does. |
 | **`fepdf-macros`** | ✅ | 183 | Compile-time procedural macros. |

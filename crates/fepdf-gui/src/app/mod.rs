@@ -88,6 +88,9 @@ pub struct FepdfApp {
     pub doc_permissions: Option<i32>,
     pub doc_page_sizes: Vec<(f64, f64)>,
     pub doc_fonts: Vec<fepdf::FontSummary>,
+    /// What to present for optional content (6.3.2.3), refreshed whenever a layer is
+    /// toggled so the checkboxes show the state actually in force.
+    pub layers: Vec<fepdf::LayerRow>,
 }
 
 impl FepdfApp {
@@ -167,6 +170,7 @@ impl FepdfApp {
             doc_permissions: None,
             doc_page_sizes: Vec::new(),
             doc_fonts: Vec::new(),
+            layers: Vec::new(),
         }
     }
 
@@ -177,6 +181,14 @@ impl FepdfApp {
                 WorkerResponse::LoadingProgress { message } => {
                     self.loading_message = message;
                     ctx.request_repaint();
+                }
+                WorkerResponse::LayersChanged { layers } => {
+                    // The page must be drawn again: a layer's state decides what the
+                    // interpreter paints, and every cached scene predates the toggle.
+                    self.layers = layers;
+                    self.scenes.clear();
+                    self.raw_texts.clear();
+                    self.page_spans.clear();
                 }
                 WorkerResponse::DocumentLoaded(loaded) => {
                     let crate::worker::LoadedDocument {
@@ -191,7 +203,9 @@ impl FepdfApp {
                         permissions,
                         fonts,
                         viewer_direction,
+                        layers,
                     } = *loaded;
+                    self.layers = layers;
                     if name.is_some() {
                         self.pdf_name = name;
                     }

@@ -478,6 +478,15 @@ pub struct Document {
     pub access: Option<fepdf_syntax::security::Access>,
     /// What the source document was, for the output to record as its origin.
     pub provenance: Provenance,
+    /// Optional-content groups a *viewer* has turned on or off, over what the
+    /// configuration says (8.11.4.3).
+    ///
+    /// **Not part of the document.** `save` never writes it and no `Operation` produces
+    /// it: 6.3.2.3 requires an interactive processor to let a person toggle a layer, and
+    /// a person doing that is not editing the file. Behind a lock and reached through
+    /// `&self` for the same reason [`Document::record`] is — the render path holds a
+    /// shared reference and the panel sits above it.
+    layer_overrides: parking_lot::Mutex<BTreeMap<Handle<Object>, bool>>,
 }
 
 impl Document {
@@ -490,6 +499,25 @@ impl Document {
     /// file" — has one answer (`ARCHITECTURE.md` §5.3, ADR-0018).
     pub fn record(&self, decision: crate::interpretation::Decision) {
         self.decisions.push(decision);
+    }
+
+    /// Turns an optional-content group on or off for viewing, over the configuration.
+    ///
+    /// See [`Document::layer_overrides`]'s field note: this is view state, not a document
+    /// change, so it takes `&self` and leaves the saved file alone.
+    pub fn set_layer_visible(&self, group: Handle<Object>, on: bool) {
+        self.layer_overrides.lock().insert(group, on);
+    }
+
+    /// Forgets every viewer override, returning to what the configuration says.
+    pub fn reset_layer_visibility(&self) {
+        self.layer_overrides.lock().clear();
+    }
+
+    /// The viewer overrides in force.
+    #[must_use]
+    pub fn layer_overrides(&self) -> BTreeMap<Handle<Object>, bool> {
+        self.layer_overrides.lock().clone()
     }
 
     /// Creates a new document wrapper.
@@ -507,6 +535,7 @@ impl Document {
             permissions: None,
             access: None,
             provenance: Provenance::default(),
+            layer_overrides: parking_lot::Mutex::new(BTreeMap::new()),
         }
     }
 
@@ -530,6 +559,7 @@ impl Document {
             permissions: None,
             access: None,
             provenance: Provenance::default(),
+            layer_overrides: parking_lot::Mutex::new(BTreeMap::new()),
         }
     }
 

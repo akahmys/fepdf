@@ -391,15 +391,28 @@ impl OptionalContentState {
             ));
             return Self::default();
         };
-        Self { off: off_groups(doc, &properties, configuration) }
+        let mut state = Self { off: off_groups(doc, &properties, configuration) };
+        // A viewer's toggles come last, over everything the configuration said. 8.11.4.3
+        // provides for exactly this: "An interactive PDF processor may allow the states
+        // of optional content groups to be changed by means other than the user
+        // interface" — the user interface itself being the case it takes for granted.
+        for (group, on) in doc.layer_overrides() {
+            if on {
+                state.off.remove(&group);
+            } else {
+                state.off.insert(group);
+            }
+        }
+        state
     }
 
     /// Whether a group is on, by the handle that names it.
     ///
-    /// Private: the question a caller has is about a piece of *content*, which is
-    /// [`OptionalContentState::membership`]. A layer panel would want this one, and there
-    /// is no layer panel.
-    fn is_on(&self, group: Handle<Object>) -> bool {
+    /// Public since Phase P: the question most callers have is about a piece of *content*
+    /// ([`OptionalContentState::membership`]), but a layer panel asks about the group, and
+    /// 6.3.2.3 requires an interactive processor to have one.
+    #[must_use]
+    pub fn is_on(&self, group: Handle<Object>) -> bool {
         !self.off.contains(&group)
     }
 
@@ -719,4 +732,166 @@ fn dict_of(arena: &PdfArena, object: &Object) -> Option<Dict> {
 
 fn name_at(arena: &PdfArena, dict: &Dict, key: &str) -> Option<PdfName> {
     arena.get_name(dict.get(&arena.name(key))?.resolve(arena).as_name()?)
+}
+
+/// Identifies an optional-content group to a layer panel.
+///
+/// An opaque token and not the `Handle<Object>` it wraps, because the panel is drawn by a
+/// frontend and Rule A keeps arena types out of those (`ARCHITECTURE.md` §4). A frontend
+/// only ever passes one of these back to say which row the user clicked.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub struct LayerId(Handle<Object>);
+
+/// One row of the list an interactive processor presents for optional content
+/// (8.11.4.3, `/Order`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum LayerRow {
+    /// A nested array's leading text string: "a text string to be used as a
+    /// **non-selectable** label in an interactive PDF processor's user interface".
+    Label(String),
+    /// A group, with what to call it and whether the user may change it.
+    Group {
+        /// What a toggle names this group by.
+        id: LayerId,
+        /// `/Name` (Table 96), or a placeholder when the group omits it.
+        name: String,
+        /// Whether it is on as things currently stand.
+        on: bool,
+        /// `/Locked`: "The state of a locked group cannot be changed through the user
+        /// interface of an interactive PDF processor."
+        locked: bool,
+    },
+    /// A nested array, presented "in a tree or outline structure".
+    Nested(Vec<LayerRow>),
+}
+
+/// What an interactive processor shows and what it may let a person do (6.3.2.3).
+///
+/// **`/Order` decides membership, not just sequence.** "Any groups not listed in this
+/// array shall not be presented in any user interface that uses the configuration", and
+/// in the default configuration `/Order` defaults to an *empty* array — so a document
+/// with groups and no `/Order` presents none of them. That is the clause, and it is the
+/// opposite of what listing `/OCGs` would give.
+#[derive(Debug, Clone, Default)]
+pub struct LayerPanel {
+    /// The rows to present, in order.
+    pub rows: Vec<LayerRow>,
+    /// `/RBGroups`: sets within which at most one group is on at a time.
+    radio_sets: Vec<Vec<Handle<Object>>>,
+    locked: BTreeSet<Handle<Object>>,
+}
+
+impl LayerPanel {
+    /// Reads what to present, against the state currently in force.
+    #[must_use]
+    pub fn read(doc: &Document, state: &OptionalContentState) -> Self {
+        let arena = doc.arena();
+        let Some(root) = doc.catalog_handle().and_then(|handle| arena.get_object(handle)) else {
+            return Self::default();
+        };
+        let Ok(Some(properties)) = entries::entry::<OptionalContent>(arena, &root, "OCProperties")
+        else {
+            return Self::default();
+        };
+        let Some(configuration) = properties.default_configuration.as_ref() else {
+            return Self::default();
+        };
+        let locked: BTreeSet<Handle<Object>> =
+            referenced_groups(arena, configuration.locked.map(Object::Array).as_ref())
+                .into_iter()
+                .collect();
+        let radio_sets = configuration
+            .rb_groups
+            .and_then(|handle| arena.get_array(handle))
+            .map(|sets| {
+                sets.iter().map(|set| referenced_groups(arena, Some(set))).collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
+
+        let rows = configuration
+            .order
+            .and_then(|handle| arena.get_array(handle))
+            .map(|items| rows_from(arena, &items, state, &locked, 0))
+            .unwrap_or_default();
+        Self { rows, radio_sets, locked }
+    }
+
+    /// Turns a group on or off, honouring `/Locked` and `/RBGroups`.
+    ///
+    /// Returns `false` and changes nothing when the group is locked. Turning a group
+    /// **on** turns off every other group in each radio set it belongs to; turning one
+    /// off forces nothing on, which is 8.11.4.3's asymmetry stated exactly.
+    pub fn set(&self, doc: &Document, group: LayerId, on: bool) -> bool {
+        let group = group.0;
+        if self.locked.contains(&group) {
+            return false;
+        }
+        if on {
+            for set in &self.radio_sets {
+                if !set.contains(&group) {
+                    continue;
+                }
+                for other in set.iter().filter(|other| **other != group) {
+                    doc.set_layer_visible(*other, false);
+                }
+            }
+        }
+        doc.set_layer_visible(group, on);
+        true
+    }
+
+    /// Whether the panel would refuse to change this group.
+    #[must_use]
+    pub fn is_locked(&self, group: LayerId) -> bool {
+        self.locked.contains(&group.0)
+    }
+
+    /// The identifier for a group, for a caller that found it by name.
+    #[must_use]
+    pub fn id_of(group: Handle<Object>) -> LayerId {
+        LayerId(group)
+    }
+}
+
+/// Builds the rows for one level of `/Order`.
+fn rows_from(
+    arena: &PdfArena,
+    items: &[Object],
+    state: &OptionalContentState,
+    locked: &BTreeSet<Handle<Object>>,
+    depth: usize,
+) -> Vec<LayerRow> {
+    // `/Order` nests arbitrarily and a malformed file may nest it into itself; the
+    // handles make a cycle impossible to follow forever, but depth is the cheap guard
+    // (RR-15 Rule 6).
+    if depth > 16 {
+        return Vec::new();
+    }
+    let mut rows = Vec::new();
+    for item in items {
+        match item.resolve(arena) {
+            Object::Array(handle) => {
+                let Some(nested) = arena.get_array(handle) else { continue };
+                rows.push(LayerRow::Nested(rows_from(arena, &nested, state, locked, depth + 1)));
+            }
+            Object::String(bytes) | Object::Hex(bytes) => {
+                rows.push(LayerRow::Label(String::from_utf8_lossy(&bytes).into_owned()));
+            }
+            Object::Text(text) => rows.push(LayerRow::Label(text)),
+            other => {
+                let Some(handle) = item.as_reference().or_else(|| other.as_reference()) else {
+                    continue;
+                };
+                rows.push(LayerRow::Group {
+                    id: LayerId(handle),
+                    name: group_at(arena, handle)
+                        .and_then(|group| group.name)
+                        .unwrap_or_else(|| "(unnamed layer)".to_string()),
+                    on: state.is_on(handle),
+                    locked: locked.contains(&handle),
+                });
+            }
+        }
+    }
+    rows
 }

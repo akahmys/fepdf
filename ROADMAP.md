@@ -1545,14 +1545,41 @@ functions cannot be.
       ```bash
       cargo run --release -p fepdf --example survey_extgstate -- samples/*.pdf target/external/*/*.pdf
       ```
-- [ ] **`fepdf-gui` is an interactive PDF processor and does not meet 6.3.2.3.** 6.3.1
-      makes anything that interacts with a user while processing a file one of these, and
-      the GUI is one; 6.3.2.3 then requires support for **all** the interactive aspects of
-      optional content (8.11). There is no layer control — `grep` finds no `/OCProperties`
-      and no toggle anywhere under `crates/fepdf-gui/src`. The engine can now answer which
-      groups are on and hide what is off, so what is missing is the panel, not the
-      reading. Either the GUI gains one or it stops being this class, and it cannot stop
-      being it while it opens documents for a person
+- [x] **`fepdf-gui` is an interactive PDF processor and does not meet 6.3.2.3.** It has a
+      layer panel now, and the three rules of 8.11.4.3 that are about a *panel* rather
+      than about what is drawn are enforced in the engine, where they can be tested:
+
+      - **`/Order` decides membership, not just sequence.** "Any groups not listed in this
+        array shall not be presented in any user interface that uses the configuration",
+        and in the default configuration `/Order` defaults to an **empty** array — so a
+        document with layers and no `/Order` correctly presents none. Listing `/OCGs`
+        instead, which is the obvious implementation, is the opposite of the clause.
+      - **`/Locked` groups cannot be changed through the user interface.** The panel
+        refuses the toggle; the row is shown greyed rather than hidden, because a reader
+        who cannot see that a layer exists cannot tell it from one that is off.
+      - **`/RBGroups`** turns a set's other members off when one goes on, and — the
+        asymmetry stated exactly — turning one off forces nothing on.
+
+      **A toggle is not a document edit.** `save` writes the same bytes either side of
+      one, which is why it is not an `Operation` and why Rule D still reads 0: the
+      override lives beside the document behind a lock, reached through `&self`, the shape
+      `Document::record` already had. The identifier the panel hands back is an opaque
+      `LayerId` rather than a `Handle<Object>`, so Rule A's "no arena types in frontends"
+      also still reads 0.
+
+      Seven tests hold the panel to the clause and four more check the half no unit test
+      of a panel can: that a toggle **reaches the renderer**. A panel that lists layers
+      correctly and changes nothing on the page is, to a reader, no panel.
+
+      **Not visually verified.** The egui layout compiles and the data and behaviour
+      behind it are tested, but `capture_ui.sh` screenshots the whole desktop and needs
+      the app running in front of someone, so nobody has looked at it yet.
+
+      ```bash
+      cargo test -p fepdf-model --test layer_panel_tests
+      cargo test -p fepdf --test layer_toggle_test
+      ```
+
 - [x] **The engine logs thirteen conclusions about documents to stderr.** ARCHITECTURE
       §5.3 says a departure from the standard is recorded as a `Decision`, not logged,
       because a warning on stderr cannot tell a caller *this loaded* from *this was

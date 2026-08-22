@@ -49,6 +49,7 @@ pub use fepdf_model::interactive::{
     Outline as OutlineSummary, SubtypeCensus,
 };
 pub use fepdf_model::interpretation::{Decision, DecisionLog, Severity, Strictness};
+pub use fepdf_model::optional_content::{LayerId, LayerPanel, LayerRow};
 pub use fepdf_model::security::{Access, AesV5Spec, SecurityHandler};
 pub use fepdf_model::signature::{SignatureCheck, SignatureReport};
 pub use fepdf_model::{
@@ -334,6 +335,33 @@ impl PdfDocument {
     /// Returns the internal document.
     pub fn inner(&self) -> &Document {
         &self.inner
+    }
+
+    /// What an interactive processor should present for optional content, and in what
+    /// order (6.3.2.3, 8.11.4.3).
+    ///
+    /// Empty when the document declares no layers *and* when its default configuration
+    /// carries no `/Order` — the clause makes those the same answer, because `/Order`
+    /// decides membership and defaults to an empty array.
+    #[must_use]
+    pub fn layers(&self) -> LayerPanel {
+        let state = fepdf_model::optional_content::OptionalContentState::read(&self.inner);
+        LayerPanel::read(&self.inner, &state)
+    }
+
+    /// Turns a layer on or off for viewing, honouring `/Locked` and `/RBGroups`.
+    ///
+    /// Returns `false` and changes nothing when the group is locked. **Not a document
+    /// change**: `save` writes the same bytes either way, which is why this takes `&self`
+    /// and is not an `Operation` (Rule D is about editing a document; a reader turning a
+    /// layer off is not).
+    pub fn set_layer_visible(&self, panel: &LayerPanel, layer: LayerId, on: bool) -> bool {
+        panel.set(&self.inner, layer, on)
+    }
+
+    /// Forgets every layer toggle, returning to what the configuration says.
+    pub fn reset_layer_visibility(&self) {
+        self.inner.reset_layer_visibility();
     }
 
     /// What the engine decided where the input departed from the standard.

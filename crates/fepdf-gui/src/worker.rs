@@ -33,6 +33,12 @@ pub enum WorkerRequest {
         signature_position: Option<(usize, [f32; 4])>,
     },
     Audit,
+    /// 6.3.2.3: a person turning a layer on or off. Not a document edit — the worker
+    /// re-renders and the saved bytes are unchanged.
+    SetLayerVisible {
+        layer: fepdf::LayerId,
+        on: bool,
+    },
     ReorderPagesBatch {
         source_indices: Vec<usize>,
         target_insert_pos: usize,
@@ -77,6 +83,10 @@ pub struct LoadedDocument {
     pub permissions: Option<i32>,
     pub fonts: Vec<fepdf::FontSummary>,
     pub viewer_direction: Option<String>,
+    /// What to present for optional content, per `/Order` (8.11.4.3). Empty when the
+    /// document has no layers *or* when its configuration lists none — the clause makes
+    /// those the same answer.
+    pub layers: Vec<fepdf::LayerRow>,
 }
 
 pub enum WorkerResponse {
@@ -93,6 +103,10 @@ pub enum WorkerResponse {
     },
     AuditFindings {
         findings: Vec<(String, String, String, Option<u32>)>,
+    },
+    /// A layer was toggled: the panel's states have moved and the page needs redrawing.
+    LayersChanged {
+        layers: Vec<fepdf::LayerRow>,
     },
     DocumentSaved {
         path: std::path::PathBuf,
@@ -167,6 +181,22 @@ pub fn run_worker(rx: Receiver<WorkerRequest>, tx: Sender<WorkerResponse>, ctx: 
             }
             WorkerRequest::Audit => {
                 handle_audit(current_doc.as_ref(), &tx);
+                ctx.request_repaint();
+            }
+            WorkerRequest::SetLayerVisible { layer, on } => {
+                if let Some(ref doc) = current_doc {
+                    // The panel is re-read rather than cached: it carries `/Locked` and
+                    // `/RBGroups`, and it is what refuses a locked group rather than the
+                    // UI being trusted to have disabled the row.
+                    let panel = doc.layers();
+                    if doc.set_layer_visible(&panel, layer, on) {
+                        // What is drawn changed, so every cached page is stale.
+                        text_cache.clear();
+                        spans_cache.clear();
+                        let _ =
+                            tx.send(WorkerResponse::LayersChanged { layers: doc.layers().rows });
+                    }
+                }
                 ctx.request_repaint();
             }
             WorkerRequest::ReorderPagesBatch { source_indices, target_insert_pos } => {
@@ -309,6 +339,7 @@ fn reload_after_page_change(doc: &PdfDocument, tx: &Sender<WorkerResponse>) {
         permissions: doc.permissions(),
         fonts: doc.fonts(),
         viewer_direction: doc.viewer_direction(),
+        layers: doc.layers().rows,
     })));
 }
 
@@ -430,6 +461,7 @@ fn handle_open(
                 permissions,
                 fonts,
                 viewer_direction,
+                layers: doc.layers().rows,
             })));
             Some(doc)
         }

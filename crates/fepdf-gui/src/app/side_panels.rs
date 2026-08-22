@@ -133,6 +133,7 @@ impl FepdfApp {
                             self.doc_permissions,
                             &self.doc_page_sizes,
                             &self.doc_fonts,
+                            &self.layers,
                             locale_mgr,
                             active_lang,
                         );

@@ -30,7 +30,6 @@
   "tag_popup_selected": "選択テキスト:",
   "tag_popup_instruction": "構造ツリーに割り当てるタグのレベルを選択してください:",
   "tag_popup_cancel": "キャンセル",
-
   "tab_doc_info": "文書プロパティ",
   "tab_bookmarks": "しおり",
   "tab_attachments": "添付ファイル",
@@ -103,7 +102,6 @@
   "alt_text_card_edit_btn": "代替テキストの編集",
   "alt_text_card_save_btn": "保存",
   "alt_text_card_cancel_btn": "キャンセル",
-
   "export_title": "💾 Production Studio 書き出しウィザード",
   "export_confirm_btn": "🚀 確定してPDFを書き出し",
   "export_options_heading": "書き出しと適合性オプション",
@@ -128,11 +126,9 @@
   "export_draft_save_fail": "下書き JSON ファイルの書き込みに失敗しました",
   "export_draft_loaded": "下書き JSON を正常に読み込みました",
   "export_draft_load_fail": "無効な下書き JSON 構造です",
-
   "inspector_title": "🔍 Arlington 辞書インスペクター",
   "inspector_filter": "フィルター:",
   "inspector_clear": "クリア",
-
   "cmd_palette_title": "⌨ コマンドパレット",
   "cmd_load_pdf": "PDFをロード",
   "cmd_load_pdf_desc": "新しいPDFドキュメントをロードします",
@@ -211,5 +207,8 @@
   "menu_move_first": "先頭",
   "menu_move_prev": "前",
   "menu_move_next": "後",
-  "menu_move_last": "末尾"
+  "menu_move_last": "末尾",
+  "tab_layers": "レイヤ",
+  "layers_none": "この文書はオプショナルコンテンツを提示しません。レイヤを持っていても提示しないことがあります — 提示対象を決めるのは /Order で、既定は空です。",
+  "layers_locked": "このレイヤは文書によりロックされており（/Locked）、ここでは状態を変更できません。"
 }
