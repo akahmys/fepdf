@@ -2,7 +2,7 @@
 
 - **Status**: Accepted
 - **Date**: 2026-08-22
-- **Commit**: (this change)
+- **Commit**: 1cf3272
 
 ## Context
 
