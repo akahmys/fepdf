@@ -2,7 +2,7 @@
 
 - **Status**: Accepted
 - **Date**: 2026-08-22
-- **Commit**: *(the commit that adds Rule 9)*
+- **Commit**: a2c225e
 
 ## Context
 
