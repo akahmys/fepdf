@@ -1,13 +1,23 @@
 //! Writes the two files Phase P's numbers come from.
 //!
-//! **These are expected to be red.** `crosscheck_image.sh` compares them with PDFKit and
-//! they disagree, because the defect they demonstrate is not fixed: there is no PDF
-//! function evaluator (7.10), so a `/Separation` tint is read as a grey level and a
-//! shading reads only `/C0` and `/C1`. A check that is red on a defect it found is a
-//! check doing its job — `UnknownFilter-xrefstm.pdf` was red for a phase and a half for
-//! the same reason.
+//! **They were red, and they are what the evaluator was built against.** When these were
+//! written there was no PDF function evaluator (7.10), so a `/Separation` tint was read
+//! as a grey level and a shading read only `/C0` and `/C1`; `crosscheck_image.sh`
+//! reported `DISAGREE by 229` on the first and `by 101` on the second. Both defects are
+//! fixed and both numbers moved:
 //!
-//! They exist because `ROADMAP.md` quotes four numbers from them, and a number in this
+//! | | before | after | PDFKit |
+//! | :--- | :--- | :--- | :--- |
+//! | `separation.pdf` | `254 254 254 254` | `0 254 254 254` | `25 255 255 255` |
+//! | `gradient.pdf` | `62 190 62 190` | `111 89 111 89` | `112 89 112 89` |
+//!
+//! The gradient agrees. The separation is **pinned** in `crosscheck_image.sh` rather than
+//! agreeing, and the remaining gap is not this defect: the quadrant went white → black,
+//! which is the tint transform running, and the 25 that is left is `/DeviceCMYK` → RGB
+//! being the naive formula here and colour managed in PDFKit. That is its own entry in
+//! `ROADMAP.md` Phase P and its own defect.
+//!
+//! They stay here because `ROADMAP.md` quotes their numbers, and a number in this
 //! project carries the command that re-derives it:
 //!
 //! ```text
@@ -28,6 +38,11 @@ fn main() -> std::io::Result<()> {
     // 1.0 to full black in `/DeviceCMYK`; a reader that evaluates it paints black, and
     // one that reads the tint as a grey level paints white — 1.0 being white in
     // `/DeviceGray` and full ink in a separation is the whole of the defect.
+    //
+    // Two things had to be true to paint it, and only one of them was 7.10: `/Spot` is a
+    // *resource name*, and `cs` never looked in `/ColorSpace` for it, so the space was
+    // `Unknown` before any function could have been reached. A fixture that exercises
+    // both is why this is a named space rather than an inline array.
     let spot = page(
         "/ColorSpace << /Spot 5 0 R >>",
         "/Spot cs 1 scn 0 100 100 100 re f\n",
@@ -54,7 +69,8 @@ fn main() -> std::io::Result<()> {
     println!("target/colour/gradient.pdf    {} bytes  — a three-stop gradient", gradient.len());
 
     println!(
-        "\n  Both are expected to DISAGREE with PDFKit until 7.10 has an evaluator.\n  \
+        "\n  The gradient agrees with PDFKit; the separation is pinned, on a \
+         /DeviceCMYK\n  conversion that is not colour managed rather than on 7.10.\n  \
          Compare with: ./scripts/test/crosscheck_image.sh"
     );
     Ok(())

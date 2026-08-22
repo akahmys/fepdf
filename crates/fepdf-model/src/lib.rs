@@ -36,6 +36,8 @@ pub mod error;
 pub mod file_structure;
 pub mod filters;
 pub mod font;
+/// PDF functions (7.10): the four `/FunctionType`s, parsed and evaluated.
+pub mod function;
 pub mod graphics;
 pub mod handle;
 pub mod ingest;

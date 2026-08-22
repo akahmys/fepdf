@@ -115,18 +115,32 @@ that constructed all 24 operations of the day. A size that is quoted and not re-
 crate *was* for.
 
 Every crate below the facade is now larger than the row that described it, so nothing here
-should be read as a budget.
+should be read as a budget. Re-measured 2026-08-22, with the command that re-derives them —
+a figure in this document that carries no way to check it is how the last set came to be
+stale by 5.8×:
+
+```bash
+for c in crates/*/; do
+  printf '%-16s %s\n' "$(basename "$c")" \
+    "$(find "$c/src" -name '*.rs' | xargs wc -l | tail -1 | awk '{print $1}')"
+done
+```
+
+`fepdf-model` and `fepdf-content` grew in Phase P: the function evaluator (7.10) and the
+colour-space resolver are 1,227 lines of the first — `src/function/` 1,025 and
+`src/color/space.rs` 202 — and the interpreter changes that reach them are most of the
+second.
 
 | Crate | Status | ~Lines | Responsibility |
 | :--- | :---: | ---: | :--- |
 | **`fepdf-syntax`** | ✅ | 3,377 | The byte layer: lexing and encryption/decryption. Depends on no model type, which is what lets the cryptography be reviewed on its own. Parsing and stream filters are *not* here — see §4. |
-| **`fepdf-font`** | ✅ (Audited ✅) | 3,758 | Font *programs*: CFF, TrueType, CMap, Adobe Glyph List, subsetting, reconstruction. Hardened against W/W2 out-of-bounds, CMap underflows (`e_val >= s_val`), and CID byte truncations. |
-| **`fepdf-model`** | ✅ | 27,281 | The document graph: `PdfArena`, `Handle<T>`, `Object`, page tree, metadata — and, since Phase A, the reader (7.5) and `writer.rs`. Hardened with pool overflow guards, cyclic `resolve` limits (`64`), and safe `Null` reference fallbacks. |
-| **`fepdf-content`** | ✅ | 3,645 | Content-stream interpreter, and the **`RenderBackend` contract** it drives (`TextGlyph`, `TextState`, `SMaskData`, path geometry). No GPU dependency. |
-| **`fepdf-doc`** | ✅ | 3,748 | Owns the **`Operation` vocabulary** (§5.1) and is its only interpreter: **30** canonical mutation operations. Also structure-tree handling, conformance auditing, remediation. Grew by six when Rule D was enforced and the facade's mutating methods became operations. |
+| **`fepdf-font`** | ✅ (Audited ✅) | 3,740 | Font *programs*: CFF, TrueType, CMap, Adobe Glyph List, subsetting, reconstruction. Hardened against W/W2 out-of-bounds, CMap underflows (`e_val >= s_val`), and CID byte truncations. |
+| **`fepdf-model`** | ✅ | 28,553 | The document graph: `PdfArena`, `Handle<T>`, `Object`, page tree, metadata — and, since Phase A, the reader (7.5) and `writer.rs`. Hardened with pool overflow guards, cyclic `resolve` limits (`64`), and safe `Null` reference fallbacks. |
+| **`fepdf-content`** | ✅ | 3,818 | Content-stream interpreter, and the **`RenderBackend` contract** it drives (`TextGlyph`, `TextState`, `SMaskData`, path geometry). No GPU dependency. |
+| **`fepdf-doc`** | ✅ | 3,744 | Owns the **`Operation` vocabulary** (§5.1) and is its only interpreter: **30** canonical mutation operations. Also structure-tree handling, conformance auditing, remediation. Grew by six when Rule D was enforced and the facade's mutating methods became operations. |
 | **`fepdf-render`** | ✅ | 1,430 | A `RenderBackend` implementation on **Vello** + **wgpu**. Reached only through the facade's optional `render` feature. |
-| **`fepdf`** | ✅ | 1,642 | The public facade: `PdfDocument`, `SaveOptions`, `Operation`. It is the Rule A boundary in fact — frontends depend on it and on nothing below. Lost 167 lines when ten document-mutating methods left for the vocabulary (§5.1); `duplicate_page` and `insert_pages_from` were not passthroughs but arena work, and belonged with the cloner in `fepdf-doc`. |
-| **`fepdf-cli`** | ✅ | 3,019 | Command-line binary (`fepdf`). |
+| **`fepdf`** | ✅ | 1,652 | The public facade: `PdfDocument`, `SaveOptions`, `Operation`. It is the Rule A boundary in fact — frontends depend on it and on nothing below. Lost 167 lines when ten document-mutating methods left for the vocabulary (§5.1); `duplicate_page` and `insert_pages_from` were not passthroughs but arena work, and belonged with the cloner in `fepdf-doc`. |
+| **`fepdf-cli`** | ✅ | 3,027 | Command-line binary (`fepdf`). |
 | **`fepdf-gui`** | ✅ | 8,354 | Desktop application on **egui** + **eframe** + **wgpu**. |
 | **`fepdf-mcp`** | ✅ | 1,902 | Model Context Protocol server for AI assistants. **The most complete frontend by some distance**: 24 of the 30 `Operation` variants, where `fepdf-cli` constructs 8 and `fepdf-gui` 6. That is the shape §5.1 predicted — a tool is the serialised form of an operation — arriving on its own. The six it does not construct are the ones Rule D produced, and it should gain them. |
 | **`fepdf-wasm`** | ✅ | 40 | WebAssembly bindings. Currently a stub, and worse than unimplemented: `render_page` **returns `Ok(())` having drawn nothing**, so a caller is told it succeeded and gets a blank canvas. It also constructs no `Operation` at all, which is why the §5.1 diagram no longer lists it as a frontend that does. |

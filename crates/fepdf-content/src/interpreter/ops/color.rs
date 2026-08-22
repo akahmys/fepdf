@@ -1,7 +1,12 @@
 use crate::RenderBackend;
 use crate::interpreter::Interpreter;
-use fepdf_model::graphics::Color;
-use fepdf_model::{Paint, PdfName, PdfResult};
+use fepdf_model::color::ResolvedColorSpace;
+use fepdf_model::function::FunctionSet;
+use fepdf_model::graphics::{Color, ColorSpaceKind};
+use fepdf_model::interpretation::Decision;
+use fepdf_model::{Handle, Object, Paint, PdfArena, PdfName, PdfResult};
+use std::collections::BTreeMap;
+use std::sync::Arc;
 
 impl Interpreter<'_> {
     pub(crate) fn handle_color_operator(&mut self, op: &str) -> PdfResult<()> {
@@ -16,29 +21,49 @@ impl Interpreter<'_> {
     }
 
     fn handle_cs(&mut self, op: &str) -> PdfResult<()> {
-        use fepdf_model::graphics::ColorSpaceKind;
         let is_fill = op == "cs";
         let name = self.pop_name()?;
-        let cs = match name.as_str() {
-            "DeviceGray" | "G" => ColorSpaceKind::DeviceGray,
-            "DeviceRGB" | "RGB" => ColorSpaceKind::DeviceRGB,
-            "DeviceCMYK" | "CMYK" => ColorSpaceKind::DeviceCMYK,
-            "CalGray" => ColorSpaceKind::CalGray,
-            "CalRGB" => ColorSpaceKind::CalRGB,
-            "Lab" => ColorSpaceKind::Lab,
-            "ICCBased" => ColorSpaceKind::ICCBased,
-            "Pattern" => ColorSpaceKind::Pattern,
-            "Indexed" => ColorSpaceKind::Indexed,
-            "Separation" => ColorSpaceKind::Separation,
-            "DeviceN" => ColorSpaceKind::DeviceN,
-            _ => ColorSpaceKind::Unknown,
-        };
+        let space = self.resolve_color_space(&name);
+        let kind = space.as_ref().map_or_else(|| kind_from_name(name.as_str()), |s| s.kind);
         if is_fill {
-            self.state.fill_color_space = cs;
+            self.state.fill_color_space = kind;
+            self.state.fill_space = space.map(Arc::new);
         } else {
-            self.state.stroke_color_space = cs;
+            self.state.stroke_color_space = kind;
+            self.state.stroke_space = space.map(Arc::new);
         }
         Ok(())
+    }
+
+    /// Resolves a `cs` operand: a device space name, or a key into the page's
+    /// `/ColorSpace` resources (8.6.3).
+    ///
+    /// The second half is new. Every `/Separation` and every `/ICCBased` space is
+    /// written as a resource name, so before this the operand never matched anything and
+    /// the space came out `Unknown` — after which `scn` guessed the colour model from
+    /// how many operands there were. For a separation that guess is one number, read as
+    /// a grey level, which inverts the tint.
+    fn resolve_color_space(&self, name: &PdfName) -> Option<ResolvedColorSpace> {
+        if let Some(device) = ResolvedColorSpace::from_family(name.as_str()) {
+            return Some(device);
+        }
+        let key = self.doc.arena().intern_name(PdfName::new("ColorSpace"));
+        // `find_resource` reports a missing entry as an error. Here that is an ordinary
+        // absence rather than a failure — the operand is simply not a resource name — so
+        // it becomes `None` and the caller falls back to reading the name itself.
+        let Ok(entry) = self.find_resource(&key, name) else {
+            return None;
+        };
+        let space = ResolvedColorSpace::parse(&entry, self.doc.arena())?;
+        // `/Indexed` stays on the operand-count path deliberately. Its operand is an
+        // index into a palette, not a colour, and turning it into one needs the lookup
+        // table the image path owns. Routing it through here would change what it paints
+        // on files this change has not measured, which is a separate defect from the two
+        // that were.
+        if matches!(space.kind, ColorSpaceKind::Indexed) {
+            return None;
+        }
+        Some(space)
     }
 
     fn handle_gray(&mut self, op: &str) -> PdfResult<()> {
@@ -86,9 +111,7 @@ impl Interpreter<'_> {
     }
 
     fn handle_sc(&mut self, op: &str) -> PdfResult<()> {
-        use fepdf_model::graphics::ColorSpaceKind;
         let is_fill = op == "sc" || op == "scn";
-        let cs = if is_fill { self.state.fill_color_space } else { self.state.stroke_color_space };
 
         // 8.6.8.2: in a Pattern colour space the operands are an optional set of
         // numbers followed by a *name*, which keys the resource dictionary's `/Pattern`
@@ -97,6 +120,55 @@ impl Interpreter<'_> {
             return Ok(());
         }
 
+        let resolved =
+            if is_fill { self.state.fill_space.clone() } else { self.state.stroke_space.clone() };
+        let col = match resolved {
+            Some(space) => self.resolved_sc(&space, op)?,
+            None => self.device_sc(is_fill, op)?,
+        };
+
+        if is_fill {
+            self.state.fill_color = col;
+            self.backend.set_fill_color(col);
+        } else {
+            self.state.stroke_color = col;
+            self.backend.set_stroke_color(col);
+        }
+        Ok(())
+    }
+
+    /// Paints in a space that `cs` resolved through the page's resources, running the
+    /// tint transform when the space has one (8.6.6).
+    fn resolved_sc(&mut self, space: &ResolvedColorSpace, op: &str) -> PdfResult<Color> {
+        let count = self.stack.len();
+        if count < space.components {
+            return self.fallback_sc(op, count, space.kind);
+        }
+        let mut components = vec![0.0_f64; space.components];
+        // Operands were pushed c1 … cn, so popping fills the vector from the back.
+        for slot in components.iter_mut().rev() {
+            *slot = self.pop_f64()?;
+        }
+        if let Some(color) = space.to_color(&components) {
+            return Ok(color);
+        }
+        // RR-15 Rule 20: a tint this engine could not transform is recorded rather than
+        // logged. A black painted silently here is indistinguishable from a black the
+        // file asked for, which is the whole reason the separation defect survived.
+        self.doc.record(Decision::violation(
+            "8.6.6",
+            format!("a {:?} tint transform did not evaluate at {components:?}", space.kind),
+            "Painted black. Components in a tinted space are not a colour until the \
+             transform runs, so there is nothing else to fall back to"
+                .to_string(),
+        ));
+        Ok(Color::Gray(0.0))
+    }
+
+    /// The device-space path: the colour model comes from the space `cs` named, and
+    /// from the operand count where it named nothing this engine resolved.
+    fn device_sc(&mut self, is_fill: bool, op: &str) -> PdfResult<Color> {
+        let cs = if is_fill { self.state.fill_color_space } else { self.state.stroke_color_space };
         let count = self.stack.len();
 
         let col = match cs {
@@ -128,15 +200,7 @@ impl Interpreter<'_> {
             | ColorSpaceKind::DeviceN
             | ColorSpaceKind::Unknown => self.fallback_sc(op, count, cs)?,
         };
-
-        if is_fill {
-            self.state.fill_color = col;
-            self.backend.set_fill_color(col);
-        } else {
-            self.state.stroke_color = col;
-            self.backend.set_stroke_color(col);
-        }
-        Ok(())
+        Ok(col)
     }
 
     /// Resolves and sets a pattern paint for scn/SCN operators.
@@ -219,6 +283,29 @@ impl Interpreter<'_> {
     }
 }
 
+/// The family a bare `cs` operand names, for the operands that resolved to no space.
+///
+/// Several of these cannot legally appear as a `cs` operand at all — `/Separation` and
+/// `/Indexed` are always written as resource names — but they are matched here because
+/// this is what the interpreter did before it consulted resources, and narrowing it is a
+/// change to files that have not been measured rather than a fix to the two that were.
+fn kind_from_name(name: &str) -> ColorSpaceKind {
+    match name {
+        "DeviceGray" | "G" => ColorSpaceKind::DeviceGray,
+        "DeviceRGB" | "RGB" => ColorSpaceKind::DeviceRGB,
+        "DeviceCMYK" | "CMYK" => ColorSpaceKind::DeviceCMYK,
+        "CalGray" => ColorSpaceKind::CalGray,
+        "CalRGB" => ColorSpaceKind::CalRGB,
+        "Lab" => ColorSpaceKind::Lab,
+        "ICCBased" => ColorSpaceKind::ICCBased,
+        "Pattern" => ColorSpaceKind::Pattern,
+        "Indexed" => ColorSpaceKind::Indexed,
+        "Separation" => ColorSpaceKind::Separation,
+        "DeviceN" => ColorSpaceKind::DeviceN,
+        _ => ColorSpaceKind::Unknown,
+    }
+}
+
 pub(crate) fn parse_shading_object(
     obj: &fepdf_model::Object,
     arena: &fepdf_model::PdfArena,
@@ -266,9 +353,7 @@ pub(crate) fn parse_shading_object(
                 [true, true]
             };
 
-            let func_key = arena.intern_name(PdfName::new("Function"));
-            let func_obj = dict.get(&func_key);
-            let stops = parse_shading_stops(func_obj, arena);
+            let stops = shading_stops(&dict, arena);
 
             Some(fepdf_model::ShadingSpec::Axial(fepdf_model::AxialShading {
                 coords,
@@ -310,9 +395,7 @@ pub(crate) fn parse_shading_object(
                 [true, true]
             };
 
-            let func_key = arena.intern_name(PdfName::new("Function"));
-            let func_obj = dict.get(&func_key);
-            let stops = parse_shading_stops(func_obj, arena);
+            let stops = shading_stops(&dict, arena);
 
             Some(fepdf_model::ShadingSpec::Radial(fepdf_model::RadialShading {
                 coords,
@@ -376,7 +459,80 @@ pub(crate) fn parse_pattern_object(
     }
 }
 
-fn parse_shading_stops(
+/// How many points a shading's function is sampled at to build the stop list.
+///
+/// The renderer interpolates linearly between stops, so a piecewise-linear function is
+/// reproduced **exactly** when its breakpoints land on the grid: 33 points puts a stop
+/// on every 1/32, covering the halves, quarters and eighths that `/Bounds` are written
+/// at in practice. It is a sampling and says so — a type 4 program with a step somewhere
+/// else is approximated, not solved.
+const SHADING_SAMPLES: u16 = 33;
+
+/// The colour stops of a shading, from its `/Function` evaluated across its `/Domain`.
+///
+/// Falls back to reading `/C0` and `/C1` off the function dictionary when the function
+/// will not parse. That fallback *was* the whole implementation, and it is why a
+/// three-stop gradient rendered black-to-white: a stitching function has neither key,
+/// because its colours live one level down in `/Functions`.
+fn shading_stops(
+    dict: &BTreeMap<Handle<PdfName>, Object>,
+    arena: &PdfArena,
+) -> Vec<fepdf_model::ColorStop> {
+    let func_key = arena.intern_name(PdfName::new("Function"));
+    let func_obj = dict.get(&func_key);
+    if let Some(stops) = sampled_stops(dict, func_obj, arena) {
+        return stops;
+    }
+    endpoint_stops(func_obj, arena)
+}
+
+fn sampled_stops(
+    dict: &BTreeMap<Handle<PdfName>, Object>,
+    func_obj: Option<&Object>,
+    arena: &PdfArena,
+) -> Option<Vec<fepdf_model::ColorStop>> {
+    let functions = FunctionSet::parse(func_obj?, arena)?;
+    let space = shading_space(dict, arena);
+    let (t0, t1) = shading_domain(dict, arena);
+    let mut stops = Vec::with_capacity(usize::from(SHADING_SAMPLES));
+    for i in 0..SHADING_SAMPLES {
+        let offset = f32::from(i) / f32::from(SHADING_SAMPLES - 1);
+        let t = t0 + f64::from(offset) * (t1 - t0);
+        let components = functions.eval(&[t])?;
+        // With a `/ColorSpace` the components mean what that space says — including a
+        // `/Separation`, whose own tint transform then runs on this function's output.
+        // Without one, the component count is all there is to go on.
+        let color = match &space {
+            Some(sp) => sp.to_color(&components)?,
+            None => ResolvedColorSpace::color_from_components(&components)?,
+        };
+        stops.push(fepdf_model::ColorStop::new(offset, color));
+    }
+    Some(stops)
+}
+
+fn shading_space(
+    dict: &BTreeMap<Handle<PdfName>, Object>,
+    arena: &PdfArena,
+) -> Option<ResolvedColorSpace> {
+    let key = arena.intern_name(PdfName::new("ColorSpace"));
+    ResolvedColorSpace::parse(dict.get(&key)?, arena)
+}
+
+/// A shading's `/Domain`, `[t0 t1]`, defaulting to `[0 1]` (Table 78).
+fn shading_domain(dict: &BTreeMap<Handle<PdfName>, Object>, arena: &PdfArena) -> (f64, f64) {
+    let key = arena.intern_name(PdfName::new("Domain"));
+    let pair = dict
+        .get(&key)
+        .map(|o| o.resolve(arena))
+        .and_then(|o| o.as_array())
+        .and_then(|ah| arena.get_array(ah))
+        .filter(|a| a.len() >= 2)
+        .and_then(|a| Some((a[0].resolve(arena).as_f64()?, a[1].resolve(arena).as_f64()?)));
+    pair.unwrap_or((0.0_f64, 1.0_f64))
+}
+
+fn endpoint_stops(
     func_obj: Option<&fepdf_model::Object>,
     arena: &fepdf_model::PdfArena,
 ) -> Vec<fepdf_model::ColorStop> {

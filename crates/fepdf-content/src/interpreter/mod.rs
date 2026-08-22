@@ -505,7 +505,7 @@ impl<'a> Interpreter<'a> {
                 let wx = self.pop_f64()?;
                 self.set_type3_metrics_bbox(wx, wy, llx, lly, urx, ury)
             }
-            "J" | "j" | "w" | "M" | "d" | "i" => self.handle_state_operator(op),
+            "J" | "j" | "w" | "M" | "d" | "i" | "ri" => self.handle_state_operator(op),
             "SCN" | "scn" | "sc" | "SC" => self.handle_color_operator(op),
             "sh" => self.handle_shading_operator(),
             _ => {

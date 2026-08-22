@@ -72,6 +72,23 @@ impl Interpreter<'_> {
                 }
                 self.state.stroke_style.dash_pattern = Some((dash, phase));
             }
+            // Consumed, not modelled. Flatness tolerance and rendering intent are the
+            // two graphics-state parameters this engine keeps nothing for — unlike `w`,
+            // `J`, `j`, `M` and `d` above — and until now they consumed *no* operands
+            // either, because they fell into the arm below.
+            //
+            // An operator that does not consume its operands leaves them for the next
+            // one. `/Perceptual ri` ahead of a `scn` made the colour operator count one
+            // operand too many and take its fallback arm, which is how the cyan square
+            // of `UnknownFilter-ICC.pdf` came to be painted black. Found by measuring
+            // that file, not by reading this function.
+            //
+            // `pop` rather than `pop_f64`: the arity is what is being fixed here, and a
+            // malformed stream that writes `i` with nothing under it should not start
+            // failing a whole page over an operator whose value is discarded anyway.
+            "i" | "ri" => {
+                self.stack.pop();
+            }
             _ => {}
         }
         Ok(())

@@ -3,11 +3,13 @@
 /// Typed schema helpers for graphics dictionaries.
 pub mod schema;
 
+use crate::color::ResolvedColorSpace;
 use crate::document::extensions::MeshShadingSpec;
 use crate::object::{FromPdfObject, Object};
 use crate::{PdfArena, PdfError, PdfResult};
 use kurbo::Affine;
 use serde::{Deserialize, Serialize};
+use std::sync::Arc;
 
 /// A color stop in a gradient or shading, specifying an offset in [0, 1] and a Color.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
@@ -380,6 +382,17 @@ pub struct GraphicsState {
     pub fill_color_space: ColorSpaceKind,
     /// Colour space in which `stroke_color` is expressed.
     pub stroke_color_space: ColorSpaceKind,
+    /// The fill space resolved far enough to paint in, when `cs` named one whose
+    /// components are not a colour on their own — `/Separation` and `/DeviceN` (8.6.6).
+    ///
+    /// **Not serialised.** A tint transform is a program reached through the page's
+    /// resources; the sublimated form of a graphics state is the state, not the
+    /// resources it looked through. `Arc` because `q`/`Q` clone this on every push.
+    #[serde(skip)]
+    pub fill_space: Option<Arc<ResolvedColorSpace>>,
+    /// The stroke space, as `fill_space`.
+    #[serde(skip)]
+    pub stroke_space: Option<Arc<ResolvedColorSpace>>,
     /// Number of clip regions pushed at this state level.
     pub clip_count: usize,
     /// Soft mask applied when compositing (`/SMask`).
@@ -405,6 +418,8 @@ impl Default for GraphicsState {
             text_state: TextState::default(),
             fill_color_space: ColorSpaceKind::DeviceGray,
             stroke_color_space: ColorSpaceKind::DeviceGray,
+            fill_space: None,
+            stroke_space: None,
             clip_count: 0,
             smask: None,
         }

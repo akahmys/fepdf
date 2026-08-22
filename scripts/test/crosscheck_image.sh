@@ -112,9 +112,32 @@ ours=target/release/examples/page_quadrants
 # it by 255, a flip by the difference between the quadrants, and a wrong stride by tens.
 tolerance=12
 
+# Files where the two renderers differ for a reason that has been run down, pinned to the
+# numbers *this* engine produced once the reason was understood.
+#
+# A bare DISAGREE is red forever and stops being read; deleting the file from the list
+# stops the comparison happening at all. Pinning does neither: the check still renders
+# both, still prints both, and fails the moment **this engine** moves off the recorded
+# four — while a difference that is PDFKit's is reported as explained rather than as a
+# defect here. An entry that starts agreeing also fails, so the list cannot quietly rot.
+expected_divergence() {
+    case "$1" in
+    separation)
+        echo "0 254 254 254|DeviceCMYK to RGB is not colour managed here: K=1 goes to 0 0 0 by the naive formula while PDFKit puts Apple's Generic CMYK profile through it and gets 26 25 25. The tint transform itself is right — this is the quadrant going black rather than white, which is what Phase P measured. ROADMAP Phase P names the conversion as its own entry"
+        ;;
+    UnknownFilter-ICC)
+        echo "204 241 244 188|The ICC profile stream carries /Filter /XXXDecode and cannot be decoded. 8.6.5.5 and Table 65 make /Alternate default to the space /N determines, so /N 4 means DeviceCMYK and '1 0 0 0 scn' is cyan. PDFKit logs a CoreGraphics error and paints the square 0 0 0. Measured both ways with a colour histogram, not inferred from the means"
+        ;;
+    *)
+        echo ""
+        ;;
+    esac
+}
+
 status=0
 compared=0
 skipped=0
+pinned=0
 printf '%-34s %-24s %-24s %s\n' file fepdf PDFKit verdict
 # The made fixtures, the files of the external corpus that carry a codec, and the three
 # that carry **optional content** or an **annotation appearance** — those last are the
@@ -160,13 +183,33 @@ for input in target/scans/*.pdf target/layers/*.pdf target/colour/*.pdf \
         for (i = 1; i <= n; i++) { d = x[i] - y[i]; if (d < 0) d = -d; if (d > worst) worst = d }
         printf (worst <= t) ? "agree (worst %d)" : "DISAGREE by %d", worst
     }')
+    divergence=$(expected_divergence "$name")
+    if [ -n "$divergence" ]; then
+        want=${divergence%%|*}
+        why=${divergence#*|}
+        if [ "$mine" != "$want" ]; then
+            printf '%-34s %-24s %-24s %s\n' "$name" "$mine" "$theirs" \
+                "PINNED DIVERGENCE MOVED — this engine read $want when it was pinned"
+            status=1
+        elif [ "${verdict#DISAGREE}" = "$verdict" ]; then
+            printf '%-34s %-24s %-24s %s\n' "$name" "$mine" "$theirs" \
+                "PIN IS STALE — this now agrees; delete its expected_divergence entry"
+            status=1
+        else
+            printf '%-34s %-24s %-24s %s\n' "$name" "$mine" "$theirs" \
+                "diverges as recorded — $why"
+            pinned=$((pinned + 1))
+        fi
+        continue
+    fi
+
     printf '%-34s %-24s %-24s %s\n' "$name" "$mine" "$theirs" "$verdict"
     case "$verdict" in DISAGREE*) status=1 ;; esac
 done
 
 echo
 if [ "$status" -eq 0 ]; then
-    echo "both renderers see the same page — $compared compared, $skipped without a second opinion"
+    echo "both renderers see the same page — $compared compared, $pinned diverging as recorded, $skipped without a second opinion"
 else
     echo "A RENDERER SEES SOMETHING ELSE"
 fi

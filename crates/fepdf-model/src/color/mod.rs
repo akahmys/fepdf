@@ -1,7 +1,22 @@
 //! Color Space Management (ISO 32000-2 Clause 8.6)
 //!
-//! This module implements strict color management using `moxcms` to ensure
-//! high-fidelity CMYK -> RGB conversion and ICC profile handling.
+//! `moxcms` parses ICC profiles here, and that is all it does. **This header used to
+//! claim it gave "high-fidelity CMYK -> RGB conversion", and it does not**:
+//! `Color::to_rgb` converts `/DeviceCMYK` with the naive `(1 − c)(1 − k)` formula and
+//! never consults a profile. Measured on `target/colour/separation.pdf`, where K = 1
+//! reaches this engine's raster as `0 0 0` and PDFKit's — which does put a CMYK profile
+//! through it — as `26 25 25`. `ROADMAP.md` Phase P carries the entry.
+//!
+//! Corrected rather than deleted, because the claim is the reason nobody looked: a
+//! module that says it is colour managed is not somewhere you go looking for a naive
+//! formula. `AGENTS.md`, Hierarchy of Truth — measurement outranks documentation.
+//!
+//! [`ResolvedColorSpace`] is the other half of this clause: the spaces whose components
+//! are not a colour until a function runs (8.6.6).
+
+mod space;
+
+pub use space::ResolvedColorSpace;
 
 use crate::PdfResult;
 use crate::graphics::Color;
