@@ -1075,6 +1075,9 @@ impl PdfDocument {
     ) -> PdfResult<()> {
         let page = self.inner.get_page(index)?;
         let res_dh = page.resources_handle();
+        // Anything the backend concluded on an earlier page belongs to that page, not
+        // this one. Draining first means what is recorded below is what *this* call drew.
+        let _ = backend.take_decisions();
         let mut interpreter = Interpreter::new(backend, &self.inner, res_dh, initial_transform);
         // So that an image the engine cannot decode can say how much of *this page* it
         // would have covered, rather than only that one was dropped (ROADMAP Phase L).
@@ -1095,6 +1098,13 @@ impl PdfDocument {
         };
         drop(interpreter);
         self.render_annotations(index, backend, initial_transform)?;
+        // A backend sits below any `Document` and cannot record for itself, so what it
+        // concluded about the font programs it was handed is folded in here — after the
+        // annotations, because their appearance streams draw glyphs too (ARCHITECTURE
+        // §5.3).
+        for decision in backend.take_decisions() {
+            self.inner.record(decision);
+        }
         drawn
     }
 

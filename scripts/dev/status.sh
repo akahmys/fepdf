@@ -143,9 +143,15 @@ row "decision records" "$adrs"
 # had not run and an annotation appearance learnt to say `/AS` named no state. A row that
 # names the places it looks will keep missing new ones, so the list is the thing to check
 # when the figure looks too round.
+#
+# **Derived now, for the third time of asking.** The list above named five crates and
+# `fepdf-render` was not one of them, so when the renderer learnt to report a glyph whose
+# outline would not build and a font that never reached its cache, the row read 82 where
+# the truth was 84 — the miss its own comment predicted, in the one crate nobody thought
+# to add. It reuses `$engine_dirs`, so this row and the log row above are now complements
+# of the same partition and a new crate lands in both by construction.
 decisions=$(grep -rn "Decision::ambiguity\|Decision::repaired\|Decision::violation" \
-    crates/fepdf-model/src crates/fepdf-syntax/src crates/fepdf-content/src \
-    crates/fepdf-doc/src crates/fepdf/src --include="*.rs" 2>/dev/null \
+    $engine_dirs --include="*.rs" 2>/dev/null \
     | grep -vc "interpretation.rs" | tr -d ' ')
 row "Decision sites in the engine" "$decisions"
 

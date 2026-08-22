@@ -459,32 +459,27 @@ of the standard, it records why, at the point of decision, with the clause. A si
 acceptance is a defect even when the output is right, because the next reader of the
 code cannot tell a deliberate choice from an oversight.
 
-**Current coverage is 75 sites**, up from one: `reader.rs` 19, `refine/color.rs` 12,
-`font/mod.rs` 8, `interpreter/ops/xobject.rs` 7, `decrypt.rs` 6, `document.rs` 4,
-`object/sublimation/parser.rs` 3, `optional_content.rs` 3, `fepdf/lib.rs` 3,
-`ingest/mod.rs` 2, `interpreter/ops/marked.rs` 2, `metadata.rs` 2,
-`apply/appearance.rs` 2, `refine/mod.rs` 1, `apply/annotations.rs` 1 (2026-08-22).
-The `status.sh` row searched three crates and the newest sites are in two more, so it
-read 69 where the figure was 75 — the same drift it caught in Phase H, in a new place. The three in `fepdf-content` are the newest and the reason the
-count moved: an image whose filter this engine cannot decode is skipped so that the
-page's text survives, and that skip is now recorded rather than logged
-([ADR-0018](docs/adr/0018-interpreting-a-page-can-add-to-the-decision-log.md)). The
-`status.sh` row had to learn to search that crate before it could see them. The five
-newest are optional content (8.11): three where `/OCProperties` or its default
-configuration will not read, and two where a `/OC` entry names no group this engine can
-find — each of which draws the content rather than hiding it, so the log is the only place
-the doubt is visible ([ADR-0021](docs/adr/0021-optional-content-hides-only-what-the-document-unambiguously-turns-off.md)).
-This paragraph read 39 while
-`status.sh` reported 53 — the drift the row exists to surface, surfaced and then not
-folded back, and the larger half of it is a whole file the list never had:
-`refine/color.rs` records clause 8.6 twice per defect, the `Violation` under
-`ColorPolicy::Strict` and the `Repaired` substitution of `/DeviceRGB` under
-`Relaxed`. `decrypt.rs` gained four with clause 7.6: three
-report a public-key document that could not be opened and why, and one an object stream
-that would not expand after decryption. The eleven places that previously detected
-non-conformance and merely `log::warn!` — missing font `/Subtype`, empty
-`/DescendantFonts`, undecodable CMap streams, unknown content-stream operators — were
-converted while the reader was replaced, which is where most of them sat.
+**Current coverage is 84 sites**, up from one, re-derived 2026-08-22: `reader.rs` 19,
+`refine/color.rs` 12, `font/mod.rs` 8, `interpreter/ops/xobject.rs` 7, `decrypt.rs` 6,
+`document.rs` 4, `interpreter/ops/color.rs` 4, `fepdf/lib.rs` 3, `optional_content.rs` 3,
+`object/sublimation/parser.rs` 3, `metadata.rs` 2, `ingest/mod.rs` 2,
+`apply/appearance.rs` 2, `interpreter/ops/marked.rs` 2, `interpreter/mod.rs` 2,
+`fepdf-render/text.rs` 1, `fepdf-render/lib.rs` 1, `refine/mod.rs` 1,
+`apply/annotations.rs` 1, `interpreter/ops/text.rs` 1.
+
+**The row that counts them named five crates, and `fepdf-render` was not one.** So when
+the renderer learnt to report a glyph whose outline would not build and a font that never
+reached its cache, `status.sh` read 82 where the truth was 84 — the miss the row's own
+comment had predicted, and the third time this figure has been wrong for the same reason.
+It derives from the workspace now, reusing the partition the log row above was given in
+Phase Q, so the two rows are complements and a new crate lands in both by construction.
+
+The nine newest are Phase P's: an operator this engine does not run (8.2), a pattern and a
+shading that would not build (8.7.3, 8.7.4.5.2), an operand count no colour model takes
+(8.6.8), a Type 3 glyph whose `/CharProcs` stream would not run (9.6.5), a `/Lab` colour
+converted through D65 sRGB (8.6.5.4), and the two the renderer reports (9.9, 9.6). Each
+was measured against the nine conforming samples before it was written, and each fires on
+none of them.
 
 **A site is not a firing, and which sites can fire depends on the command.** Over the
 251 files both corpora then held — 524 now, and this paragraph has not been re-derived
@@ -502,13 +497,44 @@ rather than an accident of which command was run: the log is behind a lock, a pa
 interpreted can add to it, and `inspect text` prints what reading decided before the
 text and what interpreting decided after it (ADR-0018).
 
-**Sixteen `log::warn!`/`log::error!` sites remain in the engine, and three of them are
-deliberate.** The three report properties of the *host*: which fonts this machine has
+**Three `log::warn!`/`log::error!` sites remain in the engine, and all three are
+deliberate.** They report properties of the *host*: which fonts this machine has
 (`fepdf-model/src/font/mod.rs`), the GPU failing to initialise so the CPU renderer takes
-over, and a system fallback font that would not load from its path. The other thirteen are
-conclusions about the *document* — "Unknown or unhandled operator", "CFF table not found
-in SFNT container", a shading that would not resolve, a Type 3 glyph that would not
-execute — and by the rule above each is a `Decision` that has not been written yet.
+over, and a system fallback font that would not load from its path.
+
+**The thirteen that were conclusions about the document did not all become `Decision`s,
+and the reason is the rule below.** Each was measured against the nine conforming samples
+before it was touched, and three of the thirteen turned out not to be conclusions at all:
+
+| site | fired on conforming input | became |
+| :--- | ---: | :--- |
+| `interpreter/font.rs` "not SFNT, using fallback" | **469** | deleted |
+| `reconstruction.rs` "CFF table not found in SFNT container" | **918** | deleted |
+| `reconstruction.rs` "Unrecognized font format" | 0 | deleted |
+| `reconstruction.rs` "SFNT assembly FAILED" | 0 | `log::debug` |
+| the other nine | 0 | `Decision` |
+
+The two that fired in the hundreds were reporting *ordinary* conditions. An SFNT container
+with no `CFF ` table is a TrueType font, and `inspect_cff` is called speculatively —
+every caller reaches it through `.unwrap_or(CffInfo::empty())`, so that `Err` is the
+expected answer. "Not SFNT" fired 423 times on `fugaku.pdf` alone, whose 72 fonts are all
+**Type 3**, which by 9.6.5 have no font program and so can never be SFNT; the rest were
+fonts with no `/FontFile`, where substituting is what 9.8 asks for. Converting either would
+have put 918 and 469 false departures on clean files and made `is_conforming` false for six
+of the nine — [ADR-0008](docs/adr/0008-an-indirect-length-is-not-an-ambiguity.md)'s mistake,
+made again and at scale.
+
+"Unrecognized font format" was a third copy of a test that already exists: measured across
+the whole external corpus it fired on exactly the three `isartor-6-3-2-t01-fail-*` files,
+which are exactly the files already carrying the 9.9 `Violation` "embeds a program in no
+recognised format" — twice per document where the decision fires once.
+
+**A backend cannot record for itself**, because it sits below any `Document`: it is handed
+paths and glyphs, not a file. `RenderBackend::take_decisions` is defaulted to empty and
+`render_page` drains it after the annotations, so the two `fepdf-render` sites — a glyph
+whose outline the font program will not yield, and a font the interpreter selected that
+never reached the cache — are recorded against the document that caused them. The drain was
+verified by injecting a decision into the backend and watching it arrive.
 
 This paragraph said "one" for three phases. It was true of the two crates `status.sh`
 searched and of no larger set, and `fepdf-content`, `fepdf-font` and `fepdf-doc` were in

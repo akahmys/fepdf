@@ -81,6 +81,8 @@ impl Default for TextLayoutOptions {
 /// Caches resolved glyph outlines across a render pass.
 pub struct SkrifaBridge {
     glyph_cache: BTreeMap<(u64, u32, u32), BezPath>,
+    /// Glyphs whose outline the font program would not yield, drained by the backend.
+    decisions: Vec<fepdf_model::interpretation::Decision>,
 }
 
 impl Default for SkrifaBridge {
@@ -93,7 +95,12 @@ impl SkrifaBridge {
     /// Creates a bridge with an empty glyph cache.
     #[must_use]
     pub fn new() -> Self {
-        Self { glyph_cache: BTreeMap::new() }
+        Self { glyph_cache: BTreeMap::new(), decisions: Vec::new() }
+    }
+
+    /// Takes the decisions reached about glyphs since the last call.
+    pub fn take_decisions(&mut self) -> Vec<fepdf_model::interpretation::Decision> {
+        std::mem::take(&mut self.decisions)
     }
 
     /// Reads the font's units-per-em, the scale its outlines are expressed in.
@@ -214,7 +221,11 @@ impl SkrifaBridge {
         final_gid
     }
 
-    fn draw_glyph_path(font: &FontRef, final_gid: GlyphId) -> Option<BezPath> {
+    fn draw_glyph_path(
+        font: &FontRef,
+        final_gid: GlyphId,
+        decisions: &mut Vec<fepdf_model::interpretation::Decision>,
+    ) -> Option<BezPath> {
         let upem = font.head().map_or(1000, |h| h.units_per_em());
         let mut pen = KurboPen::new();
         let glyph = font.outline_glyphs().get(final_gid)?;
@@ -222,7 +233,14 @@ impl SkrifaBridge {
             DrawSettings::unhinted(SkrifaSize::new(f32::from(upem)), LocationRef::default()),
             &mut pen,
         ) {
-            log::warn!("[SKRIFA] Drawing failed for GID {final_gid}: {e:?}");
+            // 9.9: the glyph is in the font and its outline will not build, so the
+            // character is dropped while its advance is kept — a hole in the line rather
+            // than a missing line. Fires on none of the nine conforming samples.
+            decisions.push(fepdf_model::interpretation::Decision::violation(
+                "9.9",
+                format!("glyph {final_gid} has an outline the font program will not yield: {e:?}"),
+                "drew nothing for it; the glyph's advance is still applied",
+            ));
             return None;
         }
         Some(pen.finish())
@@ -269,7 +287,7 @@ impl SkrifaBridge {
             return None;
         }
 
-        let path = Self::draw_glyph_path(&font, final_gid)?;
+        let path = Self::draw_glyph_path(&font, final_gid, &mut self.decisions)?;
         let seg_count = path.segments().count();
         if seg_count == 0 && !self.is_blank_char(unicode) {
             return None;

@@ -1351,25 +1351,59 @@ functions cannot be.
       groups are on and hide what is off, so what is missing is the panel, not the
       reading. Either the GUI gains one or it stops being this class, and it cannot stop
       being it while it opens documents for a person
-- [ ] **The engine logs thirteen conclusions about documents to stderr.** ARCHITECTURE
+- [x] **The engine logs thirteen conclusions about documents to stderr.** ARCHITECTURE
       §5.3 says a departure from the standard is recorded as a `Decision`, not logged,
       because a warning on stderr cannot tell a caller *this loaded* from *this was
-      conforming*. Sixteen sites remain across the engine and **three are deliberate** —
-      which fonts this machine has, the GPU falling back to the CPU renderer, and a system
-      fallback font that would not load — because each is a property of the host. The other
-      thirteen are about the document: `fepdf-content` 8 (an unresolvable font, a failed
-      Type 3 glyph, a shading that would not resolve, and *"Unknown or unhandled
-      operator"*), `fepdf-font` 3 (a CFF table missing from its SFNT container), and
-      `fepdf-render` 2.
+      conforming*. The count is **three** again — the host-property ones — over a row
+      that derives the engine as every crate that is not a frontend.
 
-      **This entry said eight, and eight was the count of one crate.** The `status.sh` row
-      read "expect 1" over `fepdf-model` and `fepdf-syntax` alone, and `fepdf-content`,
-      `fepdf-font` and `fepdf-doc` were in **neither** that list nor the frontend one —
-      invisible rather than miscounted, so adding sites to them moved no figure at all.
-      The row now derives the engine as *every crate that is not a frontend*, making the
-      two lists complements: a crate added to the workspace lands in one of them without
-      anyone remembering to put it there. Fixed as part of Phase Q, which is where the
-      pattern belongs
+      **Nine became `Decision`s and four did not, and measuring first is the only reason
+      that distinction exists.** §5.3's other rule is that a decision firing on
+      conforming input is worse than none, so every site was counted against the nine
+      conforming samples *before* it was touched:
+
+      | site | fired on conforming input | became |
+      | :--- | ---: | :--- |
+      | `interpreter/font.rs` "not SFNT, using fallback" | **469** | deleted |
+      | `reconstruction.rs` "CFF table not found in SFNT container" | **918** | deleted |
+      | `reconstruction.rs` "Unrecognized font format" | 0 | deleted |
+      | `reconstruction.rs` "SFNT assembly FAILED" | 0 | `log::debug` |
+      | the other nine | 0 | `Decision` |
+
+      The two firing in the hundreds were reporting **ordinary** conditions. An SFNT with
+      no `CFF ` table is a TrueType font, and every caller of `inspect_cff` reaches it
+      through `.unwrap_or(CffInfo::empty())` — the `Err` is the expected answer. "Not
+      SFNT" fired 423 times on `fugaku.pdf` alone, whose 72 fonts are all **Type 3**,
+      which by 9.6.5 have no font program and can never be SFNT. Converting them would
+      have put 1,387 false departures on clean files and made `is_conforming` false for
+      six of the nine — [ADR-0008](docs/adr/0008-an-indirect-length-is-not-an-ambiguity.md)
+      again, at scale.
+
+      **"Unrecognized font format" was a third copy of a test that already passes.**
+      Measured across the whole external corpus it fired on exactly the three
+      `isartor-6-3-2-t01-fail-*` files — exactly those already carrying the 9.9
+      `Violation` "embeds a program in no recognised format", and twice per document
+      where the decision fires once.
+
+      **A backend cannot record for itself.** `RenderBackend::take_decisions` is
+      defaulted to empty and `render_page` drains it after the annotations. Verified by
+      injecting a decision into the backend and watching it arrive, because a drain that
+      is wired wrong records nothing and looks exactly like a backend with nothing to say.
+
+      ```bash
+      ./scripts/dev/status.sh | grep -E 'engine log|Decision sites'   # 3 and 84
+      for f in samples/*.pdf; do
+        printf '%-22s %s\n' "$(basename "$f")" \
+          "$(target/release/fepdf inspect text "$f" 2>&1 | grep -cE '^\s*\[(VIOLATION|AMBIGUITY|REPAIRED)\]')"
+      done      # eight zeros and fy05.pdf's one real 14.3.3
+      ```
+
+- [ ] **The `Decision` row named five crates and `fepdf-render` was not one of them.**
+      It read 82 where the truth was 84 the moment the renderer gained a site — the third
+      time this figure has been wrong for that reason, and its own comment predicted it.
+      Fixed by deriving it from the same partition the log row uses, so the two are
+      complements. **Left open as an entry because the pattern is not**: `status.sh` has
+      other rows that name their places, and nothing checks which
 
 **`crosscheck_image.sh` was red on purpose, and is now green with two pins.**
 `target/colour/` holds the two files the numbers above come from, and they are in the

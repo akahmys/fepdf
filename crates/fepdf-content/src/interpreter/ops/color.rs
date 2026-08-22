@@ -232,9 +232,15 @@ impl Interpreter<'_> {
             }
             return true;
         }
-        log::warn!(
-            "[SDK] pattern /{name_str} is named but could not be parsed; colour left unchanged"
-        );
+        // 8.7.3: the operand named a pattern and the resource behind it did not yield
+        // one. The paint is left as it was, so the mark is drawn in the *previous*
+        // colour — which is a mark the file did not ask for rather than a missing one,
+        // and nothing downstream can tell without this.
+        self.doc.record(Decision::violation(
+            "8.7.3",
+            format!("/{name_str} is named by scn but no pattern could be built from it"),
+            "left the current colour in place; the mark is painted in whatever preceded it",
+        ));
         true
     }
 
@@ -249,7 +255,14 @@ impl Interpreter<'_> {
             self.backend.paint_shading(&shading);
             return Ok(());
         }
-        log::warn!("[SDK] Shading /{name_str} could not be resolved or parsed");
+        // 8.7.4.5.2: `sh` paints the shading over the current clip, so failing to build
+        // one means the area is left blank. A blank area and an area a file deliberately
+        // left blank are the same pixels.
+        self.doc.record(Decision::violation(
+            "8.7.4.5.2",
+            format!("/{name_str} is named by sh but no shading could be built from it"),
+            "painted nothing; the clip region is left as it was",
+        ));
         Ok(())
     }
 
@@ -275,8 +288,16 @@ impl Interpreter<'_> {
                 Ok(Color::Cmyk(c, m, y, k))
             }
             _ => {
-                log::warn!("[SDK] Unhandled {op} with {count} operands in CS {cs:?}");
-                // Return Gray(0) as ultimate fallback to avoid stopping execution
+                // 8.6.8: the operand count matches no colour model this engine paints in.
+                // Black is a colour, so a silent one here is indistinguishable from a
+                // black the file asked for — which is exactly how the `/Separation`
+                // defect of Phase P survived being looked at.
+                self.doc.record(Decision::violation(
+                    "8.6.8",
+                    format!("{op} with {count} operands in a {cs:?} colour space"),
+                    "painted black; no colour model this engine has takes that many \
+                     components",
+                ));
                 Ok(Color::Gray(0.0))
             }
         }

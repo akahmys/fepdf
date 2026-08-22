@@ -365,9 +365,16 @@ impl FontReconstructor {
                 Self::transcode_type1_to_cff(data, resource)
             }
             FontFormat::Unknown => {
-                log::warn!(
-                    "[RECONSTRUCT] Unrecognized font format, using raw data as placeholder SFNT"
-                );
+                // Deliberately silent, because the document-level fact is already
+                // recorded and recorded better: `fepdf-model/src/font/mod.rs` raises a
+                // 9.9 `Violation` — "embeds a program in no recognised format … skipped
+                // it and fell back to a system font" — gated on the font actually
+                // embedding something.
+                //
+                // Measured against the whole external corpus: this warned on exactly the
+                // three `isartor-6-3-2-t01-fail-*` files and no others, which are exactly
+                // the files carrying that `Violation`. It fired twice where the decision
+                // fires once, so it was the same finding, duplicated and less precise.
                 Ok(ReconstructedFont {
                     data: data.to_vec(),
                     is_cid: false,
@@ -1052,8 +1059,21 @@ impl FontReconstructor {
         let sfnt_data = match Self::assemble_sfnt(b"OTTO", &tables) {
             Ok(new_data) => new_data,
             Err(e) => {
-                log::error!(
-                    "[RECONSTRUCT] SFNT assembly FAILED for {}: {:?}",
+                // `debug!`, not a warning, and not a `Decision`. This is a failure of
+                // *this engine's* SFNT assembler, not a conclusion about the file: the
+                // font data arrived intact and we could not rebuild a container round it.
+                //
+                // The document-level consequence — a font program that will not parse —
+                // is already recorded upstream, because the raw outline returned here is
+                // a naked CFF that `populate_u2g_from_data` then fails to read, raising
+                // the 9.9 `Violation` "the embedded program for X did not parse".
+                //
+                // Never fired on either corpus: 524 files, zero. Kept as a diagnostic
+                // rather than deleted because if it ever does fire it is a bug here, and
+                // the message names the font it happened to.
+                log::debug!(
+                    "[RECONSTRUCT] SFNT assembly failed for {}, falling back to the raw \
+                     outline: {:?}",
                     resource.base_font(),
                     e
                 );
@@ -1550,7 +1570,16 @@ impl FontReconstructor {
                 log::debug!("[RECONSTRUCT] Found CFF2 table at {}-{} (size: {})", o, e, e - o);
                 Ok(&data[o..e])
             } else {
-                log::warn!("[RECONSTRUCT] CFF table not found in SFNT container");
+                // Deliberately silent. This warned, and it fired **918 times across six
+                // of the nine conforming samples** — 342 on `intel_sdm.pdf` alone —
+                // because an SFNT container with no `CFF ` table is an ordinary
+                // *TrueType* font with `glyf` outlines. Every caller of `inspect_cff`
+                // reaches it through `.unwrap_or(CffInfo::empty())`, which is to say it
+                // is asked speculatively and this `Err` is the expected answer.
+                //
+                // Converting it to a `Decision` would have put 918 false departures on
+                // clean files and made `is_conforming` false for all six — ADR-0008
+                // exactly. The error still carries the reason to whoever wants it.
                 Err("CFF table not found in SFNT container".into())
             }
         } else {

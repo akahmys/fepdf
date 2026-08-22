@@ -3,6 +3,7 @@ use crate::canvas::Canvas;
 use crate::interpreter::ops::marked::MarkedSection;
 use crate::path::PathBuilder;
 use fepdf_model::graphics::{GraphicsState, Rect, TextMatrices, WindingRule};
+use fepdf_model::interpretation::Decision;
 use fepdf_model::lexer::Token;
 use fepdf_model::object::sublimation::Command;
 use fepdf_model::optional_content::OptionalContentState;
@@ -331,15 +332,7 @@ impl<'a> Interpreter<'a> {
                     self.stack.push(Object::Real(*k));
                     self.handle_color_operator("k")
                 }
-                fepdf_model::graphics::Color::Lab(l, a, b) => {
-                    self.stack.push(Object::Real(*l));
-                    self.stack.push(Object::Real(*a));
-                    self.stack.push(Object::Real(*b));
-                    log::warn!(
-                        "[SDK] Lab color in Command::SetFillColor not directly mappable to operator"
-                    );
-                    Ok(())
-                }
+                fepdf_model::graphics::Color::Lab(..) => self.replay_lab(color, "rg"),
             },
             Command::SetStrokeColor(color) => match color {
                 fepdf_model::graphics::Color::Gray(g) => {
@@ -359,15 +352,7 @@ impl<'a> Interpreter<'a> {
                     self.stack.push(Object::Real(*k));
                     self.handle_color_operator("K")
                 }
-                fepdf_model::graphics::Color::Lab(l, a, b) => {
-                    self.stack.push(Object::Real(*l));
-                    self.stack.push(Object::Real(*a));
-                    self.stack.push(Object::Real(*b));
-                    log::warn!(
-                        "[SDK] Lab color in Command::SetStrokeColor not directly mappable to operator"
-                    );
-                    Ok(())
-                }
+                fepdf_model::graphics::Color::Lab(..) => self.replay_lab(color, "RG"),
             },
             Command::SetFillColorSpace(name) => {
                 self.push_name(name);
@@ -510,11 +495,54 @@ impl<'a> Interpreter<'a> {
             "sh" => self.handle_shading_operator(),
             _ => {
                 if !op.is_empty() {
-                    log::warn!("Unknown or unhandled operator: {op}");
+                    self.record_unknown_operator(op);
                 }
                 Ok(())
             }
         }
+    }
+
+    /// Replays a `Lab` colour from a sublimated `Command` through `rg`/`RG`.
+    ///
+    /// This used to push `l`, `a` and `b` and then return without running an operator,
+    /// so three operands were left on the stack for whatever came next — the same defect
+    /// `i` and `ri` had. It logged that Lab was "not directly mappable" while
+    /// `Color::to_rgb` had a Lab branch the *renderer* already used, so the two paths
+    /// disagreed about a colour the engine could convert all along.
+    ///
+    /// 8.6.5.4 defines the space and not the conversion to a device one, so the choice
+    /// of D65 sRGB is this engine's and is recorded as an `Ambiguity` rather than made
+    /// silently.
+    fn replay_lab(&mut self, color: &fepdf_model::graphics::Color, op: &str) -> PdfResult<()> {
+        let fepdf_model::graphics::Color::Rgb(r, g, b) = color.to_rgb() else {
+            return Ok(());
+        };
+        self.doc.record(Decision::ambiguity(
+            "8.6.5.4",
+            format!("a /Lab colour {color:?} where the operator set takes device components"),
+            "converted through D65 sRGB and set with rg/RG; the standard defines the \
+             space, not the conversion out of it",
+        ));
+        self.stack.push(Object::Real(r));
+        self.stack.push(Object::Real(g));
+        self.stack.push(Object::Real(b));
+        self.handle_color_operator(op)
+    }
+
+    /// Records a content-stream operator this engine does not run.
+    ///
+    /// A `Decision` and not a warning on stderr (ARCHITECTURE §5.3): a caller has to be able
+    /// to tell *this page drew* from *this page drew everything it asked for*, and a
+    /// line on stderr cannot say which. Measured across both corpora before the change:
+    /// 524 files produce six firings — three `UnknownOP` from a file built to be
+    /// malformed and three runs of binary rubbish — and **none** on the nine conforming
+    /// samples, so this is a signal rather than the constant §5.3 warns about.
+    fn record_unknown_operator(&self, op: &str) {
+        self.doc.record(Decision::violation(
+            "8.2",
+            format!("operator {op:?} at index {} is not one this engine runs", self.op_index),
+            "skipped it and carried on with the rest of the content stream",
+        ));
     }
 
     pub(crate) fn pop_i64(&mut self) -> PdfResult<i64> {

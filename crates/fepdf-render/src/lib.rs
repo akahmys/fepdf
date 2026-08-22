@@ -49,6 +49,10 @@ pub struct VelloBackend {
     system_fonts: Arc<std::collections::BTreeMap<FallbackFontType, Arc<Vec<u8>>>>,
     skrifa_bridge: crate::text::SkrifaBridge,
     next_font_id: u64,
+    /// Conclusions about the document reached while drawing it, drained by
+    /// `render_page` (ARCHITECTURE §5.3). A backend sits below any `Document`, so it
+    /// accumulates rather than records.
+    decisions: Vec<fepdf_model::interpretation::Decision>,
 }
 
 #[derive(Clone)]
@@ -152,6 +156,7 @@ impl VelloBackend {
             system_fonts,
             skrifa_bridge: crate::text::SkrifaBridge::new(),
             next_font_id: 1,
+            decisions: Vec::new(),
         }
     }
 
@@ -469,6 +474,13 @@ fn has_move_to(path: &BezPath) -> bool {
 }
 
 impl RenderBackend for VelloBackend {
+    /// Both halves: what this backend concluded, and what the glyph bridge under it did.
+    fn take_decisions(&mut self) -> Vec<fepdf_model::interpretation::Decision> {
+        let mut taken = std::mem::take(&mut self.decisions);
+        taken.extend(self.skrifa_bridge.take_decisions());
+        taken
+    }
+
     fn transform(&mut self, transform: Affine) {
         self.state.transform *= transform;
     }
@@ -685,7 +697,15 @@ impl RenderBackend for VelloBackend {
             self.state.is_fallback = is_fallback;
             self.state.fallback_type = entry.fallback_type;
         } else {
-            log::warn!("[RENDER] set_font: {name} NOT FOUND in cache");
+            // 9.6: the interpreter selected a font this backend was never given, so the
+            // text that follows is drawn in whatever font preceded it — wrong glyphs at
+            // the right positions, which reads as a rendering bug rather than as a font
+            // that failed to load. Fires on none of the nine conforming samples.
+            self.decisions.push(fepdf_model::interpretation::Decision::violation(
+                "9.6",
+                format!("Tf selected /{name}, which never reached the renderer's font cache"),
+                "left the previous font in place; the text is drawn with the wrong glyphs",
+            ));
         }
     }
 

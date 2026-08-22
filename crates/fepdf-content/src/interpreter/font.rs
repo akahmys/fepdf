@@ -100,11 +100,21 @@ impl Interpreter<'_> {
             });
 
             if !is_sfnt {
+                // Deliberately silent. This warned "Font X is not SFNT, using fallback",
+                // and measurement said it fired **469 times across three of the nine
+                // conforming samples** — 423 of them on `fugaku.pdf`, whose 72 fonts are
+                // all Type 3. A Type 3 font (9.6.5) has no font program at all, so it can
+                // never be SFNT; the rest were fonts with `/FontFile` absent, where
+                // substituting a system font is what 9.8 asks for. Neither is a departure.
+                //
+                // The departure that *is* real — a font that embeds a program in no
+                // recognised format — is already recorded as a 9.9 `Violation` in
+                // `fepdf-model/src/font/mod.rs`, gated on the font actually embedding
+                // something. This site was a second, wronger copy of that test, and
+                // converting it to a `Decision` would have put 469 false departures on
+                // clean files: ADR-0008's mistake, made again.
                 let fallback_type =
                     res.fallback_type.unwrap_or(fepdf_model::font::FallbackFontType::Default);
-                log::warn!(
-                    "[SDK] Font {backend_name} is not SFNT, using fallback data for type {fallback_type:?}"
-                );
                 data = self.doc.system_fonts.get(&fallback_type).cloned();
             }
 

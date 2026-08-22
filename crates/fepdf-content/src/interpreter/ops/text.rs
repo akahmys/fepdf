@@ -454,7 +454,15 @@ impl Interpreter<'_> {
         // does: an unbalanced `EMC` inside one glyph must not reveal a hidden section
         // that the text it belongs to sits inside.
         if let Err(e) = self.in_nested_content(|me| me.execute(stream_h)) {
-            log::error!("[SDK] Failed to execute Type 3 glyph {glyph_name}: {e:?}");
+            // 9.6.5: a Type 3 glyph *is* a content stream, so one that will not run
+            // leaves a hole in the text with the advance still applied — the line keeps
+            // its spacing and loses its character, which reads as a rendering bug rather
+            // than as a file this engine could not draw.
+            self.doc.record(fepdf_model::interpretation::Decision::violation(
+                "9.6.5",
+                format!("the /CharProcs stream for glyph {glyph_name} would not run: {e}"),
+                "drew nothing for it and kept the glyph's advance",
+            ));
         }
         self.state_stack = old_stack;
         self.in_type3_glyph = false;

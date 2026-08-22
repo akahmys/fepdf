@@ -79,6 +79,20 @@ pub struct TextState {
 /// A backend decides what "drawing" means: rasterising to a GPU surface, collecting
 /// text runs, or accumulating geometry. The interpreter is identical in every case.
 pub trait RenderBackend {
+    /// Takes the decisions this backend reached about the document while drawing it.
+    ///
+    /// A backend sits below any `Document` — it is handed paths and glyphs, not a file —
+    /// so it cannot call `Document::record` itself. What it *can* see is a font program
+    /// whose glyph will not draw or a font the interpreter selected and it never
+    /// received, and both change what reaches the page. `render_page` drains this after
+    /// interpretation and records what comes back (ARCHITECTURE §5.3).
+    ///
+    /// Defaulted to empty: the text-extraction and collector backends reach no such
+    /// conclusion, and a trait method they must all implement to say "none" is noise.
+    fn take_decisions(&mut self) -> Vec<fepdf_model::interpretation::Decision> {
+        Vec::new()
+    }
+
     /// Concatenates `transform` onto the current transformation matrix.
     fn transform(&mut self, transform: Affine);
     /// Replaces the current transformation matrix.
