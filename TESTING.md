@@ -189,8 +189,9 @@ Before submitting a Pull Request or completing a task:
       to a same-length hex string turns its four references into four dangling links.
       `status.sh --full` runs it.
 - [ ] `./scripts/test/fetch_external_corpus.sh` then
-      `./scripts/test/measure_external_corpus.sh` — 242 files this project did not
-      choose: 37 from `pdf-association/pdf-differences` and 205 Isartor files. Run when
+      `./scripts/test/measure_external_corpus.sh` — **515** files this project did not
+      choose (242 when this line was written: 37 from `pdf-association/pdf-differences`
+      and 205 Isartor files). Run when
       the reader, the fonts or the filters are touched. The nine files in `samples/` were
       picked by this project and every "zero occurrences, so defer" judgement in
       `ROADMAP.md` is bounded by them; on its first run this found a panic in CFF INDEX

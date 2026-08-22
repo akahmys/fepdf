@@ -8,7 +8,7 @@ This document defines the canonical directory structure of fepdf. Adherence to t
 
 | Path | Purpose | Ownership |
 | :--- | :--- | :--- |
-| `.agents/` | Governance & Agent Protocols | Antigravity IDE |
+| `.agents/` | Governance & Agent Protocols | Project |
 | `assets/` | Static, Read-only Resources (Fonts, Models) | Project |
 | `crates/` | Modular Rust Logic Layer | Engineering |
 | `docs/` | Technical Specs & Architectural History | Architecture |
@@ -17,13 +17,21 @@ This document defines the canonical directory structure of fepdf. Adherence to t
 | `out/` | Ephemeral & Persistent Outputs (Ignored by Git) | Pipeline |
 | `out/artifacts/`| Test results, renders, and temporary PDFs | CI/CD |
 | `out/exports/` | Extracted document assets (Fonts, Images) | Refinery |
-| `samples/` | Test Input Corpus (PDFs) | QA |
+| `samples/` | Test Input Corpus (PDFs) — **files this project chose**, 9 of them | QA |
 | `scripts/` | Automation & CI/CD Scripts | DevOps |
+| `target/` | Cargo's build directory, **and the external corpora**: 515 files this project did not choose, under `target/external/`, plus `encrypted/`, `malformed/`, `scans/`, `layers/` and `colour/`. Git-ignored, fetched by `scripts/test/fetch_external_corpus.sh` | QA |
 
 ## 2. Organization Rules
 
 1.  **Consolidation**: All static resources MUST reside within `assets/`. Prohibit root-level resource directories (e.g., `resources/`).
 2.  **Output Isolation**: All dynamically generated files MUST reside within `out/`.
+    (Checked 2026-08-22: **not held.** Three writers use `out/artifacts/` —
+    `scripts/dev/render_pages.sh`, `scripts/test/batch_process.sh` — and three use a
+    root-level `artifacts/`: `crates/fepdf/examples/render_all_samples.rs`,
+    `render_japanese_samples.rs` and `scripts/test/hiragana_render_test.sh`. Both are
+    git-ignored, so nothing was ever going to notice. Registering `target/` above is the
+    same omission caught earlier: the rule in §4 says every root directory must be
+    registered, and the one holding 515 corpus files was not.)
 3.  **Script Categorization**:
     *   `scripts/audit/`: Compliance, security, and static analysis.
     *   `scripts/dev/`: Developer productivity and UI utilities.
@@ -43,5 +51,10 @@ This document defines the canonical directory structure of fepdf. Adherence to t
 
 ## 4. Maintenance
 
-- Every new directory added to the root MUST be registered in this document.
+- Every new directory added to the root MUST be registered in this document. **Nothing
+  checks this**, which is how `target/` — the largest and most load-bearing of them —
+  went unregistered through five phases that measured against its contents.
 - Root-level stray files are prohibited except for core configuration (`Cargo.toml`, `Makefile`, `LICENSE`).
+- Tool-owned dotfile directories (`.git/`, `.github/`, `.cargo/`, `.claude/`, `.gemini/`)
+  are not registered and do not need to be. This document governs what the project puts
+  in the tree, not what its tools do.

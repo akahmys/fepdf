@@ -10,13 +10,8 @@ repository.workspace = true
 [dependencies]
 log.workspace = true
 bytes.workspace = true
-serde.workspace = true
 thiserror.workspace = true
-kurbo.workspace = true
-skrifa.workspace = true
-read-fonts.workspace = true
 ttf-parser.workspace = true
-parking_lot.workspace = true
 
 [lints.rust]
 unsafe_code = "forbid"

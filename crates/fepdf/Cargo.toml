@@ -8,6 +8,10 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
+# Used by the `page_quadrants` and `render_all_samples` examples, which have an async
+# `main`. Nothing in `src/` touches it — the audit of unused declarations kept this one
+# because `--all-targets` failed without it, which is the only reason it was visible.
+tokio.workspace = true
 fepdf-model.workspace = true
 fepdf-content.workspace = true
 fepdf-doc.workspace = true
@@ -15,22 +19,13 @@ fepdf-doc.workspace = true
 # vello + wgpu into every SDK consumer is not free. See ARCHITECTURE.md Rule B.
 fepdf-render = { workspace = true, optional = true }
 kurbo.workspace = true
-thiserror.workspace = true
 serde.workspace = true
 bytes.workspace = true
-ttf-parser.workspace = true
-skrifa.workspace = true
-roxmltree.workspace = true
 image = { workspace = true, optional = true }
-tokio.workspace = true
 pollster = { workspace = true, optional = true }
-flate2.workspace = true
 chrono.workspace = true
 log.workspace = true
 env_logger.workspace = true
-hex.workspace = true
-md5.workspace = true
-x509-parser.workspace = true
 
 [features]
 default = []

@@ -12,7 +12,15 @@ For prescriptive constraints, see `.agents/rules/sdk-engine.md`.
 *   **Actions**:
     *   **On-demand Sublimation**: Re-decompress and re-reconstruct data on-the-fly based on Phase 2 recipes.
     *   **Stateless Execution**: Execute the atomic IR commands produced in Phase 2. No heuristic guesswork or implicit state mutations are permitted during this phase.
-    *   **Exhaustive Operator Dispatching (Rule 5 Hardening)**: The interpreter utilizes exhaustive pattern matching for the `Command` IR enum. The use of wildcards (`_`) in the primary dispatch loop is prohibited. Every variant—including XObjects, marked content, and Type 3 metrics—is explicitly routed to its corresponding handler to prevent "silent state loss" where operators are parsed but never executed.
+    *   **Exhaustive Operator Dispatching (Rule 5 Hardening)**: Exhaustive pattern matching
+        for the `Command` IR enum; no wildcard on a domain enum. (Checked 2026-08-22: true
+        of `Command`, and **false of the sentence that followed it**, which claimed "the use
+        of wildcards (`_`) in the primary dispatch loop is prohibited". The primary dispatch
+        is `execute_operator(&mut self, op: &str)` — `interpreter/mod.rs:481` — matching on
+        a **string**, where a wildcard is unavoidable and RR-15 Rule 5 does not apply
+        because a `&str` is not a domain enum. Its `_` arm does exactly the "silent state
+        loss" this paragraph says is prevented: `log::warn!("Unknown or unhandled operator:
+        {op}")`, to stderr, where nothing can act on it. ROADMAP Phase P.)
 *   **Coordinate System Decoupling**:
     *   **Baseline Transform (`initial_transform`)**: The immutable transform from PDF User Space (Points) to Device Space (Pixels). Handles MediaBox translation, Y-flipping, and DPI scaling.
     *   **Execution CTM**: Maintains a pure, PDF-compliant Y-up `ctm` within each graphics state.
@@ -25,7 +33,13 @@ For prescriptive constraints, see `.agents/rules/sdk-engine.md`.
 *   **Responsibility**: High-fidelity visual rasterization.
 *   **Actions**:
     *   **Pure SFNT Pipeline**: Pass reconstructed SFNT buffers and exact GIDs to the hardware-accelerated backend.
-    *   **Zero-Fallback Policy**: System font fallback is strictly prohibited for embedded resources; visual fidelity must be absolute.
+    *   **Zero-Fallback Policy**: System font fallback is not used in place of an embedded
+        resource that loads. (Checked 2026-08-22: the engine *does* carry system fallback
+        fonts — `PdfDocument::set_system_fonts`, `Renderer::load_system_fonts` — and reaches
+        for them when a font program is in no recognised format, which
+        `isartor-6-3-2-t01-fail-b.pdf` records as a `Violation` of 9.9. "Strictly
+        prohibited" describes the intent for fonts that load, not the behaviour when one
+        does not.)
 
 ---
 

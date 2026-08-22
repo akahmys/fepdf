@@ -13,16 +13,8 @@ repository.workspace = true
 fepdf-model.workspace = true
 fepdf-content.workspace = true
 kurbo.workspace = true
-thiserror.workspace = true
 serde.workspace = true
 bytes.workspace = true
-flate2.workspace = true
-chrono.workspace = true
-log.workspace = true
-roxmltree.workspace = true
-x509-parser.workspace = true
-md5.workspace = true
-hex.workspace = true
 
 [lints]
 workspace = true

@@ -110,7 +110,7 @@ and not complied with" are different, and only the second is a defect.
 | **7.5** File structure | **Complete and in use.** Header scan, both cross-reference forms, `/Prev` chains, hybrid references, object streams, incremental updates, and recovery by scanning. `Document::open` reads the file itself; `lopdf` is gone. Recovery has **two** halves since Phase N: a scan finds objects written `N G obj`, and an object stored inside a `/Type /ObjStm` is not written that way — so every container in the file is expanded too, filling holes and never overriding a section that read ([ADR-0006](docs/adr/0006-a-container-may-not-overwrite-a-newer-revision.md)). Having only the first half cost `UnknownFilter-xrefstm.pdf` its page tree, which is object 5 inside object stream 2. |
 | **7.6** Encryption | Every password handler the standard defines now decrypts: RC4 (V1/V2), AES-128 (V4/R4) and AES-256 (V5/R5, V5/R6) to Algorithms 1, 2, 2.A, 2.B and 4–6, with `/Perms` checked and both password roles authenticating. Verified against PDFKit on fourteen files; all of it was broken or absent ([ADR-0009](docs/adr/0009-permissions-are-thirty-two-bits-not-a-positive-integer.md)). Writing is AES-256 at revision 6 and nothing else, because output is always 2.0 and this edition deprecates the rest. Public-key handlers (7.6.5) are **read and written** — a `/Adobe.PubSec` document opens with the certificate it was addressed to, which neither Chrome nor Firefox will do, and `--encrypt-to` produces one. Unencrypted wrappers (7.6.7) are recognised and reported. **Clause 7.6 is otherwise complete.** |
 | **7.7** Document structure | Every one of Table 29's 32 entries is a field of `PdfCatalog`, and **23 are modelled** — the field's type says what the entry holds. Measured against all 524 files, 10 of the 32 keys occur in no file at all and are **declined a reader** for that reason, recorded in the code as `catalog::ABSENT_FROM_BOTH_CORPORA`; of the twenty-two keys those files do carry, **21 are modelled**, and the one that is not is `/Type`, whose value 7.7.2 fixes at `/Catalog`. **Two keys left that list in Phase O-1** — `/AF` went from zero files to seventeen when PDF/A-3 and PDF/A-4f arrived, and `/PieceInfo` to one — and both gained readers in the same change, which is the rule working: a corpus justifies building, never declining. That figure is qualified where it is printed: `inspect catalog` reports, per entry, how much of the entry's *own* table its reader covers — `/AcroForm` is modelled and reads 4 of Table 224's 8 ([ADR-0020](docs/adr/0020-a-modelled-entry-reports-how-much-of-its-own-table-it-reads.md)). |
-| **PDF 2.0 additions** | `inspect catalog` reports **zero** `type only` entries, and the reason is not that the six gained readers. `PageLabels`, `Threads`, `OutputIntents`, `OCProperties`, `Collection` and `AF` each became an `Option<Object>` field, which moves them from "no field" to "a field whose contents are opaque" — the spec types (`PageLabelSpec`, `ArticleThread`, `OutputIntent`, …) are still not what the catalogue reads into. `DPartRoot` has no type at all, contrary to what this table said before it was checked. Phase K then gave `PageLabels`, `Threads`, `OutputIntents` and `OCProperties` real readers — the four of the six the corpora present, and `/OCProperties` was the one of those four that nothing read *from*, until Phase N made the renderer enter through it — and declined `Collection` and `AF`, which they do not. Of the six, `PageLabels` and `Threads` were the only ones to occur when the corpus was the nine samples — 2 files and 1. Across all 251 the order changes: `OutputIntents` 64, `PageLabels` 4, `OCProperties` and `Threads` 1 each, and `Collection` and `AF` still zero, as do `DSS` and `DPartRoot`, which have fields anyway — the container-before-contents shape Phase D was ordered to avoid. |
+| **PDF 2.0 additions** | `inspect catalog` reports **zero** `type only` entries, and the reason is not that the six gained readers. `PageLabels`, `Threads`, `OutputIntents`, `OCProperties`, `Collection` and `AF` each became an `Option<Object>` field, which moves them from "no field" to "a field whose contents are opaque" — the spec types (`PageLabelSpec`, `ArticleThread`, `OutputIntent`, …) are still not what the catalogue reads into. `DPartRoot` has no type at all, contrary to what this table said before it was checked. Phase K then gave `PageLabels`, `Threads`, `OutputIntents` and `OCProperties` real readers — the four of the six the corpora present, and `/OCProperties` was the one of those four that nothing read *from*, until Phase N made the renderer enter through it — and declined `Collection` and `AF`, which they do not. Of the six, `PageLabels` and `Threads` were the only ones to occur when the corpus was the nine samples — 2 files and 1. Across the 251 files the corpus then held the order changes: `OutputIntents` 64, `PageLabels` 4, `OCProperties` and `Threads` 1 each, and `Collection` and `AF` still zero, as do `DSS` and `DPartRoot`, which have fields anyway. **These counts have not been re-derived against the 524**, and one of them is known to have moved — Phase O-1 took `/AF` from zero files to seventeen, which is the sentence two rows above — the container-before-contents shape Phase D was ordered to avoid. |
 | **8** Graphics | **Optional content (8.11) is honoured while drawing.** `BDC` discarded its property list, so an `/OC` section was painted whether its group was on or off, and `/OCProperties` — read since Phase K — was consulted by nothing. The default configuration's `/BaseState`, `/ON`, `/OFF`, `/Intent` and `/AS` are read, with membership dictionaries, all four `/P` policies and `/VE` expressions. Thirteen constructions were put to PDFKit and it honours **two**, so eleven are held to the clause by 30 tests ([ADR-0021](docs/adr/0021-optional-content-hides-only-what-the-document-unambiguously-turns-off.md)); two of those exist because Phase O-1's corpus caught the reader out on a real file. A pattern is painted, through `Paint::Pattern(PatternSpec)` — `scn` with a pattern name (8.6.8.2) had been read as a grey component, which cost `fy05.pdf` six pages and the 718 after them. **Two colour defects are open and measured**, both from the same root: `/Separation` and `/DeviceN` (8.6.6) evaluate no tint transform, so a spot colour at full tint renders *white* where PDFKit renders black; and a shading (8.7.4) reads only `/C0` and `/C1`, ignoring `/FunctionType`, so a stitching function — the ordinary multi-stop gradient — renders black-to-white. Shading types **2 and 3 only**; 4 to 7 are not read. Phase P. |
 | **9** Text | Fonts load, simple and composite, with the CMap and encoding work Phase 12-era sessions cycled on; every page of every sample yields its text. **Not re-measured** in the pass that produced the rows above, so what this row says is carried forward from when it was written rather than re-derived. |
 | **10** Rendering | 6.3.2.2 binds anything that draws a page with two `shall`s, and both are met: optional content is honoured (8.11) and **annotation appearance streams are drawn** (12.5.5) — the second was not done at all until Phase P found the clause, and a page whose only mark was an annotation came out blank while every other reader painted it ([ADR-0023](docs/adr/0023-a-renderer-that-skips-annotation-appearances-is-not-conforming.md)). What the clause's own subclauses ask for is thinner: **there is no PDF function evaluator (7.10)** — no type 0, 2, 3 or 4 — which is what 10.5's transfer functions would need and what clause 8's colour defects above are caused by; **halftones (10.6) have no code at all**; 10.7's scan conversion is Vello's, and 10.8's separations follow the colour gap. Phase P. |
@@ -126,10 +126,14 @@ down from 14 to one, and that one is deliberate: it reports which fonts *this ma
 has, not anything the document says.
 
 **That sentence used to say "in the engine", and the engine is bigger than those two
-crates.** `fepdf-content` holds **eight** more, one of which discards *"Unknown or
-unhandled operator"* to stderr — a conclusion about the document, which §5.3 says is a
-`Decision`. The `status.sh` row that reports this figure searches the same two crates, so
-it could not have said so. Phase P. Frontends still log freely, which is their job.
+crates.** The figure across the whole engine is **16**, of which **3 are deliberate** —
+each a property of the *host* rather than the document. The other thirteen sit in
+`fepdf-content` (8, one discarding *"Unknown or unhandled operator"* to stderr),
+`fepdf-font` (3) and `fepdf-render` (2), and each is a conclusion about the document, which
+§5.3 makes a `Decision`. The `status.sh` row searched two crates and put the other three in
+**neither** list, so it could not have said so and adding sites to them moved nothing; it
+now derives the engine as every crate that is not a frontend. Phase P for the conversions,
+Phase Q for the row. Frontends still log freely, which is their job.
 
 `./scripts/dev/status.sh` re-derives these figures, so a number that has gone stale
 shows up as a disagreement rather than reading as current.
@@ -1284,16 +1288,25 @@ functions cannot be.
       groups are on and hide what is off, so what is missing is the panel, not the
       reading. Either the GUI gains one or it stops being this class, and it cannot stop
       being it while it opens documents for a person
-- [ ] **The engine logs eight conclusions about documents to stderr.** ARCHITECTURE §5.3
-      says a departure from the standard is recorded as a `Decision`, not logged, because
-      a warning on stderr cannot tell a caller *this loaded* from *this was conforming*.
-      `fepdf-content` holds eight `log::warn!` sites — an unresolvable font, a failed
-      Type 3 glyph, and *"Unknown or unhandled operator"*, which is a content stream doing
-      something this engine does not implement and saying so where nothing can act on it.
-      The `status.sh` row reports "expect 1" and searches only `fepdf-model` and
-      `fepdf-syntax`, so it reads 1 and is wrong for the same reason the decision-site row
-      was before Phase H taught it a third crate — and the annotation and appearance work
-      taught it a fourth and fifth
+- [ ] **The engine logs thirteen conclusions about documents to stderr.** ARCHITECTURE
+      §5.3 says a departure from the standard is recorded as a `Decision`, not logged,
+      because a warning on stderr cannot tell a caller *this loaded* from *this was
+      conforming*. Sixteen sites remain across the engine and **three are deliberate** —
+      which fonts this machine has, the GPU falling back to the CPU renderer, and a system
+      fallback font that would not load — because each is a property of the host. The other
+      thirteen are about the document: `fepdf-content` 8 (an unresolvable font, a failed
+      Type 3 glyph, a shading that would not resolve, and *"Unknown or unhandled
+      operator"*), `fepdf-font` 3 (a CFF table missing from its SFNT container), and
+      `fepdf-render` 2.
+
+      **This entry said eight, and eight was the count of one crate.** The `status.sh` row
+      read "expect 1" over `fepdf-model` and `fepdf-syntax` alone, and `fepdf-content`,
+      `fepdf-font` and `fepdf-doc` were in **neither** that list nor the frontend one —
+      invisible rather than miscounted, so adding sites to them moved no figure at all.
+      The row now derives the engine as *every crate that is not a frontend*, making the
+      two lists complements: a crate added to the workspace lands in one of them without
+      anyone remembering to put it there. Fixed as part of Phase Q, which is where the
+      pattern belongs
 
 **`crosscheck_image.sh` is red, on purpose.** `target/colour/` holds the two files the
 numbers above come from, and they are in the comparison rather than beside it: a phase
@@ -1309,8 +1322,9 @@ cargo run --example make_colour_fixtures -p fepdf-model
 
 *Done when*: a `/Separation` fill and a stitching gradient agree with PDFKit in
 `crosscheck_image.sh`; the shading and halftone entries are either built or declined
-against a measurement of what the corpora present; the engine's `log::warn!` count is one
-again, over a row that searches every crate the engine is made of; and `fepdf-gui` either
+against a measurement of what the corpora present; the engine's `log::warn!` count is
+three again — the host-property ones — over a row that searches every crate the engine is
+made of; and `fepdf-gui` either
 lets a reader turn a layer off or is no longer described as opening documents for one.
 
 **What this phase is not.** It is not a list of everything clause 8 to 11 contains. Nine
@@ -1318,6 +1332,133 @@ lets a reader turn a layer off or is no longer described as opening documents fo
 and their rows above say so rather than implying a verdict. Naming four measured things
 is worth more than listing thirty unmeasured ones, which is what the row this phase split
 had been doing.
+
+## Phase Q — The rules the architecture asserts, and what actually checks them
+
+`ARCHITECTURE.md` §7 opens with "architecture rules that are not checked become comments"
+and then lists five rows, four of which name a tool. The fifth said Rule D was "enforced
+by construction". Naming no tool is the tell, and re-deriving every checkable claim in the
+document on 2026-08-22 found the rule broken, the crate sizes stale by up to 5.8×, and the
+`Operation` listing — in the section that *defines* Rule D — a work of fiction.
+
+**None of this was hidden. It was unmeasured, which is not the same as unknowable**: every
+figure below came out of one command, and the commands are here.
+
+- [ ] **Rule D does not hold: eight frontend call sites mutate documents outside the
+      vocabulary.** The facade exposes each mutation twice — as an `Operation` variant and
+      as a plain `&mut self` method — so a frontend can leave the vocabulary without
+      re-implementing anything, which is the failure Rule D was written to prevent in a
+      form it did not anticipate. `fepdf-gui` calls `remove_page` twice while
+      `Operation::RemovePages` exists and the GUI never builds it: **two ways to remove a
+      page, with nothing comparing them**, which is §4's rotate divergence in its early
+      form. The other five have no `Operation` at all — `insert_pages_from`,
+      `duplicate_page`, `upgrade_to_standard`, `retag_document` — and three of those were
+      *planned* as operations (`InsertFrom`, `Retag`, `Upgrade`), built as methods, and
+      left in `ARCHITECTURE.md` looking like a description of the code. Closing this means
+      four new operations and then removing the methods, so the choice stops being
+      available. `status.sh` derives the method list from the facade rather than listing
+      it, and was verified by adding a ninth bypass to the WASM stub and watching the row
+      read 9
+
+      ```bash
+      ./scripts/dev/status.sh | grep 'Rule D'      # 8, expected 0
+      ```
+
+- [x] **The engine/frontend log split was not a partition, so three crates were in
+      neither half.** Fixed by deriving both lists from the workspace. The figure went
+      from 1 to 16 without a line of engine code changing, and Phase P's entry above says
+      what the thirteen non-deliberate ones are
+- [x] **Forty-five dependency declarations were referenced by no line of code**, in `src`,
+      `tests`, `examples` or `benches` — including six crypto crates in `fepdf-syntax`
+      (`cbc`, `pbkdf2`, `hmac`, `x509-parser`, `ecdsa`, `p256`), four font crates in
+      `fepdf-font` and `fepdf-model` (`skrifa`, `read-fonts`, `kurbo`), `pdf-writer` and
+      `id-arena` in `fepdf-model`, and `tokio` in `fepdf-gui`. Verified by deleting all of
+      them and running `cargo check --workspace --all-targets`: exactly one was real —
+      `tokio` in `fepdf`, used by two examples with an async `main`, which is why the
+      check has to be `--all-targets` — and it was put back with a comment saying so.
+      `fepdf-model` fell from 149 transitive crates to 144 and `fepdf-font` to 14.
+
+      This is [ADR-0007](docs/adr/0007-an-option-that-is-not-read-is-hidden.md)'s principle
+      — an option nothing reads is hidden — applied to `Cargo.toml` instead of to an
+      options struct, and it is the same defect [ADR-0024](docs/adr/0024-pure-rust-is-a-rule-and-therefore-has-a-check.md)
+      found twice over: `reqwest` and `rustls-native-certs` were also used by nothing, and
+      they were the ones dragging in C. **Removing them did not remove the shape that
+      produced them.**
+
+      ```bash
+      for c in crates/*/; do
+        awk '/^\[dependencies\]/{f=1;next} /^\[/{f=0} f' "$c/Cargo.toml" |
+        grep -oE '^[a-zA-Z0-9_-]+' | while read -r d; do
+          u=$(echo "$d" | tr '-' '_')
+          grep -rq "\b${u}\b" "$c"/{src,tests,examples,benches} 2>/dev/null ||
+            echo "$(basename $c) → $d"
+        done
+      done
+      ```
+
+- [ ] **That audit has no row, so it will happen again.** The command above is a one-off;
+      what `status.sh` needs is the figure. Two of the three C dependencies and forty-five
+      of these were invisible to every check this project has, and both were found by
+      hand, twice, four days apart
+- [ ] **`fepdf-wasm::render_page` returns `Ok(())` having drawn nothing.** Not
+      unimplemented — *silently successful*, which is worse: a caller is told it worked and
+      gets a blank canvas. Either it renders, or it returns an error saying it does not.
+      Forty lines, no `Operation`, and the §5.1 diagram claimed it was a frontend that
+      builds them
+
+*Done when*: `status.sh` reports 0 Rule D bypasses and 3 engine log sites over derived
+crate lists; unused dependency declarations have a row; and `fepdf-wasm` either renders or
+says it cannot.
+
+**What this phase is not.** It is not a documentation pass. Every item is a property of
+the code that a document asserted and nothing verified — the documents were where the
+divergence *showed*, not where it lived. `ARCHITECTURE.md` has been corrected in place and
+says at each point what was checked and when, because a line that is silently right today
+is indistinguishable from one that is silently stale.
+
+## Phase R — Whether this engine runs the document's code
+
+[ADR-0022](docs/adr/0022-what-a-document-does-is-a-settled-question-where-reads-an-action-is-not.md)
+declined ECMAScript and 6.3.2.1 makes that conforming.
+[ADR-0024](docs/adr/0024-pure-rust-is-a-rule-and-therefore-has-a-check.md) settled which
+engine it would be if that were reversed — boa, because Rule 9 forbids compiling C and
+QuickJS cannot satisfy it.
+[ADR-0025](docs/adr/0025-a-script-processor-is-a-frontend-not-a-subsystem.md) settles the
+shape: **a script processor is a fifth frontend**, translating into the same `Operation`
+vocabulary the CLI, GUI and MCP server use, with no path of its own into the document.
+
+That collapses the design. The question "what may a script change?" — which 12.6.3's
+NOTE 2 answers with "any other modification to the document", and which the first draft
+answered by inventing a narrower result type — becomes *what the API can change*, which is
+the bound every other frontend already has.
+
+**The first step is a measurement, not a feature.**
+
+- [ ] **Run the corpus's six `/JavaScript` scripts and count how many complete.** Behind
+      `--features script`, with `app` and `this` and nothing else. Two things stop being
+      guesses: whether boa's coverage is enough — the crate describes itself as
+      implementing *some* of the language — and how much of ISO/DIS 21757-1 the real
+      scripts touch. The harness exists: `inspect actions --format json` already emits
+      every script in the corpus
+- [ ] **Establish that `&mut Document` can be held across boa calls.** ADR-0025 names this
+      as the one unverified risk in the design. Operations must apply *during* the run,
+      because the Keystroke → Validate → Calculate → Format cascade requires a script to
+      read back what it just set. If that borrow will not sit in a `boa_engine::Context`,
+      the decision reopens
+- [ ] **Fix Rule D first, or build on a rule that is not holding.** Phase Q. A script
+      frontend routed entirely through `Operation` would be *more* conforming to Rule D
+      than `fepdf-gui` currently is, which is an argument for the order, not against the
+      design
+
+**The motive is still thin and this phase does not pretend otherwise.** Of 524 files, two
+run code on open and `/AA /C` — a field calculation, the thing form scripting exists for —
+occurs **zero** times. Phase L's rule holds: a corpus justifies building and never
+justifies declining. It does justify keeping the first step small and cheap to throw away,
+which is what the entry above is.
+
+*Done when*: a number exists for how many of the corpus's scripts run to completion under
+boa, and the borrow question has an answer. Whether to go further is a decision to take
+after those, not before.
 
 ## Read broadly, write 2.0
 

@@ -17,7 +17,13 @@ fepdf operates on the principles of **"Normalization-at-Load"** and **"Delayed N
 *   **Responsibility**: Resolve physical addressing, object mapping, and access control.
 *   **Actions**:
     *   **XRef Resolution & Inhalation**:
-        *   Map physical `ObjectId` pairs to logical `Handle<Object>` pointers, decoupling the logical document structure from physical file offsets.
+        *   Place each object in the arena at the slot matching its object number.
+            (Checked 2026-08-22: this said the reader "maps physical `ObjectId` pairs to
+            logical `Handle<Object>` pointers, decoupling the logical structure from
+            physical file offsets", which describes a remapping table. **There is none**
+            — `reader.rs:253`: the parser builds `Object::Reference(Handle::new(n))`
+            straight from `n 0 R`, so a handle *is* an object number and references are
+            correct as written. `ARCHITECTURE.md` §5.4 has said so since Phase A.)
         *   Heuristically repair corrupted or fragmented XRef tables during the inhalation process.
     *   **Pass 0 Decryption**:
         *   **Bounded Traversal**: Decrypt every string and stream by walking the object
@@ -42,8 +48,21 @@ fepdf operates on the principles of **"Normalization-at-Load"** and **"Delayed N
         *   **Writing Mode Injection**: Inject explicit `SetWritingMode` commands into the IR stream during font selection (`Tf`). This flattens the Writing Mode state and ensures deterministic layout for documents with mixed horizontal/vertical streams.
         *   **High-Fidelity Color Preservation**: Maintain original color space semantics (Gray, RGB, CMYK, Lab) throughout the IR pipeline. Downgrading to RGB at the sublimation stage is prohibited as it loses device-specific color profile context and prevents accurate color management in modern rendering backends.
         *   **Corruption Resurrection**: Detect and sanitize content streams containing non-standard "leaked" data (e.g., development debug logs).
-    *   **Heuristic Sanitization (Visual Cleanup)**:
-        *   **Structural Bar Suppression**: Identify large horizontal rectangles (`Rect`) at the extreme vertical bounds (`y > 700` or `y < 50`) that lack structural or semantic purpose. Suppress these by converting the painting operator to a no-op path termination (`n`).
+    *   **Heuristic Sanitization (Visual Cleanup)**: ~~Structural Bar Suppression~~ —
+        **removed, and this is the most useful line in the file.** It described replacing
+        `f` with `n` — deleting a fill — for any rectangle with `y1 > 700`, height under 15
+        and width over 500. Checked 2026-08-22: the code is gone and
+        `object/sublimation/parser.rs:224` carries the reason. It fired **1,738 times** on
+        `intel_sdm.pdf`, the one file its comment named, and **902 times** on
+        `samples/volvo_xc90.pdf`, where what it deleted was one point high and 681 wide at
+        y above 9,000 — rules in a table, not header bars. The `y1 > 700` test assumed a
+        user space it had no way to check. Removing it changed no text on any corpus file:
+        it helped nothing and deleted marks on two.
+
+        A rendering processor shall render the page contents as defined (6.3.2.2). Deciding
+        that a producer's fill is a mistake, from its geometry, is not something this engine
+        can know — and the heuristic reported only through `log::info!`, which §5.3 calls a
+        silent acceptance and therefore a defect on its own.
     *   **Font SFNT Modernization (Structural Normalization)**:
         *   **Format Identification**: Strict reliance on binary signatures (Magic Bytes) rather than dictionary subtypes.
             *   `OTTO`, `00 01 00 00`: SFNT (OpenType/TrueType)
@@ -54,7 +73,16 @@ fepdf operates on the principles of **"Normalization-at-Load"** and **"Delayed N
         *   **Precipitation (SFNT Wrapping)**: Encapsulate Naked CFF or Type 1 outlines into a minimal Virtual OpenType (SFNT) container. This unifies all font types for modern rendering backends (e.g., `skrifa`).
         *   **Metric & Mapping Injection**: Authoritatively inject `hmtx`, `OS/2`, and synthesized `cmap` tables into the reconstructed binary.
         *   **Metrics Branching**: Explicitly distinguish between `/Widths` (Simple fonts) and `/W` (CIDFonts). Standalone `CIDFontType0/2` resources utilize `/W` parsing to prevent the 1000-unit default width regression.
-        *   **Explicit Rescue Fallback Warnings**: If a custom or unsupported font type fails signature checking and is forced to fallback to system fonts, the incident triggers an explicit developer-facing warning (`log::warn!`) instead of a silent `log::debug!` tracer to maintain absolute diagnostic visibility for layout degradations.
+        *   **Explicit Rescue Fallback Warnings**: If a custom or unsupported font type
+            fails signature checking and is forced to fall back to system fonts, the
+            incident is reported rather than swallowed. (Checked 2026-08-22: it is reported
+            as a `log::warn!`, exactly as written — and that is now the defect rather than
+            the feature. A font program in no recognised format is a conclusion about the
+            *document*, so `ARCHITECTURE.md` §5.3 makes it a `Decision`; stderr cannot tell
+            a caller *this loaded* from *this was conforming*. It is one of the thirteen
+            counted in ROADMAP Phase P. This line is left standing because a document
+            arguing **for** the thing the architecture forbids is worth more visible than
+            deleted.)
     *   **Handle Stability (RR-15 Hardening)**:
         *   **Object-Centric Modeling**: Persistent structural components (Catalog, Page, StructTreeRoot) utilize stable `Handle<Object>` references. Direct storage of volatile `DictHandle` is prohibited.
         *   **Late-bound Dictionary Resolution**: Resolve `Handle<Object>` to `DictHandle` at the point of access. This ensures reference validity even if the underlying memory is reallocated during a `ParallelRefinery` pass.

@@ -1,3 +1,14 @@
+> **Moved to `docs/history/` on 2026-08-22, and renamed with its date.** It sat at the top
+> of `docs/` where it read as current, and it is not: it audits a project called
+> *Ferruginous* at commit `92e8604`, reports **21 tests** where there are now 461, and
+> lists defects against line numbers three months of work has moved. Nothing in the tree
+> referenced it.
+>
+> A dated audit is a historical document — the same reasoning that moved
+> `charter_redesign_2026-04-13.md` here. It is not updated, and it is worth keeping: the
+> shape of what this codebase kept getting wrong in May is legible in it, and several
+> items below were still open in August under different names.
+
 # Ferruginous コードベース監査レポート (第3回)
 
 > **監査日時**: 2026-05-27  

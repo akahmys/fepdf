@@ -20,16 +20,21 @@ All PDF objects are decoupled from their physical locations and stored in a type
 2. **Normalization & Sublimation**: 
    - **Content Sublimation (IR)**: Content streams are parsed into a high-level Intermediate Representation (`Command` IR). This performs early UTF-8 decoding and operator normalization.
    - **Font Reconstruction**: Embedded font binaries are surgically patched with widths derived from PDF `/Widths`, ensuring layout parity.
-   - **Memory Optimization**: Streams over 4 KB are transparently compressed with Zstd
-     in memory — **except** images and fonts, which are the two kinds this line used to
-     name as the examples. They are kept as `Raw` deliberately, because re-compressing
-     an already-compressed codestream costs time and fidelity for nothing
-     (`refine/mod.rs`, "High-Fidelity Preservation").
+   - **Memory Optimization**: Streams over 4 KB are transparently compressed in memory
+     with **`flate2`** — **except** images and fonts, which are the two kinds this line
+     used to name as the examples. They are kept as `Raw` deliberately, because
+     re-compressing an already-compressed codestream costs time and fidelity for nothing
+     (`refine/mod.rs:367`, "High-Fidelity Preservation"). (Checked 2026-08-22: this said
+     **Zstd** until Rule 9 removed it. The in-memory form never reaches a file, so nothing
+     about the output changed; the `/ZstandardDecode` *filter*, which would have, is not in
+     ISO 32000-2 and no file of the 530 carried it — see
+     [ADR-0024](../adr/0024-pure-rust-is-a-rule-and-therefore-has-a-check.md).)
    - **Text Recovery**: Text strings are decoded as 7.9.2.2 defines — PDFDocEncoding from
      Annex D, or a byte order mark. (Checked 2026-08-22: `chardetng` is not a dependency
-     and `encoding_rs` is pulled in by `reqwest` and called by nothing here. **Detection
-     was removed**, because a Shift-JIS detector was found corrupting a conforming
-     `/Title` — see `ROADMAP.md`, clause 14.3.)
+     and `encoding_rs` is no longer in the tree at all — it came in through `reqwest`,
+     which was itself used by no line of code and left with Rule 9. **Detection was
+     removed**, because a Shift-JIS detector was found corrupting a conforming `/Title` —
+     see `ROADMAP.md`, clause 14.3.)
    - **Color Harmonization**: Normalize device-dependent colors to OutputIntents (ICC) using `moxcms` (Pure Rust).
    - **Metadata Scrubbing**: Consolidate legacy Info into XMP streams using `xmp-writer`.
 3. **Validation**: Departures from the standard are recorded as `Decision`s with the
@@ -40,7 +45,11 @@ All PDF objects are decoupled from their physical locations and stored in a type
 
 ## 3. Flagship GUI (`fepdf-gui`)
 - **Rendering**: GPU-accelerated rendering via Vello, using normalized data on the arena as the direct source.
-- **Asynchronous Design**: Ingestion and refinement are executed on background threads (Tokio/Rayon), maintaining GUI responsiveness.
+- **Asynchronous Design**: Ingestion and refinement are executed on background threads,
+  maintaining GUI responsiveness. (Checked 2026-08-22: this said "(Tokio/Rayon)" and only
+  half was true. `rayon` is real but lives in `fepdf-model`, where the refinement is;
+  `fepdf-gui` uses a plain `std::thread::spawn` and **declared `tokio` without using it
+  anywhere**, which the unused-dependency audit removed — ROADMAP Phase Q.)
 
 ## 4. Security and Signatures
 - **PAdES Compliance**: Digital signature application and verification using `cms` and `x509-parser`.

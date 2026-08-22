@@ -99,9 +99,9 @@ The reasoning is in [ADR-0012](docs/adr/0012-saving-produces-a-new-document.md).
 | **Run usefully in a browser** | `fepdf-wasm` opens a document and counts pages. Its `render_page` does nothing. |
 | **Produce a file you can read in a text editor** | Objects are packed into 7.5.7 object streams by default, which shrinks every sample — `intel_sdm.pdf` goes from +131% to +1% — and puts almost all of them inside a compressed container. `--no-obj-stm` writes the loose form ([ADR-0016](docs/adr/0016-objects-are-packed-by-default.md)). |
 
-All thirty-two of Table 29's catalogue entries have a field and **twenty** have a type
-that says what the entry holds — every key those corpora carry except `/Type`, whose
-value the clause fixes. The twelve that no file carries are declined a reader on purpose,
+All thirty-two of Table 29's catalogue entries have a field and **twenty-three** have a
+type that says what the entry holds — every key those corpora carry except `/Type`, whose
+value the clause fixes. The ten that no file carries are declined a reader on purpose,
 and `inspect catalog` names them
 ([ADR-0017](docs/adr/0017-declaring-a-catalogue-key-is-not-modelling-it.md)). It also
 reports how much of each entry's *own* table its reader covers, because "modelled" is a
@@ -111,7 +111,9 @@ Table 224's 8
 
 `inspect coverage` puts a number on the whole thing across a corpus — the share of the
 constructs your files actually contain whose *contents* the engine reads. Over the nine
-samples and 242 external files it is 88%. It is a proxy and
+samples and 515 external files it is 88% — re-derived 2026-08-22, and the same figure it
+was over 251 files, which is worth knowing: doubling the corpus moved the denominator
+(254 constructs to 272) without moving the ratio. It is a proxy and
 [ADR-0019](docs/adr/0019-semantic-understanding-is-measured-against-what-a-corpus-presents.md)
 says what it is not.
 
@@ -132,12 +134,14 @@ disagreement rather than reading as current.
 | `fepdf-gui` | Desktop application (egui, wgpu, Vello) with visual inspection and redaction |
 | `fepdf-mcp` | Model Context Protocol server for structural diagnostics and tooling |
 | `fepdf-wasm` | WebAssembly bindings |
+| `fepdf-macros` | Compile-time procedural macros |
 
 ## Contributing
 
 The project runs on a few rules that are enforced rather than aspired to: no `unsafe`,
-functions under fifty lines, no non-deterministic collections in the core, and no
-wildcard match over a domain enum. `make audit` checks all of them.
+no dependency that compiles C, functions under fifty lines, no non-deterministic
+collections in the core, and no wildcard match over a domain enum. `make audit` checks all
+of them.
 
 ```bash
 make audit                        # RR-15 rules, clippy, cargo-deny, betterleaks

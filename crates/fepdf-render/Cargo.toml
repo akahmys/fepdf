@@ -15,14 +15,10 @@ vello.workspace = true
 peniko.workspace = true
 kurbo.workspace = true
 wgpu.workspace = true
-serde.workspace = true
-thiserror.workspace = true
 bytes.workspace = true
 skrifa.workspace = true
 read-fonts.workspace = true
-ttf-parser.workspace = true
 image.workspace = true
-pollster.workspace = true
 tokio.workspace = true
 
 [dev-dependencies]

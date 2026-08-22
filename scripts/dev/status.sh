@@ -72,13 +72,44 @@ row "files still referencing lopdf (expect 0)" "$lopdf"
 
 # Scoped to the engine on purpose. A frontend logging for the user is doing its job;
 # the engine logging a conclusion about the document is losing it (ARCHITECTURE.md 5.3).
-engine_logs=$(grep -rn "log::warn!\|log::error!" \
-    crates/fepdf-model/src crates/fepdf-syntax/src --include="*.rs" 2>/dev/null | wc -l | tr -d ' ')
-row "engine log::warn!/error! sites (expect 1)" "$engine_logs"
-frontend_logs=$(grep -rn "log::warn!\|log::error!" \
-    crates/fepdf-cli/src crates/fepdf-gui/src crates/fepdf/src crates/fepdf-mcp/src \
-    crates/fepdf-render/src --include="*.rs" 2>/dev/null | wc -l | tr -d ' ')
+#
+# The engine is *derived* rather than listed, for the reason the Decision row above had
+# to learn twice: a row that names the places it looks keeps missing new ones. It read
+# "1" for three phases while `fepdf-content` held eight sites and `fepdf-font` three,
+# because those two crates were in neither list and nothing noticed the gap — a crate
+# absent from both lists is invisible, which is worse than being in the wrong one.
+# So: the engine is every crate that is not a frontend, and the two lists are complements
+# by construction. Adding a crate to the workspace puts it in one of them.
+FRONTEND_CRATES="fepdf-cli fepdf-gui fepdf-mcp fepdf-wasm"
+engine_dirs=""; frontend_dirs=""
+for crate_dir in crates/*/; do
+    name=$(basename "$crate_dir")
+    [ -d "$crate_dir/src" ] || continue
+    case " $FRONTEND_CRATES " in
+        *" $name "*) frontend_dirs="$frontend_dirs $crate_dir/src" ;;
+        *)           engine_dirs="$engine_dirs $crate_dir/src" ;;
+    esac
+done
+# Three are deliberate and each says so where it is: which fonts *this machine* has
+# (`fepdf-model`), the GPU failing to initialise so the CPU renderer takes over, and a
+# system fallback font that would not load from its path. All three are properties of the
+# host, which is what a log is for; a conclusion about the document is a `Decision`.
+engine_logs=$(grep -rn "log::warn!\|log::error!" $engine_dirs --include="*.rs" 2>/dev/null | wc -l | tr -d ' ')
+row "engine log::warn!/error! sites (expect 3)" "$engine_logs"
+frontend_logs=$(grep -rn "log::warn!\|log::error!" $frontend_dirs --include="*.rs" 2>/dev/null | wc -l | tr -d ' ')
 row "frontend log sites (not a defect)" "$frontend_logs"
+
+# Rule D (ARCHITECTURE.md 5.1): every document mutation is an `Operation`, and only
+# `fepdf-doc` interprets it. Section 7 called that "enforced by construction" — which was
+# an assertion, not a mechanism, and it was false: the facade also exposes the mutation
+# as a plain method, so a frontend can call one instead of building the value. Both
+# halves are derived here rather than listed, because the facade grows.
+mutators=$(grep -oE '^    pub fn [a-z_]+\(&mut self' crates/fepdf/src/lib.rs \
+    | sed 's/.*pub fn //; s/(&mut self//' | grep -vx "apply" | grep -vE '^set_(vacuum|strip|password|system_fonts)$')
+bypass=$(for m in $mutators; do
+    grep -rn "\.$m(" $frontend_dirs --include="*.rs" 2>/dev/null
+done | wc -l | tr -d ' ')
+row "Rule D: frontend mutations bypassing Operation (expect 0)" "$bypass"
 
 stubs=$(grep -rho 'PdfError::NotImplemented' crates/fepdf/src crates/fepdf-doc/src \
     --include="*.rs" 2>/dev/null | wc -l | tr -d ' ')

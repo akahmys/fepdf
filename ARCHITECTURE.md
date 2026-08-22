@@ -3,12 +3,15 @@
 The authoritative architectural blueprint for **fepdf**: crate topology, layering
 rules, the Sublimation Pipeline, and memory invariants.
 
-> **Status.** This describes the *target* topology. Several crates below do not exist
-> yet — their code lives in `fepdf-model` or `fepdf-sdk` today. Every entry in
-> [§3](#-3-crate-responsibilities) carries a status marker, and [§6](#-6-migration)
-> records the order of work. Nothing here is aspirational hand-waving: the shape is
-> derived from measured coupling in the current tree, recorded in
-> [§4](#-4-why-this-shape).
+> **Status.** The topology below is **realised**: every crate in §3 exists and every step
+> in [§6](#-6-migration) is done. This banner said the opposite — that several crates did
+> not exist yet and their code lived in `fepdf-sdk` — for as long as it took steps 0 to 6
+> to complete and nobody to re-read the top of the file. `fepdf-sdk` has not existed since
+> step 6 renamed it.
+>
+> What is **not** realised is §5.1's Rule D, and that is a defect rather than a stage:
+> the vocabulary exists and eight frontend call sites go round it. Read the rules as
+> load-bearing and the enforcement column as the thing to check.
 
 ---
 
@@ -29,7 +32,7 @@ long after the real cause.
 ### Rule B — A crate that defines a contract does not depend on its implementations
 
 Traits and their data types live with the code that *calls* them, not with any one
-implementor. `Backend` belongs beside the interpreter that drives it; the GPU
+implementor. `RenderBackend` belongs beside the interpreter that drives it; the GPU
 rasteriser is one implementation among several.
 
 Violating this drags an implementation's dependency tree into every consumer of the
@@ -99,25 +102,35 @@ working as intended, not a cycle.
 
 Status: **✅** exists as-is · **⚠️** partially landed · **🔄** code exists, lives elsewhere today · **🆕** new.
 
-`~Lines` is the *target* crate's size: for a crate that exists, what it holds today;
-for one that does not, the code that would move into it. Measured 2026-08-18 with
-`find crates/<name>/src -name '*.rs' | xargs cat | wc -l`, so any figure here can be
-checked in one command.
+`~Lines` is what the crate holds today. **Re-measured 2026-08-22** with
+
+```bash
+find crates/<name>/src -name '*.rs' | xargs cat | wc -l
+```
+
+so any figure here can be checked in one command — which is the only reason the drift was
+visible. The 2026-08-18 figures had gone stale everywhere but `fepdf-syntax`, and one was
+stale by 5.8×: `fepdf-mcp` read 330 while it held 1,902, having become the only frontend
+that constructs all 24 operations. A size that is quoted and not re-derived says what the
+crate *was* for.
+
+Every crate below the facade is now larger than the row that described it, so nothing here
+should be read as a budget.
 
 | Crate | Status | ~Lines | Responsibility |
 | :--- | :---: | ---: | :--- |
-| **`fepdf-syntax`** | ✅ | 3,380 | The byte layer: lexing and encryption/decryption. Depends on no model type, which is what lets the cryptography be reviewed on its own. Parsing and stream filters are *not* here — see §4. |
-| **`fepdf-font`** | ✅ (Audited ✅) | 3,710 | Font *programs*: CFF, TrueType, CMap, Adobe Glyph List, subsetting, reconstruction. Hardened against W/W2 out-of-bounds, CMap underflows (`e_val >= s_val`), and CID byte truncations. |
-| **`fepdf-model`** | ✅ | 20,700 | The document graph: `PdfArena`, `Handle<T>`, `Object`, page tree, metadata — and, since Phase A, the reader (7.5) and `writer.rs`. Hardened with pool overflow guards, cyclic `resolve` limits (`64`), and safe `Null` reference fallbacks. |
-| **`fepdf-content`** | ✅ | 2,380 | Content-stream interpreter, and the **`RenderBackend` contract** it drives (`TextGlyph`, `TextState`, `SMaskData`, path geometry). No GPU dependency. |
-| **`fepdf-doc`** | ✅ | 2,960 | Owns the **`Operation` vocabulary** (§5.1) and is its only interpreter: 24 canonical mutation operations across 5 domains. Also structure-tree handling, conformance auditing, remediation. |
-| **`fepdf-render`** | ✅ | 1,240 | A `RenderBackend` implementation on **Vello** + **wgpu**. Reached only through the SDK's optional `render` feature. |
-| **`fepdf`** | ✅ | 1,610 | The public facade: `PdfDocument`, `SaveOptions`, `Operation`. It is the Rule A boundary in fact — frontends depend on it and on nothing below. |
-| **`fepdf-cli`** | ✅ | 2,510 | Command-line binary (`fepdf`). |
-| **`fepdf-gui`** | ✅ | 8,020 | Desktop application on **egui** + **eframe** + **wgpu**. |
-| **`fepdf-mcp`** | ✅ | 330 | Model Context Protocol server for AI assistants. |
-| **`fepdf-wasm`** | ✅ | 40 | WebAssembly bindings. Currently a stub — `render_page` is unimplemented. |
-| **`fepdf-macros`** | ✅ | 170 | Compile-time procedural macros. |
+| **`fepdf-syntax`** | ✅ | 3,377 | The byte layer: lexing and encryption/decryption. Depends on no model type, which is what lets the cryptography be reviewed on its own. Parsing and stream filters are *not* here — see §4. |
+| **`fepdf-font`** | ✅ (Audited ✅) | 3,758 | Font *programs*: CFF, TrueType, CMap, Adobe Glyph List, subsetting, reconstruction. Hardened against W/W2 out-of-bounds, CMap underflows (`e_val >= s_val`), and CID byte truncations. |
+| **`fepdf-model`** | ✅ | 27,281 | The document graph: `PdfArena`, `Handle<T>`, `Object`, page tree, metadata — and, since Phase A, the reader (7.5) and `writer.rs`. Hardened with pool overflow guards, cyclic `resolve` limits (`64`), and safe `Null` reference fallbacks. |
+| **`fepdf-content`** | ✅ | 3,645 | Content-stream interpreter, and the **`RenderBackend` contract** it drives (`TextGlyph`, `TextState`, `SMaskData`, path geometry). No GPU dependency. |
+| **`fepdf-doc`** | ✅ | 3,519 | Owns the **`Operation` vocabulary** (§5.1) and is its only interpreter: 24 canonical mutation operations in seven groups, six of which the source labels. Also structure-tree handling, conformance auditing, remediation. |
+| **`fepdf-render`** | ✅ | 1,430 | A `RenderBackend` implementation on **Vello** + **wgpu**. Reached only through the facade's optional `render` feature. |
+| **`fepdf`** | ✅ | 1,809 | The public facade: `PdfDocument`, `SaveOptions`, `Operation`. It is the Rule A boundary in fact — frontends depend on it and on nothing below. |
+| **`fepdf-cli`** | ✅ | 3,019 | Command-line binary (`fepdf`). |
+| **`fepdf-gui`** | ✅ | 8,395 | Desktop application on **egui** + **eframe** + **wgpu**. |
+| **`fepdf-mcp`** | ✅ | 1,902 | Model Context Protocol server for AI assistants. **The most complete frontend by some distance**: it constructs all 24 `Operation` variants, where `fepdf-cli` constructs 6 and `fepdf-gui` 2. That is the shape §5.1 predicted — a tool is the serialised form of an operation — arriving on its own. |
+| **`fepdf-wasm`** | ✅ | 40 | WebAssembly bindings. Currently a stub, and worse than unimplemented: `render_page` **returns `Ok(())` having drawn nothing**, so a caller is told it succeeded and gets a blank canvas. It also constructs no `Operation` at all, which is why the §5.1 diagram no longer lists it as a frontend that does. |
+| **`fepdf-macros`** | ✅ | 183 | Compile-time procedural macros. |
 
 Two `RenderBackend` implementations besides the GPU one — `TextExtractionBackend` and
 `CollectorBackend` — sit alongside the operations, in `fepdf-doc`. Neither pulls in a GPU,
@@ -167,8 +180,9 @@ currently violated.
 
 **Rule C exists because the round trip had been split.** Ingestion sat in
 `fepdf-model` while `writer.rs` sat in `fepdf-sdk`, so the engine could read but not
-write. `writer.rs` now lives in `fepdf-model` (2,548 lines) and `fepdf-sdk` keeps a
-six-line re-export for compatibility (§6, step 5).
+write. `writer.rs` now lives in `fepdf-model` — 2,548 lines when that sentence was
+written, 3,020 today — and the compatibility re-export went with `fepdf-sdk` when step 6
+renamed it.
 
 **Rule D exists because the vocabularies had already diverged.** "Rotate" was defined
 twice — once as a clap subcommand, once as a `WorkerRequest` variant — and the two
@@ -218,10 +232,11 @@ Every document mutation is a value of one type, defined in `fepdf-doc` and re-ex
 through the facade. Frontends construct it; only `fepdf-doc` interprets it.
 
 ```
-   fepdf-cli    argv          ─┐
-   fepdf-gui    button press  ─┤
+   fepdf-cli    argv          ─┐     6 of 24 variants
+   fepdf-gui    button press  ─┤     2 of 24
    fepdf-mcp    tool call     ─┼─►  Operation  ─►  fepdf-doc::apply
-   fepdf-wasm   JS call       ─┘     (a value)      (the only implementation)
+   fepdf-wasm   —             ─┘     (a value)      (the only implementation)
+                                     24 variants
 ```
 
 Ambiguity that used to live in prose becomes a type. The rotate divergence in §4 was
@@ -229,34 +244,45 @@ not fixable by convention; it was fixed by making the choice unrepresentable:
 
 ```rust
 pub enum Operation {
-    // --- Core Page & Structure Operations ---
+    // (unlabelled in the source: the core page and structure group)
     Rotate { pages: PageSelection, mode: RotateMode },
     Reorder { from: usize, to: usize },
     RemovePages(PageSelection),
-    InsertFrom { source: DocumentId, at: usize },
-    Retag { .. },
-    Redact { zones: Vec<RedactionZone> },
-    Upgrade { standard: PdfStandard },
+    UpdateStructElem(StructElemUpdate),
+    DeleteStructElem { handle_index: u32 },
 
-    // --- Metadata & Structure Domain ---
-    CreatePortfolio { items: Vec<PortfolioInputItem>, cover_page: Option<CoverPageSpec> },
-    UpdateOutlines { items: Vec<OutlineNodeSpec> },
-    CreateLayer { name: String, visible_by_default: bool, printable: bool },
-    SetLayerVisibility { layer_id: String, visible: bool },
-    AttachAssociatedFile { target: TargetObjectRef, file_name: String, mime_type: String, bytes: Vec<u8> },
-    SetOutputIntent { subtype: String, identifier: String, icc_profile_bytes: Option<Vec<u8>> },
+    // --- Metadata & Structure ---
+    CreatePortfolio(PortfolioCollection),
+    UpdateOutlines(OutlineTree),
+    UpdateLayers(OptionalContentProperties),
+    AttachAssociatedFile(AssociatedFile),
+    SetOutputIntent(OutputIntent),
     SetPronunciationLexicon { lexicon_xml_bytes: Vec<u8> },
 
-    // --- Decorations & Annotations Domain ---
-    AddHyperlink { page: usize, rect: [f32; 4], destination: LinkDestination },
-    AddPageDecorations { header: Option<String>, footer: Option<String>, watermark: Option<WatermarkSpec> },
-    ApplyBatesNumbering { prefix: String, start_number: u64, digits: usize, position: PagePosition },
-    AddAnnotation { page: usize, annotation: AnnotationSpec },
-    AddStamp { page: usize, rect: [f32; 4], stamp_image_bytes: Vec<u8> },
-    SetMeasurementScale { page: usize, scale_ratio: f32, unit_label: String },
+    // --- Decorations & Annotations ---
+    AddPageDecoration { pages: PageSelection, text: String,
+                        position: DecorationPosition, layer: Option<String> },
+    ApplyBatesNumbering { pages: PageSelection, prefix: String,
+                          start_number: u64, digits: usize, position: DecorationPosition },
+    AddAnnotation(AnnotationSpec),
+    SetMeasurementScale(MeasurementScale),
 
-    // --- Interactive Forms Domain ---
-    SetFormFieldValue { field_name: String, value: FormValue },
+    // --- Interactive Forms ---
+    SetFormFieldValue(FormFieldSpec),
+
+    // --- Navigation, Structure & Actions ---
+    SetPageLabels(Vec<PageLabelSpec>),
+    UpdateArticleThreads(Vec<ArticleThread>),
+    AddUserProperties { target_handle: u32, properties: Vec<UserProperty> },
+    ExecuteAction(PdfAction),
+
+    // --- Advanced Graphics & GIS ---
+    SetGeospatialAnchor(GeoSpatialAnchor),
+    AddMeshShading(MeshShadingSpec),
+
+    // --- Font & Cryptography ---
+    SetUnencryptedWrapper(UnencryptedWrapperSpec),
+    AddPublicKeyRecipient(PublicKeyRecipientSpec),
 }
 
 pub enum RotateMode {
@@ -266,6 +292,19 @@ pub enum RotateMode {
     Relative(Quarter),
 }
 ```
+
+**This listing was fiction until 2026-08-22.** It named 21 variants of which **nine did
+not exist** — `InsertFrom`, `Retag`, `Redact`, `Upgrade`, `CreateLayer`,
+`SetLayerVisibility`, `AddHyperlink`, `AddStamp`, `AddPageDecorations` — and omitted
+**twelve that did**, including everything Phases 5 to 7 added. It was the plan, written
+before the code and never re-read against it, in the section that defines the rule the
+rest of the architecture leans on. Re-derive it with:
+
+```bash
+sed -n '/^pub enum Operation {/,/^}/p' crates/fepdf-doc/src/operation.rs | grep -oE '^    [A-Z][A-Za-z]*'
+```
+
+Four of the nine turn out to be the more interesting half — see Rule D below.
 
 A caller must now say which it means, and `Quarter` makes 45° unconstructible.
 
@@ -277,6 +316,31 @@ A caller must now say which it means, and `Quarter` makes 45° unconstructible.
   operations reach AI assistants without new bridging code.
 - **Testability.** An operation sequence can be applied and asserted without starting
   a GUI or spawning a process.
+
+**Rule D does not hold today, and nothing was checking.** The rule says every mutation is
+an `Operation`; §7 called that "enforced by construction". It is not enforced by anything,
+because the facade exposes each mutation *twice* — as a variant and as a plain `&mut self`
+method — and a frontend that calls the method has re-implemented nothing but has still
+left the vocabulary. Measured 2026-08-22, **eight frontend call sites do exactly that**:
+
+| Where | Method | Is there an `Operation`? |
+| :--- | :--- | :--- |
+| `fepdf-gui/src/worker.rs` ×2 | `remove_page` | **yes** — `RemovePages`, unused by the GUI |
+| `fepdf-gui/src/worker.rs` ×2 | `insert_pages_from` | no |
+| `fepdf-gui/src/worker.rs`, `thumbnail_sidebar.rs` | `duplicate_page` | no |
+| `fepdf-cli/src/commands/publish.rs` | `upgrade_to_standard` | no |
+| `fepdf-cli/src/commands/edit.rs` | `retag_document` | no |
+
+The first row is the rotate divergence of §4 in its early form: two ways to remove a page,
+one of them the vocabulary and one of them not, with nothing comparing them. The rest are
+the reason the fictional enum above is worth reading rather than deleting — `InsertFrom`,
+`Retag` and `Upgrade` were *planned* as operations, built as methods, and the plan stayed
+in this document looking like a description of the code.
+
+`status.sh` now derives both halves — the facade's `&mut self` methods, minus the four
+that configure saving rather than change the document, and the frontend directories — and
+reports the count. It was verified by adding a ninth bypass to the WASM stub and watching
+the row read 9. Closing it is a phase, not an edit: four operations do not exist yet.
 
 **What this is not.** The GUI keeps its worker thread: `WorkerRequest` remains, but as
 a thin envelope (`Execute(Operation)`, plus genuinely GUI-only messages such as
@@ -299,7 +363,8 @@ Its options are an associated type, not a shared struct: `password` and
 per-format feature flags. An interface designed against one implementation is
 almost always wrong for the second, and this codebase keeps paying for building
 a container before its contents existed — `fepdf-resource`, an `Operation`
-vocabulary of which 19 of 24 are stubs, and ingestion options nothing reads
+vocabulary of which 19 of 24 *were* stubs (all 24 are implemented now, and `status.sh`
+holds the row that would say otherwise), and ingestion options nothing reads
 ([ADR-0007](docs/adr/0007-an-option-that-is-not-read-is-hidden.md); one of the two
 became live with [ADR-0013](docs/adr/0013-a-document-is-one-normalised-state.md), and
 `color_policy` is the one that remains). When a second source exists, its real
@@ -377,7 +442,8 @@ non-conformance and merely `log::warn!` — missing font `/Subtype`, empty
 converted while the reader was replaced, which is where most of them sat.
 
 **A site is not a firing, and which sites can fire depends on the command.** Over the
-251 files of both corpora, `inspect structure` reports 11 decisions in total, from five
+251 files both corpora then held — 524 now, and this paragraph has not been re-derived
+against the larger set — `inspect structure` reports 11 decisions in total, from five
 clauses and all of them the reader's: 7.5.4 four, 7.5.8 four, and one each of 7.3.8.2,
 7.5.2 and 7.5.7. `inspect info` adds a twelfth on one file — a page tree whose root the
 file does not contain (7.7.3.2), which `find_all_pages` used to drop in silence. The font, decryption and colour sites contribute nothing to that
@@ -391,9 +457,19 @@ rather than an accident of which command was run: the log is behind a lock, a pa
 interpreted can add to it, and `inspect text` prints what reading decided before the
 text and what interpreting decided after it (ADR-0018).
 
-One `log::warn!` remains in the engine, in `font/mod.rs`, and is deliberate: it reports
-which fonts *this machine* has, which is a property of the host and not of the
-document, so it is not a decision about the input.
+**Sixteen `log::warn!`/`log::error!` sites remain in the engine, and three of them are
+deliberate.** The three report properties of the *host*: which fonts this machine has
+(`fepdf-model/src/font/mod.rs`), the GPU failing to initialise so the CPU renderer takes
+over, and a system fallback font that would not load from its path. The other thirteen are
+conclusions about the *document* — "Unknown or unhandled operator", "CFF table not found
+in SFNT container", a shading that would not resolve, a Type 3 glyph that would not
+execute — and by the rule above each is a `Decision` that has not been written yet.
+
+This paragraph said "one" for three phases. It was true of the two crates `status.sh`
+searched and of no larger set, and `fepdf-content`, `fepdf-font` and `fepdf-doc` were in
+**neither** the engine list nor the frontend list — invisible rather than miscounted,
+which is why doubling the figure changed no row. The lists are now complements derived
+from the workspace, so a new crate lands in one of them by construction.
 
 **A decision that fires on conforming input is worse than none**, because it makes the
 log a constant rather than a signal. Reading an indirect `/Length` — which 7.3.8.2
@@ -517,7 +593,7 @@ actually owes.
 
 ### 5.7 Rendering
 
-`fepdf-content` walks the content stream and issues calls against `Backend`.
+`fepdf-content` walks the content stream and issues calls against `RenderBackend`.
 `fepdf-render` answers them with **Vello** compute shaders on **wgpu**. Path snapping
 keeps double-precision `kurbo` geometry until rasterisation; `skrifa` and `read-fonts`
 handle glyph mapping, Japanese fallback fonts, and Type 3 precipitation.
@@ -555,12 +631,19 @@ behaviour or API and need their own tests.
 | 2 | Extract the PDF-free half of `font/` into `fepdf-font` | ✅ **Done.** 3,710 lines are independently testable | Low |
 | 3 | Move struct-tree handling out of `fepdf-gui` into `fepdf-doc` | ✅ **Done.** Extracted into `fepdf-doc`. The GUI calls `extract_struct_tree()`; the Rule A leak is closed | Medium |
 | 4 | Introduce `Operation`; reduce the CLI subcommands and `WorkerRequest` to adapters over it | ✅ **Done.** Extracted into `fepdf-doc` with all 24 operations implemented and modularized. Rule D is structural | Medium |
-| 5 | Move `writer` into `fepdf-model` (core) | ✅ **Done.** Restores the read/write round trip in `fepdf-model` (Rule C); `fepdf-sdk` re-exports for compatibility | Low |
+| 5 | Move `writer` into `fepdf-model` (core) | ✅ **Done.** Restores the read/write round trip in `fepdf-model` (Rule C) | Low |
 | 6 | Introduce the `fepdf` facade | ✅ **Done.** `fepdf-sdk` renamed to `fepdf`, establishing the public facade crate and completing the target topology | Low |
 
 Steps 0–6 are complete. The target crate topology (§2) is fully realised with
 `fepdf` as the top-level public facade crate, and `fepdf-doc` and `fepdf-content`
 owning document mutation and content interpretation respectively.
+
+**Step 4 is complete in the sense it was written and not in the sense it was meant.** It
+reads "reduce the CLI subcommands and `WorkerRequest` to adapters over it", and they were
+not reduced — the vocabulary was introduced *beside* the methods rather than in place of
+them, so both survive and both are called (§5.1). A migration step that adds the new thing
+and leaves the old one is the shape that produces two implementations of "the same"
+operation, which is what Rule D exists to prevent.
 
 **Deliberately not planned.** Splitting `fepdf-doc` into separate operation and
 verification crates: auditing and remediation act on the same document surface, so
@@ -578,11 +661,13 @@ Architecture rules that are not checked become comments. These are:
   cannot be named from `fepdf-cli`, `fepdf-gui`, `fepdf-mcp` or `fepdf-wasm` at all —
   reaching for one is a compile error, not a review finding. The facade re-exports
   what frontends legitimately need.
-- **Rule D**: enforced by construction, not by review. Once mutations exist only as
-  `Operation` values and `fepdf-doc` holds the only `apply`, a frontend has nothing to
-  re-implement. The rule is worth stating because that property is easy to give away:
-  the moment a frontend calls a mutating method directly instead of building an
-  `Operation`, drift becomes possible again.
+- **Rule D**: **not enforced by construction, and the claim that it was is what hid the
+  breach.** The premise — "mutations exist only as `Operation` values" — is false: the
+  facade also exposes nine document-mutating `&mut self` methods, and frontends call them
+  at eight sites (§5.1). "Enforced by construction" named no tool, which is the tell; every
+  other row here names one. It is now a `status.sh` row that derives the method list from
+  the facade rather than hard-coding it, so a method added tomorrow is in scope the day it
+  lands. The row is expected to read 0 and reads 8.
 - **RR-15 protocol**: [`CODING.md`](CODING.md), checked by
   [`scripts/audit/verify_compliance.sh`](scripts/audit/verify_compliance.sh).
 - **Lints**: `cargo clippy --workspace --all-targets -- -D warnings`. `--all-targets`

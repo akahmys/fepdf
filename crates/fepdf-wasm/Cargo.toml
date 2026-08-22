@@ -13,13 +13,8 @@ crate-type = ["cdylib", "rlib"]
 [dependencies]
 fepdf.workspace = true
 wasm-bindgen.workspace = true
-js-sys.workspace = true
-web-sys.workspace = true
 console_error_panic_hook.workspace = true
-serde-wasm-bindgen.workspace = true
-tokio.workspace = true
 bytes.workspace = true
-wasm-bindgen-futures.workspace = true
 
 [lints]
 workspace = true

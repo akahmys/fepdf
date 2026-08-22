@@ -27,5 +27,28 @@ recurses; `rendering.md` claimed a `.notdef` fallback that logs, in an engine th
 one `log::warn!` by design. Each correction says what was checked and when, because a
 line that is silently right today is indistinguishable from one that is silently stale.
 
+**Audited again 2026-08-22 (Phase Q).** The first audit checked every claim a command
+could check and corrected three files in place. Four months of drift was not the reason it
+had to be repeated the same day — a wider re-derivation was, and it found that
+**`rendering.md`'s correction was itself wrong**: it verified "the engine holds exactly one
+`log::warn!`" against `status.sh`, and `status.sh` searched two crates, neither of them the
+ones that file describes. The real figure is sixteen, and seven of those sit in the
+rendering and font code.
+
+A claim checked against a tool that cannot see its subject is indistinguishable from a
+claim nobody checked. That is the one lesson worth carrying out of this directory.
+
+| File | What the second pass found |
+| :--- | :--- |
+| `rendering.md` | "exactly one `log::warn!` by design" — measured against a row that could not see the crates in question. Sixteen sites, three deliberate |
+| `core-pipeline.md` | A **"Structural Bar Suppression"** heuristic that deleted fills at `y > 700`. It is gone from the code, having fired 1,738 times on one file and 902 on another, deleting table rules. Also a reader "remapping table" that has never existed |
+| `sdk-pipeline.md` | "Wildcards are prohibited in the primary dispatch loop" — the primary dispatch matches a `&str` and its `_` arm logs *"Unknown or unhandled operator"*. Also a "Zero-Fallback Policy" beside a working system-font fallback |
+| `refinery_engine.md` | Zstd, removed by Rule 9; `encoding_rs`, no longer in the tree at all; and a GUI described as using Tokio, which it declared and never called |
+
+Nothing here was archived this time. Each file now says at the point of each claim what
+was checked and when, because **a line that is silently right today is indistinguishable
+from one that is silently stale** — which is the same sentence the first audit ended with,
+and it applied to that audit too.
+
 To learn what the engine does now, read `ARCHITECTURE.md`; to learn how it got there,
 read [`docs/adr/`](../adr/README.md).
