@@ -1256,7 +1256,7 @@ What Phase O did **not** close is written where it belongs rather than here: `/D
 `/Perms` and `/Ch` occur in none of the 524 files, and JBIG2's arithmetic coder has still
 never met an image. Both are now measurements rather than assumptions.
 
-## Phase P — What the rendering subset owes
+## Phase P — What the rendering subset owes *(complete)*
 
 Phase N asked what the engine gets wrong and found five things by looking at the roadmap.
 This phase found four by looking at **the standard**, read with this engine — `inspect
@@ -1627,32 +1627,37 @@ functions cannot be.
       done      # eight zeros and fy05.pdf's one real 14.3.3
       ```
 
-- [ ] **The `Decision` row named five crates and `fepdf-render` was not one of them.**
+- [x] **The `Decision` row named five crates and `fepdf-render` was not one of them.**
       It read 82 where the truth was 84 the moment the renderer gained a site — the third
-      time this figure has been wrong for that reason, and its own comment predicted it.
-      Fixed by deriving it from the same partition the log row uses, so the two are
-      complements. **Left open as an entry because the pattern is not**: `status.sh` has
-      other rows that name their places, and nothing checks which
+      time this figure had been wrong for that reason, and its own comment predicted it.
+      Fixed by deriving it from the same partition the log row uses. **The pattern is
+      fixed too now**: every row in `status.sh` was read for it, and two more had it.
 
-**`crosscheck_image.sh` was red on purpose, and is now green with two pins.**
-`target/colour/` holds the two files the numbers above come from, and they are in the
-comparison rather than beside it: a phase that quotes four numbers has to leave the
-command that re-derives them, and a check that is green while a defect stands is a check
-that has been told not to look. It reported `DISAGREE by 229` on the separation and `by
-101` on the gradient — how far from right the picture was, rather than merely that it was.
+      | row | named | now |
+      | :--- | :--- | :--- |
+      | `Operation` stubs "in the engine" | `fepdf`, `fepdf-doc` | every engine crate |
+      | Rule A leaks: arena types in frontends | the four frontends, again | `$frontend_dirs` |
 
-The gradient now agrees. The separation and `UnknownFilter-ICC.pdf` carry
-`expected_divergence` entries holding the four numbers **this** engine produces and the
-reason each differs — a `/DeviceCMYK` conversion that is not colour managed, and a PDFKit
-that abandons an undecodable ICC profile where 8.6.5.5 says to fall back to the space
-`/N` names. The check fails if this engine moves off a pin *and* if a pinned file starts
-agreeing, so neither entry can quietly rot. Both failure modes were verified by forcing
-them, which is the `PLANNING.md` §2 rule applied to a check rather than to a grep.
+      The stub row's *label* said "in the engine" while its search said two crates, so a
+      stub anywhere else was invisible. Proved by putting one in `fepdf-model`: the named
+      version reads **0** and the derived version **1**. The leak row searched the right
+      four, but by writing them out a second time — and two lists that say the same thing
+      are free to stop saying it, with the wrong one being the one nobody re-reads.
 
-```text
-cargo run --example make_colour_fixtures -p fepdf-model
-./scripts/test/crosscheck_image.sh
-```
+      **`FRONTEND_CRATES` is the one list that is written down, so it is now checked.** A
+      name in it that is not a crate silently moves that crate into the *engine* half: the
+      partition still covers everything, and covers it wrongly. A misspelling now prints
+      `BROKEN — FRONTEND_CRATES names fepdf-typo, which is not a crate`, verified by
+      misspelling one.
+
+      The rows that remain naming a place are the ones that should. `anchored` rows name
+      the crate a symbol is defined in and print `BROKEN` when it is not there — they
+      check what they name. The corpus rows name a fixture directory and say
+      `absent — <the command that makes it>`. Neither is a survey with a hidden edge.
+
+      ```bash
+      ./scripts/dev/status.sh | grep -E 'stubs|leaks'
+      ```
 
 *Done when*: a `/Separation` fill and a stitching gradient agree with PDFKit in
 `crosscheck_image.sh`, or diverge on a cause that has been run down and pinned; the four
@@ -1662,16 +1667,32 @@ through something better than `(1 − c)(1 − k)`; the engine's `log::warn!` co
 — over a row that searches every crate the engine is made of; and `fepdf-gui` either lets
 a reader turn a layer off or is no longer described as opening documents for one.
 
-**The first entry is done and the phase is not.** The gradient agrees, the separation's
-white-for-black is fixed, and what the fix left behind is a *narrower and better-named*
-defect than the one the entry opened with — which is the shape a measured phase is
-supposed to make.
+**Every one of these is met, and the phase closed with eleven entries where it opened
+with five.** The six it grew were not scope creep: each was found by measuring one of the
+original five and none could have been written before that measurement. A function
+evaluator was built and the entry that justified it turned out to be wrong about why; a
+`/Separation` was fixed and left behind a `/DeviceCMYK` conversion that was not the one
+the standard specifies; thirteen log sites were to be converted and four of them were not
+conclusions at all; a colour test file rendered blank and the reason was that **no font
+without an embedded program had ever drawn**.
+
+**That last one is the phase's own lesson.** Every fixture under `target/` was
+deliberately font-free, so that the host could not change an answer — and the blind spot
+was exactly the size of that discipline. `target/fonts/standard14.pdf` covers it now, and
+a check that cannot see a whole class of document is worth knowing about before the class
+is what someone opens.
 
 **What this phase is not.** It is not a list of everything clause 8 to 11 contains. Nine
 (Text) and eleven (Transparency) were **not re-measured** in the pass that produced it,
 and their rows above say so rather than implying a verdict. Naming four measured things
 is worth more than listing thirty unmeasured ones, which is what the row this phase split
 had been doing.
+
+**What it leaves open, named rather than implied**: 8.6.5.6 reaches the base of an
+`/Indexed` space, the underlying space of a `/Pattern` and the alternate of a
+`/Separation`, and only the `cs`/`g`/`rg`/`k` path is done; `/CalGray` (8.6.5.2) is still
+read as `/DeviceGray`; and the layer panel's egui layout has never been looked at by a
+person, only tested.
 
 ## Phase Q — The rules the architecture asserts, and what actually checks them
 

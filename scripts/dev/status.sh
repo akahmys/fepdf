@@ -81,6 +81,15 @@ row "files still referencing lopdf (expect 0)" "$lopdf"
 # So: the engine is every crate that is not a frontend, and the two lists are complements
 # by construction. Adding a crate to the workspace puts it in one of them.
 FRONTEND_CRATES="fepdf-cli fepdf-gui fepdf-mcp fepdf-wasm"
+# The one list that is written down, so the one that can go stale. A name here that is
+# not a crate silently moves that crate into the *engine* half — the partition still
+# covers everything, and covers it wrongly. Checked rather than trusted.
+for crate_name in $FRONTEND_CRATES; do
+    [ -d "crates/$crate_name/src" ] || {
+        row "frontend list" "BROKEN — FRONTEND_CRATES names $crate_name, which is not a crate"
+        BROKEN=1
+    }
+done
 engine_dirs=""; frontend_dirs=""
 for crate_dir in crates/*/; do
     name=$(basename "$crate_dir")
@@ -123,7 +132,11 @@ facade_mutators=$(awk '
     | grep -vE '^set_(vacuum|strip|password|system_fonts)$' | wc -l | tr -d ' ')
 row "Rule D: document mutators on the facade besides apply (expect 0)" "$facade_mutators"
 
-stubs=$(grep -rho 'PdfError::NotImplemented' crates/fepdf/src crates/fepdf-doc/src \
+# Over every engine crate, not the two this named. The label said "in the engine" while
+# the search said `fepdf` and `fepdf-doc`, so a stub anywhere else was invisible — the
+# same shape that let the `Decision` row read 82 for a truth of 84, and the reason that
+# row now derives its list too.
+stubs=$(grep -rho 'PdfError::NotImplemented' $engine_dirs \
     --include="*.rs" 2>/dev/null | wc -l | tr -d ' ')
 row "Operation stubs in the engine (expect 0)" "$stubs"
 
@@ -174,8 +187,10 @@ row "Rule A: frontend deps that are not the facade (expect 0)" "$frontend_deps"
 
 # ARCHITECTURE.md 4 justified Rule A with "9 references and 2". Cargo has since made
 # both impossible (5.7), so anything but 0 means a frontend gained a direct dependency.
-leak=$(grep -rn "PdfArena\|Handle<" \
-    crates/fepdf-cli/src crates/fepdf-gui/src crates/fepdf-mcp/src crates/fepdf-wasm/src \
+#
+# `$frontend_dirs` and not the four names again: written twice, the two lists are free to
+# disagree, and the one that is wrong is the one nobody re-reads.
+leak=$(grep -rn "PdfArena\|Handle<" $frontend_dirs \
     --include="*.rs" 2>/dev/null | wc -l | tr -d ' ')
 row "Rule A leaks: arena types in frontends (expect 0)" "$leak"
 
