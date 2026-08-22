@@ -45,7 +45,10 @@ impl Interpreter<'_> {
     /// a grey level, which inverts the tint.
     fn resolve_color_space(&self, name: &PdfName) -> Option<ResolvedColorSpace> {
         if let Some(device) = ResolvedColorSpace::from_family(name.as_str()) {
-            return Some(device);
+            // 8.6.5.6, before the device space itself: "If such an entry is present, its
+            // value shall be used as the colour space for the operation currently being
+            // performed."
+            return Some(self.default_space(name.as_str()).unwrap_or(device));
         }
         let key = self.doc.arena().intern_name(PdfName::new("ColorSpace"));
         // `find_resource` reports a missing entry as an error. Here that is an ordinary
@@ -68,7 +71,7 @@ impl Interpreter<'_> {
 
     fn handle_gray(&mut self, op: &str) -> PdfResult<()> {
         let gray = self.pop_f64()?;
-        let c = Color::Gray(gray);
+        let c = self.device_color("DeviceGray", &[gray], Color::Gray(gray));
         if op == "g" {
             self.state.fill_color = c;
             self.backend.set_fill_color(c);
@@ -83,7 +86,7 @@ impl Interpreter<'_> {
         let b = self.pop_f64()?;
         let g = self.pop_f64()?;
         let r = self.pop_f64()?;
-        let c = Color::Rgb(r, g, b);
+        let c = self.device_color("DeviceRGB", &[r, g, b], Color::Rgb(r, g, b));
         if op == "rg" {
             self.state.fill_color = c;
             self.backend.set_fill_color(c);
@@ -99,7 +102,7 @@ impl Interpreter<'_> {
         let y = self.pop_f64()?;
         let m = self.pop_f64()?;
         let c = self.pop_f64()?;
-        let col = Color::Cmyk(c, m, y, k);
+        let col = self.device_color("DeviceCMYK", &[c, m, y, k], Color::Cmyk(c, m, y, k));
         if op == "k" {
             self.state.fill_color = col;
             self.backend.set_fill_color(col);
@@ -163,6 +166,43 @@ impl Interpreter<'_> {
                 .to_string(),
         ));
         Ok(Color::Gray(0.0))
+    }
+
+    /// The `/DefaultGray`, `/DefaultRGB` or `/DefaultCMYK` standing in for a device
+    /// space, if the resources declare one (8.6.5.6).
+    ///
+    /// A `shall`, and nothing read it: 30 files in the corpora carry `/DefaultRGB` —
+    /// including two named after the feature — and three carry `/DefaultCMYK`, one of
+    /// them `samples/fy05.pdf`. The clause reaches further than this, to the base of an
+    /// `/Indexed` space, the underlying space of a `/Pattern` and the alternate of a
+    /// `/Separation`; those are not done and are their own entry.
+    fn default_space(&self, family: &str) -> Option<ResolvedColorSpace> {
+        // Only the three device spaces are remapped. `/CalGray` and `/CalRGB` reach
+        // `from_family` too, through the abbreviations an inline image may use, and they
+        // are not device spaces.
+        let (default, components) = match family {
+            "DeviceGray" | "G" => ("DefaultGray", 1),
+            "DeviceRGB" | "RGB" => ("DefaultRGB", 3),
+            "DeviceCMYK" | "CMYK" => ("DefaultCMYK", 4),
+            _ => return None,
+        };
+        let key = self.doc.arena().intern_name(PdfName::new("ColorSpace"));
+        let Ok(entry) = self.find_resource(&key, &PdfName::new(default)) else {
+            return None;
+        };
+        let space = ResolvedColorSpace::parse(&entry, self.doc.arena())?;
+        // "The default colour space ... shall have the same number of components as the
+        // original space." One that does not is not a substitute for it.
+        (space.components == components).then_some(space)
+    }
+
+    /// A device colour, put through the default space when the resources declare one.
+    ///
+    /// `g`, `rg` and `k` never touch `cs`, and 8.6.5.6 covers them anyway: "Regardless of
+    /// how the colour space is specified, it shall be subject to remapping as described
+    /// below."
+    fn device_color(&self, family: &str, components: &[f64], plain: Color) -> Color {
+        self.default_space(family).and_then(|space| space.to_color(components)).unwrap_or(plain)
     }
 
     /// The device-space path: the colour model comes from the space `cs` named, and

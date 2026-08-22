@@ -68,6 +68,26 @@ fn main() -> std::io::Result<()> {
     std::fs::write("target/colour/gradient.pdf", &gradient)?;
     println!("target/colour/gradient.pdf    {} bytes  — a three-stop gradient", gradient.len());
 
+    // 8.6.5.6: a device colour space is remapped when the resources declare a default
+    // for it. `/DefaultRGB` here is the permuting `/CalRGB` that
+    // `pdf-differences/DefaultRGBColourSpaces.pdf` uses, so `1 0 0 rg` — plain red, set
+    // with an operator that never mentions a colour space — must paint **green**.
+    //
+    // A rectangle and not text, unlike that corpus file: its patches are words, and a
+    // glyph's edge pixels swamp a quadrant mean. The clause is about which space the
+    // operands mean, so the shape is free and a filled quarter-page says it loudest.
+    let permuting = "[/CalRGB << /WhitePoint [1 1 1] /Matrix [0 1 0 1 0 0 0 0 1] >>]";
+    let defaulted = page(
+        &format!("/ColorSpace << /DefaultRGB {permuting} >>"),
+        "1 0 0 rg 0 100 100 100 re f\n",
+        &[],
+    );
+    std::fs::write("target/colour/default_space.pdf", &defaulted)?;
+    println!(
+        "target/colour/default_space.pdf  {} bytes  — red through a /DefaultRGB that swaps it",
+        defaulted.len()
+    );
+
     println!(
         "\n  The gradient agrees with PDFKit; the separation is pinned, on a \
          /DeviceCMYK\n  conversion that is not colour managed rather than on 7.10.\n  \

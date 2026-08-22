@@ -16,7 +16,9 @@
 //! the entry and `crosscheck_image.sh` pins the divergence.
 //!
 //! [`ResolvedColorSpace`] is the other half of this clause: the spaces whose components
-//! are not a colour until a function runs (8.6.6).
+//! are not a colour until something runs — a tint transform (8.6.6) or, for `/CalRGB`, a
+//! gamma and a matrix into XYZ (8.6.5.3). `/CalGray` (8.6.5.2) is still read as
+//! `/DeviceGray`, which is the same shortcut `/CalRGB` had until Phase P.
 
 mod space;
 

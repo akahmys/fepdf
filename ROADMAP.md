@@ -1344,36 +1344,48 @@ functions cannot be.
       cargo test -p fepdf-model --test device_colour_tests   # the c=0.5,k=0.5 case
       ```
 
-- [ ] **`/DefaultCMYK`, `/DefaultRGB` and `/DefaultGray` are a `shall` and nothing reads
-      them.** 8.6.5.6: when a device colour space is selected, the resource dictionary's
-      `/ColorSpace` subdictionary is checked for the corresponding default, and "if such
-      an entry is present, **its value shall be used** as the colour space for the
-      operation currently being performed". `grep` finds none of the three names anywhere
-      in the workspace.
+- [x] **`/DefaultCMYK`, `/DefaultRGB` and `/DefaultGray` are a `shall` and nothing reads
+      them.** They do now, and so does 8.6.5.3's `/CalRGB` transform, which is what makes
+      the remapping observable at all.
 
-      Measured over both corpora, by asking each document's interned names rather than
-      grepping bytes — an entry in an object stream is invisible to `grep`:
+      8.6.5.6: when a device colour space is selected, the resource dictionary's
+      `/ColorSpace` subdictionary is checked for the corresponding default, and "if such an
+      entry is present, **its value shall be used** as the colour space for the operation
+      currently being performed". It also says "**regardless of how the colour space is
+      specified**", which is why `g`, `rg` and `k` are remapped too — they never mention a
+      colour space and are covered anyway.
 
-      | name | files |
-      | :--- | ---: |
-      | `/DefaultRGB` | 30, including `DefaultRGBColourSpaces.pdf` and `-inherit.pdf`, built for this |
-      | `/DefaultCMYK` | 3, one of them **`samples/fy05.pdf`** |
-      | `/DefaultGray` | 0 |
+      **`/CalRGB` was being read as `/DeviceRGB`.** Its components went through untouched,
+      so remapping to one would have changed nothing and the entry said so before the work
+      started. 8.6.5.3 is one transformation stage — gamma-decode each component, then
+      `/Matrix` to XYZ — and this engine now runs it, sharing the XYZ-to-sRGB step with
+      `/Lab` rather than growing a second copy of it.
 
-      One of the nine conforming samples carries an entry this engine ignores. The clause
-      also reaches the base of an `/Indexed` space, the underlying space of a `/Pattern`
-      and the alternate of a `/Separation`, so it is wider than the `cs` operator.
+      `target/colour/default_space.pdf` is the measurement: `1 0 0 rg` — plain red, set by
+      an operator that never names a space — under a `/DefaultRGB` whose matrix swaps the
+      first two components. It must paint **green**, and it does, `149 254 254 254`
+      against PDFKit's `149 255 255 255`. With the remapping removed it reads `76` —
+      **DISAGREE by 73**.
 
-      **Implementing it alone may change no pixel**, and that is worth knowing before
-      starting: the test files remap to `/CalRGB`, and this engine reads a `CalRGB` as
-      three components and passes them through as if they were `DeviceRGB` — so the
-      remapping would land on a space it treats identically. The observable half is
-      8.6.5.3's `CalRGB` transform, which is the entry that should be written next to
-      this one.
+      A rectangle rather than text, unlike `pdf-differences/DefaultRGBColourSpaces.pdf`
+      whose patches are words: a glyph's edge pixels swamp a quadrant mean, and the clause
+      is about which space the operands mean, so the shape is free.
+
+      **Two of the four tests written for the transform were wrong, and the code was
+      right.** XYZ (0, 1, 0) *does* land on sRGB (0, 1, 0) once the negative channels
+      clip — so a saturated primary is a poor probe for "XYZ is not sRGB" and the test
+      asks a mid grey instead. And XYZ (1, 0, 0) carries a little blue into sRGB, because
+      the primaries do not line up; asserting otherwise was asserting that the round trip
+      through XYZ does nothing.
+
+      **The clause reaches further than this and the rest is not done**: the base of an
+      `/Indexed` space, the underlying space of a `/Pattern`, and the alternate of a
+      `/Separation` or `/DeviceN` "but only if the alternate colour space is actually
+      selected". `/CalGray` (8.6.5.2) is also still read as `/DeviceGray`.
 
       ```bash
-      cargo run --release -p fepdf --example survey_names -- \
-        DefaultCMYK,DefaultRGB,DefaultGray samples/*.pdf target/external/*/*.pdf
+      cargo test -p fepdf-model --test calibrated_colour_tests
+      ./scripts/test/crosscheck_image.sh      # default_space, agree (worst 1)
       ```
 
 - [x] **A font with no embedded program renders nothing.** Fixed. A minimal page setting

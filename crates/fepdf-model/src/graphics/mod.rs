@@ -116,6 +116,24 @@ pub enum Color {
     Lab(f64, f64, f64),
 }
 
+/// CIE 1931 XYZ to sRGB, as a `Color::Rgb`.
+///
+/// The BT.709-6 primaries and the sRGB companding curve. Shared by `/Lab` (8.6.5.4) and
+/// `/CalRGB` (8.6.5.3): both clauses define a route *to* XYZ and neither defines the step
+/// out of it, because that belongs to the output device — and this one is sRGB.
+#[must_use]
+pub fn xyz_to_srgb(x: f64, y: f64, z: f64) -> Color {
+    let r_lin = x * 3.2404542 + y * -1.5371385 + z * -0.4985314;
+    let g_lin = x * -0.9692660 + y * 1.8760108 + z * 0.0415560;
+    let b_lin = x * 0.0556434 + y * -0.2040259 + z * 1.0572252;
+
+    let compand = |c: f64| {
+        let c_clamp = c.clamp(0.0, 1.0);
+        if c_clamp <= 0.0031308 { 12.92 * c_clamp } else { 1.055 * c_clamp.powf(1.0 / 2.4) - 0.055 }
+    };
+    Color::Rgb(compand(r_lin), compand(g_lin), compand(b_lin))
+}
+
 pub use crate::color::ColorSpaceKind;
 
 impl Color {
@@ -156,22 +174,9 @@ impl Color {
                 let y = 1.000000 * f(y);
                 let z = 1.088840 * f(z);
 
-                // 2. Transform XYZ to Linear sRGB using precise BT.709-6 matrix
-                let r_lin = x * 3.2404542 + y * -1.5371385 + z * -0.4985314;
-                let g_lin = x * -0.9692660 + y * 1.8760108 + z * 0.0415560;
-                let b_lin = x * 0.0556434 + y * -0.2040259 + z * 1.0572252;
-
-                // 3. Apply standard sRGB non-linear gamma companding
-                let compand = |c: f64| {
-                    let c_clamp = c.clamp(0.0, 1.0);
-                    if c_clamp <= 0.0031308 {
-                        12.92 * c_clamp
-                    } else {
-                        1.055 * c_clamp.powf(1.0 / 2.4) - 0.055
-                    }
-                };
-
-                Color::Rgb(compand(r_lin), compand(g_lin), compand(b_lin))
+                // 2 and 3: XYZ to sRGB, shared with `/CalRGB` (8.6.5.3), which reaches
+                // XYZ by a different route and then needs exactly this.
+                xyz_to_srgb(x, y, z)
             }
         }
     }

@@ -21,6 +21,7 @@ use crate::PdfArena;
 use crate::function::FunctionSet;
 use crate::graphics::Color;
 use crate::object::{Object, PdfName};
+use std::collections::BTreeMap;
 
 /// How deep an alternate space may nest before resolution gives up (RR-15 Rule 6).
 const MAX_DEPTH: usize = 8;
@@ -35,6 +36,19 @@ pub struct ResolvedColorSpace {
     /// How many components a colour in this space is written with.
     pub components: usize,
     tint: Option<TintTransform>,
+    calibrated: Option<CalRgb>,
+}
+
+/// The gamma and matrix of a `/CalRGB` space (8.6.5.3, Table 63).
+///
+/// One transformation stage: each component is decoded by its own gamma, then the three
+/// are multiplied by `/Matrix` to give XYZ directly — "Decode LMN" and "Matrix LMN" are
+/// implicitly the identity because there is no second stage.
+#[derive(Debug, Clone)]
+struct CalRgb {
+    gamma: [f64; 3],
+    /// `[XA YA ZA XB YB ZB XC YC ZC]`, so a component's three contributions are adjacent.
+    matrix: [f64; 9],
 }
 
 /// The tint transform of a `/Separation` or `/DeviceN` space, with the shape of the
@@ -55,7 +69,7 @@ impl ResolvedColorSpace {
     /// A device space of a known component count, for the paths that already know which
     /// one they are in.
     pub fn device(kind: ColorSpaceKind, components: usize) -> Self {
-        Self { kind, components, tint: None }
+        Self { kind, components, tint: None, calibrated: None }
     }
 
     fn parse_at(obj: &Object, arena: &PdfArena, depth: usize) -> Option<Self> {
@@ -95,7 +109,7 @@ impl ResolvedColorSpace {
     fn from_array(family: &str, items: &[Object], arena: &PdfArena, depth: usize) -> Option<Self> {
         match family {
             "CalGray" => Some(Self::device(ColorSpaceKind::CalGray, 1)),
-            "CalRGB" => Some(Self::device(ColorSpaceKind::CalRGB, 3)),
+            "CalRGB" => Some(Self::calibrated_rgb(items, arena)),
             "Lab" => Some(Self::device(ColorSpaceKind::Lab, 3)),
             "ICCBased" => Some(Self::from_icc(items, arena)),
             // An indexed colour is written as one index into the palette; converting it
@@ -107,6 +121,31 @@ impl ResolvedColorSpace {
             "DeviceN" => Self::from_devicen(items, arena, depth),
             _ => Self::from_family(family),
         }
+    }
+
+    /// `[/CalRGB dict]` (8.6.5.3). A missing `/Gamma` is `[1 1 1]` and a missing
+    /// `/Matrix` the identity, which together make the space behave as `/DeviceRGB` —
+    /// which is what this engine did for *every* `CalRGB`, calibrated or not, until the
+    /// parameters were read.
+    fn calibrated_rgb(items: &[Object], arena: &PdfArena) -> Self {
+        let mut space = Self::device(ColorSpaceKind::CalRGB, 3);
+        let Some(dict) = items
+            .get(1)
+            .map(|o| o.resolve(arena))
+            .and_then(|o| o.as_dict_handle())
+            .and_then(|dh| arena.get_dict(dh))
+        else {
+            return space;
+        };
+        let gamma = numbers(&dict, arena, "Gamma", 3).unwrap_or([1.0_f64, 1.0, 1.0].to_vec());
+        let matrix = numbers(&dict, arena, "Matrix", 9)
+            .unwrap_or_else(|| vec![1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0]);
+        let (Ok(gamma), Ok(matrix)) = (<[f64; 3]>::try_from(gamma), <[f64; 9]>::try_from(matrix))
+        else {
+            return space;
+        };
+        space.calibrated = Some(CalRgb { gamma, matrix });
+        space
     }
 
     /// `[/ICCBased stream]`: the stream's `/N` gives the component count, and 8.6.5.5
@@ -122,13 +161,18 @@ impl ResolvedColorSpace {
             .and_then(|n| usize::try_from(n).ok())
             .filter(|n| matches!(n, 1 | 3 | 4))
             .unwrap_or(3);
-        Self { kind: ColorSpaceKind::ICCBased, components, tint: None }
+        Self { kind: ColorSpaceKind::ICCBased, components, tint: None, calibrated: None }
     }
 
     /// `[/Separation name alternateSpace tintTransform]` (8.6.6.4).
     fn from_separation(items: &[Object], arena: &PdfArena, depth: usize) -> Option<Self> {
         let tint = Self::tint_transform(items.get(2)?, items.get(3)?, arena, depth)?;
-        Some(Self { kind: ColorSpaceKind::Separation, components: 1, tint: Some(tint) })
+        Some(Self {
+            kind: ColorSpaceKind::Separation,
+            components: 1,
+            tint: Some(tint),
+            calibrated: None,
+        })
     }
 
     /// `[/DeviceN names alternateSpace tintTransform …]` (8.6.6.5).
@@ -141,7 +185,7 @@ impl ResolvedColorSpace {
             return None;
         }
         let tint = Self::tint_transform(items.get(2)?, items.get(3)?, arena, depth)?;
-        Some(Self { kind: ColorSpaceKind::DeviceN, components, tint: Some(tint) })
+        Some(Self { kind: ColorSpaceKind::DeviceN, components, tint: Some(tint), calibrated: None })
     }
 
     fn tint_transform(
@@ -162,6 +206,9 @@ impl ResolvedColorSpace {
     /// tint transform will not evaluate: the caller records what it fell back to, and a
     /// silent black is indistinguishable from a black the file asked for.
     pub fn to_color(&self, components: &[f64]) -> Option<Color> {
+        if let Some(cal) = &self.calibrated {
+            return cal.to_color(components);
+        }
         let Some(tint) = &self.tint else {
             return components_to_color(components);
         };
@@ -199,4 +246,47 @@ fn components_to_color(values: &[f64]) -> Option<Color> {
         [c, m, y, k] => Some(Color::Cmyk(*c, *m, *y, *k)),
         _ => None,
     }
+}
+
+impl CalRgb {
+    /// 8.6.5.3's one transformation stage: gamma-decode each component, then
+    /// `X = XA·A^GR + XB·B^GG + XC·C^GB` and likewise for Y and Z.
+    fn to_color(&self, components: &[f64]) -> Option<Color> {
+        let [a, b, c] = <[f64; 3]>::try_from(components.get(..3)?).ok()?;
+        // "These three colour components shall be in the range 0.0 to 1.0; component
+        // values falling outside that range shall be adjusted to the nearest valid value
+        // without error indication."
+        let decode = |value: f64, gamma: f64| value.clamp(0.0, 1.0).powf(gamma);
+        let abc = [decode(a, self.gamma[0]), decode(b, self.gamma[1]), decode(c, self.gamma[2])];
+        let m = &self.matrix;
+        // `/Matrix` lists a *component's* three contributions together, so the entries
+        // for X are 0, 3 and 6 rather than 0, 1 and 2. Reading it as three rows instead
+        // of three columns transposes the space and is the easy mistake here.
+        let x = m[0] * abc[0] + m[3] * abc[1] + m[6] * abc[2];
+        let y = m[1] * abc[0] + m[4] * abc[1] + m[7] * abc[2];
+        let z = m[2] * abc[0] + m[5] * abc[1] + m[8] * abc[2];
+        Some(crate::graphics::xyz_to_srgb(x, y, z))
+    }
+}
+
+/// A numeric array of exactly `want` entries, or `None`.
+fn numbers(
+    dict: &BTreeMap<crate::Handle<PdfName>, Object>,
+    arena: &PdfArena,
+    key: &str,
+    want: usize,
+) -> Option<Vec<f64>> {
+    let entry = dict.get(&arena.intern_name(PdfName::new(key)))?.resolve(arena);
+    let Object::Array(handle) = entry else {
+        return None;
+    };
+    let items = arena.get_array(handle)?;
+    if items.len() != want {
+        return None;
+    }
+    let mut out = Vec::with_capacity(want);
+    for item in &items {
+        out.push(item.resolve(arena).as_f64()?);
+    }
+    Some(out)
 }
