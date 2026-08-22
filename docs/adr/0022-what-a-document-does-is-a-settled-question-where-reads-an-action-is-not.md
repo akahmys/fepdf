@@ -2,7 +2,7 @@
 
 - **Status**: Accepted
 - **Date**: 2026-08-22
-- **Commit**: *(the commit that adds `fepdf-model/src/actions.rs`)*
+- **Commit**: 465ccb2
 
 ## Context
 
