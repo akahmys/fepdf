@@ -28,8 +28,9 @@ xmp-writer.workspace = true
 rayon.workspace = true
 ttf-parser.workspace = true
 parking_lot.workspace = true
-sha2.workspace = true
-rand.workspace = true
+# `sha2` and `rand` were here as well as in `[dev-dependencies]` below, where the
+# signing fixture uses them. Nothing in `src/` referenced either, so the runtime pair
+# were duplicates that every consumer of this crate linked.
 md5.workspace = true
 hex.workspace = true
 nom.workspace = true

@@ -8,10 +8,6 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-# Used by the `page_quadrants` and `render_all_samples` examples, which have an async
-# `main`. Nothing in `src/` touches it — the audit of unused declarations kept this one
-# because `--all-targets` failed without it, which is the only reason it was visible.
-tokio.workspace = true
 fepdf-model.workspace = true
 fepdf-content.workspace = true
 fepdf-doc.workspace = true
@@ -25,6 +21,25 @@ image = { workspace = true, optional = true }
 pollster = { workspace = true, optional = true }
 chrono.workspace = true
 log.workspace = true
+
+[dev-dependencies]
+# The three examples whose `main` is async: `page_quadrants`, `render_all_samples` and
+# `render_japanese_samples`. **Dev, and not runtime.**
+#
+# It sat in `[dependencies]` under a note saying that nothing in `src/` touches it and
+# that the audit kept it because `--all-targets` failed without it. The first half was
+# right and the second was not: an example's dependency is a dev-dependency, and
+# `cargo check --workspace --all-targets` passes with it declared here.
+#
+# What the misplacement cost: every consumer of this facade linked tokio with
+# `features = ["full"]`, and `mio` came with it. That is how `fepdf-wasm` came to hold a
+# crate that does not compile for `wasm32-unknown-unknown` while nothing in the workspace
+# referenced it.
+tokio.workspace = true
+# `inspect_decoded_page2`, the one example that turns logging on. It was in
+# `[dependencies]`, where nothing in `src/` referenced it: the facade emits through `log`
+# and leaves the choice of backend to whoever links it, which is the whole point of the
+# `log` facade and the opposite of shipping one.
 env_logger.workspace = true
 
 [features]

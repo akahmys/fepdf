@@ -163,6 +163,18 @@ row "Operation stubs in the engine (expect 0)" "$stubs"
 # here means "nothing obviously unused", and the audit that removed forty-five was
 # `cargo check --workspace --all-targets` with them deleted — which is the check this row
 # points at rather than replaces.
+#
+# **It read two sections of six.** The awk started only on `^[dependencies]` and
+# `^[dev-dependencies]`, so `[build-dependencies]` and every
+# `[target.'cfg(...)'.dependencies]` block was invisible: a dependency declared there
+# could be referenced by nothing at all and this row would still say 0. Verified by
+# feeding it a manifest with a target section — it returned the two ordinary
+# dependencies and not the target one. It starts on any header ending `dependencies]`
+# now, which is the six of them, and skips `[workspace.dependencies]` because this loop
+# reads member manifests rather than the root.
+#
+# The third blind spot is a different question and has its own row below.
+
 unused_deps=0
 for crate_dir in crates/*/; do
     dep_dirs=""
@@ -170,7 +182,7 @@ for crate_dir in crates/*/; do
         [ -d "$crate_dir$sub" ] && dep_dirs="$dep_dirs $crate_dir$sub"
     done
     [ -n "$dep_dirs" ] || continue
-    declared=$(awk '/^\[(dev-)?dependencies\]/{f=1;next} /^\[/{f=0} f' \
+    declared=$(awk '/^\[workspace\.dependencies\]/{f=0;next} /^\[.*dependencies\]/{f=1;next} /^\[/{f=0} f' \
         "$crate_dir/Cargo.toml" | grep -oE '^[a-zA-Z0-9_-]+' | sort -u)
     for dep in $declared; do
         ident=$(echo "$dep" | tr '-' '_')
@@ -179,6 +191,38 @@ for crate_dir in crates/*/; do
     done
 done
 row "dependencies nothing references (expect 0)" "$unused_deps"
+
+# A dependency in the runtime section that only a test, example or benchmark references.
+#
+# The row above searches `examples/` when deciding whether a `[dependencies]` entry is
+# used, so a dependency in the wrong section counts as used and it says nothing. That is
+# not a hypothetical: `fepdf` declared `tokio` with `features = ["full"]` in
+# `[dependencies]` for the sake of three examples with an async `main`, under a note
+# saying nothing in `src/` touched it. Cargo builds `[dependencies]` for every consumer
+# and `[dev-dependencies]` for none, so `mio` came with it and `fepdf-wasm` stopped
+# building for `wasm32-unknown-unknown` — while the host target compiled fine and this
+# script read 0.
+#
+# The question here is sharper than the one above: not "does anything reference it" but
+# "does anything that ships reference it".
+misplaced_deps=0
+for crate_dir in crates/*/; do
+    [ -d "$crate_dir/src" ] || continue
+    dev_dirs=""
+    for sub in tests examples benches; do
+        [ -d "$crate_dir$sub" ] && dev_dirs="$dev_dirs $crate_dir$sub"
+    done
+    [ -n "$dev_dirs" ] || continue
+    runtime=$(awk '/^\[dependencies\]/{f=1;next} /^\[/{f=0} f' \
+        "$crate_dir/Cargo.toml" | grep -oE '^[a-zA-Z0-9_-]+' | sort -u)
+    for dep in $runtime; do
+        ident=$(echo "$dep" | tr '-' '_')
+        grep -rqE "\b${ident}\b" "$crate_dir/src" --include="*.rs" 2>/dev/null && continue
+        grep -rqE "\b${ident}\b" $dev_dirs --include="*.rs" 2>/dev/null \
+            && misplaced_deps=$((misplaced_deps + 1))
+    done
+done
+row "runtime dependencies only a test or example uses (expect 0)" "$misplaced_deps"
 
 # `fepdf-mcp` is the frontend whose whole job is to expose the `Operation` vocabulary — a
 # tool is the serialised form of an operation (ARCHITECTURE 5.1). It named all of it until
