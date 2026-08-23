@@ -1986,13 +1986,16 @@ than `fepdf-gui` is today, which is why Q comes first rather than why R can wait
       line at whether a build compiles foreign source, and that one never does on a
       platform this engine is built for.
 
-- [ ] **Decide whether the Linux GUI keeps Wayland or Rule 9 keeps its exemption.** The
-      two paths are `rfd`'s file dialog and `winit`'s windowing, so dropping the C shim
-      means an X11-only Linux GUI — a decision about what the product is, not about the
-      audit, which is why the check records it rather than resolving it.
+- [x] **Decide whether the Linux GUI keeps Wayland or Rule 9 keeps its exemption.**
+      **Wayland stays** ([ADR-0033](docs/adr/0033-the-linux-gui-keeps-wayland-so-rule-9-names-one-exemption.md)).
+      An X11-only Linux GUI in 2026 is a worse product than a rule kept clean, and Rule 9
+      exists to keep unaudited C out of the *engine* — which compiles none on any of the
+      four targets.
 
-      Worth knowing before deciding: `cc` appears on **none** of Windows, macOS or wasm,
-      so this is one platform's backend rather than a habit
+      **The exemption names `wayland-backend`, not `fepdf-gui(linux)`**, which is the part
+      that matters. Exempting the member would forgive whatever it acquires next; naming
+      the cause forgives Wayland and nothing else. Verified by removing it and watching
+      the check name the culprit.
 
 - [x] **Write the fixtures, because the corpus cannot validate this.** Written.
       `make_script_fixtures.rs` is the third sibling of `make_scan_fixtures.rs` and

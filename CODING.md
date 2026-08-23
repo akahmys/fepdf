@@ -70,9 +70,14 @@ Widening it found a violation the same day. **`fepdf-gui` compiles C on Linux** 
 build shim, through `rfd` → `ashpd` and again through `eframe` → `winit` →
 `smithay-client-toolkit`. It is not new, it is newly visible: a Linux GUI build has done
 this for as long as the GUI has had a Linux target, and Rule 9 reported PASS throughout.
-It is a **named exemption** in `verify_compliance.sh` — `fepdf-gui(x86_64-unknown-linux-gnu)`
-— because removing it means a Linux GUI without Wayland, which is a decision about the
-product rather than about the audit (ROADMAP Phase R).
+The Linux GUI **keeps Wayland** ([ADR-0033](docs/adr/0033-the-linux-gui-keeps-wayland-so-rule-9-names-one-exemption.md)):
+an X11-only Linux GUI is a worse product than a rule kept clean, and Rule 9 exists to keep
+unaudited C out of the *engine*, which compiles none on any target.
+
+So `verify_compliance.sh` names one exemption — and it names **`wayland-backend`, the crate
+that compiles the C, not `fepdf-gui`, the member that reaches it**. Exempting the member
+would forgive whatever it acquires next; naming the cause forgives Wayland and nothing
+else.
 
 `--target all` finds one more, `chrono` → `iana-time-zone` → `iana-time-zone-haiku`, and
 Haiku is deliberately not on the list.

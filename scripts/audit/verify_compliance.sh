@@ -287,45 +287,53 @@ cargo clippy --workspace --all-targets -- -D warnings || ERROR=1
 # A target added to this list is a claim that the engine is built for it. Haiku is not on
 # it, and `cargo tree -p fepdf --target all -i cc` is how to see what that costs.
 RULE9_TARGETS="x86_64-unknown-linux-gnu x86_64-pc-windows-msvc aarch64-apple-darwin wasm32-unknown-unknown"
-# Named exemptions, in the shape Rule 5's are: a member and target where a C-compiling
-# dependency is known, recorded, and not yet decided about.
+# Named exemptions, in the shape Rule 5's are — and named by the **crate that compiles
+# the C**, not by the member that reaches it.
 #
-# `fepdf-gui` on Linux reaches `wayland-backend`, whose build compiles a C shim, by two
-# independent paths — `rfd` -> `ashpd` and `eframe` -> `winit` ->
-# `smithay-client-toolkit`. **This is not new; it is newly visible.** The check read the
-# host only, so a Linux GUI build has been compiling C for as long as the GUI has had a
-# Linux target, and Rule 9 said PASS throughout.
+# `wayland-backend` builds a C shim, and `fepdf-gui` reaches it three ways on Linux:
+# `rfd` -> `ashpd`, and `winit` -> `smithay-client-toolkit` twice over. Dropping it means
+# an X11-only Linux GUI, and that is a worse product in 2026 — decided, not deferred
+# (ADR-0033).
 #
-# Removing it means a Linux GUI without Wayland, which is a decision about the product
-# rather than about the audit, and ROADMAP Phase R carries it. What changed here is that
-# the exemption is written down instead of being an accident of which machine ran the
-# script.
-RULE9_EXEMPT="fepdf-gui(x86_64-unknown-linux-gnu)"
+# **Exempting `fepdf-gui(linux)` instead would hide the next one.** The GUI would be free
+# to acquire a different C-compiling dependency and this check would keep saying PASS.
+# Naming the cause means Wayland is forgiven and nothing else is.
+#
+# This was not new when the check found it; it was newly visible. `cargo tree` ran with no
+# `--target`, so a Linux GUI build had been compiling C for as long as the GUI had a Linux
+# target while Rule 9 reported PASS.
+RULE9_EXEMPT_CRATES="wayland-backend"
 echo "[Rule 9] Checking for dependencies that compile C..."
 C_BUILDERS=""
 for member in $(cargo metadata --no-deps --format-version 1 2>/dev/null \
         | python3 -c "import sys,json;print(' '.join(p['name'] for p in json.load(sys.stdin)['packages']))"); do
     for triple in $RULE9_TARGETS; do
-        if cargo tree -p "$member" --target "$triple" --edges normal,build --prefix none \
-                2>/dev/null | grep -q '^cc v'; then
-            case " $RULE9_EXEMPT " in
-                *" $member($triple) "*) ;;
-                *) C_BUILDERS="$C_BUILDERS $member($triple)" ;;
+        cargo tree -p "$member" --target "$triple" --edges normal,build --prefix none \
+            2>/dev/null | grep -q '^cc v' || continue
+        # Which crate actually compiles the C. Everything that is not exempt is a failure,
+        # so a new one is caught even where an old one is forgiven.
+        for culprit in $(cargo tree -p "$member" --target "$triple" --edges normal,build \
+                -i cc --depth 1 --prefix none 2>/dev/null \
+                | awk '$1 != "cc" && NF { print $1 }' | sort -u); do
+            case " $RULE9_EXEMPT_CRATES " in
+                *" $culprit "*) ;;
+                *) C_BUILDERS="$C_BUILDERS $member($triple):$culprit" ;;
             esac
-        fi
+        done
     done
 done
 if [ -n "$C_BUILDERS" ]; then
     echo "  FAIL: these crates pull a dependency that compiles C:$C_BUILDERS"
     for entry in $C_BUILDERS; do
         member=${entry%%(*}
-        triple=${entry#*(}; triple=${triple%)}
+        rest=${entry#*(}
+        triple=${rest%%)*}
         cargo tree -p "$member" --target "$triple" --edges normal,build -i cc 2>/dev/null \
             | head -8 | sed 's/^/    /'
     done
     ERROR=1
 else
-    echo "  PASS (exempt, recorded: $RULE9_EXEMPT)"
+    echo "  PASS (exempt, recorded: $RULE9_EXEMPT_CRATES)"
 fi
 
 # Rule 19: Formatting
