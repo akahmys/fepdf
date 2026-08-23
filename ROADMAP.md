@@ -1776,21 +1776,30 @@ figure below came out of one command, and the commands are here.
       they were the ones dragging in C. **Removing them did not remove the shape that
       produced them.**
 
+      **The command that stood here did not work**, and it is left out rather than
+      corrected in place: `status.sh` carries the working version now. It named `src`,
+      `tests`, `examples` and `benches` unconditionally, and `grep` exits **2** — an
+      error, not "no match" — when given a directory that does not exist. Most crates here
+      have only `src`, so `|| echo unused` fired for every dependency of every crate. It
+      reported *all 120* as unused, and would have reported exactly that on a tree with
+      nothing wrong.
+
       ```bash
-      for c in crates/*/; do
-        awk '/^\[dependencies\]/{f=1;next} /^\[/{f=0} f' "$c/Cargo.toml" |
-        grep -oE '^[a-zA-Z0-9_-]+' | while read -r d; do
-          u=$(echo "$d" | tr '-' '_')
-          grep -rq "\b${u}\b" "$c"/{src,tests,examples,benches} 2>/dev/null ||
-            echo "$(basename $c) → $d"
-        done
-      done
+      ./scripts/dev/status.sh | grep 'dependencies nothing'
       ```
 
-- [ ] **That audit has no row, so it will happen again.** The command above is a one-off;
-      what `status.sh` needs is the figure. Two of the three C dependencies and forty-five
-      of these were invisible to every check this project has, and both were found by
-      hand, twice, four days apart
+- [x] **That audit has no row, so it will happen again.** It has one:
+      `dependencies nothing references (expect 0)`. Two of the three C dependencies and
+      forty-five of these were invisible to every check this project has, and both were
+      found by hand, twice, four days apart.
+
+      **Verified by adding an unused dependency and watching the row move**, which took
+      two attempts and the first is the more useful one. `hex` was the probe, and the row
+      reported nothing — because `fepdf-cli` has a local variable called `hex`. The search
+      is textual, so a dependency whose name is an ordinary word passes on a coincidence.
+      A zero here means "nothing obviously unused"; the audit that removed forty-five was
+      `cargo check --workspace --all-targets` with them deleted, and this row points at
+      that rather than replacing it.
 - [x] **A frontend reached past the facade, and the rule that would have caught it was
       stated one notch too narrow.** `ARCHITECTURE.md` §7 claimed "no frontend declares
       `fepdf-model`", which was true; §2's topology puts every frontend above `fepdf` and

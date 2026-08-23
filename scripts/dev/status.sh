@@ -140,6 +140,46 @@ stubs=$(grep -rho 'PdfError::NotImplemented' $engine_dirs \
     --include="*.rs" 2>/dev/null | wc -l | tr -d ' ')
 row "Operation stubs in the engine (expect 0)" "$stubs"
 
+# A dependency declared and referenced by no line of code. Phase Q found forty-five of
+# these by hand, and ADR-0024 found three more the same way four days earlier — two of
+# which were the ones dragging in a C compiler. Both searches were one-offs, so the shape
+# that produced them survived; this is the figure, which is what a shape needs.
+#
+# **The command ROADMAP.md gave for this did not work.** It named `src`, `tests`,
+# `examples` and `benches` unconditionally, and `grep` exits *2* — an error, not "no
+# match" — when a directory it is given does not exist. Most crates here have only `src`,
+# so `|| echo unused` fired for every dependency of every crate: it reported 100% unused
+# and would have done so just as loudly on a tree with nothing wrong. Only the
+# directories that exist are searched now.
+#
+# Package name to Rust identifier is `-` to `_`, which is the whole translation. A crate
+# reached only through another's re-export is *not* found here and should not be: the
+# declaration is what is being asked about.
+#
+# **It can miss one, and the way it misses is worth knowing.** The search is textual, so a
+# dependency whose name is an ordinary word passes on a coincidence: `hex` was the first
+# probe used to test this row and it reported nothing, because `fepdf-cli` has a local
+# variable called `hex`. A name nothing could collide with reports correctly. So a zero
+# here means "nothing obviously unused", and the audit that removed forty-five was
+# `cargo check --workspace --all-targets` with them deleted — which is the check this row
+# points at rather than replaces.
+unused_deps=0
+for crate_dir in crates/*/; do
+    dep_dirs=""
+    for sub in src tests examples benches; do
+        [ -d "$crate_dir$sub" ] && dep_dirs="$dep_dirs $crate_dir$sub"
+    done
+    [ -n "$dep_dirs" ] || continue
+    declared=$(awk '/^\[(dev-)?dependencies\]/{f=1;next} /^\[/{f=0} f' \
+        "$crate_dir/Cargo.toml" | grep -oE '^[a-zA-Z0-9_-]+' | sort -u)
+    for dep in $declared; do
+        ident=$(echo "$dep" | tr '-' '_')
+        grep -rqE "\b${ident}\b" $dep_dirs --include="*.rs" 2>/dev/null \
+            || unused_deps=$((unused_deps + 1))
+    done
+done
+row "dependencies nothing references (expect 0)" "$unused_deps"
+
 adrs=$(find docs/adr -name '0*.md' | wc -l | tr -d ' ')
 row "decision records" "$adrs"
 
