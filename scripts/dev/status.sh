@@ -175,6 +175,18 @@ row "Operation stubs in the engine (expect 0)" "$stubs"
 #
 # The third blind spot is a different question and has its own row below.
 
+# Declarations that exist to select a feature rather than to be called, as
+# `crate:dependency` — Rule 9's shape, which names the cause and not the member.
+#
+# `fepdf-wasm:getrandom` is declared for `features = ["js"]` and nothing else. `getrandom`
+# reaches that build through `rsa`'s default -> `std` -> `rand_core/std`, so the signing
+# stack pulls it whether or not anything signs, and on `wasm32-unknown-unknown` it refuses
+# to compile until it is told where randomness comes from. No line of `fepdf-wasm` calls
+# it; the declaration exists so that Cargo's feature unification turns the flag on.
+#
+# **Exempting `fepdf-wasm` would forgive whatever it declares next.** Naming the pair
+# forgives this one declaration, as ADR-0033 named `wayland-backend` rather than the GUI.
+UNUSED_DEPS_EXEMPT="fepdf-wasm:getrandom"
 unused_deps=0
 for crate_dir in crates/*/; do
     dep_dirs=""
@@ -182,15 +194,20 @@ for crate_dir in crates/*/; do
         [ -d "$crate_dir$sub" ] && dep_dirs="$dep_dirs $crate_dir$sub"
     done
     [ -n "$dep_dirs" ] || continue
+    crate_name=$(basename "$crate_dir")
     declared=$(awk '/^\[workspace\.dependencies\]/{f=0;next} /^\[.*dependencies\]/{f=1;next} /^\[/{f=0} f' \
         "$crate_dir/Cargo.toml" | grep -oE '^[a-zA-Z0-9_-]+' | sort -u)
     for dep in $declared; do
+        case " $UNUSED_DEPS_EXEMPT " in
+            *" $crate_name:$dep "*) continue ;;
+        esac
         ident=$(echo "$dep" | tr '-' '_')
         grep -rqE "\b${ident}\b" $dep_dirs --include="*.rs" 2>/dev/null \
             || unused_deps=$((unused_deps + 1))
     done
 done
-row "dependencies nothing references (expect 0)" "$unused_deps"
+row "dependencies nothing references (expect 0)" \
+    "$unused_deps (exempt, recorded: $UNUSED_DEPS_EXEMPT)"
 
 # A dependency in the runtime section that only a test, example or benchmark references.
 #

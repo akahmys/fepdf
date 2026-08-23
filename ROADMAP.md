@@ -1861,27 +1861,58 @@ figure below came out of one command, and the commands are here.
       here. Shipping a renderer nobody had watched draw a page would be the same defect at
       a larger size.
 
-- [ ] **`fepdf-wasm` does not build for WebAssembly.** Found while fixing the entry above,
-      by building it for its own target for what appears to be the first time:
+- [x] **`fepdf-wasm` builds for WebAssembly.** It did not, and had not for as long as the
+      crate existed: `cargo build --workspace` never touches the target, so the failure was
+      invisible on a host where everything compiles. **The target was installed the whole
+      time** (`wasm32-unknown-unknown`, and two WASI ones). It simply had never been run.
+
+      **Two failures, and this entry had seen only the second.** Fixing `getrandom`
+      uncovered the first:
 
       ```text
-      cargo build -p fepdf-wasm --target wasm32-unknown-unknown
-      error: could not compile `getrandom` … you may need to enable the "js" feature
+      error: This wasm target is unsupported by mio. If using Tokio, disable the net feature.
       ```
 
-      `getrandom` arrives transitively — `aes` → `cipher` → `crypto-common` → `rand_core`
-      — so the whole crypto stack the reader needs pulls it in, and on `wasm32` it will not
-      compile without being told which clock it is on. **The target is installed**
-      (`wasm32-unknown-unknown`, and two WASI ones), so nothing was stopping this being
-      run; it simply never was, and `cargo build --workspace` never touches it because the
-      host target compiles fine.
+      `mio` ← `tokio` ← `fepdf`. **The facade declared `tokio` in `[dependencies]` for the
+      sake of three examples**, under a note admitting nothing in `src/` touched it and
+      claiming the audit had kept it because `--all-targets` failed without it. The claim
+      was wrong: an example's dependency is a dev-dependency, and `--all-targets` passes
+      with it declared there. The cost while it stood was not only wasm — every consumer of
+      the facade linked tokio with `features = ["full"]`.
 
-      **The usual fix trips the check added two entries above**, which is worth stating
-      rather than discovering: declaring `getrandom` with `features = ["js"]` to unify the
-      feature adds a dependency that no line of code references, so
-      `dependencies nothing references` would read 1. Either that row learns about
-      declarations that exist to select a feature, or the fix is a different one. Deciding
-      which is the work, and it is not `render_page`'s
+      `getrandom` is declared for `wasm32-unknown-unknown` with `features = ["js"]`. It
+      arrives through `rsa`'s default → `std` → `rand_core/std` — this entry's earlier
+      chain named `crypto-common`'s optional `rand_core`, which is not the one that fires —
+      so the signing stack pulls it in whether or not anything signs, and there is nothing
+      to decline short of building `rsa` without `std`. The `cfg` is narrower than
+      `target_family = "wasm"` because WASI has its own backend.
+
+      **Both premises of the design question this entry posed were false**, and that is the
+      part worth keeping:
+
+      * *"declaring `getrandom` with `features = ["js"]` makes `dependencies nothing
+        references` read 1"* — it did not, because
+        [status.sh](scripts/dev/status.sh)'s awk started only on `^[dependencies]` and
+        `^[dev-dependencies]`. Four of the six section kinds were invisible: every
+        `[target.'cfg(...)'.dependencies]` and `[build-dependencies]`. **A declaration
+        there could be referenced by nothing at all and the row would still say 0.** It
+        starts on any header ending `dependencies]` now, and `getrandom` is carried as a
+        named exemption in Rule 9's shape — `fepdf-wasm:getrandom`, the pair and not the
+        crate, so a second unused declaration here is still caught. Verified by removing
+        the exemption and watching the row read 1.
+      * *the row would have caught the real problem* — it could not. It searches
+        `examples/` when deciding whether a `[dependencies]` entry is used, so `tokio`
+        counted as used while being in the wrong section entirely. **A dev-only dependency
+        declared as a runtime one is a shape that row cannot express**, and it is the one
+        that broke the build. It has its own row now, asking whether anything *that ships*
+        references the dependency.
+
+      **The new row found three more on its first run**, which is the answer to whether it
+      was worth adding: `fepdf-model` declared `rand` and `sha2` in `[dependencies]` *and*
+      in `[dev-dependencies]`, where the signing fixture uses them — the runtime pair were
+      duplicates every consumer linked — and `fepdf` declared `env_logger`, which is the
+      opposite of what depending on the `log` facade is for. All three are gone and both
+      rows read 0
 
 *Done when*: `status.sh` reports 0 Rule D bypasses and 3 engine log sites over derived
 crate lists; unused dependency declarations have a row; and `fepdf-wasm` either renders or

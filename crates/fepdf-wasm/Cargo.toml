@@ -16,5 +16,22 @@ wasm-bindgen.workspace = true
 console_error_panic_hook.workspace = true
 bytes.workspace = true
 
+# `wasm32-unknown-unknown` has no operating system to ask for randomness, and
+# `getrandom` refuses to compile there until it is told where to get it. It arrives
+# through `rsa`'s default -> `std` -> `rand_core/std`, so the signing stack pulls it in
+# whether or not this crate ever signs anything, and there is no way to decline it short
+# of building `rsa` without `std`.
+#
+# **No line of this crate calls it.** The declaration exists so that Cargo's feature
+# unification turns on `js`, which routes it at `crypto.getRandomValues`. That makes it
+# invisible to the ordinary reading of "is this dependency used", so `status.sh` carries
+# it as a named exemption — `fepdf-wasm:getrandom`, the pair rather than the crate, so
+# that a second unused declaration here would still be caught.
+#
+# The cfg is narrower than `target_family = "wasm"` on purpose: WASI has its own backend
+# and `js` would be the wrong answer there.
+[target.'cfg(all(target_arch = "wasm32", target_os = "unknown"))'.dependencies]
+getrandom = { version = "0.2", features = ["js"] }
+
 [lints]
 workspace = true
