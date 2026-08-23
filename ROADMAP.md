@@ -2017,11 +2017,28 @@ than `fepdf-gui` is today, which is why Q comes first rather than why R can wait
       cargo test -p fepdf --test calculation_order_test
       ```
 
-- [ ] **`Operation::RunDocumentScripts { trigger }`, and nothing implicit.** No existing
-      write path gains an execution: `crosscheck_selfread.sh` asserts every combination
-      reads back exactly as its input does, and an automatic run inside
-      `SetFormFieldValue` could break that. The `/CO` `Decision` is what tells a caller
-      there is something to run
+- [x] **`Operation::RunDocumentScripts { trigger }`, and nothing implicit.** The second
+      half holds and the first does not exist:
+      [ADR-0032](docs/adr/0032-running-scripts-is-a-frontend-verb-not-an-operation.md).
+
+      `Operation` is defined in `fepdf-doc` and the script engine sits **above** the
+      facade, so `apply` cannot call it. Putting the runner on the `Document` breaks
+      `Send + Sync` *and* makes a reference cycle — the runner holds the document while
+      the document holds the runner. Threading it through `apply`'s signature reaches
+      every caller in four frontends to carry an argument that is `None` for twenty-nine
+      of thirty variants. Letting `apply` accept the variant and decline it is a stub, and
+      `fepdf-wasm::render_page` was removed for being one three commits earlier.
+
+      So `run_calculations` is a function on the frontend and the vocabulary stays at
+      thirty. **The mutations still go through it** — a calculation order applies
+      `SetFormFieldValue` per field — which is what Rule D asks. The precedent is already
+      here twice: `fepdf-cli`'s `edit` composes six operations and is not one, and
+      `render_page` has no variant at all.
+
+      **"Nothing implicit" never depended on the variant.** No write path gained an
+      execution; `SetFormFieldValue` still records its 12.6.3 `Violation`, and a caller
+      who wants the run asks for it
+
 - [x] **Determinism is injected.** `ScriptEnvironment { now_ms, seed, viewer_version }`
       exists and `app` is built from it, never from the machine. Its default instant is a
       fixed one, so two runs of the same document agree.

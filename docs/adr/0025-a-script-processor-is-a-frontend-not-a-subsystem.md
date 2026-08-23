@@ -1,6 +1,6 @@
 # ADR-0025: A script processor is a frontend, not a subsystem
 
-- **Status**: Amended by [ADR-0031](0031-a-script-frontend-cannot-be-a-facade-feature.md), which corrects two sentences building it proved wrong: the `&mut Document` borrow, and the facade feature. The rest of the shape stands. The *whether* it left open was answered the same day by [ADR-0026](0026-the-engine-takes-the-ecmascript-subset-because-it-already-owes-it.md) — the subset is taken.
+- **Status**: Amended by [ADR-0031](0031-a-script-frontend-cannot-be-a-facade-feature.md) and [ADR-0032](0032-running-scripts-is-a-frontend-verb-not-an-operation.md), which correct three sentences building it proved wrong: the `&mut Document` borrow, the facade feature, and `Operation::RunDocumentScripts`. The rest of the shape stands. The *whether* it left open was answered the same day by [ADR-0026](0026-the-engine-takes-the-ecmascript-subset-because-it-already-owes-it.md) — the subset is taken.
 - **Date**: 2026-08-22
 - **Commit**: a90e90a
 
