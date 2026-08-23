@@ -1920,17 +1920,77 @@ function evaluator (7.10) fixes a spot colour rendering white on every print-ori
 A script frontend routed entirely through `Operation` would be *more* conforming to Rule D
 than `fepdf-gui` is today, which is why Q comes first rather than why R can wait.
 
-- [ ] **Establish that `&mut Document` can be held across boa calls.** The one unverified
-      risk in ADR-0025's design, and it comes first because a negative answer changes the
-      design rather than the schedule. Operations must apply *during* the run: the
-      Keystroke → Validate → Calculate → Format cascade requires a script to read back
-      what it just set, so collecting changes and applying them afterwards will not do
-- [ ] **Run the corpus's six `/JavaScript` scripts under `--features script`** with `app`
-      and `this` and nothing else, and count how many complete. Two guesses become
-      numbers: whether boa's coverage is enough — the crate calls itself an implementation
-      of *some* of the language — and how much of ISO/DIS 21757-1 real scripts touch. The
-      harness exists: `inspect actions --format json` already emits every script in the
-      corpus
+- [x] **Establish that `&mut Document` can be held across boa calls.** Measured. **The
+      requirement is met and the phrasing was wrong**, which is the more useful answer.
+
+      What the design needs — operations applied *during* the run, with the script reading
+      back what it just set — works. A script that sets `a = 3`, reads it back, and sets
+      `b` from it returns 30 with both writes applied in order.
+
+      What it cannot be is a `&mut Document`. boa's capture signature is
+      `Fn(&JsValue, &[JsValue], &T, &mut Context)` — the capture arrives by **shared**
+      reference — and `T: Trace + 'static`. So the host state goes in an
+      `Rc<RefCell<…>>` behind a `#[derive(Trace, Finalize)]` wrapper carrying
+      `#[unsafe_ignore_trace]`. Interior mutability is not a workaround here; it is the
+      only shape the API admits. ADR-0025's sentence should read "held across boa calls",
+      not "`&mut` held across boa calls".
+
+      **`Trace` is an unsafe trait, and neither guard sees it.** The derive generates an
+      `unsafe impl`, and a crate carrying `#![forbid(unsafe_code)]` compiles anyway —
+      verified. `verify_compliance.sh`'s Rule 3 greps `unsafe {`, which does not match an
+      `unsafe impl` either. So a script frontend would carry unsafe code that Rule 3
+      neither permits nor catches. The attribute is at least named `#[unsafe_ignore_trace]`
+      in the source, which is the only thing making it visible at all
+
+- [x] **Run the corpus's six `/JavaScript` scripts under `--features script`** with `app`
+      and `this` and nothing else, and count how many complete. **Seven files, not six**,
+      and between them only **two distinct scripts**: `app.alert("Hello World!")` and
+      Adobe's stock "this document has file attachments" boilerplate, each repeated four
+      times. Every one is a conformance-*failure* fixture.
+
+      | `app.viewerVersion` | completed |
+      | :--- | :--- |
+      | 7 | **2 of 2** — and the second does *nothing*, its `v < 7` guard being false |
+      | 6 | **1 of 2** — the second fails: `ReferenceError: syncAnnotScan is not defined` |
+
+      **Both numbers are needed and the first alone would have been a lie.** A script that
+      completes because its guard was false is not evidence about coverage.
+
+      **boa's language coverage was never the constraint.** The failure is a missing
+      *Acrobat global* — `syncAnnotScan`, which is not ECMA-262 and not in the `app`/`this`
+      minimum — reached alongside `this.getAnnots(p)`. What a host must supply is the
+      question; what boa can parse is not.
+
+      It also makes the determinism entry below load-bearing rather than tidy:
+      **the injected `viewer_version` decides which branch runs**, so it decides whether a
+      script completes at all.
+
+      ```bash
+      # both measurements, in an isolated project so the workspace stays clean
+      # (scratchpad: boa 0.21 + a path dependency on crates/fepdf)
+      ```
+- [ ] **Rule 9's check looks at one target, and `cc` is reachable on another.** Found
+      while clearing boa against Rule 9, which it passes — `cargo tree -i cc` over the
+      boa tree prints nothing. But `--target all` does print one, and it is **already
+      here**, with or without a script engine:
+
+      ```text
+      cc v1.2.60
+      [build-dependencies]
+      └── iana-time-zone-haiku → iana-time-zone → chrono → fepdf
+      ```
+
+      `verify_compliance.sh` runs `cargo tree -p "$member" --prefix none` with no
+      `--target`, so it sees the host and passes. Building this workspace for Haiku would
+      compile C, which is the thing Rule 9 exists to forbid. CODING.md calls the check
+      "exact — that is one `cargo tree` per crate and it is exact"; it is exact about one
+      target.
+
+      Whether a Haiku-only build dependency counts is a real question and not obviously
+      "yes": ADR-0024 drew the line at *whether a build compiles foreign source*, and this
+      one never does on any platform anyone here builds for. But the check should say
+      which it means rather than answer by accident
+
 - [ ] **Write the fixtures, because the corpus cannot validate this.** Six scripts across
       524 files, and `/AA /C` — a field calculation, the thing form scripting exists for —
       occurs **zero** times. That is not a reason to decline; it is a statement about what
