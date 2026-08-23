@@ -61,23 +61,77 @@ impl Interpreter<'_> {
                             self.record_skipped_image(&dict, name.as_str(), &e);
                         }
                     }
-                    "Form" => match sd.as_ref() {
-                        fepdf_model::object::SublimatedData::Commands { items: cmds, .. } => {
-                            self.execute_form_commands(&dict, cmds)?;
+                    "Form" => {
+                        self.record_transparency_group(&dict);
+                        match sd.as_ref() {
+                            fepdf_model::object::SublimatedData::Commands {
+                                items: cmds, ..
+                            } => {
+                                self.execute_form_commands(&dict, cmds)?;
+                            }
+                            // Forms not pre-parsed into commands are replayed from raw bytes.
+                            fepdf_model::object::SublimatedData::Image { .. }
+                            | fepdf_model::object::SublimatedData::Compressed { .. }
+                            | fepdf_model::object::SublimatedData::Raw(_) => {
+                                let bytes = self.doc.arena().get_stream_bytes(sd)?;
+                                self.render_form_xobject(&dict, &bytes)?;
+                            }
                         }
-                        // Forms not pre-parsed into commands are replayed from raw bytes.
-                        fepdf_model::object::SublimatedData::Image { .. }
-                        | fepdf_model::object::SublimatedData::Compressed { .. }
-                        | fepdf_model::object::SublimatedData::Raw(_) => {
-                            let bytes = self.doc.arena().get_stream_bytes(sd)?;
-                            self.render_form_xobject(&dict, &bytes)?;
-                        }
-                    },
+                    }
                     _ => {}
                 }
             }
         }
         Ok(())
+    }
+
+    /// What a form's `/Group` asks for that this engine does not do (11.6.6).
+    ///
+    /// **Only when it asks for something.** A transparency group whose `/I` and `/K` are
+    /// both absent or false composites, for everything this engine draws, exactly as the
+    /// content drawn without one — and Illustrator and InDesign wrap almost every form in
+    /// one, so recording those would put a decision on most pages of most files and say
+    /// nothing by saying it everywhere. What changes the result is isolation and knockout.
+    ///
+    /// Neither is implemented, and neither is *read*: measured, a form carrying
+    /// `/Group << /S /Transparency /I true /K true >>` produces backend calls identical to
+    /// the same form without the entry — the same list, in the same order.
+    fn record_transparency_group(&self, dict: &BTreeMap<Handle<PdfName>, Object>) {
+        let arena = self.doc.arena();
+        let group_key = arena.intern_name(PdfName::new("Group"));
+        let Some(Object::Dictionary(gh)) = dict.get(&group_key).map(|o| o.resolve(arena)) else {
+            return;
+        };
+        let Some(group) = arena.get_dict(gh) else { return };
+        let subtype_key = arena.intern_name(PdfName::new("S"));
+        let is_transparency = matches!(
+            group.get(&subtype_key).map(|o| o.resolve(arena)),
+            Some(Object::Name(n)) if arena.get_name(n).is_some_and(|s| s.as_str() == "Transparency")
+        );
+        if !is_transparency {
+            return;
+        }
+        let asked = |key: &str| {
+            let k = arena.intern_name(PdfName::new(key));
+            matches!(group.get(&k).map(|o| o.resolve(arena)), Some(Object::Boolean(true)))
+        };
+        let (isolated, knockout) = (asked("I"), asked("K"));
+        if !isolated && !knockout {
+            return;
+        }
+        let wanted = match (isolated, knockout) {
+            (true, true) => "isolated and knockout",
+            (true, false) => "isolated",
+            (false, true) => "knockout",
+            (false, false) => return,
+        };
+        self.doc.record(Decision::violation(
+            "11.6.6",
+            format!("a form XObject in a {wanted} transparency group"),
+            "drew its contents into the page as though the group were neither; a group \
+             that isolates has a transparent backdrop and one that knocks out composites \
+             each object against that backdrop rather than against the last",
+        ));
     }
 
     #[allow(clippy::many_single_char_names)]

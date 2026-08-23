@@ -1,5 +1,6 @@
 use crate::RenderBackend;
 use crate::interpreter::Interpreter;
+use fepdf_model::interpretation::Decision;
 use fepdf_model::{FromPdfObject, Handle, LineCap, LineJoin, Matrix, Object, PdfName, PdfResult};
 use std::collections::BTreeMap;
 
@@ -157,6 +158,19 @@ impl Interpreter<'_> {
                     }
                     Object::Dictionary(_) => {
                         self.state.smask = Some(resolved);
+                        // Read into the state and used by nothing: `grep` finds this
+                        // write and no reader, and `RenderBackend` has no soft-mask
+                        // entry point. Measured with a `/S /Luminosity` mask whose group
+                        // paints solid black — 11.6.5.2 makes that mask 0 everywhere, so
+                        // the content it covers contributes nothing — and the covered
+                        // rectangle was filled at full strength with no decision beside
+                        // it. The same shape as a `render_page` that returns `Ok(())`
+                        // having drawn nothing, in the other direction.
+                        self.doc.record(Decision::violation(
+                            "11.6.5.2",
+                            "an /SMask soft mask in an /ExtGState".to_string(),
+                            "drew the content unmasked; this engine has no soft-mask                              path, so everything the mask would have hidden is visible",
+                        ));
                     }
                     _ => {}
                 }
