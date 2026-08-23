@@ -1969,27 +1969,30 @@ than `fepdf-gui` is today, which is why Q comes first rather than why R can wait
       # both measurements, in an isolated project so the workspace stays clean
       # (scratchpad: boa 0.21 + a path dependency on crates/fepdf)
       ```
-- [ ] **Rule 9's check looks at one target, and `cc` is reachable on another.** Found
-      while clearing boa against Rule 9, which it passes — `cargo tree -i cc` over the
-      boa tree prints nothing. But `--target all` does print one, and it is **already
-      here**, with or without a script engine:
+- [x] **Rule 9's check looks at one target, and `cc` is reachable on another.** It reads
+      four now — Linux, Windows, macOS and wasm — and naming them is strictly stronger
+      than reading whichever machine happens to run the audit.
 
-      ```text
-      cc v1.2.60
-      [build-dependencies]
-      └── iana-time-zone-haiku → iana-time-zone → chrono → fepdf
-      ```
+      **Widening it found a real violation the same day.** `fepdf-gui` compiles C on
+      Linux: Wayland's build shim, reached by two independent paths, `rfd` → `ashpd` and
+      `eframe` → `winit` → `smithay-client-toolkit`. Not new — **newly visible**. A Linux
+      GUI build has done this for as long as the GUI has had a Linux target, and Rule 9
+      reported `PASS` throughout.
 
-      `verify_compliance.sh` runs `cargo tree -p "$member" --prefix none` with no
-      `--target`, so it sees the host and passes. Building this workspace for Haiku would
-      compile C, which is the thing Rule 9 exists to forbid. CODING.md calls the check
-      "exact — that is one `cargo tree` per crate and it is exact"; it is exact about one
-      target.
+      It is a **named exemption** rather than a silent pass or a red audit, in the shape
+      Rule 5's exemptions take. `CODING.md` carries it with its reason.
 
-      Whether a Haiku-only build dependency counts is a real question and not obviously
-      "yes": ADR-0024 drew the line at *whether a build compiles foreign source*, and this
-      one never does on any platform anyone here builds for. But the check should say
-      which it means rather than answer by accident
+      The Haiku one that started this stays out of scope on purpose: ADR-0024 drew the
+      line at whether a build compiles foreign source, and that one never does on a
+      platform this engine is built for.
+
+- [ ] **Decide whether the Linux GUI keeps Wayland or Rule 9 keeps its exemption.** The
+      two paths are `rfd`'s file dialog and `winit`'s windowing, so dropping the C shim
+      means an X11-only Linux GUI — a decision about what the product is, not about the
+      audit, which is why the check records it rather than resolving it.
+
+      Worth knowing before deciding: `cc` appears on **none** of Windows, macOS or wasm,
+      so this is one platform's backend rather than a habit
 
 - [x] **Write the fixtures, because the corpus cannot validate this.** Written.
       `make_script_fixtures.rs` is the third sibling of `make_scan_fixtures.rs` and

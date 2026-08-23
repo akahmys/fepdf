@@ -55,9 +55,27 @@ the `unsafe` ban and RR-15 all stop at the language boundary. So:
 | **Forbidden** | `zstd-sys`, `libz-sys`, `openssl-sys`, `ring`, a QuickJS binding | Compiles vendored C; pulls `cc` as a build dependency |
 | **Allowed** | `core-foundation-sys`, `windows-sys`, `libc` | Declares the platform's own API, which `std` already does |
 
-Enforced as: **no crate named `cc` in any workspace member's dependency tree**. That is one
-`cargo tree` per crate and it is exact — `cc` is how a Rust build compiles C, and nothing
+Enforced as: **no crate named `cc` in any workspace member's dependency tree, on any
+target this engine is built for**. `cc` is how a Rust build compiles C, and nothing
 compiles C without it.
+
+**The targets are named, because a dependency tree is not one tree.** The check used to
+run `cargo tree` with no `--target`, so it answered "does this compile C on the machine
+running the audit" while this paragraph called it exact. It now reads
+`x86_64-unknown-linux-gnu`, `x86_64-pc-windows-msvc`, `aarch64-apple-darwin` and
+`wasm32-unknown-unknown`; adding a target to that list is a claim that the engine is built
+for it.
+
+Widening it found a violation the same day. **`fepdf-gui` compiles C on Linux** — Wayland's
+build shim, through `rfd` → `ashpd` and again through `eframe` → `winit` →
+`smithay-client-toolkit`. It is not new, it is newly visible: a Linux GUI build has done
+this for as long as the GUI has had a Linux target, and Rule 9 reported PASS throughout.
+It is a **named exemption** in `verify_compliance.sh` — `fepdf-gui(x86_64-unknown-linux-gnu)`
+— because removing it means a Linux GUI without Wayland, which is a decision about the
+product rather than about the audit (ROADMAP Phase R).
+
+`--target all` finds one more, `chrono` → `iana-time-zone` → `iana-time-zone-haiku`, and
+Haiku is deliberately not on the list.
 
 The rule was stated after the fact, which is worth admitting: three dependencies had to go
 before it could pass, and **two of them were never used by a line of code**

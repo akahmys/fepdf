@@ -272,22 +272,60 @@ cargo clippy --workspace --all-targets -- -D warnings || ERROR=1
 #
 # It was written after three dependencies were removed to make it pass, two of which no
 # line of code referenced (ADR-0024).
+#
+# **It checked one target, and said so nowhere.** `cargo tree` without `--target` sees
+# the host, so the check answered "does this compile C *here*" while CODING.md called it
+# exact. `--target all` finds one: `chrono` -> `iana-time-zone` ->
+# `iana-time-zone-haiku`, a build dependency that exists only on Haiku.
+#
+# That one is out of scope on purpose rather than by accident. ADR-0024 drew the line at
+# whether a build compiles foreign source, and this build never does on a platform this
+# engine is built for. So the targets are named, and naming four is strictly stronger
+# than reading whichever machine happens to run the audit — measured, `cc` appears on
+# none of them.
+#
+# A target added to this list is a claim that the engine is built for it. Haiku is not on
+# it, and `cargo tree -p fepdf --target all -i cc` is how to see what that costs.
+RULE9_TARGETS="x86_64-unknown-linux-gnu x86_64-pc-windows-msvc aarch64-apple-darwin wasm32-unknown-unknown"
+# Named exemptions, in the shape Rule 5's are: a member and target where a C-compiling
+# dependency is known, recorded, and not yet decided about.
+#
+# `fepdf-gui` on Linux reaches `wayland-backend`, whose build compiles a C shim, by two
+# independent paths — `rfd` -> `ashpd` and `eframe` -> `winit` ->
+# `smithay-client-toolkit`. **This is not new; it is newly visible.** The check read the
+# host only, so a Linux GUI build has been compiling C for as long as the GUI has had a
+# Linux target, and Rule 9 said PASS throughout.
+#
+# Removing it means a Linux GUI without Wayland, which is a decision about the product
+# rather than about the audit, and ROADMAP Phase R carries it. What changed here is that
+# the exemption is written down instead of being an accident of which machine ran the
+# script.
+RULE9_EXEMPT="fepdf-gui(x86_64-unknown-linux-gnu)"
 echo "[Rule 9] Checking for dependencies that compile C..."
 C_BUILDERS=""
 for member in $(cargo metadata --no-deps --format-version 1 2>/dev/null \
         | python3 -c "import sys,json;print(' '.join(p['name'] for p in json.load(sys.stdin)['packages']))"); do
-    if cargo tree -p "$member" --prefix none 2>/dev/null | grep -q '^cc v'; then
-        C_BUILDERS="$C_BUILDERS $member"
-    fi
+    for triple in $RULE9_TARGETS; do
+        if cargo tree -p "$member" --target "$triple" --edges normal,build --prefix none \
+                2>/dev/null | grep -q '^cc v'; then
+            case " $RULE9_EXEMPT " in
+                *" $member($triple) "*) ;;
+                *) C_BUILDERS="$C_BUILDERS $member($triple)" ;;
+            esac
+        fi
+    done
 done
 if [ -n "$C_BUILDERS" ]; then
     echo "  FAIL: these crates pull a dependency that compiles C:$C_BUILDERS"
-    for member in $C_BUILDERS; do
-        cargo tree -p "$member" -i cc 2>/dev/null | head -8 | sed 's/^/    /'
+    for entry in $C_BUILDERS; do
+        member=${entry%%(*}
+        triple=${entry#*(}; triple=${triple%)}
+        cargo tree -p "$member" --target "$triple" --edges normal,build -i cc 2>/dev/null \
+            | head -8 | sed 's/^/    /'
     done
     ERROR=1
 else
-    echo "  PASS"
+    echo "  PASS (exempt, recorded: $RULE9_EXEMPT)"
 fi
 
 # Rule 19: Formatting
