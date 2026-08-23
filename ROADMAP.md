@@ -2134,16 +2134,45 @@ than `fepdf-gui` is today, which is why Q comes first rather than why R can wait
       `util.printf`, a format-string implementation of its own, plus `event.target.textColor`
       and a `color` object. That is the next helper's worth of work, not this one's.
 
-- [ ] **`Intl` is absent, and a script that reaches it gets `undefined`.** Measured while
-      checking boa's coverage: `typeof Intl` is `undefined`, because ECMA-402 sits behind
-      boa's `intl` feature and this build does not enable it. Nineteen ICU crates arrive
-      regardless — they are `icu_normalizer` and `icu_properties`, which the *language*
-      needs for `String.prototype.normalize`, identifiers and `\p{…}` regex escapes.
+- [x] **`Intl` is absent, and its absence is now one behaviour instead of three.**
+      `typeof Intl` is `undefined`, because ECMA-402 sits behind boa's `intl` feature and
+      this build does not enable it. ICU crates arrive regardless — `icu_normalizer` and
+      `icu_properties`, which the *language* needs for `String.prototype.normalize`,
+      identifiers and `\p{…}` regex escapes.
 
-      So the cost of `Intl` is not the ICU dependency, which is already paid; it is
-      `icu_collator`, `icu_datetime`, `icu_plurals`, `icu_list`, `icu_casemap` and
-      `icu_decimal` on top. A form calling `toLocaleString` gets a `TypeError` today, and
-      nothing records that it did
+      **This entry's last sentence was wrong, and the way it was wrong is the finding.**
+      It read *"a form calling `toLocaleString` gets a `TypeError` today, and nothing
+      records that it did"*. Measured: `(1234567.891).toLocaleString('de-DE')` returned
+      **`"1234567.891"`**. No error — the locale was taken, ignored, and success returned,
+      so a German invoice would print the number it must not show and the script would
+      believe it had formatted it. `Intl` itself throws a `ReferenceError` and `Date`'s
+      `toLocale*` threw `Function Unimplemented`; the three disagreed.
+
+      A named locale is refused now, with a sentence naming 12.6.4.16 and a `Violation`
+      recorded; no locale named returns the digits and records an `Ambiguity` once per
+      run. `Date`'s three throw the same sentence. `Number`, `BigInt` and — through
+      delegation — `Array` are covered; `localeCompare` and the `toLocale*Case` pair are
+      measured, left, and pinned in `locale_test.rs`.
+
+      **`intl` was enabled and run before it was declined**
+      ([ADR-0034](docs/adr/0034-intl-is-declined-for-what-it-does-not-do.md)). It does not
+      deliver the two things a form asks ECMA-402 for. Measured 2026-08-23 on
+      `boa_engine 0.21.1` with `intl_bundled`, `cargo check` green in 3m47s:
+      `new Intl.NumberFormat('de-DE').format(1234567.891)` gives `1.234.567,891`, but
+      `{style: 'currency'}` throws `TypeError: unimplemented`,
+      `Intl.DateTimeFormat.prototype` has **no `format` property at all**, and
+      `Date.prototype.toLocaleDateString` stays `Function Unimplemented` — that stub at
+      `builtins/date/mod.rs:1621` carries no `cfg`, so the feature cannot reach it.
+
+      The price for the rest — decimal grouping, collation, plurals, lists — is 30 crates,
+      **10.2 MB** of compiled-in ICU data, and a full re-lock of the workspace (`boa_engine`
+      pins `icu_provider = "~2.0.0"` against this tree's 2.2.0; 636 packages move). Rule 9
+      and Rule 16 are untouched: no `cc`, and ICU is `Unicode-3.0`, already allowed.
+
+      The default locale does read the machine — `new Intl.NumberFormat().resolvedOptions().locale`
+      answered `ja` on a host whose `AppleLocale` is `ja_JP` — but only when a call names
+      no resolvable locale, and `locale.rs` is already the seam that would fill one in.
+      That is a solvable problem; a currency formatter that throws is not
 
 *Done when*: setting a field value in a form that declares a calculation order no longer
 records a `Violation` of 12.6.3, because the calculation ran; the subset row above reads
