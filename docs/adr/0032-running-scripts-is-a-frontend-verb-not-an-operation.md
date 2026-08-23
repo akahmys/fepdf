@@ -2,7 +2,7 @@
 
 - **Status**: Accepted. Amends [ADR-0025](0025-a-script-processor-is-a-frontend-not-a-subsystem.md) a third time, after [ADR-0031](0031-a-script-frontend-cannot-be-a-facade-feature.md).
 - **Date**: 2026-08-23
-- **Commit**: (this change)
+- **Commit**: 6c04905
 
 ## Context
 
