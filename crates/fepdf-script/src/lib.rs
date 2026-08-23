@@ -36,6 +36,7 @@ pub use host::{DocumentHandle, ScriptEnvironment, ScriptError, ScriptHost, Scrip
 
 mod calculate;
 mod helpers;
+mod locale;
 
 pub use calculate::{CalculationReport, run_calculations};
 pub use helpers::{AFORM_JS, unaudited_lines};

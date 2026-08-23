@@ -203,6 +203,7 @@ impl ScriptHost {
         self.install_app(&mut context)?;
         self.install_doc(&mut context)?;
         self.install_random(&mut context)?;
+        crate::locale::install(&self.handle, &mut context)?;
         Ok(context)
     }
 
