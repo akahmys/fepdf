@@ -52,6 +52,14 @@ debug-tools = ["fepdf-model/debug-tools"]
 [lints]
 workspace = true
 
+# `page_quadrants` uses `fepdf_render` like the two below and did not say so, so
+# `cargo clippy -p fepdf --all-targets` failed on it while
+# `cargo clippy --workspace --all-targets` passed: feature unification turns `render` on
+# when another member asks for it, and the audit only ever runs the workspace form.
+[[example]]
+name = "page_quadrants"
+required-features = ["render"]
+
 [[example]]
 name = "render_all_samples"
 required-features = ["render"]
