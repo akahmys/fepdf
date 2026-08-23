@@ -2054,8 +2054,21 @@ than `fepdf-gui` is today, which is why Q comes first rather than why R can wait
       nothing while at 6 it reaches `syncAnnotScan` and fails. The injected value decides
       whether a script completes at all. A test holds both halves.
 
-      Still to do: `new Date()` and `Math.random` are boa's own and are **not** yet driven
-      from `now_ms` and `seed` — the fields exist and only `viewer_version` is wired
+      **All three are wired now**, where this entry read *"still to do: `new Date()` and
+      `Math.random` are boa's own and are not yet driven from `now_ms` and `seed` — the
+      fields exist and only `viewer_version` is wired"*. `now_ms` reaches boa's clock
+      (`FixedClock`) and `seed` drives a `Math.random` installed over the builtin;
+      measured before, `new Date().getTime()` answered the wall clock and `Math.random`
+      gave a different number every run. The time zone came with them: boa's default hook
+      asks the machine for its offset, so `getHours` differed by continent — it is UTC
+      now, injected the same way.
+
+      **The test was the reason this survived a checked box.**
+      `the_same_environment_gives_the_same_answer_twice` read only `app.viewerVersion` —
+      the one field that worked — so it passed while two thirds of the struct were inert.
+      It reads all three now, and `the_injected_instant_is_the_one_a_script_reads` asserts
+      the value handed in rather than that two runs agree, which the wall clock also
+      satisfied
 - [x] **`/CO` supplies the calculation order** — the engine already reads it, at the one
       site that records the `Violation`. Running it is `fepdf_script::run_calculations`.
 

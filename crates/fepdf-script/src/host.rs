@@ -1,10 +1,12 @@
 //! The host objects a document script runs against, and the run itself.
 
+use boa_engine::context::HostHooks;
+use boa_engine::context::time::FixedClock;
 use boa_engine::property::Attribute;
 use boa_engine::{Context, JsResult, JsValue, NativeFunction, Source, js_string};
 use boa_gc::{Finalize, Trace};
 use fepdf::PdfDocument;
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
 /// What went wrong running a script.
@@ -32,10 +34,27 @@ pub enum ScriptError {
 /// **This is not tidiness.** Measured on the corpus: Adobe's stock file-attachment script
 /// branches on `app.viewerVersion`, and at 7 it does nothing while at 6 it reaches
 /// `syncAnnotScan` and fails. The injected value decides whether a script completes.
+///
+/// **All three are wired. Two of them were not, for as long as this struct existed**, and
+/// the sentence above was written as though they had been — `ROADMAP.md` carried the gap
+/// while this paragraph denied it. Measured with `now_ms` at `1577836800000`,
+/// `new Date().getTime()` answered `1787477586267`, the wall clock, and `Math.random`
+/// gave a different number every run.
+///
+/// What let it last is worth more than the fix:
+/// `the_same_environment_gives_the_same_answer_twice` asserted that two runs agree, and
+/// read only `app.viewerVersion` — the field that worked. Two runs of the wall clock also
+/// agree, to the millisecond. The test asserts the value *handed in* now, which is the
+/// claim the struct actually makes.
 #[derive(Debug, Clone)]
 pub struct ScriptEnvironment {
-    /// Milliseconds since the Unix epoch, for `new Date()`.
-    pub now_ms: f64,
+    /// Milliseconds since the Unix epoch, for `new Date()` and `Date.now()`.
+    ///
+    /// `u64` and not the `f64` ECMAScript uses: boa's clock counts forward from the
+    /// epoch and cannot hold an instant before it, so an `f64` would be cast at the
+    /// boundary and a negative one would arrive as some other time. The value this
+    /// engine cannot honour is refused by the type rather than clamped in silence.
+    pub now_ms: u64,
     /// Seed for `Math.random`.
     pub seed: u64,
     /// What `app.viewerVersion` reports.
@@ -47,7 +66,7 @@ impl Default for ScriptEnvironment {
         // A fixed instant rather than the clock: two runs of the same document agree.
         // 2020-01-01T00:00:00Z, chosen because it is the year ISO 32000-2 was published
         // and because any constant is better than one that moves.
-        Self { now_ms: 1_577_836_800_000.0, seed: 0, viewer_version: 7.0 }
+        Self { now_ms: 1_577_836_800_000, seed: 0, viewer_version: 7.0 }
     }
 }
 
@@ -113,9 +132,7 @@ impl ScriptHost {
     /// [`ScriptError::DidNotComplete`] when the script throws or will not parse, which
     /// includes reaching an Acrobat global this engine does not provide.
     pub fn run(&self, source: &str) -> Result<ScriptOutcome, ScriptError> {
-        let mut context = Context::default();
-        self.install_app(&mut context)?;
-        self.install_doc(&mut context)?;
+        let mut context = self.context()?;
         self.install_helpers(&mut context)?;
         // The script runs as the body of a function called on the Doc, so `this` is the
         // document. **A global property named `this` does not work**: in a non-strict
@@ -151,9 +168,7 @@ impl ScriptHost {
         source: &str,
         current: Option<&str>,
     ) -> Result<Option<String>, ScriptError> {
-        let mut context = Context::default();
-        self.install_app(&mut context)?;
-        self.install_doc(&mut context)?;
+        let mut context = self.context()?;
         self.install_event(&mut context, current)?;
         self.install_helpers(&mut context)?;
         let wrapped = format!("(function () {{\n{source}\n}}).call(__fepdf_doc__);");
@@ -168,6 +183,55 @@ impl ScriptHost {
             .map_err(|e| ScriptError::DidNotComplete(e.to_string()))?
             .to_std_string_escaped();
         if text == "undefined" { Ok(None) } else { Ok(Some(text)) }
+    }
+
+    /// A context whose clock, time zone and random sequence come from the environment.
+    ///
+    /// Built rather than `Context::default()`, because two of the three things RR-15's
+    /// determinism rules bind here are decided *before* a global is installed.
+    /// `Date.now()` and `new Date()` read boa's clock, and the default one is
+    /// `SystemTime::now`; every `getHours`, `getDate` and `toString` then shifts by
+    /// boa's default time-zone hook, which asks the machine for its local offset. UTC is
+    /// the offset a PDF's own date strings are read at when they carry no relationship
+    /// to UT (7.9.4.2), so it is the one already assumed elsewhere in this engine.
+    fn context(&self) -> Result<Context, ScriptError> {
+        let mut context = Context::builder()
+            .clock(Rc::new(FixedClock::from_millis(self.environment.now_ms)))
+            .host_hooks(Rc::new(UtcHost))
+            .build()
+            .map_err(|e| ScriptError::HostUnavailable(e.to_string()))?;
+        self.install_app(&mut context)?;
+        self.install_doc(&mut context)?;
+        self.install_random(&mut context)?;
+        Ok(context)
+    }
+
+    /// `Math.random`, replaced by a sequence the environment's seed decides.
+    ///
+    /// The property is overwritten rather than the builtin deleted: a script calling
+    /// `Math.random` must still receive a number — 12.6 says nothing about which one —
+    /// and what RR-15 requires is that it be the same number on the second run.
+    fn install_random(&self, context: &mut Context) -> Result<(), ScriptError> {
+        let native = NativeFunction::from_copy_closure_with_captures(
+            |_t: &JsValue,
+             _a: &[JsValue],
+             state: &RandomState,
+             _ctx: &mut Context|
+             -> JsResult<JsValue> { Ok(JsValue::from(state.draw())) },
+            RandomState(Rc::new(Cell::new(self.environment.seed))),
+        );
+        let function = native.to_js_function(context.realm());
+        let global = context.global_object();
+        let math = global
+            .get(js_string!("Math"), context)
+            .map_err(|e| ScriptError::HostUnavailable(e.to_string()))?;
+        let math = math
+            .as_object()
+            .ok_or_else(|| ScriptError::HostUnavailable("Math is not an object".to_string()))?;
+        // `true`: a failure to install is this engine's fault and is raised, not dropped.
+        math.set(js_string!("random"), function, true, context)
+            .map(|_| ())
+            .map_err(|e| ScriptError::HostUnavailable(e.to_string()))
     }
 
     /// Adobe's `AF*` helpers, loaded into this context.
@@ -281,6 +345,44 @@ impl ScriptHost {
         context
             .register_global_property(js_string!("__fepdf_doc__"), doc, Attribute::all())
             .map_err(|e| ScriptError::HostUnavailable(e.to_string()))
+    }
+}
+
+/// The host hooks, which exist for one method.
+///
+/// boa's default `local_timezone_offset_seconds` asks the machine, so the same document
+/// read in Tokyo and in Berlin gives a calculation a different `getDate()`. Nothing else
+/// on the trait is overridden.
+struct UtcHost;
+
+impl HostHooks for UtcHost {
+    fn local_timezone_offset_seconds(&self, _unix_time_seconds: i64) -> i32 {
+        0
+    }
+}
+
+/// The `Math.random` sequence, captured for the closure.
+///
+/// SplitMix64, which is five lines and no dependency. The requirement is that the
+/// sequence repeat for a given seed, not that it be unguessable: a document script is
+/// not a place where a nonce would be safe to generate whatever the algorithm.
+#[derive(Trace, Finalize, Clone)]
+struct RandomState(#[unsafe_ignore_trace] Rc<Cell<u64>>);
+
+impl RandomState {
+    /// The next value in `[0, 1)`, which is what `Math.random` is specified to return.
+    ///
+    /// Thirty-two bits of it, taken from the high half and divided by 2^32. An f64 holds
+    /// 53 bits exactly and the generator produces 64, so the wider draw would need a cast
+    /// that loses precision; a narrower one that is exact says what it does.
+    fn draw(&self) -> f64 {
+        let mut z = self.0.get().wrapping_add(0x9E37_79B9_7F4A_7C15);
+        self.0.set(z);
+        z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
+        z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
+        z ^= z >> 31;
+        let bits = u32::try_from(z >> 32).unwrap_or(0);
+        f64::from(bits) / 4_294_967_296.0_f64
     }
 }
 

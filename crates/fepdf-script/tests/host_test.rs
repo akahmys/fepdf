@@ -88,13 +88,62 @@ fn the_injected_viewer_version_decides_which_branch_runs() {
     assert!(message.contains("syncAnnotScan"), "says what was missing: {message}");
 }
 
+/// What one script alerted, joined, so a test can compare the whole run.
+fn said(environment: ScriptEnvironment, script: &str) -> String {
+    host(environment).run(script).expect("completes").alerts.join("|")
+}
+
 #[test]
 fn the_same_environment_gives_the_same_answer_twice() {
-    // RR-15's determinism rules bind anything that decides output.
-    let script = "app.alert('v=' + app.viewerVersion);";
-    let once = host(ScriptEnvironment::default()).run(script).expect("completes");
-    let twice = host(ScriptEnvironment::default()).run(script).expect("completes");
-    assert_eq!(once.alerts, twice.alerts);
+    // RR-15's determinism rules bind anything that decides output. **This test read
+    // only `app.viewerVersion` while `now_ms` and `seed` were struct members nothing
+    // consulted, and it passed** — the clock was the machine's and `Math.random` gave a
+    // different number every run. It reads all three now, which is what makes it a test
+    // of the environment rather than of one field of it.
+    let script = "app.alert('v=' + app.viewerVersion);\
+                  app.alert(String(new Date().getTime()));\
+                  app.alert(String(Math.random()));";
+    assert_eq!(
+        said(ScriptEnvironment::default(), script),
+        said(ScriptEnvironment::default(), script)
+    );
+}
+
+#[test]
+fn the_injected_instant_is_the_one_a_script_reads() {
+    // Not "two runs agree" — that was true of the wall clock too, within a millisecond.
+    // The claim is that the script sees the value that was handed in.
+    let environment = ScriptEnvironment::default();
+    let expected = environment.now_ms.to_string();
+    assert_eq!(said(environment.clone(), "app.alert(String(new Date().getTime()));"), expected);
+    assert_eq!(said(environment, "app.alert(String(Date.now()));"), expected);
+
+    let epoch = ScriptEnvironment { now_ms: 0, ..ScriptEnvironment::default() };
+    assert_eq!(said(epoch, "app.alert(new Date().toISOString());"), "1970-01-01T00:00:00.000Z");
+}
+
+#[test]
+fn the_time_zone_is_not_the_machines() {
+    // boa's default hook asks the host for its local offset, so `getHours` on a document
+    // read in Tokyo and in Berlin differs by eight. The injected instant is midnight UTC,
+    // which is only midnight if the offset is injected too.
+    let script = "app.alert(String(new Date().getHours()) + ':' + String(new Date().getDate()));";
+    assert_eq!(said(ScriptEnvironment::default(), script), "0:1");
+}
+
+#[test]
+fn the_seed_decides_the_random_sequence() {
+    let draw = "app.alert(String(Math.random()));";
+    let default = ScriptEnvironment::default();
+    let other = ScriptEnvironment { seed: 42, ..ScriptEnvironment::default() };
+    assert_eq!(said(default.clone(), draw), said(default.clone(), draw), "a seed repeats");
+    assert_ne!(said(default.clone(), draw), said(other, draw), "a different seed does not");
+
+    // Repeating is not enough: a `Math.random` that returned one constant would pass the
+    // line above and be a different defect.
+    let twice = said(default, "app.alert(String(Math.random()) + ',' + String(Math.random()));");
+    let (first, second) = twice.split_once(',').expect("two draws");
+    assert_ne!(first, second, "the sequence advances within a run");
 }
 
 #[test]
