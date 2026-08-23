@@ -80,7 +80,7 @@ row "files still referencing lopdf (expect 0)" "$lopdf"
 # absent from both lists is invisible, which is worse than being in the wrong one.
 # So: the engine is every crate that is not a frontend, and the two lists are complements
 # by construction. Adding a crate to the workspace puts it in one of them.
-FRONTEND_CRATES="fepdf-cli fepdf-gui fepdf-mcp fepdf-wasm"
+FRONTEND_CRATES="fepdf-cli fepdf-gui fepdf-mcp fepdf-script fepdf-wasm"
 # The one list that is written down, so the one that can go stale. A name here that is
 # not a crate silently moves that crate into the *engine* half — the partition still
 # covers everything, and covers it wrongly. Checked rather than trusted.

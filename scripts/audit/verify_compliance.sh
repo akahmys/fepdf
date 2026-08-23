@@ -4,7 +4,14 @@
 set -e
 
 ERROR=0
-TARGET_DIRS="crates/fepdf-syntax crates/fepdf-font crates/fepdf-model crates/fepdf-content crates/fepdf-doc crates/fepdf-render crates/fepdf crates/fepdf-mcp crates/fepdf-wasm crates/fepdf-gui crates/fepdf-cli"
+# Every crate in the workspace, derived rather than listed.
+#
+# It named eleven, and `fepdf-script` was added as a twelfth without being added here —
+# so the audit reported PASSED having never looked at the new crate. That is the same
+# shape `status.sh` carried in three rows: a check that names its places keeps passing
+# while the thing it should be checking grows next to it. Deriving means a crate added
+# tomorrow is audited on the day it appears.
+TARGET_DIRS=$(find crates -maxdepth 2 -type d -name src | sort | tr '\n' ' ')
 
 # Ensure cargo is available
 if ! command -v cargo &> /dev/null; then

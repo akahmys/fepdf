@@ -1,6 +1,6 @@
 # ADR-0025: A script processor is a frontend, not a subsystem
 
-- **Status**: Accepted. The *whether* it left open was answered the same day by [ADR-0026](0026-the-engine-takes-the-ecmascript-subset-because-it-already-owes-it.md) — the subset is taken. Everything below is about shape and stands unchanged.
+- **Status**: Amended by [ADR-0031](0031-a-script-frontend-cannot-be-a-facade-feature.md), which corrects two sentences building it proved wrong: the `&mut Document` borrow, and the facade feature. The rest of the shape stands. The *whether* it left open was answered the same day by [ADR-0026](0026-the-engine-takes-the-ecmascript-subset-because-it-already-owes-it.md) — the subset is taken.
 - **Date**: 2026-08-22
 - **Commit**: a90e90a
 

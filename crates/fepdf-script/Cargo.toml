@@ -1,0 +1,17 @@
+[package]
+name = "fepdf-script"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+fepdf.workspace = true
+boa_engine.workspace = true
+boa_gc.workspace = true
+thiserror.workspace = true
+
+[lints]
+workspace = true

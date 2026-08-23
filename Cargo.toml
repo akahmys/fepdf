@@ -13,6 +13,7 @@ members = [
     "crates/fepdf-gui",
     "crates/fepdf-cli",
     "crates/fepdf-macros",
+    "crates/fepdf-script",
 ]
 
 [workspace.dependencies]
@@ -26,6 +27,11 @@ serde = { version = "1.0", features = ["derive", "rc"] }
 serde_json = "1.0"
 bytes = { version = "1.10", features = ["serde"] }
 chrono = { version = "0.4", features = ["serde"] }
+
+# ECMAScript (ISO/DIS 21757-1) for document scripting, behind the `script` feature.
+# boa and not QuickJS because RR-15 Rule 9 forbids compiling C (ADR-0024).
+boa_engine = "0.21"
+boa_gc = "0.21"
 
 # Meta-programming
 syn = { version = "2.0", features = ["full", "extra-traits"] }
@@ -129,6 +135,7 @@ fepdf-content = { path = "crates/fepdf-content", version = "1.0.0" }
 fepdf-doc = { path = "crates/fepdf-doc", version = "1.0.0" }
 fepdf-render = { path = "crates/fepdf-render", version = "1.0.0" }
 fepdf = { path = "crates/fepdf", version = "1.0.0" }
+fepdf-script = { path = "crates/fepdf-script", version = "1.0.0" }
 fepdf-macros = { path = "crates/fepdf-macros", version = "1.0.0" }
 
 # GUI, Web & CLI Ecosystem
