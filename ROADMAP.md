@@ -2022,13 +2022,48 @@ than `fepdf-gui` is today, which is why Q comes first rather than why R can wait
       reads back exactly as its input does, and an automatic run inside
       `SetFormFieldValue` could break that. The `/CO` `Decision` is what tells a caller
       there is something to run
-- [ ] **Determinism is injected.** `ScriptEnvironment { now, seed, viewer_version }`, because
-      `new Date()`, `Math.random` and `app.viewerVersion` are host properties and `app` is
-      ours to write. RR-15's determinism rules bind anything that decides output
-- [ ] **`/CO` supplies the calculation order** — the engine already reads it, at the one
-      site that records the `Violation`. The recursion guard cannot be "do not calculate a
-      field twice", because 12.6.3 permits A → B → A; it is a bounded iteration count that
-      records a `Decision` when it stops
+- [x] **Determinism is injected.** `ScriptEnvironment { now_ms, seed, viewer_version }`
+      exists and `app` is built from it, never from the machine. Its default instant is a
+      fixed one, so two runs of the same document agree.
+
+      **It is load-bearing rather than tidy**, which the corpus measurement showed: Adobe's
+      stock file-attachment script branches on `app.viewerVersion`, and at 7 it does
+      nothing while at 6 it reaches `syncAnnotScan` and fails. The injected value decides
+      whether a script completes at all. A test holds both halves.
+
+      Still to do: `new Date()` and `Math.random` are boa's own and are **not** yet driven
+      from `now_ms` and `seed` — the fields exist and only `viewer_version` is wired
+- [x] **`/CO` supplies the calculation order** — the engine already reads it, at the one
+      site that records the `Violation`. Running it is `fepdf_script::run_calculations`.
+
+      **The guard is a bounded pass count, as the entry required.** 12.6.3 permits
+      A → B → A, so "do not calculate a field twice" would forbid a legal form. Four
+      passes over the order; reaching the bound with values still changing records a
+      `Decision` — *"the calculation order still changed values after 4 passes … stopped
+      and kept the values from the last pass; a field may be stale"*. `cycle.pdf` is the
+      fixture that reaches it.
+
+      **Two queries were missing and are now on the facade**, which is the shape ADR-0025
+      predicted: a script wanting something the API lacks is a *missing query*, visible to
+      every frontend, rather than a hole inside a script shim. `calculation_order` reads
+      `/CO`; `field_value` reads a field's `/V`. The script frontend cannot reach the
+      arena itself (Rule A), so neither could have been done privately.
+
+      **`this.getField(name).value` is an accessor, not a property.** A data property
+      would accept `getField("x").value = 3` and drop it — the caller told it worked and
+      nothing changed, which is exactly what `fepdf-wasm::render_page` was fixed out of
+      this week. The setter applies `SetFormFieldValue`, so a write from a script goes
+      through the same vocabulary a CLI write does, and a failed write is raised into the
+      script rather than swallowed.
+
+      The reads that feed it were already there: `ActionReport` yields
+      `FieldEvent { field, event: "C" }` with the script source, so nothing new reads
+      `/AA`.
+
+      ```bash
+      cargo test -p fepdf-script --test calculate_test
+      ```
+
 - [ ] **Adobe's helpers may be `.js`, on two conditions.** `AFSimple_Calculate` and
       `AFNumber_Format` are easier to maintain in the language they were written for, and
       PDF.js demonstrates it. But **`verify_compliance.sh`'s fifteen checks are all Rust**

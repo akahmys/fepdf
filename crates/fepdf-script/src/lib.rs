@@ -33,3 +33,7 @@
 mod host;
 
 pub use host::{DocumentHandle, ScriptEnvironment, ScriptError, ScriptHost, ScriptOutcome};
+
+mod calculate;
+
+pub use calculate::{CalculationReport, run_calculations};

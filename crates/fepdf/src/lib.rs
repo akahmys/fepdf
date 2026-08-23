@@ -48,6 +48,7 @@ pub use fepdf_model::interactive::{
     AnnotationCensus, AnnotationEntry, DestinationCensus, FormField, FormFields, InteractiveReport,
     Outline as OutlineSummary, SubtypeCensus,
 };
+pub use fepdf_model::interactive::{calculation_order, field_value};
 pub use fepdf_model::interpretation::{Decision, DecisionLog, Severity, Strictness};
 pub use fepdf_model::optional_content::{LayerId, LayerPanel, LayerRow};
 pub use fepdf_model::security::{Access, AesV5Spec, SecurityHandler};

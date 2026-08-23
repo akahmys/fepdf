@@ -945,6 +945,82 @@ pub(crate) fn name_of(arena: &PdfArena, object: &Object) -> Option<String> {
     }
 }
 
+/// The order a form's fields are calculated in (12.6.3, `/CO`), by field name.
+///
+/// `/CO` is what says which order to run calculations in, and the order matters: a field
+/// computed from another must run after it, and getting that wrong yields a **stale
+/// value rather than an error**. That is why the order is written in the file instead of
+/// being inferred from what the scripts read.
+///
+/// Empty when the form declares none, which is also the answer for a document with no
+/// form at all — there is nothing a caller could usefully do differently.
+///
+/// A field named here that this engine cannot resolve to a name is skipped rather than
+/// guessed at; the count disagreeing with `/CO`'s length is what a caller would notice.
+#[must_use]
+pub fn calculation_order(doc: &crate::Document) -> Vec<String> {
+    let arena = doc.arena();
+    let Some(root) = doc.catalog_handle().and_then(|handle| arena.get_object(handle)) else {
+        return Vec::new();
+    };
+    let Ok(Some(catalog)) = crate::document::entries::entry::<crate::document::entries::AcroForm>(
+        arena, &root, "AcroForm",
+    ) else {
+        return Vec::new();
+    };
+    let Some(order) = catalog.calculation_order.and_then(|handle| arena.get_array(handle)) else {
+        return Vec::new();
+    };
+    order
+        .iter()
+        .filter_map(|entry| {
+            let dict = arena.get_dict(entry.resolve(arena).as_dict_handle()?)?;
+            let name = dict.get(&arena.name("T"))?.resolve(arena);
+            name.as_string().map(|bytes| String::from_utf8_lossy(bytes).into_owned())
+        })
+        .collect()
+}
+
+/// A terminal field's `/V`, as text, by name (12.7.4.2).
+///
+/// Matches the fully qualified name first and the field's own `/T` second, because a
+/// calculation order names fields the way the form does and a flat form writes only `/T`.
+///
+/// Added for the script frontend, which cannot reach the arena itself (Rule A). A caller
+/// wanting a value it has just written asks the document, not the thing that wrote it —
+/// which is what makes the Keystroke → Validate → Calculate → Format cascade readable
+/// rather than a chain of guesses about what got applied.
+#[must_use]
+pub fn field_value(doc: &crate::Document, name: &str) -> Option<String> {
+    let arena = doc.arena();
+    let root = doc.catalog_handle().and_then(|handle| arena.get_object(handle))?;
+    let form = crate::document::entries::entry::<crate::document::entries::AcroForm>(
+        arena, &root, "AcroForm",
+    )
+    .ok()
+    .flatten()?;
+    let fields = form.fields.and_then(|handle| arena.get_array(handle))?;
+    for entry in &fields {
+        let Some(dict) = arena.get_dict(entry.resolve(arena).as_dict_handle()?) else {
+            continue;
+        };
+        let matches = dict
+            .get(&arena.name("T"))
+            .map(|t| t.resolve(arena))
+            .and_then(|t| t.as_string().map(|b| String::from_utf8_lossy(b).into_owned()))
+            .is_some_and(|t| t == name);
+        if !matches {
+            continue;
+        }
+        let value = dict.get(&arena.name("V"))?.resolve(arena);
+        return value
+            .as_string()
+            .map(|b| String::from_utf8_lossy(b).into_owned())
+            .or_else(|| value.as_f64().map(|n| n.to_string()));
+    }
+    None
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

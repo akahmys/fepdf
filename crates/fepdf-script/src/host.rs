@@ -133,6 +133,57 @@ impl ScriptHost {
         Ok(self.outcome.borrow().clone())
     }
 
+    /// Runs a field's `/AA /C` script and reports the value it produced.
+    ///
+    /// A calculation does not *return* a value: it writes `event.value`, which the host
+    /// supplies (12.6.3). `current` seeds it, so a script that leaves it alone produces
+    /// what was already there rather than `undefined`.
+    ///
+    /// `Ok(None)` means the script ran and set nothing, which is a legitimate outcome —
+    /// a calculation guarded by a condition that was false.
+    ///
+    /// # Errors
+    /// [`ScriptError::DidNotComplete`] when the script throws or reaches something this
+    /// engine does not provide.
+    pub fn run_calculation(
+        &self,
+        source: &str,
+        current: Option<&str>,
+    ) -> Result<Option<String>, ScriptError> {
+        let mut context = Context::default();
+        self.install_app(&mut context)?;
+        self.install_doc(&mut context)?;
+        self.install_event(&mut context, current)?;
+        let wrapped = format!("(function () {{\n{source}\n}}).call(__fepdf_doc__);");
+        context
+            .eval(Source::from_bytes(wrapped.as_bytes()))
+            .map_err(|e| ScriptError::DidNotComplete(e.to_string()))?;
+        let produced = context
+            .eval(Source::from_bytes(b"String(event.value)"))
+            .map_err(|e| ScriptError::DidNotComplete(e.to_string()))?;
+        let text = produced
+            .to_string(&mut context)
+            .map_err(|e| ScriptError::DidNotComplete(e.to_string()))?
+            .to_std_string_escaped();
+        if text == "undefined" { Ok(None) } else { Ok(Some(text)) }
+    }
+
+    /// `event`: what a field action reads and writes (12.6.3, Table 199).
+    fn install_event(
+        &self,
+        context: &mut Context,
+        current: Option<&str>,
+    ) -> Result<(), ScriptError> {
+        let seed = current.unwrap_or("");
+        let event = boa_engine::object::ObjectInitializer::new(context)
+            .property(js_string!("value"), js_string!(seed), Attribute::all())
+            .property(js_string!("willCommit"), true, Attribute::all())
+            .build();
+        context
+            .register_global_property(js_string!("event"), event, Attribute::all())
+            .map_err(|e| ScriptError::HostUnavailable(e.to_string()))
+    }
+
     /// `app`: the viewer. Its properties are injected, never read from the machine.
     fn install_app(&self, context: &mut Context) -> Result<(), ScriptError> {
         let alerts = Rc::clone(&self.outcome);
@@ -162,6 +213,42 @@ impl ScriptHost {
             .map_err(|e| ScriptError::HostUnavailable(e.to_string()))
     }
 
+    /// `this.getField(name)`: the field object a calculation reads and writes.
+    ///
+    /// `value` is an **accessor**, not a data property. A plain property would accept
+    /// `getField("x").value = 3` and drop it — the caller told it worked and nothing
+    /// changed, which is the shape `fepdf-wasm::render_page` was just fixed out of. The
+    /// setter applies `SetFormFieldValue`, so a write from a script goes through the same
+    /// vocabulary a CLI write does and there is no third path (ADR-0025).
+    fn field_accessor(&self) -> NativeFunction {
+        NativeFunction::from_copy_closure_with_captures(
+            |_t: &JsValue,
+             args: &[JsValue],
+             h: &DocumentHandle,
+             ctx: &mut Context|
+             -> JsResult<JsValue> {
+                let name = args.first().cloned().unwrap_or_default().to_string(ctx)?;
+                let name = name.to_std_string_escaped();
+                let current = h.with(|doc| fepdf::field_value(doc.inner(), &name));
+                let Some(current) = current else {
+                    // A field the form does not have. `null` is what Acrobat answers, and
+                    // a script testing for it is the ordinary way to be defensive.
+                    return Ok(JsValue::null());
+                };
+                // The caller's realm, not a fresh one: a function built in another
+                // realm is a different object graph and belongs to nobody.
+                let realm = ctx.realm().clone();
+                let getter = read_field(current, &realm);
+                let setter = write_field(h.clone(), name, &realm);
+                let object = boa_engine::object::ObjectInitializer::new(ctx)
+                    .accessor(js_string!("value"), Some(getter), Some(setter), Attribute::all())
+                    .build();
+                Ok(object.into())
+            },
+            self.handle.clone(),
+        )
+    }
+
     /// The document object a script sees as `this` (12.6.4.16).
     ///
     /// Registered under an internal name and bound as `this` by [`ScriptHost::run`],
@@ -169,7 +256,9 @@ impl ScriptHost {
     fn install_doc(&self, context: &mut Context) -> Result<(), ScriptError> {
         let pages = self.handle.with(|doc| doc.page_count().unwrap_or(0));
         let numeric = u32::try_from(pages).map_or(0.0, f64::from);
+        let get_field = self.field_accessor();
         let doc = boa_engine::object::ObjectInitializer::new(context)
+            .function(get_field, js_string!("getField"), 1)
             .property(js_string!("numPages"), numeric, Attribute::all())
             .property(js_string!("external"), false, Attribute::all())
             .property(js_string!("dataObjects"), JsValue::null(), Attribute::all())
@@ -184,3 +273,69 @@ impl ScriptHost {
 /// `Trace`, and a bare `Rc<RefCell<…>>` does not.
 #[derive(Trace, Finalize, Clone)]
 struct AlertSink(#[unsafe_ignore_trace] Rc<RefCell<ScriptOutcome>>);
+
+/// The getter half of a field's `value`: what the document says now.
+fn read_field(
+    current: String,
+    realm: &boa_engine::realm::Realm,
+) -> boa_engine::object::builtins::JsFunction {
+    let value = FieldValue(current);
+    let native = NativeFunction::from_copy_closure_with_captures(
+        |_t: &JsValue, _a: &[JsValue], v: &FieldValue, _ctx: &mut Context| -> JsResult<JsValue> {
+            Ok(js_string!(v.0.as_str()).into())
+        },
+        value,
+    );
+    native.to_js_function(realm)
+}
+
+/// The setter half: a write from a script is an `Operation`, like every other write.
+fn write_field(
+    handle: DocumentHandle,
+    name: String,
+    realm: &boa_engine::realm::Realm,
+) -> boa_engine::object::builtins::JsFunction {
+    let target = FieldTarget { handle, name };
+    let native = NativeFunction::from_copy_closure_with_captures(
+        |_t: &JsValue,
+         args: &[JsValue],
+         target: &FieldTarget,
+         ctx: &mut Context|
+         -> JsResult<JsValue> {
+            let text = args.first().cloned().unwrap_or_default().to_string(ctx)?;
+            let text = text.to_std_string_escaped();
+            // The failure is raised into the script rather than dropped. A setter that
+            // swallows it tells the caller the write happened and leaves the old value —
+            // the same shape `fepdf-wasm::render_page` was fixed out of this week.
+            target
+                .handle
+                .with_mut(|doc| {
+                    doc.apply(fepdf::Operation::SetFormFieldValue(fepdf::FormFieldSpec {
+                        name: target.name.clone(),
+                        value: fepdf::FormValue::Text(text),
+                    }))
+                })
+                .map_err(|e| {
+                    boa_engine::JsError::from_opaque(
+                        js_string!(format!("setting {} failed: {e:?}", target.name).as_str())
+                            .into(),
+                    )
+                })?;
+            Ok(JsValue::undefined())
+        },
+        target,
+    );
+    native.to_js_function(realm)
+}
+
+/// A field's text, captured for the getter.
+#[derive(Trace, Finalize, Clone)]
+struct FieldValue(#[unsafe_ignore_trace] String);
+
+/// Which field a setter writes to.
+#[derive(Trace, Finalize, Clone)]
+struct FieldTarget {
+    handle: DocumentHandle,
+    #[unsafe_ignore_trace]
+    name: String,
+}
