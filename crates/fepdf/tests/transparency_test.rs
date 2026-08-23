@@ -12,8 +12,8 @@
 
 use fepdf::PdfDocument;
 use fepdf_content::{
-    BlendMode, Color, FallbackFontType, PixelFormat, RenderBackend, SMaskData, StrokeStyle,
-    TextGlyph, TextState, WindingRule,
+    BlendMode, Color, FallbackFontType, PixelFormat, RenderBackend, SMaskData, SoftMaskKind,
+    SoftMaskSpec, StrokeStyle, TextGlyph, TextState, WindingRule,
 };
 use fepdf_model::graphics::TextRenderingMode;
 use fepdf_model::interpretation::Severity;
@@ -27,12 +27,27 @@ struct Recorder {
     fill_alpha: Vec<f64>,
     stroke_alpha: Vec<f64>,
     blend: Vec<BlendMode>,
+    /// The soft-mask bracket and the fills inside it, in the order they arrived.
+    events: Vec<String>,
+    /// Every mask the interpreter described, as the backend was told it.
+    masks: Vec<SoftMaskSpec>,
 }
 
 impl RenderBackend for Recorder {
     fn fill_path(&mut self, path: &BezPath, _color: &Color, _rule: WindingRule) {
         let bounds = path.bounding_box();
         self.fills.push((bounds.x0, bounds.y0));
+        self.events.push(format!("fill({}, {})", bounds.x0, bounds.y0));
+    }
+    fn begin_masked_content(&mut self) {
+        self.events.push("begin_masked_content".to_string());
+    }
+    fn begin_soft_mask(&mut self, spec: &SoftMaskSpec) {
+        self.events.push("begin_soft_mask".to_string());
+        self.masks.push(spec.clone());
+    }
+    fn end_soft_mask(&mut self) {
+        self.events.push("end_soft_mask".to_string());
     }
     fn set_fill_alpha(&mut self, alpha: f64) {
         self.fill_alpha.push(alpha);
@@ -132,6 +147,31 @@ fn document(group_entry: &str) -> PdfDocument {
     PdfDocument::open(assemble(&bodies).into()).expect("the fixture opens")
 }
 
+/// The same page with a different `/ExtGState` at `/GS0`, for the mask entries a plain
+/// fixture cannot carry.
+fn document_with_mask(gs: &str) -> PdfDocument {
+    let base = document("");
+    let _ = base;
+    let mask_content = "0 0 0 rg 0 0 200 200 re f\n";
+    let content = "q /GS0 gs 0 0 0 rg 0 100 100 100 re f Q\n";
+    let bodies = vec![
+        "<< /Type /Catalog /Pages 2 0 R >>".to_string(),
+        "<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_string(),
+        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Contents 4 0 R \
+         /Resources << /ExtGState << /GS0 5 0 R >> >> >>"
+            .to_string(),
+        format!("<< /Length {} >>\nstream\n{content}endstream", content.len()),
+        gs.to_string(),
+        format!(
+            "<< /Type /XObject /Subtype /Form /BBox [0 0 200 200] \
+             /Group << /S /Transparency /CS /DeviceGray >> /Length {} >>\n\
+             stream\n{mask_content}endstream",
+            mask_content.len()
+        ),
+    ];
+    PdfDocument::open(assemble(&bodies).into()).expect("the fixture opens")
+}
+
 fn draw(document: &PdfDocument) -> Recorder {
     let mut recorder = Recorder::default();
     document.render_page(0, &mut recorder, Affine::IDENTITY).expect("the page interprets");
@@ -159,22 +199,70 @@ fn constant_alpha_and_blend_mode_reach_the_backend() {
 }
 
 #[test]
-fn a_soft_mask_does_not_mask_and_says_so() {
-    // A mask that is 0 everywhere must leave the top-left square undrawn. It is drawn.
-    // The assertion is on the *silence*, not on the masking: this pins the defect and the
-    // record of it, so that implementing 11.6.5.2 has to change this test on purpose.
-    let doc = document("");
-    let recorder = draw(&doc);
-    assert!(
-        recorder.fills.contains(&(0.0, 100.0)),
-        "measured: the masked square is painted at full strength — {:?}",
-        recorder.fills
+fn a_soft_mask_reaches_the_backend_as_a_bracket() {
+    // The interpreter's whole contract for 11.6.5.2: open, draw the content, describe the
+    // mask, replay the group that defines it, close. **The content comes before the
+    // mask** because a mask modifies marks that have already been made — there is no way
+    // to apply one to marks not yet drawn without holding them somewhere first.
+    //
+    // This used to be nothing at all: `/SMask` was read into `state.smask` and no backend
+    // call followed, so a mask that should have hidden the square left it at full
+    // strength and the log said nothing.
+    let recorder = draw(&document(""));
+    let bracket: Vec<&str> = recorder
+        .events
+        .iter()
+        .map(String::as_str)
+        .skip_while(|e| *e != "begin_masked_content")
+        .take_while(|e| *e != "end_soft_mask")
+        .collect();
+    assert_eq!(
+        bracket,
+        vec!["begin_masked_content", "fill(0, 100)", "begin_soft_mask", "fill(0, 0)"],
+        "content, then the mask that covers it: {:?}",
+        recorder.events
     );
+    assert!(recorder.events.contains(&"end_soft_mask".to_string()), "{:?}", recorder.events);
+}
 
-    let recorded = decisions_on(&doc, "11.6.5.2");
-    assert_eq!(recorded.len(), 1, "exactly one decision, not one per fill: {recorded:?}");
-    assert!(recorded[0].contains("Violation"), "{recorded:?}");
-    assert!(recorded[0].contains("unmasked"), "it says what the caller gets: {recorded:?}");
+#[test]
+fn the_spec_says_how_the_group_becomes_an_alpha() {
+    // One concept and not four: `/S`, `/BC` and `/TR` are three ways of saying how the
+    // group's drawing turns into a number, so they travel together and the backend
+    // decides which of them it can honour.
+    let plain = draw(&document(""));
+    let spec = plain.masks.first().expect("the mask was described");
+    assert_eq!(spec.kind, SoftMaskKind::Luminosity, "the default when /S is absent");
+    assert!(spec.backdrop.is_none(), "no /BC");
+    assert!(spec.transfer.is_none(), "no /TR");
+    assert!(spec.is_plain_luminosity(), "the case a luminance-mask renderer can take");
+}
+
+#[test]
+fn an_alpha_mask_with_a_backdrop_arrives_whole() {
+    // The three entries a renderer built on luminance masks cannot express still reach
+    // it, because whether they can be honoured is a question about the backend and not
+    // about the document.
+    let doc = document_with_mask(
+        "<< /Type /ExtGState /SMask << /S /Alpha /G 6 0 R /BC [0.25]          /TR << /FunctionType 2 /Domain [0 1] /C0 [0] /C1 [1] /N 1 >> >> >>",
+    );
+    let spec = draw(&doc).masks.first().cloned().expect("described");
+    assert_eq!(spec.kind, SoftMaskKind::Alpha);
+    assert_eq!(spec.backdrop, Some(Color::Gray(0.25)));
+    assert!(spec.transfer.is_some(), "/TR parsed through the 7.10 evaluator");
+    assert!(!spec.is_plain_luminosity(), "and it says it is not the easy case");
+}
+
+#[test]
+fn an_identity_transfer_is_the_absence_of_one() {
+    // `/TR /Identity` changes nothing, and saying so in the type spares every backend
+    // from evaluating a function to discover it.
+    let doc = document_with_mask(
+        "<< /Type /ExtGState /SMask << /S /Luminosity /G 6 0 R /TR /Identity >> >>",
+    );
+    let spec = draw(&doc).masks.first().cloned().expect("described");
+    assert!(spec.transfer.is_none());
+    assert!(spec.is_plain_luminosity());
 }
 
 #[test]
@@ -197,7 +285,9 @@ fn a_group_that_asks_for_neither_is_not_recorded() {
     // saying it everywhere; what changes the result is /I and /K.
     let plain = document("/Group << /S /Transparency /CS /DeviceRGB >>");
     assert!(decisions_on(&plain, "11.6.6").is_empty(), "a plain group is not a departure");
-    assert_eq!(draw(&plain).fills.len(), 5, "and it still draws: four squares and the form's own");
+    // Six and not five: four squares, the form's own, and the mask group's, which is what
+    // a soft mask being replayed at all looks like from here.
+    assert_eq!(draw(&plain).fills.len(), 6, "and it still draws");
 }
 
 #[test]

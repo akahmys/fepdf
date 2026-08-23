@@ -53,6 +53,12 @@ pub struct VelloBackend {
     /// `render_page` (ARCHITECTURE §5.3). A backend sits below any `Document`, so it
     /// accumulates rather than records.
     decisions: Vec<fepdf_model::interpretation::Decision>,
+    /// Open soft-mask brackets (11.6.5.2), and whether each one's mask is being honoured.
+    ///
+    /// A bracket is two Vello layers — one holding the content, one holding the mask —
+    /// and `end_soft_mask` pops both whether or not the mask could be applied, so this
+    /// exists to keep that count right rather than to remember anything about the mask.
+    mask_stack: Vec<bool>,
 }
 
 #[derive(Clone)]
@@ -167,6 +173,7 @@ impl VelloBackend {
             skrifa_bridge: crate::text::SkrifaBridge::new(),
             next_font_id: 1,
             decisions: Vec::new(),
+            mask_stack: Vec::new(),
         }
     }
 
@@ -488,6 +495,53 @@ fn has_move_to(path: &BezPath) -> bool {
 
 impl RenderBackend for VelloBackend {
     /// Both halves: what this backend concluded, and what the glyph bridge under it did.
+    fn begin_masked_content(&mut self) {
+        // The content goes into a layer of its own so that the mask, which arrives after
+        // it, has something bounded to apply to. `Mix::Normal` and alpha 1 leave the
+        // compositing alone: this layer exists for the mask and changes nothing by itself.
+        self.scene.push_layer(
+            vello::peniko::Fill::NonZero,
+            vello::peniko::Mix::Normal,
+            1.0f32,
+            Affine::IDENTITY,
+            &UNBOUNDED,
+        );
+    }
+
+    fn begin_soft_mask(&mut self, spec: &fepdf_content::SoftMaskSpec) {
+        // Vello takes a luminance mask and nothing else, so the plain case is exact and
+        // the rest are not expressible here at all. **The group is still swallowed in
+        // both branches**: a mask group draws the mask, never the page, and letting its
+        // marks through because the mask could not be applied would put a black rectangle
+        // where a document asked for a gradient.
+        if spec.is_plain_luminosity() {
+            self.scene.push_luminance_mask_layer(
+                vello::peniko::Fill::NonZero,
+                1.0f32,
+                Affine::IDENTITY,
+                &UNBOUNDED,
+            );
+            self.mask_stack.push(true);
+            return;
+        }
+        self.decisions.push(fepdf_model::interpretation::Decision::violation(
+            "11.6.5.2",
+            format!("a soft mask this renderer cannot express: {}", describe(spec)),
+            "drew the content unmasked and discarded the group; Vello composites a              luminance mask and has no form for the other three, which need the mask              computed into a buffer first",
+        ));
+        self.scene.push_clip_layer(vello::peniko::Fill::NonZero, Affine::IDENTITY, &EMPTY);
+        self.mask_stack.push(false);
+    }
+
+    fn end_soft_mask(&mut self) {
+        // Two layers either way: the one holding the mask, then the one holding the
+        // content it applies to.
+        if self.mask_stack.pop().is_some() {
+            self.scene.pop_layer();
+        }
+        self.scene.pop_layer();
+    }
+
     fn take_decisions(&mut self) -> Vec<fepdf_model::interpretation::Decision> {
         let mut taken = std::mem::take(&mut self.decisions);
         taken.extend(self.skrifa_bridge.take_decisions());
@@ -960,6 +1014,29 @@ fn to_vello_paint_brush(paint: &Paint, alpha: f32) -> vello::peniko::Brush {
             vello::peniko::Color::from_rgba8(0, 0, 0, (alpha.clamp(0.0, 1.0) * 255.0) as u8),
         ),
     }
+}
+
+/// A rectangle large enough to bound any page, for a layer that is not meant to clip.
+const UNBOUNDED: kurbo::Rect = kurbo::Rect::new(-1.0e7, -1.0e7, 1.0e7, 1.0e7);
+
+/// A rectangle enclosing nothing, for a layer whose drawing must not reach the page.
+const EMPTY: kurbo::Rect = kurbo::Rect::new(0.0, 0.0, 0.0, 0.0);
+
+/// Which part of a soft mask this renderer could not express, for the decision that says
+/// so. Named entries only: a caller acting on this wants to know whether it was the
+/// channel, the backdrop or the transfer function.
+fn describe(spec: &fepdf_content::SoftMaskSpec) -> String {
+    let mut parts = Vec::new();
+    if spec.kind == fepdf_content::SoftMaskKind::Alpha {
+        parts.push("/S /Alpha".to_string());
+    }
+    if spec.backdrop.is_some() {
+        parts.push("/BC".to_string());
+    }
+    if spec.transfer.is_some() {
+        parts.push("/TR".to_string());
+    }
+    parts.join(" and ")
 }
 
 #[cfg(test)]

@@ -88,6 +88,31 @@ pub struct Interpreter<'a> {
     /// runs over form XObjects and Type 3 glyph streams, where there is no page to be a
     /// fraction of.
     pub(crate) page_area: Option<f64>,
+    /// The soft-mask brackets open at this point in the stream (11.6.5.2).
+    ///
+    /// A soft mask is set by `gs` and lasts until the graphics state that set it is
+    /// restored, so it is a *scope* and not an operator pair the way `BDC`/`EMC` is.
+    /// Each entry remembers the `q` depth it was opened at, which is what `Q` compares
+    /// against to know that the scope has ended.
+    pub(crate) mask_scopes: Vec<MaskScope>,
+}
+
+/// One open soft-mask bracket.
+///
+/// The group is kept as the object rather than as bytes: closing the scope replays it
+/// through this same interpreter, which is the only thing that knows how to run a content
+/// stream, and 11.6.5.2 puts the mask in the coordinate system that was current when
+/// `gs` set it — so the matrix is saved here rather than taken from wherever `Q` leaves
+/// it.
+pub(crate) struct MaskScope {
+    /// The `q` depth this was opened at. `Q` closes the scope when the depth drops below.
+    pub(crate) depth: usize,
+    /// How the group's drawing becomes an alpha.
+    pub(crate) spec: fepdf_model::graphics::SoftMaskSpec,
+    /// The `/G` form XObject that defines the mask.
+    pub(crate) group: Object,
+    /// The CTM at the moment `gs` set the mask.
+    pub(crate) ctm: fepdf_model::graphics::Matrix,
 }
 
 impl<'a> Interpreter<'a> {
@@ -124,6 +149,7 @@ impl<'a> Interpreter<'a> {
             in_type3_glyph: false,
             optional_content: None,
             marked_sections: Vec::new(),
+            mask_scopes: Vec::new(),
             initial_transform,
             page_area: None,
         }

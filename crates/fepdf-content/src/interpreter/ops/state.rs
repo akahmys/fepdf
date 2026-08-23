@@ -1,6 +1,5 @@
 use crate::RenderBackend;
 use crate::interpreter::Interpreter;
-use fepdf_model::interpretation::Decision;
 use fepdf_model::{FromPdfObject, Handle, LineCap, LineJoin, Matrix, Object, PdfName, PdfResult};
 use std::collections::BTreeMap;
 
@@ -31,6 +30,10 @@ impl Interpreter<'_> {
                     self.state = old;
                     self.backend.pop_state();
                     self.update_backend_transform();
+                    // A soft mask lasts until the state that set it is restored
+                    // (11.6.5.2), so this is where its bracket closes and the group
+                    // that defines it is replayed.
+                    self.close_mask_scopes_above(self.state_stack.len())?;
                 }
             }
             "cm" => {
@@ -149,31 +152,7 @@ impl Interpreter<'_> {
                 self.backend.set_blend_mode(bm);
             }
             if let Some(smask_obj) = gs_dict.get(&smask_key) {
-                let resolved = smask_obj.resolve(self.doc.arena());
-                match resolved {
-                    Object::Name(n) => {
-                        if self.doc.arena().get_name(n).is_some_and(|nn| nn.as_str() == "None") {
-                            self.state.smask = None;
-                        }
-                    }
-                    Object::Dictionary(_) => {
-                        self.state.smask = Some(resolved);
-                        // Read into the state and used by nothing: `grep` finds this
-                        // write and no reader, and `RenderBackend` has no soft-mask
-                        // entry point. Measured with a `/S /Luminosity` mask whose group
-                        // paints solid black — 11.6.5.2 makes that mask 0 everywhere, so
-                        // the content it covers contributes nothing — and the covered
-                        // rectangle was filled at full strength with no decision beside
-                        // it. The same shape as a `render_page` that returns `Ok(())`
-                        // having drawn nothing, in the other direction.
-                        self.doc.record(Decision::violation(
-                            "11.6.5.2",
-                            "an /SMask soft mask in an /ExtGState".to_string(),
-                            "drew the content unmasked; this engine has no soft-mask                              path, so everything the mask would have hidden is visible",
-                        ));
-                    }
-                    _ => {}
-                }
+                self.handle_soft_mask_entry(&smask_obj.clone())?;
             }
         }
         Ok(())

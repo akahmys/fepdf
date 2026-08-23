@@ -18,6 +18,7 @@ pub use interpreter::{Interpreter, Type3Advance};
 
 use fepdf_model::graphics::TextRenderingMode;
 pub use fepdf_model::graphics::WindingRule;
+pub use fepdf_model::graphics::{SoftMaskKind, SoftMaskSpec};
 pub use fepdf_model::{
     AxialShading, BlendMode, Color, ColorStop, Paint, PatternSpec, PixelFormat, RadialShading,
     ShadingSpec, StrokeStyle,
@@ -131,6 +132,34 @@ pub trait RenderBackend {
     }
     /// Paints a shading directly across the current clip region (`sh` operator, ISO 32000-2 8.7.4.5.2).
     fn paint_shading(&mut self, _shading: &ShadingSpec) {}
+
+    /// Opens content that a soft mask will cover (11.6.5.2).
+    ///
+    /// The three soft-mask methods are one bracket: this, then the content, then
+    /// [`RenderBackend::begin_soft_mask`], then the mask group's own drawing, then
+    /// [`RenderBackend::end_soft_mask`]. **The content comes before the mask** because
+    /// that is the order a mask can be applied in without holding the content somewhere
+    /// first — the mask is a property of what has already been drawn into this bracket.
+    ///
+    /// Defaulted to nothing, and that is a real answer rather than a placeholder: a
+    /// backend that records calls or extracts text has no compositing step for a mask to
+    /// modify, and the content inside the bracket is exactly what it should see.
+    fn begin_masked_content(&mut self) {}
+
+    /// Opens the mask's own drawing. What follows until
+    /// [`RenderBackend::end_soft_mask`] defines the mask rather than appearing on the
+    /// page.
+    ///
+    /// `spec` says how the drawing becomes an alpha — which channel, over which
+    /// backdrop, through which transfer function. A backend that cannot honour all of it
+    /// should record a [`Decision`] saying which part it dropped rather than applying a
+    /// mask that is not the one asked for.
+    ///
+    /// [`Decision`]: fepdf_model::interpretation::Decision
+    fn begin_soft_mask(&mut self, _spec: &SoftMaskSpec) {}
+
+    /// Closes the bracket, applying the mask to the content inside it.
+    fn end_soft_mask(&mut self) {}
     /// Sets the current blend mode.
     fn set_blend_mode(&mut self, mode: BlendMode);
     /// Draws a decoded image, optionally masked.

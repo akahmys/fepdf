@@ -182,6 +182,53 @@ impl Color {
     }
 }
 
+/// How a soft mask derives its alpha from the group that defines it (11.6.5.2, Table 145).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum SoftMaskKind {
+    /// `/Luminosity`: the group is composited onto `/BC` and its luminance is the mask.
+    Luminosity,
+    /// `/Alpha`: the group's own alpha is the mask, and `/BC` has no meaning.
+    Alpha,
+}
+
+/// A soft mask, as 11.6.5.2 defines one.
+///
+/// **One concept and not four.** A soft mask is a function from a position on the page to
+/// an alpha in `[0, 1]`; `/S`, `/BC` and `/TR` are three ways of saying how that value is
+/// arrived at, not three different features. Naming it this way is what keeps the
+/// interpreter from branching: it brackets the masked content, replays the group, and
+/// hands the backend this — which of the four shapes it is becomes the backend's question
+/// about how to honour it, not the interpreter's about whether to try.
+///
+/// The group itself is not here. It is a content stream, and the interpreter replays it
+/// between [`RenderBackend::begin_soft_mask`] and [`RenderBackend::end_soft_mask`] rather
+/// than handing over bytes a backend would have to know how to run.
+///
+/// [`RenderBackend::begin_soft_mask`]: https://docs.rs/fepdf-content
+/// [`RenderBackend::end_soft_mask`]: https://docs.rs/fepdf-content
+#[derive(Debug, Clone)]
+pub struct SoftMaskSpec {
+    /// Which of the group's channels becomes the mask.
+    pub kind: SoftMaskKind,
+    /// `/BC`: the backdrop the group is composited onto before its luminance is taken.
+    /// Absent means black, which 11.6.5.2 gives as the default for every colour space.
+    pub backdrop: Option<Color>,
+    /// `/TR`: a function remapping the mask value. Absent means `/Identity`.
+    pub transfer: Option<std::sync::Arc<crate::function::PdfFunction>>,
+}
+
+impl SoftMaskSpec {
+    /// Whether this mask is the plain one: luminance, black backdrop, no remapping.
+    ///
+    /// The distinction is not cosmetic. A plain mask is the group's own luminance, so a
+    /// renderer that can treat drawing as a luminance mask needs no buffer and no second
+    /// pass; anything else has to be computed into one before it can be applied.
+    #[must_use]
+    pub fn is_plain_luminosity(&self) -> bool {
+        self.kind == SoftMaskKind::Luminosity && self.backdrop.is_none() && self.transfer.is_none()
+    }
+}
+
 /// Standard PDF Blend Modes (ISO 32000-2 Table 141)
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum BlendMode {

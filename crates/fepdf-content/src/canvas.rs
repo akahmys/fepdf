@@ -82,6 +82,31 @@ impl RenderBackend for Canvas<'_> {
         }
     }
 
+    // --- the soft-mask bracket ------------------------------------------------------
+    //
+    // **Forwarded unconditionally, and not behind `paints()`.** The three are a bracket:
+    // withholding the opening call while the closing one goes through would leave the
+    // backend's layer stack unbalanced, and a mask is not a mark on the page — an
+    // optional-content section that is off withholds what the mask covers, which is
+    // already handled by the calls that draw.
+    //
+    // These forward at all because the trait defaults them to nothing. A wrapper that
+    // inherits a default silently drops what it was meant to pass on, which is what
+    // happened here: the interpreter emitted the bracket, `Canvas` swallowed it, and the
+    // test that asked for the sequence saw an empty list.
+
+    fn begin_masked_content(&mut self) {
+        self.inner.begin_masked_content();
+    }
+
+    fn begin_soft_mask(&mut self, spec: &fepdf_model::graphics::SoftMaskSpec) {
+        self.inner.begin_soft_mask(spec);
+    }
+
+    fn end_soft_mask(&mut self) {
+        self.inner.end_soft_mask();
+    }
+
     fn draw_image(
         &mut self,
         image: &[u8],
