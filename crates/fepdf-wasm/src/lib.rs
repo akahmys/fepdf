@@ -29,12 +29,35 @@ impl PdfDocument {
         self.inner.page_count().map_err(|e| JsValue::from_str(&e.to_string()))
     }
 
-    /// Renders a specific page to a Canvas 2D context.
+    /// Renders a specific page to a canvas — or rather, says that it does not.
     ///
-    /// Note: This is a placeholder for the WebGPU/WebGL rendering pipeline.
-    pub fn render_page(&self, _index: usize, _canvas_id: &str) -> Result<(), JsValue> {
-        // Implementation will involve setting up a WebGPU surface via web-sys
-        // and calling the vello renderer.
-        Ok(())
+    /// # Errors
+    /// Always. See [`render_page_refusal`].
+    pub fn render_page(&self, index: usize, canvas_id: &str) -> Result<(), JsValue> {
+        Err(JsValue::from_str(&render_page_refusal(index, canvas_id)))
     }
+}
+
+/// Why `render_page` refuses, in terms a caller can act on.
+///
+/// **It used to return `Ok(())` having drawn nothing**, which is worse than being
+/// unimplemented: a caller was told the page had been rendered and got a blank canvas,
+/// with nothing anywhere to say otherwise. Not being able to do something is a fact about
+/// this crate; reporting success for it is a fact about the caller's next hour.
+///
+/// Rendering here needs a WebGPU surface through `web-sys` and the facade's `render`
+/// feature, and neither is present. It is not written as a stub that might one day fill
+/// in, because a stub is what this was: the comment saying implementation "will involve"
+/// a WebGPU surface had been there long enough for the roadmap to find it by measurement
+/// rather than by memory.
+///
+/// Separate from the `wasm_bindgen` method so it can be tested on the host, which
+/// `JsValue` cannot be — the same shape `fepdf-mcp` uses for its tools.
+#[must_use]
+pub fn render_page_refusal(index: usize, canvas_id: &str) -> String {
+    format!(
+        "fepdf-wasm cannot render: page {index} was not drawn to {canvas_id:?}. \
+         This build has no WebGPU surface and does not enable the facade's `render` \
+         feature. Use page_count and the text APIs, or render outside the browser."
+    )
 }

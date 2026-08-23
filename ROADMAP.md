@@ -1846,11 +1846,42 @@ figure below came out of one command, and the commands are here.
       ./scripts/dev/status.sh | grep 'operations named'
       ```
 
-- [ ] **`fepdf-wasm::render_page` returns `Ok(())` having drawn nothing.** Not
-      unimplemented — *silently successful*, which is worse: a caller is told it worked and
-      gets a blank canvas. Either it renders, or it returns an error saying it does not.
-      Forty lines, no `Operation`, and the §5.1 diagram claimed it was a frontend that
-      builds them
+- [x] **`fepdf-wasm::render_page` returns `Ok(())` having drawn nothing.** It returns an
+      error now, naming the page it did not draw, the canvas it did not draw to, and the
+      reason. Not being able to do something is a fact about this crate; reporting success
+      for it is a fact about the caller's next hour.
+
+      The message is built by `render_page_refusal`, a plain function, so it can be tested
+      on the host — `JsValue` cannot be constructed off a WebAssembly target. Two tests
+      guard it, and an actual renderer is expected to **delete** them rather than make
+      them pass.
+
+      Rendering was not implemented instead, deliberately: it needs a WebGPU surface
+      through `web-sys` and the facade's `render` feature, and none of it could be run
+      here. Shipping a renderer nobody had watched draw a page would be the same defect at
+      a larger size.
+
+- [ ] **`fepdf-wasm` does not build for WebAssembly.** Found while fixing the entry above,
+      by building it for its own target for what appears to be the first time:
+
+      ```text
+      cargo build -p fepdf-wasm --target wasm32-unknown-unknown
+      error: could not compile `getrandom` … you may need to enable the "js" feature
+      ```
+
+      `getrandom` arrives transitively — `aes` → `cipher` → `crypto-common` → `rand_core`
+      — so the whole crypto stack the reader needs pulls it in, and on `wasm32` it will not
+      compile without being told which clock it is on. **The target is installed**
+      (`wasm32-unknown-unknown`, and two WASI ones), so nothing was stopping this being
+      run; it simply never was, and `cargo build --workspace` never touches it because the
+      host target compiles fine.
+
+      **The usual fix trips the check added two entries above**, which is worth stating
+      rather than discovering: declaring `getrandom` with `features = ["js"]` to unify the
+      feature adds a dependency that no line of code references, so
+      `dependencies nothing references` would read 1. Either that row learns about
+      declarations that exist to select a feature, or the fix is a different one. Deciding
+      which is the work, and it is not `render_page`'s
 
 *Done when*: `status.sh` reports 0 Rule D bypasses and 3 engine log sites over derived
 crate lists; unused dependency declarations have a row; and `fepdf-wasm` either renders or

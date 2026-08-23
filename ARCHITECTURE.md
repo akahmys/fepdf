@@ -143,7 +143,7 @@ changes that reach them are most of the second.
 | **`fepdf-cli`** | ✅ | 3,027 | Command-line binary (`fepdf`). |
 | **`fepdf-gui`** | ✅ | 8,507 | Desktop application on **egui** + **eframe** + **wgpu**. |
 | **`fepdf-mcp`** | ✅ | 1,902 | Model Context Protocol server for AI assistants. **The most complete frontend by some distance**: all 30 `Operation` variants, where `fepdf-cli` constructs 8 and `fepdf-gui` 6. That is the shape §5.1 predicted — a tool is the serialised form of an operation — arriving on its own. It sat at 24 for a phase, missing exactly the six Rule D produced, because nothing counted; `status.sh` counts them now against the enum itself. |
-| **`fepdf-wasm`** | ✅ | 40 | WebAssembly bindings. Currently a stub, and worse than unimplemented: `render_page` **returns `Ok(())` having drawn nothing**, so a caller is told it succeeded and gets a blank canvas. It also constructs no `Operation` at all, which is why the §5.1 diagram no longer lists it as a frontend that does. |
+| **`fepdf-wasm`** | ✅ | 63 | WebAssembly bindings, and thin: it opens a document and counts its pages. `render_page` **returns an error** naming what it did not draw — it used to return `Ok(())` having drawn nothing, so a caller was told it succeeded and got a blank canvas. It constructs no `Operation` at all, which is why the §5.1 diagram no longer lists it as a frontend that does. **It does not compile for `wasm32-unknown-unknown`**: `getrandom` arrives through the crypto stack and needs its `js` feature there. ROADMAP Phase Q carries that one. |
 | **`fepdf-macros`** | ✅ | 183 | Compile-time procedural macros. |
 
 Two `RenderBackend` implementations besides the GPU one — `TextExtractionBackend` and
