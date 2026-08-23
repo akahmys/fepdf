@@ -1991,12 +1991,32 @@ than `fepdf-gui` is today, which is why Q comes first rather than why R can wait
       one never does on any platform anyone here builds for. But the check should say
       which it means rather than answer by accident
 
-- [ ] **Write the fixtures, because the corpus cannot validate this.** Six scripts across
-      524 files, and `/AA /C` — a field calculation, the thing form scripting exists for —
-      occurs **zero** times. That is not a reason to decline; it is a statement about what
-      can be *verified*, and the answer is the one Phase M and Phase P already used:
-      `make_scan_fixtures.rs` and `make_colour_fixtures.rs` have a third sibling. Used
-      correctly, a thin corpus is a requirement on the builder
+- [x] **Write the fixtures, because the corpus cannot validate this.** Written.
+      `make_script_fixtures.rs` is the third sibling of `make_scan_fixtures.rs` and
+      `make_colour_fixtures.rs`, and produces three forms carrying what no file in either
+      corpus does — `/AA /C` on a field and `/CO` on the form:
+
+      | fixture | what it is for |
+      | :--- | :--- |
+      | `sum.pdf` | one field computed from two others |
+      | `chain.pdf` | a two-step chain whose order `/CO` decides — getting it wrong gives a stale total rather than an error |
+      | `cycle.pdf` | a calculation referring to itself, which **12.6.3 permits**, so the guard cannot be "do not calculate twice" |
+
+      **The assertions live in a test, not in the files.** `calculation_order_test.rs`
+      builds the same shapes inline and holds the measurement this phase exists to move:
+      setting a value in a form with `/CO` records the 12.6.3 `Violation` — "wrote the
+      value and did not run the scripts; fields computed from it are now stale" — and a
+      form *without* `/CO` records nothing. Both halves, because a `Decision` that fires
+      on every form is a constant rather than a signal (§5.3).
+
+      When scripts run, the first assertion is what should change. It is the phase's
+      *Done when* in executable form.
+
+      ```bash
+      cargo run --example make_script_fixtures -p fepdf-model
+      cargo test -p fepdf --test calculation_order_test
+      ```
+
 - [ ] **`Operation::RunDocumentScripts { trigger }`, and nothing implicit.** No existing
       write path gains an execution: `crosscheck_selfread.sh` asserts every combination
       reads back exactly as its input does, and an automatic run inside
