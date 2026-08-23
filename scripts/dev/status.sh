@@ -180,6 +180,20 @@ for crate_dir in crates/*/; do
 done
 row "dependencies nothing references (expect 0)" "$unused_deps"
 
+# `fepdf-mcp` is the frontend whose whole job is to expose the `Operation` vocabulary — a
+# tool is the serialised form of an operation (ARCHITECTURE 5.1). It named all of it until
+# Rule D turned ten facade methods into six new operations, and it sat at 24 of 30 for a
+# phase because nothing counted. Every variant is *reachable* through the generic
+# `apply_operation` tool whatever this says; what a missing one lacks is a schema, so a
+# caller has to already know it exists to ask for it.
+if anchored "operations named as MCP tools" 'pub enum Operation' crates/fepdf-doc/src \
+    '/^pub enum Operation {/,/^}/p'; then
+    op_count=$(printf '%s' "$ANCHORED" | grep -cE '^    [A-Z][A-Za-z0-9]*' | tr -d ' ')
+    op_named=$(grep -rhoE 'Operation::[A-Z][A-Za-z0-9]*' crates/fepdf-mcp/src --include="*.rs" \
+        | sed 's/Operation:://' | sort -u | wc -l | tr -d ' ')
+    row "operations named as MCP tools" "$op_named of $op_count"
+fi
+
 adrs=$(find docs/adr -name '0*.md' | wc -l | tr -d ' ')
 row "decision records" "$adrs"
 

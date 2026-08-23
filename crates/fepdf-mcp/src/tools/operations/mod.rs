@@ -5,6 +5,7 @@ pub mod decoration;
 pub mod metadata;
 pub mod page;
 pub mod struct_elem;
+pub mod vocabulary;
 
 use bytes::Bytes;
 use fepdf::{Operation, PdfDocument};

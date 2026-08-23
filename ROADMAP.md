@@ -1822,15 +1822,30 @@ figure below came out of one command, and the commands are here.
       `#[ignore]`d test that read from the same path had never run in either sense — the
       attribute stopped it, and the file was not there if the attribute had not — and was
       removed, which `TESTING.md` records happening once before for the same reason
-- [ ] **`fepdf-mcp` names 24 of the 30 operations as tools.** It named all of them until
-      Rule D added six, and it is the frontend whose whole job is to expose the vocabulary
-      — a tool is the serialised form of an operation (ARCHITECTURE §5.1). All thirty are
-      *reachable*, through the generic `apply_operation` tool that deserialises any
-      `Operation` from a JSON string; what the six lack is a named tool with a schema, so
-      a caller has to know the variant exists to ask for it. That generic tool is also the
-      evidence for [ADR-0025](docs/adr/0025-a-script-processor-is-a-frontend-not-a-subsystem.md)'s
-      claim that a script frontend needs almost no bridge: the JSON-to-`Operation` path
-      already exists and is in use
+- [x] **`fepdf-mcp` names 24 of the 30 operations as tools.** It names thirty now, and
+      `status.sh` counts them: `operations named as MCP tools  30 of 30`.
+
+      The six were the ones Rule D produced — `ReorderBatch`, `DuplicatePages`,
+      `InsertFrom`, `AddLtvInfo`, `Retag`, `Upgrade` — and this is the frontend whose whole
+      job is to expose the vocabulary, a tool being the serialised form of an operation
+      (ARCHITECTURE §5.1). All thirty were always *reachable* through the generic
+      `apply_operation` tool; what the six lacked is a schema, so a caller had to already
+      know a variant existed, and know its shape, to ask for it. That is the difference
+      between a vocabulary and a vocabulary you can look up.
+
+      **Paths, not bytes, in the two that carry them.** `InsertFrom` takes a whole source
+      document and `AddLtvInfo` a list of certificates; as JSON tool arguments both would
+      be base64. Every other tool here names a file, so these do too.
+
+      The row is anchored on the `Operation` enum rather than on a number written down, so
+      an operation added tomorrow moves the denominator on its own. Verified twice: making
+      one tool stop constructing `Retag` reads **29 of 30**, and renaming the enum reads
+      `BROKEN` rather than a smaller figure that looks like progress.
+
+      ```bash
+      ./scripts/dev/status.sh | grep 'operations named'
+      ```
+
 - [ ] **`fepdf-wasm::render_page` returns `Ok(())` having drawn nothing.** Not
       unimplemented — *silently successful*, which is worse: a caller is told it worked and
       gets a blank canvas. Either it renders, or it returns an error saying it does not.

@@ -2,6 +2,11 @@
 
 #![allow(missing_docs)]
 
+use crate::tools::operations::vocabulary::{
+    AddLtvInfoArgs, DuplicatePagesArgs, InsertFromArgs, ReorderBatchArgs, RetagArgs, UpgradeArgs,
+    add_ltv_info_impl, duplicate_pages_impl, insert_from_impl, reorder_batch_impl, retag_impl,
+    upgrade_impl,
+};
 use crate::tools::{
     AddAnnotationArgs, AddMeshShadingArgs, AddPageDecorationArgs, AddPublicKeyRecipientArgs,
     AddUserPropertiesArgs, ApplyBatesNumberingArgs, ApplyOperationArgs, AttachAssociatedFileArgs,
@@ -151,7 +156,79 @@ impl FepdfServer {
         remove_pages_impl(args)
     }
 
+    /// Moves several pages at once, preserving their relative order.
+    #[tool(
+        name = "reorder_pages_batch",
+        description = "Moves several pages at once to a target index, preserving their relative order."
+    )]
+    pub async fn reorder_pages_batch(
+        &self,
+        Parameters(args): Parameters<ReorderBatchArgs>,
+    ) -> Result<String, String> {
+        reorder_batch_impl(args)
+    }
+
+    /// Duplicates a selection of pages in place.
+    #[tool(
+        name = "duplicate_pages",
+        description = "Duplicates a selection of pages, inserting each copy after its original."
+    )]
+    pub async fn duplicate_pages(
+        &self,
+        Parameters(args): Parameters<DuplicatePagesArgs>,
+    ) -> Result<String, String> {
+        duplicate_pages_impl(args)
+    }
+
+    /// Inserts every page of another document at an index.
+    #[tool(
+        name = "insert_from",
+        description = "Inserts every page of another PDF document at a given 0-based index."
+    )]
+    pub async fn insert_from(
+        &self,
+        Parameters(args): Parameters<InsertFromArgs>,
+    ) -> Result<String, String> {
+        insert_from_impl(args)
+    }
+
+    /// Declares conformance with a PDF standard.
+    #[tool(
+        name = "upgrade_standard",
+        description = "Declares conformance with a PDF standard: A4, X6, UA2 or ISO32000-2."
+    )]
+    pub async fn upgrade_standard(
+        &self,
+        Parameters(args): Parameters<UpgradeArgs>,
+    ) -> Result<String, String> {
+        upgrade_impl(args)
+    }
+
     // --- Tag Structure & Accessibility Operations ---
+    /// Rebuilds the document's logical structure.
+    #[tool(
+        name = "retag_document",
+        description = "Rebuilds the document's logical structure tree from its page content."
+    )]
+    pub async fn retag_document(
+        &self,
+        Parameters(args): Parameters<RetagArgs>,
+    ) -> Result<String, String> {
+        retag_impl(args)
+    }
+
+    /// Embeds long-term validation material beside a signature.
+    #[tool(
+        name = "add_ltv_info",
+        description = "Embeds DER-encoded certificates in the DSS for long-term signature validation."
+    )]
+    pub async fn add_ltv_info(
+        &self,
+        Parameters(args): Parameters<AddLtvInfoArgs>,
+    ) -> Result<String, String> {
+        add_ltv_info_impl(args)
+    }
+
     /// Updates a Tagged PDF structural element's tag type, alternate text (Alt), language, or actual text.
     #[tool(
         name = "update_struct_elem",
