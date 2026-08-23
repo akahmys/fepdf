@@ -116,6 +116,7 @@ impl ScriptHost {
         let mut context = Context::default();
         self.install_app(&mut context)?;
         self.install_doc(&mut context)?;
+        self.install_helpers(&mut context)?;
         // The script runs as the body of a function called on the Doc, so `this` is the
         // document. **A global property named `this` does not work**: in a non-strict
         // script `this` *is* `globalThis`, so the identifier never reaches a property
@@ -154,6 +155,7 @@ impl ScriptHost {
         self.install_app(&mut context)?;
         self.install_doc(&mut context)?;
         self.install_event(&mut context, current)?;
+        self.install_helpers(&mut context)?;
         let wrapped = format!("(function () {{\n{source}\n}}).call(__fepdf_doc__);");
         context
             .eval(Source::from_bytes(wrapped.as_bytes()))
@@ -166,6 +168,19 @@ impl ScriptHost {
             .map_err(|e| ScriptError::DidNotComplete(e.to_string()))?
             .to_std_string_escaped();
         if text == "undefined" { Ok(None) } else { Ok(Some(text)) }
+    }
+
+    /// Adobe's `AF*` helpers, loaded into this context.
+    ///
+    /// **Per context, not once at startup.** A script may redefine a helper — defining
+    /// functions is what scripts do — and in a shared context the redefinition reaches
+    /// the next document. Measured: one context, a document that redefines
+    /// `AFSimple_Calculate`, and the next document computes 999.
+    fn install_helpers(&self, context: &mut Context) -> Result<(), ScriptError> {
+        context
+            .eval(Source::from_bytes(crate::AFORM_JS.as_bytes()))
+            .map(|_| ())
+            .map_err(|e| ScriptError::HostUnavailable(format!("aform.js: {e}")))
     }
 
     /// `event`: what a field action reads and writes (12.6.3, Table 199).

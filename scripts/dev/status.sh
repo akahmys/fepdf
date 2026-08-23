@@ -194,6 +194,22 @@ if anchored "operations named as MCP tools" 'pub enum Operation' crates/fepdf-do
     row "operations named as MCP tools" "$op_named of $op_count"
 fi
 
+# JavaScript that ships with the engine and that RR-15 does not read.
+#
+# Adobe's AF* helpers are written in the language they are specified in, which every other
+# implementation also does — and `verify_compliance.sh`'s fifteen checks all run over
+# Rust. Not the function-length limit, not the error types, not determinism, not the
+# `unsafe` ban. ADR-0025 made two conditions for that: each helper carries a test that
+# fails when it breaks, and this figure exists so it cannot grow quietly.
+#
+# **Zero would be the wrong target.** The number is not a defect to drive down; it is a
+# quantity of code standing outside the audit, and the question it answers is "how much"
+# rather than "is there any". `docs/specs/` held twelve false claims for the want of
+# exactly that kind of visible figure.
+unaudited_js=$(find crates -name '*.js' -not -path '*/target/*' 2>/dev/null \
+    | xargs wc -l 2>/dev/null | tail -1 | awk '{print $1}')
+row "JavaScript lines no RR-15 check reads" "${unaudited_js:-0}"
+
 adrs=$(find docs/adr -name '0*.md' | wc -l | tr -d ' ')
 row "decision records" "$adrs"
 

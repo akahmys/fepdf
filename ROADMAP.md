@@ -2081,13 +2081,50 @@ than `fepdf-gui` is today, which is why Q comes first rather than why R can wait
       cargo test -p fepdf-script --test calculate_test
       ```
 
-- [ ] **Adobe's helpers may be `.js`, on two conditions.** `AFSimple_Calculate` and
-      `AFNumber_Format` are easier to maintain in the language they were written for, and
-      PDF.js demonstrates it. But **`verify_compliance.sh`'s fifteen checks are all Rust**
-      — not the function-length limit, not the error types, not determinism — so each
-      helper carries a test that fails when the helper is broken, and `status.sh` gains a
-      row counting the lines no audit covers. `AUDITING.md` was citing two rules
-      `CODING.md` did not state, and nothing went red
+- [x] **Adobe's helpers may be `.js`, on two conditions.** Both are met.
+      `crates/fepdf-script/scripting/aform.js` carries `AFMakeNumber`,
+      `AFMakeArrayFromList`, `AFSimple` and `AFSimple_Calculate` — the last being the one
+      a real form actually calls.
+
+      | condition | where |
+      | :--- | :--- |
+      | each helper carries a test that fails when it breaks | `tests/helpers_test.rs`, ten of them |
+      | `status.sh` counts the lines no audit covers | `JavaScript lines no RR-15 check reads  86` |
+
+      **Zero is the wrong target for that row.** It is not a defect to drive down; it is a
+      quantity of code standing outside the audit, and the question it answers is *how
+      much*, not *is there any*.
+
+      **The host contract is written at the top of the file, because the file cannot
+      discover it.** `__fepdf_doc__` and `event` — and `this` is *not* the document inside
+      a helper: the calling script has it, but a plain call does not pass it on, so
+      `this.getField` throws "not a callable function". It did exactly that before the
+      note existed.
+
+      **Loaded per document, not once at startup.** A script may redefine a helper, which
+      is legal, and in a shared context the redefinition reaches the next document —
+      measured, and a test holds it: a document that redefines `AFSimple_Calculate`
+      computes 999 in its own run and the next document still computes 5.
+
+      pdf.js's implementation of the same API (Apache-2.0) was read while writing this and
+      could not be used directly: it is an ES module exporting a class whose constructor
+      takes four host objects where Acrobat exposes globals. The behaviours follow the
+      documented API.
+
+      **`AFNumber_Format` is not here**, and the reason is worth having: it needs
+      `util.printf`, a format-string implementation of its own, plus `event.target.textColor`
+      and a `color` object. That is the next helper's worth of work, not this one's.
+
+- [ ] **`Intl` is absent, and a script that reaches it gets `undefined`.** Measured while
+      checking boa's coverage: `typeof Intl` is `undefined`, because ECMA-402 sits behind
+      boa's `intl` feature and this build does not enable it. Nineteen ICU crates arrive
+      regardless — they are `icu_normalizer` and `icu_properties`, which the *language*
+      needs for `String.prototype.normalize`, identifiers and `\p{…}` regex escapes.
+
+      So the cost of `Intl` is not the ICU dependency, which is already paid; it is
+      `icu_collator`, `icu_datetime`, `icu_plurals`, `icu_list`, `icu_casemap` and
+      `icu_decimal` on top. A form calling `toLocaleString` gets a `TypeError` today, and
+      nothing records that it did
 
 *Done when*: setting a field value in a form that declares a calculation order no longer
 records a `Violation` of 12.6.3, because the calculation ran; the subset row above reads
