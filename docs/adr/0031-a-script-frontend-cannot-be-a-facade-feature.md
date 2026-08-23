@@ -2,7 +2,7 @@
 
 - **Status**: Accepted. Amends [ADR-0025](0025-a-script-processor-is-a-frontend-not-a-subsystem.md), whose shape is otherwise unchanged.
 - **Date**: 2026-08-23
-- **Commit**: (this change)
+- **Commit**: 911f0e3
 
 ## Context
 
