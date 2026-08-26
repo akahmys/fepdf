@@ -84,13 +84,6 @@ pub use error::{PdfError, PdfResult};
 pub use interpretation::{Decision, DecisionLog, Severity, Strictness};
 pub use source::{DocumentSource, PdfSource};
 
-/// Resolves the directory holding bundled resources (fonts, Adobe CMap tables).
-///
-/// Reads `FEPDF_RESOURCES`, falling back to the pre-rename `FERRUGINOUS_RESOURCES`
-/// so that setups configured before the project was renamed keep working, and
-/// finally to `default` — which differs per caller, hence the parameter.
-pub fn resource_dir(default: &str) -> String {
-    std::env::var("FEPDF_RESOURCES")
-        .or_else(|_| std::env::var("FERRUGINOUS_RESOURCES"))
-        .unwrap_or_else(|_| default.to_string())
-}
+/// Where the engine looks for the data it does not carry, re-exported so that crates
+/// above this one reach one resolver rather than a second copy of the old two.
+pub use fepdf_font::resources;

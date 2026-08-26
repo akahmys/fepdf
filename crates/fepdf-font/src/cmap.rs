@@ -248,9 +248,14 @@ impl CMap {
         let mappings = CACHE.get_or_init(|| {
             let mut map = std::collections::BTreeMap::new();
             // Try to load from cid2code.txt in the resources directory
-            let resource_dir = crate::resource_dir("external/adobe-cmaps");
-            let cid2code_path =
-                std::path::Path::new(&resource_dir).join("Adobe-Japan1-7/cid2code.txt");
+            let Some(cmaps) = crate::resources::locate(crate::resources::Resource::Cmaps) else {
+                // Nothing to read. The empty map is returned, and the caller that wanted
+                // a Japanese mapping records why it did not get one — see
+                // `resources::not_found_message`. Returning silently is what left 192
+                // pages of `bokutokitan.pdf` indistinguishable from blank ones.
+                return map;
+            };
+            let cid2code_path = cmaps.join("Adobe-Japan1-7/cid2code.txt");
 
             if let Ok(content) = std::fs::read_to_string(&cid2code_path) {
                 for line in content.lines() {
@@ -317,12 +322,12 @@ impl CMap {
         }
 
         // 2. Dynamic loading from synced cmap-resources repository
-        let resource_dir = crate::resource_dir("external/adobe-cmaps");
+        let resource_dir = crate::resources::locate(crate::resources::Resource::Cmaps)?;
 
-        let mut search_paths = vec![std::path::PathBuf::from(&resource_dir)];
-        search_paths.push(std::path::Path::new(&resource_dir).join("Adobe-Japan1-7/CMap"));
-        search_paths.push(std::path::Path::new(&resource_dir).join("Adobe-Japan1-6/CMap"));
-        search_paths.push(std::path::Path::new(&resource_dir).join("Adobe-Japan1-4/CMap"));
+        let mut search_paths = vec![resource_dir.clone()];
+        search_paths.push(resource_dir.join("Adobe-Japan1-7/CMap"));
+        search_paths.push(resource_dir.join("Adobe-Japan1-6/CMap"));
+        search_paths.push(resource_dir.join("Adobe-Japan1-4/CMap"));
 
         for base in search_paths {
             let file_path = base.join(name);

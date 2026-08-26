@@ -31,6 +31,15 @@ pub struct TextSpan {
 pub struct TextExtractionBackend {
     output: String,
     last_y: f64,
+    /// Glyphs handed to this backend, and how many of them carried no character.
+    ///
+    /// A glyph the interpreter drew but could not name in Unicode contributes nothing to
+    /// the output, so a page of them extracts as an empty string — **the same value a
+    /// blank page extracts as.** Measured before this counted: 192 of
+    /// `bokutokitan.pdf`'s 195 pages, 64,556 glyphs, indistinguishable from blank.
+    glyphs_seen: usize,
+    /// How many of `glyphs_seen` had an empty `unicode`.
+    glyphs_unmapped: usize,
 }
 
 impl Default for TextExtractionBackend {
@@ -42,7 +51,7 @@ impl Default for TextExtractionBackend {
 impl TextExtractionBackend {
     /// Creates a new empty text aggregator.
     pub fn new() -> Self {
-        Self { output: String::new(), last_y: 0.0 }
+        Self { output: String::new(), last_y: 0.0, glyphs_seen: 0, glyphs_unmapped: 0 }
     }
     /// Finalizes the aggregation and returns the accumulated string.
     pub fn finish(self) -> String {
@@ -99,10 +108,50 @@ impl RenderBackend for TextExtractionBackend {
             self.output.push('\n');
         }
         for glyph in glyphs {
+            self.glyphs_seen += 1;
+            if glyph.unicode.is_empty() {
+                self.glyphs_unmapped += 1;
+            }
             self.output.push_str(&glyph.unicode);
         }
         self.last_y = y;
     }
+
+    /// What this extraction could not say, for `render_page` to record.
+    ///
+    /// **The count is the whole point.** "No text on this page" is a legitimate answer
+    /// for a blank page and for one drawn entirely in vector paths — measured, 24 of
+    /// `fugaku.pdf`'s 25 pages are the second — and it is a defect when glyphs were drawn
+    /// and none of them could be named. Only the caller can tell those apart, and only if
+    /// it is told which happened.
+    ///
+    /// The missing-resource case is named separately because it is the one a reader can
+    /// act on: the CMap collections are not carried by this crate, and a machine without
+    /// them cannot map an Adobe-Japan1 CID to a character no matter what the file says.
+    fn take_decisions(&mut self) -> Vec<fepdf_model::interpretation::Decision> {
+        if self.glyphs_unmapped == 0 {
+            return Vec::new();
+        }
+        let unmapped = self.glyphs_unmapped;
+        let seen = self.glyphs_seen;
+        let action = if fepdf_model::resources::locate(fepdf_model::resources::Resource::Cmaps)
+            .is_none()
+        {
+            format!(
+                "left them out of the extracted text; {}",
+                fepdf_model::resources::not_found_message(fepdf_model::resources::Resource::Cmaps)
+            )
+        } else {
+            "left them out of the extracted text; the font supplied no /ToUnicode and no              CMap collection this engine carries names these codes"
+                .to_string()
+        };
+        vec![fepdf_model::interpretation::Decision::violation(
+            "9.10.2",
+            format!("{unmapped} of {seen} glyphs drawn on this page have no Unicode value"),
+            action,
+        )]
+    }
+
     fn set_text_render_mode(&mut self, _mode: fepdf_model::graphics::TextRenderingMode) {}
     fn set_char_spacing(&mut self, _spacing: f64) {}
     fn set_word_spacing(&mut self, _spacing: f64) {}

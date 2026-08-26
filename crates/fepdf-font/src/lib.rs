@@ -5,7 +5,6 @@
 #![forbid(unsafe_code)]
 #![warn(missing_docs)]
 
-/// Adobe Glyph List (AGL) lookups.
 pub mod agl;
 /// Standard CFF strings and constants.
 pub mod cff_standard;
@@ -15,6 +14,9 @@ pub mod cmap;
 pub mod reconstruction;
 /// CMap rescue and recovery heuristics.
 pub mod rescue;
+/// Adobe Glyph List (AGL) lookups.
+/// Where the engine looks for the data it does not carry.
+pub mod resources;
 /// Font subsetting utilities.
 pub mod subset;
 
@@ -24,13 +26,6 @@ pub use cmap::*;
 pub use reconstruction::*;
 pub use rescue::*;
 pub use subset::*;
-
-/// Resolves the directory holding bundled resources (fonts, Adobe CMap tables).
-pub fn resource_dir(default: &str) -> String {
-    std::env::var("FEPDF_RESOURCES")
-        .or_else(|_| std::env::var("FERRUGINOUS_RESOURCES"))
-        .unwrap_or_else(|_| default.to_string())
-}
 
 /// Error type for pure font operations.
 #[derive(Debug, thiserror::Error)]

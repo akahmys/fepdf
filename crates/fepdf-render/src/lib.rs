@@ -99,11 +99,15 @@ impl VelloBackend {
     /// Loads the bundled fallback fonts from the configured resource directory.
     pub fn load_system_fonts() -> Arc<std::collections::BTreeMap<FallbackFontType, Arc<Vec<u8>>>> {
         let mut fonts = std::collections::BTreeMap::new();
-        // `assets`, not `resources`: see `Document::load_system_fonts`. This copy has no
-        // platform fallback under it, so the wrong default left the map empty outright —
-        // five warnings on every run, and no substitute face for any font.
-        let resource_dir = fepdf_model::resource_dir("assets");
-        let base_path = std::path::Path::new(&resource_dir).join("fonts");
+        // The same root and layout the model's loader uses
+        // (`fepdf_model::resources`). The two disagreed once — `assets` here against
+        // `resources` there — and this copy is the one with no platform fallback under
+        // it, so the wrong default left the map empty outright for three months.
+        let Some(base_path) =
+            fepdf_model::resources::locate(fepdf_model::resources::Resource::Fonts)
+        else {
+            return Arc::new(fonts);
+        };
 
         let mappings = [
             (FallbackFontType::Serif, "serif.ttf"),

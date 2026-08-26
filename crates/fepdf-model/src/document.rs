@@ -796,8 +796,11 @@ impl Document {
         // because *this* loader falls through to the platform paths below and finds real
         // fonts anyway; the renderer's copy has no such fallback and its map was simply
         // empty for three months.
-        let resource_dir = crate::resource_dir("assets");
-        let base_path = std::path::Path::new(&resource_dir).join("fonts");
+        // One root, one layout (`fepdf_font::resources`). This used to be
+        // `resource_dir("assets")` while the CMap loader used
+        // `resource_dir("external/adobe-cmaps")`, and `FEPDF_RESOURCES` overrode both
+        // with the same value — so a setting that found one hid the other.
+        let base_path = fepdf_font::resources::locate(fepdf_font::resources::Resource::Fonts);
         let mappings = [
             (crate::font::FallbackFontType::Serif, "serif.ttf"),
             (crate::font::FallbackFontType::SansSerif, "sans.ttf"),
@@ -807,7 +810,8 @@ impl Document {
         ];
 
         for (ftype, filename) in mappings {
-            if let Ok(data) = std::fs::read(base_path.join(filename)) {
+            let Some(base) = base_path.as_ref() else { break };
+            if let Ok(data) = std::fs::read(base.join(filename)) {
                 fonts.insert(ftype, Arc::new(data));
             }
         }
