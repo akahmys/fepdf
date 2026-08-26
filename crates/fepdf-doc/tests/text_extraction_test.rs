@@ -21,6 +21,11 @@ fn glyph(unicode: &str) -> TextGlyph {
         vx: 0.0,
         vy: 0.0,
         is_fallback: false,
+        source: if unicode.is_empty() {
+            fepdf_model::font::UnicodeSource::Unmapped
+        } else {
+            fepdf_model::font::UnicodeSource::ToUnicode
+        },
     }
 }
 

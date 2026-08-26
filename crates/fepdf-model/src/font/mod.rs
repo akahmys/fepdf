@@ -206,6 +206,47 @@ pub struct FontSummary {
     pub object_id: u32,
 }
 
+/// Which route named a character code, or why none did (9.10.2).
+///
+/// **Not a taxonomy, a label.** Font recovery is heuristic where the standard leaves a
+/// file broken, and it should stay easy to add another guess when a real document demands
+/// one; this exists so that a rule written for one guess can be scoped to that guess
+/// rather than to every value the engine produces. `#[non_exhaustive]` because the list
+/// grows with the files it meets.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[non_exhaustive]
+pub enum UnicodeSource {
+    /// The file's own `/ToUnicode` CMap said so (9.10.3). Authoritative.
+    ToUnicode,
+    /// The font's encoding named it — a glyph name, or a Unicode-based CMap.
+    Encoding,
+    /// The CID collection's table, reached through `/CIDSystemInfo` (Adobe-Japan1 and
+    /// its siblings).
+    CidCollection,
+    /// A CID in the ASCII range read as that byte. A guess, and named as one.
+    AsciiGuess,
+    /// A route produced a character and the engine discarded it — today, anything in the
+    /// private-use area or the circled-number block, whatever named it.
+    Withheld,
+    /// No route named it.
+    Unmapped,
+}
+
+impl UnicodeSource {
+    /// The route's name, for a decision or a tally.
+    #[must_use]
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::ToUnicode => "ToUnicode",
+            Self::Encoding => "encoding",
+            Self::CidCollection => "CID collection",
+            Self::AsciiGuess => "ASCII guess",
+            Self::Withheld => "withheld",
+            Self::Unmapped => "unmapped",
+        }
+    }
+}
+
 impl FontResource {
     #[cfg(test)]
     /// Builds a minimal resource for tests.
@@ -646,7 +687,7 @@ impl FontResource {
         // 3. Fallback to Heuristics/Encoding for simple fonts (Lowest Priority)
         if self.subtype.as_str() != "Type0" {
             for code in 0..=255 {
-                let (_, uni) = self.decode_via_heuristics(&[code as u8]);
+                let (_, uni, _) = self.decode_via_heuristics_sourced(&[code as u8]);
                 if let Some(u) = uni {
                     // Only insert if not already present from ToUnicode
                     map.entry(u).or_insert(code as u32);
@@ -1492,20 +1533,43 @@ impl FontResource {
 
     /// Maps a character code to the text it represents.
     pub fn to_unicode(&self, code: &[u8]) -> Option<String> {
-        self.to_unicode_inner(code)
+        self.unicode_for(code).0
     }
 
-    fn to_unicode_inner(&self, code: &[u8]) -> Option<String> {
+    /// The character a code stands for, and **which route named it**.
+    ///
+    /// The routes are heuristic and stay that way — there is no principled way to know a
+    /// broken file's CID collection, and `rescue.rs` matching on `hira` and `ゴシック` is
+    /// the right shape for that. What this adds is not principle but **scope**: a name on
+    /// each route, so a rule meant for one of them can be applied to one of them.
+    ///
+    /// The distinction is not academic. The circled-number filter below discards
+    /// `U+2460`–`U+24FF` whatever produced it, and Adobe-Japan1 defines 128 CIDs that
+    /// *are* those characters — so a `/ToUnicode` map saying ① is thrown away beside a
+    /// broken mapping that landed there. Judged by route rather than by value the two
+    /// separate cleanly: those 128 CIDs carry no Shift-JIS and no EUC encoding at all, so
+    /// a Unicode-based route reaching them is right and a legacy one is not.
+    ///
+    /// **Nothing is judged by route yet.** This reports; the filter still fires exactly
+    /// where it did.
+    pub fn unicode_for(&self, code: &[u8]) -> (Option<String>, UnicodeSource) {
         let mut result = None;
+        let mut source = UnicodeSource::Unmapped;
 
         if let Some(ref map) = self.to_unicode {
             result = map.map(code);
+            if result.is_some() {
+                source = UnicodeSource::ToUnicode;
+            }
         }
 
         if result.is_none()
             && let Some(res) = self.decode_via_encoding(code, None)
         {
             result = res.1;
+            if result.is_some() {
+                source = UnicodeSource::Encoding;
+            }
         }
 
         if result.is_none() {
@@ -1517,9 +1581,27 @@ impl FontResource {
             if is_multibyte && let Some(ref adj1) = self.adj1_mapping {
                 let cid_bytes = vec![(cid >> 8) as u8, (cid & 0xFF) as u8];
                 result = adj1.map(&cid_bytes);
+                if result.is_some() {
+                    source = UnicodeSource::CidCollection;
+                }
             }
         }
 
+        self.finish_unicode(code, result, source)
+    }
+
+    /// The tail of [`FontResource::unicode_for`]: a glyph name becomes a character, the
+    /// private-use filter fires, and a CID in the ASCII range is guessed at.
+    ///
+    /// Split out for Rule 1 rather than for meaning, though the seam is a real one — this
+    /// is everything that happens *after* a route has answered, and the filter's problem
+    /// is that it sits here, where the route is no longer in view.
+    fn finish_unicode(
+        &self,
+        code: &[u8],
+        result: Option<String>,
+        source: UnicodeSource,
+    ) -> (Option<String>, UnicodeSource) {
         if let Some(res) = result {
             let uni = if res.starts_with('/') {
                 cmap::glyph_name_to_unicode(res.as_bytes())
@@ -1533,19 +1615,19 @@ impl FontResource {
                     (0xE000..=0xF8FF).contains(&u_val) || (0xF0000..=0x10FFFF).contains(&u_val);
                 let is_circled = (0x2460..=0x24FF).contains(&u_val);
                 if is_pua || is_circled {
-                    return None;
+                    return (None, UnicodeSource::Withheld);
                 }
             }
-            return Some(uni);
+            return (Some(uni), source);
         }
 
         let cid = self.to_cid(code);
         // Final fallback: if CID is in ASCII range, try to interpret it as a character
         if cid < 128 && cid > 31 {
-            return Some((cid as u8 as char).to_string());
+            return (Some((cid as u8 as char).to_string()), UnicodeSource::AsciiGuess);
         }
 
-        None
+        (None, UnicodeSource::Unmapped)
     }
 
     /// Writing mode: 0 horizontal, 1 vertical.
@@ -2138,22 +2220,39 @@ impl FontResource {
 
     /// Decodes the next character code, returning its byte length and text.
     pub fn decode_next(&self, data: &[u8]) -> (usize, Option<String>) {
+        let (consumed, text, _) = self.decode_next_sourced(data);
+        (consumed, text)
+    }
+
+    /// [`FontResource::decode_next`], and **which route named the character**.
+    ///
+    /// The same three steps in the same order — this adds a label, not a decision. It
+    /// exists because "213 of 360 glyphs have no Unicode" says nothing a reader can act
+    /// on, while "213 needed the embedded font's own cmap" names the work.
+    ///
+    /// **There are three chains here, not one.** This is the outer one; its third step
+    /// falls through to [`FontResource::unicode_for`], which repeats the `/ToUnicode` and
+    /// encoding lookups the first two steps have already tried and failed. Each of the
+    /// three carries its own copy of the private-use filter. None of that is changed
+    /// here; it is now visible, which is the point of labelling before rebuilding.
+    pub fn decode_next_sourced(&self, data: &[u8]) -> (usize, Option<String>, UnicodeSource) {
         if data.is_empty() {
-            return (0, None);
+            return (0, None, UnicodeSource::Unmapped);
         }
         let min_len = self.get_min_len();
 
         if let Some(res) = self.decode_via_to_unicode(data, min_len)
             && res.1.is_some()
         {
-            return res;
+            return (res.0, res.1, UnicodeSource::ToUnicode);
         }
         if let Some(res) = self.decode_via_encoding(data, min_len)
             && res.1.is_some()
         {
-            return res;
+            return (res.0, res.1, UnicodeSource::Encoding);
         }
-        self.decode_via_heuristics(data)
+        // The third step re-enters `unicode_for`, which reports its own route.
+        self.decode_via_heuristics_sourced(data)
     }
 
     fn get_min_len(&self) -> Option<usize> {
@@ -2215,7 +2314,33 @@ impl FontResource {
         Some((len, None))
     }
 
-    fn decode_via_heuristics(&self, data: &[u8]) -> (usize, Option<String>) {
+    /// The CID collection's table, for a multibyte or identity-encoded font.
+    ///
+    /// **Only for those.** Applying it to a simple font evaporates the next byte, because
+    /// the collection's CIDs are two bytes wide in this mapping and a one-byte code would
+    /// swallow its successor.
+    fn decode_via_cid_collection(
+        &self,
+        data: &[u8],
+    ) -> Option<(usize, Option<String>, UnicodeSource)> {
+        let aj1 = self.adj1_mapping.as_ref()?;
+        let consumed = 2; // AJ1 CIDs are always 2 bytes in our mapping
+        if data.len() < consumed {
+            return None;
+        }
+        let u = aj1.map(&data[..consumed])?;
+        let c = u.chars().next()?;
+        let u_val = c as u32;
+        let is_control = (u_val <= 0x1F) || (0x7F..=0x9F).contains(&u_val);
+        let is_pua = (0xE000..=0xF8FF).contains(&u_val) || (0xF0000..=0x10FFFF).contains(&u_val);
+        let is_circled = (0x2460..=0x24FF).contains(&u_val);
+        if is_control || is_pua || is_circled {
+            return None;
+        }
+        Some((consumed, Some(u), UnicodeSource::CidCollection))
+    }
+
+    fn decode_via_heuristics_sourced(&self, data: &[u8]) -> (usize, Option<String>, UnicodeSource) {
         let subtype = self.subtype.as_str();
         let is_multibyte =
             subtype == "Type0" || subtype == "CIDFontType0" || subtype == "CIDFontType2";
@@ -2224,38 +2349,25 @@ impl FontResource {
 
         let consumed = if is_multibyte || is_identity { 2 } else { 1 };
         if data.len() < consumed {
-            return (data.len(), None);
+            return (data.len(), None, UnicodeSource::Unmapped);
         }
         let code_bytes = &data[..consumed];
 
         // 1. Try Adobe-Japan1 (AJ1) mapping for Japanese CIDFonts
-        // CRITICAL: Only apply if this is a multibyte font or identity encoded,
-        // otherwise we risk "evaporating" the next byte of a simple font.
         if (is_multibyte || is_identity)
-            && let Some(ref aj1) = self.adj1_mapping
+            && let Some(found) = self.decode_via_cid_collection(data)
         {
-            let consumed_aj1 = 2; // AJ1 CIDs are always 2 bytes in our mapping
-            if data.len() >= consumed_aj1 {
-                let code_bytes = &data[..consumed_aj1];
-                if let Some(u) = aj1.map(code_bytes)
-                    && let Some(c) = u.chars().next()
-                {
-                    let u_val = c as u32;
-                    let is_control = (u_val <= 0x1F) || (0x7F..=0x9F).contains(&u_val);
-                    let is_pua =
-                        (0xE000..=0xF8FF).contains(&u_val) || (0xF0000..=0x10FFFF).contains(&u_val);
-                    let is_circled = (0x2460..=0x24FF).contains(&u_val);
-                    if !is_control && !is_pua && !is_circled {
-                        return (consumed_aj1, Some(u));
-                    }
-                }
-            }
+            return found;
         }
 
         if !is_multibyte && !is_identity && !self.is_legacy_distiller && !data.is_empty() {
             let code = data[0];
             if (32..127).contains(&code) {
-                return (1, Some(String::from_utf8_lossy(&[code]).to_string()));
+                return (
+                    1,
+                    Some(String::from_utf8_lossy(&[code]).to_string()),
+                    UnicodeSource::AsciiGuess,
+                );
             }
         }
 
@@ -2268,10 +2380,15 @@ impl FontResource {
             && consumed == 1
             && (0x20..=0x7E).contains(&code_bytes[0])
         {
-            return (consumed, Some((code_bytes[0] as char).to_string()));
+            return (
+                consumed,
+                Some((code_bytes[0] as char).to_string()),
+                UnicodeSource::AsciiGuess,
+            );
         }
 
-        (consumed, self.to_unicode(code_bytes))
+        let (text, source) = self.unicode_for(code_bytes);
+        (consumed, text, source)
     }
 }
 

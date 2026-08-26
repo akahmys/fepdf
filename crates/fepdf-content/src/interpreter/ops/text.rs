@@ -587,7 +587,7 @@ impl Interpreter<'_> {
         let mut glyphs = Vec::new();
         let mut i = 0;
         while i < text.len() {
-            let (consumed, u) = font.decode_next(&text[i..]);
+            let (consumed, u, source) = font.decode_next_sourced(&text[i..]);
             if consumed == 0 {
                 break;
             }
@@ -641,6 +641,7 @@ impl Interpreter<'_> {
                 vx,
                 vy,
                 is_fallback: resolved_gid.is_none(),
+                source,
             });
             i += consumed;
         }

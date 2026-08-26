@@ -52,6 +52,12 @@ pub struct TextGlyph {
     pub char_code: u32,
     /// Unicode text this glyph stands for, for extraction and selection.
     pub unicode: String,
+    /// Which route named it, or why none did (9.10.2).
+    ///
+    /// Carried beside the text rather than derived from it: an empty `unicode` says a
+    /// glyph could not be named and this says *what would have named it*, which is the
+    /// difference between a count and a direction.
+    pub source: fepdf_model::font::UnicodeSource,
     /// Horizontal advance.
     pub width: f32,
     /// Vertical origin displacement (vertical writing modes).

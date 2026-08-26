@@ -40,6 +40,12 @@ pub struct TextExtractionBackend {
     glyphs_seen: usize,
     /// How many of `glyphs_seen` had an empty `unicode`.
     glyphs_unmapped: usize,
+    /// Which route was reached, and failed, for each of them.
+    ///
+    /// A count says how much was lost; this says where to go for it. Measured on
+    /// `bokutokitan.pdf`, "213 of 360" was the whole of what could be reported and it
+    /// named no work.
+    unmapped_by_source: std::collections::BTreeMap<&'static str, usize>,
 }
 
 impl Default for TextExtractionBackend {
@@ -51,7 +57,13 @@ impl Default for TextExtractionBackend {
 impl TextExtractionBackend {
     /// Creates a new empty text aggregator.
     pub fn new() -> Self {
-        Self { output: String::new(), last_y: 0.0, glyphs_seen: 0, glyphs_unmapped: 0 }
+        Self {
+            output: String::new(),
+            last_y: 0.0,
+            glyphs_seen: 0,
+            glyphs_unmapped: 0,
+            unmapped_by_source: std::collections::BTreeMap::new(),
+        }
     }
     /// Finalizes the aggregation and returns the accumulated string.
     pub fn finish(self) -> String {
@@ -111,6 +123,7 @@ impl RenderBackend for TextExtractionBackend {
             self.glyphs_seen += 1;
             if glyph.unicode.is_empty() {
                 self.glyphs_unmapped += 1;
+                *self.unmapped_by_source.entry(glyph.source.name()).or_default() += 1;
             }
             self.output.push_str(&glyph.unicode);
         }
@@ -145,9 +158,17 @@ impl RenderBackend for TextExtractionBackend {
             "left them out of the extracted text; the font supplied no /ToUnicode and no              CMap collection this engine carries names these codes"
                 .to_string()
         };
+        let routes = self
+            .unmapped_by_source
+            .iter()
+            .map(|(route, count)| format!("{count} reached {route}"))
+            .collect::<Vec<_>>()
+            .join(", ");
         vec![fepdf_model::interpretation::Decision::violation(
             "9.10.2",
-            format!("{unmapped} of {seen} glyphs drawn on this page have no Unicode value"),
+            format!(
+                "{unmapped} of {seen} glyphs drawn on this page have no Unicode value ({routes})"
+            ),
             action,
         )]
     }
