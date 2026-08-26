@@ -265,18 +265,17 @@ impl CMap {
                     let parts: Vec<&str> = line.split('\t').collect();
                     if parts.len() >= 24 {
                         let cid_str = parts[0];
-                        let ucs2_col = [parts[17], parts[20], parts[23]]
+                        // The first column that *parses*, not the first that is
+                        // non-empty. Choosing on emptiness and then failing to read the
+                        // choice threw away eight CIDs another column could have named,
+                        // and 186 in total — see `column_value`.
+                        let found = [parts[17], parts[20], parts[23]]
                             .iter()
-                            .find(|&&c| c != "*" && !c.is_empty())
-                            .copied()
-                            .unwrap_or("*");
+                            .find_map(|column| column_value(column));
 
-                        if ucs2_col != "*"
+                        if let Some(c) = found
                             && let Ok(cid) = cid_str.parse::<u32>()
                         {
-                            let hex = ucs2_col.split(',').next().unwrap_or(ucs2_col);
-                            if let Ok(val) = u32::from_str_radix(hex, 16)
-                                && let Some(c) = std::char::from_u32(val)
                             {
                                 let cid_bytes = if cid <= 0xFFFF {
                                     vec![(cid >> 8) as u8, (cid & 0xFF) as u8]
@@ -846,6 +845,30 @@ pub fn glyph_name_to_unicode(v: &[u8]) -> String {
     crate::agl::lookup(&name_str).unwrap_or_default()
 }
 
+/// The Unicode character a `cid2code.txt` column names, or `None` when it names none.
+///
+/// Two things a column carries that `from_str_radix` will not take on its own.
+///
+/// **A comma separates alternatives.** `fe11,3001v` is the vertical presentation form and
+/// the character it stands for; the leftmost that parses is taken, and because the
+/// `UniJIS-UCS2` column is consulted before `UniJIS-UTF16` the plain character usually
+/// wins before a presentation form is reached.
+///
+/// **A trailing `v` marks a value that appears in a vertical-writing CMap.** It is part of
+/// Adobe's notation and not part of the number, and dropping every row that carried one
+/// dropped **186 CIDs of 23,060** — small against the table, and not small at all in a
+/// document set vertically: CIDs 7887 and 7888 are 、 and 。, and a Japanese novel is made
+/// of them.
+fn column_value(column: &str) -> Option<char> {
+    if column == "*" || column.is_empty() {
+        return None;
+    }
+    column.split(',').find_map(|alternative| {
+        let hex = alternative.strip_suffix('v').unwrap_or(alternative);
+        u32::from_str_radix(hex, 16).ok().and_then(std::char::from_u32)
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -894,5 +917,35 @@ mod tests {
         // Should not panic on e_val < s_val
         let cmap = CMap::parse(cmap_data).unwrap();
         assert_eq!(cmap.cid_ranges.len(), 0);
+    }
+
+    /// `cid2code.txt`'s notation, which is not plain hexadecimal.
+    #[test]
+    fn a_column_value_reads_adobes_notation() {
+        // The plain case.
+        assert_eq!(super::column_value("4f0d"), Some('\u{4f0d}'));
+        // A trailing `v` marks a value that appears in a vertical-writing CMap. It is
+        // notation, not part of the number, and treating it as part of the number threw
+        // away CID 7887 — 、 — from every vertically set document.
+        assert_eq!(super::column_value("3001v"), Some('\u{3001}'));
+        // A comma separates alternatives; the leftmost that parses wins.
+        assert_eq!(super::column_value("fe11,3001v"), Some('\u{fe11}'));
+        // Nothing named.
+        assert_eq!(super::column_value("*"), None);
+        assert_eq!(super::column_value(""), None);
+        // Not a number at all, with no alternative behind it.
+        assert_eq!(super::column_value("zzz"), None);
+    }
+
+    /// The column is chosen by whether it *reads*, not by whether it is non-empty.
+    ///
+    /// Choosing on emptiness and then failing to parse the choice is what left eight
+    /// CIDs unmapped that a later column named, and it is the shape of the defect rather
+    /// than its size: a fallback that commits before it has tried is not a fallback.
+    #[test]
+    fn an_unreadable_column_does_not_win_over_a_readable_one() {
+        let columns = ["zzz", "*", "4f0d"];
+        let found = columns.iter().find_map(|c| super::column_value(c));
+        assert_eq!(found, Some('\u{4f0d}'));
     }
 }
