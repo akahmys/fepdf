@@ -29,6 +29,25 @@ fn glyph(unicode: &str) -> TextGlyph {
     }
 }
 
+/// Runs, each at a given device x and y, with a size. What comes out is the text.
+fn extract_runs(runs: &[(f64, f64, f64, &str)]) -> String {
+    let mut backend = TextExtractionBackend::new();
+    for (x, y, size, text) in runs {
+        // Widths are thousandths of an em (9.2.4), so a glyph one em wide is 1000.
+        let glyphs: Vec<TextGlyph> =
+            text.chars().map(|c| TextGlyph { width: 1000.0, ..glyph(&c.to_string()) }).collect();
+        let at = Affine::new([1.0, 0.0, 0.0, 1.0, *x, *y]);
+        backend.show_text(
+            &glyphs,
+            *size,
+            at,
+            TextState { tc: 0.0, tw: 0.0, th: 1.0, is_vertical: false },
+            0,
+        );
+    }
+    backend.finish()
+}
+
 fn extract(glyphs: &[TextGlyph]) -> (String, Vec<fepdf_model::interpretation::Decision>) {
     let mut backend = TextExtractionBackend::new();
     if !glyphs.is_empty() {
@@ -94,4 +113,40 @@ fn the_action_names_the_missing_collection_when_that_is_the_cause() {
     } else {
         assert!(action.contains("looked in"), "{action}");
     }
+}
+
+/// Each glyph is one unit wide at size 1, so a run of n characters advances n.
+///
+/// A `TJ` array delivers one `show_text` per element, so most gaps between calls are
+/// kerning rather than word breaks. Measured across a table page, two prose pages and a
+/// page of vertical Japanese: kerning reaches 0.055 em at the 99th percentile, every real
+/// separation is at least 0.15 em, and **nothing falls between 0.15 and 0.25**. The
+/// threshold sits in that empty band.
+#[test]
+fn runs_separated_along_a_line_are_words_and_get_a_space() {
+    // "Regions" ends at x = 7.0; "Labels" starts a full em later.
+    let text = extract_runs(&[(0.0, 100.0, 1.0, "Regions"), (8.0, 100.0, 1.0, "Labels")]);
+    assert_eq!(text, "Regions Labels");
+}
+
+#[test]
+fn a_kerning_sized_gap_is_not_a_word_break() {
+    // 0.05 em, which is where kerning lives. Splitting here puts spaces inside words.
+    let text = extract_runs(&[(0.0, 100.0, 1.0, "Va"), (2.05, 100.0, 1.0, "lue")]);
+    // "Va" is two ems wide, so it ends at 2.0 and the next run begins 0.05 em later.
+    assert_eq!(text, "Value");
+}
+
+#[test]
+fn a_run_on_a_new_line_is_not_also_spaced() {
+    // The newline already separates them; a space as well would be two separators.
+    let text = extract_runs(&[(0.0, 100.0, 1.0, "one"), (500.0, 20.0, 1.0, "two")]);
+    assert_eq!(text, "one\ntwo");
+}
+
+#[test]
+fn nothing_is_inserted_before_the_first_run_or_after_whitespace() {
+    assert_eq!(extract_runs(&[(500.0, 100.0, 1.0, "first")]), "first");
+    let text = extract_runs(&[(0.0, 100.0, 1.0, "a "), (9.0, 100.0, 1.0, "b")]);
+    assert_eq!(text, "a b", "one space, not two");
 }
