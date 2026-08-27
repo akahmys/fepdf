@@ -623,13 +623,11 @@ impl RenderBackend for VelloBackend {
         let mut closed_path = path.clone();
         closed_path.close_path();
 
-        self.scene.push_layer(
-            vello_rule,
-            vello::peniko::Mix::Normal,
-            1.0f32,
-            self.state.transform,
-            &closed_path,
-        );
+        // `push_clip_layer` and not `push_layer`: a PDF clip is a clip, and vello has an
+        // entry point for exactly that. The general one asks for a *blend* layer, which
+        // costs blend memory per nesting level — the one resource `Scene::bump_estimate`
+        // does not model, so nothing warns before the GPU runs out.
+        self.scene.push_clip_layer(vello_rule, self.state.transform, &closed_path);
         self.state.clip_count += 1;
     }
 
