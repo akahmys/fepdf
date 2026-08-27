@@ -13,6 +13,7 @@
 //!
 //! ```text
 //! <root>/cmaps/      Adobe-Japan1-7/, Adobe-GB1-6/, Adobe-CNS1-7/, …
+//! <root>/cid2unicode/ Adobe-Japan1-UCS2, Adobe-GB1-UCS2, …
 //! <root>/fonts/      serif.ttf sans.ttf mono.ttf mincho.ttf gothic.ttf
 //! <root>/scripting/  aform.js
 //! ```
@@ -60,8 +61,15 @@ use std::path::{Path, PathBuf};
 /// Which resource is wanted. The name is also the directory under the root.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Resource {
-    /// Adobe's CMap collections, for CID to Unicode.
+    /// Adobe's CMap collections — Unicode to CID, for reading a document's encoding.
     Cmaps,
+    /// Adobe's CID-to-Unicode tables, for saying what a glyph *is*.
+    ///
+    /// **A different resource from the one above, and a different repository.** The CMap
+    /// collections are unidirectional — their own README says they "unidirectionally map
+    /// character codes … to CIDs" — so the direction extraction needs is not in them.
+    /// Adobe publishes it separately, as `mapping-resources-pdf`.
+    CidToUnicode,
     /// The fallback font files.
     Fonts,
     /// Overrides of the scripts this engine carries compiled in.
@@ -74,6 +82,7 @@ impl Resource {
     pub const fn dir_name(self) -> &'static str {
         match self {
             Self::Cmaps => "cmaps",
+            Self::CidToUnicode => "cid2unicode",
             Self::Fonts => "fonts",
             Self::Scripting => "scripting",
         }
@@ -85,6 +94,7 @@ impl Resource {
     const fn source_tree_path(self) -> &'static str {
         match self {
             Self::Cmaps => "external/adobe-cmaps",
+            Self::CidToUnicode => "external/mapping-resources-pdf/pdf2unicode",
             Self::Fonts => "assets/fonts",
             Self::Scripting => "crates/fepdf-script/scripting",
         }

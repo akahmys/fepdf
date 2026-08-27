@@ -240,66 +240,6 @@ impl CMap {
         Self { name: "UniJIS-UTF16-H".into(), ..Default::default() }
     }
 
-    /// The `Adobe-Japan1-UCS2` CMap, mapping Adobe-Japan1 CIDs to Unicode.
-    pub fn adobe_japan1_ucs2() -> Self {
-        static CACHE: std::sync::OnceLock<std::collections::BTreeMap<Vec<u8>, String>> =
-            std::sync::OnceLock::new();
-
-        let mappings = CACHE.get_or_init(|| {
-            let mut map = std::collections::BTreeMap::new();
-            // Try to load from cid2code.txt in the resources directory
-            let Some(cmaps) = crate::resources::locate(crate::resources::Resource::Cmaps) else {
-                // Nothing to read. The empty map is returned, and the caller that wanted
-                // a Japanese mapping records why it did not get one — see
-                // `resources::not_found_message`. Returning silently is what left 192
-                // pages of `bokutokitan.pdf` indistinguishable from blank ones.
-                return map;
-            };
-            let cid2code_path = cmaps.join("Adobe-Japan1-7/cid2code.txt");
-
-            if let Ok(content) = std::fs::read_to_string(&cid2code_path) {
-                for line in content.lines() {
-                    if line.starts_with('#') || line.is_empty() || line.starts_with("CID") {
-                        continue;
-                    }
-                    let parts: Vec<&str> = line.split('\t').collect();
-                    if parts.len() >= 24 {
-                        let cid_str = parts[0];
-                        // The first column that *parses*, not the first that is
-                        // non-empty. Choosing on emptiness and then failing to read the
-                        // choice threw away eight CIDs another column could have named,
-                        // and 186 in total — see `column_value`.
-                        let found = [parts[17], parts[20], parts[23]]
-                            .iter()
-                            .find_map(|column| column_value(column));
-
-                        if let Some(c) = found
-                            && let Ok(cid) = cid_str.parse::<u32>()
-                        {
-                            {
-                                let cid_bytes = if cid <= 0xFFFF {
-                                    vec![(cid >> 8) as u8, (cid & 0xFF) as u8]
-                                } else {
-                                    cid.to_be_bytes().to_vec()
-                                };
-                                map.insert(cid_bytes, c.to_string());
-                            }
-                        }
-                    }
-                }
-            }
-
-            // No fallback: return empty map. Let to_unicode_inner handle PUA.
-            map
-        });
-
-        Self {
-            name: "Adobe-Japan1-UCS2".into(),
-            mappings: Arc::new(mappings.clone()),
-            ..Default::default()
-        }
-    }
-
     /// Loads a predefined CMap by name, from the bundled Adobe resources.
     pub fn load_named(name: &str) -> Option<Self> {
         Self::load_named_recursive(name, 0)
@@ -314,13 +254,36 @@ impl CMap {
         if let Some(cmap) = match name {
             "Identity-H" => Some(Self::identity_h()),
             "Identity-V" => Some(Self::identity_v()),
-            "Adobe-Japan1-UCS2" => Some(Self::adobe_japan1_ucs2()),
             _ => None,
         } {
             return Some(cmap);
         }
 
-        // 2. Dynamic loading from synced cmap-resources repository
+        // 2. Adobe's CID-to-Unicode tables, which are what a name ending `-UCS2` asks
+        //    for. **A different repository from the CMap collections below**, because
+        //    those are unidirectional the other way: their own README says they
+        //    "unidirectionally map character codes … to CIDs".
+        //
+        //    Measured: `Adobe-Japan1-UCS2` names **23,060 CIDs, the whole collection**.
+        //    A table synthesised from `cid2code.txt`'s UniJIS columns stood here until
+        //    this file arrived and reached 15,443 — it was derived from the encoding
+        //    CMaps, so it could only name the CIDs an encoding reaches, and the 7,617 it
+        //    missed were ordinary text: CID 12506 is の, 12708 is つ, 12485 is す.
+        //
+        //    **The empty check is not defensive noise.** `parse_with_depth` returns
+        //    `Ok` with nothing in it for input it cannot read, and accepting that put an
+        //    empty map where the mapping should be — 973,483 unmapped glyphs against
+        //    82,601, and a Japanese novel extracting as nothing at all.
+        if name.ends_with("-UCS2")
+            && let Some(dir) = crate::resources::locate(crate::resources::Resource::CidToUnicode)
+            && let Ok(data) = std::fs::read(dir.join(name))
+            && let Ok(cmap) = Self::parse_with_depth(&data, depth)
+            && !cmap.mappings.is_empty()
+        {
+            return Some(cmap);
+        }
+
+        // 3. Dynamic loading from synced cmap-resources repository
         let resource_dir = crate::resources::locate(crate::resources::Resource::Cmaps)?;
 
         let mut search_paths = vec![resource_dir.clone()];
@@ -331,35 +294,13 @@ impl CMap {
         for base in search_paths {
             let file_path = base.join(name);
             if let Ok(data) = std::fs::read(&file_path)
-                && let Ok(mut cmap) = Self::parse_recursive(&data, depth)
+                && let Ok(mut cmap) = Self::parse_with_depth(&data, depth)
             {
                 cmap.name = name.to_string();
                 return Some(cmap);
             }
         }
         None
-    }
-
-    fn parse_recursive(data: &[u8], depth: usize) -> PdfResult<Self> {
-        let mut cmap = Self::default();
-        let tokens = tokenize_cmap(data);
-        let mut i = 0;
-        while i < tokens.len() {
-            let token = tokens[i];
-            if token == b"usecmap" && i > 0 {
-                let parent_name =
-                    String::from_utf8_lossy(tokens[i - 1]).trim_start_matches('/').to_string();
-                if let Some(parent_cmap) = Self::load_named_recursive(&parent_name, depth + 1) {
-                    let mut new_mappings = (*cmap.mappings).clone();
-                    for (k, v) in parent_cmap.mappings.iter() {
-                        new_mappings.insert(k.clone(), v.clone());
-                    }
-                    cmap.mappings = Arc::new(new_mappings);
-                }
-            }
-            i += 1;
-        }
-        Ok(cmap)
     }
 }
 
@@ -845,30 +786,6 @@ pub fn glyph_name_to_unicode(v: &[u8]) -> String {
     crate::agl::lookup(&name_str).unwrap_or_default()
 }
 
-/// The Unicode character a `cid2code.txt` column names, or `None` when it names none.
-///
-/// Two things a column carries that `from_str_radix` will not take on its own.
-///
-/// **A comma separates alternatives.** `fe11,3001v` is the vertical presentation form and
-/// the character it stands for; the leftmost that parses is taken, and because the
-/// `UniJIS-UCS2` column is consulted before `UniJIS-UTF16` the plain character usually
-/// wins before a presentation form is reached.
-///
-/// **A trailing `v` marks a value that appears in a vertical-writing CMap.** It is part of
-/// Adobe's notation and not part of the number, and dropping every row that carried one
-/// dropped **186 CIDs of 23,060** — small against the table, and not small at all in a
-/// document set vertically: CIDs 7887 and 7888 are 、 and 。, and a Japanese novel is made
-/// of them.
-fn column_value(column: &str) -> Option<char> {
-    if column == "*" || column.is_empty() {
-        return None;
-    }
-    column.split(',').find_map(|alternative| {
-        let hex = alternative.strip_suffix('v').unwrap_or(alternative);
-        u32::from_str_radix(hex, 16).ok().and_then(std::char::from_u32)
-    })
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -917,35 +834,5 @@ mod tests {
         // Should not panic on e_val < s_val
         let cmap = CMap::parse(cmap_data).unwrap();
         assert_eq!(cmap.cid_ranges.len(), 0);
-    }
-
-    /// `cid2code.txt`'s notation, which is not plain hexadecimal.
-    #[test]
-    fn a_column_value_reads_adobes_notation() {
-        // The plain case.
-        assert_eq!(super::column_value("4f0d"), Some('\u{4f0d}'));
-        // A trailing `v` marks a value that appears in a vertical-writing CMap. It is
-        // notation, not part of the number, and treating it as part of the number threw
-        // away CID 7887 — 、 — from every vertically set document.
-        assert_eq!(super::column_value("3001v"), Some('\u{3001}'));
-        // A comma separates alternatives; the leftmost that parses wins.
-        assert_eq!(super::column_value("fe11,3001v"), Some('\u{fe11}'));
-        // Nothing named.
-        assert_eq!(super::column_value("*"), None);
-        assert_eq!(super::column_value(""), None);
-        // Not a number at all, with no alternative behind it.
-        assert_eq!(super::column_value("zzz"), None);
-    }
-
-    /// The column is chosen by whether it *reads*, not by whether it is non-empty.
-    ///
-    /// Choosing on emptiness and then failing to parse the choice is what left eight
-    /// CIDs unmapped that a later column named, and it is the shape of the defect rather
-    /// than its size: a fallback that commits before it has tried is not a fallback.
-    #[test]
-    fn an_unreadable_column_does_not_win_over_a_readable_one() {
-        let columns = ["zzz", "*", "4f0d"];
-        let found = columns.iter().find_map(|c| super::column_value(c));
-        assert_eq!(found, Some('\u{4f0d}'));
     }
 }
