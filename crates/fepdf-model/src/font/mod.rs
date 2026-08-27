@@ -224,12 +224,15 @@ pub struct FontSummary {
 /// `U+FFFFE`, `U+FFFFF`, `U+10FFFE` and `U+10FFFF`, which are noncharacters rather than
 /// private use. `FontResource::is_suspicious_hint` asks a related question about glyph
 /// resolution and has the range right — a fifth spelling, and the only correct one.
-fn is_withheld(c: char, reject_control: bool) -> bool {
+fn is_withheld(c: char, reject_control: bool) -> Option<UnicodeSource> {
     let value = c as u32;
-    let is_pua = (0xE000..=0xF8FF).contains(&value) || (0xF0000..=0x10FFFF).contains(&value);
-    let is_circled = (0x2460..=0x24FF).contains(&value);
-    let is_control = reject_control && ((value <= 0x1F) || (0x7F..=0x9F).contains(&value));
-    is_pua || is_circled || is_control
+    if (0xE000..=0xF8FF).contains(&value) || (0xF0000..=0x10FFFF).contains(&value) {
+        return Some(UnicodeSource::Withheld);
+    }
+    if reject_control && ((value <= 0x1F) || (0x7F..=0x9F).contains(&value)) {
+        return Some(UnicodeSource::Withheld);
+    }
+    None
 }
 
 /// Which route named a character code, or why none did (9.10.2).
@@ -251,8 +254,19 @@ pub enum UnicodeSource {
     CidCollection,
     /// A CID in the ASCII range read as that byte. A guess, and named as one.
     AsciiGuess,
-    /// A route produced a character and the engine discarded it — today, anything in the
-    /// private-use area or the circled-number block, whatever named it.
+    /// A route produced a character in a private-use area and the engine discarded it.
+    ///
+    /// Private use means the meaning is not universal, so the codepoint carries nothing a
+    /// reader can act on whatever route named it.
+    ///
+    /// **The circled-number block used to be discarded here too and is not any more.**
+    /// Adobe-Japan1 defines 128 CIDs that *are* those characters and they carry no
+    /// Shift-JIS and no EUC encoding at all, so only a Unicode-based route can reach them
+    /// — and every route that can produce `U+2460` is authoritative: `/ToUnicode` is the
+    /// document speaking, the encoding is a Unicode CMap or a glyph name, the CID
+    /// collection is Adobe's own table, and the ASCII guess cannot reach past `U+007E`.
+    /// Measured: 2,753 characters across the corpus, in three Japanese documents at about
+    /// three a page, which is what enumerated lists look like.
     Withheld,
     /// No route named it.
     Unmapped,
@@ -1635,8 +1649,8 @@ impl FontResource {
                 res
             };
 
-            if uni.chars().next().is_some_and(|c| is_withheld(c, false)) {
-                return (None, UnicodeSource::Withheld);
+            if let Some(reason) = uni.chars().next().and_then(|c| is_withheld(c, false)) {
+                return (None, reason);
             }
             return (Some(uni), source);
         }
@@ -2292,7 +2306,7 @@ impl FontResource {
         let tu = self.to_unicode.as_ref()?;
         let (len, u): (usize, Option<String>) = tu.decode_next_with_min_len(data, min_len)?;
         if let Some(u_str) = u {
-            if u_str.chars().next().is_some_and(|c| is_withheld(c, false)) {
+            if u_str.chars().next().is_some_and(|c| is_withheld(c, false).is_some()) {
                 return Some((len, None));
             }
             return Some((len, Some(u_str)));
@@ -2314,7 +2328,7 @@ impl FontResource {
                 u_str
             };
 
-            if uni.chars().next().is_some_and(|c| is_withheld(c, false)) {
+            if uni.chars().next().is_some_and(|c| is_withheld(c, false).is_some()) {
                 return Some((len, None));
             }
             return Some((len, Some(uni)));
@@ -2338,7 +2352,7 @@ impl FontResource {
         }
         let u = aj1.map(&data[..consumed])?;
         let c = u.chars().next()?;
-        if is_withheld(c, true) {
+        if is_withheld(c, true).is_some() {
             return None;
         }
         Some((consumed, Some(u), UnicodeSource::CidCollection))
@@ -2732,5 +2746,35 @@ mod tests {
         }
 
         assert!(res.data.is_none(), "Raw data should be released after reconstruction");
+    }
+    /// What extraction withholds, and what it stopped withholding.
+    ///
+    /// Private use stays out: the meaning is not universal, so the codepoint carries
+    /// nothing a reader can act on whatever named it.
+    ///
+    /// **Circled numbers used to go out with them and no longer do.** Adobe-Japan1
+    /// defines 128 CIDs that *are* those characters, and they carry no Shift-JIS and no
+    /// EUC encoding at all, so only a Unicode-based route reaches them — and every route
+    /// that can produce one is authoritative. Measured: 2,753 across the corpus, in three
+    /// Japanese documents, and what they spell is 注⑵ — a footnote marker that was being
+    /// deleted from the extracted text.
+    #[test]
+    fn private_use_is_withheld_and_circled_numbers_are_not() {
+        assert!(super::is_withheld('\u{e000}', false).is_some(), "private use area");
+        assert!(super::is_withheld('\u{f8ff}', false).is_some(), "the end of it");
+        assert!(super::is_withheld('\u{f0000}', false).is_some(), "the supplementary one");
+
+        assert!(super::is_withheld('\u{2460}', false).is_none(), "① is a character");
+        assert!(super::is_withheld('\u{2477}', false).is_none(), "⑷ is a character");
+        assert!(super::is_withheld('\u{24ff}', false).is_none(), "the end of the block");
+    }
+
+    /// Control characters are refused only where the caller asks, which is the CID
+    /// collection's route — a table lookup landing on a control code has gone wrong,
+    /// while a `/ToUnicode` naming one is the document's own doing.
+    #[test]
+    fn control_characters_are_refused_only_when_the_route_asks() {
+        assert!(super::is_withheld('\u{0007}', true).is_some());
+        assert!(super::is_withheld('\u{0007}', false).is_none());
     }
 }
