@@ -206,6 +206,32 @@ pub struct FontSummary {
     pub object_id: u32,
 }
 
+/// Whether a resolved character is withheld from extraction (9.10.2).
+///
+/// **This was written four times and the four did not agree.** Three sites rejected the
+/// private-use areas and the circled-number block; the fourth rejected control characters
+/// as well. Which rule applied depended on which route had answered — by accident, not by
+/// design, because the check sits after the route is out of view.
+///
+/// The judgement itself is the questionable part and is left exactly as it was. Adobe-
+/// Japan1 defines 128 CIDs that *are* circled numbers, and they carry no Shift-JIS and no
+/// EUC encoding at all, so a Unicode-based route reaching `U+2460` is right where a legacy
+/// one is not. That is a question about the route, and this function cannot see one.
+/// Changing it is a behavioural change and wants its own measurement; 2,801 glyphs of the
+/// corpus arrive here.
+///
+/// **The supplementary range is wrong and is kept wrong.** `F0000..=10FFFF` takes in
+/// `U+FFFFE`, `U+FFFFF`, `U+10FFFE` and `U+10FFFF`, which are noncharacters rather than
+/// private use. `FontResource::is_suspicious_hint` asks a related question about glyph
+/// resolution and has the range right — a fifth spelling, and the only correct one.
+fn is_withheld(c: char, reject_control: bool) -> bool {
+    let value = c as u32;
+    let is_pua = (0xE000..=0xF8FF).contains(&value) || (0xF0000..=0x10FFFF).contains(&value);
+    let is_circled = (0x2460..=0x24FF).contains(&value);
+    let is_control = reject_control && ((value <= 0x1F) || (0x7F..=0x9F).contains(&value));
+    is_pua || is_circled || is_control
+}
+
 /// Which route named a character code, or why none did (9.10.2).
 ///
 /// **Not a taxonomy, a label.** Font recovery is heuristic where the standard leaves a
@@ -1609,14 +1635,8 @@ impl FontResource {
                 res
             };
 
-            if let Some(c) = uni.chars().next() {
-                let u_val = c as u32;
-                let is_pua =
-                    (0xE000..=0xF8FF).contains(&u_val) || (0xF0000..=0x10FFFF).contains(&u_val);
-                let is_circled = (0x2460..=0x24FF).contains(&u_val);
-                if is_pua || is_circled {
-                    return (None, UnicodeSource::Withheld);
-                }
+            if uni.chars().next().is_some_and(|c| is_withheld(c, false)) {
+                return (None, UnicodeSource::Withheld);
             }
             return (Some(uni), source);
         }
@@ -2272,14 +2292,8 @@ impl FontResource {
         let tu = self.to_unicode.as_ref()?;
         let (len, u): (usize, Option<String>) = tu.decode_next_with_min_len(data, min_len)?;
         if let Some(u_str) = u {
-            if let Some(c) = u_str.chars().next() {
-                let u_val = c as u32;
-                let is_pua =
-                    (0xE000..=0xF8FF).contains(&u_val) || (0xF0000..=0x10FFFF).contains(&u_val);
-                let is_circled = (0x2460..=0x24FF).contains(&u_val);
-                if is_pua || is_circled {
-                    return Some((len, None));
-                }
+            if u_str.chars().next().is_some_and(|c| is_withheld(c, false)) {
+                return Some((len, None));
             }
             return Some((len, Some(u_str)));
         }
@@ -2300,14 +2314,8 @@ impl FontResource {
                 u_str
             };
 
-            if let Some(c) = uni.chars().next() {
-                let u_val = c as u32;
-                let is_pua =
-                    (0xE000..=0xF8FF).contains(&u_val) || (0xF0000..=0x10FFFF).contains(&u_val);
-                let is_circled = (0x2460..=0x24FF).contains(&u_val);
-                if is_pua || is_circled {
-                    return Some((len, None));
-                }
+            if uni.chars().next().is_some_and(|c| is_withheld(c, false)) {
+                return Some((len, None));
             }
             return Some((len, Some(uni)));
         }
@@ -2330,11 +2338,7 @@ impl FontResource {
         }
         let u = aj1.map(&data[..consumed])?;
         let c = u.chars().next()?;
-        let u_val = c as u32;
-        let is_control = (u_val <= 0x1F) || (0x7F..=0x9F).contains(&u_val);
-        let is_pua = (0xE000..=0xF8FF).contains(&u_val) || (0xF0000..=0x10FFFF).contains(&u_val);
-        let is_circled = (0x2460..=0x24FF).contains(&u_val);
-        if is_control || is_pua || is_circled {
+        if is_withheld(c, true) {
             return None;
         }
         Some((consumed, Some(u), UnicodeSource::CidCollection))
