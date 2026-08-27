@@ -72,7 +72,44 @@ pub async fn render_to_bytes(
         .map_err(|e| format!("Rendering failed: {e}"))?;
 
     log::debug!("[RENDER] Copying texture to vec...");
-    copy_texture_to_vec(device, queue, &target, size)
+    let pixels = copy_texture_to_vec(device, queue, &target, size)?;
+    reject_if_nothing_was_rasterised(&pixels, width, height)?;
+    Ok(pixels)
+}
+
+/// Fails when every pixel came back fully transparent.
+///
+/// **`base_color` is opaque white, so a render that completed cannot produce a
+/// transparent pixel anywhere** — an empty page comes back opaque white, not blank. A
+/// fully transparent buffer therefore means the rasteriser did not run to completion and
+/// left the target untouched, which `render_to_texture` reports as `Ok`.
+///
+/// Measured on `samples/volvo_xc90.pdf`, which has 415 pages: two of them — 10 and 389 —
+/// come back entirely transparent at 96 DPI and render correctly at half that. The
+/// failure is all-or-nothing rather than partial, and it is resolution-dependent, which
+/// is the shape of a GPU buffer running out rather than of anything in the document. Page
+/// 389 delivers 1,710 glyphs, 12 images and 123 fills to the backend before it happens.
+///
+/// Until this check existed, `PdfDocument::render_page_to_file` wrote that buffer to a
+/// PNG and returned `Ok`: a caller asked for a page and received a blank image with no
+/// indication that anything had gone wrong. The pixels are scanned rather than the bump
+/// allocators inspected because `BumpAllocators` reaches callers only through
+/// `render_to_texture_async`, which vello deprecates and documents as unstable, and only
+/// with a debug feature enabled.
+fn reject_if_nothing_was_rasterised(
+    pixels: &[u8],
+    width: u32,
+    height: u32,
+) -> Result<(), Box<dyn std::error::Error>> {
+    if pixels.chunks_exact(4).any(|pixel| pixel[3] != 0) {
+        return Ok(());
+    }
+    Err(format!(
+        "the rasteriser produced {width}x{height} fully transparent pixels, which an opaque \
+         base colour makes impossible for a render that completed; the scene exceeded what \
+         the GPU buffers could take and vello reported success anyway"
+    )
+    .into())
 }
 
 async fn setup_wgpu() -> Result<(RenderContext, usize), Box<dyn std::error::Error>> {
@@ -164,4 +201,36 @@ pub async fn render_to_image(
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    /// The invariant the check rests on, stated as a test so that changing `base_color`
+    /// away from an opaque one has to change this too.
+    ///
+    /// A page with nothing on it is opaque white, not transparent — that is what makes a
+    /// fully transparent buffer proof of a rasteriser that stopped rather than of an empty
+    /// document.
+    #[test]
+    fn a_completed_render_always_has_an_opaque_pixel() {
+        let empty_page = vec![255u8, 255, 255, 255];
+        assert!(super::reject_if_nothing_was_rasterised(&empty_page, 1, 1).is_ok());
+
+        // One opaque pixel anywhere is enough: the rasteriser reached the target.
+        let mut mostly_transparent = vec![0u8; 4 * 16];
+        mostly_transparent[4 * 9 + 3] = 1;
+        assert!(super::reject_if_nothing_was_rasterised(&mostly_transparent, 4, 4).is_ok());
+    }
+
+    /// Measured on samples/volvo_xc90.pdf: pages 10 and 389 of 415 come back like this at
+    /// 96 DPI and render correctly at half of it.
+    #[test]
+    fn a_fully_transparent_buffer_is_refused_rather_than_returned() {
+        let nothing = vec![0u8; 4 * 64];
+        let refusal = super::reject_if_nothing_was_rasterised(&nothing, 8, 8)
+            .expect_err("a transparent page is not a page");
+        let message = refusal.to_string();
+        assert!(message.contains("8x8"), "it says how big: {message}");
+        assert!(message.contains("transparent"), "and what was wrong: {message}");
+    }
 }
