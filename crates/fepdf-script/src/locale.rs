@@ -23,10 +23,17 @@
 //!
 //! # What replaces them
 //!
-//! * **A locale argument** — the script named a locale this engine does not carry.
-//!   Unlocalised digits answer a different question, so the call is raised into the
-//!   script and a `Violation` records what was asked for. `Array.prototype.toLocaleString`
-//!   is covered by this without being touched, because it delegates to each element's.
+//! * **A locale argument** — the script named a locale this engine does not carry. The
+//!   unlocalised digits are returned and a `Violation` records what was asked for.
+//!   `Array.prototype.toLocaleString` is covered by this without being touched, because
+//!   it delegates to each element's.
+//!
+//!   **This threw, for a day, and throwing was worse.** The argument was that unlocalised
+//!   digits answer a different question than `de-DE` does, which is true and is not the
+//!   point: `run_calculations` stops the whole calculation order at the first script that
+//!   will not complete, so refusing one currency field emptied every other field on the
+//!   form. A wrongly formatted number is a degraded result; no number at all is no result,
+//!   and the caller learns which through the `Decision` either way.
 //! * **No locale argument** — the script asked for *this host's default*, and this host's
 //!   default really is unlocalised digits. The answer is true, so it is returned, and an
 //!   `Ambiguity` records which reading was taken — **once per script execution**, not once
@@ -100,12 +107,11 @@ fn formatter(method: Method) -> NativeFunction {
             // `to_string` and not `to_number`, so the same closure serves a BigInt, whose
             // value does not survive an f64.
             let plain = this.to_string(ctx)?;
-            let Some(asked) = requested_locale(args, ctx)? else {
-                method.record(Ask::Default);
-                return Ok(plain.into());
-            };
-            method.record(Ask::Locale(&asked));
-            Err(method.refusal(&asked))
+            match requested_locale(args, ctx)? {
+                None => method.record(Ask::Default),
+                Some(asked) => method.record(Ask::Locale(&asked)),
+            }
+            Ok(plain.into())
         },
         method,
     )

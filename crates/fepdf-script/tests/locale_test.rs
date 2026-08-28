@@ -55,20 +55,23 @@ fn said(expression: &str) -> String {
 }
 
 #[test]
-fn a_named_locale_is_refused_rather_than_answered_without_it() {
-    // The whole point. Before this, every one of these returned a string.
-    for asked in [
-        "(1234567.891).toLocaleString('de-DE')",
-        "(1234.5).toLocaleString('de-DE', {style: 'currency', currency: 'EUR'})",
-        "(10n).toLocaleString('de-DE')",
-        // Not replaced, and covered anyway: Array.prototype.toLocaleString delegates to
-        // each element's, so the refusal travels through it.
-        "[1234.5, 2].toLocaleString('de-DE')",
+fn a_named_locale_is_answered_without_it_rather_than_refused() {
+    // **This asserted the opposite for a day.** Refusing was defended as "unlocalised
+    // digits answer a different question than de-DE does", which is true and is not the
+    // point: `run_calculations` stops the whole calculation order at the first script
+    // that will not complete, so refusing one currency field emptied every other field
+    // on the form. A wrongly formatted number is a degraded result; no number at all is
+    // no result. The `Decision` carries the difference either way.
+    for (asked, expected) in [
+        ("(1234567.891).toLocaleString('de-DE')", "1234567.891"),
+        ("(1234.5).toLocaleString('de-DE', {style: 'currency', currency: 'EUR'})", "1234.5"),
+        ("(10n).toLocaleString('de-DE')", "10"),
+        // Array.prototype.toLocaleString delegates to each element's, so it comes too.
+        ("[1234.5, 2].toLocaleString('de-DE')", "1234.5"),
     ] {
         let answer = said(asked);
-        assert!(answer.starts_with("THREW:"), "{asked} must not answer quietly: {answer}");
-        assert!(answer.contains("12.6.4.16"), "the refusal names the clause: {answer}");
-        assert!(answer.contains("de-DE"), "the refusal names what was asked: {answer}");
+        assert!(!answer.starts_with("THREW:"), "{asked} answers rather than refusing: {answer}");
+        assert!(answer.contains(expected), "{asked} gives the unlocalised digits: {answer}");
     }
 }
 
@@ -87,7 +90,8 @@ fn no_locale_answers_with_the_digits_because_that_answer_is_true() {
 fn both_answers_are_recorded_against_the_document() {
     // Rule 20: a departure the caller cannot see is a defect even when the output is
     // right. `inspect structure` prints these.
-    let (_, handle) = run("(1234567.891).toLocaleString('de-DE')");
+    let (answer, handle) = run("(1234567.891).toLocaleString('de-DE')");
+    assert!(answer.is_ok(), "the value still comes back");
     let refused = handle.with(PdfDocument::decisions);
     assert_eq!(refused.len(), 1, "one decision: {refused:?}");
     assert_eq!(refused[0].severity, Severity::Violation);

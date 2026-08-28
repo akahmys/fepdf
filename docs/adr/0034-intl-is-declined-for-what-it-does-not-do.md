@@ -1,4 +1,4 @@
-# ADR-0034: The locale is refused rather than ignored, and `intl` is declined for what it does not do
+# ADR-0034: The locale is recorded rather than ignored, and `intl` is declined for what it does not do
 
 - **Status**: Accepted
 - **Date**: 2026-08-23
@@ -35,9 +35,17 @@ Building it was the obvious alternative, and it was measured before it was decli
 
 **ECMA-402 stays out, and its absence is made to look like one thing instead of three.**
 
-* **A named locale is refused.** The call raises into the script with a sentence naming
-  the clause, and a `Violation` records what was asked for. Unlocalised digits answer a
-  different question than `de-DE` does.
+* **A named locale is answered without it, and recorded.** The unlocalised digits come
+  back and a `Violation` names the clause and the locale that was asked for.
+
+  **This refused for a day, and the reversal is the part worth keeping.** The argument for
+  refusing was that unlocalised digits answer a different question than `de-DE` does. That
+  is true, and it is not the point. `run_calculations` stops the whole calculation order
+  at the first script that will not complete, so refusing one currency field emptied every
+  other field on the form — a form that had been producing wrong formatting now produced
+  nothing at all. A wrongly formatted number is a degraded result; no number is no result.
+  The `Decision` distinguishes them either way, which is what makes returning the digits
+  the better half of the trade rather than a return to silence.
 * **No locale named is answered.** The script asked for *this host's default*, and this
   host's default really is unlocalised digits — the one case where the old answer was not
   a lie. An `Ambiguity` records which reading was taken, once per script execution: a

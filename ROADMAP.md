@@ -2179,9 +2179,13 @@ than `fepdf-gui` is today, which is why Q comes first rather than why R can wait
       believe it had formatted it. `Intl` itself throws a `ReferenceError` and `Date`'s
       `toLocale*` threw `Function Unimplemented`; the three disagreed.
 
-      A named locale is refused now, with a sentence naming 12.6.4.16 and a `Violation`
-      recorded; no locale named returns the digits and records an `Ambiguity` once per
-      run. `Date`'s three throw the same sentence. `Number`, `BigInt` and — through
+      A named locale returns the unlocalised digits and records a `Violation` naming
+      12.6.4.16; no locale named returns the same digits and records an `Ambiguity` once
+      per run. **It refused for a day, and refusing was worse**: `run_calculations` stops
+      the whole calculation order at the first script that will not complete, so one
+      currency field emptied every other field on the form. A wrongly formatted number is
+      a degraded result and no number is no result, and the `Decision` carries the
+      difference either way. `Date`'s three throw the same sentence. `Number`, `BigInt` and — through
       delegation — `Array` are covered; `localeCompare` and the `toLocale*Case` pair are
       measured, left, and pinned in `locale_test.rs`.
 
