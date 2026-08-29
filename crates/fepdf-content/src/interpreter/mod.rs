@@ -439,7 +439,7 @@ impl<'a> Interpreter<'a> {
                 // to be indirect, so an inline one names nothing — but 14.9.4 puts real
                 // text in exactly that place, and `volvo_xc90.pdf` writes 3,458 of them.
                 let actual_text = self.actual_text_of(properties.as_ref(), operand.as_ref());
-                self.begin_marked_content_with(tag, operand.as_ref(), actual_text);
+                self.begin_marked_content(tag, operand.as_ref(), actual_text);
                 Ok(())
             }
             Command::EndMarkedContent => {
@@ -507,7 +507,7 @@ impl<'a> Interpreter<'a> {
             "Td" | "TD" | "Tm" | "T*" => self.handle_text_positioning_operator(op),
             "Tj" | "TJ" | "'" | "\"" => self.handle_text_showing_operator(op),
             "Do" => self.handle_xobject_operator(),
-            "BMC" | "BDC" | "EMC" | "MP" | "DP" => self.handle_marked_content_operator(op),
+            "MP" | "DP" => self.handle_point_marked_content(op),
             "d0" => {
                 let wy = self.pop_f64()?;
                 let wx = self.pop_f64()?;

@@ -30,45 +30,33 @@ pub(crate) struct MarkedSection {
 }
 
 impl Interpreter<'_> {
-    pub(crate) fn handle_marked_content_operator(&mut self, op: &str) -> PdfResult<()> {
-        match op {
-            // `BMC` carries a tag and no property list, so it can never name a group.
-            "BMC" => {
-                let _tag = self.pop_name()?;
-                self.marked_sections.push(MarkedSection::default());
-            }
-            "BDC" => {
-                let properties = self.stack.pop();
-                let tag = self.pop_name()?;
-                self.begin_marked_content(&tag, properties.as_ref());
-            }
-            // 14.6.2's point operators open nothing, so they close nothing either. `DP`
-            // pops the same two operands as `BDC` and leaves the section stack alone.
-            "MP" => {
-                let _tag = self.pop_name()?;
-            }
-            "DP" => {
-                let _properties = self.stack.pop();
-                let _tag = self.pop_name()?;
-            }
-            "EMC" => self.end_marked_content(),
-            _ => {}
+    /// 14.6.2's *point* operators, which open nothing and so close nothing.
+    ///
+    /// **Only these two reach here.** `BMC`, `BDC` and `EMC` become
+    /// [`Command::BeginMarkedContent`] and [`Command::EndMarkedContent`] in the parser and
+    /// arrive through those arms; `MP` and `DP` are the pair it leaves as raw operators.
+    /// This function had arms for all five, and the `BDC` one read no `/ActualText` — a
+    /// second way into the same operator that would have silently dropped the text the
+    /// other way had just been taught to read (14.9.4).
+    ///
+    /// [`Command::BeginMarkedContent`]: fepdf_model::object::sublimation::Command
+    /// [`Command::EndMarkedContent`]: fepdf_model::object::sublimation::Command
+    pub(crate) fn handle_point_marked_content(&mut self, op: &str) -> PdfResult<()> {
+        // `DP` pops the same two operands as `BDC`; `MP` the tag alone.
+        if op == "DP" {
+            let _properties = self.stack.pop();
         }
+        let _tag = self.pop_name()?;
         Ok(())
     }
 
     /// Opens a section, hiding what follows when the tag is `/OC` and the group is off,
     /// and announcing `/ActualText` when the section declares one.
-    pub(crate) fn begin_marked_content(&mut self, tag: &PdfName, properties: Option<&Object>) {
-        self.begin_marked_content_with(tag, properties, None);
-    }
-
-    /// As `begin_marked_content`, with the property list's `/ActualText` already read.
     ///
-    /// The text arrives separately because the two callers hold the property list in
-    /// different forms, and only one of them can still see an inline dictionary. See
-    /// `actual_text_of` in the interpreter.
-    pub(crate) fn begin_marked_content_with(
+    /// The text arrives already read rather than being taken from `properties`, because
+    /// an inline property list does not survive the conversion to [`Object`] that the
+    /// optional-content code needs — see `actual_text_of`, which reads it from the IR.
+    pub(crate) fn begin_marked_content(
         &mut self,
         tag: &PdfName,
         properties: Option<&Object>,

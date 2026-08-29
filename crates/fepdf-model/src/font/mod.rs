@@ -284,6 +284,19 @@ fn is_glyph_name(value: &str) -> bool {
     value.len() > 1 && value.starts_with('/')
 }
 
+/// A mapping's value as text, with the reason it is withheld if it is.
+///
+/// The two routes that consult a mapping — the encoding, and everything `unicode_for`
+/// tries — did this identically and disagreed only about what to return afterwards: one
+/// reports which filter fired, the other only that something did. Resolving the name and
+/// applying the filter is the shared half.
+fn resolve_mapping(value: String) -> (String, Option<UnicodeSource>) {
+    let text =
+        if is_glyph_name(&value) { cmap::glyph_name_to_unicode(value.as_bytes()) } else { value };
+    let withheld = text.chars().next().and_then(|c| is_withheld(c, false));
+    (text, withheld)
+}
+
 impl UnicodeSource {
     /// The route's name, for a decision or a tally.
     #[must_use]
@@ -1692,10 +1705,8 @@ impl FontResource {
         source: UnicodeSource,
     ) -> (Option<String>, UnicodeSource) {
         if let Some(res) = result {
-            let uni =
-                if is_glyph_name(&res) { cmap::glyph_name_to_unicode(res.as_bytes()) } else { res };
-
-            if let Some(reason) = uni.chars().next().and_then(|c| is_withheld(c, false)) {
+            let (uni, withheld) = resolve_mapping(res);
+            if let Some(reason) = withheld {
                 return (None, reason);
             }
             return (Some(uni), source);
@@ -2368,16 +2379,8 @@ impl FontResource {
         let enc = self.encoding.as_ref()?;
         let (len, u): (usize, Option<String>) = enc.decode_next_with_min_len(data, min_len)?;
         if let Some(u_str) = u {
-            let uni = if is_glyph_name(&u_str) {
-                cmap::glyph_name_to_unicode(u_str.as_bytes())
-            } else {
-                u_str
-            };
-
-            if uni.chars().next().is_some_and(|c| is_withheld(c, false).is_some()) {
-                return Some((len, None));
-            }
-            return Some((len, Some(uni)));
+            let (uni, withheld) = resolve_mapping(u_str);
+            return Some((len, if withheld.is_some() { None } else { Some(uni) }));
         }
         Some((len, None))
     }
