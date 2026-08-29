@@ -32,7 +32,7 @@ The narrowing would have had to be declared as a deliberate limitation. It does 
 because the limitation was an artefact of the invented type.
 
 **Four frontends already translate into `Operation` and hand it to `fepdf-doc::apply`.**
-That is Rule D (ARCHITECTURE §5.1), and `fepdf-mcp` is the proof it works at full width:
+That is Rule D (ARCHITECTURE §4.1), and `fepdf-mcp` is the proof it works at full width:
 it constructs all 24 variants, and it does so by deserialising **a JSON string**, which is
 the form a JavaScript engine produces natively.
 
@@ -120,7 +120,7 @@ claims for the want of exactly that.
   requirement on the builder rather than a verdict**: it means fixtures, as Phase M and
   Phase P both needed.
 - **This design assumes Rule D, which does not currently hold.** Eight frontend call sites
-  mutate documents through facade methods instead of operations (ARCHITECTURE §5.1), and
+  mutate documents through facade methods instead of operations (ARCHITECTURE §4.1), and
   four of the mutations they perform have no `Operation` at all. A script frontend built
   on the vocabulary would be *more* conforming to Rule D than the GUI is. That is an
   argument for fixing Rule D first, not for giving the script engine its own path.

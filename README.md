@@ -148,17 +148,13 @@ disagreement rather than reading as current.
 
 ## Contributing
 
-The project runs on a few rules that are enforced rather than aspired to: no `unsafe`,
-no dependency that compiles C, functions under fifty lines, no non-deterministic
-collections in the core, and no wildcard match over a domain enum. `make audit` checks all
-of them.
+A few rules are enforced rather than aspired to — no `unsafe`, no dependency that compiles
+C, functions under fifty lines, no non-deterministic collections in the core, no wildcard
+match over a domain enum — and `make audit` is what checks them.
 
 ```bash
-make audit                        # RR-15 rules, clippy, cargo-deny, betterleaks
+make audit              # the rules, clippy, cargo-deny, betterleaks
 cargo test --workspace
-./scripts/test/cli_smoke.sh       # every subcommand starts in a debug build
-./scripts/test/crosscheck_roundtrip.sh   # text preserved, compared against PDFKit
-python3 scripts/visual_regression.py     # GPU rendering
 ```
 
 Two habits matter more than the rules:
@@ -171,12 +167,13 @@ Two habits matter more than the rules:
 
 | | |
 | :--- | :--- |
-| [AGENTS.md](AGENTS.md) | Truth hierarchy and operating principles — start here |
-| [ARCHITECTURE.md](ARCHITECTURE.md) | System design, layering rules, the pipeline |
-| [CODING.md](CODING.md) | The RR-15 rules in full |
-| [TESTING.md](TESTING.md) | Testing strategy |
-| [AUDITING.md](AUDITING.md) | Static audits, licences, secret scanning |
-| [PLANNING.md](PLANNING.md) | Planning and codebase discovery |
+| [AGENTS.md](AGENTS.md) | The principles, and which document answers what — start here |
+| [PLANNING.md](PLANNING.md) | What to decide before writing code |
+| [CODING.md](CODING.md) | What code must satisfy: RR-15 and the layering rules |
+| [TESTING.md](TESTING.md) | What must pass before a change lands |
+| [AUDITING.md](AUDITING.md) | What is checked mechanically, and by what |
+| [ARCHITECTURE.md](ARCHITECTURE.md) | The design as it stands |
+| [ROADMAP.md](ROADMAP.md) | The work: measured state, clause by clause |
 | [docs/adr/](docs/adr/README.md) | Why things are the way they are, including reversals |
 
 ## Licence

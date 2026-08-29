@@ -45,7 +45,7 @@ the history.
 
 Note that `Decision` in `fepdf-model` is a different thing entirely: it records what
 the *engine* decided about a non-conforming input file at run time
-(`ARCHITECTURE.md` §5.3).
+(`ARCHITECTURE.md` §4.3).
 
 ## A note on the first five
 
@@ -103,3 +103,4 @@ quietly wrong — which is the failure this log exists to make visible.
 | 0036 | [A base encoding is not a CMap, and a solidus is not a glyph name](0036-a-base-encoding-is-not-a-cmap.md) |  |
 | 0037 | [A rules document holds rules, and the log holds how they were got wrong](0037-a-rules-document-holds-rules-and-its-log-holds-the-rest.md) |  |
 | 0038 | [One hierarchy of truth, and the parallel rulebook that outlived it](0038-one-hierarchy-of-truth-and-the-parallel-rulebook-is-deleted.md) |  |
+| 0039 | [The design document was narrating its own corrections](0039-the-design-document-was-narrating-its-own-corrections.md) |  |

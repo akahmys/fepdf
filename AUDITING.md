@@ -1,5 +1,8 @@
 # 🛡️ fepdf Security, License & Compliance Auditing Protocol
 
+> **Phase: audit.** What is checked mechanically, and by what. The rules being checked are
+> in [CODING.md](CODING.md).
+
 This document defines the automated audit checks, license policy, security vulnerability management, and secret protection standards.
 
 ---

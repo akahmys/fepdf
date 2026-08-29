@@ -563,12 +563,12 @@ impl<'a> Interpreter<'a> {
 
     /// Records a content-stream operator this engine does not run.
     ///
-    /// A `Decision` and not a warning on stderr (ARCHITECTURE §5.3): a caller has to be able
+    /// A `Decision` and not a warning on stderr (ARCHITECTURE §4.3): a caller has to be able
     /// to tell *this page drew* from *this page drew everything it asked for*, and a
     /// line on stderr cannot say which. Measured across both corpora before the change:
     /// 524 files produce six firings — three `UnknownOP` from a file built to be
     /// malformed and three runs of binary rubbish — and **none** on the nine conforming
-    /// samples, so this is a signal rather than the constant §5.3 warns about.
+    /// samples, so this is a signal rather than the constant §4.3 warns about.
     fn record_unknown_operator(&self, op: &str) {
         self.doc.record(Decision::violation(
             "8.2",

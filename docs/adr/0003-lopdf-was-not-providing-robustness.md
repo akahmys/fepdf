@@ -59,6 +59,6 @@ not competing ones.
   its object model and ours. Removing the dependency deletes them rather than
   replacing them, so the reader is not as much net new code as the count suggests.
 - Every tolerance the new reader applies is recorded as a `Decision`
-  (`ARCHITECTURE.md` §5.3). `lopdf` logged its repairs to stderr, where the caller
+  (`ARCHITECTURE.md` §4.3). `lopdf` logged its repairs to stderr, where the caller
   could not see them: a wrong `/Length` was silently absorbed and the document
   reported as read.

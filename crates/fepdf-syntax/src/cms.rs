@@ -150,7 +150,7 @@ pub fn digest(byte_ranges: &[&[u8]]) -> [u8; 32] {
 /// # Errors
 /// If the CMS structure cannot be assembled or signing fails.
 pub fn sign_detached(message_digest: &[u8], identity: &SigningIdentity) -> SyntaxResult<Vec<u8>> {
-    // RFC 5652 §5.2: for a detached signature eContent is absent, and the digest
+    // RFC 5652 §4.2: for a detached signature eContent is absent, and the digest
     // travels as the message-digest signed attribute instead.
     let content =
         EncapsulatedContentInfo { econtent_type: const_oid::db::rfc5911::ID_DATA, econtent: None };
@@ -561,7 +561,7 @@ fn signer_certificate(
 
 /// Verifies the signature over the signed attributes.
 ///
-/// RFC 5652 §5.4: the attributes are hashed as an explicit `SET OF`, not with the
+/// RFC 5652 §4.4: the attributes are hashed as an explicit `SET OF`, not with the
 /// `[0] IMPLICIT` tag they carry inside `SignerInfo`. Encoding them the way they are
 /// stored gives a digest that never matches.
 fn verify_attributes(

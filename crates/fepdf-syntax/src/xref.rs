@@ -6,7 +6,7 @@
 //!
 //! The functions are deliberately tolerant. Real files put bytes before the header,
 //! disagree with their own `startxref`, and pad entries to the wrong width. Each
-//! tolerance is a decision the caller should record — see `ARCHITECTURE.md` §5.3.
+//! tolerance is a decision the caller should record — see `ARCHITECTURE.md` §4.3.
 
 use crate::{SyntaxError, SyntaxResult};
 use std::collections::BTreeMap;

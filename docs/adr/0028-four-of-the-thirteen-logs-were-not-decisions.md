@@ -8,7 +8,7 @@
 
 `ROADMAP.md` Phase P said the engine held sixteen `log::warn!`/`log::error!` sites, three
 deliberate and **"the other thirteen are conclusions about the *document*"**, each of them
-a `Decision` that had not been written. `ARCHITECTURE.md` §5.3 said the same. The obvious
+a `Decision` that had not been written. `ARCHITECTURE.md` §4.3 said the same. The obvious
 reading is that the work is thirteen mechanical conversions.
 
 §5.3 also carries a rule that cuts the other way:

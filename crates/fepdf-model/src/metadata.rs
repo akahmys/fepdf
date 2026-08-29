@@ -226,7 +226,7 @@ fn report_disagreement(
 /// moving them loses nothing — the value is in the metadata stream before this runs, and
 /// `CreationDate` and `ModDate`, which 14.3.3 still allows, stay put. All nine corpus
 /// files carry some, so recording it would put a line in every log and make the log a
-/// constant rather than a signal (`ARCHITECTURE.md` §5.3). What *is* recorded is the
+/// constant rather than a signal (`ARCHITECTURE.md` §4.3). What *is* recorded is the
 /// case where something is lost: `/Info` and the stream disagreeing, which is one file.
 fn migrate_deprecated_info(doc: &Document) {
     const DEPRECATED: [&str; 6] = ["Title", "Author", "Subject", "Keywords", "Creator", "Producer"];
@@ -464,7 +464,7 @@ mod tests {
 
     /// Moving the deprecated entries is not a departure and must not be logged as one.
     ///
-    /// `ARCHITECTURE.md` §5.3: a decision that fires on conforming input is worse than
+    /// `ARCHITECTURE.md` §4.3: a decision that fires on conforming input is worse than
     /// none, because it makes the log a constant rather than a signal. All nine corpus
     /// files carry deprecated `/Info` entries, so recording the move put a line in every
     /// one of their logs — the same shape ADR-0008 removed.

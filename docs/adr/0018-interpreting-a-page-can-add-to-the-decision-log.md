@@ -6,7 +6,7 @@
 
 ## Context
 
-`ARCHITECTURE.md` §5.3 says a departure from the standard is **recorded, not logged**,
+`ARCHITECTURE.md` §4.3 says a departure from the standard is **recorded, not logged**,
 and one place in the engine could not obey it. `ops/xobject.rs` skips an image whose
 filter it cannot decode — the change that recovered four files of the external corpus,
 because a failing image used to abort the content stream and take the page's real text

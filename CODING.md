@@ -1,5 +1,8 @@
 # 💻 fepdf Coding Standards & Hardening Protocol
 
+> **Phase: implementation.** What code must satisfy. What to decide first is in
+> [PLANNING.md](PLANNING.md); what to run afterwards is in [TESTING.md](TESTING.md).
+
 This document defines the coding conventions, safety standards (**RR-15 Protocol**), and architectural patterns required across all crates in the fepdf workspace.
 
 ---
@@ -30,7 +33,7 @@ Derived from aerospace safety principles, the **RR-15 (Reliable Rust-15)** rules
 | **Rule 17** | Type Explicitly | Explicitly specify floating-point types (`1.0_f32`, `2.5_f32`) to prevent Edition 2024 inference fallbacks. | **Nothing. See below.** |
 | **Rule 18** | Secrets and PII | No credential, key or personal datum may be committed. | `betterleaks` via `verify_compliance.sh` and a pre-commit hook |
 | **Rule 19** | Formatting | The tree must satisfy `cargo fmt --all --check`. | `./scripts/audit/verify_compliance.sh` |
-| **Rule 20** | Recorded Interpretation | Where the engine accepts input the standard does not describe, it MUST record a `Decision` naming the clause and what was done. A silent acceptance is a defect even when the output is right. | Code review / ARCHITECTURE.md §5.3 |
+| **Rule 20** | Recorded Interpretation | Where the engine accepts input the standard does not describe, it MUST record a `Decision` naming the clause and what was done. A silent acceptance is a defect even when the output is right. | Code review / ARCHITECTURE.md §4.3 |
 
 Three things this table does not say for itself, recorded in
 [ADR-0037](docs/adr/0037-a-rules-document-holds-rules-and-its-log-holds-the-rest.md)
@@ -120,7 +123,93 @@ its reason, not as an inline `#[allow]`.
 
 ---
 
-## 🏛️ 2. What code must satisfy elsewhere
+## 🧱 2. The layering rules
+
+Where code goes. These were `ARCHITECTURE.md` §1 and §7 until 2026-08-29, on the reading
+that a rule about structure is architecture; they are here because they are rules, and
+`ARCHITECTURE.md` says what the design *is*. Its own charter had said it holds no coding
+rules while it held these four.
+
+Four rules decide where code goes. They are what keeps the topology from eroding;
+the layer diagram is a consequence of them, not the other way round.
+
+### Rule A — Storage abstractions stop at the facade
+
+`PdfArena` and `Handle<T>` are how the object graph is *stored*. They are not part of
+the user's vocabulary. They may appear anywhere below `fepdf`, and **never above it**.
+
+A frontend that traverses arenas has taken on domain logic it cannot test and the
+engine cannot protect. When that happens the defect surfaces as "the UI is wrong"
+long after the real cause.
+
+### Rule B — A crate that defines a contract does not depend on its implementations
+
+Traits and their data types live with the code that *calls* them, not with any one
+implementor. `RenderBackend` belongs beside the interpreter that drives it; the GPU
+rasteriser is one implementation among several.
+
+Violating this drags an implementation's dependency tree into every consumer of the
+contract — the mechanism by which a JSON-over-stdio server ends up linking a GPU
+stack.
+
+### Rule C — Read and write live together
+
+PDF work is *read → amend → write*. Parsing and serialisation are two halves of one
+round trip and belong at the same level in the same crate. Splitting them across
+layers produces an engine that can read but not write, and forces callers to reach
+across the seam.
+
+### Rule D — Frontends translate; they never decide
+
+Every mutation of a document is a value in **one vocabulary**, owned by `fepdf-doc`
+(see [§4.1](#41-the-operation-vocabulary)). A frontend's job is to turn argv, a button
+press, an MCP call or a JS call into that value and hand it over. It never implements
+the operation itself.
+
+Where two frontends each implement "the same" operation, the two implementations
+drift, silently, because nothing compares them. That has already happened here — see
+[§4](#-4-why-this-shape).
+
+---
+
+### What checks them
+
+- **Rules A–C**: enforced by Cargo, and the claim used to be narrower than the topology.
+  It said "no frontend declares `fepdf-model`" — true, and it left room for what was
+  actually there: **`fepdf-gui` declared `fepdf-render`**, reaching the GPU crate directly
+  rather than through the facade's `render` feature, which is the opt-in
+  [ADR-0004](docs/adr/0004-rule-b-makes-the-gpu-dependency-optional.md) exists to provide.
+  It needed two names, `VelloBackend` and `FallbackFontType`, and the facade re-exports
+  both, so the fix was one line of `Cargo.toml` and one `use`.
+
+  **All four frontends now declare `fepdf` and nothing else**, which is what §2's diagram
+  has always drawn. `status.sh` counts internal dependencies that are not the facade and
+  expects 0, alongside the older row that greps for arena types — the first is structural
+  and the second catches a type that arrives some other way. Verified by putting the
+  `fepdf-render` line back and watching the row read 1.
+
+  `fepdf-render` declares `fepdf` as a **dev-dependency**, for its own tests. That is not
+  the cycle it looks like: it does not exist in the build graph of anything that links
+  `fepdf-render`.
+- **Rule D**: enforced by construction, and for four phases that was an assertion rather
+  than a fact — the facade exposed ten document-mutating `&mut self` methods beside the
+  vocabulary, and frontends called them at eight sites (§4.1). The tell was that this row
+  named no tool while every other one did. The methods are gone; `apply` is the only way
+  in; and the claim is now backed by a `status.sh` row that counts `&mut self` methods on
+  the facade and expects 0. **The rule and its check disagreed for longer than the rule
+  had been true**, which is the argument for never writing "by construction" without
+  naming what would notice.
+- **RR-15 protocol**: [`CODING.md`](CODING.md), checked by
+  [`scripts/audit/verify_compliance.sh`](scripts/audit/verify_compliance.sh).
+- **Lints**: `cargo clippy --workspace --all-targets -- -D warnings`. `--all-targets`
+  is required — without it tests, examples and benches go unlinted.
+- **Licences**: `cargo deny check licenses` ([`deny.toml`](deny.toml)).
+- **Secrets and PII**: `betterleaks` pre-commit hook ([`.betterleaks.toml`](.betterleaks.toml)).
+
+Governance sits in [`AGENTS.md`](AGENTS.md), [`CODING.md`](CODING.md),
+[`AUDITING.md`](AUDITING.md), and [`TESTING.md`](TESTING.md).
+
+## 🏛️ 3. What code must satisfy elsewhere
 
 This document says what code must satisfy. The design it satisfies lives in
 `ARCHITECTURE.md`, and repeating it here is how the two came to disagree: this section
@@ -128,13 +217,13 @@ described a **Pass 1 (Arena Ingestion)** that [ADR-0003] removed when the reader
 converting another library's object model, and it had said so for as long as the reader
 had been fepdf's own.
 
-- **The Sublimation Pipeline** — `ARCHITECTURE.md` §5.4. A `Document` is the normalised
+- **The Sublimation Pipeline** — `ARCHITECTURE.md` §4.4. A `Document` is the normalised
   state, not the file; the file is reached through the byte layer named in the same
   section.
-- **`PdfArena` invariants** — `ARCHITECTURE.md` §5.6. Objects are reached through
+- **`PdfArena` invariants** — `ARCHITECTURE.md` §4.6. Objects are reached through
   `Handle<Object>`, never a pointer or a raw index, and traversal is deterministic
   (Rule 10 above is the enforced half of this).
-- **Rendering and the GUI** — `ARCHITECTURE.md` §5.7. Vello compute shaders on wgpu,
+- **Rendering and the GUI** — `ARCHITECTURE.md` §4.7. Vello compute shaders on wgpu,
   `f64` preserved through path snapping and measurement, CJK font loading and
   English/Japanese localisation in `fepdf-gui`.
 

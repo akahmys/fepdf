@@ -1,6 +1,6 @@
 //! Document mutation vocabulary, structure tree processing, and PDF/UA-2 remediation.
 //!
-//! Owns the [`Operation`] vocabulary (ARCHITECTURE.md §5.1) and is its only interpreter:
+//! Owns the [`Operation`] vocabulary (ARCHITECTURE.md §4.1) and is its only interpreter:
 //! rotate, reorder, remove, portfolio, outlines, layers, annotations, form fields, security.
 //! Also provides Matterhorn structural auditing, logical structure tree extraction,
 //! and automated structural remediation.

@@ -42,7 +42,7 @@ pub enum Support {
     Declared,
     /// Not a field, but a spec type for the entry's contents exists. Nothing names
     /// the key, so it is neither read nor written whatever the type suggests —
-    /// `ARCHITECTURE.md` §5.2 calls this building a container before its contents
+    /// `ARCHITECTURE.md` §4.2 calls this building a container before its contents
     /// exist, and this makes it visible per entry.
     TypeOnly,
     /// Not a field at all. The arena preserves the entry, so it round-trips; anything
@@ -264,7 +264,7 @@ pub struct CatalogReport {
     pub entries: Vec<CatalogEntry>,
     /// Table 29 keys the file does not carry.
     pub absent: Vec<String>,
-    /// What the engine decided while reading this file (§5.3). Carried by every
+    /// What the engine decided while reading this file (§4.3). Carried by every
     /// report so that "how was this read" travels with "what was found".
     pub decisions: Vec<Decision>,
     /// The catalogue as the engine *read* it, when it reads as Table 29.

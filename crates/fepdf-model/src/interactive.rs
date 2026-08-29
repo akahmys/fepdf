@@ -276,7 +276,7 @@ pub struct InteractiveReport {
     pub actions: Vec<(String, usize)>,
     /// Destinations, declared and referenced.
     pub destinations: DestinationCensus,
-    /// What the engine decided while reading this file (§5.3).
+    /// What the engine decided while reading this file (§4.3).
     pub decisions: Vec<crate::interpretation::Decision>,
 }
 

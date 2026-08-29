@@ -104,7 +104,7 @@ fn setting_a_value_in_a_calculating_form_reports_the_scripts_it_did_not_run() {
 #[test]
 fn a_form_without_a_calculation_order_reports_nothing() {
     // The other half, and the one that keeps this honest: a `Decision` that fires on
-    // every form would be a constant rather than a signal (ARCHITECTURE §5.3).
+    // every form would be a constant rather than a signal (ARCHITECTURE §4.3).
     let decisions = set_value(plain_form(), "a");
     assert!(
         !decisions.iter().any(|d| d.clause == "12.6.3"),

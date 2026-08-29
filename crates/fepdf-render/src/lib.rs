@@ -50,7 +50,7 @@ pub struct VelloBackend {
     skrifa_bridge: crate::text::SkrifaBridge,
     next_font_id: u64,
     /// Conclusions about the document reached while drawing it, drained by
-    /// `render_page` (ARCHITECTURE §5.3). A backend sits below any `Document`, so it
+    /// `render_page` (ARCHITECTURE §4.3). A backend sits below any `Document`, so it
     /// accumulates rather than records.
     decisions: Vec<fepdf_model::interpretation::Decision>,
     /// Open soft-mask brackets (11.6.5.2), and whether each one's mask is being honoured.

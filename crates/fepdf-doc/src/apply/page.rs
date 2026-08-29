@@ -113,7 +113,7 @@ pub fn apply_reorder_batch(
 /// Duplicates pages, each clone placed immediately after its original.
 ///
 /// Moved out of the facade, where it had been reachable as `PdfDocument::duplicate_page`
-/// beside the vocabulary rather than through it (ARCHITECTURE §5.1, Rule D). Nothing about
+/// beside the vocabulary rather than through it (ARCHITECTURE §4.1, Rule D). Nothing about
 /// it belonged above `fepdf-doc`: the cloner it needs lives here.
 pub fn apply_duplicate_pages(doc: &mut Document, pages: &PageSelection) -> PdfResult<()> {
     let count = doc.page_count()?;

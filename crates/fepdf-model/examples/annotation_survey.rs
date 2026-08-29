@@ -4,7 +4,7 @@
 //! the right question when the answer was "29,973, all `/Link`". The external corpus
 //! carries 16 subtypes, so the next question is what is inside them — a subtype-specific
 //! reader for a key no file writes is a container before its contents (ADR-0017, and
-//! `ARCHITECTURE.md` §5.2).
+//! `ARCHITECTURE.md` §4.2).
 //!
 //! Prints, per subtype, how many annotations carry each key, and the same for the
 //! terminal fields of every `/AcroForm`. Run it over both corpora:

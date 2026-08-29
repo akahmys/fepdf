@@ -229,7 +229,7 @@ fn test_insert_pages_from() {
 
 /// `Rotate` with `Absolute`, which is what `set_page_rotation` did before Rule D removed
 /// it from the facade. `Quarter` is why the operation cannot express the 45° the old
-/// signature accepted (ARCHITECTURE §5.1).
+/// signature accepted (ARCHITECTURE §4.1).
 fn rotate_to(doc: &mut PdfDocument, page: usize, quarter: Quarter) -> fepdf::PdfResult<()> {
     doc.apply(Operation::Rotate {
         pages: PageSelection::Single(page),

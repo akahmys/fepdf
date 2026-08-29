@@ -1,6 +1,6 @@
 //! The six operations Rule D added, as named tools.
 //!
-//! ARCHITECTURE §5.1: a tool is the serialised form of an `Operation`, and this is the
+//! ARCHITECTURE §4.1: a tool is the serialised form of an `Operation`, and this is the
 //! frontend whose whole job is to expose the vocabulary. It named all of it until Rule D
 //! turned ten facade methods into six new operations, and those six were never given
 //! tools — so `fepdf-mcp` sat at 24 of 30 while being the most complete frontend by some

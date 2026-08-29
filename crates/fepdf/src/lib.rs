@@ -250,7 +250,7 @@ pub struct DocumentSummary {
     /// Summary of structural compliance issues.
     pub compliance: ComplianceSummary,
     /// What the engine decided where the input departed from the standard, with the
-    /// severities it assigned (ARCHITECTURE.md §5.3). Present in every output format,
+    /// severities it assigned (ARCHITECTURE.md §4.3). Present in every output format,
     /// not only the audit's prose.
     pub decisions: Vec<Decision>,
 }
@@ -396,7 +396,7 @@ impl PdfDocument {
     // `upgrade_to_standard`, `retag_document` and `set_page_rotation`. Each exposed a
     // mutation the `Operation` vocabulary either already carried or should have, so a
     // frontend could leave the vocabulary without re-implementing anything — which is not
-    // the escape ARCHITECTURE §5.1's Rule D was written to block, and it was taken at
+    // the escape ARCHITECTURE §4.1's Rule D was written to block, and it was taken at
     // eight call sites across `fepdf-gui` and `fepdf-cli`.
     //
     // §7 called Rule D "enforced by construction" while nothing enforced it. It is
@@ -1130,7 +1130,7 @@ impl PdfDocument {
         // A backend sits below any `Document` and cannot record for itself, so what it
         // concluded about the font programs it was handed is folded in here — after the
         // annotations, because their appearance streams draw glyphs too (ARCHITECTURE
-        // §5.3).
+        // §4.3).
         for decision in backend.take_decisions() {
             self.inner.record(decision);
         }

@@ -1,5 +1,8 @@
 # 🧪 fepdf Testing & Validation Strategy
 
+> **Phase: verification.** What must pass before a change lands. The automated audits are
+> in [AUDITING.md](AUDITING.md).
+
 This document details the testing methodology, test suites, visual regression framework, and quality assurance processes for fepdf.
 
 ---

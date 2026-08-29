@@ -233,7 +233,7 @@ impl<'a> Sublimator<'a> {
             //
             // Removing it changed no text on any corpus file, so it helped none and
             // deleted marks on two. It also reported only through `log::info!`, which
-            // ARCHITECTURE.md §5.3 calls a silent acceptance and therefore a defect.
+            // ARCHITECTURE.md §4.3 calls a silent acceptance and therefore a defect.
             // Deciding a producer's fill is a bug, from its geometry, is not something
             // this engine can know.
             "f" | "F" | "f*" | "S" | "s" | "B" | "B*" | "b" | "b*" => match op {

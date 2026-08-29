@@ -1,5 +1,8 @@
 # 📋 fepdf Planning & Discovery Protocol
 
+> **Phase: planning.** What to decide before code is written. The rules for writing it
+> are in [CODING.md](CODING.md).
+
 This document governs task planning, codebase exploration, feature design, and decision-making workflows within the fepdf project.
 
 ---
@@ -32,7 +35,7 @@ Never guess implementation details, data schemas, or file locations. Follow this
    decisions taken from each of them (`AGENTS.md`, Hierarchy of Truth). Note that
    "log-first" is not available here even when it sounds right: the engine holds one
    `log::warn!` by design, and what it finds in a document it records as a `Decision`
-   (`ARCHITECTURE.md` §5.3).
+   (`ARCHITECTURE.md` §4.3).
 2. **Establish the search finds nothing by making it find something.** An absent call
    site, an unfired gate and a broken grep look identical. Put the thing back and watch
    the check fail before believing it passes.
@@ -43,10 +46,3 @@ Never guess implementation details, data schemas, or file locations. Follow this
 
 ---
 
-## 🔄 3. Workflows & Session Management
-
-- Task state lives in the working tree and the commit that closes it; the write-ahead log
-  under `.agents/session/` was deleted with the rest of that directory (ADR-0038).
-- After completing work, update `walkthrough.md` with:
-  - Concise summary of changes.
-  - Verification results (test outputs, audit logs).

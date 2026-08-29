@@ -51,7 +51,7 @@ impl Interpreter<'_> {
                     // produce any; what the failure did was abort the content stream and
                     // take the page's *real* text with it.
                     //
-                    // Recorded, not logged (`ARCHITECTURE.md` §5.3). This site read
+                    // Recorded, not logged (`ARCHITECTURE.md` §4.3). This site read
                     // `log::debug!` and a comment saying why it could not do better:
                     // the interpreter holds `&Document` and `DecisionLog::push` needed
                     // `&mut`. The log is behind a lock now, so the skip reaches the same

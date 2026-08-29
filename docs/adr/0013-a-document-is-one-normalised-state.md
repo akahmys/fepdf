@@ -10,7 +10,7 @@ The question was whether to move the `/Info` dictionary into XMP when a file is 
 The first answer given was no — that reading should report the file as it is, and a
 migration of that kind belongs to refinement.
 
-That answer was reasoned from `ARCHITECTURE.md` §5.4, which describes the **Reading**
+That answer was reasoned from `ARCHITECTURE.md` §4.4, which describes the **Reading**
 stage as placing each object in the arena as written with every tolerance recorded. All
 of which is true of that stage, and none of which is true of the pipeline it opens.
 Nothing in the document said what the composition amounts to, so it was possible to read

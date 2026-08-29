@@ -65,7 +65,7 @@ assumed a user space it had no way to check.
 Removing it changed the extracted text of no corpus file. It helped none and deleted
 marks on two.
 
-It also reported through `log::info!` only, which `ARCHITECTURE.md` §5.3 calls a silent
+It also reported through `log::info!` only, which `ARCHITECTURE.md` §4.3 calls a silent
 acceptance and therefore a defect regardless of whether the output is right.
 
 ## Rectangles at full precision

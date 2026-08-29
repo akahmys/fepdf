@@ -4,24 +4,6 @@ Welcome to **fepdf**, an experimental, high-fidelity PDF 2.0 processing platform
 
 ---
 
-## 🏛️ Governance Architecture & Document Structure
-
-The project rules, architecture specs, and operational protocols are modularised into
-these documents. [Which document owns what](#-which-document-owns-what) below is the
-part to read when deciding where to write something.
-
-| Document | Focus & Scope | Description |
-| :--- | :--- | :--- |
-| 📘 **[AGENTS.md](AGENTS.md)** | **Constitution & Governance** | System vision, truth hierarchy, decision framework, and entry point. |
-| 🏛️ **[ARCHITECTURE.md](ARCHITECTURE.md)** | **System Design & Layering Rules** | The rules that decide where code goes, target crate topology with per-crate migration status, `PdfArena` invariants, the Sublimation Pipeline and the two layers it produces, Vello renderer. |
-| 📋 **[PLANNING.md](PLANNING.md)** | **Planning & Discovery** | Implementation plans, architecture design, exploration protocols, and task breakdown. |
-| 💻 **[CODING.md](CODING.md)** | **Coding Rules & Architecture** | **RR-15 Protocol**, ISO 32000-2 pipeline, Vello rendering, and Rust 2024 coding standards. |
-| 🛡️ **[AUDITING.md](AUDITING.md)** | **Security, Compliance & Audit** | Static auditing, **`cargo-deny`** license checks, **`betterleaks`** PII protection, and Clippy lints. |
-| 📜 **[docs/adr/](docs/adr/README.md)** | **Decision Records** | Decisions that were contested, reversed, or rest on a measurement — and what the measurement was. |
-| 🧪 **[TESTING.md](TESTING.md)** | **Testing & Validation** | Workspace unit/integration tests, Vello visual regression, and MSRV compatibility. |
-
----
-
 ## ⚖️ Hierarchy of Truth
 
 When directives conflict, resolve in this order:
@@ -29,10 +11,16 @@ When directives conflict, resolve in this order:
 ```
 1. ISO 32000-2:2020, the standard itself
    └── 2. Measurement of the code as it is
-        └── 3. RR-15 (CODING.md) and the layering rules (ARCHITECTURE.md)
-             └── 4. The remaining governance documents
-                  └── 5. docs/specs/ and other background material
+        └── 3. AGENTS.md — the principles below
+             └── 4. The rules of each phase, in the order work happens:
+                    PLANNING.md → CODING.md → TESTING.md → AUDITING.md
+                 └── 5. docs/specs/ and other background material
 ```
+
+`ARCHITECTURE.md` is the design, `ROADMAP.md` is the work, `README.md` is the
+introduction, and `docs/adr/` records how a rule or a design came to be. None of them
+states a rule; when one appears to, the rule belongs in a phase document and the ADR
+records why.
 
 **Measurement outranks documentation.** This is not a platitude: four decisions in
 `docs/adr/` were reversed because a document asserted something the code did not do.
@@ -50,34 +38,14 @@ documents come to disagree.
 | :--- | :--- | :--- |
 | **[README.md](README.md)** | What is this, how do I build it? | Design or rules |
 | **[AGENTS.md](AGENTS.md)** | How is the project governed? Where does everything live? | The rules themselves |
-| **[ARCHITECTURE.md](ARCHITECTURE.md)** | What is the design **now**, and why this shape? | History, plans, coding rules |
+| **[ARCHITECTURE.md](ARCHITECTURE.md)** | What is the design **now**? | Why it came to be, history, plans, rules |
 | **[docs/adr/](docs/adr/README.md)** | How did it come to be? What was tried and dropped? | The present design |
-| **[CODING.md](CODING.md)** | What must code satisfy? | Design rationale |
+| **[CODING.md](CODING.md)** | What must code satisfy — RR-15 and the layering rules? | Design rationale |
 | **[AUDITING.md](AUDITING.md)** | How is compliance checked? | The rules being checked |
 | **[TESTING.md](TESTING.md)** | What must be verified before merging? | Test results |
 | **[ROADMAP.md](ROADMAP.md)** | What is next, and what does done mean? | Completed history |
 | **[PLANNING.md](PLANNING.md)** | How is a change planned before it is written? | Any specific plan |
 | **docs/specs/** | Background on a subsystem. | Anything authoritative |
-### The hierarchy
-
-A claim lower in this list never overrides one higher.
-
-1. **ISO 32000-2:2020** — the standard itself.
-2. **Measurement** — what the code and the corpus are observed to do.
-3. **[CODING.md](CODING.md)** (RR-15) and **[ARCHITECTURE.md](ARCHITECTURE.md)** (layering) — the rules.
-4. **[AUDITING.md](AUDITING.md)**, **[TESTING.md](TESTING.md)**, **[AGENTS.md](AGENTS.md)**, **[PLANNING.md](PLANNING.md)** — governance.
-5. **`docs/specs/`** — background on a subsystem.
-
-[docs/adr/](docs/adr/README.md) sits beside the list rather than in it: it records how a
-level 3 or level 4 statement came to be, and states no rule of its own.
-
-**`.agents/` held a second level 3 and is deleted**
-([ADR-0038](docs/adr/0038-one-hierarchy-of-truth-and-the-parallel-rulebook-is-deleted.md)):
-a rulebook whose Rules 9, 12, 14 and 15 named different rules than `CODING.md`'s, beside
-files instructing the opposite of Rule A and Rule 20. Both copies said `CODING.md` wins,
-and on the day they were deleted two agents were misled by them anyway.
-
-
 ### Rules
 
 1. **One fact, one home.** If it belongs in two places, one of them links instead of
@@ -105,25 +73,15 @@ and on the day they were deleted two agents were misled by them anyway.
    Note that this is *not* "log-first": the engine holds exactly one `log::warn!` by
    design, because a warning on stderr cannot tell a caller *this loaded* from *this was
    conforming*. What the engine finds in a document it records as a `Decision`
-   (`ARCHITECTURE.md` §5.3); what you want to know about the engine you measure.
+   (`ARCHITECTURE.md` §4.3); what you want to know about the engine you measure.
 
 ---
 
-## 🚀 Quick Verification Commands
+## 🚀 Where the commands are
 
-```bash
-# Where the project stands, with the documents' own figures re-measured
-./scripts/dev/status.sh --full
+Each phase document carries the commands for its phase: planning in
+[PLANNING.md](PLANNING.md), the rules and what checks them in [CODING.md](CODING.md),
+what to run before merging in [TESTING.md](TESTING.md), and the audits in
+[AUDITING.md](AUDITING.md). They were listed here too until 2026-08-29, in a fifth
+place that had to be kept in step with four others.
 
-# Run full compliance audit (RR-15 rules, Clippy, cargo-deny, betterleaks)
-./scripts/audit/verify_compliance.sh
-
-# Run Cargo-native license audit
-cargo deny check licenses
-
-# Run full workspace unit tests
-cargo test --workspace
-
-# Run GPU visual regression tests
-python3 scripts/visual_regression.py
-```

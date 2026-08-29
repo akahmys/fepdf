@@ -22,7 +22,7 @@
 //! both, and this does not, because the corpus says the fallback would never fire:
 //! `volvo_xc90`'s references are all names and all found in the dictionary,
 //! `intel_sdm`'s are all strings and all found in the tree but one. Building the
-//! fallback would be building a path no file reaches (`ARCHITECTURE.md` §5.2).
+//! fallback would be building a path no file reaches (`ARCHITECTURE.md` §4.2).
 //!
 //! That one exception is what the work is for. `intel_sdm.pdf` references
 //! `(G3.7717)`, which appears in no leaf of its name tree — a link that goes nowhere,

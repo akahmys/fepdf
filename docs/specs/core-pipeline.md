@@ -23,7 +23,7 @@ fepdf operates on the principles of **"Normalization-at-Load"** and **"Delayed N
             physical file offsets", which describes a remapping table. **There is none**
             — `reader.rs:253`: the parser builds `Object::Reference(Handle::new(n))`
             straight from `n 0 R`, so a handle *is* an object number and references are
-            correct as written. `ARCHITECTURE.md` §5.4 has said so since Phase A.)
+            correct as written. `ARCHITECTURE.md` §4.4 has said so since Phase A.)
         *   Heuristically repair corrupted or fragmented XRef tables during the inhalation process.
     *   **Pass 0 Decryption**:
         *   **Bounded Traversal**: Decrypt every string and stream by walking the object
@@ -61,7 +61,7 @@ fepdf operates on the principles of **"Normalization-at-Load"** and **"Delayed N
 
         A rendering processor shall render the page contents as defined (6.3.2.2). Deciding
         that a producer's fill is a mistake, from its geometry, is not something this engine
-        can know — and the heuristic reported only through `log::info!`, which §5.3 calls a
+        can know — and the heuristic reported only through `log::info!`, which §4.3 calls a
         silent acceptance and therefore a defect on its own.
     *   **Font SFNT Modernization (Structural Normalization)**:
         *   **Format Identification**: Strict reliance on binary signatures (Magic Bytes) rather than dictionary subtypes.
@@ -78,7 +78,7 @@ fepdf operates on the principles of **"Normalization-at-Load"** and **"Delayed N
             incident is reported rather than swallowed. (Checked 2026-08-22: it is reported
             as a `log::warn!`, exactly as written — and that is now the defect rather than
             the feature. A font program in no recognised format is a conclusion about the
-            *document*, so `ARCHITECTURE.md` §5.3 makes it a `Decision`; stderr cannot tell
+            *document*, so `ARCHITECTURE.md` §4.3 makes it a `Decision`; stderr cannot tell
             a caller *this loaded* from *this was conforming*. It is one of the thirteen
             counted in ROADMAP Phase P. This line is left standing because a document
             arguing **for** the thing the architecture forbids is worth more visible than

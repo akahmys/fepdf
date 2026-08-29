@@ -92,7 +92,7 @@ pub trait RenderBackend {
     /// so it cannot call `Document::record` itself. What it *can* see is a font program
     /// whose glyph will not draw or a font the interpreter selected and it never
     /// received, and both change what reaches the page. `render_page` drains this after
-    /// interpretation and records what comes back (ARCHITECTURE §5.3).
+    /// interpretation and records what comes back (ARCHITECTURE §4.3).
     ///
     /// Defaulted to empty: the text-extraction and collector backends reach no such
     /// conclusion, and a trait method they must all implement to say "none" is noise.

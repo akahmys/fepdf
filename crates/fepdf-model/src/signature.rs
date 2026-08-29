@@ -68,7 +68,7 @@ pub struct SignatureReport {
     pub signatures: Vec<SignatureCheck>,
     /// Signature fields with no value — a place for a signature, not a signature.
     pub unsigned_fields: usize,
-    /// What the engine decided while reading this file (§5.3).
+    /// What the engine decided while reading this file (§4.3).
     pub decisions: Vec<crate::interpretation::Decision>,
 }
 

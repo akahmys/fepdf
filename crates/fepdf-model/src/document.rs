@@ -496,7 +496,7 @@ impl Document {
     /// an image whose filter this engine cannot decode is skipped, and the page's text
     /// survives because of it. That departure belongs in the same log as the ones the
     /// reader takes, so that one question — "what did the engine decide about this
-    /// file" — has one answer (`ARCHITECTURE.md` §5.3, ADR-0018).
+    /// file" — has one answer (`ARCHITECTURE.md` §4.3, ADR-0018).
     pub fn record(&self, decision: crate::interpretation::Decision) {
         self.decisions.push(decision);
     }
@@ -572,7 +572,7 @@ impl Document {
     /// What it does refuse to do is stay quiet, about two losses rather than one.
     ///
     /// The content changes because this engine normalises at load (`ARCHITECTURE.md`
-    /// §5.4): by the time a `Document` exists it already differs from the file, and no
+    /// §4.4): by the time a `Document` exists it already differs from the file, and no
     /// code path writes a faithful copy — `samples/fy05.pdf` differs in 378 of 4,574
     /// objects even with refinement turned off. So bit 4 is not something the engine
     /// declines to honour; it is something the architecture cannot honour. The wording

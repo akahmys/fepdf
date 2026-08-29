@@ -33,7 +33,7 @@ impl<'a> ComplianceAuditor<'a> {
         let root_handle = *self.doc.root_handle();
 
         // Decisions taken while *reading* are deliberately not folded in here. They are
-        // a different category from an audit finding (ARCHITECTURE.md §5.3), and
+        // a different category from an audit finding (ARCHITECTURE.md §4.3), and
         // stringifying them cost their severity: every one arrived at the CLI as
         // `IssueSeverity::Warning`, so a `Violation` and a `Repaired` were reported
         // identically, and JSON consumers were told "Warning" about something the

@@ -1,5 +1,10 @@
 # fepdf Roadmap
 
+> **Not a rule.** This is the work: what was measured, what was built, what is next.
+> The rules are in [CODING.md](CODING.md); a claim here that contradicts the code is a
+> defect in this file. Two colour defects sat in it as "open" for weeks after they were
+> closed.
+
 **Goal**: an engine that understands ISO 32000-2 (PDF 2.0) semantically — not merely
 one that round-trips it. PDF 1.7 and earlier are **read-only** targets; output is
 always 2.0.
@@ -442,7 +447,7 @@ crates.** The figure across the whole engine is **16**, of which **3 are deliber
 each a property of the *host* rather than the document. The other thirteen sit in
 `fepdf-content` (8, one discarding *"Unknown or unhandled operator"* to stderr),
 `fepdf-font` (3) and `fepdf-render` (2), and each is a conclusion about the document, which
-§5.3 makes a `Decision`. The `status.sh` row searched two crates and put the other three in
+§4.3 makes a `Decision`. The `status.sh` row searched two crates and put the other three in
 **neither** list, so it could not have said so and adding sites to them moved nothing; it
 now derives the engine as every crate that is not a frontend. Phase P for the conversions,
 Phase Q for the row. Frontends still log freely, which is their job.
@@ -952,7 +957,7 @@ reason, and a run over the external corpus panics zero times from a debug build.
 
 ## Phase H — A decision the interpreter takes is still a decision
 
-`ARCHITECTURE.md` §5.3 says a departure from the standard is recorded rather than
+`ARCHITECTURE.md` §4.3 says a departure from the standard is recorded rather than
 logged, and one place in the engine cannot honour it. `ops/xobject.rs` skips an image
 that will not decode and reaches `log::debug!`, because `Interpreter` holds `&Document`
 and `DecisionLog::push` needs `&mut`; the comment there says so, which is better than
@@ -1809,7 +1814,7 @@ functions cannot be.
       the clause exempts it — which is a decline at rank 1 of the `AGENTS.md` hierarchy
       and not the corpus argument this list forbids. `/HT` is therefore ignored, and
       **no `Decision` is recorded for it**: a file carrying one is conforming and ignoring
-      it is correct here, so recording a departure would be the false-positive §5.3 warns
+      it is correct here, so recording a departure would be the false-positive §4.3 warns
       about.
 
       **The same sentence settles 10.5 the other way, and then 3.15 settles it back.**
@@ -1878,13 +1883,13 @@ functions cannot be.
       ```
 
 - [x] **The engine logs thirteen conclusions about documents to stderr.** ARCHITECTURE
-      §5.3 says a departure from the standard is recorded as a `Decision`, not logged,
+      §4.3 says a departure from the standard is recorded as a `Decision`, not logged,
       because a warning on stderr cannot tell a caller *this loaded* from *this was
       conforming*. The count is **three** again — the host-property ones — over a row
       that derives the engine as every crate that is not a frontend.
 
       **Nine became `Decision`s and four did not, and measuring first is the only reason
-      that distinction exists.** §5.3's other rule is that a decision firing on
+      that distinction exists.** §4.3's other rule is that a decision firing on
       conforming input is worse than none, so every site was counted against the nine
       conforming samples *before* it was touched:
 
@@ -2125,7 +2130,7 @@ figure below came out of one command, and the commands are here.
       The six were the ones Rule D produced — `ReorderBatch`, `DuplicatePages`,
       `InsertFrom`, `AddLtvInfo`, `Retag`, `Upgrade` — and this is the frontend whose whole
       job is to expose the vocabulary, a tool being the serialised form of an operation
-      (ARCHITECTURE §5.1). All thirty were always *reachable* through the generic
+      (ARCHITECTURE §4.1). All thirty were always *reachable* through the generic
       `apply_operation` tool; what the six lacked is a schema, so a caller had to already
       know a variant existed, and know its shape, to ask for it. That is the difference
       between a vocabulary and a vocabulary you can look up.
@@ -2349,7 +2354,7 @@ the same move Phase L's refusal made in the opposite direction.
       setting a value in a form with `/CO` records the 12.6.3 `Violation` — "wrote the
       value and did not run the scripts; fields computed from it are now stale" — and a
       form *without* `/CO` records nothing. Both halves, because a `Decision` that fires
-      on every form is a constant rather than a signal (§5.3).
+      on every form is a constant rather than a signal (§4.3).
 
       When scripts run, the first assertion is what should change. It is the phase's
       *Done when* in executable form.
@@ -2571,7 +2576,7 @@ What is left after the rule above: refusals resting on the nature of the thing r
 than on how often a corpus happened to contain it.
 
 - **A DOCX converter.** The `DocumentSource` boundary exists so one has a place to go
-  (`ARCHITECTURE.md` §5.2), but writing it means a layout engine — style resolution,
+  (`ARCHITECTURE.md` §4.2), but writing it means a layout engine — style resolution,
   line breaking, pagination — which shares almost nothing with reading PDF.
 - **`fepdf-wasm` as a peer frontend.** Forty lines with an unimplemented renderer.
   Whether to build it is a product decision, not an architectural one.

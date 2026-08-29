@@ -26,7 +26,7 @@ For prescriptive constraints, see [CODING.md](../../CODING.md) and [ARCHITECTURE
   It said the fallback "does not log — the engine holds exactly one `log::warn!` by
   design". Re-derived the same day: the engine holds **sixteen**, three of them deliberate
   reports about the *host*, and the other thirteen conclusions about the document that
-  ARCHITECTURE §5.3 says should be `Decision`s. Seven sit in exactly the code this file
+  ARCHITECTURE §4.3 says should be `Decision`s. Seven sit in exactly the code this file
   describes: `fepdf-render` logs `[SKRIFA] Drawing failed for GID …` and `set_font: … NOT
   FOUND in cache`, `fepdf-font` logs a missing CFF table, and `fepdf-content` logs an
   unresolvable font and a failed Type 3 glyph.

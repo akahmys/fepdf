@@ -116,7 +116,7 @@ impl std::fmt::Display for Decision {
 /// recorded.** Reading a file is not the only moment the engine departs from the
 /// standard: interpreting a page skips an image whose filter it cannot decode, and the
 /// interpreter holds a shared reference. Until this lock existed that departure reached
-/// `log::debug!` and nothing else — §5.3 says the engine records rather than logs, and
+/// `log::debug!` and nothing else — §4.3 says the engine records rather than logs, and
 /// one place in it could not. The alternative was to return the decisions from
 /// `render_page` and `extract_text`, which puts a departure somewhere `inspect
 /// structure` will not print and changes every caller's signature to carry a note about

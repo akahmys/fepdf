@@ -11,7 +11,7 @@ All PDF objects are decoupled from their physical locations and stored in a type
 - **Handle System**: Objects are cross-referenced by lightweight `u32`-based handles.
   (Checked 2026-08-22: there are **no generation bits**. `Handle<T>` is a `u32` and a
   `PhantomData`; safety comes from the arena never freeing a slot, not from generations.
-  An object's handle **is** its object number — see `ARCHITECTURE.md` §5.6.)
+  An object's handle **is** its object number — see `ARCHITECTURE.md` §4.6.)
 
 ### 2.2 Refinery Pipeline (Refinement Process)
 1. **Ingestion**: Deconstruct physical structures and transfer them to the arena.
@@ -38,7 +38,7 @@ All PDF objects are decoupled from their physical locations and stored in a type
    - **Color Harmonization**: Normalize device-dependent colors to OutputIntents (ICC) using `moxcms` (Pure Rust).
    - **Metadata Scrubbing**: Consolidate legacy Info into XMP streams using `xmp-writer`.
 3. **Validation**: Departures from the standard are recorded as `Decision`s with the
-   clause that governs them (`ARCHITECTURE.md` §5.3). (Checked 2026-08-22: there is no
+   clause that governs them (`ARCHITECTURE.md` §4.3). (Checked 2026-08-22: there is no
    `SafetyBitmask` and no Arlington predicate engine — the same claim that got
    `omissions.md` archived and then deleted. Arlington is a shell wrapper around an
    external Python tool and nothing in the engine reads it.)

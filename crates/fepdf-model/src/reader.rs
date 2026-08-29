@@ -4,7 +4,7 @@
 //! is the arena: constructing an [`Object`] needs one, finding its offset does not.
 //!
 //! Every tolerance here is recorded as a [`Decision`], because the choices this module
-//! makes are the substance of reading a pre-2.0 file — see `ARCHITECTURE.md` §5.3.
+//! makes are the substance of reading a pre-2.0 file — see `ARCHITECTURE.md` §4.3.
 
 use crate::arena::PdfArena;
 use crate::error::{PdfError, PdfResult};
