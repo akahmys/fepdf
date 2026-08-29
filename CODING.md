@@ -17,11 +17,11 @@ Derived from aerospace safety principles, the **RR-15 (Reliable Rust-15)** rules
 | :--- | :--- | :--- | :--- |
 | **Rule 1** | Function Length | Max 50 lines for standard functions.<br>Max 200 lines for `// RR-15 Limit: GUI`.<br>Max 500 lines for `// RR-15 Limit: Dispatcher`. | `./scripts/audit/verify_compliance.sh` |
 | **Rule 2** | Panic Prevention | `unwrap()` and `expect()` are forbidden in production code. Use `?` or `unwrap_or()`. | Automated grep check |
-| **Rule 3** | Unsafe Ban | `unsafe` blocks are forbidden (`workspace.lints.rust.unsafe_code = "forbid"`). | Rustc lint |
+| **Rule 3** | Unsafe Ban | `unsafe` blocks are forbidden. | **rustc** — `unsafe_code = "forbid"`, which cannot be overridden by an `#[allow]` |
 | **Rule 4** | Control Flow | Avoid deep nesting (`if let` / `match`). Prefer early return with `?`. | Code review / Clippy |
 | **Rule 5** | Match Exhaustiveness | Wildcard arms (`_ =>`) are forbidden when matching a **domain enum**. Named exceptions below. | `clippy::wildcard_enum_match_arm` via `verify_compliance.sh` |
 | **Rule 6** | Stack Safety | Unbounded recursion is forbidden. Use heap-based loops with `Vec`. | Code review |
-| **Rule 7** | Global State | `static mut` and global mutable state are forbidden. | Automated grep check |
+| **Rule 7** | Global State | `static mut` and global mutable state are forbidden. | **rustc** — reading a `static mut` needs an `unsafe` block, which Rule 3 forbids |
 | **Rule 8** | Invalid State | Use type-safe `enum` states instead of boolean flags or nested `Option`s. | Architecture review |
 | **Rule 9** | Pure Rust | No dependency may compile C or C++ source, or bind a third-party native library. Platform API bindings the standard library already needs are not this. | `./scripts/audit/verify_compliance.sh` |
 | **Rule 10** | Determinism | `HashMap` and `HashSet` are forbidden in core pipelines. Use `BTreeMap`, `BTreeSet`, or `PdfArena`. | Automated grep check |
@@ -30,16 +30,21 @@ Derived from aerospace safety principles, the **RR-15 (Reliable Rust-15)** rules
 | **Rule 14** | Test Code Separation | Standalone/Integration tests MUST be placed in `crates/*/tests/`. Do NOT pollute `src/` with dedicated test files. | Directory structure check |
 | **Rule 15** | Clone Optimization | Avoid excessive `.clone()`. Use `Arc` or handle references where appropriate. | Code review / Density warning |
 | **Rule 16** | Licences | Every dependency's licence must be on `deny.toml`'s allow-list. | `cargo deny check licenses` via `verify_compliance.sh` |
-| **Rule 17** | Type Explicitly | Explicitly specify floating-point types (`1.0_f32`, `2.5_f32`) to prevent Edition 2024 inference fallbacks. | **Nothing. See below.** |
 | **Rule 18** | Secrets and PII | No credential, key or personal datum may be committed. | `betterleaks` via `verify_compliance.sh` and a pre-commit hook |
 | **Rule 19** | Formatting | The tree must satisfy `cargo fmt --all --check`. | `./scripts/audit/verify_compliance.sh` |
 | **Rule 20** | Recorded Interpretation | Where the engine accepts input the standard does not describe, it MUST record a `Decision` naming the clause and what was done. A silent acceptance is a defect even when the output is right. | Code review / ARCHITECTURE.md §4.3 |
 
-Three things this table does not say for itself, recorded in
+**Two numbers are unused: 12 and 17.** Rule 12 was Invariant Enforcement and left the
+table while the practice stayed in the code; Rule 17 required a float suffix and was
+retired on 2026-08-29 because nothing it prevented could reach a build —
+[ADR-0040](docs/adr/0040-a-rule-the-compiler-already-keeps-is-not-a-rule.md). The numbers
+are left unused rather than reassigned, because reassigning one is what made Rules 9 and
+14 mean two different things.
+
+Two more things this table does not say for itself, recorded in
 [ADR-0037](docs/adr/0037-a-rules-document-holds-rules-and-its-log-holds-the-rest.md)
 rather than here: **Rule 12** was Invariant Enforcement and is gone from this table, while Rules 9 and 14
-name different rules than the rulebook does; **Rule 17** is enforced by nothing, and `verify_compliance.sh`'s `[Rule
-17]` is a different rule sharing the number; **RR-15** is a name, not a count — the table
+name different rules than RR-15's original fifteen did; **RR-15** is a name, not a count — the table
 is 1–11 and 13–20.
 
 ### Rule 9 in detail: where the line is
@@ -153,13 +158,13 @@ across the seam.
 ### Rule D — Frontends translate; they never decide
 
 Every mutation of a document is a value in **one vocabulary**, owned by `fepdf-doc`
-(see [§4.1](#41-the-operation-vocabulary)). A frontend's job is to turn argv, a button
+(see [`ARCHITECTURE.md` §4.1](ARCHITECTURE.md#41-the-operation-vocabulary)). A frontend's job is to turn argv, a button
 press, an MCP call or a JS call into that value and hand it over. It never implements
 the operation itself.
 
 Where two frontends each implement "the same" operation, the two implementations
-drift, silently, because nothing compares them. That has already happened here — see
-[§4](#-4-why-this-shape).
+drift, silently, because nothing compares them. That has already happened here
+([ADR-0005](docs/adr/0005-layering-rules-are-enforced-by-cargo.md)).
 
 ---
 

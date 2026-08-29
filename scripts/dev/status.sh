@@ -285,6 +285,37 @@ stray_out=$(grep -rnE '"(artifacts|exports|renders)/|OUT(PUT)?_DIR="(artifacts|e
     --include="*.rs" --include="*.sh" --include="*.py" crates scripts 2>/dev/null | wc -l | tr -d ' ')
 row "writers outside out/ (expect 0)" "$stray_out"
 
+# Markdown links, anchors included. A checker that skipped `#fragment` targets reported
+# zero while four links pointed at sections deleted the same day — the anchors are the
+# half that goes stale when a document is renumbered.
+dead_links=$(python3 - <<'PYEOF' 2>/dev/null
+import re, pathlib
+def anchors(p):
+    return {re.sub(r'[^\w\s-]','',h.lower()).strip().replace(' ','-')
+            for h in re.findall(r'^#{1,6} (.+)$', p.read_text(), re.M)}
+files=list(pathlib.Path(".").glob("*.md"))+sorted(pathlib.Path("docs").rglob("*.md"))
+cache={f.resolve():anchors(f) for f in files}
+bad=0
+for f in files:
+    for m in re.finditer(r'\[([^\]]*)\]\(([^)]+)\)', f.read_text()):
+        t=m.group(2)
+        if t.startswith(("http","file:")): continue
+        path,_,anc=t.partition("#")
+        dest=(f if not path else f.parent/path)
+        if path and not dest.exists(): bad+=1; continue
+        if anc and anc not in cache.get(dest.resolve(), set()): bad+=1
+print(bad)
+PYEOF
+)
+row "dead markdown links (expect 0)" "${dead_links:-?}"
+
+# Rule 20's blind spot. Rule 5 stops a wildcard over a domain *enum*; a PDF's domain
+# values arrive as integers, so the lint cannot see them. This counts the arms where an
+# unrecognised value produces neither a Decision nor an error. Not a defect count — an
+# unknown /V failing the open is loud enough — but a new one should be visible.
+silent=$(python3 scripts/audit/silent_branches.py 2>/dev/null | tail -1 | grep -oE '^[0-9]+')
+row "silent branches on a file's value" "${silent:-?}"
+
 # An index maintained by hand is an index that goes quietly wrong, which is the failure
 # the log exists to make visible. Every record has a row and every row has a record, or
 # this says which.

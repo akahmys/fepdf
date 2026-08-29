@@ -3,15 +3,14 @@
 > **Not a rule.** This is the design as it stands. The rules that keep it that way are in
 > [CODING.md](CODING.md) §2; how it came to be is in [docs/adr/](docs/adr/README.md).
 
-The authoritative architectural blueprint for **fepdf**: crate topology, layering
-rules, the Sublimation Pipeline, and memory invariants.
+Crate topology, the Sublimation Pipeline, and memory invariants. The layering rules that
+keep this shape are in [CODING.md](CODING.md) §2.
 
-> **Status.** The topology below is realised: every crate in §3 exists, every step in
-> [§6](#-6-migration) is done, and §4.1's Rule D is enforced — `status.sh` counts
-> document-mutating methods on the facade and reads 0. **This banner has twice asserted
-> the opposite of what the file beneath it said**, which is
-> [ADR-0037](docs/adr/0037-a-rules-document-holds-rules-and-its-log-holds-the-rest.md)
-> along with the reason: a status line nothing derives is a comment about the past.
+> **Status.** Realised: every crate in §3 exists, the migration that produced them is
+> complete, and Rule D holds — `status.sh` counts document-mutating methods on the facade
+> and reads 0. **This banner has twice asserted the opposite of what the file beneath it
+> said**, which is why it now states only what a `status.sh` row derives
+> ([ADR-0037](docs/adr/0037-a-rules-document-holds-rules-and-its-log-holds-the-rest.md)).
 
 ---
 
@@ -48,7 +47,7 @@ read and write live together, **D** frontends translate and never decide — are
    │ fepdf-model                   │  │ fepdf-font       │
    │ Arena/Object · read ⇄ write   │─►│ CFF · TrueType   │
    │ normalisation                 │  │ CMap · AGL       │
-   │ resource resolution (see §4)  │  │ (knows no PDF)   │
+   │ resource resolution (§4.1)  │  │ (knows no PDF)   │
    └───────┬───────────────────────┘  └──────────────────┘
            ▼
    ┌───────────────┐
@@ -159,7 +158,7 @@ changes that reach them are most of the second.
 
 | Crate | Status | ~Lines | Responsibility |
 | :--- | :---: | ---: | :--- |
-| **`fepdf-syntax`** | ✅ | 3,377 | The byte layer: lexing and encryption/decryption. Depends on no model type, which is what lets the cryptography be reviewed on its own. Parsing and stream filters are *not* here — see §4. |
+| **`fepdf-syntax`** | ✅ | 3,377 | The byte layer: lexing and encryption/decryption. Depends on no model type, which is what lets the cryptography be reviewed on its own. Parsing and stream filters are *not* here — see `fepdf-model` below. |
 | **`fepdf-font`** | ✅ (Audited ✅) | 3,740 | Font *programs*: CFF, TrueType, CMap, Adobe Glyph List, subsetting, reconstruction. Hardened against W/W2 out-of-bounds, CMap underflows (`e_val >= s_val`), and CID byte truncations. |
 | **`fepdf-model`** | ✅ | 29,165 | The document graph: `PdfArena`, `Handle<T>`, `Object`, page tree, metadata — and, since Phase A, the reader (7.5) and `writer.rs`. Hardened with pool overflow guards, cyclic `resolve` limits (`64`), and safe `Null` reference fallbacks. |
 | **`fepdf-content`** | ✅ | 3,915 | Content-stream interpreter, and the **`RenderBackend` contract** it drives (`TextGlyph`, `TextState`, `SMaskData`, path geometry). No GPU dependency. |
@@ -276,7 +275,7 @@ A caller must now say which it means, and `Quarter` makes 45° unconstructible.
   a GUI or spawning a process.
 
 **Rule D did not hold, and what was checking said it did.** The rule says every mutation
-is an `Operation`; §7 called that "enforced by construction". Nothing enforced it, because
+is an `Operation`, which this document once called "enforced by construction". Nothing enforced it, because
 the facade exposed each mutation *twice* — as a variant and as a plain `&mut self` method —
 and a frontend that called the method had re-implemented nothing but had still left the
 vocabulary. Eight frontend call sites did exactly that:
@@ -521,8 +520,7 @@ weight than their size suggests.
 ### 4.5 Unified Extension Architecture (Anti-Ad-Hoc Policy)
 
 To prevent drift, ad-hoc struct additions and uncoordinated writer logic, a new backend
-capability belongs in one of four domain namespaces owned by `fepdf-model` (and, once it
-exists, `fepdf-doc` — see [§6](#-6-migration)):
+capability belongs in one of four domain namespaces owned by `fepdf-model` (and `fepdf-doc`):
 
 1. **Metadata & Structure**: Portfolio (`/Collection`), Outlines (`/Outlines`), Optional
    Content (`/OCProperties`), Associated Files (`/AF`), Output Intents
@@ -536,7 +534,7 @@ exists, `fepdf-doc` — see [§6](#-6-migration)):
 No feature may bypass the `Operation` vocabulary or inject un-audited dictionary
 mutations directly into frontends or serialisers.
 
-#### 5.5.1 Multi-Format Provider Architecture
+#### 4.5.1 Multi-Format Provider Architecture
 
 When introducing support for external document formats (Word `.docx`, Excel `.xlsx`,
 SVG, HTML), each format follows Rule C by keeping its ingestion and emission in one

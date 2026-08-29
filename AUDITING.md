@@ -66,30 +66,36 @@ Execute the master audit script:
 ./scripts/audit/verify_compliance.sh
 ```
 
-**Fifteen checks**, in the order the script runs them. Derive this list rather than
+**Fifteen steps**, in the order the script runs them. Derive this list rather than
 maintaining it:
 
 ```bash
 grep -oE '\[Rule [0-9]+\]' scripts/audit/verify_compliance.sh
 ```
 
-| | Check | Rule |
+| | Step | Rule |
 | ---: | :--- | :--- |
 | 1 | Function line limits | 1 |
 | 2 | No `unwrap`/`expect` in production code | 2 |
-| 3 | No `unsafe` blocks | 3 |
-| 4 | No wildcard match arms over domain enums | 5 |
-| 5 | No `static mut` | 7 |
-| 6 | No non-deterministic collections in core crates | 10 |
-| 7 | No `String`/`anyhow` errors in a `Result` | 11 |
-| 8 | No `filter_map(Result::ok)` | 13 |
-| 9 | Test code separation — no standalone test files in `src/` | 14 |
-| 10 | No excessive cloning | 15 |
-| 11 | `cargo clippy --workspace --all-targets -- -D warnings` | 17 |
+| 3 | No wildcard match arms over domain enums | 5 |
+| 4 | No non-deterministic collections in core crates | 10 |
+| 5 | No `String`/`anyhow` errors in a `Result` | 11 |
+| 6 | No `filter_map(Result::ok)` | 13 |
+| 7 | Test code separation — no standalone test file in `src/` | 14 |
+| 8 | Excessive cloning (warns; does not fail) | 15 |
+| 9 | MSRV stated as one version across `Cargo.toml`, `.rust-toolchain.toml` and `README.md` | — |
+| 10 | `cargo check --workspace` | — |
+| 11 | `cargo clippy --workspace --all-targets -- -D warnings` | 4, 5 |
 | 12 | **No dependency that compiles C** | **9** |
 | 13 | `cargo fmt --all --check` | 19 |
 | 14 | `cargo deny check licenses` | 16 |
 | 15 | `betterleaks dir .` | 18 |
+
+**Rules 3 and 7 are not here and are not unenforced.** `unsafe_code = "forbid"` fails the
+build on an `unsafe` block, and a `static mut` cannot be read without one, so `rustc`
+holds both — verified by adding each to `fepdf-model` and watching `cargo build` fail. The
+greps that used to sit here matched `unsafe {`, missed `unsafe(`, and ran after a build
+that had already succeeded.
 
 `CODING.md` states each rule; this table states only which the script enforces. Rules 4,
 6, 8 and 20 are in `CODING.md` and **not** here, because nothing automated checks them —

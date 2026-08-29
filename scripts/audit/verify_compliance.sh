@@ -131,8 +131,11 @@ done < <(find $TARGET_DIRS -name "*.rs" | grep -vE "(tests|examples|src/bin)")
 [ "$rule2_failed" -eq 0 ] && echo "  PASS"
 
 # Rule 3: No Unsafe
-echo "[Rule 3] Checking for unsafe blocks..."
-grep -rn "unsafe {" $TARGET_DIRS --include="*.rs" && { echo "  FAIL: Unsafe block found"; ERROR=1; } || echo "  PASS"
+# Rules 3 and 7 are enforced by rustc, not here. `unsafe_code = "forbid"` fails the build
+# on an `unsafe` block, and a `static mut` cannot be read without one — both verified on
+# 2026-08-29 by adding each to fepdf-model and watching cargo build fail. The greps that
+# used to sit here were weaker than the compiler: they matched `unsafe {` and missed
+# `unsafe(`, and they ran after a build that had already succeeded.
 
 # Rule 5: No wildcard match arms over domain enums.
 #
@@ -188,10 +191,8 @@ while IFS= read -r entry; do
 done <<< "$rule5_raw"
 [ "$rule5_failed" -eq 0 ] && echo "  PASS"
 
-# Rule 7: No Global Mutable State
-echo "[Rule 7] Checking for static mut..."
-grep -rn "static mut" $TARGET_DIRS --include="*.rs" && { echo "  FAIL: Global mutable state found"; ERROR=1; } || echo "  PASS"
-
+# Rule 7 is rustc's too: a `static mut` cannot be read without an `unsafe` block.
+#
 # fepdf owns the facade and writer delegation, so iteration order there reaches
 # the produced PDF just as directly as it does in model/doc.
 RULE10_DIRS="crates/fepdf-syntax crates/fepdf-model crates/fepdf-content crates/fepdf-doc crates/fepdf-render crates/fepdf"
@@ -261,11 +262,15 @@ bash scripts/audit/msrv_check.sh || ERROR=1
 echo "[MSRV] Checking Rust workspace compilation..."
 cargo check --quiet || ERROR=1
 
-# Rule 17: Clippy Audit
+# Clippy audit
+#
+# Labelled [Rule 17] until 2026-08-29, which was a different rule sharing the number —
+# CODING.md's Rule 17 was retired the same day. This is the enforcement column for Rules
+# 4 and 5.
 #
 # --all-targets so that tests, examples and benches are linted too. Without it
 # those targets were never checked, and lint debt accumulated there unseen.
-echo "[Rule 17] Running clippy audit..."
+echo "[Clippy] Running clippy audit..."
 cargo clippy --workspace --all-targets -- -D warnings || ERROR=1
 
 # Rule 9: Pure Rust

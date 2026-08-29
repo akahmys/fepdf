@@ -104,3 +104,4 @@ quietly wrong — which is the failure this log exists to make visible.
 | 0037 | [A rules document holds rules, and the log holds how they were got wrong](0037-a-rules-document-holds-rules-and-its-log-holds-the-rest.md) |  |
 | 0038 | [One hierarchy of truth, and the parallel rulebook that outlived it](0038-one-hierarchy-of-truth-and-the-parallel-rulebook-is-deleted.md) |  |
 | 0039 | [The design document was narrating its own corrections](0039-the-design-document-was-narrating-its-own-corrections.md) |  |
+| 0040 | [A rule the compiler already keeps does not need a grep, and Rule 17 did not need to exist](0040-a-rule-the-compiler-already-keeps-is-not-a-rule.md) |  |
