@@ -48,13 +48,36 @@ failure history moves here.**
 
 ### The three the rules document was carrying
 
-**Rule 12 was resource limits, and it left the table while the practice stayed in the
-code.** It capped how much a filter would decode — `const MAX_DECODE_SIZE: usize = 256 *
-1024 * 1024; // 256MB (RR-15 Rule 12)`. The cap is still there, halved to 128 MB and
-citing nothing, as `MAX_DECOMPRESSED_SIZE` in `crates/fepdf-model/src/filters/flate.rs`.
-The rule went; the thing it required did not, so a reader meeting the limit has no way
-back to why it is there — the failure this protocol exists to prevent, reached by deletion
-rather than by omission.
+**Rule 12 is Invariant Enforcement, and the first version of this record said it was
+resource limits.** That was inferred from a single source comment — `const
+MAX_DECODE_SIZE: usize = 256 * 1024 * 1024; // 256MB (RR-15 Rule 12)` — after `git log -S`
+found it and nothing else did. The definition was in the repository the whole time, in
+[`.agents/rules/code-safety.md`](../../.agents/rules/code-safety.md), which is the
+original RR-15 rulebook and has exactly fifteen rules:
+
+> **12. Invariant Enforcement.** Distinguish between **Stable Handles** (`Handle<Object>`)
+> and **Volatile Handles**. Persistent models MUST NOT store volatile handles. Use
+> `assert!` ONLY for internal logical impossibilities.
+
+The decode cap cites the number for something the rule never covered. Searching git
+history and not the working tree is what produced the wrong answer, and it is worth naming
+because the search felt exhaustive.
+
+**`CODING.md` did not extend RR-15; it partly overwrote it.** Against the rulebook's
+fifteen:
+
+| | rulebook | `CODING.md` |
+| ---: | :--- | :--- |
+| 9 | Ownership-First Design | **Pure Rust** — a different rule on the same number |
+| 12 | Invariant Enforcement | **absent** |
+| 14 | Locality of Declaration | **Test Code Separation** — a different rule |
+| 15 | Explicit Allocation: prohibit `.clone()` to satisfy the borrow checker | Clone Optimization: *avoid excessive* `.clone()` — the same subject, weakened |
+
+Rules 16–20 were then appended. So the name labels a set in which three of the original
+fifteen have been reassigned, one dropped, and one softened. `code-safety.md` says of
+itself that `CODING.md` is the enforced form and the script is what runs, which settles
+precedence and does not stop a reader who goes there for the reasoning behind Rule 9 from
+getting the reasoning for a rule that no longer bears that number.
 
 **Rule 17 is enforced by nothing, and the table said "Clippy / Compiler".** No lint in
 `[workspace.lints.clippy]` requires a float suffix: `default_numeric_fallback` lives in
@@ -94,6 +117,15 @@ written, all in documents whose length was the mechanism:
 * `ARCHITECTURE.md`'s status banner denied that Rule D was realised, in lines 5 to 13 of
   the file — the most-read position there is — and was found by comparing `status.sh`
   output against it rather than by reading it.
+
+**A fourth thing happened, to this record.** Its first version stated Rule 12's content
+from a code comment, having searched git history and concluded that nothing in the
+repository defined it. `.agents/rules/code-safety.md` defined it, in a file whose title is
+"Reliable Rust-15 (RR-15) Rulebook". The search that missed it was `git log -S "Rule 12"`
+and a grep restricted to `crates/`, `scripts/` and `*.md` at the root — thorough within a
+boundary drawn without noticing it was drawn. A second agent reading the same tree found
+it in one pass. **An agent's confidence tracks the effort it spent, not the ground it
+covered**, which is an argument for a second reader rather than a longer first one.
 
 And the mechanism that compounds: **the 77-word paragraph about Rules 16 and 18 was
 written on 2026-08-22, and on 2026-08-29 an agent appended 225 more words in exactly that

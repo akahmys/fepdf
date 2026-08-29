@@ -34,8 +34,8 @@ Derived from aerospace safety principles, the **RR-15 (Reliable Rust-15)** rules
 
 Three things this table does not say for itself, recorded in
 [ADR-0037](docs/adr/0037-a-rules-document-holds-rules-and-its-log-holds-the-rest.md)
-rather than here: **Rule 12** was retired and the decode cap it required is still in the
-code, uncited; **Rule 17** is enforced by nothing, and `verify_compliance.sh`'s `[Rule
+rather than here: **Rule 12** was Invariant Enforcement and is gone from this table, while Rules 9 and 14
+name different rules than the rulebook does; **Rule 17** is enforced by nothing, and `verify_compliance.sh`'s `[Rule
 17]` is a different rule sharing the number; **RR-15** is a name, not a count — the table
 is 1–11 and 13–20.
 
