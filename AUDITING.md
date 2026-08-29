@@ -41,7 +41,7 @@ than a description of the lockfile, so that is expected.
 the warnings rather than tune them out, "because the same wording appears when a
 dependency that *was* relying on an allowance is dropped" — and one was: `encoding_rs`,
 the only MPL-2.0 crate in the tree, which came in through `reqwest` and left with it under
-Rule 9 ([ADR-0024](adr/0024-pure-rust-is-a-rule-and-therefore-has-a-check.md)). It had
+Rule 9 ([ADR-0024](docs/adr/0024-pure-rust-is-a-rule-and-therefore-has-a-check.md)). It had
 also been named in `docs/specs/refinery_engine.md` as doing text recovery, which it was
 not. A licence allowance going quiet is a dependency-graph change reported by the one tool
 that always notices.

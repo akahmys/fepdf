@@ -62,7 +62,11 @@ row "branch" "$(git rev-parse --abbrev-ref HEAD)"
 row "HEAD" "$(git log --oneline -1)"
 dirty=$(git status --porcelain | wc -l | tr -d ' ')
 row "uncommitted files" "$dirty"
-row "phase" "$(grep -m1 -oE '^## Phase [A-Z] — .*' ROADMAP.md)"
+# The *first unfinished* phase, not the first heading. Reading the first heading printed
+# "Phase A" forever, which is the same defect the "Next" block below carries a comment
+# about having fixed there and not here.
+phase_now=$(awk '/^## Phase /{p=$0} /^- \[ \]/{print p; exit}' ROADMAP.md)
+row "phase" "${phase_now:-every box checked}"
 
 echo
 bold "Figures the documents quote"
@@ -273,6 +277,19 @@ row "JavaScript lines no RR-15 check reads" "${unaudited_js:-0}"
 
 adrs=$(find docs/adr -name '0*.md' | wc -l | tr -d ' ')
 row "decision records" "$adrs"
+
+# An index maintained by hand is an index that goes quietly wrong, which is the failure
+# the log exists to make visible. Every record has a row and every row has a record, or
+# this says which.
+adr_files=$(ls docs/adr/0*.md 2>/dev/null | xargs -n1 basename | sort)
+adr_indexed=$(grep -oE '\]\(0[0-9]{3}-[a-z0-9-]+\.md\)' docs/adr/README.md | tr -d '](){}' | sort -u)
+adr_missing=$(comm -23 <(echo "$adr_files") <(echo "$adr_indexed") | tr '\n' ' ')
+adr_extra=$(comm -13 <(echo "$adr_files") <(echo "$adr_indexed") | tr '\n' ' ')
+if [ -z "$adr_missing$adr_extra" ]; then
+    row "records missing from the index (expect 0)" "0"
+else
+    row "records missing from the index (expect 0)" "missing: ${adr_missing:-none}  stale rows: ${adr_extra:-none}"
+fi
 
 # ARCHITECTURE.md 5.3 quotes this. It read "one site" for as long as it took Phase A to
 # convert the other eleven, which is the drift this row exists to make visible.

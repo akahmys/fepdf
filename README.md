@@ -123,6 +123,8 @@ disagreement rather than reading as current.
 
 ## The crates
 
+| Crate | What it is |
+| :--- | :--- |
 | `fepdf` | The public facade and API most callers want (`PdfDocument`, `SaveOptions`, `Operation`) |
 | `fepdf-doc` | Canonical mutation operations vocabulary, PDF/UA-2 audit, structure trees, and remediation |
 | `fepdf-model` | The engine: objects, arena, document graph, xref, reader and writer |
