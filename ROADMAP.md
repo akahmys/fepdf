@@ -2111,7 +2111,7 @@ figure below came out of one command, and the commands are here.
       ```
 
 - [x] **`fepdf debug extract-font` wrote outside every registered directory.** A
-      root-level `exports/`: unregistered in `DIRECTORY_LAYOUT.md`, **not git-ignored**,
+      root-level `exports/`: unregistered in `ARCHITECTURE.md` §2.1, **not git-ignored**,
       and never created — so the write failed unless the user had made the directory, and
       left untracked files in the repository root when they had. Three defects in one
       line, none of which any check could see. It writes to `out/exports/` now. The
