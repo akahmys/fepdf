@@ -2,7 +2,7 @@
 
 - **Status**: Accepted
 - **Date**: 2026-08-29
-- **Commit**: d523a63
+- **Commit**: 8ec174e
 
 ## Context
 
