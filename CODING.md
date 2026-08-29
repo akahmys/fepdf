@@ -62,32 +62,16 @@ Enforced as: **no crate named `cc` in any workspace member's dependency tree, on
 target this engine is built for**. `cc` is how a Rust build compiles C, and nothing
 compiles C without it.
 
-**The targets are named, because a dependency tree is not one tree.** The check used to
-run `cargo tree` with no `--target`, so it answered "does this compile C on the machine
-running the audit" while this paragraph called it exact. It now reads
-`x86_64-unknown-linux-gnu`, `x86_64-pc-windows-msvc`, `aarch64-apple-darwin` and
-`wasm32-unknown-unknown`; adding a target to that list is a claim that the engine is built
-for it.
+**Four targets, named.** The check reads `x86_64-unknown-linux-gnu`,
+`x86_64-pc-windows-msvc`, `aarch64-apple-darwin` and `wasm32-unknown-unknown`; a
+dependency tree is not one tree, and adding a target to that list is a claim that the
+engine is built for it.
 
-Widening it found a violation the same day. **`fepdf-gui` compiles C on Linux** — Wayland's
-build shim, through `rfd` → `ashpd` and again through `eframe` → `winit` →
-`smithay-client-toolkit`. It is not new, it is newly visible: a Linux GUI build has done
-this for as long as the GUI has had a Linux target, and Rule 9 reported PASS throughout.
-The Linux GUI **keeps Wayland** ([ADR-0033](docs/adr/0033-the-linux-gui-keeps-wayland-so-rule-9-names-one-exemption.md)):
-an X11-only Linux GUI is a worse product than a rule kept clean, and Rule 9 exists to keep
-unaudited C out of the *engine*, which compiles none on any target.
-
-So `verify_compliance.sh` names one exemption — and it names **`wayland-backend`, the crate
-that compiles the C, not `fepdf-gui`, the member that reaches it**. Exempting the member
-would forgive whatever it acquires next; naming the cause forgives Wayland and nothing
-else.
-
-`--target all` finds one more, `chrono` → `iana-time-zone` → `iana-time-zone-haiku`, and
-Haiku is deliberately not on the list.
-
-The rule was stated after the fact, which is worth admitting: three dependencies had to go
-before it could pass, and **two of them were never used by a line of code**
-([ADR-0024](docs/adr/0024-pure-rust-is-a-rule-and-therefore-has-a-check.md)).
+**One exemption**: `fepdf-gui` compiles C on Linux, through Wayland's build shim
+(`rfd` → `ashpd`, and `eframe` → `winit` → `smithay-client-toolkit`). It is recorded in
+`deny.toml`, scoped to that crate and that target
+([ADR-0033](docs/adr/0033-the-linux-gui-keeps-wayland-so-rule-9-names-one-exemption.md)).
+Any other `cc` in any tree fails the audit.
 
 ### Rule 5 in detail: what "no wildcards" can and cannot mean
 
@@ -101,6 +85,13 @@ workspace (2026-08-16), and how many are of that kind cannot be established by r
 the text — which is the argument, not a gap in it. Telling the two apart needs to know
 what the scrutinee's type is. So enforcement uses `clippy::wildcard_enum_match_arm`,
 which has that information and fires only on enums.
+
+**Where it does not reach.** A PDF's domain values arrive from a file as integers —
+`/ShadingType`, `/FunctionType`, `/V`, `/Tr` — and a `match` on an integer needs a
+wildcard, so the lint cannot see them. Measured 2026-08-29: 30 such matches, of which 11
+answer an unrecognised value with a default or `None` and no `Decision`. `TextRenderingMode`
+maps 0–3 and sends 4–7 to `Fill`, so `Tr 7`, "add to clip and paint nothing", paints. Rule
+20 is what covers this ground, and nothing checks Rule 20.
 
 **Forbidden** — wildcard arms over domain enums such as `ColorSpaceKind`,
 `SublimatedData`, `Color`, `PixelFormat`, and any enum added from here on. These gain
@@ -174,40 +165,22 @@ drift, silently, because nothing compares them. That has already happened here �
 
 ### What checks them
 
-- **Rules A–C**: enforced by Cargo, and the claim used to be narrower than the topology.
-  It said "no frontend declares `fepdf-model`" — true, and it left room for what was
-  actually there: **`fepdf-gui` declared `fepdf-render`**, reaching the GPU crate directly
-  rather than through the facade's `render` feature, which is the opt-in
-  [ADR-0004](docs/adr/0004-rule-b-makes-the-gpu-dependency-optional.md) exists to provide.
-  It needed two names, `VelloBackend` and `FallbackFontType`, and the facade re-exports
-  both, so the fix was one line of `Cargo.toml` and one `use`.
+| | Checked by |
+| :--- | :--- |
+| **Rules A–C** | Cargo. Every frontend declares `fepdf` and nothing else; `status.sh` counts internal dependencies that are not the facade, and greps for arena types arriving another way. Both expect 0. |
+| **Rule D** | `status.sh` counts document-mutating `&mut self` methods on the facade and expects 0. `apply` is the only way in. |
+| **RR-15** | [`scripts/audit/verify_compliance.sh`](scripts/audit/verify_compliance.sh) |
+| **Lints** | `cargo clippy --workspace --all-targets -- -D warnings`. `--all-targets` is required, or tests, examples and benches go unlinted. |
+| **Licences** | `cargo deny check licenses` ([`deny.toml`](deny.toml)) |
+| **Secrets and PII** | `betterleaks`, pre-commit and in the audit ([`.betterleaks.toml`](.betterleaks.toml)) |
 
-  **All four frontends now declare `fepdf` and nothing else**, which is what §2's diagram
-  has always drawn. `status.sh` counts internal dependencies that are not the facade and
-  expects 0, alongside the older row that greps for arena types — the first is structural
-  and the second catches a type that arrives some other way. Verified by putting the
-  `fepdf-render` line back and watching the row read 1.
+Rule D read "enforced by construction" for four phases while ten facade methods went
+round it, and the tell was that its row named no tool where every other row did. **Do not
+write "by construction" without naming what would notice.**
 
-  `fepdf-render` declares `fepdf` as a **dev-dependency**, for its own tests. That is not
-  the cycle it looks like: it does not exist in the build graph of anything that links
-  `fepdf-render`.
-- **Rule D**: enforced by construction, and for four phases that was an assertion rather
-  than a fact — the facade exposed ten document-mutating `&mut self` methods beside the
-  vocabulary, and frontends called them at eight sites (§4.1). The tell was that this row
-  named no tool while every other one did. The methods are gone; `apply` is the only way
-  in; and the claim is now backed by a `status.sh` row that counts `&mut self` methods on
-  the facade and expects 0. **The rule and its check disagreed for longer than the rule
-  had been true**, which is the argument for never writing "by construction" without
-  naming what would notice.
-- **RR-15 protocol**: [`CODING.md`](CODING.md), checked by
-  [`scripts/audit/verify_compliance.sh`](scripts/audit/verify_compliance.sh).
-- **Lints**: `cargo clippy --workspace --all-targets -- -D warnings`. `--all-targets`
-  is required — without it tests, examples and benches go unlinted.
-- **Licences**: `cargo deny check licenses` ([`deny.toml`](deny.toml)).
-- **Secrets and PII**: `betterleaks` pre-commit hook ([`.betterleaks.toml`](.betterleaks.toml)).
-
-Governance sits in [`AGENTS.md`](AGENTS.md), [`CODING.md`](CODING.md),
-[`AUDITING.md`](AUDITING.md), and [`TESTING.md`](TESTING.md).
+`fepdf-render` declares `fepdf` as a dev-dependency for its own tests. That is not the
+cycle it looks like: it is absent from the build graph of anything that links
+`fepdf-render`.
 
 ## 🏛️ 3. What code must satisfy elsewhere
 
