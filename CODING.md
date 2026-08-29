@@ -27,10 +27,38 @@ Derived from aerospace safety principles, the **RR-15 (Reliable Rust-15)** rules
 | **Rule 14** | Test Code Separation | Standalone/Integration tests MUST be placed in `crates/*/tests/`. Do NOT pollute `src/` with dedicated test files. | Directory structure check |
 | **Rule 15** | Clone Optimization | Avoid excessive `.clone()`. Use `Arc` or handle references where appropriate. | Code review / Density warning |
 | **Rule 16** | Licences | Every dependency's licence must be on `deny.toml`'s allow-list. | `cargo deny check licenses` via `verify_compliance.sh` |
-| **Rule 17** | Type Explicitly | Explicitly specify floating-point types (`1.0_f32`, `2.5_f32`) to prevent Edition 2024 inference fallbacks. | Clippy / Compiler |
+| **Rule 17** | Type Explicitly | Explicitly specify floating-point types (`1.0_f32`, `2.5_f32`) to prevent Edition 2024 inference fallbacks. | **Nothing. See below.** |
 | **Rule 18** | Secrets and PII | No credential, key or personal datum may be committed. | `betterleaks` via `verify_compliance.sh` and a pre-commit hook |
 | **Rule 19** | Formatting | The tree must satisfy `cargo fmt --all --check`. | `./scripts/audit/verify_compliance.sh` |
 | **Rule 20** | Recorded Interpretation | Where the engine accepts input the standard does not describe, it MUST record a `Decision` naming the clause and what was done. A silent acceptance is a defect even when the output is right. | Code review / ARCHITECTURE.md §5.3 |
+
+**Rule 12 was resource limits, and it left this table while the practice stayed in the
+code.** The table runs 1–11 and 13–20 with no note about the gap. Rule 12 capped how much
+a filter would decode — `const MAX_DECODE_SIZE: usize = 256 * 1024 * 1024; // 256MB (RR-15
+Rule 12)` — and the cap is still there, halved and uncited, as `MAX_DECOMPRESSED_SIZE` in
+[`crates/fepdf-model/src/filters/flate.rs`](crates/fepdf-model/src/filters/flate.rs). The
+rule went; the thing it required did not. Nothing in the workspace cites Rule 12 today, so
+a reader meeting the 128 MB limit has no way back to why it is there — which is the
+failure this protocol exists to prevent, arrived at by deletion instead of by omission.
+
+**RR-15 names fifteen rules and this table has nineteen.** 1–11 and 13–20. The name was
+accurate once and is now a label rather than a count; it is left as it is because renaming
+it would break every `// RR-15 Limit:` marker in the tree, and knowing the number is
+historical costs a sentence.
+
+**Rule 17 is enforced by nothing, and this table said "Clippy / Compiler" for as long as
+that was untrue.** No clippy lint in `[workspace.lints.clippy]` requires a float suffix:
+the one that would, `default_numeric_fallback`, lives in `clippy::restriction`, and the
+groups enabled are `pedantic`, `nursery` and `all`. The code answers the same way —
+**1,118 unsuffixed float literals against 70 suffixed**, counted with comments and string
+contents removed. The rule is kept because Edition 2024's inference fallback is real, and
+its enforcement column now says what is true; making it hold means enabling the lint and
+fixing 1,118 sites, which is a decision and not a tidy-up.
+
+**`verify_compliance.sh`'s "[Rule 17]" is a different rule.** There it labels the clippy
+audit — `cargo clippy --workspace --all-targets -- -D warnings` — which is this table's
+enforcement column for Rules 4 and 5 and has nothing to do with float suffixes. Two rules
+share a number across two files, which is how a reader concludes the audit checks this one.
 
 **Rules 16 and 18 were added on 2026-08-22 and are not new.** `verify_compliance.sh` had
 been enforcing both under those numbers since before this table existed, and this table —

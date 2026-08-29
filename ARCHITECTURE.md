@@ -9,9 +9,13 @@ rules, the Sublimation Pipeline, and memory invariants.
 > to complete and nobody to re-read the top of the file. `fepdf-sdk` has not existed since
 > step 6 renamed it.
 >
-> What is **not** realised is §5.1's Rule D, and that is a defect rather than a stage:
-> the vocabulary exists and eight frontend call sites go round it. Read the rules as
-> load-bearing and the enforcement column as the thing to check.
+> §5.1's Rule D is realised too, and this banner went on denying it — "the vocabulary
+> exists and eight frontend call sites go round it" — after Phase Q removed the ten
+> facade methods those sites called. §7 says the rule is enforced, §5.1 says `apply` is
+> the only way in, `status.sh` counts facade mutators and reads 0, and the top of the
+> file said the opposite. **That is twice now for this banner**, which is the argument
+> for reading the rules as load-bearing and the enforcement column as the thing to
+> check: a status line nothing derives is a comment about the past.
 
 ---
 
