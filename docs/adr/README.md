@@ -101,3 +101,4 @@ quietly wrong — which is the failure this log exists to make visible.
 | 0034 | [The locale is recorded rather than ignored, and `intl` is declined for what it does not do](0034-intl-is-declined-for-what-it-does-not-do.md) |  |
 | 0035 | [What a page shows and what it says are separate questions](0035-what-a-page-shows-and-what-it-says-are-separate-questions.md) |  |
 | 0036 | [A base encoding is not a CMap, and a solidus is not a glyph name](0036-a-base-encoding-is-not-a-cmap.md) |  |
+| 0037 | [A rules document holds rules, and the log holds how they were got wrong](0037-a-rules-document-holds-rules-and-its-log-holds-the-rest.md) |  |

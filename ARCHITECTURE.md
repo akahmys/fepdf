@@ -3,19 +3,12 @@
 The authoritative architectural blueprint for **fepdf**: crate topology, layering
 rules, the Sublimation Pipeline, and memory invariants.
 
-> **Status.** The topology below is **realised**: every crate in §3 exists and every step
-> in [§6](#-6-migration) is done. This banner said the opposite — that several crates did
-> not exist yet and their code lived in `fepdf-sdk` — for as long as it took steps 0 to 6
-> to complete and nobody to re-read the top of the file. `fepdf-sdk` has not existed since
-> step 6 renamed it.
->
-> §5.1's Rule D is realised too, and this banner went on denying it — "the vocabulary
-> exists and eight frontend call sites go round it" — after Phase Q removed the ten
-> facade methods those sites called. §7 says the rule is enforced, §5.1 says `apply` is
-> the only way in, `status.sh` counts facade mutators and reads 0, and the top of the
-> file said the opposite. **That is twice now for this banner**, which is the argument
-> for reading the rules as load-bearing and the enforcement column as the thing to
-> check: a status line nothing derives is a comment about the past.
+> **Status.** The topology below is realised: every crate in §3 exists, every step in
+> [§6](#-6-migration) is done, and §5.1's Rule D is enforced — `status.sh` counts
+> document-mutating methods on the facade and reads 0. **This banner has twice asserted
+> the opposite of what the file beneath it said**, which is
+> [ADR-0037](docs/adr/0037-a-rules-document-holds-rules-and-its-log-holds-the-rest.md)
+> along with the reason: a status line nothing derives is a comment about the past.
 
 ---
 
