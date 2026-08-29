@@ -252,6 +252,12 @@ while read -r file; do
 done < <(find $TARGET_DIRS -name "*.rs")
 
 # MSRV & Workspace Check
+#
+# `cargo check` was the whole of this, which compiles against the installed toolchain and
+# says nothing about the version three documents claim. `msrv_check.sh` existed for that
+# and was called by nothing.
+echo "[MSRV] Checking the stated minimum is one version..."
+bash scripts/audit/msrv_check.sh || ERROR=1
 echo "[MSRV] Checking Rust workspace compilation..."
 cargo check --quiet || ERROR=1
 

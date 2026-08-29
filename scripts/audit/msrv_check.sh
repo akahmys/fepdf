@@ -22,25 +22,19 @@ if [[ "$TOOLCHAIN_VERSION" != "$EXPECTED_VERSION" ]]; then
     exit 1
 fi
 
-# 2. Check for occurrences of the old MSRV (1.85.0)
-OLD_MSRV="1.85.0"
-echo "Searching for obsolete version: $OLD_MSRV"
-MAPPINGS=$(grep -rn "$OLD_MSRV" . \
-    --exclude-dir=.git \
-    --exclude-dir=target \
-    --exclude-dir=.gemini \
-    --exclude-dir=.agent \
-    --exclude-dir=.cocoindex_code \
-    --exclude-dir=node_modules \
-    --exclude="*.pdf" \
-    --exclude="*.log" \
-    --exclude="Cargo.lock" \
-    --exclude="msrv_check.sh" \
-    --exclude="*.txt")
-
-if [ -n "$MAPPINGS" ]; then
-    echo "Error: Obsolete MSRV ($OLD_MSRV) found in the following files:"
-    echo "$MAPPINGS"
+# 2. Check README's stated minimum
+#
+# This hunted a hardcoded "1.85.0" until 2026-08-29 — a version retired before the check
+# was written, so it passed by finding nothing and would have gone on passing after the
+# next bump too. README.md is where the claim a reader acts on actually lives, and it was
+# the one source this script did not read.
+README_VERSION=$(grep -oE "Rust [0-9]+\.[0-9]+(\.[0-9]+)?" README.md | head -n 1 | cut -d ' ' -f 2)
+if [ -z "$README_VERSION" ]; then
+    echo "Error: README.md states no Rust version"
+    exit 1
+fi
+if [[ "$README_VERSION" != "$EXPECTED_VERSION" ]]; then
+    echo "Error: README.md says Rust $README_VERSION; $ROOT_CARGO says $EXPECTED_VERSION"
     exit 1
 fi
 

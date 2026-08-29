@@ -32,6 +32,14 @@ Needs Rust 1.94 or later. There are no published binaries.
 cargo build --release
 ```
 
+Text extraction needs two Adobe resource repositories that `external/` does not carry —
+they answer opposite questions, and reading one for the other's job is how 7,617 CIDs of
+Adobe-Japan1 came to be unreadable:
+
+```bash
+./scripts/dev/fetch_font_resources.sh
+```
+
 That gives you `target/release/fepdf` (command line) and `target/release/fepdf-gui`
 (desktop). The GUI wants a GPU; the CLI does not.
 

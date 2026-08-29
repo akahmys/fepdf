@@ -1868,8 +1868,9 @@ functions cannot be.
       correctly and changes nothing on the page is, to a reader, no panel.
 
       **Not visually verified.** The egui layout compiles and the data and behaviour
-      behind it are tested, but `capture_ui.sh` screenshots the whole desktop and needs
-      the app running in front of someone, so nobody has looked at it yet.
+      behind it are tested, but the only tool for it — `capture_ui.sh`, deleted on
+      2026-08-29 as unreferenced — screenshotted the whole desktop and needed the app
+      running in front of someone, so nobody has looked at it yet.
 
       ```bash
       cargo test -p fepdf-model --test layer_panel_tests
