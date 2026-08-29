@@ -90,3 +90,14 @@ they extract now — one character per span and mostly punctuation, which is the
 own quality and not this engine's to improve. Reading a page's text and counting its
 glyphs are separate questions, and the engine could not tell them apart until something
 went looking.
+
+**Two of the shapes decided above are not in the corpus.** All 6,080 spans are a `/Span`
+tag with the property list written in place — none is empty, none nests (the deepest is
+one), none uses another tag, and none names a list in `/Properties`. The named-list
+lookup in particular was written because 14.6.2 allows it and it costs one lookup, which
+is a reason to implement something and not evidence that it works. `actual_text_test.rs`
+exercises those shapes directly, since no document here will.
+
+**Nothing in this engine is measured against a corpus with `/ActualText` worth reading
+other than `volvo_xc90.pdf`.** `fugaku.pdf` has 2,622 spans and their content is too poor
+to check an implementation against.

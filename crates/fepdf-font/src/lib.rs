@@ -6,6 +6,8 @@
 #![warn(missing_docs)]
 
 pub mod agl;
+/// The simple-font base encodings of Annex D.
+pub mod annex_d;
 /// Standard CFF strings and constants.
 pub mod cff_standard;
 /// CMap character map parsers and utilities.

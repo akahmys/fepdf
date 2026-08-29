@@ -272,6 +272,18 @@ pub enum UnicodeSource {
     Unmapped,
 }
 
+/// Whether a mapping's value is a glyph name rather than the text itself.
+///
+/// A `CMap`'s mappings carry both: `/Differences` and a `bfchar` with a name destination
+/// store `/glyphname`, everything else stores the characters. **The leading slash was the
+/// whole test, and `/` is also a character.** A base encoding that names `U+002F` — every
+/// one of them does, at code `0x2F` — had its slash read as an empty glyph name and came
+/// back as nothing; so did any `/ToUnicode` mapping a code to a solidus. A name token has
+/// something after its slash, which is what separates the two.
+fn is_glyph_name(value: &str) -> bool {
+    value.len() > 1 && value.starts_with('/')
+}
+
 impl UnicodeSource {
     /// The route's name, for a decision or a tally.
     #[must_use]
@@ -1122,23 +1134,56 @@ impl FontResource {
             Object::Name(h) => {
                 let name = arena.get_name(h)?;
                 let name_str = name.as_str();
-                cmap::CMap::load_named(name_str).or_else(|| match name_str {
-                    "Identity-H" => Some(cmap::CMap::identity_h()),
-                    "Identity-V" => Some(cmap::CMap::identity_v()),
-                    "90ms-RKSJ-H" => Some(cmap::CMap::rksj_h()),
-                    "UniJIS-UTF16-H" => Some(cmap::CMap::unijis_h()),
-                    _ => None,
-                })
+                // An Annex D base encoding is asked for first, because it is not a CMap
+                // and the CMap loader searches a collection that has never held one.
+                // Reaching `load_named` with `/WinAnsiEncoding` returned `None` and left
+                // the font with no encoding at all: 36,914 glyphs of `intel_sdm.pdf`.
+                fepdf_font::annex_d::base_encoding(name_str)
+                    .or_else(|| cmap::CMap::load_named(name_str))
+                    .or_else(|| match name_str {
+                        "Identity-H" => Some(cmap::CMap::identity_h()),
+                        "Identity-V" => Some(cmap::CMap::identity_v()),
+                        "90ms-RKSJ-H" => Some(cmap::CMap::rksj_h()),
+                        "UniJIS-UTF16-H" => Some(cmap::CMap::unijis_h()),
+                        _ => {
+                            Self::record_unknown_encoding(name_str, decisions);
+                            None
+                        }
+                    })
             }
             Object::Stream(_, _) => Self::try_load_cmap(doc, &enc, "Encoding", decisions),
-            Object::Dictionary(h) => Self::parse_encoding_dict(h, arena),
+            Object::Dictionary(h) => Self::parse_encoding_dict(h, arena, decisions),
             _ => None,
         }
+    }
+
+    /// Says that an `/Encoding` name resolved to nothing, and which kind of nothing.
+    ///
+    /// **A name this engine does not carry and a name that means nothing are different
+    /// failures**, and both used to produce the same silence: a font with no encoding,
+    /// and every code above `U+007E` unnamed with no record of why. `/WinAnsiEncoding`
+    /// was the first kind for the whole life of this code.
+    fn record_unknown_encoding(name: &str, decisions: &mut Vec<crate::interpretation::Decision>) {
+        let (clause, what, took) = if fepdf_font::annex_d::is_base_encoding_name(name) {
+            (
+                "D.2",
+                format!("/{name} is a base encoding this engine does not carry"),
+                "left the font without one; codes above U+007E cannot be named",
+            )
+        } else {
+            (
+                "9.6.6.1",
+                format!("/{name} names neither a CMap nor a base encoding"),
+                "left the font without one; codes above U+007E cannot be named",
+            )
+        };
+        decisions.push(crate::interpretation::Decision::violation(clause, what, took));
     }
 
     fn parse_encoding_dict(
         h: Handle<BTreeMap<Handle<PdfName>, Object>>,
         arena: &PdfArena,
+        decisions: &mut Vec<crate::interpretation::Decision>,
     ) -> Option<cmap::CMap> {
         let enc_dict = arena.get_dict(h)?;
         let mut cmap = cmap::CMap::default();
@@ -1149,8 +1194,12 @@ impl FontResource {
             .and_then(|h: Handle<PdfName>| arena.get_name(h))
         {
             let name_str: String = base_name.as_str().to_string();
-            if let Some(base_cmap) = cmap::CMap::load_named(&name_str) {
+            if let Some(base_cmap) = fepdf_font::annex_d::base_encoding(&name_str)
+                .or_else(|| cmap::CMap::load_named(&name_str))
+            {
                 cmap = base_cmap;
+            } else {
+                Self::record_unknown_encoding(&name_str, decisions);
             }
         }
 
@@ -1643,11 +1692,8 @@ impl FontResource {
         source: UnicodeSource,
     ) -> (Option<String>, UnicodeSource) {
         if let Some(res) = result {
-            let uni = if res.starts_with('/') {
-                cmap::glyph_name_to_unicode(res.as_bytes())
-            } else {
-                res
-            };
+            let uni =
+                if is_glyph_name(&res) { cmap::glyph_name_to_unicode(res.as_bytes()) } else { res };
 
             if let Some(reason) = uni.chars().next().and_then(|c| is_withheld(c, false)) {
                 return (None, reason);
@@ -2322,7 +2368,7 @@ impl FontResource {
         let enc = self.encoding.as_ref()?;
         let (len, u): (usize, Option<String>) = enc.decode_next_with_min_len(data, min_len)?;
         if let Some(u_str) = u {
-            let uni = if u_str.starts_with('/') {
+            let uni = if is_glyph_name(&u_str) {
                 cmap::glyph_name_to_unicode(u_str.as_bytes())
             } else {
                 u_str
