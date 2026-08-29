@@ -27,7 +27,7 @@ fn render_page_internal(args: RenderArgs) -> McpResult<String> {
     let doc = PdfDocument::open(Bytes::from(data))
         .map_err(|e: fepdf::PdfError| McpError::Pdf(e.to_string()))?;
 
-    let output_dir = PathBuf::from("artifacts/screenshots");
+    let output_dir = PathBuf::from("out/artifacts/screenshots");
     if !output_dir.exists() {
         fs::create_dir_all(&output_dir).map_err(McpError::from)?;
     }

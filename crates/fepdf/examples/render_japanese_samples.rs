@@ -13,7 +13,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args: Vec<String> = std::env::args().collect();
     let filename = args.get(1).map_or("samples/bokutokitan.pdf", |s| s.as_str());
 
-    let output_dir = Path::new("artifacts/renders");
+    let output_dir = Path::new("out/artifacts/renders");
     std::fs::create_dir_all(output_dir)?;
 
     let system_fonts = VelloBackend::load_system_fonts();

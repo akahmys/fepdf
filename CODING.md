@@ -87,11 +87,11 @@ what the scrutinee's type is. So enforcement uses `clippy::wildcard_enum_match_a
 which has that information and fires only on enums.
 
 **Where it does not reach.** A PDF's domain values arrive from a file as integers —
-`/ShadingType`, `/FunctionType`, `/V`, `/Tr` — and a `match` on an integer needs a
+`/ShadingType`, `/V`, `/LC`, `/LJ` — and a `match` on an integer needs a
 wildcard, so the lint cannot see them. Measured 2026-08-29: 30 such matches, of which 11
-answer an unrecognised value with a default or `None` and no `Decision`. `TextRenderingMode`
-maps 0–3 and sends 4–7 to `Fill`, so `Tr 7`, "add to clip and paint nothing", paints. Rule
-20 is what covers this ground, and nothing checks Rule 20.
+answer an unrecognised value with a default or `None` and no `Decision` — `/LC 7` becomes
+a butt cap, `/LJ 7` a mitre join. Rule 20 is what covers this ground, and nothing checks
+Rule 20.
 
 **Forbidden** — wildcard arms over domain enums such as `ColorSpaceKind`,
 `SublimatedData`, `Color`, `PixelFormat`, and any enum added from here on. These gain

@@ -5,7 +5,7 @@ set -e
 # This script verifies that Hiragana characters are correctly rendered in samples/bokutokitan.pdf.
 
 INPUT="samples/bokutokitan.pdf"
-OUTPUT_DIR="artifacts/test_results"
+OUTPUT_DIR="out/artifacts/test_results"
 mkdir -p "$OUTPUT_DIR"
 
 echo "Running Hiragana rendering test..."

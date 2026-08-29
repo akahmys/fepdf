@@ -14,7 +14,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let entries = std::fs::read_dir(samples_dir)?;
 
     // Ensure the output directory exists
-    let output_dir = Path::new("artifacts/renders");
+    let output_dir = Path::new("out/artifacts/renders");
     std::fs::create_dir_all(output_dir)?;
 
     let system_fonts = VelloBackend::load_system_fonts();

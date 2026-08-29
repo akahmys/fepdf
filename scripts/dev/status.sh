@@ -278,6 +278,13 @@ row "JavaScript lines no RR-15 check reads" "${unaudited_js:-0}"
 adrs=$(find docs/adr -name '0*.md' | wc -l | tr -d ' ')
 row "decision records" "$adrs"
 
+# Output isolation (ARCHITECTURE.md §2.1). Every generated file goes under `out/`, and a
+# root-level output directory is git-ignored, so nothing goes red when one appears. Four
+# writers used a root `artifacts/` until 2026-08-29 for exactly that reason.
+stray_out=$(grep -rnE '"(artifacts|exports|renders)/|OUT(PUT)?_DIR="(artifacts|exports)' \
+    --include="*.rs" --include="*.sh" --include="*.py" crates scripts 2>/dev/null | wc -l | tr -d ' ')
+row "writers outside out/ (expect 0)" "$stray_out"
+
 # An index maintained by hand is an index that goes quietly wrong, which is the failure
 # the log exists to make visible. Every record has a row and every row has a record, or
 # this says which.

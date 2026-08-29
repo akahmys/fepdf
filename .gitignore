@@ -32,7 +32,6 @@ dump_*.txt
 clippy_*.txt
 /screenshot*.png
 /ferruginous_*.png
-/artifacts/
 /scratch/
 out.pdf
 out.txt
