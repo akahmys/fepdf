@@ -8,7 +8,6 @@ This document defines the canonical directory structure of fepdf. Adherence to t
 
 | Path | Purpose | Ownership |
 | :--- | :--- | :--- |
-| `.agents/` | Governance & Agent Protocols | Project |
 | `assets/` | Static, Read-only Resources (Fonts, Models) | Project |
 | `crates/` | Modular Rust Logic Layer | Engineering |
 | `docs/` | Technical Specs & Architectural History | Architecture |

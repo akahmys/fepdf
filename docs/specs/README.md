@@ -12,11 +12,16 @@ code does today.
 **Audited 2026-08-22 (Phase O-4).** Every claim in these files that a command could
 check was checked, and three of the documents did not survive it:
 
-| Was here | Where it went | Why |
+| Was here | Why it went | |
 | :--- | :--- | :--- |
-| `sdk_design.md` | [`docs/history/archive/`](../history/archive/sdk_design.md) | Named four source files, a `serialize/` directory and five dependency versions that do not exist, and an Arlington predicate engine that has never existed |
-| `app_design.md` | [`docs/history/archive/`](../history/archive/app_design.md) | Named five crates and four types that do not exist, and called the CLI binary the GUI |
-| `charter_redesign_2026-04-13.md` | [`docs/history/`](../history/) | A dated deliberation record, which is a historical document and never updated — it was in the wrong directory, not wrong |
+| `sdk_design.md` | Named four source files, a `serialize/` directory and five dependency versions that do not exist, and an Arlington predicate engine that has never existed | |
+| `app_design.md` | Named five crates and four types that do not exist, and called the CLI binary the GUI | |
+| `charter_redesign_2026-04-13.md` | A dated deliberation record, which belonged with the history rather than the specifications | |
+
+All three were archived under `docs/history/`, which was deleted with
+`docs/retrospectives/` on 2026-08-29 ([ADR-0038](../adr/0038-one-hierarchy-of-truth-and-the-parallel-rulebook-is-deleted.md)):
+both existed for a self-improvement loop that is no longer run, and git holds what
+happened.
 
 The three that remain were corrected in place rather than archived, because most of
 each was true: `refinery_engine.md` claimed generation bits on `Handle`, a

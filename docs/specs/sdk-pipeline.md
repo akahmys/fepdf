@@ -2,7 +2,7 @@
 
 This document describes the design of Phase 3 (Interpretation) and Phase 5 (Serialization & Resurrection) of the fepdf processing pipeline.
 
-For prescriptive constraints, see `.agents/rules/sdk-engine.md`.
+For prescriptive constraints, see [CODING.md](../../CODING.md) and [ARCHITECTURE.md](../../ARCHITECTURE.md).
 
 ---
 

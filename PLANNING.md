@@ -9,8 +9,7 @@ This document governs task planning, codebase exploration, feature design, and d
 Before a significant structural change, write the plan down. For a decision that is
 contested, reversed, or rests on a measurement, the record belongs in
 [`docs/adr/`](docs/adr/README.md); for sequencing, in [ROADMAP.md](ROADMAP.md).
-There is no standing `implementation_plan.md` — the one under `docs/history/archive/`
-is a record of an earlier effort and is not maintained.
+There is no standing `implementation_plan.md`.
 
 ### Implementation Plan Structure
 1. **Goal Description**: Clear scope, rationale, and target outcomes.
@@ -46,7 +45,8 @@ Never guess implementation details, data schemas, or file locations. Follow this
 
 ## 🔄 3. Workflows & Session Management
 
-- Task states and progress are tracked in `.agents/session/` artifacts (`task.md`, `walkthrough.md`).
+- Task state lives in the working tree and the commit that closes it; the write-ahead log
+  under `.agents/session/` was deleted with the rest of that directory (ADR-0038).
 - After completing work, update `walkthrough.md` with:
   - Concise summary of changes.
   - Verification results (test outputs, audit logs).

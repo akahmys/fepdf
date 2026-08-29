@@ -2,7 +2,7 @@
 
 This document describes the design of Phase 1 (Ingestion & Decryption) and Phase 2 (Normalization & Pre-Analysis) of the fepdf processing pipeline, along with the Sublimation Memory Model.
 
-For prescriptive constraints, see `.agents/rules/pdf-engine.md`.
+For prescriptive constraints, see [CODING.md](../../CODING.md) and [ARCHITECTURE.md](../../ARCHITECTURE.md).
 
 ---
 

@@ -58,8 +58,25 @@ documents come to disagree.
 | **[ROADMAP.md](ROADMAP.md)** | What is next, and what does done mean? | Completed history |
 | **[PLANNING.md](PLANNING.md)** | How is a change planned before it is written? | Any specific plan |
 | **docs/specs/** | Background on a subsystem. | Anything authoritative |
-| **docs/retrospectives/**, **docs/history/** | What happened, as it was then. | Anything current |
-| **.agents/** | Agent operating protocols: rules, skills, workflows. | The enforced form of any rule — that is `CODING.md` |
+### The hierarchy
+
+A claim lower in this list never overrides one higher.
+
+1. **ISO 32000-2:2020** — the standard itself.
+2. **Measurement** — what the code and the corpus are observed to do.
+3. **[CODING.md](CODING.md)** (RR-15) and **[ARCHITECTURE.md](ARCHITECTURE.md)** (layering) — the rules.
+4. **[AUDITING.md](AUDITING.md)**, **[TESTING.md](TESTING.md)**, **[AGENTS.md](AGENTS.md)**, **[PLANNING.md](PLANNING.md)** — governance.
+5. **`docs/specs/`** — background on a subsystem.
+
+[docs/adr/](docs/adr/README.md) sits beside the list rather than in it: it records how a
+level 3 or level 4 statement came to be, and states no rule of its own.
+
+**`.agents/` held a second level 3 and is deleted**
+([ADR-0038](docs/adr/0038-one-hierarchy-of-truth-and-the-parallel-rulebook-is-deleted.md)):
+a rulebook whose Rules 9, 12, 14 and 15 named different rules than `CODING.md`'s, beside
+files instructing the opposite of Rule A and Rule 20. Both copies said `CODING.md` wins,
+and on the day they were deleted two agents were misled by them anyway.
+
 
 ### Rules
 
@@ -67,10 +84,7 @@ documents come to disagree.
    restating. `ARCHITECTURE.md` §4 links to ADRs rather than repeating them.
 2. **Present tense is `ARCHITECTURE.md`; past tense is `docs/adr/`.** A decision that
    was reversed is recorded, not deleted, so the reasoning is not repeated.
-3. **Historical documents are never updated.** `docs/retrospectives/` and
-   `docs/history/` keep the names and facts that were true when written. They were
-   deliberately excluded from the `ferruginous`→`fepdf` rename.
-4. **A quoted figure carries its date.** Measurements go stale. Either re-verify
+3. **A quoted figure carries its date.** Measurements go stale. Either re-verify
    before quoting, or write "at the time" — an ADR that silently rots is worse than
    none.
 5. **A rule that is not checked is a comment.** Every entry in `CODING.md` names what

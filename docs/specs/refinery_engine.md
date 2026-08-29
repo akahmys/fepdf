@@ -40,7 +40,7 @@ All PDF objects are decoupled from their physical locations and stored in a type
 3. **Validation**: Departures from the standard are recorded as `Decision`s with the
    clause that governs them (`ARCHITECTURE.md` §5.3). (Checked 2026-08-22: there is no
    `SafetyBitmask` and no Arlington predicate engine — the same claim that got
-   `docs/history/archive/omissions.md` archived. Arlington is a shell wrapper around an
+   `omissions.md` archived and then deleted. Arlington is a shell wrapper around an
    external Python tool and nothing in the engine reads it.)
 
 ## 3. Flagship GUI (`fepdf-gui`)

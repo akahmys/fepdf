@@ -1529,8 +1529,9 @@ That is not a scanned-image problem; it is the same hole in four places.
       between them they name nine source files, a directory, five crates and four types
       that do not exist, five wrong dependency versions, the CLI binary called the GUI,
       and the Arlington predicate engine for the second time. `charter_redesign_*.md` was
-      **moved to `docs/history/`** — a dated deliberation record is a historical document
-      and belongs where those are, which is the only thing wrong with it.
+      **moved to `docs/history/`** — a dated deliberation record belongs with the history
+      rather than the specifications, which was the only thing wrong with it. That
+      directory was deleted on 2026-08-29 (ADR-0038).
 
       The other three were **corrected in place**, because most of each was true and
       archiving a mostly-true document loses more than it proves: `Handle` has no
@@ -2630,9 +2631,10 @@ and **twelve of its specific claims were checked in one sitting; none held** —
 and JBIG2 "fully implemented in Phase 12" through a crate that has never been in
 `Cargo.lock`, `RunLengthDecode` listed as unimplemented when it is implemented, ICC
 colour management through a dependency that does not exist, an Arlington predicate
-engine that was never written. It is archived under `docs/history/archive/` with the
-check beside each claim, rather than deleted: removing the evidence of a documentation
-failure removes the proof that it happened.
+engine that was never written. It was archived under `docs/history/archive/` with the
+check beside each claim, on the argument that removing the evidence of a documentation
+failure removes the proof that it happened — and deleted on 2026-08-29 with the rest of
+that directory (ADR-0038), the proof being what git is for.
 
 Nothing replaces it, deliberately. A second document saying what is implemented is a
 second place to go stale, and that file is what the second one becomes.

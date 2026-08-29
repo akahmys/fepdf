@@ -52,8 +52,10 @@ failure history moves here.**
 resource limits.** That was inferred from a single source comment — `const
 MAX_DECODE_SIZE: usize = 256 * 1024 * 1024; // 256MB (RR-15 Rule 12)` — after `git log -S`
 found it and nothing else did. The definition was in the repository the whole time, in
-[`.agents/rules/code-safety.md`](../../.agents/rules/code-safety.md), which is the
-original RR-15 rulebook and has exactly fifteen rules:
+`.agents/rules/code-safety.md`, the original RR-15 rulebook, which had exactly fifteen
+rules and was deleted the same day by
+[ADR-0038](0038-one-hierarchy-of-truth-and-the-parallel-rulebook-is-deleted.md) — the
+quotation below is what it said:
 
 > **12. Invariant Enforcement.** Distinguish between **Stable Handles** (`Handle<Object>`)
 > and **Volatile Handles**. Persistent models MUST NOT store volatile handles. Use
@@ -120,7 +122,7 @@ written, all in documents whose length was the mechanism:
 
 **A fourth thing happened, to this record.** Its first version stated Rule 12's content
 from a code comment, having searched git history and concluded that nothing in the
-repository defined it. `.agents/rules/code-safety.md` defined it, in a file whose title is
+repository defined it. `.agents/rules/code-safety.md` defined it, in a file whose title was
 "Reliable Rust-15 (RR-15) Rulebook". The search that missed it was `git log -S "Rule 12"`
 and a grep restricted to `crates/`, `scripts/` and `*.md` at the root — thorough within a
 boundary drawn without noticing it was drawn. A second agent reading the same tree found

@@ -2,7 +2,7 @@
 
 This document describes the technical specifications for text metrics, scaling, and CJK decoding in the fepdf rendering engine.
 
-For prescriptive constraints, see `.agents/rules/gpu-rendering.md`.
+For prescriptive constraints, see [CODING.md](../../CODING.md) and [ARCHITECTURE.md](../../ARCHITECTURE.md).
 
 ---
 
