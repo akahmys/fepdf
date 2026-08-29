@@ -209,6 +209,17 @@ impl RenderBackend for Canvas<'_> {
         );
     }
 
+    /// Forwarded even while hidden: a hidden section's `EMC` still has to close whatever
+    /// its `BDC` opened, and an unbalanced `end_actual_text` would swallow the rest of
+    /// the page's text.
+    fn begin_actual_text(&mut self, text: &str) {
+        self.inner.begin_actual_text(text);
+    }
+
+    fn end_actual_text(&mut self) {
+        self.inner.end_actual_text();
+    }
+
     fn set_font(&mut self, name: &str) {
         self.inner.set_font(name);
     }

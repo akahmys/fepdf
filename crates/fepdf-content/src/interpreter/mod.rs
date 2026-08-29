@@ -433,7 +433,13 @@ impl<'a> Interpreter<'a> {
                     }
                     _ => Object::Null,
                 });
-                self.begin_marked_content(tag, operand.as_ref());
+                // Read `/ActualText` from the IR, before the flattening above: an inline
+                // property list survives only there. `Object::Null` is all the optional
+                // content code needs from an inline dictionary — 8.11.2 requires a group
+                // to be indirect, so an inline one names nothing — but 14.9.4 puts real
+                // text in exactly that place, and `volvo_xc90.pdf` writes 3,458 of them.
+                let actual_text = self.actual_text_of(properties.as_ref(), operand.as_ref());
+                self.begin_marked_content_with(tag, operand.as_ref(), actual_text);
                 Ok(())
             }
             Command::EndMarkedContent => {

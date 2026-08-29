@@ -51,6 +51,20 @@ pub struct TextExtractionBackend {
     /// `bokutokitan.pdf`, "213 of 360" was the whole of what could be reported and it
     /// named no work.
     unmapped_by_source: std::collections::BTreeMap<&'static str, usize>,
+    /// Open `/ActualText` sections, outermost first (14.9.4).
+    ///
+    /// A stack rather than a flag because the sections nest, and only the outermost one's
+    /// text is used: an inner section describes a part of what the outer one already
+    /// describes in full, so taking both would say it twice.
+    actual_text: Vec<String>,
+    /// How many glyphs an `/ActualText` section stood in for.
+    ///
+    /// Counted apart from `glyphs_unmapped` because they are opposite failures. An
+    /// unmapped glyph is text the document never gave; a replaced one is text the
+    /// document *did* give, in the place 14.9.4 puts it, and that this engine used to
+    /// walk past. Measured before this read it: 2,106 glyphs across the corpus drawn as
+    /// `.notdef` with their characters sitting in the span around them.
+    glyphs_replaced: usize,
 }
 
 impl Default for TextExtractionBackend {
@@ -69,8 +83,21 @@ impl TextExtractionBackend {
             glyphs_unmapped: 0,
             last_end_x: 0.0,
             unmapped_by_source: std::collections::BTreeMap::new(),
+            actual_text: Vec::new(),
+            glyphs_replaced: 0,
         }
     }
+    /// Glyphs seen, glyphs no route could name, and glyphs an `/ActualText` stood for.
+    ///
+    /// The three are reported together because they only mean anything against each
+    /// other: "2,106 unmapped" was a number without a denominator until it could be read
+    /// as 2,106 of 718,262, and the third column is what stops a glyph replaced under
+    /// 14.9.4 from being counted as one that was lost.
+    #[must_use]
+    pub const fn tally(&self) -> (usize, usize, usize) {
+        (self.glyphs_seen, self.glyphs_unmapped, self.glyphs_replaced)
+    }
+
     /// Whether this run begins far enough from the last to be a separate word.
     ///
     /// **A `TJ` array delivers one call per element**, so the gap between two calls is
@@ -133,6 +160,21 @@ impl RenderBackend for TextExtractionBackend {
         _is_cid: bool,
     ) {
     }
+    fn begin_actual_text(&mut self, text: &str) {
+        self.actual_text.push(text.to_string());
+    }
+
+    /// The section's text is emitted here rather than at its start, so that a section
+    /// whose glyphs establish a new line or a word gap has already said so.
+    fn end_actual_text(&mut self) {
+        let Some(text) = self.actual_text.pop() else {
+            return;
+        };
+        if self.actual_text.is_empty() {
+            self.output.push_str(&text);
+        }
+    }
+
     fn set_font(&mut self, _name: &str) {}
     fn show_text(
         &mut self,
@@ -150,8 +192,18 @@ impl RenderBackend for TextExtractionBackend {
         } else if self.separated_from_previous_run(x, _size, scale) {
             self.output.push(' ');
         }
+        // 14.9.4: inside a section that declares `/ActualText`, the glyphs are what the
+        // page shows and the section's text is what it says. Taking both would double
+        // every replaced character; taking the glyphs would keep emitting the `U+0000`
+        // that a `/ToUnicode` of `<0000>` produces, which reads as nothing and counts as
+        // something.
+        let replaced = !self.actual_text.is_empty();
         for glyph in glyphs {
             self.glyphs_seen += 1;
+            if replaced {
+                self.glyphs_replaced += 1;
+                continue;
+            }
             if glyph.unicode.is_empty() {
                 self.glyphs_unmapped += 1;
                 *self.unmapped_by_source.entry(glyph.source.name()).or_default() += 1;
@@ -167,8 +219,8 @@ impl RenderBackend for TextExtractionBackend {
     /// What this extraction could not say, for `render_page` to record.
     ///
     /// **The count is the whole point.** "No text on this page" is a legitimate answer
-    /// for a blank page and for one drawn entirely in vector paths — measured, 24 of
-    /// `fugaku.pdf`'s 25 pages are the second — and it is a defect when glyphs were drawn
+    /// for a blank page and for one drawn entirely in vector paths — and it is a defect
+    /// when glyphs were drawn
     /// and none of them could be named. Only the caller can tell those apart, and only if
     /// it is told which happened.
     ///

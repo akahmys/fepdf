@@ -189,6 +189,18 @@ pub trait RenderBackend {
         fallback_type: FallbackFontType,
         is_cid_keyed: bool,
     );
+    /// The text a marked-content section stands for (14.9.4), when it declares one.
+    ///
+    /// **What is drawn and what is meant are allowed to differ**, and a document that
+    /// says so is the only reason anyone can read some pages. `volvo_xc90.pdf` draws its
+    /// Chinese and Thai regulatory notices as 414 `.notdef` glyphs on one page and puts
+    /// the real characters here; it also draws `/` and `-` with codes whose `/ToUnicode`
+    /// says `U+0000`, and puts those here too. Extraction takes this in place of the
+    /// glyphs between here and `end_actual_text`; rendering ignores it, because the
+    /// glyphs are still what appears on the page.
+    fn begin_actual_text(&mut self, _text: &str) {}
+    /// Closes the section opened by `begin_actual_text`.
+    fn end_actual_text(&mut self) {}
     /// Selects a previously defined font.
     fn set_font(&mut self, name: &str);
     /// Sets the text rendering mode (`Tr`).

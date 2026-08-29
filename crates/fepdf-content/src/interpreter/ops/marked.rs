@@ -6,6 +6,7 @@
 //! group's state was never consulted. See [`fepdf_model::optional_content`] for what the
 //! property list is worth and why nothing is hidden on a doubt.
 
+use crate::RenderBackend;
 use crate::interpreter::Interpreter;
 use fepdf_model::interpretation::Decision;
 use fepdf_model::optional_content::{Membership, OptionalContentState};
@@ -16,12 +17,16 @@ use fepdf_model::{Object, PdfName, PdfResult};
 /// The interpreter keeps a stack of these rather than a count of hidden ones, because
 /// `EMC` has to know *which* kind it is closing: a `/Span` opened inside a hidden `/OC`
 /// section closes with an `EMC` that must not bring the page back.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum MarkedSection {
-    /// A section that changed nothing about visibility.
-    Drawn,
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub(crate) struct MarkedSection {
     /// An `/OC` section whose group is off. Marks are withheld until its `EMC`.
-    Hidden,
+    pub(crate) hidden: bool,
+    /// The section declared `/ActualText`, and told the backend so (14.9.4).
+    ///
+    /// Tracked per section rather than as a depth count because the two kinds nest
+    /// freely: a `/Span` carrying `/ActualText` can open inside a hidden `/OC`, and each
+    /// `EMC` has to undo exactly what its own `BDC` did.
+    pub(crate) replaced: bool,
 }
 
 impl Interpreter<'_> {
@@ -30,7 +35,7 @@ impl Interpreter<'_> {
             // `BMC` carries a tag and no property list, so it can never name a group.
             "BMC" => {
                 let _tag = self.pop_name()?;
-                self.marked_sections.push(MarkedSection::Drawn);
+                self.marked_sections.push(MarkedSection::default());
             }
             "BDC" => {
                 let properties = self.stack.pop();
@@ -52,28 +57,49 @@ impl Interpreter<'_> {
         Ok(())
     }
 
-    /// Opens a section, hiding what follows when the tag is `/OC` and the group is off.
+    /// Opens a section, hiding what follows when the tag is `/OC` and the group is off,
+    /// and announcing `/ActualText` when the section declares one.
     pub(crate) fn begin_marked_content(&mut self, tag: &PdfName, properties: Option<&Object>) {
+        self.begin_marked_content_with(tag, properties, None);
+    }
+
+    /// As `begin_marked_content`, with the property list's `/ActualText` already read.
+    ///
+    /// The text arrives separately because the two callers hold the property list in
+    /// different forms, and only one of them can still see an inline dictionary. See
+    /// `actual_text_of` in the interpreter.
+    pub(crate) fn begin_marked_content_with(
+        &mut self,
+        tag: &PdfName,
+        properties: Option<&Object>,
+        actual_text: Option<String>,
+    ) {
+        let replaced = if let Some(text) = actual_text {
+            self.backend.begin_actual_text(&text);
+            true
+        } else {
+            false
+        };
         if tag.as_str() != "OC" {
-            self.marked_sections.push(MarkedSection::Drawn);
+            self.marked_sections.push(MarkedSection { hidden: false, replaced });
             return;
         }
-        let section = match self.optional_content_membership(properties) {
+        let hidden = match self.optional_content_membership(properties) {
             Membership::Hidden => {
                 self.backend.hide();
-                MarkedSection::Hidden
+                true
             }
-            Membership::Visible => MarkedSection::Drawn,
+            Membership::Visible => false,
             Membership::Unreadable(why) => {
                 self.doc.record(Decision::violation(
                     "8.11.3.1",
                     format!("a /OC marked-content section could not be resolved: {why}"),
                     "drew the section; a group that is off would have hidden it",
                 ));
-                MarkedSection::Drawn
+                false
             }
         };
-        self.marked_sections.push(section);
+        self.marked_sections.push(MarkedSection { hidden, replaced });
     }
 
     /// Closes the innermost section.
@@ -82,8 +108,57 @@ impl Interpreter<'_> {
     /// wrong, and refusing the operator would abort the content stream and take the rest
     /// of the page's text with it — the failure ADR-0018 was written about.
     pub(crate) fn end_marked_content(&mut self) {
-        if self.marked_sections.pop() == Some(MarkedSection::Hidden) {
+        let Some(section) = self.marked_sections.pop() else {
+            return;
+        };
+        if section.hidden {
             self.backend.reveal();
+        }
+        if section.replaced {
+            self.backend.end_actual_text();
+        }
+    }
+
+    /// The `/ActualText` a section declares (14.9.4), from either shape of property list.
+    ///
+    /// Two shapes, because 14.6.2 allows both: written in place, which is what every one
+    /// of the corpus's 6,080 spans does, or a name into the page's `/Properties`, which
+    /// none of them does and which costs one lookup to honour anyway.
+    ///
+    /// An empty `/ActualText` is a section that stands for *no* text, which is a real
+    /// thing to say — a decorative glyph, a repeated hyphen at a line break — so it is
+    /// kept as `Some("")` and suppresses the glyphs, rather than being read as absent.
+    pub(crate) fn actual_text_of(
+        &self,
+        ir: Option<&fepdf_model::object::sublimation::IrObject>,
+        operand: Option<&Object>,
+    ) -> Option<String> {
+        use fepdf_model::object::sublimation::IrObject;
+        if let Some(IrObject::Dictionary(entries)) = ir {
+            return match entries.get("ActualText") {
+                Some(IrObject::String(b) | IrObject::Hex(b)) => {
+                    Some(fepdf_model::refine::text::recover_string(b))
+                }
+                _ => None,
+            };
+        }
+        // A named property list. The name reaches here already interned, so the lookup is
+        // the same one `/OC` does.
+        let Some(Object::Name(handle)) = operand else {
+            return None;
+        };
+        let arena = self.doc.arena();
+        let name = arena.get_name(*handle)?;
+        let key = arena.intern_name(PdfName::new("Properties"));
+        let resource = self.find_resource(&key, &name).ok()?;
+        let arena = self.doc.arena();
+        let dict = arena.get_dict(resource.as_dict_handle()?)?;
+        match dict.get(&arena.name("ActualText")).map(|v| v.resolve(arena)) {
+            Some(Object::String(b) | Object::Hex(b)) => {
+                Some(fepdf_model::refine::text::recover_string(&b))
+            }
+            Some(Object::Text(t)) => Some(t),
+            _ => None,
         }
     }
 

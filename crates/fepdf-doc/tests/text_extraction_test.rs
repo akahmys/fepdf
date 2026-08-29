@@ -1,10 +1,16 @@
 //! What "this page has no text" means, and the two things it used to mean at once.
 //!
 //! An empty extraction is a legitimate answer for a blank page and for one drawn entirely
-//! in vector paths — measured, 24 of `fugaku.pdf`'s 25 pages are the second. It is a
-//! defect when glyphs were drawn and none of them could be named in Unicode: measured, 192
-//! of `bokutokitan.pdf`'s 195 pages and 64,556 glyphs, returned as the same empty string a
-//! blank page returns and with nothing recorded beside it.
+//! in vector paths. It is a defect when glyphs were drawn and none of them could be named
+//! in Unicode: measured, 192 of `bokutokitan.pdf`'s 195 pages and 64,556 glyphs, returned
+//! as the same empty string a blank page returns and with nothing recorded beside it.
+//!
+//! **`fugaku.pdf` used to be this file's example of the legitimate case**, on the measured
+//! ground that 24 of its 25 pages draw no glyphs at all. The glyph count was right and the
+//! conclusion was wrong: those pages carry 2,622 `/ActualText` spans (14.9.4), so the
+//! document does say what it shows — badly, one character per span and mostly punctuation,
+//! but it says it. Reading a page's text is not the same question as counting its glyphs,
+//! and this file could not tell the two apart until something went looking.
 
 use fepdf_content::{RenderBackend, TextGlyph, TextState};
 use fepdf_doc::remediation::TextExtractionBackend;
@@ -149,4 +155,97 @@ fn nothing_is_inserted_before_the_first_run_or_after_whitespace() {
     assert_eq!(extract_runs(&[(500.0, 100.0, 1.0, "first")]), "first");
     let text = extract_runs(&[(0.0, 100.0, 1.0, "a "), (9.0, 100.0, 1.0, "b")]);
     assert_eq!(text, "a b", "one space, not two");
+}
+
+/// What a marked-content section says it shows, when that differs from what it draws.
+///
+/// 14.9.4: `/ActualText` replaces the content of its section for extraction. The glyphs
+/// are still what appears on the page, so rendering is unaffected — only the reader's
+/// copy of the text changes, which is the only place the difference exists.
+mod actual_text {
+    use super::{TextExtractionBackend, glyph};
+    use fepdf_content::{RenderBackend, TextGlyph, TextState};
+    use kurbo::Affine;
+
+    /// Draws `drawn` inside a section declaring `says`, and returns the extracted text.
+    fn replaced(before: &str, says: Option<&str>, drawn: &str, after: &str) -> String {
+        let mut backend = TextExtractionBackend::new();
+        let show = |backend: &mut TextExtractionBackend, text: &str, x: f64| {
+            let glyphs: Vec<TextGlyph> = text
+                .chars()
+                .map(|c| TextGlyph { width: 1000.0, ..glyph(&c.to_string()) })
+                .collect();
+            backend.show_text(
+                &glyphs,
+                10.0,
+                Affine::new([1.0, 0.0, 0.0, 1.0, x, 0.0]),
+                TextState { tc: 0.0, tw: 0.0, th: 1.0, is_vertical: false },
+                0,
+            );
+        };
+        show(&mut backend, before, 0.0);
+        if let Some(says) = says {
+            backend.begin_actual_text(says);
+        }
+        show(&mut backend, drawn, 1.0);
+        if says.is_some() {
+            backend.end_actual_text();
+        }
+        show(&mut backend, after, 2.0);
+        backend.finish()
+    }
+
+    #[test]
+    fn the_section_speaks_and_the_glyphs_do_not() {
+        // `volvo_xc90.pdf` draws its Chinese notices as `.notdef` and puts the characters
+        // in the span. Taking the glyphs as well would print both.
+        assert_eq!(replaced("Taiwan", Some("警語"), "\u{0}\u{0}", ""), "Taiwan警語");
+    }
+
+    #[test]
+    fn a_glyph_that_is_replaced_is_not_a_glyph_that_was_lost() {
+        let mut backend = TextExtractionBackend::new();
+        backend.begin_actual_text("-");
+        // The real case: a code whose `/ToUnicode` says `U+0000`, which is not an empty
+        // string and so was never counted, and not a character anyone can read either.
+        backend.show_text(
+            &[TextGlyph { width: 1000.0, ..glyph("\u{0}") }],
+            10.0,
+            Affine::IDENTITY,
+            TextState { tc: 0.0, tw: 0.0, th: 1.0, is_vertical: false },
+            0,
+        );
+        backend.end_actual_text();
+        let (seen, unmapped, replaced) = backend.tally();
+        assert_eq!((seen, unmapped, replaced), (1, 0, 1), "counted as replaced, not lost");
+        assert_eq!(backend.finish(), "-");
+    }
+
+    #[test]
+    fn an_empty_section_stands_for_no_text_and_that_is_an_answer() {
+        // A decorative glyph, or the second half of a hyphenated word: the document is
+        // saying "this shows nothing", which is different from saying nothing.
+        assert_eq!(replaced("ab", Some(""), "XY", "cd"), "abcd");
+    }
+
+    #[test]
+    fn nesting_takes_the_outer_section_because_it_already_covers_the_inner() {
+        let mut backend = TextExtractionBackend::new();
+        backend.begin_actual_text("outer");
+        backend.begin_actual_text("inner");
+        backend.end_actual_text();
+        backend.end_actual_text();
+        assert_eq!(backend.finish(), "outer", "the inner text describes part of the outer");
+    }
+
+    #[test]
+    fn an_unbalanced_end_leaves_the_rest_of_the_page_readable() {
+        // A content stream with more `EMC`s than sections is wrong, and refusing it would
+        // take the rest of the page's text with it — the failure ADR-0018 was written
+        // about, reached here through a different door.
+        let mut backend = TextExtractionBackend::new();
+        backend.end_actual_text();
+        assert_eq!(replaced("ab", None, "cd", ""), "abcd");
+        assert_eq!(backend.finish(), "");
+    }
 }
