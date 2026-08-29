@@ -28,8 +28,9 @@ each was true: `refinery_engine.md` claimed generation bits on `Handle`, a
 `SafetyBitmask`, a text-encoding detector that was **removed** for corrupting a
 conforming `/Title`, and Zstd compression of exactly the two stream kinds that are
 excluded from it; `core-pipeline.md` claimed a non-recursive decryption walk that
-recurses; `rendering.md` claimed a `.notdef` fallback that logs, in an engine that holds
-one `log::warn!` by design. Each correction says what was checked and when, because a
+recurses; `rendering.md` claimed a `.notdef` fallback that does not log, in an
+engine that held sixteen log sites at the time — three now, after ADR-0028 turned the
+conclusions among them into `Decision`s. Each correction says what was checked and when, because a
 line that is silently right today is indistinguishable from one that is silently stale.
 
 **Audited again 2026-08-22 (Phase Q).** The first audit checked every claim a command

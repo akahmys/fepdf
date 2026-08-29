@@ -1,87 +1,68 @@
-# 🤖 fepdf Agentic Governance & System Architecture
+# fepdf — governance
 
-Welcome to **fepdf**, an experimental, high-fidelity PDF 2.0 processing platform built with Rust. This project operates under an AI-native autonomous engineering model adhering to strict safety and determinism guarantees.
+Where each thing is written down, and what to do when two of them disagree.
 
----
-
-## ⚖️ Hierarchy of Truth
-
-When directives conflict, resolve in this order:
+## Hierarchy of truth
 
 ```
 1. ISO 32000-2:2020, the standard itself
    └── 2. Measurement of the code as it is
-        └── 3. AGENTS.md — the principles below
+        └── 3. This file — the principles below
              └── 4. The rules of each phase, in the order work happens:
                     PLANNING.md → CODING.md → TESTING.md → AUDITING.md
-                 └── 5. docs/specs/ and other background material
+                 └── 5. docs/specs/ — background on a subsystem
 ```
 
-`ARCHITECTURE.md` is the design, `ROADMAP.md` is the work, `README.md` is the
-introduction, and `docs/adr/` records how a rule or a design came to be. None of them
-states a rule; when one appears to, the rule belongs in a phase document and the ADR
-records why.
+**Measurement outranks documentation.** A claim about this codebase is established by
+running something, not by reading a document or a function name. Records in `docs/adr/`
+exist because a document asserted what the code did not do — [ADR-0017](docs/adr/0017-declaring-a-catalogue-key-is-not-modelling-it.md),
+[ADR-0037](docs/adr/0037-a-rules-document-holds-rules-and-its-log-holds-the-rest.md) and
+[ADR-0039](docs/adr/0039-the-design-document-was-narrating-its-own-corrections.md) among
+them. A document that disagrees with a verified measurement is corrected, not argued from.
 
-**Measurement outranks documentation.** This is not a platitude: four decisions in
-`docs/adr/` were reversed because a document asserted something the code did not do.
-A document that disagrees with a verified measurement is wrong and gets corrected, not
-argued from.
+## Which document answers what
 
----
-
-## 📚 Which Document Owns What
-
-Each document answers one question. Writing something in the wrong one is how two
-documents come to disagree.
+Each answers one question. Writing something in the wrong one is how two documents come
+to disagree.
 
 | Document | Answers | Does **not** contain |
 | :--- | :--- | :--- |
-| **[README.md](README.md)** | What is this, how do I build it? | Design or rules |
-| **[AGENTS.md](AGENTS.md)** | How is the project governed? Where does everything live? | The rules themselves |
-| **[ARCHITECTURE.md](ARCHITECTURE.md)** | What is the design **now**? | Why it came to be, history, plans, rules |
-| **[docs/adr/](docs/adr/README.md)** | How did it come to be? What was tried and dropped? | The present design |
-| **[CODING.md](CODING.md)** | What must code satisfy — RR-15 and the layering rules? | Design rationale |
-| **[AUDITING.md](AUDITING.md)** | How is compliance checked? | The rules being checked |
-| **[TESTING.md](TESTING.md)** | What must be verified before merging? | Test results |
-| **[ROADMAP.md](ROADMAP.md)** | What is next, and what does done mean? | Completed history |
-| **[PLANNING.md](PLANNING.md)** | How is a change planned before it is written? | Any specific plan |
-| **docs/specs/** | Background on a subsystem. | Anything authoritative |
-### Rules
+| **[AGENTS.md](AGENTS.md)** | Where is everything written, and what outranks what? | The rules themselves |
+| **[PLANNING.md](PLANNING.md)** | What is decided before code is written? | Any specific plan |
+| **[CODING.md](CODING.md)** | What must code satisfy? RR-15, and the layering rules | Why the design is this shape |
+| **[TESTING.md](TESTING.md)** | What must pass before a change lands? | Test results |
+| **[AUDITING.md](AUDITING.md)** | What is checked mechanically, and by what? | The rules being checked |
+| **[ARCHITECTURE.md](ARCHITECTURE.md)** | What is the design **now**? | Why it came to be, history, rules |
+| **[ROADMAP.md](ROADMAP.md)** | What is measured, built, and next? | Rules |
+| **[README.md](README.md)** | What is this, and how is it built? | Design or rules |
+| **[docs/adr/](docs/adr/README.md)** | How did a rule or a design come to be? | The present design |
 
-1. **One fact, one home.** If it belongs in two places, one of them links instead of
-   restating. `ARCHITECTURE.md` §4 links to ADRs rather than repeating them.
-2. **Present tense is `ARCHITECTURE.md`; past tense is `docs/adr/`.** A decision that
-   was reversed is recorded, not deleted, so the reasoning is not repeated.
-3. **A quoted figure carries its date.** Measurements go stale. Either re-verify
-   before quoting, or write "at the time" — an ADR that silently rots is worse than
-   none.
-5. **A rule that is not checked is a comment.** Every entry in `CODING.md` names what
-   enforces it. If nothing does, say so rather than implying enforcement.
-6. **`docs/specs/` is background, not truth.** It predates most of the current design
-   and sits at the bottom of the hierarchy. Where it disagrees with
-   `ARCHITECTURE.md`, `ARCHITECTURE.md` wins.
+Only the four phase documents state rules. When another appears to, the rule belongs in a
+phase document and an ADR records why.
 
----
+## Writing rules
 
-## 🎯 Core Operating Principles
+1. **One fact, one home.** If it belongs in two places, one links instead of restating.
+2. **Present tense here and in `ARCHITECTURE.md`; past tense in `docs/adr/`.** A reversal
+   is recorded, not deleted, so the reasoning is not repeated.
+3. **A quoted figure carries its date**, or is re-derived before quoting. `status.sh`
+   re-derives the ones these documents lean on, so a stale figure reads as a
+   disagreement rather than as current.
+4. **A rule that is not checked is a comment.** Every entry in `CODING.md` names what
+   enforces it, and says "nothing" where nothing does.
+5. **Prove a check fires by breaking the thing it checks.** Tests here have passed
+   against the defect they were written for.
 
-1. **Safety Over Speed**: Memory safety, determinism, and ISO compliance take precedence over premature optimization or prototyping.
-2. **Zero Unsafe**: `unsafe_code = "forbid"` is enforced across all workspace crates.
-3. **Automated Verification**: Every code change must be verifiable via `./scripts/audit/verify_compliance.sh`, `cargo deny`, `betterleaks`, and `cargo test`.
-4. **Measure, do not assume**: A claim about this codebase is established by running
-   something, not by reading a document or a function name — see the hierarchy above.
-   Note that this is *not* "log-first": the engine holds exactly one `log::warn!` by
-   design, because a warning on stderr cannot tell a caller *this loaded* from *this was
-   conforming*. What the engine finds in a document it records as a `Decision`
-   (`ARCHITECTURE.md` §4.3); what you want to know about the engine you measure.
+## Principles
 
----
+1. **Safety over speed.** Memory safety, determinism and ISO conformance come before
+   optimisation.
+2. **What the engine finds, it records; what you want to know, you measure.** A finding
+   about a *document* is a `Decision` naming its clause (`ARCHITECTURE.md` §4.3) — not a
+   log line, because a warning on stderr cannot tell a caller *this loaded* from *this was
+   conforming*. The engine keeps three `log::warn!`/`log::error!` sites, counted by
+   `./scripts/dev/status.sh`.
+3. **A corpus can justify building something. Only a use case can justify not building
+   it.** Zero occurrences measures the corpus, not the world.
 
-## 🚀 Where the commands are
-
-Each phase document carries the commands for its phase: planning in
-[PLANNING.md](PLANNING.md), the rules and what checks them in [CODING.md](CODING.md),
-what to run before merging in [TESTING.md](TESTING.md), and the audits in
-[AUDITING.md](AUDITING.md). They were listed here too until 2026-08-29, in a fifth
-place that had to be kept in step with four others.
-
+Each phase document carries the commands for its phase.
