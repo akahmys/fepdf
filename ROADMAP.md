@@ -132,7 +132,7 @@ survive that test as refusals — nothing here depends on them, and both are dep
 | **7.7** Document structure | 23 of Table 29's 32 entries modelled; 10 occur in no file of 524. [↓](#77-document-structure) |
 | **PDF 2.0 additions** | Re-derived against all 524 files, 0 unreadable. [↓](#pdf-20-additions) |
 | **8** Graphics | Optional content honoured, tint transforms and shading functions evaluated. Type 1 shading is not read, and says so. [↓](#8-graphics) |
-| **9** Text | Extraction loses **1,398 glyphs of 16,321,270**, from 85,982. [↓](#9-text) |
+| **9** Text | Extraction loses **1,137 glyphs of 16,321,270**, from 85,982, and all of them are named. [↓](#9-text) |
 | **10** Rendering | Both of 6.3.2.2's `shall`s met. Not colour managed. [↓](#10-rendering) |
 | **11** Transparency | Blend modes, constant alpha and soft masks all reach the backend. [↓](#11-transparency) |
 | **12** Interactive features | Read and written. 29 entries on rare annotation subtypes have no reader. [↓](#12-interactive-features) |
@@ -305,7 +305,7 @@ Thai, 17 punctuation — and PDFKit reads exactly 169 CJK scalars from it. The i
 had the property list all along and **flattened every inline dictionary to
 `Object::Null`** on its way to the optional-content code, which is all `/OC` needs from
 one and none of what 14.9.4 puts there. **volvo loses 0 glyphs of 718,262 now**, from
-2,106, and the corpus 38,264 of 16,321,270. It also fixes a defect that was never
+2,106, and the corpus 38,264 of 16,321,270 at that point. It also fixes a defect that was never
 counted: codes whose `/ToUnicode` says `<0000>` were emitting `U+0000` into the
 extracted text, so `R/7713/19` came out as `R⟨NUL⟩7713⟨NUL⟩19` — not an empty string, so
 never tallied as a loss, and not a character anyone can read either. **The claim that 24
@@ -321,7 +321,7 @@ nothing and left the font with **no encoding at all**, so every code the ASCII g
 could not reach came back unnamed. That was 36,914 glyphs of `intel_sdm.pdf`, whose
 1,600 font references all declare it, and the losses were ordinary punctuation: 8,563 em
 dashes, 6,558 bullets, 12,295 curly quotes, 4,940 `®`. **`intel_sdm.pdf` loses 48 now**,
-and the corpus 1,398 of 16,321,270. Adding the table also exposed a trap it had been
+and the corpus 1,398 of 16,321,270 at that point. Adding the table also exposed a trap it had been
 hiding: a mapping's value carried either the text or `/glyphname`, told apart by the
 leading slash, and `U+002F` **is** a character — the first run of the new table lost
 41,058 glyphs to its own solidus, and a `/ToUnicode` mapping a code to one would have
@@ -332,7 +332,32 @@ against 41,116 in `intel_sdm.pdf`. A name token has something after its slash, w
 the test now. `MacRomanEncoding` and `StandardEncoding` are deliberately still absent —
 nothing in the corpus names one, and a table written from memory against no document is
 how a wrong entry gets in unnoticed — but a document that names one now records a
-violation instead of silently losing its text.
+violation instead of silently losing its text. **The 1,398 were two populations and not
+one, and asking which route each reached separated them.** 261 reached *no route at all*,
+and they were one font: `fy05.pdf` sets its title in `RyuminPr6N-Heavy`, which declares
+`/Registry (Adobe) /Ordering (Japan1)` and got no Adobe-Japan1 table, because the engine
+decided a font's character collection by looking for `mincho`, `gothic`, `koz` and six
+more substrings in `/BaseFont` while the file said so outright. Two defects, the first
+hiding the second: `/Registry` and `/Ordering` are **strings** (9.7.3, Table 114) and were
+read with a name accessor, so 116 of 116 Type0 fonts across both corpora returned `None`;
+and the collection was read only on the `Type0`, while the interpreter decodes through the
+descendant `CIDFont`, which carries its own (Table 115) and was never asked. It is read
+from the file now, on both, and the name heuristic is kept only where the file declares
+`Identity` or nothing — 75 fonts, where it is the only thing to go on. Page 1 of
+`fy05.pdf` reads 令和5年度決算検査報告 instead of nothing, the corpus loses **1,137 of
+16,321,270**, and the `unmapped` route is 0 across the nine samples
+([ADR-0041](docs/adr/0041-a-character-collection-is-declared-not-guessed.md)). **The guess
+was also wrong in the other direction**: 19 fonts of the external corpus declare
+`Adobe-Korea1` or `Adobe-China1` and carry `Gothic` in their name, so the *Japanese* table
+was applied to them — Adobe-Japan1 puts `フ` at CID 16128 where Adobe-Korea1 puts `췎`. One
+such glyph is drawn in the corpus; it is unnamed now, under a 9.7.3 violation naming the
+collection, and PDFKit reads no text from that page either. **The other 1,089 will not go
+down and the record says why.** They are `/Differences` names `c033`–`c039` in 127
+subsetted Type1 fonts of `fy05.pdf`; PDFKit reads them as `!"#$%&'`, and rendered they are
+the 圏点 above ため池 and the corner and extension pieces of brackets stretched over five
+lines of a table. Adopting the second implementation's reading would put 1,089 spurious
+ASCII characters into one document's text
+([ADR-0042](docs/adr/0042-a-glyph-name-that-looks-like-a-character-code-is-not-one.md)).
 
 ### 10 Rendering
 
@@ -2528,6 +2553,61 @@ that carry `/CO`.
 names the scope, and nothing this engine has undertaken depends on those. It is also not a
 promise that boa is sufficient: the first two entries exist to find that out, and a
 negative answer on the borrow reopens ADR-0025 rather than this decision.
+
+## Phase S — Three things the text pass measured and did not fix
+
+Reading `fy05.pdf`'s remaining extraction loss
+([ADR-0041](docs/adr/0041-a-character-collection-is-declared-not-guessed.md)) turned up two
+defects that are not about text at all, and left one text question sized. Each is here
+with the measurement rather than the impression.
+
+- [ ] **The renderer does not draw the same page twice.** Repeated renders of one page
+      with one binary give **two distinct images**, on every page tried: `sample.pdf`
+      page 1 four and four out of eight, differing at `(531, 472)`; `fy05.pdf` page 304
+      two and four, at `(219, 443)`; `fugaku.pdf` page 1 one and five, at `(247, 452)`.
+      One isolated pixel each, its own per page. Present at `27d19bd`, before the change
+      that found it. RR-15 **Rule 10 makes determinism a rule** and nothing
+      checks this one; `scripts/visual_regression.py` compares images byte for byte, so it
+      is the check that cannot pass reliably rather than the check that catches it.
+
+      *What to do first*: establish whether the pixel is a float reduction reordered
+      across workgroups or an uninitialised read, because those want different fixes.
+      Rendering the same page with a single-threaded CPU rasteriser, if Vello offers one,
+      separates them; so does whether the two images differ on other pages of other files
+      and always by a single pixel.
+
+      *Done when*: N renders of a page produce one image, for every page of the four the
+      visual suite covers, and something fails when they do not.
+
+- [ ] **The `constitution.pdf` visual baseline is stale, and updating it is not enough.**
+      The suite fails at `27d19bd` on 28 pixels. Twenty-seven of them are the page number
+      `1` at the foot of the page: the engine draws it, the frozen reference does not, and
+      PDFKit reads it in the page's text, so **the current output is the more correct one
+      and the baseline predates a fix**. The twenty-eighth is the pixel above. Refreshing
+      the reference makes the suite pass about half the time, which is worse than failing
+      every time, so the two are one piece of work.
+
+      *Done when*: `python3 scripts/visual_regression.py` reports 4 PASSED on two
+      consecutive runs.
+
+- [ ] **Four more character collections are on disk and are not read.**
+      `scripts/dev/fetch_font_resources.sh` already fetches `Adobe-CNS1-UCS2`,
+      `Adobe-GB1-UCS2`, `Adobe-KR-UCS2` and `Adobe-Korea1-UCS2` beside the Japan1 table,
+      and since ADR-0041 the engine knows which one a font asks for — it declines all four
+      by name and records a 9.7.3 violation. Seventeen fonts of the external corpus
+      declare `Adobe-Korea1` or `Adobe-China1`; **one glyph is drawn through them**, CID
+      16128, which Adobe-Korea1 names `췎`.
+
+      *Not done here for one reason, and it is the reason ADR-0036 gave for
+      `MacRomanEncoding`*: nothing available would exercise the result. PDFKit reads no
+      text at all from the page that carries that glyph, so loading the table would ship
+      an answer with no second implementation confirming it — an unverified `췎` in place
+      of a recorded absence. Adobe's own table is far better evidence than a table written
+      from memory, which is why this is sized rather than refused.
+
+      *Done when*: a document that declares one of the four extracts text through it and
+      a second implementation agrees, or a fixture is built that makes the comparison
+      possible.
 
 ## Read broadly, write 2.0
 

@@ -516,6 +516,15 @@ if [ "${1:-}" = "--full" ]; then
         | while IFS= read -r line; do printf '  %s\n' "$line"; done
     row "measured over" "$coverage_of"
 
+    # The figure clause 9's row quotes. **Neither number could be re-derived from
+    # anything the engine printed.** `TextExtractionBackend` records its 9.10.2 violation
+    # only on pages that lost something, so summing those messages counts the glyphs on
+    # lossy pages and not the ones on the rest — the denominator lived nowhere, and a
+    # 16,321,270 quoted in three documents rested on a probe nobody had committed.
+    loss=$(cargo run -q --release -p fepdf --example glyph_loss -- samples/*.pdf 2>/dev/null \
+        | awk '/^TOTAL/ {print $3 " of " $5}')
+    row "extraction loss (glyphs, samples/)" "${loss:-could not be measured}"
+
     echo
     bold "Verification"
     passed=$(cargo test --workspace 2>&1 | awk '/^test result/ {p += $4; f += $6} END {print p "/" p + f}')

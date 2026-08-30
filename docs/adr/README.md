@@ -105,3 +105,5 @@ quietly wrong — which is the failure this log exists to make visible.
 | 0038 | [One hierarchy of truth, and the parallel rulebook that outlived it](0038-one-hierarchy-of-truth-and-the-parallel-rulebook-is-deleted.md) |  |
 | 0039 | [The design document was narrating its own corrections](0039-the-design-document-was-narrating-its-own-corrections.md) |  |
 | 0040 | [A rule the compiler already keeps does not need a grep, and Rule 17 did not need to exist](0040-a-rule-the-compiler-already-keeps-is-not-a-rule.md) |  |
+| 0041 | [A CID font's character collection is declared, and the engine was guessing it from the font's name](0041-a-character-collection-is-declared-not-guessed.md) |  |
+| 0042 | [A glyph name that looks like a character code is not one](0042-a-glyph-name-that-looks-like-a-character-code-is-not-one.md) |  |

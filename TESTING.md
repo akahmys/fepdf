@@ -39,7 +39,12 @@ cargo test --workspace
     and an `ASCII85Decode` table generated from an unrelated implementation. Three
     hand-written expectations in the first version were wrong while the decoder was
     right, which is why the vectors that can be generated now are.
-  - `tests/mapping_tests.rs`: Unicode/CID mapping & encoding reconciliation.
+  - `tests/mapping_tests.rs`: Unicode/CID mapping & encoding reconciliation, and the
+    `/CIDSystemInfo` a CID font declares (9.7.3). The collection was read with a *name*
+    accessor where Table 114 types both entries as strings, so 116 of 116 Type0 fonts in
+    both corpora answered `None` and the engine decided from `/BaseFont` substrings
+    instead ([ADR-0041](docs/adr/0041-a-character-collection-is-declared-not-guessed.md)).
+    Each of the four cases was verified by putting one of the three defects back.
 - **`fepdf-render`**:
   - `tests/path_tests.rs`: Bezier curves, path bounds, transformation matrices.
   - `tests/text_tests.rs`: Text positioning and text matrix initialization.
@@ -140,6 +145,7 @@ python3 scripts/visual_regression.py --update
 | `./scripts/test/fetch_external_corpus.sh` | 515 files this project did not choose. Zero occurrences measures the corpus, not the world |
 | `fepdf inspect coverage samples/*.pdf target/external/*/*.pdf` | The share of what the files contain whose contents the engine reads |
 | `./scripts/dev/status.sh` | Re-derives every figure the documents quote, so a stale one reads as a disagreement. It exits non-zero when a row stops being *about the code*: `inspect subcommands` once read 0 against a truth of 8 after the CLI was split, because 0 is a legal answer |
+| `cargo run --release -p fepdf --example glyph_loss -- samples/*.pdf` | What extraction loses, and what it was out of. `status.sh --full` runs it. `--codes` adds the font, the character code, the glyph name the encoding gave it, the route that failed and a page to look at, which is the difference between a count and a direction. **The denominator was not derivable before this existed**: the 9.10.2 violation is recorded only on pages that lost something, so summing the messages counts the glyphs on lossy pages and not the ones on the rest |
 
 **Each check must be shown to fail.** `crosscheck_signature.sh` flips a byte;
 `crosscheck_selfread.sh` renames one catalogue key to a same-length name. A check nobody

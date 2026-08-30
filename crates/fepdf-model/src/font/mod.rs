@@ -389,6 +389,14 @@ impl FontResource {
         } else if subtype.as_str() == "CIDFontType0" || subtype.as_str() == "CIDFontType2" {
             res.metrics = FontMetrics::parse_cid(dict, arena);
             res.font_data = font_data;
+            // A CIDFont carries its own `/CIDSystemInfo` (9.7.4.1, Table 115), and this
+            // branch is the one that runs for the font that *decodes*: the interpreter
+            // loads a Type0's descendant on its own and decodes through that resource
+            // (`fepdf-content/src/interpreter/font.rs`), so reading the collection only
+            // on the Type0 above left the deciding copy with none.
+            let (ordering, registry) = Self::read_csi(dict, arena);
+            res.ordering = ordering;
+            res.registry = registry;
         } else {
             res.metrics = FontMetrics::parse_standard(dict, arena);
             res.font_data = font_data;
@@ -589,7 +597,8 @@ impl FontResource {
             );
         }
 
-        resource.init_adj1_mapping();
+        // Dropped, not recorded: `load` replaces `decisions` the moment this returns.
+        let _ = resource.init_adj1_mapping();
         resource.build_unified_map();
         resource
     }
@@ -597,7 +606,9 @@ impl FontResource {
     fn initialize_lifecycle(&mut self, doc: &Document) {
         self.fallback_type = Some(self.infer_fallback_type());
         self.rescue_unicode_map();
-        self.init_adj1_mapping();
+        if let Some(declined) = self.init_adj1_mapping() {
+            self.decisions.push(declined);
+        }
 
         // Build the authoritative Unicode->CID map BEFORE reconstruction
         // so it can be injected into the virtual SFNT's 'cmap' table.
@@ -1242,24 +1253,45 @@ impl FontResource {
         Some(cmap)
     }
 
+    /// `/Ordering` and `/Registry` of `dict`'s `/CIDSystemInfo`, if it carries one.
+    fn read_csi(
+        dict: &BTreeMap<Handle<PdfName>, Object>,
+        arena: &PdfArena,
+    ) -> (Option<String>, Option<String>) {
+        let csi = dict
+            .get(&arena.name("CIDSystemInfo"))
+            .and_then(|o| o.resolve(arena).as_dict_handle())
+            .and_then(|h| arena.get_dict(h));
+        Self::parse_csi_info(csi.as_ref(), arena)
+    }
+
+    /// `/Ordering` and `/Registry` of a `/CIDSystemInfo` dictionary (9.7.3, Table 114).
+    ///
+    /// **Both are strings there, and this asked for names.** A name is a different object
+    /// type (7.3.5), so `as_name` answered `None` for every conforming file: measured over
+    /// both corpora, 116 of 116 Type0 fonts declare the pair and the engine read `None`
+    /// for all 116. Everything downstream that asks which character collection a font
+    /// belongs to — [`FontResource::is_cjk`], [`FontResource::init_adj1_mapping`],
+    /// `resolve_gid`'s identity fallback — was therefore deciding from the `/BaseFont`
+    /// name alone while the file said so outright.
+    ///
+    /// A name is still accepted. Nothing in either corpus writes one, so this is not a
+    /// measured need; it is what the code already did, and narrowing it would be a
+    /// behavioural change with no document behind it.
     fn parse_csi_info(
         csi_dict: Option<&BTreeMap<Handle<PdfName>, Object>>,
         arena: &PdfArena,
     ) -> (Option<String>, Option<String>) {
-        let (mut ordering, mut registry) = (None, None);
-        if let Some(d) = csi_dict {
-            ordering = d
-                .get(&arena.name("Ordering"))
-                .and_then(|o| o.resolve(arena).as_name())
-                .and_then(|n| arena.get_name(n))
-                .map(|n| n.as_str().to_string());
-            registry = d
-                .get(&arena.name("Registry"))
-                .and_then(|o| o.resolve(arena).as_name())
-                .and_then(|n| arena.get_name(n))
-                .map(|n| n.as_str().to_string());
-        }
-        (ordering, registry)
+        let read = |d: &BTreeMap<Handle<PdfName>, Object>, key: &str| -> Option<String> {
+            let value = d.get(&arena.name(key))?.resolve(arena);
+            // `as_string` covers both the literal and the hexadecimal form (7.3.4);
+            // `fy05.pdf` writes literals and `intel_sdm.pdf` writes hex.
+            if let Some(bytes) = value.as_string() {
+                return Some(String::from_utf8_lossy(bytes).to_string());
+            }
+            value.as_name().and_then(|n| arena.get_name(n)).map(|n| n.as_str().to_string())
+        };
+        csi_dict.map_or((None, None), |d| (read(d, "Ordering"), read(d, "Registry")))
     }
 
     fn extract_descendant_font_data(
@@ -1356,12 +1388,7 @@ impl FontResource {
             Self::parse_cid_to_gid_map(&df_dict, doc, decisions)
         };
 
-        let csi_dict = df_dict
-            .get(&arena.name("CIDSystemInfo"))
-            .and_then(|o| o.resolve(arena).as_dict_handle())
-            .and_then(|h| arena.get_dict(h));
-
-        let (ordering, registry) = Self::parse_csi_info(csi_dict.as_ref(), arena);
+        let (ordering, registry) = Self::read_csi(&df_dict, arena);
 
         let res = DescendantResult {
             base_font: df_dict
@@ -1458,39 +1485,117 @@ impl FontResource {
         }
     }
 
-    fn init_adj1_mapping(&mut self) {
-        let font_name_lower = self.base_font.as_str().to_lowercase();
-        let is_japanese = font_name_lower.contains("hira")
-            || font_name_lower.contains("koz")
-            || font_name_lower.contains("mincho")
-            || font_name_lower.contains("明朝")
-            || font_name_lower.contains("gothic")
-            || font_name_lower.contains("ゴシック")
-            || font_name_lower.contains("aj1")
-            || font_name_lower.contains("#82#6c#82#72#96#be#92#a9") // ＭＳ 明朝
-            || font_name_lower.contains("#82#6c#82#72#83#53#83#56#83#62#83#4e") // ＭＳ ゴシック
-            || self
-                .encoding
-                .as_ref()
-                .map(|e: &cmap::CMap| {
-                    let n = e.name().to_lowercase();
-                    n.contains("unijis") || n.contains("90ms") || n.contains("90pv") || n.contains("rksj")
-                })
-                .unwrap_or(false);
-
-        if is_japanese && let Some(cmap) = cmap::CMap::load_named("Adobe-Japan1-UCS2") {
-            let mut reverse = BTreeMap::new();
-            for (cid_bytes, uni) in cmap.mappings.iter() {
-                if cid_bytes.len() == 2 {
-                    let cid = (u32::from(cid_bytes[0]) << 8) | u32::from(cid_bytes[1]);
-                    reverse.insert(uni.clone(), cid);
-                }
-            }
-            self.adj1_mapping = Some(cmap);
-            self.reverse_adj1_mapping = Some(reverse);
-        }
-
+    /// Loads the CID collection's Unicode table when the collection is one this engine
+    /// carries, and says why when it is not.
+    ///
+    /// **The file names the collection; this used to guess it.** `/CIDSystemInfo` (9.7.3)
+    /// is the standard's own statement of which character collection a CID font belongs
+    /// to, and this decided from substrings of `/BaseFont` instead. The two disagree in
+    /// both directions. `samples/fy05.pdf` sets its title in `RyuminPr6N-Heavy` —
+    /// Morisawa's Ryumin, declared `Adobe-Japan1-6` — which matches none of the
+    /// substrings, so the table never loaded and 261 glyphs came back unnamed, among them
+    /// every character of the title page. In the other direction, 19 fonts of the external
+    /// corpus declare `Adobe-Korea1` or `Adobe-China1` and carry `Gothic` in their name,
+    /// so the *Japanese* table was applied to them — whatever character Adobe-Japan1 puts
+    /// at that CID, offered as the document's text with nothing to say it was a guess.
+    ///
+    /// The name heuristic stays for `Ordering (Identity)` and for a font that declares
+    /// nothing at all, which is what it was written for and where it is the only thing to
+    /// go on: 75 fonts of the two corpora.
+    ///
+    /// Returns the decision reached, for a caller with somewhere to put it.
+    /// [`FontResource::new_initial`] has none — `load` replaces `decisions` immediately
+    /// after it returns — so only `initialize_lifecycle` keeps what comes back, and
+    /// recording it at both call sites would double every entry.
+    fn init_adj1_mapping(&mut self) -> Option<crate::interpretation::Decision> {
+        let declined = self.load_cid_collection();
         self.build_unicode_to_gid();
+        declined
+    }
+
+    /// The character collection `/CIDSystemInfo` names, if it names one.
+    ///
+    /// `Identity` is not one: it is the file saying the codes are the font's own glyph
+    /// order (9.7.4.2), which is a statement about indexing and not about characters.
+    fn declared_collection(&self) -> Option<String> {
+        self.cid_ordering.as_ref().filter(|o| !o.eq_ignore_ascii_case("Identity")).cloned()
+    }
+
+    fn load_cid_collection(&mut self) -> Option<crate::interpretation::Decision> {
+        match self.declared_collection() {
+            Some(ordering) if ordering.eq_ignore_ascii_case("Japan1") => {
+                self.load_adobe_japan1();
+                None
+            }
+            Some(ordering) => self.decline_collection(&ordering),
+            None => {
+                if self.name_suggests_japanese() {
+                    self.load_adobe_japan1();
+                }
+                None
+            }
+        }
+    }
+
+    /// Records that a declared collection is one this engine has no table for.
+    ///
+    /// Silent only when the font carries its own `/ToUnicode`, because then nothing is
+    /// lost: 9.10.3 outranks the collection and the codes are named from the file.
+    fn decline_collection(&self, ordering: &str) -> Option<crate::interpretation::Decision> {
+        if self.to_unicode.is_some() {
+            return None;
+        }
+        Some(crate::interpretation::Decision::violation(
+            "9.7.3",
+            format!(
+                "font /{} belongs to character collection {}-{ordering}, whose \
+                 CID-to-Unicode table this engine does not carry, and it supplies no \
+                 /ToUnicode",
+                self.base_font.as_str(),
+                self.cid_registry.as_deref().unwrap_or("Adobe"),
+            ),
+            "left its codes unnamed; reading them through Adobe-Japan1 instead would \
+             give a Japanese character for every CID and nothing to say it was a guess",
+        ))
+    }
+
+    /// Whether the `/BaseFont` name or the encoding's name suggests Adobe-Japan1.
+    ///
+    /// A guess, and reached only where the file declares no collection.
+    fn name_suggests_japanese(&self) -> bool {
+        let name = self.base_font.as_str().to_lowercase();
+        if name.contains("hira")
+            || name.contains("koz")
+            || name.contains("mincho")
+            || name.contains("明朝")
+            || name.contains("gothic")
+            || name.contains("ゴシック")
+            || name.contains("aj1")
+            || name.contains("#82#6c#82#72#96#be#92#a9") // ＭＳ 明朝
+            || name.contains("#82#6c#82#72#83#53#83#56#83#62#83#4e")
+        // ＭＳ ゴシック
+        {
+            return true;
+        }
+        self.encoding.as_ref().is_some_and(|e: &cmap::CMap| {
+            let n = e.name().to_lowercase();
+            n.contains("unijis") || n.contains("90ms") || n.contains("90pv") || n.contains("rksj")
+        })
+    }
+
+    fn load_adobe_japan1(&mut self) {
+        let Some(cmap) = cmap::CMap::load_named("Adobe-Japan1-UCS2") else {
+            return;
+        };
+        let mut reverse = BTreeMap::new();
+        for (cid_bytes, uni) in cmap.mappings.iter() {
+            if cid_bytes.len() == 2 {
+                let cid = (u32::from(cid_bytes[0]) << 8) | u32::from(cid_bytes[1]);
+                reverse.insert(uni.clone(), cid);
+            }
+        }
+        self.adj1_mapping = Some(cmap);
+        self.reverse_adj1_mapping = Some(reverse);
     }
 
     /// Builds the reverse Unicode-to-glyph lookup used by fallback matching.

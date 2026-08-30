@@ -241,7 +241,8 @@ impl RenderBackend for TextExtractionBackend {
                 fepdf_model::resources::not_found_message(fepdf_model::resources::Resource::Cmaps)
             )
         } else {
-            "left them out of the extracted text; the font supplied no /ToUnicode and no              CMap collection this engine carries names these codes"
+            "left them out of the extracted text; the font supplied no /ToUnicode and no \
+             CMap collection this engine carries names these codes"
                 .to_string()
         };
         let routes = self
