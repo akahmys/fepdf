@@ -91,6 +91,27 @@ impl<'a> Sublimator<'a> {
         std::mem::take(&mut self.decisions)
     }
 
+    /// Records an operand outside the set its table defines, and what stood in for it.
+    ///
+    /// The twin of `Interpreter::record_undefined_enumerant`: `/LC`, `/LJ` and `Tr` are
+    /// integers read out of a file rather than enums, so Rule 5's lint cannot see the
+    /// `match` and Rule 20 is what covers them. Both paths parse these operators and both
+    /// used to answer an undefined value with the initial graphics state's, silently.
+    fn record_undefined_enumerant(
+        &mut self,
+        clause: &'static str,
+        table: &str,
+        op: &str,
+        val: i64,
+    ) {
+        self.decisions.push(crate::interpretation::Decision::violation(
+            clause,
+            format!("operator {op} was given {val}, which {table} does not define"),
+            "substituted the value the initial graphics state carries and sublimated the \
+             rest of the stream",
+        ));
+    }
+
     /// The next token, or `None` once the stream ends — recording why if it ended
     /// because the lexer could not go on.
     fn next_or_record(&mut self, lexer: &mut Lexer, total: usize) -> Option<Token> {
@@ -290,7 +311,10 @@ impl<'a> Sublimator<'a> {
             }
             "J" => {
                 if let Some(i) = self.pop_i64() {
-                    let cap = crate::graphics::LineCap::from_i64(i);
+                    let cap = crate::graphics::LineCap::from_i64(i).unwrap_or_else(|| {
+                        self.record_undefined_enumerant("8.4.3.3", "Table 53", "J", i);
+                        crate::graphics::LineCap::Butt
+                    });
                     self.current_stroke_style.cap = cap;
                     vec![Command::SetLineCap(cap)]
                 } else {
@@ -299,7 +323,10 @@ impl<'a> Sublimator<'a> {
             }
             "j" => {
                 if let Some(i) = self.pop_i64() {
-                    let join = crate::graphics::LineJoin::from_i64(i);
+                    let join = crate::graphics::LineJoin::from_i64(i).unwrap_or_else(|| {
+                        self.record_undefined_enumerant("8.4.3.4", "Table 54", "j", i);
+                        crate::graphics::LineJoin::Miter
+                    });
                     self.current_stroke_style.join = join;
                     vec![Command::SetLineJoin(join)]
                 } else {
@@ -352,7 +379,13 @@ impl<'a> Sublimator<'a> {
             "Tz" => self.pop_f64().map(Command::SetHorizontalScaling).into_iter().collect(),
             "Tr" => self
                 .pop_i64()
-                .map(|i| Command::SetTextRenderMode(TextRenderingMode::from(i)))
+                .map(|i| {
+                    let mode = TextRenderingMode::from_i64(i).unwrap_or_else(|| {
+                        self.record_undefined_enumerant("9.3.6", "Table 106", "Tr", i);
+                        TextRenderingMode::Fill
+                    });
+                    Command::SetTextRenderMode(mode)
+                })
                 .into_iter()
                 .collect(),
             "Ts" => self.pop_f64().map(Command::SetTextRise).into_iter().collect(),

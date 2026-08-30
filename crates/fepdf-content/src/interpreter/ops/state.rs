@@ -55,10 +55,18 @@ impl Interpreter<'_> {
                 self.state.stroke_style.width = self.pop_f64()?;
             }
             "J" => {
-                self.state.stroke_style.cap = LineCap::from_i64(self.pop_i64()?);
+                let val = self.pop_i64()?;
+                self.state.stroke_style.cap = LineCap::from_i64(val).unwrap_or_else(|| {
+                    self.record_undefined_enumerant("8.4.3.3", "Table 53", "J", val);
+                    LineCap::Butt
+                });
             }
             "j" => {
-                self.state.stroke_style.join = LineJoin::from_i64(self.pop_i64()?);
+                let val = self.pop_i64()?;
+                self.state.stroke_style.join = LineJoin::from_i64(val).unwrap_or_else(|| {
+                    self.record_undefined_enumerant("8.4.3.4", "Table 54", "j", val);
+                    LineJoin::Miter
+                });
             }
             "M" => {
                 self.state.stroke_style.miter_limit = self.pop_f64()?;

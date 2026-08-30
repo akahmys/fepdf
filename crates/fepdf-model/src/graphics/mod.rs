@@ -287,13 +287,21 @@ pub enum LineCap {
 }
 
 impl LineCap {
-    /// Maps the PDF `/LC` integer to a cap style, defaulting to `Butt`.
-    pub fn from_i64(val: i64) -> Self {
+    /// The cap style `/LC` names, or `None` when Table 53 does not define one for it.
+    ///
+    /// **`None` rather than a default, so the caller has to say what it did.** Table 53
+    /// defines three values and the standard says nothing about a fourth, so answering
+    /// `/LC 7` with a butt cap is an interpretation — Rule 20's ground, and the example
+    /// `CODING.md` gives for it. Returning the default here made that interpretation
+    /// invisible at both call sites; returning `None` makes it something they have to
+    /// write down.
+    #[must_use]
+    pub const fn from_i64(val: i64) -> Option<Self> {
         match val {
-            0 => Self::Butt,
-            1 => Self::Round,
-            2 => Self::Square,
-            _ => Self::Butt,
+            0 => Some(Self::Butt),
+            1 => Some(Self::Round),
+            2 => Some(Self::Square),
+            _ => None,
         }
     }
 }
@@ -310,13 +318,16 @@ pub enum LineJoin {
 }
 
 impl LineJoin {
-    /// Maps the PDF `/LJ` integer to a join style, defaulting to `Miter`.
-    pub fn from_i64(val: i64) -> Self {
+    /// The join style `/LJ` names, or `None` when Table 54 does not define one for it.
+    ///
+    /// `None` rather than a default, for the reason [`LineCap::from_i64`] gives.
+    #[must_use]
+    pub const fn from_i64(val: i64) -> Option<Self> {
         match val {
-            0 => Self::Miter,
-            1 => Self::Round,
-            2 => Self::Bevel,
-            _ => Self::Miter,
+            0 => Some(Self::Miter),
+            1 => Some(Self::Round),
+            2 => Some(Self::Bevel),
+            _ => None,
         }
     }
 }
@@ -569,18 +580,26 @@ pub enum TextRenderingMode {
     Clip = 7,
 }
 
-impl From<i64> for TextRenderingMode {
-    fn from(val: i64) -> Self {
+impl TextRenderingMode {
+    /// The mode `Tr` names, or `None` when Table 106 does not define one for it.
+    ///
+    /// **This replaced a `From<i64>`, which is why it is a method and not a trait.** A
+    /// `From` cannot fail, so the conversion had to answer an undefined `Tr` with
+    /// something — it answered `Fill`, and a page asking for a mode this engine does not
+    /// know got its text painted with no record that anything had been substituted.
+    /// `None` rather than a default, for the reason [`LineCap::from_i64`] gives.
+    #[must_use]
+    pub const fn from_i64(val: i64) -> Option<Self> {
         match val {
-            0 => Self::Fill,
-            1 => Self::Stroke,
-            2 => Self::FillStroke,
-            3 => Self::Invisible,
-            4 => Self::FillClip,
-            5 => Self::StrokeClip,
-            6 => Self::FillStrokeClip,
-            7 => Self::Clip,
-            _ => Self::Fill,
+            0 => Some(Self::Fill),
+            1 => Some(Self::Stroke),
+            2 => Some(Self::FillStroke),
+            3 => Some(Self::Invisible),
+            4 => Some(Self::FillClip),
+            5 => Some(Self::StrokeClip),
+            6 => Some(Self::FillStrokeClip),
+            7 => Some(Self::Clip),
+            _ => None,
         }
     }
 }
@@ -662,7 +681,15 @@ impl FromPdfObject for TextRenderingMode {
             pos: 0,
             message: "Expected integer for TextRenderingMode".into(),
         })?;
-        Ok(Self::from(val))
+        // An error rather than a substitution: this reaches a caller through `Result`,
+        // so it can say what a `From` could not. Nothing is typed as a
+        // `TextRenderingMode` in any schema today, so no document's fate turns on it —
+        // the content-stream path is where `Tr` actually arrives, and that one records a
+        // `Decision` and carries on (`Interpreter::record_undefined_enumerant`).
+        Self::from_i64(val).ok_or_else(|| PdfError::Parse {
+            pos: 0,
+            message: format!("Tr {val} is outside the modes Table 106 defines").into(),
+        })
     }
 }
 
@@ -715,5 +742,36 @@ impl FromPdfObject for Rect {
             })?;
         }
         Ok(Self::new(coords[0], coords[1], coords[2], coords[3]))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{LineCap, LineJoin, TextRenderingMode};
+
+    /// **The value each table defines, and nothing else.**
+    ///
+    /// These three returned a default for anything outside their table until 2026-08-30 —
+    /// `J 7` a butt cap, `j 9` a mitre join, `Tr 12` filled text — which is an
+    /// interpretation the standard does not describe and Rule 20 says must be recorded.
+    /// Returning `None` is what makes the two call sites of each say what they
+    /// substituted; if one of these ever answers `Some` again the recording goes quiet
+    /// without anything else failing.
+    #[test]
+    fn a_value_outside_the_table_is_not_answered_with_a_default() {
+        assert_eq!(LineCap::from_i64(2), Some(LineCap::Square), "Table 53 defines 0..=2");
+        assert_eq!(LineCap::from_i64(3), None, "/LC 3 is not in Table 53");
+        assert_eq!(LineCap::from_i64(-1), None, "a negative /LC is not in Table 53");
+
+        assert_eq!(LineJoin::from_i64(2), Some(LineJoin::Bevel), "Table 54 defines 0..=2");
+        assert_eq!(LineJoin::from_i64(7), None, "/LJ 7 is not in Table 54");
+
+        assert_eq!(
+            TextRenderingMode::from_i64(7),
+            Some(TextRenderingMode::Clip),
+            "Table 106 defines 0..=7"
+        );
+        assert_eq!(TextRenderingMode::from_i64(8), None, "Tr 8 is not in Table 106");
+        assert_eq!(TextRenderingMode::from_i64(i64::MIN), None, "nor is anything below 0");
     }
 }

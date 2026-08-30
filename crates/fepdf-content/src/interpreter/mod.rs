@@ -577,6 +577,27 @@ impl<'a> Interpreter<'a> {
         ));
     }
 
+    /// Records an operand outside the set its table defines, and what stood in for it.
+    ///
+    /// **Rule 20's ground, and the lint cannot reach it.** `/LC`, `/LJ` and `Tr` arrive as
+    /// integers read out of a file, not as enums, so `clippy::wildcard_enum_match_arm`
+    /// never sees the `match` and Rule 5 has nothing to say. The conversions used to
+    /// answer an undefined value with the initial graphics state's — `J 7` a butt cap,
+    /// `Tr 9` filled text — and a page that asked for something this engine does not know
+    /// was drawn as though it had asked for something else, silently.
+    ///
+    /// The substitute is the value 8.4 gives the *initial* graphics state, which is what
+    /// the conversions were already returning: this changes what is said, not what is
+    /// drawn.
+    fn record_undefined_enumerant(&self, clause: &'static str, table: &str, op: &str, val: i64) {
+        self.doc.record(Decision::violation(
+            clause,
+            format!("operator {op} was given {val}, which {table} does not define"),
+            "substituted the value the initial graphics state carries and drew the rest of \
+             the page",
+        ));
+    }
+
     pub(crate) fn pop_i64(&mut self) -> PdfResult<i64> {
         match self.stack.pop() {
             Some(obj) => obj.as_integer().ok_or_else(|| PdfError::Other("Expected integer".into())),

@@ -101,6 +101,16 @@ that had already succeeded.
 6, 8 and 20 are in `CODING.md` and **not** here, because nothing automated checks them —
 each names review instead, per the rule that an unchecked rule is a comment.
 
+**Rule 20 has a counter, which is not the same as a check.**
+`scripts/audit/silent_branches.py` lists the wildcard arms where a value read out of a
+file gets neither a `Decision` nor an error — the ground Rule 5's lint cannot reach,
+because `/LC`, `/LJ`, `/ShadingType` and `/V` arrive as integers rather than as enums. It
+is not in the script above and does not gate a commit: some of what it lists is
+defensible, and the number is there so a new one is visible. It reads **8**, from 11 on
+2026-08-30, and prints the three it now exempts beside the callers that record for them.
+It exits non-zero on one thing only: an exemption naming a site that no longer exists,
+which reads as a check still being made.
+
 **A rule that is checked but not stated is harder to catch than one stated but not
 checked, because nothing goes red.** Both directions have happened here: five enforced
 rules once read as unenforced, and the script enforced Rules 16 and 18 under numbers

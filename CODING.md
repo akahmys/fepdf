@@ -98,6 +98,15 @@ answer an unrecognised value with a default or `None` and no `Decision` — `/LC
 a butt cap, `/LJ 7` a mitre join. Rule 20 is what covers this ground, and nothing checks
 Rule 20.
 
+**Those three are recorded now**, on 2026-08-30: `LineCap::from_i64`, `LineJoin::from_i64`
+and `TextRenderingMode::from_i64` return `Option` instead of a default, so each of their
+two call sites — the interpreter and the content-stream pre-parse — has to say what it
+substituted, and both record a `Violation` naming the table. `scripts/audit/silent_branches.py`
+reads 8 where it read 11, and lists the three under an exemption that names the callers
+doing the recording; it exits non-zero if one of those callers goes away. No file in either
+corpus presents such a value — 0 of 524 — so this reports rather than counts, and a
+fixture is what proves it fires.
+
 **Forbidden** — wildcard arms over domain enums such as `ColorSpaceKind`,
 `SublimatedData`, `Color`, `PixelFormat`, and any enum added from here on. These gain
 variants as features land, and a catch-all turns "unsupported colour space" into

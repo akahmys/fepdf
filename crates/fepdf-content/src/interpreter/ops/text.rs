@@ -147,7 +147,11 @@ impl Interpreter<'_> {
             }
             "Tr" => {
                 let mode = self.pop_i64()?;
-                let m = fepdf_model::graphics::TextRenderingMode::from(mode);
+                let m =
+                    fepdf_model::graphics::TextRenderingMode::from_i64(mode).unwrap_or_else(|| {
+                        self.record_undefined_enumerant("9.3.6", "Table 106", "Tr", mode);
+                        fepdf_model::graphics::TextRenderingMode::Fill
+                    });
                 self.state.text_state.rendering_mode = m;
                 self.backend.set_text_render_mode(m);
             }

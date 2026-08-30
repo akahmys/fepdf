@@ -23,6 +23,39 @@ from pathlib import Path
 SILENT = re.compile(r'\s*(return\s+)?(None|\(\)|\{\s*\}|Self::\w+|0|false|"")\s*[,}]')
 LOUD = re.compile(r'\brecord\b|Decision|Err\(|panic|unreachable|todo!')
 
+# Sites whose caller records instead, with the caller named so the claim can be checked.
+#
+# **The tool cannot see across a function boundary and this is the seam where that
+# matters.** A pure conversion that answers an undefined value with `None` reads as silent
+# here, and is the opposite: it forces every caller to say what it substituted. These
+# three were `-> Self` returning a default until 2026-08-30, which was silent at both call
+# sites; they return `Option` now and both callers record. Anything added to this list
+# must name a call site that records, and `cargo test` must fail if it stops.
+RECORDED_ELSEWHERE = {
+    ("crates/fepdf-model/src/graphics/mod.rs", "LineCap::from_i64"):
+        "Interpreter::record_undefined_enumerant (ops/state.rs 'J') and "
+        "ContentParser::record_undefined_enumerant (sublimation/parser.rs 'J')",
+    ("crates/fepdf-model/src/graphics/mod.rs", "LineJoin::from_i64"):
+        "the same two, for 'j'",
+    ("crates/fepdf-model/src/graphics/mod.rs", "TextRenderingMode::from_i64"):
+        "the same two, for 'Tr', plus a Parse error from FromPdfObject",
+}
+
+
+def enclosing(lines, i: int) -> str:
+    """`Type::method` for the match at line `i`, by looking backwards for each."""
+    fn = next(
+        (m.group(1) for j in range(i, -1, -1)
+         if (m := re.search(r'\bfn\s+([A-Za-z_]\w*)', lines[j]))),
+        "",
+    )
+    ty = next(
+        (m.group(1) for j in range(i, -1, -1)
+         if (m := re.match(r'impl(?:<[^>]*>)?\s+(?:\w+\s+for\s+)?([A-Za-z_]\w*)', lines[j]))),
+        "",
+    )
+    return f"{ty}::{fn}" if ty else fn
+
 
 def arms(path: Path):
     """Every `match` on something with numeric arms, and the text of its wildcard."""
@@ -42,20 +75,30 @@ def arms(path: Path):
             continue
         wild = re.search(r'^\s*_\s*=>(.*?)$', block, re.M | re.S)
         if wild:
-            yield i + 1, head.group(1), wild.group(1)[:160]
+            yield i + 1, head.group(1), wild.group(1)[:160], enclosing(lines, i)
 
 
 def main() -> int:
-    found = []
+    found, exempt = [], []
     for path in sorted(Path("crates").glob("*/src/**/*.rs")):
-        for line, scrutinee, arm in arms(path):
+        for line, scrutinee, arm, owner in arms(path):
             if LOUD.search(arm) or not SILENT.match(arm):
                 continue
-            found.append((path, line, scrutinee, arm.strip()[:40]))
-    for path, line, scrutinee, arm in found:
+            why = RECORDED_ELSEWHERE.get((str(path), owner))
+            (exempt if why else found).append((path, line, scrutinee, arm.strip()[:40], owner, why))
+    for path, line, scrutinee, arm, _owner, _why in found:
         print(f"{path}:{line}  match {scrutinee}  _ => {arm}")
     print(f"{len(found)} silent wildcard arms over a numeric domain value")
-    return 0
+    if exempt:
+        print(f"\n{len(exempt)} recorded by their callers instead:")
+        for path, line, _s, _a, owner, why in exempt:
+            print(f"  {path}:{line}  {owner}  -> {why}")
+    # An exemption naming a site that no longer exists is worse than no exemption: it
+    # reads as a check that is still being made.
+    stale = set(RECORDED_ELSEWHERE) - {(str(p), o) for p, _l, _s, _a, o, _w in exempt}
+    for path, owner in sorted(stale):
+        print(f"\nSTALE EXEMPTION: {path} {owner} no longer matches a silent arm")
+    return 1 if stale else 0
 
 
 if __name__ == "__main__":

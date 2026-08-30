@@ -313,8 +313,13 @@ row "dead markdown links (expect 0)" "${dead_links:-?}"
 # values arrive as integers, so the lint cannot see them. This counts the arms where an
 # unrecognised value produces neither a Decision nor an error. Not a defect count — an
 # unknown /V failing the open is loud enough — but a new one should be visible.
-silent=$(python3 scripts/audit/silent_branches.py 2>/dev/null | tail -1 | grep -oE '^[0-9]+')
-row "silent branches on a file's value" "${silent:-?}"
+# Matched on the sentence rather than on the last line: the tool prints the exemptions
+# and any stale one *after* the count, and `tail -1` read `?` the moment it did.
+silent=$(python3 scripts/audit/silent_branches.py 2>/dev/null \
+    | grep -oE '^[0-9]+ silent wildcard arms' | grep -oE '^[0-9]+')
+exempt=$(python3 scripts/audit/silent_branches.py 2>/dev/null \
+    | grep -oE '^[0-9]+ recorded by their callers' | grep -oE '^[0-9]+')
+row "silent branches on a file's value" "${silent:-?}${exempt:+ (+$exempt recorded by callers)}"
 
 # An index maintained by hand is an index that goes quietly wrong, which is the failure
 # the log exists to make visible. Every record has a row and every row has a record, or
