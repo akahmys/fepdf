@@ -2617,6 +2617,84 @@ defects that are not about text at all, and left one text question sized.
       draws CID 16128 in a font declaring `Adobe-Korea1`, and it reads `췎` instead of
       nothing. External corpus 63 lost of 127,424, back to 62.
 
+## Phase T — What is left, with the size of each measured rather than guessed
+
+Everything here was carried in a handoff note as a one-line hunch. Each is now a figure.
+
+- [ ] **Extraction emits text in the order the producer wrote it, not the order it is
+      read.** Measured against PDFKit over **7,727 pages of the nine samples**, comparing
+      the multiset of non-space characters (spacing is a separate question, settled at a
+      quarter em in §9) and then the sequence:
+
+      | | pages | identical | **order only** | content |
+      | :--- | ---: | ---: | ---: | ---: |
+      | all nine samples | 7,727 | 261 (3%) | **7,093 (92%)** | 373 (5%) |
+      | `intel_sdm.pdf` | 5,057 | 15 | 5,028 | 14 |
+      | `unicode_16.pdf` | 1,140 | 28 | 1,112 | 0 |
+      | `fy05.pdf` | 846 | 45 | 551 | 250 |
+      | `volvo_xc90.pdf` | 415 | 61 | 350 | 4 |
+      | `bokutokitan.pdf` | 195 | 93 | 21 | 81 |
+
+      The handoff note had this as one file and unmeasured. It is eight of nine and 92% of
+      pages.
+
+      **The cause is one thing.** `TextExtractionBackend::show_text` appends to a `String`
+      as runs arrive, and runs arrive in content-stream order. Its only positional logic —
+      a newline when `y` moves more than 5, a space at a quarter-em gap — *shapes* that
+      order and never *reorders* it. So anything the producer wrote out of reading order
+      comes out where it was written: `constitution.pdf` page 3 begins with `3`, the page
+      number drawn at the foot of the page, where PDFKit ends with it; `bokutokitan.pdf`
+      page 11 begins with the running head 濹東綺譚; `intel_sdm.pdf` page 5 begins
+      `Vol.1 iii CONTENTS`.
+
+      *Why this is a phase and not an afternoon.* `show_text` keeps no positioned runs to
+      sort — it would have to collect and order at `finish()`, which `CollectorBackend`
+      already does for `TextSpan { x, y, width, op_index }` and is the obvious place to
+      build on. It is handed `TextState`, which carries `is_vertical`, and **ignores it**:
+      a plain sort by descending `y` then ascending `x` reverses vertical Japanese, and
+      `bokutokitan.pdf` is 195 pages of it. The 261 pages that already match are the
+      regression target, 93 of them in that one file.
+
+      *Done when*: the order-only column falls, no file's identical column falls, and a
+      check fails when it does.
+
+- [ ] **Eight wildcard arms still answer a file's value with silence.**
+      `scripts/audit/silent_branches.py` lists them, down from eleven. Its own header says
+      the number is a count and not a verdict — an unknown `/V` makes the document fail to
+      open, which is loud enough — so each wants a judgement rather than a sweep:
+      `/ShadingType` twice, a colour operand count, a CFF SID, an encryption version, a
+      JPEG2000 channel count, a mesh shading type, and a key length.
+
+      *Done when*: each of the eight is either recorded, made an error, or written down as
+      defensible with the reason, and the tool's exemption list names where.
+
+- [ ] **The interactive processor keeps nothing the engine decided.**
+      6.3.2.3 is one of the two subset rows chosen and not met, and this is a measured part
+      of what it owes: **`doc.decisions()` is called nowhere in `fepdf-gui`.** A document is
+      opened, repaired and displayed, and the reading log that says what had to be decided
+      to display it never reaches the window — the only decisions a user sees are the ones
+      `save_with_options` returns. A page that fails to render collapses to
+      `"Failed to render page {index}"`, discarding both the error and whatever the backend
+      concluded on the way — the 9.6 violations Phase P added, among them.
+
+      *Done when*: opening a document surfaces what reading it decided, and a page that
+      will not draw says why rather than which number it was.
+
+- [ ] **ECMAScript is chosen and not met**, which [Phase R](#phase-r--running-the-documents-code)
+      owns and its own `Done when` states. Every box in that phase is ticked and the
+      condition is not: `SetFormFieldValue` still records its 12.6.3 `Violation`, and
+      `calculation_order_test` asserts that it *reports the scripts it did not run*.
+      `status.sh` surfaces this now rather than leaving "every box checked" as the last
+      word.
+
+- [ ] **No Korean or Chinese document exists to test against.** The four collections
+      beyond Japan1 are read now ([ADR-0044](docs/adr/0044-the-other-four-collections-were-already-on-disk.md)),
+      and eighteen files across 524 declare one while drawing a single glyph between them.
+      What is unverified is an end-to-end extraction, and no corpus here can supply it.
+
+      *Done when*: a document that sets real Korean or Chinese text through a declared
+      collection extracts it, and a second implementation agrees.
+
 ## Read broadly, write 2.0
 
 The seven capabilities this section used to list as open questions divide on one line,
