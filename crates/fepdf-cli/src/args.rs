@@ -569,6 +569,14 @@ pub enum PublishSubcommands {
         /// Page number to render (default 1)
         #[arg(short, long, default_value_t = 1)]
         page: usize,
+        /// Rasterise on the CPU rather than the GPU, for an image that repeats
+        ///
+        /// The engine encodes the same scene for a page every time; vello's GPU pipeline
+        /// then turns that one scene into more than one image, an isolated pixel apart.
+        /// The CPU shaders give one. A check that compares images byte for byte needs
+        /// this; a caller who wants a picture does not.
+        #[arg(long)]
+        cpu: bool,
         /// Ingestion control options
         #[command(flatten)]
         ingest: IngestArgs,

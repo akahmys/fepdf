@@ -128,8 +128,8 @@ async fn main() -> Result<()> {
                     save,
                 )?;
             }
-            PublishSubcommands::Render { input, output, page, ingest } => {
-                publish::handle_render(input, output, page, ingest)?;
+            PublishSubcommands::Render { input, output, page, cpu, ingest } => {
+                publish::handle_render(input, output, page, cpu, ingest)?;
             }
             PublishSubcommands::Sign {
                 input,

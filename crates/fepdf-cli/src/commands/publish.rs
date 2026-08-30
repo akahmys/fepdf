@@ -58,10 +58,47 @@ pub fn handle_upgrade(
     Ok(())
 }
 
+/// The host's CJK faces, for a document whose fonts are not embedded.
+///
+/// A frontend concern rather than an engine one: which files a machine has is not
+/// something `fepdf-doc` can know, and the facade takes the bytes rather than the paths.
+/// The first readable path of each pair wins, and a machine with none of them renders
+/// what the document embeds and nothing else.
+fn host_cjk_fallbacks()
+-> std::collections::BTreeMap<fepdf::FallbackFontType, std::sync::Arc<Vec<u8>>> {
+    let mut fonts = std::collections::BTreeMap::new();
+    let mincho = [
+        "/System/Library/Fonts/ヒラギノ明朝 ProN.ttc",
+        "/System/Library/Fonts/Hiragino Mincho ProN.ttc",
+        "/usr/share/fonts/opentype/ipafont-mincho/ipam.ttf",
+    ];
+    for path in mincho {
+        if let Ok(data) = std::fs::read(path) {
+            fonts.insert(fepdf::FallbackFontType::Serif, std::sync::Arc::new(data));
+            break;
+        }
+    }
+    let gothic = [
+        "/System/Library/Fonts/ヒラギノ角ゴシック W3.ttc",
+        "/System/Library/Fonts/Hiragino Sans GB.ttc",
+        "/usr/share/fonts/opentype/ipafont-gothic/ipag.ttf",
+    ];
+    for path in gothic {
+        if let Ok(data) = std::fs::read(path) {
+            let arc = std::sync::Arc::new(data);
+            fonts.insert(fepdf::FallbackFontType::SansSerif, arc.clone());
+            fonts.entry(fepdf::FallbackFontType::Default).or_insert(arc);
+            break;
+        }
+    }
+    fonts
+}
+
 pub fn handle_render(
     input: PathBuf,
     output: PathBuf,
     page_num: usize,
+    cpu: bool,
     ingest: IngestArgs,
 ) -> Result<()> {
     println!(
@@ -74,39 +111,15 @@ pub fn handle_render(
     let mut doc = PdfDocument::open_with_options(data.into(), &ingest_options)
         .map_err(|e| anyhow::anyhow!("{e:?}"))?;
 
-    // Host-level font discovery
-    let mut system_fonts = std::collections::BTreeMap::new();
-    let mincho_paths = [
-        "/System/Library/Fonts/ヒラギノ明朝 ProN.ttc",
-        "/System/Library/Fonts/Hiragino Mincho ProN.ttc",
-        "/usr/share/fonts/opentype/ipafont-mincho/ipam.ttf",
-    ];
-    for path in mincho_paths {
-        if let Ok(data) = std::fs::read(path) {
-            system_fonts.insert(fepdf::FallbackFontType::Serif, std::sync::Arc::new(data));
-            break;
-        }
-    }
-    let gothic_paths = [
-        "/System/Library/Fonts/ヒラギノ角ゴシック W3.ttc",
-        "/System/Library/Fonts/Hiragino Sans GB.ttc",
-        "/usr/share/fonts/opentype/ipafont-gothic/ipag.ttf",
-    ];
-    for path in gothic_paths {
-        if let Ok(data) = std::fs::read(path) {
-            let arc = std::sync::Arc::new(data);
-            system_fonts.insert(fepdf::FallbackFontType::SansSerif, arc.clone());
-            system_fonts.entry(fepdf::FallbackFontType::Default).or_insert(arc);
-            break;
-        }
-    }
-    doc.set_system_fonts(system_fonts);
+    doc.set_system_fonts(host_cjk_fallbacks());
 
     if page_num == 0 || page_num > doc.page_count().map_err(|e| anyhow::anyhow!("{e:?}"))? {
         return Err(anyhow::anyhow!("Invalid page number: {page_num}"));
     }
 
-    doc.render_page_to_file(page_num - 1, &output).map_err(|e| anyhow::anyhow!("{e:?}"))?;
+    let rasteriser = if cpu { fepdf::Rasteriser::Cpu } else { fepdf::Rasteriser::Gpu };
+    doc.render_page_to_file_with(page_num - 1, &output, rasteriser)
+        .map_err(|e| anyhow::anyhow!("{e:?}"))?;
 
     println!("SUCCESS: Rendered page saved to {}", output.display());
     Ok(())

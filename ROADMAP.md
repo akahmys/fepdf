@@ -2554,41 +2554,34 @@ names the scope, and nothing this engine has undertaken depends on those. It is 
 promise that boa is sufficient: the first two entries exist to find that out, and a
 negative answer on the borrow reopens ADR-0025 rather than this decision.
 
-## Phase S — Three things the text pass measured and did not fix
+## Phase S — What the text pass turned up in the renderer
 
 Reading `fy05.pdf`'s remaining extraction loss
 ([ADR-0041](docs/adr/0041-a-character-collection-is-declared-not-guessed.md)) turned up two
-defects that are not about text at all, and left one text question sized. Each is here
-with the measurement rather than the impression.
+defects that are not about text at all, and left one text question sized.
 
-- [ ] **The renderer does not draw the same page twice.** Repeated renders of one page
-      with one binary give **two distinct images**, on every page tried: `sample.pdf`
-      page 1 four and four out of eight, differing at `(531, 472)`; `fy05.pdf` page 304
-      two and four, at `(219, 443)`; `fugaku.pdf` page 1 one and five, at `(247, 452)`.
-      One isolated pixel each, its own per page. Present at `27d19bd`, before the change
-      that found it. RR-15 **Rule 10 makes determinism a rule** and nothing
-      checks this one; `scripts/visual_regression.py` compares images byte for byte, so it
-      is the check that cannot pass reliably rather than the check that catches it.
+- [x] **The renderer does not draw the same page twice, and the engine is not why.**
+      Eight renders of `samples/sample.pdf` page 1 with one binary give three distinct
+      images, one isolated pixel apart; `fy05.pdf` page 304 and `fugaku.pdf` page 1 do the
+      same. `examples/render_determinism` says which layer: it fingerprints the vello
+      `Encoding` and then hands *one* scene to the rasteriser repeatedly. **The scene is
+      byte-identical every time** — the interpreter and the backend keep Rule 10 — and
+      vello's GPU pipeline turns that one scene into more than one image, while vello's
+      CPU shaders give one. `Rasteriser::{Gpu, Cpu}` is a parameter now, `Gpu` the
+      default, `publish render --cpu` the seam
+      ([ADR-0043](docs/adr/0043-the-scene-repeats-and-the-rasteriser-does-not.md)). The GPU
+      path is not made deterministic, because which stage of a compute pipeline reorders a
+      reduction is vello's question and not one this level can answer.
 
-      *What to do first*: establish whether the pixel is a float reduction reordered
-      across workgroups or an uninitialised read, because those want different fixes.
-      Rendering the same page with a single-threaded CPU rasteriser, if Vello offers one,
-      separates them; so does whether the two images differ on other pages of other files
-      and always by a single pixel.
-
-      *Done when*: N renders of a page produce one image, for every page of the four the
-      visual suite covers, and something fails when they do not.
-
-- [ ] **The `constitution.pdf` visual baseline is stale, and updating it is not enough.**
-      The suite fails at `27d19bd` on 28 pixels. Twenty-seven of them are the page number
-      `1` at the foot of the page: the engine draws it, the frozen reference does not, and
-      PDFKit reads it in the page's text, so **the current output is the more correct one
-      and the baseline predates a fix**. The twenty-eighth is the pixel above. Refreshing
-      the reference makes the suite pass about half the time, which is worse than failing
-      every time, so the two are one piece of work.
-
-      *Done when*: `python3 scripts/visual_regression.py` reports 4 PASSED on two
-      consecutive runs.
+- [x] **The `constitution.pdf` visual baseline was stale, and that was the whole failure.**
+      28 pixels, of which 27 are the page number `1` at the foot of the page: the engine
+      draws it, the frozen reference did not, and PDFKit reads it in the page's text.
+      Refreshed; the suite passes 4 of 4 on three consecutive runs, and putting the old
+      reference back fails it again. **The flaky pixel above is a channel delta of 1 and
+      the suite already tolerates 1**, so it was never flapping — this row said otherwise
+      when it was written, on the strength of "the suite fails and there is a flaky pixel"
+      and without reading what the comparison does with that pixel. The tolerance now
+      carries the measurement that justifies it.
 
 - [ ] **Four more character collections are on disk and are not read.**
       `scripts/dev/fetch_font_resources.sh` already fetches `Adobe-CNS1-UCS2`,

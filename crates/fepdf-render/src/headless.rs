@@ -10,31 +10,52 @@ use vello::wgpu::{
 };
 use vello::{AaConfig, AaSupport, RenderParams, Renderer, RendererOptions, Scene};
 
-fn create_renderer(device: &vello::wgpu::Device) -> Result<Renderer, Box<dyn std::error::Error>> {
-    Renderer::new(
-        device,
-        RendererOptions {
-            use_cpu: false,
-            num_init_threads: NonZeroUsize::new(1),
-            antialiasing_support: AaSupport::area_only(),
-            ..Default::default()
-        },
-    )
-    .or_else(|e| {
-        log::warn!(
-            "[RENDER] GPU renderer initialization failed ({e:?}), falling back to CPU renderer..."
-        );
-        Renderer::new(
-            device,
-            RendererOptions {
-                use_cpu: true,
-                num_init_threads: NonZeroUsize::new(1),
-                antialiasing_support: AaSupport::area_only(),
-                ..Default::default()
-            },
-        )
-    })
-    .map_err(|e| format!("Failed to create renderer: {e}").into())
+/// Which of vello's two rasterisers runs.
+///
+/// **Only one of them repeats itself.** The engine encodes a byte-identical scene for a
+/// given page every time — verified by `examples/render_determinism`, which fingerprints
+/// the encoding and then hands one scene to the rasteriser repeatedly — and the GPU
+/// pipeline turns that one scene into three distinct images in eight runs, one isolated
+/// pixel apart at a channel delta of 1. The CPU shaders give one image.
+///
+/// So this is not a preference. RR-15 Rule 10 makes determinism a rule, and a caller for
+/// whom "the same picture" means the same bytes has to be able to ask for the rasteriser
+/// that keeps it. A caller who wants a picture keeps the GPU, and so does the visual
+/// regression suite, whose tolerance already covers a delta of 1.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Rasteriser {
+    /// Vello's compute pipeline on whatever adapter wgpu picks. What a caller asking for
+    /// a picture gets, and what the GUI draws with.
+    Gpu,
+    /// Vello's CPU shaders, running the same pipeline stages on the host.
+    Cpu,
+}
+
+fn renderer_options(use_cpu: bool) -> RendererOptions {
+    RendererOptions {
+        use_cpu,
+        num_init_threads: NonZeroUsize::new(1),
+        antialiasing_support: AaSupport::area_only(),
+        ..Default::default()
+    }
+}
+
+fn create_renderer(
+    device: &vello::wgpu::Device,
+    rasteriser: Rasteriser,
+) -> Result<Renderer, Box<dyn std::error::Error>> {
+    if rasteriser == Rasteriser::Cpu {
+        return Renderer::new(device, renderer_options(true))
+            .map_err(|e| format!("Failed to create the CPU renderer: {e}").into());
+    }
+    Renderer::new(device, renderer_options(false))
+        .or_else(|e| {
+            log::warn!(
+                "[RENDER] GPU renderer initialization failed ({e:?}), falling back to CPU renderer..."
+            );
+            Renderer::new(device, renderer_options(true))
+        })
+        .map_err(|e| format!("Failed to create renderer: {e}").into())
 }
 
 /// Rasterises a scene off-screen and returns raw RGBA bytes.
@@ -43,13 +64,23 @@ pub async fn render_to_bytes(
     width: u32,
     height: u32,
 ) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
+    render_to_bytes_with(scene, width, height, Rasteriser::Gpu).await
+}
+
+/// [`render_to_bytes`], naming which rasteriser runs.
+pub async fn render_to_bytes_with(
+    scene: &Scene,
+    width: u32,
+    height: u32,
+    rasteriser: Rasteriser,
+) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
     log::debug!("[RENDER] Setting up wgpu...");
     let (mut context, device_id) = setup_wgpu().await?;
     let device_handle = &mut context.devices[device_id];
     let (device, queue) = (&device_handle.device, &device_handle.queue);
 
     log::debug!("[RENDER] Creating vello renderer...");
-    let mut renderer = create_renderer(device)?;
+    let mut renderer = create_renderer(device, rasteriser)?;
 
     let size = Extent3d { width, height, depth_or_array_layers: 1 };
     let target = create_target_texture(device, size);
@@ -187,7 +218,19 @@ pub async fn render_to_image(
     path: &Path,
     format: ImageFormat,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let result_unpadded = render_to_bytes(scene, width, height).await?;
+    render_to_image_with(scene, width, height, path, format, Rasteriser::Gpu).await
+}
+
+/// [`render_to_image`], naming which rasteriser runs.
+pub async fn render_to_image_with(
+    scene: &Scene,
+    width: u32,
+    height: u32,
+    path: &Path,
+    format: ImageFormat,
+    rasteriser: Rasteriser,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let result_unpadded = render_to_bytes_with(scene, width, height, rasteriser).await?;
     let img = RgbaImage::from_raw(width, height, result_unpadded)
         .ok_or("Failed to create image from buffer")?;
 

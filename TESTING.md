@@ -58,6 +58,14 @@ cargo test --workspace
   - `tests/backend_operations_test.rs`: Document mutation operations execution.
   - `tests/encrypted_objstm_test.rs`: Encrypted object stream ingestion.
   - `tests/pattern_color_test.rs`: Pattern color extraction.
+  - `tests/rasteriser_determinism_test.rs`: that `Rasteriser::Cpu` draws a page the same
+    way twice, which `Rasteriser::Gpu` does not — RR-15 Rule 10 against the renderer, which
+    nothing checked
+    ([ADR-0043](docs/adr/0043-the-scene-repeats-and-the-rasteriser-does-not.md)). **Its
+    sample is load-bearing**: written against `print_sample.pdf` it passed on the GPU six
+    runs of six, because that page happens not to flake; on `sample.pdf` the GPU form fails
+    3 in 6 and the CPU form passes 8 in 8. Needs the `render` feature, which
+    `cargo test --workspace` supplies by unification, and about 18 seconds.
 - **`fepdf-doc`**:
   - `tests/operation_json_tests.rs`: the `Operation` vocabulary as JSON, which is a public
     interface — `fepdf-mcp`'s `apply_operation` tool deserialises a caller's string into
@@ -99,6 +107,31 @@ cannot answer "is that right". The check that asks a *second* renderer is
 `crosscheck_image.sh`, and it compares images and layers rather than text. Text, layout
 and colour are covered here and against nobody else, which is worth knowing before
 trusting a pass.
+
+**It compares to a channel delta of 1, and that tolerance is load-bearing.** The engine
+encodes a byte-identical scene for a page every time; vello's GPU pipeline turns that one
+scene into more than one image, and every such difference measured is one isolated pixel
+at a delta of 1 ([ADR-0043](docs/adr/0043-the-scene-repeats-and-the-rasteriser-does-not.md)).
+Anything a reader could see is far above it — the stale baseline this suite caught was 28
+pixels at a delta of 222. Where a repeatable image is needed rather than a tolerated one,
+`publish render --cpu` gives one:
+
+```bash
+cargo run -p fepdf-render --example render_determinism -- samples/sample.pdf 1 8
+```
+
+**A baseline is refreshed only with evidence that the new output is the better one.**
+`constitution.pdf`'s was refreshed on 2026-08-30 because the engine had begun drawing the
+page number at the foot of page 1 and the reference predated it — and PDFKit reads that
+`1` in the page's text, which is the second opinion that makes the refresh a repair rather
+than a way of making a failure go away.
+
+**The baselines are not in the repository, and neither are the samples.** `.gitignore`
+excludes `/samples/` outright, so `samples/references/` is local to whichever machine
+generated it: a fresh clone reports `[FAIL] Reference baseline missing` for all four
+cases, and "the suite passes" is a statement about one machine rather than about the
+commit. That is a property of this check worth knowing before quoting a pass — it is the
+one suite here whose subject cannot be reconstructed from what is tracked.
 
 `scripts/test/verify_visuals.sh` used to sit beside this, running
 `cargo test --package fepdf-render --test visual_regression`. There has never been such a

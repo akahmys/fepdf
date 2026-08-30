@@ -64,7 +64,7 @@ pub use fepdf_model::{
 };
 pub use fepdf_model::{DocumentSource, PdfSource};
 #[cfg(feature = "render")]
-pub use fepdf_render::VelloBackend;
+pub use fepdf_render::{VelloBackend, headless::Rasteriser};
 use std::collections::BTreeMap;
 use std::fmt::Write as _;
 use std::path::Path;
@@ -1559,6 +1559,31 @@ impl PdfDocument {
     /// Requires the `render` feature, which pulls in the Vello + wgpu stack.
     #[cfg(feature = "render")]
     pub fn render_page_to_file(&self, index: usize, output_path: &Path) -> PdfResult<()> {
+        self.render_page_to_file_with(index, output_path, Rasteriser::Gpu)
+    }
+
+    /// [`PdfDocument::render_page_to_file`], naming which rasteriser runs.
+    ///
+    /// **A caller wanting the same image twice must ask for `Cpu`.** The engine encodes a
+    /// byte-identical scene for a given page every time, and vello's GPU pipeline turns
+    /// that one scene into more than one image — three distinct images in eight renders of
+    /// `samples/sample.pdf` page 1, one isolated pixel apart at a channel delta of 1. The
+    /// CPU shaders give one ([ADR-0043]).
+    ///
+    /// `scripts/visual_regression.py` is deliberately **not** this caller: it tolerates a
+    /// delta of 1, which is the whole size of the difference, and rendering it on the CPU
+    /// would stop it exercising the pipeline a user actually gets. What needs this is a
+    /// caller for whom "the same" means the same bytes — a hash, a cache key, a signature
+    /// over a rendering.
+    ///
+    /// [ADR-0043]: https://github.com/akahmys/fepdf/blob/main/docs/adr/0043-the-scene-repeats-and-the-rasteriser-does-not.md
+    #[cfg(feature = "render")]
+    pub fn render_page_to_file_with(
+        &self,
+        index: usize,
+        output_path: &Path,
+        rasteriser: Rasteriser,
+    ) -> PdfResult<()> {
         let r = self.get_page_box(index)?;
         let w = (r.x2 - r.x1).abs();
         let h = (r.y2 - r.y1).abs();
@@ -1598,12 +1623,13 @@ impl PdfDocument {
 
         // Finalize rendering using the headless bridge
         let scene = backend.scene();
-        pollster::block_on(fepdf_render::headless::render_to_image(
+        pollster::block_on(fepdf_render::headless::render_to_image_with(
             scene,
             width,
             height,
             output_path,
             format,
+            rasteriser,
         ))
         .map_err(|e: Box<dyn std::error::Error>| PdfError::Other(e.to_string().into()))?;
 

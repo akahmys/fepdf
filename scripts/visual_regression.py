@@ -69,7 +69,16 @@ def compare_images(expected_png, actual_png):
         if img1.size != img2.size:
             return False
         diff = ImageChops.difference(img1, img2)
-        # Allow tiny subpixel rasterisation delta (max channel delta <= 1)
+        # A channel delta of 1 is tolerated, and that tolerance is load-bearing rather
+        # than cosmetic. The engine encodes a byte-identical scene for a page every time
+        # -- verified by `cargo run -p fepdf-render --example render_determinism`, which
+        # fingerprints the scene and then rasterises that one scene repeatedly -- and
+        # vello's GPU pipeline turns it into more than one image: three distinct images in
+        # eight renders of `samples/sample.pdf` page 1. Measured on four pages of four
+        # files, every such difference is **one isolated pixel at a channel delta of 1**,
+        # so this line is what keeps the suite from flapping. Anything a reader could see
+        # is far above it: the stale baseline this suite caught on `constitution.pdf` was
+        # 28 pixels at a delta of 222.
         stat = diff.getextrema()
         max_delta = max(s[1] for s in stat) if isinstance(stat[0], tuple) else stat[1]
         return max_delta <= 1

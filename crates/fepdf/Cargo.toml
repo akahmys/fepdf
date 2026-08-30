@@ -52,6 +52,14 @@ debug-tools = ["fepdf-model/debug-tools"]
 [lints]
 workspace = true
 
+# Rasterises, so it needs `render`. Under `cargo test --workspace` feature unification
+# turns that on — `fepdf-cli` asks for it — so this runs there and is skipped by a bare
+# `cargo test -p fepdf`, which is the right way round: a package-only run may have no
+# device to rasterise with.
+[[test]]
+name = "rasteriser_determinism_test"
+required-features = ["render"]
+
 # `page_quadrants` uses `fepdf_render` like the two below and did not say so, so
 # `cargo clippy -p fepdf --all-targets` failed on it while
 # `cargo clippy --workspace --all-targets` passed: feature unification turns `render` on

@@ -23,6 +23,10 @@ tokio.workspace = true
 
 [dev-dependencies]
 fepdf.workspace = true
+# `examples/render_determinism` drives the async headless path directly. A dev
+# dependency, not a runtime one: `status.sh` counts runtime dependencies that only a
+# test or an example uses and expects 0.
+pollster.workspace = true
 
 [lints]
 workspace = true

@@ -100,17 +100,17 @@ after — to within the one pixel described below.
 **The renderer is not deterministic, and this is where that was found.** Three of those
 twelve pages differed by exactly one isolated pixel, which is not a shape a font change
 makes — so the same page was rendered repeatedly with one binary. Every one of the three
-**flips between two images**: `sample.pdf` page 1 four and four out of eight at
-`(531, 472)`, `fy05.pdf` page 304 two and four at `(219, 443)`, `fugaku.pdf` page 1 one
-and five at `(247, 452)`. Each page has its own pixel and neither variant depends on this
-change; it is present at `27d19bd`, and it is why `scripts/visual_regression.py` cannot be
-trusted to give the same answer twice. RR-15 Rule 10 makes determinism a rule, and this is
-a violation of it that no check was looking for. It is recorded here rather than fixed:
-finding which stage of a Vello compute pipeline reorders a reduction is its own piece of
-work.
+flips between two images: `sample.pdf` page 1, `fy05.pdf` page 304, `fugaku.pdf` page 1,
+each with its own pixel. It is not caused by this change; it is present at `27d19bd`.
+Where it lives is settled, in [ADR-0043](0043-the-scene-repeats-and-the-rasteriser-does-not.md):
+the engine encodes a byte-identical scene every time and vello's GPU pipeline turns that
+one scene into more than one image.
 
-**A second thing that suite is saying, and it is not this change either.** Its
-`constitution.pdf` baseline fails at `27d19bd` on 28 pixels, of which 27 are the page
-number `1` at the foot of the page — drawn now, absent from the frozen reference, and
-present in what PDFKit reads. The baseline is stale, and updating it would still not make
-the suite pass, because of the pixel above.
+**One thing this record said about that was wrong and is corrected here.** It read that
+`scripts/visual_regression.py` "cannot be trusted to give the same answer twice" and that
+its `constitution.pdf` baseline failure was 27 pixels of stale baseline plus one flaky
+pixel. The flaky pixel is at a **channel delta of 1** on every page measured, and that
+suite already tolerates a delta of 1 — so it was never flapping, and the failure was the
+stale baseline and nothing else. The baseline is refreshed and the suite passes four of
+four on three consecutive runs. The conclusion was drawn from "the suite fails and there
+is a flaky pixel" without reading what the suite's own comparison does with that pixel.
