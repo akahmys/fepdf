@@ -11,15 +11,33 @@
 //! reads all 846 pages, and never asked this engine.
 
 use fepdf::{IngestionOptions, PdfDocument};
+use std::sync::OnceLock;
 
-fn fy05() -> Option<PdfDocument> {
-    let Ok(data) = std::fs::read("../../samples/fy05.pdf") else {
-        return None;
-    };
-    Some(
-        PdfDocument::open_with_options(data.into(), &IngestionOptions::default())
-            .expect("it opens"),
-    )
+/// `samples/fy05.pdf`, opened once for the whole binary.
+///
+/// **Opening it is most of what these tests cost.** The document is 846 pages and a debug
+/// build takes about twenty seconds over it, which the first test below paid in full to
+/// read six pages. Sharing one open takes this binary from **47.2s to 40.3s**, measured
+/// A/B under one load, two runs each.
+///
+/// The saving is smaller than the open it removes because the two tests run on separate
+/// threads, so the two opens overlapped: what is recovered is the second open's *work*,
+/// not its wall clock, plus one 846-page arena's worth of memory. It removes duplicated
+/// work rather than coverage, which is the only kind of speed-up worth taking here.
+///
+/// `None` when the sample is absent: `.gitignore` excludes `/samples/`, so a fresh clone
+/// has no corpus and these skip rather than fail.
+fn fy05() -> Option<&'static PdfDocument> {
+    static DOCUMENT: OnceLock<Option<PdfDocument>> = OnceLock::new();
+    DOCUMENT
+        .get_or_init(|| {
+            let data = std::fs::read("../../samples/fy05.pdf").ok()?;
+            Some(
+                PdfDocument::open_with_options(data.into(), &IngestionOptions::default())
+                    .expect("it opens"),
+            )
+        })
+        .as_ref()
 }
 
 /// The six pages, by number, because a count would pass if the failure moved.

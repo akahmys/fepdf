@@ -29,6 +29,34 @@ All crates in the workspace MUST maintain high test coverage for core data struc
 cargo test --workspace
 ```
 
+**Where the time goes, measured 2026-08-30 — one machine, one load, both forms run back
+to back.** A run with nothing to rebuild is **1m 57s** and reports 591 tests:
+
+| | |
+| ---: | :--- |
+| 40.6s | `pattern_color_test` — `samples/fy05.pdf` is 846 pages and a debug build takes ~20s to open it. Its two tests share one open now; each opening its own cost 47.2s |
+| 17.6s | `rasteriser_determinism_test` — a page rasterised twice on the host |
+| 9.2s | `fepdf-syntax`'s unit tests |
+| ~5s | everything else, across some fifty test binaries |
+| **25s** | **the doc-test phase, which runs 0 tests** — the difference between the two forms below |
+
+**The doc-test phase is a fifth of a warm run and currently checks nothing.** `rustdoc`
+builds a harness for each of the eleven library crates and finds no examples: no doc
+comment in the workspace carries a ```` ```rust ```` block, because the convention here is
+```` ```text ````. Skipping it runs the same 591 tests in **1m 31s**:
+
+```bash
+cargo test --workspace --lib --bins --tests
+```
+
+That is a thing to know rather than a recommendation. **It stops guarding doc examples**,
+and the moment somebody writes a real one the phase starts earning its 25 seconds while
+the short form starts hiding a broken example. `cargo test --workspace` stays the gate.
+
+**A run that has to *build* costs far more than either**: 8m 21s for a change that touched
+`fepdf-render`, against under two minutes of tests. The compile is the cost, not the suite,
+and none of the figures above move that.
+
 ### Key Subsystem Test Suites
 - **`fepdf-model`**:
   - `tests/parser_tests.rs`: Lexer primitives, tokenizing, and object parser.
