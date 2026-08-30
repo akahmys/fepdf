@@ -503,6 +503,18 @@ revision chain has been merged, the ciphertext is gone, and the metadata has one
 answer. Nothing later can put those back
 ([ADR-0013](docs/adr/0013-a-document-is-one-normalised-state.md)).
 
+**Fonts are the exception, and it is a live one.** Those three are the whole of what that
+sentence covers. The font cache is **empty on every sample when `open` returns** —
+`normalize_resources` clears what the ingest pass built — and every font is rebuilt during
+rendering by `Interpreter::get_font`, which merges a Type0's descendant into it and runs
+reconstruction again before writing the result back. A document's font state therefore
+settles at first draw, not at load, and the resource that decodes text is not the one whose
+decisions the reading log carries. Fixing the load-time copy alone moves nothing, which
+cost [ADR-0041](docs/adr/0041-a-character-collection-is-declared-not-guessed.md) an
+attempt. Measured by `cargo run -p fepdf --example load_state_probe -- samples/*.pdf`,
+recorded in [ADR-0045](docs/adr/0045-normalisation-at-load-does-not-reach-fonts.md), owed
+by [ROADMAP Phase T](ROADMAP.md).
+
 That leaves the question of how to see the file as written, and the answer is a second
 entry point rather than a mode of this one:
 

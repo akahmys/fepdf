@@ -2658,6 +2658,40 @@ Everything here was carried in a handoff note as a one-line hunch. Each is now a
       *Done when*: the order-only column falls, no file's identical column falls, and a
       check fails when it does.
 
+- [ ] **A font is built twice, by two different routes, and only the second one draws.**
+      `ARCHITECTURE.md` §4.4 is called *normalisation-at-load* and says a `Document` is one
+      normalised state by the time application code sees it. Three of the things it names
+      hold; fonts do not. The cache is **empty on every sample when `open` returns** —
+      `normalize_resources` clears what the ingest pass built — and every font is rebuilt
+      during rendering by `Interpreter::get_font`, which merges a Type0's descendant into
+      it, propagates the encoding, `wmode` and `/ToUnicode` down, rebuilds the unified map
+      and runs reconstruction again, then writes the result back into the document.
+
+      ```text
+      cargo run --release -p fepdf --example load_state_probe -- samples/*.pdf
+      file                         at open     after    pages
+      constitution.pdf                   0        12       13
+      fugaku.pdf                         0        36       25
+      fy05.pdf                           0        11       40
+      ```
+
+      **It has already cost an attempt.** ADR-0041 fixed `/CIDSystemInfo` on the load path
+      and no measured number moved, because the copy that decodes is the interpreter's. The
+      decisions in `inspect text`'s reading block are harvested from the ingest resources
+      before they are discarded, so they describe fonts that no longer exist by the time
+      anything is drawn ([ADR-0045](docs/adr/0045-normalisation-at-load-does-not-reach-fonts.md)).
+
+      **One step of the normalisation is inert and stays in place until this is settled.**
+      `resolve_missing_font_data` walks the font cache substituting a system face for any
+      font with no `/FontFile`, and `normalize_resources` — its only caller — clears that
+      cache three lines above it. The loop has never had an entry to visit. Deleting it
+      would remove the only statement that the substitution is meant to happen at load, so
+      it is named here rather than removed: whoever unifies the paths has three things to
+      place, not two.
+
+      *Done when*: a font has one construction path, a `Decision` recorded while reading
+      describes the resource that draws, and something fails if the two part again.
+
 - [ ] **Eight wildcard arms still answer a file's value with silence.**
       `scripts/audit/silent_branches.py` lists them, down from eleven. Its own header says
       the number is a count and not a verdict — an unknown `/V` makes the document fail to
