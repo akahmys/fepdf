@@ -84,11 +84,18 @@ and `ANDGCF+YuGothic` in `intel_sdm.pdf`, both of which it gets right.
 `unmapped` column is 0 across the nine samples. Page 1 of `fy05.pdf` reads
 令和5年度決算検査報告 / 会計検査院.
 
-**One glyph of the external corpus goes the other way, and that is the trade being made.**
+**One glyph of the external corpus went the other way, and has since come back.**
 CID 16128 in `FNCTHN+AdobeGothicStd-Bold`, a font declaring `Adobe-Korea1`, used to come
-out `フ`. It is now unnamed, with a 9.7.3 `Violation` naming the collection — and PDFKit
-reads no text from that page at all. One wrong character was replaced by one recorded
-absence. The external corpus goes from 62 lost of 127,424 to 63.
+out `フ` — Adobe-Japan1's reading, applied because the font's name contains `Gothic`. This
+change left it unnamed under a 9.7.3 `Violation`, taking the external corpus from 62 lost
+of 127,424 to 63; PDFKit reads no text from that page either, so a wrong character had
+been replaced by a recorded absence.
+
+[ADR-0044](0044-the-other-four-collections-were-already-on-disk.md) finished it. The four
+tables this engine was declining were already on disk beside the Japan1 one, fetched by
+the same script; the loader asked for Japan1 by name whatever the document declared. It
+builds the resource name from the declaration now, the glyph reads `췎`, and the corpus is
+back to 62.
 
 **Rendering is unchanged.** Making `cid_ordering` real for 41 fonts also makes
 `resolve_gid`'s `is_identity` false for them, which was the risk in this change: that

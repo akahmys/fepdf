@@ -2583,24 +2583,34 @@ defects that are not about text at all, and left one text question sized.
       and without reading what the comparison does with that pixel. The tolerance now
       carries the measurement that justifies it.
 
-- [ ] **Four more character collections are on disk and are not read.**
-      `scripts/dev/fetch_font_resources.sh` already fetches `Adobe-CNS1-UCS2`,
-      `Adobe-GB1-UCS2`, `Adobe-KR-UCS2` and `Adobe-Korea1-UCS2` beside the Japan1 table,
-      and since ADR-0041 the engine knows which one a font asks for — it declines all four
-      by name and records a 9.7.3 violation. Seventeen fonts of the external corpus
-      declare `Adobe-Korea1` or `Adobe-China1`; **one glyph is drawn through them**, CID
-      16128, which Adobe-Korea1 names `췎`.
+- [x] **Four more character collections were on disk and unread, and are read now.**
+      `fetch_font_resources.sh` already brought down `Adobe-CNS1-UCS2`, `Adobe-GB1-UCS2`,
+      `Adobe-KR-UCS2` and `Adobe-Korea1-UCS2` beside the Japan1 table, and the loader asked
+      for Japan1 **by name** whatever the file declared. It builds
+      `{Registry}-{Ordering}-UCS2` from what the document says now, so a font declaring
+      `Adobe-Korea1` gets the Korean table; a collection with no file — `Adobe-Japan2`, say
+      — still records the 9.7.3 violation rather than borrowing one.
 
-      *Not done here for one reason, and it is the reason ADR-0036 gave for
-      `MacRomanEncoding`*: nothing available would exercise the result. PDFKit reads no
-      text at all from the page that carries that glyph, so loading the table would ship
-      an answer with no second implementation confirming it — an unverified `췎` in place
-      of a recorded absence. Adobe's own table is far better evidence than a table written
-      from memory, which is why this is sized rather than refused.
+      *This row read "not done, because nothing available would exercise the result", and
+      that was the wrong test to apply.* Principle 3 says a corpus can justify building
+      something and only a use case can justify not building it, and ADR-0036 declined
+      `MacRomanEncoding` because a table written **from memory** against no document is how
+      a wrong entry gets in — neither argument reaches Adobe's own published file for the
+      collection the document names. The bar had been raised past what the rules ask.
 
-      *Done when*: a document that declares one of the four extracts text through it and
-      a second implementation agrees, or a fixture is built that makes the comparison
-      possible.
+      *What does verify it.* CID 16128 is `フ` in Japan1, `췎` in Korea1, `盦` in GB1,
+      `鬹` in CNS1 and `樸` in KR: a fixture per collection asserting on a CID whose five
+      readings differ tests which table was **selected**, which is the defect ADR-0041
+      found, rather than the table's contents. Beside it, Adobe's two independently
+      maintained repositories round-trip — `pdf2unicode` gives CID→Unicode and the CMap
+      Resources give Unicode→CID — and the three new collections agree with themselves
+      **better than Japan1 does**: 97.4%, 98.5% and 98.1% against Japan1's 67.3%, where
+      Japan1's shortfall is its variant forms rather than a defect. The control is what
+      makes that number readable.
+
+      The corpus moves by the one glyph it has: `TWG test suite A007-pdfa2-fail-a.pdf`
+      draws CID 16128 in a font declaring `Adobe-Korea1`, and it reads `췎` instead of
+      nothing. External corpus 63 lost of 127,424, back to 62.
 
 ## Read broadly, write 2.0
 

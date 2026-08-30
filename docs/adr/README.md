@@ -108,3 +108,4 @@ quietly wrong — which is the failure this log exists to make visible.
 | 0041 | [A CID font's character collection is declared, and the engine was guessing it from the font's name](0041-a-character-collection-is-declared-not-guessed.md) |  |
 | 0042 | [A glyph name that looks like a character code is not one](0042-a-glyph-name-that-looks-like-a-character-code-is-not-one.md) |  |
 | 0043 | [The scene repeats and the rasteriser does not](0043-the-scene-repeats-and-the-rasteriser-does-not.md) | Corrects 0041 |
+| 0044 | [The other four character collections were already on disk](0044-the-other-four-collections-were-already-on-disk.md) | Completes 0041 |

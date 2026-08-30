@@ -125,25 +125,23 @@ fn a_hexadecimal_string_declares_the_collection_just_as_a_literal_one_does() {
     assert_eq!(res.cid_ordering.as_deref(), Some("Japan1"));
 }
 
-/// **The name heuristic must not be reached when the file has spoken.** `AdobeGothicStd`
-/// is a Korean face whose name contains `Gothic`, which is what made the guess apply
-/// Adobe-Japan1 to it and offer `フ` where Adobe-Korea1 says `췎`.
+/// **A collection with no table is reported, not approximated.** `Adobe-Japan2` is a real
+/// registered collection and one Adobe publishes no CID-to-Unicode file for, so it stands
+/// here for anything outside the five that are fetched. Reading such a font through
+/// Adobe-Japan1 — which is what the `/BaseFont` guess did to nineteen Korean fonts of the
+/// external corpus — would give a Japanese character for every CID with nothing to say it
+/// was a guess.
 #[test]
 fn a_collection_this_engine_carries_no_table_for_is_declined_and_recorded() {
     let arena = PdfArena::new();
-    let dict = cid_font(
-        &arena,
-        "AdobeGothicStd-Bold",
-        |b| Object::String(b.to_vec().into()),
-        "Adobe",
-        "Korea1",
-    );
+    let dict =
+        cid_font(&arena, "HeiseiMin-W3", |b| Object::String(b.to_vec().into()), "Adobe", "Japan2");
     let res = load(arena, &dict);
 
-    assert_eq!(res.cid_ordering.as_deref(), Some("Korea1"));
+    assert_eq!(res.cid_ordering.as_deref(), Some("Japan2"));
     assert!(
-        res.adj1_mapping.is_none(),
-        "the Japanese table was applied to a font declaring Adobe-Korea1"
+        res.collection_map.is_none(),
+        "a table was loaded for Adobe-Japan2, which Adobe publishes no UCS2 file for"
     );
     let declined = res
         .decisions
@@ -151,7 +149,7 @@ fn a_collection_this_engine_carries_no_table_for_is_declined_and_recorded() {
         .find(|d| d.clause == "9.7.3")
         .expect("declining a collection is a decision, not a silence");
     assert!(
-        declined.found.contains("Adobe-Korea1"),
+        declined.found.contains("Adobe-Japan2"),
         "the decision must name the collection, or it says only that something failed: {}",
         declined.found
     );
@@ -177,11 +175,61 @@ fn identity_ordering_leaves_the_name_heuristic_in_place() {
     let res = load(arena, &dict);
     assert_eq!(res.cid_ordering.as_deref(), Some("Identity"));
     assert!(
-        res.adj1_mapping.is_some(),
+        res.collection_map.is_some(),
         "a font declaring Identity and named Koz should still reach Adobe-Japan1"
     );
     assert!(
         res.decisions.iter().all(|d| d.clause != "9.7.3"),
         "declaring Identity is not declaring a collection this engine cannot read"
     );
+}
+
+/// **The declared collection decides which table is read, and CID 16128 proves which.**
+///
+/// Adobe-Japan1 puts `\u{30d5}` there and Adobe-Korea1 puts `\u{cdce}`, so a font that
+/// declares Korea1 and comes back with the katakana is one that had the Japanese table
+/// applied to it — which is exactly what happened to nineteen fonts of the external
+/// corpus before [ADR-0041], and what "no table at all" replaced until the other four
+/// collections were read. Asserting on a CID whose two readings differ tests the *wiring*
+/// rather than the table's contents: a check that only asked whether some character came
+/// back would pass on the wrong table.
+///
+/// Skips without Adobe's CID-to-Unicode tables, which are fetched rather than vendored.
+///
+/// [ADR-0041]: ../../../docs/adr/0041-a-character-collection-is-declared-not-guessed.md
+#[test]
+fn the_collection_a_font_declares_is_the_table_that_names_its_cids() {
+    if fepdf_model::resources::locate(fepdf_model::resources::Resource::CidToUnicode).is_none() {
+        eprintln!("skipping: Adobe's CID-to-Unicode tables are not present");
+        return;
+    }
+    // CID 16128, as the two bytes an Identity-H font would draw it with.
+    let cid = [0x3F, 0x00];
+    // Read out of Adobe's own files rather than recalled: a first draft of this test put
+    // GB1's at U+9ECF from memory and the assertion caught it.
+    for (ordering, expected) in [
+        ("Japan1", "\u{30d5}"),
+        ("Korea1", "\u{cdce}"),
+        ("GB1", "\u{76e6}"),
+        ("CNS1", "\u{9b39}"),
+        ("KR", "\u{6a38}"),
+    ] {
+        let arena = PdfArena::new();
+        let dict = cid_font(
+            &arena,
+            "AdobeGothicStd-Bold",
+            |b| Object::String(b.to_vec().into()),
+            "Adobe",
+            ordering,
+        );
+        let res = load(arena, &dict);
+        let table = res.collection_map.as_ref().unwrap_or_else(|| {
+            panic!("no table loaded for Adobe-{ordering}, which is one of the five fetched")
+        });
+        assert_eq!(
+            table.map(&cid).as_deref(),
+            Some(expected),
+            "Adobe-{ordering} named CID 16128 with the wrong table"
+        );
+    }
 }

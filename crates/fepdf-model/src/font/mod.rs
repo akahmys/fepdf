@@ -104,10 +104,10 @@ pub struct FontResource {
     pub encoding: Option<cmap::CMap>,
     /// The ToUnicode CMap if present.
     pub to_unicode: Option<cmap::CMap>,
-    /// System-wide Adobe-Japan1-UCS2 mapping for Japanese fonts.
-    pub adj1_mapping: Option<cmap::CMap>,
-    /// Reverse mapping for ADJ1 lookups.
-    pub reverse_adj1_mapping: Option<BTreeMap<String, u32>>,
+    /// The CID-to-Unicode table of the collection `/CIDSystemInfo` declares (9.7.3).
+    pub collection_map: Option<cmap::CMap>,
+    /// The same table read the other way, for synthesising a `/ToUnicode` on write.
+    pub collection_unicode_to_cid: Option<BTreeMap<String, u32>>,
     /// Mapping discovered during content stream scanning (Original Bytes -> Unicode).
     pub discovered_mappings: Arc<std::sync::Mutex<BTreeMap<Vec<u8>, String>>>,
     /// Unified mapping used for CMap synthesis.
@@ -331,8 +331,8 @@ impl FontResource {
             file_handle: None,
             encoding: None,
             to_unicode: None,
-            adj1_mapping: None,
-            reverse_adj1_mapping: None,
+            collection_map: None,
+            collection_unicode_to_cid: None,
             discovered_mappings: Arc::new(std::sync::Mutex::new(BTreeMap::new())),
             unified_map: BTreeMap::new(),
             unicode_to_gid: BTreeMap::new(),
@@ -558,8 +558,8 @@ impl FontResource {
             length3: l3,
             encoding,
             to_unicode: to_unicode.clone(),
-            adj1_mapping: None,
-            reverse_adj1_mapping: None,
+            collection_map: None,
+            collection_unicode_to_cid: None,
             discovered_mappings: Arc::new(std::sync::Mutex::new(BTreeMap::new())),
             unified_map: BTreeMap::new(),
             unicode_to_gid: BTreeMap::new(),
@@ -598,7 +598,7 @@ impl FontResource {
         }
 
         // Dropped, not recorded: `load` replaces `decisions` the moment this returns.
-        let _ = resource.init_adj1_mapping();
+        let _ = resource.init_collection_map();
         resource.build_unified_map();
         resource
     }
@@ -606,7 +606,7 @@ impl FontResource {
     fn initialize_lifecycle(&mut self, doc: &Document) {
         self.fallback_type = Some(self.infer_fallback_type());
         self.rescue_unicode_map();
-        if let Some(declined) = self.init_adj1_mapping() {
+        if let Some(declined) = self.init_collection_map() {
             self.decisions.push(declined);
         }
 
@@ -748,9 +748,9 @@ impl FontResource {
 
         // 2. Fallback to Adobe-Japan1 (AJ1) for Japanese fonts
         if map.is_empty()
-            && let Some(ref adj1) = self.adj1_mapping
+            && let Some(ref collection) = self.collection_map
         {
-            for (code, uni) in adj1.mappings.iter() {
+            for (code, uni) in collection.mappings.iter() {
                 let cid = if code.len() == 2 {
                     (u32::from(code[0]) << 8) | u32::from(code[1])
                 } else {
@@ -1271,7 +1271,7 @@ impl FontResource {
     /// type (7.3.5), so `as_name` answered `None` for every conforming file: measured over
     /// both corpora, 116 of 116 Type0 fonts declare the pair and the engine read `None`
     /// for all 116. Everything downstream that asks which character collection a font
-    /// belongs to — [`FontResource::is_cjk`], [`FontResource::init_adj1_mapping`],
+    /// belongs to — [`FontResource::is_cjk`], [`FontResource::init_collection_map`],
     /// `resolve_gid`'s identity fallback — was therefore deciding from the `/BaseFont`
     /// name alone while the file said so outright.
     ///
@@ -1507,7 +1507,7 @@ impl FontResource {
     /// [`FontResource::new_initial`] has none — `load` replaces `decisions` immediately
     /// after it returns — so only `initialize_lifecycle` keeps what comes back, and
     /// recording it at both call sites would double every entry.
-    fn init_adj1_mapping(&mut self) -> Option<crate::interpretation::Decision> {
+    fn init_collection_map(&mut self) -> Option<crate::interpretation::Decision> {
         let declined = self.load_cid_collection();
         self.build_unicode_to_gid();
         declined
@@ -1522,19 +1522,20 @@ impl FontResource {
     }
 
     fn load_cid_collection(&mut self) -> Option<crate::interpretation::Decision> {
-        match self.declared_collection() {
-            Some(ordering) if ordering.eq_ignore_ascii_case("Japan1") => {
-                self.load_adobe_japan1();
-                None
+        let Some(ordering) = self.declared_collection() else {
+            // Nothing declared, or `Identity`, which declares nothing about characters.
+            if self.name_suggests_japanese() {
+                self.load_collection("Adobe", "Japan1");
             }
-            Some(ordering) => self.decline_collection(&ordering),
-            None => {
-                if self.name_suggests_japanese() {
-                    self.load_adobe_japan1();
-                }
-                None
-            }
+            return None;
+        };
+        // `/Registry` is part of the resource's name, and a file may write it in any
+        // case: one of the corpus files says `adobe`.
+        let registry = self.cid_registry.clone().unwrap_or_else(|| "Adobe".to_string());
+        if self.load_collection(&registry, &ordering) {
+            return None;
         }
+        self.decline_collection(&ordering)
     }
 
     /// Records that a declared collection is one this engine has no table for.
@@ -1583,9 +1584,27 @@ impl FontResource {
         })
     }
 
-    fn load_adobe_japan1(&mut self) {
-        let Some(cmap) = cmap::CMap::load_named("Adobe-Japan1-UCS2") else {
-            return;
+    /// Loads `{Registry}-{Ordering}-UCS2`, Adobe's CID-to-Unicode table for a collection.
+    ///
+    /// **Five of these are fetched and one was read.** `fetch_font_resources.sh` brings
+    /// down `Adobe-CNS1`, `Adobe-GB1`, `Adobe-Japan1`, `Adobe-KR` and `Adobe-Korea1`, and
+    /// this asked for Japan1 by name whatever the file declared — so a font declaring
+    /// `Adobe-Korea1` had a *Japanese* table applied to it while the Korean one sat on
+    /// disk unopened (ADR-0041), and after that was stopped it had none at all.
+    ///
+    /// The registry is title-cased because it is part of a filename and a file may write
+    /// it in any case; one corpus file says `adobe`. Everything else is taken from the
+    /// document verbatim: a collection this engine has no file for finds nothing here and
+    /// is reported rather than approximated.
+    ///
+    /// Returns whether a table was found.
+    fn load_collection(&mut self, registry: &str, ordering: &str) -> bool {
+        let mut registry = registry.to_lowercase();
+        if let Some(first) = registry.get_mut(..1) {
+            first.make_ascii_uppercase();
+        }
+        let Some(cmap) = cmap::CMap::load_named(&format!("{registry}-{ordering}-UCS2")) else {
+            return false;
         };
         let mut reverse = BTreeMap::new();
         for (cid_bytes, uni) in cmap.mappings.iter() {
@@ -1594,8 +1613,9 @@ impl FontResource {
                 reverse.insert(uni.clone(), cid);
             }
         }
-        self.adj1_mapping = Some(cmap);
-        self.reverse_adj1_mapping = Some(reverse);
+        self.collection_map = Some(cmap);
+        self.collection_unicode_to_cid = Some(reverse);
+        true
     }
 
     /// Builds the reverse Unicode-to-glyph lookup used by fallback matching.
@@ -1785,9 +1805,9 @@ impl FontResource {
                 || self.subtype.as_str() == "CIDFontType0"
                 || self.subtype.as_str() == "CIDFontType2";
 
-            if is_multibyte && let Some(ref adj1) = self.adj1_mapping {
+            if is_multibyte && let Some(ref collection) = self.collection_map {
                 let cid_bytes = vec![(cid >> 8) as u8, (cid & 0xFF) as u8];
-                result = adj1.map(&cid_bytes);
+                result = collection.map(&cid_bytes);
                 if result.is_some() {
                     source = UnicodeSource::CidCollection;
                 }
@@ -2499,7 +2519,7 @@ impl FontResource {
         &self,
         data: &[u8],
     ) -> Option<(usize, Option<String>, UnicodeSource)> {
-        let aj1 = self.adj1_mapping.as_ref()?;
+        let aj1 = self.collection_map.as_ref()?;
         let consumed = 2; // AJ1 CIDs are always 2 bytes in our mapping
         if data.len() < consumed {
             return None;
