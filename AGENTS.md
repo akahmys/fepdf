@@ -47,7 +47,10 @@ phase document and an ADR records why.
    is recorded, not deleted, so the reasoning is not repeated.
 3. **A quoted figure carries its date**, or is re-derived before quoting. `status.sh`
    re-derives the ones these documents lean on, so a stale figure reads as a
-   disagreement rather than as current.
+   disagreement rather than as current. **A count stated twice is the case to watch**: the
+   subset table's unmet rows and the sentence above them each carried the number, and the
+   sentence went on saying "three" after Phase P had met one of them. `status.sh` derives
+   the first and checks the second against it.
 4. **A rule that is not checked is a comment.** Every entry in `CODING.md` names what
    enforces it, and says "nothing" where nothing does.
 5. **Prove a check fires by breaking the thing it checks.** Tests here have passed

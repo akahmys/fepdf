@@ -102,10 +102,15 @@ do this" is an assertion in a source file; with it, the two can be compared. The
 requirement type named so far is `EnableJavaScripts`, in `actions::NOT_SATISFIED`.
 
 **What this table is not.** It is not a claim that every provision of a chosen subset is
-met — **three rows are chosen and not met**, and each points at the phase that owes it:
-rendering at Phase P, the interactive processor at Phase P, ECMAScript at Phase R. A
-subset declaration is what makes that sentence sayable: "not implemented" and "chosen and
-not complied with" are different, and only the second is a defect.
+met — **two rows are chosen and not met**, and each says so in the row and points at the
+phase that owes it: the interactive processor at Phase P, ECMAScript at Phase R. A subset
+declaration is what makes that sentence sayable: "not implemented" and "chosen and not
+complied with" are different, and only the second is a defect.
+
+This sentence read **three**, and named rendering as the third, until 2026-08-30. Phase P
+met it — 6.3.2.2's two `shall`s are both kept, which the clause 10 row above states — and
+the count was never brought down. `status.sh` counts the rows carrying the marker now, so
+the sentence and the table cannot drift apart again without a row disagreeing.
 
 **Taking a subset therefore creates a defect where a conforming refusal stood**, and the
 ECMAScript row is the case. That is not an argument against taking it. It is what deciding

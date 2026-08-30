@@ -309,6 +309,24 @@ PYEOF
 )
 row "dead markdown links (expect 0)" "${dead_links:-?}"
 
+# Subsets declared under 6.3.1 and not complied with. **"Every box checked" is not
+# "done", and this row is the difference.** The phase list is work items; a subset row is
+# a commitment, and one can stand unmet with every box in its phase ticked — which is what
+# ECMAScript has done since Phase R. The prose above the subset table also carried a count
+# of these, said three, and was still saying it after Phase P met the rendering row.
+unmet=$(grep -cE '^\| \*\*[^|]+\|[^|]*not met[^|]*\|' ROADMAP.md)
+row "subsets chosen and not met (6.3.1)" "${unmet:-?}"
+# The prose above that table carries the same count in words, and said "three" for weeks
+# after Phase P met the rendering row. A number stated twice drifts; this is the second
+# statement being checked against the first.
+case "$unmet" in
+    1) phrase="one row is" ;; 2) phrase="two rows are" ;; 3) phrase="three rows are" ;;
+    4) phrase="four rows are" ;; *) phrase="" ;;
+esac
+if [ -n "$phrase" ] && ! grep -q "\*\*$phrase chosen and not met\*\*" ROADMAP.md; then
+    row "  the prose above that table" "disagrees — it should read \"$phrase\""
+fi
+
 # Rule 20's blind spot. Rule 5 stops a wildcard over a domain *enum*; a PDF's domain
 # values arrive as integers, so the lint cannot see them. This counts the arms where an
 # unrecognised value produces neither a Decision nor an error. Not a defect count — an
@@ -576,6 +594,15 @@ if [ -n "$next_phase" ]; then
     grep -A3 '^- \[ \]' ROADMAP.md | head -20 | sed 's/^/  /'
 else
     echo "  Every box in ROADMAP.md is checked."
+    if [ "${unmet:-0}" -gt 0 ]; then
+        echo
+        echo "  It is not finished, and the row above says why: $unmet subset(s) declared"
+        echo "  under 6.3.1 are chosen and not met. A phase's boxes are work items; a"
+        echo "  subset row is a commitment, and ECMAScript has stood unmet with every box"
+        echo "  in Phase R ticked. \"Chosen and not complied with\" is a defect where"
+        echo "  \"not implemented\" is not — see the table under \"The subsets this"
+        echo "  processor has chosen\"."
+    fi
     echo
     echo "  That is not the same as the goal being met, and it is no longer the case that"
     echo "  nothing can be said about it. The goal — \"an engine that understands"
