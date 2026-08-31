@@ -106,21 +106,46 @@ pub fn render_interactive_form(r: &fepdf::InteractiveReport) {
 
     println!("\n  {:<28} {:<5} {:<10} /V", "field (12.7.4.2)", "/FT", "/Ff");
     for f in r.form.terminal.iter().take(50) {
-        println!(
-            "  {:<28} {:<5} {:<10} {}",
-            f.qualified_name.as_deref().unwrap_or("(unnamed)"),
-            f.field_type.as_deref().unwrap_or("—"),
-            f.flags.map_or_else(|| "—".to_string(), |n| n.to_string()),
-            f.value.as_deref().unwrap_or("(unset)")
-        );
-        // A variable-text field with no /DA anywhere has no way to draw its own value
-        // (12.7.4.3); reported per field because the form's /DA can supply it.
-        if !f.has_default_appearance && !r.form.has_default_appearance {
-            println!("      no /DA on the field or the form (12.7.4.3)");
-        }
+        render_terminal_field(f, r.form.has_default_appearance);
     }
     if r.form.terminal.len() > 50 {
         println!("  … and {} more", r.form.terminal.len() - 50);
+    }
+}
+
+fn render_terminal_field(f: &fepdf::FormField, form_has_da: bool) {
+    println!(
+        "  {:<28} {:<5} {:<10} {}",
+        f.qualified_name.as_deref().unwrap_or("(unnamed)"),
+        f.field_type.as_deref().unwrap_or("—"),
+        f.flags.map_or_else(|| "—".to_string(), |n| n.to_string()),
+        f.value.as_deref().unwrap_or("(unset)")
+    );
+    // A variable-text field with no /DA anywhere has no way to draw its own value
+    // (12.7.4.3); reported per field because the form's /DA can supply it.
+    if !f.has_default_appearance && !form_has_da {
+        println!("      no /DA on the field or the form (12.7.4.3)");
+    }
+    if f.field_type.as_deref() == Some("Ch") && !f.options.is_empty() {
+        let opt_str = f
+            .options
+            .iter()
+            .take(5)
+            .map(|opt| {
+                if opt.export_value == opt.display_value {
+                    opt.export_value.clone()
+                } else {
+                    format!("{} ({})", opt.export_value, opt.display_value)
+                }
+            })
+            .collect::<Vec<_>>()
+            .join(", ");
+        let more = if f.options.len() > 5 {
+            format!(", +{} more", f.options.len() - 5)
+        } else {
+            String::new()
+        };
+        println!("      options ({}) [{opt_str}{more}]", f.options.len());
     }
 }
 

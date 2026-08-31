@@ -199,6 +199,30 @@ pub struct FormFields {
     pub too_deep: usize,
 }
 
+/// One option in a Choice field's `/Opt` array (12.7.4.4, Table 231).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ChoiceOption {
+    /// The export value submitted with the form.
+    pub export_value: String,
+    /// The user-visible display string.
+    pub display_value: String,
+}
+
+impl ChoiceOption {
+    /// Constructs a ChoiceOption where export and display strings are identical.
+    #[must_use]
+    pub fn simple(value: impl Into<String>) -> Self {
+        let v = value.into();
+        Self { export_value: v.clone(), display_value: v }
+    }
+
+    /// Constructs a ChoiceOption with distinct export and display values.
+    #[must_use]
+    pub fn pair(export_value: impl Into<String>, display_value: impl Into<String>) -> Self {
+        Self { export_value: export_value.into(), display_value: display_value.into() }
+    }
+}
+
 /// One terminal field of the form (12.7.4).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FormField {
@@ -224,6 +248,32 @@ pub struct FormField {
     /// Whether the field is also its own widget annotation — the common case, and the
     /// reason a form walk and an annotation walk can reach the same dictionary.
     pub is_widget: bool,
+    /// `/Opt`: options list for choice fields (12.7.4.4, Table 231).
+    pub options: Vec<ChoiceOption>,
+    /// `/I`: zero-based indices of selected options (12.7.4.4).
+    pub selected_indices: Vec<usize>,
+    /// `/TI`: top visible item index for scrollable list boxes (12.7.4.4).
+    pub top_index: Option<usize>,
+}
+
+impl FormField {
+    /// True if `/FT` is `/Ch` and bit 18 (Combo) is set (Table 232).
+    #[must_use]
+    pub fn is_combo(&self) -> bool {
+        self.field_type.as_deref() == Some("Ch") && self.flags.unwrap_or(0) & (1 << 17) != 0
+    }
+
+    /// True if `/FT` is `/Ch` and bit 19 (Edit) is set (Table 232).
+    #[must_use]
+    pub fn is_editable_combo(&self) -> bool {
+        self.is_combo() && self.flags.unwrap_or(0) & (1 << 18) != 0
+    }
+
+    /// True if `/FT` is `/Ch` and bit 22 (MultiSelect) is set (Table 232).
+    #[must_use]
+    pub fn is_multiselect(&self) -> bool {
+        self.field_type.as_deref() == Some("Ch") && self.flags.unwrap_or(0) & (1 << 21) != 0
+    }
 }
 
 /// The outline (12.3.3).
@@ -469,9 +519,90 @@ fn report_subtype(
     SubtypeCensus { subtype: subtype.to_string(), count, entries }
 }
 
+fn parse_options(arena: &PdfArena, d: &Dict) -> Option<Vec<ChoiceOption>> {
+    let opt_obj = d.get(&arena.name("Opt"))?;
+    let arr = array_of(arena, Some(opt_obj))?;
+    let mut options = Vec::with_capacity(arr.len());
+    for item in arr {
+        match item.resolve(arena) {
+            Object::String(_) | Object::Hex(_) | Object::Text(_) => {
+                if let Some(s) = string_of(arena, &item) {
+                    options.push(ChoiceOption::simple(s));
+                }
+            }
+            Object::Array(ah) => {
+                if let Some(pair) = arena.get_array(ah)
+                    && let Some(export) = pair.first().and_then(|e| string_of(arena, e))
+                {
+                    let display = pair
+                        .get(1)
+                        .and_then(|d| string_of(arena, d))
+                        .unwrap_or_else(|| export.clone());
+                    options.push(ChoiceOption::pair(export, display));
+                }
+            }
+            _ => {}
+        }
+    }
+    Some(options)
+}
+
+fn parse_selected_indices(
+    arena: &PdfArena,
+    d: &Dict,
+    options: &[ChoiceOption],
+    value: Option<&str>,
+) -> Vec<usize> {
+    if let Some(i_obj) = d.get(&arena.name("I"))
+        && let Some(arr) = array_of(arena, Some(i_obj))
+    {
+        let indices: Vec<usize> = arr
+            .into_iter()
+            .filter_map(|item| match item.resolve(arena) {
+                Object::Integer(n) if n >= 0 => Some(n as usize),
+                _ => None,
+            })
+            .collect();
+        if !indices.is_empty() {
+            return indices;
+        }
+    }
+    if let Some(v) = value
+        && let Some(idx) =
+            options.iter().position(|opt| opt.export_value == v || opt.display_value == v)
+    {
+        return vec![idx];
+    }
+    Vec::new()
+}
+
+fn parse_top_index(arena: &PdfArena, d: &Dict) -> Option<usize> {
+    match d.get(&arena.name("TI"))?.resolve(arena) {
+        Object::Integer(n) if n >= 0 => Some(n as usize),
+        _ => None,
+    }
+}
+
+fn build_terminal_field(arena: &PdfArena, d: &Dict, here: &Inherited) -> FormField {
+    let options = here.options.clone().unwrap_or_default();
+    let selected_indices = parse_selected_indices(arena, d, &options, here.value.as_deref());
+    FormField {
+        name: d.get(&arena.name("T")).and_then(|t| string_of(arena, t)),
+        qualified_name: here.qualified_name(),
+        field_type: here.field_type.clone(),
+        flags: here.flags,
+        value: here.value.clone(),
+        has_default_appearance: here.has_default_appearance,
+        is_widget: name_of_key(arena, d, "Subtype").as_deref() == Some("Widget"),
+        options,
+        selected_indices,
+        top_index: here.top_index,
+    }
+}
+
 /// Reads `/AcroForm`, walking `/Fields` through `/Kids` to the terminal fields.
 ///
-/// `/FT`, `/Ff`, `/V` and `/DA` are **inheritable** (12.7.4.2): a field that omits one
+/// `/FT`, `/Ff`, `/V`, `/DA` and `/Opt` are **inheritable** (12.7.4.2): a field that omits one
 /// takes its parent's. The walk therefore carries the inherited state down rather than
 /// reading each dictionary alone, which is also how the qualified name is assembled.
 fn read_form(arena: &PdfArena, catalog: &Dict) -> FormFields {
@@ -501,9 +632,6 @@ fn read_form(arena: &PdfArena, catalog: &Dict) -> FormFields {
         let Some(d) = dict_of(arena, &node) else { continue };
         let here = inherited.and(arena, &d);
         match array_of(arena, d.get(&arena.name("Kids"))) {
-            // A node with /Kids that are themselves fields is not terminal. Widget
-            // kids are a different thing, but they carry no /FT of their own, so
-            // recursing into them costs nothing and finds nothing.
             Some(kids) if !kids.is_empty() => {
                 queue.extend(kids.into_iter().map(|k| (k, depth + 1, here.clone())));
             }
@@ -512,15 +640,7 @@ fn read_form(arena: &PdfArena, catalog: &Dict) -> FormFields {
                 *by_type
                     .entry(here.field_type.clone().unwrap_or_else(|| "(none)".into()))
                     .or_default() += 1;
-                form.terminal.push(FormField {
-                    name: d.get(&arena.name("T")).and_then(|t| string_of(arena, t)),
-                    qualified_name: here.qualified_name(),
-                    field_type: here.field_type.clone(),
-                    flags: here.flags,
-                    value: here.value.clone(),
-                    has_default_appearance: here.has_default_appearance,
-                    is_widget: name_of_key(arena, &d, "Subtype").as_deref() == Some("Widget"),
-                });
+                form.terminal.push(build_terminal_field(arena, &d, &here));
             }
         }
     }
@@ -538,6 +658,8 @@ struct Inherited {
     flags: Option<i64>,
     value: Option<String>,
     has_default_appearance: bool,
+    options: Option<Vec<ChoiceOption>>,
+    top_index: Option<usize>,
 }
 
 impl Inherited {
@@ -555,6 +677,12 @@ impl Inherited {
         }
         if let Some(v) = d.get(&arena.name("V")) {
             next.value = Some(render_value(arena, v));
+        }
+        if let Some(opts) = parse_options(arena, d) {
+            next.options = Some(opts);
+        }
+        if let Some(ti) = parse_top_index(arena, d) {
+            next.top_index = Some(ti);
         }
         next.has_default_appearance |= d.contains_key(&arena.name("DA"));
         next

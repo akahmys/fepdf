@@ -557,6 +557,32 @@ pub fn apply_set_measurement_scale(doc: &Document, scale: MeasurementScale) -> P
     Ok(())
 }
 
+fn apply_value_to_field_dict(
+    arena: &PdfArena,
+    dict: &mut BTreeMap<Handle<PdfName>, Object>,
+    new_value: &FormValue,
+) {
+    let v_key = arena.name("V");
+    let v_obj = match new_value {
+        FormValue::Text(s) | FormValue::Choice(s) => Object::String(Bytes::from(s.clone())),
+        FormValue::Boolean(b) => Object::Name(arena.name(if *b { "Yes" } else { "Off" })),
+    };
+    dict.insert(v_key, v_obj);
+
+    let target_val = match new_value {
+        FormValue::Choice(s) | FormValue::Text(s) => Some(s.as_str()),
+        FormValue::Boolean(_) => None,
+    };
+    if let Some(opt_obj) = dict.get(&arena.name("Opt"))
+        && let Some(target_val) = target_val
+        && let Some(matched_idx) = find_option_index(arena, opt_obj, target_val)
+    {
+        let i_key = arena.name("I");
+        let arr_h = arena.alloc_array(vec![Object::Integer(matched_idx as i64)]);
+        dict.insert(i_key, Object::Array(arr_h));
+    }
+}
+
 fn update_form_field_value_in_dict(
     arena: &PdfArena,
     field_dh: Handle<BTreeMap<Handle<PdfName>, Object>>,
@@ -572,13 +598,7 @@ fn update_form_field_value_in_dict(
     }) == Some(target_name);
 
     if name_matches {
-        let v_key = arena.name("V");
-        let v_obj = match new_value {
-            FormValue::Text(s) => Object::String(Bytes::from(s.clone())),
-            FormValue::Choice(c) => Object::Name(arena.name(c)),
-            FormValue::Boolean(b) => Object::Name(arena.name(if *b { "Yes" } else { "Off" })),
-        };
-        dict.insert(v_key, v_obj);
+        apply_value_to_field_dict(arena, &mut dict, new_value);
         arena.set_dict(field_dh, dict);
         return true;
     }
@@ -605,6 +625,45 @@ fn update_form_field_value_in_dict(
         }
     }
     false
+}
+
+fn find_option_index(arena: &PdfArena, opt_obj: &Object, target_val: &str) -> Option<usize> {
+    let arr = match opt_obj.resolve(arena) {
+        Object::Array(ah) => arena.get_array(ah)?,
+        _ => return None,
+    };
+    for (idx, item) in arr.iter().enumerate() {
+        match item.resolve(arena) {
+            Object::String(b) | Object::Hex(b) => {
+                if std::str::from_utf8(&b).ok() == Some(target_val) {
+                    return Some(idx);
+                }
+            }
+            Object::Text(s) => {
+                if s == target_val {
+                    return Some(idx);
+                }
+            }
+            Object::Array(pair_h) => {
+                if let Some(pair) = arena.get_array(pair_h)
+                    && let Some(export) = pair.first()
+                {
+                    let matches = match export.resolve(arena) {
+                        Object::String(b) | Object::Hex(b) => {
+                            std::str::from_utf8(&b).ok() == Some(target_val)
+                        }
+                        Object::Text(s) => s == target_val,
+                        _ => false,
+                    };
+                    if matches {
+                        return Some(idx);
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    None
 }
 
 /// Sets the value of an AcroForm field (Clause 12.7.3).
@@ -659,6 +718,47 @@ pub fn apply_set_form_field_value(doc: &Document, field: FormFieldSpec) -> PdfRe
     Ok(())
 }
 
+fn resolve_choice_display(
+    arena: &PdfArena,
+    field: &BTreeMap<Handle<PdfName>, Object>,
+    value_text: &str,
+) -> String {
+    let Some(opt_obj) = field.get(&arena.name("Opt")) else {
+        return value_text.to_string();
+    };
+    let Object::Array(ah) = opt_obj.resolve(arena) else {
+        return value_text.to_string();
+    };
+    let Some(arr) = arena.get_array(ah) else {
+        return value_text.to_string();
+    };
+    for item in arr {
+        if let Object::Array(pair_h) = item.resolve(arena)
+            && let Some(pair) = arena.get_array(pair_h)
+        {
+            let export_matches = pair.first().is_some_and(|e| match e.resolve(arena) {
+                Object::String(b) | Object::Hex(b) => {
+                    std::str::from_utf8(&b).ok() == Some(value_text)
+                }
+                Object::Text(s) => s == value_text,
+                _ => false,
+            });
+            if export_matches && let Some(disp) = pair.get(1) {
+                match disp.resolve(arena) {
+                    Object::String(b) | Object::Hex(b) => {
+                        if let Ok(s) = std::str::from_utf8(&b) {
+                            return s.to_string();
+                        }
+                    }
+                    Object::Text(s) => return s,
+                    _ => {}
+                }
+            }
+        }
+    }
+    value_text.to_string()
+}
+
 /// Rebuilds the appearance of the widget a field's value is shown through (12.7.4.3).
 ///
 /// A field and its widget may be one object or two: a single-widget field merges them,
@@ -685,7 +785,8 @@ fn refresh_appearance(
     for widget in widgets_of(arena, field_dh) {
         match value {
             FormValue::Text(text) | FormValue::Choice(text) => {
-                appearance::set_text_appearance(doc, widget, acro, &da, quadding, text)?;
+                let display_text = resolve_choice_display(arena, &field, text);
+                appearance::set_text_appearance(doc, widget, acro, &da, quadding, &display_text)?;
             }
             FormValue::Boolean(on) => {
                 appearance::set_button_state(doc, widget, if *on { "Yes" } else { "Off" });

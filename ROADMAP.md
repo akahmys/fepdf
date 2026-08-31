@@ -2750,13 +2750,13 @@ questions rather than refusals:
 
 | | What is not read | What makes it necessary | What the corpus says |
 | :--- | :--- | :--- | :--- |
-| **P1** | **`/Ch` choice fields.** A dropdown or list box is walked, and its options and value are not read | Any government or business form | **Still nothing.** Twelve terminal fields across 524 files, six `/Btn` and six `/Tx`. Up from four, and not one choice field |
+| **P1** | ~~**`/Ch` choice fields.**~~ **Built.** | Any government or business form | **12.7.4.4.** Choice fields are parsed (`/Opt`, `/I`, `/TI`), values updated with appearance stream regeneration ([ADR-0048](docs/adr/0048-reading-and-setting-choice-fields.md)) |
 | **P2** | ~~**`/AF` associated files (14.13).**~~ **Built.** | Any document that carries another, and reading a PDF/A-3 even where one cannot be written | **17 files**, the moment PDF/A-3 and PDF/A-4f arrived. `FileSpecification` reads Table 43, `/AFRelationship` included — an e-invoice's `/Data` and its `/Source` are different facts |
 | **P3** | **`/DSS` and `/Perms`.** Long-term validation data, and the permissions a signature sets (DocMDP) | *Reporting* on a signed document somebody else produced — which survives the decision above, where producing that data does not | **Still nothing.** Neither key occurs in any of the 524 files |
 | **P4** | ~~**What a document *does* when opened.**~~ **Built** — `fepdf inspect actions` | Security screening. The coverage index excludes actions because "reads an action" has no settled meaning (ADR-0019); "what can this document do, and does the reader have to do anything first" has one ([ADR-0022](docs/adr/0022-what-a-document-does-is-a-settled-question-where-reads-an-action-is-not.md)) | **105 of 524 files** carry an action. Six `/JavaScript`, three `/Launch`, six naming an `/S` no edition defines. **Two run code with no interaction at all**, through a `/Names /JavaScript` tree the old census could not see |
 
-Phase O-1 fetched the corpus and the column above is what it answered. **P2 and P4 are
-done.** P1 and P3 remain unsizeable, and the reason has changed: it is no longer "nobody
+Phase O-1 fetched the corpus and the column above is what it answered. **P1, P2 and P4 are
+done.** P3 remains unsizeable, and the reason has changed: it is no longer "nobody
 has looked" but "a corpus of 524 files assembled by three other projects contains none of
 it", which is a much better argument for a *use case* being what justifies them, if
 anything does.

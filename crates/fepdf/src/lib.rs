@@ -45,8 +45,8 @@ pub use fepdf_model::font::FontResource;
 pub use fepdf_model::graphics::Rect;
 pub use fepdf_model::ingest::{ColorPolicy, IngestionOptions};
 pub use fepdf_model::interactive::{
-    AnnotationCensus, AnnotationEntry, DestinationCensus, FormField, FormFields, InteractiveReport,
-    Outline as OutlineSummary, SubtypeCensus,
+    AnnotationCensus, AnnotationEntry, ChoiceOption, DestinationCensus, FormField, FormFields,
+    InteractiveReport, Outline as OutlineSummary, SubtypeCensus,
 };
 pub use fepdf_model::interactive::{calculation_order, field_value};
 pub use fepdf_model::interpretation::{Decision, DecisionLog, Severity, Strictness};

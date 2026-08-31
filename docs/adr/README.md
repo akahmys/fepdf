@@ -112,3 +112,4 @@ quietly wrong — which is the failure this log exists to make visible.
 | 0045 | [Normalisation-at-load does not reach fonts](0045-normalisation-at-load-does-not-reach-fonts.md) | Qualifies 0013 |
 | 0046 | [Font construction is unified at load time](0046-unify-font-construction-paths-at-load.md) | Completes 0045 |
 | 0047 | [Text extraction reconstructs logical reading order](0047-text-extraction-sorts-runs-into-reading-order.md) |  |
+| 0048 | [Choice fields (`/FT /Ch`) are read and updated with appearance regeneration](0048-reading-and-setting-choice-fields.md) |  |
