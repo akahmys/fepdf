@@ -91,6 +91,8 @@ pub struct FepdfApp {
     /// What to present for optional content (6.3.2.3), refreshed whenever a layer is
     /// toggled so the checkboxes show the state actually in force.
     pub layers: Vec<fepdf::LayerRow>,
+    /// Reading decisions recorded by the engine while opening or repairing the document (6.3.2.3).
+    pub doc_decisions: Vec<fepdf::Decision>,
 }
 
 impl FepdfApp {
@@ -171,6 +173,7 @@ impl FepdfApp {
             doc_page_sizes: Vec::new(),
             doc_fonts: Vec::new(),
             layers: Vec::new(),
+            doc_decisions: Vec::new(),
         }
     }
 
@@ -204,8 +207,10 @@ impl FepdfApp {
                         fonts,
                         viewer_direction,
                         layers,
+                        decisions,
                     } = *loaded;
                     self.layers = layers;
+                    self.doc_decisions = decisions;
                     if name.is_some() {
                         self.pdf_name = name;
                     }

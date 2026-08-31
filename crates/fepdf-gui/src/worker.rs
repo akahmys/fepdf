@@ -87,6 +87,8 @@ pub struct LoadedDocument {
     /// document has no layers *or* when its configuration lists none — the clause makes
     /// those the same answer.
     pub layers: Vec<fepdf::LayerRow>,
+    /// Reading decisions recorded by the engine while opening or repairing the document (6.3.2.3).
+    pub decisions: Vec<fepdf::Decision>,
 }
 
 pub enum WorkerResponse {
@@ -340,6 +342,7 @@ fn reload_after_page_change(doc: &PdfDocument, tx: &Sender<WorkerResponse>) {
         fonts: doc.fonts(),
         viewer_direction: doc.viewer_direction(),
         layers: doc.layers().rows,
+        decisions: doc.decisions(),
     })));
 }
 
@@ -462,6 +465,7 @@ fn handle_open(
                 fonts,
                 viewer_direction,
                 layers: doc.layers().rows,
+                decisions: doc.decisions(),
             })));
             Some(doc)
         }
@@ -540,11 +544,15 @@ fn handle_render(
     let text = get_or_extract_text(doc, index, text_cache);
     let spans = get_or_extract_spans(doc, index, spans_cache);
 
-    if matches!(doc.render_page(index, &mut backend, initial_transform), Ok(())) {
-        let scene = Arc::new(backend.scene().clone());
-        let _ = tx.send(WorkerResponse::PageRendered { index, _scale: scale, scene, text, spans });
-    } else {
-        let _ = tx.send(WorkerResponse::Error(format!("Failed to render page {index}")));
+    match doc.render_page(index, &mut backend, initial_transform) {
+        Ok(()) => {
+            let scene = Arc::new(backend.scene().clone());
+            let _ =
+                tx.send(WorkerResponse::PageRendered { index, _scale: scale, scene, text, spans });
+        }
+        Err(e) => {
+            let _ = tx.send(WorkerResponse::Error(format!("Failed to render page {index}: {e}")));
+        }
     }
 }
 

@@ -101,6 +101,7 @@ impl SidebarPanel {
         page_sizes: &[(f64, f64)],
         fonts: &[fepdf::FontSummary],
         layers: &[fepdf::LayerRow],
+        decisions: &[fepdf::Decision],
         locale_mgr: &LocaleManager,
         active_lang: &str,
     ) {
@@ -121,6 +122,7 @@ impl SidebarPanel {
                     permissions,
                     page_sizes,
                     fonts,
+                    decisions,
                     locale_mgr,
                     active_lang,
                 );

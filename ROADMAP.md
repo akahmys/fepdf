@@ -2691,7 +2691,7 @@ Everything here was carried in a handoff note as a one-line hunch. Each is now a
       *Done when*: each of the eight is either recorded, made an error, or written down as
       defensible with the reason, and the tool's exemption list names where.
 
-- [ ] **The interactive processor keeps nothing the engine decided.**
+- [x] **The interactive processor keeps nothing the engine decided.**
       6.3.2.3 is one of the two subset rows chosen and not met, and this is a measured part
       of what it owes: **`doc.decisions()` is called nowhere in `fepdf-gui`.** A document is
       opened, repaired and displayed, and the reading log that says what had to be decided
@@ -2699,6 +2699,11 @@ Everything here was carried in a handoff note as a one-line hunch. Each is now a
       `save_with_options` returns. A page that fails to render collapses to
       `"Failed to render page {index}"`, discarding both the error and whatever the backend
       concluded on the way — the 9.6 violations Phase P added, among them.
+
+      **Resolved**: `LoadedDocument` in `fepdf-gui` now collects `doc.decisions()` on open
+      and mutations, surfacing the full conformance and remediation log in the Document
+      Properties sidebar. `handle_render` preserves the detailed underlying error `e`
+      when rendering fails.
 
       *Done when*: opening a document surfaces what reading it decided, and a page that
       will not draw says why rather than which number it was.

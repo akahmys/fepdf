@@ -75,6 +75,8 @@
   "info_font_embedded": " (Embedded)",
   "info_font_type": "Type: {}",
   "info_font_encoding": "Encoding: {}",
+  "info_decisions": "Conformance & Remediation Log ({})",
+  "info_no_decisions": "No structural deviations or remediation decisions recorded.",
   "bookmarks_title": "Bookmarks",
   "attachments_title": "Attachments",
   "attachments_none": "No embedded attachments found.",

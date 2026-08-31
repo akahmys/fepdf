@@ -75,6 +75,8 @@
   "info_font_embedded": " (埋め込み)",
   "info_font_type": "種類: {}",
   "info_font_encoding": "エンコーディング: {}",
+  "info_decisions": "規格適合・判定ログ ({})",
+  "info_no_decisions": "規格逸脱や修復判定の記録はありません。",
   "bookmarks_title": "しおり",
   "attachments_title": "添付ファイル",
   "attachments_none": "埋め込み添付ファイルは見つかりませんでした。",

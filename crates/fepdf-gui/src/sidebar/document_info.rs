@@ -2,6 +2,7 @@ use crate::locale::LocaleManager;
 
 #[allow(clippy::too_many_arguments)]
 pub fn show_document_info(
+    // RR-15 Limit: GUI - document info properties rendering
     ui: &mut egui::Ui,
     pdf_name: &Option<String>,
     total_pages: usize,
@@ -12,6 +13,7 @@ pub fn show_document_info(
     permissions: Option<i32>,
     page_sizes: &[(f64, f64)],
     fonts: &[fepdf::FontSummary],
+    decisions: &[fepdf::Decision],
     locale_mgr: &LocaleManager,
     active_lang: &str,
 ) {
@@ -339,6 +341,63 @@ pub fn show_document_info(
                         }
                     }
                 });
+
+            ui.add_space(8.0);
+            ui.separator();
+            ui.add_space(8.0);
+
+            // 5. 規格適合・判定ログ (Conformance & Reading Decisions - ISO 32000-2 6.3.2.3)
+            render_decisions_section(ui, decisions, locale_mgr, active_lang);
         });
     });
+}
+
+fn render_decisions_section(
+    ui: &mut egui::Ui,
+    decisions: &[fepdf::Decision],
+    locale_mgr: &LocaleManager,
+    active_lang: &str,
+) {
+    let decisions_title =
+        locale_mgr.tr(active_lang, "info_decisions").replace("{}", &decisions.len().to_string());
+    egui::CollapsingHeader::new(egui::RichText::new(decisions_title).strong().size(13.0))
+        .default_open(!decisions.is_empty())
+        .show(ui, |ui| {
+            if decisions.is_empty() {
+                ui.label(
+                    egui::RichText::new(locale_mgr.tr(active_lang, "info_no_decisions")).weak(),
+                );
+            } else {
+                for decision in decisions {
+                    ui.vertical(|ui| {
+                        let color = match decision.severity {
+                            fepdf::Severity::Ambiguity => egui::Color32::from_rgb(180, 180, 60),
+                            fepdf::Severity::Repaired => egui::Color32::from_rgb(60, 160, 220),
+                            fepdf::Severity::Violation => egui::Color32::from_rgb(220, 90, 60),
+                        };
+                        ui.horizontal(|ui| {
+                            let tag = if decision.clause.is_empty() {
+                                "[Reader]".to_string()
+                            } else {
+                                format!("[§{}]", decision.clause)
+                            };
+                            ui.colored_label(color, tag);
+                            ui.add(
+                                egui::Label::new(egui::RichText::new(&decision.found).strong())
+                                    .truncate(),
+                            );
+                        });
+                        ui.indent("decision_action", |ui| {
+                            ui.add(
+                                egui::Label::new(
+                                    egui::RichText::new(format!("→ {}", decision.action)).weak(),
+                                )
+                                .truncate(),
+                            );
+                        });
+                        ui.add_space(4.0);
+                    });
+                }
+            }
+        });
 }
