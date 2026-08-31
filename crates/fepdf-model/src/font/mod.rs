@@ -404,35 +404,90 @@ impl FontResource {
         res
     }
 
-    /// Loads a Font resource from a PDF dictionary.
-    pub fn load(dict: &BTreeMap<Handle<PdfName>, Object>, doc: &Document) -> PdfResult<Self> {
-        let arena = doc.arena();
-        let mut decisions = Vec::new();
-        let subtype = Self::extract_subtype(dict, arena, &mut decisions)?;
-        let mut base_font = Self::extract_base_font(dict, arena);
+    fn extract_first_descendant_dict(
+        dict: &BTreeMap<Handle<PdfName>, Object>,
+        arena: &PdfArena,
+    ) -> Option<BTreeMap<Handle<PdfName>, Object>> {
+        let df_obj = dict.get(&arena.name("DescendantFonts"))?;
+        let arr = arena.get_array(df_obj.resolve(arena).as_array()?)?;
+        let dfh = arr.first()?.resolve(arena).as_dict_handle()?;
+        arena.get_dict(dfh)
+    }
 
+    fn load_type0_composite(
+        dict: &BTreeMap<Handle<PdfName>, Object>,
+        doc: &Document,
+        to_unicode: Option<cmap::CMap>,
+        encoding: Option<cmap::CMap>,
+        mut decisions: Vec<crate::interpretation::Decision>,
+    ) -> PdfResult<Option<Self>> {
+        let arena = doc.arena();
+        let Some(df_dict) = Self::extract_first_descendant_dict(dict, arena) else {
+            return Ok(None);
+        };
+
+        let mut desc_decisions = Vec::new();
+        let desc_subtype = Self::extract_subtype(&df_dict, arena, &mut desc_decisions)?;
+        let desc_base_font = Self::extract_base_font(&df_dict, arena);
+        let desc_fd_obj = df_dict.get(&arena.name("FontDescriptor"));
+        let desc_font_data =
+            desc_fd_obj.and_then(|o| loader::FontLoader::extract_data(o, doc, Some(&df_dict)));
+        let desc_to_unicode =
+            Self::parse_to_unicode(&df_dict, doc, &mut desc_decisions).or(to_unicode);
+        let desc_font_descriptor = desc_fd_obj.and_then(|o| o.as_reference());
+        let desc_metrics = FontMetrics::parse_cid(&df_dict, arena);
+        let desc_cid_to_gid_map = Self::parse_cid_to_gid_map(&df_dict, doc, &mut desc_decisions);
+        let desc_font_file_handle = Self::extract_font_file_handle(&df_dict, arena);
+        let (desc_ordering, desc_registry) = Self::read_csi(&df_dict, arena);
+        let wmode = metrics::detect_wmode(dict, arena);
+
+        let mut resource = Self::new_initial(
+            desc_subtype,
+            desc_base_font,
+            desc_metrics,
+            encoding,
+            desc_to_unicode,
+            desc_cid_to_gid_map,
+            desc_font_data,
+            desc_font_descriptor,
+            desc_font_file_handle,
+            true,
+            &df_dict,
+            arena,
+            doc.force_fallback,
+            desc_ordering,
+            desc_registry,
+        );
+        resource.wmode = u8::try_from(wmode).unwrap_or(0);
+        decisions.extend(desc_decisions);
+        resource.decisions = decisions;
+        resource.initialize_lifecycle(doc);
+        Ok(Some(resource))
+    }
+
+    fn build_loaded_resource(
+        dict: &BTreeMap<Handle<PdfName>, Object>,
+        doc: &Document,
+        subtype: PdfName,
+        to_unicode: Option<cmap::CMap>,
+        encoding: Option<cmap::CMap>,
+        mut decisions: Vec<crate::interpretation::Decision>,
+    ) -> PdfResult<Self> {
+        let arena = doc.arena();
+        let mut base_font = Self::extract_base_font(dict, arena);
         let fd_obj = dict.get(&arena.name("FontDescriptor"));
         let font_data = fd_obj.and_then(|o| loader::FontLoader::extract_data(o, doc, Some(dict)));
-
-        let to_unicode = Self::parse_to_unicode(dict, doc, &mut decisions);
-        let encoding = Self::parse_encoding(dict, doc, &mut decisions);
-
-        let mut font_descriptor = fd_obj.and_then(|o| o.as_reference());
         let is_cid_keyed = subtype.as_str() == "Type0"
             || subtype.as_str() == "CIDFontType0"
             || subtype.as_str() == "CIDFontType2";
-
         let desc =
             Self::parse_subtype_metrics_and_data(dict, &subtype, font_data, doc, &mut decisions);
-
         if base_font.as_str() == "Untitled"
             && let Some(bf) = desc.base_font
         {
             base_font = bf;
         }
-        if font_descriptor.is_none() {
-            font_descriptor = desc.font_descriptor;
-        }
+        let font_descriptor = fd_obj.and_then(|o| o.as_reference()).or(desc.font_descriptor);
 
         let mut resource = Self::new_initial(
             subtype,
@@ -451,10 +506,33 @@ impl FontResource {
             desc.ordering,
             desc.registry,
         );
-
         resource.decisions = decisions;
         resource.initialize_lifecycle(doc);
         Ok(resource)
+    }
+
+    /// Loads a Font resource from a PDF dictionary.
+    pub fn load(dict: &BTreeMap<Handle<PdfName>, Object>, doc: &Document) -> PdfResult<Self> {
+        let arena = doc.arena();
+        let mut decisions = Vec::new();
+        let subtype = Self::extract_subtype(dict, arena, &mut decisions)?;
+
+        let to_unicode = Self::parse_to_unicode(dict, doc, &mut decisions);
+        let encoding = Self::parse_encoding(dict, doc, &mut decisions);
+
+        if subtype.as_str() == "Type0"
+            && let Some(composite) = Self::load_type0_composite(
+                dict,
+                doc,
+                to_unicode.clone(),
+                encoding.clone(),
+                decisions.clone(),
+            )?
+        {
+            return Ok(composite);
+        }
+
+        Self::build_loaded_resource(dict, doc, subtype, to_unicode, encoding, decisions)
     }
 
     /// Builds a resource backed by one of the bundled fallback fonts.

@@ -2658,36 +2658,32 @@ Everything here was carried in a handoff note as a one-line hunch. Each is now a
       *Done when*: the order-only column falls, no file's identical column falls, and a
       check fails when it does.
 
-- [ ] **A font is built twice, by two different routes, and only the second one draws.**
+- [x] **A font is built twice, by two different routes, and only the second one draws.**
       `ARCHITECTURE.md` §4.4 is called *normalisation-at-load* and says a `Document` is one
       normalised state by the time application code sees it. Three of the things it names
-      hold; fonts do not. The cache is **empty on every sample when `open` returns** —
-      `normalize_resources` clears what the ingest pass built — and every font is rebuilt
-      during rendering by `Interpreter::get_font`, which merges a Type0's descendant into
-      it, propagates the encoding, `wmode` and `/ToUnicode` down, rebuilds the unified map
-      and runs reconstruction again, then writes the result back into the document.
+      hold; fonts do not. The cache was empty on every sample when `open` returned —
+      `normalize_resources` cleared what the ingest pass built — and every font was rebuilt
+      during rendering by `Interpreter::get_font` ([ADR-0045](docs/adr/0045-normalisation-at-load-does-not-reach-fonts.md)).
+
+      **Unified in [ADR-0046](docs/adr/0046-unify-font-construction-paths-at-load.md).**
+      `FontResource::load` handles Type0 composite fonts by merging the descendant CIDFont
+      with the parent's `/Encoding`, `/ToUnicode`, and `/WMode` directly during ingestion.
+      `self.font_cache.write().clear()` and the corrupting `resolve_missing_font_data()`
+      were removed. `Interpreter::get_font` resolves fonts directly from `self.doc.get_font(h)`.
 
       ```text
       cargo run --release -p fepdf --example load_state_probe -- samples/*.pdf
       file                         at open     after    pages
-      constitution.pdf                   0        12       13
-      fugaku.pdf                         0        36       25
-      fy05.pdf                           0        11       40
+      bokutokitan.pdf                    9         9       40
+      constitution.pdf                  12        12       13
+      fugaku.pdf                        36        36       25
+      fy05.pdf                         158       158       40
+      intel_sdm.pdf                     53        53       40
+      print_sample.pdf                   7         7       23
+      sample.pdf                        12        12       13
+      unicode_16.pdf                    40        40       40
+      volvo_xc90.pdf                     8         8       40
       ```
-
-      **It has already cost an attempt.** ADR-0041 fixed `/CIDSystemInfo` on the load path
-      and no measured number moved, because the copy that decodes is the interpreter's. The
-      decisions in `inspect text`'s reading block are harvested from the ingest resources
-      before they are discarded, so they describe fonts that no longer exist by the time
-      anything is drawn ([ADR-0045](docs/adr/0045-normalisation-at-load-does-not-reach-fonts.md)).
-
-      **One step of the normalisation is inert and stays in place until this is settled.**
-      `resolve_missing_font_data` walks the font cache substituting a system face for any
-      font with no `/FontFile`, and `normalize_resources` — its only caller — clears that
-      cache three lines above it. The loop has never had an entry to visit. Deleting it
-      would remove the only statement that the substitution is meant to happen at load, so
-      it is named here rather than removed: whoever unifies the paths has three things to
-      place, not two.
 
       *Done when*: a font has one construction path, a `Decision` recorded while reading
       describes the resource that draws, and something fails if the two part again.

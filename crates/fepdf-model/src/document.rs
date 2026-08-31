@@ -1380,12 +1380,8 @@ impl Document {
     /// Normalizes document resources at load-time (Phase 3).
     /// Group fonts by BaseFont and CIDSystemInfo to share ToUnicode mappings.
     pub fn normalize_resources(&mut self) {
-        // Clear font cache to force re-parsing with potential new system fonts
-        self.font_cache.write().clear();
-
         let (font_groups, best_to_unicode) = self.discover_font_groups();
         self.propagate_tounicode_mappings(font_groups, best_to_unicode);
-        self.resolve_missing_font_data();
     }
 
     /// Normalizes the page tree by pushing down inherited attributes (Phase 4).
@@ -1503,23 +1499,6 @@ impl Document {
         }
 
         Err(PdfError::Other("Invalid node type in page tree".into()))
-    }
-
-    fn resolve_missing_font_data(&self) {
-        let system_fonts = self.system_fonts.clone();
-        let cache = self.font_cache.clone();
-
-        let mut cache_write = cache.write();
-        for res in cache_write.values_mut() {
-            let res_mut = Arc::make_mut(res);
-            if res_mut.data.is_none()
-                && let Some(ftype) = res_mut.fallback_type
-                && let Some(sys_data) = system_fonts.get(&ftype)
-            {
-                res_mut.data = Some(Arc::clone(sys_data));
-                let _ = res_mut.perform_reconstruction();
-            }
-        }
     }
 
     fn discover_font_groups(&self) -> (FontGroupMap, BestToUnicodeMap) {

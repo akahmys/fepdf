@@ -1,7 +1,7 @@
 use crate::RenderBackend;
 use crate::interpreter::Interpreter;
 use fepdf_model::font::FontResource;
-use fepdf_model::{Handle, Object, PdfError, PdfName, PdfResult};
+use fepdf_model::{Handle, Object, PdfName, PdfResult};
 use std::sync::Arc;
 
 impl Interpreter<'_> {
@@ -26,52 +26,7 @@ impl Interpreter<'_> {
         h: Handle<Object>,
         res_name: Option<&PdfName>,
     ) -> PdfResult<Arc<FontResource>> {
-        let cached = self.doc.font_cache.read().get(&h).cloned();
-        let res = if let Some(res) = cached {
-            res
-        } else {
-            let arena = self.doc.arena();
-            let font_obj = self.doc.resolve(&h)?;
-
-            let res_raw = if let Object::Dictionary(dfh) = font_obj {
-                let dict = arena
-                    .get_dict(dfh)
-                    .ok_or_else(|| PdfError::Other("Invalid font dictionary".into()))?;
-                let mut initial_res = FontResource::load(&dict, self.doc)?;
-
-                // Handle Type0 DescendantFonts
-                if initial_res.subtype.as_str() == "Type0"
-                    && let Some(desc_fonts_obj) = dict.get(&arena.name("DescendantFonts"))
-                    && let Object::Array(ah) = desc_fonts_obj.resolve(arena)
-                    && let Some(arr) = arena.get_array(ah)
-                    && let Some(desc_font) = arr.first()
-                    && let Object::Dictionary(dfh) = desc_font.resolve(arena)
-                    && let Some(df_dict) = arena.get_dict(dfh)
-                {
-                    let mut desc_res = FontResource::load(&df_dict, self.doc)?;
-                    // Propagate Encoding, ToUnicode, and WMode from Type0 parent
-                    desc_res.encoding.clone_from(&initial_res.encoding);
-                    desc_res.wmode = initial_res.wmode;
-                    if desc_res.to_unicode.is_none() {
-                        desc_res.to_unicode.clone_from(&initial_res.to_unicode);
-                    }
-                    // RE-POPULATE after propagating ToUnicode/Encoding
-                    desc_res.build_unified_map();
-                    desc_res.populate_embedded_unicode_map(self.doc);
-
-                    // CRITICAL: Re-trigger reconstruction after unified_map is populated with inherited resources
-                    let _ = desc_res.perform_reconstruction();
-
-                    initial_res = desc_res;
-                }
-                Arc::new(initial_res)
-            } else {
-                return Err(PdfError::Other("Font dictionary not found".into()));
-            };
-
-            self.doc.font_cache.write().insert(h, Arc::clone(&res_raw));
-            res_raw
-        };
+        let res = self.doc.get_font(h)?;
 
         // Resolve a unique name for the backend to prevent subset collisions
         let default_name = format!("Font_{}", h.index());
