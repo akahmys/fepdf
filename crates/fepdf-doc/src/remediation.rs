@@ -27,43 +27,43 @@ pub struct TextSpan {
     pub op_index: usize,
 }
 
+/// A positioned run of extracted text.
+#[derive(Debug, Clone)]
+struct ExtractedRun {
+    text: String,
+    x: f64,
+    y: f64,
+    width: f64,
+    size: f64,
+    scale: f64,
+    is_vertical: bool,
+    op_index: usize,
+}
+
+struct HorizontalLine {
+    baseline_y: f64,
+    runs: Vec<ExtractedRun>,
+}
+
+struct VerticalColumn {
+    column_x: f64,
+    runs: Vec<ExtractedRun>,
+}
+
 /// A backend that extracts text content from a page.
 pub struct TextExtractionBackend {
-    output: String,
-    last_y: f64,
+    runs: Vec<ExtractedRun>,
     /// Glyphs handed to this backend, and how many of them carried no character.
-    ///
-    /// A glyph the interpreter drew but could not name in Unicode contributes nothing to
-    /// the output, so a page of them extracts as an empty string — **the same value a
-    /// blank page extracts as.** Measured before this counted: 192 of
-    /// `bokutokitan.pdf`'s 195 pages, 64,556 glyphs, indistinguishable from blank.
     glyphs_seen: usize,
     /// How many of `glyphs_seen` had an empty `unicode`.
     glyphs_unmapped: usize,
-    /// Where the last run ended, in device space, and the line it was on.
-    ///
-    /// A run's *start* is all `transform` gives; the gap to the next one needs where this
-    /// one stopped, which is its accumulated advance.
-    last_end_x: f64,
     /// Which route was reached, and failed, for each of them.
-    ///
-    /// A count says how much was lost; this says where to go for it. Measured on
-    /// `bokutokitan.pdf`, "213 of 360" was the whole of what could be reported and it
-    /// named no work.
     unmapped_by_source: std::collections::BTreeMap<&'static str, usize>,
     /// Open `/ActualText` sections, outermost first (14.9.4).
-    ///
-    /// A stack rather than a flag because the sections nest, and only the outermost one's
-    /// text is used: an inner section describes a part of what the outer one already
-    /// describes in full, so taking both would say it twice.
     actual_text: Vec<String>,
+    /// Active run accumulator while inside `/ActualText` sections.
+    current_actual_text_run: Option<ExtractedRun>,
     /// How many glyphs an `/ActualText` section stood in for.
-    ///
-    /// Counted apart from `glyphs_unmapped` because they are opposite failures. An
-    /// unmapped glyph is text the document never gave; a replaced one is text the
-    /// document *did* give, in the place 14.9.4 puts it, and that this engine used to
-    /// walk past. Measured before this read it: 2,106 glyphs across the corpus drawn as
-    /// `.notdef` with their characters sitting in the span around them.
     glyphs_replaced: usize,
 }
 
@@ -77,52 +77,177 @@ impl TextExtractionBackend {
     /// Creates a new empty text aggregator.
     pub fn new() -> Self {
         Self {
-            output: String::new(),
-            last_y: 0.0,
+            runs: Vec::new(),
             glyphs_seen: 0,
             glyphs_unmapped: 0,
-            last_end_x: 0.0,
             unmapped_by_source: std::collections::BTreeMap::new(),
             actual_text: Vec::new(),
+            current_actual_text_run: None,
             glyphs_replaced: 0,
         }
     }
     /// Glyphs seen, glyphs no route could name, and glyphs an `/ActualText` stood for.
-    ///
-    /// The three are reported together because they only mean anything against each
-    /// other: "2,106 unmapped" was a number without a denominator until it could be read
-    /// as 2,106 of 718,262, and the third column is what stops a glyph replaced under
-    /// 14.9.4 from being counted as one that was lost.
     #[must_use]
     pub const fn tally(&self) -> (usize, usize, usize) {
         (self.glyphs_seen, self.glyphs_unmapped, self.glyphs_replaced)
     }
 
-    /// Whether this run begins far enough from the last to be a separate word.
-    ///
-    /// **A `TJ` array delivers one call per element**, so the gap between two calls is
-    /// usually kerning rather than a word break, and a threshold that mistakes one for
-    /// the other puts spaces inside words. Measured across a table page, two prose pages
-    /// and a page of vertical Japanese, the two populations do not overlap: kerning
-    /// reaches 0.055 em at the 99th percentile, and every real separation is at least
-    /// 0.15 em — 22 em at the widest, which is a table column. **Nothing at all falls
-    /// between 0.15 and 0.25 em on any of the four.**
-    ///
-    /// A quarter of an em is the conventional width of a space and sits in that empty
-    /// band, four and a half times above the kerning tail.
-    ///
-    /// This only fires along a line. A run on a new line has already had its newline, and
-    /// vertical writing advances in y, so its runs never compare as adjacent.
-    fn separated_from_previous_run(&self, x: f64, size: f64, scale: f64) -> bool {
-        if self.output.is_empty() || self.output.ends_with(char::is_whitespace) || size <= 0.0 {
-            return false;
+    fn cluster_horizontal_lines(runs: &[ExtractedRun]) -> Vec<HorizontalLine> {
+        let mut sorted = runs.to_vec();
+        sorted.sort_by(|a, b| {
+            b.y.total_cmp(&a.y)
+                .then_with(|| a.x.total_cmp(&b.x))
+                .then_with(|| a.op_index.cmp(&b.op_index))
+        });
+
+        let mut lines: Vec<HorizontalLine> = Vec::new();
+        for run in sorted {
+            let tol = (run.size * run.scale * 0.4).clamp(2.0, 6.0);
+            if let Some(line) = lines.iter_mut().find(|l| (l.baseline_y - run.y).abs() <= tol) {
+                line.runs.push(run);
+            } else {
+                lines.push(HorizontalLine { baseline_y: run.y, runs: vec![run] });
+            }
         }
-        (x - self.last_end_x) / (size * scale) > 0.25
+        lines.sort_by(|a, b| b.baseline_y.total_cmp(&a.baseline_y));
+        lines
     }
 
-    /// Finalizes the aggregation and returns the accumulated string.
+    fn format_horizontal_line(mut runs: Vec<ExtractedRun>) -> String {
+        runs.sort_by(|a, b| a.x.total_cmp(&b.x).then_with(|| a.op_index.cmp(&b.op_index)));
+        let mut line_str = String::new();
+        let mut last_end_x = 0.0;
+
+        for (i, run) in runs.iter().enumerate() {
+            if i > 0 && !line_str.is_empty() && !line_str.ends_with(char::is_whitespace) {
+                let size_scale = (run.size * run.scale).max(1.0);
+                let gap = (run.x - last_end_x) / size_scale;
+                if gap > 0.25 {
+                    line_str.push(' ');
+                }
+            }
+            line_str.push_str(&run.text);
+            last_end_x = run.x + run.width;
+        }
+        line_str
+    }
+
+    fn assemble_horizontal_page(runs: &[ExtractedRun]) -> String {
+        let lines = Self::cluster_horizontal_lines(runs);
+        let formatted: Vec<String> = lines
+            .into_iter()
+            .map(|l| Self::format_horizontal_line(l.runs))
+            .filter(|s| !s.is_empty())
+            .collect();
+        formatted.join("\n")
+    }
+
+    fn cluster_vertical_columns(runs: &[ExtractedRun]) -> Vec<VerticalColumn> {
+        let mut sorted = runs.to_vec();
+        sorted.sort_by(|a, b| {
+            b.x.total_cmp(&a.x)
+                .then_with(|| b.y.total_cmp(&a.y))
+                .then_with(|| a.op_index.cmp(&b.op_index))
+        });
+
+        let mut cols: Vec<VerticalColumn> = Vec::new();
+        for run in sorted {
+            let tol = (run.size * run.scale * 0.4).clamp(2.0, 6.0);
+            if let Some(col) = cols.iter_mut().find(|c| (c.column_x - run.x).abs() <= tol) {
+                col.runs.push(run);
+            } else {
+                cols.push(VerticalColumn { column_x: run.x, runs: vec![run] });
+            }
+        }
+        cols.sort_by(|a, b| b.column_x.total_cmp(&a.column_x));
+        cols
+    }
+
+    fn format_vertical_column(mut runs: Vec<ExtractedRun>) -> String {
+        runs.sort_by(|a, b| b.y.total_cmp(&a.y).then_with(|| a.op_index.cmp(&b.op_index)));
+        let mut col_str = String::new();
+        let mut last_bottom_y = 0.0;
+
+        for (i, run) in runs.iter().enumerate() {
+            if i > 0 && !col_str.is_empty() && !col_str.ends_with(char::is_whitespace) {
+                let size_scale = (run.size * run.scale).max(1.0);
+                let gap = (last_bottom_y - run.y) / size_scale;
+                if gap > 0.25 {
+                    col_str.push('\n');
+                }
+            }
+            col_str.push_str(&run.text);
+            last_bottom_y = run.size.mul_add(-run.scale, run.y);
+        }
+        col_str
+    }
+
+    fn assemble_vertical_page(runs: &[ExtractedRun]) -> String {
+        let cols = Self::cluster_vertical_columns(runs);
+        let formatted: Vec<String> = cols
+            .into_iter()
+            .map(|c| Self::format_vertical_column(c.runs))
+            .filter(|s| !s.is_empty())
+            .collect();
+        formatted.join("\n")
+    }
+
+    /// Finalizes the aggregation and returns the accumulated string in reading order.
     pub fn finish(self) -> String {
-        self.output
+        if self.runs.is_empty() {
+            return String::new();
+        }
+        let vertical_count = self.runs.iter().filter(|r| r.is_vertical).count();
+        if vertical_count > self.runs.len() / 2 {
+            Self::assemble_vertical_page(&self.runs)
+        } else {
+            Self::assemble_horizontal_page(&self.runs)
+        }
+    }
+
+    fn record_actual_text_glyphs(
+        &mut self,
+        glyphs: &[TextGlyph],
+        size: f64,
+        transform: Affine,
+        is_vertical: bool,
+        op_index: usize,
+    ) {
+        let coeffs = transform.as_coeffs();
+        let (x, y) = (coeffs[4], coeffs[5]);
+        let scale = coeffs[0].hypot(coeffs[1]).max(f64::EPSILON);
+        self.glyphs_seen += glyphs.len();
+        self.glyphs_replaced += glyphs.len();
+        let advance: f64 =
+            glyphs.iter().map(|glyph| f64::from(glyph.width)).sum::<f64>() / 1000.0 * size;
+        let width = advance.mul_add(scale, 0.0);
+        if let Some(r) = &mut self.current_actual_text_run {
+            r.width += width;
+        } else {
+            self.current_actual_text_run = Some(ExtractedRun {
+                text: String::new(),
+                x,
+                y,
+                width,
+                size,
+                scale,
+                is_vertical,
+                op_index,
+            });
+        }
+    }
+
+    fn record_regular_glyphs(&mut self, glyphs: &[TextGlyph]) -> String {
+        let mut text = String::new();
+        for glyph in glyphs {
+            self.glyphs_seen += 1;
+            if glyph.unicode.is_empty() {
+                self.glyphs_unmapped += 1;
+                *self.unmapped_by_source.entry(glyph.source.name()).or_default() += 1;
+            }
+            text.push_str(&glyph.unicode);
+        }
+        text
     }
 }
 
@@ -164,14 +289,28 @@ impl RenderBackend for TextExtractionBackend {
         self.actual_text.push(text.to_string());
     }
 
-    /// The section's text is emitted here rather than at its start, so that a section
-    /// whose glyphs establish a new line or a word gap has already said so.
     fn end_actual_text(&mut self) {
         let Some(text) = self.actual_text.pop() else {
             return;
         };
         if self.actual_text.is_empty() {
-            self.output.push_str(&text);
+            if let Some(mut run) = self.current_actual_text_run.take() {
+                run.text = text;
+                if !run.text.is_empty() {
+                    self.runs.push(run);
+                }
+            } else if !text.is_empty() {
+                self.runs.push(ExtractedRun {
+                    text,
+                    x: 0.0,
+                    y: 0.0,
+                    width: 0.0,
+                    size: 10.0,
+                    scale: 1.0,
+                    is_vertical: false,
+                    op_index: 0,
+                });
+            }
         }
     }
 
@@ -179,54 +318,37 @@ impl RenderBackend for TextExtractionBackend {
     fn show_text(
         &mut self,
         glyphs: &[TextGlyph],
-        _size: f64,
+        size: f64,
         transform: Affine,
-        _state: TextState,
-        _op_index: usize,
+        state: TextState,
+        op_index: usize,
     ) {
-        let coeffs = transform.as_coeffs();
-        let (x, y) = (coeffs[4], coeffs[5]);
-        let scale = coeffs[0].hypot(coeffs[1]).max(f64::EPSILON);
-        if (y - self.last_y).abs() > 5.0 && !self.output.is_empty() {
-            self.output.push('\n');
-        } else if self.separated_from_previous_run(x, _size, scale) {
-            self.output.push(' ');
+        if !self.actual_text.is_empty() {
+            self.record_actual_text_glyphs(glyphs, size, transform, state.is_vertical, op_index);
+            return;
         }
-        // 14.9.4: inside a section that declares `/ActualText`, the glyphs are what the
-        // page shows and the section's text is what it says. Taking both would double
-        // every replaced character; taking the glyphs would keep emitting the `U+0000`
-        // that a `/ToUnicode` of `<0000>` produces, which reads as nothing and counts as
-        // something.
-        let replaced = !self.actual_text.is_empty();
-        for glyph in glyphs {
-            self.glyphs_seen += 1;
-            if replaced {
-                self.glyphs_replaced += 1;
-                continue;
-            }
-            if glyph.unicode.is_empty() {
-                self.glyphs_unmapped += 1;
-                *self.unmapped_by_source.entry(glyph.source.name()).or_default() += 1;
-            }
-            self.output.push_str(&glyph.unicode);
+
+        let text = self.record_regular_glyphs(glyphs);
+        if !text.is_empty() {
+            let coeffs = transform.as_coeffs();
+            let (x, y) = (coeffs[4], coeffs[5]);
+            let scale = coeffs[0].hypot(coeffs[1]).max(f64::EPSILON);
+            let advance: f64 =
+                glyphs.iter().map(|glyph| f64::from(glyph.width)).sum::<f64>() / 1000.0 * size;
+            let width = advance.mul_add(scale, 0.0);
+            self.runs.push(ExtractedRun {
+                text,
+                x,
+                y,
+                width,
+                size,
+                scale,
+                is_vertical: state.is_vertical,
+                op_index,
+            });
         }
-        let advance: f64 =
-            glyphs.iter().map(|glyph| f64::from(glyph.width)).sum::<f64>() / 1000.0 * _size;
-        self.last_end_x = advance.mul_add(scale, x);
-        self.last_y = y;
     }
 
-    /// What this extraction could not say, for `render_page` to record.
-    ///
-    /// **The count is the whole point.** "No text on this page" is a legitimate answer
-    /// for a blank page and for one drawn entirely in vector paths — and it is a defect
-    /// when glyphs were drawn
-    /// and none of them could be named. Only the caller can tell those apart, and only if
-    /// it is told which happened.
-    ///
-    /// The missing-resource case is named separately because it is the one a reader can
-    /// act on: the CMap collections are not carried by this crate, and a machine without
-    /// them cannot map an Adobe-Japan1 CID to a character no matter what the file says.
     fn take_decisions(&mut self) -> Vec<fepdf_model::interpretation::Decision> {
         if self.glyphs_unmapped == 0 {
             return Vec::new();

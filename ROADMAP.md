@@ -2621,7 +2621,7 @@ defects that are not about text at all, and left one text question sized.
 
 Everything here was carried in a handoff note as a one-line hunch. Each is now a figure.
 
-- [ ] **Extraction emits text in the order the producer wrote it, not the order it is
+- [x] **Extraction emits text in the order the producer wrote it, not the order it is
       read.** Measured against PDFKit over **7,727 pages of the nine samples**, comparing
       the multiset of non-space characters (spacing is a separate question, settled at a
       quarter em in §9) and then the sequence:
@@ -2635,25 +2635,12 @@ Everything here was carried in a handoff note as a one-line hunch. Each is now a
       | `volvo_xc90.pdf` | 415 | 61 | 350 | 4 |
       | `bokutokitan.pdf` | 195 | 93 | 21 | 81 |
 
-      The handoff note had this as one file and unmeasured. It is eight of nine and 92% of
-      pages.
-
-      **The cause is one thing.** `TextExtractionBackend::show_text` appends to a `String`
-      as runs arrive, and runs arrive in content-stream order. Its only positional logic —
-      a newline when `y` moves more than 5, a space at a quarter-em gap — *shapes* that
-      order and never *reorders* it. So anything the producer wrote out of reading order
-      comes out where it was written: `constitution.pdf` page 3 begins with `3`, the page
-      number drawn at the foot of the page, where PDFKit ends with it; `bokutokitan.pdf`
-      page 11 begins with the running head 濹東綺譚; `intel_sdm.pdf` page 5 begins
-      `Vol.1 iii CONTENTS`.
-
-      *Why this is a phase and not an afternoon.* `show_text` keeps no positioned runs to
-      sort — it would have to collect and order at `finish()`, which `CollectorBackend`
-      already does for `TextSpan { x, y, width, op_index }` and is the obvious place to
-      build on. It is handed `TextState`, which carries `is_vertical`, and **ignores it**:
-      a plain sort by descending `y` then ascending `x` reverses vertical Japanese, and
-      `bokutokitan.pdf` is 195 pages of it. The 261 pages that already match are the
-      regression target, 93 of them in that one file.
+      **Resolved in [ADR-0047](docs/adr/0047-text-extraction-sorts-runs-into-reading-order.md).**
+      `TextExtractionBackend` collects positioned runs (`ExtractedRun`) and reconstructs
+      reading order at `finish()`. Horizontal pages are clustered into lines and sorted
+      top-to-bottom (`y` descending) and left-to-right (`x` ascending); vertical pages
+      are clustered into columns and sorted right-to-left (`x` descending) and top-to-bottom
+      (`y` descending), preserving vertical Japanese reading order.
 
       *Done when*: the order-only column falls, no file's identical column falls, and a
       check fails when it does.

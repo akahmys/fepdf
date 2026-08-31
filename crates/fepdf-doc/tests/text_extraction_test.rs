@@ -249,3 +249,83 @@ mod actual_text {
         assert_eq!(backend.finish(), "");
     }
 }
+
+mod reading_order {
+    use super::{TextExtractionBackend, glyph};
+    use fepdf_content::{RenderBackend, TextGlyph, TextState};
+    use kurbo::Affine;
+
+    #[test]
+    fn footer_drawn_first_is_reordered_to_bottom() {
+        let mut backend = TextExtractionBackend::new();
+        let show = |backend: &mut TextExtractionBackend, text: &str, x: f64, y: f64| {
+            let glyphs: Vec<TextGlyph> = text
+                .chars()
+                .map(|c| TextGlyph { width: 1000.0, ..glyph(&c.to_string()) })
+                .collect();
+            backend.show_text(
+                &glyphs,
+                10.0,
+                Affine::new([1.0, 0.0, 0.0, 1.0, x, y]),
+                TextState { tc: 0.0, tw: 0.0, th: 1.0, is_vertical: false },
+                0,
+            );
+        };
+        // Emit footer page number at bottom of page (y = 50) first
+        show(&mut backend, "3", 300.0, 50.0);
+        // Emit title at top of page (y = 750) second
+        show(&mut backend, "Title", 50.0, 750.0);
+        // Emit body in middle of page (y = 600) third
+        show(&mut backend, "Body text", 50.0, 600.0);
+
+        assert_eq!(backend.finish(), "Title\nBody text\n3");
+    }
+
+    #[test]
+    fn same_line_fragments_drawn_out_of_order_are_sorted_left_to_right() {
+        let mut backend = TextExtractionBackend::new();
+        let show = |backend: &mut TextExtractionBackend, text: &str, x: f64, y: f64| {
+            let glyphs: Vec<TextGlyph> = text
+                .chars()
+                .map(|c| TextGlyph { width: 1000.0, ..glyph(&c.to_string()) })
+                .collect();
+            backend.show_text(
+                &glyphs,
+                10.0,
+                Affine::new([1.0, 0.0, 0.0, 1.0, x, y]),
+                TextState { tc: 0.0, tw: 0.0, th: 1.0, is_vertical: false },
+                0,
+            );
+        };
+        // Emit right fragment first
+        show(&mut backend, "World", 100.0, 500.0);
+        // Emit left fragment second
+        show(&mut backend, "Hello", 20.0, 500.0);
+
+        assert_eq!(backend.finish(), "Hello World");
+    }
+
+    #[test]
+    fn vertical_text_columns_flow_right_to_left() {
+        let mut backend = TextExtractionBackend::new();
+        let show = |backend: &mut TextExtractionBackend, text: &str, x: f64, y: f64| {
+            let glyphs: Vec<TextGlyph> = text
+                .chars()
+                .map(|c| TextGlyph { width: 1000.0, ..glyph(&c.to_string()) })
+                .collect();
+            backend.show_text(
+                &glyphs,
+                10.0,
+                Affine::new([1.0, 0.0, 0.0, 1.0, x, y]),
+                TextState { tc: 0.0, tw: 0.0, th: 1.0, is_vertical: true },
+                0,
+            );
+        };
+        // Emit left column (x = 100) first
+        show(&mut backend, "第二列", 100.0, 700.0);
+        // Emit right column (x = 200) second
+        show(&mut backend, "第一列", 200.0, 700.0);
+
+        assert_eq!(backend.finish(), "第一列\n第二列");
+    }
+}
