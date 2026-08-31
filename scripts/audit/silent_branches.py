@@ -39,6 +39,23 @@ RECORDED_ELSEWHERE = {
         "the same two, for 'j'",
     ("crates/fepdf-model/src/graphics/mod.rs", "TextRenderingMode::from_i64"):
         "the same two, for 'Tr', plus a Parse error from FromPdfObject",
+    ("crates/fepdf-content/src/interpreter/ops/color.rs", "Interpreter::parse_shading_object"):
+        "Interpreter::handle_shading_operator ('sh' 8.7.4.5.2) and "
+        "Interpreter::handle_color_operator ('scn' 8.7.3) both record a Decision::violation",
+    ("crates/fepdf-content/src/interpreter/ops/color.rs", "Interpreter::parse_color_from_array"):
+        "ISO 32000-2 Table 40 (7.10.3) exponential interpolation function defaults /C0 to 0.0 and /C1 to 1.0",
+    ("crates/fepdf-doc/src/operation.rs", "Quarter::from_degrees"):
+        "Pure mathematical rotation helper; returns None when degrees is not a multiple of 90",
+    ("crates/fepdf-font/src/reconstruction.rs", "FontReconstructor::standard_sid_to_unicode"):
+        "CFF standard SIDs 1..=95 are ASCII printable; non-standard SIDs are resolved via CFF charset tables",
+    ("crates/fepdf-model/src/decrypt.rs", "Credentials::build_handler"):
+        "ISO 32000-2 Table 20: unsupported /V returns None, causing Document::open to fail safely",
+    ("crates/fepdf-model/src/filters/jpx.rs", "JpxFilter::format_of"):
+        "ISO 32000-2 7.4.9: unsupported channel count returns None, causing JpxFilter::decode to reject with PdfError::Filter",
+    ("crates/fepdf-model/src/graphics/mesh.rs", "TriangleMesh::parse"):
+        "ISO 32000-2 8.7.4.5.5-8: TriangleMesh specifically parses mesh stream types 4..=7; non-mesh types return None",
+    ("crates/fepdf-syntax/src/security.rs", "aes_cbc_decrypt_padded"):
+        "AES block cipher invariant: keys must be 16 bytes (AES-128) or 32 bytes (AES-256); other lengths return None",
 }
 
 

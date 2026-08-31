@@ -2675,12 +2675,18 @@ Everything here was carried in a handoff note as a one-line hunch. Each is now a
       *Done when*: a font has one construction path, a `Decision` recorded while reading
       describes the resource that draws, and something fails if the two part again.
 
-- [ ] **Eight wildcard arms still answer a file's value with silence.**
+- [x] **Eight wildcard arms still answer a file's value with silence.**
       `scripts/audit/silent_branches.py` lists them, down from eleven. Its own header says
       the number is a count and not a verdict — an unknown `/V` makes the document fail to
       open, which is loud enough — so each wants a judgement rather than a sweep:
       `/ShadingType` twice, a colour operand count, a CFF SID, an encryption version, a
       JPEG2000 channel count, a mesh shading type, and a key length.
+
+      **Resolved**: Each of the 8 sites is audited against ISO 32000-2 and registered in
+      `scripts/audit/silent_branches.py` (`RECORDED_ELSEWHERE`) naming its caller Decision
+      records (such as `handle_shading_operator` 8.7.4.5.2 and `scn` 8.7.3), safe format
+      rejections (`PdfError::Filter`, `/V` open failure), or ISO default values (Table 40).
+      `silent_branches.py` now reports 0 silent unrecorded arms.
 
       *Done when*: each of the eight is either recorded, made an error, or written down as
       defensible with the reason, and the tool's exemption list names where.
