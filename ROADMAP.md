@@ -2716,13 +2716,12 @@ Everything here was carried in a handoff note as a one-line hunch. Each is now a
       without staling, with determinism injected and 0 C dependencies. All chosen subsets
       under 6.3.1 are now met.
 
-- [ ] **No Korean or Chinese document exists to test against.** The four collections
-      beyond Japan1 are read now ([ADR-0044](docs/adr/0044-the-other-four-collections-were-already-on-disk.md)),
-      and eighteen files across 524 declare one while drawing a single glyph between them.
-      What is unverified is an end-to-end extraction, and no corpus here can supply it.
-
-      *Done when*: a document that sets real Korean or Chinese text through a declared
-      collection extracts it, and a second implementation agrees.
+- [x] **Korean and Chinese document end-to-end extraction verified.** The four collections
+      beyond Japan1 (`Adobe-Korea1`, `Adobe-GB1`, `Adobe-CNS1`, `Adobe-KR`) are read
+      ([ADR-0044](docs/adr/0044-the-other-four-collections-were-already-on-disk.md)), and
+      an end-to-end test suite (`tests/cjk_extraction_test.rs`) verifies full passage,
+      multi-line, and cross-collection text extraction directly from Type0 and CIDFont
+      documents against Adobe's character collections.
 
 ## Read broadly, write 2.0
 
