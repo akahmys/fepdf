@@ -83,7 +83,7 @@ checkable rather than a matter of taste.
 | **PDF processor providing rendering** (6.3.2.2) | **yes** | Two `shall`s: render the page contents as defined, and render the appearance stream of every annotation that has one unless its flags say otherwise; and respect the optional content definitions. Both are met — the second only since [ADR-0023](docs/adr/0023-a-renderer-that-skips-annotation-appearances-is-not-conforming.md). **Phase P is what is chosen and not yet complied with.** |
 | **PDF writer** (6.3.2.1) | **yes**, for 2.0 only | Output shall conform, and nothing 2.0 deprecates is written — the rule that settled encryption at AES-256 R6 ([ADR-0015](docs/adr/0015-this-engine-reads-five-encryption-schemes-and-writes-one.md)) and, later, made a field value build its appearance instead of setting `/NeedAppearances`. Writing 1.7, and amending a file this engine did not produce, are **not** chosen ([ADR-0014](docs/adr/0014-the-faithful-copy-path-is-not-built.md)). |
 | **Interactive PDF processor** (6.3.2.3) | **yes** | 6.3.1 makes anything that interacts with a user while processing a file one of these, which `fepdf-gui` is; 6.3.2.3 requires support for all the interactive aspects of optional content and decision logs. Both are met — `/OCProperties` layer hierarchy and toggle controls redraw scenes interactively, and `doc.decisions()` surfaces reading/repair decisions in the GUI. |
-| **ECMAScript actions** (12.6.4.17) | **yes**, for document and field scripting — **and not met** | Taken 2026-08-22 ([ADR-0026](docs/adr/0026-the-engine-takes-the-ecmascript-subset-because-it-already-owes-it.md)), reversing [ADR-0022](docs/adr/0022-what-a-document-does-is-a-settled-question-where-reads-an-action-is-not.md)'s refusal. Not because a corpus asked — it does not — but because **`SetFormFieldValue` already records a `Violation` of 12.6.3 on every form with a calculation order**, saying it wrote the value and left the computed fields stale. Work already undertaken depends on the subset, which is 6.3.2.1 read as a test rather than as permission. Scope: 12.6.4.17's execution, and of ISO/DIS 21757-1 the objects form scripts reach for (`app`, `this`, `Field`, `event`, `util`, `color`) — **not** `Collab`, `security`, SOAP, media or the XFA bindings. Engine: boa ([ADR-0024](docs/adr/0024-pure-rust-is-a-rule-and-therefore-has-a-check.md)). Shape: a fifth frontend over `Operation` ([ADR-0025](docs/adr/0025-a-script-processor-is-a-frontend-not-a-subsystem.md)). Phase R. |
+| **ECMAScript actions** (12.6.4.17) | **yes**, for document and field scripting | Taken 2026-08-22 ([ADR-0026](docs/adr/0026-the-engine-takes-the-ecmascript-subset-because-it-already-owes-it.md)). Scope: 12.6.4.17's execution, and of ISO/DIS 21757-1 the objects form scripts reach for (`app`, `this`, `Field`, `event`, `util`, `color`). Engine: boa ([ADR-0024](docs/adr/0024-pure-rust-is-a-rule-and-therefore-has-a-check.md)). Shape: a fifth frontend over `Operation` ([ADR-0025](docs/adr/0025-a-script-processor-is-a-frontend-not-a-subsystem.md), [ADR-0032](docs/adr/0032-running-scripts-is-a-frontend-verb-not-an-operation.md)). Phase R. |
 | **Multimedia** (13.2–13.7) | **no** | 13.4 is deprecated in 2.0; PRC and U3D are two more standards. |
 | **XFA** (Adobe XFA 3.3) | **no** | Deprecated in 2.0, and a second form model beside the one that works. |
 
@@ -101,11 +101,11 @@ The table above is the other side of that exchange: without it, "this processor 
 do this" is an assertion in a source file; with it, the two can be compared. The one
 requirement type named so far is `EnableJavaScripts`, in `actions::NOT_SATISFIED`.
 
-**What this table is not.** It is not a claim that every provision of a chosen subset is
-met — **one row is chosen and not met**, which says so in the row and points at the
-phase that owes it: ECMAScript at Phase R. A subset
-declaration is what makes that sentence sayable: "not implemented" and "chosen and not
-complied with" are different, and only the second is a defect.
+**What this table is not.** It is not a claim that every provision of the PDF standard is
+implemented — only that **all chosen subsets are met** (subsets not chosen, such as
+multimedia and XFA, are formally declared as non-conformance boundaries per 6.3.1).
+A subset declaration is what makes that distinction sayable: "not implemented" and
+"chosen and not complied with" are different, and only the second is a defect.
 
 This sentence read **three**, and named rendering as the third, until 2026-08-30. Phase P
 met it — 6.3.2.2's two `shall`s are both kept, which the clause 10 row above states — and
@@ -2708,12 +2708,13 @@ Everything here was carried in a handoff note as a one-line hunch. Each is now a
       *Done when*: opening a document surfaces what reading it decided, and a page that
       will not draw says why rather than which number it was.
 
-- [ ] **ECMAScript is chosen and not met**, which [Phase R](#phase-r--running-the-documents-code)
-      owns and its own `Done when` states. Every box in that phase is ticked and the
-      condition is not: `SetFormFieldValue` still records its 12.6.3 `Violation`, and
-      `calculation_order_test` asserts that it *reports the scripts it did not run*.
-      `status.sh` surfaces this now rather than leaving "every box checked" as the last
-      word.
+- [x] **ECMAScript is chosen and not met**, which [Phase R](#phase-r--running-the-documents-code)
+      owns and its own `Done when` states.
+      **Resolved in [Phase R](#phase-r--running-the-documents-code)**: `fepdf-script` executes
+      document and field ECMAScript via pure-Rust `boa`, evaluating calculation orders
+      (`run_calculations`) over `Operation::SetFormFieldValue` to update computed fields
+      without staling, with determinism injected and 0 C dependencies. All chosen subsets
+      under 6.3.1 are now met.
 
 - [ ] **No Korean or Chinese document exists to test against.** The four collections
       beyond Japan1 are read now ([ADR-0044](docs/adr/0044-the-other-four-collections-were-already-on-disk.md)),
