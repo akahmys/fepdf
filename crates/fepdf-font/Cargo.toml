@@ -13,6 +13,5 @@ bytes.workspace = true
 thiserror.workspace = true
 ttf-parser.workspace = true
 
-[lints.rust]
-unsafe_code = "forbid"
-missing_docs = "warn"
+[lints]
+workspace = true

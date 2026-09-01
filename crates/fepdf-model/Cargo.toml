@@ -50,6 +50,5 @@ der = { version = "0.7", features = ["derive"] }
 [features]
 debug-tools = []
 
-[lints.rust]
-unsafe_code = "forbid"
-missing_docs = "warn"
+[lints]
+workspace = true
