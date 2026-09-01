@@ -740,8 +740,9 @@ fn parse_cmap_string(v: &[u8]) -> String {
     } else if v.starts_with(b"(") {
         let result = parse_literal_bytes(v);
         if result.len() >= 2 && result.len().is_multiple_of(2) {
+            let (chunks, _) = result.as_chunks::<2>();
             let u16s: Vec<u16> =
-                result.chunks_exact(2).map(|c| u16::from_be_bytes([c[0], c[1]])).collect();
+                chunks.iter().map(|&[b0, b1]| u16::from_be_bytes([b0, b1])).collect();
             String::from_utf16_lossy(&u16s)
         } else {
             String::from_utf8_lossy(&result).to_string()
@@ -754,8 +755,8 @@ fn parse_cmap_string(v: &[u8]) -> String {
 fn parse_unicode_hex(v: &[u8]) -> String {
     let bytes = parse_hex(v);
     if bytes.len() >= 2 && bytes.len().is_multiple_of(2) {
-        let u16s: Vec<u16> =
-            bytes.chunks_exact(2).map(|c| u16::from_be_bytes([c[0], c[1]])).collect();
+        let (chunks, _) = bytes.as_chunks::<2>();
+        let u16s: Vec<u16> = chunks.iter().map(|&[b0, b1]| u16::from_be_bytes([b0, b1])).collect();
         String::from_utf16_lossy(&u16s)
     } else {
         String::from_utf8_lossy(&bytes).to_string()

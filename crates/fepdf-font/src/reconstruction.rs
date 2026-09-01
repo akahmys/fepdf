@@ -1403,10 +1403,9 @@ impl FontReconstructor {
 
     fn calc_checksum(data: &[u8]) -> u32 {
         let mut sum: u32 = 0;
-        let chunks = data.chunks_exact(4);
-        let remainder = chunks.remainder();
-        for chunk in chunks {
-            sum = sum.wrapping_add(u32::from_be_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]));
+        let (chunks, remainder) = data.as_chunks::<4>();
+        for &chunk in chunks {
+            sum = sum.wrapping_add(u32::from_be_bytes(chunk));
         }
         if !remainder.is_empty() {
             let mut padded = [0u8; 4];
