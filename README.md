@@ -24,9 +24,21 @@ done about it — enough to disagree with.
 > [What it cannot do](#what-it-cannot-do) before pointing it at anything you care
 > about, and keep your originals.
 
-## Building
+## Downloads
 
-Needs Rust 1.94 or later. There are no published binaries.
+Pre-built binaries for macOS, Windows, and Linux are available from [GitHub Releases](https://github.com/akahmys/fepdf/releases).
+
+| Platform | Download | Package Contents |
+| :--- | :--- | :--- |
+| **macOS** (Universal) | [`fepdf-macos-universal.zip`](https://github.com/akahmys/fepdf/releases/latest) | `fepdf` (CLI) & `fepdf-gui` (GUI) (Apple Silicon & Intel) |
+| **Windows** (64-bit) | [`fepdf-windows-x64.zip`](https://github.com/akahmys/fepdf/releases/latest) | `fepdf.exe` (CLI) & `fepdf-gui.exe` (GUI) |
+| **Windows** (32-bit) | [`fepdf-windows-x86.zip`](https://github.com/akahmys/fepdf/releases/latest) | `fepdf.exe` (CLI) & `fepdf-gui.exe` (GUI) |
+| **Linux** (Static CLI) | [`fepdf-linux-static-x64.tar.gz`](https://github.com/akahmys/fepdf/releases/latest) | `fepdf` (Statically linked standalone CLI) |
+| **Linux** (Dynamic GUI) | [`fepdf-linux-dynamic-x64.tar.gz`](https://github.com/akahmys/fepdf/releases/latest) | `fepdf-gui` (GUI with GPU rendering support) |
+
+## Building from source
+
+Needs Rust 1.94 or later.
 
 ```bash
 cargo build --release
