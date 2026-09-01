@@ -382,17 +382,39 @@ impl FepdfApp {
     }
 
     fn handle_zoom_shortcuts(&mut self, ui: &egui::Ui) {
-        if ui.input(|i| i.modifiers.command && i.key_pressed(egui::Key::Num0)) {
-            self.view.zoom = 1.0;
+        let viewport_rect = self.last_viewport_rect.unwrap_or_else(|| ui.max_rect());
+        let cursor_pos = ui.input(|i| {
+            i.pointer
+                .hover_pos()
+                .or(i.pointer.latest_pos())
+                .filter(|p| viewport_rect.contains(*p))
+                .unwrap_or_else(|| viewport_rect.center())
+        });
+
+        if ui.input(|i| (i.modifiers.command || i.modifiers.ctrl) && i.key_pressed(egui::Key::Num0))
+        {
+            self.view.zoom_at(1.0, cursor_pos, viewport_rect, &self.page_layouts);
         }
         if ui.input(|i| {
-            i.modifiers.command
+            (i.modifiers.command || i.modifiers.ctrl)
                 && (i.key_pressed(egui::Key::Plus) || i.key_pressed(egui::Key::Equals))
         }) {
-            self.view.zoom = (self.view.zoom * 1.2).clamp(0.1, 10.0);
+            self.view.zoom_at(
+                self.view.zoom() * 1.2,
+                cursor_pos,
+                viewport_rect,
+                &self.page_layouts,
+            );
         }
-        if ui.input(|i| i.modifiers.command && i.key_pressed(egui::Key::Minus)) {
-            self.view.zoom = (self.view.zoom / 1.2).clamp(0.1, 10.0);
+        if ui
+            .input(|i| (i.modifiers.command || i.modifiers.ctrl) && i.key_pressed(egui::Key::Minus))
+        {
+            self.view.zoom_at(
+                self.view.zoom() / 1.2,
+                cursor_pos,
+                viewport_rect,
+                &self.page_layouts,
+            );
         }
     }
 
@@ -408,7 +430,7 @@ impl FepdfApp {
             self.selection_manager.clear();
         }
         if ui.input(|i| i.modifiers.command && i.key_pressed(egui::Key::A))
-            && self.view.zoom < 0.65
+            && self.view.zoom() < 0.65
             && self.total_pages > 0
         {
             self.selected_pages.clear();

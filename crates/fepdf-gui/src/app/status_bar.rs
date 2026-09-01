@@ -153,6 +153,10 @@ impl FepdfApp {
                                 self.fit_to_width(viewport);
                             }
 
+                            let viewport_rect =
+                                self.last_viewport_rect.unwrap_or_else(|| ui.max_rect());
+                            let center = viewport_rect.center();
+
                             // Zoom In / Reset / Out
                             if ui
                                 .add_sized(
@@ -162,16 +166,21 @@ impl FepdfApp {
                                 .on_hover_text("拡大")
                                 .clicked()
                             {
-                                self.view.zoom = (self.view.zoom * 1.2).clamp(0.1, 10.0);
+                                self.view.zoom_at(
+                                    self.view.zoom() * 1.2,
+                                    center,
+                                    viewport_rect,
+                                    &self.page_layouts,
+                                );
                             }
 
-                            let zoom_label = format!("{:.0}%", self.view.zoom * 100.0);
+                            let zoom_label = format!("{:.0}%", self.view.zoom() * 100.0);
                             if ui
                                 .add_sized(egui::vec2(42.0, 20.0), egui::Button::new(zoom_label))
                                 .on_hover_text("ズームリセット (100%)")
                                 .clicked()
                             {
-                                self.view.zoom = 1.0;
+                                self.view.zoom_at(1.0, center, viewport_rect, &self.page_layouts);
                             }
 
                             if ui
@@ -182,7 +191,12 @@ impl FepdfApp {
                                 .on_hover_text("縮小")
                                 .clicked()
                             {
-                                self.view.zoom = (self.view.zoom / 1.2).clamp(0.1, 10.0);
+                                self.view.zoom_at(
+                                    self.view.zoom() / 1.2,
+                                    center,
+                                    viewport_rect,
+                                    &self.page_layouts,
+                                );
                             }
 
                             ui.separator();

@@ -50,18 +50,66 @@ mod worker;
 use app::FepdfApp;
 use std::path::PathBuf;
 
+/// The window and the wgpu device the viewer asks for.
+///
+/// **The limits are taken from the adapter rather than from wgpu's defaults.** A page
+/// whose scene exceeds the default storage-buffer binding comes back as a fully
+/// transparent texture with `render_to_texture` reporting success — `headless.rs` carries
+/// the same story for `samples/volvo_xc90.pdf` pages 10 and 389 — so the device is built
+/// with whatever the adapter will actually give.
+fn native_options() -> eframe::NativeOptions {
+    eframe::NativeOptions {
+        viewport: egui::ViewportBuilder::default()
+            .with_inner_size([1600.0, 900.0])
+            .with_title("fepdf"),
+        renderer: eframe::Renderer::Wgpu,
+        wgpu_options: egui_wgpu::WgpuConfiguration {
+            wgpu_setup: egui_wgpu::WgpuSetup::CreateNew(egui_wgpu::WgpuSetupCreateNew {
+                instance_descriptor: wgpu::InstanceDescriptor {
+                    backends: wgpu::Backends::all(),
+                    flags: wgpu::InstanceFlags::default(),
+                    backend_options: wgpu::BackendOptions::default(),
+                    display: None,
+                    memory_budget_thresholds: wgpu::MemoryBudgetThresholds::default(),
+                },
+                power_preference: wgpu::PowerPreference::HighPerformance,
+                native_adapter_selector: None,
+                display_handle: None,
+                device_descriptor: std::sync::Arc::new(|adapter| {
+                    let adapter_limits = adapter.limits();
+                    wgpu::DeviceDescriptor {
+                        label: Some("fepdf wgpu device"),
+                        required_features: wgpu::Features::empty(),
+                        required_limits: wgpu::Limits {
+                            max_buffer_size: adapter_limits.max_buffer_size,
+                            max_storage_buffer_binding_size: adapter_limits
+                                .max_storage_buffer_binding_size,
+                            max_storage_buffers_per_shader_stage: adapter_limits
+                                .max_storage_buffers_per_shader_stage,
+                            max_compute_workgroups_per_dimension: adapter_limits
+                                .max_compute_workgroups_per_dimension,
+                            max_storage_textures_per_shader_stage: adapter_limits
+                                .max_storage_textures_per_shader_stage,
+                            ..wgpu::Limits::default()
+                        },
+                        memory_hints: wgpu::MemoryHints::Performance,
+                        experimental_features: wgpu::ExperimentalFeatures::default(),
+                        trace: wgpu::Trace::default(),
+                    }
+                }),
+            }),
+            ..Default::default()
+        },
+        ..Default::default()
+    }
+}
+
 fn main() -> eframe::Result<()> {
     env_logger::init();
 
     let pdf_path = std::env::args().nth(1).map(PathBuf::from);
 
-    let native_options = eframe::NativeOptions {
-        viewport: egui::ViewportBuilder::default()
-            .with_inner_size([1600.0, 900.0])
-            .with_title("fepdf"),
-        renderer: eframe::Renderer::Wgpu,
-        ..Default::default()
-    };
+    let native_options = native_options();
 
     eframe::run_native(
         "fepdf-gui",

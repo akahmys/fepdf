@@ -27,7 +27,11 @@ pub enum BindingDirection {
 }
 
 pub struct PDFView {
-    pub zoom: f32,
+    /// Private, so the only ways to change it are [`Self::set_zoom`] and
+    /// [`Self::zoom_at`]. It was `pub`, four callers assigned it directly, and three of
+    /// them wrote out the same `clamp(0.1, 10.0)` — a bound repeated is a bound that
+    /// drifts, and one caller forgetting it is a view that cannot be zoomed back.
+    zoom: f32,
     pub pan: egui::Vec2,
     pub visible_pages: Vec<usize>,
     pub display_mode: DisplayMode,
@@ -100,6 +104,104 @@ impl PDFView {
             viewport_rect.min.y + 20.0
         };
         egui::pos2(origin_x, origin_y)
+    }
+
+    /// The current zoom factor. Read freely; changing it goes through
+    /// [`Self::set_zoom`] or [`Self::zoom_at`].
+    #[must_use]
+    pub const fn zoom(&self) -> f32 {
+        self.zoom
+    }
+
+    /// The bounds a zoom factor is held to, in one place.
+    ///
+    /// Written out three times before — inside `zoom_at` and twice in `fit_to_width` — and
+    /// a bound repeated is a bound that drifts.
+    const ZOOM_BOUNDS: std::ops::RangeInclusive<f32> = 0.1..=10.0;
+
+    /// Sets the zoom without moving anything, for a caller that places the view itself.
+    ///
+    /// **Not the same operation as [`Self::zoom_at`], which is why both exist.** `zoom_at`
+    /// keeps a chosen point under the cursor and computes `pan` to do it; this is for
+    /// `reset_view`, `fit_to_width` and double-click-to-fit, which set `pan` explicitly on
+    /// the line after and would have that work thrown away. Routing them through `zoom_at`
+    /// would compute an anchor nobody reads.
+    pub fn set_zoom(&mut self, zoom: f32) {
+        self.zoom = zoom.clamp(*Self::ZOOM_BOUNDS.start(), *Self::ZOOM_BOUNDS.end());
+    }
+
+    /// The page under `center_pos`, else the nearest, else the active one.
+    ///
+    /// Only pages the current display mode actually shows are candidates: zooming in
+    /// single-page mode must not anchor to a page that is not on screen, and a two-page
+    /// spread anchors within its own spread.
+    fn layout_under<'a>(
+        &self,
+        center_pos: egui::Pos2,
+        current_origin: egui::Pos2,
+        old_zoom: f32,
+        layouts: &'a [PageLayout],
+    ) -> Option<&'a PageLayout> {
+        let (mut closest, mut min_dist_sq) = (None, f32::MAX);
+        for layout in layouts {
+            if self.display_mode == DisplayMode::SinglePage && layout.index != self.active_page {
+                continue;
+            }
+            if self.display_mode == DisplayMode::TwoPageSingle {
+                let spread = self.get_spread_indices(self.active_page, layouts.len());
+                if !spread.contains(&layout.index) {
+                    continue;
+                }
+            }
+            let page_screen_rect = egui::Rect::from_min_size(
+                current_origin + layout.rect.min.to_vec2() * old_zoom,
+                layout.rect.size() * old_zoom,
+            );
+            if page_screen_rect.contains(center_pos) {
+                return Some(layout);
+            }
+            let dist_sq = page_screen_rect.distance_sq_to_pos(center_pos);
+            if dist_sq < min_dist_sq {
+                min_dist_sq = dist_sq;
+                closest = Some(layout);
+            }
+        }
+        closest.or_else(|| layouts.get(self.active_page))
+    }
+
+    /// Zooms to `new_zoom`, anchoring strictly to the page (and the local position on that page) under `center_pos`.
+    pub fn zoom_at(
+        &mut self,
+        new_zoom: f32,
+        center_pos: egui::Pos2,
+        viewport_rect: egui::Rect,
+        layouts: &[PageLayout],
+    ) {
+        let old_zoom = self.zoom;
+        let new_zoom = new_zoom.clamp(*Self::ZOOM_BOUNDS.start(), *Self::ZOOM_BOUNDS.end());
+        if (new_zoom - old_zoom).abs() < f32::EPSILON {
+            return;
+        }
+
+        let origin_no_pan = self.get_origin_no_pan(viewport_rect);
+        let current_origin = origin_no_pan + self.pan;
+
+        let target_layout = self.layout_under(center_pos, current_origin, old_zoom, layouts);
+
+        if let Some(layout) = target_layout {
+            // Page-anchored zoom: calculate the point on this page in unscaled page coordinates
+            let page_screen_min = current_origin + layout.rect.min.to_vec2() * old_zoom;
+            let local_offset_doc = (center_pos - page_screen_min) / old_zoom;
+
+            self.set_zoom(new_zoom);
+            // Place the exact same local page point under center_pos after zoom
+            self.pan = (center_pos - origin_no_pan)
+                - (layout.rect.min.to_vec2() + local_offset_doc) * new_zoom;
+        } else {
+            let cursor_doc = (center_pos - origin_no_pan - self.pan) / old_zoom;
+            self.set_zoom(new_zoom);
+            self.pan = (center_pos - origin_no_pan) - cursor_doc * new_zoom;
+        }
     }
 
     pub fn scroll_to_page(&mut self, page_index: usize, layouts: &[PageLayout]) {
@@ -198,7 +300,7 @@ impl PDFView {
         visuals.widgets.noninteractive.bg_stroke = egui::Stroke::NONE;
 
         let response = ui.allocate_rect(viewport_rect, egui::Sense::click_and_drag());
-        self.handle_input(ui, &response, viewport_rect);
+        self.handle_input(ui, &response, viewport_rect, layouts);
         self.clamp_pan(viewport_rect, layouts);
 
         // 1. Workspace background & CAD Grid lines
@@ -593,42 +695,39 @@ impl PDFView {
         }
     }
 
-    fn handle_zoom_gestures(&mut self, ui: &egui::Ui, viewport_rect: egui::Rect) {
+    fn handle_zoom_gestures(
+        &mut self,
+        ui: &egui::Ui,
+        viewport_rect: egui::Rect,
+        layouts: &[PageLayout],
+    ) {
         ui.input(|i| {
+            let cursor_pos = i
+                .pointer
+                .hover_pos()
+                .or(i.pointer.latest_pos())
+                .filter(|p| viewport_rect.contains(*p))
+                .unwrap_or_else(|| viewport_rect.center());
+
             let zoom_delta = i.zoom_delta();
-            let hover_pos = i.pointer.hover_pos();
             #[allow(clippy::float_cmp)]
             if zoom_delta != 1.0 {
-                let old_zoom = self.zoom;
-                let new_zoom = (self.zoom * zoom_delta).clamp(0.1, 10.0);
-                if let Some(pos) = hover_pos {
-                    let origin = self.get_origin_no_pan(viewport_rect);
-                    let cursor_doc = (pos - origin - self.pan) / old_zoom;
-                    self.zoom = new_zoom;
-                    self.pan = pos.to_vec2() - origin.to_vec2() - cursor_doc * new_zoom;
-                } else {
-                    self.zoom = new_zoom;
-                }
+                self.zoom_at(self.zoom * zoom_delta, cursor_pos, viewport_rect, layouts);
             }
-            let scroll_delta = i.smooth_scroll_delta;
-            if i.modifiers.command && scroll_delta.y != 0.0 {
-                let old_zoom = self.zoom;
-                let new_zoom = (self.zoom * (scroll_delta.y * 0.005).exp()).clamp(0.1, 10.0);
-                if let Some(pos) = hover_pos {
-                    let origin = self.get_origin_no_pan(viewport_rect);
-                    let cursor_doc = (pos - origin - self.pan) / old_zoom;
-                    self.zoom = new_zoom;
-                    self.pan = pos.to_vec2() - origin.to_vec2() - cursor_doc * new_zoom;
-                } else {
-                    self.zoom = new_zoom;
-                }
+
+            let is_zoom_modifier = i.modifiers.command || i.modifiers.ctrl;
+            let scroll_y = i.smooth_scroll_delta.y;
+
+            if is_zoom_modifier && scroll_y != 0.0 {
+                let factor = (scroll_y * 0.005).exp();
+                self.zoom_at(self.zoom * factor, cursor_pos, viewport_rect, layouts);
             }
         });
     }
 
     fn handle_scroll_panning(&mut self, ui: &egui::Ui) {
         ui.input(|i| {
-            if !i.modifiers.command {
+            if !i.modifiers.command && !i.modifiers.ctrl {
                 let scroll_delta = i.smooth_scroll_delta;
                 if self.scroll_direction == ScrollDirection::Horizontal {
                     if scroll_delta.x != 0.0 {
@@ -648,26 +747,29 @@ impl PDFView {
         ui: &mut egui::Ui,
         response: &egui::Response,
         viewport_rect: egui::Rect,
+        layouts: &[PageLayout],
     ) {
-        let is_hovered = ui
-            .ctx()
-            .input(|i| i.pointer.hover_pos().is_some_and(|pos| viewport_rect.contains(pos)));
+        let is_hovered = ui.ctx().input(|i| {
+            i.pointer
+                .hover_pos()
+                .or(i.pointer.latest_pos())
+                .is_some_and(|pos| viewport_rect.contains(pos))
+        });
         if is_hovered {
-            self.handle_zoom_gestures(ui, viewport_rect);
+            self.handle_zoom_gestures(ui, viewport_rect, layouts);
             self.handle_scroll_panning(ui);
         }
         let shift_down = ui.input(|i| i.modifiers.shift);
         if response.dragged() && (!shift_down || self.zoom >= 0.65) {
             self.pan += response.drag_delta();
         }
-        if response.double_clicked()
-            && let Some(pos) = ui.input(|i| i.pointer.hover_pos())
-        {
-            let origin = self.get_origin_no_pan(viewport_rect);
-            let cursor_doc = (pos - origin - self.pan) / self.zoom;
+        if response.double_clicked() {
+            let pos = ui
+                .input(|i| i.pointer.hover_pos().or(i.pointer.latest_pos()))
+                .filter(|p| viewport_rect.contains(*p))
+                .unwrap_or_else(|| viewport_rect.center());
             let target_zoom = if self.zoom < 0.65 { 1.0 } else { 0.35 };
-            self.zoom = target_zoom;
-            self.pan = pos.to_vec2() - origin.to_vec2() - cursor_doc * target_zoom;
+            self.zoom_at(target_zoom, pos, viewport_rect, layouts);
         }
         if response.drag_stopped()
             || (!response.dragged() && ui.input(|i| i.pointer.any_released()))

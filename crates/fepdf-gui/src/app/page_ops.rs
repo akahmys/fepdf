@@ -128,6 +128,7 @@ impl FepdfApp {
         let new_range = clamped_insert_idx..(clamped_insert_idx + count);
         self.selected_pages = new_range.collect();
         self.last_selected_page = Some(clamped_insert_idx);
+        self.view.active_page = clamped_insert_idx;
 
         let _ = self.tx_worker.send(WorkerRequest::ReorderPagesBatch {
             source_indices: source_indices.to_vec(),

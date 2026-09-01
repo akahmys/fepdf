@@ -5,7 +5,7 @@ use crate::view::{BindingDirection, DisplayMode, PageLayout, ScrollDirection};
 
 impl FepdfApp {
     pub fn reset_view(&mut self) {
-        self.view.zoom = 1.0;
+        self.view.set_zoom(1.0);
         self.view.pan = egui::Vec2::ZERO;
     }
 
@@ -45,7 +45,7 @@ impl FepdfApp {
         let spread_w = max_x - min_x;
         if spread_w > 0.0 && min_x < f32::MAX {
             let target_zoom = (viewport_rect.width() - 40.0) / spread_w;
-            self.view.zoom = target_zoom.clamp(0.1, 10.0);
+            self.view.set_zoom(target_zoom);
             self.view.pan.x = 0.0;
         }
     }
@@ -86,12 +86,12 @@ impl FepdfApp {
         let spread_h = max_y - min_y;
         if spread_h > 0.0 && min_y < f32::MAX {
             let target_zoom = (viewport_rect.height() - 40.0) / spread_h;
-            self.view.zoom = target_zoom.clamp(0.1, 10.0);
+            self.view.set_zoom(target_zoom);
             if self.view.display_mode == DisplayMode::Continuous
                 || self.view.display_mode == DisplayMode::TwoPageSpread
                 || self.view.display_mode == DisplayMode::TwoPageSingle
             {
-                self.view.pan.y = -min_y * self.view.zoom;
+                self.view.pan.y = -min_y * self.view.zoom();
             } else {
                 self.view.pan.y = 0.0;
             }
@@ -249,15 +249,18 @@ impl FepdfApp {
             let (ref_w, ref_h) = self.doc_page_sizes.first().copied().unwrap_or((595.0, 842.0));
             let ref_w = ref_w as f32;
             let ref_h = ref_h as f32;
-            let zoom = self.view.zoom;
+            let zoom = self.view.zoom();
             let is_r2l = self.view.binding_direction == BindingDirection::RightToLeft;
             let gap_x = 24.0_f32;
-            let min_screen_gap_y = 36.0_f32;
-            let gap_y = (min_screen_gap_y / zoom.max(0.05)).max(24.0);
+            let gap_y = 24.0_f32;
 
             if self.view.scroll_direction == ScrollDirection::Vertical {
-                let page_screen_w = (ref_w + gap_x) * zoom;
-                let cols = (viewport_w / page_screen_w.max(1.0)).floor().max(1.0) as usize;
+                let cols = if zoom < 0.65 {
+                    let page_screen_w = (ref_w + gap_x) * zoom;
+                    (viewport_w / page_screen_w.max(1.0)).floor().max(1.0) as usize
+                } else {
+                    1
+                };
 
                 if cols <= 1 {
                     // Standard single vertical column

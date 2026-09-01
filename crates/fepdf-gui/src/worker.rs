@@ -394,6 +394,27 @@ fn handle_replace_document(
     reload_after_page_change(doc, tx);
 }
 
+/// Whether a document with no declared reading direction is a vertically set CJK one.
+///
+/// **Table 30 gives `/Direction` a default of L2R, and nothing in either corpus declares
+/// it** — 0 files of 524 — so the declared value is `None` for every document there and
+/// this guess is the only thing that ever reaches the binding. Removing it did not restore
+/// the standard's default so much as make right-to-left binding unreachable.
+///
+/// It is a guess and is recorded as one. [ADR-0041] settled the shape: where a file
+/// declares, obey it; where it declares nothing, a heuristic is what there is to go on,
+/// and it says so. `-V` is the writing-mode suffix Adobe's CMap names carry for vertical
+/// forms (9.7.5.2), which is why a font name is evidence at all.
+///
+/// [ADR-0041]: ../../docs/adr/0041-a-character-collection-is-declared-not-guessed.md
+fn infer_binding(fonts: &[fepdf::FontSummary], lang: Option<&str>) -> Option<String> {
+    let vertical_font = fonts
+        .iter()
+        .any(|f| f.name.ends_with("-V") || f.name.contains("-V-") || f.name.contains("-V_"));
+    let japanese = lang.is_some_and(|l| l.to_lowercase().starts_with("ja"));
+    (vertical_font || japanese).then(|| "R2L".to_string())
+}
+
 fn handle_open(
     // RR-15 Limit: Dispatcher - handles open document worker requests and packages file properties
     data: Bytes,
@@ -437,20 +458,20 @@ fn handle_open(
             let security_method = doc.security_method();
             let permissions = doc.permissions();
             let fonts = doc.fonts();
+            let mut decisions = doc.decisions();
             let mut viewer_direction = doc.viewer_direction();
-
-            if viewer_direction.is_none() {
-                // Heuristic 1: Check fonts for CJK vertical layout
-                let has_vertical_font = fonts.iter().any(|f| {
-                    f.name.ends_with("-V") || f.name.contains("-V-") || f.name.contains("-V_")
-                });
-
-                let is_japanese_lang =
-                    doc.language().is_some_and(|lang| lang.to_lowercase().starts_with("ja"));
-
-                if has_vertical_font || is_japanese_lang {
-                    viewer_direction = Some("R2L".to_string());
-                }
+            if viewer_direction.is_none()
+                && let Some(inferred) = infer_binding(&fonts, doc.language().as_deref())
+            {
+                decisions.push(fepdf::Decision::ambiguity(
+                    "12.2",
+                    "the document declares no /ViewerPreferences /Direction and is set in \
+                     vertical CJK: its fonts name a `-V` writing mode, or its /Lang is \
+                     Japanese",
+                    "bound it right to left rather than taking Table 30's default of L2R, \
+                     which opens a vertically set book at the wrong end",
+                ));
+                viewer_direction = Some(inferred);
             }
 
             let _ = tx.send(WorkerResponse::DocumentLoaded(Box::new(LoadedDocument {
@@ -466,7 +487,7 @@ fn handle_open(
                 fonts,
                 viewer_direction,
                 layers: doc.layers().rows,
-                decisions: doc.decisions(),
+                decisions,
             })));
             Some(doc)
         }
@@ -675,5 +696,52 @@ fn handle_save(
         Err(e) => {
             let _ = tx.send(WorkerResponse::Error(format!("Failed to save PDF: {e}")));
         }
+    }
+}
+
+#[cfg(test)]
+mod binding_direction {
+    //! **Nothing in either corpus declares `/ViewerPreferences /Direction`** — 0 files of
+    //! 524 — so this guess is the only thing that ever reaches the binding, and removing
+    //! it made right-to-left unreachable rather than restoring Table 30's default. It is
+    //! a guess and is recorded as one where the reader can see it.
+    use super::infer_binding;
+
+    fn fonts(names: &[&str]) -> Vec<fepdf::FontSummary> {
+        names
+            .iter()
+            .map(|n| fepdf::FontSummary {
+                name: (*n).to_string(),
+                font_type: "Type0".to_string(),
+                is_embedded: true,
+                is_type3: false,
+                is_subset: false,
+                encoding: "Identity-V".to_string(),
+                has_to_unicode: false,
+                object_id: 0,
+            })
+            .collect()
+    }
+
+    /// `-V` is the writing-mode suffix Adobe's CMap names carry for vertical forms
+    /// (9.7.5.2), which is why a font name is evidence at all. `samples/bokutokitan.pdf`
+    /// has four such fonts and `samples/fy05.pdf` six; the other seven samples have none.
+    #[test]
+    fn a_vertical_font_or_a_japanese_language_binds_right_to_left() {
+        assert_eq!(infer_binding(&fonts(&["KozMinPr6N-Regular-V"]), None).as_deref(), Some("R2L"));
+        assert_eq!(infer_binding(&fonts(&["A-V-B"]), None).as_deref(), Some("R2L"));
+        assert_eq!(infer_binding(&fonts(&["A-V_B"]), None).as_deref(), Some("R2L"));
+        assert_eq!(infer_binding(&fonts(&["Helvetica"]), Some("ja-JP")).as_deref(), Some("R2L"));
+    }
+
+    /// The control. Without it, "vertical CJK binds right to left" and "everything binds
+    /// right to left" are the same green test.
+    #[test]
+    fn anything_else_is_left_alone_for_the_standard_default() {
+        assert_eq!(infer_binding(&fonts(&["Helvetica"]), None), None);
+        assert_eq!(infer_binding(&fonts(&["Helvetica"]), Some("en-US")), None);
+        assert_eq!(infer_binding(&fonts(&["Verdana", "Arial"]), Some("de")), None);
+        // `-Vietnamese` ends in no `-V`, and a name merely containing a V is not a mode.
+        assert_eq!(infer_binding(&fonts(&["NotoSerif-Vietnamese"]), None), None);
     }
 }

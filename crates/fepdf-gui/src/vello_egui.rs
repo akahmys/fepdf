@@ -167,7 +167,13 @@ impl VelloRenderer {
                 base_color: vello::peniko::Color::from_rgb8(235, 237, 240), // Solid premium light slate gray clear color
                 width: tex.width,
                 height: tex.height,
-                antialiasing_method: AaConfig::Msaa16,
+                // Area, not MSAA, so the window shows what `publish render` writes.
+                // `headless.rs` builds its renderer with `AaSupport::area_only()` and asks
+                // for `AaConfig::Area`, and the visual regression baselines are that
+                // output; a viewer antialiasing differently is a viewer that disagrees
+                // with its own export. The renderers here are created with
+                // `AaSupport::all()`, so this is a choice rather than a constraint.
+                antialiasing_method: AaConfig::Area,
             },
         );
 
@@ -291,7 +297,9 @@ impl VelloRenderer {
                     base_color: vello::peniko::Color::WHITE,
                     width: tex.width,
                     height: tex.height,
-                    antialiasing_method: AaConfig::Msaa16,
+                    // Area for the same reason as above: one antialiasing across the
+                    // window, the thumbnails and the exported image.
+                    antialiasing_method: AaConfig::Area,
                 },
             );
         }

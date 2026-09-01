@@ -200,9 +200,13 @@ impl FepdfApp {
             egui::DragAndDrop::set_payload(ui.ctx(), page_idx);
         }
 
+        let pointer_pos = ui.input(|i| {
+            i.pointer.interact_pos().or(i.pointer.latest_pos()).or(i.pointer.hover_pos())
+        });
+
         if let Some(_from_idx) = dragged_from
-            && response.hovered()
-            && let Some(mouse_pos) = ui.input(|i| i.pointer.hover_pos())
+            && let Some(mouse_pos) = pointer_pos
+            && page_screen_rect.expand(4.0).contains(mouse_pos)
         {
             let is_left_half = mouse_pos.x < page_screen_rect.center().x;
             let target_slot = if is_r2l {
@@ -229,11 +233,50 @@ impl FepdfApp {
                 [egui::pos2(indicator_x, y_top), egui::pos2(indicator_x, y_bottom)],
                 egui::Stroke::new(3.5_f32, indicator_color),
             );
-            ui.painter().circle_filled(egui::pos2(indicator_x, y_top), 4.5, indicator_color);
-            ui.painter().circle_filled(egui::pos2(indicator_x, y_bottom), 4.5, indicator_color);
+            ui.ctx().set_cursor_icon(egui::CursorIcon::Grabbing);
             return Some(target_slot);
         }
         None
+    }
+
+    /// Text selection on a page, once it is large enough to select on.
+    ///
+    /// Split from `handle_page_tile_interaction`, which was doing three things: click
+    /// selection, the drag-and-drop slot, and this. Below 0.65 zoom the tiles are
+    /// thumbnails being reordered, not pages being read from.
+    fn handle_text_selection_on_page(
+        &mut self,
+        ui: &mut egui::Ui,
+        response: &egui::Response,
+        page_idx: usize,
+        page_screen_rect: egui::Rect,
+        unscaled_h: f32,
+        zoom: f32,
+    ) {
+        if zoom >= 0.65
+            && let Some(spans) = self.page_spans.get(&page_idx)
+        {
+            if self.selection_manager.is_tagging_brush_active {
+                self.selection_manager.handle_tagging_brush_interaction(
+                    ui,
+                    page_idx,
+                    page_screen_rect,
+                    unscaled_h,
+                    spans,
+                    zoom,
+                );
+            } else {
+                self.selection_manager.handle_drag(
+                    ui,
+                    response,
+                    page_idx,
+                    page_screen_rect,
+                    unscaled_h,
+                    spans,
+                    zoom,
+                );
+            }
+        }
     }
 
     fn handle_page_tile_interaction(
@@ -249,8 +292,14 @@ impl FepdfApp {
         self.render_page_context_menu(&response, page_idx);
         self.handle_page_click_selection(ui, &response, page_idx);
 
+        if response.drag_started() && !self.selected_pages.contains(&page_idx) {
+            self.selected_pages.clear();
+            self.selected_pages.insert(page_idx);
+            self.last_selected_page = Some(page_idx);
+        }
+
         if response.double_clicked() && zoom < 0.65 {
-            self.view.zoom = 1.0;
+            self.view.set_zoom(1.0);
             self.view.scroll_to_page(page_idx, &self.page_layouts);
         }
 
@@ -269,30 +318,15 @@ impl FepdfApp {
             None
         };
 
-        if zoom >= 0.65
-            && let Some(spans) = self.page_spans.get(&page_idx)
-        {
-            if self.selection_manager.is_tagging_brush_active {
-                self.selection_manager.handle_tagging_brush_interaction(
-                    ui,
-                    page_idx,
-                    page_screen_rect,
-                    unscaled_h,
-                    spans,
-                    zoom,
-                );
-            } else {
-                self.selection_manager.handle_drag(
-                    ui,
-                    &response,
-                    page_idx,
-                    page_screen_rect,
-                    unscaled_h,
-                    spans,
-                    zoom,
-                );
-            }
-        }
+        self.handle_text_selection_on_page(
+            ui,
+            &response,
+            page_idx,
+            page_screen_rect,
+            unscaled_h,
+            zoom,
+        );
+
         target_slot
     }
 
@@ -366,6 +400,32 @@ impl FepdfApp {
         }
     }
 
+    /// Applies a page drag once the pointer is released, and clears the payload.
+    ///
+    /// Split from `handle_page_interactions`, which was walking the visible pages *and*
+    /// deciding what a finished drag meant. A drag that ends over no slot still has to
+    /// clear its payload, which is why the release and the target are separate conditions.
+    fn commit_page_reorder(
+        &mut self,
+        ui: &egui::Ui,
+        dragged_from: Option<usize>,
+        reorder_target: Option<usize>,
+    ) {
+        if let Some(from_idx) = dragged_from
+            && ui.input(|i| i.pointer.any_released())
+        {
+            if let Some(target_insert_pos) = reorder_target {
+                let sources = if self.selected_pages.contains(&from_idx) {
+                    self.selected_pages.iter().copied().collect()
+                } else {
+                    vec![from_idx]
+                };
+                self.reorder_pages_batch(&sources, target_insert_pos);
+            }
+            egui::DragAndDrop::clear_payload(ui.ctx());
+        }
+    }
+
     fn handle_page_interactions(
         &mut self,
         ui: &mut egui::Ui,
@@ -405,17 +465,7 @@ impl FepdfApp {
             }
         }
 
-        if let Some(from_idx) = dragged_from
-            && let Some(target_insert_pos) = reorder_target
-            && ui.input(|i| i.pointer.any_released())
-        {
-            let sources = if self.selected_pages.contains(&from_idx) {
-                self.selected_pages.iter().copied().collect()
-            } else {
-                vec![from_idx]
-            };
-            self.reorder_pages_batch(&sources, target_insert_pos);
-        }
+        self.commit_page_reorder(ui, dragged_from, reorder_target);
     }
 
     fn get_structural_highlight(
@@ -634,7 +684,7 @@ impl FepdfApp {
             self.view.center_on_rect(viewport_rect, layout, rect);
         }
 
-        let zoom = self.view.zoom;
+        let zoom = self.view.zoom();
         self.handle_marquee_drag_selection(ui, viewport_rect, zoom);
         let visible_pages_data = self.collect_visible_pages_data(viewport_rect, zoom);
 
