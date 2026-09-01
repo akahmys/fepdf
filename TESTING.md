@@ -197,6 +197,7 @@ python3 scripts/visual_regression.py --update
 | `crosscheck_encryption.sh` | PDFKit opens what this engine encrypted, per-page text | Found the writer emitting an unescaped `\r` in literal strings and the lexer reading one back unchanged: two mistakes that cancelled |
 | `crosscheck_objstm.sh` | PDFKit reads packed object streams | |
 | `crosscheck_pubsec.sh` | Certificate-encrypted documents | |
+| `crosscheck_reading_order.sh` | Whether the two readers put the same characters in the same *order*, per page, per file | A net figure hides a file. ADR-0047's sort took the corpus from 261 agreeing pages to 1,975 while `volvo_xc90.pdf` went from 61 to **0** and `bokutokitan.pdf` from 93 to 4, and nothing said so. Each file carries a floor it may not fall below and the best it has ever read; a file under its best is printed on every run without turning the suite red |
 | `crosscheck_selfread.sh` | This engine reads back what it wrote, 21 combinations of packing, encryption and signing | The only one needing no second implementation, and so the only one that can answer "can it read what it just wrote". Also compares the catalogue key by key and the named destinations, which a byte comparison cannot |
 
 **Corpus and measurement:**

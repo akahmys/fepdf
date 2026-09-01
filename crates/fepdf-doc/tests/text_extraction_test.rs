@@ -329,3 +329,75 @@ mod reading_order {
         assert_eq!(backend.finish(), "第一列\n第二列");
     }
 }
+
+/// **A `cm` between two runs moves the page, and the sort has to know.**
+///
+/// `show_text` is handed the text transform, not the whole CTM, so a run's `y` used to be
+/// its offset from whatever `cm` was last in force. That was harmless while extraction
+/// emitted runs in arrival order; ADR-0047 ordered them by `y` and gave it meaning, and
+/// `volvo_xc90.pdf` — which draws its note boxes inside `q … cm … Q` — went from 61 pages
+/// agreeing with PDFKit to **0**, each box sorting against its own origin. Composing the
+/// tracked CTM took it to 182, past where it was before the sort existed.
+///
+/// **The two transforms are made to disagree on purpose.** A first version of this test
+/// gave both runs the same text `y` and differed only in the `cm`; dropping the
+/// composition left them tied, arrival order settled it, and the test passed against the
+/// defect it exists for. Here the text transforms say BOTTOM first and only the CTM says
+/// TOP first, so there is no reading of the numbers that is right by accident.
+#[test]
+fn a_run_is_placed_by_the_ctm_in_force_and_not_by_its_text_transform_alone() {
+    let mut backend = TextExtractionBackend::new();
+    let state = TextState { tc: 0.0, tw: 0.0, th: 1.0, is_vertical: false };
+    let run = |text: &str| -> Vec<TextGlyph> {
+        text.chars().map(|c| TextGlyph { width: 1000.0, ..glyph(&c.to_string()) }).collect()
+    };
+
+    // TOP:    cm 700 + text  10 = 710 on the page
+    // BOTTOM: cm 100 + text 300 = 400 on the page
+    // By text transform alone BOTTOM is the higher of the two, and wrong.
+    backend.push_state();
+    backend.transform(Affine::translate((0.0, 700.0)));
+    backend.show_text(&run("TOP"), 10.0, Affine::translate((0.0, 10.0)), state, 0);
+    backend.pop_state();
+
+    backend.push_state();
+    backend.transform(Affine::translate((0.0, 100.0)));
+    backend.show_text(&run("BOTTOM"), 10.0, Affine::translate((0.0, 300.0)), state, 1);
+    backend.pop_state();
+
+    let out = backend.finish();
+    assert!(out.contains("TOP") && out.contains("BOTTOM"), "both runs reach the output: {out:?}");
+    assert!(
+        out.find("TOP") < out.find("BOTTOM"),
+        "the run 310 units higher on the page came out second, so the sort is reading the \
+         text transform rather than the CTM in force: {out:?}"
+    );
+}
+
+/// The other half: `pop_state` has to restore what `push_state` saved.
+///
+/// Also built so that leaving the block's translation in force gives the *wrong* answer
+/// rather than the same one — `AFTER` is at 300 in text space, which composes to 800 and
+/// sorts above `INSIDE` when the pop does nothing.
+#[test]
+fn popping_the_graphics_state_restores_the_transform_that_was_pushed() {
+    let mut backend = TextExtractionBackend::new();
+    let state = TextState { tc: 0.0, tw: 0.0, th: 1.0, is_vertical: false };
+    let run = |text: &str| -> Vec<TextGlyph> {
+        text.chars().map(|c| TextGlyph { width: 1000.0, ..glyph(&c.to_string()) }).collect()
+    };
+
+    // INSIDE: cm 500 + text 10 = 510.  AFTER: no cm, text 300 = 300.
+    backend.push_state();
+    backend.transform(Affine::translate((0.0, 500.0)));
+    backend.show_text(&run("INSIDE"), 10.0, Affine::translate((0.0, 10.0)), state, 0);
+    backend.pop_state();
+    backend.show_text(&run("AFTER"), 10.0, Affine::translate((0.0, 300.0)), state, 1);
+
+    let out = backend.finish();
+    assert!(
+        out.find("INSIDE") < out.find("AFTER"),
+        "the run inside the block sorted below the one after it, so `pop_state` left the \
+         block's translation in force and put AFTER at 800: {out:?}"
+    );
+}

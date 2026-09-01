@@ -2645,6 +2645,18 @@ Everything here was carried in a handoff note as a one-line hunch. Each is now a
       *Done when*: the order-only column falls, no file's identical column falls, and a
       check fails when it does.
 
+      **The first clause was met and the second was not, because the third was never
+      built.** ADR-0047's sort took the corpus from 261 agreeing pages to 1,975 while
+      `volvo_xc90.pdf` went from 61 to **0** and `bokutokitan.pdf` from 93 to 4 — a net
+      figure hiding a file. The cause of the worst of it was that
+      `TextExtractionBackend` tracked no CTM at all, so a run's `y` was its offset from
+      the last `cm` rather than its place on the page; sorting by `y` made that matter the
+      day it was introduced. With the CTM composed, `volvo_xc90.pdf` reads **182** and
+      `unicode_16.pdf` **707**, both past where they were before the sort, and the corpus
+      **2,857** ([ADR-0049](docs/adr/0049-the-extraction-backend-was-not-tracking-the-ctm.md)).
+      `scripts/test/crosscheck_reading_order.sh` is the missing third clause: per file,
+      per page, with a floor each file may not fall below.
+
 - [x] **A font is built twice, by two different routes, and only the second one draws.**
       `ARCHITECTURE.md` §4.4 is called *normalisation-at-load* and says a `Document` is one
       normalised state by the time application code sees it. Three of the things it names

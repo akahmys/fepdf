@@ -65,6 +65,19 @@ pub struct TextExtractionBackend {
     current_actual_text_run: Option<ExtractedRun>,
     /// How many glyphs an `/ActualText` section stood in for.
     glyphs_replaced: usize,
+    /// The current transformation matrix, and the stack `q`/`Q` keep it on.
+    ///
+    /// **This was not tracked, and the sort made that matter.** `show_text` is handed
+    /// the text transform, not the whole CTM, so a run's `y` was its offset from
+    /// whatever `cm` was last in force rather than its place on the page. That was
+    /// harmless while extraction emitted runs in arrival order; ordering by `y` gave it
+    /// meaning, and `volvo_xc90.pdf` — which draws its note boxes inside `q … cm … Q` —
+    /// went from 61 pages agreeing with PDFKit to 0, because each box's runs sorted
+    /// against a different origin. `CollectorBackend` beside it has composed the CTM all
+    /// along, which is why `extract_spans` orders that page correctly and `extract_text`
+    /// did not.
+    current_transform: Affine,
+    transform_stack: Vec<Affine>,
 }
 
 impl Default for TextExtractionBackend {
@@ -84,6 +97,8 @@ impl TextExtractionBackend {
             actual_text: Vec::new(),
             current_actual_text_run: None,
             glyphs_replaced: 0,
+            current_transform: Affine::IDENTITY,
+            transform_stack: Vec::new(),
         }
     }
     /// Glyphs seen, glyphs no route could name, and glyphs an `/ActualText` stood for.
@@ -213,7 +228,9 @@ impl TextExtractionBackend {
         is_vertical: bool,
         op_index: usize,
     ) {
-        let coeffs = transform.as_coeffs();
+        // Composed, not bare: `transform` is the text transform and the page's `cm`
+        // lives in the CTM this backend now tracks.
+        let coeffs = (self.current_transform * transform).as_coeffs();
         let (x, y) = (coeffs[4], coeffs[5]);
         let scale = coeffs[0].hypot(coeffs[1]).max(f64::EPSILON);
         self.glyphs_seen += glyphs.len();
@@ -252,10 +269,20 @@ impl TextExtractionBackend {
 }
 
 impl RenderBackend for TextExtractionBackend {
-    fn transform(&mut self, _affine: Affine) {}
-    fn set_transform(&mut self, _affine: Affine) {}
-    fn push_state(&mut self) {}
-    fn pop_state(&mut self) {}
+    fn transform(&mut self, affine: Affine) {
+        self.current_transform *= affine;
+    }
+    fn set_transform(&mut self, affine: Affine) {
+        self.current_transform = affine;
+    }
+    fn push_state(&mut self) {
+        self.transform_stack.push(self.current_transform);
+    }
+    fn pop_state(&mut self) {
+        if let Some(t) = self.transform_stack.pop() {
+            self.current_transform = t;
+        }
+    }
     fn fill_path(&mut self, _path: &BezPath, _color: &Color, _rule: WindingRule) {}
     fn stroke_path(&mut self, _path: &BezPath, _color: &Color, _style: &StrokeStyle) {}
     fn push_clip(&mut self, _path: &BezPath, _rule: WindingRule) {}
@@ -330,7 +357,9 @@ impl RenderBackend for TextExtractionBackend {
 
         let text = self.record_regular_glyphs(glyphs);
         if !text.is_empty() {
-            let coeffs = transform.as_coeffs();
+            // Composed, not bare: `transform` is the text transform and the page's `cm`
+            // lives in the CTM this backend now tracks.
+            let coeffs = (self.current_transform * transform).as_coeffs();
             let (x, y) = (coeffs[4], coeffs[5]);
             let scale = coeffs[0].hypot(coeffs[1]).max(f64::EPSILON);
             let advance: f64 =
