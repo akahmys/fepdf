@@ -380,7 +380,7 @@ fn convert_gray8(image_data: &[u8]) -> Vec<u8> {
 
 fn convert_rgb8(image_data: &[u8]) -> Vec<u8> {
     let mut data = Vec::with_capacity(image_data.len() / 3 * 4);
-    for chunk in image_data.chunks_exact(3) {
+    for chunk in image_data.as_chunks::<3>().0 {
         data.extend_from_slice(&[chunk[0], chunk[1], chunk[2], 255]);
     }
     data
@@ -388,7 +388,7 @@ fn convert_rgb8(image_data: &[u8]) -> Vec<u8> {
 
 fn convert_cmyk8(image_data: &[u8]) -> Vec<u8> {
     let mut data = Vec::with_capacity(image_data.len() / 4 * 4);
-    for chunk in image_data.chunks_exact(4) {
+    for chunk in image_data.as_chunks::<4>().0 {
         let c = f64::from(chunk[0]) / 255.0;
         let m = f64::from(chunk[1]) / 255.0;
         let y = f64::from(chunk[2]) / 255.0;
@@ -466,7 +466,7 @@ fn apply_image_smask(rgba_data: &mut [u8], width: u32, height: u32, mask: &SMask
     if mask.width == 0 || mask.height == 0 || width == 0 || height == 0 {
         return;
     }
-    for (i, chunk) in rgba_data.chunks_exact_mut(4).enumerate() {
+    for (i, chunk) in rgba_data.as_chunks_mut::<4>().0.iter_mut().enumerate() {
         let (x, y) = (i as u32 % width, i as u32 / width);
         if y >= height {
             break;
@@ -1080,7 +1080,7 @@ mod tests {
         };
         let mut rgba = opaque(2, 2);
         apply_image_smask(&mut rgba, 2, 2, &mask);
-        let alphas: Vec<u8> = rgba.chunks_exact(4).map(|p| p[3]).collect();
+        let alphas: Vec<u8> = rgba.as_chunks::<4>().0.iter().map(|p| p[3]).collect();
         assert_eq!(alphas, vec![0, 64, 128, 255]);
     }
 
@@ -1092,7 +1092,7 @@ mod tests {
         let mask = SMaskData { data: vec![0], width: 4, height: 4, format: PixelFormat::Gray8 };
         let mut rgba = opaque(4, 4);
         apply_image_smask(&mut rgba, 4, 4, &mask);
-        let alphas: Vec<u8> = rgba.chunks_exact(4).map(|p| p[3]).collect();
+        let alphas: Vec<u8> = rgba.as_chunks::<4>().0.iter().map(|p| p[3]).collect();
         assert_eq!(alphas[0], 0, "the one sample it has");
         assert!(alphas[1..].iter().all(|a| *a == 255), "the rest stay opaque");
     }
@@ -1103,6 +1103,6 @@ mod tests {
         let mask = SMaskData { data: vec![], width: 0, height: 0, format: PixelFormat::Gray8 };
         let mut rgba = opaque(2, 2);
         apply_image_smask(&mut rgba, 2, 2, &mask);
-        assert!(rgba.chunks_exact(4).all(|p| p[3] == 255));
+        assert!(rgba.as_chunks::<4>().0.iter().all(|p| p[3] == 255));
     }
 }

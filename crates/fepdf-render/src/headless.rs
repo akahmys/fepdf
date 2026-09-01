@@ -132,7 +132,7 @@ fn reject_if_nothing_was_rasterised(
     width: u32,
     height: u32,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    if pixels.chunks_exact(4).any(|pixel| pixel[3] != 0) {
+    if pixels.as_chunks::<4>().0.iter().any(|pixel| pixel[3] != 0) {
         return Ok(());
     }
     Err(format!(
