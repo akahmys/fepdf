@@ -1512,8 +1512,9 @@ impl FontResource {
             }
         };
         let mut map = BTreeMap::new();
-        for (i, chunk) in data.chunks_exact(2).enumerate() {
-            let gid = u32::from(u16::from_be_bytes([chunk[0], chunk[1]]));
+        let (chunks, _) = data.as_chunks::<2>();
+        for (i, &chunk) in chunks.iter().enumerate() {
+            let gid = u32::from(u16::from_be_bytes(chunk));
             if gid != 0 {
                 map.insert(i as u32, gid);
             }

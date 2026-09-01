@@ -246,7 +246,8 @@ pub fn recover_string(bytes: &[u8]) -> String {
 }
 
 fn decode_utf16(bytes: &[u8], order: fn([u8; 2]) -> u16) -> String {
-    let units: Vec<u16> = bytes.chunks_exact(2).map(|c| order([c[0], c[1]])).collect();
+    let (chunks, _) = bytes.as_chunks::<2>();
+    let units: Vec<u16> = chunks.iter().map(|&c| order(c)).collect();
     String::from_utf16_lossy(&units)
 }
 
@@ -262,8 +263,9 @@ fn naked_utf16(bytes: &[u8]) -> Option<String> {
         return None;
     }
     let pairs = bytes.len() / 2;
-    let leading_nul = bytes.chunks_exact(2).filter(|c| c[0] == 0).count();
-    let trailing_nul = bytes.chunks_exact(2).filter(|c| c[1] == 0).count();
+    let (chunks, _) = bytes.as_chunks::<2>();
+    let leading_nul = chunks.iter().filter(|c| c[0] == 0).count();
+    let trailing_nul = chunks.iter().filter(|c| c[1] == 0).count();
     if leading_nul > pairs / 2 {
         Some(decode_utf16(bytes, u16::from_be_bytes))
     } else if trailing_nul > pairs / 2 {

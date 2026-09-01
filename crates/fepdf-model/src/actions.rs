@@ -487,7 +487,7 @@ fn name_tree_entries(arena: &PdfArena, root: &Dict) -> Vec<(String, Object)> {
     let mut stack = vec![(root.clone(), 0_usize)];
     while let Some((node, depth)) = stack.pop() {
         if let Some(names) = array_of(arena, node.get(&arena.name("Names"))) {
-            for pair in names.chunks_exact(2) {
+            for pair in names.as_chunks::<2>().0 {
                 let name = text_of(arena, &pair[0].resolve(arena)).unwrap_or_default();
                 out.push((name, pair[1].clone()));
             }

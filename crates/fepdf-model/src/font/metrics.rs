@@ -115,7 +115,7 @@ impl FontMetrics {
         let next_obj = Object::resolve(&w2_arr[i + 1], arena);
         if let Object::Array(iah) = next_obj {
             if let Some(i_arr) = arena.get_array(iah) {
-                for (idx, chunk) in i_arr.chunks_exact(3).enumerate() {
+                for (idx, chunk) in i_arr.as_chunks::<3>().0.iter().enumerate() {
                     let w1_y = Object::resolve(&chunk[0], arena).as_f64().unwrap_or(-1000.0) as f32;
                     let v_x = Object::resolve(&chunk[1], arena)
                         .as_f64()

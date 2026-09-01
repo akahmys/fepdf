@@ -775,7 +775,9 @@ fn stream_layout(
     // 7.5.8.2: /Index defaults to one subsection covering 0..Size.
     let index = match dict.get(&arena.name("Index")).and_then(|o| integer_array(o, arena)) {
         Some(flat) if flat.len() >= 2 => flat
-            .chunks_exact(2)
+            .as_chunks::<2>()
+            .0
+            .iter()
             .filter_map(|p| Some((u32::try_from(p[0]).ok()?, u32::try_from(p[1]).ok()?)))
             .collect(),
         _ => {
@@ -897,7 +899,9 @@ fn read_pairs(decoded: &[u8], first: usize) -> Vec<(u32, usize)> {
         .filter_map(|t| t.parse().ok())
         .collect();
     numbers
-        .chunks_exact(2)
+        .as_chunks::<2>()
+        .0
+        .iter()
         .filter_map(|p| Some((u32::try_from(p[0]).ok()?, usize::try_from(p[1]).ok()?)))
         .collect()
 }
