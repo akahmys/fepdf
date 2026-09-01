@@ -179,11 +179,11 @@ pedantic = { level = "warn", priority = -1 }
 nursery = { level = "warn", priority = -1 }
 all = { level = "warn", priority = -1 }
 too_many_lines = "allow"
-cast_precision_loss = "warn"
-cast_possible_truncation = "warn"
-cast_sign_loss = "warn"
-cast_possible_wrap = "warn"
-cast_lossless = "warn"
+cast_precision_loss = "allow"
+cast_possible_truncation = "allow"
+cast_sign_loss = "allow"
+cast_possible_wrap = "allow"
+cast_lossless = "allow"
 missing_errors_doc = "allow"
 missing_panics_doc = "allow"
 if_not_else = "allow"
@@ -210,6 +210,7 @@ needless_pass_by_value = "allow"
 trivially_copy_pass_by_ref = "allow"
 similar_names = "allow"
 unnecessary_wraps = "allow"
+unnecessary_literal_bound = "allow"
 chunks_exact_to_as_chunks = "allow"
 
 [profile.release]
