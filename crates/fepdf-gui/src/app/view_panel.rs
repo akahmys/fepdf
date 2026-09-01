@@ -115,23 +115,272 @@ impl FepdfApp {
         }
     }
 
+    fn render_page_context_menu(&mut self, response: &egui::Response, page_idx: usize) {
+        response.context_menu(|ui| {
+            ui.label(format!("Page {}", page_idx + 1));
+            ui.separator();
+            if ui.button("↷ 右に90°回転").clicked() {
+                self.rotate_page_action(page_idx, fepdf::Quarter::Q90);
+                ui.close();
+            }
+            if ui.button("↶ 左に90°回転").clicked() {
+                self.rotate_page_action(page_idx, fepdf::Quarter::Q270);
+                ui.close();
+            }
+            if ui.button("🔄 180°回転").clicked() {
+                self.rotate_page_action(page_idx, fepdf::Quarter::Q180);
+                ui.close();
+            }
+            ui.separator();
+            if ui.button("📑 ページを複製").clicked() {
+                self.duplicate_page(page_idx);
+                ui.close();
+            }
+            if self.total_pages > 1 {
+                ui.separator();
+                if ui.button("🗑 ページを削除").clicked() {
+                    self.selected_pages.clear();
+                    self.selected_pages.insert(page_idx);
+                    self.remove_selected_pages();
+                    ui.close();
+                }
+            }
+        });
+    }
+
+    fn handle_page_click_selection(
+        &mut self,
+        ui: &egui::Ui,
+        response: &egui::Response,
+        page_idx: usize,
+    ) {
+        if response.clicked() {
+            let shift = ui.input(|ins| ins.modifiers.shift);
+            let cmd = ui.input(|ins| ins.modifiers.command || ins.modifiers.ctrl);
+
+            if shift {
+                if let Some(start) = self.last_selected_page {
+                    self.selected_pages.clear();
+                    let min = start.min(page_idx);
+                    let max = start.max(page_idx);
+                    for p in min..=max {
+                        self.selected_pages.insert(p);
+                    }
+                } else {
+                    self.selected_pages.clear();
+                    self.selected_pages.insert(page_idx);
+                    self.last_selected_page = Some(page_idx);
+                }
+            } else if cmd {
+                if self.selected_pages.contains(&page_idx) {
+                    self.selected_pages.remove(&page_idx);
+                } else {
+                    self.selected_pages.insert(page_idx);
+                }
+                self.last_selected_page = Some(page_idx);
+            } else {
+                self.selected_pages.clear();
+                self.selected_pages.insert(page_idx);
+                self.last_selected_page = Some(page_idx);
+                self.view.active_page = page_idx;
+            }
+        }
+    }
+
+    fn handle_tile_drag_and_drop(
+        ui: &egui::Ui,
+        response: &egui::Response,
+        page_idx: usize,
+        page_screen_rect: egui::Rect,
+        dragged_from: Option<usize>,
+        is_r2l: bool,
+        zoom: f32,
+    ) -> Option<usize> {
+        if response.drag_started() {
+            egui::DragAndDrop::set_payload(ui.ctx(), page_idx);
+        }
+
+        if let Some(_from_idx) = dragged_from
+            && response.hovered()
+            && let Some(mouse_pos) = ui.input(|i| i.pointer.hover_pos())
+        {
+            let is_left_half = mouse_pos.x < page_screen_rect.center().x;
+            let target_slot = if is_r2l {
+                if is_left_half { page_idx + 1 } else { page_idx }
+            } else if is_left_half {
+                page_idx
+            } else {
+                page_idx + 1
+            };
+
+            // Inter-page horizontal gap center (vertical line between pages)
+            let gap_offset = (12.0 * zoom).clamp(4.0, 12.0);
+            let indicator_x = if is_left_half {
+                page_screen_rect.min.x - gap_offset
+            } else {
+                page_screen_rect.max.x + gap_offset
+            };
+
+            let indicator_color = crate::app::theme::colors::RUST_PRIMARY;
+            let y_top = page_screen_rect.min.y - 4.0;
+            let y_bottom = page_screen_rect.max.y + 4.0;
+
+            ui.painter().line_segment(
+                [egui::pos2(indicator_x, y_top), egui::pos2(indicator_x, y_bottom)],
+                egui::Stroke::new(3.5_f32, indicator_color),
+            );
+            ui.painter().circle_filled(egui::pos2(indicator_x, y_top), 4.5, indicator_color);
+            ui.painter().circle_filled(egui::pos2(indicator_x, y_bottom), 4.5, indicator_color);
+            return Some(target_slot);
+        }
+        None
+    }
+
+    fn handle_page_tile_interaction(
+        &mut self,
+        ui: &mut egui::Ui,
+        page_idx: usize,
+        page_screen_rect: egui::Rect,
+        unscaled_h: f32,
+        zoom: f32,
+        dragged_from: Option<usize>,
+    ) -> Option<usize> {
+        let response = ui.allocate_rect(page_screen_rect, egui::Sense::click_and_drag());
+        self.render_page_context_menu(&response, page_idx);
+        self.handle_page_click_selection(ui, &response, page_idx);
+
+        if response.double_clicked() && zoom < 0.65 {
+            self.view.zoom = 1.0;
+            self.view.scroll_to_page(page_idx, &self.page_layouts);
+        }
+
+        let is_r2l = self.view.binding_direction == crate::view::BindingDirection::RightToLeft;
+        let target_slot = if zoom < 0.65 {
+            Self::handle_tile_drag_and_drop(
+                ui,
+                &response,
+                page_idx,
+                page_screen_rect,
+                dragged_from,
+                is_r2l,
+                zoom,
+            )
+        } else {
+            None
+        };
+
+        if zoom >= 0.65
+            && let Some(spans) = self.page_spans.get(&page_idx)
+        {
+            if self.selection_manager.is_tagging_brush_active {
+                self.selection_manager.handle_tagging_brush_interaction(
+                    ui,
+                    page_idx,
+                    page_screen_rect,
+                    unscaled_h,
+                    spans,
+                    zoom,
+                );
+            } else {
+                self.selection_manager.handle_drag(
+                    ui,
+                    &response,
+                    page_idx,
+                    page_screen_rect,
+                    unscaled_h,
+                    spans,
+                    zoom,
+                );
+            }
+        }
+        target_slot
+    }
+
+    fn handle_caliper_page_interaction(
+        &mut self,
+        ui: &mut egui::Ui,
+        page_idx: usize,
+        page_screen_rect: egui::Rect,
+        unscaled_h: f32,
+        zoom: f32,
+    ) {
+        if let Some(spans) = self.page_spans.get(&page_idx) {
+            self.caliper_tool.handle_interaction(
+                ui,
+                page_idx,
+                page_screen_rect,
+                unscaled_h,
+                zoom,
+                &mut self.cad_snap_engine,
+                spans,
+            );
+            self.caliper_tool.draw_overlay(ui, page_screen_rect, unscaled_h, zoom);
+        }
+    }
+
+    fn handle_single_page_interaction(
+        &mut self,
+        ui: &mut egui::Ui,
+        visible_index: usize,
+        page_screen_rect: egui::Rect,
+        unscaled_h: f32,
+        zoom: f32,
+        dragged_from: Option<usize>,
+    ) -> Option<usize> {
+        if self.is_placing_signature {
+            self.handle_signature_placement_interaction(
+                ui,
+                visible_index,
+                page_screen_rect,
+                unscaled_h,
+                zoom,
+            );
+            None
+        } else if self.caliper_tool.is_active {
+            self.handle_caliper_page_interaction(
+                ui,
+                visible_index,
+                page_screen_rect,
+                unscaled_h,
+                zoom,
+            );
+            None
+        } else if self.redaction_manager.is_active {
+            self.redaction_manager.handle_interaction(
+                ui,
+                visible_index,
+                page_screen_rect,
+                unscaled_h,
+                zoom,
+            );
+            None
+        } else {
+            self.handle_page_tile_interaction(
+                ui,
+                visible_index,
+                page_screen_rect,
+                unscaled_h,
+                zoom,
+                dragged_from,
+            )
+        }
+    }
+
     fn handle_page_interactions(
-        // RR-15 Limit: GUI - Unified egui pointer and canvas coordinate interaction loop
         &mut self,
         ui: &mut egui::Ui,
         viewport_rect: egui::Rect,
         zoom: f32,
     ) {
+        let mut reorder_target = None;
+        let dragged_from = egui::DragAndDrop::payload::<usize>(ui.ctx()).map(|p| *p);
         let visible_pages = self.view.visible_pages.clone();
         let active_spread = self.view.get_spread_indices(self.view.active_page, self.total_pages);
         for &visible_index in &visible_pages {
-            if self.view.display_mode == DisplayMode::SinglePage
-                && visible_index != self.view.active_page
-            {
-                continue;
-            }
-            if self.view.display_mode == DisplayMode::TwoPageSingle
-                && !active_spread.contains(&visible_index)
+            if (self.view.display_mode == DisplayMode::SinglePage
+                && visible_index != self.view.active_page)
+                || (self.view.display_mode == DisplayMode::TwoPageSingle
+                    && !active_spread.contains(&visible_index))
             {
                 continue;
             }
@@ -143,57 +392,29 @@ impl FepdfApp {
                 );
                 let unscaled_h = layout.rect.height();
 
-                if self.is_placing_signature {
-                    self.handle_signature_placement_interaction(
-                        ui,
-                        visible_index,
-                        page_screen_rect,
-                        unscaled_h,
-                        zoom,
-                    );
-                } else if self.caliper_tool.is_active {
-                    if let Some(spans) = self.page_spans.get(&visible_index) {
-                        self.caliper_tool.handle_interaction(
-                            ui,
-                            visible_index,
-                            page_screen_rect,
-                            unscaled_h,
-                            zoom,
-                            &mut self.cad_snap_engine,
-                            spans,
-                        );
-                        self.caliper_tool.draw_overlay(ui, page_screen_rect, unscaled_h, zoom);
-                    }
-                } else if self.redaction_manager.is_active {
-                    self.redaction_manager.handle_interaction(
-                        ui,
-                        visible_index,
-                        page_screen_rect,
-                        unscaled_h,
-                        zoom,
-                    );
-                } else if let Some(spans) = self.page_spans.get(&visible_index) {
-                    if self.selection_manager.is_tagging_brush_active {
-                        self.selection_manager.handle_tagging_brush_interaction(
-                            ui,
-                            visible_index,
-                            page_screen_rect,
-                            unscaled_h,
-                            spans,
-                            zoom,
-                        );
-                    } else {
-                        self.selection_manager.handle_interaction(
-                            ui,
-                            visible_index,
-                            page_screen_rect,
-                            unscaled_h,
-                            spans,
-                            zoom,
-                        );
-                    }
+                if let Some(target) = self.handle_single_page_interaction(
+                    ui,
+                    visible_index,
+                    page_screen_rect,
+                    unscaled_h,
+                    zoom,
+                    dragged_from,
+                ) {
+                    reorder_target = Some(target);
                 }
             }
+        }
+
+        if let Some(from_idx) = dragged_from
+            && let Some(target_insert_pos) = reorder_target
+            && ui.input(|i| i.pointer.any_released())
+        {
+            let sources = if self.selected_pages.contains(&from_idx) {
+                self.selected_pages.iter().copied().collect()
+            } else {
+                vec![from_idx]
+            };
+            self.reorder_pages_batch(&sources, target_insert_pos);
         }
     }
 
@@ -296,6 +517,7 @@ impl FepdfApp {
 
         let structural_highlight = self.get_structural_highlight(viewport_rect, zoom);
         let signature_highlight = self.get_signature_highlight(viewport_rect, zoom);
+        let marquee_rect = self.selection_manager.marquee_rect();
 
         self.view.show_virtual(
             ui,
@@ -308,38 +530,60 @@ impl FepdfApp {
             &active_redaction_drag,
             &structural_highlight,
             &signature_highlight,
+            &self.selected_pages,
             &self.ust_registry,
             self.show_reading_order,
+            marquee_rect,
         );
     }
 
-    pub(crate) fn render_document_panel(
-        // RR-15 Limit: GUI - Renders document panel, handles centering, page layouts, and vello texture projection
+    fn handle_marquee_drag_selection(
         &mut self,
-        ui: &mut egui::Ui,
-        rs: &egui_wgpu::RenderState,
+        ui: &egui::Ui,
         viewport_rect: egui::Rect,
+        zoom: f32,
     ) {
-        if let Some(center_id) = self.ust_registry.pending_center_node_id.take()
-            && let Some((page_idx, rect)) = self.ust_registry.find_placement_by_id(center_id)
-            && let Some(layout) = self.page_layouts.get(page_idx)
-        {
-            self.view.center_on_rect(viewport_rect, layout, rect);
+        let shift_down = ui.input(|i| i.modifiers.shift);
+        let mouse_pos = ui.input(|i| i.pointer.hover_pos());
+        let any_pressed = ui.input(|i| i.pointer.any_pressed());
+        let any_down = ui.input(|i| i.pointer.any_down());
+        let any_released = ui.input(|i| i.pointer.any_released());
+
+        if zoom < 0.65 && shift_down {
+            if any_pressed && let Some(pos) = mouse_pos {
+                self.selection_manager.marquee_start = Some(pos);
+                self.selection_manager.marquee_current = Some(pos);
+            } else if any_down && let Some(pos) = mouse_pos {
+                self.selection_manager.marquee_current = Some(pos);
+            }
         }
+        if any_released || !shift_down {
+            if let Some(m_rect) = self.selection_manager.marquee_rect() {
+                let origin = self.view.get_origin(viewport_rect);
+                for layout in &self.page_layouts {
+                    let page_screen_rect = egui::Rect::from_min_size(
+                        origin + layout.rect.min.to_vec2() * zoom,
+                        layout.rect.size() * zoom,
+                    );
+                    if m_rect.intersects(page_screen_rect) {
+                        self.selected_pages.insert(layout.index);
+                    }
+                }
+            }
+            self.selection_manager.marquee_start = None;
+            self.selection_manager.marquee_current = None;
+        }
+    }
 
-        let vello_renderer = match self.vello_renderer.as_mut() {
-            Some(r) => r,
-            None => return,
-        };
-        vello_renderer.next_frame(rs);
-
-        let zoom = self.view.zoom;
-
-        // Collect visible pages and their scenes
+    fn collect_visible_pages_data(
+        &self,
+        viewport_rect: egui::Rect,
+        zoom: f32,
+    ) -> Vec<(usize, Arc<vello::Scene>, egui::Rect, egui::Vec2)> {
         let mut visible_pages_data = Vec::new();
         let origin = self.view.get_origin(viewport_rect);
-
         let active_spread = self.view.get_spread_indices(self.view.active_page, self.total_pages);
+
         for layout in &self.page_layouts {
             if self.view.display_mode == DisplayMode::SinglePage
                 && layout.index != self.view.active_page
@@ -368,6 +612,37 @@ impl FepdfApp {
                 ));
             }
         }
+        visible_pages_data
+    }
+
+    pub(crate) fn render_document_panel(
+        // RR-15 Limit: GUI - Renders document panel, handles centering, page layouts, and vello texture projection
+        &mut self,
+        ui: &mut egui::Ui,
+        rs: &egui_wgpu::RenderState,
+        viewport_rect: egui::Rect,
+    ) {
+        self.last_viewport_rect = Some(viewport_rect);
+        if self.view.display_mode == DisplayMode::Continuous {
+            self.compute_layouts();
+        }
+
+        if let Some(center_id) = self.ust_registry.pending_center_node_id.take()
+            && let Some((page_idx, rect)) = self.ust_registry.find_placement_by_id(center_id)
+            && let Some(layout) = self.page_layouts.get(page_idx)
+        {
+            self.view.center_on_rect(viewport_rect, layout, rect);
+        }
+
+        let zoom = self.view.zoom;
+        self.handle_marquee_drag_selection(ui, viewport_rect, zoom);
+        let visible_pages_data = self.collect_visible_pages_data(viewport_rect, zoom);
+
+        let vello_renderer = match self.vello_renderer.as_mut() {
+            Some(r) => r,
+            None => return,
+        };
+        vello_renderer.next_frame(rs);
 
         let scale_factor = ui.ctx().pixels_per_point();
         let viewport_texture_id = vello_renderer.render_viewport(
@@ -378,7 +653,7 @@ impl FepdfApp {
             zoom,
         );
 
-        self.handle_page_interactions(ui, viewport_rect, zoom);
         self.draw_view_with_highlights(ui, viewport_rect, zoom, viewport_texture_id);
+        self.handle_page_interactions(ui, viewport_rect, zoom);
     }
 }

@@ -7,6 +7,7 @@ use std::sync::Arc;
 use std::sync::mpsc::{Receiver, Sender};
 use vello::Scene;
 
+#[allow(dead_code)]
 pub enum WorkerRequest {
     Open {
         data: Bytes,

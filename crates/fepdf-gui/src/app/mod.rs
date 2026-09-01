@@ -1,8 +1,8 @@
 //! Central state container and egui UI dispatch loop for `fepdf-gui`.
 
+pub mod icons;
 mod layout;
 mod modals;
-mod navigation_bar;
 mod page_ops;
 mod side_panels;
 mod status_bar;
@@ -64,7 +64,7 @@ pub struct FepdfApp {
     pub cad_snap_engine: crate::cad_canvas::CadSnapEngine,
     pub caliper_tool: crate::cad_canvas::CaliperTool,
     pub arlington_inspector: crate::inspector::ArlingtonInspectorPanel,
-    pub show_inspector: bool,
+    pub active_drawer: crate::sidebar::ActiveDrawer,
 
     // Selection management
     pub selected_pages: BTreeSet<usize>,
@@ -148,7 +148,7 @@ impl FepdfApp {
             cad_snap_engine: crate::cad_canvas::CadSnapEngine::new(),
             caliper_tool: crate::cad_canvas::CaliperTool::new(),
             arlington_inspector: crate::inspector::ArlingtonInspectorPanel::new(),
-            show_inspector: false,
+            active_drawer: crate::sidebar::ActiveDrawer::None,
 
             // Selection Defaults
             selected_pages: BTreeSet::new(),
@@ -323,26 +323,129 @@ impl FepdfApp {
         self.queue_visible_pages();
 
         egui::CentralPanel::default().frame(egui::Frame::NONE).show_inside(ui, |ui| {
-            let bg_color = egui::Color32::from_rgb(235, 237, 240);
+            let bg_color = crate::app::theme::colors::CANVAS_BG;
             ui.painter().rect_filled(ui.max_rect(), 0.0, bg_color);
 
             if let Some(err) = &self.error {
                 ui.centered_and_justified(|ui| {
-                    ui.colored_label(egui::Color32::RED, err);
+                    ui.colored_label(crate::app::theme::colors::STATUS_DANGER_TEXT, err);
                 });
             } else if !self.page_layouts.is_empty() {
                 let viewport_rect = ui.max_rect();
                 self.last_viewport_rect = Some(viewport_rect);
                 self.render_document_panel(ui, rs, viewport_rect);
-                self.render_floating_navigation_bar(ui, viewport_rect);
             } else if self.is_loading {
                 ui.centered_and_justified(|ui| {
                     ui.label(&self.loading_message);
                 });
-            } else {
-                // Keep the central panel blank at startup as requested
             }
         });
+    }
+
+    fn handle_file_and_edit_shortcuts(&mut self, ui: &egui::Ui) {
+        let ctx = ui.ctx();
+        let dropped_file = ui.input(|i| i.raw.dropped_files.iter().find_map(|f| f.path.clone()));
+        if let Some(path) = dropped_file
+            && path.extension().is_some_and(|ext| ext.eq_ignore_ascii_case("pdf"))
+        {
+            if self.total_pages > 0 {
+                if let Ok(exe) = std::env::current_exe() {
+                    let _ = std::process::Command::new(exe).arg(&path).spawn();
+                }
+            } else {
+                self.open_file(path, ctx);
+            }
+        }
+        if ui.input(|i| i.modifiers.command && i.key_pressed(egui::Key::O))
+            && let Some(p) = rfd::FileDialog::new().add_filter("PDF", &["pdf"]).pick_file()
+        {
+            if self.total_pages > 0 {
+                if let Ok(exe) = std::env::current_exe() {
+                    let _ = std::process::Command::new(exe).arg(p).spawn();
+                }
+            } else {
+                self.open_file(p, ctx);
+            }
+        }
+        if ui.input(|i| i.modifiers.command && i.key_pressed(egui::Key::E)) && self.total_pages > 0
+        {
+            self.show_export_wizard = true;
+        }
+        if ui.input(|i| i.modifiers.command && i.key_pressed(egui::Key::K)) {
+            self.show_command_palette = !self.show_command_palette;
+        }
+        if ui.input(|i| i.modifiers.command && i.key_pressed(egui::Key::C))
+            && !self.selection_manager.selected_text.is_empty()
+        {
+            ctx.copy_text(self.selection_manager.selected_text.clone());
+        }
+    }
+
+    fn handle_zoom_shortcuts(&mut self, ui: &egui::Ui) {
+        if ui.input(|i| i.modifiers.command && i.key_pressed(egui::Key::Num0)) {
+            self.view.zoom = 1.0;
+        }
+        if ui.input(|i| {
+            i.modifiers.command
+                && (i.key_pressed(egui::Key::Plus) || i.key_pressed(egui::Key::Equals))
+        }) {
+            self.view.zoom = (self.view.zoom * 1.2).clamp(0.1, 10.0);
+        }
+        if ui.input(|i| i.modifiers.command && i.key_pressed(egui::Key::Minus)) {
+            self.view.zoom = (self.view.zoom / 1.2).clamp(0.1, 10.0);
+        }
+    }
+
+    fn handle_page_and_selection_shortcuts(&mut self, ui: &egui::Ui) {
+        if ui.input(|i| i.key_pressed(egui::Key::Delete) || i.key_pressed(egui::Key::Backspace))
+            && !self.selected_pages.is_empty()
+            && self.total_pages > 1
+        {
+            self.remove_selected_pages();
+        }
+        if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
+            self.selected_pages.clear();
+            self.selection_manager.clear();
+        }
+        if ui.input(|i| i.modifiers.command && i.key_pressed(egui::Key::A))
+            && self.view.zoom < 0.65
+            && self.total_pages > 0
+        {
+            self.selected_pages.clear();
+            for p in 0..self.total_pages {
+                self.selected_pages.insert(p);
+            }
+        }
+        if self.total_pages > 0 {
+            let shift = ui.input(|i| i.modifiers.shift);
+            let prev_key = ui.input(|i| {
+                i.key_pressed(egui::Key::ArrowLeft) || i.key_pressed(egui::Key::ArrowUp)
+            });
+            let next_key = ui.input(|i| {
+                i.key_pressed(egui::Key::ArrowRight) || i.key_pressed(egui::Key::ArrowDown)
+            });
+            if prev_key && self.view.active_page > 0 {
+                self.view.active_page -= 1;
+                if !shift {
+                    self.selected_pages.clear();
+                }
+                self.selected_pages.insert(self.view.active_page);
+                self.last_selected_page = Some(self.view.active_page);
+            } else if next_key && self.view.active_page + 1 < self.total_pages {
+                self.view.active_page += 1;
+                if !shift {
+                    self.selected_pages.clear();
+                }
+                self.selected_pages.insert(self.view.active_page);
+                self.last_selected_page = Some(self.view.active_page);
+            }
+        }
+    }
+
+    fn handle_keyboard_shortcuts(&mut self, ui: &egui::Ui) {
+        self.handle_file_and_edit_shortcuts(ui);
+        self.handle_zoom_shortcuts(ui);
+        self.handle_page_and_selection_shortcuts(ui);
     }
 }
 
@@ -363,15 +466,21 @@ impl eframe::App for FepdfApp {
         let entire_rect = ui.max_rect();
         ui.painter().rect_filled(entire_rect, 0.0, ui.visuals().window_fill);
 
-        self.render_left_side_panels(ui);
-        if self.view.scroll_direction == crate::view::ScrollDirection::Vertical {
-            crate::thumbnail_sidebar::ThumbnailSidebar::show(self, ui, frame);
-        } else {
-            crate::thumbnail_sidebar::ThumbnailSidebar::show_horizontal(self, ui, frame);
-        }
+        self.handle_keyboard_shortcuts(ui);
+
+        // 1. Bottom status bar (with page navigation & zoom controls)
         self.render_status_bar(ui);
 
+        // 2. Left vertical icon bar (file ops, drawer toggles, utilities)
+        self.render_left_icon_bar(ui);
+
+        // 3. Left utility drawer (when active)
+        self.render_side_drawer(ui);
+
+        // 4. Central PDF view canvas (full width main panel)
         self.update_vello(ui, frame);
+
+        // 5. Floating modals & dialogs
         self.render_overlay_windows(&ctx);
     }
 }

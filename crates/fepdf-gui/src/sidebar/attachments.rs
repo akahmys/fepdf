@@ -1,5 +1,6 @@
 use crate::locale::LocaleManager;
 
+#[allow(dead_code)]
 pub fn show_attachments(ui: &mut egui::Ui, locale_mgr: &LocaleManager, active_lang: &str) {
     ui.vertical(|ui| {
         ui.label(

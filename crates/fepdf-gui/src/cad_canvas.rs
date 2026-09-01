@@ -364,4 +364,33 @@ impl CaliperTool {
             }
         }
     }
+
+    pub fn show_panel(&mut self, ui: &mut egui::Ui) {
+        ui.vertical(|ui| {
+            ui.label(egui::RichText::new("📐 CAD Caliper & Snap Measurement").strong());
+            ui.add_space(4.0);
+            ui.label(
+                "Drag across any vector elements, corners, or text on the page to measure exact distances in PDF user points.",
+            );
+            ui.add_space(8.0);
+            if let Some(dist) = self.measured_dist {
+                ui.horizontal(|ui| {
+                    ui.label("Distance:");
+                    ui.label(
+                        egui::RichText::new(format!("{:.2} pt  ({:.2} mm)", dist, dist * 25.4 / 72.0))
+                            .strong()
+                            .color(egui::Color32::from_rgb(255, 215, 0)),
+                    );
+                });
+            } else {
+                ui.label(
+                    egui::RichText::new("No active measurement. Click & drag on the canvas.").weak(),
+                );
+            }
+            ui.add_space(8.0);
+            if ui.button("Clear Measurement").clicked() {
+                self.clear();
+            }
+        });
+    }
 }

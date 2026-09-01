@@ -17,6 +17,8 @@ pub struct SelectionManager {
     pub active_page: Option<usize>,
     pub drag_start: Option<egui::Pos2>, // PDF User Space coordinates
     pub drag_current: Option<egui::Pos2>, // PDF User Space coordinates
+    pub marquee_start: Option<egui::Pos2>, // Screen space coordinates for box selection
+    pub marquee_current: Option<egui::Pos2>, // Screen space coordinates
     pub selected_text: String,
     pub highlights: BTreeMap<usize, Vec<egui::Rect>>, // Page -> Screen-space highlights
     pub is_tagging_brush_active: bool,
@@ -35,6 +37,8 @@ impl SelectionManager {
             active_page: None,
             drag_start: None,
             drag_current: None,
+            marquee_start: None,
+            marquee_current: None,
             selected_text: String::new(),
             highlights: BTreeMap::new(),
             is_tagging_brush_active: false,
@@ -46,9 +50,21 @@ impl SelectionManager {
         self.active_page = None;
         self.drag_start = None;
         self.drag_current = None;
+        self.marquee_start = None;
+        self.marquee_current = None;
         self.selected_text.clear();
         self.highlights.clear();
         self.pending_tag_request = None;
+    }
+
+    pub fn marquee_rect(&self) -> Option<egui::Rect> {
+        match (self.marquee_start, self.marquee_current) {
+            (Some(s), Some(c)) => {
+                let rect = egui::Rect::from_two_pos(s, c);
+                if rect.width() > 3.0 || rect.height() > 3.0 { Some(rect) } else { None }
+            }
+            _ => None,
+        }
     }
 
     /// Maps screen coordinate to PDF space.
@@ -137,17 +153,16 @@ impl SelectionManager {
     }
 
     /// Handles mouse dragging to select text spans on a page.
-    pub fn handle_interaction(
+    pub fn handle_drag(
         &mut self,
         ui: &mut egui::Ui,
+        response: &egui::Response,
         page_index: usize,
         page_rect: egui::Rect,
         page_unscaled_h: f32,
         spans: &[TextSpan],
         zoom: f32,
     ) {
-        let response = ui.allocate_rect(page_rect, egui::Sense::drag());
-
         let screen_pos = ui.input(|i| i.pointer.hover_pos());
 
         if response.drag_started()
@@ -166,17 +181,27 @@ impl SelectionManager {
             self.recalculate_selection(page_index, page_rect, page_unscaled_h, spans, zoom);
         }
 
-        if response.drag_stopped() {
-            // Optional: copy to clipboard automatically or let user copy via Ctrl+C
-            if !self.selected_text.is_empty() {
-                ui.ctx().copy_text(self.selected_text.clone());
-            }
+        if response.drag_stopped() && !self.selected_text.is_empty() {
+            ui.ctx().copy_text(self.selected_text.clone());
         }
 
-        // Draw hover effect (cursor)
         if response.hovered() {
             ui.ctx().set_cursor_icon(egui::CursorIcon::Text);
         }
+    }
+
+    #[allow(dead_code)]
+    pub fn handle_interaction(
+        &mut self,
+        ui: &mut egui::Ui,
+        page_index: usize,
+        page_rect: egui::Rect,
+        page_unscaled_h: f32,
+        spans: &[TextSpan],
+        zoom: f32,
+    ) {
+        let response = ui.allocate_rect(page_rect, egui::Sense::drag());
+        self.handle_drag(ui, &response, page_index, page_rect, page_unscaled_h, spans, zoom);
     }
 
     fn recalculate_selection(

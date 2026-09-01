@@ -158,6 +158,21 @@ impl FepdfApp {
         let _ = self.tx_worker.send(WorkerRequest::DuplicatePage { index });
     }
 
+    #[allow(dead_code)]
+    pub fn duplicate_selected_pages(&mut self) {
+        if self.selected_pages.is_empty() {
+            if self.total_pages > 0 && self.view.active_page < self.total_pages {
+                self.duplicate_page(self.view.active_page);
+            }
+            return;
+        }
+        let targets: Vec<usize> = self.selected_pages.iter().copied().collect();
+        for &idx in targets.iter().rev() {
+            self.duplicate_page(idx);
+        }
+    }
+
+    #[allow(dead_code)]
     pub fn remove_selected_pages(&mut self) {
         if self.selected_pages.is_empty() || self.total_pages <= 1 {
             return;
@@ -229,6 +244,7 @@ impl FepdfApp {
         self.rotate_pages(targets, delta);
     }
 
+    #[allow(dead_code)]
     pub fn rotate_page_action(&mut self, clicked_idx: usize, delta: fepdf::Quarter) {
         let targets = if self.selected_pages.contains(&clicked_idx) {
             self.selected_pages.iter().copied().collect()

@@ -1,9 +1,12 @@
 use crate::locale::LocaleManager;
+use crate::worker::WorkerRequest;
+use std::sync::mpsc::Sender;
 
 #[allow(clippy::too_many_arguments)]
 pub fn show_document_info(
     // RR-15 Limit: GUI - document info properties rendering
     ui: &mut egui::Ui,
+    tx_worker: &Sender<WorkerRequest>,
     pdf_name: &Option<String>,
     total_pages: usize,
     metadata: &Option<fepdf::MetadataInfo>,
@@ -13,6 +16,7 @@ pub fn show_document_info(
     permissions: Option<i32>,
     page_sizes: &[(f64, f64)],
     fonts: &[fepdf::FontSummary],
+    layers: &[fepdf::LayerRow],
     decisions: &[fepdf::Decision],
     locale_mgr: &LocaleManager,
     active_lang: &str,
@@ -348,8 +352,141 @@ pub fn show_document_info(
 
             // 5. 規格適合・判定ログ (Conformance & Reading Decisions - ISO 32000-2 6.3.2.3)
             render_decisions_section(ui, decisions, locale_mgr, active_lang);
+
+            if !layers.is_empty() {
+                ui.add_space(8.0);
+                ui.separator();
+                ui.add_space(8.0);
+
+                // 6. レイヤー (Optional Content Groups - ISO 32000-2 8.11)
+                let layers_title =
+                    format!("{} ({})", locale_mgr.tr(active_lang, "tab_layers"), layers.len());
+                egui::CollapsingHeader::new(egui::RichText::new(layers_title).strong().size(13.0))
+                    .default_open(true)
+                    .show(ui, |ui| {
+                        super::layers::show_rows(ui, layers, tx_worker, locale_mgr, active_lang);
+                    });
+            }
         });
     });
+}
+
+fn render_decision_filter_tabs(
+    ui: &mut egui::Ui,
+    decisions: &[fepdf::Decision],
+    current_filter: &mut usize,
+) {
+    let ambiguities_count =
+        decisions.iter().filter(|d| matches!(d.severity, fepdf::Severity::Ambiguity)).count();
+    let repaired_count =
+        decisions.iter().filter(|d| matches!(d.severity, fepdf::Severity::Repaired)).count();
+    let violations_count =
+        decisions.iter().filter(|d| matches!(d.severity, fepdf::Severity::Violation)).count();
+
+    ui.horizontal_wrapped(|ui| {
+        ui.spacing_mut().item_spacing.x = 4.0;
+        if ui.selectable_label(*current_filter == 0, format!("全 ({})", decisions.len())).clicked()
+        {
+            *current_filter = 0;
+        }
+        if ui
+            .selectable_label(*current_filter == 1, format!("⚠ 曖昧 ({ambiguities_count})"))
+            .clicked()
+        {
+            *current_filter = 1;
+        }
+        if ui
+            .selectable_label(*current_filter == 2, format!("🔧 修復 ({repaired_count})"))
+            .clicked()
+        {
+            *current_filter = 2;
+        }
+        if ui
+            .selectable_label(*current_filter == 3, format!("❌ 違反 ({violations_count})"))
+            .clicked()
+        {
+            *current_filter = 3;
+        }
+    });
+}
+
+fn render_decision_card(ui: &mut egui::Ui, decision: &fepdf::Decision) {
+    ui.group(|ui| {
+        let (badge_text, bg_col, text_col) = match decision.severity {
+            fepdf::Severity::Ambiguity => (
+                "曖昧性",
+                crate::app::theme::colors::STATUS_WARN_BG,
+                crate::app::theme::colors::STATUS_WARN_TEXT,
+            ),
+            fepdf::Severity::Repaired => (
+                "修復済",
+                crate::app::theme::colors::STATUS_INFO_BG,
+                crate::app::theme::colors::STATUS_INFO_TEXT,
+            ),
+            fepdf::Severity::Violation => (
+                "規格違反",
+                crate::app::theme::colors::STATUS_DANGER_BG,
+                crate::app::theme::colors::STATUS_DANGER_TEXT,
+            ),
+        };
+
+        ui.horizontal(|ui| {
+            let (rect, _) = ui.allocate_exact_size(egui::vec2(52.0, 18.0), egui::Sense::hover());
+            ui.painter().rect_filled(rect, 4.0, bg_col);
+            ui.painter().text(
+                rect.center(),
+                egui::Align2::CENTER_CENTER,
+                badge_text,
+                egui::FontId::proportional(11.0),
+                text_col,
+            );
+
+            let clause_tag = if decision.clause.is_empty() {
+                "[ISO 32000-2]".to_string()
+            } else {
+                format!("[§{}]", decision.clause)
+            };
+            ui.label(egui::RichText::new(clause_tag).strong().size(12.0));
+        });
+
+        ui.add_space(2.0);
+        ui.label(egui::RichText::new(&decision.found).size(12.0));
+        ui.add_space(2.0);
+        ui.label(egui::RichText::new(format!("→ {}", decision.action)).weak().size(11.0));
+    });
+    ui.add_space(4.0);
+}
+
+fn render_decisions_list(
+    ui: &mut egui::Ui,
+    decisions: &[fepdf::Decision],
+    current_filter: usize,
+    search_query: &str,
+) {
+    let query_lower = search_query.to_lowercase();
+    let filtered: Vec<&fepdf::Decision> = decisions
+        .iter()
+        .filter(|d| match current_filter {
+            1 => matches!(d.severity, fepdf::Severity::Ambiguity),
+            2 => matches!(d.severity, fepdf::Severity::Repaired),
+            3 => matches!(d.severity, fepdf::Severity::Violation),
+            _ => true,
+        })
+        .filter(|d| {
+            query_lower.is_empty()
+                || d.clause.to_lowercase().contains(&query_lower)
+                || d.found.to_lowercase().contains(&query_lower)
+                || d.action.to_lowercase().contains(&query_lower)
+        })
+        .collect();
+
+    if filtered.is_empty() {
+        ui.label(egui::RichText::new("該当する判定ログはありません。").weak());
+    } else {
+        for decision in filtered {
+            render_decision_card(ui, decision);
+        }
+    }
 }
 
 fn render_decisions_section(
@@ -358,46 +495,43 @@ fn render_decisions_section(
     locale_mgr: &LocaleManager,
     active_lang: &str,
 ) {
-    let decisions_title =
+    let title =
         locale_mgr.tr(active_lang, "info_decisions").replace("{}", &decisions.len().to_string());
-    egui::CollapsingHeader::new(egui::RichText::new(decisions_title).strong().size(13.0))
+    egui::CollapsingHeader::new(egui::RichText::new(title).strong().size(13.0))
         .default_open(!decisions.is_empty())
         .show(ui, |ui| {
             if decisions.is_empty() {
                 ui.label(
                     egui::RichText::new(locale_mgr.tr(active_lang, "info_no_decisions")).weak(),
                 );
-            } else {
-                for decision in decisions {
-                    ui.vertical(|ui| {
-                        let color = match decision.severity {
-                            fepdf::Severity::Ambiguity => egui::Color32::from_rgb(180, 180, 60),
-                            fepdf::Severity::Repaired => egui::Color32::from_rgb(60, 160, 220),
-                            fepdf::Severity::Violation => egui::Color32::from_rgb(220, 90, 60),
-                        };
-                        ui.horizontal(|ui| {
-                            let tag = if decision.clause.is_empty() {
-                                "[Reader]".to_string()
-                            } else {
-                                format!("[§{}]", decision.clause)
-                            };
-                            ui.colored_label(color, tag);
-                            ui.add(
-                                egui::Label::new(egui::RichText::new(&decision.found).strong())
-                                    .truncate(),
-                            );
-                        });
-                        ui.indent("decision_action", |ui| {
-                            ui.add(
-                                egui::Label::new(
-                                    egui::RichText::new(format!("→ {}", decision.action)).weak(),
-                                )
-                                .truncate(),
-                            );
-                        });
-                        ui.add_space(4.0);
-                    });
-                }
+                return;
             }
+
+            let id_filter = ui.make_persistent_id("decision_severity_filter");
+            let mut current_filter: usize =
+                ui.data_mut(|d| *d.get_temp_mut_or_default::<usize>(id_filter));
+            let id_search = ui.make_persistent_id("decision_search_query");
+            let mut search_query: String =
+                ui.data_mut(|d| d.get_temp_mut_or_default::<String>(id_search).clone());
+
+            render_decision_filter_tabs(ui, decisions, &mut current_filter);
+            ui.data_mut(|d| *d.get_temp_mut_or_default(id_filter) = current_filter);
+
+            ui.add_space(4.0);
+            ui.horizontal(|ui| {
+                ui.label("🔍");
+                let avail_w = ui.available_width() - 10.0;
+                ui.add(
+                    egui::TextEdit::singleline(&mut search_query)
+                        .hint_text("条項番号またはテキストで検索...")
+                        .desired_width(avail_w),
+                );
+            });
+            ui.data_mut(|d| {
+                d.get_temp_mut_or_default::<String>(id_search).clone_from(&search_query);
+            });
+            ui.add_space(6.0);
+
+            render_decisions_list(ui, decisions, current_filter, &search_query);
         });
 }

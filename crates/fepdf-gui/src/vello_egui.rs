@@ -13,6 +13,7 @@ struct ViewportTexture {
     height: u32,
 }
 
+#[allow(dead_code)]
 struct ThumbnailTexture {
     _texture: wgpu::Texture,
     view: wgpu::TextureView,
@@ -23,8 +24,10 @@ struct ThumbnailTexture {
 
 pub struct VelloRenderer {
     renderer: Renderer,
+    #[allow(dead_code)]
     thumb_renderer: Renderer,
     viewport_texture: Option<ViewportTexture>,
+    #[allow(dead_code)]
     thumbnail_textures: std::collections::BTreeMap<usize, ThumbnailTexture>,
     last_visible_pages: Vec<(usize, usize, egui::Rect)>,
     last_viewport_rect: egui::Rect,
@@ -205,6 +208,7 @@ impl VelloRenderer {
             Some(ViewportTexture { _texture: texture, view, egui_texture: tid, width, height });
     }
 
+    #[allow(dead_code)]
     pub fn render_thumbnail(
         // RR-15 Limit: GUI - Performs rendering of page scenes to thumbnail textures
         &mut self,

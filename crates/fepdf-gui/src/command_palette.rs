@@ -105,18 +105,34 @@ impl CommandPalette {
                                 }
                             }
                             "Caliper Brush" => {
-                                app.caliper_tool.is_active = !app.caliper_tool.is_active;
-                                if app.caliper_tool.is_active {
-                                    app.selection_manager.clear();
-                                    app.redaction_manager.is_active = false;
-                                    app.selection_manager.is_tagging_brush_active = false;
-                                }
+                                let is_caliper =
+                                    app.active_drawer == crate::sidebar::ActiveDrawer::Caliper;
+                                app.active_drawer = if is_caliper {
+                                    crate::sidebar::ActiveDrawer::None
+                                } else {
+                                    crate::sidebar::ActiveDrawer::Caliper
+                                };
+                                app.caliper_tool.is_active = !is_caliper;
                             }
-                            "Inspector" => app.show_inspector = !app.show_inspector,
+                            "Inspector" => {
+                                app.active_drawer = if app.active_drawer
+                                    == crate::sidebar::ActiveDrawer::Inspector
+                                {
+                                    crate::sidebar::ActiveDrawer::None
+                                } else {
+                                    crate::sidebar::ActiveDrawer::Inspector
+                                };
+                            }
                             "Export PDF" => app.show_export_wizard = true,
                             "Reading Order" => app.show_reading_order = !app.show_reading_order,
                             "Redaction Studio" => {
-                                app.show_redaction_studio = !app.show_redaction_studio;
+                                app.active_drawer = if app.active_drawer
+                                    == crate::sidebar::ActiveDrawer::Redaction
+                                {
+                                    crate::sidebar::ActiveDrawer::None
+                                } else {
+                                    crate::sidebar::ActiveDrawer::Redaction
+                                };
                             }
                             _ => {}
                         }

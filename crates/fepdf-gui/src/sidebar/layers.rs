@@ -23,6 +23,7 @@ use std::sync::mpsc::Sender;
 
 /// Draws the layer panel.
 // RR-15 Limit: GUI - egui layout tree for a nested, checkable list
+#[allow(dead_code)]
 pub fn show_layers(
     ui: &mut egui::Ui,
     layers: &[fepdf::LayerRow],
@@ -44,7 +45,7 @@ pub fn show_layers(
     });
 }
 
-fn show_rows(
+pub fn show_rows(
     ui: &mut egui::Ui,
     rows: &[fepdf::LayerRow],
     tx_worker: &Sender<WorkerRequest>,

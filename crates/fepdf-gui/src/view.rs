@@ -184,8 +184,10 @@ impl PDFView {
         active_redaction_drag: &Option<(usize, egui::Rect)>,
         structural_highlight: &Option<(usize, egui::Rect)>,
         signature_highlight: &Option<(usize, egui::Rect)>,
+        selected_pages: &std::collections::BTreeSet<usize>,
         ust_registry: &crate::sidebar::USTRegistry,
         show_reading_order: bool,
+        marquee_rect: Option<egui::Rect>,
     ) {
         // Completely disable egui's default focus ring/outline/selection stroke before allocating any rects to prevent flashing orange/red borders
         let visuals = ui.visuals_mut();
@@ -195,92 +197,18 @@ impl PDFView {
         visuals.widgets.inactive.bg_stroke = egui::Stroke::NONE;
         visuals.widgets.noninteractive.bg_stroke = egui::Stroke::NONE;
 
-        let mut drag_rect = viewport_rect;
-        drag_rect.min.x += 8.0;
-        drag_rect.max.x -= 8.0;
-        let response = ui.allocate_rect(drag_rect, egui::Sense::drag());
+        let response = ui.allocate_rect(viewport_rect, egui::Sense::click_and_drag());
         self.handle_input(ui, &response, viewport_rect);
         self.clamp_pan(viewport_rect, layouts);
 
-        // 1. Workspace background (Premium Light Gray Theme matching sidebars)
-        let bg_color = egui::Color32::from_rgb(235, 237, 240); // Clean, elegant light-slate gray matching the light theme
-        ui.painter().rect_filled(viewport_rect, 0.0, bg_color);
+        // 1. Workspace background & CAD Grid lines
+        ui.painter().rect_filled(viewport_rect, 0.0, crate::app::theme::colors::CANVAS_BG);
+        Self::draw_canvas_grid(ui.painter(), viewport_rect, self.pan, self.zoom);
 
-        // Draw premium design/CAD grid lines that dynamically move with the pan offset
-        let grid_size = 32.0;
-        let grid_stroke =
-            egui::Stroke::new(1.0_f32, egui::Color32::from_rgba_unmultiplied(0, 0, 0, 10));
+        // 2. Drop shadows and solid pure-white page backings
+        self.draw_page_backings(ui.painter(), viewport_rect, layouts, scenes);
 
-        // Vertical grid lines
-        let step = grid_size * self.zoom;
-        if step > 0.1 {
-            let start_x = viewport_rect.min.x + (self.pan.x % step);
-            let width = viewport_rect.max.x - start_x;
-            if width > 0.0 {
-                let count = (width / step).ceil() as usize;
-                for i in 0..count {
-                    let x = (i as f32).mul_add(step, start_x);
-                    ui.painter().line_segment(
-                        [egui::pos2(x, viewport_rect.min.y), egui::pos2(x, viewport_rect.max.y)],
-                        grid_stroke,
-                    );
-                }
-            }
-        }
-
-        // Horizontal grid lines
-        if step > 0.1 {
-            let start_y = viewport_rect.min.y + (self.pan.y % step);
-            let height = viewport_rect.max.y - start_y;
-            if height > 0.0 {
-                let count = (height / step).ceil() as usize;
-                for i in 0..count {
-                    let y = (i as f32).mul_add(step, start_y);
-                    ui.painter().line_segment(
-                        [egui::pos2(viewport_rect.min.x, y), egui::pos2(viewport_rect.max.x, y)],
-                        grid_stroke,
-                    );
-                }
-            }
-        }
-
-        // 2. Draw page shadows and authoritatively paint solid pure-white backings under each visible page
-        let origin = self.get_origin(viewport_rect);
-        let active_spread = self.get_spread_indices(self.active_page, layouts.len());
-        for layout in layouts {
-            if self.display_mode == DisplayMode::SinglePage && layout.index != self.active_page {
-                continue;
-            }
-            if self.display_mode == DisplayMode::TwoPageSingle
-                && !active_spread.contains(&layout.index)
-            {
-                continue;
-            }
-            let page_rect = egui::Rect::from_min_size(
-                origin + layout.rect.min.to_vec2() * self.zoom,
-                layout.rect.size() * self.zoom,
-            );
-            if viewport_rect.intersects(page_rect) {
-                // Draw a beautiful soft blurred/drop shadow for premium depth (drawn *behind* the page backing)
-                if scenes.contains_key(&layout.index) {
-                    for offset in 1..=4 {
-                        ui.painter().rect_filled(
-                            page_rect.translate(egui::vec2(
-                                f32::from(offset) * 1.5,
-                                f32::from(offset) * 1.5,
-                            )),
-                            4.0,
-                            egui::Color32::from_black_alpha(20 - offset * 4),
-                        );
-                    }
-                }
-
-                // Pure white page backing
-                ui.painter().rect_filled(page_rect, 0.0, egui::Color32::WHITE);
-            }
-        }
-
-        // 3. Draw the single unified viewport texture covering the document panel workspace
+        // 3. Unified viewport texture covering workspace
         if let Some(tid) = viewport_texture_id {
             ui.painter().image(
                 tid,
@@ -292,6 +220,7 @@ impl PDFView {
 
         let mut new_visible = Vec::new();
         let origin = self.get_origin(viewport_rect);
+        let active_spread = self.get_spread_indices(self.active_page, layouts.len());
 
         for layout in layouts {
             if self.display_mode == DisplayMode::SinglePage && layout.index != self.active_page {
@@ -307,33 +236,35 @@ impl PDFView {
                 layout.rect.size() * self.zoom,
             );
 
-            // Viewport culling
             if viewport_rect.intersects(page_rect) {
                 new_visible.push(layout.index);
+                let is_selected = selected_pages.contains(&layout.index);
 
                 if !scenes.contains_key(&layout.index) {
-                    // Soft premium white backing for the rendering page to completely remove the gray mask
-                    ui.painter().rect_filled(page_rect, 4.0, egui::Color32::WHITE);
+                    Self::draw_placeholder_card(ui.painter(), page_rect, layout.index);
+                }
 
-                    // Faint, clean border for pristine CAD-like presentation
+                // Page selection border
+                if is_selected {
                     ui.painter().rect_stroke(
                         page_rect,
-                        4.0,
-                        egui::Stroke::new(1.0_f32, egui::Color32::from_rgb(220, 224, 230)),
-                        egui::StrokeKind::Inside,
+                        3.0,
+                        egui::Stroke::new(2.5_f32, crate::app::theme::colors::RUST_PRIMARY),
+                        egui::StrokeKind::Outside,
                     );
-
-                    // Premium, elegant rendering status indicator
-                    ui.painter().text(
-                        page_rect.center(),
-                        egui::Align2::CENTER_CENTER,
-                        format!("⌛ Rendering Page {}...", layout.index + 1),
-                        egui::FontId::proportional(15.0),
-                        egui::Color32::from_rgb(100, 110, 125),
+                } else if self.zoom < 0.65 {
+                    ui.painter().rect_stroke(
+                        page_rect,
+                        3.0,
+                        egui::Stroke::new(1.0_f32, crate::app::theme::colors::STEEL_BORDER),
+                        egui::StrokeKind::Outside,
                     );
                 }
 
-                // Render overlays
+                // Page number badge
+                Self::draw_page_number_badge(ui, page_rect, layout.index, is_selected, self.zoom);
+
+                // Overlays
                 self.draw_selection_highlights(ui, layout.index, highlights);
                 self.draw_redaction_highlights(ui, layout.index, redaction_highlights);
                 self.draw_active_redaction_drag(ui, layout.index, active_redaction_drag);
@@ -354,10 +285,176 @@ impl PDFView {
             }
         }
 
+        Self::draw_marquee_overlay(ui.painter(), marquee_rect);
+
         self.visible_pages = new_visible;
-        if response.hovered() {
-            ui.ctx().set_cursor_icon(egui::CursorIcon::Grab);
+        if response.dragged() {
+            ui.ctx().set_cursor_icon(egui::CursorIcon::Grabbing);
+        } else if response.hovered() {
+            ui.ctx().set_cursor_icon(egui::CursorIcon::Default);
         }
+    }
+
+    fn draw_canvas_grid(
+        painter: &egui::Painter,
+        viewport_rect: egui::Rect,
+        pan: egui::Vec2,
+        zoom: f32,
+    ) {
+        let grid_size = 32.0;
+        let step = grid_size * zoom;
+        let grid_stroke =
+            egui::Stroke::new(1.0_f32, egui::Color32::from_rgba_unmultiplied(203, 213, 225, 40));
+
+        if step > 0.1 {
+            let start_x = viewport_rect.min.x + (pan.x % step);
+            let width = viewport_rect.max.x - start_x;
+            if width > 0.0 {
+                let count = (width / step).ceil() as usize;
+                for i in 0..count {
+                    let x = (i as f32).mul_add(step, start_x);
+                    painter.line_segment(
+                        [egui::pos2(x, viewport_rect.min.y), egui::pos2(x, viewport_rect.max.y)],
+                        grid_stroke,
+                    );
+                }
+            }
+
+            let start_y = viewport_rect.min.y + (pan.y % step);
+            let height = viewport_rect.max.y - start_y;
+            if height > 0.0 {
+                let count = (height / step).ceil() as usize;
+                for i in 0..count {
+                    let y = (i as f32).mul_add(step, start_y);
+                    painter.line_segment(
+                        [egui::pos2(viewport_rect.min.x, y), egui::pos2(viewport_rect.max.x, y)],
+                        grid_stroke,
+                    );
+                }
+            }
+        }
+    }
+
+    fn draw_page_backings(
+        &self,
+        painter: &egui::Painter,
+        viewport_rect: egui::Rect,
+        layouts: &[PageLayout],
+        scenes: &std::collections::BTreeMap<usize, std::sync::Arc<vello::Scene>>,
+    ) {
+        let origin = self.get_origin(viewport_rect);
+        let active_spread = self.get_spread_indices(self.active_page, layouts.len());
+        for layout in layouts {
+            if self.display_mode == DisplayMode::SinglePage && layout.index != self.active_page {
+                continue;
+            }
+            if self.display_mode == DisplayMode::TwoPageSingle
+                && !active_spread.contains(&layout.index)
+            {
+                continue;
+            }
+            let page_rect = egui::Rect::from_min_size(
+                origin + layout.rect.min.to_vec2() * self.zoom,
+                layout.rect.size() * self.zoom,
+            );
+            if viewport_rect.intersects(page_rect) {
+                if scenes.contains_key(&layout.index) {
+                    for offset in 1..=4 {
+                        painter.rect_filled(
+                            page_rect.translate(egui::vec2(
+                                f32::from(offset) * 1.5,
+                                f32::from(offset) * 1.5,
+                            )),
+                            4.0,
+                            egui::Color32::from_rgba_unmultiplied(30, 41, 59, 20 - offset * 4),
+                        );
+                    }
+                }
+                painter.rect_filled(page_rect, 0.0, egui::Color32::WHITE);
+            }
+        }
+    }
+
+    fn draw_placeholder_card(painter: &egui::Painter, page_rect: egui::Rect, page_index: usize) {
+        painter.rect_filled(page_rect, 4.0, egui::Color32::WHITE);
+        painter.rect_stroke(
+            page_rect,
+            4.0,
+            egui::Stroke::new(1.0_f32, crate::app::theme::colors::STEEL_BORDER_SUBTLE),
+            egui::StrokeKind::Inside,
+        );
+        painter.text(
+            page_rect.center(),
+            egui::Align2::CENTER_CENTER,
+            format!("⌛ Rendering Page {}...", page_index + 1),
+            egui::FontId::proportional(15.0),
+            crate::app::theme::colors::STEEL_SECONDARY,
+        );
+    }
+
+    fn draw_marquee_overlay(painter: &egui::Painter, marquee_rect: Option<egui::Rect>) {
+        if let Some(m_rect) = marquee_rect {
+            painter.rect_filled(m_rect, 0.0, crate::app::theme::colors::RUST_SELECTION_BG);
+            painter.rect_stroke(
+                m_rect,
+                0.0,
+                egui::Stroke::new(1.5_f32, crate::app::theme::colors::RUST_PRIMARY),
+                egui::StrokeKind::Outside,
+            );
+        }
+    }
+
+    fn draw_page_number_badge(
+        ui: &mut egui::Ui,
+        page_rect: egui::Rect,
+        page_index: usize,
+        is_selected: bool,
+        zoom: f32,
+    ) {
+        let badge_text = format!("{}", page_index + 1);
+        let font_size = if zoom < 0.65 { 11.0 } else { 12.0 };
+        let (badge_bg, badge_fg, badge_border) = if is_selected {
+            (
+                crate::app::theme::colors::RUST_BADGE_BG,
+                crate::app::theme::colors::RUST_BADGE_TEXT,
+                crate::app::theme::colors::RUST_PRIMARY,
+            )
+        } else {
+            (
+                crate::app::theme::colors::PANEL_BG,
+                crate::app::theme::colors::STEEL_SECONDARY,
+                crate::app::theme::colors::STEEL_BORDER,
+            )
+        };
+
+        let galley = ui.painter().layout_no_wrap(
+            badge_text,
+            egui::FontId::proportional(font_size),
+            badge_fg,
+        );
+        let badge_w = (galley.size().x + 14.0).max(22.0);
+        let badge_h = (galley.size().y + 4.0).max(18.0);
+        let badge_center_y = page_rect.max.y + (badge_h / 2.0) + 6.0;
+        let badge_rect = egui::Rect::from_center_size(
+            egui::pos2(page_rect.center().x, badge_center_y),
+            egui::vec2(badge_w, badge_h),
+        );
+
+        ui.painter().rect_filled(badge_rect, 4.0, badge_bg);
+        ui.painter().rect_stroke(
+            badge_rect,
+            4.0,
+            egui::Stroke::new(1.0_f32, badge_border),
+            egui::StrokeKind::Outside,
+        );
+        ui.painter().galley(
+            egui::pos2(
+                badge_rect.center().x - galley.size().x / 2.0,
+                badge_rect.center().y - galley.size().y / 2.0,
+            ),
+            galley,
+            badge_fg,
+        );
     }
 
     fn draw_selection_highlights(
@@ -371,7 +468,7 @@ impl PDFView {
                 ui.painter().rect_filled(
                     *hl_rect,
                     0.0,
-                    egui::Color32::from_rgba_unmultiplied(120, 125, 135, 45),
+                    crate::app::theme::colors::RUST_SELECTION_BG,
                 );
             }
         }
@@ -496,6 +593,56 @@ impl PDFView {
         }
     }
 
+    fn handle_zoom_gestures(&mut self, ui: &egui::Ui, viewport_rect: egui::Rect) {
+        ui.input(|i| {
+            let zoom_delta = i.zoom_delta();
+            let hover_pos = i.pointer.hover_pos();
+            #[allow(clippy::float_cmp)]
+            if zoom_delta != 1.0 {
+                let old_zoom = self.zoom;
+                let new_zoom = (self.zoom * zoom_delta).clamp(0.1, 10.0);
+                if let Some(pos) = hover_pos {
+                    let origin = self.get_origin_no_pan(viewport_rect);
+                    let cursor_doc = (pos - origin - self.pan) / old_zoom;
+                    self.zoom = new_zoom;
+                    self.pan = pos.to_vec2() - origin.to_vec2() - cursor_doc * new_zoom;
+                } else {
+                    self.zoom = new_zoom;
+                }
+            }
+            let scroll_delta = i.smooth_scroll_delta;
+            if i.modifiers.command && scroll_delta.y != 0.0 {
+                let old_zoom = self.zoom;
+                let new_zoom = (self.zoom * (scroll_delta.y * 0.005).exp()).clamp(0.1, 10.0);
+                if let Some(pos) = hover_pos {
+                    let origin = self.get_origin_no_pan(viewport_rect);
+                    let cursor_doc = (pos - origin - self.pan) / old_zoom;
+                    self.zoom = new_zoom;
+                    self.pan = pos.to_vec2() - origin.to_vec2() - cursor_doc * new_zoom;
+                } else {
+                    self.zoom = new_zoom;
+                }
+            }
+        });
+    }
+
+    fn handle_scroll_panning(&mut self, ui: &egui::Ui) {
+        ui.input(|i| {
+            if !i.modifiers.command {
+                let scroll_delta = i.smooth_scroll_delta;
+                if self.scroll_direction == ScrollDirection::Horizontal {
+                    if scroll_delta.x != 0.0 {
+                        self.pan.x += scroll_delta.x;
+                    } else {
+                        self.pan.x += scroll_delta.y;
+                    }
+                } else {
+                    self.pan += scroll_delta;
+                }
+            }
+        });
+    }
+
     fn handle_input(
         &mut self,
         ui: &mut egui::Ui,
@@ -506,34 +653,21 @@ impl PDFView {
             .ctx()
             .input(|i| i.pointer.hover_pos().is_some_and(|pos| viewport_rect.contains(pos)));
         if is_hovered {
-            ui.input(|i| {
-                let zoom_delta = i.zoom_delta();
-                // egui returns exactly 1.0 as the "no pinch gesture this frame" sentinel,
-                // so an exact comparison is the correct test here.
-                #[allow(clippy::float_cmp)]
-                if zoom_delta != 1.0 {
-                    self.zoom = (self.zoom * zoom_delta).clamp(0.1, 10.0);
-                }
-                let scroll_delta = i.smooth_scroll_delta;
-                if i.modifiers.command && scroll_delta.y != 0.0 {
-                    self.zoom = (self.zoom * (scroll_delta.y * 0.005).exp()).clamp(0.1, 10.0);
-                }
-                if !i.modifiers.command {
-                    if self.scroll_direction == ScrollDirection::Horizontal {
-                        if scroll_delta.x != 0.0 {
-                            self.pan.x += scroll_delta.x;
-                        } else {
-                            // Translate vertical mouse scroll to horizontal panning
-                            self.pan.x += scroll_delta.y;
-                        }
-                    } else {
-                        self.pan += scroll_delta;
-                    }
-                }
-            });
+            self.handle_zoom_gestures(ui, viewport_rect);
+            self.handle_scroll_panning(ui);
         }
-        if response.dragged() {
+        let shift_down = ui.input(|i| i.modifiers.shift);
+        if response.dragged() && (!shift_down || self.zoom >= 0.65) {
             self.pan += response.drag_delta();
+        }
+        if response.double_clicked()
+            && let Some(pos) = ui.input(|i| i.pointer.hover_pos())
+        {
+            let origin = self.get_origin_no_pan(viewport_rect);
+            let cursor_doc = (pos - origin - self.pan) / self.zoom;
+            let target_zoom = if self.zoom < 0.65 { 1.0 } else { 0.35 };
+            self.zoom = target_zoom;
+            self.pan = pos.to_vec2() - origin.to_vec2() - cursor_doc * target_zoom;
         }
         if response.drag_stopped()
             || (!response.dragged() && ui.input(|i| i.pointer.any_released()))
@@ -625,7 +759,7 @@ impl PDFView {
             egui::vec2(page_rect.width(), bar_height),
         );
 
-        ui.painter().rect_filled(bar_rect, 4.0, egui::Color32::from_gray(40));
+        ui.painter().rect_filled(bar_rect, 4.0, crate::app::theme::colors::STEEL_PRIMARY);
 
         let mut x_offset = bar_rect.left() + 4.0;
         for (i, (tag, color)) in list.iter().enumerate() {

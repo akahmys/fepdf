@@ -43,7 +43,6 @@ mod locale;
 mod redaction;
 mod redaction_studio;
 mod sidebar;
-mod thumbnail_sidebar;
 mod vello_egui;
 mod view;
 mod worker;

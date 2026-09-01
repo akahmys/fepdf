@@ -1,5 +1,6 @@
 use crate::locale::LocaleManager;
 
+#[allow(dead_code)]
 pub fn show_bookmarks(
     ui: &mut egui::Ui,
     total_pages: usize,

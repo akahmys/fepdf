@@ -244,27 +244,68 @@ impl FepdfApp {
                 layouts[i] = PageLayout { index: i, rect };
             }
         } else {
-            let mut current_offset = 0.0;
-            let gap = 20.0;
-            for (i, &(w, h)) in self.doc_page_sizes.iter().enumerate() {
-                let w = w as f32;
-                let h = h as f32;
-                let rect = if self.view.scroll_direction == ScrollDirection::Vertical {
-                    let r = egui::Rect::from_min_size(
-                        egui::pos2(-w / 2.0, current_offset),
-                        egui::vec2(w, h),
-                    );
-                    current_offset += h + gap;
-                    r
+            // Continuous Display Mode: Dynamically tile pages in 1..N columns based on zoom and viewport width
+            let viewport_w = self.last_viewport_rect.map_or(1000.0, |r| r.width());
+            let (ref_w, ref_h) = self.doc_page_sizes.first().copied().unwrap_or((595.0, 842.0));
+            let ref_w = ref_w as f32;
+            let ref_h = ref_h as f32;
+            let zoom = self.view.zoom;
+            let is_r2l = self.view.binding_direction == BindingDirection::RightToLeft;
+            let gap_x = 24.0_f32;
+            let min_screen_gap_y = 36.0_f32;
+            let gap_y = (min_screen_gap_y / zoom.max(0.05)).max(24.0);
+
+            if self.view.scroll_direction == ScrollDirection::Vertical {
+                let page_screen_w = (ref_w + gap_x) * zoom;
+                let cols = (viewport_w / page_screen_w.max(1.0)).floor().max(1.0) as usize;
+
+                if cols <= 1 {
+                    // Standard single vertical column
+                    let mut current_offset = 0.0;
+                    for (i, &(page_w, page_h)) in self.doc_page_sizes.iter().enumerate() {
+                        let width = page_w as f32;
+                        let height = page_h as f32;
+                        let page_rect = egui::Rect::from_min_size(
+                            egui::pos2(-width / 2.0, current_offset),
+                            egui::vec2(width, height),
+                        );
+                        current_offset += height + gap_y;
+                        layouts[i] = PageLayout { index: i, rect: page_rect };
+                    }
                 } else {
+                    // Multi-column tile grid (seamlessly transitions when zoomed out)
+                    let total_grid_w = (cols as f32 - 1.0).mul_add(gap_x, cols as f32 * ref_w);
+                    let start_x = -total_grid_w / 2.0;
+
+                    for (i, &(page_w, page_h)) in self.doc_page_sizes.iter().enumerate() {
+                        let row = i / cols;
+                        let col = if is_r2l { (cols - 1) - (i % cols) } else { i % cols };
+                        let width = page_w as f32;
+                        let height = page_h as f32;
+
+                        let pos_x =
+                            (col as f32).mul_add(ref_w + gap_x, start_x) + (ref_w - width) / 2.0;
+                        let pos_y = (row as f32).mul_add(ref_h + gap_y, (ref_h - height) / 2.0);
+
+                        let page_rect = egui::Rect::from_min_size(
+                            egui::pos2(pos_x, pos_y),
+                            egui::vec2(width, height),
+                        );
+                        layouts[i] = PageLayout { index: i, rect: page_rect };
+                    }
+                }
+            } else {
+                let mut current_offset = 0.0;
+                for (i, &(w, h)) in self.doc_page_sizes.iter().enumerate() {
+                    let w = w as f32;
+                    let h = h as f32;
                     let r = egui::Rect::from_min_size(
                         egui::pos2(current_offset, -h / 2.0),
                         egui::vec2(w, h),
                     );
-                    current_offset += w + gap;
-                    r
-                };
-                layouts[i] = PageLayout { index: i, rect };
+                    current_offset += w + gap_x;
+                    layouts[i] = PageLayout { index: i, rect: r };
+                }
             }
         }
         self.page_layouts = layouts;
