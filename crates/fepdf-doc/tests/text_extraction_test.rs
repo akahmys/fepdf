@@ -401,3 +401,73 @@ fn popping_the_graphics_state_restores_the_transform_that_was_pushed() {
          block's translation in force and put AFTER at 800: {out:?}"
     );
 }
+
+/// **Ruby is read before what it reads, wherever the producer put it.**
+///
+/// In vertical Japanese the furigana sit to the right of their base characters at about
+/// half the size, so they cluster as a column of their own and — columns being emitted
+/// right to left — every gloss on the page came out ahead of the prose it annotates.
+/// `samples/bokutokitan.pdf` lost 89 of its 93 agreeing pages that way when ADR-0047's
+/// sort arrived.
+///
+/// **The three arrangements below all occur on one page of it**, which is why binding a
+/// gloss to its base is the rule rather than sorting by `y`: `まもり` sits 2.65 above the
+/// `守` it reads, `はと` at exactly the same `y` as `鳩`, and `や` 2.66 *below* `谷`. Sorting
+/// alone gets the first right and the other two backwards, and no tie-break saves a gloss
+/// that is genuinely lower than its base.
+#[test]
+fn ruby_is_read_before_its_base_whether_it_sits_above_level_or_below() {
+    for (label, offset) in [("above", 2.65_f64), ("level", 0.0), ("below", -2.66)] {
+        let mut backend = TextExtractionBackend::new();
+        let state = TextState { tc: 0.0, tw: 0.0, th: 1.0, is_vertical: true };
+        let mut show = |text: &str, x: f64, y: f64, size: f64, op: usize| {
+            let glyphs: Vec<TextGlyph> = text
+                .chars()
+                .map(|c| TextGlyph { width: 1000.0, ..glyph(&c.to_string()) })
+                .collect();
+            backend.show_text(&glyphs, size, Affine::translate((x, y)), state, op);
+        };
+        // A body column at x = 228.5, 10.6pt, one character per run, as the file emits it.
+        show("前", 228.54, 291.2, 10.6, 0);
+        show("守", 228.54, 280.9, 10.6, 1);
+        show("後", 228.54, 270.6, 10.6, 2);
+        // The gloss, 7.97 to the right at half the size, drawn after its base.
+        show("まもり", 236.51, 280.9 + offset, 5.3, 3);
+
+        let out = backend.finish();
+        let (ruby, base) = (out.find("まもり"), out.find('守'));
+        assert!(ruby.is_some() && base.is_some(), "{label}: both reach the output: {out:?}");
+        assert!(ruby < base, "{label}: the gloss came out after the character it reads: {out:?}");
+        assert!(
+            out.find('前') < ruby && base < out.find('後'),
+            "{label}: the gloss did not land between the characters around its base: {out:?}"
+        );
+    }
+}
+
+/// A gloss does not always arrive whole: the same page emits `どうぬき` as one run and
+/// `ひとえ` as three, 6.64 apart at 5.3pt. Bound one at a time each went to its own
+/// nearest base and the page read `ひ単衣とえと` where the file says `ひとえ単衣と`.
+#[test]
+fn a_gloss_split_across_runs_is_bound_to_one_base_and_stays_together() {
+    let mut backend = TextExtractionBackend::new();
+    let state = TextState { tc: 0.0, tw: 0.0, th: 1.0, is_vertical: true };
+    let mut show = |text: &str, x: f64, y: f64, size: f64, op: usize| {
+        let glyphs: Vec<TextGlyph> =
+            text.chars().map(|c| TextGlyph { width: 1000.0, ..glyph(&c.to_string()) }).collect();
+        backend.show_text(&glyphs, size, Affine::translate((x, y)), state, op);
+    };
+    show("単", 165.65 - 7.97, 85.1, 10.6, 0);
+    show("衣", 165.65 - 7.97, 74.8, 10.6, 1);
+    // `ひ` `と` `え` as three runs, 6.64 apart — one gloss over the two characters above.
+    show("ひ", 165.65, 85.12, 5.3, 2);
+    show("と", 165.65, 78.48, 5.3, 3);
+    show("え", 165.65, 71.84, 5.3, 4);
+
+    let out = backend.finish();
+    let stripped: String = out.chars().filter(|c| !c.is_whitespace()).collect();
+    assert_eq!(
+        stripped, "ひとえ単衣",
+        "the gloss scattered across the characters it reads instead of preceding them"
+    );
+}

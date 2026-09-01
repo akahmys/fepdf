@@ -54,7 +54,8 @@ fi
 
 cargo build --release -q -p fepdf-cli || exit 1
 
-# The floor each file must not fall below, and the best it has ever read.
+# The floor each file must not fall below, the best it has ever read, and a floor on how
+# far the two readers agree before they first part.
 #
 # `floor` is what fails this script. `best` is the high-water mark, recorded so that a
 # file sitting below its own best is visible on every run without turning the suite red —
@@ -65,36 +66,38 @@ cargo build --release -q -p fepdf-cli || exit 1
 # now composes the CTM, which it never did: `volvo_xc90` reads 182 where it read 61 before
 # the sort and 0 after it, and `unicode_16` 707 where it read 28 and then 7. The two still
 # marked `best` above their floor are the vertical-Japanese ruby case.
-#   file:floor:best
+#   file:floor:best:prefix-floor
 FLOORS="
-print_sample:19:19
-constitution:12:12
-sample:12:12
-bokutokitan:4:93
-fy05:11:45
-unicode_16:707:707
-volvo_xc90:182:182
-fugaku:1:1
-intel_sdm:1909:1909
+print_sample:19:19:78
+constitution:12:12:96
+sample:12:12:96
+bokutokitan:4:93:8
+fy05:11:45:3
+unicode_16:707:707:74
+volvo_xc90:182:182:56
+fugaku:1:1:0
+intel_sdm:1909:1909:46
 "
 
 status=0
-printf '%-16s %7s %10s %11s %8s %7s  %s\n' \
-    file pages identical order-only content floor note
+printf '%-16s %7s %10s %11s %8s %8s %7s  %s\n' \
+    file pages identical order-only content prefix% floor note
 total_pages=0 total_ident=0 total_order=0 total_content=0
 
 for entry in $FLOORS; do
     name=${entry%%:*}
     rest=${entry#*:}
     floor=${rest%%:*}
-    best=${rest#*:}
+    rest=${rest#*:}
+    best=${rest%%:*}
+    prefix_floor=${rest#*:}
     pdf="samples/$name.pdf"
     [ -e "$pdf" ] || { printf '%-16s  absent, skipped\n' "$name"; continue; }
 
     ./target/release/fepdf inspect text "$pdf" 2>/dev/null > "$work/$name.fepdf"
     "$reader" "$pdf" > "$work/$name.pdfkit"
 
-    read -r pages ident order content < <(
+    read -r pages ident order content prefix < <(
         python3 scripts/test/compare_reading_order.py "$work/$name.fepdf" "$work/$name.pdfkit")
 
     note=""
@@ -106,14 +109,17 @@ for entry in $FLOORS; do
     elif [ "$ident" -lt "$floor" ]; then
         note="<- FELL BELOW ITS FLOOR OF $floor"
         status=1
+    elif [ "${prefix%%.*}" -lt "$prefix_floor" ]; then
+        note="<- PREFIX AGREEMENT FELL BELOW ${prefix_floor}%"
+        status=1
     elif [ "$ident" -lt "$best" ]; then
         note="below $best, its best before ADR-0047's sort (Phase U)"
     elif [ "$ident" -gt "$floor" ]; then
         note="above its floor of $floor — raise it"
     fi
 
-    printf '%-16s %7s %10s %11s %8s %7s  %s\n' \
-        "$name" "$pages" "$ident" "$order" "$content" "$floor" "$note"
+    printf '%-16s %7s %10s %11s %8s %8s %7s  %s\n' \
+        "$name" "$pages" "$ident" "$order" "$content" "$prefix" "$floor" "$note"
     total_pages=$((total_pages + pages))
     total_ident=$((total_ident + ident))
     total_order=$((total_order + order))
@@ -126,5 +132,8 @@ echo
 echo "  identical  the same characters in the same sequence"
 echo "  order-only the same characters in a different sequence — this script's subject"
 echo "  content    different characters, which is extraction loss (ROADMAP §9)"
+echo "  prefix%    how far the two agree before they first part, over all pages of the"
+echo "             file — a page is a coarse unit, and one misplaced running head keeps a"
+echo "             page off the identical column however much of it is right"
 
 exit $status

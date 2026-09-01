@@ -175,11 +175,116 @@ impl TextExtractionBackend {
             }
         }
         cols.sort_by(|a, b| b.column_x.total_cmp(&a.column_x));
+        Self::fold_ruby_columns(&mut cols);
         cols
     }
 
+    /// Folds a ruby column into the column of base characters it annotates.
+    ///
+    /// **Ruby is set beside the text it reads, not in a column of its own.** In vertical
+    /// Japanese the furigana sit to the *right* of their base characters, about three
+    /// quarters of a body em across and at half the size — measured on
+    /// `samples/bokutokitan.pdf` page 11, where the body columns are 17.71 apart at 10.6pt
+    /// and each ruby run sits 7.97 to the right of the column it belongs to at 5.3pt. The
+    /// clustering tolerance is at most 6, so ruby became its own column; columns are
+    /// emitted right to left, so every gloss on the page came out ahead of the prose it
+    /// annotates and `まもり` left the `守` it belongs to. That cost 89 of the file's 93
+    /// agreeing pages when ADR-0047's sort arrived.
+    ///
+    /// Folding is all that is needed: the runs are per character, and the ruby's own `y`
+    /// already places it between the character before its base and the base itself —
+    /// `お` at 291.23, `まもり` at 283.57, `守` at 280.92 — so the descending-`y` sort in
+    /// [`Self::format_vertical_column`] puts it back where a reader expects, which is
+    /// where PDFKit puts it.
+    fn fold_ruby_columns(cols: &mut Vec<VerticalColumn>) {
+        // Right to left, so the column a ruby annotates is the next one along.
+        let mut i = 0;
+        while i + 1 < cols.len() {
+            let (ruby_size, base_size) =
+                (Self::column_size(&cols[i]), Self::column_size(&cols[i + 1]));
+            let gap = cols[i].column_x - cols[i + 1].column_x;
+            // Half-size is the convention; 0.6 leaves room for a producer that rounds.
+            // The gap bound keeps a genuinely narrow column of small text — a marginal
+            // note, a page number — from being swallowed by the prose beside it.
+            if base_size > 0.0
+                && ruby_size <= base_size * 0.6
+                && gap > 0.0
+                && gap <= base_size * 1.2
+            {
+                let mut folded = std::mem::take(&mut cols[i].runs);
+                Self::bind_ruby_to_its_base(&mut folded, &cols[i + 1].runs);
+                cols[i + 1].runs.extend(folded);
+                cols.remove(i);
+            } else {
+                i += 1;
+            }
+        }
+    }
+
+    /// Gives each ruby run the `y` of the base character it reads.
+    ///
+    /// **Where a gloss sits relative to its base is not fixed, so `y` alone cannot order
+    /// them.** All three arrangements occur on one page of `samples/bokutokitan.pdf`:
+    /// `まもり` sits 2.65 *above* the `守` it reads, `はと` at *exactly* the same `y` as
+    /// `鳩`, and `や` 2.66 *below* `谷`. Sorting by `y` put the first right and the other
+    /// two backwards, and no tie-break fixes a gloss that is genuinely lower than its
+    /// base. Binding it to the base's own `y` makes all three the same case, and the
+    /// smaller-size-first tie-break in [`Self::format_vertical_column`] then puts the
+    /// gloss ahead of what it reads.
+    ///
+    /// **A gloss is bound whole, because it does not always arrive whole.** The same page
+    /// emits `どうぬき` as one run and `ひとえ` as three — `ひ`, `と`, `え`, 6.64 apart at
+    /// 5.3pt — and binding those one at a time sent each to its own nearest base, which
+    /// read `ひ単衣とえと` where the file says `ひとえ単衣と`. Runs closer together than
+    /// twice their own size are one gloss and take the base nearest the first of them; the
+    /// next gloss along on that page is 17.28 away, so the two populations do not meet.
+    fn bind_ruby_to_its_base(ruby: &mut [ExtractedRun], base: &[ExtractedRun]) {
+        ruby.sort_by(|a, b| b.y.total_cmp(&a.y));
+        let mut start = 0;
+        while start < ruby.len() {
+            let mut end = start + 1;
+            while end < ruby.len() {
+                let step = (ruby[end - 1].y - ruby[end].y).abs();
+                if step > (ruby[end].size * ruby[end].scale * 2.0).max(f64::EPSILON) {
+                    break;
+                }
+                end += 1;
+            }
+            let head = ruby[start].y;
+            let nearest = base
+                .iter()
+                .min_by(|a, b| (a.y - head).abs().total_cmp(&(b.y - head).abs()))
+                .map(|r| r.y);
+            if let Some(y) = nearest {
+                for run in &mut ruby[start..end] {
+                    run.y = y;
+                }
+            }
+            start = end;
+        }
+    }
+
+    /// The size of the text a column is set in, taken as the largest run in it: a body
+    /// column carries its own ruby's size too once anything has been folded in.
+    fn column_size(col: &VerticalColumn) -> f64 {
+        col.runs.iter().map(|r| r.size * r.scale).fold(0.0, f64::max)
+    }
+
     fn format_vertical_column(mut runs: Vec<ExtractedRun>) -> String {
-        runs.sort_by(|a, b| b.y.total_cmp(&a.y).then_with(|| a.op_index.cmp(&b.op_index)));
+        // Descending `y`, then the smaller size first, then arrival.
+        //
+        // **The size is the tie-break because ruby and its base often share a `y`.** Once
+        // a ruby column is folded in (`fold_ruby_columns`), the gloss usually sits a
+        // little above the character it reads — `まもり` at 283.57 over `守` at 280.92 —
+        // and `y` alone is enough. It is not always: `はと` sits at *exactly* 53.60, the
+        // same as the `鳩` it annotates, and `いち` likewise with `市`. Arrival order then
+        // decided, the base was drawn first, and the page read `鳩はと` where a reader —
+        // and PDFKit — has `はと鳩`. Ruby precedes what it reads.
+        runs.sort_by(|a, b| {
+            b.y.total_cmp(&a.y)
+                .then_with(|| (a.size * a.scale).total_cmp(&(b.size * b.scale)))
+                .then_with(|| a.op_index.cmp(&b.op_index))
+        });
         let mut col_str = String::new();
         let mut last_bottom_y = 0.0;
 

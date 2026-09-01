@@ -2657,6 +2657,22 @@ Everything here was carried in a handoff note as a one-line hunch. Each is now a
       `scripts/test/crosscheck_reading_order.sh` is the missing third clause: per file,
       per page, with a floor each file may not fall below.
 
+      **Vertical Japanese was the rest of it.** Ruby sits 7.97 to the right of the column
+      it reads at half the size, so it clustered as a column of its own and — columns
+      being emitted right to left — every gloss came out ahead of its prose. Folding it
+      back is not enough, because `y` does not order a gloss against its base: on one page
+      `まもり` sits above `守`, `はと` level with `鳩`, and `や` *below* `谷`. Each gloss
+      takes its base's `y` now and the smaller size goes first
+      ([ADR-0050](docs/adr/0050-ruby-is-bound-to-the-base-it-reads.md)). `bokutokitan.pdf`
+      page 11 agrees for 332 of 389 characters, from 59.
+
+      **That moved no column, which is what the prefix figure is for.** One misplaced
+      running head keeps a page out of the identical column however much of it is right,
+      so the crosscheck carries how far the two readers agree before they first part:
+      `bokutokitan.pdf` reads 8.7% against 1.2%, with a floor. What is left there is the
+      running head, and PDFKit puts that *inside a word* — `勘定をす濹東綺譚るついで` —
+      so exact agreement past this point would be chasing the reader, not the document.
+
 - [x] **A font is built twice, by two different routes, and only the second one draws.**
       `ARCHITECTURE.md` §4.4 is called *normalisation-at-load* and says a `Document` is one
       normalised state by the time application code sees it. Three of the things it names
