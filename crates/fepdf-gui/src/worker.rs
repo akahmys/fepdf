@@ -396,10 +396,11 @@ fn handle_replace_document(
 
 /// Whether a document with no declared reading direction is a vertically set CJK one.
 ///
-/// **Table 30 gives `/Direction` a default of L2R, and nothing in either corpus declares
-/// it** — 0 files of 524 — so the declared value is `None` for every document there and
-/// this guess is the only thing that ever reaches the binding. Removing it did not restore
-/// the standard's default so much as make right-to-left binding unreachable.
+/// **Table 30 gives `/Direction` a default of L2R, and almost nothing declares it** — 2
+/// files of 524, `samples/bokutokitan.pdf` saying `R2L` and one external file `L2R`. So a
+/// document that is set vertically and says nothing gets bound the wrong way round unless
+/// something looks at it, and `samples/fy05.pdf` is exactly that: six fonts in a vertical
+/// writing mode and no declaration.
 ///
 /// It is a guess and is recorded as one. [ADR-0041] settled the shape: where a file
 /// declares, obey it; where it declares nothing, a heuristic is what there is to go on,
@@ -701,10 +702,12 @@ fn handle_save(
 
 #[cfg(test)]
 mod binding_direction {
-    //! **Nothing in either corpus declares `/ViewerPreferences /Direction`** — 0 files of
-    //! 524 — so this guess is the only thing that ever reaches the binding, and removing
-    //! it made right-to-left unreachable rather than restoring Table 30's default. It is
-    //! a guess and is recorded as one where the reader can see it.
+    //! **Two files of 524 declare `/ViewerPreferences /Direction`**, so for almost every
+    //! document Table 30's default of L2R is what applies and a vertically set book opens
+    //! at the wrong end unless something looks at it. `samples/fy05.pdf` is the case in
+    //! the corpus: six fonts in a vertical writing mode and no declaration.
+    //! `samples/bokutokitan.pdf` is not — it declares `R2L` itself, and the guess is never
+    //! reached for it. It is a guess and is recorded as one where the reader can see it.
     use super::infer_binding;
 
     fn fonts(names: &[&str]) -> Vec<fepdf::FontSummary> {
