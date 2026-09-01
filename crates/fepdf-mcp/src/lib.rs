@@ -3,6 +3,9 @@
 //! This crate implements an MCP server that exposes PDF rendering and
 //! auditing capabilities to AI agents and LLM clients.
 
+#![allow(unknown_lints)]
+#![allow(clippy::unused_async_trait_impl)]
+
 use thiserror::Error;
 
 /// Error type for MCP operations.

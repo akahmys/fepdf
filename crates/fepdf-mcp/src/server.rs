@@ -38,6 +38,8 @@ use rmcp::{
 pub struct FepdfServer;
 
 #[tool_handler]
+#[allow(unknown_lints)]
+#[allow(clippy::unused_async_trait_impl)]
 impl ServerHandler for FepdfServer {}
 
 #[tool_router]
