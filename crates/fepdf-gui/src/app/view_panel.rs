@@ -530,13 +530,20 @@ impl FepdfApp {
         Some((sig_idx, egui::Rect::from_min_max(screen_min, screen_max)))
     }
 
+    /// The width a thumbnail is rendered at, in pixels.
+    ///
+    /// An A4 page at `OVERVIEW_STEP` is 196 wide and at the zoom floor 60, so one
+    /// thumbnail at this width serves every zoom that uses thumbnails at all without
+    /// being upscaled. Larger would only cost memory: the cache holds one per page.
+    const THUMBNAIL_WIDTH: u32 = 200;
+
     fn draw_view_with_highlights(
         // RR-15 Limit: GUI - Paints selection, redaction, and structural highlights onto canvas
         &mut self,
         ui: &mut egui::Ui,
         viewport_rect: egui::Rect,
         zoom: f32,
-        viewport_texture_id: Option<egui::TextureId>,
+        pixels: &crate::view::PagePixels<'_>,
     ) {
         let origin = self.view.get_origin(viewport_rect);
         let mut redaction_highlights = BTreeMap::new();
@@ -572,7 +579,7 @@ impl FepdfApp {
         self.view.show_virtual(
             ui,
             &self.page_layouts,
-            viewport_texture_id,
+            pixels,
             viewport_rect,
             &self.scenes,
             &self.selection_manager.highlights,
@@ -698,17 +705,32 @@ impl FepdfApp {
         vello_renderer.next_frame(rs);
 
         let scale_factor = ui.ctx().pixels_per_point();
-        let viewport_texture_id = vello_renderer.render_viewport(
-            rs,
-            &visible_pages_data,
-            viewport_rect,
-            scale_factor,
-            zoom,
-        );
-        let pages_left_out = vello_renderer.pages_left_out();
-        self.pages_left_out = pages_left_out;
 
-        self.draw_view_with_highlights(ui, viewport_rect, zoom, viewport_texture_id);
+        // Below `OVERVIEW_STEP` each page is drawn from its own small texture instead of
+        // being composed, vector and all, into one viewport scene. That composition is
+        // what reaches vello's fixed bin-data buffer — 39 consecutive pages of
+        // `intel_sdm.pdf` cross it — and a thumbnail costs one draw whatever the page
+        // holds. It is also where the pixels are: at 33% an A4 page is 196 wide, so
+        // `THUMBNAIL_WIDTH` covers this zoom and every zoom below it without blurring.
+        let thumbnails;
+        let pixels = if zoom <= crate::view::PDFView::OVERVIEW_STEP {
+            thumbnails =
+                vello_renderer.ensure_thumbnails(rs, &visible_pages_data, Self::THUMBNAIL_WIDTH);
+            self.pages_left_out = 0;
+            crate::view::PagePixels::Thumbnails(&thumbnails)
+        } else {
+            let id = vello_renderer.render_viewport(
+                rs,
+                &visible_pages_data,
+                viewport_rect,
+                scale_factor,
+                zoom,
+            );
+            self.pages_left_out = vello_renderer.pages_left_out();
+            crate::view::PagePixels::Viewport(id)
+        };
+
+        self.draw_view_with_highlights(ui, viewport_rect, zoom, &pixels);
         self.handle_page_interactions(ui, viewport_rect, zoom);
     }
 }

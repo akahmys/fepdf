@@ -118,3 +118,4 @@ quietly wrong — which is the failure this log exists to make visible.
 | 0051 | [Almost nothing declares a binding direction, and a vertical book that is silent opens the wrong way round](0051-a-binding-direction-nothing-declares.md) | Applies 0041 |
 | 0052 | [The scene budget is counted before the scene is submitted, because appending cannot be undone](0052-the-scene-budget-is-counted-before-the-scene-is-submitted.md) | Bounds 0043 |
 | 0053 | [The viewer has two modes and a zoom ladder, because a multiplier could not reach 100%](0053-the-viewer-has-two-modes-and-they-are-now-named.md) | Bounds 0052 |
+| 0054 | [Below the overview step a page is a thumbnail, which is what makes the budget stop mattering](0054-below-the-overview-step-a-page-is-a-thumbnail.md) | Resolves 0052 |

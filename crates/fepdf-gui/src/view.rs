@@ -26,6 +26,20 @@ pub enum BindingDirection {
     RightToLeft,
 }
 
+/// Where the page area gets its pixels for this frame.
+///
+/// **The two are alternatives, not a flag and a value**, which is why this is a type: in
+/// one the whole viewport is a single texture composed from every visible page's vector
+/// scene, and in the other each page is its own small texture. Passing both and choosing
+/// inside would allow a state that means nothing.
+pub enum PagePixels<'a> {
+    /// One texture covering the viewport. `None` while it is being created.
+    Viewport(Option<egui::TextureId>),
+    /// One thumbnail per page, drawn at that page's rect. Pages absent from the map have
+    /// not been rendered yet and keep their placeholder.
+    Thumbnails(&'a BTreeMap<usize, egui::TextureId>),
+}
+
 pub struct PDFView {
     /// Private, so the only ways to change it are [`Self::set_zoom`] and
     /// [`Self::zoom_at`]. It was `pub`, four callers assigned it directly, and three of
@@ -386,7 +400,7 @@ impl PDFView {
         &mut self,
         ui: &mut egui::Ui,
         layouts: &[PageLayout],
-        viewport_texture_id: Option<egui::TextureId>,
+        pixels: &PagePixels<'_>,
         viewport_rect: egui::Rect, // Unified viewport rect from app.rs
         scenes: &std::collections::BTreeMap<usize, std::sync::Arc<vello::Scene>>,
         highlights: &BTreeMap<usize, Vec<egui::Rect>>,
@@ -418,10 +432,11 @@ impl PDFView {
         // 2. Drop shadows and solid pure-white page backings
         self.draw_page_backings(ui.painter(), viewport_rect, layouts, scenes);
 
-        // 3. Unified viewport texture covering workspace
-        if let Some(tid) = viewport_texture_id {
+        // 3. Unified viewport texture covering workspace. In thumbnail mode there is no
+        //    such texture: each page paints its own inside the loop below.
+        if let PagePixels::Viewport(Some(tid)) = pixels {
             ui.painter().image(
-                tid,
+                *tid,
                 viewport_rect,
                 egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)),
                 egui::Color32::WHITE,
@@ -450,7 +465,24 @@ impl PDFView {
                 new_visible.push(layout.index);
                 let is_selected = selected_pages.contains(&layout.index);
 
-                if !scenes.contains_key(&layout.index) {
+                // A thumbnail is this page's whole appearance, so it is painted before the
+                // placeholder decides whether anything is missing.
+                let thumbnail = match pixels {
+                    PagePixels::Thumbnails(map) => map.get(&layout.index).copied(),
+                    PagePixels::Viewport(_) => None,
+                };
+                if let Some(tid) = thumbnail {
+                    ui.painter().image(
+                        tid,
+                        page_rect,
+                        egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)),
+                        egui::Color32::WHITE,
+                    );
+                } else if thumbnail.is_none() && !scenes.contains_key(&layout.index) {
+                    Self::draw_placeholder_card(ui.painter(), page_rect, layout.index);
+                } else if matches!(pixels, PagePixels::Thumbnails(_)) {
+                    // The scene is ready but its thumbnail is not yet: this frame made its
+                    // quota. Say so rather than showing a blank page backing.
                     Self::draw_placeholder_card(ui.painter(), page_rect, layout.index);
                 }
 

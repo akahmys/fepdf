@@ -14,22 +14,23 @@ struct ViewportTexture {
     height: u32,
 }
 
-#[allow(dead_code)]
 struct ThumbnailTexture {
     _texture: wgpu::Texture,
     view: wgpu::TextureView,
     egui_texture: egui::TextureId,
     width: u32,
     height: u32,
+    /// The frame this thumbnail was last asked for. Eviction takes the oldest.
+    last_used: u64,
 }
 
 pub struct VelloRenderer {
     renderer: Renderer,
-    #[allow(dead_code)]
     thumb_renderer: Renderer,
     viewport_texture: Option<ViewportTexture>,
-    #[allow(dead_code)]
     thumbnail_textures: std::collections::BTreeMap<usize, ThumbnailTexture>,
+    /// Counts frames, so a thumbnail can be aged. Only ordering matters, not the value.
+    frame: u64,
     last_visible_pages: Vec<(usize, usize, egui::Rect)>,
     last_viewport_rect: egui::Rect,
     last_zoom: f32,
@@ -67,6 +68,7 @@ impl VelloRenderer {
             thumb_renderer,
             viewport_texture: None,
             thumbnail_textures: std::collections::BTreeMap::new(),
+            frame: 0,
             last_visible_pages: Vec::new(),
             last_viewport_rect: egui::Rect::NOTHING,
             last_zoom: 0.0,
@@ -74,8 +76,10 @@ impl VelloRenderer {
         })
     }
 
-    /// Increments the frame counter. Keeps API compatibility.
-    pub fn next_frame(&mut self, _render_state: &RenderState) {}
+    /// Increments the frame counter, which is what ages a thumbnail for eviction.
+    pub fn next_frame(&mut self, _render_state: &RenderState) {
+        self.frame = self.frame.wrapping_add(1);
+    }
 
     /// How many of the visible pages the last frame left undrawn against the bin-data
     /// budget. Zero unless the viewport held more than one scene's worth.
@@ -236,7 +240,6 @@ impl VelloRenderer {
             Some(ViewportTexture { _texture: texture, view, egui_texture: tid, width, height });
     }
 
-    #[allow(dead_code)]
     pub fn render_thumbnail(
         // RR-15 Limit: GUI - Performs rendering of page scenes to thumbnail textures
         &mut self,
@@ -290,6 +293,7 @@ impl VelloRenderer {
                     egui_texture: tid,
                     width: thumb_width,
                     height: thumb_height,
+                    last_used: self.frame,
                 },
             );
 
@@ -326,8 +330,64 @@ impl VelloRenderer {
             );
         }
 
-        let tex = self.thumbnail_textures.get(&page_index)?;
+        let frame = self.frame;
+        let tex = self.thumbnail_textures.get_mut(&page_index)?;
+        tex.last_used = frame;
         Some(tex.egui_texture)
+    }
+
+    /// Renders the thumbnails for `pages` and answers the ones that exist.
+    ///
+    /// **At most [`Self::THUMBNAILS_PER_FRAME`] are created per call.** Zooming out to the
+    /// floor makes 138 pages of `volvo_xc90.pdf` visible at once, and a render pass each
+    /// in one frame is a visible stall; the pages that did not get one this frame keep
+    /// their placeholder and are picked up on the next.
+    ///
+    /// **The cache is bounded**, because it used to be a `BTreeMap` that only grew: at
+    /// 224KB a thumbnail, `intel_sdm.pdf`'s 5,057 pages is 1.1GB of texture. Anything not
+    /// asked for in this frame is evicted oldest first once the map is over its limit.
+    pub fn ensure_thumbnails(
+        &mut self,
+        render_state: &RenderState,
+        pages: &[(usize, Arc<Scene>, egui::Rect, egui::Vec2)],
+        thumb_width: u32,
+    ) -> std::collections::BTreeMap<usize, egui::TextureId> {
+        let held: std::collections::BTreeSet<usize> =
+            self.thumbnail_textures.keys().copied().collect();
+        let order: Vec<usize> = pages.iter().map(|(i, _, _, _)| *i).collect();
+        let to_create = pages_to_create(&order, &held, Self::THUMBNAILS_PER_FRAME);
+
+        let mut ready = std::collections::BTreeMap::new();
+        for &(index, ref scene, _, unscaled_size) in pages {
+            if !held.contains(&index) && !to_create.contains(&index) {
+                continue;
+            }
+            if let Some(tid) =
+                self.render_thumbnail(render_state, index, scene, unscaled_size, thumb_width)
+            {
+                ready.insert(index, tid);
+            }
+        }
+
+        self.evict_thumbnails(render_state, pages.len());
+        ready
+    }
+
+    /// How many thumbnails one frame may create. See [`Self::ensure_thumbnails`].
+    const THUMBNAILS_PER_FRAME: usize = 8;
+
+    /// How many thumbnails are kept beyond those on screen, for scrolling back.
+    const THUMBNAIL_HEADROOM: usize = 64;
+
+    /// Drops the least recently used thumbnails until the cache is within its limit.
+    fn evict_thumbnails(&mut self, render_state: &RenderState, visible: usize) {
+        let ages: Vec<(u64, usize)> =
+            self.thumbnail_textures.iter().map(|(i, t)| (t.last_used, *i)).collect();
+        for index in stale_thumbnails(ages, visible, Self::THUMBNAIL_HEADROOM) {
+            if let Some(old) = self.thumbnail_textures.remove(&index) {
+                render_state.renderer.write().free_texture(&old.egui_texture);
+            }
+        }
     }
 
     pub fn invalidate_thumbnail(&mut self, render_state: &RenderState, page_index: usize) {
@@ -411,5 +471,96 @@ mod budget_stop {
     fn a_page_bigger_than_the_budget_is_left_out() {
         assert_eq!(pages_within_budget(0, 0, [BIN_DATA_BUDGET + 1].into_iter()), 0);
         assert_eq!(pages_within_budget(0, 0, [u32::MAX, 1].into_iter()), 0);
+    }
+}
+
+/// The pages this frame should render thumbnails for: those not already held, in the order
+/// given, up to `quota`.
+///
+/// **Held pages are not counted against the quota**, only new ones. Zooming out makes 138
+/// pages visible at once and a render pass each in one frame is a visible stall, but a page
+/// whose thumbnail already exists costs nothing to show and must not be starved by pages
+/// that do not.
+fn pages_to_create(
+    order: &[usize],
+    held: &std::collections::BTreeSet<usize>,
+    quota: usize,
+) -> Vec<usize> {
+    order.iter().copied().filter(|i| !held.contains(i)).take(quota).collect()
+}
+
+/// The thumbnails to drop, least recently used first, to bring the cache within its limit.
+///
+/// **The limit is relative to what is on screen**, so scrolling through a long document
+/// does not accumulate: `intel_sdm.pdf` has 5,057 pages and a thumbnail is 224KB, which
+/// unbounded is 1.1GB of texture. `headroom` is how many are kept beyond the visible ones
+/// so that scrolling back does not re-render.
+fn stale_thumbnails(mut ages: Vec<(u64, usize)>, visible: usize, headroom: usize) -> Vec<usize> {
+    let limit = visible + headroom;
+    if ages.len() <= limit {
+        return Vec::new();
+    }
+    let excess = ages.len() - limit;
+    ages.sort_unstable();
+    ages.into_iter().take(excess).map(|(_, index)| index).collect()
+}
+
+#[cfg(test)]
+mod thumbnail_cache {
+    use super::{pages_to_create, stale_thumbnails};
+    use std::collections::BTreeSet;
+
+    /// The quota bounds new work per frame, so zooming to the floor does not try to render
+    /// 138 pages before the next frame is drawn.
+    #[test]
+    fn a_frame_creates_no_more_than_its_quota() {
+        let order: Vec<usize> = (0..138).collect();
+        let made = pages_to_create(&order, &BTreeSet::new(), 8);
+        assert_eq!(made.len(), 8);
+        assert_eq!(made[0], 0, "and it starts from the front of the visible run");
+    }
+
+    /// A page already held costs nothing to show, so it must not consume the quota — else
+    /// a screen of 138 pages, 130 of them already rendered, would fill in 8 at a time
+    /// having done no work at all.
+    #[test]
+    fn pages_already_held_do_not_consume_the_quota() {
+        let order: Vec<usize> = (0..138).collect();
+        let held: BTreeSet<usize> = (0..130).collect();
+        let made = pages_to_create(&order, &held, 8);
+        assert_eq!(made, vec![130, 131, 132, 133, 134, 135, 136, 137]);
+    }
+
+    /// Nothing is evicted while the cache is within its limit: a viewer that dropped
+    /// thumbnails it was about to ask for again would re-render on every frame.
+    #[test]
+    fn a_cache_within_its_limit_loses_nothing() {
+        let ages: Vec<(u64, usize)> = (0..40).map(|i| (i as u64, i)).collect();
+        assert!(stale_thumbnails(ages, 10, 64).is_empty());
+    }
+
+    /// Over the limit, the oldest go and exactly the excess goes.
+    #[test]
+    fn eviction_takes_the_least_recently_used_and_stops() {
+        // 200 held, 10 visible, headroom 64 -> limit 74, excess 126.
+        let ages: Vec<(u64, usize)> = (0..200).map(|i| (i as u64, i)).collect();
+        let dropped = stale_thumbnails(ages, 10, 64);
+        assert_eq!(dropped.len(), 126);
+        let dropped: BTreeSet<usize> = dropped.into_iter().collect();
+        assert!(dropped.contains(&0), "the oldest goes");
+        assert!(!dropped.contains(&199), "the newest stays");
+        assert!(dropped.contains(&125), "the boundary is at the excess, not at the limit");
+        assert!(!dropped.contains(&126), "and it stops there");
+    }
+
+    /// Recency, not page order, decides. Without this the cache would evict by index and
+    /// throw away the page the reader is looking at.
+    #[test]
+    fn eviction_goes_by_use_not_by_page_number() {
+        // Page 0 was used most recently; page 199 longest ago.
+        let ages: Vec<(u64, usize)> = (0..200).map(|i| (200 - i as u64, i)).collect();
+        let dropped: BTreeSet<usize> = stale_thumbnails(ages, 10, 64).into_iter().collect();
+        assert!(dropped.contains(&199), "the least recently used goes, high index or not");
+        assert!(!dropped.contains(&0), "the most recently used stays");
     }
 }
