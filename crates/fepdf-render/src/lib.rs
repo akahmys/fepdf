@@ -23,6 +23,7 @@
 // as soon as caching is added to them.
 #![allow(clippy::needless_pass_by_ref_mut)]
 
+pub mod budget;
 pub mod headless;
 pub mod text;
 

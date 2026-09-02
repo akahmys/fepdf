@@ -1,6 +1,7 @@
 //! Vello + wgpu compute rasterisation bridge for rendering PDF scenes onto egui textures.
 
 use egui_wgpu::RenderState;
+use fepdf::budget;
 use std::sync::Arc;
 use vello::wgpu;
 use vello::{AaConfig, RenderParams, Renderer, RendererOptions, Scene};
@@ -32,6 +33,9 @@ pub struct VelloRenderer {
     last_visible_pages: Vec<(usize, usize, egui::Rect)>,
     last_viewport_rect: egui::Rect,
     last_zoom: f32,
+    /// How many visible pages the last composition left undrawn, having reached the
+    /// bin-data budget. Zero in an ordinary frame; see [`fepdf::budget`].
+    pages_left_out: usize,
 }
 
 impl VelloRenderer {
@@ -66,11 +70,18 @@ impl VelloRenderer {
             last_visible_pages: Vec::new(),
             last_viewport_rect: egui::Rect::NOTHING,
             last_zoom: 0.0,
+            pages_left_out: 0,
         })
     }
 
     /// Increments the frame counter. Keeps API compatibility.
     pub fn next_frame(&mut self, _render_state: &RenderState) {}
+
+    /// How many of the visible pages the last frame left undrawn against the bin-data
+    /// budget. Zero unless the viewport held more than one scene's worth.
+    pub const fn pages_left_out(&self) -> usize {
+        self.pages_left_out
+    }
 
     /// Renders all visible pages directly onto the single viewport render target texture.
     pub fn render_viewport(
@@ -132,7 +143,18 @@ impl VelloRenderer {
 
         let scale = f64::from(zoom * scale_factor) / 2.0;
 
-        for &(_idx, ref scene, page_screen_rect, page_unscaled_size) in visible_pages {
+        // Every visible page goes into one scene, so the further out the zoom the closer
+        // this comes to the one vello buffer that is a fixed size and unchecked.
+        let drawable = pages_within_budget(
+            budget::bin_data_cost(&viewport_scene),
+            budget::solid_fill_cost(),
+            visible_pages.iter().map(|(_, scene, _, _)| budget::bin_data_cost(scene)),
+        );
+        self.pages_left_out = visible_pages.len() - drawable;
+
+        for &(_idx, ref scene, page_screen_rect, page_unscaled_size) in
+            visible_pages.iter().take(drawable)
+        {
             let tx = f64::from((page_screen_rect.min.x - viewport_rect.min.x) * scale_factor);
             let ty = f64::from((page_screen_rect.min.y - viewport_rect.min.y) * scale_factor);
             let transform = kurbo::Affine::new([scale, 0.0, 0.0, scale, tx, ty]);
@@ -319,5 +341,75 @@ impl VelloRenderer {
             render_state.renderer.write().free_texture(&old_tex.egui_texture);
         }
         self.thumbnail_textures.clear();
+    }
+}
+
+/// How many pages of `page_costs`, in order, fit in what is left of the bin-data budget.
+///
+/// **The count is taken before anything is appended, because appending cannot be undone.**
+/// `vello::Scene` has no way to remove what has gone into it, so a composer that discovers
+/// the overrun by measuring afterwards has no move left; and vello itself does not discover
+/// it at all — `RenderConfig::new` subtracts `bin_data_start` from the fixed buffer size
+/// with no floor, which panics in a debug build and wraps in a release one, the wrapped
+/// value then sizing GPU dispatch. See [`fepdf::budget`].
+///
+/// `start` is what the viewport background already costs and `fill_cost` what each page's
+/// white background adds before its own scene goes in.
+fn pages_within_budget(start: u32, fill_cost: u32, page_costs: impl Iterator<Item = u32>) -> usize {
+    let mut composed = start;
+    let mut fitted = 0;
+    for cost in page_costs {
+        let next = composed.saturating_add(fill_cost).saturating_add(cost);
+        if next > budget::BIN_DATA_BUDGET {
+            break;
+        }
+        composed = next;
+        fitted += 1;
+    }
+    fitted
+}
+
+#[cfg(test)]
+mod budget_stop {
+    use super::{budget::BIN_DATA_BUDGET, pages_within_budget};
+
+    /// The ordinary frame draws everything: a guard that stopped early would be worse than
+    /// no guard, so this is the case that has to hold first.
+    #[test]
+    fn a_viewport_that_fits_loses_no_page() {
+        let pages = [6_318_u32, 3_235, 2_740, 1_000];
+        assert_eq!(pages_within_budget(64, 4, pages.into_iter()), 4);
+    }
+
+    /// The composition stops *at* the line rather than one page past it, which is the whole
+    /// point: one page too many is what underflows `binning_size`.
+    #[test]
+    fn the_page_that_would_cross_the_line_is_the_one_left_out() {
+        let each = BIN_DATA_BUDGET / 4;
+        let pages = [each, each, each, each, each];
+        // Four fit exactly; a fifth cannot, and neither can anything after it.
+        assert_eq!(pages_within_budget(0, 0, pages.into_iter()), 4);
+        // One word of the budget already spent, and the fourth no longer fits either.
+        assert_eq!(pages_within_budget(1, 0, pages.into_iter()), 3);
+    }
+
+    /// The per-page background fill counts. Without it the composer would append the fill,
+    /// then the scene, and cross the line by exactly the amount it declined to count.
+    #[test]
+    fn the_page_background_counts_against_the_budget() {
+        let each = BIN_DATA_BUDGET / 4;
+        let pages = [each, each, each, each];
+        assert_eq!(pages_within_budget(0, 0, pages.into_iter()), 4, "without the fill, four fit");
+        assert_eq!(pages_within_budget(0, 1, pages.into_iter()), 3, "with it, only three do");
+    }
+
+    /// A single page larger than the whole budget is left out rather than drawn and hoped
+    /// for. No page measured comes near this — the worst is 6,318 of 262,144 — but a
+    /// composer that special-cased "at least draw one" would be back to submitting the
+    /// scene that underflows.
+    #[test]
+    fn a_page_bigger_than_the_budget_is_left_out() {
+        assert_eq!(pages_within_budget(0, 0, [BIN_DATA_BUDGET + 1].into_iter()), 0);
+        assert_eq!(pages_within_budget(0, 0, [u32::MAX, 1].into_iter()), 0);
     }
 }

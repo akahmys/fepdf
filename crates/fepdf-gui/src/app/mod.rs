@@ -93,6 +93,13 @@ pub struct FepdfApp {
     pub layers: Vec<fepdf::LayerRow>,
     /// Reading decisions recorded by the engine while opening or repairing the document (6.3.2.3).
     pub doc_decisions: Vec<fepdf::Decision>,
+    /// Visible pages the last frame left undrawn against the renderer's bin-data budget.
+    ///
+    /// **Not a `Decision`.** Every severity in that list describes the *document* — the
+    /// sidebar would badge this one `規格違反 [ISO 32000-2]` — and nothing is wrong with a
+    /// file that happens to have more pages on screen than one vello scene can hold. It is
+    /// the engine's own limit, so it is reported as the engine's own state.
+    pub pages_left_out: usize,
 }
 
 impl FepdfApp {
@@ -174,6 +181,7 @@ impl FepdfApp {
             doc_fonts: Vec::new(),
             layers: Vec::new(),
             doc_decisions: Vec::new(),
+            pages_left_out: 0,
         }
     }
 
@@ -400,7 +408,7 @@ impl FepdfApp {
                 && (i.key_pressed(egui::Key::Plus) || i.key_pressed(egui::Key::Equals))
         }) {
             self.view.zoom_at(
-                self.view.zoom() * 1.2,
+                self.view.zoom_step_up(),
                 cursor_pos,
                 viewport_rect,
                 &self.page_layouts,
@@ -410,7 +418,7 @@ impl FepdfApp {
             .input(|i| (i.modifiers.command || i.modifiers.ctrl) && i.key_pressed(egui::Key::Minus))
         {
             self.view.zoom_at(
-                self.view.zoom() / 1.2,
+                self.view.zoom_step_down(),
                 cursor_pos,
                 viewport_rect,
                 &self.page_layouts,
@@ -430,7 +438,7 @@ impl FepdfApp {
             self.selection_manager.clear();
         }
         if ui.input(|i| i.modifiers.command && i.key_pressed(egui::Key::A))
-            && self.view.zoom() < 0.65
+            && !self.view.is_reading_view()
             && self.total_pages > 0
         {
             self.selected_pages.clear();

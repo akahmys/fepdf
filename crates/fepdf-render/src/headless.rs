@@ -86,6 +86,10 @@ pub async fn render_to_bytes_with(
     let target = create_target_texture(device, size);
     let view = target.create_view(&vello::wgpu::TextureViewDescriptor::default());
 
+    if let Some(refusal) = crate::budget::over_budget(scene) {
+        return Err(format!("Rendering refused: {refusal}").into());
+    }
+
     log::debug!("[RENDER] Rendering to texture...");
     renderer
         .render_to_texture(
@@ -114,6 +118,11 @@ pub async fn render_to_bytes_with(
 /// transparent pixel anywhere** — an empty page comes back opaque white, not blank. A
 /// fully transparent buffer therefore means the rasteriser did not run to completion and
 /// left the target untouched, which `render_to_texture` reports as `Ok`.
+///
+/// **This is not the bin-data budget** (`crate::budget`), which is checked before the
+/// scene is submitted and which neither of these pages comes near: page 389 costs 6,318
+/// words of the 262,144 vello allocates. Whatever runs out here runs out during
+/// rasterisation and at one resolution and not another, which the budget check cannot see.
 ///
 /// Measured on `samples/volvo_xc90.pdf`, which has 415 pages: two of them — 10 and 389 —
 /// come back entirely transparent at 96 DPI and render correctly at half that. The

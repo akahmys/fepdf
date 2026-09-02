@@ -32,6 +32,14 @@ pub struct PDFView {
     /// them wrote out the same `clamp(0.1, 10.0)` — a bound repeated is a bound that
     /// drifts, and one caller forgetting it is a view that cannot be zoomed back.
     zoom: f32,
+    /// What a continuous gesture has accumulated, before snapping.
+    ///
+    /// **`zoom` alone would stick to a step and never leave it.** A pinch computes its next
+    /// value from the current one, so once snapping had pulled it onto 1.00, every
+    /// small delta landed back inside the snap band and was pulled onto 1.00 again.
+    /// Accumulating the raw value separately lets the gesture travel through the band.
+    /// Nothing renders from this; it is the gesture's own memory.
+    zoom_unsnapped: f32,
     pub pan: egui::Vec2,
     pub visible_pages: Vec<usize>,
     pub display_mode: DisplayMode,
@@ -70,6 +78,7 @@ impl PDFView {
     pub fn new() -> Self {
         Self {
             zoom: 1.0,
+            zoom_unsnapped: 1.0,
             pan: egui::Vec2::ZERO,
             visible_pages: Vec::new(),
             display_mode: DisplayMode::Continuous,
@@ -119,6 +128,86 @@ impl PDFView {
     /// a bound repeated is a bound that drifts.
     const ZOOM_BOUNDS: std::ops::RangeInclusive<f32> = 0.1..=10.0;
 
+    /// The zoom the view stops being a page being read and becomes a sheet of thumbnails.
+    ///
+    /// Below it the pages tile, a drag reorders them, `Cmd+A` selects all of them, and text
+    /// selection is off. It was written out at nine call sites across three files before it
+    /// had a name.
+    pub const OVERVIEW_ZOOM: f32 = 0.65;
+
+    /// Below this, what is on the page cannot be read, so nothing that acts on the *content*
+    /// of a page is offered.
+    ///
+    /// Body text is set at 10 to 11pt, so at 40% it draws at a little over 4pt and its
+    /// x-height is around 2pt. **The boundary deliberately sits between two steps** — 33%
+    /// and 50% straddle it — so that stepping through [`Self::ZOOM_STEPS`] never lands on
+    /// the boundary itself and leaves the mode ambiguous.
+    pub const LEGIBLE_ZOOM: f32 = 0.40;
+
+    /// Where double-clicking out lands: the first step that is unambiguously an overview.
+    pub const OVERVIEW_STEP: f32 = 0.33;
+
+    /// The zooms the buttons, the keyboard and the menu move between.
+    ///
+    /// **A multiplier could not reach them.** The buttons used to scale the current zoom by
+    /// 1.2, so from any value not already on a step — anything a pinch or a fit had
+    /// produced — no number of presses ever arrived at 100%; a separate reset button existed
+    /// to paper over it. Stepping along a fixed ladder lands on 100% from anywhere, and the
+    /// percentage the status bar prints is then the percentage in force.
+    const ZOOM_STEPS: [f32; 18] = [
+        0.10, 0.125, 0.15, 0.20, 0.25, 0.33, 0.50, 0.67, 0.75, 1.00, 1.25, 1.50, 2.00, 3.00, 4.00,
+        6.00, 8.00, 10.00,
+    ];
+
+    /// How close a continuous gesture must come to a step before it is taken to mean it.
+    ///
+    /// Without this a pinch can stop at 99.4% and be indistinguishable from 100% on screen
+    /// and in the label while rendering differently.
+    const SNAP_TOLERANCE: f32 = 0.02;
+
+    /// The first step above the current zoom, or the top of the range.
+    #[must_use]
+    pub fn zoom_step_up(&self) -> f32 {
+        Self::ZOOM_STEPS
+            .iter()
+            .copied()
+            .find(|step| *step > self.zoom * (1.0 + Self::SNAP_TOLERANCE))
+            .unwrap_or(*Self::ZOOM_BOUNDS.end())
+    }
+
+    /// The first step below the current zoom, or the bottom of the range.
+    #[must_use]
+    pub fn zoom_step_down(&self) -> f32 {
+        Self::ZOOM_STEPS
+            .iter()
+            .rev()
+            .copied()
+            .find(|step| *step < self.zoom * (1.0 - Self::SNAP_TOLERANCE))
+            .unwrap_or(*Self::ZOOM_BOUNDS.start())
+    }
+
+    /// A zoom pulled onto a step when it is within [`Self::SNAP_TOLERANCE`] of one.
+    fn snap_to_step(zoom: f32) -> f32 {
+        Self::ZOOM_STEPS
+            .iter()
+            .copied()
+            .find(|step| (zoom - step).abs() <= step * Self::SNAP_TOLERANCE)
+            .unwrap_or(zoom)
+    }
+
+    /// Whether the view is showing pages to be read rather than tiles to be arranged.
+    #[must_use]
+    pub fn is_reading_view(&self) -> bool {
+        self.zoom >= Self::OVERVIEW_ZOOM
+    }
+
+    /// Whether what is drawn is large enough that acting on the content of a page means
+    /// anything. See [`Self::LEGIBLE_ZOOM`].
+    #[must_use]
+    pub fn is_legible(&self) -> bool {
+        self.zoom >= Self::LEGIBLE_ZOOM
+    }
+
     /// Sets the zoom without moving anything, for a caller that places the view itself.
     ///
     /// **Not the same operation as [`Self::zoom_at`], which is why both exist.** `zoom_at`
@@ -128,6 +217,21 @@ impl PDFView {
     /// would compute an anchor nobody reads.
     pub fn set_zoom(&mut self, zoom: f32) {
         self.zoom = zoom.clamp(*Self::ZOOM_BOUNDS.start(), *Self::ZOOM_BOUNDS.end());
+        self.zoom_unsnapped = self.zoom;
+    }
+
+    /// Sets `zoom` alone, leaving the gesture's accumulator where it is.
+    ///
+    /// `zoom_at` records the raw target itself and must not have it overwritten with the
+    /// snapped one, which is exactly what `set_zoom` would do.
+    fn apply_zoom(&mut self, zoom: f32) {
+        self.zoom = zoom.clamp(*Self::ZOOM_BOUNDS.start(), *Self::ZOOM_BOUNDS.end());
+    }
+
+    /// The zoom a gesture should compute its next value from. See [`Self::zoom_unsnapped`].
+    #[must_use]
+    pub const fn zoom_before_snapping(&self) -> f32 {
+        self.zoom_unsnapped
     }
 
     /// The page under `center_pos`, else the nearest, else the active one.
@@ -178,7 +282,11 @@ impl PDFView {
         layouts: &[PageLayout],
     ) {
         let old_zoom = self.zoom;
-        let new_zoom = new_zoom.clamp(*Self::ZOOM_BOUNDS.start(), *Self::ZOOM_BOUNDS.end());
+        let raw = new_zoom.clamp(*Self::ZOOM_BOUNDS.start(), *Self::ZOOM_BOUNDS.end());
+        // Recorded before the early return: a gesture that is crossing a snap band must
+        // keep accumulating even on the frames where the snapped zoom does not move.
+        self.zoom_unsnapped = raw;
+        let new_zoom = Self::snap_to_step(raw);
         if (new_zoom - old_zoom).abs() < f32::EPSILON {
             return;
         }
@@ -193,13 +301,13 @@ impl PDFView {
             let page_screen_min = current_origin + layout.rect.min.to_vec2() * old_zoom;
             let local_offset_doc = (center_pos - page_screen_min) / old_zoom;
 
-            self.set_zoom(new_zoom);
+            self.apply_zoom(new_zoom);
             // Place the exact same local page point under center_pos after zoom
             self.pan = (center_pos - origin_no_pan)
                 - (layout.rect.min.to_vec2() + local_offset_doc) * new_zoom;
         } else {
             let cursor_doc = (center_pos - origin_no_pan - self.pan) / old_zoom;
-            self.set_zoom(new_zoom);
+            self.apply_zoom(new_zoom);
             self.pan = (center_pos - origin_no_pan) - cursor_doc * new_zoom;
         }
     }
@@ -354,7 +462,7 @@ impl PDFView {
                         egui::Stroke::new(2.5_f32, crate::app::theme::colors::RUST_PRIMARY),
                         egui::StrokeKind::Outside,
                     );
-                } else if self.zoom < 0.65 {
+                } else if !self.is_reading_view() {
                     ui.painter().rect_stroke(
                         page_rect,
                         3.0,
@@ -514,7 +622,7 @@ impl PDFView {
         zoom: f32,
     ) {
         let badge_text = format!("{}", page_index + 1);
-        let font_size = if zoom < 0.65 { 11.0 } else { 12.0 };
+        let font_size = if zoom < Self::OVERVIEW_ZOOM { 11.0 } else { 12.0 };
         let (badge_bg, badge_fg, badge_border) = if is_selected {
             (
                 crate::app::theme::colors::RUST_BADGE_BG,
@@ -712,7 +820,10 @@ impl PDFView {
             let zoom_delta = i.zoom_delta();
             #[allow(clippy::float_cmp)]
             if zoom_delta != 1.0 {
-                self.zoom_at(self.zoom * zoom_delta, cursor_pos, viewport_rect, layouts);
+                // From the unsnapped value, so the gesture can travel through a step's
+                // snap band rather than being pulled back onto it every frame.
+                let target = self.zoom_before_snapping() * zoom_delta;
+                self.zoom_at(target, cursor_pos, viewport_rect, layouts);
             }
 
             let is_zoom_modifier = i.modifiers.command || i.modifiers.ctrl;
@@ -720,7 +831,8 @@ impl PDFView {
 
             if is_zoom_modifier && scroll_y != 0.0 {
                 let factor = (scroll_y * 0.005).exp();
-                self.zoom_at(self.zoom * factor, cursor_pos, viewport_rect, layouts);
+                let target = self.zoom_before_snapping() * factor;
+                self.zoom_at(target, cursor_pos, viewport_rect, layouts);
             }
         });
     }
@@ -760,7 +872,7 @@ impl PDFView {
             self.handle_scroll_panning(ui);
         }
         let shift_down = ui.input(|i| i.modifiers.shift);
-        if response.dragged() && (!shift_down || self.zoom >= 0.65) {
+        if response.dragged() && (!shift_down || self.is_reading_view()) {
             self.pan += response.drag_delta();
         }
         if response.double_clicked() {
@@ -768,7 +880,7 @@ impl PDFView {
                 .input(|i| i.pointer.hover_pos().or(i.pointer.latest_pos()))
                 .filter(|p| viewport_rect.contains(*p))
                 .unwrap_or_else(|| viewport_rect.center());
-            let target_zoom = if self.zoom < 0.65 { 1.0 } else { 0.35 };
+            let target_zoom = if self.is_reading_view() { Self::OVERVIEW_STEP } else { 1.0 };
             self.zoom_at(target_zoom, pos, viewport_rect, layouts);
         }
         if response.drag_stopped()
@@ -1052,5 +1164,100 @@ impl PDFView {
 
         self.pan.x = clamped_x;
         self.pan.y = clamped_y;
+    }
+}
+
+#[cfg(test)]
+mod zoom_steps {
+    use super::PDFView;
+
+    /// The defect the ladder replaces: from any zoom a pinch or a fit had produced,
+    /// multiplying by 1.2 never arrived at 100%. Stepping does, from either side.
+    #[test]
+    fn stepping_reaches_one_hundred_percent_from_anywhere() {
+        for start in [0.11_f32, 0.37, 0.83, 0.96, 1.04, 2.7, 9.4] {
+            let mut view = PDFView::new();
+            view.set_zoom(start);
+            let up = start < 1.0;
+            for _ in 0..20 {
+                let next = if up { view.zoom_step_up() } else { view.zoom_step_down() };
+                view.set_zoom(next);
+                if (view.zoom() - 1.0).abs() < f32::EPSILON {
+                    break;
+                }
+            }
+            assert!(
+                (view.zoom() - 1.0).abs() < f32::EPSILON,
+                "from {start} the ladder stopped at {}",
+                view.zoom()
+            );
+        }
+    }
+
+    /// Stepping moves, and moves the right way. Without this a `find` that matched the
+    /// current value would leave the buttons dead.
+    #[test]
+    fn a_step_always_moves_and_stops_at_the_bounds() {
+        let mut view = PDFView::new();
+        view.set_zoom(1.0);
+        assert!(view.zoom_step_up() > 1.0);
+        assert!(view.zoom_step_down() < 1.0);
+
+        view.set_zoom(10.0);
+        assert!((view.zoom_step_up() - 10.0).abs() < f32::EPSILON, "held at the ceiling");
+        view.set_zoom(0.1);
+        assert!((view.zoom_step_down() - 0.1).abs() < f32::EPSILON, "held at the floor");
+    }
+
+    /// The mode boundary sits between two steps, so no step lands on it and leaves the
+    /// mode ambiguous. 33% is an overview, 50% is legible, and nothing is exactly 40%.
+    #[test]
+    fn no_step_lands_on_a_mode_boundary() {
+        let mut view = PDFView::new();
+        for step in PDFView::ZOOM_STEPS {
+            view.set_zoom(step);
+            assert!(
+                (step - PDFView::LEGIBLE_ZOOM).abs() > 0.01,
+                "step {step} sits on the legibility boundary"
+            );
+            assert!(
+                (step - PDFView::OVERVIEW_ZOOM).abs() > 0.01,
+                "step {step} sits on the overview boundary"
+            );
+        }
+        view.set_zoom(PDFView::OVERVIEW_STEP);
+        assert!(!view.is_legible() && !view.is_reading_view(), "33% is an overview");
+        view.set_zoom(0.50);
+        assert!(view.is_legible() && !view.is_reading_view(), "50% reads but still tiles");
+        view.set_zoom(0.67);
+        assert!(view.is_legible() && view.is_reading_view(), "67% is a reading view");
+    }
+
+    /// A gesture that lands within the snap band is taken to mean the step, so the label
+    /// and the rendering agree. 0.996 used to print as "100%" while rendering otherwise.
+    #[test]
+    fn a_gesture_near_a_step_is_taken_to_mean_it() {
+        let layouts = [];
+        let rect = egui::Rect::from_min_size(egui::pos2(0.0, 0.0), egui::vec2(800.0, 600.0));
+        let mut view = PDFView::new();
+        view.set_zoom(0.90);
+        view.zoom_at(0.996, rect.center(), rect, &layouts);
+        assert!((view.zoom() - 1.0).abs() < f32::EPSILON, "snapped: {}", view.zoom());
+    }
+
+    /// **A pinch must be able to leave a step.** Snapping used to compute the next value
+    /// from the snapped one, so small deltas landed back inside the band and the gesture
+    /// stuck at 100% for good.
+    #[test]
+    fn a_gesture_can_travel_through_a_step() {
+        let layouts = [];
+        let rect = egui::Rect::from_min_size(egui::pos2(0.0, 0.0), egui::vec2(800.0, 600.0));
+        let mut view = PDFView::new();
+        view.set_zoom(0.98);
+        for _ in 0..40 {
+            let target = view.zoom_before_snapping() * 1.004;
+            view.zoom_at(target, rect.center(), rect, &layouts);
+        }
+        assert!(view.zoom() > 1.02, "the gesture stuck at {}", view.zoom());
     }
 }

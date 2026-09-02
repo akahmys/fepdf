@@ -116,3 +116,5 @@ quietly wrong — which is the failure this log exists to make visible.
 | 0049 | [Sorting by `y` required a `y`, and the extraction backend was not tracking the CTM](0049-the-extraction-backend-was-not-tracking-the-ctm.md) | Completes 0047 |
 | 0050 | [Ruby is bound to the base it reads](0050-ruby-is-bound-to-the-base-it-reads.md) | Completes 0047 |
 | 0051 | [Almost nothing declares a binding direction, and a vertical book that is silent opens the wrong way round](0051-a-binding-direction-nothing-declares.md) | Applies 0041 |
+| 0052 | [The scene budget is counted before the scene is submitted, because appending cannot be undone](0052-the-scene-budget-is-counted-before-the-scene-is-submitted.md) | Bounds 0043 |
+| 0053 | [The viewer has two modes and a zoom ladder, because a multiplier could not reach 100%](0053-the-viewer-has-two-modes-and-they-are-now-named.md) | Bounds 0052 |

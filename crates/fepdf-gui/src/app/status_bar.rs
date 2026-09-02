@@ -20,12 +20,45 @@ impl FepdfApp {
                     ui.spacing_mut().item_spacing.x = 6.0;
 
                     // 1. Left side: Status text & Reading Order toggle
-                    ui.label(
-                        egui::RichText::new(
-                            self.locale_mgr.tr(&self.active_language, "status_ready"),
-                        )
-                        .size(12.0),
-                    );
+                    //
+                    // Pages the renderer left out say so here rather than in the decision
+                    // sidebar: see `FepdfApp::pages_left_out` for why that is not a
+                    // `Decision`.
+                    if self.pages_left_out > 0 {
+                        let notice = self
+                            .locale_mgr
+                            .tr(&self.active_language, "status_pages_over_budget")
+                            .replacen("{}", &self.pages_left_out.to_string(), 1);
+                        ui.label(
+                            egui::RichText::new(notice)
+                                .size(12.0)
+                                .color(super::theme::colors::STATUS_WARN_TEXT),
+                        );
+                    } else {
+                        ui.label(
+                            egui::RichText::new(
+                                self.locale_mgr.tr(&self.active_language, "status_ready"),
+                            )
+                            .size(12.0),
+                        );
+                    }
+
+                    // Which mode the view is in. Nothing announces that content
+                    // interactions have stopped below `PDFView::LEGIBLE_ZOOM`; this is
+                    // where a reader finds out which half of that boundary they are on.
+                    if has_doc {
+                        ui.separator();
+                        let key = if self.view.is_reading_view() {
+                            "status_mode_reading"
+                        } else {
+                            "status_mode_overview"
+                        };
+                        ui.label(
+                            egui::RichText::new(self.locale_mgr.tr(&self.active_language, key))
+                                .size(12.0)
+                                .weak(),
+                        );
+                    }
 
                     ui.separator();
 
@@ -167,7 +200,7 @@ impl FepdfApp {
                                 .clicked()
                             {
                                 self.view.zoom_at(
-                                    self.view.zoom() * 1.2,
+                                    self.view.zoom_step_up(),
                                     center,
                                     viewport_rect,
                                     &self.page_layouts,
@@ -192,7 +225,7 @@ impl FepdfApp {
                                 .clicked()
                             {
                                 self.view.zoom_at(
-                                    self.view.zoom() / 1.2,
+                                    self.view.zoom_step_down(),
                                     center,
                                     viewport_rect,
                                     &self.page_layouts,

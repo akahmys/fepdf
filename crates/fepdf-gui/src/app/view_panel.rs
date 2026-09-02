@@ -242,8 +242,8 @@ impl FepdfApp {
     /// Text selection on a page, once it is large enough to select on.
     ///
     /// Split from `handle_page_tile_interaction`, which was doing three things: click
-    /// selection, the drag-and-drop slot, and this. Below 0.65 zoom the tiles are
-    /// thumbnails being reordered, not pages being read from.
+    /// selection, the drag-and-drop slot, and this. Below `PDFView::OVERVIEW_ZOOM` the
+    /// tiles are thumbnails being reordered, not pages being read from.
     fn handle_text_selection_on_page(
         &mut self,
         ui: &mut egui::Ui,
@@ -253,7 +253,7 @@ impl FepdfApp {
         unscaled_h: f32,
         zoom: f32,
     ) {
-        if zoom >= 0.65
+        if zoom >= crate::view::PDFView::OVERVIEW_ZOOM
             && let Some(spans) = self.page_spans.get(&page_idx)
         {
             if self.selection_manager.is_tagging_brush_active {
@@ -298,13 +298,13 @@ impl FepdfApp {
             self.last_selected_page = Some(page_idx);
         }
 
-        if response.double_clicked() && zoom < 0.65 {
+        if response.double_clicked() && zoom < crate::view::PDFView::OVERVIEW_ZOOM {
             self.view.set_zoom(1.0);
             self.view.scroll_to_page(page_idx, &self.page_layouts);
         }
 
         let is_r2l = self.view.binding_direction == crate::view::BindingDirection::RightToLeft;
-        let target_slot = if zoom < 0.65 {
+        let target_slot = if zoom < crate::view::PDFView::OVERVIEW_ZOOM {
             Self::handle_tile_drag_and_drop(
                 ui,
                 &response,
@@ -582,7 +582,10 @@ impl FepdfApp {
             &signature_highlight,
             &self.selected_pages,
             &self.ust_registry,
-            self.show_reading_order,
+            // Off below `LEGIBLE_ZOOM`: the borders are drawn per node of every visible
+            // page, so at the zoom floor this is the heaviest thing on screen and the
+            // least readable — the lines are finer than the glyphs they enclose.
+            self.show_reading_order && self.view.is_legible(),
             marquee_rect,
         );
     }
@@ -599,7 +602,7 @@ impl FepdfApp {
         let any_down = ui.input(|i| i.pointer.any_down());
         let any_released = ui.input(|i| i.pointer.any_released());
 
-        if zoom < 0.65 && shift_down {
+        if zoom < crate::view::PDFView::OVERVIEW_ZOOM && shift_down {
             if any_pressed && let Some(pos) = mouse_pos {
                 self.selection_manager.marquee_start = Some(pos);
                 self.selection_manager.marquee_current = Some(pos);
@@ -702,6 +705,8 @@ impl FepdfApp {
             scale_factor,
             zoom,
         );
+        let pages_left_out = vello_renderer.pages_left_out();
+        self.pages_left_out = pages_left_out;
 
         self.draw_view_with_highlights(ui, viewport_rect, zoom, viewport_texture_id);
         self.handle_page_interactions(ui, viewport_rect, zoom);

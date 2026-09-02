@@ -64,6 +64,8 @@ pub use fepdf_model::{
 };
 pub use fepdf_model::{DocumentSource, PdfSource};
 #[cfg(feature = "render")]
+pub use fepdf_render::budget;
+#[cfg(feature = "render")]
 pub use fepdf_render::{VelloBackend, headless::Rasteriser};
 use std::collections::BTreeMap;
 use std::fmt::Write as _;
