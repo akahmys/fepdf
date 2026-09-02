@@ -379,11 +379,22 @@ impl VelloRenderer {
     /// How many thumbnails are kept beyond those on screen, for scrolling back.
     const THUMBNAIL_HEADROOM: usize = 64;
 
+    /// The most thumbnails the cache will hold, whatever is on screen.
+    ///
+    /// **The other limit is relative and nothing bounds what it is relative to.** Measured
+    /// at the zoom floor on `intel_sdm.pdf` the viewport holds 253 pages and the cache 52MB,
+    /// but `visible` is whatever the layout and the window make it; one frame during a zoom
+    /// transition reported 1,960, which `visible + THUMBNAIL_HEADROOM` would have answered
+    /// with 450MB of texture. At roughly 207KB each this caps the cache near 106MB.
+    const THUMBNAIL_CACHE_CAP: usize = 512;
+
     /// Drops the least recently used thumbnails until the cache is within its limit.
     fn evict_thumbnails(&mut self, render_state: &RenderState, visible: usize) {
         let ages: Vec<(u64, usize)> =
             self.thumbnail_textures.iter().map(|(i, t)| (t.last_used, *i)).collect();
-        for index in stale_thumbnails(ages, visible, Self::THUMBNAIL_HEADROOM) {
+        for index in
+            stale_thumbnails(ages, visible, Self::THUMBNAIL_HEADROOM, Self::THUMBNAIL_CACHE_CAP)
+        {
             if let Some(old) = self.thumbnail_textures.remove(&index) {
                 render_state.renderer.write().free_texture(&old.egui_texture);
             }
@@ -492,11 +503,20 @@ fn pages_to_create(
 /// The thumbnails to drop, least recently used first, to bring the cache within its limit.
 ///
 /// **The limit is relative to what is on screen**, so scrolling through a long document
-/// does not accumulate: `intel_sdm.pdf` has 5,057 pages and a thumbnail is 224KB, which
-/// unbounded is 1.1GB of texture. `headroom` is how many are kept beyond the visible ones
-/// so that scrolling back does not re-render.
-fn stale_thumbnails(mut ages: Vec<(u64, usize)>, visible: usize, headroom: usize) -> Vec<usize> {
-    let limit = visible + headroom;
+/// does not accumulate: `intel_sdm.pdf` has 5,057 pages and a thumbnail is 207KB, which
+/// unbounded is over a gigabyte of texture. `headroom` is how many are kept beyond the
+/// visible ones so that scrolling back does not re-render.
+///
+/// **`cap` bounds the headroom, not the pages on screen.** Evicting a visible page achieves
+/// nothing — the next frame asks for it again — so once `visible` alone reaches the cap the
+/// headroom becomes zero rather than the cache eating itself.
+fn stale_thumbnails(
+    mut ages: Vec<(u64, usize)>,
+    visible: usize,
+    headroom: usize,
+    cap: usize,
+) -> Vec<usize> {
+    let limit = visible.saturating_add(headroom).min(cap.max(visible));
     if ages.len() <= limit {
         return Vec::new();
     }
@@ -536,7 +556,7 @@ mod thumbnail_cache {
     #[test]
     fn a_cache_within_its_limit_loses_nothing() {
         let ages: Vec<(u64, usize)> = (0..40).map(|i| (i as u64, i)).collect();
-        assert!(stale_thumbnails(ages, 10, 64).is_empty());
+        assert!(stale_thumbnails(ages, 10, 64, 100_000).is_empty());
     }
 
     /// Over the limit, the oldest go and exactly the excess goes.
@@ -544,7 +564,7 @@ mod thumbnail_cache {
     fn eviction_takes_the_least_recently_used_and_stops() {
         // 200 held, 10 visible, headroom 64 -> limit 74, excess 126.
         let ages: Vec<(u64, usize)> = (0..200).map(|i| (i as u64, i)).collect();
-        let dropped = stale_thumbnails(ages, 10, 64);
+        let dropped = stale_thumbnails(ages, 10, 64, 100_000);
         assert_eq!(dropped.len(), 126);
         let dropped: BTreeSet<usize> = dropped.into_iter().collect();
         assert!(dropped.contains(&0), "the oldest goes");
@@ -559,8 +579,49 @@ mod thumbnail_cache {
     fn eviction_goes_by_use_not_by_page_number() {
         // Page 0 was used most recently; page 199 longest ago.
         let ages: Vec<(u64, usize)> = (0..200).map(|i| (200 - i as u64, i)).collect();
-        let dropped: BTreeSet<usize> = stale_thumbnails(ages, 10, 64).into_iter().collect();
+        let dropped: BTreeSet<usize> =
+            stale_thumbnails(ages, 10, 64, 100_000).into_iter().collect();
         assert!(dropped.contains(&199), "the least recently used goes, high index or not");
         assert!(!dropped.contains(&0), "the most recently used stays");
+    }
+}
+
+#[cfg(test)]
+mod thumbnail_cap {
+    use super::stale_thumbnails;
+    use std::collections::BTreeSet;
+
+    /// The absolute cap holds even when few pages are on screen, which is the case the
+    /// relative limit answers correctly and the case that never needed answering.
+    #[test]
+    fn the_cap_is_not_reached_by_an_ordinary_viewport() {
+        let ages: Vec<(u64, usize)> = (0..300).map(|i| (i as u64, i)).collect();
+        // 253 visible + 64 headroom = 317, under the 512 cap, so nothing goes.
+        assert!(stale_thumbnails(ages, 253, 64, 512).is_empty());
+    }
+
+    /// A viewport reporting far more visible pages than the cap must not be granted
+    /// headroom on top of it: `visible + headroom` alone would have authorised 2,024
+    /// thumbnails from the 1,960 seen once during a zoom transition.
+    #[test]
+    fn the_cap_bounds_the_headroom() {
+        // 500 visible + 64 headroom = 564, past the 512 cap, and 500 is still under it.
+        let ages: Vec<(u64, usize)> = (0..600).map(|i| (i as u64, i)).collect();
+        let dropped = stale_thumbnails(ages, 500, 64, 512);
+        assert_eq!(dropped.len(), 600 - 512, "held down to the cap, not to 564");
+
+        // Where the relative limit is the tighter of the two, it is the one that applies.
+        let ages: Vec<(u64, usize)> = (0..600).map(|i| (i as u64, i)).collect();
+        assert_eq!(stale_thumbnails(ages, 400, 64, 512).len(), 600 - 464);
+    }
+
+    /// **A visible page is never evicted to satisfy the cap.** The next frame would ask for
+    /// it again, so a cache below the visible count re-renders every frame for good.
+    #[test]
+    fn nothing_on_screen_is_evicted_to_meet_the_cap() {
+        let ages: Vec<(u64, usize)> = (0..900).map(|i| (i as u64, i)).collect();
+        let dropped: BTreeSet<usize> = stale_thumbnails(ages, 800, 64, 512).into_iter().collect();
+        assert_eq!(dropped.len(), 100, "down to what is on screen and no further");
+        assert!(!dropped.contains(&899), "and the most recent stay");
     }
 }

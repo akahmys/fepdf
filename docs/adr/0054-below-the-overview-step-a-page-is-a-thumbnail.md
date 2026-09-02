@@ -59,7 +59,22 @@ held pages consuming the quota (1), no eviction (2), eviction by page number (1)
 evicting everything past the limit (2). The decisions are pure functions
 (`pages_to_create`, `stale_thumbnails`) because everything around them needs a GPU.
 
-**The quota and the headroom are guesses.** 8 per frame and 64 beyond the screen were not
-derived from measurement; they are the numbers that keep a frame's new work small and a
-scroll-back cheap. What would settle them is a frame-time measurement at the zoom floor on
-`intel_sdm.pdf`, which has not been made.
+**Measured at the zoom floor on `intel_sdm.pdf`, the quota never binds.** In a 1466x876
+viewport at 10% the flow puts 23 pages in a row and 11 rows on screen — **253 visible**,
+which is exactly what the arithmetic gives. `ensure_thumbnails` costs **0.05ms** on a frame
+that creates nothing, 0.50ms for one, 0.79ms for two and 1.68ms for three; and **no frame
+ever created more than three**, because the worker supplies scenes at that rate. Raising
+the quota from 8 to 64 changed nothing: still a peak of three. So 8 is safe — eight would
+be around 3ms of a 16.7ms frame — but it is not what limits the fill. **Scene production
+is**, which is where a later improvement would go: a thumbnail does not need the full
+vector scene it is currently built from.
+
+**Eviction was never reached either.** The cache peaked at 253, the visible count, against
+a limit of 253 + 64; thumbnails are only ever created for visible pages, so the headroom
+matters only while scrolling, which this measurement did not exercise.
+
+**The limit being relative to `visible` is the weak part of it.** At 253 pages the cache is
+52MB, but nothing bounds `visible` itself. One frame during a zoom transition reported 1,960
+visible; that figure could not be reproduced and is not explained — at the floor the
+arithmetic gives 253 — but a limit of `visible + 64` would have authorised 450MB had it
+been real. An absolute cap alongside the relative one would cost nothing.

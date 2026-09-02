@@ -99,6 +99,15 @@ impl FepdfApp {
         }
     }
 
+    /// The space between pages, in page units.
+    ///
+    /// **It is in page units, so it shrinks with the zoom.** At the floor the old 24 drew
+    /// as 2.4 pixels and neighbouring pages read as one sheet; a page in the tile grid is
+    /// told apart by its gap and its border, and at that size the gap was doing none of the
+    /// work. Widening it costs nothing at reading zoom, where 24 was already narrower than
+    /// most of the margins inside the pages it separated.
+    pub const PAGE_GAP: f32 = 48.0;
+
     /// Recomputes page rectangles from `doc_page_sizes` and the current view mode.
     pub fn compute_layouts(&mut self) {
         // RR-15 Limit: GUI
@@ -248,8 +257,8 @@ impl FepdfApp {
             let viewport_w = self.last_viewport_rect.map_or(1000.0, |r| r.width());
             let zoom = self.view.zoom();
             let is_r2l = self.view.binding_direction == BindingDirection::RightToLeft;
-            let gap_x = 24.0_f32;
-            let gap_y = 24.0_f32;
+            let gap_x = Self::PAGE_GAP;
+            let gap_y = Self::PAGE_GAP;
 
             if self.view.scroll_direction == ScrollDirection::Vertical {
                 if self.view.is_reading_view() {
@@ -380,9 +389,12 @@ mod flow {
         (a - b).abs() < 0.01
     }
 
+    /// The real gap, so that changing it is covered rather than shadowed by a literal.
+    const GAP: f32 = FepdfApp::PAGE_GAP;
+
     fn lay(sizes: &[(f64, f64)], available_w: f32, is_r2l: bool) -> Vec<egui::Rect> {
         let mut layouts = vec![PageLayout { index: 0, rect: egui::Rect::NOTHING }; sizes.len()];
-        FepdfApp::flow_rows(sizes, available_w, 24.0, 24.0, is_r2l, &mut layouts);
+        FepdfApp::flow_rows(sizes, available_w, GAP, GAP, is_r2l, &mut layouts);
         layouts.into_iter().map(|l| l.rect).collect()
     }
 
@@ -405,13 +417,14 @@ mod flow {
     #[test]
     fn uniform_pages_give_uniform_rows() {
         let sizes = [(595.0, 842.0); 7];
-        // Four across: 4 * 595 + 3 * 24 = 2452, and a fifth would need 3071.
-        let rects = lay(&sizes, 2500.0, false);
+        // Four across, and a fifth would not fit, whatever the gap is set to.
+        let width = 4.0_f32.mul_add(595.0, 3.0 * GAP);
+        let rects = lay(&sizes, width + 1.0, false);
         let first_row_y = rects[0].min.y;
         assert_eq!(rects.iter().filter(|r| same(r.min.y, first_row_y)).count(), 4);
-        assert!(same(rects[4].min.y, 842.0 + 24.0), "the second row clears the first");
+        assert!(same(rects[4].min.y, 842.0 + GAP), "the second row clears the first");
         let pitch = rects[1].min.x - rects[0].min.x;
-        assert!((pitch - (595.0 + 24.0)).abs() < 0.01, "even pitch within a row: {pitch}");
+        assert!((pitch - (595.0 + GAP)).abs() < 0.01, "even pitch within a row: {pitch}");
     }
 
     /// Rows hold what fits, so a row of wide pages holds fewer than a row of narrow ones.
@@ -456,6 +469,17 @@ mod flow {
         assert!(r2l[0].min.x > r2l[2].min.x, "page 1 sits to the right of page 3");
         assert!((ltr[0].min.x - r2l[2].min.x).abs() < 0.01, "the same span, mirrored");
         assert!(same(r2l[0].min.y, r2l[2].min.y), "still one row");
+    }
+
+    /// **The gap has to survive the zoom it exists for.** It is in page units, so at the
+    /// floor it is multiplied by 0.1: the previous 24 drew as 2.4 pixels and neighbouring
+    /// pages read as one sheet. This ties the two constants together, so that lowering the
+    /// zoom floor or narrowing the gap has to answer for the overview it produces.
+    #[test]
+    fn the_gap_is_still_visible_at_the_smallest_zoom() {
+        let floor = 0.1_f32;
+        let on_screen = FepdfApp::PAGE_GAP * floor;
+        assert!(on_screen >= 4.0, "the gap draws as {on_screen} pixels at the zoom floor");
     }
 
     /// Pages shorter than the tallest in their row are centred against it, not left to
