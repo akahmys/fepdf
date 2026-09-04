@@ -113,6 +113,20 @@ impl FepdfApp {
         // Configure system fonts, icon font, and visual theme
         theme::configure_fonts_and_styles(&cc.egui_ctx);
 
+        // `Cmd +`, `Cmd -` and `Cmd 0` belong to the document, not to egui's own interface
+        // scaling. Left on, egui's default did **both** on every press: it stepped the
+        // document zoom through `handle_zoom_shortcuts` and separately shrank the whole
+        // interface by changing `pixels_per_point`, so the sidebar and the status bar
+        // scaled with the page and a labelled 67% drew nothing like 67%.
+        //
+        // It also inflated the viewport measured in logical points, which is how one frame
+        // came to report 1,960 visible pages of `intel_sdm.pdf` where the layout accounts
+        // for 253 (ADR-0054). That figure was recorded as unexplained; this is the cause.
+        cc.egui_ctx.options_mut(|o| o.zoom_with_keyboard = false);
+        // eframe persists the interface scale, so a window shrunk by the old behaviour
+        // would stay shrunk after the shortcut was taken away from it.
+        cc.egui_ctx.set_zoom_factor(1.0);
+
         let egui_ctx = cc.egui_ctx.clone();
         std::thread::spawn(move || {
             run_worker(rx_req, tx_res, egui_ctx);
@@ -427,7 +441,13 @@ impl FepdfApp {
     }
 
     fn handle_page_and_selection_shortcuts(&mut self, ui: &egui::Ui) {
+        // Removing pages belongs where pages are arranged. A selection survives the trip
+        // into the page view — checking a page before deleting it is the ordinary reason to
+        // zoom in — so the key that acts on it stays behind rather than the selection being
+        // thrown away. In the page view `Delete` could only ever have meant a page the
+        // reader was not looking at.
         if ui.input(|i| i.key_pressed(egui::Key::Delete) || i.key_pressed(egui::Key::Backspace))
+            && self.view.selects_pages()
             && !self.selected_pages.is_empty()
             && self.total_pages > 1
         {
@@ -438,7 +458,7 @@ impl FepdfApp {
             self.selection_manager.clear();
         }
         if ui.input(|i| i.modifiers.command && i.key_pressed(egui::Key::A))
-            && !self.view.is_reading_view()
+            && !self.view.is_page_view()
             && self.total_pages > 0
         {
             self.selected_pages.clear();

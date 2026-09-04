@@ -142,7 +142,7 @@ impl PDFView {
     /// a bound repeated is a bound that drifts.
     const ZOOM_BOUNDS: std::ops::RangeInclusive<f32> = 0.1..=10.0;
 
-    /// The zoom the view stops being pages being read and becomes a sheet of tiles.
+    /// The zoom the view stops being pages and becomes tiles.
     ///
     /// Below it the pages tile, a drag reorders them, `Cmd+A` selects all of them, and each
     /// page is drawn from its own thumbnail rather than composed as a vector scene. It was
@@ -150,22 +150,27 @@ impl PDFView {
     ///
     /// **It is the only boundary.** There were three — the layout changed at 0.65, the
     /// rendering at 0.33, and what could be done to a page's content at 0.40 — which is
-    /// three thresholds where a reader sees one view changing. Above this the pages are
-    /// read: one column, composed from their vector scenes, text selectable, reading order
-    /// shown. Below it they are tiles: flowed into rows, drawn from thumbnails, dragged to
-    /// reorder, selected whole.
+    /// three thresholds where a reader sees one view changing. Above this is the **page
+    /// view**: one column, composed from vector scenes, text selectable, reading order
+    /// shown. Below it is the **tile view**: flowed into rows, drawn from thumbnails,
+    /// dragged to reorder, selected whole.
     ///
-    /// **Text at 0.30 is around 3pt and cannot be read**, so selection there is offered over
-    /// something nobody can see; that was the argument for a separate legibility boundary at
-    /// 0.40. One boundary a reader can see was judged worth more than a second one they
-    /// cannot.
+    /// **The modes are named for what is on screen, not for what they are for.** They were
+    /// "reading" and "overview" while the boundary was 0.65, where reading was a promise the
+    /// view could keep; at 0.30 text draws around 3pt, so a mode called "reading" would name
+    /// something it cannot deliver. A page and a tile are what the reader can see, and can
+    /// check the label against.
+    ///
+    /// Selection at 0.30 is likewise offered over text nobody can read, which was the
+    /// argument for a separate legibility boundary at 0.40. One boundary a reader can see
+    /// was judged worth more than a second one they cannot.
     ///
     /// It also cuts what is composed between here and 0.65 from several hundred pages to
     /// the three or four a single column holds.
-    pub const OVERVIEW_ZOOM: f32 = 0.30;
+    pub const TILE_ZOOM: f32 = 0.30;
 
-    /// Where double-clicking out lands: the first step that is unambiguously an overview.
-    pub const OVERVIEW_STEP: f32 = 0.25;
+    /// Where double-clicking out lands: the first step that is unambiguously a tile view.
+    pub const TILE_STEP: f32 = 0.25;
 
     /// The zooms the buttons, the keyboard and the menu move between.
     ///
@@ -215,10 +220,27 @@ impl PDFView {
             .unwrap_or(zoom)
     }
 
-    /// Whether the view is showing pages to be read rather than tiles to be arranged.
+    /// Whether a click on a page selects *the page*. See [`Self::selects_text`].
+    ///
+    /// **The two must never both be true.** One `Response` covers a page, and page
+    /// selection and text selection both read it: while both were live, a drag meant to
+    /// select text also selected the page, and `Delete` — which is not gated by mode —
+    /// then removed the page the reader had merely clicked in.
     #[must_use]
-    pub fn is_reading_view(&self) -> bool {
-        self.zoom >= Self::OVERVIEW_ZOOM
+    pub fn selects_pages(&self) -> bool {
+        !self.is_page_view()
+    }
+
+    /// Whether a click on a page selects *text on it*. See [`Self::selects_pages`].
+    #[must_use]
+    pub fn selects_text(&self) -> bool {
+        self.is_page_view()
+    }
+
+    /// Whether the view is showing pages rather than tiles. See [`Self::TILE_ZOOM`].
+    #[must_use]
+    pub fn is_page_view(&self) -> bool {
+        self.zoom >= Self::TILE_ZOOM
     }
 
     /// Sets the zoom without moving anything, for a caller that places the view itself.
@@ -493,7 +515,7 @@ impl PDFView {
                         egui::Stroke::new(2.5_f32, crate::app::theme::colors::RUST_PRIMARY),
                         egui::StrokeKind::Outside,
                     );
-                } else if !self.is_reading_view() {
+                } else if !self.is_page_view() {
                     ui.painter().rect_stroke(
                         page_rect,
                         3.0,
@@ -653,7 +675,7 @@ impl PDFView {
         zoom: f32,
     ) {
         let badge_text = format!("{}", page_index + 1);
-        let font_size = if zoom < Self::OVERVIEW_ZOOM { 11.0 } else { 12.0 };
+        let font_size = if zoom < Self::TILE_ZOOM { 11.0 } else { 12.0 };
         let (badge_bg, badge_fg, badge_border) = if is_selected {
             (
                 crate::app::theme::colors::RUST_BADGE_BG,
@@ -903,7 +925,7 @@ impl PDFView {
             self.handle_scroll_panning(ui);
         }
         let shift_down = ui.input(|i| i.modifiers.shift);
-        if response.dragged() && (!shift_down || self.is_reading_view()) {
+        if response.dragged() && (!shift_down || self.is_page_view()) {
             self.pan += response.drag_delta();
         }
         if response.double_clicked() {
@@ -911,7 +933,7 @@ impl PDFView {
                 .input(|i| i.pointer.hover_pos().or(i.pointer.latest_pos()))
                 .filter(|p| viewport_rect.contains(*p))
                 .unwrap_or_else(|| viewport_rect.center());
-            let target_zoom = if self.is_reading_view() { Self::OVERVIEW_STEP } else { 1.0 };
+            let target_zoom = if self.is_page_view() { Self::TILE_STEP } else { 1.0 };
             self.zoom_at(target_zoom, pos, viewport_rect, layouts);
         }
         if response.drag_stopped()
@@ -1248,16 +1270,16 @@ mod zoom_steps {
         for step in PDFView::ZOOM_STEPS {
             view.set_zoom(step);
             assert!(
-                (step - PDFView::OVERVIEW_ZOOM).abs() > 0.01,
+                (step - PDFView::TILE_ZOOM).abs() > 0.01,
                 "step {step} sits on the only boundary there is"
             );
         }
-        view.set_zoom(PDFView::OVERVIEW_STEP);
-        assert!(!view.is_reading_view(), "the double-click destination is a tile view");
+        view.set_zoom(PDFView::TILE_STEP);
+        assert!(!view.is_page_view(), "the double-click destination is a tile view");
         view.set_zoom(0.25);
-        assert!(!view.is_reading_view(), "the step below the boundary tiles");
+        assert!(!view.is_page_view(), "the step below the boundary tiles");
         view.set_zoom(0.33);
-        assert!(view.is_reading_view(), "and the step above it reads");
+        assert!(view.is_page_view(), "and the step above it reads");
     }
 
     /// A gesture that lands within the snap band is taken to mean the step, so the label
@@ -1286,5 +1308,41 @@ mod zoom_steps {
             view.zoom_at(target, rect.center(), rect, &layouts);
         }
         assert!(view.zoom() > 1.02, "the gesture stuck at {}", view.zoom());
+    }
+}
+
+#[cfg(test)]
+mod click_ownership {
+    use super::PDFView;
+
+    /// **A click belongs to exactly one of them, at every zoom.** Page selection and text
+    /// selection read the same `Response` over a page, so a zoom where both are live means
+    /// a drag over a sentence also selects the page — and `Delete` is gated by nothing, so
+    /// the page the reader clicked in is the page that goes. A zoom where neither is live
+    /// means clicking a page does nothing at all.
+    #[test]
+    fn a_click_on_a_page_is_owned_by_one_of_the_two() {
+        let mut view = PDFView::new();
+        for zoom in [0.10_f32, 0.25, 0.29, 0.30, 0.33, 0.50, 1.0, 4.0, 10.0] {
+            view.set_zoom(zoom);
+            assert_ne!(
+                view.selects_pages(),
+                view.selects_text(),
+                "at {zoom} pages={} text={}",
+                view.selects_pages(),
+                view.selects_text()
+            );
+        }
+    }
+
+    /// And each view owns the one that belongs to it: pages are arranged in the tile view
+    /// and read in the page view.
+    #[test]
+    fn the_tile_view_selects_pages_and_the_page_view_selects_text() {
+        let mut view = PDFView::new();
+        view.set_zoom(PDFView::TILE_STEP);
+        assert!(view.selects_pages() && !view.selects_text());
+        view.set_zoom(1.0);
+        assert!(view.selects_text() && !view.selects_pages());
     }
 }

@@ -261,7 +261,7 @@ impl FepdfApp {
             let gap_y = Self::PAGE_GAP;
 
             if self.view.scroll_direction == ScrollDirection::Vertical {
-                if self.view.is_reading_view() {
+                if self.view.is_page_view() {
                     // Standard single vertical column
                     let mut current_offset = 0.0;
                     for (i, &(page_w, page_h)) in self.doc_page_sizes.iter().enumerate() {

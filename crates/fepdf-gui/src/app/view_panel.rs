@@ -244,7 +244,7 @@ impl FepdfApp {
     /// Split from `handle_page_tile_interaction`, which was doing three things: click
     /// selection, the drag-and-drop slot, and this.
     ///
-    /// Below `PDFView::OVERVIEW_ZOOM` the tiles are thumbnails being reordered, not pages
+    /// Below `PDFView::TILE_ZOOM` the tiles are thumbnails being reordered, not pages
     /// being read from.
     fn handle_text_selection_on_page(
         &mut self,
@@ -255,7 +255,7 @@ impl FepdfApp {
         unscaled_h: f32,
         zoom: f32,
     ) {
-        if zoom >= crate::view::PDFView::OVERVIEW_ZOOM
+        if self.view.selects_text()
             && let Some(spans) = self.page_spans.get(&page_idx)
         {
             if self.selection_manager.is_tagging_brush_active {
@@ -291,22 +291,31 @@ impl FepdfApp {
         dragged_from: Option<usize>,
     ) -> Option<usize> {
         let response = ui.allocate_rect(page_screen_rect, egui::Sense::click_and_drag());
+        // The context menu stays in both views: a right-click is not what text selection
+        // reads, and rotating the page being read is a reasonable thing to want.
         self.render_page_context_menu(&response, page_idx);
-        self.handle_page_click_selection(ui, &response, page_idx);
 
-        if response.drag_started() && !self.selected_pages.contains(&page_idx) {
-            self.selected_pages.clear();
-            self.selected_pages.insert(page_idx);
-            self.last_selected_page = Some(page_idx);
+        // Selecting *the page* is the tile view's click. In the page view the same
+        // `Response` belongs to text selection, and having both meant a drag over a
+        // sentence also selected the page under it — which `Delete`, gated by nothing,
+        // would then remove.
+        if self.view.selects_pages() {
+            self.handle_page_click_selection(ui, &response, page_idx);
+
+            if response.drag_started() && !self.selected_pages.contains(&page_idx) {
+                self.selected_pages.clear();
+                self.selected_pages.insert(page_idx);
+                self.last_selected_page = Some(page_idx);
+            }
         }
 
-        if response.double_clicked() && zoom < crate::view::PDFView::OVERVIEW_ZOOM {
+        if response.double_clicked() && zoom < crate::view::PDFView::TILE_ZOOM {
             self.view.set_zoom(1.0);
             self.view.scroll_to_page(page_idx, &self.page_layouts);
         }
 
         let is_r2l = self.view.binding_direction == crate::view::BindingDirection::RightToLeft;
-        let target_slot = if zoom < crate::view::PDFView::OVERVIEW_ZOOM {
+        let target_slot = if zoom < crate::view::PDFView::TILE_ZOOM {
             Self::handle_tile_drag_and_drop(
                 ui,
                 &response,
@@ -363,6 +372,38 @@ impl FepdfApp {
         zoom: f32,
         dragged_from: Option<usize>,
     ) -> Option<usize> {
+        let tool_active = self.is_placing_signature
+            || self.caliper_tool.is_active
+            || self.redaction_manager.is_active;
+
+        match page_input(tool_active, self.view.is_page_view()) {
+            // A content tool is out where the tool cannot see what it is acting on, and
+            // its drags must not become something else on the way past.
+            PageInput::Suppressed => None,
+            PageInput::Tool => {
+                self.handle_content_tool(ui, visible_index, page_screen_rect, unscaled_h, zoom);
+                None
+            }
+            PageInput::Normal => self.handle_page_tile_interaction(
+                ui,
+                visible_index,
+                page_screen_rect,
+                unscaled_h,
+                zoom,
+                dragged_from,
+            ),
+        }
+    }
+
+    /// Hands the page to whichever content tool is active. Only reached in the page view.
+    fn handle_content_tool(
+        &mut self,
+        ui: &mut egui::Ui,
+        visible_index: usize,
+        page_screen_rect: egui::Rect,
+        unscaled_h: f32,
+        zoom: f32,
+    ) {
         if self.is_placing_signature {
             self.handle_signature_placement_interaction(
                 ui,
@@ -371,7 +412,6 @@ impl FepdfApp {
                 unscaled_h,
                 zoom,
             );
-            None
         } else if self.caliper_tool.is_active {
             self.handle_caliper_page_interaction(
                 ui,
@@ -380,7 +420,6 @@ impl FepdfApp {
                 unscaled_h,
                 zoom,
             );
-            None
         } else if self.redaction_manager.is_active {
             self.redaction_manager.handle_interaction(
                 ui,
@@ -389,16 +428,6 @@ impl FepdfApp {
                 unscaled_h,
                 zoom,
             );
-            None
-        } else {
-            self.handle_page_tile_interaction(
-                ui,
-                visible_index,
-                page_screen_rect,
-                unscaled_h,
-                zoom,
-                dragged_from,
-            )
         }
     }
 
@@ -586,7 +615,7 @@ impl FepdfApp {
             &self.ust_registry,
             // Off in the tile view: the borders are drawn per node of every visible page,
             // and the lines are finer than the glyphs they enclose.
-            self.show_reading_order && self.view.is_reading_view(),
+            self.show_reading_order && self.view.is_page_view(),
             marquee_rect,
         );
     }
@@ -603,7 +632,7 @@ impl FepdfApp {
         let any_down = ui.input(|i| i.pointer.any_down());
         let any_released = ui.input(|i| i.pointer.any_released());
 
-        if zoom < crate::view::PDFView::OVERVIEW_ZOOM && shift_down {
+        if zoom < crate::view::PDFView::TILE_ZOOM && shift_down {
             if any_pressed && let Some(pos) = mouse_pos {
                 self.selection_manager.marquee_start = Some(pos);
                 self.selection_manager.marquee_current = Some(pos);
@@ -707,7 +736,7 @@ impl FepdfApp {
         // view away from vello's fixed bin-data buffer — 39 consecutive pages of
         // `intel_sdm.pdf` reach it when composed.
         let thumbnails;
-        let pixels = if !self.view.is_reading_view() {
+        let pixels = if !self.view.is_page_view() {
             thumbnails =
                 vello_renderer.ensure_thumbnails(rs, &visible_pages_data, zoom, scale_factor);
             self.pages_left_out = 0;
@@ -726,5 +755,58 @@ impl FepdfApp {
 
         self.draw_view_with_highlights(ui, viewport_rect, zoom, &pixels);
         self.handle_page_interactions(ui, viewport_rect, zoom);
+    }
+}
+
+/// What a click on a page is for, this frame.
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+enum PageInput {
+    /// A content tool — redaction, caliper, signature placement — has the click.
+    Tool,
+    /// No tool is active, so the view decides: text in the page view, the page in tiles.
+    Normal,
+    /// A content tool is active but the view is tiles. The click goes nowhere.
+    Suppressed,
+}
+
+/// Which of the three a click on a page is.
+///
+/// **`Suppressed` is the case worth having a name for.** A content tool acts on what is
+/// drawn inside a page, and in the tile view a page is 60 pixels wide — a redaction box
+/// drawn there covers content nobody can see. Turning the tool off there is not enough on
+/// its own: the click would fall through to page selection, and a drag meant to redact
+/// would reorder the document instead.
+const fn page_input(tool_active: bool, page_view: bool) -> PageInput {
+    match (tool_active, page_view) {
+        (true, true) => PageInput::Tool,
+        (true, false) => PageInput::Suppressed,
+        (false, _) => PageInput::Normal,
+    }
+}
+
+#[cfg(test)]
+mod page_input_rules {
+    use super::{PageInput, page_input};
+
+    /// A content tool works where its page can be seen, and nowhere else.
+    #[test]
+    fn a_content_tool_acts_only_in_the_page_view() {
+        assert_eq!(page_input(true, true), PageInput::Tool);
+        assert_eq!(page_input(true, false), PageInput::Suppressed);
+    }
+
+    /// **An active tool never falls through to page selection.** Off is not the same as
+    /// out of the way: a drag meant to redact must not reorder the document.
+    #[test]
+    fn a_suppressed_tool_does_not_become_page_selection() {
+        assert_ne!(page_input(true, false), PageInput::Normal);
+    }
+
+    /// With no tool active both views behave as they did; the tool is the only thing this
+    /// decides.
+    #[test]
+    fn without_a_tool_the_view_decides_as_before() {
+        assert_eq!(page_input(false, true), PageInput::Normal);
+        assert_eq!(page_input(false, false), PageInput::Normal);
     }
 }

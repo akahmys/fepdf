@@ -512,7 +512,7 @@ fn pages_to_create(
 /// The width to render a page's thumbnail at, from what the page occupies on screen.
 ///
 /// **A fixed width only works for one paper size.** 200 pixels was chosen because an A4
-/// page is 196 wide at `OVERVIEW_STEP`, which made the switch to thumbnails free of visible
+/// page is 196 wide at `TILE_STEP`, which made the switch to thumbnails free of visible
 /// cost — for A4. An A1 sheet is 1,684pt, so at the same zoom it draws 566 pixels wide and
 /// a 200-pixel thumbnail is stretched 2.8 times. Deriving the width from the page means the
 /// thumbnail is never upscaled, whatever the paper.
