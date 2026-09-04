@@ -87,6 +87,14 @@ rather than the pages on screen — evicting a visible page only means rendering
 the next frame, so a single sheet larger than the whole budget is still shown.
 
 **The relative limit alone was not enough.** Nothing bounds `visible` itself: one frame
-during a zoom transition reported 1,960 visible, a figure that could not be reproduced and
-is not explained — at the floor the arithmetic gives 253 — but `visible + 64` would have
-honoured it.
+during a zoom transition reported 1,960 visible where the layout accounts for 253, and
+`visible + 64` would have honoured it.
+
+**That figure was recorded here as unreproducible and unexplained. It is neither.**
+egui's own keyboard zoom was left enabled, so each `Cmd -` both stepped the document zoom
+and shrank the whole interface by lowering `pixels_per_point`. The viewport is measured in
+logical points, so a shrinking interface makes it arithmetically larger and the pages
+visible in it multiply. The measurement run drove the zoom with `Cmd -`, which is why it
+saw the figure and why re-running it at a pinned zoom never did. The shortcut now belongs
+to the document alone. The byte budget was the right answer to a wrong reading, and stays:
+what it bounds is real whatever `visible` reports.
