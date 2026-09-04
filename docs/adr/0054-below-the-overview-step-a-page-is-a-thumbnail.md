@@ -28,14 +28,21 @@ for a reader who scrolls to the end.
 
 ## Decision
 
-**At or below `PDFView::OVERVIEW_STEP` (33%) each page is drawn from its own small texture
-instead of being composed into a viewport scene.** A thumbnail costs one draw whatever the
+**In the tile view each page is drawn from its own small texture instead of being composed
+into a viewport scene.** The switch was at 33% while the tile layout began at 65%; deriving
+the thumbnail's width from the page rather than fixing it is what let the two become one
+boundary at `PDFView::OVERVIEW_ZOOM` ([ADR-0053](0053-the-viewer-has-two-modes-and-they-are-now-named.md)). A thumbnail costs one draw whatever the
 page holds, so the budget stops being reachable; ADR-0052's count remains as the backstop
 for the zooms that still compose.
 
-**33% is where the pixels run out anyway.** An A4 page is 196 wide at that zoom and 60 at
-the floor, so a single thumbnail 200 wide serves every zoom that uses thumbnails without
-being upscaled. Above 33% a downscaled full render is the better image and is what is used.
+**33% is where the pixels run out — for A4.** An A4 page is 196 wide at that zoom, which is
+what a fixed 200-pixel thumbnail was sized for. **That reasoning holds only for one paper
+size**, and the paper is not fixed: A1 is 1,684pt, so at the same zoom it draws 566 pixels
+wide and a 200-pixel thumbnail is stretched 2.8 times. Fitting an A1 sheet on a 13-inch
+screen needs about 33%, so this is not a corner — it is the ordinary way to look at a large
+drawing. The width is therefore derived from what the page occupies on screen, rounded up
+to a power of two so that stepping the zoom does not re-render every page. Above 33% a
+downscaled full render is the better image and is what is used.
 
 **The cache is bounded to what is on screen plus 64**, evicted least-recently-used, and a
 frame creates at most 8 new thumbnails. Pages already held do not count against that quota,
@@ -73,8 +80,13 @@ vector scene it is currently built from.
 a limit of 253 + 64; thumbnails are only ever created for visible pages, so the headroom
 matters only while scrolling, which this measurement did not exercise.
 
-**The limit being relative to `visible` is the weak part of it.** At 253 pages the cache is
-52MB, but nothing bounds `visible` itself. One frame during a zoom transition reported 1,960
-visible; that figure could not be reproduced and is not explained — at the floor the
-arithmetic gives 253 — but a limit of `visible + 64` would have authorised 450MB had it
-been real. An absolute cap alongside the relative one would cost nothing.
+**The limit is therefore a byte budget rather than a count.** A count meant one number for
+two very different things once thumbnails stopped being one size: 512 of them is 173MB of
+A4 pages or 12GB of A1 sheets. `THUMBNAIL_CACHE_BYTES` is 128MB, and it bounds the headroom
+rather than the pages on screen — evicting a visible page only means rendering it again on
+the next frame, so a single sheet larger than the whole budget is still shown.
+
+**The relative limit alone was not enough.** Nothing bounds `visible` itself: one frame
+during a zoom transition reported 1,960 visible, a figure that could not be reproduced and
+is not explained — at the floor the arithmetic gives 253 — but `visible + 64` would have
+honoured it.

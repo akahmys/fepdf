@@ -44,8 +44,8 @@ impl FepdfApp {
                     }
 
                     // Which mode the view is in. Nothing announces that content
-                    // interactions have stopped below `PDFView::LEGIBLE_ZOOM`; this is
-                    // where a reader finds out which half of that boundary they are on.
+                    // interactions have stopped below `PDFView::OVERVIEW_ZOOM`; this is
+                    // where a reader finds out which side of that boundary they are on.
                     if has_doc {
                         ui.separator();
                         let key = if self.view.is_reading_view() {

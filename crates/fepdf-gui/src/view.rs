@@ -142,24 +142,30 @@ impl PDFView {
     /// a bound repeated is a bound that drifts.
     const ZOOM_BOUNDS: std::ops::RangeInclusive<f32> = 0.1..=10.0;
 
-    /// The zoom the view stops being a page being read and becomes a sheet of thumbnails.
+    /// The zoom the view stops being pages being read and becomes a sheet of tiles.
     ///
-    /// Below it the pages tile, a drag reorders them, `Cmd+A` selects all of them, and text
-    /// selection is off. It was written out at nine call sites across three files before it
-    /// had a name.
-    pub const OVERVIEW_ZOOM: f32 = 0.65;
-
-    /// Below this, what is on the page cannot be read, so nothing that acts on the *content*
-    /// of a page is offered.
+    /// Below it the pages tile, a drag reorders them, `Cmd+A` selects all of them, and each
+    /// page is drawn from its own thumbnail rather than composed as a vector scene. It was
+    /// written out at nine call sites across three files before it had a name.
     ///
-    /// Body text is set at 10 to 11pt, so at 40% it draws at a little over 4pt and its
-    /// x-height is around 2pt. **The boundary deliberately sits between two steps** — 33%
-    /// and 50% straddle it — so that stepping through [`Self::ZOOM_STEPS`] never lands on
-    /// the boundary itself and leaves the mode ambiguous.
-    pub const LEGIBLE_ZOOM: f32 = 0.40;
+    /// **It is the only boundary.** There were three — the layout changed at 0.65, the
+    /// rendering at 0.33, and what could be done to a page's content at 0.40 — which is
+    /// three thresholds where a reader sees one view changing. Above this the pages are
+    /// read: one column, composed from their vector scenes, text selectable, reading order
+    /// shown. Below it they are tiles: flowed into rows, drawn from thumbnails, dragged to
+    /// reorder, selected whole.
+    ///
+    /// **Text at 0.30 is around 3pt and cannot be read**, so selection there is offered over
+    /// something nobody can see; that was the argument for a separate legibility boundary at
+    /// 0.40. One boundary a reader can see was judged worth more than a second one they
+    /// cannot.
+    ///
+    /// It also cuts what is composed between here and 0.65 from several hundred pages to
+    /// the three or four a single column holds.
+    pub const OVERVIEW_ZOOM: f32 = 0.30;
 
     /// Where double-clicking out lands: the first step that is unambiguously an overview.
-    pub const OVERVIEW_STEP: f32 = 0.33;
+    pub const OVERVIEW_STEP: f32 = 0.25;
 
     /// The zooms the buttons, the keyboard and the menu move between.
     ///
@@ -213,13 +219,6 @@ impl PDFView {
     #[must_use]
     pub fn is_reading_view(&self) -> bool {
         self.zoom >= Self::OVERVIEW_ZOOM
-    }
-
-    /// Whether what is drawn is large enough that acting on the content of a page means
-    /// anything. See [`Self::LEGIBLE_ZOOM`].
-    #[must_use]
-    pub fn is_legible(&self) -> bool {
-        self.zoom >= Self::LEGIBLE_ZOOM
     }
 
     /// Sets the zoom without moving anything, for a caller that places the view itself.
@@ -1242,27 +1241,23 @@ mod zoom_steps {
     }
 
     /// The mode boundary sits between two steps, so no step lands on it and leaves the
-    /// mode ambiguous. 33% is an overview, 50% is legible, and nothing is exactly 40%.
+    /// mode ambiguous: 25% and 33% straddle 30%, and nothing is exactly 30%.
     #[test]
     fn no_step_lands_on_a_mode_boundary() {
         let mut view = PDFView::new();
         for step in PDFView::ZOOM_STEPS {
             view.set_zoom(step);
             assert!(
-                (step - PDFView::LEGIBLE_ZOOM).abs() > 0.01,
-                "step {step} sits on the legibility boundary"
-            );
-            assert!(
                 (step - PDFView::OVERVIEW_ZOOM).abs() > 0.01,
-                "step {step} sits on the overview boundary"
+                "step {step} sits on the only boundary there is"
             );
         }
         view.set_zoom(PDFView::OVERVIEW_STEP);
-        assert!(!view.is_legible() && !view.is_reading_view(), "33% is an overview");
-        view.set_zoom(0.50);
-        assert!(view.is_legible() && !view.is_reading_view(), "50% reads but still tiles");
-        view.set_zoom(0.67);
-        assert!(view.is_legible() && view.is_reading_view(), "67% is a reading view");
+        assert!(!view.is_reading_view(), "the double-click destination is a tile view");
+        view.set_zoom(0.25);
+        assert!(!view.is_reading_view(), "the step below the boundary tiles");
+        view.set_zoom(0.33);
+        assert!(view.is_reading_view(), "and the step above it reads");
     }
 
     /// A gesture that lands within the snap band is taken to mean the step, so the label

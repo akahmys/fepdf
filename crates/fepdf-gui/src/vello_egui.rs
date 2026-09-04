@@ -350,7 +350,8 @@ impl VelloRenderer {
         &mut self,
         render_state: &RenderState,
         pages: &[(usize, Arc<Scene>, egui::Rect, egui::Vec2)],
-        thumb_width: u32,
+        zoom: f32,
+        scale_factor: f32,
     ) -> std::collections::BTreeMap<usize, egui::TextureId> {
         let held: std::collections::BTreeSet<usize> =
             self.thumbnail_textures.keys().copied().collect();
@@ -362,8 +363,9 @@ impl VelloRenderer {
             if !held.contains(&index) && !to_create.contains(&index) {
                 continue;
             }
+            let width = thumbnail_width_for(unscaled_size.x, zoom, scale_factor);
             if let Some(tid) =
-                self.render_thumbnail(render_state, index, scene, unscaled_size, thumb_width)
+                self.render_thumbnail(render_state, index, scene, unscaled_size, width)
             {
                 ready.insert(index, tid);
             }
@@ -379,21 +381,28 @@ impl VelloRenderer {
     /// How many thumbnails are kept beyond those on screen, for scrolling back.
     const THUMBNAIL_HEADROOM: usize = 64;
 
-    /// The most thumbnails the cache will hold, whatever is on screen.
+    /// The most texture the cache will hold, whatever is on screen.
     ///
     /// **The other limit is relative and nothing bounds what it is relative to.** Measured
-    /// at the zoom floor on `intel_sdm.pdf` the viewport holds 253 pages and the cache 52MB,
-    /// but `visible` is whatever the layout and the window make it; one frame during a zoom
-    /// transition reported 1,960, which `visible + THUMBNAIL_HEADROOM` would have answered
-    /// with 450MB of texture. At roughly 207KB each this caps the cache near 106MB.
-    const THUMBNAIL_CACHE_CAP: usize = 512;
+    /// at the zoom floor on `intel_sdm.pdf` the viewport holds 253 pages, but `visible` is
+    /// whatever the layout and the window make it; one frame during a zoom transition
+    /// reported 1,960, which `visible + THUMBNAIL_HEADROOM` alone would have honoured.
+    ///
+    /// **It counts bytes rather than thumbnails because they are no longer one size.** A
+    /// page is rendered at the width it occupies on screen, so an A1 sheet costs 24MB where
+    /// an A4 page costs 339KB, and a limit of 512 *of them* would mean either 173MB or
+    /// 12GB depending on the document.
+    const THUMBNAIL_CACHE_BYTES: usize = 128 << 20;
 
     /// Drops the least recently used thumbnails until the cache is within its limit.
     fn evict_thumbnails(&mut self, render_state: &RenderState, visible: usize) {
-        let ages: Vec<(u64, usize)> =
-            self.thumbnail_textures.iter().map(|(i, t)| (t.last_used, *i)).collect();
+        let held: Vec<(u64, usize, usize)> = self
+            .thumbnail_textures
+            .iter()
+            .map(|(i, t)| (t.last_used, *i, t.width as usize * t.height as usize * 4))
+            .collect();
         for index in
-            stale_thumbnails(ages, visible, Self::THUMBNAIL_HEADROOM, Self::THUMBNAIL_CACHE_CAP)
+            stale_thumbnails(held, visible, Self::THUMBNAIL_HEADROOM, Self::THUMBNAIL_CACHE_BYTES)
         {
             if let Some(old) = self.thumbnail_textures.remove(&index) {
                 render_state.renderer.write().free_texture(&old.egui_texture);
@@ -500,6 +509,23 @@ fn pages_to_create(
     order.iter().copied().filter(|i| !held.contains(i)).take(quota).collect()
 }
 
+/// The width to render a page's thumbnail at, from what the page occupies on screen.
+///
+/// **A fixed width only works for one paper size.** 200 pixels was chosen because an A4
+/// page is 196 wide at `OVERVIEW_STEP`, which made the switch to thumbnails free of visible
+/// cost — for A4. An A1 sheet is 1,684pt, so at the same zoom it draws 566 pixels wide and
+/// a 200-pixel thumbnail is stretched 2.8 times. Deriving the width from the page means the
+/// thumbnail is never upscaled, whatever the paper.
+///
+/// **Rounded up to a power of two** so that zooming does not re-render on every step: there
+/// are five or six distinct sizes across the whole zoom range instead of one per zoom. The
+/// ceiling is vello's own texture clamp; the floor keeps a page that is a few pixels wide
+/// from being rendered at a size nothing can be seen in.
+fn thumbnail_width_for(unscaled_w: f32, zoom: f32, scale_factor: f32) -> u32 {
+    let needed = (unscaled_w * zoom * scale_factor).ceil().max(1.0) as u32;
+    needed.next_power_of_two().clamp(64, 2048)
+}
+
 /// The thumbnails to drop, least recently used first, to bring the cache within its limit.
 ///
 /// **The limit is relative to what is on screen**, so scrolling through a long document
@@ -511,117 +537,150 @@ fn pages_to_create(
 /// nothing — the next frame asks for it again — so once `visible` alone reaches the cap the
 /// headroom becomes zero rather than the cache eating itself.
 fn stale_thumbnails(
-    mut ages: Vec<(u64, usize)>,
+    mut held: Vec<(u64, usize, usize)>,
     visible: usize,
     headroom: usize,
-    cap: usize,
+    byte_cap: usize,
 ) -> Vec<usize> {
-    let limit = visible.saturating_add(headroom).min(cap.max(visible));
-    if ages.len() <= limit {
-        return Vec::new();
+    held.sort_unstable();
+    let mut bytes: usize = held.iter().map(|(_, _, b)| *b).sum();
+    let count_limit = visible.saturating_add(headroom);
+    let mut remaining = held.len();
+    let mut drop = Vec::new();
+
+    for &(_, index, entry_bytes) in &held {
+        // The visible pages were touched this frame, so they sort last and are the ones
+        // this leaves standing. Evicting them would only mean rendering them again.
+        if remaining <= visible {
+            break;
+        }
+        if remaining <= count_limit && bytes <= byte_cap {
+            break;
+        }
+        drop.push(index);
+        bytes -= entry_bytes;
+        remaining -= 1;
     }
-    let excess = ages.len() - limit;
-    ages.sort_unstable();
-    ages.into_iter().take(excess).map(|(_, index)| index).collect()
+    drop
 }
 
 #[cfg(test)]
 mod thumbnail_cache {
-    use super::{pages_to_create, stale_thumbnails};
+    use super::{pages_to_create, stale_thumbnails, thumbnail_width_for};
     use std::collections::BTreeSet;
 
+    /// A4 is 612pt, and 200 pixels was picked for it. The derived width must still serve
+    /// that case, or the fix would have traded one paper size for another.
+    #[test]
+    fn an_a4_page_gets_about_what_the_fixed_width_gave_it() {
+        // 612 * 0.33 * 1.0 = 202 -> 256.
+        assert_eq!(thumbnail_width_for(612.0, 0.33, 1.0), 256);
+        // and at the zoom floor, 61 -> the 64 floor.
+        assert_eq!(thumbnail_width_for(612.0, 0.10, 1.0), 64);
+    }
+
+    /// **The case this exists for.** A1 is 1,684pt, so at the same zoom it draws 566 wide
+    /// and the old fixed 200 was stretched 2.8 times. The thumbnail must never be narrower
+    /// than the page is drawn.
+    #[test]
+    fn a_large_sheet_is_never_upscaled() {
+        for (points, zoom) in [(1684.0_f32, 0.33_f32), (1684.0, 0.10), (2384.0, 0.59)] {
+            let on_screen = points * zoom;
+            let width = thumbnail_width_for(points, zoom, 1.0);
+            assert!(
+                f64::from(width) >= f64::from(on_screen),
+                "{points}pt at {zoom} draws {on_screen} and would be rendered at {width}"
+            );
+        }
+    }
+
+    /// Rounding to a power of two is what keeps zooming from re-rendering every page on
+    /// every step: neighbouring zooms must land on the same size.
+    #[test]
+    fn neighbouring_zooms_share_a_size() {
+        let a = thumbnail_width_for(612.0, 0.25, 2.0);
+        let b = thumbnail_width_for(612.0, 0.33, 2.0);
+        assert_eq!(a, b, "0.25 and 0.33 both need under 512 and should share it");
+        assert!(thumbnail_width_for(612.0, 1.0, 2.0) > b, "a much larger zoom does not");
+    }
+
     /// The quota bounds new work per frame, so zooming to the floor does not try to render
-    /// 138 pages before the next frame is drawn.
+    /// 253 pages before the next frame is drawn.
     #[test]
     fn a_frame_creates_no_more_than_its_quota() {
-        let order: Vec<usize> = (0..138).collect();
+        let order: Vec<usize> = (0..253).collect();
         let made = pages_to_create(&order, &BTreeSet::new(), 8);
         assert_eq!(made.len(), 8);
         assert_eq!(made[0], 0, "and it starts from the front of the visible run");
     }
 
     /// A page already held costs nothing to show, so it must not consume the quota — else
-    /// a screen of 138 pages, 130 of them already rendered, would fill in 8 at a time
+    /// a screen of 253 pages, 245 of them already rendered, would fill in 8 at a time
     /// having done no work at all.
     #[test]
     fn pages_already_held_do_not_consume_the_quota() {
-        let order: Vec<usize> = (0..138).collect();
-        let held: BTreeSet<usize> = (0..130).collect();
-        let made = pages_to_create(&order, &held, 8);
-        assert_eq!(made, vec![130, 131, 132, 133, 134, 135, 136, 137]);
+        let order: Vec<usize> = (0..253).collect();
+        let held: BTreeSet<usize> = (0..245).collect();
+        assert_eq!(pages_to_create(&order, &held, 8), vec![245, 246, 247, 248, 249, 250, 251, 252]);
     }
 
-    /// Nothing is evicted while the cache is within its limit: a viewer that dropped
+    /// Nothing is evicted while the cache is within both limits: a viewer that dropped
     /// thumbnails it was about to ask for again would re-render on every frame.
     #[test]
-    fn a_cache_within_its_limit_loses_nothing() {
-        let ages: Vec<(u64, usize)> = (0..40).map(|i| (i as u64, i)).collect();
-        assert!(stale_thumbnails(ages, 10, 64, 100_000).is_empty());
+    fn a_cache_within_its_limits_loses_nothing() {
+        let held: Vec<(u64, usize, usize)> = (0..40).map(|i| (i as u64, i, 339_000)).collect();
+        assert!(stale_thumbnails(held, 10, 64, 128 << 20).is_empty());
     }
 
-    /// Over the limit, the oldest go and exactly the excess goes.
+    /// Over the count limit, the oldest go and exactly the excess goes.
     #[test]
     fn eviction_takes_the_least_recently_used_and_stops() {
-        // 200 held, 10 visible, headroom 64 -> limit 74, excess 126.
-        let ages: Vec<(u64, usize)> = (0..200).map(|i| (i as u64, i)).collect();
-        let dropped = stale_thumbnails(ages, 10, 64, 100_000);
-        assert_eq!(dropped.len(), 126);
+        let held: Vec<(u64, usize, usize)> = (0..200).map(|i| (i as u64, i, 1)).collect();
+        let dropped = stale_thumbnails(held, 10, 64, 128 << 20);
+        assert_eq!(dropped.len(), 126, "200 held against a limit of 74");
         let dropped: BTreeSet<usize> = dropped.into_iter().collect();
-        assert!(dropped.contains(&0), "the oldest goes");
-        assert!(!dropped.contains(&199), "the newest stays");
-        assert!(dropped.contains(&125), "the boundary is at the excess, not at the limit");
-        assert!(!dropped.contains(&126), "and it stops there");
+        assert!(dropped.contains(&0) && dropped.contains(&125), "the oldest go");
+        assert!(!dropped.contains(&126) && !dropped.contains(&199), "and it stops there");
     }
 
     /// Recency, not page order, decides. Without this the cache would evict by index and
     /// throw away the page the reader is looking at.
     #[test]
     fn eviction_goes_by_use_not_by_page_number() {
-        // Page 0 was used most recently; page 199 longest ago.
-        let ages: Vec<(u64, usize)> = (0..200).map(|i| (200 - i as u64, i)).collect();
+        let held: Vec<(u64, usize, usize)> = (0..200).map(|i| (200 - i as u64, i, 1)).collect();
         let dropped: BTreeSet<usize> =
-            stale_thumbnails(ages, 10, 64, 100_000).into_iter().collect();
+            stale_thumbnails(held, 10, 64, 128 << 20).into_iter().collect();
         assert!(dropped.contains(&199), "the least recently used goes, high index or not");
         assert!(!dropped.contains(&0), "the most recently used stays");
     }
-}
 
-#[cfg(test)]
-mod thumbnail_cap {
-    use super::stale_thumbnails;
-    use std::collections::BTreeSet;
-
-    /// The absolute cap holds even when few pages are on screen, which is the case the
-    /// relative limit answers correctly and the case that never needed answering.
+    /// **A few very large thumbnails must be evicted where many small ones would not be.**
+    /// This is what counting bytes buys: 40 A1 sheets are within every count limit and are
+    /// a gigabyte of texture.
     #[test]
-    fn the_cap_is_not_reached_by_an_ordinary_viewport() {
-        let ages: Vec<(u64, usize)> = (0..300).map(|i| (i as u64, i)).collect();
-        // 253 visible + 64 headroom = 317, under the 512 cap, so nothing goes.
-        assert!(stale_thumbnails(ages, 253, 64, 512).is_empty());
+    fn the_byte_budget_evicts_what_a_count_would_have_kept() {
+        let a1 = 2048 * 2896 * 4; // ~23.7MB each
+        let held: Vec<(u64, usize, usize)> = (0..40).map(|i| (i as u64, i, a1)).collect();
+        let dropped = stale_thumbnails(held, 3, 64, 128 << 20);
+        assert!(!dropped.is_empty(), "40 x 23.7MB is 949MB and no count limit sees it");
+        assert!(dropped.len() <= 40 - 3, "but never below what is on screen");
+
+        let small: Vec<(u64, usize, usize)> = (0..40).map(|i| (i as u64, i, 339_000)).collect();
+        assert!(stale_thumbnails(small, 3, 64, 128 << 20).is_empty(), "40 A4 pages are 13MB");
     }
 
-    /// A viewport reporting far more visible pages than the cap must not be granted
-    /// headroom on top of it: `visible + headroom` alone would have authorised 2,024
-    /// thumbnails from the 1,960 seen once during a zoom transition.
+    /// **Nothing on screen is evicted to meet the budget.** The next frame would ask for it
+    /// again, so a cache below the visible count re-renders for good — and a single page
+    /// larger than the whole budget must still be shown.
     #[test]
-    fn the_cap_bounds_the_headroom() {
-        // 500 visible + 64 headroom = 564, past the 512 cap, and 500 is still under it.
-        let ages: Vec<(u64, usize)> = (0..600).map(|i| (i as u64, i)).collect();
-        let dropped = stale_thumbnails(ages, 500, 64, 512);
-        assert_eq!(dropped.len(), 600 - 512, "held down to the cap, not to 564");
+    fn nothing_on_screen_is_evicted_to_meet_the_budget() {
+        let huge = 200 << 20; // one page larger than the budget
+        let held: Vec<(u64, usize, usize)> = (0..4).map(|i| (i as u64, i, huge)).collect();
+        let dropped = stale_thumbnails(held, 4, 64, 128 << 20);
+        assert!(dropped.is_empty(), "all four are on screen");
 
-        // Where the relative limit is the tighter of the two, it is the one that applies.
-        let ages: Vec<(u64, usize)> = (0..600).map(|i| (i as u64, i)).collect();
-        assert_eq!(stale_thumbnails(ages, 400, 64, 512).len(), 600 - 464);
-    }
-
-    /// **A visible page is never evicted to satisfy the cap.** The next frame would ask for
-    /// it again, so a cache below the visible count re-renders every frame for good.
-    #[test]
-    fn nothing_on_screen_is_evicted_to_meet_the_cap() {
-        let ages: Vec<(u64, usize)> = (0..900).map(|i| (i as u64, i)).collect();
-        let dropped: BTreeSet<usize> = stale_thumbnails(ages, 800, 64, 512).into_iter().collect();
-        assert_eq!(dropped.len(), 100, "down to what is on screen and no further");
-        assert!(!dropped.contains(&899), "and the most recent stay");
+        let held: Vec<(u64, usize, usize)> = (0..8).map(|i| (i as u64, i, huge)).collect();
+        let dropped = stale_thumbnails(held, 4, 64, 128 << 20);
+        assert_eq!(dropped.len(), 4, "down to what is on screen and no further");
     }
 }

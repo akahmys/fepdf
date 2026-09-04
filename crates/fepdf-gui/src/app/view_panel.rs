@@ -242,8 +242,10 @@ impl FepdfApp {
     /// Text selection on a page, once it is large enough to select on.
     ///
     /// Split from `handle_page_tile_interaction`, which was doing three things: click
-    /// selection, the drag-and-drop slot, and this. Below `PDFView::OVERVIEW_ZOOM` the
-    /// tiles are thumbnails being reordered, not pages being read from.
+    /// selection, the drag-and-drop slot, and this.
+    ///
+    /// Below `PDFView::OVERVIEW_ZOOM` the tiles are thumbnails being reordered, not pages
+    /// being read from.
     fn handle_text_selection_on_page(
         &mut self,
         ui: &mut egui::Ui,
@@ -530,13 +532,6 @@ impl FepdfApp {
         Some((sig_idx, egui::Rect::from_min_max(screen_min, screen_max)))
     }
 
-    /// The width a thumbnail is rendered at, in pixels.
-    ///
-    /// An A4 page at `OVERVIEW_STEP` is 196 wide and at the zoom floor 60, so one
-    /// thumbnail at this width serves every zoom that uses thumbnails at all without
-    /// being upscaled. Larger would only cost memory: the cache holds one per page.
-    const THUMBNAIL_WIDTH: u32 = 200;
-
     fn draw_view_with_highlights(
         // RR-15 Limit: GUI - Paints selection, redaction, and structural highlights onto canvas
         &mut self,
@@ -589,10 +584,9 @@ impl FepdfApp {
             &signature_highlight,
             &self.selected_pages,
             &self.ust_registry,
-            // Off below `LEGIBLE_ZOOM`: the borders are drawn per node of every visible
-            // page, so at the zoom floor this is the heaviest thing on screen and the
-            // least readable — the lines are finer than the glyphs they enclose.
-            self.show_reading_order && self.view.is_legible(),
+            // Off in the tile view: the borders are drawn per node of every visible page,
+            // and the lines are finer than the glyphs they enclose.
+            self.show_reading_order && self.view.is_reading_view(),
             marquee_rect,
         );
     }
@@ -706,16 +700,16 @@ impl FepdfApp {
 
         let scale_factor = ui.ctx().pixels_per_point();
 
-        // Below `OVERVIEW_STEP` each page is drawn from its own small texture instead of
-        // being composed, vector and all, into one viewport scene. That composition is
-        // what reaches vello's fixed bin-data buffer — 39 consecutive pages of
-        // `intel_sdm.pdf` cross it — and a thumbnail costs one draw whatever the page
-        // holds. It is also where the pixels are: at 33% an A4 page is 196 wide, so
-        // `THUMBNAIL_WIDTH` covers this zoom and every zoom below it without blurring.
+        // The tile view draws each page from its own texture; the page view composes
+        // vector scenes. They are the same boundary, so that a reader who sees tiles is
+        // always seeing thumbnails and never wonders which of two thresholds they crossed.
+        // A thumbnail costs one draw whatever the page holds, which is what keeps the tile
+        // view away from vello's fixed bin-data buffer — 39 consecutive pages of
+        // `intel_sdm.pdf` reach it when composed.
         let thumbnails;
-        let pixels = if zoom <= crate::view::PDFView::OVERVIEW_STEP {
+        let pixels = if !self.view.is_reading_view() {
             thumbnails =
-                vello_renderer.ensure_thumbnails(rs, &visible_pages_data, Self::THUMBNAIL_WIDTH);
+                vello_renderer.ensure_thumbnails(rs, &visible_pages_data, zoom, scale_factor);
             self.pages_left_out = 0;
             crate::view::PagePixels::Thumbnails(&thumbnails)
         } else {

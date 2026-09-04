@@ -38,29 +38,37 @@ would have *loosened* the rule. What had no zoom gate at all was the reading-ord
 
 ## Decision
 
-**The two boundaries are named, and each answers one question.**
-`PDFView::OVERVIEW_ZOOM` (0.65) is *how pages are arranged* — below it they tile, a drag
-reorders them, `Cmd+A` takes all of them. `PDFView::LEGIBLE_ZOOM` (0.40) is *whether what is
-drawn can be read* — below it nothing acts on the content of a page. Body text is set at 10
-to 11pt, so at 40% it draws at a little over 4pt with an x-height near 2pt.
+**There is one boundary and it is named.** `PDFView::OVERVIEW_ZOOM` divides the two views:
+above it the pages are read — one column, composed from their vector scenes, text
+selectable, reading order shown — and below it they are tiles, flowed into rows, drawn from
+thumbnails, dragged to reorder, selected whole.
+
+**It was three boundaries first**: the layout changed at 0.65, the rendering at 0.33, and
+what could be done to a page's content at 0.40, which is three thresholds for one view a
+reader watches change. They were collapsed onto 0.30 —
+see [ADR-0054](0054-below-the-overview-step-a-page-is-a-thumbnail.md), which is what made
+the rendering boundary movable. Text at 0.30 draws around 3pt and cannot be read, so
+selection there is offered over something nobody can see; one boundary a reader can see was
+judged worth more than a second one they cannot.
 
 **Zoom moves along a ladder of 18 steps**, from 10% to 1000%. Buttons, keyboard and menu
 step between them, so 100% is reachable from anywhere. Pinch and trackpad stay continuous
 and snap when within 2% of a step. Fit-to-width and fit-to-height set what they need and do
 not snap, because a fit that snapped would not fit.
 
-**The mode boundaries sit between steps, never on one**: 33% and 50% straddle 40%, and 50%
-and 67% straddle 65%. Stepping therefore never lands on a boundary and leaves the mode
-undetermined. Double-clicking out goes to 33% rather than the old 35% for the same reason.
+**The boundary sits between steps, never on one**: 25% and 33% straddle 30%. Stepping
+therefore never lands on it and leaves the mode undetermined. Double-clicking out goes to
+25% rather than the old 35% for the same reason.
 
 **The tile grid became a flow.** Each row takes as many pages as fit at the current zoom,
 by their own widths; rows hold different numbers of pages; short pages are centred against
 the tallest in their row. **On a document whose pages are all one size this is the previous
 layout exactly**, which is every document in both corpora.
 
-**Text selection stays at `OVERVIEW_ZOOM`** rather than being moved down to 40%, since
-moving it would have enabled selection in the 40–65% band where it is currently off. The
-40% gate went on the reading-order overlay, which had none.
+**Text selection is on the same boundary as everything else.** It was already gated at
+`OVERVIEW_ZOOM` when that was 0.65, so lowering the boundary widened where it is offered
+rather than narrowing it; the reading-order overlay, which had no gate at all, gained the
+same one.
 
 ## Consequences
 
@@ -70,9 +78,14 @@ The percentage in the status bar is the percentage in force whenever the view is
 **The status bar names the mode** — reading or overview. Nothing else announces that
 content interactions have stopped; that was asked for and is deliberate.
 
-**The reading-order overlay off below 40% is also the largest saving where it matters
-most.** It draws borders per node of every visible page, and the zoom floor is exactly
-where the most pages are visible — 138 of `volvo_xc90.pdf` at 10% in one measured window.
+**The reading-order overlay off in the tile view is also the largest saving where it
+matters most.** It draws borders per node of every visible page, and the tile view is
+exactly where the most pages are visible — 253 of `intel_sdm.pdf` at 10% in one measured
+window.
+
+**Lowering the boundary to 0.30 cut what the 30–65% band composes** from the several
+hundred pages a tiled view holds to the three or four a single column does, which is the
+range that came nearest vello's fixed bin-data buffer.
 
 **Snapping needed a second value to be correct.** Computing a gesture's next zoom from the
 snapped one made every small delta land back inside the snap band, so a pinch reaching 100%
