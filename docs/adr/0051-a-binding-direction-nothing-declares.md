@@ -17,8 +17,12 @@ says `R2L` and one external file says `L2R`. So for almost every document Table 
 default of `L2R` is what applies, and a vertically set book opens at the wrong end unless
 something looks at it.
 
-**Which document this actually touches is one.** `samples/fy05.pdf` is set vertically —
-six fonts in a `-V` writing mode — and declares nothing, so only the guess reaches it.
+**Which document this actually touches is one.** `samples/fy05.pdf` declares nothing, so
+only the guess reaches it. **This record said it is set vertically, and it is not**: the six
+fonts in a `-V` writing mode are six of **316**, and the other 310 are `-RKSJ-H`. It is a
+horizontally set government report with a vertical table or cover in it. The denominator was
+never recorded here, and "six vertical fonts" was read as "a vertical document"; see the
+correction below.
 `samples/bokutokitan.pdf` carries four such fonts and would seem to be the second case, and
 is not: **it declares `R2L` itself**, so the guess is never reached for it and the deletion
 never affected it. The other seven samples carry no vertical font at all.
@@ -67,6 +71,29 @@ opposite case — `NotoSerif-Vietnamese` ends in no `-V` and a name merely conta
 is not a mode — because "vertical CJK binds right to left" and "everything binds right to
 left" are otherwise the same green test. Verified by breaking it three ways: always
 answering `R2L`, never answering, and dropping the `/Lang` half.
+
+## Correction, 2026-09-05
+
+**The heuristic was wrong on the only document it reaches.** Two things were wrong with it.
+
+**It tested the language.** `/Lang` beginning `ja` alone answered `R2L`, which binds every
+Japanese document right to left. Japanese is set horizontally far more often than not —
+reports, papers, manuals — and binding follows the *setting*, not the language.
+
+**It tested for the presence of a vertical font rather than for a vertical document.**
+`fy05.pdf` is 6 vertical fonts of 316, or 1.9%; `bokutokitan.pdf`, which is a vertically set
+book, is 4 of 18, or 22%. Presence answered the same for both.
+
+The language test is gone and the font test is now a share, with the threshold at 10%. That
+number is fitted to those two documents, and **only one of them can even reach the
+heuristic** — `bokutokitan.pdf` declares `R2L` itself. So there is still no case where the
+guess is known to be right; there is now one where it is known not to be wrong.
+
+It was found by looking at the viewer: `fy05.pdf`'s tile grid came out mirrored, page 1 in
+the top right. The first fix aimed at the wrong thing — it took binding direction out of the
+grid altogether — and the symmetry that undid it is plain: if a left-bound book's tiles run
+left to right, a right-bound book's run the other way. The grid was right and the direction
+it was given was wrong.
 
 **What is still not measured is whether the heuristic is any good.** It fires on one file
 of 524 and no second implementation was consulted about it. It is a guess that says it is a

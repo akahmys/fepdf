@@ -409,11 +409,30 @@ fn handle_replace_document(
 ///
 /// [ADR-0041]: ../../docs/adr/0041-a-character-collection-is-declared-not-guessed.md
 fn infer_binding(fonts: &[fepdf::FontSummary], lang: Option<&str>) -> Option<String> {
-    let vertical_font = fonts
-        .iter()
-        .any(|f| f.name.ends_with("-V") || f.name.contains("-V-") || f.name.contains("-V_"));
-    let japanese = lang.is_some_and(|l| l.to_lowercase().starts_with("ja"));
-    (vertical_font || japanese).then(|| "R2L".to_string())
+    let _ = lang;
+    let vertical = fonts.iter().filter(|f| is_vertical(&f.name)).count();
+    let share = vertical as f32 / fonts.len().max(1) as f32;
+    (share >= VERTICAL_SHARE).then(|| "R2L".to_string())
+}
+
+/// What proportion of a document's fonts must be set vertically before it is taken to be a
+/// vertically set book.
+///
+/// **Presence was not enough.** The test was whether *any* font carried the writing-mode
+/// suffix, and `samples/fy05.pdf` — a horizontally set government report — has 6 of them
+/// among **316**, in a table or on its cover. 1.9% was enough to bind it right to left.
+/// `samples/bokutokitan.pdf`, which is a vertically set book, is 4 of 18: **22%**.
+///
+/// **The threshold is fitted to those two documents and one of them is unreachable.**
+/// `bokutokitan.pdf` declares `R2L` itself, so the guess is never asked about it; the only
+/// document in either corpus that this function is consulted for is `fy05.pdf`, where the
+/// answer is that it is not vertical. There is no case here where the heuristic is known to
+/// be right, only one where it is now known not to be wrong.
+const VERTICAL_SHARE: f32 = 0.10;
+
+/// Whether a font name carries the vertical writing-mode suffix (9.7.5.2).
+fn is_vertical(name: &str) -> bool {
+    name.ends_with("-V") || name.contains("-V-") || name.contains("-V_")
 }
 
 fn handle_open(
@@ -704,10 +723,17 @@ fn handle_save(
 mod binding_direction {
     //! **Two files of 524 declare `/ViewerPreferences /Direction`**, so for almost every
     //! document Table 30's default of L2R is what applies and a vertically set book opens
-    //! at the wrong end unless something looks at it. `samples/fy05.pdf` is the case in
-    //! the corpus: six fonts in a vertical writing mode and no declaration.
-    //! `samples/bokutokitan.pdf` is not — it declares `R2L` itself, and the guess is never
-    //! reached for it. It is a guess and is recorded as one where the reader can see it.
+    //! at the wrong end unless something looks at it.
+    //!
+    //! **The rule is vertical setting, not the Japanese language.** Japanese is set
+    //! horizontally far more often than not — reports, papers, manuals — and binding
+    //! follows the setting. Testing `/Lang` bound every Japanese document right to left,
+    //! which is how `samples/fy05.pdf`, a horizontally set government report, came to open
+    //! from the wrong end and lay its tiles out mirrored.
+    //!
+    //! **Presence of a vertical font was not enough either.** `fy05.pdf` has 6 of them
+    //! among 316 — 1.9%, a table or a cover — against `samples/bokutokitan.pdf`'s 4 of 18,
+    //! or 22%. It is a guess and is recorded as one where the reader can see it.
     use super::infer_binding;
 
     fn fonts(names: &[&str]) -> Vec<fepdf::FontSummary> {
@@ -727,14 +753,38 @@ mod binding_direction {
     }
 
     /// `-V` is the writing-mode suffix Adobe's CMap names carry for vertical forms
-    /// (9.7.5.2), which is why a font name is evidence at all. `samples/bokutokitan.pdf`
-    /// has four such fonts and `samples/fy05.pdf` six; the other seven samples have none.
+    /// (9.7.5.2), which is why a font name is evidence at all.
     #[test]
-    fn a_vertical_font_or_a_japanese_language_binds_right_to_left() {
+    fn a_document_set_vertically_binds_right_to_left() {
         assert_eq!(infer_binding(&fonts(&["KozMinPr6N-Regular-V"]), None).as_deref(), Some("R2L"));
         assert_eq!(infer_binding(&fonts(&["A-V-B"]), None).as_deref(), Some("R2L"));
         assert_eq!(infer_binding(&fonts(&["A-V_B"]), None).as_deref(), Some("R2L"));
-        assert_eq!(infer_binding(&fonts(&["Helvetica"]), Some("ja-JP")).as_deref(), Some("R2L"));
+    }
+
+    /// **The measured case.** `samples/bokutokitan.pdf` is 4 vertical fonts of 18 and is a
+    /// vertically set book; `samples/fy05.pdf` is 6 of 316 and is a horizontally set report
+    /// with a vertical table in it. A test for presence answered R2L for both.
+    #[test]
+    fn a_few_vertical_fonts_in_a_horizontal_document_are_not_a_vertical_document() {
+        let mut fy05: Vec<&str> = vec!["DFHSMinchoPro6N-W3-90msp-RKSJ-H"; 310];
+        fy05.extend(["DFHSMinchoPro6N-W3-Identity-V"; 6]);
+        assert_eq!(infer_binding(&fonts(&fy05), Some("ja-JP")), None, "6 of 316 is not vertical");
+
+        let mut book: Vec<&str> = vec!["RyuminPr6N-Regular-H"; 14];
+        book.extend(["RyuminPr6N-Regular-V"; 4]);
+        assert_eq!(infer_binding(&fonts(&book), None).as_deref(), Some("R2L"), "4 of 18 is");
+    }
+
+    /// **The language is not the evidence.** Japanese is set horizontally more often than
+    /// not, and binding follows the setting. Testing `/Lang` bound every Japanese document
+    /// right to left.
+    #[test]
+    fn the_language_alone_decides_nothing() {
+        assert_eq!(infer_binding(&fonts(&["Helvetica"]), Some("ja-JP")), None);
+        assert_eq!(
+            infer_binding(&fonts(&["KozMinPr6N-Regular-V"]), Some("en-US")).as_deref(),
+            Some("R2L")
+        );
     }
 
     /// The control. Without it, "vertical CJK binds right to left" and "everything binds
@@ -746,5 +796,6 @@ mod binding_direction {
         assert_eq!(infer_binding(&fonts(&["Verdana", "Arial"]), Some("de")), None);
         // `-Vietnamese` ends in no `-V`, and a name merely containing a V is not a mode.
         assert_eq!(infer_binding(&fonts(&["NotoSerif-Vietnamese"]), None), None);
+        assert_eq!(infer_binding(&[], None), None, "and a document with no fonts at all");
     }
 }

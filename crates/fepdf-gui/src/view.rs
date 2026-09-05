@@ -140,7 +140,21 @@ impl PDFView {
     ///
     /// Written out three times before — inside `zoom_at` and twice in `fit_to_width` — and
     /// a bound repeated is a bound that drifts.
-    const ZOOM_BOUNDS: std::ops::RangeInclusive<f32> = 0.1..=10.0;
+    const ZOOM_BOUNDS: std::ops::RangeInclusive<f32> = Self::ZOOM_FLOOR..=10.0;
+
+    /// The smallest zoom the viewer offers.
+    ///
+    /// **It is where the fixed grid stops fitting the window.** Ten columns of A4 with
+    /// their gaps is 6,382 page units, which at 20% is 1,276 pixels and fills an ordinary
+    /// viewport; below that the grid only shrinks into the middle of the screen and shows
+    /// no more of the document than it did. Fixing `FepdfApp::TILE_COLUMNS` is what settled
+    /// this number — a layout that fitted itself to the window had no such floor, and was
+    /// why the old one was 0.1.
+    ///
+    /// The cost is that the tile view is two steps wide, 20% and 25%, and shows 40 to 50
+    /// pages rather than the 253 measured at the old floor. More than that is now a
+    /// question for the column count, not for the zoom.
+    pub const ZOOM_FLOOR: f32 = 0.20;
 
     /// The zoom the view stops being pages and becomes tiles.
     ///
@@ -172,6 +186,14 @@ impl PDFView {
     /// Where double-clicking out lands: the first step that is unambiguously a tile view.
     pub const TILE_STEP: f32 = 0.25;
 
+    /// The screen space a page number needs: its own height, plus a little either side.
+    ///
+    /// **The number does not scale and the gap it sits in does.** The gap is in page units,
+    /// so it shrinks with the zoom while the digits stay the size they are; the gaps are
+    /// sized from this figure at the smallest zoom each view reaches, so that the number is
+    /// drawn at every zoom rather than dropped where it would not fit.
+    pub const PAGE_NUMBER_SPACE: f32 = 20.0;
+
     /// The zooms the buttons, the keyboard and the menu move between.
     ///
     /// **A multiplier could not reach them.** The buttons used to scale the current zoom by
@@ -179,9 +201,23 @@ impl PDFView {
     /// produced — no number of presses ever arrived at 100%; a separate reset button existed
     /// to paper over it. Stepping along a fixed ladder lands on 100% from anywhere, and the
     /// percentage the status bar prints is then the percentage in force.
-    const ZOOM_STEPS: [f32; 18] = [
-        0.10, 0.125, 0.15, 0.20, 0.25, 0.33, 0.50, 0.67, 0.75, 1.00, 1.25, 1.50, 2.00, 3.00, 4.00,
-        6.00, 8.00, 10.00,
+    ///
+    /// **The spacing is the point.** The first ladder had `0.67` and `0.75` a ratio of 1.12
+    /// apart — a press that changed nothing a reader could see — while `0.33` to `0.50` was
+    /// 1.52, the largest jump of the lot, sitting just above the mode boundary where the
+    /// finest control is wanted. Every ratio here is between 1.19 and 1.34 except the last,
+    /// 700 to 1000, which is the end of the range and rarely stepped through.
+    ///
+    /// It is a doubling spine — 25, 50, 100, 200, 400 — divided by a repeating 1.25 / 1.20 /
+    /// 1.33, so the round numbers a reader thinks in are landed on exactly. Chrome and
+    /// Firefox both thicken the ladder around the readable range in the same way; Acrobat
+    /// does not, going 10, 25, 50, whose 2.5x first step this viewer cannot use.
+    ///
+    /// **25 and 33 straddle [`Self::TILE_ZOOM`]**, so stepping never lands on the boundary
+    /// and leaves the mode undetermined.
+    pub const ZOOM_STEPS: [f32; 17] = [
+        0.20, 0.25, 0.33, 0.40, 0.50, 0.67, 0.80, 1.00, 1.25, 1.50, 2.00, 2.50, 3.00, 4.00, 5.00,
+        7.00, 10.00,
     ];
 
     /// How close a continuous gesture must come to a step before it is taken to mean it.
@@ -189,6 +225,14 @@ impl PDFView {
     /// Without this a pinch can stop at 99.4% and be indistinguishable from 100% on screen
     /// and in the label while rendering differently.
     const SNAP_TOLERANCE: f32 = 0.02;
+
+    /// How much further a gesture must travel to leave the step it is sitting on.
+    ///
+    /// **A detent needs to be sticky or it is a boundary.** The nearest step alone flips at
+    /// the midpoint between two, where the smallest wobble in a pinch sends the view back
+    /// and forth. In log space each step keeps this much extra reach, so a gesture crossing
+    /// the middle has to commit before the view follows.
+    const DETENT_STICK: f32 = 0.05;
 
     /// The first step above the current zoom, or the top of the range.
     #[must_use]
@@ -211,12 +255,32 @@ impl PDFView {
             .unwrap_or(*Self::ZOOM_BOUNDS.start())
     }
 
-    /// A zoom pulled onto a step when it is within [`Self::SNAP_TOLERANCE`] of one.
-    fn snap_to_step(zoom: f32) -> f32 {
+    /// The step a continuous gesture at `zoom` means, given the step it is on now.
+    ///
+    /// **Every zoom a gesture produces is a step.** It used to be pulled onto one only
+    /// within [`Self::SNAP_TOLERANCE`], so a pinch spent almost all of its travel between
+    /// steps: the view scaled smoothly, the label read a number no ladder contains, and the
+    /// steps were something the buttons had and the fingers did not. Answering with the
+    /// nearest step makes a pinch click from one to the next, which is the same movement
+    /// the buttons make.
+    ///
+    /// Distance is measured in log space, because the ladder is a ratio: 0.20 and 0.25 are
+    /// as far apart to the eye as 4.00 and 5.00, and the midpoint of a step is its
+    /// geometric mean, not its average. `current` keeps [`Self::DETENT_STICK`] of extra
+    /// reach so that sitting exactly between two steps does not oscillate.
+    fn step_for(zoom: f32, current: f32) -> f32 {
+        let reach = |step: f32| {
+            let distance = (zoom.max(f32::EPSILON) / step).ln().abs();
+            if (step - current).abs() < f32::EPSILON {
+                distance - Self::DETENT_STICK
+            } else {
+                distance
+            }
+        };
         Self::ZOOM_STEPS
             .iter()
             .copied()
-            .find(|step| (zoom - step).abs() <= step * Self::SNAP_TOLERANCE)
+            .min_by(|a, b| reach(*a).total_cmp(&reach(*b)))
             .unwrap_or(zoom)
     }
 
@@ -321,7 +385,7 @@ impl PDFView {
         // Recorded before the early return: a gesture that is crossing a snap band must
         // keep accumulating even on the frames where the snapped zoom does not move.
         self.zoom_unsnapped = raw;
-        let new_zoom = Self::snap_to_step(raw);
+        let new_zoom = Self::step_for(raw, old_zoom);
         if (new_zoom - old_zoom).abs() < f32::EPSILON {
             return;
         }
@@ -507,8 +571,11 @@ impl PDFView {
                     Self::draw_placeholder_card(ui.painter(), page_rect, layout.index);
                 }
 
-                // Page selection border
-                if is_selected {
+                // Page selection border. Selecting pages is the tile view's, so showing a
+                // selection is too: a selection made there survives being zoomed into and
+                // would otherwise mark a page the reader cannot select, deselect, or act
+                // on. The state is kept, only not drawn.
+                if is_selected && self.selects_pages() {
                     ui.painter().rect_stroke(
                         page_rect,
                         3.0,
@@ -524,8 +591,23 @@ impl PDFView {
                     );
                 }
 
-                // Page number badge
-                Self::draw_page_number_badge(ui, page_rect, layout.index, is_selected, self.zoom);
+                // Page number. The gap it sits in is in page units and the number is in
+                // screen pixels, so the space shrinks with the zoom while the digits do
+                // not: at 33% a 48-unit gap is 16 pixels and the number lands on the page
+                // below. The gap is passed so the number can decline to be drawn.
+                let gap = if self.is_page_view() {
+                    crate::app::FepdfApp::PAGE_GAP
+                } else {
+                    crate::app::FepdfApp::TILE_ROW_GAP
+                };
+                Self::draw_page_number_badge(
+                    ui,
+                    page_rect,
+                    layout.index,
+                    is_selected && self.selects_pages(),
+                    self.zoom,
+                    gap * self.zoom,
+                );
 
                 // Overlays
                 self.draw_selection_highlights(ui, layout.index, highlights);
@@ -673,50 +755,32 @@ impl PDFView {
         page_index: usize,
         is_selected: bool,
         zoom: f32,
+        gap_px: f32,
     ) {
         let badge_text = format!("{}", page_index + 1);
         let font_size = if zoom < Self::TILE_ZOOM { 11.0 } else { 12.0 };
-        let (badge_bg, badge_fg, badge_border) = if is_selected {
-            (
-                crate::app::theme::colors::RUST_BADGE_BG,
-                crate::app::theme::colors::RUST_BADGE_TEXT,
-                crate::app::theme::colors::RUST_PRIMARY,
-            )
+        // The number is set on the canvas, not in a chip. A filled rounded rectangle with
+        // a border around a two-digit number is a control the reader cannot press, and a
+        // grid of them reads as a row of buttons between the rows of pages.
+        let colour = if is_selected {
+            crate::app::theme::colors::RUST_PRIMARY
         } else {
-            (
-                crate::app::theme::colors::PANEL_BG,
-                crate::app::theme::colors::STEEL_SECONDARY,
-                crate::app::theme::colors::STEEL_BORDER,
-            )
+            crate::app::theme::colors::STEEL_SECONDARY
         };
 
-        let galley = ui.painter().layout_no_wrap(
-            badge_text,
-            egui::FontId::proportional(font_size),
-            badge_fg,
-        );
-        let badge_w = (galley.size().x + 14.0).max(22.0);
-        let badge_h = (galley.size().y + 4.0).max(18.0);
-        let badge_center_y = page_rect.max.y + (badge_h / 2.0) + 6.0;
-        let badge_rect = egui::Rect::from_center_size(
-            egui::pos2(page_rect.center().x, badge_center_y),
-            egui::vec2(badge_w, badge_h),
-        );
-
-        ui.painter().rect_filled(badge_rect, 4.0, badge_bg);
-        ui.painter().rect_stroke(
-            badge_rect,
-            4.0,
-            egui::Stroke::new(1.0_f32, badge_border),
-            egui::StrokeKind::Outside,
-        );
+        let galley =
+            ui.painter().layout_no_wrap(badge_text, egui::FontId::proportional(font_size), colour);
+        // The same figure the gaps are sized from, so that the two cannot drift: a gap
+        // narrowed below what a number needs stops drawing numbers rather than putting one
+        // on the page below.
+        if gap_px < Self::PAGE_NUMBER_SPACE {
+            return;
+        }
+        let offset = 6.0_f32.min((gap_px - galley.size().y).max(0.0) / 2.0);
         ui.painter().galley(
-            egui::pos2(
-                badge_rect.center().x - galley.size().x / 2.0,
-                badge_rect.center().y - galley.size().y / 2.0,
-            ),
+            egui::pos2(page_rect.center().x - galley.size().x / 2.0, page_rect.max.y + offset),
             galley,
-            badge_fg,
+            colour,
         );
     }
 
@@ -1258,8 +1322,20 @@ mod zoom_steps {
 
         view.set_zoom(10.0);
         assert!((view.zoom_step_up() - 10.0).abs() < f32::EPSILON, "held at the ceiling");
-        view.set_zoom(0.1);
-        assert!((view.zoom_step_down() - 0.1).abs() < f32::EPSILON, "held at the floor");
+        view.set_zoom(PDFView::ZOOM_FLOOR);
+        let floor = PDFView::ZOOM_FLOOR;
+        assert!((view.zoom_step_down() - floor).abs() < f32::EPSILON, "held at the floor");
+
+        // The ladder and the bounds are the same range, or a press could ask for a zoom
+        // the clamp then refuses and the button would look broken at one end.
+        assert!(
+            (PDFView::ZOOM_STEPS[0] - floor).abs() < f32::EPSILON,
+            "the ladder starts at the floor"
+        );
+        assert!(
+            (PDFView::ZOOM_STEPS[PDFView::ZOOM_STEPS.len() - 1] - 10.0).abs() < f32::EPSILON,
+            "and ends at the ceiling"
+        );
     }
 
     /// The mode boundary sits between two steps, so no step lands on it and leaves the
@@ -1292,6 +1368,60 @@ mod zoom_steps {
         view.set_zoom(0.90);
         view.zoom_at(0.996, rect.center(), rect, &layouts);
         assert!((view.zoom() - 1.0).abs() < f32::EPSILON, "snapped: {}", view.zoom());
+    }
+
+    /// **A gesture is never between steps.** The whole travel of a pinch used to sit off
+    /// the ladder, so the steps were something the buttons had and the fingers did not.
+    #[test]
+    fn a_gesture_only_ever_rests_on_a_step() {
+        let layouts = [];
+        let rect = egui::Rect::from_min_size(egui::pos2(0.0, 0.0), egui::vec2(800.0, 600.0));
+        let mut view = PDFView::new();
+        view.set_zoom(PDFView::ZOOM_FLOOR);
+
+        let mut seen = Vec::new();
+        for _ in 0..200 {
+            let target = view.zoom_before_snapping() * 1.02;
+            view.zoom_at(target, rect.center(), rect, &layouts);
+            let z = view.zoom();
+            assert!(
+                PDFView::ZOOM_STEPS.iter().any(|s| (s - z).abs() < f32::EPSILON),
+                "{z} is not a step"
+            );
+            if seen.last().is_none_or(|last: &f32| (last - z).abs() > f32::EPSILON) {
+                seen.push(z);
+            }
+        }
+        assert_eq!(seen, PDFView::ZOOM_STEPS.to_vec(), "and it visits every step, in order");
+    }
+
+    /// **The detent is sticky.** Wobbling around the midpoint between two steps must not
+    /// send the view back and forth: without the extra reach, a gesture parked between
+    /// 1.00 and 1.25 flips on the smallest change.
+    #[test]
+    fn a_gesture_parked_between_two_steps_does_not_oscillate() {
+        let layouts = [];
+        let rect = egui::Rect::from_min_size(egui::pos2(0.0, 0.0), egui::vec2(800.0, 600.0));
+        let mut view = PDFView::new();
+        view.set_zoom(1.0);
+
+        // The geometric midpoint of 1.00 and 1.25, jittered either side of it.
+        let middle = (1.0_f32 * 1.25).sqrt();
+        for step in [1.0_f32, 1.005, 0.995, 1.004, 0.996] {
+            view.zoom_at(middle * step, rect.center(), rect, &layouts);
+            assert!((view.zoom() - 1.0).abs() < f32::EPSILON, "left 100% for {}", view.zoom());
+        }
+    }
+
+    /// Sticky is not stuck: a gesture that keeps going does leave.
+    #[test]
+    fn a_gesture_that_commits_leaves_the_step() {
+        let layouts = [];
+        let rect = egui::Rect::from_min_size(egui::pos2(0.0, 0.0), egui::vec2(800.0, 600.0));
+        let mut view = PDFView::new();
+        view.set_zoom(1.0);
+        view.zoom_at(1.20, rect.center(), rect, &layouts);
+        assert!((view.zoom() - 1.25).abs() < f32::EPSILON, "stuck at {}", view.zoom());
     }
 
     /// **A pinch must be able to leave a step.** Snapping used to compute the next value

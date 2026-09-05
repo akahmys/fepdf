@@ -99,6 +99,29 @@ impl FepdfApp {
         }
     }
 
+    /// How many pages a row of tiles holds.
+    ///
+    /// **Fixed, so that zooming does not rearrange the document.** The count used to come
+    /// from the viewport width divided by the zoom, which meant every zoom step reflowed
+    /// the grid and pages changed rows underneath the cursor — zooming was a rearrangement
+    /// that happened to also change scale. With the count fixed, the arrangement lives in
+    /// page space and does not depend on the zoom or the window at all, so zooming is what
+    /// it looks like: moving towards or away from one fixed sheet of pages.
+    ///
+    /// The cost is that the grid no longer fits itself to the window. Ten A4 pages across
+    /// is 6,430 page units, which at 22% is 1,415 pixels and fills an ordinary window, at
+    /// 25% overflows it, and at the zoom floor occupies less than half of it. That is what
+    /// a fixed arrangement looks like from different distances.
+    pub const TILE_COLUMNS: usize = 10;
+
+    /// The space between rows of tiles, in page units.
+    ///
+    /// **Wider than the space between columns, because a row break is a bigger break than a
+    /// column one.** With both at [`Self::PAGE_GAP`] the grid read as an even field of
+    /// pages and the eye had nothing to travel along; the page numbers sit in this space
+    /// too, and needed room to be read as labels rather than as a line of their own.
+    pub const TILE_ROW_GAP: f32 = 144.0;
+
     /// The space between pages, in page units.
     ///
     /// **It is in page units, so it shrinks with the zoom.** At the floor the old 24 drew
@@ -106,7 +129,7 @@ impl FepdfApp {
     /// told apart by its gap and its border, and at that size the gap was doing none of the
     /// work. Widening it costs nothing at reading zoom, where 24 was already narrower than
     /// most of the margins inside the pages it separated.
-    pub const PAGE_GAP: f32 = 48.0;
+    pub const PAGE_GAP: f32 = 72.0;
 
     /// Recomputes page rectangles from `doc_page_sizes` and the current view mode.
     pub fn compute_layouts(&mut self) {
@@ -253,34 +276,22 @@ impl FepdfApp {
                 layouts[i] = PageLayout { index: i, rect };
             }
         } else {
-            // Continuous Display Mode: Dynamically tile pages in 1..N columns based on zoom and viewport width
-            let viewport_w = self.last_viewport_rect.map_or(1000.0, |r| r.width());
-            let zoom = self.view.zoom();
-            let is_r2l = self.view.binding_direction == BindingDirection::RightToLeft;
+            // Continuous display: one column of pages, or a fixed grid of tiles. Neither
+            // arrangement reads the zoom or the window — only which of the two applies
+            // does — so zooming moves the view over a layout that is holding still.
             let gap_x = Self::PAGE_GAP;
-            let gap_y = Self::PAGE_GAP;
+            let gap_y = if self.view.is_page_view() { Self::PAGE_GAP } else { Self::TILE_ROW_GAP };
 
             if self.view.scroll_direction == ScrollDirection::Vertical {
                 if self.view.is_page_view() {
-                    // Standard single vertical column
-                    let mut current_offset = 0.0;
-                    for (i, &(page_w, page_h)) in self.doc_page_sizes.iter().enumerate() {
-                        let width = page_w as f32;
-                        let height = page_h as f32;
-                        let page_rect = egui::Rect::from_min_size(
-                            egui::pos2(-width / 2.0, current_offset),
-                            egui::vec2(width, height),
-                        );
-                        current_offset += height + gap_y;
-                        layouts[i] = PageLayout { index: i, rect: page_rect };
-                    }
+                    Self::column_rows(&self.doc_page_sizes, gap_y, &mut layouts);
                 } else {
-                    Self::flow_rows(
+                    Self::grid_rows(
                         &self.doc_page_sizes,
-                        viewport_w / zoom.max(f32::EPSILON),
+                        Self::TILE_COLUMNS,
                         gap_x,
                         gap_y,
-                        is_r2l,
+                        self.view.binding_direction == BindingDirection::RightToLeft,
                         &mut layouts,
                     );
                 }
@@ -301,48 +312,58 @@ impl FepdfApp {
         self.page_layouts = layouts;
     }
 
-    /// Places pages left to right in rows, each row taking as many as fit in `available_w`.
+    /// Stacks the pages in one column, each centred on `x = 0`.
+    ///
+    /// **A page sits somewhere quite different here than it does in the grid**, which is
+    /// why crossing between the two views has to recompute before it scrolls: page 25 is at
+    /// `2 * 954` in a ten-wide grid and at `25 * 890` in a column, twelve times further
+    /// down. Scrolling to a page with the layout of the view being left from lands near the
+    /// top of the document.
+    fn column_rows(sizes: &[(f64, f64)], gap_y: f32, layouts: &mut [PageLayout]) {
+        let mut offset_y = 0.0_f32;
+        for (i, &(w, h)) in sizes.iter().enumerate() {
+            let (w, h) = (w as f32, h as f32);
+            layouts[i] = PageLayout {
+                index: i,
+                rect: egui::Rect::from_min_size(egui::pos2(-w / 2.0, offset_y), egui::vec2(w, h)),
+            };
+            offset_y += h + gap_y;
+        }
+    }
+
+    /// Places pages left to right in rows of `columns`.
     ///
     /// **The cell used to be page 1's size, for every page.** The column count, the pitch
     /// and the centring all came from `doc_page_sizes.first()`, so a page wider than
     /// `ref_w + 2 * gap_x` was drawn on top of its neighbour — an A3 landscape sheet in an
     /// A4 document overlapped the next page by 274pt, 46% of its width. Rows of actual
-    /// widths cannot overlap, because a row is closed before the page that would not fit.
+    /// widths cannot overlap, because each page is placed after the one before it.
     ///
-    /// **On a document whose pages are all one size this is the old layout exactly**: equal
-    /// widths make every row hold the same number, and the row height is that one height.
-    /// Both corpora are entirely such documents — 9 samples and 515 external files, no
-    /// mixed-size document among them — so the case that changes is the one that was wrong.
+    /// **The count is fixed rather than fitted to the window.** Fitting made the layout a
+    /// function of the zoom, so zooming reflowed the grid and moved pages between rows
+    /// while the reader was trying to look at one; see [`Self::TILE_COLUMNS`].
     ///
-    /// `available_w` is the viewport width in page units, so the row fills the window at
-    /// the current zoom. Every row takes at least one page, or a sheet wider than the
-    /// window would close a row it was never in.
-    fn flow_rows(
+    /// Both corpora are documents of a single page size — 9 samples and 515 external
+    /// files, no mixed-size document among them — where this is an even grid. Mixed sizes
+    /// give ragged rows, which is the case that was previously drawn overlapping.
+    fn grid_rows(
         sizes: &[(f64, f64)],
-        available_w: f32,
+        columns: usize,
         gap_x: f32,
         gap_y: f32,
         is_r2l: bool,
         layouts: &mut [PageLayout],
     ) {
-        let mut row: Vec<usize> = Vec::new();
-        let mut row_w = 0.0_f32;
+        let columns = columns.max(1);
         let mut offset_y = 0.0_f32;
 
-        for i in 0..sizes.len() {
-            let w = sizes[i].0 as f32;
-            let next_w = if row.is_empty() { w } else { row_w + gap_x + w };
-            if !row.is_empty() && next_w > available_w {
-                offset_y +=
-                    Self::place_row(sizes, &row, row_w, offset_y, gap_x, is_r2l, layouts) + gap_y;
-                row.clear();
-                row_w = 0.0;
-            }
-            row_w = if row.is_empty() { w } else { row_w + gap_x + w };
-            row.push(i);
-        }
-        if !row.is_empty() {
-            Self::place_row(sizes, &row, row_w, offset_y, gap_x, is_r2l, layouts);
+        for row in (0..sizes.len()).collect::<Vec<_>>().chunks(columns) {
+            let row_w = row.iter().enumerate().fold(0.0_f32, |w, (n, &i)| {
+                let page_w = sizes[i].0 as f32;
+                if n == 0 { page_w } else { w + gap_x + page_w }
+            });
+            offset_y +=
+                Self::place_row(sizes, row, row_w, offset_y, gap_x, is_r2l, layouts) + gap_y;
         }
     }
 
@@ -363,8 +384,9 @@ impl FepdfApp {
         let mut x = -row_w / 2.0;
         for &i in row {
             let (w, h) = (sizes[i].0 as f32, sizes[i].1 as f32);
-            // Right-to-left mirrors the row about its own centre, so page order runs from
-            // the right edge inwards without the rest of the placement changing.
+            // A right-bound book's grid runs right to left, for the same reason its
+            // spread does: the reader's eye starts at the right edge. Mirroring the row
+            // about its own centre puts page order there without moving the row.
             let pos_x = if is_r2l { -x - w } else { x };
             let rect = egui::Rect::from_min_size(
                 egui::pos2(pos_x, offset_y + (row_h - h) / 2.0),
@@ -377,33 +399,75 @@ impl FepdfApp {
     }
 }
 
+/// A row break is the bigger break of the two, and a build says so.
+///
+/// **At module scope, because an associated constant nobody reads is never evaluated.**
+/// The same assertion inside `impl FepdfApp` compiled happily with the rows closer together
+/// than the columns; inside a `#[cfg(test)]` module it would only be checked when the tests
+/// were built. Here every build refuses the pair.
+const _ROW_BREAK_IS_BIGGER: () =
+    assert!(FepdfApp::TILE_ROW_GAP > FepdfApp::PAGE_GAP, "rows must be further apart than columns");
+
 #[cfg(test)]
-mod flow {
+mod tiles {
     use super::super::FepdfApp;
     use crate::view::PageLayout;
 
+    const GAP: f32 = FepdfApp::PAGE_GAP;
+    const COLS: usize = FepdfApp::TILE_COLUMNS;
+    const ROW_GAP: f32 = FepdfApp::TILE_ROW_GAP;
+
     /// Rows are compared by position rather than by exact equality: the values come from
     /// the same arithmetic and do match exactly, but a layout test that depends on that
-    /// would be a layout test that breaks on an unrelated reordering of the sum.
+    /// would break on an unrelated reordering of the sum.
     fn same(a: f32, b: f32) -> bool {
         (a - b).abs() < 0.01
     }
 
-    /// The real gap, so that changing it is covered rather than shadowed by a literal.
-    const GAP: f32 = FepdfApp::PAGE_GAP;
+    fn lay(sizes: &[(f64, f64)]) -> Vec<egui::Rect> {
+        laid(sizes, false)
+    }
 
-    fn lay(sizes: &[(f64, f64)], available_w: f32, is_r2l: bool) -> Vec<egui::Rect> {
+    fn column(sizes: &[(f64, f64)]) -> Vec<egui::Rect> {
         let mut layouts = vec![PageLayout { index: 0, rect: egui::Rect::NOTHING }; sizes.len()];
-        FepdfApp::flow_rows(sizes, available_w, GAP, GAP, is_r2l, &mut layouts);
+        FepdfApp::column_rows(sizes, GAP, &mut layouts);
         layouts.into_iter().map(|l| l.rect).collect()
     }
 
-    /// No two pages may overlap. This is the whole defect: the old grid drew an A3
-    /// landscape sheet 274pt on top of the A4 page beside it.
+    fn laid(sizes: &[(f64, f64)], is_r2l: bool) -> Vec<egui::Rect> {
+        let mut layouts = vec![PageLayout { index: 0, rect: egui::Rect::NOTHING }; sizes.len()];
+        FepdfApp::grid_rows(sizes, COLS, GAP, ROW_GAP, is_r2l, &mut layouts);
+        layouts.into_iter().map(|l| l.rect).collect()
+    }
+
+    /// **The layout takes no zoom and no viewport.** This is the whole point of fixing the
+    /// column count: the arrangement lives in page space, so zooming is a change of scale
+    /// over something holding still rather than a rearrangement that also changes scale.
+    /// The signature is the guarantee — there is nothing to pass that could vary.
+    #[test]
+    fn the_arrangement_depends_on_nothing_that_zooming_changes() {
+        let sizes = [(595.0, 842.0); 25];
+        assert_eq!(lay(&sizes), lay(&sizes));
+    }
+
+    /// Every row holds the column count, and the last holds the remainder.
+    #[test]
+    fn rows_hold_the_column_count() {
+        let sizes = [(595.0, 842.0); 25];
+        let rects = lay(&sizes);
+        let first = rects[0].min.y;
+        assert_eq!(rects.iter().filter(|r| same(r.min.y, first)).count(), COLS);
+        assert!(same(rects[COLS].min.y, 842.0 + ROW_GAP), "the second row clears the first");
+        let last = rects[20].min.y;
+        assert_eq!(rects.iter().filter(|r| same(r.min.y, last)).count(), 25 - 2 * COLS);
+    }
+
+    /// No two pages may overlap. This is the defect the fixed cell had: an A3 landscape
+    /// sheet was drawn 274pt on top of the A4 page beside it.
     #[test]
     fn pages_of_differing_widths_do_not_overlap() {
         let sizes = [(595.0, 842.0), (1191.0, 842.0), (595.0, 842.0), (297.0, 420.0)];
-        let rects = lay(&sizes, 2600.0, false);
+        let rects = lay(&sizes);
         for (i, a) in rects.iter().enumerate() {
             for b in rects.iter().skip(i + 1) {
                 assert!(!a.intersects(*b), "{a:?} overlaps {b:?}");
@@ -411,84 +475,94 @@ mod flow {
         }
     }
 
-    /// A uniform document must lay out exactly as the fixed grid did, since that is every
-    /// document in both corpora: 9 samples and 515 external files, no mixed sizes among
-    /// them. A change there would be a regression nothing else would catch.
+    /// A uniform document gives an even grid: equal widths mean an equal pitch.
     #[test]
-    fn uniform_pages_give_uniform_rows() {
-        let sizes = [(595.0, 842.0); 7];
-        // Four across, and a fifth would not fit, whatever the gap is set to.
-        let width = 4.0_f32.mul_add(595.0, 3.0 * GAP);
-        let rects = lay(&sizes, width + 1.0, false);
-        let first_row_y = rects[0].min.y;
-        assert_eq!(rects.iter().filter(|r| same(r.min.y, first_row_y)).count(), 4);
-        assert!(same(rects[4].min.y, 842.0 + GAP), "the second row clears the first");
+    fn uniform_pages_give_an_even_pitch() {
+        let rects = lay(&[(595.0, 842.0); 20]);
         let pitch = rects[1].min.x - rects[0].min.x;
-        assert!((pitch - (595.0 + GAP)).abs() < 0.01, "even pitch within a row: {pitch}");
+        assert!(same(pitch, 595.0 + GAP), "even pitch within a row: {pitch}");
+        assert!(same(rects[2].min.x - rects[1].min.x, pitch));
     }
 
-    /// Rows hold what fits, so a row of wide pages holds fewer than a row of narrow ones.
-    /// A fixed column count could not do this, which is what made the old layout overlap.
+    /// A left-bound book's grid runs left to right, and a right-bound book's runs the other
+    /// way, for the same reason its spread does.
     #[test]
-    fn rows_hold_different_numbers_of_pages() {
-        let sizes = [
-            (1200.0, 800.0),
-            (1200.0, 800.0),
-            (300.0, 400.0),
-            (300.0, 400.0),
-            (300.0, 400.0),
-            (300.0, 400.0),
-        ];
-        let rects = lay(&sizes, 2500.0, false);
-        let rows: std::collections::BTreeSet<i64> =
-            rects.iter().map(|r| r.min.y.round() as i64).collect();
-        assert_eq!(rows.len(), 2, "two wide pages, then four narrow ones");
-        assert!(same(rects[0].min.y, rects[1].min.y));
-        assert!(same(rects[2].min.y, rects[5].min.y));
-        assert!(rects[2].min.y > rects[0].min.y);
-    }
+    fn the_grid_runs_the_way_the_book_is_bound() {
+        let ltr = laid(&[(595.0, 842.0); 3], false);
+        assert!(ltr[0].min.x < ltr[1].min.x && ltr[1].min.x < ltr[2].min.x);
 
-    /// A page wider than the window still gets a row, rather than closing a row it was
-    /// never placed in and being laid out on top of the previous one.
-    #[test]
-    fn a_page_wider_than_the_window_takes_its_own_row() {
-        let sizes = [(595.0, 842.0), (5000.0, 842.0), (595.0, 842.0)];
-        let rects = lay(&sizes, 800.0, false);
-        assert!(rects[1].min.y > rects[0].min.y);
-        assert!(rects[2].min.y > rects[1].min.y);
-        assert!(!rects[0].intersects(rects[1]) && !rects[1].intersects(rects[2]));
-    }
-
-    /// Right to left mirrors the row about its own centre: page order runs from the right
-    /// edge inwards, and the row still occupies the same span.
-    #[test]
-    fn right_to_left_reverses_within_the_row_only() {
-        let sizes = [(595.0, 842.0); 3];
-        let ltr = lay(&sizes, 2000.0, false);
-        let r2l = lay(&sizes, 2000.0, true);
-        assert!(r2l[0].min.x > r2l[2].min.x, "page 1 sits to the right of page 3");
-        assert!((ltr[0].min.x - r2l[2].min.x).abs() < 0.01, "the same span, mirrored");
+        let r2l = laid(&[(595.0, 842.0); 3], true);
+        assert!(r2l[0].min.x > r2l[1].min.x && r2l[1].min.x > r2l[2].min.x);
+        assert!(same(ltr[0].min.x, r2l[2].min.x), "the same span, mirrored");
         assert!(same(r2l[0].min.y, r2l[2].min.y), "still one row");
     }
 
-    /// **The gap has to survive the zoom it exists for.** It is in page units, so at the
-    /// floor it is multiplied by 0.1: the previous 24 drew as 2.4 pixels and neighbouring
-    /// pages read as one sheet. This ties the two constants together, so that lowering the
-    /// zoom floor or narrowing the gap has to answer for the overview it produces.
+    /// Pages shorter than the tallest in their row are centred against it, and the next
+    /// row clears the tallest rather than the first.
     #[test]
-    fn the_gap_is_still_visible_at_the_smallest_zoom() {
-        let floor = 0.1_f32;
-        let on_screen = FepdfApp::PAGE_GAP * floor;
-        assert!(on_screen >= 4.0, "the gap draws as {on_screen} pixels at the zoom floor");
+    fn a_short_page_is_centred_and_the_row_clears_the_tallest() {
+        let mut sizes = vec![(400.0, 400.0); COLS];
+        sizes[3] = (400.0, 800.0);
+        sizes.push((400.0, 400.0));
+        let rects = lay(&sizes);
+        assert!(same(rects[3].min.y, 0.0), "the tallest sets the row");
+        assert!(same(rects[0].min.y, 200.0), "and the others are centred against it");
+        assert!(same(rects[COLS].min.y, 800.0 + ROW_GAP), "the next row clears the tallest");
     }
 
-    /// Pages shorter than the tallest in their row are centred against it, not left to
-    /// sit on the row's top edge.
+    /// **A page is in a different place in the two arrangements**, which is what makes the
+    /// order of operations matter when a double-click crosses between them: the zoom
+    /// changes the view, the layout has to be rebuilt for it, and only then does scrolling
+    /// to the page mean the right place. Scrolling first lands near the front of the
+    /// document, because a grid packs ten pages into the height a column gives one.
     #[test]
-    fn a_short_page_is_centred_against_the_tallest_in_its_row() {
-        let sizes = [(400.0, 800.0), (400.0, 400.0)];
-        let rects = lay(&sizes, 1000.0, false);
-        assert!(same(rects[0].min.y, 0.0));
-        assert!((rects[1].min.y - 200.0).abs() < 0.01, "centred: {:?}", rects[1].min.y);
+    fn a_page_sits_somewhere_else_in_the_other_arrangement() {
+        let sizes = [(595.0, 842.0); 40];
+
+        let grid = lay(&sizes);
+        let column = column(&sizes);
+
+        assert!(same(grid[25].min.y, 2.0 * (842.0 + ROW_GAP)), "row 2 of a ten-wide grid");
+        assert!(same(column[25].min.y, 25.0 * (842.0 + GAP)), "the 26th page of a column");
+        assert!(
+            column[25].min.y > grid[25].min.y * 10.0,
+            "and the two are an order of magnitude apart, not a rounding difference"
+        );
+    }
+
+    /// A column keeps the pages in order, one under the next, centred.
+    #[test]
+    fn a_column_stacks_the_pages_in_order() {
+        let column = column(&[(595.0, 842.0), (297.0, 420.0), (595.0, 842.0)]);
+
+        assert!(same(column[0].min.y, 0.0));
+        assert!(same(column[1].min.y, 842.0 + GAP), "the next page clears this one");
+        assert!(same(column[2].min.y, 842.0 + GAP + 420.0 + GAP), "by its own height");
+        for r in &column {
+            assert!(same(r.center().x, 0.0), "each page centred, whatever its width");
+        }
+    }
+
+    /// **The gaps have to hold the page number at the smallest zoom each view reaches.**
+    /// They are in page units and the number is in screen pixels, so the space shrinks with
+    /// the zoom while the digits do not: at 33% a 48-unit gap was 16 pixels and the number
+    /// was dropped rather than drawn on the page below. Each gap is sized from
+    /// `PAGE_NUMBER_SPACE` at its own floor, so the number is drawn at every zoom.
+    #[test]
+    fn the_gaps_hold_a_page_number_at_every_zoom() {
+        let needed = crate::view::PDFView::PAGE_NUMBER_SPACE;
+
+        // The page view reaches down to the first step above the tile boundary.
+        let lowest_page_step = crate::view::PDFView::ZOOM_STEPS
+            .iter()
+            .copied()
+            .find(|s| *s >= crate::view::PDFView::TILE_ZOOM)
+            .expect("a step above the boundary");
+        let between_pages = FepdfApp::PAGE_GAP * lowest_page_step;
+        assert!(between_pages >= needed, "pages are {between_pages} apart at {lowest_page_step}");
+
+        // The tile view reaches the floor.
+        let between_rows = FepdfApp::TILE_ROW_GAP * crate::view::PDFView::ZOOM_FLOOR;
+        assert!(between_rows >= needed, "rows are {between_rows} apart at the floor");
     }
 }

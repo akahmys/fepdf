@@ -309,8 +309,14 @@ impl FepdfApp {
             }
         }
 
+        // Double-clicking a tile opens that page. **The layout has to be rebuilt between
+        // the two.** `scroll_to_page` places the view from the rectangle the page has in
+        // the layout it is handed, and the layout in hand is the grid the double-click
+        // just left: page 25 is at `2 * 954` there and at `25 * 890` in a column, so
+        // scrolling with the grid's rectangle lands near the front of the document.
         if response.double_clicked() && zoom < crate::view::PDFView::TILE_ZOOM {
             self.view.set_zoom(1.0);
+            self.compute_layouts();
             self.view.scroll_to_page(page_idx, &self.page_layouts);
         }
 

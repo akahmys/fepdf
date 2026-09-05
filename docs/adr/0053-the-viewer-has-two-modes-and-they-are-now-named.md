@@ -51,14 +51,40 @@ the rendering boundary movable. Text at 0.30 draws around 3pt and cannot be read
 selection there is offered over something nobody can see; one boundary a reader can see was
 judged worth more than a second one they cannot.
 
-**Zoom moves along a ladder of 18 steps**, from 10% to 1000%. Buttons, keyboard and menu
-step between them, so 100% is reachable from anywhere. Pinch and trackpad stay continuous
-and snap when within 2% of a step. Fit-to-width and fit-to-height set what they need and do
-not snap, because a fit that snapped would not fit.
+**Zoom moves along a ladder of 17 steps**, from 20% to 1000%, and *every* zoom a gesture
+produces is one of them. Buttons, keyboard and menu step between them, so 100% is reachable
+from anywhere; a pinch answers with the nearest step rather than the value it reached, so it
+clicks from one to the next the way the buttons do. Fit-to-width and fit-to-height set what
+they need and do not snap, because a fit that snapped would not fit.
+
+**The spacing was reconsidered against other readers.** The first ladder had `0.67` and
+`0.75` a ratio of **1.12** apart — a press that changed nothing visible — while `0.33` to
+`0.50` was **1.52**, the largest jump of the lot and sitting just above the mode boundary
+where the finest control is wanted. The ladder is now a doubling spine (25, 50, 100, 200,
+400) divided by a repeating 1.25 / 1.20 / 1.33, so every ratio is between 1.19 and 1.34
+except 700 to 1000 at the far end. Chrome and Firefox both thicken the ladder around the
+readable range this way; Acrobat does not, going 10, 25, 50, whose 2.5x first step a viewer
+with a page-grid overview cannot use.
+
+**The floor is 20% because that is where the fixed grid stops fitting the window.** Ten
+columns of A4 with their gaps is 6,382 page units, or 1,276 pixels at 20% — an ordinary
+viewport full. Below that the grid only shrinks into the middle of the screen while showing
+no more of the document, so the zoom there bought nothing. Fixing the column count
+([ADR-0055](0055-the-tile-arrangement-does-not-depend-on-the-zoom.md)) is what settled the
+number; the old floor of 10% belonged to a layout that fitted itself to the window.
+
+**The detent is sticky.** Answering with the nearest step alone flips at the midpoint
+between two, where the smallest wobble in a pinch sends the view back and forth. Each step
+keeps a little extra reach in log space — log space because the ladder is a ratio, so the
+middle of a step is its geometric mean and 0.20 to 0.25 is as far as 4.00 to 5.00.
 
 **The boundary sits between steps, never on one**: 25% and 33% straddle 30%. Stepping
 therefore never lands on it and leaves the mode undetermined. Double-clicking out goes to
 25% rather than the old 35% for the same reason.
+
+**The tile view is two steps wide.** 20% and 25% are all of it, showing 40 to 50 pages
+against the 253 measured at the old floor. Seeing more of a document at once is now a
+question for the column count rather than for the zoom.
 
 **The tile grid became a flow.** Each row takes as many pages as fit at the current zoom,
 by their own widths; rows hold different numbers of pages; short pages are centred against
