@@ -61,6 +61,13 @@ jobs:
       run: git config --global core.symlinks false
 
     - uses: actions/checkout@v4
+      with:
+        # Adobe's CMap collections and CID-to-Unicode tables are submodules, and the
+        # binaries cannot read a CJK document without them. Released archives carried
+        # neither, because a checkout without this has neither: measured on
+        # `bokutokitan.pdf`, the published binary extracted 4,554 bytes of text where the
+        # same build beside the resources extracts 212,312.
+        submodules: recursive
 
     - name: Install System Dependencies (Linux Only)
       if: matrix.os == 'ubuntu-latest'
@@ -89,21 +96,33 @@ jobs:
           cargo build --release --target ${{ matrix.target }} -p $pkg
         done
 
+    # `<exe>/resources/<name>` is the third entry in `fepdf_font::resources::search_paths`,
+    # so a binary shipped beside this directory finds Adobe's tables wherever it is
+    # unpacked. No code knows about packaging; the layout is the whole of the contract.
+    - name: Stage Runtime Resources
+      shell: bash
+      run: |
+        mkdir -p dist/resources
+        cp -R external/adobe-cmaps dist/resources/cmaps
+        cp -R external/mapping-resources-pdf/pdf2unicode dist/resources/cid2unicode
+        cp -R crates/fepdf-script/scripting dist/resources/scripting
+        rm -rf dist/resources/cmaps/.git dist/resources/cid2unicode/.git
+        test -d dist/resources/cmaps/Adobe-Japan1-7 || {
+          echo "::error::CMap collections missing — is the submodule checked out?"; exit 1; }
+
     - name: Prepare Artifacts (Unix)
       if: "!startsWith(matrix.os, 'windows')"
       shell: bash
       run: |
-        mkdir -p dist
         for bin in ${{ matrix.binaries }}; do
           cp target/${{ matrix.target }}/release/$bin dist/
         done
-        cd dist && tar -czf ../${{ matrix.artifact_name }}.tar.gz ${{ matrix.binaries }}
+        cd dist && tar -czf ../${{ matrix.artifact_name }}.tar.gz ${{ matrix.binaries }} resources
 
     - name: Prepare Artifacts (Windows)
       if: "startsWith(matrix.os, 'windows')"
       shell: pwsh
       run: |
-        New-Item -ItemType Directory -Force -Path dist
         $binaries = "${{ matrix.binaries }}".Split(" ")
         foreach ($bin in $binaries) {
           Copy-Item "target\${{ matrix.target }}\release\$bin" -Destination "dist\"
@@ -118,48 +137,9 @@ jobs:
           ${{ matrix.artifact_name }}.tar.gz
           ${{ matrix.artifact_name }}.zip
 
-  macos-universal:
-    name: Package macOS Universal Binary
-    needs: build
-    runs-on: macos-14
-    steps:
-    - uses: actions/checkout@v4
-
-    - name: Download macOS x64 Artifacts
-      uses: actions/download-artifact@v4
-      with:
-        name: fepdf-macos-x64
-        path: x64
-
-    - name: Download macOS ARM64 Artifacts
-      uses: actions/download-artifact@v4
-      with:
-        name: fepdf-macos-arm64
-        path: arm64
-
-    - name: Create Universal Binaries
-      run: |
-        mkdir -p dist/x64 dist/arm64 universal_dist
-        tar -xzf x64/fepdf-macos-x64.tar.gz -C dist/x64
-        tar -xzf arm64/fepdf-macos-arm64.tar.gz -C dist/arm64
-        
-        # Create Universal Binaries using lipo
-        lipo -create -output universal_dist/fepdf dist/x64/fepdf dist/arm64/fepdf
-        lipo -create -output universal_dist/fepdf-gui dist/x64/fepdf-gui dist/arm64/fepdf-gui
-        
-        # Package universal binary
-        cd universal_dist
-        zip -r ../fepdf-macos-universal.zip fepdf fepdf-gui
-
-    - name: Upload macOS Universal Artifact
-      uses: actions/upload-artifact@v4
-      with:
-        name: fepdf-macos-universal
-        path: fepdf-macos-universal.zip
-
   publish-release:
     name: Publish Release
-    needs: [build, macos-universal]
+    needs: build
     runs-on: ubuntu-latest
     if: startsWith(github.ref, 'refs/tags/v')
     permissions:
@@ -172,6 +152,14 @@ jobs:
       with:
         path: release_artifacts
 
+    # macOS ships as two architectures rather than one universal binary. `lipo` made an
+    # archive that was exactly the sum of the two — 22MB where an Apple Silicon reader needs
+    # 10 — so every Mac downloaded the other architecture as well. That trade made sense
+    # while Intel was the majority and stops making sense as it leaves support. It also
+    # packaged macOS as a `.zip` where every other Unix target is a `.tar.gz`.
+    #
+    # The already-published `fepdf-macos-universal.zip` on v1.0.0 stays where it is: a
+    # released asset that people have linked to is not renamed.
     - name: Rearrange Release Files
       run: |
         mkdir final_dist
@@ -179,7 +167,8 @@ jobs:
         cp release_artifacts/fepdf-linux-dynamic-x64/fepdf-linux-dynamic-x64.tar.gz final_dist/
         cp release_artifacts/fepdf-windows-x64/fepdf-windows-x64.zip final_dist/
         cp release_artifacts/fepdf-windows-x86/fepdf-windows-x86.zip final_dist/
-        cp release_artifacts/fepdf-macos-universal/fepdf-macos-universal.zip final_dist/
+        cp release_artifacts/fepdf-macos-arm64/fepdf-macos-arm64.tar.gz final_dist/
+        cp release_artifacts/fepdf-macos-x64/fepdf-macos-x64.tar.gz final_dist/
         ls -la final_dist/
 
     - name: Create GitHub Release
@@ -190,7 +179,8 @@ jobs:
           final_dist/fepdf-linux-dynamic-x64.tar.gz
           final_dist/fepdf-windows-x64.zip
           final_dist/fepdf-windows-x86.zip
-          final_dist/fepdf-macos-universal.zip
+          final_dist/fepdf-macos-arm64.tar.gz
+          final_dist/fepdf-macos-x64.tar.gz
         generate_release_notes: true
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

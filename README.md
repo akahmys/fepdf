@@ -30,11 +30,21 @@ Pre-built binaries for macOS, Windows, and Linux are available from [GitHub Rele
 
 | Platform | Download | Package Contents |
 | :--- | :--- | :--- |
-| **macOS** (Universal) | [`fepdf-macos-universal.zip`](https://github.com/akahmys/fepdf/releases/latest) | `fepdf` (CLI) & `fepdf-gui` (GUI) (Apple Silicon & Intel) |
+| **macOS** (Apple Silicon) | [`fepdf-macos-arm64.tar.gz`](https://github.com/akahmys/fepdf/releases/latest) | `fepdf` (CLI) & `fepdf-gui` (GUI) |
+| **macOS** (Intel) | [`fepdf-macos-x64.tar.gz`](https://github.com/akahmys/fepdf/releases/latest) | `fepdf` (CLI) & `fepdf-gui` (GUI) |
 | **Windows** (64-bit) | [`fepdf-windows-x64.zip`](https://github.com/akahmys/fepdf/releases/latest) | `fepdf.exe` (CLI) & `fepdf-gui.exe` (GUI) |
 | **Windows** (32-bit) | [`fepdf-windows-x86.zip`](https://github.com/akahmys/fepdf/releases/latest) | `fepdf.exe` (CLI) & `fepdf-gui.exe` (GUI) |
 | **Linux** (Static CLI) | [`fepdf-linux-static-x64.tar.gz`](https://github.com/akahmys/fepdf/releases/latest) | `fepdf` (Statically linked standalone CLI) |
 | **Linux** (Dynamic GUI) | [`fepdf-linux-dynamic-x64.tar.gz`](https://github.com/akahmys/fepdf/releases/latest) | `fepdf-gui` (GUI with GPU rendering support) |
+
+Every archive carries a `resources/` directory beside the binaries, holding Adobe's CMap
+collections and CID-to-Unicode tables. **Keep it next to the executable.** Without it a
+CJK document loses its character collection: measured on a vertically set Japanese book,
+the binary alone extracts 4,554 bytes of text where the same binary beside `resources/`
+extracts 212,342. Point `FEPDF_RESOURCES` at the directory to keep it somewhere else.
+
+Releases up to and including v1.0.0 shipped a `fepdf-macos-universal.zip` and no
+`resources/`.
 
 ## Building from source
 

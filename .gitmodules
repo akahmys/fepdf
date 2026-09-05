@@ -1,3 +1,6 @@
 [submodule "extern/adobe-cmaps"]
 	path = external/adobe-cmaps
 	url = https://github.com/adobe-type-tools/cmap-resources.git
+[submodule "external/mapping-resources-pdf"]
+	path = external/mapping-resources-pdf
+	url = https://github.com/adobe-type-tools/mapping-resources-pdf.git
