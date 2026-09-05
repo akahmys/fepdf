@@ -410,7 +410,7 @@ fn handle_replace_document(
 /// [ADR-0041]: ../../docs/adr/0041-a-character-collection-is-declared-not-guessed.md
 fn infer_binding(fonts: &[fepdf::FontSummary], lang: Option<&str>) -> Option<String> {
     let _ = lang;
-    let vertical = fonts.iter().filter(|f| is_vertical(&f.name)).count();
+    let vertical = fonts.iter().filter(|f| f.is_vertical).count();
     let share = vertical as f32 / fonts.len().max(1) as f32;
     (share >= VERTICAL_SHARE).then(|| "R2L".to_string())
 }
@@ -429,11 +429,6 @@ fn infer_binding(fonts: &[fepdf::FontSummary], lang: Option<&str>) -> Option<Str
 /// answer is that it is not vertical. There is no case here where the heuristic is known to
 /// be right, only one where it is now known not to be wrong.
 const VERTICAL_SHARE: f32 = 0.10;
-
-/// Whether a font name carries the vertical writing-mode suffix (9.7.5.2).
-fn is_vertical(name: &str) -> bool {
-    name.ends_with("-V") || name.contains("-V-") || name.contains("-V_")
-}
 
 fn handle_open(
     // RR-15 Limit: Dispatcher - handles open document worker requests and packages file properties
@@ -733,32 +728,39 @@ mod binding_direction {
     //!
     //! **Presence of a vertical font was not enough either.** `fy05.pdf` has 6 of them
     //! among 316 — 1.9%, a table or a cover — against `samples/bokutokitan.pdf`'s 4 of 18,
-    //! or 22%. It is a guess and is recorded as one where the reader can see it.
+    //! or 22%.
+    //!
+    //! **And the evidence is the declaration, not the name.** This used to look for `-V` in
+    //! the font's name, which is a naming convention; `FontSummary::is_vertical` carries
+    //! what `detect_wmode` reads from the encoding's CMap — the same reading the
+    //! interpreter uses to place a glyph (9.7.5.2). It is a guess and is recorded as one
+    //! where the reader can see it.
     use super::infer_binding;
 
-    fn fonts(names: &[&str]) -> Vec<fepdf::FontSummary> {
-        names
-            .iter()
-            .map(|n| fepdf::FontSummary {
-                name: (*n).to_string(),
+    /// `vertical` fonts set vertically, out of `total`. The names are deliberately
+    /// uninformative: what decides is the declared writing mode, and a test that fed the
+    /// answer in through the name would be testing the old rule.
+    fn fonts(vertical: usize, total: usize) -> Vec<fepdf::FontSummary> {
+        (0..total)
+            .map(|i| fepdf::FontSummary {
+                name: format!("Font{i}"),
                 font_type: "Type0".to_string(),
                 is_embedded: true,
                 is_type3: false,
                 is_subset: false,
-                encoding: "Identity-V".to_string(),
+                encoding: if i < vertical { "Identity-V" } else { "Identity-H" }.to_string(),
                 has_to_unicode: false,
+                is_vertical: i < vertical,
                 object_id: 0,
             })
             .collect()
     }
 
-    /// `-V` is the writing-mode suffix Adobe's CMap names carry for vertical forms
-    /// (9.7.5.2), which is why a font name is evidence at all.
+    /// A document set vertically opens from the right.
     #[test]
     fn a_document_set_vertically_binds_right_to_left() {
-        assert_eq!(infer_binding(&fonts(&["KozMinPr6N-Regular-V"]), None).as_deref(), Some("R2L"));
-        assert_eq!(infer_binding(&fonts(&["A-V-B"]), None).as_deref(), Some("R2L"));
-        assert_eq!(infer_binding(&fonts(&["A-V_B"]), None).as_deref(), Some("R2L"));
+        assert_eq!(infer_binding(&fonts(4, 18), None).as_deref(), Some("R2L"));
+        assert_eq!(infer_binding(&fonts(18, 18), None).as_deref(), Some("R2L"));
     }
 
     /// **The measured case.** `samples/bokutokitan.pdf` is 4 vertical fonts of 18 and is a
@@ -766,13 +768,8 @@ mod binding_direction {
     /// with a vertical table in it. A test for presence answered R2L for both.
     #[test]
     fn a_few_vertical_fonts_in_a_horizontal_document_are_not_a_vertical_document() {
-        let mut fy05: Vec<&str> = vec!["DFHSMinchoPro6N-W3-90msp-RKSJ-H"; 310];
-        fy05.extend(["DFHSMinchoPro6N-W3-Identity-V"; 6]);
-        assert_eq!(infer_binding(&fonts(&fy05), Some("ja-JP")), None, "6 of 316 is not vertical");
-
-        let mut book: Vec<&str> = vec!["RyuminPr6N-Regular-H"; 14];
-        book.extend(["RyuminPr6N-Regular-V"; 4]);
-        assert_eq!(infer_binding(&fonts(&book), None).as_deref(), Some("R2L"), "4 of 18 is");
+        assert_eq!(infer_binding(&fonts(6, 316), Some("ja-JP")), None, "6 of 316 is not");
+        assert_eq!(infer_binding(&fonts(4, 18), None).as_deref(), Some("R2L"), "4 of 18 is");
     }
 
     /// **The language is not the evidence.** Japanese is set horizontally more often than
@@ -780,10 +777,30 @@ mod binding_direction {
     /// right to left.
     #[test]
     fn the_language_alone_decides_nothing() {
-        assert_eq!(infer_binding(&fonts(&["Helvetica"]), Some("ja-JP")), None);
+        assert_eq!(infer_binding(&fonts(0, 12), Some("ja-JP")), None);
+        assert_eq!(infer_binding(&fonts(4, 18), Some("en-US")).as_deref(), Some("R2L"));
+    }
+
+    /// **The evidence is the declaration, not the name.** The rule used to look for `-V` in
+    /// the font's name, so a font *named* for a vertical CMap decided it and a font that
+    /// merely declared one did not. `NotoSerif-Vietnamese` was the control for the first
+    /// half; this is the control for the second.
+    #[test]
+    fn a_name_decides_nothing_either_way() {
+        let mut named_vertical = fonts(0, 4);
+        for f in &mut named_vertical {
+            f.name = "KozMinPr6N-Regular-V".to_string();
+        }
+        assert_eq!(infer_binding(&named_vertical, None), None, "a name is not a declaration");
+
+        let mut declared_vertical = fonts(4, 4);
+        for f in &mut declared_vertical {
+            f.name = "NotoSerif-Vietnamese".to_string();
+        }
         assert_eq!(
-            infer_binding(&fonts(&["KozMinPr6N-Regular-V"]), Some("en-US")).as_deref(),
-            Some("R2L")
+            infer_binding(&declared_vertical, None).as_deref(),
+            Some("R2L"),
+            "and a declaration stands whatever the font is called"
         );
     }
 
@@ -791,11 +808,8 @@ mod binding_direction {
     /// right to left" are the same green test.
     #[test]
     fn anything_else_is_left_alone_for_the_standard_default() {
-        assert_eq!(infer_binding(&fonts(&["Helvetica"]), None), None);
-        assert_eq!(infer_binding(&fonts(&["Helvetica"]), Some("en-US")), None);
-        assert_eq!(infer_binding(&fonts(&["Verdana", "Arial"]), Some("de")), None);
-        // `-Vietnamese` ends in no `-V`, and a name merely containing a V is not a mode.
-        assert_eq!(infer_binding(&fonts(&["NotoSerif-Vietnamese"]), None), None);
+        assert_eq!(infer_binding(&fonts(0, 1), None), None);
+        assert_eq!(infer_binding(&fonts(0, 40), Some("en-US")), None);
         assert_eq!(infer_binding(&[], None), None, "and a document with no fonts at all");
     }
 }

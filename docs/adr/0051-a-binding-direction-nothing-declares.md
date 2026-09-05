@@ -89,6 +89,15 @@ number is fitted to those two documents, and **only one of them can even reach t
 heuristic** — `bokutokitan.pdf` declares `R2L` itself. So there is still no case where the
 guess is known to be right; there is now one where it is known not to be wrong.
 
+**And the evidence changed from a name to a declaration.** The test was for `-V` in the
+font's *name*, which is a naming convention: a font called `KozMinPr6N-Regular-V` decided
+it and a font that merely declared a vertical CMap did not, while `NotoSerif-Vietnamese`
+had to be excluded by hand. `FontSummary` now carries `is_vertical`, from `detect_wmode` —
+the `-V` suffix on the encoding's CMap name or an embedded CMap's `/CMapName`, which is the
+same reading the interpreter uses to place a glyph (9.7.5.2). The measured shares are
+unchanged: `fy05.pdf` 6 of 316, `bokutokitan.pdf` 4 of 18. **The answers did not move; what
+they rest on did.**
+
 It was found by looking at the viewer: `fy05.pdf`'s tile grid came out mirrored, page 1 in
 the top right. The first fix aimed at the wrong thing — it took binding direction out of the
 grid altogether — and the symmetry that undid it is plain: if a left-bound book's tiles run

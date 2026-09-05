@@ -202,6 +202,15 @@ pub struct FontSummary {
     pub encoding: String,
     /// Whether the font has a ToUnicode mapping.
     pub has_to_unicode: bool,
+    /// Whether the font is set vertically — writing mode 1 (9.7.5.2).
+    ///
+    /// **Read from what the file declares, not from the font's name.** The mode is the
+    /// `-V` suffix on the encoding's CMap name, or the `/CMapName` of an embedded one;
+    /// `detect_wmode` is the same reading the interpreter uses to place a glyph. A caller
+    /// asking whether a document is set vertically was previously left to look for `-V` in
+    /// `name`, which is a naming convention rather than a declaration, and which
+    /// `NotoSerif-Vietnamese` satisfies.
+    pub is_vertical: bool,
     /// Object number of the underlying font dictionary.
     pub object_id: u32,
 }
@@ -2732,6 +2741,7 @@ fn extract_font_summary(
         is_subset,
         encoding,
         has_to_unicode,
+        is_vertical: metrics::detect_wmode(dict, arena) == 1,
         object_id: handle.index(),
     })
 }
