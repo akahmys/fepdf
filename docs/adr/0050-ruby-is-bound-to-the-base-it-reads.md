@@ -63,7 +63,9 @@ word* — `勘定をす濹東綺譚るついで`. Chasing exact agreement past t
 chasing the second reader rather than the document.
 
 **`fy05.pdf` is unmoved at 3.6%**, because its vertical pages carry no ruby; whatever holds
-it below its own best of 45 is something else, and unmeasured.
+it below its own best of 45 is something else, and unmeasured — **measured since, in
+[ADR-0059](0059-what-holds-fy05-below-its-old-reading.md)**: a running head in the outer
+margin, split across body lines.
 
 **Each of the four parts has a check that fails when it is removed**, verified by removing
 each in turn — the fold, the size tie-break, the binding, and the grouping. Two of the
