@@ -122,3 +122,4 @@ quietly wrong — which is the failure this log exists to make visible.
 | 0055 | [The tile arrangement does not depend on the zoom, so zooming is a change of distance](0055-the-tile-arrangement-does-not-depend-on-the-zoom.md) | Refines 0053 |
 | 0056 | [A clone that was never finished, because the step that completes it was a separate method](0056-a-clone-that-was-never-finished.md) | — |
 | 0057 | [The released binaries could not read Japanese, because the resources they look for were never built](0057-the-released-binaries-could-not-read-japanese.md) | Ships 0041, 0044 |
+| 0058 | [A user space unit need not be a seventy-second of an inch](0058-a-user-space-unit-need-not-be-a-seventy-second-of-an-inch.md) | — |

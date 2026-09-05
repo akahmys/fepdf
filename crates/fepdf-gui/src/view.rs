@@ -186,6 +186,23 @@ impl PDFView {
     /// Where double-clicking out lands: the first step that is unambiguously a tile view.
     pub const TILE_STEP: f32 = 0.25;
 
+    /// The zoom as a percentage, written so that it is never a percentage the view is not
+    /// at.
+    ///
+    /// **`{:.0}%` printed 99.6% as `100%`** — the same string a true 100% shows, over a
+    /// page rendered at a different size. Every zoom a gesture or a button produces is now
+    /// a step, so the rounding only ever bit a fit: `fit_to_width` sets whatever the page
+    /// needs and does not snap, because a fit that snapped would not fit.
+    ///
+    /// One decimal, and a trailing `.0` dropped, so that a step reads `100%` and `12.5%`
+    /// reads as itself.
+    #[must_use]
+    pub fn zoom_label(&self) -> String {
+        let percent = self.zoom * 100.0;
+        let text = format!("{percent:.1}");
+        format!("{}%", text.strip_suffix(".0").unwrap_or(&text))
+    }
+
     /// The screen space a page number needs: its own height, plus a little either side.
     ///
     /// **The number does not scale and the gap it sits in does.** The gap is in page units,
@@ -1474,5 +1491,51 @@ mod click_ownership {
         assert!(view.selects_pages() && !view.selects_text());
         view.set_zoom(1.0);
         assert!(view.selects_text() && !view.selects_pages());
+    }
+}
+
+#[cfg(test)]
+mod zoom_label {
+    use super::PDFView;
+
+    /// **A zoom that is not 100% must not read `100%`.** `{:.0}%` printed 99.6% as `100%`,
+    /// which is the label of a different rendering; the reader had no way to tell the two
+    /// apart. Only a fit produces such a value now, and a fit is exactly the case where the
+    /// number matters — it is the one the reader did not choose.
+    #[test]
+    fn a_zoom_near_a_step_does_not_borrow_its_label() {
+        let mut view = PDFView::new();
+        view.set_zoom(1.0);
+        let hundred = view.zoom_label();
+        for near in [0.996_f32, 1.004, 0.9951] {
+            view.set_zoom(near);
+            assert_ne!(view.zoom_label(), hundred, "{near} reads as 100%");
+        }
+    }
+
+    /// A step reads as a whole number, with no decimal to carry.
+    #[test]
+    fn a_step_reads_as_itself() {
+        let mut view = PDFView::new();
+        for (zoom, expected) in [(1.0_f32, "100%"), (0.5, "50%"), (0.2, "20%"), (10.0, "1000%")] {
+            view.set_zoom(zoom);
+            assert_eq!(view.zoom_label(), expected);
+        }
+    }
+
+    /// **Every step is a whole percentage, so the decimal belongs to a fit and nothing
+    /// else.** That is the point of showing one: a fit is the zoom the reader did not
+    /// choose, and the only one that can land between steps.
+    #[test]
+    fn only_a_fit_carries_a_decimal() {
+        let mut view = PDFView::new();
+        for step in PDFView::ZOOM_STEPS {
+            view.set_zoom(step);
+            let label = view.zoom_label();
+            assert!(!label.contains('.'), "step {step} reads as {label}");
+        }
+
+        view.set_zoom(0.8134);
+        assert_eq!(view.zoom_label(), "81.3%", "a fit says where it actually is");
     }
 }

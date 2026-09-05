@@ -207,7 +207,7 @@ impl FepdfApp {
                                 );
                             }
 
-                            let zoom_label = format!("{:.0}%", self.view.zoom() * 100.0);
+                            let zoom_label = self.view.zoom_label();
                             if ui
                                 .add_sized(egui::vec2(42.0, 20.0), egui::Button::new(zoom_label))
                                 .on_hover_text("ズームリセット (100%)")

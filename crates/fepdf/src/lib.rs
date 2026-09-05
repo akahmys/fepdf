@@ -1378,6 +1378,35 @@ impl PdfDocument {
         Ok(0)
     }
 
+    /// The size of this page's default user space unit, in multiples of 1/72 inch (14.11.2,
+    /// Table 31).
+    ///
+    /// **It does not change the coordinate system, only what a coordinate means.** The
+    /// content is still drawn in the units the boxes are written in; a `/UserUnit` of 10
+    /// says each of those units is ten seventy-seconds of an inch, so a 400 by 400 page is
+    /// 55 inches square rather than 5.5. It is what lets a drawing exceed the 14,400-unit
+    /// limit a box can express.
+    ///
+    /// **Not inheritable.** Table 31 lists it in the page dictionary, and unlike
+    /// `/MediaBox` or `/Rotate` it is not among the inheritable attributes of Table 30, so
+    /// this reads the page's own entry and does not walk up the page tree.
+    ///
+    /// A value that is absent, unreadable or not positive gives 1.0, which Table 31 makes
+    /// the default.
+    pub fn get_page_user_unit(&self, index: usize) -> PdfResult<f64> {
+        let page = self.inner.get_page(index)?;
+        let dict_handle = self.inner.resolve_to_dict(page.obj_handle())?;
+        let arena = self.inner.arena();
+        let Some(dict) = arena.get_dict(dict_handle) else { return Ok(1.0) };
+        let Some(entry) = dict.get(&arena.name("UserUnit")) else { return Ok(1.0) };
+        let unit = match entry.resolve(arena) {
+            Object::Integer(i) => i as f64,
+            Object::Real(r) => r,
+            _ => return Ok(1.0),
+        };
+        Ok(if unit.is_finite() && unit > 0.0 { unit } else { 1.0 })
+    }
+
     /// Extracts the presentation-ready logical structure tree.
     pub fn extract_struct_tree(&self) -> Option<StructureTreeNode> {
         StructureTreeVisitor::extract(&self.inner)
@@ -1592,8 +1621,12 @@ impl PdfDocument {
         let rot = self.get_page_rotation(index)?;
         let (display_w, display_h) = if rot == 90 || rot == 270 { (h, w) } else { (w, h) };
 
+        // 96 DPI, times whatever a user space unit is worth on this page. `/UserUnit` is
+        // how a drawing exceeds the 14,400-unit limit a box can express (Table 31): the
+        // coordinates stay as written and each one is worth more of an inch, so honouring
+        // it is a matter of the scale and nothing else — the content is drawn unchanged.
         #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-        let scale = 4.0 / 3.0; // exactly 96 DPI
+        let scale = (4.0 / 3.0) * self.get_page_user_unit(index)?;
         let width = (display_w * scale).round() as u32;
         let height = (display_h * scale).round() as u32;
 

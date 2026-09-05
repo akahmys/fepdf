@@ -477,3 +477,50 @@ fn implemented_operations_still_succeed() {
         .is_ok()
     );
 }
+
+/// A page that declares `/UserUnit` (14.11.2, Table 31) is that many seventy-seconds of an
+/// inch per unit, so a 400-unit page at `/UserUnit 10` is 55 inches rather than 5.5.
+///
+/// **The engine had no notion of it at all.** It is how a drawing exceeds the 14,400-unit
+/// limit a box can express, and a renderer that ignores it produces an image a tenth of the
+/// size the document asks for. One file in 524 across both corpora declares one, and it is
+/// in `pdf-differences` — a corpus built to expose readers disagreeing.
+#[test]
+fn a_user_unit_is_read_and_defaults_to_one() {
+    let doc = PdfDocument::open(get_pdf_with_contents(1)).unwrap();
+    assert!(
+        (doc.get_page_user_unit(0).unwrap() - 1.0).abs() < f64::EPSILON,
+        "a page that declares nothing is 1.0, which Table 31 makes the default"
+    );
+}
+
+/// A value that is absent, unreadable or not positive falls back to Table 31's default
+/// rather than scaling a page to nothing or to infinity.
+#[test]
+fn an_impossible_user_unit_is_refused() {
+    for declared in ["0", "-3", "/Name", "(text)"] {
+        let bodies = vec![
+            format!("<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /UserUnit {declared} >>"),
+            "<< /Type /Pages /Kids [1 0 R] /Count 1 >>".to_string(),
+            "<< /Type /Catalog /Pages 2 0 R >>".to_string(),
+        ];
+        let doc = PdfDocument::open(assemble(&bodies, 3)).unwrap();
+        let unit = doc.get_page_user_unit(0).unwrap();
+        assert!((unit - 1.0).abs() < f64::EPSILON, "/UserUnit {declared} gave {unit}");
+    }
+}
+
+/// And a real one is read, whether written as an integer or a real.
+#[test]
+fn a_declared_user_unit_is_taken_as_written() {
+    for (declared, expected) in [("10", 10.0), ("2.5", 2.5), ("1", 1.0)] {
+        let bodies = vec![
+            format!("<< /Type /Page /Parent 2 0 R /MediaBox [0 0 400 400] /UserUnit {declared} >>"),
+            "<< /Type /Pages /Kids [1 0 R] /Count 1 >>".to_string(),
+            "<< /Type /Catalog /Pages 2 0 R >>".to_string(),
+        ];
+        let doc = PdfDocument::open(assemble(&bodies, 3)).unwrap();
+        let unit = doc.get_page_user_unit(0).unwrap();
+        assert!((unit - expected).abs() < f64::EPSILON, "/UserUnit {declared} gave {unit}");
+    }
+}

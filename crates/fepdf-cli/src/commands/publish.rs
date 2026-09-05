@@ -103,8 +103,8 @@ pub fn handle_render(
 ) -> Result<()> {
     println!(
         "fepdf render: Rendering page {page_num} of {} to {}...",
-        output.display(),
-        input.display()
+        input.display(),
+        output.display()
     );
     let data = std::fs::read(&input).with_context(|| "Failed to read input")?;
     let ingest_options: fepdf::IngestionOptions = ingest.into();
