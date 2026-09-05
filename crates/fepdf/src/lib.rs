@@ -482,7 +482,7 @@ impl PdfDocument {
         for i in 0..count {
             let source_page = source.inner.get_page(i)?;
             let source_dh = source.inner.resolve_to_dict(source_page.obj_handle())?;
-            let cloned = cloner.clone_object(&Object::Dictionary(source_dh))?;
+            let cloned = cloner.clone_complete(&Object::Dictionary(source_dh))?;
             if let Object::Dictionary(dh) = cloned {
                 let mut dict = target_arena.get_dict(dh).unwrap_or_default();
                 dict.insert(parent_key, Object::Reference(pages_root_h));
@@ -514,7 +514,7 @@ impl PdfDocument {
             && let Some(fields) = source.inner.arena().get_array(fah)
         {
             for field in fields {
-                if let Ok(cloned_field) = cloner.clone_object(&field) {
+                if let Ok(cloned_field) = cloner.clone_complete(&field) {
                     merged_fields.push(cloned_field);
                 }
             }
@@ -538,7 +538,7 @@ impl PdfDocument {
             && let Some(oh) = outlines_obj.resolve(source.inner.arena()).as_dict_handle()
             && let Some(o_dict) = source.inner.arena().get_dict(oh)
             && let Some(first_obj) = o_dict.get(&target_arena.name("First"))
-            && let Ok(cloned_first) = cloner.clone_object(first_obj)
+            && let Ok(cloned_first) = cloner.clone_complete(first_obj)
         {
             let mut source_outline_dict = std::collections::BTreeMap::new();
             source_outline_dict
@@ -683,7 +683,7 @@ impl PdfDocument {
             let source_page = self.inner.get_page(i)?;
             let source_dh = self.inner.resolve_to_dict(source_page.obj_handle())?;
 
-            let cloned_page_dict_obj = cloner.clone_object(&Object::Dictionary(source_dh))?;
+            let cloned_page_dict_obj = cloner.clone_complete(&Object::Dictionary(source_dh))?;
 
             if let Object::Dictionary(dh) = cloned_page_dict_obj {
                 let mut dict = target_arena.get_dict(dh).unwrap_or_default();

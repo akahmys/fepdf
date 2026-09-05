@@ -140,7 +140,7 @@ pub fn apply_duplicate_pages(doc: &mut Document, pages: &PageSelection) -> PdfRe
         let arena = doc.arena();
         let cloned = {
             let mut cloner = crate::cloning::ObjectCloner::new(arena, arena);
-            cloner.clone_object(&Object::Dictionary(source_dh))?
+            cloner.clone_complete(&Object::Dictionary(source_dh))?
         };
         if let Object::Dictionary(dh) = cloned {
             let handle = doc.arena().alloc_object(Object::Dictionary(dh));
@@ -169,7 +169,7 @@ pub fn apply_insert_from(doc: &mut Document, source: &[u8], at: usize) -> PdfRes
     for i in 0..source_count {
         let page = source_doc.get_page(i)?;
         let dh = source_doc.resolve_to_dict(page.obj_handle())?;
-        if let Object::Dictionary(cloned) = cloner.clone_object(&Object::Dictionary(dh))? {
+        if let Object::Dictionary(cloned) = cloner.clone_complete(&Object::Dictionary(dh))? {
             handles.push(doc.arena().alloc_object(Object::Dictionary(cloned)));
         }
     }

@@ -1,4 +1,8 @@
-use fepdf_model::{Handle, Object, PdfArena, PdfResult};
+use fepdf_model::{Handle, Object, PdfArena, PdfName, PdfResult};
+use std::collections::BTreeMap as Dict;
+
+/// What the arena calls a dictionary handle, which is otherwise three lines wide.
+type DictHandle = Handle<Dict<Handle<PdfName>, Object>>;
 use std::collections::BTreeMap;
 
 /// Utility for cloning PDF objects and migrating them between arenas or contexts.
@@ -21,6 +25,17 @@ enum CloningTask {
     CloneHandle(Handle<Object>, Handle<Object>),
 }
 
+/// Whether a cloned object is the body of an indirect object or a value inside one.
+///
+/// The only thing it decides is what happens to a stream, and that is enough to need a
+/// name: a stream is never a direct object (7.3.8), so one appearing inside a dictionary or
+/// an array has to be promoted, and one that is the object itself must not be.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Position {
+    TopLevel,
+    Nested,
+}
+
 impl<'a> ObjectCloner<'a> {
     /// Creates a new object cloner for migrating objects between source and target arenas.
     pub fn new(source: &'a PdfArena, target: &'a PdfArena) -> Self {
@@ -35,57 +50,21 @@ impl<'a> ObjectCloner<'a> {
         Ok(target_h)
     }
 
-    /// Recursively clones a high-level Object into the target arena.
-    /// Scalar values are cloned immediately; containers and references are queued.
-    /// NOTE: This is still "shallowly" recursive for nested arrays/dicts passed as values,
-    /// but the core handle migration is iterative.
-    pub fn clone_object(&mut self, obj: &Object) -> PdfResult<Object> {
-        match obj {
-            Object::Boolean(b) => Ok(Object::Boolean(*b)),
-            Object::Integer(i) => Ok(Object::Integer(*i)),
-            Object::Real(f) => Ok(Object::Real(*f)),
-            Object::String(s) => Ok(Object::String(s.clone())),
-            Object::Hex(s) => Ok(Object::Hex(s.clone())),
-            Object::Null => Ok(Object::Null),
-            Object::Name(h) => {
-                let name_str = self.source.get_name_str(*h).unwrap_or_default();
-                Ok(Object::Name(self.target.name(&name_str)))
-            }
-            Object::Reference(h) => {
-                let target_h = self.queue_clone(*h);
-                Ok(Object::Reference(target_h))
-            }
-            Object::Array(h) => {
-                let source_arr = self.source.get_array(*h).unwrap_or_default();
-                let mut target_arr = Vec::with_capacity(source_arr.len());
-                for item in source_arr {
-                    target_arr.push(self.clone_object_shallow(&item));
-                }
-                Ok(Object::Array(self.target.alloc_array(target_arr)))
-            }
-            Object::Dictionary(h) => {
-                let source_dict = self.source.get_dict(*h).unwrap_or_default();
-                let mut target_dict = BTreeMap::new();
-                for (k, v) in source_dict {
-                    let k_str = self.source.get_name_str(k).unwrap_or_default();
-                    let target_k = self.target.name(&k_str);
-                    target_dict.insert(target_k, self.clone_object_shallow(&v));
-                }
-                Ok(Object::Dictionary(self.target.alloc_dict(target_dict)))
-            }
-            Object::Stream(dh, data) => {
-                let source_dict = self.source.get_dict(*dh).unwrap_or_default();
-                let mut target_dict = BTreeMap::new();
-                for (k, v) in source_dict {
-                    let k_str = self.source.get_name_str(k).unwrap_or_default();
-                    let target_k = self.target.name(&k_str);
-                    target_dict.insert(target_k, self.clone_object_shallow(&v));
-                }
-                let target_dh = self.target.alloc_dict(target_dict);
-                Ok(Object::Stream(target_dh, data.clone()))
-            }
-            Object::Text(s) => Ok(Object::Text(s.clone())),
-        }
+    /// Clones an object and everything it refers to.
+    ///
+    /// **Cloning is two halves and only this one runs both.** Walking an object turns each
+    /// reference into a placeholder and a task; `process_queue` is what fills the
+    /// placeholders in. A caller who stopped after the walk got a page dictionary whose
+    /// `/Contents`, `/Resources` and `/Annots` were all `Null`, and the document answered
+    /// `expected a stream, found null` when the clone was rendered. Six call sites across
+    /// two crates did exactly that, which is why the walk is not reachable on its own.
+    ///
+    /// The validation pass at the end of `process_queue` exists to catch that very thing,
+    /// and could not, because it lives inside the half that was never run.
+    pub fn clone_complete(&mut self, obj: &Object) -> PdfResult<Object> {
+        let cloned = self.walk(obj, Position::TopLevel);
+        self.process_queue()?;
+        Ok(cloned)
     }
 
     /// Internal helper to queue a handle for cloning and return a target placeholder.
@@ -110,7 +89,7 @@ impl<'a> ObjectCloner<'a> {
                         fepdf_model::PdfError::Other("Dangling reference in source".into())
                     })?;
 
-                    let target_obj = self.clone_object(&source_obj)?;
+                    let target_obj = self.walk(&source_obj, Position::TopLevel);
                     self.target.set_object(target_h, target_obj);
                 }
             }
@@ -130,14 +109,26 @@ impl<'a> ObjectCloner<'a> {
         Ok(())
     }
 
-    /// Clone an object "shallowly" by converting references to queued handles.
-    fn clone_object_shallow(&mut self, obj: &Object) -> Object {
+    /// Copies one object into the target arena, queueing every reference it holds.
+    ///
+    /// **The two walkers this replaces differed in one arm out of nine.** `clone_object`
+    /// and `clone_object_shallow` were the same code for numbers, strings, names,
+    /// references, arrays and dictionaries, and parted company only over streams — one
+    /// returning the stream, the other promoting it to an object of its own and returning a
+    /// reference to it. Neither name said which was which, and one of them additionally
+    /// returned a `PdfResult` that no arm ever failed.
+    ///
+    /// The distinction is [`Position`], and it is real: a stream that *is* the object has
+    /// to stay a stream at that handle, and a stream found inside a dictionary or an array
+    /// cannot stay there, because a stream is never a direct object.
+    fn walk(&mut self, obj: &Object, position: Position) -> Object {
         match obj {
             Object::Boolean(b) => Object::Boolean(*b),
             Object::Integer(i) => Object::Integer(*i),
             Object::Real(f) => Object::Real(*f),
             Object::String(s) => Object::String(s.clone()),
             Object::Hex(s) => Object::Hex(s.clone()),
+            Object::Text(s) => Object::Text(s.clone()),
             Object::Null => Object::Null,
             Object::Name(h) => {
                 let name_str = self.source.get_name_str(*h).unwrap_or_default();
@@ -146,39 +137,79 @@ impl<'a> ObjectCloner<'a> {
             Object::Reference(h) => Object::Reference(self.queue_clone(*h)),
             Object::Array(h) => {
                 let source_arr = self.source.get_array(*h).unwrap_or_default();
-                let mut target_arr = Vec::with_capacity(source_arr.len());
-                for item in source_arr {
-                    target_arr.push(self.clone_object_shallow(&item));
-                }
-                Object::Array(self.target.alloc_array(target_arr))
+                let items: Vec<Object> =
+                    source_arr.iter().map(|item| self.walk(item, Position::Nested)).collect();
+                Object::Array(self.target.alloc_array(items))
             }
-            Object::Dictionary(h) => {
-                let source_dict = self.source.get_dict(*h).unwrap_or_default();
-                let mut target_dict = BTreeMap::new();
-                for (k, v) in source_dict {
-                    let k_str = self.source.get_name_str(k).unwrap_or_default();
-                    let target_k = self.target.name(&k_str);
-                    target_dict.insert(target_k, self.clone_object_shallow(&v));
-                }
-                Object::Dictionary(self.target.alloc_dict(target_dict))
-            }
+            Object::Dictionary(h) => Object::Dictionary(self.walk_dict(*h)),
             Object::Stream(dh, data) => {
-                // RR-15: Streams MUST be indirect objects. If we encounter a stream
-                // variant during shallow cloning (e.g., inside a dictionary),
-                // we must promote it to a top-level object and return a reference.
-                let source_dict = self.source.get_dict(*dh).unwrap_or_default();
-                let mut target_dict = BTreeMap::new();
-                for (k, v) in source_dict {
-                    let k_str = self.source.get_name_str(k).unwrap_or_default();
-                    let target_k = self.target.name(&k_str);
-                    target_dict.insert(target_k, self.clone_object_shallow(&v));
+                let target_dh = self.walk_dict(*dh);
+                let stream = Object::Stream(target_dh, data.clone());
+                match position {
+                    Position::TopLevel => stream,
+                    // A stream is never a direct object, so one found inside a container
+                    // becomes an object of its own and leaves a reference behind.
+                    Position::Nested => Object::Reference(self.target.alloc_object(stream)),
                 }
-                let target_dh = self.target.alloc_dict(target_dict);
-                let stream_obj = Object::Stream(target_dh, data.clone());
-                let target_h = self.target.alloc_object(stream_obj);
-                Object::Reference(target_h)
             }
-            Object::Text(s) => Object::Text(s.clone()),
+        }
+    }
+
+    /// Copies a dictionary's keys and values, which both walkers did identically.
+    fn walk_dict(&mut self, source_dh: DictHandle) -> DictHandle {
+        let source_dict = self.source.get_dict(source_dh).unwrap_or_default();
+        let mut target_dict = BTreeMap::new();
+        for (k, v) in source_dict {
+            let k_str = self.source.get_name_str(k).unwrap_or_default();
+            let target_k = self.target.name(&k_str);
+            let value = self.walk(&v, Position::Nested);
+            target_dict.insert(target_k, value);
+        }
+        self.target.alloc_dict(target_dict)
+    }
+}
+
+#[cfg(test)]
+mod position {
+    use super::{ObjectCloner, Position};
+    use fepdf_model::{Object, PdfArena};
+
+    /// **A stream that is the object stays a stream; a stream inside a dictionary becomes
+    /// a reference to one.** This is the whole of the difference between the two walkers
+    /// that used to exist, and the only reason [`Position`] is a type rather than a
+    /// comment. A stream is never a direct object (7.3.8).
+    #[test]
+    fn a_stream_is_promoted_only_where_it_cannot_stay() {
+        let source = PdfArena::new();
+        let target = PdfArena::new();
+        let dh = source.alloc_dict(std::collections::BTreeMap::new());
+        let data = std::sync::Arc::new(fepdf_model::object::SublimatedData::Commands {
+            items: Vec::new(),
+        });
+        let stream = Object::Stream(dh, data);
+
+        let mut cloner = ObjectCloner::new(&source, &target);
+        assert!(
+            matches!(cloner.walk(&stream, Position::TopLevel), Object::Stream(..)),
+            "the body of an indirect object keeps its stream"
+        );
+        assert!(
+            matches!(cloner.walk(&stream, Position::Nested), Object::Reference(_)),
+            "and one found inside a container is promoted out of it"
+        );
+    }
+
+    /// Everything else is the same in both positions, which is why one walker does.
+    #[test]
+    fn nothing_else_depends_on_the_position() {
+        let source = PdfArena::new();
+        let target = PdfArena::new();
+        let mut cloner = ObjectCloner::new(&source, &target);
+
+        for obj in [Object::Integer(7), Object::Boolean(true), Object::Null] {
+            let top = cloner.walk(&obj, Position::TopLevel);
+            let nested = cloner.walk(&obj, Position::Nested);
+            assert_eq!(format!("{top:?}"), format!("{nested:?}"), "{obj:?} differs by position");
         }
     }
 }

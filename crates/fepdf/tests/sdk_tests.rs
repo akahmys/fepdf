@@ -194,6 +194,40 @@ fn get_distinguishable_pdf(count: usize) -> Bytes {
     assemble(&bodies, count + 2)
 }
 
+/// Pages that carry a content stream, a resource dictionary and a font, so that a clone
+/// can be asked whether it kept what a page is made of.
+///
+/// `get_distinguishable_pdf` deliberately has no `/Contents`, which is why it could not see
+/// the defect below: `/MediaBox` is a direct value and survives a clone that drops every
+/// reference the page holds.
+fn get_pdf_with_contents(count: usize) -> Bytes {
+    let mut bodies: Vec<String> = Vec::new();
+    // 1..=count: pages. Then the stream for each, then resources, font, pages, catalogue.
+    let first_stream = count + 1;
+    let resources = 2 * count + 1;
+    let font = resources + 1;
+    let pages = font + 1;
+    let catalog = pages + 1;
+
+    for i in 0..count {
+        let stream = first_stream + i;
+        bodies.push(format!(
+            "<< /Type /Page /Parent {pages} 0 R /MediaBox [0 0 200 200] \
+              /Resources {resources} 0 R /Contents {stream} 0 R >>"
+        ));
+    }
+    for i in 0..count {
+        let text = format!("BT /F1 12 Tf 10 100 Td (page {i}) Tj ET");
+        bodies.push(format!("<< /Length {} >>\nstream\n{text}\nendstream", text.len()));
+    }
+    bodies.push(format!("<< /Font << /F1 {font} 0 R >> >>"));
+    bodies.push("<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>".to_string());
+    let kids: Vec<String> = (1..=count).map(|n| format!("{n} 0 R")).collect();
+    bodies.push(format!("<< /Type /Pages /Kids [{}] /Count {count} >>", kids.join(" ")));
+    bodies.push(format!("<< /Type /Catalog /Pages {pages} 0 R >>"));
+    assemble(&bodies, catalog)
+}
+
 /// The widths of every page, in order.
 fn widths(doc: &PdfDocument) -> Vec<u32> {
     #![allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
@@ -258,6 +292,40 @@ fn duplicating_several_pages_keeps_each_clone_beside_its_original() {
         vec![100, 100, 110, 110, 120, 120],
         "clones are not beside their originals"
     );
+}
+
+/// **A duplicated page keeps what it is made of, not just its size.**
+///
+/// `ObjectCloner::clone_object` queues each reference and leaves an `Object::Null`
+/// placeholder in its place until the queue is drained, and `apply_duplicate_pages` never
+/// drained it. Every clone therefore came out with `/Contents`, `/Resources` and `/Annots`
+/// all `Null`, and the document answered `expected a stream, found null` the moment the new
+/// page was rendered. It was reported from the viewer, on a page duplicated by hand.
+///
+/// The test that was here checked page widths, and `/MediaBox` is a direct value: the one
+/// part of a page dictionary that survives a clone which drops every reference.
+#[test]
+fn a_duplicated_page_keeps_its_contents() {
+    let mut doc = PdfDocument::open(get_pdf_with_contents(2)).unwrap();
+    let original = doc.extract_text(1).unwrap();
+    assert!(original.contains("page 1"), "the fixture itself must have text: {original:?}");
+
+    doc.apply(Operation::DuplicatePages(PageSelection::Single(1))).unwrap();
+    assert_eq!(doc.page_count().unwrap(), 3);
+
+    let clone = doc.extract_text(2).unwrap();
+    assert_eq!(clone, original, "the clone reads differently from the page it came from");
+}
+
+/// The same for a page brought in from another document, which clones the same way.
+#[test]
+fn a_page_inserted_from_another_document_keeps_its_contents() {
+    let mut doc = PdfDocument::open(get_pdf_with_contents(1)).unwrap();
+    let source = get_pdf_with_contents(2);
+
+    doc.apply(Operation::InsertFrom { source: source.to_vec(), at: 1 }).unwrap();
+    assert_eq!(doc.page_count().unwrap(), 3);
+    assert!(doc.extract_text(1).unwrap().contains("page 0"), "the inserted page is empty");
 }
 
 /// A selection naming a page the document does not have is refused, not silently dropped.
