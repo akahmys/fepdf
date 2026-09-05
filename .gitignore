@@ -61,3 +61,12 @@ verification_results/
 # Agent Session Data
 /.gemini/
 
+
+# Release archives, built per platform and uploaded to a GitHub release.
+#
+# Not in git: they are 84MB each, and a binary committed once stays in the history
+# for good. The published ones are on the v1.0.0 release; the two macOS
+# single-architecture archives are not, and exist only here — which is why these
+# are ignored rather than deleted.
+/dist_release/
+/release_assets/
