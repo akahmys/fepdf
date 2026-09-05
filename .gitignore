@@ -70,3 +70,12 @@ verification_results/
 # are ignored rather than deleted.
 /dist_release/
 /release_assets/
+
+# Fallback fonts, if a developer wants them locally.
+#
+# They were five symlinks into /System/Library/Fonts — Hiragino, Helvetica, Times New
+# Roman — committed to the repository. Apple licenses those for use on macOS, not for
+# redistribution, and on any other platform the links dangle. Nothing needs them: the
+# model's loader falls through to the platform's own font paths when this directory is
+# absent, and the GUI renders `constitution.pdf` unchanged without it.
+/assets/fonts/
