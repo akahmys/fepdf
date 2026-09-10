@@ -113,7 +113,7 @@ fn picker(app: &mut FepdfApp, ui: &mut egui::Ui) {
         }
         if app.tools.open == tool {
             let note = app.locale_mgr.tr(&app.active_language, description);
-            ui.label(egui::RichText::new(note).size(11.0).weak());
+            ui.label(egui::RichText::new(note).size(crate::app::theme::text::SMALL).weak());
         }
     }
 }

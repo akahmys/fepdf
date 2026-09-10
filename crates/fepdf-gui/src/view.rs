@@ -759,7 +759,7 @@ impl PDFView {
     }
 
     fn draw_placeholder_card(painter: &egui::Painter, page_rect: egui::Rect, page_index: usize) {
-        painter.rect_filled(page_rect, 4.0, colors::paper::WHITE);
+        painter.rect_filled(page_rect, radius::CONTROL, colors::paper::WHITE);
         painter.rect_stroke(
             page_rect,
             4.0,
@@ -770,14 +770,14 @@ impl PDFView {
             page_rect.center(),
             egui::Align2::CENTER_CENTER,
             format!("⌛ Rendering Page {}...", page_index + 1),
-            egui::FontId::proportional(15.0),
+            egui::FontId::proportional(crate::app::theme::text::HEAD),
             colors::steel::MUTED,
         );
     }
 
     fn draw_marquee_overlay(painter: &egui::Painter, marquee_rect: Option<egui::Rect>) {
         if let Some(m_rect) = marquee_rect {
-            painter.rect_filled(m_rect, 0.0, colors::rust::wash());
+            painter.rect_filled(m_rect, radius::FLAT, colors::rust::wash());
             painter.rect_stroke(
                 m_rect,
                 0.0,
@@ -826,7 +826,7 @@ impl PDFView {
     ) {
         if let Some(hl_rects) = highlights.get(&page_index) {
             for hl_rect in hl_rects {
-                ui.painter().rect_filled(*hl_rect, 0.0, colors::rust::wash());
+                ui.painter().rect_filled(*hl_rect, radius::FLAT, colors::rust::wash());
             }
         }
     }
@@ -857,7 +857,7 @@ impl PDFView {
                         redact_rect.center(),
                         egui::Align2::CENTER_CENTER,
                         "[REDACTED]",
-                        egui::FontId::monospace(9.0),
+                        egui::FontId::monospace(crate::app::theme::text::SMALL),
                         colors::paper::WHITE,
                     );
                 }
@@ -948,7 +948,7 @@ impl PDFView {
                 sig_rect.center(),
                 egui::Align2::CENTER_CENTER,
                 "[ DIGITAL SIGNATURE FIELD ]",
-                egui::FontId::monospace(12.0),
+                egui::FontId::monospace(crate::app::theme::text::BODY),
                 colors::rust::ACCENT,
             );
         }
@@ -1086,7 +1086,7 @@ impl PDFView {
                     element_rect.left_top() + egui::vec2(3.0, 2.0),
                     egui::Align2::LEFT_TOP,
                     &node.tag,
-                    egui::FontId::monospace(9.0),
+                    egui::FontId::monospace(crate::app::theme::text::SMALL),
                     colour,
                 );
             }
@@ -1130,14 +1130,14 @@ impl PDFView {
             egui::vec2(page_rect.width(), bar_height),
         );
 
-        ui.painter().rect_filled(bar_rect, 4.0, colors::steel::TEXT);
+        ui.painter().rect_filled(bar_rect, radius::CONTROL, colors::steel::TEXT);
 
         let mut x_offset = bar_rect.left() + 4.0;
         for (i, tag) in list.iter().enumerate() {
             let label = format!("{}: {}", i + 1, tag);
             let text_gal = ui.painter().layout_no_wrap(
                 label.clone(),
-                egui::FontId::proportional(10.0),
+                egui::FontId::proportional(crate::app::theme::text::SMALL),
                 colors::paper::WHITE,
             );
             let block_width = text_gal.size().x + 12.0;
@@ -1156,7 +1156,7 @@ impl PDFView {
                 block_rect.center(),
                 egui::Align2::CENTER_CENTER,
                 &label,
-                egui::FontId::proportional(10.0),
+                egui::FontId::proportional(crate::app::theme::text::SMALL),
                 colors::paper::WHITE,
             );
 

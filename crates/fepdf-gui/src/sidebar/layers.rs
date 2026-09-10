@@ -37,7 +37,7 @@ pub fn show_rows(
             // "a text string to be used as a **non-selectable** label" — so it is a
             // label and not a disabled checkbox, which would imply a state it has none of.
             fepdf::LayerRow::Label(text) => {
-                ui.add_space(2.0);
+                ui.add_space(crate::app::theme::space::ITEM);
                 ui.label(egui::RichText::new(text).strong());
             }
             fepdf::LayerRow::Group { id, name, on, locked } => {

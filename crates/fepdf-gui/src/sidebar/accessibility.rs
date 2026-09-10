@@ -12,9 +12,11 @@ pub fn show_accessibility_audit(
 ) {
     ui.vertical(|ui| {
         ui.label(
-            egui::RichText::new(locale_mgr.tr(active_lang, "audit_title")).strong().size(13.0),
+            egui::RichText::new(locale_mgr.tr(active_lang, "audit_title"))
+                .strong()
+                .size(crate::app::theme::text::BODY),
         );
-        ui.add_space(6.0);
+        ui.add_space(crate::app::theme::space::GROUP);
 
         let has_doc = registry.root.is_some();
         let audit_findings_count = registry.audit_findings.len();
@@ -42,7 +44,7 @@ pub fn show_accessibility_audit(
             }
         });
 
-        ui.add_space(4.0);
+        ui.add_space(crate::app::theme::space::ITEM);
 
         egui::ScrollArea::vertical().id_salt("audit_scroll").max_height(100.0).show(ui, |ui| {
             if !has_doc {
@@ -74,7 +76,7 @@ pub fn show_accessibility_audit(
                     if response.hovered() {
                         ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
                     }
-                    ui.add_space(3.0);
+                    ui.add_space(crate::app::theme::space::ITEM);
                 }
             }
         });
@@ -93,7 +95,7 @@ pub fn show_alt_text_gallery(
         ui.label(
             egui::RichText::new(locale_mgr.tr(active_lang, "alt_text_gallery_title")).strong(),
         );
-        ui.add_space(2.0);
+        ui.add_space(crate::app::theme::space::ITEM);
 
         let mut figures = Vec::new();
         if let Some(ref root) = registry.root {
@@ -138,7 +140,7 @@ pub fn show_alt_text_gallery(
                                 }
                             });
                         });
-                        ui.add_space(5.0);
+                        ui.add_space(crate::app::theme::space::ITEM);
                     }
                 });
             });

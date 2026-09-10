@@ -76,9 +76,9 @@ impl SidebarPanel {
                     locale_mgr,
                     active_lang,
                 );
-                ui.add_space(8.0);
+                ui.add_space(crate::app::theme::space::GROUP);
                 ui.separator();
-                ui.add_space(8.0);
+                ui.add_space(crate::app::theme::space::GROUP);
                 structure_tree::show_element_properties(
                     ui,
                     registry,

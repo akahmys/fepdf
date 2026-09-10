@@ -332,7 +332,7 @@ impl CaliperTool {
                 screen_pos + egui::vec2(12.0, -12.0),
                 egui::Align2::LEFT_CENTER,
                 &format!("{} ({:.1}, {:.1})", snap.description, snap.point.x, snap.point.y),
-                egui::FontId::proportional(11.0),
+                egui::FontId::proportional(crate::app::theme::text::SMALL),
                 colors::steel::TEXT,
             );
         }
@@ -375,7 +375,7 @@ impl CaliperTool {
             if let Some(dist) = self.measured_dist {
                 let mid_screen = start_screen + (end_screen - start_screen) * 0.5;
                 let text = format!("{dist:.2} pt");
-                let text_font = egui::FontId::monospace(12.0);
+                let text_font = egui::FontId::monospace(crate::app::theme::text::BODY);
 
                 // Draw background card for readability
                 painter.rect_filled(
@@ -402,11 +402,11 @@ impl CaliperTool {
     pub fn show_panel(&mut self, ui: &mut egui::Ui) {
         ui.vertical(|ui| {
             ui.label(egui::RichText::new("📐 CAD Caliper & Snap Measurement").strong());
-            ui.add_space(4.0);
+            ui.add_space(crate::app::theme::space::ITEM);
             ui.label(
                 "Drag across any vector elements, corners, or text on the page to measure exact distances in PDF user points.",
             );
-            ui.add_space(8.0);
+            ui.add_space(crate::app::theme::space::GROUP);
             if let Some(dist) = self.measured_dist {
                 ui.horizontal(|ui| {
                     ui.label("Distance:");
@@ -421,7 +421,7 @@ impl CaliperTool {
                     egui::RichText::new("No active measurement. Click & drag on the canvas.").weak(),
                 );
             }
-            ui.add_space(8.0);
+            ui.add_space(crate::app::theme::space::GROUP);
             if ui.button("Clear Measurement").clicked() {
                 self.clear();
             }

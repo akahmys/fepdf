@@ -66,7 +66,7 @@ Execute the master audit script:
 ./scripts/audit/verify_compliance.sh
 ```
 
-**Twenty-two steps**, in the order the script runs them. Derive this list rather than
+**Twenty-three steps**, in the order the script runs them. Derive this list rather than
 maintaining it — and derive it from the lines that *are* steps:
 
 ```bash
@@ -104,9 +104,10 @@ brackets hold is not a class this file gets to choose, so it does not try to nam
 | 17 | **What stands above the facade, what it declares, and what the facade lets in** | **A, D** |
 | 18 | **Every icon codepoint resolves to a glyph that draws, and is written in one file** | **UI-1** |
 | 19 | **Colours are written in the palette; three exemptions, named** | **UI-9** |
-| 20 | `cargo fmt --all --check` | 19 |
-| 21 | `cargo deny check licenses` | 16 |
-| 22 | `betterleaks dir .` | 18 |
+| 20 | **Spacing, type size and corner radius come from the declared scales** | **UI-11** |
+| 21 | `cargo fmt --all --check` | 19 |
+| 22 | `cargo deny check licenses` | 16 |
+| 23 | `betterleaks dir .` | 18 |
 
 **Rules 3 and 7 are not here and are not unenforced.** `unsafe_code = "forbid"` fails the
 build on an `unsafe` block, and a `static mut` cannot be read without one, so `rustc`

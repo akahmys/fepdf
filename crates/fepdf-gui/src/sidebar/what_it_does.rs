@@ -33,12 +33,12 @@ pub fn show(
         request();
     }
     protection(ui, security_method, permissions, tr);
-    ui.add_space(8.0);
+    ui.add_space(crate::app::theme::space::GROUP);
     let Some(report) = survey.actions.as_ref() else { return };
     automatic(ui, report, tr);
-    ui.add_space(8.0);
+    ui.add_space(crate::app::theme::space::GROUP);
     capabilities(ui, report, tr);
-    ui.add_space(8.0);
+    ui.add_space(crate::app::theme::space::GROUP);
     coverage(ui, survey.coverage.as_ref(), tr);
 }
 
@@ -59,13 +59,17 @@ fn protection(
                 // what the file says.
                 ui.label(
                     egui::RichText::new(format!("{} /P {bits}", tr("survey_permissions")))
-                        .size(11.0)
+                        .size(crate::app::theme::text::SMALL)
                         .weak(),
                 );
             }
         }
         _ => {
-            ui.label(egui::RichText::new(tr("survey_unprotected")).size(11.0).weak());
+            ui.label(
+                egui::RichText::new(tr("survey_unprotected"))
+                    .size(crate::app::theme::text::SMALL)
+                    .weak(),
+            );
         }
     }
 }
@@ -75,7 +79,11 @@ fn automatic(ui: &mut egui::Ui, report: &ActionReport, tr: &dyn Fn(&str) -> Stri
     ui.heading(tr("survey_automatic"));
     let unprompted = report.without_interaction();
     if unprompted.is_empty() {
-        ui.label(egui::RichText::new(tr("survey_automatic_none")).size(11.0).weak());
+        ui.label(
+            egui::RichText::new(tr("survey_automatic_none"))
+                .size(crate::app::theme::text::SMALL)
+                .weak(),
+        );
         return;
     }
     for action in &unprompted {
@@ -90,7 +98,11 @@ fn capabilities(ui: &mut egui::Ui, report: &ActionReport, tr: &dyn Fn(&str) -> S
     ui.heading(tr("survey_capabilities"));
     let found = report.capabilities();
     if found.is_empty() {
-        ui.label(egui::RichText::new(tr("survey_capabilities_none")).size(11.0).weak());
+        ui.label(
+            egui::RichText::new(tr("survey_capabilities_none"))
+                .size(crate::app::theme::text::SMALL)
+                .weak(),
+        );
     }
     for (capability, count) in &found {
         ui.horizontal(|ui| {
@@ -101,7 +113,7 @@ fn capabilities(ui: &mut egui::Ui, report: &ActionReport, tr: &dyn Fn(&str) -> S
     if report.unreadable > 0 {
         ui.label(
             egui::RichText::new(format!("{} {}", report.unreadable, tr("survey_unreadable")))
-                .size(11.0)
+                .size(crate::app::theme::text::SMALL)
                 .weak(),
         );
     }
@@ -121,5 +133,7 @@ fn coverage(ui: &mut egui::Ui, coverage: Option<&Coverage>, tr: &dyn Fn(&str) ->
             );
         });
     }
-    ui.label(egui::RichText::new(tr("survey_coverage_note")).size(10.0).weak());
+    ui.label(
+        egui::RichText::new(tr("survey_coverage_note")).size(crate::app::theme::text::SMALL).weak(),
+    );
 }

@@ -47,7 +47,7 @@ impl RedactionStudioPanel {
     ) {
         let tr = |key: &str| locale_mgr.tr(lang, key);
         ui.vertical(|ui| {
-            ui.add_space(5.0);
+            ui.add_space(crate::app::theme::space::ITEM);
 
             ui.horizontal(|ui| {
                 ui.label(tr("redaction_studio_pattern"));

@@ -15,9 +15,9 @@ pub fn show_structure_tree(
         ui.label(
             egui::RichText::new(locale_mgr.tr(active_lang, "structure_tree_title"))
                 .strong()
-                .size(13.0),
+                .size(crate::app::theme::text::BODY),
         );
-        ui.add_space(4.0);
+        ui.add_space(crate::app::theme::space::ITEM);
 
         let mut selected_node_id = registry.selected_node_id;
         egui::ScrollArea::vertical().id_salt("tag_tree_scroll").max_height(160.0).show(ui, |ui| {
@@ -51,9 +51,9 @@ pub fn show_element_properties(
         ui.label(
             egui::RichText::new(locale_mgr.tr(active_lang, "element_properties_title"))
                 .strong()
-                .size(13.0),
+                .size(crate::app::theme::text::BODY),
         );
-        ui.add_space(6.0);
+        ui.add_space(crate::app::theme::space::GROUP);
 
         let selected_id = registry.selected_node_id;
         let mut node_found = false;

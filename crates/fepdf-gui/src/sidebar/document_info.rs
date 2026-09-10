@@ -97,19 +97,25 @@ pub fn show_document_info(
     };
 
     ui.vertical(|ui| {
-        ui.label(egui::RichText::new(locale_mgr.tr(active_lang, "info_title")).strong().size(16.0));
+        ui.label(
+            egui::RichText::new(locale_mgr.tr(active_lang, "info_title"))
+                .strong()
+                .size(crate::app::theme::text::HEAD),
+        );
         egui::ScrollArea::vertical().id_salt("doc_info_scroll").show(ui, |ui| {
             let render_row = |ui: &mut egui::Ui, key: &str, val: &str, is_val_strong: bool| {
                 ui.label(egui::RichText::new(key).weak());
                 let text = egui::RichText::new(val);
                 let text = if is_val_strong { text.strong() } else { text };
                 ui.add(egui::Label::new(text).truncate());
-                ui.add_space(4.0);
+                ui.add_space(crate::app::theme::space::ITEM);
             };
 
             // 1. 概要 (Description)
             egui::CollapsingHeader::new(
-                egui::RichText::new(locale_mgr.tr(active_lang, "info_summary")).strong().size(13.0),
+                egui::RichText::new(locale_mgr.tr(active_lang, "info_summary"))
+                    .strong()
+                    .size(crate::app::theme::text::BODY),
             )
             .default_open(true)
             .show(ui, |ui| {
@@ -158,15 +164,15 @@ pub fn show_document_info(
                 });
             });
 
-            ui.add_space(8.0);
+            ui.add_space(crate::app::theme::space::GROUP);
             ui.separator();
-            ui.add_space(8.0);
+            ui.add_space(crate::app::theme::space::GROUP);
 
             // 2. ファイル仕様 (File Specification)
             egui::CollapsingHeader::new(
                 egui::RichText::new(locale_mgr.tr(active_lang, "info_file_spec"))
                     .strong()
-                    .size(13.0),
+                    .size(crate::app::theme::text::BODY),
             )
             .default_open(true)
             .show(ui, |ui| {
@@ -214,15 +220,15 @@ pub fn show_document_info(
                 });
             });
 
-            ui.add_space(8.0);
+            ui.add_space(crate::app::theme::space::GROUP);
             ui.separator();
-            ui.add_space(8.0);
+            ui.add_space(crate::app::theme::space::GROUP);
 
             // 3. セキュリティと制限事項 (Security & Restrictions)
             egui::CollapsingHeader::new(
                 egui::RichText::new(locale_mgr.tr(active_lang, "info_security"))
                     .strong()
-                    .size(13.0),
+                    .size(crate::app::theme::text::BODY),
             )
             .default_open(true)
             .show(ui, |ui| {
@@ -293,80 +299,84 @@ pub fn show_document_info(
                 });
             });
 
-            ui.add_space(8.0);
+            ui.add_space(crate::app::theme::space::GROUP);
             ui.separator();
-            ui.add_space(8.0);
+            ui.add_space(crate::app::theme::space::GROUP);
 
             // 4. フォント情報 (Fonts)
             let fonts_title = locale_mgr
                 .tr(active_lang, "info_fonts_in_use")
                 .replace("{}", &fonts.len().to_string());
-            egui::CollapsingHeader::new(egui::RichText::new(fonts_title).strong().size(13.0))
-                .default_open(false)
-                .show(ui, |ui| {
-                    if fonts.is_empty() {
-                        ui.label(
-                            egui::RichText::new(locale_mgr.tr(active_lang, "info_no_fonts")).weak(),
-                        );
-                    } else {
-                        for font in fonts {
-                            ui.vertical(|ui| {
-                                let embed_status = if font.is_embedded {
-                                    if font.is_subset {
-                                        locale_mgr.tr(active_lang, "info_font_embedded_subset")
-                                    } else {
-                                        locale_mgr.tr(active_lang, "info_font_embedded")
-                                    }
+            egui::CollapsingHeader::new(
+                egui::RichText::new(fonts_title).strong().size(crate::app::theme::text::BODY),
+            )
+            .default_open(false)
+            .show(ui, |ui| {
+                if fonts.is_empty() {
+                    ui.label(
+                        egui::RichText::new(locale_mgr.tr(active_lang, "info_no_fonts")).weak(),
+                    );
+                } else {
+                    for font in fonts {
+                        ui.vertical(|ui| {
+                            let embed_status = if font.is_embedded {
+                                if font.is_subset {
+                                    locale_mgr.tr(active_lang, "info_font_embedded_subset")
                                 } else {
-                                    String::new()
-                                };
-                                let label_text = format!("🔠 {}{}", font.name, embed_status);
+                                    locale_mgr.tr(active_lang, "info_font_embedded")
+                                }
+                            } else {
+                                String::new()
+                            };
+                            let label_text = format!("🔠 {}{}", font.name, embed_status);
+                            ui.add(
+                                egui::Label::new(egui::RichText::new(label_text).strong())
+                                    .truncate(),
+                            );
+                            ui.indent("font_details", |ui| {
+                                let type_text = locale_mgr
+                                    .tr(active_lang, "info_font_type")
+                                    .replace("{}", &font.font_type);
                                 ui.add(
-                                    egui::Label::new(egui::RichText::new(label_text).strong())
+                                    egui::Label::new(egui::RichText::new(type_text).weak())
                                         .truncate(),
                                 );
-                                ui.indent("font_details", |ui| {
-                                    let type_text = locale_mgr
-                                        .tr(active_lang, "info_font_type")
-                                        .replace("{}", &font.font_type);
-                                    ui.add(
-                                        egui::Label::new(egui::RichText::new(type_text).weak())
-                                            .truncate(),
-                                    );
-                                    let enc_text = locale_mgr
-                                        .tr(active_lang, "info_font_encoding")
-                                        .replace("{}", &font.encoding);
-                                    ui.add(
-                                        egui::Label::new(egui::RichText::new(enc_text).weak())
-                                            .truncate(),
-                                    );
-                                });
-                                ui.add_space(4.0);
+                                let enc_text = locale_mgr
+                                    .tr(active_lang, "info_font_encoding")
+                                    .replace("{}", &font.encoding);
+                                ui.add(
+                                    egui::Label::new(egui::RichText::new(enc_text).weak())
+                                        .truncate(),
+                                );
                             });
-                        }
+                            ui.add_space(crate::app::theme::space::ITEM);
+                        });
                     }
-                });
+                }
+            });
 
-            ui.add_space(8.0);
+            ui.add_space(crate::app::theme::space::GROUP);
             ui.separator();
-            ui.add_space(8.0);
+            ui.add_space(crate::app::theme::space::GROUP);
 
             // 5. 規格適合・判定ログ (Conformance & Reading Decisions - ISO 32000-2 6.3.2.3)
             render_decisions_section(ui, decisions, locale_mgr, active_lang);
 
             if !layers.is_empty() {
-                ui.add_space(8.0);
+                ui.add_space(crate::app::theme::space::GROUP);
                 ui.separator();
-                ui.add_space(8.0);
+                ui.add_space(crate::app::theme::space::GROUP);
 
                 // 6. レイヤー (Optional Content Groups - ISO 32000-2 8.11)
                 let layers_title =
                     format!("{} ({})", locale_mgr.tr(active_lang, "tab_layers"), layers.len());
-                egui::CollapsingHeader::new(egui::RichText::new(layers_title).strong().size(13.0))
-                    .default_open(true)
-                    .show(ui, |ui| {
-                        super::layers::show_rows(ui, layers, tx_worker, locale_mgr, active_lang);
-                    });
+                egui::CollapsingHeader::new(
+                    egui::RichText::new(layers_title).strong().size(crate::app::theme::text::BODY),
+                )
+                .default_open(true)
+                .show(ui, |ui| {
+                    super::layers::show_rows(ui, layers, tx_worker, locale_mgr, active_lang);
+                });
             }
         });
     });
@@ -426,12 +436,12 @@ fn render_decision_card(ui: &mut egui::Ui, decision: &fepdf::Decision) {
 
         ui.horizontal(|ui| {
             let (rect, _) = ui.allocate_exact_size(egui::vec2(52.0, 18.0), egui::Sense::hover());
-            ui.painter().rect_filled(rect, 4.0, bg_col);
+            ui.painter().rect_filled(rect, crate::app::theme::radius::CONTROL, bg_col);
             ui.painter().text(
                 rect.center(),
                 egui::Align2::CENTER_CENTER,
                 badge_text,
-                egui::FontId::proportional(11.0),
+                egui::FontId::proportional(crate::app::theme::text::SMALL),
                 text_col,
             );
 
@@ -440,15 +450,19 @@ fn render_decision_card(ui: &mut egui::Ui, decision: &fepdf::Decision) {
             } else {
                 format!("[§{}]", decision.clause)
             };
-            ui.label(egui::RichText::new(clause_tag).strong().size(12.0));
+            ui.label(egui::RichText::new(clause_tag).strong().size(crate::app::theme::text::BODY));
         });
 
-        ui.add_space(2.0);
-        ui.label(egui::RichText::new(&decision.found).size(12.0));
-        ui.add_space(2.0);
-        ui.label(egui::RichText::new(format!("→ {}", decision.action)).weak().size(11.0));
+        ui.add_space(crate::app::theme::space::ITEM);
+        ui.label(egui::RichText::new(&decision.found).size(crate::app::theme::text::BODY));
+        ui.add_space(crate::app::theme::space::ITEM);
+        ui.label(
+            egui::RichText::new(format!("→ {}", decision.action))
+                .weak()
+                .size(crate::app::theme::text::SMALL),
+        );
     });
-    ui.add_space(4.0);
+    ui.add_space(crate::app::theme::space::ITEM);
 }
 
 fn render_decisions_list(
@@ -491,41 +505,41 @@ fn render_decisions_section(
 ) {
     let title =
         locale_mgr.tr(active_lang, "info_decisions").replace("{}", &decisions.len().to_string());
-    egui::CollapsingHeader::new(egui::RichText::new(title).strong().size(13.0))
-        .default_open(!decisions.is_empty())
-        .show(ui, |ui| {
-            if decisions.is_empty() {
-                ui.label(
-                    egui::RichText::new(locale_mgr.tr(active_lang, "info_no_decisions")).weak(),
-                );
-                return;
-            }
+    egui::CollapsingHeader::new(
+        egui::RichText::new(title).strong().size(crate::app::theme::text::BODY),
+    )
+    .default_open(!decisions.is_empty())
+    .show(ui, |ui| {
+        if decisions.is_empty() {
+            ui.label(egui::RichText::new(locale_mgr.tr(active_lang, "info_no_decisions")).weak());
+            return;
+        }
 
-            let id_filter = ui.make_persistent_id("decision_severity_filter");
-            let mut current_filter: usize =
-                ui.data_mut(|d| *d.get_temp_mut_or_default::<usize>(id_filter));
-            let id_search = ui.make_persistent_id("decision_search_query");
-            let mut search_query: String =
-                ui.data_mut(|d| d.get_temp_mut_or_default::<String>(id_search).clone());
+        let id_filter = ui.make_persistent_id("decision_severity_filter");
+        let mut current_filter: usize =
+            ui.data_mut(|d| *d.get_temp_mut_or_default::<usize>(id_filter));
+        let id_search = ui.make_persistent_id("decision_search_query");
+        let mut search_query: String =
+            ui.data_mut(|d| d.get_temp_mut_or_default::<String>(id_search).clone());
 
-            render_decision_filter_tabs(ui, decisions, &mut current_filter);
-            ui.data_mut(|d| *d.get_temp_mut_or_default(id_filter) = current_filter);
+        render_decision_filter_tabs(ui, decisions, &mut current_filter);
+        ui.data_mut(|d| *d.get_temp_mut_or_default(id_filter) = current_filter);
 
-            ui.add_space(4.0);
-            ui.horizontal(|ui| {
-                ui.label("🔍");
-                let avail_w = ui.available_width() - 10.0;
-                ui.add(
-                    egui::TextEdit::singleline(&mut search_query)
-                        .hint_text("条項番号またはテキストで検索...")
-                        .desired_width(avail_w),
-                );
-            });
-            ui.data_mut(|d| {
-                d.get_temp_mut_or_default::<String>(id_search).clone_from(&search_query);
-            });
-            ui.add_space(6.0);
-
-            render_decisions_list(ui, decisions, current_filter, &search_query);
+        ui.add_space(crate::app::theme::space::ITEM);
+        ui.horizontal(|ui| {
+            ui.label("🔍");
+            let avail_w = ui.available_width() - 10.0;
+            ui.add(
+                egui::TextEdit::singleline(&mut search_query)
+                    .hint_text("条項番号またはテキストで検索...")
+                    .desired_width(avail_w),
+            );
         });
+        ui.data_mut(|d| {
+            d.get_temp_mut_or_default::<String>(id_search).clone_from(&search_query);
+        });
+        ui.add_space(crate::app::theme::space::GROUP);
+
+        render_decisions_list(ui, decisions, current_filter, &search_query);
+    });
 }

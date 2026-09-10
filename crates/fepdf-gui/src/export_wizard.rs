@@ -112,9 +112,17 @@ impl ExportWizard {
             }
 
             ui.add_space(crate::app::theme::space::ITEM);
-            ui.label(egui::RichText::new(tr("export_enc_note")).size(11.0).weak());
+            ui.label(
+                egui::RichText::new(tr("export_enc_note"))
+                    .size(crate::app::theme::text::SMALL)
+                    .weak(),
+            );
         } else {
-            ui.label(egui::RichText::new(tr("export_enc_none")).size(11.0).weak());
+            ui.label(
+                egui::RichText::new(tr("export_enc_none"))
+                    .size(crate::app::theme::text::SMALL)
+                    .weak(),
+            );
         }
     }
 

@@ -304,13 +304,14 @@ and these are not, and reassigning a number is what made Rules 9 and 14 mean two
 | **UI-8** | Contrast | Body text 4.5:1; a non-text boundary that carries meaning 3:1 (WCAG 1.4.11) | **nothing** — computable from `theme::colors`, unimplemented |
 | **UI-9** | Colour source | A colour is written in `app/theme.rs` or it is not written | `scripts/audit/palette.py` via `verify_compliance.sh` |
 | **UI-10** | One accent | Rust marks what the reader is touching, and marks nothing else | **nothing** |
-| **UI-11** | Dimensional tokens | Spacing, type size and corner radius come from the declared scales | **nothing** |
+| **UI-11** | Dimensional tokens | Spacing, type size and corner radius come from the declared scales | `scripts/audit/dimensions.py` via `verify_compliance.sh` |
 | **UI-12** | One home per action | An action belongs to one surface; the others are shortcuts to it | **nothing** |
 | **UI-13** | Layout grid | Chrome stands on the 4pt grid; the page keeps the 72pt one | a build-time `assert!` over the tokens; the rest **nothing** |
 
-**Ten of thirteen say "nothing", and that is the honest state rather than an omission.**
-Rule 4 above requires the word to be written where nothing checks — and UI-6 and UI-7,
-which are the two the measurements rank highest, are among the ten.
+**Nine of thirteen say "nothing", and that is the honest state rather than an omission.**
+Rule 4 above requires the word to be written where nothing checks. UI-6 has since gained
+an implementation and four tests but no check that it stays; UI-7 is one site, which is
+not yet a rule.
 
 ### The three vocabularies
 
