@@ -597,7 +597,7 @@ impl PDFView {
             // **Every sheet carries an edge, not only the ones in the grid.** White
             // paper on `paper::CANVAS` measures 1.09:1, which is not a boundary — in the
             // page view the sheet had none at all and its margin ran into the bench.
-            // `steel::EDGE` is 3.20:1 (WCAG 1.4.11), and a selection replaces it with
+            // `steel::EDGE` is 3.43:1 against the bench (WCAG 1.4.11), and a selection replaces it with
             // the accent rather than adding a second line beside it.
             let (width, colour) = if is_selected && self.selects_pages() {
                 (2.0_f32, colors::rust::ACCENT)

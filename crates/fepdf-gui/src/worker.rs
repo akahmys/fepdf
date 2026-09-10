@@ -243,7 +243,7 @@ pub fn run_worker(rx: Receiver<WorkerRequest>, tx: Sender<WorkerResponse>, ctx: 
             WorkerRequest::UpdateNode { handle_id, tag, alt_text } => {
                 text_cache.clear();
                 spans_cache.clear();
-                handle_update_node(&mut current_doc, handle_id, tag, alt_text, &tx);
+                handle_update_node(&mut current_doc, &mut history, handle_id, tag, alt_text, &tx);
                 ctx.request_repaint();
             }
             WorkerRequest::Save {
@@ -726,27 +726,40 @@ fn handle_audit(doc_opt: Option<&PdfDocument>, tx: &Sender<WorkerResponse>) {
     let _ = tx.send(WorkerResponse::AuditFindings { findings: audit_findings });
 }
 
+/// Retags an element, and re-reads what that did to the document's compliance.
+///
+/// **Recorded like every other mutation.** It reached `doc.apply` directly until UI-6's
+/// check went looking: editing a tag changes the document, so an undo that did not cover
+/// it left the reader with a history that was silently incomplete — and nothing said
+/// which edits it held.
 fn handle_update_node(
     doc_opt: &mut Option<PdfDocument>,
+    history: &mut History,
     handle_id: u32,
     tag: String,
     alt_text: Option<String>,
     tx: &Sender<WorkerResponse>,
 ) {
-    let Some(doc) = doc_opt else { return };
+    let before = history.applied.len();
     // Reported, not discarded. The audit below reads the tree as it now stands, so a
     // failed edit sent the user a fresh set of findings for the *unchanged* document —
     // the one screen that would have told them the edit did not take was the screen
     // that showed the old tree as if it were the new one.
-    if let Err(e) = doc.apply(fepdf::Operation::UpdateStructElem(fepdf::StructElemUpdate {
-        handle_index: handle_id,
-        new_tag: Some(tag),
-        new_alt: alt_text,
-    })) {
-        let _ =
-            tx.send(WorkerResponse::Error(format!("Failed to update the structure element: {e}")));
+    apply_recorded(
+        doc_opt,
+        history,
+        Operation::UpdateStructElem(fepdf::StructElemUpdate {
+            handle_index: handle_id,
+            new_tag: Some(tag),
+            new_alt: alt_text,
+        }),
+        None,
+        tx,
+    );
+    if history.applied.len() == before {
         return;
     }
+    let Some(doc) = doc_opt else { return };
 
     // Run Matterhorn compliance audit on updated tree
     let findings = doc

@@ -3230,10 +3230,14 @@ document of their own, are in
 
 - [x] **A sheet met the canvas at 1.09:1, and only in the tile grid did it have an
       edge.** White paper on the workbench is not a boundary; in the page view there was
-      none at all and a page's margin ran into the bench. `steel::EDGE` measures 3.18:1
-      on screen against the paper — 3.20:1 by construction — and clears WCAG 1.4.11's 3:1
-      without darkening the canvas to the mid-grey that would be needed to do it with fill
-      alone.
+      none at all and a page's margin ran into the bench. `steel::EDGE` clears WCAG
+      1.4.11's 3:1 without darkening the canvas to the mid-grey that would be needed to do
+      it with fill alone.
+
+      **It was picked against the wrong ground and `contrast.py` said so on its first
+      run.** 3.20:1 on `paper::WHITE` is the one surface a sheet's edge does not sit on;
+      against the bench it was 2.93:1, and a disabled control on a pressed surface was
+      2.59:1. The darkest of the four decides it now — 3.03:1 there, 3.74:1 on white.
 
       The palette's text pairs were never the problem: 7.58:1, 14.63:1, 7.38:1. The
       failures were all non-text — the sheet, a border at 1.48:1, a disabled control at

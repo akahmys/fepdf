@@ -26,7 +26,7 @@ pub mod colors {
         ///
         /// **The sheet is told apart from the canvas by [`super::steel::EDGE`], not by
         /// its fill.** White paper on a `CANVAS` ground measures 1.09:1, which is not a
-        /// boundary; a one-pixel edge measures 3.20:1, which is (WCAG 1.4.11).
+        /// boundary; a one-pixel edge measures 3.74:1, which is (WCAG 1.4.11).
         pub const WHITE: Color32 = Color32::from_rgb(255, 255, 255);
         /// The bench the sheets are laid on.
         pub const CANVAS: Color32 = Color32::from_rgb(244, 245, 247);
@@ -49,12 +49,17 @@ pub mod colors {
         /// Secondary text and resting icons. 7.58:1.
         pub const MUTED: Color32 = Color32::from_rgb(71, 85, 105);
         /// **Any boundary that carries meaning**: the edge of a sheet, the outline of a
-        /// tag, a control that is present but disabled. 3.20:1, the lightest slate that
-        /// clears WCAG 1.4.11's 3:1.
+        /// tag, a control that is present but disabled.
+        ///
+        /// **3:1 against every surface it can meet, not only against white.** It was
+        /// picked at 3.20:1 on `paper::WHITE` and left at that, which is the one ground
+        /// a sheet's edge does *not* sit on — the edge divides the sheet from
+        /// `paper::CANVAS` (2.93:1) and a disabled control can sit on `paper::PRESSED`
+        /// (2.59:1). The darkest of the four decides it: 3.03:1 there, 3.74:1 on white.
         ///
         /// A disabled control drawn below this stops being a disabled control and
         /// becomes an absent one, which the interface may not do (principle P3).
-        pub const EDGE: Color32 = Color32::from_rgb(130, 145, 168);
+        pub const EDGE: Color32 = Color32::from_rgb(120, 133, 154);
         /// Decorative separators only. 1.48:1, and deliberately below the boundary
         /// threshold — nothing may depend on seeing it.
         pub const RULE: Color32 = Color32::from_rgb(203, 213, 225);

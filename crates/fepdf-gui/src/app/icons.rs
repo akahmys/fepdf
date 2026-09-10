@@ -126,7 +126,7 @@ pub fn icon_button(glyph: &'static str, is_active: bool) -> egui::Button<'static
 /// **[`colors::steel::EDGE`] rather than the lightest slate available.** The disabled
 /// export button measured 1.23:1 against the panel, which is not a greyed control but an
 /// absent one — and an entry point the reader cannot see does not tell them the feature
-/// exists (principle P3). This is 3.20:1.
+/// exists (principle P3). This clears 3:1 on every surface a control can sit on.
 pub fn icon_button_disabled(glyph: &'static str) -> egui::Button<'static> {
     let text = egui::RichText::new(glyph)
         .size(size::GLYPH)

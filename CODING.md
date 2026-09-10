@@ -299,19 +299,19 @@ and these are not, and reassigning a number is what made Rules 9 and 14 mean two
 | **UI-3** | Notice typing | A success and a failure do not share a type | **rustc** — `Notice::done` is the only way to say a thing worked |
 | **UI-4** | Reachability | No feature lacks a visible entry point. A shortcut and the command palette are shortcuts, not entry points | **nothing** |
 | **UI-5** | Localisation | No user-facing string literal in the source; all through the locale keys | `scripts/audit/strings.py` via `verify_compliance.sh`; `locale.rs` separately holds the two key sets equal |
-| **UI-6** | Reversibility | An operation that changes the document can be undone | **nothing** |
+| **UI-6** | Reversibility | An operation that changes the document can be undone | `scripts/audit/history.py` via `verify_compliance.sh` — every mutation takes the one recorded path |
 | **UI-7** | Progress | Work over ~100ms says that it is happening | **nothing** |
-| **UI-8** | Contrast | Body text 4.5:1; a non-text boundary that carries meaning 3:1 (WCAG 1.4.11) | **nothing** — computable from `theme::colors`, unimplemented |
+| **UI-8** | Contrast | Body text 4.5:1; a non-text boundary that carries meaning 3:1 (WCAG 1.4.11) | `scripts/audit/contrast.py` via `verify_compliance.sh` |
 | **UI-9** | Colour source | A colour is written in `app/theme.rs` or it is not written | `scripts/audit/palette.py` via `verify_compliance.sh` |
 | **UI-10** | One accent | Rust marks what the reader is touching, and marks nothing else | **nothing** |
 | **UI-11** | Dimensional tokens | Spacing, type size and corner radius come from the declared scales | `scripts/audit/dimensions.py` via `verify_compliance.sh` |
 | **UI-12** | One home per action | An action belongs to one surface; the others are shortcuts to it | **nothing** |
 | **UI-13** | Layout grid | Chrome stands on the 4pt grid; the page keeps the 72pt one | a build-time `assert!` over the tokens; the rest **nothing** |
 
-**Seven of thirteen say "nothing", and that is the honest state rather than an omission.**
-Rule 4 above requires the word to be written where nothing checks. UI-6 has an
-implementation and six tests but no check that it stays; UI-7 is one site, which is not
-yet a rule.
+**Five of thirteen say "nothing", and that is the honest state rather than an omission.**
+Rule 4 above requires the word to be written where nothing checks. UI-7 is one site, which
+is not yet a rule; UI-4, UI-10, UI-12 and UI-13's second half hold by inspection and
+nothing derives them.
 
 ### The three vocabularies
 
