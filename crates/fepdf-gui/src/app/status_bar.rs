@@ -104,7 +104,7 @@ impl FepdfApp {
         )
         .min_size(egui::vec2(size::ROW, size::ROW))
         .corner_radius(super::theme::radius::CONTROL);
-        if ui.add(dismiss).on_hover_text("閉じる (Close)").clicked() {
+        if ui.add(dismiss).on_hover_text(self.tr("btn_close")).clicked() {
             self.notice = None;
         }
     }
@@ -141,7 +141,7 @@ impl FepdfApp {
         } else {
             icon_button_disabled(glyph::REDO)
         };
-        if ui.add(redo).on_hover_text("やり直す (⇧⌘Z)").clicked() && self.can_redo {
+        if ui.add(redo).on_hover_text(self.tr("tooltip_redo")).clicked() && self.can_redo {
             self.can_redo = false;
             self.begin_rebuild("history_redoing");
             let _ = self.tx_worker.send(crate::worker::WorkerRequest::Redo);
@@ -152,7 +152,7 @@ impl FepdfApp {
         } else {
             icon_button_disabled(glyph::UNDO)
         };
-        if ui.add(undo).on_hover_text("元に戻す (⌘Z)").clicked() && self.can_undo {
+        if ui.add(undo).on_hover_text(self.tr("tooltip_undo")).clicked() && self.can_undo {
             self.can_undo = false;
             self.begin_rebuild("history_undoing");
             let _ = self.tx_worker.send(crate::worker::WorkerRequest::Undo);
@@ -161,13 +161,21 @@ impl FepdfApp {
 
     /// Rightmost: what to do to the document itself.
     fn document_group(&mut self, ui: &mut egui::Ui) {
-        if ui.add(icon_button(glyph::ROTATE, false)).on_hover_text("ページを右に90°回転").clicked()
+        if ui
+            .add(icon_button(glyph::ROTATE, false))
+            .on_hover_text(self.tr("tooltip_rotate_cw"))
+            .clicked()
         {
             self.rotate_selected_pages(fepdf::Quarter::Q90);
         }
 
         let is_r2l = self.view.binding_direction == BindingDirection::RightToLeft;
-        let label = egui::RichText::new(if is_r2l { "縦" } else { "横" }).size(text::BODY);
+        let label = egui::RichText::new(self.tr(if is_r2l {
+            "btn_binding_vertical"
+        } else {
+            "btn_binding_horizontal"
+        }))
+        .size(text::BODY);
         let binding = egui::Button::new(label)
             .min_size(egui::vec2(size::ICON, size::ICON))
             .corner_radius(super::theme::radius::CONTROL)
@@ -175,9 +183,9 @@ impl FepdfApp {
         if ui
             .add(binding)
             .on_hover_text(if is_r2l {
-                "縦書き / 右開き順 (R2L) — クリックで横書きに切替"
+                self.tr("tooltip_binding_r2l")
             } else {
-                "横書き / 左開き順 (LTR) — クリックで縦書きに切替"
+                self.tr("tooltip_binding_ltr")
             })
             .clicked()
         {
@@ -190,12 +198,13 @@ impl FepdfApp {
     /// How the pages are arranged. Added spread-first, so it reads continuous, single,
     /// spread.
     fn mode_group(&mut self, ui: &mut egui::Ui) {
-        for (mode, icon, tip) in [
-            (DisplayMode::TwoPageSpread, glyph::PAGE_SPREAD, "見開き表示"),
-            (DisplayMode::SinglePage, glyph::PAGE_SINGLE, "単一ページ表示"),
-            (DisplayMode::Continuous, glyph::PAGE_CONTINUOUS, "連続スクロール"),
+        for (mode, icon, key) in [
+            (DisplayMode::TwoPageSpread, glyph::PAGE_SPREAD, "tooltip_view_spread"),
+            (DisplayMode::SinglePage, glyph::PAGE_SINGLE, "tooltip_view_single"),
+            (DisplayMode::Continuous, glyph::PAGE_CONTINUOUS, "tooltip_view_continuous"),
         ] {
             let selected = self.view.display_mode == mode;
+            let tip = self.tr(key);
             if ui.add(icon_button(icon, selected)).on_hover_text(tip).clicked() {
                 self.view.display_mode = mode;
                 self.compute_layouts();
@@ -206,11 +215,17 @@ impl FepdfApp {
     /// Fit the spread to the window.
     fn fit_group(&mut self, ui: &mut egui::Ui) {
         let viewport = self.last_viewport_rect.unwrap_or_else(|| ui.max_rect());
-        if ui.add(icon_button(glyph::FIT_HEIGHT, false)).on_hover_text("高さに合わせる").clicked()
+        if ui
+            .add(icon_button(glyph::FIT_HEIGHT, false))
+            .on_hover_text(self.tr("tooltip_fit_height"))
+            .clicked()
         {
             self.fit_to_height(viewport);
         }
-        if ui.add(icon_button(glyph::FIT_WIDTH, false)).on_hover_text("幅に合わせる").clicked()
+        if ui
+            .add(icon_button(glyph::FIT_WIDTH, false))
+            .on_hover_text(self.tr("tooltip_fit_width"))
+            .clicked()
         {
             self.fit_to_width(viewport);
         }
@@ -221,7 +236,11 @@ impl FepdfApp {
         let viewport = self.last_viewport_rect.unwrap_or_else(|| ui.max_rect());
         let center = viewport.center();
 
-        if ui.add(icon_button(glyph::ZOOM_IN, false)).on_hover_text("拡大").clicked() {
+        if ui
+            .add(icon_button(glyph::ZOOM_IN, false))
+            .on_hover_text(self.tr("tooltip_zoom_in"))
+            .clicked()
+        {
             self.view.zoom_at(self.view.zoom_step_up(), center, viewport, &self.page_layouts);
         }
 
@@ -229,11 +248,15 @@ impl FepdfApp {
         let reset = egui::Button::new(label)
             .min_size(egui::vec2(size::ICON * 1.5, size::ICON))
             .corner_radius(super::theme::radius::CONTROL);
-        if ui.add(reset).on_hover_text("ズームリセット (100%)").clicked() {
+        if ui.add(reset).on_hover_text(self.tr("tooltip_zoom_reset")).clicked() {
             self.view.zoom_at(1.0, center, viewport, &self.page_layouts);
         }
 
-        if ui.add(icon_button(glyph::ZOOM_OUT, false)).on_hover_text("縮小").clicked() {
+        if ui
+            .add(icon_button(glyph::ZOOM_OUT, false))
+            .on_hover_text(self.tr("tooltip_zoom_out"))
+            .clicked()
+        {
             self.view.zoom_at(self.view.zoom_step_down(), center, viewport, &self.page_layouts);
         }
     }
@@ -241,12 +264,18 @@ impl FepdfApp {
     /// The page counter and the four buttons around it, reading first, previous, `n/N`,
     /// next, last.
     fn page_group(&mut self, ui: &mut egui::Ui, current_page: usize) {
-        if ui.add(icon_button(glyph::PAGE_LAST, false)).on_hover_text("最後のページへ").clicked()
+        if ui
+            .add(icon_button(glyph::PAGE_LAST, false))
+            .on_hover_text(self.tr("tooltip_page_last"))
+            .clicked()
         {
             self.view.scroll_to_page(self.total_pages - 1, &self.page_layouts);
         }
 
-        if ui.add(icon_button(glyph::PAGE_NEXT, false)).on_hover_text("次のページ").clicked()
+        if ui
+            .add(icon_button(glyph::PAGE_NEXT, false))
+            .on_hover_text(self.tr("tooltip_page_next"))
+            .clicked()
             && current_page + 1 < self.total_pages
         {
             self.view.scroll_to_page(current_page + 1, &self.page_layouts);
@@ -258,13 +287,19 @@ impl FepdfApp {
                 .color(colors::steel::TEXT),
         );
 
-        if ui.add(icon_button(glyph::PAGE_PREV, false)).on_hover_text("前のページ").clicked()
+        if ui
+            .add(icon_button(glyph::PAGE_PREV, false))
+            .on_hover_text(self.tr("tooltip_page_prev"))
+            .clicked()
             && current_page > 0
         {
             self.view.scroll_to_page(current_page - 1, &self.page_layouts);
         }
 
-        if ui.add(icon_button(glyph::PAGE_FIRST, false)).on_hover_text("最初のページへ").clicked()
+        if ui
+            .add(icon_button(glyph::PAGE_FIRST, false))
+            .on_hover_text(self.tr("tooltip_page_first"))
+            .clicked()
         {
             self.view.scroll_to_page(0, &self.page_layouts);
         }

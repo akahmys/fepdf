@@ -110,7 +110,7 @@ impl FepdfApp {
         }
         if ui
             .add(icon_button(glyph::PALETTE, self.show_command_palette))
-            .on_hover_text("コマンドパレット (Ctrl+K / ⌘K)")
+            .on_hover_text(self.tr("tooltip_command_palette"))
             .clicked()
         {
             self.show_command_palette = !self.show_command_palette;
@@ -143,6 +143,7 @@ impl FepdfApp {
         // through `&mut FepdfApp`, and a shared borrow of one of its fields held across
         // that is a borrow of the whole thing.
         let title = self.drawer_title();
+        let close_label = self.tr("btn_close");
 
         egui::Panel::left("active_side_drawer")
             .resizable(true)
@@ -158,7 +159,7 @@ impl FepdfApp {
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         if ui
                             .add(icon_button(glyph::CLOSE, false))
-                            .on_hover_text("閉じる (Close)")
+                            .on_hover_text(&close_label)
                             .clicked()
                         {
                             self.active_drawer = ActiveDrawer::None;

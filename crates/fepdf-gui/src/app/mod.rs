@@ -632,6 +632,16 @@ impl FepdfApp {
     /// inverse for an operation — see `worker::History`. On the samples that is 28ms for
     /// `constitution.pdf` and 1.7s for `intel_sdm.pdf` at 24MB, which makes this the one
     /// action in this window long enough to owe the reader a word while it runs (UI-7).
+    /// A user-facing string, by its key.
+    ///
+    /// **The shorthand is the point.** Thirty-nine sentences were written into the source
+    /// in Japanese — every tooltip on the status bar and the whole page context menu —
+    /// and `self.locale_mgr.tr(&self.active_language, key)` at each of them is what made
+    /// the literal look like the cheaper option (UI-5).
+    pub fn tr(&self, key: &str) -> String {
+        self.locale_mgr.tr(&self.active_language, key)
+    }
+
     /// Stops a close that would take unexported edits with it.
     ///
     /// **The window had no idea it had been edited.** `dirty`, `unsaved`, `on_close` and

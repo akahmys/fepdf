@@ -119,26 +119,26 @@ impl FepdfApp {
         response.context_menu(|ui| {
             ui.label(format!("Page {}", page_idx + 1));
             ui.separator();
-            if ui.button("↷ 右に90°回転").clicked() {
+            if ui.button(self.tr("menu_rotate_cw")).clicked() {
                 self.rotate_page_action(page_idx, fepdf::Quarter::Q90);
                 ui.close();
             }
-            if ui.button("↶ 左に90°回転").clicked() {
+            if ui.button(self.tr("menu_rotate_ccw")).clicked() {
                 self.rotate_page_action(page_idx, fepdf::Quarter::Q270);
                 ui.close();
             }
-            if ui.button("🔄 180°回転").clicked() {
+            if ui.button(self.tr("menu_rotate_180")).clicked() {
                 self.rotate_page_action(page_idx, fepdf::Quarter::Q180);
                 ui.close();
             }
             ui.separator();
-            if ui.button("📑 ページを複製").clicked() {
+            if ui.button(self.tr("menu_duplicate_page")).clicked() {
                 self.duplicate_page(page_idx);
                 ui.close();
             }
             if self.total_pages > 1 {
                 ui.separator();
-                if ui.button("🗑 ページを削除").clicked() {
+                if ui.button(self.tr("menu_delete_page")).clicked() {
                     self.selected_pages.clear();
                     self.selected_pages.insert(page_idx);
                     self.remove_selected_pages();

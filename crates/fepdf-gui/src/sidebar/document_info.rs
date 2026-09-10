@@ -37,7 +37,7 @@ pub fn show_document_info(
         date_str.to_string()
     }
 
-    let format_file_size = |bytes: usize| -> String {
+    let format_file_size = |total: usize| -> String {
         fn format_num(n: usize) -> String {
             let s = n.to_string();
             let mut result = String::new();
@@ -51,25 +51,25 @@ pub fn show_document_info(
             result
         }
 
-        if bytes >= 1_048_576 {
-            let mb = format!("{:.2}", bytes as f64 / 1_048_576.0);
-            if active_lang == "ja" {
-                format!("{} MB ({} バイト)", mb, format_num(bytes))
-            } else {
-                format!("{} MB ({} bytes)", mb, format_num(bytes))
-            }
-        } else if bytes >= 1024 {
-            let kb = format!("{:.2}", bytes as f64 / 1024.0);
-            if active_lang == "ja" {
-                format!("{} KB ({} バイト)", kb, format_num(bytes))
-            } else {
-                format!("{} KB ({} bytes)", kb, format_num(bytes))
-            }
-        } else if active_lang == "ja" {
-            format!("{} バイト", format_num(bytes))
+        // **The locale, not an `if active_lang == "ja"`.** Two of these branched on the
+        // language in the source, which is the mechanism `LocaleManager` exists to
+        // replace: a third language reaches them through the JSON and never through here.
+        //
+        // The two bindings are `total` and `scaled` rather than `bytes` and `size`
+        // because `{bytes}` and `{size}` are what a translator reads in the JSON, and
+        // clippy takes a placeholder that names a binding in scope for a formatting
+        // argument someone forgot to interpolate.
+        let (key, scaled) = if total >= 1_048_576 {
+            ("info_size_mb", format!("{:.2}", total as f64 / 1_048_576.0))
+        } else if total >= 1024 {
+            ("info_size_kb", format!("{:.2}", total as f64 / 1024.0))
         } else {
-            format!("{} bytes", format_num(bytes))
-        }
+            ("info_size_bytes", String::new())
+        };
+        locale_mgr
+            .tr(active_lang, key)
+            .replace("{size}", &scaled)
+            .replace("{bytes}", &format_num(total))
     };
 
     let format_page_size = |w: f64, h: f64| -> String {
@@ -84,11 +84,11 @@ pub fn show_document_info(
         let format_name = if is_a4 {
             " (A4)"
         } else if is_a4_landscape {
-            if active_lang == "ja" { " (A4 横)" } else { " (A4 Landscape)" }
+            &locale_mgr.tr(active_lang, "info_a4_landscape")
         } else if is_letter {
             " (Letter)"
         } else if is_letter_landscape {
-            if active_lang == "ja" { " (Letter 横)" } else { " (Letter Landscape)" }
+            &locale_mgr.tr(active_lang, "info_letter_landscape")
         } else {
             ""
         };
@@ -386,6 +386,8 @@ fn render_decision_filter_tabs(
     ui: &mut egui::Ui,
     decisions: &[fepdf::Decision],
     current_filter: &mut usize,
+    locale_mgr: &LocaleManager,
+    active_lang: &str,
 ) {
     let ambiguities_count =
         decisions.iter().filter(|d| matches!(d.severity, fepdf::Severity::Ambiguity)).count();
@@ -396,42 +398,38 @@ fn render_decision_filter_tabs(
 
     ui.horizontal_wrapped(|ui| {
         ui.spacing_mut().item_spacing.x = 4.0;
-        if ui.selectable_label(*current_filter == 0, format!("全 ({})", decisions.len())).clicked()
-        {
-            *current_filter = 0;
-        }
-        if ui
-            .selectable_label(*current_filter == 1, format!("⚠ 曖昧 ({ambiguities_count})"))
-            .clicked()
-        {
-            *current_filter = 1;
-        }
-        if ui
-            .selectable_label(*current_filter == 2, format!("🔧 修復 ({repaired_count})"))
-            .clicked()
-        {
-            *current_filter = 2;
-        }
-        if ui
-            .selectable_label(*current_filter == 3, format!("❌ 違反 ({violations_count})"))
-            .clicked()
-        {
-            *current_filter = 3;
+        let tabs = [
+            ("decisions_all", decisions.len()),
+            ("decisions_ambiguity", ambiguities_count),
+            ("decisions_repaired", repaired_count),
+            ("decisions_violation", violations_count),
+        ];
+        for (n, (key, count)) in tabs.into_iter().enumerate() {
+            let label = locale_mgr.tr(active_lang, key).replace("{}", &count.to_string());
+            if ui.selectable_label(*current_filter == n, label).clicked() {
+                *current_filter = n;
+            }
         }
     });
 }
 
-fn render_decision_card(ui: &mut egui::Ui, decision: &fepdf::Decision) {
+fn render_decision_card(
+    ui: &mut egui::Ui,
+    decision: &fepdf::Decision,
+    locale_mgr: &LocaleManager,
+    active_lang: &str,
+) {
     ui.group(|ui| {
         // **`Repaired` is the warning and `Ambiguity` is the note, which is the way
         // round these were not.** An ambiguity is the standard permitting two readings
         // and the engine picking one — worth knowing. A repair is the engine having
         // *changed* the input to make it work, which is worth checking.
-        let (badge_text, colour) = match decision.severity {
-            fepdf::Severity::Ambiguity => ("曖昧性", colors::note::INFO),
-            fepdf::Severity::Repaired => ("修復済", colors::note::WARN),
-            fepdf::Severity::Violation => ("規格違反", colors::note::FAIL),
+        let (badge_key, colour) = match decision.severity {
+            fepdf::Severity::Ambiguity => ("badge_ambiguity", colors::note::INFO),
+            fepdf::Severity::Repaired => ("badge_repaired", colors::note::WARN),
+            fepdf::Severity::Violation => ("badge_violation", colors::note::FAIL),
         };
+        let badge_text = locale_mgr.tr(active_lang, badge_key);
         let (bg_col, text_col) = (colors::tint(colour, 20), colour);
 
         ui.horizontal(|ui| {
@@ -470,6 +468,8 @@ fn render_decisions_list(
     decisions: &[fepdf::Decision],
     current_filter: usize,
     search_query: &str,
+    locale_mgr: &LocaleManager,
+    active_lang: &str,
 ) {
     let query_lower = search_query.to_lowercase();
     let filtered: Vec<&fepdf::Decision> = decisions
@@ -489,10 +489,10 @@ fn render_decisions_list(
         .collect();
 
     if filtered.is_empty() {
-        ui.label(egui::RichText::new("該当する判定ログはありません。").weak());
+        ui.label(egui::RichText::new(locale_mgr.tr(active_lang, "decisions_none")).weak());
     } else {
         for decision in filtered {
-            render_decision_card(ui, decision);
+            render_decision_card(ui, decision, locale_mgr, active_lang);
         }
     }
 }
@@ -522,7 +522,7 @@ fn render_decisions_section(
         let mut search_query: String =
             ui.data_mut(|d| d.get_temp_mut_or_default::<String>(id_search).clone());
 
-        render_decision_filter_tabs(ui, decisions, &mut current_filter);
+        render_decision_filter_tabs(ui, decisions, &mut current_filter, locale_mgr, active_lang);
         ui.data_mut(|d| *d.get_temp_mut_or_default(id_filter) = current_filter);
 
         ui.add_space(crate::app::theme::space::ITEM);
@@ -531,7 +531,7 @@ fn render_decisions_section(
             let avail_w = ui.available_width() - 10.0;
             ui.add(
                 egui::TextEdit::singleline(&mut search_query)
-                    .hint_text("条項番号またはテキストで検索...")
+                    .hint_text(locale_mgr.tr(active_lang, "decisions_search_hint"))
                     .desired_width(avail_w),
             );
         });
@@ -540,6 +540,13 @@ fn render_decisions_section(
         });
         ui.add_space(crate::app::theme::space::GROUP);
 
-        render_decisions_list(ui, decisions, current_filter, &search_query);
+        render_decisions_list(
+            ui,
+            decisions,
+            current_filter,
+            &search_query,
+            locale_mgr,
+            active_lang,
+        );
     });
 }
