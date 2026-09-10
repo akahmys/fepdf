@@ -37,6 +37,10 @@ pub mod glyph {
     /// `command` — the palette.
     pub const PALETTE: &str = "\u{e09a}";
 
+    /// `undo` — take back the last operation.
+    pub const UNDO: &str = "\u{e19b}";
+    /// `redo` — put it back.
+    pub const REDO: &str = "\u{e143}";
     /// `rotate-cw` — a quarter turn clockwise.
     pub const ROTATE: &str = "\u{e149}";
     /// `file` — one page at a time. Was `layout`, which is a panel arrangement.

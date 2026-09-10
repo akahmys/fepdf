@@ -248,8 +248,21 @@ A caller must now say which it means, and `Quarter` makes 45° unconstructible.
 
 **Three consequences fall out rather than being designed in:**
 
-- **Undo/redo.** Operations are values, so they can be recorded, inverted and
-  replayed. The GUI gets history without a parallel mechanism.
+- **Undo/redo.** Operations are values, so they are recorded and replayed:
+  `fepdf-gui` keeps the bytes it opened alongside the operations applied to them, and
+  takes one back by opening those bytes again and replaying the rest. The GUI gets
+  history without a parallel mechanism.
+
+  **They are not inverted.** Nothing in the engine inverts an operation, and for two of
+  them there is no inverse to write: `Retag` rebuilds the structure tree from
+  heuristics, and `ApplyBatesNumbering` draws into content streams. Two verbs of the
+  three are enough, at a cost of one open per undo — between 28ms and 1.7s across the
+  samples, which is why the window says that a rebuild is running.
+
+  ```bash
+  grep -rn "fn invert\|fn inverse\|fn undo" crates/fepdf-doc/src crates/fepdf-model/src \
+      crates/fepdf/src --include='*.rs' | wc -l    # 0
+  ```
 - **MCP tool surface.** A tool becomes the serialised form of an `Operation`. New
   operations reach AI assistants without new bridging code.
 - **Testability.** An operation sequence can be applied and asserted without starting

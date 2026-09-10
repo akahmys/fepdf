@@ -7,7 +7,7 @@
 //! buttons backwards is how a control that draws nothing went unnoticed.
 
 use super::FepdfApp;
-use super::icons::{glyph, icon_button};
+use super::icons::{glyph, icon_button, icon_button_disabled};
 use super::theme::{colors, size, space, text};
 use crate::view::{BindingDirection, DisplayMode};
 
@@ -35,7 +35,14 @@ impl FepdfApp {
     /// The left of the bar: what just happened, what the renderer left out, which view
     /// mode is in force, and the reading-order toggle.
     fn status_indicators(&mut self, ui: &mut egui::Ui, has_doc: bool) {
-        if self.notice.is_some() {
+        if let Some(key) = self.rebuilding {
+            // What the history is doing outranks what just happened: it is happening now.
+            ui.label(
+                egui::RichText::new(self.locale_mgr.tr(&self.active_language, key))
+                    .size(text::SMALL)
+                    .color(colors::rust::ACCENT),
+            );
+        } else if self.notice.is_some() {
             self.say_notice(ui);
         } else if self.pages_left_out > 0 {
             // Pages the renderer left out say so here rather than in the decision
@@ -118,7 +125,38 @@ impl FepdfApp {
             self.zoom_group(ui);
             ui.add_space(space::SECTION);
             self.page_group(ui, current_page);
+            ui.add_space(space::SECTION);
+            self.history_group(ui);
         });
+    }
+
+    /// Leftmost of the cluster: taking back, and putting back.
+    ///
+    /// **A shortcut is not an entry point (UI-4).** `Cmd+Z` reaches these two and a
+    /// reader who does not already know that would find nothing; drawn disabled rather
+    /// than hidden, they also say that the window has a history at all.
+    fn history_group(&mut self, ui: &mut egui::Ui) {
+        let redo = if self.can_redo {
+            icon_button(glyph::REDO, false)
+        } else {
+            icon_button_disabled(glyph::REDO)
+        };
+        if ui.add(redo).on_hover_text("やり直す (⇧⌘Z)").clicked() && self.can_redo {
+            self.can_redo = false;
+            self.begin_rebuild("history_redoing");
+            let _ = self.tx_worker.send(crate::worker::WorkerRequest::Redo);
+        }
+
+        let undo = if self.can_undo {
+            icon_button(glyph::UNDO, false)
+        } else {
+            icon_button_disabled(glyph::UNDO)
+        };
+        if ui.add(undo).on_hover_text("元に戻す (⌘Z)").clicked() && self.can_undo {
+            self.can_undo = false;
+            self.begin_rebuild("history_undoing");
+            let _ = self.tx_worker.send(crate::worker::WorkerRequest::Undo);
+        }
     }
 
     /// Rightmost: what to do to the document itself.

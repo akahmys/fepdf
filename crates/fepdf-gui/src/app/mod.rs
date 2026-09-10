@@ -174,6 +174,23 @@ pub struct FepdfApp {
     pub layers: Vec<fepdf::LayerRow>,
     /// Reading decisions recorded by the engine while opening or repairing the document (6.3.2.3).
     pub doc_decisions: Vec<fepdf::Decision>,
+    /// Whether there is an operation to take back, and one to put back.
+    pub can_undo: bool,
+    /// See [`Self::can_undo`].
+    pub can_redo: bool,
+    /// Whether the document differs from the file it was opened from.
+    ///
+    /// **Derived from the worker's journal rather than kept here.** A second count of
+    /// what has been applied is a second thing to get wrong, and this one would be the
+    /// copy that is not the document.
+    pub edited: bool,
+    /// Set while the window is asking whether to close with edits outstanding.
+    pub confirming_close: bool,
+    /// The locale key for what the history is doing, while it is doing it.
+    pub rebuilding: Option<&'static str>,
+    /// Set once the reader has said to close anyway, so the guard lets the next request
+    /// through.
+    pub close_confirmed: bool,
     /// Visible pages the last frame left undrawn against the renderer's bin-data budget.
     ///
     /// **Not a `Decision`.** Every severity in that list describes the *document* — the
@@ -260,6 +277,12 @@ impl FepdfApp {
             invalidated_thumbnails: BTreeSet::new(),
             is_loading: false,
             loading_message: String::new(),
+            can_undo: false,
+            can_redo: false,
+            edited: false,
+            confirming_close: false,
+            rebuilding: None,
+            close_confirmed: false,
             show_reading_order: true,
             show_command_palette: false,
             command_palette_search: String::new(),
@@ -367,6 +390,7 @@ impl FepdfApp {
                     let _ = self.tx_worker.send(WorkerRequest::Audit);
 
                     self.is_loading = false;
+                    self.rebuilding = None;
                     ctx.request_repaint();
                 }
                 WorkerResponse::PageRendered { index, scene, text, spans, .. } => {
@@ -388,6 +412,12 @@ impl FepdfApp {
                         self.page_spans.insert(index, spans);
                     }
 
+                    ctx.request_repaint();
+                }
+                WorkerResponse::HistoryChanged { can_undo, can_redo, edited } => {
+                    self.can_undo = can_undo;
+                    self.can_redo = can_redo;
+                    self.edited = edited;
                     ctx.request_repaint();
                 }
                 WorkerResponse::AuditFindings { findings } => {
@@ -575,6 +605,62 @@ impl FepdfApp {
         }
     }
 
+    /// `Cmd+Z` and `Cmd+Shift+Z`, which is the platform's pair.
+    ///
+    /// **Both are refused rather than queued when the history has nothing at that end**,
+    /// so a held key cannot outrun the worker and ask for more undo than there is. The
+    /// flag is cleared here as well as by the worker's answer, because the answer takes
+    /// as long as the rebuild does.
+    fn handle_history_shortcuts(&mut self, ui: &egui::Ui) {
+        let pressed = |shift: bool| {
+            ui.input(|i| {
+                i.modifiers.command && i.modifiers.shift == shift && i.key_pressed(egui::Key::Z)
+            })
+        };
+        if pressed(false) && self.can_undo {
+            self.can_undo = false;
+            self.begin_rebuild("history_undoing");
+            let _ = self.tx_worker.send(WorkerRequest::Undo);
+        }
+        if pressed(true) && self.can_redo {
+            self.can_redo = false;
+            self.begin_rebuild("history_redoing");
+            let _ = self.tx_worker.send(WorkerRequest::Redo);
+        }
+    }
+
+    /// Says that the document is being rebuilt, and drops everything drawn from the old
+    /// one.
+    ///
+    /// **Undo re-opens the file and replays what is left**, because the engine has no
+    /// inverse for an operation — see `worker::History`. On the samples that is 28ms for
+    /// `constitution.pdf` and 1.7s for `intel_sdm.pdf` at 24MB, which makes this the one
+    /// action in this window long enough to owe the reader a word while it runs (UI-7).
+    /// Stops a close that would take unexported edits with it.
+    ///
+    /// **The window had no idea it had been edited.** `dirty`, `unsaved`, `on_close` and
+    /// `CloseRequested` appeared nowhere in this crate: thirty pages could be deleted and
+    /// the window closed on them without a word. `History::edited` is the answer to the
+    /// question and this is the only place that asks it.
+    fn guard_close(&mut self, ctx: &egui::Context) {
+        if !ctx.input(|i| i.viewport().close_requested()) {
+            return;
+        }
+        if self.edited && !self.close_confirmed {
+            ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
+            self.confirming_close = true;
+        }
+    }
+
+    fn begin_rebuild(&mut self, key: &'static str) {
+        self.rebuilding = Some(key);
+        self.scenes.clear();
+        self.raw_texts.clear();
+        self.page_spans.clear();
+        self.request_queue.clear();
+        self.clear_thumbnails_pending = true;
+    }
+
     fn handle_zoom_shortcuts(&mut self, ui: &egui::Ui) {
         let viewport_rect = self.last_viewport_rect.unwrap_or_else(|| ui.max_rect());
         let cursor_pos = ui.input(|i| {
@@ -666,6 +752,7 @@ impl FepdfApp {
 
     fn handle_keyboard_shortcuts(&mut self, ui: &egui::Ui) {
         self.handle_file_and_edit_shortcuts(ui);
+        self.handle_history_shortcuts(ui);
         self.handle_zoom_shortcuts(ui);
         self.handle_page_and_selection_shortcuts(ui);
     }
@@ -685,6 +772,7 @@ impl eframe::App for FepdfApp {
         let entire_rect = ui.max_rect();
         ui.painter().rect_filled(entire_rect, theme::radius::FLAT, ui.visuals().window_fill);
 
+        self.guard_close(&ctx);
         self.handle_keyboard_shortcuts(ui);
 
         // 1. Bottom status bar (with page navigation & zoom controls)

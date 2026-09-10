@@ -213,6 +213,59 @@ impl FepdfApp {
         answer
     }
 
+    /// Asks before a close takes unexported edits with it.
+    ///
+    /// **No title bar and no `open`**, for the reason the password prompt has neither:
+    /// the question is the only thing to answer, and a dialog about losing work that can
+    /// be dismissed by missing it is not a guard. `Keep it open` is the default and the
+    /// first button, because it is the reversible one (principle P1).
+    fn show_close_confirmation(&mut self, ctx: &egui::Context) {
+        if !self.confirming_close {
+            return;
+        }
+        let tr = |key: &str| self.locale_mgr.tr(&self.active_language, key);
+        let mut decision = None;
+
+        egui::Window::new("close_confirmation")
+            .title_bar(false)
+            .collapsible(false)
+            .resizable(false)
+            .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
+            .default_width(size::FORM_W)
+            .show(ctx, |ui| {
+                ui.add_space(space::GROUP);
+                ui.heading(egui::RichText::new(tr("close_edited_title")).size(text::HEAD));
+                ui.add_space(space::GROUP);
+                ui.label(egui::RichText::new(tr("close_edited_body")).size(text::BODY));
+                ui.add_space(space::PANE);
+                ui.horizontal(|ui| {
+                    if ui.button(tr("close_keep")).clicked() {
+                        decision = Some(false);
+                    }
+                    if ui
+                        .button(
+                            egui::RichText::new(tr("close_discard"))
+                                .color(super::theme::colors::note::FAIL),
+                        )
+                        .clicked()
+                    {
+                        decision = Some(true);
+                    }
+                });
+                ui.add_space(space::ITEM);
+            });
+
+        match decision {
+            Some(true) => {
+                self.confirming_close = false;
+                self.close_confirmed = true;
+                ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+            }
+            Some(false) => self.confirming_close = false,
+            None => {}
+        }
+    }
+
     pub(crate) fn render_overlay_windows(&mut self, ctx: &egui::Context) {
         // RR-15 Limit: GUI - Renders various overlay windows, tool wizards, and popup alerts
         if self.show_export_wizard {
@@ -325,6 +378,8 @@ impl FepdfApp {
 
         // Show About Modal
         self.show_about_modal_window(ctx);
+
+        self.show_close_confirmation(ctx);
 
         // Last, so it draws over everything: a locked document has nothing behind this
         // worth interacting with.
