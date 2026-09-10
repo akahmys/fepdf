@@ -341,9 +341,16 @@ pub fn apply_global_styles(ctx: &egui::Context) {
     visuals.widgets.hovered.bg_stroke = egui::Stroke::NONE;
     visuals.widgets.hovered.fg_stroke = egui::Stroke::new(1.0_f32, colors::steel::TEXT);
 
+    // **`active` is not the accent, because egui reads strong text out of it.**
+    // `Visuals::strong_text_color` returns `widgets.active.text_color()`, so an accent
+    // here paints every `RichText::strong()` in the application: the document
+    // properties, the About window's own name, the heading of every drawer. Rust marks
+    // what the reader is touching (UI-10), and bold text is not that. A pressed control
+    // takes the darkest steel, which is what bold should mean in this palette; the accent
+    // reaches a *selection* through `visuals.selection` above.
     visuals.widgets.active.bg_fill = colors::paper::PRESSED;
     visuals.widgets.active.bg_stroke = egui::Stroke::NONE;
-    visuals.widgets.active.fg_stroke = egui::Stroke::new(1.0_f32, colors::rust::ACCENT);
+    visuals.widgets.active.fg_stroke = egui::Stroke::new(1.0_f32, colors::steel::TEXT);
 
     visuals.widgets.open.bg_fill = colors::paper::HOVER;
     visuals.widgets.open.bg_stroke = egui::Stroke::new(1.0_f32, colors::steel::EDGE);

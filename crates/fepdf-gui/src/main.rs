@@ -35,6 +35,7 @@
 
 mod app;
 mod cad_canvas;
+mod capture;
 mod command_palette;
 mod document_tools;
 mod export_wizard;
@@ -104,10 +105,38 @@ fn native_options() -> eframe::NativeOptions {
     }
 }
 
+/// `--capture <plan> --shots <dir>`, and the document to open, in any order.
+///
+/// **Hand-parsed rather than through a parser crate**, because two flags and a path is
+/// the whole surface and `fepdf-cli` is where the argument vocabulary lives.
+fn arguments() -> (Option<PathBuf>, Option<PathBuf>, PathBuf) {
+    let mut document = None;
+    let mut plan = None;
+    let mut shots = PathBuf::from(".");
+    let mut args = std::env::args().skip(1);
+    while let Some(arg) = args.next() {
+        match arg.as_str() {
+            "--capture" => plan = args.next().map(PathBuf::from),
+            "--shots" => shots = args.next().map_or_else(|| PathBuf::from("."), PathBuf::from),
+            _ => document = Some(PathBuf::from(arg)),
+        }
+    }
+    (document, plan, shots)
+}
+
 fn main() -> eframe::Result<()> {
     env_logger::init();
 
-    let pdf_path = std::env::args().nth(1).map(PathBuf::from);
+    let (pdf_path, plan_path, shots) = arguments();
+    let plan = plan_path.map(|path| match capture::Plan::read(&path, shots) {
+        Ok(plan) => plan,
+        Err(e) => {
+            // Refused rather than started: a capture run that silently opens an ordinary
+            // window waits for a person who is not there.
+            eprintln!("fepdf-gui: {e}");
+            std::process::exit(2);
+        }
+    });
 
     let native_options = native_options();
 
@@ -116,6 +145,7 @@ fn main() -> eframe::Result<()> {
         native_options,
         Box::new(|cc| {
             let mut app = FepdfApp::new(cc);
+            app.capture = plan;
             if let Some(path) = pdf_path {
                 app.open_file(path, &cc.egui_ctx);
             }

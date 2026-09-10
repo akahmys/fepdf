@@ -1,0 +1,53 @@
+# What this window draws, in the places a click was needed to reach.
+#
+#   ./target/debug/fepdf-gui --capture scripts/dev/tour.txt --shots /tmp/tour
+#
+# Every screen below has been described in a commit message and looked at by nobody.
+
+open samples/constitution.pdf
+shot 01-document
+
+drawer info
+shot 02-drawer-info
+drawer survey
+shot 03-drawer-survey
+drawer accessibility
+shot 04-drawer-accessibility
+drawer redaction
+shot 05-drawer-redaction
+drawer caliper
+shot 06-drawer-caliper
+drawer tools
+shot 07-drawer-tools
+drawer none
+
+# The history: a page goes, and comes back.
+select 3
+shot 08-page-selected
+delete
+shot 09-page-deleted
+undo
+shot 10-page-restored
+
+# The windows, one at a time.
+clear
+palette
+shot 11-palette
+clear
+export
+shot 12-export
+clear
+settings
+shot 13-settings
+clear
+about
+shot 14-about
+
+# And the same window in the other language.
+clear
+language en
+drawer info
+shot 15-english
+clear
+drawer tools
+shot 16-english-tools

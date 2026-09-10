@@ -189,6 +189,8 @@ pub struct FepdfApp {
     /// Set once the reader has said to close anyway, so the guard lets the next request
     /// through.
     pub close_confirmed: bool,
+    /// The plan driving this window, when one was given on the command line.
+    pub capture: Option<crate::capture::Plan>,
     /// Visible pages the last frame left undrawn against the renderer's bin-data budget.
     ///
     /// **Not a `Decision`.** Every severity in that list describes the *document* — the
@@ -280,6 +282,7 @@ impl FepdfApp {
             confirming_close: false,
             rebuilding: None,
             close_confirmed: false,
+            capture: None,
             show_reading_order: true,
             show_command_palette: false,
             command_palette_search: String::new(),
@@ -658,7 +661,7 @@ impl FepdfApp {
         }
     }
 
-    fn begin_rebuild(&mut self, key: &'static str) {
+    pub(crate) fn begin_rebuild(&mut self, key: &'static str) {
         self.rebuilding = Some(key);
         self.scenes.clear();
         self.raw_texts.clear();
@@ -795,6 +798,9 @@ impl eframe::App for FepdfApp {
 
         // 5. Floating modals & dialogs
         self.render_overlay_windows(&ctx);
+
+        // 6. Last, so a screenshot catches what the five above drew.
+        self.drive_capture(&ctx);
     }
 }
 

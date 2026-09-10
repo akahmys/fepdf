@@ -3284,11 +3284,37 @@ build-time assertion over the tokens and nothing over their use.
   texture covers the whole viewport a step later, so the page fill and its drop shadow are
   painted and hidden; only the thumbnail path sees them.
 
-**And what has not been seen.** The drawers hold 51 of the 70 dimensions and none of them
-has been looked at: opening one needs a click, and synthetic input does not reach this
-window. Neither has an undo been watched to return a page. Four tests hold the journal's
-semantics, two hold that replaying a shortened history lands on the state before it, and
-the compiler holds the wiring — but nobody has watched a page come back.
+- [x] **Nobody could look, and that was one problem rather than a list of them.** Every
+      "not visually verified" line above needs a click to reach — a drawer, a window, a
+      page deleted and put back — and synthetic input does not arrive at this window.
+      `capture_ui.sh` was the previous answer and was deleted on 2026-08-29 unreferenced:
+      it screenshotted the whole desktop and needed the application running in front of
+      someone, so nobody ever ran it.
+
+      **The window already knows how to open its own drawers.** `--capture` reads a plan,
+      does what it says, and hands back what it drew through
+      `ViewportCommand::Screenshot`. Sixteen screens in two seconds, and it closes itself,
+      so a script can wait on it.
+
+      ```bash
+      ./target/debug/fepdf-gui --capture scripts/dev/tour.txt --shots /tmp/tour
+      ```
+
+      **It found two defects in its first run, and one of them was systemic.** Every
+      `RichText::strong()` in the application drew in the accent: egui's
+      `Visuals::strong_text_color` returns `widgets.active.text_color()`, and the palette
+      had put `rust::ACCENT` there. The document properties, the About window's own name
+      and the heading of every drawer — 3,724 accent pixels in the About window alone,
+      against `steel::TEXT` now and none. That is UI-10 broken everywhere at once by one
+      line, and it passed twenty-five audit steps and 104 tests without a murmur.
+
+      The other was the harness's own: the first shot caught the placeholder saying the
+      page was still rendering, because `request_queue.is_empty()` is true before the
+      queue is filled. Which is the sort of thing this exists to catch, just not about
+      itself.
+
+      **Undo returns a page, and someone has now seen it**: `1/13`, `1/12`, `1/13` across
+      three shots, with the redo control dark in the third and grey in the first two.
 
 *Updated 2026-08-22 (Phase P). The figures above come from the sample corpus, a set of
 deliberately malformed files, and the 515 external files Phases G and O fetched; the catalogue,
