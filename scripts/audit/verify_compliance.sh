@@ -419,6 +419,9 @@ python3 scripts/audit/dimensions.py || ERROR=1
 echo "[Rule UI-5] Checking that user-facing strings are locale keys..."
 python3 scripts/audit/strings.py || ERROR=1
 
+echo "[Rule UI-2] Checking that icon controls carry a name..."
+python3 scripts/audit/widget_names.py || ERROR=1
+
 echo "[Rule 19] Checking formatting..."
 if cargo fmt --all --check > /dev/null 2>&1; then
     echo "  PASS"

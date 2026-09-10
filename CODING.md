@@ -295,7 +295,7 @@ and these are not, and reassigning a number is what made Rules 9 and 14 mean two
 | Rule | Area | Requirement | Enforcement |
 | :--- | :--- | :--- | :--- |
 | **UI-1** | Icon vocabulary | Every codepoint drawn as an icon resolves to a glyph that draws, in the font intended for it, and is declared in `app/icons.rs` | `scripts/audit/icon_glyphs.py` via `verify_compliance.sh` |
-| **UI-2** | Accessible name | A widget whose only content is a glyph carries a name by some other means | **nothing** |
+| **UI-2** | Accessible name | A widget whose only content is a glyph carries a name by some other means | `scripts/audit/widget_names.py` via `verify_compliance.sh` |
 | **UI-3** | Notice typing | A success and a failure do not share a type | **rustc** — `Notice::done` is the only way to say a thing worked |
 | **UI-4** | Reachability | No feature lacks a visible entry point. A shortcut and the command palette are shortcuts, not entry points | **nothing** |
 | **UI-5** | Localisation | No user-facing string literal in the source; all through the locale keys | `scripts/audit/strings.py` via `verify_compliance.sh`; `locale.rs` separately holds the two key sets equal |
@@ -308,7 +308,7 @@ and these are not, and reassigning a number is what made Rules 9 and 14 mean two
 | **UI-12** | One home per action | An action belongs to one surface; the others are shortcuts to it | **nothing** |
 | **UI-13** | Layout grid | Chrome stands on the 4pt grid; the page keeps the 72pt one | a build-time `assert!` over the tokens; the rest **nothing** |
 
-**Eight of thirteen say "nothing", and that is the honest state rather than an omission.**
+**Seven of thirteen say "nothing", and that is the honest state rather than an omission.**
 Rule 4 above requires the word to be written where nothing checks. UI-6 has an
 implementation and six tests but no check that it stays; UI-7 is one site, which is not
 yet a rule.

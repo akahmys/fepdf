@@ -1,7 +1,7 @@
 //! The left icon rail, and the drawer that opens beside it.
 
 use super::FepdfApp;
-use super::icons::{glyph, icon_button, icon_button_disabled};
+use super::icons::{glyph, icon_action};
 use super::theme::{size, space, text};
 use crate::sidebar::ActiveDrawer;
 
@@ -47,7 +47,7 @@ impl FepdfApp {
         let tip_import = self.locale_mgr.tr(&self.active_language, "tooltip_import_pdf");
         let tip_export = self.locale_mgr.tr(&self.active_language, "tooltip_export_pdf");
 
-        if ui.add(icon_button(glyph::OPEN, false)).on_hover_text(tip_import).clicked()
+        if icon_action(ui, glyph::OPEN, false, true, &tip_import).clicked()
             && let Some(p) = rfd::FileDialog::new().add_filter("PDF", &["pdf"]).pick_file()
         {
             if has_doc {
@@ -61,15 +61,11 @@ impl FepdfApp {
             }
         }
 
-        // Drawn rather than `add_enabled`: egui fades a disabled widget towards its
-        // background, and the fade took this button to 1.23:1 — below the point at which
-        // it says the feature exists at all. `icon_button_disabled` holds 3.20:1.
-        let export = if has_doc {
-            icon_button(glyph::EXPORT, false)
-        } else {
-            icon_button_disabled(glyph::EXPORT)
-        };
-        if ui.add(export).on_hover_text(tip_export).clicked() && has_doc {
+        // `icon_action` draws the unavailable state rather than reaching for
+        // `add_enabled`: egui fades a disabled widget towards its background, and the
+        // fade took this button to 1.23:1 — below the point at which it says the feature
+        // exists at all. `icon_button_disabled` holds 3.20:1.
+        if icon_action(ui, glyph::EXPORT, false, has_doc, &tip_export).clicked() && has_doc {
             self.show_export_wizard = true;
         }
     }
@@ -88,9 +84,7 @@ impl FepdfApp {
         for (drawer, icon, key) in entries {
             let is_open = self.active_drawer == drawer;
             let tip = self.locale_mgr.tr(&self.active_language, key);
-            let button =
-                if has_doc { icon_button(icon, is_open) } else { icon_button_disabled(icon) };
-            if ui.add(button).on_hover_text(tip).clicked() && has_doc {
+            if icon_action(ui, icon, is_open, has_doc, &tip).clicked() && has_doc {
                 self.active_drawer = if is_open { ActiveDrawer::None } else { drawer };
                 self.caliper_tool.is_active = !is_open && drawer == ActiveDrawer::Caliper;
             }
@@ -102,16 +96,20 @@ impl FepdfApp {
         let tip_about = self.locale_mgr.tr(&self.active_language, "tooltip_about");
         let tip_settings = self.locale_mgr.tr(&self.active_language, "tooltip_settings");
 
-        if ui.add(icon_button(glyph::ABOUT, false)).on_hover_text(tip_about).clicked() {
+        if icon_action(ui, glyph::ABOUT, false, true, &tip_about).clicked() {
             self.show_about_modal = true;
         }
-        if ui.add(icon_button(glyph::SETTINGS, false)).on_hover_text(tip_settings).clicked() {
+        if icon_action(ui, glyph::SETTINGS, false, true, &tip_settings).clicked() {
             self.show_settings_modal = true;
         }
-        if ui
-            .add(icon_button(glyph::PALETTE, self.show_command_palette))
-            .on_hover_text(self.tr("tooltip_command_palette"))
-            .clicked()
+        if icon_action(
+            ui,
+            glyph::PALETTE,
+            self.show_command_palette,
+            true,
+            &self.tr("tooltip_command_palette"),
+        )
+        .clicked()
         {
             self.show_command_palette = !self.show_command_palette;
         }
@@ -157,11 +155,7 @@ impl FepdfApp {
                     ui.heading(egui::RichText::new(&title).size(text::HEAD));
 
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        if ui
-                            .add(icon_button(glyph::CLOSE, false))
-                            .on_hover_text(&close_label)
-                            .clicked()
-                        {
+                        if icon_action(ui, glyph::CLOSE, false, true, &close_label).clicked() {
                             self.active_drawer = ActiveDrawer::None;
                             self.caliper_tool.is_active = false;
                         }

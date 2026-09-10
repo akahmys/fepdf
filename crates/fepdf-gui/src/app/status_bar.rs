@@ -7,7 +7,7 @@
 //! buttons backwards is how a control that draws nothing went unnoticed.
 
 use super::FepdfApp;
-use super::icons::{glyph, icon_button, icon_button_disabled};
+use super::icons::{glyph, icon_action, named};
 use super::theme::{colors, size, space, text};
 use crate::view::{BindingDirection, DisplayMode};
 
@@ -96,15 +96,7 @@ impl FepdfApp {
         let colour = notice.colour();
         ui.label(egui::RichText::new(&notice.text).size(text::SMALL).color(colour));
         ui.add_space(space::ITEM);
-        let dismiss = egui::Button::new(
-            egui::RichText::new(glyph::CLOSE)
-                .size(text::SMALL)
-                .family(super::theme::icon_family())
-                .color(colour),
-        )
-        .min_size(egui::vec2(size::ROW, size::ROW))
-        .corner_radius(super::theme::radius::CONTROL);
-        if ui.add(dismiss).on_hover_text(self.tr("btn_close")).clicked() {
+        if icon_action(ui, glyph::CLOSE, false, true, &self.tr("btn_close")).clicked() {
             self.notice = None;
         }
     }
@@ -136,23 +128,17 @@ impl FepdfApp {
     /// reader who does not already know that would find nothing; drawn disabled rather
     /// than hidden, they also say that the window has a history at all.
     fn history_group(&mut self, ui: &mut egui::Ui) {
-        let redo = if self.can_redo {
-            icon_button(glyph::REDO, false)
-        } else {
-            icon_button_disabled(glyph::REDO)
-        };
-        if ui.add(redo).on_hover_text(self.tr("tooltip_redo")).clicked() && self.can_redo {
+        let redo_name = self.tr("tooltip_redo");
+        if icon_action(ui, glyph::REDO, false, self.can_redo, &redo_name).clicked() && self.can_redo
+        {
             self.can_redo = false;
             self.begin_rebuild("history_redoing");
             let _ = self.tx_worker.send(crate::worker::WorkerRequest::Redo);
         }
 
-        let undo = if self.can_undo {
-            icon_button(glyph::UNDO, false)
-        } else {
-            icon_button_disabled(glyph::UNDO)
-        };
-        if ui.add(undo).on_hover_text(self.tr("tooltip_undo")).clicked() && self.can_undo {
+        let undo_name = self.tr("tooltip_undo");
+        if icon_action(ui, glyph::UNDO, false, self.can_undo, &undo_name).clicked() && self.can_undo
+        {
             self.can_undo = false;
             self.begin_rebuild("history_undoing");
             let _ = self.tx_worker.send(crate::worker::WorkerRequest::Undo);
@@ -161,11 +147,7 @@ impl FepdfApp {
 
     /// Rightmost: what to do to the document itself.
     fn document_group(&mut self, ui: &mut egui::Ui) {
-        if ui
-            .add(icon_button(glyph::ROTATE, false))
-            .on_hover_text(self.tr("tooltip_rotate_cw"))
-            .clicked()
-        {
+        if icon_action(ui, glyph::ROTATE, false, true, &self.tr("tooltip_rotate_cw")).clicked() {
             self.rotate_selected_pages(fepdf::Quarter::Q90);
         }
 
@@ -180,15 +162,9 @@ impl FepdfApp {
             .min_size(egui::vec2(size::ICON, size::ICON))
             .corner_radius(super::theme::radius::CONTROL)
             .selected(is_r2l);
-        if ui
-            .add(binding)
-            .on_hover_text(if is_r2l {
-                self.tr("tooltip_binding_r2l")
-            } else {
-                self.tr("tooltip_binding_ltr")
-            })
-            .clicked()
-        {
+        let binding_name =
+            self.tr(if is_r2l { "tooltip_binding_r2l" } else { "tooltip_binding_ltr" });
+        if named(ui.add(binding), true, &binding_name).clicked() {
             self.view.binding_direction =
                 if is_r2l { BindingDirection::LeftToRight } else { BindingDirection::RightToLeft };
             self.compute_layouts();
@@ -205,7 +181,7 @@ impl FepdfApp {
         ] {
             let selected = self.view.display_mode == mode;
             let tip = self.tr(key);
-            if ui.add(icon_button(icon, selected)).on_hover_text(tip).clicked() {
+            if icon_action(ui, icon, selected, true, &tip).clicked() {
                 self.view.display_mode = mode;
                 self.compute_layouts();
             }
@@ -215,18 +191,11 @@ impl FepdfApp {
     /// Fit the spread to the window.
     fn fit_group(&mut self, ui: &mut egui::Ui) {
         let viewport = self.last_viewport_rect.unwrap_or_else(|| ui.max_rect());
-        if ui
-            .add(icon_button(glyph::FIT_HEIGHT, false))
-            .on_hover_text(self.tr("tooltip_fit_height"))
-            .clicked()
+        if icon_action(ui, glyph::FIT_HEIGHT, false, true, &self.tr("tooltip_fit_height")).clicked()
         {
             self.fit_to_height(viewport);
         }
-        if ui
-            .add(icon_button(glyph::FIT_WIDTH, false))
-            .on_hover_text(self.tr("tooltip_fit_width"))
-            .clicked()
-        {
+        if icon_action(ui, glyph::FIT_WIDTH, false, true, &self.tr("tooltip_fit_width")).clicked() {
             self.fit_to_width(viewport);
         }
     }
@@ -236,11 +205,7 @@ impl FepdfApp {
         let viewport = self.last_viewport_rect.unwrap_or_else(|| ui.max_rect());
         let center = viewport.center();
 
-        if ui
-            .add(icon_button(glyph::ZOOM_IN, false))
-            .on_hover_text(self.tr("tooltip_zoom_in"))
-            .clicked()
-        {
+        if icon_action(ui, glyph::ZOOM_IN, false, true, &self.tr("tooltip_zoom_in")).clicked() {
             self.view.zoom_at(self.view.zoom_step_up(), center, viewport, &self.page_layouts);
         }
 
@@ -248,15 +213,11 @@ impl FepdfApp {
         let reset = egui::Button::new(label)
             .min_size(egui::vec2(size::ICON * 1.5, size::ICON))
             .corner_radius(super::theme::radius::CONTROL);
-        if ui.add(reset).on_hover_text(self.tr("tooltip_zoom_reset")).clicked() {
+        if named(ui.add(reset), true, &self.tr("tooltip_zoom_reset")).clicked() {
             self.view.zoom_at(1.0, center, viewport, &self.page_layouts);
         }
 
-        if ui
-            .add(icon_button(glyph::ZOOM_OUT, false))
-            .on_hover_text(self.tr("tooltip_zoom_out"))
-            .clicked()
-        {
+        if icon_action(ui, glyph::ZOOM_OUT, false, true, &self.tr("tooltip_zoom_out")).clicked() {
             self.view.zoom_at(self.view.zoom_step_down(), center, viewport, &self.page_layouts);
         }
     }
@@ -264,18 +225,11 @@ impl FepdfApp {
     /// The page counter and the four buttons around it, reading first, previous, `n/N`,
     /// next, last.
     fn page_group(&mut self, ui: &mut egui::Ui, current_page: usize) {
-        if ui
-            .add(icon_button(glyph::PAGE_LAST, false))
-            .on_hover_text(self.tr("tooltip_page_last"))
-            .clicked()
-        {
+        if icon_action(ui, glyph::PAGE_LAST, false, true, &self.tr("tooltip_page_last")).clicked() {
             self.view.scroll_to_page(self.total_pages - 1, &self.page_layouts);
         }
 
-        if ui
-            .add(icon_button(glyph::PAGE_NEXT, false))
-            .on_hover_text(self.tr("tooltip_page_next"))
-            .clicked()
+        if icon_action(ui, glyph::PAGE_NEXT, false, true, &self.tr("tooltip_page_next")).clicked()
             && current_page + 1 < self.total_pages
         {
             self.view.scroll_to_page(current_page + 1, &self.page_layouts);
@@ -287,19 +241,13 @@ impl FepdfApp {
                 .color(colors::steel::TEXT),
         );
 
-        if ui
-            .add(icon_button(glyph::PAGE_PREV, false))
-            .on_hover_text(self.tr("tooltip_page_prev"))
-            .clicked()
+        if icon_action(ui, glyph::PAGE_PREV, false, true, &self.tr("tooltip_page_prev")).clicked()
             && current_page > 0
         {
             self.view.scroll_to_page(current_page - 1, &self.page_layouts);
         }
 
-        if ui
-            .add(icon_button(glyph::PAGE_FIRST, false))
-            .on_hover_text(self.tr("tooltip_page_first"))
-            .clicked()
+        if icon_action(ui, glyph::PAGE_FIRST, false, true, &self.tr("tooltip_page_first")).clicked()
         {
             self.view.scroll_to_page(0, &self.page_layouts);
         }

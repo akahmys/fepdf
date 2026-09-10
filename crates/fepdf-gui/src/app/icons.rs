@@ -74,6 +74,37 @@ pub mod glyph {
     pub const CLOSE: &str = "\u{0078}";
 }
 
+/// An icon button, its tooltip, and the name a screen reader is given for it.
+///
+/// **egui takes a widget's text for its accessible name**, and the text of every button
+/// in this window is a private-use codepoint — so twenty-six controls announced
+/// themselves as `U+E0CC`. That is the one this product has least excuse for: it audits
+/// documents against the Matterhorn protocol, and principle P4 says the checks it makes
+/// of a file apply to its own window.
+///
+/// The name is the tooltip. They were always the same sentence; only one of them was
+/// reaching anybody.
+pub fn icon_action(
+    ui: &mut egui::Ui,
+    glyph: &'static str,
+    is_active: bool,
+    enabled: bool,
+    name: &str,
+) -> egui::Response {
+    let button = if enabled { icon_button(glyph, is_active) } else { icon_button_disabled(glyph) };
+    named(ui.add(button), enabled, name)
+}
+
+/// Gives `response` a name — to a screen reader and to the pointer alike.
+///
+/// **A control whose text is not its name needs this too.** The zoom control's text is
+/// `100%` and the binding control's is one character; both are labels for something, and
+/// neither says what the control does.
+pub fn named(response: egui::Response, enabled: bool, name: &str) -> egui::Response {
+    response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, enabled, name));
+    response.on_hover_text(name)
+}
+
 /// An icon button: [`size::ICON`] square, the glyph drawn from the icon family.
 ///
 /// **One constructor, because there was more than one.** A rail button and a status-bar
