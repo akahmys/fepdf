@@ -591,3 +591,62 @@ fn the_fallback_faces_do_not_depend_on_which_crate_asked() {
         assert_eq!(mine, theirs, "the renderer and the free function disagree");
     }
 }
+
+/// Applies `history` to a fresh open of `data` and reports the pages that come out.
+///
+/// This is what `fepdf-gui`'s worker does to take an operation back: `ARCHITECTURE.md`
+/// §4.1 has undo *recorded and replayed* rather than inverted, because nothing in the
+/// engine inverts an operation and two of them — `Retag`, `ApplyBatesNumbering` — have no
+/// inverse to write.
+fn replay(data: &Bytes, history: &[Operation]) -> Vec<u32> {
+    let mut doc = PdfDocument::open(data.clone()).expect("the fixture opens");
+    for operation in history {
+        doc.apply(operation.clone()).expect("every operation in a history applied once");
+    }
+    widths(&doc)
+}
+
+/// **The property undo rests on.** The same operations over the same bytes reach the same
+/// document, so replaying a shortened history puts the reader back where they were rather
+/// than somewhere near it. Nothing checked this while the GUI depended on it.
+#[test]
+fn replaying_a_history_reaches_the_same_document() {
+    let data = get_distinguishable_pdf(6);
+    let history = vec![
+        Operation::RemovePages(PageSelection::Single(1)),
+        Operation::DuplicatePages(PageSelection::Single(0)),
+        Operation::ReorderBatch { sources: vec![0, 1], target: 3 },
+        Operation::Rotate {
+            pages: PageSelection::Indices(vec![0, 2]),
+            mode: RotateMode::Relative(Quarter::Q90),
+        },
+    ];
+
+    let once = replay(&data, &history);
+    let twice = replay(&data, &history);
+    assert_eq!(once, twice, "a replay is not a second answer");
+    assert_ne!(once, widths(&PdfDocument::open(data).unwrap()), "the history did something");
+}
+
+/// **Replaying all but the last operation is the state before that operation**, which is
+/// what undo means. Taken one at a time, back to the file itself.
+#[test]
+fn replaying_all_but_the_last_is_the_state_before_it() {
+    let data = get_distinguishable_pdf(5);
+    let history = [
+        Operation::RemovePages(PageSelection::Single(3)),
+        Operation::DuplicatePages(PageSelection::Single(1)),
+        Operation::RemovePages(PageSelection::Single(0)),
+    ];
+
+    // Each prefix is what the document looked like after that many operations.
+    let after: Vec<Vec<u32>> = (0..=history.len()).map(|n| replay(&data, &history[..n])).collect();
+
+    for n in (1..=history.len()).rev() {
+        let undone = replay(&data, &history[..n - 1]);
+        assert_eq!(undone, after[n - 1], "undoing operation {n} lands on the state before it");
+        assert_ne!(undone, after[n], "and that state is not the one it came from");
+    }
+
+    assert_eq!(after[0], widths(&PdfDocument::open(data).unwrap()), "undone to the file itself");
+}
