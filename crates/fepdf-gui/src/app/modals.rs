@@ -1,6 +1,7 @@
 //! Modal dialogs and overlay windows for `FepdfApp`.
 
 use super::FepdfApp;
+use super::theme::{size, space, text};
 
 /// What the reader did with the password prompt this frame.
 enum Answer {
@@ -36,8 +37,8 @@ impl FepdfApp {
         egui::Window::new(format!("🔍 {title}"))
             .open(show_redaction_studio)
             .resizable(true)
-            .default_width(420.0)
-            .default_height(360.0)
+            .default_width(size::TABLE_W)
+            .default_height(size::TABLE_W * 0.75)
             .show(ctx, |ui| {
                 redaction_studio_panel.show(
                     ui,
@@ -59,7 +60,7 @@ impl FepdfApp {
                 .open(&mut show_about)
                 .resizable(false)
                 .collapsible(false)
-                .default_width(320.0)
+                .default_width(size::FORM_W)
                 .show(ctx, |ui| {
                     ui.vertical_centered(|ui| {
                         ui.label(
@@ -67,7 +68,7 @@ impl FepdfApp {
                                 self.locale_mgr.tr(&self.active_language, "about_app_name"),
                             )
                             .strong()
-                            .size(18.0),
+                            .size(text::TITLE),
                         );
                         ui.label(
                             egui::RichText::new(format!(
@@ -76,18 +77,18 @@ impl FepdfApp {
                             ))
                             .weak(),
                         );
-                        ui.add_space(8.0);
+                        ui.add_space(space::GROUP);
                         ui.label(self.locale_mgr.tr(&self.active_language, "about_description"));
-                        ui.add_space(12.0);
+                        ui.add_space(space::SECTION);
                         ui.separator();
-                        ui.add_space(8.0);
+                        ui.add_space(space::GROUP);
                         ui.label(
                             egui::RichText::new(
                                 self.locale_mgr.tr(&self.active_language, "about_third_party"),
                             )
                             .strong(),
                         );
-                        ui.add_space(4.0);
+                        ui.add_space(space::ITEM);
                     });
 
                     egui::ScrollArea::vertical().max_height(150.0).show(ui, |ui| {
@@ -104,13 +105,13 @@ impl FepdfApp {
                                 ui.label(format!("({license})"));
                             });
                             ui.label(egui::RichText::new(purpose).weak());
-                            ui.add_space(4.0);
+                            ui.add_space(space::ITEM);
                         }
                     });
 
-                    ui.add_space(8.0);
+                    ui.add_space(space::GROUP);
                     ui.separator();
-                    ui.add_space(8.0);
+                    ui.add_space(space::GROUP);
                     ui.vertical_centered(|ui| {
                         if ui
                             .button(self.locale_mgr.tr(&self.active_language, "about_close"))
@@ -171,19 +172,19 @@ impl FepdfApp {
             .collapsible(false)
             .resizable(false)
             .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
-            .default_width(360.0)
+            .default_width(size::FORM_W)
             .show(ctx, |ui| {
-                ui.add_space(6.0);
+                ui.add_space(space::GROUP);
                 ui.heading(&name);
                 ui.label(egui::RichText::new(&locked.method).weak());
-                ui.add_space(8.0);
+                ui.add_space(space::GROUP);
 
                 if locked.refused {
                     ui.label(
                         egui::RichText::new("That password did not unlock it.")
-                            .color(super::theme::colors::STATUS_WARN_TEXT),
+                            .color(super::theme::colors::note::WARN),
                     );
-                    ui.add_space(4.0);
+                    ui.add_space(space::ITEM);
                 }
 
                 let field = ui.add(
@@ -197,7 +198,7 @@ impl FepdfApp {
                     answer = Answer::Unlock;
                 }
 
-                ui.add_space(10.0);
+                ui.add_space(space::SECTION);
                 ui.horizontal(|ui| {
                     if ui.button("Unlock").clicked() {
                         answer = Answer::Unlock;
@@ -206,7 +207,7 @@ impl FepdfApp {
                         answer = Answer::GiveUp;
                     }
                 });
-                ui.add_space(4.0);
+                ui.add_space(space::ITEM);
             });
 
         answer
@@ -238,7 +239,7 @@ impl FepdfApp {
                     ui.group(|ui| {
                         ui.label(&req.text);
                     });
-                    ui.add_space(5.0);
+                    ui.add_space(space::ITEM);
                     ui.label(self.locale_mgr.tr(&self.active_language, "tag_popup_instruction"));
 
                     ui.horizontal(|ui| {
@@ -280,7 +281,7 @@ impl FepdfApp {
                 .open(&mut show_settings)
                 .resizable(false)
                 .collapsible(false)
-                .default_width(280.0)
+                .default_width(size::FORM_W)
                 .show(ctx, |ui| {
                     ui.vertical(|ui| {
                         ui.horizontal(|ui| {
@@ -302,9 +303,9 @@ impl FepdfApp {
                                 });
                         });
 
-                        ui.add_space(12.0);
+                        ui.add_space(space::SECTION);
                         ui.separator();
-                        ui.add_space(8.0);
+                        ui.add_space(space::GROUP);
                         ui.vertical_centered(|ui| {
                             if ui
                                 .button(self.locale_mgr.tr(&self.active_language, "settings_close"))

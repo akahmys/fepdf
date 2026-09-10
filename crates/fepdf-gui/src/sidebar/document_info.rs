@@ -1,3 +1,4 @@
+use crate::app::theme::colors;
 use crate::locale::LocaleManager;
 use crate::worker::WorkerRequest;
 use std::sync::mpsc::Sender;
@@ -412,23 +413,16 @@ fn render_decision_filter_tabs(
 
 fn render_decision_card(ui: &mut egui::Ui, decision: &fepdf::Decision) {
     ui.group(|ui| {
-        let (badge_text, bg_col, text_col) = match decision.severity {
-            fepdf::Severity::Ambiguity => (
-                "曖昧性",
-                crate::app::theme::colors::STATUS_WARN_BG,
-                crate::app::theme::colors::STATUS_WARN_TEXT,
-            ),
-            fepdf::Severity::Repaired => (
-                "修復済",
-                crate::app::theme::colors::STATUS_INFO_BG,
-                crate::app::theme::colors::STATUS_INFO_TEXT,
-            ),
-            fepdf::Severity::Violation => (
-                "規格違反",
-                crate::app::theme::colors::STATUS_DANGER_BG,
-                crate::app::theme::colors::STATUS_DANGER_TEXT,
-            ),
+        // **`Repaired` is the warning and `Ambiguity` is the note, which is the way
+        // round these were not.** An ambiguity is the standard permitting two readings
+        // and the engine picking one — worth knowing. A repair is the engine having
+        // *changed* the input to make it work, which is worth checking.
+        let (badge_text, colour) = match decision.severity {
+            fepdf::Severity::Ambiguity => ("曖昧性", colors::note::INFO),
+            fepdf::Severity::Repaired => ("修復済", colors::note::WARN),
+            fepdf::Severity::Violation => ("規格違反", colors::note::FAIL),
         };
+        let (bg_col, text_col) = (colors::tint(colour, 20), colour);
 
         ui.horizontal(|ui| {
             let (rect, _) = ui.allocate_exact_size(egui::vec2(52.0, 18.0), egui::Sense::hover());

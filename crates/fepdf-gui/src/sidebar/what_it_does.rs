@@ -80,8 +80,7 @@ fn automatic(ui: &mut egui::Ui, report: &ActionReport, tr: &dyn Fn(&str) -> Stri
     }
     for action in &unprompted {
         ui.label(
-            egui::RichText::new(&action.kind)
-                .color(super::super::app::theme::colors::STATUS_WARN_TEXT),
+            egui::RichText::new(&action.kind).color(super::super::app::theme::colors::note::WARN),
         );
     }
 }

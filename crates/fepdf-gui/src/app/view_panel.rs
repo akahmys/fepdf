@@ -225,7 +225,7 @@ impl FepdfApp {
                 page_screen_rect.max.x + gap_offset
             };
 
-            let indicator_color = crate::app::theme::colors::RUST_PRIMARY;
+            let indicator_color = crate::app::theme::colors::rust::ACCENT;
             let y_top = page_screen_rect.min.y - 4.0;
             let y_bottom = page_screen_rect.max.y + 4.0;
 

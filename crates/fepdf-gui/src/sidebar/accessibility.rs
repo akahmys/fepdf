@@ -49,17 +49,14 @@ pub fn show_accessibility_audit(
                 ui.label(egui::RichText::new(locale_mgr.tr(active_lang, "no_doc_loaded")).weak());
             } else if registry.audit_findings.is_empty() {
                 ui.colored_label(
-                    crate::app::theme::colors::STATUS_PASS_TEXT,
+                    crate::app::theme::colors::note::PASS,
                     locale_mgr.tr(active_lang, "audit_success_100"),
                 );
             } else {
                 for (checkpoint, severity, message, handle_id) in &registry.audit_findings {
                     let card_resp = ui.vertical(|ui| {
                         ui.horizontal(|ui| {
-                            ui.colored_label(
-                                crate::app::theme::colors::STATUS_DANGER_TEXT,
-                                checkpoint,
-                            );
+                            ui.colored_label(crate::app::theme::colors::note::FAIL, checkpoint);
                             ui.label(format!("({severity})"));
                         });
                         ui.label(message);
@@ -115,10 +112,7 @@ pub fn show_alt_text_gallery(
                                 let fig_title = locale_mgr
                                     .tr(active_lang, "alt_text_card_fig")
                                     .replace("{}", &fig.id.to_string());
-                                ui.colored_label(
-                                    crate::app::theme::colors::STATUS_INFO_TEXT,
-                                    fig_title,
-                                );
+                                ui.colored_label(crate::app::theme::colors::note::INFO, fig_title);
 
                                 let mut buf = fig.alt_text.clone().unwrap_or_default();
                                 let hint = locale_mgr.tr(active_lang, "alt_text_card_no_alt");

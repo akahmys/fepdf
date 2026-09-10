@@ -121,10 +121,16 @@ impl SidebarPanel {
     ) {
         ui.vertical(|ui| {
             ui.horizontal(|ui| {
+                // **The label alone, with no glyph in front of it.** These three carried
+                // Lucide codepoints inline in a proportional string, which is the shape
+                // that let `U+E0FF` be answered by `Ubuntu-Light` elsewhere in this
+                // crate; the icon font now lives in a family of its own and is reached
+                // through `app::icons`. A tab that is already named does not need a
+                // picture of its name.
                 let sub_tabs = [
-                    (AccessibilitySubTab::Tree, "\u{e33c} Tree & Props"),
-                    (AccessibilitySubTab::AltText, "\u{e0f6} Alt Text"),
-                    (AccessibilitySubTab::Audit, "\u{e1fe} Audit"),
+                    (AccessibilitySubTab::Tree, "Tree & Props"),
+                    (AccessibilitySubTab::AltText, "Alt Text"),
+                    (AccessibilitySubTab::Audit, "Audit"),
                 ];
                 for (tab, label) in sub_tabs {
                     let is_active = self.accessibility_sub_tab == tab;

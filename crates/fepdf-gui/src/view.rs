@@ -1,3 +1,5 @@
+use crate::app::theme::colors;
+use crate::app::theme::radius;
 use std::collections::BTreeMap;
 
 #[derive(Clone)]
@@ -536,7 +538,7 @@ impl PDFView {
         self.clamp_pan(viewport_rect, layouts);
 
         // 1. Workspace background & CAD Grid lines
-        ui.painter().rect_filled(viewport_rect, 0.0, crate::app::theme::colors::CANVAS_BG);
+        ui.painter().rect_filled(viewport_rect, radius::FLAT, colors::paper::CANVAS);
         Self::draw_canvas_grid(ui.painter(), viewport_rect, self.pan, self.zoom);
 
         // 2. Drop shadows and solid pure-white page backings
@@ -584,21 +586,23 @@ impl PDFView {
             // selection is too: a selection made there survives being zoomed into and
             // would otherwise mark a page the reader cannot select, deselect, or act
             // on. The state is kept, only not drawn.
-            if is_selected && self.selects_pages() {
-                ui.painter().rect_stroke(
-                    page_rect,
-                    3.0,
-                    egui::Stroke::new(2.5_f32, crate::app::theme::colors::RUST_PRIMARY),
-                    egui::StrokeKind::Outside,
-                );
-            } else if !self.is_page_view() {
-                ui.painter().rect_stroke(
-                    page_rect,
-                    3.0,
-                    egui::Stroke::new(1.0_f32, crate::app::theme::colors::STEEL_BORDER),
-                    egui::StrokeKind::Outside,
-                );
-            }
+            //
+            // **Every sheet carries an edge, not only the ones in the grid.** White
+            // paper on `paper::CANVAS` measures 1.09:1, which is not a boundary — in the
+            // page view the sheet had none at all and its margin ran into the bench.
+            // `steel::EDGE` is 3.20:1 (WCAG 1.4.11), and a selection replaces it with
+            // the accent rather than adding a second line beside it.
+            let (width, colour) = if is_selected && self.selects_pages() {
+                (2.0_f32, colors::rust::ACCENT)
+            } else {
+                (1.0_f32, colors::steel::EDGE)
+            };
+            ui.painter().rect_stroke(
+                page_rect,
+                radius::FLAT,
+                egui::Stroke::new(width, colour),
+                egui::StrokeKind::Outside,
+            );
 
             // Page number. The gap it sits in is in page units and the number is in
             // screen pixels, so the space shrinks with the zoom while the digits do
@@ -737,20 +741,24 @@ impl PDFView {
                             f32::from(offset) * 1.5,
                         )),
                         4.0,
-                        egui::Color32::from_rgba_unmultiplied(30, 41, 59, 20 - offset * 4),
+                        colors::tint(colors::steel::TEXT, 20 - offset * 4),
                     );
                 }
             }
-            painter.rect_filled(page_rect, 0.0, egui::Color32::WHITE);
+            // **Only the thumbnail path sees this.** In the viewport path an opaque
+            // vello texture covers the whole viewport a step later, so this fill and the
+            // shadow above it are painted and then hidden; the sheet the reader sees
+            // there is vello's. Its edge is therefore drawn after the texture, below.
+            painter.rect_filled(page_rect, radius::FLAT, colors::paper::WHITE);
         }
     }
 
     fn draw_placeholder_card(painter: &egui::Painter, page_rect: egui::Rect, page_index: usize) {
-        painter.rect_filled(page_rect, 4.0, egui::Color32::WHITE);
+        painter.rect_filled(page_rect, 4.0, colors::paper::WHITE);
         painter.rect_stroke(
             page_rect,
             4.0,
-            egui::Stroke::new(1.0_f32, crate::app::theme::colors::STEEL_BORDER_SUBTLE),
+            egui::Stroke::new(1.0_f32, colors::steel::EDGE),
             egui::StrokeKind::Inside,
         );
         painter.text(
@@ -758,17 +766,17 @@ impl PDFView {
             egui::Align2::CENTER_CENTER,
             format!("⌛ Rendering Page {}...", page_index + 1),
             egui::FontId::proportional(15.0),
-            crate::app::theme::colors::STEEL_SECONDARY,
+            colors::steel::MUTED,
         );
     }
 
     fn draw_marquee_overlay(painter: &egui::Painter, marquee_rect: Option<egui::Rect>) {
         if let Some(m_rect) = marquee_rect {
-            painter.rect_filled(m_rect, 0.0, crate::app::theme::colors::RUST_SELECTION_BG);
+            painter.rect_filled(m_rect, 0.0, colors::rust::wash());
             painter.rect_stroke(
                 m_rect,
                 0.0,
-                egui::Stroke::new(1.5_f32, crate::app::theme::colors::RUST_PRIMARY),
+                egui::Stroke::new(1.5_f32, colors::rust::ACCENT),
                 egui::StrokeKind::Outside,
             );
         }
@@ -787,11 +795,7 @@ impl PDFView {
         // The number is set on the canvas, not in a chip. A filled rounded rectangle with
         // a border around a two-digit number is a control the reader cannot press, and a
         // grid of them reads as a row of buttons between the rows of pages.
-        let colour = if is_selected {
-            crate::app::theme::colors::RUST_PRIMARY
-        } else {
-            crate::app::theme::colors::STEEL_SECONDARY
-        };
+        let colour = if is_selected { colors::rust::ACCENT } else { colors::steel::MUTED };
 
         let galley =
             ui.painter().layout_no_wrap(badge_text, egui::FontId::proportional(font_size), colour);
@@ -817,11 +821,7 @@ impl PDFView {
     ) {
         if let Some(hl_rects) = highlights.get(&page_index) {
             for hl_rect in hl_rects {
-                ui.painter().rect_filled(
-                    *hl_rect,
-                    0.0,
-                    crate::app::theme::colors::RUST_SELECTION_BG,
-                );
+                ui.painter().rect_filled(*hl_rect, 0.0, colors::rust::wash());
             }
         }
     }
@@ -1115,7 +1115,7 @@ impl PDFView {
             egui::vec2(page_rect.width(), bar_height),
         );
 
-        ui.painter().rect_filled(bar_rect, 4.0, crate::app::theme::colors::STEEL_PRIMARY);
+        ui.painter().rect_filled(bar_rect, 4.0, colors::steel::TEXT);
 
         let mut x_offset = bar_rect.left() + 4.0;
         for (i, (tag, color)) in list.iter().enumerate() {

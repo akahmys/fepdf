@@ -1,37 +1,212 @@
-//! Theme, typography, and visual styling for `fepdf-gui`.
+//! The vocabularies the interface is built from: colour, dimension, layout, and the
+//! fonts that carry them.
+//!
+//! **Three vocabularies, one home each.** A value that is not in one of them is not
+//! available to a widget — see `CODING.md` UI-9, UI-11 and UI-13. The engine already
+//! works this way on the other side of the page edge: [`crate::app::FepdfApp::PAGE_GAP`]
+//! and [`crate::app::FepdfApp::TILE_COLUMNS`] arrange pages on a 72pt grid, with a
+//! build-time assertion holding their order. This module is the same discipline for the
+//! side of the window the reader clicks on.
 
-/// The palette, with no `#[allow(dead_code)]` over it.
+/// 紙・鋼・錆 — the whole palette, and the only place a colour is written down.
 ///
-/// A colour nobody paints with is a leftover, not a design decision, and the allow that
-/// used to sit here hid eight of them — including `CARD_BG`, which was `PANEL_BG` under a
-/// second name, and a `RUST_BADGE_*` triple for a badge that was never drawn.
+/// **No `#[allow(dead_code)]`, and no two names for one value.** A colour nobody paints
+/// with is a leftover, and a second name for a colour that already has one is how
+/// `CARD_BG` came to exist. The pair this replaced held one: `SURFACE_ACTIVE` and
+/// `STEEL_BORDER_SUBTLE` were both `(226, 232, 240)`, and rustc was happy because each
+/// was used.
 pub mod colors {
     use egui::Color32;
 
-    // --- 1. Base / White & Off-white Surfaces ---
-    pub const CANVAS_BG: Color32 = Color32::from_rgb(244, 245, 247);
-    pub const PANEL_BG: Color32 = Color32::from_rgb(255, 255, 255);
-    pub const SURFACE_HOVER: Color32 = Color32::from_rgb(241, 245, 249);
-    pub const SURFACE_ACTIVE: Color32 = Color32::from_rgb(226, 232, 240);
+    /// 紙 — the surfaces. Every light plane in the window is paper of some grade.
+    pub mod paper {
+        use egui::Color32;
 
-    // --- 2. Steel / Slate Structure & Typography ---
-    pub const STEEL_PRIMARY: Color32 = Color32::from_rgb(30, 41, 59);
-    pub const STEEL_SECONDARY: Color32 = Color32::from_rgb(71, 85, 105);
-    pub const STEEL_BORDER: Color32 = Color32::from_rgb(203, 213, 225);
-    pub const STEEL_BORDER_SUBTLE: Color32 = Color32::from_rgb(226, 232, 240);
+        /// The page, and the panels. One white, because they are the same material.
+        ///
+        /// **The sheet is told apart from the canvas by [`super::steel::EDGE`], not by
+        /// its fill.** White paper on a `CANVAS` ground measures 1.09:1, which is not a
+        /// boundary; a one-pixel edge measures 3.20:1, which is (WCAG 1.4.11).
+        pub const WHITE: Color32 = Color32::from_rgb(255, 255, 255);
+        /// The bench the sheets are laid on.
+        pub const CANVAS: Color32 = Color32::from_rgb(244, 245, 247);
+        /// A control under the pointer.
+        pub const HOVER: Color32 = Color32::from_rgb(241, 245, 249);
+        /// A control being pressed, and the fill of one that is on.
+        pub const PRESSED: Color32 = Color32::from_rgb(226, 232, 240);
+    }
 
-    // --- 3. Deep Rust / Terracotta Accents ---
-    pub const RUST_PRIMARY: Color32 = Color32::from_rgb(148, 56, 32);
-    pub const RUST_SELECTION_BG: Color32 = Color32::from_rgba_premultiplied(21, 8, 5, 36);
+    /// 鋼 — the lines and the letters.
+    ///
+    /// Four grades, each with one job. `EDGE` and `RULE` are the pair that used to be
+    /// one constant doing both: a boundary that carries meaning needs 3:1 and a
+    /// decorative separator does not, so they cannot be the same value.
+    pub mod steel {
+        use egui::Color32;
 
-    // --- 4. Semantic Status Badges ---
-    pub const STATUS_WARN_BG: Color32 = Color32::from_rgb(254, 243, 199);
-    pub const STATUS_WARN_TEXT: Color32 = Color32::from_rgb(146, 64, 14);
-    pub const STATUS_PASS_TEXT: Color32 = Color32::from_rgb(21, 128, 61);
-    pub const STATUS_INFO_BG: Color32 = Color32::from_rgb(240, 249, 255);
-    pub const STATUS_INFO_TEXT: Color32 = Color32::from_rgb(3, 105, 161);
-    pub const STATUS_DANGER_BG: Color32 = Color32::from_rgb(254, 242, 242);
-    pub const STATUS_DANGER_TEXT: Color32 = Color32::from_rgb(153, 27, 27);
+        /// Body and heading text. 14.63:1 on [`super::paper::WHITE`].
+        pub const TEXT: Color32 = Color32::from_rgb(30, 41, 59);
+        /// Secondary text and resting icons. 7.58:1.
+        pub const MUTED: Color32 = Color32::from_rgb(71, 85, 105);
+        /// **Any boundary that carries meaning**: the edge of a sheet, the outline of a
+        /// tag, a control that is present but disabled. 3.20:1, the lightest slate that
+        /// clears WCAG 1.4.11's 3:1.
+        ///
+        /// A disabled control drawn below this stops being a disabled control and
+        /// becomes an absent one, which the interface may not do (principle P3).
+        pub const EDGE: Color32 = Color32::from_rgb(130, 145, 168);
+        /// Decorative separators only. 1.48:1, and deliberately below the boundary
+        /// threshold — nothing may depend on seeing it.
+        pub const RULE: Color32 = Color32::from_rgb(203, 213, 225);
+    }
+
+    /// 錆 — the one accent.
+    ///
+    /// **Rust marks what the reader is touching**: a selection, an active tool, work in
+    /// progress. Nothing else is rust. That sentence is the whole rule, and it is what
+    /// retired a second terracotta `(226, 135, 67)` and a gold `(255, 215, 0)` that had
+    /// accumulated beside it.
+    pub mod rust {
+        use egui::Color32;
+
+        /// The accent itself. 7.38:1 on [`super::paper::WHITE`].
+        pub const ACCENT: Color32 = Color32::from_rgb(148, 56, 32);
+
+        /// The accent as a wash, for the fill behind selected text.
+        pub fn wash() -> Color32 {
+            super::tint(ACCENT, 36)
+        }
+    }
+
+    /// What the reader should do about it — for a document's [`fepdf::Severity`] and for
+    /// the application's own notices alike, because the question is the same one.
+    ///
+    /// **Every one of these is at least 26° of hue from [`rust::ACCENT`].** Rust sits at
+    /// 12°, so the amber this replaced (23°) and the danger red it replaced (0°) were
+    /// both close enough to read as the accent on a surface they share — and the status
+    /// bar is such a surface.
+    pub mod note {
+        use egui::Color32;
+
+        /// Conforming, complete, done. 6.31:1.
+        pub const PASS: Color32 = Color32::from_rgb(24, 110, 58);
+        /// Worth knowing. `Severity::Ambiguity`. 7.02:1, and in the slate hue family.
+        pub const INFO: Color32 = Color32::from_rgb(29, 92, 145);
+        /// Worth checking. `Severity::Repaired` — the engine changed the input to make
+        /// it work, which is a thing to look at rather than a success. 6.51:1.
+        pub const WARN: Color32 = Color32::from_rgb(122, 88, 0);
+        /// Something was dropped. `Severity::Violation`. 8.07:1.
+        pub const FAIL: Color32 = Color32::from_rgb(158, 20, 52);
+    }
+
+    /// The same colour at `alpha`, for a badge ground or an overlay fill.
+    ///
+    /// A tint is derived rather than declared so that a badge cannot drift away from the
+    /// text it sits behind — the three `STATUS_*_BG` constants this replaced were each
+    /// picked by hand.
+    pub fn tint(c: Color32, alpha: u8) -> Color32 {
+        Color32::from_rgba_unmultiplied(c.r(), c.g(), c.b(), alpha)
+    }
+}
+
+/// The space between things, in screen points, and what each step means.
+///
+/// **The step says what the break is.** They were 2, 3, 4, 5, 6, 8, 10 and 12, which is
+/// eight values carrying no distinction at all; `layout.rs` had already reached the other
+/// half of this conclusion for the page grid, where the row gap is twice the column gap
+/// "because a row break is a bigger break than a column one".
+pub mod space {
+    /// Inside one thing — an icon and its label.
+    pub const ITEM: f32 = 4.0;
+    /// Between things of a kind — one button and the next.
+    pub const GROUP: f32 = 8.0;
+    /// Between groups — the zoom controls and the view modes.
+    pub const SECTION: f32 = 12.0;
+    /// Between the parts of a panel — a heading and what it introduces.
+    pub const PANE: f32 = 24.0;
+}
+
+/// Four type sizes. There were eight, in a window that holds no document text.
+pub mod text {
+    /// Captions, units, secondary figures.
+    pub const SMALL: f32 = 11.0;
+    /// Everything by default.
+    pub const BODY: f32 = 13.0;
+    /// A panel or drawer heading.
+    pub const HEAD: f32 = 15.0;
+    /// A window title.
+    pub const TITLE: f32 = 18.0;
+}
+
+/// Two radii: a plane is flat, a control is rounded.
+pub mod radius {
+    /// Panels, sheets, fills that are not pressable.
+    pub const FLAT: f32 = 0.0;
+    /// Anything that can be clicked.
+    pub const CONTROL: f32 = 4.0;
+}
+
+/// The sizes the layout is built from, on a 4pt grid.
+///
+/// **Derived where one follows from another**, so that changing the grid moves
+/// everything that stands on it rather than leaving a residue behind.
+pub mod size {
+    use super::space;
+
+    /// Every icon button, everywhere. There were seven click-target sizes; the smallest
+    /// were 20×20 and 22×20, which is under the size a pointer reliably hits.
+    pub const ICON: f32 = 32.0;
+    /// A row that carries a label; the width comes from the content.
+    pub const ROW: f32 = 24.0;
+    /// The glyph inside an icon button — half the button, so the two move together.
+    pub const GLYPH: f32 = ICON / 2.0;
+    /// The left icon rail: one icon with a group's margin on each side.
+    pub const RAIL: f32 = ICON + space::GROUP * 2.0;
+    /// The status bar: one row with an item's margin above and below.
+    pub const STATUS: f32 = ROW + space::ITEM * 2.0;
+    /// A window holding a single column of fields.
+    pub const FORM_W: f32 = 360.0;
+    /// A window holding a table or a list.
+    pub const TABLE_W: f32 = 560.0;
+    /// The utility drawer, and the range it may be dragged through.
+    pub const DRAWER_W: f32 = 320.0;
+    /// The narrowest the drawer may become.
+    pub const DRAWER_MIN: f32 = 260.0;
+    /// The widest the drawer may become.
+    pub const DRAWER_MAX: f32 = 600.0;
+}
+
+/// The steps are a scale, and a build says so.
+///
+/// **At module scope, because an associated constant nobody reads is never evaluated** —
+/// the same reason `layout.rs` puts `_ROW_BREAK_IS_BIGGER` here rather than in an `impl`.
+const _SPACE_IS_A_SCALE: () = assert!(
+    space::ITEM < space::GROUP && space::GROUP < space::SECTION && space::SECTION < space::PANE,
+    "each step must be a bigger break than the one before it"
+);
+
+/// Every size stands on the 4pt grid.
+const _SIZES_ARE_ON_THE_GRID: () = assert!(
+    (size::ICON as u32).is_multiple_of(4)
+        && (size::ROW as u32).is_multiple_of(4)
+        && (size::GLYPH as u32).is_multiple_of(4)
+        && (size::RAIL as u32).is_multiple_of(4)
+        && (size::STATUS as u32).is_multiple_of(4)
+        && (size::FORM_W as u32).is_multiple_of(4)
+        && (size::TABLE_W as u32).is_multiple_of(4)
+        && (size::DRAWER_W as u32).is_multiple_of(4),
+    "chrome dimensions are multiples of the 4pt grid"
+);
+
+/// The family the icon font is reached through.
+///
+/// **A family of its own, rather than a fallback at the end of the proportional list.**
+/// Appended to `Proportional`, the icon font was consulted *last*, so any earlier font
+/// claiming the same private-use codepoint won: `U+E0FF` is the Ubuntu logo in
+/// egui's own `Ubuntu-Light`, and the continuous-scroll button drew it — which is to say
+/// drew nothing. A named family cannot be shadowed, because nothing else is in it.
+pub fn icon_family() -> egui::FontFamily {
+    egui::FontFamily::Name("lucide".into())
 }
 
 fn load_system_cjk_font(fonts: &mut egui::FontDefinitions) {
@@ -74,15 +249,10 @@ fn load_system_cjk_font(fonts: &mut egui::FontDefinitions) {
 pub fn configure_fonts_and_styles(ctx: &egui::Context) {
     let mut fonts = egui::FontDefinitions::default();
 
-    // Load Lucide icon font
     let lucide_data = include_bytes!("../../assets/lucide.ttf");
     fonts.font_data.insert("lucide".to_owned(), egui::FontData::from_static(lucide_data).into());
-    if let Some(families) = fonts.families.get_mut(&egui::FontFamily::Proportional) {
-        families.push("lucide".to_owned());
-    }
-    if let Some(families) = fonts.families.get_mut(&egui::FontFamily::Monospace) {
-        families.push("lucide".to_owned());
-    }
+    // Its own family, holding it alone: see `icon_family`.
+    fonts.families.insert(icon_family(), vec!["lucide".to_owned()]);
 
     load_system_cjk_font(&mut fonts);
 
@@ -92,35 +262,44 @@ pub fn configure_fonts_and_styles(ctx: &egui::Context) {
 
 pub fn apply_global_styles(ctx: &egui::Context) {
     let mut visuals = egui::Visuals::light();
-    visuals.window_fill = colors::PANEL_BG;
-    visuals.panel_fill = colors::PANEL_BG;
-    visuals.extreme_bg_color = colors::CANVAS_BG;
-    visuals.faint_bg_color = colors::SURFACE_HOVER;
+    visuals.window_fill = colors::paper::WHITE;
+    visuals.panel_fill = colors::paper::WHITE;
+    visuals.extreme_bg_color = colors::paper::CANVAS;
+    visuals.faint_bg_color = colors::paper::HOVER;
 
-    visuals.selection.stroke = egui::Stroke::new(1.0_f32, colors::RUST_PRIMARY);
-    visuals.selection.bg_fill = colors::RUST_SELECTION_BG;
-    visuals.hyperlink_color = colors::RUST_PRIMARY;
+    visuals.selection.stroke = egui::Stroke::new(1.0_f32, colors::rust::ACCENT);
+    visuals.selection.bg_fill = colors::rust::wash();
+    visuals.hyperlink_color = colors::rust::ACCENT;
 
-    visuals.widgets.noninteractive.bg_fill = colors::PANEL_BG;
-    visuals.widgets.noninteractive.bg_stroke =
-        egui::Stroke::new(1.0_f32, colors::STEEL_BORDER_SUBTLE);
-    visuals.widgets.noninteractive.fg_stroke = egui::Stroke::new(1.0_f32, colors::STEEL_SECONDARY);
+    visuals.widgets.noninteractive.bg_fill = colors::paper::WHITE;
+    visuals.widgets.noninteractive.bg_stroke = egui::Stroke::new(1.0_f32, colors::steel::RULE);
+    visuals.widgets.noninteractive.fg_stroke = egui::Stroke::new(1.0_f32, colors::steel::MUTED);
 
-    visuals.widgets.inactive.bg_fill = colors::PANEL_BG;
+    visuals.widgets.inactive.bg_fill = colors::paper::WHITE;
     visuals.widgets.inactive.bg_stroke = egui::Stroke::NONE;
-    visuals.widgets.inactive.fg_stroke = egui::Stroke::new(1.0_f32, colors::STEEL_SECONDARY);
+    visuals.widgets.inactive.fg_stroke = egui::Stroke::new(1.0_f32, colors::steel::MUTED);
 
-    visuals.widgets.hovered.bg_fill = colors::SURFACE_HOVER;
-    visuals.widgets.hovered.bg_stroke = egui::Stroke::new(1.0_f32, colors::STEEL_BORDER_SUBTLE);
-    visuals.widgets.hovered.fg_stroke = egui::Stroke::new(1.0_f32, colors::STEEL_PRIMARY);
+    visuals.widgets.hovered.bg_fill = colors::paper::HOVER;
+    visuals.widgets.hovered.bg_stroke = egui::Stroke::NONE;
+    visuals.widgets.hovered.fg_stroke = egui::Stroke::new(1.0_f32, colors::steel::TEXT);
 
-    visuals.widgets.active.bg_fill = colors::SURFACE_ACTIVE;
-    visuals.widgets.active.bg_stroke = egui::Stroke::new(1.0_f32, colors::RUST_PRIMARY);
-    visuals.widgets.active.fg_stroke = egui::Stroke::new(1.0_f32, colors::RUST_PRIMARY);
+    visuals.widgets.active.bg_fill = colors::paper::PRESSED;
+    visuals.widgets.active.bg_stroke = egui::Stroke::NONE;
+    visuals.widgets.active.fg_stroke = egui::Stroke::new(1.0_f32, colors::rust::ACCENT);
 
-    visuals.widgets.open.bg_fill = colors::SURFACE_HOVER;
-    visuals.widgets.open.bg_stroke = egui::Stroke::new(1.0_f32, colors::STEEL_BORDER);
-    visuals.widgets.open.fg_stroke = egui::Stroke::new(1.0_f32, colors::STEEL_PRIMARY);
+    visuals.widgets.open.bg_fill = colors::paper::HOVER;
+    visuals.widgets.open.bg_stroke = egui::Stroke::new(1.0_f32, colors::steel::EDGE);
+    visuals.widgets.open.fg_stroke = egui::Stroke::new(1.0_f32, colors::steel::TEXT);
 
     ctx.set_visuals(visuals);
+
+    let mut style = (*ctx.global_style()).clone();
+    style.spacing.item_spacing = egui::vec2(space::GROUP, space::ITEM);
+    style.spacing.button_padding = egui::vec2(space::GROUP, space::ITEM);
+    for font in style.text_styles.values_mut() {
+        font.size = text::BODY;
+    }
+    style.text_styles.insert(egui::TextStyle::Small, egui::FontId::proportional(text::SMALL));
+    style.text_styles.insert(egui::TextStyle::Heading, egui::FontId::proportional(text::HEAD));
+    ctx.set_global_style(style);
 }

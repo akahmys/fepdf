@@ -79,7 +79,7 @@ pub fn show(app: &mut FepdfApp, ctx: &egui::Context) {
     egui::Window::new(format!("🛠 {title}"))
         .open(&mut open)
         .resizable(false)
-        .default_width(380.0)
+        .default_width(crate::app::theme::size::TABLE_W)
         .show(ctx, |ui| body(app, ui));
     if !open {
         app.show_document_tools = false;

@@ -1,177 +1,40 @@
-//! Left vertical icon bar and collapsible utility drawer for `FepdfApp`.
+//! The left icon rail, and the drawer that opens beside it.
 
 use super::FepdfApp;
-use super::icons::{VectorIcon, icon_bar_btn, vector_icon_bar_btn};
+use super::icons::{glyph, icon_button, icon_button_disabled};
+use super::theme::{size, space, text};
 use crate::sidebar::ActiveDrawer;
 
 impl FepdfApp {
-    /// Renders the slim vertical icon bar docked to the leftmost edge.
+    /// The slim vertical rail docked to the leftmost edge.
+    ///
+    /// **One button constructor for all ten.** The file pair used to be drawn by a
+    /// second one that painted a background only on hover, so the same column held two
+    /// kinds of object.
     pub(crate) fn render_left_icon_bar(&mut self, ui: &mut egui::Ui) {
         // RR-15 Limit: GUI - Left vertical icon bar for file ops, view modes, and drawer toggles
         let ctx = ui.ctx().clone();
         let has_doc = self.total_pages > 0;
 
-        let (
-            tip_import,
-            tip_export,
-            tip_info,
-            tip_acc,
-            tip_redact,
-            tip_caliper,
-            tip_about,
-            tip_settings,
-        ) = {
-            let mgr = &self.locale_mgr;
-            let l = &self.active_language;
-            (
-                mgr.tr(l, "tooltip_import_pdf"),
-                mgr.tr(l, "tooltip_export_pdf"),
-                mgr.tr(l, "tab_doc_info_decisions"),
-                mgr.tr(l, "tab_accessibility"),
-                mgr.tr(l, "tooltip_redact_brush"),
-                mgr.tr(l, "tooltip_caliper_brush"),
-                mgr.tr(l, "tooltip_about"),
-                mgr.tr(l, "tooltip_settings"),
-            )
-        };
-
-        egui::Panel::left("left_icon_bar").resizable(false).exact_size(44.0).show_inside(
+        egui::Panel::left("left_icon_bar").resizable(false).exact_size(size::RAIL).show_inside(
             ui,
             |ui| {
                 ui.vertical_centered(|ui| {
-                    ui.add_space(6.0);
+                    ui.spacing_mut().item_spacing.y = space::ITEM;
+                    ui.add_space(space::GROUP);
 
-                    // 1. File Actions: Import & Export
-                    if vector_icon_bar_btn(ui, VectorIcon::Import, false, true)
-                        .on_hover_text(tip_import)
-                        .clicked()
-                        && let Some(p) =
-                            rfd::FileDialog::new().add_filter("PDF", &["pdf"]).pick_file()
-                    {
-                        if self.total_pages > 0 {
-                            if let Ok(exe) = std::env::current_exe()
-                                && let Err(e) = std::process::Command::new(exe).arg(p).spawn()
-                            {
-                                log::warn!("the external viewer would not start: {e}");
-                            }
-                        } else {
-                            self.open_file(p, &ctx);
-                        }
-                    }
+                    self.file_buttons(ui, has_doc, &ctx);
 
-                    ui.add_space(2.0);
-
-                    if vector_icon_bar_btn(ui, VectorIcon::Export, false, has_doc)
-                        .on_hover_text(tip_export)
-                        .clicked()
-                        && has_doc
-                    {
-                        self.show_export_wizard = true;
-                    }
-
-                    ui.add_space(4.0);
+                    ui.add_space(space::GROUP);
                     ui.separator();
-                    ui.add_space(4.0);
+                    ui.add_space(space::GROUP);
 
-                    // 2. Drawers & Inspection Tools
-                    ui.add_enabled_ui(has_doc, |ui| {
-                        // Info & Decisions
-                        let is_info = self.active_drawer == ActiveDrawer::DocumentInfo;
-                        let info_btn = icon_bar_btn("\u{e0cc}", is_info);
-                        if ui.add(info_btn).on_hover_text(tip_info).clicked() {
-                            self.active_drawer = if is_info {
-                                ActiveDrawer::None
-                            } else {
-                                ActiveDrawer::DocumentInfo
-                            };
-                            self.caliper_tool.is_active = false;
-                        }
+                    self.drawer_buttons(ui, has_doc);
 
-                        ui.add_space(2.0);
-
-                        // What the document does when opened, and what protects it.
-                        let is_does = self.active_drawer == ActiveDrawer::WhatItDoes;
-                        let does_btn = icon_bar_btn("\u{e8e8}", is_does);
-                        let tip_does =
-                            self.locale_mgr.tr(&self.active_language, "tooltip_what_it_does");
-                        if ui.add(does_btn).on_hover_text(tip_does).clicked() {
-                            self.active_drawer =
-                                if is_does { ActiveDrawer::None } else { ActiveDrawer::WhatItDoes };
-                            self.caliper_tool.is_active = false;
-                        }
-
-                        ui.add_space(2.0);
-
-                        // Accessibility & Tags
-                        let is_acc = self.active_drawer == ActiveDrawer::Accessibility;
-                        let acc_btn = icon_bar_btn("\u{e33c}", is_acc);
-                        if ui.add(acc_btn).on_hover_text(tip_acc).clicked() {
-                            self.active_drawer = if is_acc {
-                                ActiveDrawer::None
-                            } else {
-                                ActiveDrawer::Accessibility
-                            };
-                            self.caliper_tool.is_active = false;
-                        }
-
-                        ui.add_space(2.0);
-
-                        // Redact Studio
-                        let is_redact = self.active_drawer == ActiveDrawer::Redaction;
-                        let redact_btn = icon_bar_btn("\u{e28f}", is_redact);
-                        if ui.add(redact_btn).on_hover_text(tip_redact).clicked() {
-                            self.active_drawer = if is_redact {
-                                ActiveDrawer::None
-                            } else {
-                                ActiveDrawer::Redaction
-                            };
-                            self.caliper_tool.is_active = false;
-                        }
-
-                        ui.add_space(2.0);
-
-                        // Caliper Measurement
-                        let is_caliper = self.active_drawer == ActiveDrawer::Caliper;
-                        let caliper_btn = icon_bar_btn("\u{e15a}", is_caliper);
-                        if ui.add(caliper_btn).on_hover_text(tip_caliper).clicked() {
-                            self.active_drawer =
-                                if is_caliper { ActiveDrawer::None } else { ActiveDrawer::Caliper };
-                            self.caliper_tool.is_active = !is_caliper;
-                        }
-                    });
-
-                    // 4. Bottom Aligned Utilities: Command Palette, Settings, About
                     ui.with_layout(egui::Layout::bottom_up(egui::Align::Center), |ui| {
-                        ui.add_space(6.0);
-
-                        // About
-                        let about_btn = icon_bar_btn("\u{e082}", false);
-                        if ui.add(about_btn).on_hover_text(tip_about).clicked() {
-                            self.show_about_modal = true;
-                        }
-
-                        ui.add_space(2.0);
-
-                        // Settings
-                        let settings_btn = icon_bar_btn("\u{e30b}", false);
-                        if ui.add(settings_btn).on_hover_text(tip_settings).clicked() {
-                            self.show_settings_modal = true;
-                        }
-
-                        ui.add_space(2.0);
-
-                        // Command Palette (Cmd+K / Ctrl+K)
-                        let palette_btn = egui::Button::new(egui::RichText::new("⌘K").size(12.0))
-                            .min_size(egui::vec2(32.0, 32.0));
-                        if ui
-                            .add(palette_btn)
-                            .on_hover_text("コマンドパレット (Ctrl+K / ⌘K)")
-                            .clicked()
-                        {
-                            self.show_command_palette = !self.show_command_palette;
-                        }
-
-                        ui.add_space(4.0);
+                        ui.add_space(space::GROUP);
+                        self.utility_buttons(ui);
+                        ui.add_space(space::GROUP);
                         ui.separator();
                     });
                 });
@@ -179,7 +42,81 @@ impl FepdfApp {
         );
     }
 
-    /// Renders the collapsible utility drawer panel next to the left icon bar.
+    /// Opening a document, and writing one out.
+    fn file_buttons(&mut self, ui: &mut egui::Ui, has_doc: bool, ctx: &egui::Context) {
+        let tip_import = self.locale_mgr.tr(&self.active_language, "tooltip_import_pdf");
+        let tip_export = self.locale_mgr.tr(&self.active_language, "tooltip_export_pdf");
+
+        if ui.add(icon_button(glyph::OPEN, false)).on_hover_text(tip_import).clicked()
+            && let Some(p) = rfd::FileDialog::new().add_filter("PDF", &["pdf"]).pick_file()
+        {
+            if has_doc {
+                if let Ok(exe) = std::env::current_exe()
+                    && let Err(e) = std::process::Command::new(exe).arg(p).spawn()
+                {
+                    log::warn!("the external viewer would not start: {e}");
+                }
+            } else {
+                self.open_file(p, ctx);
+            }
+        }
+
+        // Drawn rather than `add_enabled`: egui fades a disabled widget towards its
+        // background, and the fade took this button to 1.23:1 — below the point at which
+        // it says the feature exists at all. `icon_button_disabled` holds 3.20:1.
+        let export = if has_doc {
+            icon_button(glyph::EXPORT, false)
+        } else {
+            icon_button_disabled(glyph::EXPORT)
+        };
+        if ui.add(export).on_hover_text(tip_export).clicked() && has_doc {
+            self.show_export_wizard = true;
+        }
+    }
+
+    /// The five drawers, one of which may be open.
+    fn drawer_buttons(&mut self, ui: &mut egui::Ui, has_doc: bool) {
+        let entries = [
+            (ActiveDrawer::DocumentInfo, glyph::INFO, "tab_doc_info_decisions"),
+            (ActiveDrawer::WhatItDoes, glyph::SURVEY, "tooltip_what_it_does"),
+            (ActiveDrawer::Accessibility, glyph::STRUCTURE, "tab_accessibility"),
+            (ActiveDrawer::Redaction, glyph::REDACT, "tooltip_redact_brush"),
+            (ActiveDrawer::Caliper, glyph::CALIPER, "tooltip_caliper_brush"),
+        ];
+
+        for (drawer, icon, key) in entries {
+            let is_open = self.active_drawer == drawer;
+            let tip = self.locale_mgr.tr(&self.active_language, key);
+            let button =
+                if has_doc { icon_button(icon, is_open) } else { icon_button_disabled(icon) };
+            if ui.add(button).on_hover_text(tip).clicked() && has_doc {
+                self.active_drawer = if is_open { ActiveDrawer::None } else { drawer };
+                self.caliper_tool.is_active = !is_open && drawer == ActiveDrawer::Caliper;
+            }
+        }
+    }
+
+    /// The bottom cluster, added bottom-up: the palette, settings, about.
+    fn utility_buttons(&mut self, ui: &mut egui::Ui) {
+        let tip_about = self.locale_mgr.tr(&self.active_language, "tooltip_about");
+        let tip_settings = self.locale_mgr.tr(&self.active_language, "tooltip_settings");
+
+        if ui.add(icon_button(glyph::ABOUT, false)).on_hover_text(tip_about).clicked() {
+            self.show_about_modal = true;
+        }
+        if ui.add(icon_button(glyph::SETTINGS, false)).on_hover_text(tip_settings).clicked() {
+            self.show_settings_modal = true;
+        }
+        if ui
+            .add(icon_button(glyph::PALETTE, self.show_command_palette))
+            .on_hover_text("コマンドパレット (Ctrl+K / ⌘K)")
+            .clicked()
+        {
+            self.show_command_palette = !self.show_command_palette;
+        }
+    }
+
+    /// The utility drawer, when one is open.
     pub(crate) fn render_side_drawer(&mut self, ui: &mut egui::Ui) {
         // RR-15 Limit: GUI - Render active utility drawer on the left side of the main pane
         if self.active_drawer == ActiveDrawer::None {
@@ -192,12 +129,11 @@ impl FepdfApp {
         egui::Panel::left("active_side_drawer")
             .resizable(true)
             .show_separator_line(true)
-            .default_size(320.0)
-            .size_range(260.0..=600.0)
+            .default_size(size::DRAWER_W)
+            .size_range(size::DRAWER_MIN..=size::DRAWER_MAX)
             .show_inside(ui, |ui| {
                 ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Wrap);
 
-                // Drawer Header with Title and Close button
                 ui.horizontal(|ui| {
                     let title = match self.active_drawer {
                         ActiveDrawer::None => String::new(),
@@ -215,16 +151,22 @@ impl FepdfApp {
                             locale_mgr.tr(active_lang, "tooltip_caliper_brush")
                         }
                     };
-                    ui.heading(egui::RichText::new(&title).size(14.0));
+                    ui.heading(egui::RichText::new(&title).size(text::HEAD));
 
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        if ui.button("✕").on_hover_text("閉じる (Close)").clicked() {
+                        if ui
+                            .add(icon_button(glyph::CLOSE, false))
+                            .on_hover_text("閉じる (Close)")
+                            .clicked()
+                        {
                             self.active_drawer = ActiveDrawer::None;
                             self.caliper_tool.is_active = false;
                         }
                     });
                 });
+                ui.add_space(space::ITEM);
                 ui.separator();
+                ui.add_space(space::PANE);
 
                 egui::ScrollArea::vertical().id_salt("side_drawer_scroll").show(
                     ui,

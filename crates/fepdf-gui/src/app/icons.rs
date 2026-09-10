@@ -1,108 +1,99 @@
-//! Dedicated icon definitions and vector rendering widgets for `fepdf-gui`.
+//! The icon vocabulary, and the one constructor that draws it.
+//!
+//! **Every codepoint here is checked against `assets/lucide.ttf`.** Two were not, and
+//! neither drew: `U+E8E8` is past the end of the font (its last glyph is `U+E6FD`), and
+//! `U+E0FF` was taken from `Ubuntu-Light` — see [`super::theme::icon_family`]. Two more
+//! drew the wrong thing: the caliper was `shield-ban` and single-page was `layout`.
+//!
+//! ```bash
+//! python3 scripts/audit/icon_glyphs.py   # UI-1
+//! ```
 
-use crate::app::theme::colors;
+use super::theme::{colors, icon_family, size};
 
-/// Vector icon kinds rendered natively using `egui::Painter`.
-#[derive(Copy, Clone, PartialEq, Eq)]
-pub enum VectorIcon {
-    /// Lucide Download rotated 90° counter-clockwise (Import into container).
-    Import,
-    /// Lucide Upload rotated 90° clockwise (Export from container).
-    Export,
+/// The glyphs, by what they mean here rather than by what Lucide calls them.
+///
+/// The name Lucide gives each one is in the comment, because that is what a search of
+/// the font's `post` table returns and how the next one will be found.
+pub mod glyph {
+    /// `file-input` — bring a document in.
+    pub const OPEN: &str = "\u{e0c5}";
+    /// `file-output` — write a document out.
+    pub const EXPORT: &str = "\u{e0c8}";
+    /// `file-text` — what this document declares.
+    pub const INFO: &str = "\u{e0cc}";
+    /// `scan-eye` — what it does when opened. Was `U+E8E8`, which the font does not have.
+    pub const SURVEY: &str = "\u{e536}";
+    /// `folder-tree` — the structure tree.
+    pub const STRUCTURE: &str = "\u{e33c}";
+    /// `eraser` — redaction.
+    pub const REDACT: &str = "\u{e28f}";
+    /// `ruler` — the caliper. Was `shield-ban`.
+    pub const CALIPER: &str = "\u{e14b}";
+    /// `settings`.
+    pub const SETTINGS: &str = "\u{e154}";
+    /// `circle-help`.
+    pub const ABOUT: &str = "\u{e082}";
+    /// `command` — the palette.
+    pub const PALETTE: &str = "\u{e09a}";
+
+    /// `rotate-cw` — a quarter turn clockwise.
+    pub const ROTATE: &str = "\u{e149}";
+    /// `file` — one page at a time. Was `layout`, which is a panel arrangement.
+    pub const PAGE_SINGLE: &str = "\u{e0c0}";
+    /// `rows-2` — pages stacked, scrolling.
+    pub const PAGE_CONTINUOUS: &str = "\u{e439}";
+    /// `book-open` — two pages facing.
+    pub const PAGE_SPREAD: &str = "\u{e05f}";
+    /// `move-horizontal` — fit the width.
+    pub const FIT_WIDTH: &str = "\u{e1c6}";
+    /// `move-vertical` — fit the height.
+    pub const FIT_HEIGHT: &str = "\u{e1c7}";
+    /// `zoom-in`.
+    pub const ZOOM_IN: &str = "\u{e1b6}";
+    /// `zoom-out`.
+    pub const ZOOM_OUT: &str = "\u{e1b7}";
+    /// `chevrons-left` — the first page.
+    pub const PAGE_FIRST: &str = "\u{e072}";
+    /// `chevron-left` — the page before.
+    pub const PAGE_PREV: &str = "\u{e06e}";
+    /// `chevron-right` — the page after.
+    pub const PAGE_NEXT: &str = "\u{e06f}";
+    /// `chevrons-right` — the last page.
+    pub const PAGE_LAST: &str = "\u{e073}";
+    /// `x` — close. Lucide maps this one to ASCII `x` rather than to a private-use
+    /// codepoint, which is harmless inside a family that holds nothing else.
+    pub const CLOSE: &str = "\u{0078}";
 }
 
-/// Renders a vector icon into the given bounding rect with crisp strokes.
-pub fn render_vector_icon(
-    painter: &egui::Painter,
-    rect: egui::Rect,
-    icon: VectorIcon,
-    color: egui::Color32,
-) {
-    let stroke = egui::Stroke::new(1.6_f32, color);
-    let size = 16.0_f32;
-    let center = rect.center();
-    let min = center - egui::vec2(size / 2.0, size / 2.0);
-
-    let scale = size / 24.0;
-    let pt = |x: f32, y: f32| -> egui::Pos2 {
-        egui::pos2(x.mul_add(scale, min.x), y.mul_add(scale, min.y))
-    };
-
-    match icon {
-        VectorIcon::Import => {
-            // Lucide download rotated 90° left:
-            // Tray on right: (14,4) -> (18.5,4) -> (20,5.5) -> (20,18.5) -> (18.5,20) -> (14,20)
-            let tray = [
-                pt(14.0, 4.0),
-                pt(18.5, 4.0),
-                pt(20.0, 5.5),
-                pt(20.0, 18.5),
-                pt(18.5, 20.0),
-                pt(14.0, 20.0),
-            ];
-            for w in tray.windows(2) {
-                painter.line_segment([w[0], w[1]], stroke);
-            }
-            // Arrow pointing right into tray:
-            painter.line_segment([pt(4.0, 12.0), pt(14.5, 12.0)], stroke);
-            painter.line_segment([pt(9.5, 7.5), pt(14.5, 12.0)], stroke);
-            painter.line_segment([pt(14.5, 12.0), pt(9.5, 16.5)], stroke);
-        }
-        VectorIcon::Export => {
-            // Lucide upload rotated 90° right:
-            // Tray on left: (10,4) -> (5.5,4) -> (4,5.5) -> (4,18.5) -> (5.5,20) -> (10,20)
-            let tray = [
-                pt(10.0, 4.0),
-                pt(5.5, 4.0),
-                pt(4.0, 5.5),
-                pt(4.0, 18.5),
-                pt(5.5, 20.0),
-                pt(10.0, 20.0),
-            ];
-            for w in tray.windows(2) {
-                painter.line_segment([w[0], w[1]], stroke);
-            }
-            // Arrow pointing right out of tray:
-            painter.line_segment([pt(9.5, 12.0), pt(20.0, 12.0)], stroke);
-            painter.line_segment([pt(15.0, 7.5), pt(20.0, 12.0)], stroke);
-            painter.line_segment([pt(20.0, 12.0), pt(15.0, 16.5)], stroke);
-        }
-    }
+/// An icon button: [`size::ICON`] square, the glyph drawn from the icon family.
+///
+/// **One constructor, because there was more than one.** A rail button and a status-bar
+/// button were built by different functions with different resting states — one painted
+/// a background only on hover, the other always — so the same row of controls read as two
+/// kinds of thing. The `VectorIcon` pair this replaced drew two Lucide glyphs by hand in
+/// `egui::Painter` calls, which is a third way of making the same object.
+pub fn icon_button(glyph: &'static str, is_active: bool) -> egui::Button<'static> {
+    let colour = if is_active { colors::rust::ACCENT } else { colors::steel::MUTED };
+    let text = egui::RichText::new(glyph).size(size::GLYPH).family(icon_family()).color(colour);
+    egui::Button::new(text)
+        .min_size(egui::vec2(size::ICON, size::ICON))
+        .corner_radius(super::theme::radius::CONTROL)
+        .selected(is_active)
 }
 
-/// Creates a 32x32 button displaying a custom vector icon.
-pub fn vector_icon_bar_btn(
-    ui: &mut egui::Ui,
-    icon: VectorIcon,
-    is_active: bool,
-    enabled: bool,
-) -> egui::Response {
-    let (rect, response) = ui.allocate_exact_size(egui::vec2(32.0, 32.0), egui::Sense::click());
-    if ui.is_rect_visible(rect) {
-        let visuals = ui.style().interact_selectable(&response, is_active);
-        if response.hovered() && enabled {
-            ui.painter().rect_filled(rect, 4.0, visuals.bg_fill);
-        }
-        let color = if !enabled {
-            colors::STEEL_BORDER_SUBTLE
-        } else if is_active {
-            colors::RUST_PRIMARY
-        } else if response.hovered() {
-            colors::STEEL_PRIMARY
-        } else {
-            colors::STEEL_SECONDARY
-        };
-        render_vector_icon(ui.painter(), rect, icon, color);
-    }
-    response
-}
-
-/// Creates a standard 32x32 icon button using Lucide font codepoint.
-pub fn icon_bar_btn(icon: &'static str, is_active: bool) -> egui::Button<'static> {
-    let rich_text = if is_active {
-        egui::RichText::new(icon).size(15.0).color(colors::RUST_PRIMARY)
-    } else {
-        egui::RichText::new(icon).size(15.0).color(colors::STEEL_SECONDARY)
-    };
-    egui::Button::new(rich_text).min_size(egui::vec2(32.0, 32.0)).selected(is_active)
+/// The same button, drawn as present but unavailable.
+///
+/// **[`colors::steel::EDGE`] rather than the lightest slate available.** The disabled
+/// export button measured 1.23:1 against the panel, which is not a greyed control but an
+/// absent one — and an entry point the reader cannot see does not tell them the feature
+/// exists (principle P3). This is 3.20:1.
+pub fn icon_button_disabled(glyph: &'static str) -> egui::Button<'static> {
+    let text = egui::RichText::new(glyph)
+        .size(size::GLYPH)
+        .family(icon_family())
+        .color(colors::steel::EDGE);
+    egui::Button::new(text)
+        .min_size(egui::vec2(size::ICON, size::ICON))
+        .corner_radius(super::theme::radius::CONTROL)
 }

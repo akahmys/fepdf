@@ -14,9 +14,11 @@ impl ExportWizard {
         let mut should_close = false;
         let window_title = app.locale_mgr.tr(&app.active_language, "export_title");
         let confirm_text = app.locale_mgr.tr(&app.active_language, "export_confirm_btn");
-        egui::Window::new(window_title).open(&mut open).resizable(false).default_width(360.0).show(
-            ctx,
-            |ui| {
+        egui::Window::new(window_title)
+            .open(&mut open)
+            .resizable(false)
+            .default_width(crate::app::theme::size::FORM_W)
+            .show(ctx, |ui| {
                 Self::render_compliance_checkboxes(app, ui);
                 Self::render_encryption_section(app, ui);
                 Self::render_signature_section(app, ui);
@@ -29,15 +31,14 @@ impl ExportWizard {
                         should_close = Self::handle_confirm_export_pdf(app);
                     }
                 });
-            },
-        );
+            });
 
         app.show_export_wizard = open && !should_close;
     }
 
     fn render_compliance_checkboxes(app: &mut crate::app::FepdfApp, ui: &mut egui::Ui) {
         ui.heading(app.locale_mgr.tr(&app.active_language, "export_options_heading"));
-        ui.add_space(5.0);
+        ui.add_space(crate::app::theme::space::ITEM);
 
         ui.checkbox(
             &mut app.export_upgrade_pdf20,
@@ -77,9 +78,9 @@ impl ExportWizard {
     /// offering RC4 would be offering a document this engine will not produce.
     fn render_encryption_section(app: &mut crate::app::FepdfApp, ui: &mut egui::Ui) {
         let tr = |key: &str| app.locale_mgr.tr(&app.active_language, key);
-        ui.add_space(8.0);
+        ui.add_space(crate::app::theme::space::GROUP);
         ui.heading(tr("export_encryption_heading"));
-        ui.add_space(5.0);
+        ui.add_space(crate::app::theme::space::ITEM);
 
         let mut protect = app.export_password.is_some();
         if ui.checkbox(&mut protect, tr("export_enc_password")).changed() {
@@ -90,14 +91,14 @@ impl ExportWizard {
         }
 
         if let Some(password) = app.export_password.as_mut() {
-            ui.add_space(4.0);
+            ui.add_space(crate::app::theme::space::ITEM);
             ui.label(tr("export_enc_user_password"));
             ui.add(
                 egui::TextEdit::singleline(password).password(true).desired_width(f32::INFINITY),
             );
 
             let mut owner = app.export_owner_password.clone().unwrap_or_default();
-            ui.add_space(4.0);
+            ui.add_space(crate::app::theme::space::ITEM);
             ui.label(tr("export_enc_owner_password"));
             if ui
                 .add(
@@ -110,7 +111,7 @@ impl ExportWizard {
                 app.export_owner_password = (!owner.is_empty()).then_some(owner);
             }
 
-            ui.add_space(4.0);
+            ui.add_space(crate::app::theme::space::ITEM);
             ui.label(egui::RichText::new(tr("export_enc_note")).size(11.0).weak());
         } else {
             ui.label(egui::RichText::new(tr("export_enc_none")).size(11.0).weak());
@@ -121,7 +122,7 @@ impl ExportWizard {
         // RR-15 Limit: GUI - signature UI layout section declaration
         ui.separator();
         ui.heading(app.locale_mgr.tr(&app.active_language, "export_signature_heading"));
-        ui.add_space(5.0);
+        ui.add_space(crate::app::theme::space::ITEM);
 
         // The engine takes a DER certificate and a DER PKCS#8 key. This asked for a
         // PKCS#12 bundle and a password, then handed the bundle to the SDK as both the
@@ -187,7 +188,7 @@ impl ExportWizard {
     fn render_draft_management_section(app: &mut crate::app::FepdfApp, ui: &mut egui::Ui) {
         ui.separator();
         ui.heading(app.locale_mgr.tr(&app.active_language, "export_draft_heading"));
-        ui.add_space(5.0);
+        ui.add_space(crate::app::theme::space::ITEM);
 
         ui.horizontal(|ui| {
             if ui.button(app.locale_mgr.tr(&app.active_language, "export_draft_save")).clicked()

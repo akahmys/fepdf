@@ -267,7 +267,7 @@ pub fn render_node_recursive(
 
                 let rich_text = if is_selected {
                     egui::RichText::new(&header_label)
-                        .color(crate::app::theme::colors::RUST_PRIMARY)
+                        .color(crate::app::theme::colors::rust::ACCENT)
                         .strong()
                 } else {
                     egui::RichText::new(&header_label)

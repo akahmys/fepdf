@@ -16,7 +16,7 @@ impl CommandPalette {
             .resizable(false)
             .collapsible(false)
             .anchor(egui::Align2::CENTER_TOP, egui::vec2(0.0, 100.0))
-            .default_width(400.0)
+            .default_width(crate::app::theme::size::FORM_W)
             .show(ctx, |ui| {
                 ui.horizontal(|ui| {
                     ui.label("🔍");

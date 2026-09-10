@@ -407,12 +407,12 @@ impl FepdfApp {
         self.queue_visible_pages();
 
         egui::CentralPanel::default().frame(egui::Frame::NONE).show_inside(ui, |ui| {
-            let bg_color = crate::app::theme::colors::CANVAS_BG;
-            ui.painter().rect_filled(ui.max_rect(), 0.0, bg_color);
+            let bg_color = crate::app::theme::colors::paper::CANVAS;
+            ui.painter().rect_filled(ui.max_rect(), theme::radius::FLAT, bg_color);
 
             if let Some(err) = &self.error {
                 ui.centered_and_justified(|ui| {
-                    ui.colored_label(crate::app::theme::colors::STATUS_DANGER_TEXT, err);
+                    ui.colored_label(crate::app::theme::colors::note::FAIL, err);
                 });
             } else if !self.page_layouts.is_empty() {
                 let viewport_rect = ui.max_rect();
@@ -571,16 +571,13 @@ impl eframe::App for FepdfApp {
         let ctx = ui.ctx().clone();
         theme::apply_global_styles(&ctx);
 
-        // Ensure the style overrides are active on the root UI visuals immediately
-        let visuals = ui.visuals_mut();
-        visuals.selection.stroke = egui::Stroke::NONE;
-        visuals.selection.bg_fill = egui::Color32::from_rgba_unmultiplied(120, 125, 135, 45);
-        visuals.widgets.active.bg_stroke = egui::Stroke::NONE;
-        visuals.widgets.hovered.bg_stroke = egui::Stroke::NONE;
-        visuals.widgets.inactive.bg_stroke = egui::Stroke::NONE;
+        // `apply_global_styles` above is the only place these are set. The block that
+        // stood here re-set five of them on the root `Ui` every frame, and one of the
+        // five discarded `rust::wash()` for a grey — so the palette held a selection
+        // colour that rustc counted as used and the screen never showed.
 
         let entire_rect = ui.max_rect();
-        ui.painter().rect_filled(entire_rect, 0.0, ui.visuals().window_fill);
+        ui.painter().rect_filled(entire_rect, theme::radius::FLAT, ui.visuals().window_fill);
 
         self.handle_keyboard_shortcuts(ui);
 
