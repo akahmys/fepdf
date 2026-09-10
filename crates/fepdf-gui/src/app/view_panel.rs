@@ -14,7 +14,7 @@ impl FepdfApp {
             egui::CentralPanel::default().show_inside(ui, |ui| {
                 ui.centered_and_justified(|ui| {
                     ui.colored_label(
-                        egui::Color32::RED,
+                        crate::app::theme::colors::note::FAIL,
                         "WGPU RenderState not available. GPU compute acceleration is disabled.",
                     );
                 });

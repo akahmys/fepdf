@@ -1,3 +1,4 @@
+use crate::app::theme::canvas;
 use crate::app::theme::colors;
 use crate::app::theme::radius;
 use std::collections::BTreeMap;
@@ -551,6 +552,9 @@ impl PDFView {
                 *tid,
                 viewport_rect,
                 egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)),
+                // Not a colour: `Painter::image` multiplies the texture by this, and
+                // white is the identity. Tinting the document would be the one thing
+                // this window must never do. One of UI-9's three exemptions.
                 egui::Color32::WHITE,
             );
         }
@@ -572,6 +576,8 @@ impl PDFView {
                     tid,
                     page_rect,
                     egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)),
+                    // The identity multiplier again, and the second of UI-9's
+                    // three exemptions.
                     egui::Color32::WHITE,
                 );
             } else if thumbnail.is_none() && !scenes.contains_key(&layout.index) {
@@ -660,8 +666,7 @@ impl PDFView {
     ) {
         let grid_size = 32.0;
         let step = grid_size * zoom;
-        let grid_stroke =
-            egui::Stroke::new(1.0_f32, egui::Color32::from_rgba_unmultiplied(203, 213, 225, 40));
+        let grid_stroke = egui::Stroke::new(1.0_f32, colors::tint(colors::steel::RULE, 40));
 
         if step > 0.1 {
             let start_x = viewport_rect.min.x + (pan.x % step);
@@ -834,14 +839,26 @@ impl PDFView {
     ) {
         if let Some(redact_rects) = redaction_highlights.get(&page_index) {
             for redact_rect in redact_rects {
-                ui.painter().rect_filled(*redact_rect, 0.0, egui::Color32::BLACK);
+                // **Drawn as what it will become.** Burning a redaction writes black, so
+                // the fill is black and needs no colour of its own; the accent on the
+                // edge is the part that says it can still be taken back.
+                // Black because burning writes black, not because black was chosen: this
+                // is the document's future state rather than a colour of this window's.
+                // The third of UI-9's exemptions.
+                ui.painter().rect_filled(*redact_rect, radius::FLAT, egui::Color32::BLACK);
+                canvas::haloed_rect(
+                    ui.painter(),
+                    *redact_rect,
+                    radius::FLAT,
+                    egui::Stroke::new(1.5_f32, colors::rust::ACCENT),
+                );
                 if redact_rect.width() > 60.0 && redact_rect.height() > 12.0 {
                     ui.painter().text(
                         redact_rect.center(),
                         egui::Align2::CENTER_CENTER,
                         "[REDACTED]",
                         egui::FontId::monospace(9.0),
-                        egui::Color32::from_rgb(255, 75, 75),
+                        colors::paper::WHITE,
                     );
                 }
             }
@@ -859,14 +876,14 @@ impl PDFView {
         {
             ui.painter().rect_filled(
                 *drag_rect,
-                0.0,
-                egui::Color32::from_rgba_unmultiplied(255, 0, 0, 100),
+                radius::FLAT,
+                colors::tint(colors::rust::ACCENT, 60),
             );
-            ui.painter().rect_stroke(
+            canvas::haloed_rect(
+                ui.painter(),
                 *drag_rect,
-                0.0,
-                egui::Stroke::new(1.5_f32, egui::Color32::RED),
-                egui::StrokeKind::Outside,
+                radius::FLAT,
+                egui::Stroke::new(1.5_f32, colors::rust::ACCENT),
             );
         }
     }
@@ -882,20 +899,19 @@ impl PDFView {
         {
             let time = ui.ctx().input(|i| i.time);
             let pulse = (time * 6.0).sin().abs() as f32;
-            let outline_color = egui::Color32::from_rgb(255, 165, 0);
             let fill_opacity = 20 + (pulse * 35.0) as u8;
             let stroke_w = 2.0 + pulse * 2.0;
 
-            ui.painter().rect_stroke(
+            canvas::haloed_rect(
+                ui.painter(),
                 *highlight_rect,
-                0.0,
-                egui::Stroke::new(stroke_w, outline_color),
-                egui::StrokeKind::Outside,
+                radius::FLAT,
+                egui::Stroke::new(stroke_w, colors::rust::ACCENT),
             );
             ui.painter().rect_filled(
                 *highlight_rect,
-                0.0,
-                egui::Color32::from_rgba_unmultiplied(255, 165, 0, fill_opacity),
+                radius::FLAT,
+                colors::tint(colors::rust::ACCENT, fill_opacity),
             );
             ui.ctx().request_repaint();
         }
@@ -910,37 +926,30 @@ impl PDFView {
         if let Some((sig_page, sig_rect)) = signature_highlight
             && *sig_page == page_index
         {
+            // A second terracotta `(226, 135, 67)` stood here, near enough to the accent
+            // to read as it and far enough to be a different colour. The field is being
+            // placed by the reader, so it is the accent.
+            let diagonal = egui::Stroke::new(1.0_f32, colors::tint(colors::rust::ACCENT, 100));
             ui.painter().rect_filled(
                 *sig_rect,
-                4.0,
-                egui::Color32::from_rgba_unmultiplied(226, 135, 67, 30),
+                radius::CONTROL,
+                colors::tint(colors::rust::ACCENT, 30),
             );
-            ui.painter().rect_stroke(
+            canvas::haloed_rect(
+                ui.painter(),
                 *sig_rect,
-                4.0,
-                egui::Stroke::new(2.0_f32, egui::Color32::from_rgb(226, 135, 67)),
-                egui::StrokeKind::Outside,
+                radius::CONTROL,
+                egui::Stroke::new(2.0_f32, colors::rust::ACCENT),
             );
-            ui.painter().line_segment(
-                [sig_rect.left_top(), sig_rect.right_bottom()],
-                egui::Stroke::new(
-                    1.0_f32,
-                    egui::Color32::from_rgba_unmultiplied(226, 135, 67, 100),
-                ),
-            );
-            ui.painter().line_segment(
-                [sig_rect.right_top(), sig_rect.left_bottom()],
-                egui::Stroke::new(
-                    1.0_f32,
-                    egui::Color32::from_rgba_unmultiplied(226, 135, 67, 100),
-                ),
-            );
-            ui.painter().text(
+            ui.painter().line_segment([sig_rect.left_top(), sig_rect.right_bottom()], diagonal);
+            ui.painter().line_segment([sig_rect.right_top(), sig_rect.left_bottom()], diagonal);
+            canvas::haloed_text(
+                ui.painter(),
                 sig_rect.center(),
                 egui::Align2::CENTER_CENTER,
-                "🔏 [ DIGITAL SIGNATURE FIELD ]",
+                "[ DIGITAL SIGNATURE FIELD ]",
                 egui::FontId::monospace(12.0),
-                egui::Color32::from_rgb(226, 135, 67),
+                colors::rust::ACCENT,
             );
         }
     }
@@ -1055,21 +1064,32 @@ impl PDFView {
             );
             let element_rect = egui::Rect::from_min_max(min_screen, max_screen);
 
-            let color = match node.tag.as_str() {
-                "H1" | "H2" | "H3" => egui::Color32::from_rgb(0, 120, 215), // Blue
-                "P" => egui::Color32::from_rgb(34, 197, 94),                // Green
-                "Figure" => egui::Color32::from_rgb(168, 85, 247),          // Purple
-                "Table" => egui::Color32::from_rgb(249, 115, 22),           // Orange
-                _ => egui::Color32::from_gray(120),
-            };
-
-            let stroke = if Some(node.id) == selected_id {
-                egui::Stroke::new(2.0_f32, egui::Color32::from_rgb(240, 165, 0)) // Amber selection
+            // **The box says which tag it is, instead of being coloured for it.** Four
+            // hues stood here — and again, verbatim, in `collect_nodes_for_reading_order`
+            // — so a reader had to remember that purple meant `Figure`. The name is two
+            // characters wide and needs remembering by nobody.
+            let is_selected = Some(node.id) == selected_id;
+            let (width, colour) = if is_selected {
+                (2.0_f32, colors::rust::ACCENT)
             } else {
-                egui::Stroke::new(1.0_f32, color)
+                (1.0_f32, colors::steel::EDGE)
             };
-
-            ui.painter().rect_stroke(element_rect, 2.0, stroke, egui::StrokeKind::Outside);
+            canvas::haloed_rect(
+                ui.painter(),
+                element_rect,
+                radius::CONTROL,
+                egui::Stroke::new(width, colour),
+            );
+            if element_rect.width() > 48.0 && element_rect.height() > 16.0 {
+                canvas::haloed_text(
+                    ui.painter(),
+                    element_rect.left_top() + egui::vec2(3.0, 2.0),
+                    egui::Align2::LEFT_TOP,
+                    &node.tag,
+                    egui::FontId::monospace(9.0),
+                    colour,
+                );
+            }
         }
 
         for child in &node.children {
@@ -1077,19 +1097,14 @@ impl PDFView {
         }
     }
 
-    fn collect_nodes_for_reading_order(
-        node: &crate::sidebar::USTNode,
-        list: &mut Vec<(String, egui::Color32)>,
-    ) {
+    /// The tags in reading order.
+    ///
+    /// **The colour it used to carry alongside each tag was the same four-hue table as
+    /// `draw_semantic_borders`, written out a second time.** Each chip is labelled
+    /// `"3: Figure"`, so the hue restated the label beside it.
+    fn collect_nodes_for_reading_order(node: &crate::sidebar::USTNode, list: &mut Vec<String>) {
         if node.rect.is_some() {
-            let color = match node.tag.as_str() {
-                "H1" | "H2" | "H3" => egui::Color32::from_rgb(0, 120, 215), // Blue
-                "P" => egui::Color32::from_rgb(34, 197, 94),                // Green
-                "Figure" => egui::Color32::from_rgb(168, 85, 247),          // Purple
-                "Table" => egui::Color32::from_rgb(249, 115, 22),           // Orange
-                _ => egui::Color32::from_gray(120),
-            };
-            list.push((node.tag.clone(), color));
+            list.push(node.tag.clone());
         }
         for child in &node.children {
             Self::collect_nodes_for_reading_order(child, list);
@@ -1118,12 +1133,12 @@ impl PDFView {
         ui.painter().rect_filled(bar_rect, 4.0, colors::steel::TEXT);
 
         let mut x_offset = bar_rect.left() + 4.0;
-        for (i, (tag, color)) in list.iter().enumerate() {
+        for (i, tag) in list.iter().enumerate() {
             let label = format!("{}: {}", i + 1, tag);
             let text_gal = ui.painter().layout_no_wrap(
                 label.clone(),
                 egui::FontId::proportional(10.0),
-                egui::Color32::WHITE,
+                colors::paper::WHITE,
             );
             let block_width = text_gal.size().x + 12.0;
 
@@ -1136,13 +1151,13 @@ impl PDFView {
                 egui::vec2(block_width, bar_height - 6.0),
             );
 
-            ui.painter().rect_filled(block_rect, 2.0, *color);
+            ui.painter().rect_filled(block_rect, radius::CONTROL, colors::steel::MUTED);
             ui.painter().text(
                 block_rect.center(),
                 egui::Align2::CENTER_CENTER,
                 &label,
                 egui::FontId::proportional(10.0),
-                egui::Color32::WHITE,
+                colors::paper::WHITE,
             );
 
             x_offset += block_width + 6.0;

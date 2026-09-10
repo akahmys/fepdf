@@ -146,6 +146,64 @@ pub mod radius {
     pub const CONTROL: f32 = 4.0;
 }
 
+/// Drawing on the page, where the colours belong to the document.
+///
+/// **An overlay may not rely on its hue.** The engine goes to some length to put the
+/// document's own colours on the raster — `/ICCBased` through its profile, `/Separation`
+/// through its tint transform — and a drawing printed in orange is as likely as one
+/// printed in black. So an overlay is told apart by *shape*, by the word written on it,
+/// or by being drawn outside the sheet; the accent says only that the reader is touching
+/// it.
+///
+/// What is left is legibility, and that is what the halo is for: a stroke or a letter
+/// with a paper-coloured outline reads on any ground. Maps, CAD and subtitles all do
+/// this, for the same reason.
+pub mod canvas {
+    use super::colors;
+
+    /// How far the halo extends, in points.
+    pub const HALO: f32 = 1.0;
+
+    /// Draws `text` with a paper-coloured halo, so it reads on any page.
+    pub fn haloed_text(
+        painter: &egui::Painter,
+        pos: egui::Pos2,
+        anchor: egui::Align2,
+        text: &str,
+        font: egui::FontId,
+        colour: egui::Color32,
+    ) {
+        for dx in [-HALO, HALO] {
+            for dy in [-HALO, HALO] {
+                painter.text(
+                    pos + egui::vec2(dx, dy),
+                    anchor,
+                    text,
+                    font.clone(),
+                    colors::paper::WHITE,
+                );
+            }
+        }
+        painter.text(pos, anchor, text, font, colour);
+    }
+
+    /// Outlines `rect` with a paper-coloured halo outside the stroke it then draws.
+    pub fn haloed_rect(
+        painter: &egui::Painter,
+        rect: egui::Rect,
+        radius: f32,
+        stroke: egui::Stroke,
+    ) {
+        painter.rect_stroke(
+            rect.expand(stroke.width),
+            radius,
+            egui::Stroke::new(HALO, colors::paper::WHITE),
+            egui::StrokeKind::Outside,
+        );
+        painter.rect_stroke(rect, radius, stroke, egui::StrokeKind::Outside);
+    }
+}
+
 /// The sizes the layout is built from, on a 4pt grid.
 ///
 /// **Derived where one follows from another**, so that changing the grid moves

@@ -69,7 +69,7 @@ impl RedactionStudioPanel {
             });
 
             if let Some(err) = &self.error_msg {
-                ui.colored_label(egui::Color32::RED, err);
+                ui.colored_label(crate::app::theme::colors::note::FAIL, err);
             }
 
             ui.separator();

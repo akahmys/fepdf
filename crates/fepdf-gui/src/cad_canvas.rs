@@ -1,3 +1,4 @@
+use crate::app::theme::{canvas, colors};
 use std::collections::BTreeMap;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -282,25 +283,57 @@ impl CaliperTool {
                 snap.point,
             );
 
-            let (color, size) = match snap.snap_type {
-                SnapType::EndPoint => (egui::Color32::from_rgb(0, 255, 128), 7.0),
-                SnapType::MidPoint => (egui::Color32::from_rgb(0, 192, 255), 8.0),
-                SnapType::Intersection => (egui::Color32::from_rgb(255, 128, 0), 9.0),
+            // **The three are told apart by their shape, which is what every CAD
+            // package does and what a drawing printed in one colour leaves possible.**
+            // A green, a cyan and an orange stood here, on a page whose own colours the
+            // engine has just gone to some trouble to get right.
+            let size = 7.0_f32;
+            let stroke = egui::Stroke::new(1.5_f32, colors::steel::TEXT);
+            let halo = egui::Stroke::new(3.0_f32, colors::paper::WHITE);
+            let marker = |width: f32, stroke: egui::Stroke| match snap.snap_type {
+                // A square for an end point, a triangle for a mid point, a cross for an
+                // intersection.
+                SnapType::EndPoint => painter.rect_stroke(
+                    egui::Rect::from_center_size(screen_pos, egui::vec2(width * 2.0, width * 2.0)),
+                    0.0,
+                    stroke,
+                    egui::StrokeKind::Outside,
+                ),
+                SnapType::MidPoint => painter.add(egui::Shape::closed_line(
+                    vec![
+                        screen_pos + egui::vec2(0.0, -width),
+                        screen_pos + egui::vec2(width, width),
+                        screen_pos + egui::vec2(-width, width),
+                    ],
+                    stroke,
+                )),
+                SnapType::Intersection => {
+                    painter.line_segment(
+                        [
+                            screen_pos + egui::vec2(-width, -width),
+                            screen_pos + egui::vec2(width, width),
+                        ],
+                        stroke,
+                    );
+                    painter.line_segment(
+                        [
+                            screen_pos + egui::vec2(width, -width),
+                            screen_pos + egui::vec2(-width, width),
+                        ],
+                        stroke,
+                    )
+                }
             };
+            marker(size, halo);
+            marker(size, stroke);
 
-            painter.rect_stroke(
-                egui::Rect::from_center_size(screen_pos, egui::vec2(size * 2.0, size * 2.0)),
-                0.0,
-                egui::Stroke::new(1.5_f32, color),
-                egui::StrokeKind::Outside,
-            );
-
-            painter.text(
+            canvas::haloed_text(
+                painter,
                 screen_pos + egui::vec2(12.0, -12.0),
                 egui::Align2::LEFT_CENTER,
-                format!("{} ({:.1}, {:.1})", snap.description, snap.point.x, snap.point.y),
+                &format!("{} ({:.1}, {:.1})", snap.description, snap.point.x, snap.point.y),
                 egui::FontId::proportional(11.0),
-                egui::Color32::LIGHT_GRAY,
+                colors::steel::TEXT,
             );
         }
 
@@ -322,7 +355,7 @@ impl CaliperTool {
             // Draw line
             painter.line(
                 vec![start_screen, end_screen],
-                egui::Stroke::new(2.0_f32, egui::Color32::from_rgb(255, 215, 0)),
+                egui::Stroke::new(2.0_f32, colors::rust::ACCENT),
             );
 
             // Draw small ticks at start/end endpoints
@@ -331,11 +364,11 @@ impl CaliperTool {
 
             painter.line(
                 vec![start_screen - normal, start_screen + normal],
-                egui::Stroke::new(1.5_f32, egui::Color32::from_rgb(255, 215, 0)),
+                egui::Stroke::new(1.5_f32, colors::rust::ACCENT),
             );
             painter.line(
                 vec![end_screen - normal, end_screen + normal],
-                egui::Stroke::new(1.5_f32, egui::Color32::from_rgb(255, 215, 0)),
+                egui::Stroke::new(1.5_f32, colors::rust::ACCENT),
             );
 
             // Draw floating HUD box
@@ -354,12 +387,13 @@ impl CaliperTool {
                     egui::Color32::from_black_alpha(200),
                 );
 
-                painter.text(
+                canvas::haloed_text(
+                    painter,
                     mid_screen + egui::vec2(0.0, -15.0),
                     egui::Align2::CENTER_CENTER,
-                    text,
+                    &text,
                     text_font,
-                    egui::Color32::from_rgb(255, 215, 0),
+                    colors::rust::ACCENT,
                 );
             }
         }
@@ -379,7 +413,7 @@ impl CaliperTool {
                     ui.label(
                         egui::RichText::new(format!("{:.2} pt  ({:.2} mm)", dist, dist * 25.4 / 72.0))
                             .strong()
-                            .color(egui::Color32::from_rgb(255, 215, 0)),
+                            .color(colors::rust::ACCENT),
                     );
                 });
             } else {
