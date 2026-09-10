@@ -230,7 +230,11 @@ impl FepdfApp {
                         }
                         ActiveDrawer::Caliper => {
                             self.caliper_tool.is_active = true;
-                            self.caliper_tool.show_panel(ui);
+                            self.caliper_tool.show_panel(
+                                ui,
+                                &self.locale_mgr,
+                                &self.active_language,
+                            );
                         }
                         ActiveDrawer::Tools => crate::document_tools::show(self, ui),
                     },

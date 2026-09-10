@@ -416,6 +416,9 @@ python3 scripts/audit/palette.py || ERROR=1
 echo "[Rule UI-11] Checking that dimensions come from the scales..."
 python3 scripts/audit/dimensions.py || ERROR=1
 
+echo "[Rule UI-5] Checking that user-facing strings are locale keys..."
+python3 scripts/audit/strings.py || ERROR=1
+
 echo "[Rule 19] Checking formatting..."
 if cargo fmt --all --check > /dev/null 2>&1; then
     echo "  PASS"

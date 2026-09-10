@@ -525,15 +525,16 @@ impl PDFView {
         ust_registry: &crate::sidebar::USTRegistry,
         show_reading_order: bool,
         marquee_rect: Option<egui::Rect>,
+        // What a page that has not finished rendering says, with `{}` for its number.
+        // Passed in rather than read here: this type holds a view, not a locale.
+        placeholder: &str,
     ) {
-        // Completely disable egui's default focus ring/outline/selection stroke before allocating any rects to prevent flashing orange/red borders
-        let visuals = ui.visuals_mut();
-        visuals.selection.stroke = egui::Stroke::NONE;
-        visuals.widgets.active.bg_stroke = egui::Stroke::NONE;
-        visuals.widgets.hovered.bg_stroke = egui::Stroke::NONE;
-        visuals.widgets.inactive.bg_stroke = egui::Stroke::NONE;
-        visuals.widgets.noninteractive.bg_stroke = egui::Stroke::NONE;
-
+        // A second copy of the block `App::ui` carried stood here, to stop "flashing
+        // orange/red borders" — egui's old default selection colour, which
+        // `theme::apply_global_styles` now sets deliberately. Four of its five lines
+        // restated that, and the fifth set `selection.stroke` to `NONE`, whose colour is
+        // transparent: the same setting that painted every selected widget's label
+        // invisible in the chrome.
         let response = ui.allocate_rect(viewport_rect, egui::Sense::click_and_drag());
         self.handle_input(ui, &response, viewport_rect, layouts);
         self.clamp_pan(viewport_rect, layouts);
@@ -581,11 +582,11 @@ impl PDFView {
                     egui::Color32::WHITE,
                 );
             } else if thumbnail.is_none() && !scenes.contains_key(&layout.index) {
-                Self::draw_placeholder_card(ui.painter(), page_rect, layout.index);
+                Self::draw_placeholder_card(ui.painter(), page_rect, layout.index, placeholder);
             } else if matches!(pixels, PagePixels::Thumbnails(_)) {
                 // The scene is ready but its thumbnail is not yet: this frame made its
                 // quota. Say so rather than showing a blank page backing.
-                Self::draw_placeholder_card(ui.painter(), page_rect, layout.index);
+                Self::draw_placeholder_card(ui.painter(), page_rect, layout.index, placeholder);
             }
 
             // Page selection border. Selecting pages is the tile view's, so showing a
@@ -758,7 +759,12 @@ impl PDFView {
         }
     }
 
-    fn draw_placeholder_card(painter: &egui::Painter, page_rect: egui::Rect, page_index: usize) {
+    fn draw_placeholder_card(
+        painter: &egui::Painter,
+        page_rect: egui::Rect,
+        page_index: usize,
+        placeholder: &str,
+    ) {
         painter.rect_filled(page_rect, radius::CONTROL, colors::paper::WHITE);
         painter.rect_stroke(
             page_rect,
@@ -769,7 +775,7 @@ impl PDFView {
         painter.text(
             page_rect.center(),
             egui::Align2::CENTER_CENTER,
-            format!("⌛ Rendering Page {}...", page_index + 1),
+            placeholder.replace("{}", &(page_index + 1).to_string()),
             egui::FontId::proportional(crate::app::theme::text::HEAD),
             colors::steel::MUTED,
         );

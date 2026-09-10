@@ -623,6 +623,7 @@ impl FepdfApp {
             // and the lines are finer than the glyphs they enclose.
             self.show_reading_order && self.view.is_page_view(),
             marquee_rect,
+            &self.tr("page_rendering"),
         );
     }
 

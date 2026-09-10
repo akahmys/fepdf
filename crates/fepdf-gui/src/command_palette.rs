@@ -19,7 +19,11 @@ impl CommandPalette {
             .default_width(crate::app::theme::size::TABLE_W)
             .show(ctx, |ui| {
                 ui.horizontal(|ui| {
-                    ui.label("🔍");
+                    ui.label(
+                        egui::RichText::new(crate::app::icons::glyph::SEARCH)
+                            .family(crate::app::theme::icon_family())
+                            .color(crate::app::theme::colors::steel::MUTED),
+                    );
                     let text_resp = ui.text_edit_singleline(&mut app.command_palette_search);
                     text_resp.request_focus();
                 });

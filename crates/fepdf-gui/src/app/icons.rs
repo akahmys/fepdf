@@ -38,6 +38,8 @@ pub mod glyph {
     pub const ABOUT: &str = "\u{e082}";
     /// `command` — the palette.
     pub const PALETTE: &str = "\u{e09a}";
+    /// `search` — a field that filters what is below it.
+    pub const SEARCH: &str = "\u{e151}";
 
     /// `undo` — take back the last operation.
     pub const UNDO: &str = "\u{e19b}";

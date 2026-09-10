@@ -497,6 +497,29 @@ fn render_decisions_list(
     }
 }
 
+/// The field that filters the decisions by clause or by what they say.
+fn render_decision_search(
+    ui: &mut egui::Ui,
+    search_query: &mut String,
+    locale_mgr: &LocaleManager,
+    active_lang: &str,
+) {
+    ui.add_space(crate::app::theme::space::ITEM);
+    ui.horizontal(|ui| {
+        ui.label(
+            egui::RichText::new(crate::app::icons::glyph::SEARCH)
+                .family(crate::app::theme::icon_family())
+                .color(colors::steel::MUTED),
+        );
+        let width = ui.available_width() - crate::app::theme::space::SECTION;
+        ui.add(
+            egui::TextEdit::singleline(search_query)
+                .hint_text(locale_mgr.tr(active_lang, "decisions_search_hint"))
+                .desired_width(width),
+        );
+    });
+}
+
 fn render_decisions_section(
     ui: &mut egui::Ui,
     decisions: &[fepdf::Decision],
@@ -525,16 +548,7 @@ fn render_decisions_section(
         render_decision_filter_tabs(ui, decisions, &mut current_filter, locale_mgr, active_lang);
         ui.data_mut(|d| *d.get_temp_mut_or_default(id_filter) = current_filter);
 
-        ui.add_space(crate::app::theme::space::ITEM);
-        ui.horizontal(|ui| {
-            ui.label("🔍");
-            let avail_w = ui.available_width() - 10.0;
-            ui.add(
-                egui::TextEdit::singleline(&mut search_query)
-                    .hint_text(locale_mgr.tr(active_lang, "decisions_search_hint"))
-                    .desired_width(avail_w),
-            );
-        });
+        render_decision_search(ui, &mut search_query, locale_mgr, active_lang);
         ui.data_mut(|d| {
             d.get_temp_mut_or_default::<String>(id_search).clone_from(&search_query);
         });

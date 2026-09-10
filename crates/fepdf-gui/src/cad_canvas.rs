@@ -399,30 +399,36 @@ impl CaliperTool {
         }
     }
 
-    pub fn show_panel(&mut self, ui: &mut egui::Ui) {
+    pub fn show_panel(
+        &mut self,
+        ui: &mut egui::Ui,
+        locale_mgr: &crate::locale::LocaleManager,
+        active_lang: &str,
+    ) {
+        let tr = |key: &str| locale_mgr.tr(active_lang, key);
         ui.vertical(|ui| {
-            ui.label(egui::RichText::new("📐 CAD Caliper & Snap Measurement").strong());
+            ui.label(egui::RichText::new(tr("caliper_title")).strong());
             ui.add_space(crate::app::theme::space::ITEM);
-            ui.label(
-                "Drag across any vector elements, corners, or text on the page to measure exact distances in PDF user points.",
-            );
+            ui.label(tr("caliper_help"));
             ui.add_space(crate::app::theme::space::GROUP);
             if let Some(dist) = self.measured_dist {
                 ui.horizontal(|ui| {
-                    ui.label("Distance:");
+                    ui.label(tr("caliper_distance"));
                     ui.label(
-                        egui::RichText::new(format!("{:.2} pt  ({:.2} mm)", dist, dist * 25.4 / 72.0))
-                            .strong()
-                            .color(colors::rust::ACCENT),
+                        egui::RichText::new(format!(
+                            "{:.2} pt  ({:.2} mm)",
+                            dist,
+                            dist * 25.4 / 72.0
+                        ))
+                        .strong()
+                        .color(colors::rust::ACCENT),
                     );
                 });
             } else {
-                ui.label(
-                    egui::RichText::new("No active measurement. Click & drag on the canvas.").weak(),
-                );
+                ui.label(egui::RichText::new(tr("caliper_none")).weak());
             }
             ui.add_space(crate::app::theme::space::GROUP);
-            if ui.button("Clear Measurement").clicked() {
+            if ui.button(tr("caliper_clear")).clicked() {
                 self.clear();
             }
         });

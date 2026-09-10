@@ -3,6 +3,15 @@
 use super::FepdfApp;
 use super::theme::{size, space, text};
 
+/// The password prompt's words, read from the locale before the document is borrowed.
+struct PasswordWords {
+    untitled: String,
+    refused: String,
+    hint: String,
+    unlock: String,
+    close: String,
+}
+
 /// What the reader did with the password prompt this frame.
 enum Answer {
     /// Still typing, or the window was left alone.
@@ -103,8 +112,17 @@ impl FepdfApp {
     /// There is no Cancel that leaves the document half-open: closing it is what cancel
     /// means, and the reader keeps whatever was open before.
     pub(crate) fn show_password_prompt(&mut self, ctx: &egui::Context) {
+        // The words come out before `locked` is borrowed, because they are read from the
+        // locale and `locked` is a field of the same struct.
+        let words = PasswordWords {
+            untitled: self.tr("password_untitled"),
+            refused: self.tr("password_refused"),
+            hint: self.tr("password_hint"),
+            unlock: self.tr("password_unlock"),
+            close: self.tr("password_close"),
+        };
         let Some(locked) = self.locked.as_mut() else { return };
-        match Self::password_dialog(ctx, locked) {
+        match Self::password_dialog(ctx, locked, &words) {
             Answer::Waiting => {}
             Answer::GiveUp => self.locked = None,
             Answer::Unlock => self.retry_with_password(ctx),
@@ -130,8 +148,12 @@ impl FepdfApp {
     /// its content, so every panel behind this would show a page count and a catalogue
     /// over blank pages. Answering the question is the only thing to do next, and there is
     /// no Cancel that leaves the document half-open: closing it is what cancel means.
-    fn password_dialog(ctx: &egui::Context, locked: &mut super::LockedDocument) -> Answer {
-        let name = locked.name.clone().unwrap_or_else(|| "This document".to_string());
+    fn password_dialog(
+        ctx: &egui::Context,
+        locked: &mut super::LockedDocument,
+        words: &PasswordWords,
+    ) -> Answer {
+        let name = locked.name.clone().unwrap_or_else(|| words.untitled.clone());
         let mut answer = Answer::Waiting;
 
         egui::Window::new("🔒")
@@ -148,8 +170,7 @@ impl FepdfApp {
 
                 if locked.refused {
                     ui.label(
-                        egui::RichText::new("That password did not unlock it.")
-                            .color(super::theme::colors::note::WARN),
+                        egui::RichText::new(&words.refused).color(super::theme::colors::note::WARN),
                     );
                     ui.add_space(space::ITEM);
                 }
@@ -157,7 +178,7 @@ impl FepdfApp {
                 let field = ui.add(
                     egui::TextEdit::singleline(&mut locked.attempt)
                         .password(true)
-                        .hint_text("Password")
+                        .hint_text(&words.hint)
                         .desired_width(f32::INFINITY),
                 );
                 field.request_focus();
@@ -167,10 +188,10 @@ impl FepdfApp {
 
                 ui.add_space(space::SECTION);
                 ui.horizontal(|ui| {
-                    if ui.button("Unlock").clicked() {
+                    if ui.button(&words.unlock).clicked() {
                         answer = Answer::Unlock;
                     }
-                    if ui.button("Close the document").clicked() {
+                    if ui.button(&words.close).clicked() {
                         answer = Answer::GiveUp;
                     }
                 });

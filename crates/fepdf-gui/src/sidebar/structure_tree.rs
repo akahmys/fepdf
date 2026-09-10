@@ -28,6 +28,8 @@ pub fn show_structure_tree(
                     &mut selected_node_id,
                     alt_text_edit_buffer,
                     tx_worker,
+                    locale_mgr,
+                    active_lang,
                 );
             } else {
                 ui.label(
@@ -108,21 +110,27 @@ pub fn show_element_properties(
                             rect[0], rect[1], rect[2], rect[3]
                         ));
                     } else {
-                        ui.monospace("None");
+                        ui.monospace(locale_mgr.tr(active_lang, "tree_prop_none"));
                     }
                     ui.end_row();
 
                     ui.label(
                         egui::RichText::new(locale_mgr.tr(active_lang, "element_prop_lang")).weak(),
                     );
-                    ui.label("en-US");
+                    // **Neither of these is read from the document.** The row showed a
+                    // constant `"en-US"` and a constant `"Default Mapping"` whatever the
+                    // element said, which is worse than an empty row: a reader checking a
+                    // document's language found an answer. `USTNode` carries no `/Lang`
+                    // and nothing consults `/RoleMap`, so until one does, the panel says
+                    // it does not know.
+                    ui.label(locale_mgr.tr(active_lang, "tree_prop_none"));
                     ui.end_row();
 
                     ui.label(
                         egui::RichText::new(locale_mgr.tr(active_lang, "element_prop_role_map"))
                             .weak(),
                     );
-                    ui.label("Default Mapping");
+                    ui.label(locale_mgr.tr(active_lang, "tree_prop_none"));
                     ui.end_row();
 
                     ui.label(
@@ -165,7 +173,14 @@ pub fn find_node_mut_recursive(node: &mut USTNode, id: usize) -> Option<&mut UST
     None
 }
 
-fn render_drag_drop_controls(ui: &mut egui::Ui, node_id: usize, node: &USTNode) {
+fn render_drag_drop_controls(
+    ui: &mut egui::Ui,
+    node_id: usize,
+    node: &USTNode,
+    locale_mgr: &LocaleManager,
+    active_lang: &str,
+) {
+    let tr = |key: &str| locale_mgr.tr(active_lang, key);
     let handle_resp = ui.add(egui::Label::new("Drag").sense(egui::Sense::drag()));
     if handle_resp.drag_started() {
         ui.ctx().data_mut(|d| d.insert_temp(egui::Id::new("dragged_node_id"), Some(node_id)));
@@ -177,7 +192,7 @@ fn render_drag_drop_controls(ui: &mut egui::Ui, node_id: usize, node: &USTNode) 
         && drag_id != node_id
         && !USTRegistry::is_descendant(node, drag_id)
     {
-        let resp_above = ui.button("Above");
+        let resp_above = ui.button(tr("tree_move_above"));
         if resp_above.clicked() || (resp_above.hovered() && ui.input(|i| i.pointer.any_released()))
         {
             ui.ctx().data_mut(|d| {
@@ -187,7 +202,7 @@ fn render_drag_drop_controls(ui: &mut egui::Ui, node_id: usize, node: &USTNode) 
                 )
             });
         }
-        let resp_child = ui.button("Child");
+        let resp_child = ui.button(tr("tree_move_child"));
         if resp_child.clicked() || (resp_child.hovered() && ui.input(|i| i.pointer.any_released()))
         {
             ui.ctx().data_mut(|d| {
@@ -197,7 +212,7 @@ fn render_drag_drop_controls(ui: &mut egui::Ui, node_id: usize, node: &USTNode) 
                 )
             });
         }
-        let resp_below = ui.button("Below");
+        let resp_below = ui.button(tr("tree_move_below"));
         if resp_below.clicked() || (resp_below.hovered() && ui.input(|i| i.pointer.any_released()))
         {
             ui.ctx().data_mut(|d| {
@@ -216,13 +231,15 @@ fn render_node_buttons(
     selected_node_id: &mut Option<usize>,
     alt_edit_buf: &mut String,
     tx_worker: &Sender<WorkerRequest>,
+    locale_mgr: &LocaleManager,
+    active_lang: &str,
 ) {
-    if ui.button("Edit").clicked() {
+    if ui.button(locale_mgr.tr(active_lang, "tree_edit")).clicked() {
         *selected_node_id = Some(node.id);
         *alt_edit_buf = node.alt_text.clone().unwrap_or_default();
     }
 
-    if ui.button("Cycle").clicked() {
+    if ui.button(locale_mgr.tr(active_lang, "tree_cycle")).clicked() {
         node.tag = match node.tag.as_str() {
             "H1" => "H2".to_string(),
             "H2" => "P".to_string(),
@@ -246,6 +263,8 @@ pub fn render_node_recursive(
     selected_node_id: &mut Option<usize>,
     alt_edit_buf: &mut String,
     tx_worker: &Sender<WorkerRequest>,
+    locale_mgr: &LocaleManager,
+    active_lang: &str,
 ) {
     let is_selected = *selected_node_id == Some(node.id);
     let header_label = format!("<{}> {}", node.tag, node.title);
@@ -257,7 +276,7 @@ pub fn render_node_recursive(
 
         let header_response = ui
             .horizontal(|ui| {
-                render_drag_drop_controls(ui, node.id, node);
+                render_drag_drop_controls(ui, node.id, node, locale_mgr, active_lang);
 
                 let is_open = collapsing.is_open();
                 let symbol = if is_open { "⏷" } else { "⏵" };
@@ -279,7 +298,15 @@ pub fn render_node_recursive(
                 }
 
                 if is_selected {
-                    render_node_buttons(ui, node, selected_node_id, alt_edit_buf, tx_worker);
+                    render_node_buttons(
+                        ui,
+                        node,
+                        selected_node_id,
+                        alt_edit_buf,
+                        tx_worker,
+                        locale_mgr,
+                        active_lang,
+                    );
                 }
             })
             .response;
@@ -288,7 +315,15 @@ pub fn render_node_recursive(
             let children_len = node.children.len();
             for idx in 0..children_len {
                 let child = &mut node.children[idx];
-                render_node_recursive(ui, child, selected_node_id, alt_edit_buf, tx_worker);
+                render_node_recursive(
+                    ui,
+                    child,
+                    selected_node_id,
+                    alt_edit_buf,
+                    tx_worker,
+                    locale_mgr,
+                    active_lang,
+                );
             }
         });
     });
