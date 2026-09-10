@@ -19,6 +19,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::mpsc::{Receiver, Sender, channel};
+use theme::{colors, size, space, text};
 use vello::Scene;
 
 /// A document that opened encrypted, waiting for the password that unlocks it.
@@ -472,8 +473,63 @@ impl FepdfApp {
                 ui.centered_and_justified(|ui| {
                     ui.label(&self.loading_message);
                 });
+            } else {
+                self.render_empty_state(ui);
             }
         });
+    }
+
+    /// What the window says when it holds no document.
+    ///
+    /// **It used to say nothing at all.** The branch that reaches here had no `else`, so
+    /// a reader opening the application met an empty canvas with a 32-point unlabelled
+    /// arrow in the corner of a 3,024-pixel screen, and no statement anywhere of what to
+    /// do or that dropping a file would work. An entry point nobody can find is not an
+    /// entry point (principle P3), and this is the first screen there is.
+    fn render_empty_state(&mut self, ui: &mut egui::Ui) {
+        let ctx = ui.ctx().clone();
+        let tr = |key: &str| self.locale_mgr.tr(&self.active_language, key);
+        let mut chosen = None;
+
+        ui.vertical_centered(|ui| {
+            let free = ui.available_height();
+            ui.add_space(free / 3.0);
+
+            ui.label(
+                egui::RichText::new(icons::glyph::OPEN)
+                    .size(size::ICON)
+                    .family(theme::icon_family())
+                    .color(colors::steel::EDGE),
+            );
+            ui.add_space(space::SECTION);
+
+            ui.label(
+                egui::RichText::new(tr("empty_title")).size(text::TITLE).color(colors::steel::TEXT),
+            );
+            ui.add_space(space::PANE);
+
+            let choose =
+                egui::Button::new(egui::RichText::new(tr("empty_choose")).size(text::BODY))
+                    .min_size(egui::vec2(size::FORM_W / 2.0, size::ICON))
+                    .corner_radius(theme::radius::CONTROL);
+            if ui.add(choose).clicked()
+                && let Some(path) = rfd::FileDialog::new().add_filter("PDF", &["pdf"]).pick_file()
+            {
+                chosen = Some(path);
+            }
+            ui.add_space(space::PANE);
+
+            for key in ["drop_to_open_pdf", "tooltip_import_pdf", "empty_palette"] {
+                ui.label(
+                    egui::RichText::new(tr(key)).size(text::SMALL).color(colors::steel::MUTED),
+                );
+                ui.add_space(space::ITEM);
+            }
+        });
+
+        if let Some(path) = chosen {
+            self.open_file(path, &ctx);
+        }
     }
 
     fn handle_file_and_edit_shortcuts(&mut self, ui: &egui::Ui) {
