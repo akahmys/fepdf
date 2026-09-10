@@ -37,6 +37,57 @@ pub struct LockedDocument {
     pub refused: bool,
 }
 
+/// How loudly the window has to say something.
+///
+/// **A success and a failure cannot share a type, because they did.** One
+/// `error: Option<String>` carried both — a save reported through it, a tag creation
+/// reported through it, and the reader saw the same red text over an emptied canvas
+/// either way. The compiler now refuses to confuse them, which is the only kind of
+/// enforcement this rule can have (`CODING.md` UI-3).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Level {
+    /// It worked.
+    Done,
+    /// It worked, and something about it is worth looking at.
+    Check,
+    /// It did not work.
+    Failed,
+}
+
+/// One line the window owes the reader, and how loudly to say it.
+pub struct Notice {
+    /// How loudly.
+    pub level: Level,
+    /// What to say.
+    pub text: String,
+}
+
+impl Notice {
+    /// It worked.
+    pub fn done(text: impl Into<String>) -> Self {
+        Self { level: Level::Done, text: text.into() }
+    }
+
+    /// It worked, and there is something to look at.
+    pub fn check(text: impl Into<String>) -> Self {
+        Self { level: Level::Check, text: text.into() }
+    }
+
+    /// It did not work.
+    pub fn failed(text: impl Into<String>) -> Self {
+        Self { level: Level::Failed, text: text.into() }
+    }
+
+    /// The colour this level is said in.
+    pub fn colour(&self) -> egui::Color32 {
+        match self.level {
+            Level::Done => theme::colors::note::PASS,
+            Level::Check => theme::colors::note::WARN,
+            Level::Failed => theme::colors::note::FAIL,
+        }
+    }
+}
+
 pub struct FepdfApp {
     pub tx_worker: Sender<WorkerRequest>,
     pub rx_worker: Receiver<WorkerResponse>,
@@ -50,7 +101,8 @@ pub struct FepdfApp {
     pub page_layouts: Vec<PageLayout>,
 
     pub view: PDFView,
-    pub error: Option<String>,
+    /// The one line this window has to say, until the reader dismisses it.
+    pub notice: Option<Notice>,
     pub pdf_name: Option<String>,
 
     pub vello_renderer: Option<VelloRenderer>,
@@ -166,7 +218,7 @@ impl FepdfApp {
             total_pages: 0,
             page_layouts: Vec::new(),
             view: PDFView::new(),
-            error: None,
+            notice: None,
             pdf_name: None,
             vello_renderer,
             scenes: BTreeMap::new(),
@@ -347,10 +399,7 @@ impl FepdfApp {
                     ctx.request_repaint();
                 }
                 WorkerResponse::OperationApplied { message } => {
-                    // The same field a save reports through: it is the one notice line
-                    // this window has, and calling it `error` is the misnomer rather
-                    // than this being a misuse of it.
-                    self.error = Some(message);
+                    self.notice = Some(Notice::done(message));
                     // The pages the operation moved are on screen, and every cached scene
                     // predates it.
                     self.scenes.clear();
@@ -360,16 +409,16 @@ impl FepdfApp {
                 }
                 WorkerResponse::DocumentSaved { path, notices } => {
                     let name = path.file_name().unwrap_or(path.as_os_str()).display();
-                    self.error = Some(if notices.is_empty() {
-                        format!("Successfully exported compliant PDF to {name}")
+                    self.notice = Some(if notices.is_empty() {
+                        Notice::done(format!("Exported to {name}"))
                     } else {
-                        format!("Exported to {name}\n{}", notices.join("\n"))
+                        Notice::check(format!("Exported to {name} — {}", notices.join("; ")))
                     });
                     ctx.request_repaint();
                 }
                 WorkerResponse::Error(err) => {
                     self.is_loading = false;
-                    self.error = Some(err);
+                    self.notice = Some(Notice::failed(err));
                 }
             }
         }
@@ -410,11 +459,12 @@ impl FepdfApp {
             let bg_color = crate::app::theme::colors::paper::CANVAS;
             ui.painter().rect_filled(ui.max_rect(), theme::radius::FLAT, bg_color);
 
-            if let Some(err) = &self.error {
-                ui.centered_and_justified(|ui| {
-                    ui.colored_label(crate::app::theme::colors::note::FAIL, err);
-                });
-            } else if !self.page_layouts.is_empty() {
+            // **A notice no longer replaces the document.** Every one of them — a save
+            // that worked included — used to be drawn here, centred and red, over a
+            // canvas emptied of the pages it was reporting on; the reader's thirteen-page
+            // document vanished behind "Successfully exported". Notices belong on the
+            // status bar, which is where a window says what it is doing.
+            if !self.page_layouts.is_empty() {
                 let viewport_rect = ui.max_rect();
                 self.last_viewport_rect = Some(viewport_rect);
                 self.render_document_panel(ui, rs, viewport_rect);
@@ -595,5 +645,35 @@ impl eframe::App for FepdfApp {
 
         // 5. Floating modals & dialogs
         self.render_overlay_windows(&ctx);
+    }
+}
+
+#[cfg(test)]
+mod notices {
+    use super::{Level, Notice, theme::colors};
+
+    /// **A success and a failure must not arrive at the same colour**, which is the
+    /// visible half of what the type separation is for. The other half — that a save
+    /// cannot be reported as a failure — is held by the compiler and needs no test:
+    /// `Notice::done` is the only way to say a thing worked.
+    #[test]
+    fn each_level_says_a_different_thing() {
+        let done = Notice::done("exported");
+        let check = Notice::check("exported, with notices");
+        let failed = Notice::failed("could not read the file");
+
+        assert_eq!(done.colour(), colors::note::PASS);
+        assert_eq!(check.colour(), colors::note::WARN);
+        assert_eq!(failed.colour(), colors::note::FAIL);
+        assert_ne!(done.colour(), failed.colour());
+        assert_ne!(check.colour(), failed.colour());
+    }
+
+    /// The text survives the constructor it went into.
+    #[test]
+    fn a_notice_keeps_what_it_was_given() {
+        let n = Notice::check("Exported to out.pdf — permissions dropped");
+        assert_eq!(n.level, Level::Check);
+        assert_eq!(n.text, "Exported to out.pdf — permissions dropped");
     }
 }

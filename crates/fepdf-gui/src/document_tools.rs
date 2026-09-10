@@ -275,7 +275,9 @@ fn attach_form(app: &mut FepdfApp, ui: &mut egui::Ui) {
                 }),
                 "tools_attach",
             ),
-            Err(e) => app.error = Some(format!("{}: {e}", path.display())),
+            Err(e) => {
+                app.notice = Some(crate::app::Notice::failed(format!("{}: {e}", path.display())));
+            }
         }
     }
 }
@@ -367,7 +369,8 @@ fn portfolio_form(app: &mut FepdfApp, ui: &mut egui::Ui) {
                     data,
                 }),
                 Err(e) => {
-                    app.error = Some(format!("{}: {e}", path.display()));
+                    app.notice =
+                        Some(crate::app::Notice::failed(format!("{}: {e}", path.display())));
                     return;
                 }
             }

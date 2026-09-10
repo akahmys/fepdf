@@ -206,10 +206,11 @@ impl ExportWizard {
                     } else {
                         msg = msg.replace(&format!("{}{}", "{:?", "}"), &file_label);
                     }
-                    app.error = Some(msg);
+                    app.notice = Some(crate::app::Notice::done(msg));
                 } else {
-                    app.error =
-                        Some(app.locale_mgr.tr(&app.active_language, "export_draft_save_fail"));
+                    app.notice = Some(crate::app::Notice::failed(
+                        app.locale_mgr.tr(&app.active_language, "export_draft_save_fail"),
+                    ));
                 }
             }
 
@@ -219,11 +220,13 @@ impl ExportWizard {
             {
                 if let Ok(draft) = serde_json::from_slice::<USTRegistry>(&bytes) {
                     app.ust_registry = draft;
-                    app.error =
-                        Some(app.locale_mgr.tr(&app.active_language, "export_draft_loaded"));
+                    app.notice = Some(crate::app::Notice::done(
+                        app.locale_mgr.tr(&app.active_language, "export_draft_loaded"),
+                    ));
                 } else {
-                    app.error =
-                        Some(app.locale_mgr.tr(&app.active_language, "export_draft_load_fail"));
+                    app.notice = Some(crate::app::Notice::failed(
+                        app.locale_mgr.tr(&app.active_language, "export_draft_load_fail"),
+                    ));
                 }
             }
         });

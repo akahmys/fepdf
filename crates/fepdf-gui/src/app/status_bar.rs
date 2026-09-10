@@ -32,17 +32,19 @@ impl FepdfApp {
         );
     }
 
-    /// The left of the bar: what the renderer left out, which view mode is in force,
-    /// and the reading-order toggle.
+    /// The left of the bar: what just happened, what the renderer left out, which view
+    /// mode is in force, and the reading-order toggle.
     fn status_indicators(&mut self, ui: &mut egui::Ui, has_doc: bool) {
-        // Pages the renderer left out say so here rather than in the decision sidebar:
-        // see `FepdfApp::pages_left_out` for why that is not a `Decision`.
-        if self.pages_left_out > 0 {
-            let notice = self
+        if self.notice.is_some() {
+            self.say_notice(ui);
+        } else if self.pages_left_out > 0 {
+            // Pages the renderer left out say so here rather than in the decision
+            // sidebar: see `FepdfApp::pages_left_out` for why that is not a `Decision`.
+            let over = self
                 .locale_mgr
                 .tr(&self.active_language, "status_pages_over_budget")
                 .replacen("{}", &self.pages_left_out.to_string(), 1);
-            ui.label(egui::RichText::new(notice).size(text::SMALL).color(colors::note::WARN));
+            ui.label(egui::RichText::new(over).size(text::SMALL).color(colors::note::WARN));
         } else {
             ui.label(
                 egui::RichText::new(self.locale_mgr.tr(&self.active_language, "status_ready"))
@@ -74,6 +76,29 @@ impl FepdfApp {
         let reading = egui::RichText::new(reading_txt).size(text::SMALL);
         if ui.selectable_label(self.show_reading_order, reading).clicked() {
             self.show_reading_order = !self.show_reading_order;
+        }
+    }
+
+    /// What just happened, in the slot the ready line otherwise holds.
+    ///
+    /// **It is dismissible, and it does not touch the document.** The line this replaces
+    /// was drawn over the canvas instead of on the bar, so a save that worked emptied the
+    /// window it was reporting on and stayed there until another file was opened.
+    fn say_notice(&mut self, ui: &mut egui::Ui) {
+        let Some(notice) = &self.notice else { return };
+        let colour = notice.colour();
+        ui.label(egui::RichText::new(&notice.text).size(text::SMALL).color(colour));
+        ui.add_space(space::ITEM);
+        let dismiss = egui::Button::new(
+            egui::RichText::new(glyph::CLOSE)
+                .size(text::SMALL)
+                .family(super::theme::icon_family())
+                .color(colour),
+        )
+        .min_size(egui::vec2(size::ROW, size::ROW))
+        .corner_radius(super::theme::radius::CONTROL);
+        if ui.add(dismiss).on_hover_text("閉じる (Close)").clicked() {
+            self.notice = None;
         }
     }
 

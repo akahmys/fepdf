@@ -34,7 +34,7 @@ impl FepdfApp {
             root.children.push(new_node);
         }
 
-        self.error = Some(format!("Successfully created <{tag}> tag"));
+        self.notice = Some(super::Notice::done(format!("Created <{tag}>")));
     }
 
     pub fn open_file(&mut self, path: PathBuf, ctx: &egui::Context) {
@@ -50,7 +50,7 @@ impl FepdfApp {
         name: Option<String>,
         ctx: &egui::Context,
     ) {
-        self.error = None;
+        self.notice = None;
         self.total_pages = 0;
         self.page_layouts.clear();
         self.scenes.clear();
