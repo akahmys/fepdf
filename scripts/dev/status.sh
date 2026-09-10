@@ -253,6 +253,14 @@ if anchored "operations named as MCP tools" 'pub enum Operation' crates/fepdf-do
     op_named=$(grep -rhoE 'Operation::[A-Z][A-Za-z0-9]*' crates/fepdf-mcp/src --include="*.rs" \
         | sed 's/Operation:://' | sort -u | wc -l | tr -d ' ')
     row "operations named as MCP tools" "$op_named of $op_count"
+
+    # ARCHITECTURE 4.1 draws all three frontends against the same denominator and only
+    # the MCP row was ever counted. The GUI's stood at 6 while the code constructed 12.
+    for frontend in cli gui; do
+        built=$(grep -rhoE 'Operation::[A-Z][A-Za-z0-9]*' "crates/fepdf-$frontend/src" \
+            --include="*.rs" | sed 's/Operation:://' | sort -u | wc -l | tr -d ' ')
+        row "operations fepdf-$frontend constructs" "$built of $op_count"
+    done
 fi
 
 # JavaScript that ships with the engine and that RR-15 does not read.

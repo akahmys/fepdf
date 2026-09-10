@@ -148,3 +148,4 @@ quietly wrong — which is the failure this log exists to make visible.
 | 0081 | [The writing rules had nothing behind them](0081-the-writing-rules-had-nothing-behind-them.md) | Enforces 0039 |
 | 0082 | [The script crate is a library the frontends call](0082-the-script-crate-is-a-library-the-frontends-call.md) | Amends 0025, after 0032 |
 | 0083 | [A fixture crate that depends on nothing](0083-a-fixture-crate-that-depends-on-nothing.md) | Thirty-two hand-written assemblers |
+| 0084 | [The GUI gets rules, not a rulebook](0084-the-gui-gets-rules-not-a-rulebook.md) | Third attempt after 0038 |

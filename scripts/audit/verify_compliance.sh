@@ -404,6 +404,15 @@ python3 scripts/audit/documents.py || ERROR=1
 echo "[Rules A, D] Checking the facade's boundary in both directions..."
 python3 scripts/audit/layering.py || ERROR=1
 
+# Two icons drew nothing and the palette governed less than half the colours on screen,
+# and both held for as long as nothing looked. A rule the audit does not run is a comment
+# (AGENTS.md 4), and these two are the only entries in CODING.md §4 a script can hold.
+echo "[Rule UI-1] Checking that every icon codepoint resolves to a glyph..."
+python3 scripts/audit/icon_glyphs.py || ERROR=1
+
+echo "[Rule UI-9] Checking that colours are written in the palette..."
+python3 scripts/audit/palette.py || ERROR=1
+
 echo "[Rule 19] Checking formatting..."
 if cargo fmt --all --check > /dev/null 2>&1; then
     echo "  PASS"

@@ -255,7 +255,88 @@ write "by construction" without naming what would notice.**
 cycle it looks like: it is absent from the build graph of anything that links
 `fepdf-render`.
 
-## 🏛️ 3. What code must satisfy elsewhere
+## 🖼️ 3. The interface rules
+
+> **Phase: implementation, and the window is code too.** Why these exist and why they are
+> not a document of their own is in
+> [ADR-0084](docs/adr/0084-the-gui-gets-rules-not-a-rulebook.md), which records the two
+> GUI documents this repository has written and deleted.
+
+### The principles they come from
+
+A rule answers *is this allowed*. A principle answers *both are allowed, so which*. Each
+of these rejects something a reasonable person would otherwise do, which is the only test
+that keeps one from being decoration.
+
+| | | It rejects |
+| :--- | :--- | :--- |
+| **P1** | Make it reversible before you make it reachable | "a confirmation dialog makes it safe" — a confirmation slows the action down; it does not undo it |
+| **P2** | Show it before you let it be edited | "the engine has an `apply` for it, so put it in the GUI" |
+| **P3** | An entry point nobody can find is not an entry point | a menu-less design, and a naive reading of minimalism |
+| **P4** | Run the product's own checks over the product's own window | "the interface is outside the product" |
+
+They apply in that order: **reversible → visible → findable**, which is also the order to
+build them in. Reversing it makes each worse — a discoverable delete that cannot be undone
+is worse than a hidden one, and an entry point onto something invisible is a button that
+appears to do nothing.
+
+**Where the interface and the look of it disagree, the interface wins.** Discoverability
+is not traded for simplicity. The design document ADR-0084 records made that trade, and
+what it bought is a window whose editing operations are mostly unreachable.
+
+Nothing checks the four. They sit here rather than in `AGENTS.md` because the rules below
+are derived from them and a derivation is worth reading in one place.
+
+### Rule Summary Matrix
+
+`UI-` rather than a number continued from RR-15: those are aerospace-derived safety rules
+and these are not, and reassigning a number is what made Rules 9 and 14 mean two things.
+
+| Rule | Area | Requirement | Enforcement |
+| :--- | :--- | :--- | :--- |
+| **UI-1** | Icon vocabulary | Every codepoint drawn as an icon resolves to a glyph that draws, in the font intended for it, and is declared in `app/icons.rs` | `scripts/audit/icon_glyphs.py` via `verify_compliance.sh` |
+| **UI-2** | Accessible name | A widget whose only content is a glyph carries a name by some other means | **nothing** |
+| **UI-3** | Notice typing | A success and a failure do not share a type | **rustc** — `Notice::done` is the only way to say a thing worked |
+| **UI-4** | Reachability | No feature lacks a visible entry point. A shortcut and the command palette are shortcuts, not entry points | **nothing** |
+| **UI-5** | Localisation | No user-facing string literal in the source; all through the locale keys | **nothing** — `locale.rs` holds the two key sets equal, which is a different claim |
+| **UI-6** | Reversibility | An operation that changes the document can be undone | **nothing** |
+| **UI-7** | Progress | Work over ~100ms says that it is happening | **nothing** |
+| **UI-8** | Contrast | Body text 4.5:1; a non-text boundary that carries meaning 3:1 (WCAG 1.4.11) | **nothing** — computable from `theme::colors`, unimplemented |
+| **UI-9** | Colour source | A colour is written in `app/theme.rs` or it is not written | `scripts/audit/palette.py` via `verify_compliance.sh` |
+| **UI-10** | One accent | Rust marks what the reader is touching, and marks nothing else | **nothing** |
+| **UI-11** | Dimensional tokens | Spacing, type size and corner radius come from the declared scales | **nothing** |
+| **UI-12** | One home per action | An action belongs to one surface; the others are shortcuts to it | **nothing** |
+| **UI-13** | Layout grid | Chrome stands on the 4pt grid; the page keeps the 72pt one | a build-time `assert!` over the tokens; the rest **nothing** |
+
+**Ten of thirteen say "nothing", and that is the honest state rather than an omission.**
+Rule 4 above requires the word to be written where nothing checks — and UI-6 and UI-7,
+which are the two the measurements rank highest, are among the ten.
+
+### The three vocabularies
+
+Every value the window is built from lives in `crates/fepdf-gui/src/app/theme.rs`, in one
+of three groups, and a widget may not invent a fourth.
+
+| | | |
+| :--- | :--- | :--- |
+| **Colour** | 紙 `paper` — surfaces | four grades of one white ground |
+| | 鋼 `steel` — lines and letters | `TEXT` `MUTED` `EDGE` `RULE`, where `EDGE` is any boundary that carries meaning and `RULE` is decoration |
+| | 錆 `rust` — the one accent | what the reader is touching; nothing else (UI-10) |
+| | `note` — what to do about it | `PASS` `INFO` `WARN` `FAIL`, each at least 26° of hue from the accent |
+| **Dimension** | space | `ITEM` `GROUP` `SECTION` `PANE` — the step says how big the break is |
+| | text | `SMALL` `BODY` `HEAD` `TITLE` |
+| | radius | `FLAT` for a plane, `CONTROL` for anything clickable |
+| **Layout** | chrome | the 4pt grid, and one click-target size |
+| | canvas | the 72pt grid, which `app/layout.rs` already held |
+
+**An overlay drawn on the page may not rely on its hue.** The document's colours are the
+document's — a drawing printed in orange is as likely as one in black — so an overlay is
+told apart by shape, by the word written on it, or by sitting outside the sheet, and it
+carries a paper-coloured halo so it reads on any ground (`theme::canvas`).
+
+---
+
+## 🏛️ 4. What code must satisfy elsewhere
 
 This document says what code must satisfy. The design it satisfies lives in
 `ARCHITECTURE.md`, and repeating it here is how the two came to disagree: this section

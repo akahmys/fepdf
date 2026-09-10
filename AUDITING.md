@@ -66,16 +66,22 @@ Execute the master audit script:
 ./scripts/audit/verify_compliance.sh
 ```
 
-**Sixteen steps**, in the order the script runs them. Derive this list rather than
+**Twenty-two steps**, in the order the script runs them. Derive this list rather than
 maintaining it — and derive it from the lines that *are* steps:
 
 ```bash
-grep -oE '^echo "\[[A-Za-z0-9 ]+\]' scripts/audit/verify_compliance.sh
+grep -cE '^echo "\[[^]]+\]' scripts/audit/verify_compliance.sh
 ```
 
 The obvious form, `grep -oE '\[Rule [0-9]+\]'`, was here until 2026-09-06 and reported a
 `[Rule 17]` that is not a step: it is a comment recording what the clippy step was called
 before Rule 17 was retired. A derivation that reads comments is not a derivation.
+
+**Nor is one that cannot see three of its own subjects.** The form here read
+`[A-Za-z0-9 ]+` inside the brackets, so it missed `[Rules A, D]` on the comma and both
+`[Rule UI-*]` steps on the hyphen — and the prose above it said sixteen while the table
+below listed twenty. Three numbers about one script, no two of them equal. The class the
+brackets hold is not a class this file gets to choose, so it does not try to name it.
 
 | | Step | Rule |
 | ---: | :--- | :--- |
@@ -96,9 +102,11 @@ before Rule 17 was retired. A derivation that reads comments is not a derivation
 | 15 | **No unbounded recursion over a document's graph** | **6** |
 | 16 | **Document tense, links, and the ADR index** | **`AGENTS.md` 1, 2** |
 | 17 | **What stands above the facade, what it declares, and what the facade lets in** | **A, D** |
-| 18 | `cargo fmt --all --check` | 19 |
-| 19 | `cargo deny check licenses` | 16 |
-| 20 | `betterleaks dir .` | 18 |
+| 18 | **Every icon codepoint resolves to a glyph that draws, and is written in one file** | **UI-1** |
+| 19 | **Colours are written in the palette; three exemptions, named** | **UI-9** |
+| 20 | `cargo fmt --all --check` | 19 |
+| 21 | `cargo deny check licenses` | 16 |
+| 22 | `betterleaks dir .` | 18 |
 
 **Rules 3 and 7 are not here and are not unenforced.** `unsafe_code = "forbid"` fails the
 build on an `unsafe` block, and a `static mut` cannot be read without one, so `rustc`

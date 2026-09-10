@@ -3165,6 +3165,126 @@ Each phase here therefore states what *done* means in terms that can be measured
 the current state above is what the code does today rather than what it was intended
 to do.
 
+## Phase V — The window, looked at
+
+**Nobody had looked at `fepdf-gui`.** Phase P closed with the layer panel "not visually
+verified … nobody has looked at it yet", and the only tool for it had been deleted as
+unreferenced. Running the binary and screenshotting it on 2026-09-10 took under a minute
+and found four defects that no test could have caught, because each was a thing drawn
+rather than a thing computed.
+
+The rules this phase produced, and why they are rows in `CODING.md` §3 rather than a
+document of their own, are in
+[ADR-0084](docs/adr/0084-the-gui-gets-rules-not-a-rulebook.md).
+
+- [x] **Two icons drew nothing, and the cause was the font stack rather than the
+      codepoints.** `U+E8E8` is past the end of `lucide.ttf`, whose last glyph is
+      `U+E6FD`. `U+E0FF` is in it — and is also the Ubuntu logo in egui's own
+      `Ubuntu-Light`, which sat ahead of the icon font in the proportional family, so the
+      continuous-scroll button asked for a grid of squares and got a logo it then failed
+      to draw. Two more resolved to the wrong picture: the caliper was `shield-ban` and
+      single-page was `layout`.
+
+      The icon font now has a family of its own, which nothing else can answer for, and
+      every codepoint is declared in one file.
+
+      ```bash
+      python3 scripts/audit/icon_glyphs.py    # 23 codepoints, 0 failing
+      ```
+
+- [x] **Every selected widget drew its text transparent.** `App::ui` set
+      `visuals.selection.stroke = Stroke::NONE` on the root `Ui` each frame, and egui's
+      `Style::interact_selectable` assigns that stroke to `fg_stroke` when a widget is
+      selected — and `Stroke::NONE` carries `Color32::TRANSPARENT`. The reading-order
+      toggle is on by default, so it had always been an unlabelled grey box; so had every
+      selected view-mode button. The same six lines discarded the palette's selection
+      colour for a grey, so the palette held a constant rustc counted as used and the
+      screen never showed.
+
+- [x] **A save that worked emptied the window it worked on.** One
+      `error: Option<String>` carried every message, three of its five setters were
+      successes, and one branch drew it centred and red **over a canvas emptied of the
+      pages it was reporting on**. Nothing cleared it but opening another file. Replaced
+      by `Notice { level, text }`, where `Notice::done` is the only way to say a thing
+      worked — the whole enforcement of UI-3, and the only rule in that table rustc can
+      hold.
+
+- [x] **The palette governed less than half the colours on screen.** Seventeen constants
+      against forty literals outside them, twenty-eight of those in `view.rs` — the page
+      and everything drawn over it, which is the surface a reader looks at longest. The
+      palette's own discipline caught only the other direction: it carries no
+      `#[allow(dead_code)]`, so an unused constant is reported, but nothing reported a
+      colour that never reached it.
+
+      Three literals remain and each is named in `scripts/audit/palette.py`: two
+      `Painter::image` tints where white is the identity multiplier, and the fill of a
+      committed redaction, which is black because burning writes black.
+
+      | | before | after |
+      | :--- | ---: | ---: |
+      | colour literals outside the palette | 40 | **3, named** |
+      | spacing values | 8 | 6 |
+      | type sizes | 8 | 5 |
+      | button constructors | 3 | **1** |
+      | smallest click target | 20×20 | **32×32** |
+
+- [x] **A sheet met the canvas at 1.09:1, and only in the tile grid did it have an
+      edge.** White paper on the workbench is not a boundary; in the page view there was
+      none at all and a page's margin ran into the bench. `steel::EDGE` measures 3.18:1
+      on screen against the paper — 3.20:1 by construction — and clears WCAG 1.4.11's 3:1
+      without darkening the canvas to the mid-grey that would be needed to do it with fill
+      alone.
+
+      The palette's text pairs were never the problem: 7.58:1, 14.63:1, 7.38:1. The
+      failures were all non-text — the sheet, a border at 1.48:1, a disabled control at
+      1.23:1 — which is the criterion the deleted `desktop-ui.md` did not name while
+      mandating the one that passed.
+
+- [x] **The first screen said nothing.** `update_vello`'s branch had no `else`: a reader
+      opening the application met an empty canvas whose only affordance was a 32-point
+      unlabelled arrow in the corner of a 3,024-pixel screen. It now carries the
+      invitation and three ways to accept it.
+
+*Done when*: the ten `UI-` rules that say "nothing" say something else, or the roadmap
+says why not. The nearest four, in the order the principles put them:
+
+- **UI-6, reversibility.** `grep -rn "dirty\|unsaved\|on_close\|CloseRequested"` over
+  the crate returns **nothing**. Pages are deleted by one keystroke, without confirmation,
+  without undo, and a window with unsaved edits closes without a word. This is the highest
+  severity left and P1 puts it first.
+- **UI-4 and UI-12 together, reachability.** Seven of the GUI's twelve `Operation`
+  variants are reached only through the command palette — `show_document_tools = true`
+  appears at exactly one call site — while the export wizard is reached from three places.
+  One rule forbids too few entry points and the other too many, and the same window breaks
+  both at once.
+- **UI-5, localisation.** **39** user-facing string literals in the source, of which 18
+  are every tooltip on the status bar and 5 are the whole page context menu. An English
+  reader gets Japanese on every view control — and the count went *up* by one in this
+  phase, on the button that dismisses a notice.
+
+  ```bash
+  grep -rhoE '"[^"]*[ぁ-んァ-ヶ一-龥][^"]*"' crates/fepdf-gui/src --include='*.rs' | wc -l
+  ```
+
+- **UI-11, dimensions.** **56** off-scale values remain, 27 of them in
+  `sidebar/document_info.rs`. The rule cannot be checked until they are gone, because a
+  check that fails on arrival is a check nobody turns on.
+
+  ```bash
+  grep -rhoE 'add_space\([0-9.]+|\.size\([0-9.]+' crates/fepdf-gui/src --include='*.rs' | wc -l
+  ```
+
+**And one thing found while looking that is not a rule.** The reading-order overlay is on
+by default, announces itself in the status bar, and **draws nothing for any document as
+opened**. Both structure overlays require `USTNode::rect`, and `Some(...)` reaches it at
+exactly one site outside the tests — `inject_tag_to_tree`, the tagging brush. Every node
+read from a document carries `None`, so the only tags the window can show are the ones
+the reader has just drawn.
+
+```bash
+grep -rn "rect: Some" crates/fepdf-gui/src --include='*.rs' | grep -v tests
+```
+
 *Updated 2026-08-22 (Phase P). The figures above come from the sample corpus, a set of
 deliberately malformed files, and the 515 external files Phases G and O fetched; the catalogue,
 annotation and form-field counts in Phases J and K were taken by running `inspect

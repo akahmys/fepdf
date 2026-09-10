@@ -149,7 +149,7 @@ interpreter changes that reach them in the second.
 | **`fepdf`** | ✅ | The public facade: `PdfDocument`, `SaveOptions`, `Operation`. It is the Rule A boundary in fact — frontends depend on it and on nothing below. Lost 167 lines when ten document-mutating methods left for the vocabulary (§4.1); `duplicate_page` and `insert_pages_from` were not passthroughs but arena work, and belonged with the cloner in `fepdf-doc`. |
 | **`fepdf-cli`** | ✅ | Command-line binary (`fepdf`). |
 | **`fepdf-gui`** | ✅ | Desktop application on **egui** + **eframe** + **wgpu**. |
-| **`fepdf-mcp`** | ✅ | Model Context Protocol server for AI assistants. **The most complete frontend by some distance**: all 30 `Operation` variants, where `fepdf-cli` constructs 8 and `fepdf-gui` 6. That is the shape §4.1 predicted — a tool is the serialised form of an operation — arriving on its own. It sat at 24 for a phase, missing exactly the six Rule D produced, because nothing counted; `status.sh` counts them now against the enum itself. |
+| **`fepdf-mcp`** | ✅ | Model Context Protocol server for AI assistants. **The most complete frontend by some distance**: all 30 `Operation` variants, where `fepdf-cli` constructs 8 and `fepdf-gui` 12. That is the shape §4.1 predicted — a tool is the serialised form of an operation — arriving on its own. It sat at 24 for a phase, missing exactly the six Rule D produced, because nothing counted; `status.sh` counts all three frontends now against the enum itself. |
 | **`fepdf-wasm`** | ✅ | WebAssembly bindings for what needs no GPU: it opens a document, counts its pages, extracts a page's text, and hands over the decision log and the structure tree as JSON. `render_page` **returns an error** naming what it did not draw — it used to return `Ok(())` having drawn nothing, so a caller was told it succeeded and got a blank canvas. It constructs no `Operation` at all, which is why the §4.1 diagram no longer lists it as a frontend that does. It **compiles for `wasm32-unknown-unknown`**: `getrandom` arrives through the crypto stack and is declared with its `js` feature for that target. Verify with `cargo build -p fepdf-wasm --target wasm32-unknown-unknown`. |
 | **`fepdf-script`** | ✅ | The fifth frontend: ECMAScript (12.6.4.16) on **boa**, translating into `Operation` exactly as the other four translate argv, a button press and a tool call. Depends on the facade and nothing else, so it is **not** wired into `fepdf` behind a feature — that would be a cycle ([ADR-0031](docs/adr/0031-a-script-frontend-cannot-be-a-facade-feature.md)). A caller who does not depend on it links none of the 95 crates boa brings. **ECMA-402 is refused rather than approximated**: a script naming a locale gets an error and a `Decision`. boa's `intl` feature was built and measured before this was settled — it has no `Intl.DateTimeFormat.prototype.format` and no currency style, which are the two things a form asks ECMA-402 for ([ADR-0034](docs/adr/0034-intl-is-declined-for-what-it-does-not-do.md)). |
 | **`fepdf-macros`** | ✅ | Compile-time procedural macros. |
@@ -169,7 +169,7 @@ through the facade. Frontends construct it; only `fepdf-doc` interprets it.
 
 ```
    fepdf-cli    argv          ─┐      8 of 30 variants
-   fepdf-gui    button press  ─┤      6 of 30
+   fepdf-gui    button press  ─┤     12 of 30
    fepdf-mcp    tool call     ─┼─►  Operation  ─►  fepdf-doc::apply
    fepdf-wasm   —             ─┘     (a value)      (the only implementation)
                                      30 variants      and the only way in
