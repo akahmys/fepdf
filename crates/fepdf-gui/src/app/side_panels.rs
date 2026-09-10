@@ -82,6 +82,7 @@ impl FepdfApp {
             (ActiveDrawer::Accessibility, glyph::STRUCTURE, "tab_accessibility"),
             (ActiveDrawer::Redaction, glyph::REDACT, "tooltip_redact_brush"),
             (ActiveDrawer::Caliper, glyph::CALIPER, "tooltip_caliper_brush"),
+            (ActiveDrawer::Tools, glyph::TOOLS, "tools_title"),
         ];
 
         for (drawer, icon, key) in entries {
@@ -116,6 +117,20 @@ impl FepdfApp {
         }
     }
 
+    /// The name of the drawer that is open.
+    fn drawer_title(&self) -> String {
+        let tr = |key: &str| self.locale_mgr.tr(&self.active_language, key);
+        match self.active_drawer {
+            ActiveDrawer::None => String::new(),
+            ActiveDrawer::DocumentInfo => tr("tab_doc_info_decisions"),
+            ActiveDrawer::WhatItDoes => tr("tab_what_it_does"),
+            ActiveDrawer::Accessibility => tr("tab_accessibility"),
+            ActiveDrawer::Redaction => tr("tooltip_redact_brush"),
+            ActiveDrawer::Caliper => tr("tooltip_caliper_brush"),
+            ActiveDrawer::Tools => tr("tools_title"),
+        }
+    }
+
     /// The utility drawer, when one is open.
     pub(crate) fn render_side_drawer(&mut self, ui: &mut egui::Ui) {
         // RR-15 Limit: GUI - Render active utility drawer on the left side of the main pane
@@ -123,8 +138,11 @@ impl FepdfApp {
             return;
         }
 
-        let locale_mgr = &self.locale_mgr;
-        let active_lang = &self.active_language;
+        // **The title is taken before the panel opens**, rather than through a borrow of
+        // the locale that lives as long as the drawer does: `ActiveDrawer::Tools` draws
+        // through `&mut FepdfApp`, and a shared borrow of one of its fields held across
+        // that is a borrow of the whole thing.
+        let title = self.drawer_title();
 
         egui::Panel::left("active_side_drawer")
             .resizable(true)
@@ -135,22 +153,6 @@ impl FepdfApp {
                 ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Wrap);
 
                 ui.horizontal(|ui| {
-                    let title = match self.active_drawer {
-                        ActiveDrawer::None => String::new(),
-                        ActiveDrawer::DocumentInfo => {
-                            locale_mgr.tr(active_lang, "tab_doc_info_decisions")
-                        }
-                        ActiveDrawer::WhatItDoes => locale_mgr.tr(active_lang, "tab_what_it_does"),
-                        ActiveDrawer::Accessibility => {
-                            locale_mgr.tr(active_lang, "tab_accessibility")
-                        }
-                        ActiveDrawer::Redaction => {
-                            locale_mgr.tr(active_lang, "tooltip_redact_brush")
-                        }
-                        ActiveDrawer::Caliper => {
-                            locale_mgr.tr(active_lang, "tooltip_caliper_brush")
-                        }
-                    };
                     ui.heading(egui::RichText::new(&title).size(text::HEAD));
 
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
@@ -202,8 +204,8 @@ impl FepdfApp {
                                 &self.doc_fonts,
                                 &self.layers,
                                 &self.doc_decisions,
-                                locale_mgr,
-                                active_lang,
+                                &self.locale_mgr,
+                                &self.active_language,
                             );
                         }
                         ActiveDrawer::Accessibility => {
@@ -211,8 +213,8 @@ impl FepdfApp {
                                 ui,
                                 &mut self.ust_registry,
                                 &self.tx_worker,
-                                locale_mgr,
-                                active_lang,
+                                &self.locale_mgr,
+                                &self.active_language,
                             );
                         }
                         ActiveDrawer::Redaction => {
@@ -221,14 +223,15 @@ impl FepdfApp {
                                 &self.raw_texts,
                                 &self.page_spans,
                                 &mut self.redaction_manager,
-                                locale_mgr,
-                                active_lang,
+                                &self.locale_mgr,
+                                &self.active_language,
                             );
                         }
                         ActiveDrawer::Caliper => {
                             self.caliper_tool.is_active = true;
                             self.caliper_tool.show_panel(ui);
                         }
+                        ActiveDrawer::Tools => crate::document_tools::show(self, ui),
                     },
                 );
             });

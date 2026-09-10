@@ -18,39 +18,6 @@ impl FepdfApp {
         crate::export_wizard::ExportWizard::show(self, ctx);
     }
 
-    /// Bulk front end for the redaction pipeline: pattern-matched text spans are pushed
-    /// into the same `RedactionManager::zones` the manual brush fills, so the export
-    /// wizard's "burn redactions" path consumes both identically.
-    pub(crate) fn show_redaction_studio_window(&mut self, ctx: &egui::Context) {
-        let Self {
-            redaction_studio_panel,
-            raw_texts,
-            page_spans,
-            redaction_manager,
-            locale_mgr,
-            active_language,
-            show_redaction_studio,
-            ..
-        } = self;
-
-        let title = locale_mgr.tr(active_language, "redaction_studio_title");
-        egui::Window::new(format!("🔍 {title}"))
-            .open(show_redaction_studio)
-            .resizable(true)
-            .default_width(size::TABLE_W)
-            .default_height(size::TABLE_W * 0.75)
-            .show(ctx, |ui| {
-                redaction_studio_panel.show(
-                    ui,
-                    raw_texts,
-                    page_spans,
-                    redaction_manager,
-                    locale_mgr,
-                    active_language,
-                );
-            });
-    }
-
     pub(crate) fn show_about_modal_window(&mut self, ctx: &egui::Context) {
         // RR-15 Limit: GUI - Displays the application metadata/about modal
         if self.show_about_modal {
@@ -272,10 +239,6 @@ impl FepdfApp {
             self.show_export_wizard_window(ctx);
         }
 
-        if self.show_redaction_studio {
-            self.show_redaction_studio_window(ctx);
-        }
-
         // Show Command Palette window overlay
         crate::command_palette::CommandPalette::show(self, ctx);
 
@@ -373,8 +336,6 @@ impl FepdfApp {
                 self.show_settings_modal = false;
             }
         }
-
-        crate::document_tools::show(self, ctx);
 
         // Show About Modal
         self.show_about_modal_window(ctx);

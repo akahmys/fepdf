@@ -16,7 +16,7 @@ impl CommandPalette {
             .resizable(false)
             .collapsible(false)
             .anchor(egui::Align2::CENTER_TOP, egui::vec2(0.0, 100.0))
-            .default_width(crate::app::theme::size::FORM_W)
+            .default_width(crate::app::theme::size::TABLE_W)
             .show(ctx, |ui| {
                 ui.horizontal(|ui| {
                     ui.label("🔍");
@@ -128,7 +128,7 @@ impl CommandPalette {
                                 };
                             }
                             "Document Tools" => {
-                                app.show_document_tools = true;
+                                app.active_drawer = crate::sidebar::ActiveDrawer::Tools;
                             }
                             _ => {}
                         }

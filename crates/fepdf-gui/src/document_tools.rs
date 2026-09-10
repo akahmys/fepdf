@@ -69,21 +69,9 @@ impl Default for ToolState {
     }
 }
 
-/// Draws the tools window, and sends whatever the reader applied.
-pub fn show(app: &mut FepdfApp, ctx: &egui::Context) {
-    if !app.show_document_tools {
-        return;
-    }
-    let mut open = true;
-    let title = app.locale_mgr.tr(&app.active_language, "tools_title");
-    egui::Window::new(format!("🛠 {title}"))
-        .open(&mut open)
-        .resizable(false)
-        .default_width(crate::app::theme::size::TABLE_W)
-        .show(ctx, |ui| body(app, ui));
-    if !open {
-        app.show_document_tools = false;
-    }
+/// Draws the tools, into the drawer that holds them.
+pub fn show(app: &mut FepdfApp, ui: &mut egui::Ui) {
+    body(app, ui);
 }
 
 fn body(app: &mut FepdfApp, ui: &mut egui::Ui) {

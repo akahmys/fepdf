@@ -30,6 +30,8 @@ pub mod glyph {
     pub const REDACT: &str = "\u{e28f}";
     /// `ruler` — the caliper. Was `shield-ban`.
     pub const CALIPER: &str = "\u{e14b}";
+    /// `file-sliders` — the operations that act on the document as a whole.
+    pub const TOOLS: &str = "\u{e5a0}";
     /// `settings`.
     pub const SETTINGS: &str = "\u{e154}";
     /// `circle-help`.

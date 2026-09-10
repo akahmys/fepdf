@@ -21,6 +21,14 @@ pub enum ActiveDrawer {
     Accessibility,
     Redaction,
     Caliper,
+    /// The operations that act on the whole document — page labels, Bates numbering,
+    /// retagging, the standard it declares, attachments, geography, a portfolio.
+    ///
+    /// **A drawer rather than a window, because the other five are drawers.** It was a
+    /// floating `egui::Window` whose only entry point was the command palette, which is
+    /// to say that seven of this window's twelve document operations could be reached
+    /// only by a reader who already knew they existed (UI-4).
+    Tools,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize, Default)]

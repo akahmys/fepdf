@@ -94,7 +94,6 @@ pub struct FepdfApp {
     pub rx_worker: Receiver<WorkerResponse>,
     /// Set while a document waits for its password; `None` the rest of the time.
     pub locked: Option<LockedDocument>,
-    pub show_document_tools: bool,
     pub survey: crate::sidebar::what_it_does::Survey,
     pub tools: crate::document_tools::ToolState,
 
@@ -118,7 +117,6 @@ pub struct FepdfApp {
 
     pub redaction_manager: RedactionManager,
     pub redaction_studio_panel: crate::redaction_studio::RedactionStudioPanel,
-    pub show_redaction_studio: bool,
     pub show_export_wizard: bool,
     /// Whether the saved document is encrypted, and with what (7.6.4).
     ///
@@ -247,7 +245,6 @@ impl FepdfApp {
             sidebar_panel: SidebarPanel::new(),
             redaction_manager: RedactionManager::new(),
             redaction_studio_panel: crate::redaction_studio::RedactionStudioPanel::new(),
-            show_redaction_studio: false,
             show_export_wizard: false,
             export_password: None,
             export_owner_password: None,
@@ -302,7 +299,6 @@ impl FepdfApp {
             doc_decisions: Vec::new(),
             pages_left_out: 0,
             locked: None,
-            show_document_tools: false,
             survey: crate::sidebar::what_it_does::Survey::default(),
             tools: crate::document_tools::ToolState::default(),
         }
