@@ -3245,45 +3245,50 @@ document of their own, are in
       unlabelled arrow in the corner of a 3,024-pixel screen. It now carries the
       invitation and three ways to accept it.
 
-*Done when*: the ten `UI-` rules that say "nothing" say something else, or the roadmap
-says why not. The nearest four, in the order the principles put them:
+*Done when*: the `UI-` rules that say "nothing" say something else, or the roadmap says
+why not. **Six of the thirteen name a checker now**, and the four the principles put
+first are among them:
 
-- **UI-6, reversibility.** `grep -rn "dirty\|unsaved\|on_close\|CloseRequested"` over
-  the crate returns **nothing**. Pages are deleted by one keystroke, without confirmation,
-  without undo, and a window with unsaved edits closes without a word. This is the highest
-  severity left and P1 puts it first.
-- **UI-4 and UI-12 together, reachability.** Seven of the GUI's twelve `Operation`
-  variants are reached only through the command palette — `show_document_tools = true`
-  appears at exactly one call site — while the export wizard is reached from three places.
-  One rule forbids too few entry points and the other too many, and the same window breaks
-  both at once.
-- **UI-5, localisation.** **39** user-facing string literals in the source, of which 18
-  are every tooltip on the status bar and 5 are the whole page context menu. An English
-  reader gets Japanese on every view control — and the count went *up* by one in this
-  phase, on the button that dismisses a notice.
+| | | what it took |
+| :--- | :--- | :--- |
+| **UI-6** reversibility | `Operation`s recorded and replayed | `ARCHITECTURE.md` §4.1 called undo a consequence that falls out of operations being values — "recorded, inverted and replayed" — and the engine implemented none of the three. Two are enough; the third has no inverse to write for `Retag` or `ApplyBatesNumbering`. Closing with edits outstanding asks first, which `grep -rn "dirty\|unsaved\|on_close"` had returned nothing for |
+| **UI-4** reachability | the tools get a drawer | Seven of twelve `Operation`s were reached only from the command palette. Two windows went with it, one of which had never opened: `show_redaction_studio` was set `true` nowhere, so the panel existed twice and the unreachable copy had been maintained alongside the other |
+| **UI-5** localisation | 62 strings, and the sinks checked rather than the alphabet | 39 Japanese and 23 English. Two sites read `if active_lang == "ja"` and picked a sentence — the mechanism `LocaleManager` exists to replace, reimplemented beside it. A CJK-only check would have passed both |
+| **UI-11** dimensions | 70 values onto four scales | Eight spacing steps, eight type sizes and three radii, in a window holding no document text |
+| **UI-2** accessible names | `icon_action` carries the name | Twenty-six controls announced themselves as private-use codepoints, with AccessKit compiled in. The name is the tooltip; only one of them was reaching anybody |
+| **UI-1**, **UI-9** | as they landed | see above |
+
+**What is left, and why each is still "nothing"**: UI-7 is one site — an undo says it is
+running, and a save and an audit still do not, which is a habit rather than a rule yet.
+UI-8 is computable from `theme::colors` and unimplemented. UI-3 is held by rustc and needs
+no script. UI-10 and UI-12 hold by inspection and nothing derives them. UI-13 has a
+build-time assertion over the tokens and nothing over their use.
+
+**Three things found while looking that are not rules.**
+
+- The reading-order overlay is on by default, announces itself in the status bar, and
+  **draws nothing for any document as opened**. Both structure overlays require
+  `USTNode::rect`, and `Some(...)` reaches it at exactly one site outside the tests —
+  `inject_tag_to_tree`, the tagging brush. Every node read from a document carries `None`.
 
   ```bash
-  grep -rhoE '"[^"]*[ぁ-んァ-ヶ一-龥][^"]*"' crates/fepdf-gui/src --include='*.rs' | wc -l
+  grep -rn "rect: Some" crates/fepdf-gui/src --include='*.rs' | grep -v tests
   ```
 
-- **UI-11, dimensions.** **56** off-scale values remain, 27 of them in
-  `sidebar/document_info.rs`. The rule cannot be checked until they are gone, because a
-  check that fails on arrival is a check nobody turns on.
+- **The element properties table showed two constants as if they were readings.** A
+  document's language read `en-US` and its role map read `Default Mapping` whatever the
+  element said: `USTNode` carries no `/Lang` and nothing consults `/RoleMap`. The rows say
+  the panel does not know, which is what it does not.
 
-  ```bash
-  grep -rhoE 'add_space\([0-9.]+|\.size\([0-9.]+' crates/fepdf-gui/src --include='*.rs' | wc -l
-  ```
+- **`draw_page_backings` paints under an opaque texture.** In the viewport path a vello
+  texture covers the whole viewport a step later, so the page fill and its drop shadow are
+  painted and hidden; only the thumbnail path sees them.
 
-**And one thing found while looking that is not a rule.** The reading-order overlay is on
-by default, announces itself in the status bar, and **draws nothing for any document as
-opened**. Both structure overlays require `USTNode::rect`, and `Some(...)` reaches it at
-exactly one site outside the tests — `inject_tag_to_tree`, the tagging brush. Every node
-read from a document carries `None`, so the only tags the window can show are the ones
-the reader has just drawn.
-
-```bash
-grep -rn "rect: Some" crates/fepdf-gui/src --include='*.rs' | grep -v tests
-```
+**And what has not been seen.** The drawers hold 51 of the 70 dimensions and none of them
+has been looked at: opening one needs a click, and synthetic input does not reach this
+window. Neither has an undo been watched to return a page. Four tests hold the journal's
+semantics, two hold that replaying a shortened history lands on the state before it, and
+the compiler holds the wiring — but nobody has watched a page come back.
 
 *Updated 2026-08-22 (Phase P). The figures above come from the sample corpus, a set of
 deliberately malformed files, and the 515 external files Phases G and O fetched; the catalogue,
