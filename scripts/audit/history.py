@@ -30,7 +30,7 @@ ROOT = Path(__file__).resolve().parents[2]
 GUI = ROOT / "crates/fepdf-gui/src"
 
 APPLY = re.compile(r"\.apply\(")
-FUNCTION = re.compile(r"^(?:pub(?:\([^)]*\))?\s+)?fn (\w+)")
+FUNCTION = re.compile(r"^\s*(?:pub(?:\([^)]*\))?\s+)?fn (\w+)")
 ALLOWED = {"apply_recorded", "handle_open"}
 
 

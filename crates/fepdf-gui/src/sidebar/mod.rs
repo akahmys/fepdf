@@ -31,6 +31,39 @@ pub enum ActiveDrawer {
     Tools,
 }
 
+impl ActiveDrawer {
+    /// Every drawer, in the order the rail lists them.
+    ///
+    /// **The rail iterates this rather than naming its buttons**, so a drawer that
+    /// exists has a door by construction (UI-4). `scripts/audit/reachability.py` holds
+    /// this list against the enum, because an array cannot be exhaustive on its own.
+    pub const ALL: [Self; 6] = [
+        Self::DocumentInfo,
+        Self::WhatItDoes,
+        Self::Accessibility,
+        Self::Redaction,
+        Self::Caliper,
+        Self::Tools,
+    ];
+
+    /// The glyph the rail draws for it, and the locale key that names it.
+    ///
+    /// **No wildcard arm**, so a new variant does not compile until it has both — which
+    /// is the half of reachability a script does not have to be trusted with (Rule 5).
+    pub const fn face(self) -> Option<(&'static str, &'static str)> {
+        use crate::app::icons::glyph;
+        match self {
+            Self::None => None,
+            Self::DocumentInfo => Some((glyph::INFO, "tab_doc_info_decisions")),
+            Self::WhatItDoes => Some((glyph::SURVEY, "tooltip_what_it_does")),
+            Self::Accessibility => Some((glyph::STRUCTURE, "tab_accessibility")),
+            Self::Redaction => Some((glyph::REDACT, "tooltip_redact_brush")),
+            Self::Caliper => Some((glyph::CALIPER, "tooltip_caliper_brush")),
+            Self::Tools => Some((glyph::TOOLS, "tools_title")),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize, Default)]
 pub enum AccessibilitySubTab {
     #[default]

@@ -72,16 +72,11 @@ impl FepdfApp {
 
     /// The five drawers, one of which may be open.
     fn drawer_buttons(&mut self, ui: &mut egui::Ui, has_doc: bool) {
-        let entries = [
-            (ActiveDrawer::DocumentInfo, glyph::INFO, "tab_doc_info_decisions"),
-            (ActiveDrawer::WhatItDoes, glyph::SURVEY, "tooltip_what_it_does"),
-            (ActiveDrawer::Accessibility, glyph::STRUCTURE, "tab_accessibility"),
-            (ActiveDrawer::Redaction, glyph::REDACT, "tooltip_redact_brush"),
-            (ActiveDrawer::Caliper, glyph::CALIPER, "tooltip_caliper_brush"),
-            (ActiveDrawer::Tools, glyph::TOOLS, "tools_title"),
-        ];
-
-        for (drawer, icon, key) in entries {
+        // **Every drawer that exists gets a button**, because this walks the enum rather
+        // than a list beside it: `ActiveDrawer::face` has no wildcard arm, so a new
+        // variant does not compile until it has an icon and a name (UI-4).
+        for drawer in ActiveDrawer::ALL {
+            let Some((icon, key)) = drawer.face() else { continue };
             let is_open = self.active_drawer == drawer;
             let tip = self.locale_mgr.tr(&self.active_language, key);
             if icon_action(ui, icon, is_open, has_doc, &tip).clicked() && has_doc {

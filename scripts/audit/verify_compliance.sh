@@ -428,6 +428,12 @@ python3 scripts/audit/history.py || ERROR=1
 echo "[Rule UI-8] Checking the palette's contrast..."
 python3 scripts/audit/contrast.py || ERROR=1
 
+echo "[Rules UI-4, UI-12] Checking that every feature has one door..."
+python3 scripts/audit/reachability.py || ERROR=1
+
+echo "[Rule UI-10] Checking that the accent means one thing..."
+python3 scripts/audit/accent.py || ERROR=1
+
 echo "[Rule 19] Checking formatting..."
 if cargo fmt --all --check > /dev/null 2>&1; then
     echo "  PASS"
