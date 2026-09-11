@@ -56,27 +56,49 @@ pub enum Level {
 }
 
 /// One line the window owes the reader, and how loudly to say it.
+///
+/// **A key and a detail, not a sentence.** The worker thread has no locale and cannot
+/// have one usefully — it is where the document is, not where the reader is — so it used
+/// to format its own English: "Failed to load PDF: …", six times over, inside a window
+/// that is otherwise entirely translated. The frame is a key the window resolves; the
+/// detail is the part that has no translation, which is the engine's own sentence naming
+/// an ISO clause.
 pub struct Notice {
     /// How loudly.
     pub level: Level,
-    /// What to say.
-    pub text: String,
+    /// The locale key of what to say, with `{}` where the detail goes.
+    pub key: &'static str,
+    /// What the engine said, when it said anything.
+    pub detail: Option<String>,
 }
 
 impl Notice {
     /// It worked.
-    pub fn done(text: impl Into<String>) -> Self {
-        Self { level: Level::Done, text: text.into() }
+    pub const fn done(key: &'static str) -> Self {
+        Self { level: Level::Done, key, detail: None }
     }
 
     /// It worked, and there is something to look at.
-    pub fn check(text: impl Into<String>) -> Self {
-        Self { level: Level::Check, text: text.into() }
+    pub const fn check(key: &'static str) -> Self {
+        Self { level: Level::Check, key, detail: None }
     }
 
     /// It did not work.
-    pub fn failed(text: impl Into<String>) -> Self {
-        Self { level: Level::Failed, text: text.into() }
+    pub const fn failed(key: &'static str) -> Self {
+        Self { level: Level::Failed, key, detail: None }
+    }
+
+    /// The same notice, carrying what the engine said about it.
+    #[must_use]
+    pub fn about(mut self, detail: impl Into<String>) -> Self {
+        self.detail = Some(detail.into());
+        self
+    }
+
+    /// What to put on the bar, in the reader's language.
+    pub fn say(&self, locale: &crate::locale::LocaleManager, lang: &str) -> String {
+        let frame = locale.tr(lang, self.key);
+        self.detail.as_ref().map_or_else(|| frame.clone(), |d| frame.replace("{}", d))
     }
 
     /// The colour this level is said in.
@@ -184,8 +206,13 @@ pub struct FepdfApp {
     pub edited: bool,
     /// Set while the window is asking whether to close with edits outstanding.
     pub confirming_close: bool,
-    /// The locale key for what the history is doing, while it is doing it.
-    pub rebuilding: Option<&'static str>,
+    /// The locale key for whatever long thing is running, while it runs.
+    ///
+    /// **Set by the worker as well as by an undo.** It held only the history at first,
+    /// which meant the one action that said it was working was the one that had needed
+    /// saying least — a save and a `PDF/UA` audit both take longer and both said nothing
+    /// (UI-7).
+    pub busy: Option<&'static str>,
     /// Set once the reader has said to close anyway, so the guard lets the next request
     /// through.
     pub close_confirmed: bool,
@@ -280,7 +307,7 @@ impl FepdfApp {
             can_redo: false,
             edited: false,
             confirming_close: false,
-            rebuilding: None,
+            busy: None,
             close_confirmed: false,
             capture: None,
             show_reading_order: true,
@@ -389,7 +416,7 @@ impl FepdfApp {
                     let _ = self.tx_worker.send(WorkerRequest::Audit);
 
                     self.is_loading = false;
-                    self.rebuilding = None;
+                    self.busy = None;
                     ctx.request_repaint();
                 }
                 WorkerResponse::PageRendered { index, scene, text, spans, .. } => {
@@ -413,6 +440,14 @@ impl FepdfApp {
 
                     ctx.request_repaint();
                 }
+                WorkerResponse::Busy { key } => {
+                    self.busy = Some(key);
+                    ctx.request_repaint();
+                }
+                WorkerResponse::Idle => {
+                    self.busy = None;
+                    ctx.request_repaint();
+                }
                 WorkerResponse::HistoryChanged { can_undo, can_redo, edited } => {
                     self.can_undo = can_undo;
                     self.can_redo = can_redo;
@@ -429,7 +464,7 @@ impl FepdfApp {
                     ctx.request_repaint();
                 }
                 WorkerResponse::OperationApplied { message } => {
-                    self.notice = Some(Notice::done(message));
+                    self.notice = Some(Notice::done("notice_attach_failed").about(message));
                     // The pages the operation moved are on screen, and every cached scene
                     // predates it.
                     self.scenes.clear();
@@ -440,15 +475,18 @@ impl FepdfApp {
                 WorkerResponse::DocumentSaved { path, notices } => {
                     let name = path.file_name().unwrap_or(path.as_os_str()).display();
                     self.notice = Some(if notices.is_empty() {
-                        Notice::done(format!("Exported to {name}"))
+                        Notice::done("notice_exported").about(name.to_string())
                     } else {
-                        Notice::check(format!("Exported to {name} — {}", notices.join("; ")))
+                        Notice::check("notice_exported_with_notices")
+                            .about(format!("{name} — {}", notices.join("; ")))
                     });
                     ctx.request_repaint();
                 }
-                WorkerResponse::Error(err) => {
+                WorkerResponse::Failed { key, detail } => {
                     self.is_loading = false;
-                    self.notice = Some(Notice::failed(err));
+                    self.busy = None;
+                    let notice = Notice::failed(key);
+                    self.notice = Some(detail.map_or(notice, |d| Notice::failed(key).about(d)));
                 }
             }
         }
@@ -662,7 +700,7 @@ impl FepdfApp {
     }
 
     pub(crate) fn begin_rebuild(&mut self, key: &'static str) {
-        self.rebuilding = Some(key);
+        self.busy = Some(key);
         self.scenes.clear();
         self.raw_texts.clear();
         self.page_spans.clear();
@@ -814,9 +852,9 @@ mod notices {
     /// `Notice::done` is the only way to say a thing worked.
     #[test]
     fn each_level_says_a_different_thing() {
-        let done = Notice::done("exported");
-        let check = Notice::check("exported, with notices");
-        let failed = Notice::failed("could not read the file");
+        let done = Notice::done("notice_exported");
+        let check = Notice::check("notice_exported_with_notices");
+        let failed = Notice::failed("notice_open_failed");
 
         assert_eq!(done.colour(), colors::note::PASS);
         assert_eq!(check.colour(), colors::note::WARN);
@@ -825,11 +863,32 @@ mod notices {
         assert_ne!(check.colour(), failed.colour());
     }
 
-    /// The text survives the constructor it went into.
+    /// **The frame is translated and the detail is not**, which is the split the type
+    /// exists for: the engine's sentence names an ISO clause and has no other wording.
     #[test]
-    fn a_notice_keeps_what_it_was_given() {
-        let n = Notice::check("Exported to out.pdf — permissions dropped");
-        assert_eq!(n.level, Level::Check);
-        assert_eq!(n.text, "Exported to out.pdf — permissions dropped");
+    fn a_notice_frames_a_detail_it_does_not_translate() {
+        let locale = crate::locale::LocaleManager::new();
+        let plain = Notice::done("notice_exported").about("out.pdf");
+        assert_eq!(plain.say(&locale, "en"), "Exported to out.pdf");
+        assert_eq!(plain.say(&locale, "ja"), "out.pdf に書き出しました");
+
+        let engine = Notice::failed("notice_open_failed")
+            .about("the file has no document catalogue (ISO 7.7.2)");
+        assert_eq!(engine.level, Level::Failed);
+        for lang in ["en", "ja"] {
+            assert!(
+                engine.say(&locale, lang).contains("ISO 7.7.2"),
+                "the engine's own sentence survives every language"
+            );
+        }
+    }
+
+    /// A notice with nothing to say about takes the frame alone.
+    #[test]
+    fn a_notice_without_a_detail_is_its_frame() {
+        let locale = crate::locale::LocaleManager::new();
+        let n = Notice::failed("notice_save_nothing");
+        assert_eq!(n.say(&locale, "en"), "There is no document to write.");
+        assert!(!n.say(&locale, "ja").contains("{}"));
     }
 }

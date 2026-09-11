@@ -207,18 +207,14 @@ impl ExportWizard {
                 && let Ok(json_str) = serde_json::to_string_pretty(&app.ust_registry)
             {
                 if std::fs::write(&p, json_str).is_ok() {
-                    let mut msg = app.locale_mgr.tr(&app.active_language, "export_draft_saved");
+                    // The two-shaped substitution here — `{file}` if present, otherwise
+                    // a literal `{:?}` — was working around a locale value that had been
+                    // written both ways. `Notice` takes the key and one `{}`.
                     let file_label = p.file_name().unwrap_or(p.as_os_str()).display().to_string();
-                    if msg.contains("{file}") {
-                        msg = msg.replace("{file}", &file_label);
-                    } else {
-                        msg = msg.replace(&format!("{}{}", "{:?", "}"), &file_label);
-                    }
-                    app.notice = Some(crate::app::Notice::done(msg));
+                    app.notice =
+                        Some(crate::app::Notice::done("export_draft_saved").about(file_label));
                 } else {
-                    app.notice = Some(crate::app::Notice::failed(
-                        app.locale_mgr.tr(&app.active_language, "export_draft_save_fail"),
-                    ));
+                    app.notice = Some(crate::app::Notice::failed("export_draft_save_fail"));
                 }
             }
 
@@ -228,13 +224,9 @@ impl ExportWizard {
             {
                 if let Ok(draft) = serde_json::from_slice::<USTRegistry>(&bytes) {
                     app.ust_registry = draft;
-                    app.notice = Some(crate::app::Notice::done(
-                        app.locale_mgr.tr(&app.active_language, "export_draft_loaded"),
-                    ));
+                    app.notice = Some(crate::app::Notice::done("export_draft_loaded"));
                 } else {
-                    app.notice = Some(crate::app::Notice::failed(
-                        app.locale_mgr.tr(&app.active_language, "export_draft_load_fail"),
-                    ));
+                    app.notice = Some(crate::app::Notice::failed("export_draft_load_fail"));
                 }
             }
         });

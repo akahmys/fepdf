@@ -434,6 +434,9 @@ python3 scripts/audit/reachability.py || ERROR=1
 echo "[Rule UI-10] Checking that the accent means one thing..."
 python3 scripts/audit/accent.py || ERROR=1
 
+echo "[Rule UI-7] Checking that work the reader waits for says so..."
+python3 scripts/audit/progress.py || ERROR=1
+
 echo "[Rule 19] Checking formatting..."
 if cargo fmt --all --check > /dev/null 2>&1; then
     echo "  PASS"

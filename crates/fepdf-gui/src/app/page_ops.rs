@@ -34,7 +34,7 @@ impl FepdfApp {
             root.children.push(new_node);
         }
 
-        self.notice = Some(super::Notice::done(format!("Created <{tag}>")));
+        self.notice = Some(super::Notice::done("notice_tag_created").about(tag));
     }
 
     pub fn open_file(&mut self, path: PathBuf, ctx: &egui::Context) {

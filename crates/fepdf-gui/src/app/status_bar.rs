@@ -35,7 +35,7 @@ impl FepdfApp {
     /// The left of the bar: what just happened, what the renderer left out, which view
     /// mode is in force, and the reading-order toggle.
     fn status_indicators(&mut self, ui: &mut egui::Ui, has_doc: bool) {
-        if let Some(key) = self.rebuilding {
+        if let Some(key) = self.busy {
             // What the history is doing outranks what just happened: it is happening now.
             ui.label(
                 egui::RichText::new(self.locale_mgr.tr(&self.active_language, key))
@@ -94,7 +94,8 @@ impl FepdfApp {
     fn say_notice(&mut self, ui: &mut egui::Ui) {
         let Some(notice) = &self.notice else { return };
         let colour = notice.colour();
-        ui.label(egui::RichText::new(&notice.text).size(text::SMALL).color(colour));
+        let words = notice.say(&self.locale_mgr, &self.active_language);
+        ui.label(egui::RichText::new(words).size(text::SMALL).color(colour));
         ui.add_space(space::ITEM);
         if icon_action(ui, glyph::CLOSE, false, true, &self.tr("btn_close")).clicked() {
             self.notice = None;

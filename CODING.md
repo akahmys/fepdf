@@ -300,7 +300,7 @@ and these are not, and reassigning a number is what made Rules 9 and 14 mean two
 | **UI-4** | Reachability | No feature lacks a visible entry point. A shortcut and the command palette are shortcuts, not entry points | `scripts/audit/reachability.py` via `verify_compliance.sh`; drawers by **rustc**, through `ActiveDrawer::face`'s wildcard-free match |
 | **UI-5** | Localisation | No user-facing string literal in the source; all through the locale keys | `scripts/audit/strings.py` via `verify_compliance.sh`; `locale.rs` separately holds the two key sets equal |
 | **UI-6** | Reversibility | An operation that changes the document can be undone | `scripts/audit/history.py` via `verify_compliance.sh` — every mutation takes the one recorded path |
-| **UI-7** | Progress | Work over ~100ms says that it is happening | **nothing** |
+| **UI-7** | Progress | Work over ~100ms says that it is happening | `scripts/audit/progress.py` via `verify_compliance.sh` — every worker arm reports, or is named with what it reports through |
 | **UI-8** | Contrast | Body text 4.5:1; a non-text boundary that carries meaning 3:1 (WCAG 1.4.11) | `scripts/audit/contrast.py` via `verify_compliance.sh` |
 | **UI-9** | Colour source | A colour is written in `app/theme.rs` or it is not written | `scripts/audit/palette.py` via `verify_compliance.sh` |
 | **UI-10** | One accent | Rust marks what the reader is touching, and marks nothing else | `scripts/audit/accent.py` via `verify_compliance.sh` — the accent may name a `selection` and nothing else |
@@ -308,15 +308,14 @@ and these are not, and reassigning a number is what made Rules 9 and 14 mean two
 | **UI-12** | One home per action | An action belongs to one surface; the others are shortcuts to it | `scripts/audit/reachability.py` via `verify_compliance.sh` |
 | **UI-13** | Layout grid | Chrome stands on the 4pt grid; the page keeps the 72pt one | a build-time `assert!` over the tokens; the rest **nothing** |
 
-**Two of thirteen say "nothing", and that is the honest state rather than an omission.**
-Rule 4 above requires the word to be written where nothing checks. UI-7 is one site — an
-undo says it is running, a save and an audit do not — which is a habit rather than a rule
-yet; UI-13's second half is that widgets *use* the tokens, which is what UI-11 measures,
-so the row names the assertion it has and leaves the rest to that.
+**One of thirteen says "nothing"**, and it is not an omission: UI-13's second half is
+that widgets *use* the tokens, which is exactly what UI-11 measures, so the row names the
+build-time assertion it has and leaves the rest to that rather than counting the same
+thing twice.
 
-**Eleven of thirteen name something that runs**, and six of those checkers found a defect
-on the run that introduced them. That is the argument for the column, rather than for the
-rules being well chosen.
+**Twelve of thirteen name something that runs**, and seven of those checkers found a
+defect on the run that introduced them. That is the argument for the column, rather than
+for the rules being well chosen.
 
 ### The three vocabularies
 

@@ -150,6 +150,13 @@ pub struct LoadedDocument {
 
 pub enum WorkerResponse {
     DocumentLoaded(Box<LoadedDocument>),
+    /// Something long is running, and what it is. **The worker names the work and the
+    /// window says it**: this thread holds the document, not the reader's language.
+    Busy {
+        key: &'static str,
+    },
+    /// It finished, whatever it was.
+    Idle,
     /// What the history can do now, and whether the document differs from its file.
     HistoryChanged {
         can_undo: bool,
@@ -203,7 +210,12 @@ pub enum WorkerResponse {
         /// which the user is about to hand to someone else (7.6.4.2).
         notices: Vec<String>,
     },
-    Error(String),
+    /// Something did not happen. `key` frames it and `detail` is the engine's own
+    /// sentence, which names an ISO clause and has no translation.
+    Failed {
+        key: &'static str,
+        detail: Option<String>,
+    },
 }
 
 pub fn run_worker(rx: Receiver<WorkerRequest>, tx: Sender<WorkerResponse>, ctx: egui::Context) {
@@ -243,7 +255,10 @@ pub fn run_worker(rx: Receiver<WorkerRequest>, tx: Sender<WorkerResponse>, ctx: 
             WorkerRequest::UpdateNode { handle_id, tag, alt_text } => {
                 text_cache.clear();
                 spans_cache.clear();
+                // Retagging re-runs the whole PDF/UA audit, which is the long half.
+                let _ = tx.send(WorkerResponse::Busy { key: "busy_auditing" });
                 handle_update_node(&mut current_doc, &mut history, handle_id, tag, alt_text, &tx);
+                let _ = tx.send(WorkerResponse::Idle);
                 ctx.request_repaint();
             }
             WorkerRequest::Save {
@@ -261,6 +276,7 @@ pub fn run_worker(rx: Receiver<WorkerRequest>, tx: Sender<WorkerResponse>, ctx: 
             } => {
                 text_cache.clear();
                 spans_cache.clear();
+                let _ = tx.send(WorkerResponse::Busy { key: "busy_saving" });
                 handle_save(
                     current_doc.as_ref(),
                     path,
@@ -276,15 +292,21 @@ pub fn run_worker(rx: Receiver<WorkerRequest>, tx: Sender<WorkerResponse>, ctx: 
                     signature_position,
                     &tx,
                 );
+                let _ = tx.send(WorkerResponse::Idle);
                 ctx.request_repaint();
             }
             WorkerRequest::Apply { operation, done } => {
                 text_cache.clear();
                 spans_cache.clear();
+                // `Retag` rebuilds the structure tree from heuristics; the others are
+                // quick, and one arm cannot tell which it was handed.
+                let _ = tx.send(WorkerResponse::Busy { key: "busy_applying" });
                 apply_recorded(&mut current_doc, &mut history, *operation, Some(done), &tx);
+                let _ = tx.send(WorkerResponse::Idle);
                 ctx.request_repaint();
             }
             WorkerRequest::Survey => {
+                let _ = tx.send(WorkerResponse::Busy { key: "busy_surveying" });
                 if let Some(doc) = current_doc.as_ref() {
                     let actions = fepdf::ActionReport::of(doc.inner()).unwrap_or_default();
                     // Recorded as absent rather than as zero: a coverage this could not
@@ -293,10 +315,13 @@ pub fn run_worker(rx: Receiver<WorkerRequest>, tx: Sender<WorkerResponse>, ctx: 
                     let _ =
                         tx.send(WorkerResponse::Surveyed { actions: Box::new(actions), coverage });
                 }
+                let _ = tx.send(WorkerResponse::Idle);
                 ctx.request_repaint();
             }
             WorkerRequest::Audit => {
+                let _ = tx.send(WorkerResponse::Busy { key: "busy_auditing" });
                 handle_audit(current_doc.as_ref(), &tx);
+                let _ = tx.send(WorkerResponse::Idle);
                 ctx.request_repaint();
             }
             WorkerRequest::SetLayerVisible { layer, on } => {
@@ -374,19 +399,23 @@ pub fn run_worker(rx: Receiver<WorkerRequest>, tx: Sender<WorkerResponse>, ctx: 
             WorkerRequest::Undo => {
                 text_cache.clear();
                 spans_cache.clear();
+                let _ = tx.send(WorkerResponse::Busy { key: "history_undoing" });
                 if let Some(taken) = history.applied.pop() {
                     history.undone.push(taken);
                     current_doc = rebuild(&history, &tx);
                 }
+                let _ = tx.send(WorkerResponse::Idle);
                 ctx.request_repaint();
             }
             WorkerRequest::Redo => {
                 text_cache.clear();
                 spans_cache.clear();
+                let _ = tx.send(WorkerResponse::Busy { key: "history_redoing" });
                 if let Some(back) = history.undone.pop() {
                     history.applied.push(back);
                     current_doc = rebuild(&history, &tx);
                 }
+                let _ = tx.send(WorkerResponse::Idle);
                 ctx.request_repaint();
             }
         }
@@ -424,7 +453,10 @@ fn apply_recorded(
             });
         }
         Err(e) => {
-            let _ = tx.send(WorkerResponse::Error(format!("{e:?}")));
+            let _ = tx.send(WorkerResponse::Failed {
+                key: "notice_operation_failed",
+                detail: Some(format!("{e:?}")),
+            });
         }
     }
 }
@@ -557,8 +589,10 @@ fn handle_open(
             // tell which they have.
             for operation in history {
                 if let Err(e) = doc.apply(operation.clone()) {
-                    let _ = tx
-                        .send(WorkerResponse::Error(format!("replaying the edit history: {e:?}")));
+                    let _ = tx.send(WorkerResponse::Failed {
+                        key: "notice_replay_failed",
+                        detail: Some(format!("{e:?}")),
+                    });
                     return None;
                 }
             }
@@ -629,7 +663,10 @@ fn handle_open(
             None
         }
         Err(e) => {
-            let _ = tx.send(WorkerResponse::Error(format!("Failed to load PDF: {e}")));
+            let _ = tx.send(WorkerResponse::Failed {
+                key: "notice_open_failed",
+                detail: Some(e.to_string()),
+            });
             None
         }
     }
@@ -710,7 +747,10 @@ fn handle_render(
                 tx.send(WorkerResponse::PageRendered { index, _scale: scale, scene, text, spans });
         }
         Err(e) => {
-            let _ = tx.send(WorkerResponse::Error(format!("Failed to render page {index}: {e}")));
+            let _ = tx.send(WorkerResponse::Failed {
+                key: "notice_render_failed",
+                detail: Some(format!("{index}: {e}")),
+            });
         }
     }
 }
@@ -788,7 +828,7 @@ fn handle_save(
     tx: &Sender<WorkerResponse>,
 ) {
     let Some(doc) = doc_opt else {
-        let _ = tx.send(WorkerResponse::Error("No document loaded to save".to_string()));
+        let _ = tx.send(WorkerResponse::Failed { key: "notice_save_nothing", detail: None });
         return;
     };
 
@@ -803,9 +843,10 @@ fn handle_save(
     // 2. Apply physical stream sanitization to each page mutably
     for (page_idx, rects) in page_redactions {
         if let Err(e) = doc.apply_redaction_to_page(page_idx, &rects) {
-            let _ = tx.send(WorkerResponse::Error(format!(
-                "Failed physically redacting page {page_idx}: {e}"
-            )));
+            let _ = tx.send(WorkerResponse::Failed {
+                key: "notice_redact_failed",
+                detail: Some(format!("{page_idx}: {e}")),
+            });
             return;
         }
     }
@@ -843,7 +884,8 @@ fn handle_save(
                 doc.save_signed(&path, version, &options, &sign_opts)
             }
             (Err(e), _) | (_, Err(e)) => {
-                let _ = tx.send(WorkerResponse::Error(format!("Failed to save PDF: {e}")));
+                let _ =
+                    tx.send(WorkerResponse::Failed { key: "notice_save_failed", detail: Some(e) });
                 return;
             }
         }
@@ -859,7 +901,10 @@ fn handle_save(
             let _ = tx.send(WorkerResponse::DocumentSaved { path, notices });
         }
         Err(e) => {
-            let _ = tx.send(WorkerResponse::Error(format!("Failed to save PDF: {e}")));
+            let _ = tx.send(WorkerResponse::Failed {
+                key: "notice_save_failed",
+                detail: Some(e.to_string()),
+            });
         }
     }
 }

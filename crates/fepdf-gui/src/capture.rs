@@ -220,7 +220,7 @@ impl crate::app::FepdfApp {
         // catch — just not about itself.
         let drawn = self.total_pages == 0 || !self.scenes.is_empty();
         let idle =
-            self.request_queue.is_empty() && !self.is_loading && self.rebuilding.is_none() && drawn;
+            self.request_queue.is_empty() && !self.is_loading && self.busy.is_none() && drawn;
         let Some(plan) = self.capture.as_mut() else { return };
         if plan.pending.is_some() {
             return;
