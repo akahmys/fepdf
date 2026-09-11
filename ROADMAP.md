@@ -3271,13 +3271,21 @@ build-time assertion over the tokens and nothing over their use.
 **Three things found while looking that are not rules.**
 
 - The reading-order overlay is on by default, announces itself in the status bar, and
-  **draws nothing for any document as opened**. Both structure overlays require
-  `USTNode::rect`, and `Some(...)` reaches it at exactly one site outside the tests —
-  `inject_tag_to_tree`, the tagging brush. Every node read from a document carries `None`.
+  **draws nothing for any document as opened**. The cause is not the window: `USTNode` is
+  `fepdf::StructureTreeNode` under another name, the engine fills its `rect` from the
+  element's `/BBox`, and the tree arrives whole — 126 elements for `samples/fugaku.pdf`
+  and 1,248 for `samples/print_sample.pdf`. **None of them carries a rectangle**, because
+  `/BBox` is required of a figure or a table and not of a paragraph, and nothing in these
+  files declares one.
 
-  ```bash
-  grep -rn "rect: Some" crates/fepdf-gui/src --include='*.rs' | grep -v tests
-  ```
+  Drawing a paragraph's box means deriving it from the content stream: the marked-content
+  `/MCID` the element points at, and the extent of what is drawn between its `BDC` and
+  `EMC`. That is `fepdf-content` work rather than a missing line in the GUI.
+
+  **An earlier entry here said the GUI never fills the field, and that was wrong.** It
+  came from a `grep -v tests` that filtered by *path*, so the `#[cfg(test)]` module inside
+  `sidebar/ust_registry.rs` was counted as production code — five `rect: None` in a test
+  fixture read as five in the converter. The conversion is one line and copies everything.
 
 - **The element properties table showed two constants as if they were readings.** A
   document's language read `en-US` and its role map read `Default Mapping` whatever the
@@ -3319,6 +3327,10 @@ build-time assertion over the tokens and nothing over their use.
 
       **Undo returns a page, and someone has now seen it**: `1/13`, `1/12`, `1/13` across
       three shots, with the redo control dark in the third and grey in the first two.
+
+      **And the structure tree opens collapsed**, so the accessibility drawer shows one
+      row — `<Document> Document` — for a document with 1,248 elements under it. A reader
+      looking for a document's structure finds a single line and a disclosure triangle.
 
 *Updated 2026-08-22 (Phase P). The figures above come from the sample corpus, a set of
 deliberately malformed files, and the 515 external files Phases G and O fetched; the catalogue,
