@@ -30,6 +30,7 @@ pub fn show_structure_tree(
                     tx_worker,
                     locale_mgr,
                     active_lang,
+                    0,
                 );
             } else {
                 ui.label(
@@ -173,6 +174,27 @@ pub fn find_node_mut_recursive(node: &mut USTNode, id: usize) -> Option<&mut UST
     None
 }
 
+/// One place a dragged node may be dropped.
+///
+/// **Three of these were written out**, identical but for the relation, and the triple
+/// took the function past Rule 1's fifty lines the moment its labels went through the
+/// locale. A drop target is a button that also accepts a release over it, which is the
+/// whole of what they share.
+fn drop_zone(
+    ui: &mut egui::Ui,
+    label: String,
+    drag_id: usize,
+    node_id: usize,
+    relation: DragRelation,
+) {
+    let response = ui.button(label);
+    if response.clicked() || (response.hovered() && ui.input(|i| i.pointer.any_released())) {
+        ui.ctx().data_mut(|d| {
+            d.insert_temp(egui::Id::new("pending_move"), Some((drag_id, node_id, relation)));
+        });
+    }
+}
+
 fn render_drag_drop_controls(
     ui: &mut egui::Ui,
     node_id: usize,
@@ -181,7 +203,7 @@ fn render_drag_drop_controls(
     active_lang: &str,
 ) {
     let tr = |key: &str| locale_mgr.tr(active_lang, key);
-    let handle_resp = ui.add(egui::Label::new("Drag").sense(egui::Sense::drag()));
+    let handle_resp = ui.add(egui::Label::new(tr("tree_drag_handle")).sense(egui::Sense::drag()));
     if handle_resp.drag_started() {
         ui.ctx().data_mut(|d| d.insert_temp(egui::Id::new("dragged_node_id"), Some(node_id)));
     }
@@ -192,35 +214,12 @@ fn render_drag_drop_controls(
         && drag_id != node_id
         && !USTRegistry::is_descendant(node, drag_id)
     {
-        let resp_above = ui.button(tr("tree_move_above"));
-        if resp_above.clicked() || (resp_above.hovered() && ui.input(|i| i.pointer.any_released()))
-        {
-            ui.ctx().data_mut(|d| {
-                d.insert_temp(
-                    egui::Id::new("pending_move"),
-                    Some((drag_id, node_id, DragRelation::Above)),
-                )
-            });
-        }
-        let resp_child = ui.button(tr("tree_move_child"));
-        if resp_child.clicked() || (resp_child.hovered() && ui.input(|i| i.pointer.any_released()))
-        {
-            ui.ctx().data_mut(|d| {
-                d.insert_temp(
-                    egui::Id::new("pending_move"),
-                    Some((drag_id, node_id, DragRelation::AsChild)),
-                )
-            });
-        }
-        let resp_below = ui.button(tr("tree_move_below"));
-        if resp_below.clicked() || (resp_below.hovered() && ui.input(|i| i.pointer.any_released()))
-        {
-            ui.ctx().data_mut(|d| {
-                d.insert_temp(
-                    egui::Id::new("pending_move"),
-                    Some((drag_id, node_id, DragRelation::Below)),
-                )
-            });
+        for (key, relation) in [
+            ("tree_move_above", DragRelation::Above),
+            ("tree_move_child", DragRelation::AsChild),
+            ("tree_move_below", DragRelation::Below),
+        ] {
+            drop_zone(ui, tr(key), drag_id, node_id, relation);
         }
     }
 }
@@ -256,6 +255,14 @@ fn render_node_buttons(
     }
 }
 
+/// How deep the tree opens on its own.
+///
+/// **Not zero, and not all of it.** Every level arrived collapsed, so a document with
+/// 1,248 structure elements under it showed the reader one row — `<Document> Document` —
+/// and a disclosure triangle; opening all of it would show them 1,248. Two levels is the
+/// shape of the document rather than its contents.
+const OPEN_TO_DEPTH: usize = 2;
+
 pub fn render_node_recursive(
     // RR-15 Limit: GUI - Renders accessibility tag node tree recursively
     ui: &mut egui::Ui,
@@ -265,14 +272,18 @@ pub fn render_node_recursive(
     tx_worker: &Sender<WorkerRequest>,
     locale_mgr: &LocaleManager,
     active_lang: &str,
+    depth: usize,
 ) {
     let is_selected = *selected_node_id == Some(node.id);
     let header_label = format!("<{}> {}", node.tag, node.title);
 
     ui.vertical(|ui| {
         let id = ui.make_persistent_id(node.id);
-        let mut collapsing =
-            egui::collapsing_header::CollapsingState::load_with_default_open(ui.ctx(), id, false);
+        let mut collapsing = egui::collapsing_header::CollapsingState::load_with_default_open(
+            ui.ctx(),
+            id,
+            depth < OPEN_TO_DEPTH,
+        );
 
         let header_response = ui
             .horizontal(|ui| {
@@ -323,6 +334,7 @@ pub fn render_node_recursive(
                     tx_worker,
                     locale_mgr,
                     active_lang,
+                    depth + 1,
                 );
             }
         });

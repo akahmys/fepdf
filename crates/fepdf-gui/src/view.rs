@@ -539,12 +539,22 @@ impl PDFView {
         self.handle_input(ui, &response, viewport_rect, layouts);
         self.clamp_pan(viewport_rect, layouts);
 
-        // 1. Workspace background & CAD Grid lines
-        ui.painter().rect_filled(viewport_rect, radius::FLAT, colors::paper::CANVAS);
-        Self::draw_canvas_grid(ui.painter(), viewport_rect, self.pan, self.zoom);
+        // 1. The bench, and the grid over it.
+        //
+        // **Both are drawn only where they can be seen.** In the viewport path the vello
+        // texture below covers the whole viewport — it has to, because a storage texture
+        // clears to `(0,0,0,0)` and egui's opaque shader renders that as black — so a
+        // fill and a grid drawn here are painted and then hidden. The bench comes from
+        // the same `paper::CANVAS` either way; the grid is lost in that path, and saying
+        // so is better than drawing it where nobody can look at it.
+        let covered = matches!(pixels, PagePixels::Viewport(Some(_)));
+        if !covered {
+            ui.painter().rect_filled(viewport_rect, radius::FLAT, colors::paper::CANVAS);
+            Self::draw_canvas_grid(ui.painter(), viewport_rect, self.pan, self.zoom);
 
-        // 2. Drop shadows and solid pure-white page backings
-        self.draw_page_backings(ui.painter(), viewport_rect, layouts, scenes);
+            // 2. Drop shadows and solid pure-white page backings
+            self.draw_page_backings(ui.painter(), viewport_rect, layouts, scenes);
+        }
 
         // 3. Unified viewport texture covering workspace. In thumbnail mode there is no
         //    such texture: each page paints its own inside the loop below.

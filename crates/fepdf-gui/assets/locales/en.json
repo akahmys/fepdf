@@ -334,6 +334,7 @@
   "tooltip_zoom_out": "Zoom out",
   "tooltip_zoom_reset": "Reset the zoom (100%)",
   "tree_cycle": "Cycle",
+  "tree_drag_handle": "Drag",
   "tree_edit": "Edit",
   "tree_move_above": "Above",
   "tree_move_below": "Below",

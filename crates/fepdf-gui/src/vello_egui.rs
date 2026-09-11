@@ -133,14 +133,14 @@ impl VelloRenderer {
         // Unified Scene covering the entire visible viewport
         let mut viewport_scene = Scene::new();
 
-        // Explicitly fill the entire viewport texture background with our premium slate navy color.
+        // Explicitly fill the entire viewport texture background with the bench colour.
         // This is required because Vello's storage texture rendering clears to (0, 0, 0, 0) by default,
         // ignoring the RenderParams base_color, which egui's opaque texture shader then renders as solid black.
         let viewport_kurbo_rect = kurbo::Rect::new(0.0, 0.0, f64::from(width), f64::from(height));
         viewport_scene.fill(
             vello::peniko::Fill::NonZero,
             kurbo::Affine::IDENTITY,
-            vello::peniko::Color::from_rgb8(235, 237, 240),
+            crate::app::theme::colors::to_peniko(crate::app::theme::colors::paper::CANVAS),
             None,
             &viewport_kurbo_rect,
         );
@@ -194,7 +194,9 @@ impl VelloRenderer {
             &viewport_scene,
             &tex.view,
             &RenderParams {
-                base_color: vello::peniko::Color::from_rgb8(235, 237, 240), // Solid premium light slate gray clear color
+                base_color: crate::app::theme::colors::to_peniko(
+                    crate::app::theme::colors::paper::CANVAS,
+                ),
                 width: tex.width,
                 height: tex.height,
                 // Area, not MSAA, so the window shows what `publish render` writes.
@@ -326,6 +328,9 @@ impl VelloRenderer {
                 &thumb_scene,
                 &tex.view,
                 &RenderParams {
+                    // The sheet a page is rasterised onto, not a colour this window
+                    // chose: a PDF page's ground is white by the standard's own
+                    // convention. The fourth of UI-9's exemptions.
                     base_color: vello::peniko::Color::WHITE,
                     width: tex.width,
                     height: tex.height,

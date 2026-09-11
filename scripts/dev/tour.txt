@@ -51,3 +51,14 @@ shot 15-english
 clear
 drawer tools
 shot 16-english-tools
+
+# **A tagged document, because the one above has no structure tree.** Every screen that
+# reads a document's structure came out empty for as long as this plan opened only
+# `constitution.pdf`, so a fix to one of them did not show in a shot.
+clear
+language ja
+open samples/print_sample.pdf
+drawer accessibility
+shot 17-structure-tree
+drawer info
+shot 18-tagged-info

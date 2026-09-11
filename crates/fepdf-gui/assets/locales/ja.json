@@ -334,6 +334,7 @@
   "tooltip_zoom_out": "縮小",
   "tooltip_zoom_reset": "ズームリセット (100%)",
   "tree_cycle": "切替",
+  "tree_drag_handle": "移動",
   "tree_edit": "編集",
   "tree_move_above": "上へ",
   "tree_move_below": "下へ",

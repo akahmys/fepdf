@@ -104,6 +104,16 @@ pub mod colors {
         pub const FAIL: Color32 = Color32::from_rgb(158, 20, 52);
     }
 
+    /// The same colour, for the rasteriser.
+    ///
+    /// **This window paints in two colour types and the palette governs both.** Vello
+    /// takes `peniko::Color`, and the workbench was `Color::from_rgb8(235, 237, 240)`
+    /// written into `vello_egui.rs` — a value `paper::CANVAS` was supposed to be, three
+    /// shades away from it, and invisible to a checker that reads `Color32`.
+    pub const fn to_peniko(c: Color32) -> vello::peniko::Color {
+        vello::peniko::Color::from_rgb8(c.r(), c.g(), c.b())
+    }
+
     /// The same colour at `alpha`, for a badge ground or an overlay fill.
     ///
     /// A tint is derived rather than declared so that a badge cannot drift away from the

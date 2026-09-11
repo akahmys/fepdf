@@ -29,6 +29,13 @@ ROOT = Path(__file__).resolve().parents[2]
 GUI = ROOT / "crates/fepdf-gui/src"
 
 # The calls that put a string in front of a reader.
+#
+# **The constructors as well as the methods.** This listed `ui.label(` and not
+# `Label::new(`, so a drag handle reading `Drag` sat in the structure tree through two
+# passes over the localisation — the same shape as UI-9 reading `Color32` and not
+# `peniko::Color`, and as the `grep -v tests` that filtered by path. A check is only as
+# wide as the enumeration behind it, and an enumeration is a claim that wants measuring
+# like any other.
 SINKS = (
     "on_hover_text",
     "hint_text",
@@ -38,8 +45,13 @@ SINKS = (
     "selectable_label",
     "label",
     "button",
+    "Label::new",
+    "Button::new",
+    "RichText::new",
 )
-SINK = re.compile(r"\b(?:" + "|".join(SINKS) + r")\(\s*\"([^\"]{1,})\"")
+SINK = re.compile(
+    r"(?:" + "|".join(re.escape(s) for s in SINKS) + r")\(\s*\"([^\"]{1,})\""
+)
 
 # The standard's own structure type names.
 EXEMPT = {"H1", "H2", "H3", "P", "Figure", "Table"}

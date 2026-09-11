@@ -13,7 +13,8 @@ each the value is not a colour the interface chose:
 
   * two `Painter::image` tints, where white is the identity multiplier — tinting the
     document is the one thing this window must not do;
-  * the fill of a committed redaction, which is black because burning writes black.
+  * the fill of a committed redaction, which is black because burning writes black;
+  * the white a page is rasterised onto, which is the sheet rather than a choice.
 
 Exits non-zero with a line per unexempted literal. No arguments.
 """
@@ -28,13 +29,22 @@ ROOT = Path(__file__).resolve().parents[2]
 GUI = ROOT / "crates/fepdf-gui/src"
 PALETTE = GUI / "app/theme.rs"
 
-LITERAL = re.compile(r"Color32::(?:from_rgba?_?\w*\(|[A-Z][A-Z_]{2,})")
+# **Two colour types, because the window paints with two.** This read `Color32` alone
+# and passed a `peniko::Color::from_rgb8(235, 237, 240)` in `vello_egui.rs` that was the
+# workbench the reader actually saw — three shades from the `paper::CANVAS` it was
+# supposed to be. A check that cannot see half its subject is indistinguishable from one
+# nobody runs, which is the sentence `docs/specs/README.md` ends on.
+LITERAL = re.compile(
+    r"Color32::(?:from_rgba?_?\w*\(|[A-Z][A-Z_]{2,})"
+    r"|peniko::Color::(?:from_rgb8?a?\(|[A-Z][A-Z_]{2,})"
+)
 
 # (path relative to the GUI source root, the call it appears in, why)
 EXEMPT = {
     ("view.rs", "Painter::image tint (viewport texture)"),
     ("view.rs", "Painter::image tint (thumbnail)"),
     ("view.rs", "committed redaction fill"),
+    ("vello_egui.rs", "the white a page is rasterised onto"),
 }
 # An exempt line must say so, so that moving one re-opens the question.
 EXEMPT_MARK = "UI-9's"
