@@ -354,18 +354,13 @@ impl crate::app::FepdfApp {
         let page = self.view.active_page;
         let Some(layout) = self.page_layouts.get(page) else { return };
         let Some(spans) = self.page_spans.get(&page) else { return };
-        let Some(viewport) = self.last_viewport_rect else { return };
-        let origin = self.view.get_origin(viewport);
-        let zoom = self.view.zoom();
-        let page_rect = egui::Rect::from_min_size(
-            origin + layout.rect.min.to_vec2() * zoom,
-            layout.rect.size() * zoom,
-        );
-        let height = layout.rect.height();
+        // The drag is in the page's own coordinates, corner to corner, which is what a
+        // pointer's positions are turned into before anything reads them.
         self.selection_manager.active_page = Some(page);
         self.selection_manager.drag_start = Some(egui::pos2(0.0, 0.0));
-        self.selection_manager.drag_current = Some(egui::pos2(layout.rect.width(), height));
-        self.selection_manager.recalculate_selection(page, page_rect, height, spans, zoom);
+        self.selection_manager.drag_current =
+            Some(egui::pos2(layout.rect.width(), layout.rect.height()));
+        self.selection_manager.recalculate_selection(page, spans);
     }
 }
 

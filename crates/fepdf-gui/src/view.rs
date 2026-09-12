@@ -761,7 +761,7 @@ impl PDFView {
             );
 
             // Overlays
-            self.draw_selection_highlights(ui, layout.index, highlights);
+            self.draw_selection_highlights(ui, layout.index, page_rect, layout, highlights);
             self.draw_redaction_highlights(ui, layout.index, redaction_highlights);
             self.draw_active_redaction_drag(ui, layout.index, active_redaction_drag);
             self.draw_structural_highlight(ui, layout.index, structural_highlight);
@@ -930,16 +930,29 @@ impl PDFView {
         );
     }
 
+    /// Draws what is selected on this page.
+    ///
+    /// **Mapped to the screen here, every frame, from the page's own coordinates.** The
+    /// rects used to be computed once when the drag made them and drawn as they stood, so
+    /// zooming or panning left the selection behind over whatever had moved into its
+    /// place. A selection belongs to the page.
     fn draw_selection_highlights(
         &self,
         ui: &mut egui::Ui,
         page_index: usize,
+        page_rect: egui::Rect,
+        layout: &PageLayout,
         highlights: &BTreeMap<usize, Vec<egui::Rect>>,
     ) {
-        if let Some(hl_rects) = highlights.get(&page_index) {
-            for hl_rect in hl_rects {
-                ui.painter().rect_filled(*hl_rect, radius::FLAT, colors::rust::wash());
-            }
+        let Some(on_page) = highlights.get(&page_index) else {
+            return;
+        };
+        let unscaled_h = layout.rect.height();
+        for span in on_page {
+            let rect = crate::interaction::SelectionManager::highlight_rect(
+                page_rect, self.zoom, unscaled_h, *span,
+            );
+            ui.painter().rect_filled(rect, radius::FLAT, colors::rust::wash());
         }
     }
 

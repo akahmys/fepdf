@@ -20,7 +20,14 @@ pub struct SelectionManager {
     pub marquee_start: Option<egui::Pos2>, // Screen space coordinates for box selection
     pub marquee_current: Option<egui::Pos2>, // Screen space coordinates
     pub selected_text: String,
-    pub highlights: BTreeMap<usize, Vec<egui::Rect>>, // Page -> Screen-space highlights
+    /// What is selected on each page, in PDF user space.
+    ///
+    /// **Not screen space, which is where these used to be kept.** A highlight computed
+    /// once at drag time and drawn as it stood is a highlight that stays where the screen
+    /// was: zooming or panning left the selection behind, over whatever had moved into
+    /// its place. A selection belongs to the page, so it is stored in the page's own
+    /// coordinates and mapped to the screen by whoever draws it, every frame.
+    pub highlights: BTreeMap<usize, Vec<egui::Rect>>,
     pub is_tagging_brush_active: bool,
     pub pending_tag_request: Option<PendingTagRequest>,
 }
@@ -178,7 +185,7 @@ impl SelectionManager {
             && self.active_page == Some(page_index)
         {
             self.drag_current = Some(Self::screen_to_pdf(page_rect, zoom, page_unscaled_h, pos));
-            self.recalculate_selection(page_index, page_rect, page_unscaled_h, spans, zoom);
+            self.recalculate_selection(page_index, spans);
         }
 
         if response.drag_stopped() && !self.selected_text.is_empty() {
@@ -205,36 +212,35 @@ impl SelectionManager {
     /// `(max.x, min.y)`. Taking the corners straight across gives a rect of negative
     /// height, which draws as nothing rather than as something visibly wrong. Selection
     /// and the brush each wrote this out.
-    fn highlight_rect(
+    pub fn highlight_rect(
         page_rect: egui::Rect,
         zoom: f32,
         page_unscaled_h: f32,
-        span: &TextSpan,
+        span: egui::Rect,
     ) -> egui::Rect {
         egui::Rect::from_min_max(
             Self::pdf_to_screen(
                 page_rect,
                 zoom,
                 page_unscaled_h,
-                egui::pos2(span.rect.min.x, span.rect.max.y),
+                egui::pos2(span.min.x, span.max.y),
             ),
             Self::pdf_to_screen(
                 page_rect,
                 zoom,
                 page_unscaled_h,
-                egui::pos2(span.rect.max.x, span.rect.min.y),
+                egui::pos2(span.max.x, span.min.y),
             ),
         )
     }
 
-    pub(crate) fn recalculate_selection(
-        &mut self,
-        page_index: usize,
-        page_rect: egui::Rect,
-        page_unscaled_h: f32,
-        spans: &[TextSpan],
-        zoom: f32,
-    ) {
+    /// Works out what the drag covers, entirely in the page's own coordinates.
+    ///
+    /// **It used to take the page's rectangle on screen and the zoom**, because it turned
+    /// each selected span into a screen rect there and then. Nothing it does now depends
+    /// on where the page is being drawn, which is the point: a selection that knows the
+    /// screen is a selection that is left behind when the screen moves.
+    pub(crate) fn recalculate_selection(&mut self, page_index: usize, spans: &[TextSpan]) {
         let (Some(start), Some(current)) = (self.drag_start, self.drag_current) else {
             return;
         };
@@ -244,10 +250,7 @@ impl SelectionManager {
 
         let selected_spans: Vec<TextSpan> =
             Self::spans_under(select_rect, spans).cloned().collect();
-        let page_highlights: Vec<egui::Rect> = selected_spans
-            .iter()
-            .map(|span| Self::highlight_rect(page_rect, zoom, page_unscaled_h, span))
-            .collect();
+        let page_highlights: Vec<egui::Rect> = selected_spans.iter().map(|s| s.rect).collect();
 
         // Build selected text
         let mut text = String::new();
@@ -317,7 +320,9 @@ impl SelectionManager {
             && let Some(pos) = screen_pos
         {
             self.drag_current = Some(Self::screen_to_pdf(page_rect, zoom, page_unscaled_h, pos));
-            self.recalculate_brush_highlights(page_index, page_rect, page_unscaled_h, spans, zoom);
+            // The same question as a text drag asks, so the same function answers it.
+            // The two had one body each, and one of them stopped being updated.
+            self.recalculate_selection(page_index, spans);
         }
 
         if response.drag_stopped() {
@@ -331,26 +336,6 @@ impl SelectionManager {
         if response.hovered() {
             ui.ctx().set_cursor_icon(egui::CursorIcon::Crosshair);
         }
-    }
-
-    fn recalculate_brush_highlights(
-        &mut self,
-        page_index: usize,
-        page_rect: egui::Rect,
-        page_unscaled_h: f32,
-        spans: &[TextSpan],
-        zoom: f32,
-    ) {
-        let (Some(start), Some(current)) = (self.drag_start, self.drag_current) else {
-            return;
-        };
-
-        let select_rect = egui::Rect::from_two_pos(start, current);
-        let page_highlights: Vec<egui::Rect> = Self::spans_under(select_rect, spans)
-            .map(|span| Self::highlight_rect(page_rect, zoom, page_unscaled_h, span))
-            .collect();
-
-        self.highlights.insert(page_index, page_highlights);
     }
 }
 
@@ -426,7 +411,7 @@ mod drag_coverage {
             page_rect(),
             1.0,
             PAGE_H,
-            &span("x", 10.0, 20.0, 60.0, 40.0),
+            span("x", 10.0, 20.0, 60.0, 40.0).rect,
         );
         assert!(rect.height() > 0.0, "height was {}", rect.height());
         assert!(rect.width() > 0.0, "width was {}", rect.width());
@@ -441,8 +426,8 @@ mod drag_coverage {
     #[test]
     fn a_highlight_scales_with_the_zoom() {
         let s = span("x", 10.0, 20.0, 60.0, 40.0);
-        let one = SelectionManager::highlight_rect(page_rect(), 1.0, PAGE_H, &s);
-        let two = SelectionManager::highlight_rect(page_rect(), 2.0, PAGE_H, &s);
+        let one = SelectionManager::highlight_rect(page_rect(), 1.0, PAGE_H, s.rect);
+        let two = SelectionManager::highlight_rect(page_rect(), 2.0, PAGE_H, s.rect);
         assert!(
             one.height().mul_add(-2.0, two.height()).abs() < 1e-3,
             "{} against {}",
@@ -505,6 +490,50 @@ mod selecting_real_text {
         let whole_page = egui::Rect::from_two_pos(egui::pos2(0.0, 0.0), egui::pos2(612.0, 792.0));
         let covered = SelectionManager::spans_under(whole_page, &spans).count();
         assert_eq!(covered, spans.len(), "a drag over everything missed some of it");
+    }
+
+    /// **What is kept is where the selection is on the page, not where it was on the
+    /// screen.** Reported from the window: "the selection is left behind when you zoom
+    /// with something selected". A rect computed once at drag time and drawn as it stood
+    /// stays where the screen was, over whatever has moved into its place.
+    #[test]
+    fn what_is_selected_is_kept_in_the_pages_own_coordinates() {
+        let spans = spans("constitution.pdf", 0);
+        let mut manager = SelectionManager::new();
+        manager.drag_start = Some(egui::pos2(0.0, 0.0));
+        manager.drag_current = Some(egui::pos2(612.0, 792.0));
+        manager.recalculate_selection(0, &spans);
+
+        let kept = manager.highlights.get(&0).expect("something was selected");
+        assert_eq!(kept.len(), spans.len(), "a drag over the page kept {} of them", kept.len());
+        assert!(
+            kept.iter().zip(&spans).all(|(k, s)| *k == s.rect),
+            "the rects kept are not the spans' own"
+        );
+    }
+
+    /// And that it lands in the right place at any zoom, which is the point of keeping it
+    /// that way.
+    #[test]
+    fn a_selection_is_drawn_where_the_page_is_at_any_zoom() {
+        let spans = spans("constitution.pdf", 0);
+        let span = spans[0].rect;
+        for zoom in [0.5_f32, 1.0, 2.0] {
+            let page_rect =
+                egui::Rect::from_min_size(egui::pos2(100.0, 50.0), egui::vec2(612.0, 792.0) * zoom);
+            let drawn = SelectionManager::highlight_rect(page_rect, zoom, 792.0, span);
+            let text = SelectionManager::pdf_to_screen(
+                page_rect,
+                zoom,
+                792.0,
+                egui::pos2(span.min.x, span.max.y),
+            );
+            assert!(
+                (drawn.min - text).length() < 0.01,
+                "at {zoom}x the highlight is at {:?} and the text at {text:?}",
+                drawn.min
+            );
+        }
     }
 
     /// The same drag in the coordinates a pointer actually arrives in.
