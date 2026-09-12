@@ -32,6 +32,14 @@ pub enum Step {
     Select(usize),
     /// Sets the zoom, as a whole percentage. Below 30 the viewport shows tiles.
     Zoom(u32),
+    /// Presses the status bar's zoom-in button, which is the path a reader takes.
+    ZoomIn,
+    /// Selects the text of the page being shown, as a drag across it would.
+    ///
+    /// **Everything a drag does except the pointer.** A plan cannot press a mouse button,
+    /// so this drives the same call a drag's `dragged()` frame makes — which is what
+    /// shows whether a selection, once made, is drawn at all.
+    SelectText,
     /// Selects a structure element by its id in the tree, which is what the element
     /// properties panel draws. Nothing else reaches that panel: the tree is a drawer, and
     /// a plan cannot click a row in it.
@@ -172,6 +180,8 @@ fn parse(line: &str) -> Option<Step> {
         "select" => Step::Select(rest.parse().ok()?),
         "node" => Step::Node(rest.parse().ok()?),
         "zoom" => Step::Zoom(rest.parse().ok()?),
+        "zoomin" => Step::ZoomIn,
+        "selecttext" => Step::SelectText,
         "delete" => Step::Delete,
         "rotate" => Step::Rotate,
         "undo" => Step::Undo,
@@ -257,6 +267,12 @@ impl crate::app::FepdfApp {
                 self.view.active_page = page.saturating_sub(1);
             }
             Step::Node(id) => self.ust_registry.selected_node_id = Some(id),
+            Step::SelectText => self.select_text_of_active_page(),
+            Step::ZoomIn => {
+                let viewport = self.last_viewport_rect.unwrap_or(egui::Rect::NOTHING);
+                let step = self.view.zoom_step_up();
+                self.view.zoom_at(step, viewport.center(), viewport, &self.page_layouts);
+            }
             Step::Zoom(percent) => {
                 #[allow(clippy::cast_precision_loss)]
                 self.view.set_zoom(percent as f32 / 100.0);
@@ -314,5 +330,26 @@ impl crate::app::FepdfApp {
             Ok(()) => log::info!("capture: {}", path.display()),
             Err(e) => log::error!("capture: {}: {e}", path.display()),
         }
+    }
+}
+
+impl crate::app::FepdfApp {
+    /// Selects everything on the page being shown, without a pointer.
+    fn select_text_of_active_page(&mut self) {
+        let page = self.view.active_page;
+        let Some(layout) = self.page_layouts.get(page) else { return };
+        let Some(spans) = self.page_spans.get(&page) else { return };
+        let Some(viewport) = self.last_viewport_rect else { return };
+        let origin = self.view.get_origin(viewport);
+        let zoom = self.view.zoom();
+        let page_rect = egui::Rect::from_min_size(
+            origin + layout.rect.min.to_vec2() * zoom,
+            layout.rect.size() * zoom,
+        );
+        let height = layout.rect.height();
+        self.selection_manager.active_page = Some(page);
+        self.selection_manager.drag_start = Some(egui::pos2(0.0, 0.0));
+        self.selection_manager.drag_current = Some(egui::pos2(layout.rect.width(), height));
+        self.selection_manager.recalculate_selection(page, page_rect, height, spans, zoom);
     }
 }

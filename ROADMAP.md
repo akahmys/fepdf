@@ -3244,10 +3244,14 @@ document of their own, are in
       1.23:1 — which is the criterion the deleted `desktop-ui.md` did not name while
       mandating the one that passed.
 
-- [x] **The first screen said nothing.** `update_vello`'s branch had no `else`: a reader
-      opening the application met an empty canvas whose only affordance was a 32-point
-      unlabelled arrow in the corner of a 3,024-pixel screen. It now carries the
-      invitation and three ways to accept it.
+- [x] **The first screen said nothing, was given something to say, and had it taken
+      away again.** `update_vello`'s branch had no `else`: a reader opening the
+      application met an empty canvas whose only affordance was a 32-point unlabelled
+      arrow in the corner of a 3,024-pixel screen. A centred invitation with three ways to
+      accept it was added, and the window's owner asked for it to go: an empty bench is
+      what a window with no document in it should look like. The arrow is now a labelled
+      control in the rail with a tooltip and an accessible name — which is the half of
+      P3 that was actually missing — and dropping a file still works.
 
 *Done when*: the `UI-` rules that say "nothing" say something else, or the roadmap says
 why not. **Six of the thirteen name a checker now**, and the four the principles put

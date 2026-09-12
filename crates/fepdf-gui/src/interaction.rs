@@ -227,7 +227,7 @@ impl SelectionManager {
         )
     }
 
-    fn recalculate_selection(
+    pub(crate) fn recalculate_selection(
         &mut self,
         page_index: usize,
         page_rect: egui::Rect,
@@ -463,5 +463,60 @@ mod drag_coverage {
         let covered: Vec<&str> =
             SelectionManager::spans_under(drag, &spans).map(|s| s.text.as_str()).collect();
         assert_eq!(covered, vec!["inside", "touching"]);
+    }
+}
+
+#[cfg(test)]
+mod selecting_real_text {
+    use super::{SelectionManager, TextSpan};
+
+    /// The spans a page of the corpus yields, as the worker builds them.
+    fn spans(name: &str, index: usize) -> Vec<TextSpan> {
+        let path =
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../samples").join(name);
+        let bytes = std::fs::read(path).expect("the sample is in the tree");
+        let doc = fepdf::PdfDocument::open_with_options(
+            bytes.into(),
+            &fepdf::IngestionOptions::default(),
+        )
+        .expect("the sample opens");
+        doc.extract_spans(index)
+            .expect("the page interprets")
+            .into_iter()
+            .map(|s| TextSpan {
+                #[allow(clippy::cast_possible_truncation)]
+                rect: egui::Rect::from_two_pos(
+                    egui::pos2(s.x as f32, s.y as f32),
+                    egui::pos2((s.x + s.width) as f32, (s.y + s.font_size) as f32),
+                ),
+                text: s.text,
+            })
+            .collect()
+    }
+
+    /// **A drag across the whole page selects the text on it.** Reported from the window:
+    /// text cannot be selected. This is the half of that path with no pointer in it — the
+    /// spans a real page yields, and the rectangle a drag from one corner to the other
+    /// makes in the same space.
+    #[test]
+    fn a_drag_over_the_page_covers_the_text_on_it() {
+        let spans = spans("constitution.pdf", 0);
+        assert!(!spans.is_empty(), "the page yielded no spans at all");
+        let whole_page = egui::Rect::from_two_pos(egui::pos2(0.0, 0.0), egui::pos2(612.0, 792.0));
+        let covered = SelectionManager::spans_under(whole_page, &spans).count();
+        assert_eq!(covered, spans.len(), "a drag over everything missed some of it");
+    }
+
+    /// The same drag in the coordinates a pointer actually arrives in.
+    #[test]
+    fn a_drag_in_screen_coordinates_reaches_the_same_spans() {
+        let spans = spans("constitution.pdf", 0);
+        let page_rect =
+            egui::Rect::from_min_size(egui::pos2(100.0, 50.0), egui::vec2(612.0, 792.0));
+        let start = SelectionManager::screen_to_pdf(page_rect, 1.0, 792.0, page_rect.min);
+        let end = SelectionManager::screen_to_pdf(page_rect, 1.0, 792.0, page_rect.max);
+        let dragged = egui::Rect::from_two_pos(start, end);
+        let covered = SelectionManager::spans_under(dragged, &spans).count();
+        assert_eq!(covered, spans.len(), "the screen-space drag missed some of the page");
     }
 }

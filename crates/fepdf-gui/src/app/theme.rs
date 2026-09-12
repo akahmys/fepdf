@@ -420,10 +420,17 @@ pub fn apply_global_styles(ctx: &egui::Context) {
     visuals.widgets.noninteractive.bg_stroke = egui::Stroke::new(1.0_f32, colors::steel::RULE);
     visuals.widgets.noninteractive.fg_stroke = egui::Stroke::new(1.0_f32, colors::steel::MUTED);
 
+    // **A button at rest has no ground of its own.** `weak_bg_fill` is what a `Button`
+    // paints itself with, and egui's default light grey put a faint panel behind every
+    // control in the rail and the status bar — a shape with no edges, carrying no
+    // meaning, repeated thirty times. A control says what it is with its glyph and its
+    // name; the fills below are for the two moments it has something extra to say.
+    visuals.widgets.inactive.weak_bg_fill = egui::Color32::TRANSPARENT;
     visuals.widgets.inactive.bg_fill = colors::paper::WHITE;
     visuals.widgets.inactive.bg_stroke = egui::Stroke::NONE;
     visuals.widgets.inactive.fg_stroke = egui::Stroke::new(1.0_f32, colors::steel::MUTED);
 
+    visuals.widgets.hovered.weak_bg_fill = colors::paper::HOVER;
     visuals.widgets.hovered.bg_fill = colors::paper::HOVER;
     visuals.widgets.hovered.bg_stroke = egui::Stroke::NONE;
     visuals.widgets.hovered.fg_stroke = egui::Stroke::new(1.0_f32, colors::steel::TEXT);
@@ -435,10 +442,12 @@ pub fn apply_global_styles(ctx: &egui::Context) {
     // what the reader is touching (UI-10), and bold text is not that. A pressed control
     // takes the darkest steel, which is what bold should mean in this palette; the accent
     // reaches a *selection* through `visuals.selection` above.
+    visuals.widgets.active.weak_bg_fill = colors::paper::PRESSED;
     visuals.widgets.active.bg_fill = colors::paper::PRESSED;
     visuals.widgets.active.bg_stroke = egui::Stroke::NONE;
     visuals.widgets.active.fg_stroke = egui::Stroke::new(1.0_f32, colors::steel::TEXT);
 
+    visuals.widgets.open.weak_bg_fill = colors::paper::HOVER;
     visuals.widgets.open.bg_fill = colors::paper::HOVER;
     visuals.widgets.open.bg_stroke = egui::Stroke::new(1.0_f32, colors::steel::EDGE);
     visuals.widgets.open.fg_stroke = egui::Stroke::new(1.0_f32, colors::steel::TEXT);
