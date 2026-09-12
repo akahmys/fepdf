@@ -43,6 +43,14 @@ pub enum PagePixels<'a> {
     Thumbnails(&'a BTreeMap<usize, egui::TextureId>),
 }
 
+/// A page, and the point on it the view is holding still.
+#[derive(Debug, Clone, Copy)]
+pub struct Anchor {
+    page: usize,
+    /// Where on that page, in unscaled page units from its top-left.
+    local: egui::Vec2,
+}
+
 pub struct PDFView {
     /// Private, so the only ways to change it are [`Self::set_zoom`] and
     /// [`Self::zoom_at`]. It was `pub`, four callers assigned it directly, and three of
@@ -494,46 +502,53 @@ impl PDFView {
         self.is_page_view() == self.arranged_as_tiles
     }
 
-    /// The page the view is anchored to, in the layout in hand.
+    /// The page, and the point on it, that the view is anchored to in the layout in hand.
     ///
     /// The anchor point is wherever the last zoom was anchored — the cursor, for a wheel
     /// or a pinch — falling back to the middle of the window for a change that no gesture
-    /// caused. Only *which page* is carried; [`Self::restore_anchor`] says why the point
-    /// on it is not.
+    /// caused.
     #[must_use]
-    pub fn take_anchor(&self, viewport: egui::Rect, layouts: &[PageLayout]) -> Option<usize> {
+    pub fn take_anchor(&self, viewport: egui::Rect, layouts: &[PageLayout]) -> Option<Anchor> {
         let at = self.last_anchor.unwrap_or_else(|| viewport.center());
         let origin = self.get_origin(viewport);
-        self.layout_under(at, origin, self.zoom, layouts).map(|layout| layout.index)
+        let layout = self.layout_under(at, origin, self.zoom, layouts)?;
+        let page_screen_min = origin + layout.rect.min.to_vec2() * self.zoom;
+        // **Clamped onto the page, because an anchor is a point *of* a page.** The cursor
+        // is often beside one rather than on it — in a margin, in the gap between two
+        // tiles — and `layout_under` then answers with the nearest page and an offset
+        // outside it. Where the cursor is on the page this changes nothing; where it is
+        // not, it puts the page's nearest edge under the cursor rather than leaving the
+        // page off to one side of it.
+        let local = (at - page_screen_min) / self.zoom;
+        let size = layout.rect.size();
+        let local = egui::vec2(local.x.clamp(0.0, size.x), local.y.clamp(0.0, size.y));
+        Some(Anchor { page: layout.index, local })
     }
 
-    /// Puts the page the view was anchored to under the cursor, centred on it.
+    /// Puts the anchored point back under the cursor, in the new arrangement.
     ///
-    /// **The cursor chooses the page and the cursor is where it goes.** A zoom holds one
-    /// point of a page still under the cursor, and that is right while the pages stay
-    /// where they are; across a rearrangement it is not, because the column and the grid
-    /// put the same page in quite different places and the point that was under the
-    /// cursor may be anywhere on it. The page's own middle is put there instead, so the
-    /// page the reader was pointing at is the page under their pointer afterwards,
-    /// wherever on it they happened to be.
+    /// **The cursor is the centre of every zoom, including the one that changes the
+    /// arrangement.** That is the whole rule, and it is the same sentence for both: the
+    /// point under the cursor does not move. The column and the grid put the same page in
+    /// quite different places, so the view moves by whatever difference that makes — for
+    /// a tile in the first column reaching a cursor on the right, the width of the window.
     ///
     /// Bounded by `clamp_pan` alone, which keeps the document on screen and nothing
     /// narrower: the grid's alignment says where its `x = 0` is, not where the grid has
-    /// to sit. A tile in the first column has to be able to travel right to reach a
-    /// cursor on the right.
+    /// to sit.
     pub fn restore_anchor(
         &mut self,
-        anchor: Option<usize>,
+        anchor: Option<Anchor>,
         viewport: egui::Rect,
         layouts: &[PageLayout],
     ) {
         self.arranged_as_tiles = !self.is_page_view();
-        let Some(page) = anchor else { return };
-        let Some(layout) = layouts.get(page) else { return };
+        let Some(anchor) = anchor else { return };
+        let Some(layout) = layouts.get(anchor.page) else { return };
         let at = self.last_anchor.unwrap_or_else(|| viewport.center());
         let origin_no_pan = self.get_origin_no_pan(viewport);
-        self.pan = at - origin_no_pan - layout.rect.center().to_vec2() * self.zoom;
-        self.active_page = page;
+        self.pan = (at - origin_no_pan) - (layout.rect.min.to_vec2() + anchor.local) * self.zoom;
+        self.active_page = anchor.page;
     }
 
     /// The page the middle of the viewport is over, which is the one being read.
@@ -1497,24 +1512,21 @@ mod arrangement_crossing {
             .collect()
     }
 
-    /// Where the page's middle has ended up on the screen.
-    fn middle_of(view: &PDFView, page: usize, layouts: &[PageLayout]) -> egui::Pos2 {
-        view.get_origin(WINDOW) + layouts[page].rect.center().to_vec2() * view.zoom()
-    }
-
-    /// Which page is under `at`.
-    fn under(view: &PDFView, at: egui::Pos2, layouts: &[PageLayout]) -> usize {
+    /// Which page is under `at`, and where on it.
+    fn under(view: &PDFView, at: egui::Pos2, layouts: &[PageLayout]) -> (usize, egui::Vec2) {
         let origin = view.get_origin(WINDOW);
-        view.layout_under(at, origin, view.zoom(), layouts).expect("a page").index
+        let layout = view.layout_under(at, origin, view.zoom(), layouts).expect("a page");
+        let page_min = origin + layout.rect.min.to_vec2() * view.zoom();
+        (layout.index, (at - page_min) / view.zoom())
     }
 
-    /// **The cursor chooses the page, and the cursor is where it goes.** Reported from
-    /// the window five times. A zoom holds a point still under the cursor, which is right
-    /// while the pages stay where they are and wrong across a rearrangement: the column
-    /// and the grid put the same page in quite different places, and the point that was
-    /// under the cursor may be anywhere on it. The page's own middle goes there instead.
+    /// **The point under the cursor does not move.** One sentence for every zoom,
+    /// including the one that changes the arrangement — which is what a reader expects of
+    /// a zoom and took five attempts to arrive at. The column and the grid put the same
+    /// page in quite different places, so the view moves by whatever difference that
+    /// makes.
     #[test]
-    fn the_page_under_the_cursor_comes_out_centred_on_the_cursor() {
+    fn the_point_under_the_cursor_does_not_move() {
         let mut view = PDFView::new();
         view.display_mode = DisplayMode::Continuous;
         let tiles = grid(25);
@@ -1523,26 +1535,26 @@ mod arrangement_crossing {
 
         let cursor = egui::pos2(700.0, 300.0);
         view.zoom_at(0.33, cursor, WINDOW, &tiles);
-        let chosen = under(&view, cursor, &tiles);
+        let (chosen, local) = under(&view, cursor, &tiles);
         assert!(view.arrangement_is_changing(), "the crossing went unnoticed");
 
         let carried = view.take_anchor(WINDOW, &tiles);
-        assert_eq!(carried, Some(chosen), "a different page was carried across");
         let pages = column(25);
         view.restore_anchor(carried, WINDOW, &pages);
 
-        assert_eq!(view.active_page, chosen);
-        let middle = middle_of(&view, chosen, &pages);
+        assert_eq!(view.active_page, chosen, "a different page was carried across");
+        let (after, after_local) = under(&view, cursor, &pages);
+        assert_eq!(after, chosen, "the cursor came out over a different page");
         assert!(
-            (middle - cursor).length() < 1.0,
-            "the page came out centred on {middle:?}, not on the cursor at {cursor:?}"
+            (after_local - local).length() < 1.0,
+            "the cursor came out at {after_local:?} of the page, not {local:?}"
         );
     }
 
-    /// The same in the other direction: zooming out into the tiles puts the page that was
-    /// being read under the cursor, and the grid goes wherever that needs it to.
+    /// The same in the other direction: zooming out into the tiles leaves the point the
+    /// reader was over where it was, and the grid goes wherever that needs it to.
     #[test]
-    fn going_into_the_tiles_puts_that_page_under_the_cursor() {
+    fn going_into_the_tiles_leaves_the_point_where_it_was() {
         let mut view = PDFView::new();
         view.display_mode = DisplayMode::Continuous;
         let pages = column(25);
@@ -1552,36 +1564,43 @@ mod arrangement_crossing {
 
         let cursor = egui::pos2(700.0, 300.0);
         view.zoom_at(0.25, cursor, WINDOW, &pages);
-        let chosen = under(&view, cursor, &pages);
+        let (chosen, local) = under(&view, cursor, &pages);
 
         let carried = view.take_anchor(WINDOW, &pages);
         let tiles = grid(25);
         view.restore_anchor(carried, WINDOW, &tiles);
 
-        let middle = middle_of(&view, chosen, &tiles);
-        assert!((middle - cursor).length() < 1.0, "the tile came out centred on {middle:?}");
+        let (after, after_local) = under(&view, cursor, &tiles);
+        assert_eq!(after, chosen, "the cursor came out over a different tile");
+        assert!((after_local - local).length() < 1.0, "and at {after_local:?}, not {local:?}");
     }
 
     /// **The grid's edge is a bound, not a position.** A tile in the first column is at
-    /// the grid's own `x = 0`, so putting it under a cursor on the right needs the grid to
-    /// move right — which a grid pinned to the left of the window cannot do. "When it
-    /// becomes tiles the whole grid is left-aligned to the display area, so it does not do
-    /// what was meant."
+    /// the grid's own `x = 0`, so reaching a cursor on the right needs the grid to move
+    /// right — which a grid pinned to the left of the window cannot do. "When it becomes
+    /// tiles the whole grid is left-aligned to the display area, so it does not do what
+    /// was meant."
     #[test]
     fn a_tile_in_the_first_column_can_still_reach_the_cursor() {
         let mut view = PDFView::new();
         view.display_mode = DisplayMode::Continuous;
         let pages = column(25);
-        view.set_zoom(0.25);
+        view.set_zoom(1.0);
         view.restore_anchor(None, WINDOW, &pages);
+        view.scroll_to_page(10, &pages); // the grid's first column, second row
 
-        let cursor = egui::pos2(820.0, 300.0);
+        let cursor = egui::pos2(750.0, 300.0);
         view.zoom_at(0.25, cursor, WINDOW, &pages);
+        let (chosen, local) = under(&view, cursor, &pages);
+        assert_eq!(chosen % 10, 0, "the fixture is not on the grid's first column");
+
+        let carried = view.take_anchor(WINDOW, &pages);
         let tiles = grid(25);
-        view.restore_anchor(Some(10), WINDOW, &tiles); // first column, second row
+        view.restore_anchor(carried, WINDOW, &tiles);
         assert!(view.pan.x > 1.0, "the grid stayed on its edge: pan.x is {}", view.pan.x);
-        let middle = middle_of(&view, 10, &tiles);
-        assert!((middle - cursor).length() < 1.0, "it came out at {middle:?}, not {cursor:?}");
+        let (after, after_local) = under(&view, cursor, &tiles);
+        assert_eq!(after, chosen);
+        assert!((after_local - local).length() < 1.0, "it came out at {after_local:?}");
     }
 
     /// A zoom that stays on one side of the boundary rearranges nothing, so nothing is
