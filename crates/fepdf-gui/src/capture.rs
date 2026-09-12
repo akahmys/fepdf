@@ -39,7 +39,7 @@ pub enum Step {
     /// `wheel <x> <y> <steps>` in points from the viewport's top-left. A single `zoom`
     /// jumps; this is what a reader's fingers actually send, and the two are not the same
     /// question — a gesture that crosses the tile boundary keeps going afterwards.
-    Wheel(u32, u32, u32),
+    Wheel(u32, u32, i32),
     /// Selects the text of the page being shown, as a drag across it would.
     ///
     /// **Everything a drag does except the pointer.** A plan cannot press a mouse button,
@@ -372,12 +372,13 @@ impl crate::app::FepdfApp {
 impl crate::app::FepdfApp {
     /// The same call `handle_zoom_gestures` makes for a `⌘`-scroll, `steps` times.
     #[allow(clippy::cast_precision_loss)]
-    fn wheel_zoom(&mut self, x: u32, y: u32, steps: u32) {
+    fn wheel_zoom(&mut self, x: u32, y: u32, steps: i32) {
         let Some(viewport) = self.last_viewport_rect else { return };
         let at = viewport.min + egui::vec2(x as f32, y as f32);
-        for _ in 0..steps {
+        let notch = if steps < 0 { -40.0_f32 } else { 40.0_f32 };
+        for _ in 0..steps.abs() {
             // 40 points of scroll, which is what one notch of a wheel sends.
-            let factor = (40.0_f32 * 0.005).exp();
+            let factor = (notch * 0.005).exp();
             let target = self.view.zoom_before_snapping() * factor;
             self.view.zoom_at(target, at, viewport, &self.page_layouts);
             self.compute_layouts();
