@@ -110,8 +110,37 @@ pub mod colors {
     /// takes `peniko::Color`, and the workbench was `Color::from_rgb8(235, 237, 240)`
     /// written into `vello_egui.rs` — a value `paper::CANVAS` was supposed to be, three
     /// shades away from it, and invisible to a checker that reads `Color32`.
+    /// The same colour for vello, alpha included and un-premultiplied.
+    ///
+    /// **Two conversions, not one, and both were invisible while every colour crossing
+    /// here was opaque.** It used to call `from_rgb8` and drop the alpha outright. And
+    /// `Color32` stores its channels premultiplied — `from_rgba_unmultiplied` multiplies
+    /// on the way in, so `c.r()` afterwards is the multiplied byte — while
+    /// `peniko::Color` does not, so handing the components across unchanged darkens
+    /// anything translucent towards black in proportion to how translucent it is. The
+    /// bench's grid is `RULE` at 40 of 255: it came out `(211, 212, 213)` against the
+    /// `(238, 240, 243)` egui draws for the same colour, which is a grey line where a
+    /// faint one was asked for.
+    ///
+    /// An opaque colour passes through both steps unchanged, which is why nothing had
+    /// noticed either.
     pub const fn to_peniko(c: Color32) -> vello::peniko::Color {
-        vello::peniko::Color::from_rgb8(c.r(), c.g(), c.b())
+        let alpha = c.a();
+        if alpha == 0 {
+            return vello::peniko::Color::TRANSPARENT;
+        }
+        vello::peniko::Color::from_rgba8(
+            straighten(c.r(), alpha),
+            straighten(c.g(), alpha),
+            straighten(c.b(), alpha),
+            alpha,
+        )
+    }
+
+    /// One premultiplied channel, divided back out. `alpha` is never zero here.
+    #[allow(clippy::cast_possible_truncation)]
+    const fn straighten(channel: u8, alpha: u8) -> u8 {
+        (channel as u16 * 255 / alpha as u16) as u8
     }
 
     /// The same colour at `alpha`, for a badge ground or an overlay fill.
@@ -174,10 +203,42 @@ pub mod radius {
 /// with a paper-coloured outline reads on any ground. Maps, CAD and subtitles all do
 /// this, for the same reason.
 pub mod canvas {
-    use super::colors;
+    use super::{colors, size};
 
     /// How far the halo extends, in points.
     pub const HALO: f32 = 1.0;
+
+    /// The bench's grid lines over a viewport of `size`, in points from its top-left.
+    ///
+    /// **Handed back rather than drawn, because two painters draw this bench.** egui
+    /// paints it in the thumbnail path; in the viewport path an opaque vello texture
+    /// covers the whole viewport a step later, so anything egui puts under it is painted
+    /// and hidden — which is what happened to this grid for as long as it existed. Vello
+    /// draws it now, from these same lines.
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    pub fn grid_lines(viewport: egui::Vec2, pan: egui::Vec2, zoom: f32) -> Vec<[egui::Pos2; 2]> {
+        let step = size::GRID * zoom;
+        if step <= 0.1 {
+            return Vec::new();
+        }
+        let mut lines = Vec::new();
+        let down = ((viewport.x - pan.x % step) / step).ceil().max(0.0) as usize;
+        for i in 0..down {
+            let x = (i as f32).mul_add(step, pan.x % step);
+            lines.push([egui::pos2(x, 0.0), egui::pos2(x, viewport.y)]);
+        }
+        let across = ((viewport.y - pan.y % step) / step).ceil().max(0.0) as usize;
+        for i in 0..across {
+            let y = (i as f32).mul_add(step, pan.y % step);
+            lines.push([egui::pos2(0.0, y), egui::pos2(viewport.x, y)]);
+        }
+        lines
+    }
+
+    /// The grid's colour: the rule, faint enough to sit under a page without competing.
+    pub fn grid_colour() -> egui::Color32 {
+        colors::tint(colors::steel::RULE, 40)
+    }
 
     /// Draws `text` with a paper-coloured halo, so it reads on any page.
     pub fn haloed_text(
@@ -247,6 +308,8 @@ pub mod size {
     pub const DRAWER_MIN: f32 = 260.0;
     /// The widest the drawer may become.
     pub const DRAWER_MAX: f32 = 600.0;
+    /// The bench's grid, at zoom 1.
+    pub const GRID: f32 = 32.0;
     /// The label column of a two-column property grid.
     ///
     /// Wide enough for the longest label the drawer carries — `代替テキスト (Alt Text):`,
@@ -275,7 +338,8 @@ const _SIZES_ARE_ON_THE_GRID: () = assert!(
         && (size::FORM_W as u32).is_multiple_of(4)
         && (size::TABLE_W as u32).is_multiple_of(4)
         && (size::DRAWER_W as u32).is_multiple_of(4)
-        && (size::LABEL_W as u32).is_multiple_of(4),
+        && (size::LABEL_W as u32).is_multiple_of(4)
+        && (size::GRID as u32).is_multiple_of(4),
     "chrome dimensions are multiples of the 4pt grid"
 );
 
@@ -390,4 +454,61 @@ pub fn apply_global_styles(ctx: &egui::Context) {
     style.text_styles.insert(egui::TextStyle::Small, egui::FontId::proportional(text::SMALL));
     style.text_styles.insert(egui::TextStyle::Heading, egui::FontId::proportional(text::HEAD));
     ctx.set_global_style(style);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{canvas, colors};
+
+    /// What the compositor shows for `c` drawn over `under`, as egui composites it.
+    fn blended(c: egui::Color32, under: egui::Color32) -> [u8; 3] {
+        let a = f32::from(c.a()) / 255.0;
+        let mix = |fg: u8, bg: u8| {
+            let straight = f32::from(fg) / a.max(f32::EPSILON);
+            straight.mul_add(a, f32::from(bg) * (1.0 - a)).round() as u8
+        };
+        [mix(c.r(), under.r()), mix(c.g(), under.g()), mix(c.b(), under.b())]
+    }
+
+    #[test]
+    fn a_translucent_colour_means_the_same_thing_to_vello_as_to_egui() {
+        // `Color32` is premultiplied and `peniko::Color` is not. Handing the components
+        // across unchanged darkens anything translucent towards black in proportion to
+        // how translucent it is, and the bench's grid came out `(211, 212, 213)` against
+        // the `(238, 240, 243)` this asks for.
+        let grid = canvas::grid_colour();
+        let peniko = colors::to_peniko(grid);
+        let [r, g, b, _] = peniko.to_rgba8().to_u8_array();
+        let straight = egui::Color32::from_rgba_unmultiplied(r, g, b, grid.a());
+        assert_eq!(blended(grid, colors::paper::CANVAS), blended(straight, colors::paper::CANVAS));
+    }
+
+    #[test]
+    fn an_opaque_colour_crosses_unchanged() {
+        // Which is why neither conversion had ever been noticed: every colour that had
+        // crossed here before the grid did was opaque.
+        let canvas_colour = colors::paper::CANVAS;
+        let peniko = colors::to_peniko(canvas_colour);
+        assert_eq!(
+            peniko.to_rgba8().to_u8_array(),
+            [canvas_colour.r(), canvas_colour.g(), canvas_colour.b(), 255]
+        );
+    }
+
+    #[test]
+    fn the_grid_starts_where_the_pan_left_it_and_covers_the_viewport() {
+        // 32pt apart at zoom 1, offset by the pan: three down the viewport and two
+        // across it, the downward ones first.
+        let lines = canvas::grid_lines(egui::vec2(100.0, 50.0), egui::vec2(8.0, 0.0), 1.0);
+        let down = |x: f32| [egui::pos2(x, 0.0), egui::pos2(x, 50.0)];
+        let across = |y: f32| [egui::pos2(0.0, y), egui::pos2(100.0, y)];
+        assert_eq!(lines, vec![down(8.0), down(40.0), down(72.0), across(0.0), across(32.0)]);
+    }
+
+    #[test]
+    fn a_zoom_that_would_draw_a_line_per_pixel_draws_none() {
+        // The loops are bounded by the viewport over the step, so a step approaching zero
+        // is a length approaching the machine's patience.
+        assert!(canvas::grid_lines(egui::vec2(4000.0, 4000.0), egui::Vec2::ZERO, 0.001).is_empty());
+    }
 }

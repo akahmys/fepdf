@@ -34,6 +34,10 @@ pub struct VelloRenderer {
     last_visible_pages: Vec<(usize, usize, egui::Rect)>,
     last_viewport_rect: egui::Rect,
     last_zoom: f32,
+    /// Part of the key because the bench's grid moves with the pan and the pages do not
+    /// always: scroll every page out of view and nothing else here changes, so a grid
+    /// keyed only on the pages would stand still while the window scrolled.
+    last_pan: egui::Vec2,
     /// How many visible pages the last composition left undrawn, having reached the
     /// bin-data budget. Zero in an ordinary frame; see [`fepdf::budget`].
     pages_left_out: usize,
@@ -72,6 +76,7 @@ impl VelloRenderer {
             last_visible_pages: Vec::new(),
             last_viewport_rect: egui::Rect::NOTHING,
             last_zoom: 0.0,
+            last_pan: egui::Vec2::ZERO,
             pages_left_out: 0,
         })
     }
@@ -96,6 +101,7 @@ impl VelloRenderer {
         viewport_rect: egui::Rect,
         scale_factor: f32,
         zoom: f32,
+        pan: egui::Vec2,
     ) -> Option<egui::TextureId> {
         let current_visible_pages: Vec<(usize, usize, egui::Rect)> = visible_pages
             .iter()
@@ -108,6 +114,7 @@ impl VelloRenderer {
         if self.last_visible_pages == current_visible_pages
             && self.last_viewport_rect == viewport_rect
             && self.last_zoom == zoom
+            && self.last_pan == pan
             && let Some(ref tex) = self.viewport_texture
         {
             return Some(tex.egui_texture);
@@ -144,6 +151,20 @@ impl VelloRenderer {
             None,
             &viewport_kurbo_rect,
         );
+
+        // The grid over it, from the same lines egui draws in the thumbnail path. This
+        // is the only path that shows it: the texture assembled here covers the whole
+        // viewport, so the grid egui paints underneath is painted and hidden.
+        let grid = vello::kurbo::Stroke::new(f64::from(scale_factor));
+        let grid_colour =
+            crate::app::theme::colors::to_peniko(crate::app::theme::canvas::grid_colour());
+        for [from, to] in crate::app::theme::canvas::grid_lines(viewport_rect.size(), pan, zoom) {
+            let line = kurbo::Line::new(
+                (f64::from(from.x * scale_factor), f64::from(from.y * scale_factor)),
+                (f64::from(to.x * scale_factor), f64::from(to.y * scale_factor)),
+            );
+            viewport_scene.stroke(&grid, kurbo::Affine::IDENTITY, grid_colour, None, &line);
+        }
 
         let scale = f64::from(zoom * scale_factor) / 2.0;
 
@@ -214,6 +235,7 @@ impl VelloRenderer {
         self.last_visible_pages = current_visible_pages;
         self.last_viewport_rect = viewport_rect;
         self.last_zoom = zoom;
+        self.last_pan = pan;
 
         Some(tex.egui_texture)
     }

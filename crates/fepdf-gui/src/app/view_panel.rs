@@ -755,6 +755,7 @@ impl FepdfApp {
                 viewport_rect,
                 scale_factor,
                 zoom,
+                self.view.pan,
             );
             self.pages_left_out = vello_renderer.pages_left_out();
             crate::view::PagePixels::Viewport(id)

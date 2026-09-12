@@ -544,9 +544,8 @@ impl PDFView {
         // **Both are drawn only where they can be seen.** In the viewport path the vello
         // texture below covers the whole viewport — it has to, because a storage texture
         // clears to `(0,0,0,0)` and egui's opaque shader renders that as black — so a
-        // fill and a grid drawn here are painted and then hidden. The bench comes from
-        // the same `paper::CANVAS` either way; the grid is lost in that path, and saying
-        // so is better than drawing it where nobody can look at it.
+        // fill and a grid drawn here are painted and then hidden. Vello draws both for
+        // that path, from `canvas::grid_lines`, so the two benches cannot drift apart.
         let covered = matches!(pixels, PagePixels::Viewport(Some(_)));
         if !covered {
             ui.painter().rect_filled(viewport_rect, radius::FLAT, colors::paper::CANVAS);
@@ -676,36 +675,10 @@ impl PDFView {
         pan: egui::Vec2,
         zoom: f32,
     ) {
-        let grid_size = 32.0;
-        let step = grid_size * zoom;
-        let grid_stroke = egui::Stroke::new(1.0_f32, colors::tint(colors::steel::RULE, 40));
-
-        if step > 0.1 {
-            let start_x = viewport_rect.min.x + (pan.x % step);
-            let width = viewport_rect.max.x - start_x;
-            if width > 0.0 {
-                let count = (width / step).ceil() as usize;
-                for i in 0..count {
-                    let x = (i as f32).mul_add(step, start_x);
-                    painter.line_segment(
-                        [egui::pos2(x, viewport_rect.min.y), egui::pos2(x, viewport_rect.max.y)],
-                        grid_stroke,
-                    );
-                }
-            }
-
-            let start_y = viewport_rect.min.y + (pan.y % step);
-            let height = viewport_rect.max.y - start_y;
-            if height > 0.0 {
-                let count = (height / step).ceil() as usize;
-                for i in 0..count {
-                    let y = (i as f32).mul_add(step, start_y);
-                    painter.line_segment(
-                        [egui::pos2(viewport_rect.min.x, y), egui::pos2(viewport_rect.max.x, y)],
-                        grid_stroke,
-                    );
-                }
-            }
+        let stroke = egui::Stroke::new(1.0_f32, canvas::grid_colour());
+        let offset = viewport_rect.min.to_vec2();
+        for [from, to] in canvas::grid_lines(viewport_rect.size(), pan, zoom) {
+            painter.line_segment([from + offset, to + offset], stroke);
         }
     }
 

@@ -3336,9 +3336,32 @@ build-time assertion over the tokens and nothing over their use.
       `境界ボックス (BBox):` came out broken across four lines between characters of a
       word. `theme::size::LABEL_W`.
 
-- **`draw_page_backings` paints under an opaque texture.** In the viewport path a vello
-  texture covers the whole viewport a step later, so the page fill and its drop shadow are
-  painted and hidden; only the thumbnail path sees them.
+- [x] **The bench's grid had never been drawn in the viewport.** In the viewport path a
+      vello texture covers the whole viewport a step later — it has to, because a storage
+      texture clears to `(0,0,0,0)` and egui's opaque shader renders that as black — so
+      `draw_canvas_grid` and `draw_page_backings` both painted under it. The page fill
+      comes from vello either way and the bench colour matches, so what was actually lost
+      was the grid, on every document opened in page view since the grid was written.
+
+      Vello draws it now, from `canvas::grid_lines` — the same lines egui draws in the
+      thumbnail path, handed back rather than drawn so the two benches cannot drift apart.
+
+      **`to_peniko` was wrong twice, and the grid is the first colour that could show
+      it.** It called `from_rgb8` and dropped the alpha outright; and `Color32` stores its
+      channels premultiplied while `peniko::Color` does not, so the components went across
+      unchanged and darkened towards black in proportion to how translucent they were. The
+      grid drew `(211, 212, 213)` where egui draws `(238, 240, 243)` for the same colour —
+      predicted from the premultiplication before it was measured, and measured exactly.
+      An opaque colour passes through both steps unchanged, which is why nothing had
+      noticed either.
+
+      ```bash
+      cargo test -p fepdf-gui --bin fepdf-gui theme
+      ```
+
+      The page's drop shadow is still egui's and still hidden. It is four translucent
+      rounded rectangles offset by 1.5pt each, which is a shadow drawn by hand rather than
+      a thing vello has an operation for, and it is worth less than the grid was.
 
 - [x] **Nobody could look, and that was one problem rather than a list of them.** Every
       "not visually verified" line above needs a click to reach — a drawer, a window, a
