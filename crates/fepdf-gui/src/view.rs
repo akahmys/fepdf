@@ -1089,7 +1089,7 @@ impl PDFView {
         page_index: usize,
         selected_id: Option<usize>,
     ) {
-        let here = node.page_index.is_none_or(|index| index == page_index);
+        let here = node.page_index == Some(page_index);
         if let Some(rect) = node.rect
             && here
         {
@@ -1146,7 +1146,7 @@ impl PDFView {
         page_index: usize,
         list: &mut Vec<String>,
     ) {
-        if node.rect.is_some() && node.page_index.is_none_or(|index| index == page_index) {
+        if node.rect.is_some() && node.page_index == Some(page_index) {
             list.push(node.tag.clone());
         }
         for child in &node.children {

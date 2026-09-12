@@ -3329,8 +3329,15 @@ build-time assertion over the tokens and nothing over their use.
 
       **The window already knows how to open its own drawers.** `--capture` reads a plan,
       does what it says, and hands back what it drew through
-      `ViewportCommand::Screenshot`. Sixteen screens in two seconds, and it closes itself,
-      so a script can wait on it.
+      `ViewportCommand::Screenshot`. Eighteen screens in thirteen seconds, and it closes
+      itself, so a script can wait on it.
+
+      **The wait between steps is a duration and used to be a frame count.** It asks for a
+      repaint every frame, so an idle window runs as fast as the compositor allows and the
+      240-frame cap went by in well under the four seconds it reads as.
+      `samples/volvo_xc90.pdf` takes about two seconds to open, so the cap fired first and
+      the shot caught the progress message — a harness photographing the wrong thing in
+      silence, which is the one failure it must not have.
 
       ```bash
       ./target/debug/fepdf-gui --capture scripts/dev/tour.txt --shots /tmp/tour

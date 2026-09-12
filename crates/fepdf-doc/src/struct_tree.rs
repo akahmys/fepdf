@@ -401,9 +401,16 @@ fn parse_struct_node(
     let kids = dict.get(&arena.name("K")).map_or_else(Kids::default, |k| {
         parse_kids_helper(arena, k, next_id, visited, page_map, page_index)
     });
-    // An element with no `/Pg` of its own sits on the page its marks name. Taken after
-    // the kids rather than before, because that is where the answer comes from.
-    let page_index = page_index.or(kids.page);
+    // An element with no `/Pg` of its own sits on the page its marks name, or — holding
+    // no marks — on the page the first thing it holds is on. Taken after the kids rather
+    // than before, because that is where both answers come from.
+    //
+    // **A container without this has no page at all**, and `volvo_xc90.pdf` is made of
+    // them: only its `/MCR`s carry `/Pg`, so every `/Div` and every `/Sect` above them
+    // came out unplaced. A consumer drawing "the elements on this page" then either drew
+    // them on all 415 or on none.
+    let page_index =
+        page_index.or(kids.page).or_else(|| kids.children.first().and_then(|c| c.page_index));
 
     visited.remove(&handle);
 

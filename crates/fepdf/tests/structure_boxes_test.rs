@@ -113,6 +113,25 @@ fn a_reference_carries_the_page_for_an_element_that_names_none() {
 }
 
 #[test]
+fn a_container_takes_the_page_of_what_it_holds() {
+    // A `/Div` holds elements and claims no mark, so neither its own `/Pg` nor a
+    // reference's says where it is. Without the children's answer it has no page at all —
+    // and `volvo_xc90.pdf` is built this way, `/Pg` on the `/MCR`s and nowhere above them.
+    // A consumer drawing "the elements on this page" then draws the container on all 415
+    // pages or on none.
+    let doc = tagged(
+        "<< /Type /StructElem /S /Div /P 5 0 R /K [7 0 R] >>",
+        "/P << /MCID 0 >> BDC\n10 20 30 40 re f\nEMC\n",
+        &["<< /Type /StructElem /S /P /P 6 0 R \
+           /K [<< /Type /MCR /Pg 3 0 R /MCID 0 >>] >>"],
+    );
+    let container = &placed(&doc).children[0];
+    assert_eq!(container.tag, "Div");
+    assert_eq!(container.page_index, Some(0));
+    assert_eq!(container.rect, Some([10.0, 20.0, 40.0, 60.0]));
+}
+
+#[test]
 fn an_object_reference_is_neither_a_mark_nor_a_child() {
     // `/OBJR` names an annotation, which is content with no `/MCID` to place it by.
     // `print_sample.pdf` writes 20 of them and every one arrived here as a `P`.

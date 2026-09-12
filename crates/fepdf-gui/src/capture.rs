@@ -87,27 +87,34 @@ impl std::error::Error for PlanError {}
 pub struct Plan {
     steps: VecDeque<Step>,
     shots: PathBuf,
-    /// Frames to wait before the next step, so a page has finished arriving.
-    settle: u32,
+    /// When the last step was taken, which is what the two waits below are measured from.
+    acted: std::time::Instant,
     /// The name a screenshot in flight will be saved under.
     pending: Option<String>,
 }
 
-/// How long to wait for the worker after an action, in frames.
+/// How long to wait for the worker after an action.
 ///
 /// **A cap rather than the wait itself.** The wait is on the window being idle — nothing
 /// loading, nothing queued, no rebuild running — and this is how long it may take before
 /// the plan gives up and shoots anyway, so that a page which never arrives produces a
 /// screenshot of the window failing to draw it rather than a script that hangs.
-const SETTLE_CAP: u32 = 240;
+///
+/// **Measured in time, and it used to be measured in frames.** 240 of them sounds like
+/// four seconds and is not: `drive_capture` asks for a repaint every frame, so an idle
+/// window runs as fast as the compositor will let it and 240 frames go by in well under a
+/// second. `samples/volvo_xc90.pdf` takes about two seconds to open, so the cap fired
+/// first and the shot caught the progress message — a harness quietly photographing the
+/// wrong thing, which is the one failure it must not have.
+const SETTLE_CAP: std::time::Duration = std::time::Duration::from_secs(20);
 
-/// Frames to wait after every step, whether or not the window says it is idle.
+/// How long to wait after every step, whether or not the window says it is idle.
 ///
 /// **A window egui has just opened is still fading in.** The first run caught the
 /// palette, the settings and the about windows at a fraction of their opacity, which
 /// reads as a rendering defect and is not one. Idle is about the worker; this is about
 /// the animation, and nothing reports when one has finished.
-const SETTLE_FLOOR: u32 = 12;
+const SETTLE_FLOOR: std::time::Duration = std::time::Duration::from_millis(250);
 
 impl Plan {
     /// Reads a plan, or says which line it could not read.
@@ -128,7 +135,7 @@ impl Plan {
                     .ok_or_else(|| PlanError::Unknown { line: n + 1, text: line.to_owned() })?,
             );
         }
-        Ok(Self { steps, shots, settle: SETTLE_CAP, pending: None })
+        Ok(Self { steps, shots, acted: std::time::Instant::now(), pending: None })
     }
 
     /// Whether anything is left to do.
@@ -138,13 +145,14 @@ impl Plan {
 
     /// The next step, once the window has settled.
     fn next(&mut self, idle: bool) -> Option<Step> {
-        if self.settle > 0 {
-            self.settle -= 1;
-            if !idle || self.settle > SETTLE_CAP - SETTLE_FLOOR {
-                return None;
-            }
+        let waited = self.acted.elapsed();
+        if waited < SETTLE_FLOOR {
+            return None;
         }
-        self.settle = SETTLE_CAP;
+        if !idle && waited < SETTLE_CAP {
+            return None;
+        }
+        self.acted = std::time::Instant::now();
         self.steps.pop_front()
     }
 }
