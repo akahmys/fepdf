@@ -473,13 +473,6 @@ impl PDFView {
 
         let origin_no_pan = self.get_origin_no_pan(viewport_rect);
         let current_origin = origin_no_pan + self.pan;
-        // **The grid does not move sideways when it is zoomed.** It hangs from the
-        // binding edge and its horizontal position is the reader's to set by scrolling;
-        // an anchor that moved it would be pushing against the clamp that holds it there,
-        // and the two together slid the grid 439 points under a cursor that had not
-        // moved.
-        let held_x = self.arranged_as_tiles.then_some(self.pan.x);
-
         let target_layout = self.layout_under(center_pos, current_origin, old_zoom, layouts);
 
         if let Some(layout) = target_layout {
@@ -496,9 +489,10 @@ impl PDFView {
             self.apply_zoom(new_zoom);
             self.pan = (center_pos - origin_no_pan) - cursor_doc * new_zoom;
         }
-        if let Some(x) = held_x {
-            self.pan.x = x;
-        }
+        // Settled here for the same reason as in `restore_anchor`: a clamp a frame later
+        // is a jump, and the grid slid 439 points under a cursor that had not moved while
+        // the two took turns.
+        self.hold_tiles_on_their_edge(viewport_rect, layouts);
     }
 
     /// Whether the layout about to be computed will be arranged differently from the one
@@ -546,15 +540,15 @@ impl PDFView {
         let Some(anchor) = anchor else { return };
         let Some(layout) = layouts.get(anchor.page) else { return };
         let origin_no_pan = self.get_origin_no_pan(viewport);
-        // **The carry is vertical; each arrangement places itself sideways.** The column
-        // is centred on the window and the grid hangs from the binding edge, so a
-        // sideways offset carried from the other one has nothing to line up with — and
-        // the clamp that keeps the grid on its edge undid it in the same frame. Measured
-        // from the window: entering the tiles put `pan.x` at 699 and the clamp pulled it
-        // to -378 on the next, which is a 1,077-point jump the reader sees.
-        self.pan.x = 0.0;
-        self.pan.y =
-            (layout.rect.min.y + anchor.local.y).mul_add(-self.zoom, anchor.at.y - origin_no_pan.y);
+        // **Both axes, and the sideways one settled here rather than a frame later.**
+        // The grid hangs from its binding edge and is wider than the window, so it has
+        // real sideways freedom; pinning it to the edge threw that away and with it the
+        // reader's place on the page. A carried offset outside that freedom has to come
+        // back inside it now, though — the next frame's clamp doing it is the jump that
+        // was measured at 1,077 points.
+        self.pan =
+            (anchor.at - origin_no_pan) - (layout.rect.min.to_vec2() + anchor.local) * self.zoom;
+        self.hold_tiles_on_their_edge(viewport, layouts);
         self.active_page = anchor.page;
     }
 
@@ -1356,6 +1350,34 @@ impl PDFView {
         true
     }
 
+    /// Keeps the grid between its binding edge and its far end.
+    ///
+    /// **Applied where the pan is set, not a frame later.** The grid hangs from one edge
+    /// and is usually wider than the window, so it has exactly as much sideways freedom
+    /// as it has overflow — and a `pan.x` that lands outside that range has to be brought
+    /// back in the same breath. Doing it in the next frame's clamp is what a reader sees
+    /// as a jump: entering the tiles put it 699 points out and the clamp pulled it 1,077
+    /// back, one frame apart.
+    fn hold_tiles_on_their_edge(&mut self, viewport_rect: egui::Rect, layouts: &[PageLayout]) {
+        if !self.arranged_as_tiles || self.display_mode != DisplayMode::Continuous {
+            return;
+        }
+        let (min_x, max_x) = layouts.iter().fold((f32::MAX, f32::MIN), |(lo, hi), layout| {
+            (lo.min(layout.rect.min.x), hi.max(layout.rect.max.x))
+        });
+        if min_x > max_x {
+            return;
+        }
+        let width = (max_x - min_x) * self.zoom;
+        let usable = space::PANE.mul_add(-2.0, viewport_rect.width());
+        let overflow = (width - usable).max(0.0);
+        self.pan.x = if self.binding_direction == BindingDirection::RightToLeft {
+            self.pan.x.clamp(0.0, overflow)
+        } else {
+            self.pan.x.clamp(-overflow, 0.0)
+        };
+    }
+
     pub fn clamp_pan(&mut self, viewport_rect: egui::Rect, layouts: &[PageLayout]) {
         // RR-15 Limit: GUI
         if layouts.is_empty() {
@@ -1397,14 +1419,7 @@ impl PDFView {
         // arrangement can leave it centred on one column, with the first tile — the one
         // a reader looks for first — pushed off the side they read from.
         if self.arranged_as_tiles && self.display_mode == DisplayMode::Continuous {
-            let width = (max_x - min_x) * self.zoom;
-            let usable = space::PANE.mul_add(-2.0, viewport_rect.width());
-            let overflow = (width - usable).max(0.0);
-            self.pan.x = if self.binding_direction == BindingDirection::RightToLeft {
-                self.pan.x.clamp(0.0, overflow)
-            } else {
-                self.pan.x.clamp(-overflow, 0.0)
-            };
+            self.hold_tiles_on_their_edge(viewport_rect, layouts);
             let min_pan_y =
                 max_y.mul_add(-self.zoom, viewport_rect.min.y + min_overlap - origin_no_pan.y);
             let max_pan_y =
@@ -1596,6 +1611,52 @@ mod arrangement_crossing {
         let landed = screen_y_of(&view, page, local.y, &tiles);
         assert!((landed - cursor.y).abs() < 1.0, "it came out at {landed}, not {}", cursor.y);
         assert!(view.pan.x.abs() < f32::EPSILON, "the grid was moved off its binding edge");
+    }
+
+    /// A grid wide enough to scroll, so the sideways carry has somewhere to go.
+    #[allow(clippy::cast_precision_loss)]
+    fn wide_grid(pages: usize) -> Vec<PageLayout> {
+        (0..pages)
+            .map(|i| PageLayout {
+                index: i,
+                rect: egui::Rect::from_min_size(
+                    egui::pos2((i % 10) as f32 * 632.0, (i / 10) as f32 * 812.0),
+                    egui::vec2(612.0, 792.0),
+                ),
+            })
+            .collect()
+    }
+
+    /// **The grid is left-aligned, and that is a bound rather than a position.** Pinning
+    /// it to the edge threw away the sideways freedom it has whenever it is wider than
+    /// the window, and with it the reader's place on the page: "when it becomes tiles the
+    /// whole grid is left-aligned to the display area, so it does not do what was meant".
+    /// It scrolls within its own width and stops at either end.
+    #[test]
+    fn the_grid_scrolls_within_its_width_rather_than_being_pinned() {
+        let mut view = PDFView::new();
+        view.display_mode = DisplayMode::Continuous;
+        let tiles = wide_grid(25);
+        view.set_zoom(0.25);
+        view.restore_anchor(None, WINDOW, &tiles);
+
+        // The far end of a grid 1,580 points wide against a window of 952 usable ones.
+        view.pan.x = -2000.0;
+        view.hold_tiles_on_their_edge(WINDOW, &tiles);
+        let far_end = view.pan.x;
+        assert!(far_end < -1.0, "the grid cannot scroll at all: {far_end}");
+        assert!(far_end > -2000.0, "it scrolled past its far end: {far_end}");
+
+        // And it does not come back past the edge it hangs from.
+        view.pan.x = 500.0;
+        view.hold_tiles_on_their_edge(WINDOW, &tiles);
+        assert!(view.pan.x.abs() < f32::EPSILON, "it came off its edge: {}", view.pan.x);
+
+        // An offset inside the range is left exactly where it is, which is what lets the
+        // cursor keep its place.
+        view.pan.x = -100.0;
+        view.hold_tiles_on_their_edge(WINDOW, &tiles);
+        assert!((view.pan.x + 100.0).abs() < f32::EPSILON, "it was moved: {}", view.pan.x);
     }
 
     /// A zoom that stays on one side of the boundary rearranges nothing, so nothing is
