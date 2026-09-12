@@ -1109,7 +1109,14 @@ impl PdfDocument {
             }
             None => Ok(()),
         };
+        // Taken before the drop and handed over after it, because the interpreter holds
+        // the backend borrowed until then. Only the page's own content stream is
+        // measured: an annotation's appearance is a separate stream with its own
+        // interpreter, and 14.7.4.2 numbers marked content per stream — an `/MCID 0` in a
+        // widget is not the `/MCID 0` in the page.
+        let marks = interpreter.take_mark_bounds();
         drop(interpreter);
+        backend.receive_mark_bounds(marks);
         self.render_annotations(index, backend, initial_transform)?;
         // A backend sits below any `Document` and cannot record for itself, so what it
         // concluded about the font programs it was handed is folded in here — after the
@@ -1285,6 +1292,20 @@ impl PdfDocument {
         let mut collector = crate::remediation::CollectorBackend::new();
         self.render_page(index, &mut collector, kurbo::Affine::IDENTITY)?;
         Ok(collector.spans)
+    }
+
+    /// Where each `/MCID` on a page drew, in default user space (14.7.4.2).
+    ///
+    /// The page is interpreted to find out. There is no cheaper answer: a mark's box is
+    /// the union of what was drawn between its `BDC` and its `EMC`, and only running the
+    /// content stream says what that was.
+    pub fn marked_content_boxes(
+        &self,
+        index: usize,
+    ) -> PdfResult<std::collections::BTreeMap<u32, kurbo::Rect>> {
+        let mut backend = fepdf_doc::marked_content::MarkBoundsBackend::new();
+        self.render_page(index, &mut backend, kurbo::Affine::IDENTITY)?;
+        Ok(backend.into_bounds())
     }
 
     /// Prints a textual representation of the logical structure tree.

@@ -100,6 +100,20 @@ pub trait RenderBackend {
         Vec::new()
     }
 
+    /// Where each `/MCID` on this page drew, in default user space (14.7.4.2).
+    ///
+    /// Handed over once, when the page is finished, because that is when the answer is
+    /// complete — a box accumulates until its `EMC`, and the last `EMC` may be the last
+    /// operator in the stream. The boxes are measured by [`Canvas`] rather than by the
+    /// backend: they are the union of the same five calls the optional-content guard
+    /// stands in front of, and a backend that measured them itself would be the sixth
+    /// place to forget one.
+    ///
+    /// Defaulted to nothing, like [`RenderBackend::take_decisions`]: a rasteriser has no
+    /// use for the structure tree's geometry, and a trait method every backend must
+    /// implement to ignore is noise.
+    fn receive_mark_bounds(&mut self, _bounds: std::collections::BTreeMap<u32, kurbo::Rect>) {}
+
     /// Concatenates `transform` onto the current transformation matrix.
     fn transform(&mut self, transform: Affine);
     /// Replaces the current transformation matrix.

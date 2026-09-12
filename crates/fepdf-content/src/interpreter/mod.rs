@@ -2,7 +2,7 @@ use crate::RenderBackend;
 use crate::canvas::Canvas;
 use crate::interpreter::ops::marked::MarkedSection;
 use crate::path::PathBuilder;
-use fepdf_model::graphics::{GraphicsState, Rect, TextMatrices, WindingRule};
+use fepdf_model::graphics::{GraphicsState, TextMatrices, WindingRule};
 use fepdf_model::interpretation::Decision;
 use fepdf_model::object::sublimation::Command;
 use fepdf_model::optional_content::OptionalContentState;
@@ -52,10 +52,6 @@ pub struct Interpreter<'a> {
     pub(crate) state: GraphicsState,
     /// Current text object state (managed by BT/ET).
     pub(crate) text_matrices: Option<TextMatrices>,
-    /// Bounding box of the current text object (between BT and ET).
-    pub current_text_bbox: Option<Rect>,
-    /// Bounding box of all text objects combined on the page.
-    pub page_text_bbox: Option<Rect>,
     /// Cache of fonts already defined in the backend.
     pub(crate) defined_fonts: BTreeSet<String>,
     pub(crate) font_name_map: BTreeMap<Handle<Object>, String>,
@@ -129,7 +125,7 @@ impl<'a> Interpreter<'a> {
         backend.set_transform(initial_transform);
 
         Self {
-            backend: Canvas::new(backend),
+            backend: Canvas::new(backend, initial_transform),
             doc,
             resource_stack: vec![initial_resources],
             stack: Vec::new(),
@@ -138,8 +134,6 @@ impl<'a> Interpreter<'a> {
             state_stack: Vec::new(),
             state,
             text_matrices: None,
-            current_text_bbox: None,
-            page_text_bbox: None,
             defined_fonts: BTreeSet::new(),
             font_name_map: BTreeMap::new(),
             op_index: 0,
@@ -160,6 +154,15 @@ impl<'a> Interpreter<'a> {
     /// sample renderers all drive it over content they have already chosen.
     pub fn set_page_area(&mut self, area: f64) {
         self.page_area = (area > 0.0).then_some(area);
+    }
+
+    /// Where each `/MCID` on this stream drew, in default user space (14.7.4.2).
+    ///
+    /// Taken rather than borrowed, and taken once: the boxes are the interpreter's only
+    /// output that outlives it, and a caller that reads them twice would be asking a
+    /// question the second answer to is empty.
+    pub fn take_mark_bounds(&mut self) -> BTreeMap<u32, kurbo::Rect> {
+        self.backend.take_mark_bounds()
     }
 
     pub(crate) fn update_backend_transform(&mut self) {
@@ -458,7 +461,8 @@ impl<'a> Interpreter<'a> {
                 // to be indirect, so an inline one names nothing — but 14.9.4 puts real
                 // text in exactly that place, and `volvo_xc90.pdf` writes 3,458 of them.
                 let actual_text = self.actual_text_of(properties.as_ref(), operand.as_ref());
-                self.begin_marked_content(tag, operand.as_ref(), actual_text);
+                let mcid = self.mcid_of(properties.as_ref(), operand.as_ref());
+                self.begin_marked_content(tag, operand.as_ref(), actual_text, mcid);
                 Ok(())
             }
             Command::EndMarkedContent => {

@@ -9,6 +9,8 @@
 pub mod apply;
 /// Object graph cloning.
 pub mod cloning;
+/// Where a page's marked content landed, for the structure tree to read.
+pub mod marked_content;
 /// Canonical document mutation operations.
 pub mod operation;
 /// Structural remediation and redaction.

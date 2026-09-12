@@ -27,6 +27,12 @@ pub(crate) struct MarkedSection {
     /// freely: a `/Span` carrying `/ActualText` can open inside a hidden `/OC`, and each
     /// `EMC` has to undo exactly what its own `BDC` did.
     pub(crate) replaced: bool,
+    /// The section declared an `/MCID`, and the canvas is collecting its box (14.7.4.2).
+    ///
+    /// A third flag for the same reason as the second: a `/Span` with no id nests inside
+    /// a `/P` with one, and its `EMC` must close its own section rather than the
+    /// paragraph's measurement.
+    pub(crate) measured: bool,
 }
 
 impl Interpreter<'_> {
@@ -61,6 +67,7 @@ impl Interpreter<'_> {
         tag: &PdfName,
         properties: Option<&Object>,
         actual_text: Option<String>,
+        mcid: Option<u32>,
     ) {
         let replaced = if let Some(text) = actual_text {
             self.backend.begin_actual_text(&text);
@@ -68,8 +75,14 @@ impl Interpreter<'_> {
         } else {
             false
         };
+        let measured = if let Some(id) = mcid {
+            self.backend.open_mark(id);
+            true
+        } else {
+            false
+        };
         if tag.as_str() != "OC" {
-            self.marked_sections.push(MarkedSection { hidden: false, replaced });
+            self.marked_sections.push(MarkedSection { hidden: false, replaced, measured });
             return;
         }
         let hidden = match self.optional_content_membership(properties) {
@@ -87,7 +100,7 @@ impl Interpreter<'_> {
                 false
             }
         };
-        self.marked_sections.push(MarkedSection { hidden, replaced });
+        self.marked_sections.push(MarkedSection { hidden, replaced, measured });
     }
 
     /// Closes the innermost section.
@@ -104,6 +117,9 @@ impl Interpreter<'_> {
         }
         if section.replaced {
             self.backend.end_actual_text();
+        }
+        if section.measured {
+            self.backend.close_mark();
         }
     }
 
@@ -146,6 +162,43 @@ impl Interpreter<'_> {
                 Some(fepdf_model::refine::text::recover_string(&b))
             }
             Some(Object::Text(t)) => Some(t),
+            _ => None,
+        }
+    }
+
+    /// The `/MCID` a section declares (14.7.4.2), from either shape of property list.
+    ///
+    /// The same two shapes as `actual_text_of`, read the same way and for the same
+    /// reason: an inline property list survives only in the IR. The corpus writes 14,494
+    /// `BDC`s with an inline `/MCID` and 409 with a name operand, so neither shape is
+    /// hypothetical.
+    ///
+    /// The id is the key a structure element uses to say *which marks are mine*. Nothing
+    /// but its own content stream may use it, so it is only ever compared within a page.
+    pub(crate) fn mcid_of(
+        &self,
+        ir: Option<&fepdf_model::object::sublimation::IrObject>,
+        operand: Option<&Object>,
+    ) -> Option<u32> {
+        use fepdf_model::object::sublimation::IrObject;
+        if let Some(IrObject::Dictionary(entries)) = ir {
+            return match entries.get("MCID") {
+                Some(IrObject::Integer(i)) => u32::try_from(*i).ok(),
+                _ => None,
+            };
+        }
+        let Some(Object::Name(handle)) = operand else {
+            return None;
+        };
+        let arena = self.doc.arena();
+        let name = arena.get_name(*handle)?;
+        let key = arena.intern_name(PdfName::new("Properties"));
+        let resource = self.find_resource(&key, &name).ok()?;
+        let arena = self.doc.arena();
+        let dict = arena.get_dict(resource.as_dict_handle()?)?;
+        let value = dict.get(&arena.name("MCID")).map(|v| v.resolve(arena))?;
+        match value {
+            Object::Integer(i) => u32::try_from(i).ok(),
             _ => None,
         }
     }
