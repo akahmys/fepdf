@@ -145,6 +145,18 @@ impl FepdfApp {
     /// Recomputes page rectangles from `doc_page_sizes` and the current view mode.
     pub fn compute_layouts(&mut self) {
         // RR-15 Limit: GUI
+        // **The one place a change of arrangement can be noticed.** Sixteen call sites
+        // change the zoom and any of them can carry it over `TILE_ZOOM`; a guard at each
+        // is a guard that the seventeenth forgets. The anchor is read from the layout
+        // being replaced and put back into the one replacing it, which is the whole of
+        // what the change has to do — the gesture that caused it goes on anchoring on the
+        // cursor, and anything that snapped elsewhere would be fighting it.
+        let viewport = self.last_viewport_rect.unwrap_or(egui::Rect::NOTHING);
+        let carried = self
+            .view
+            .arrangement_is_changing()
+            .then(|| self.view.take_anchor(viewport, &self.page_layouts));
+
         let mut layouts =
             vec![PageLayout { index: 0, rect: egui::Rect::NOTHING }; self.doc_page_sizes.len()];
 
@@ -298,12 +310,9 @@ impl FepdfApp {
             }
         }
         self.page_layouts = layouts;
-        // **The one place a crossing can be noticed.** Sixteen call sites change the
-        // zoom and any of them can carry it over `TILE_ZOOM`; a guard at each is a guard
-        // that the seventeenth forgets. Continuous mode recomputes every frame, and
-        // continuous mode is the only one with two arrangements to cross between.
-        let viewport = self.last_viewport_rect.unwrap_or(egui::Rect::NOTHING);
-        self.view.follow_arrangement_change(viewport, &self.page_layouts);
+        if let Some(anchor) = carried {
+            self.view.restore_anchor(anchor, viewport, &self.page_layouts);
+        }
     }
 
     /// Stacks the pages in one column, each centred on `x = 0`.
