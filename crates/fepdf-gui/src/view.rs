@@ -69,6 +69,15 @@ pub struct PDFView {
     pub binding_direction: BindingDirection,
     pub cover_page_alone: bool,
     pub overscroll_accumulator: egui::Vec2,
+    /// Whether the layout the current `pan` was computed against was the tile grid.
+    ///
+    /// **The two arrangements are different coordinate systems, and `pan` is in one of
+    /// them.** Below [`Self::TILE_ZOOM`] a continuous document is laid out as a grid four
+    /// columns wide; above it, as one column. Page 8 of a letter-size document sits at
+    /// `y = 802` in the grid and at `y = 6,336` in the column, so a zoom that crosses the
+    /// boundary leaves the view pointing at whatever else happens to be at the old `y` —
+    /// which is the page the reader was not looking at.
+    arranged_as_tiles: bool,
 }
 
 impl PDFView {
@@ -108,6 +117,7 @@ impl PDFView {
             binding_direction: BindingDirection::LeftToRight,
             cover_page_alone: true,
             overscroll_accumulator: egui::Vec2::ZERO,
+            arranged_as_tiles: false,
         }
     }
     pub fn get_origin(&self, viewport_rect: egui::Rect) -> egui::Pos2 {
@@ -437,6 +447,30 @@ impl PDFView {
             self.apply_zoom(new_zoom);
             self.pan = (center_pos - origin_no_pan) - cursor_doc * new_zoom;
         }
+    }
+
+    /// Keeps the view on its page when the arrangement under it changes.
+    ///
+    /// Called after the layouts are computed, because the answer is a position in the
+    /// arrangement that has just replaced the old one. Answers whether it moved anything.
+    ///
+    /// **Only the continuous column and the tile grid are two arrangements.** The other
+    /// display modes lay their pages out the same way at every zoom, and `SinglePage`
+    /// draws nothing but the active page in the first place, so there is nothing for a
+    /// crossing to lose there.
+    pub fn follow_arrangement_change(&mut self, layouts: &[PageLayout]) -> bool {
+        let tiles = !self.is_page_view();
+        if tiles == self.arranged_as_tiles {
+            return false;
+        }
+        self.arranged_as_tiles = tiles;
+        if self.display_mode != DisplayMode::Continuous
+            || self.scroll_direction != ScrollDirection::Vertical
+        {
+            return false;
+        }
+        self.scroll_to_page(self.active_page, layouts);
+        true
     }
 
     pub fn scroll_to_page(&mut self, page_index: usize, layouts: &[PageLayout]) {
@@ -1330,6 +1364,86 @@ impl PDFView {
 
         self.pan.x = clamped_x;
         self.pan.y = clamped_y;
+    }
+}
+
+#[cfg(test)]
+mod arrangement_crossing {
+    use super::{DisplayMode, PDFView, PageLayout};
+
+    /// The column a continuous document is laid out as above `TILE_ZOOM`.
+    fn column(pages: usize) -> Vec<PageLayout> {
+        (0..pages)
+            .map(|i| PageLayout {
+                index: i,
+                #[allow(clippy::cast_precision_loss)]
+                rect: egui::Rect::from_min_size(
+                    egui::pos2(-306.0, i as f32 * 812.0),
+                    egui::vec2(612.0, 792.0),
+                ),
+            })
+            .collect()
+    }
+
+    /// **Zooming out of the tiles keeps the page that was chosen in them.** The grid and
+    /// the column are two coordinate systems and `pan` is in one of them: page 15 of a
+    /// letter-size document is 1,600pt down the grid and 12,180pt down the column, so a
+    /// zoom across the boundary used to leave the view at the old `y` — which in the
+    /// column is page 1. Reported from the window: "a page selected in the tile view
+    /// becomes a different page when you zoom in".
+    #[test]
+    fn crossing_out_of_the_tiles_lands_on_the_page_that_was_chosen() {
+        let mut view = PDFView::new();
+        let layouts = column(23);
+        view.display_mode = DisplayMode::Continuous;
+        view.set_zoom(0.2);
+        assert!(view.follow_arrangement_change(&layouts), "the first call notices the tiles");
+
+        view.active_page = 15;
+        view.pan = egui::vec2(0.0, -320.0); // wherever the grid had left it
+        view.set_zoom(0.5);
+        assert!(view.follow_arrangement_change(&layouts), "the crossing is noticed");
+        let page_15_at_half_zoom = 15.0 * 812.0 * 0.5;
+        assert!(
+            (view.pan.y + page_15_at_half_zoom).abs() < 0.5,
+            "the view is not on page 15: pan.y is {}",
+            view.pan.y
+        );
+    }
+
+    /// A zoom that stays on one side of the boundary must not move the view: the reader
+    /// is zooming, not navigating.
+    #[test]
+    fn a_zoom_that_crosses_nothing_moves_nothing() {
+        let mut view = PDFView::new();
+        let layouts = column(23);
+        view.display_mode = DisplayMode::Continuous;
+        view.set_zoom(0.5);
+        view.follow_arrangement_change(&layouts);
+
+        view.active_page = 15;
+        view.pan = egui::vec2(7.0, -320.0);
+        view.set_zoom(2.0);
+        assert!(!view.follow_arrangement_change(&layouts), "a crossing was reported");
+        assert_eq!(view.pan, egui::vec2(7.0, -320.0));
+    }
+
+    /// Only the continuous column and the tile grid are two arrangements. `SinglePage`
+    /// draws the active page and nothing else at every zoom, so a crossing has nothing to
+    /// lose and re-anchoring would throw away a pan the reader set.
+    #[test]
+    fn the_other_display_modes_are_left_alone() {
+        let mut view = PDFView::new();
+        let layouts = column(23);
+        view.display_mode = DisplayMode::SinglePage;
+        view.set_zoom(0.2);
+        view.follow_arrangement_change(&layouts);
+
+        view.active_page = 15;
+        view.pan = egui::vec2(7.0, -320.0);
+        view.set_zoom(0.5);
+        assert!(!view.follow_arrangement_change(&layouts), "a crossing was acted on");
+        assert_eq!(view.pan, egui::vec2(7.0, -320.0));
     }
 }
 

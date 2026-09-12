@@ -298,6 +298,11 @@ impl FepdfApp {
             }
         }
         self.page_layouts = layouts;
+        // **The one place a crossing can be noticed.** Sixteen call sites change the
+        // zoom and any of them can carry it over `TILE_ZOOM`; a guard at each is a guard
+        // that the seventeenth forgets. Continuous mode recomputes every frame, and
+        // continuous mode is the only one with two arrangements to cross between.
+        self.view.follow_arrangement_change(&self.page_layouts);
     }
 
     /// Stacks the pages in one column, each centred on `x = 0`.

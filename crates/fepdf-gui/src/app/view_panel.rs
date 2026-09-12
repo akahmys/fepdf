@@ -158,6 +158,13 @@ impl FepdfApp {
             let shift = ui.input(|ins| ins.modifiers.shift);
             let cmd = ui.input(|ins| ins.modifiers.command || ins.modifiers.ctrl);
 
+            // **The page just clicked is the page being looked at, however it was
+            // clicked.** Only the plain click set this, so a reader who extended a
+            // selection with shift and then zoomed in crossed into the page view on
+            // whichever page had been clicked plainly before — see
+            // `PDFView::follow_arrangement_change`, which reads it.
+            self.view.active_page = page_idx;
+
             if shift {
                 if let Some(start) = self.last_selected_page {
                     self.selected_pages.clear();
@@ -182,7 +189,6 @@ impl FepdfApp {
                 self.selected_pages.clear();
                 self.selected_pages.insert(page_idx);
                 self.last_selected_page = Some(page_idx);
-                self.view.active_page = page_idx;
             }
         }
     }

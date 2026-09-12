@@ -30,6 +30,8 @@ pub enum Step {
     Drawer(ActiveDrawer),
     /// Select a page by its 1-based number, as a reader would count it.
     Select(usize),
+    /// Sets the zoom, as a whole percentage. Below 30 the viewport shows tiles.
+    Zoom(u32),
     /// Selects a structure element by its id in the tree, which is what the element
     /// properties panel draws. Nothing else reaches that panel: the tree is a drawer, and
     /// a plan cannot click a row in it.
@@ -169,6 +171,7 @@ fn parse(line: &str) -> Option<Step> {
         "drawer" => Step::Drawer(drawer(rest)?),
         "select" => Step::Select(rest.parse().ok()?),
         "node" => Step::Node(rest.parse().ok()?),
+        "zoom" => Step::Zoom(rest.parse().ok()?),
         "delete" => Step::Delete,
         "rotate" => Step::Rotate,
         "undo" => Step::Undo,
@@ -254,6 +257,11 @@ impl crate::app::FepdfApp {
                 self.view.active_page = page.saturating_sub(1);
             }
             Step::Node(id) => self.ust_registry.selected_node_id = Some(id),
+            Step::Zoom(percent) => {
+                #[allow(clippy::cast_precision_loss)]
+                self.view.set_zoom(percent as f32 / 100.0);
+                self.compute_layouts();
+            }
             Step::Delete => self.remove_selected_pages(),
             Step::Rotate => self.rotate_selected_pages(fepdf::Quarter::Q90),
             Step::Undo => {
