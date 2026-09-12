@@ -1,7 +1,9 @@
 //! Structural elements and Tagged PDF accessibility editing tools.
 
 use super::page::execute_single_op;
-use fepdf::{Operation, StructElemUpdate, UserProperty, UserPropertyValue};
+use fepdf::{
+    Operation, Placement, StructElemMove, StructElemUpdate, UserProperty, UserPropertyValue,
+};
 use schemars::JsonSchema;
 use serde::Deserialize;
 
@@ -29,6 +31,21 @@ pub struct DeleteStructElemArgs {
     pub output_path: String,
     /// Handle index of the structural element to delete.
     pub handle_index: u32,
+}
+
+/// Arguments for moving a structural element within the tree.
+#[derive(Deserialize, JsonSchema)]
+pub struct MoveStructElemArgs {
+    /// Path to input PDF file.
+    pub input_path: String,
+    /// Path to output PDF file.
+    pub output_path: String,
+    /// Handle index of the structural element to move.
+    pub handle_index: u32,
+    /// Handle index of the element it moves relative to.
+    pub target_index: u32,
+    /// Where it lands: "before", "after" or "inside" the target.
+    pub placement: String,
 }
 
 /// Arguments for a single user property.
@@ -81,6 +98,37 @@ pub fn delete_struct_elem_impl(args: DeleteStructElemArgs) -> Result<String, Str
         &args.output_path,
         op,
         &format!("Structural element #{} deleted", args.handle_index),
+    )
+}
+
+/// Implementation of the move_struct_elem tool.
+///
+/// The placement is named rather than numbered: a caller writing `2` for "inside" has to
+/// be told which number means what, and would get a different element either way.
+pub fn move_struct_elem_impl(args: MoveStructElemArgs) -> Result<String, String> {
+    let placement = match args.placement.to_ascii_lowercase().as_str() {
+        "before" => Placement::Before,
+        "after" => Placement::After,
+        "inside" => Placement::Inside,
+        other => {
+            return Err(format!(
+                "placement must be \"before\", \"after\" or \"inside\", not {other:?}"
+            ));
+        }
+    };
+    let op = Operation::MoveStructElem(StructElemMove {
+        handle_index: args.handle_index,
+        target_index: args.target_index,
+        placement,
+    });
+    execute_single_op(
+        &args.input_path,
+        &args.output_path,
+        op,
+        &format!(
+            "Structural element #{} moved {} #{}",
+            args.handle_index, args.placement, args.target_index
+        ),
     )
 }
 

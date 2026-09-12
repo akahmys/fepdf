@@ -23,5 +23,5 @@ pub mod structure;
 pub use apply::apply_operation;
 pub use operation::*;
 pub use remediation::apply_physical_redaction_to_page;
-pub use struct_tree::{StructureTreeNode, StructureTreeVisitor};
+pub use struct_tree::{Placement, StructureTreeNode, StructureTreeVisitor};
 pub use structure::{AuditFinding, MatterhornAuditor, StructureVisitor};

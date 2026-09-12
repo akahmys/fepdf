@@ -135,11 +135,25 @@ impl SidebarPanel {
         }
     }
 
-    fn handle_pending_tree_dnd_moves(ui: &egui::Ui, registry: &mut USTRegistry) {
+    /// Sends a finished drag to the document, and waits for the tree to come back.
+    ///
+    /// **It used to rearrange the window's own copy and stop there.** The tree redrew in
+    /// the new order, nothing reached the file, the undo history never heard of it, and
+    /// the dot that says a document is unsaved stayed off — so the reader fixed a reading
+    /// order, saved, and got the old one. Nothing is moved here now: the worker applies
+    /// `MoveStructElem` and sends back the tree as the file holds it, which is also what
+    /// shows a refused move as refused.
+    fn handle_pending_tree_dnd_moves(
+        ui: &egui::Ui,
+        registry: &USTRegistry,
+        tx_worker: &Sender<WorkerRequest>,
+    ) {
         let pending_move: Option<Option<(usize, usize, DragRelation)>> =
             ui.ctx().data(|d| d.get_temp(egui::Id::new("pending_move")));
         if let Some(Some((drag_id, target_id, relation))) = pending_move {
-            registry.move_node(drag_id, target_id, relation);
+            if let Some(request) = registry.move_request(drag_id, target_id, relation) {
+                let _ = tx_worker.send(request);
+            }
             ui.ctx().data_mut(|d| {
                 d.remove::<Option<(usize, usize, DragRelation)>>(egui::Id::new("pending_move"));
                 d.insert_temp::<Option<usize>>(egui::Id::new("dragged_node_id"), None);
@@ -184,6 +198,6 @@ impl SidebarPanel {
             self.render_accessibility_tab_content(ui, registry, tx_worker, locale_mgr, active_lang);
         });
 
-        Self::handle_pending_tree_dnd_moves(ui, registry);
+        Self::handle_pending_tree_dnd_moves(ui, registry, tx_worker);
     }
 }

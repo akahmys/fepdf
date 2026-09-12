@@ -67,6 +67,8 @@ pub enum WorkerRequest {
         layer: fepdf::LayerId,
         on: bool,
     },
+    /// Move a structure element beside or inside another (14.7.4).
+    MoveNode(fepdf::StructElemMove),
     ReorderPagesBatch {
         source_indices: Vec<usize>,
         target_insert_pos: usize,
@@ -176,6 +178,16 @@ pub enum WorkerResponse {
     AuditFindings {
         findings: Vec<(String, String, String, Option<u32>)>,
     },
+    /// The structure tree has changed shape, and here it is as the file now holds it.
+    ///
+    /// **Sent rather than letting the window keep its own arrangement.** A move can be
+    /// refused — a cycle, an element the tree does not hold — and a window that had
+    /// already rearranged itself would show the reader an order the file does not have.
+    /// The tree is re-read from the document, so what is on screen is what would be
+    /// saved.
+    StructTreeChanged {
+        root: Option<Box<crate::sidebar::USTNode>>,
+    },
     /// A layer was toggled: the panel's states have moved and the page needs redrawing.
     LayersChanged {
         layers: Vec<fepdf::LayerRow>,
@@ -250,6 +262,14 @@ pub fn run_worker(rx: Receiver<WorkerRequest>, tx: Sender<WorkerResponse>, ctx: 
                     &mut text_cache,
                     &mut spans_cache,
                 );
+                ctx.request_repaint();
+            }
+            WorkerRequest::MoveNode(move_) => {
+                // The tree is re-read afterwards, and re-reading it places every element
+                // from its marked content — 438ms over `volvo_xc90.pdf`'s 415 pages.
+                let _ = tx.send(WorkerResponse::Busy { key: "busy_retagging" });
+                handle_move_node(&mut current_doc, &mut history, move_, &tx);
+                let _ = tx.send(WorkerResponse::Idle);
                 ctx.request_repaint();
             }
             WorkerRequest::UpdateNode { handle_id, tag, alt_text } => {
@@ -784,6 +804,22 @@ fn handle_audit(doc_opt: Option<&PdfDocument>, tx: &Sender<WorkerResponse>) {
 /// check went looking: editing a tag changes the document, so an undo that did not cover
 /// it left the reader with a history that was silently incomplete — and nothing said
 /// which edits it held.
+/// Applies a move and sends the tree back as the file now holds it.
+///
+/// **The tree is re-read rather than rearranged in place.** A move can be refused — a
+/// cycle, an element the tree does not hold — and a window that had already rearranged
+/// itself would be showing an order the file does not have.
+fn handle_move_node(
+    doc_opt: &mut Option<PdfDocument>,
+    history: &mut History,
+    move_: fepdf::StructElemMove,
+    tx: &Sender<WorkerResponse>,
+) {
+    apply_recorded(doc_opt, history, Operation::MoveStructElem(move_), None, tx);
+    let root = doc_opt.as_ref().and_then(|doc| resolve_struct_tree_root(doc, &mut 0));
+    let _ = tx.send(WorkerResponse::StructTreeChanged { root: root.map(Box::new) });
+}
+
 fn handle_update_node(
     doc_opt: &mut Option<PdfDocument>,
     history: &mut History,

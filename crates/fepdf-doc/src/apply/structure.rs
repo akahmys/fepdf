@@ -1,4 +1,6 @@
-use crate::operation::{ArticleThread, StructElemUpdate, UserProperty, UserPropertyValue};
+use crate::operation::{
+    ArticleThread, StructElemMove, StructElemUpdate, UserProperty, UserPropertyValue,
+};
 use crate::struct_tree;
 use bytes::Bytes;
 use fepdf_model::arena::PdfArena;
@@ -38,6 +40,46 @@ pub fn apply_delete_struct(doc: &Document, handle_index: u32) -> PdfResult<()> {
         struct_tree::delete_struct_node(arena, str_root_ref, handle);
     }
     Ok(())
+}
+
+/// Moves a structure element beside or inside another.
+///
+/// **A move that cannot be made is an error rather than a silent no-op.** The three
+/// refusals — a cycle, a target outside the tree, an element the tree does not hold —
+/// are all a caller asking for something the file cannot express, and reporting `Ok(())`
+/// for them is how the window came to have a drag that rearranged nothing.
+pub fn apply_move_struct(doc: &Document, move_: StructElemMove) -> PdfResult<()> {
+    let StructElemMove { handle_index, target_index, placement } = move_;
+    let arena = doc.arena();
+    let Some(root) = doc
+        .catalog_handle()
+        .and_then(|cah| doc.resolve_to_dict(cah).ok())
+        .and_then(|cadh| arena.get_dict(cadh))
+        .and_then(|dict| dict.get(&arena.name("StructTreeRoot")).cloned())
+        .and_then(|entry| struct_tree::resolve_to_node_handle(arena, &entry))
+    else {
+        return Err(fepdf_model::PdfError::Other(
+            "the document has no /StructTreeRoot to move an element within".into(),
+        ));
+    };
+    let moved = struct_tree::move_struct_node(
+        arena,
+        root,
+        Handle::<Object>::new(handle_index),
+        Handle::<Object>::new(target_index),
+        placement,
+    );
+    if moved {
+        Ok(())
+    } else {
+        Err(fepdf_model::PdfError::Other(
+            format!(
+                "element {handle_index} cannot move to {target_index}: \
+             one of them is not in the structure tree, or the move would make a cycle"
+            )
+            .into(),
+        ))
+    }
 }
 
 fn create_article_thread_dict(

@@ -32,6 +32,7 @@ fn variant_name(op: &Operation) -> &'static str {
         Operation::Upgrade { .. } => "Upgrade",
         Operation::UpdateStructElem(_) => "UpdateStructElem",
         Operation::DeleteStructElem { .. } => "DeleteStructElem",
+        Operation::MoveStructElem(_) => "MoveStructElem",
         Operation::CreatePortfolio(_) => "CreatePortfolio",
         Operation::UpdateOutlines(_) => "UpdateOutlines",
         Operation::UpdateLayers(_) => "UpdateLayers",

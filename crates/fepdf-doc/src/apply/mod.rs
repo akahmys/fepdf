@@ -40,6 +40,7 @@ pub fn apply_operation(doc: &mut Document, op: Operation) -> PdfResult<()> {
         Operation::DeleteStructElem { handle_index } => {
             structure::apply_delete_struct(doc, handle_index)
         }
+        Operation::MoveStructElem(m) => structure::apply_move_struct(doc, m),
         Operation::UpdateArticleThreads(t) => structure::apply_update_article_threads(doc, t),
         Operation::AddUserProperties { target_handle, properties } => {
             structure::apply_add_user_properties(doc, target_handle, properties)

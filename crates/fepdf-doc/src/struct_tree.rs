@@ -171,6 +171,168 @@ pub(crate) fn resolve_to_node_handle(arena: &PdfArena, obj: &Object) -> Option<H
 /// [ADR-0060]: ../../../docs/adr/0060-a-reference-chain-is-bounded-by-what-it-has-seen.md
 const MAX_STRUCTURE_DEPTH: usize = 64;
 
+/// Where a moved structure element lands relative to the one it was dropped on.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub enum Placement {
+    /// Immediately before the target, under the target's own parent.
+    Before,
+    /// Immediately after it.
+    After,
+    /// As the target's last child.
+    Inside,
+}
+
+/// Moves `subject` to sit beside or inside `target` (14.7.4).
+///
+/// **The landing is worked out before the element is detached.** `/K` is the only record
+/// of where an element hangs, so a detach that cannot be followed by an attach loses the
+/// element and the whole subtree under it — and the element is still in the arena,
+/// referenced by nothing, which is a leak a reader cannot see.
+///
+/// Answers `false` and changes nothing for a move that would make a cycle, for a target
+/// that is not in the tree, and for an element the tree does not hold.
+pub fn move_struct_node(
+    arena: &PdfArena,
+    root: Handle<Object>,
+    subject: Handle<Object>,
+    target: Handle<Object>,
+    placement: Placement,
+) -> bool {
+    if subject == target || holds(arena, subject, target, 0) {
+        return false;
+    }
+    let landing = match placement {
+        Placement::Inside => Some(target),
+        Placement::Before | Placement::After => parent_of(arena, root, target, 0),
+    };
+    let Some(parent) = landing else {
+        return false;
+    };
+    if !delete_struct_node(arena, root, subject) {
+        return false;
+    }
+    let placed = match placement {
+        Placement::Inside => insert_kid(arena, parent, None, subject),
+        Placement::Before => insert_kid(arena, parent, Some((target, 0)), subject),
+        Placement::After => insert_kid(arena, parent, Some((target, 1)), subject),
+    };
+    if placed {
+        set_parent(arena, subject, parent);
+    }
+    placed
+}
+
+/// Whether `target` is `ancestor` or hangs anywhere under it.
+///
+/// The test that keeps `/K` a tree: dropping a section inside its own paragraph would
+/// make a ring, and every walk over this structure is bounded by a depth precisely
+/// because one exists in the corpus already ([ADR-0060]).
+///
+/// [ADR-0060]: ../../../docs/adr/0060-a-reference-chain-is-bounded-by-what-it-has-seen.md
+fn holds(arena: &PdfArena, ancestor: Handle<Object>, target: Handle<Object>, depth: usize) -> bool {
+    if ancestor == target {
+        return true;
+    }
+    if depth >= MAX_STRUCTURE_DEPTH {
+        return false;
+    }
+    kids_of(arena, ancestor)
+        .iter()
+        .filter_map(|kid| element_handle(arena, kid))
+        .any(|kid| holds(arena, kid, target, depth + 1))
+}
+
+/// The element `target` hangs under, searching from `parent`.
+fn parent_of(
+    arena: &PdfArena,
+    parent: Handle<Object>,
+    target: Handle<Object>,
+    depth: usize,
+) -> Option<Handle<Object>> {
+    if depth >= MAX_STRUCTURE_DEPTH {
+        return None;
+    }
+    let kids = kids_of(arena, parent);
+    let elements: Vec<Handle<Object>> =
+        kids.iter().filter_map(|kid| element_handle(arena, kid)).collect();
+    if elements.contains(&target) {
+        return Some(parent);
+    }
+    elements.into_iter().find_map(|kid| parent_of(arena, kid, target, depth + 1))
+}
+
+/// One `/K` entry as the element it names, or `None` for a mark or an `/OBJR`.
+fn element_handle(arena: &PdfArena, kid: &Object) -> Option<Handle<Object>> {
+    match classify_kid(arena, kid, &BTreeMap::new()) {
+        Kid::Element(handle) => Some(handle),
+        Kid::Mark(_, _) | Kid::Nothing => None,
+    }
+}
+
+/// An element's `/K`, always as a list, empty when it has none.
+fn kids_of(arena: &PdfArena, element: Handle<Object>) -> Vec<Object> {
+    let Some(dict) = arena
+        .get_object(element)
+        .and_then(|object| object.as_dict_handle())
+        .and_then(|dh| arena.get_dict(dh))
+    else {
+        return Vec::new();
+    };
+    let Some(kids) = dict.get(&arena.name("K")) else {
+        return Vec::new();
+    };
+    match kids.resolve(arena) {
+        Object::Array(ah) => arena.get_array(ah).unwrap_or_default(),
+        _ => vec![kids.clone()],
+    }
+}
+
+/// Puts `subject` into `parent`'s `/K`, beside `beside` or at the end.
+///
+/// `/K` is normalised to an array on the way: 14.7.4 allows a single entry written bare,
+/// and a second child cannot be added to one that is.
+fn insert_kid(
+    arena: &PdfArena,
+    parent: Handle<Object>,
+    beside: Option<(Handle<Object>, usize)>,
+    subject: Handle<Object>,
+) -> bool {
+    let Some(dh) = arena.get_object(parent).and_then(|object| object.as_dict_handle()) else {
+        return false;
+    };
+    let Some(mut dict) = arena.get_dict(dh) else {
+        return false;
+    };
+    let mut kids = kids_of(arena, parent);
+    let at = match beside {
+        None => kids.len(),
+        Some((target, offset)) => {
+            let Some(index) =
+                kids.iter().position(|kid| element_handle(arena, kid) == Some(target))
+            else {
+                return false;
+            };
+            index + offset
+        }
+    };
+    kids.insert(at, Object::Reference(subject));
+    dict.insert(arena.name("K"), Object::Array(arena.alloc_array(kids)));
+    arena.set_dict(dh, dict);
+    true
+}
+
+/// Points `subject`'s `/P` at its new parent, which 14.7.2 requires it to carry.
+fn set_parent(arena: &PdfArena, subject: Handle<Object>, parent: Handle<Object>) {
+    let Some(dh) = arena.get_object(subject).and_then(|object| object.as_dict_handle()) else {
+        return;
+    };
+    let Some(mut dict) = arena.get_dict(dh) else {
+        return;
+    };
+    dict.insert(arena.name("P"), Object::Reference(parent));
+    arena.set_dict(dh, dict);
+}
+
 /// Removes `target_handle` from wherever it hangs under `parent_handle`.
 ///
 /// **Bounded since 2026-09-05.** A structure tree whose `/K` named an ancestor made this

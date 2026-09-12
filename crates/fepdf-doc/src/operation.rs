@@ -108,6 +108,17 @@ pub struct StructElemUpdate {
     pub new_alt: Option<String>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+/// Where a structural element is to be moved to (14.7.4).
+pub struct StructElemMove {
+    /// Target object handle index of the element to move.
+    pub handle_index: u32,
+    /// Object handle index of the element it moves relative to.
+    pub target_index: u32,
+    /// Where it lands relative to that element.
+    pub placement: crate::struct_tree::Placement,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 /// Position for page decorations (Header/Footer/Bates).
 pub enum DecorationPosition {
@@ -196,6 +207,14 @@ pub enum Operation {
         /// Target handle index of the structural element object.
         handle_index: u32,
     },
+    /// Move a structural element beside or inside another (14.7.4).
+    ///
+    /// **Reading order is what a structure tree is for**, and until this existed there
+    /// was no way to change it: the vocabulary could retag an element and delete one, so
+    /// the only way to put a paragraph in the right place was to delete it and lose its
+    /// content. The GUI's tree has had drag-and-drop the whole time and it rearranged the
+    /// window's own copy, which is an edit that looks like it worked.
+    MoveStructElem(StructElemMove),
 
     // --- Phase 2: Metadata & Structure Domain Operations ---
     /// Create or update a PDF Portfolio (/Collection).

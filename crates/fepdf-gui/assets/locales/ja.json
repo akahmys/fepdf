@@ -31,6 +31,7 @@
   "btn_import": "インポート",
   "busy_applying": "適用しています…",
   "busy_auditing": "PDF/UA に照らして検査しています…",
+  "busy_retagging": "構造ツリーを並べ替えています…",
   "busy_saving": "文書を書き出しています…",
   "busy_surveying": "開いたとき何をするかを読んでいます…",
   "caliper_clear": "計測を消す",

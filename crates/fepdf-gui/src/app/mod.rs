@@ -354,6 +354,17 @@ impl FepdfApp {
                     self.loading_message = message;
                     ctx.request_repaint();
                 }
+                WorkerResponse::StructTreeChanged { root } => {
+                    // The selection is kept only if the element it names is still there:
+                    // ids are assigned by the walk, so the same number means a different
+                    // element once the tree has changed shape.
+                    self.ust_registry.root = root.map(|boxed| *boxed);
+                    if let Some(id) = self.ust_registry.selected_node_id
+                        && self.ust_registry.find_placement_by_id(id).is_none()
+                    {
+                        self.ust_registry.selected_node_id = None;
+                    }
+                }
                 WorkerResponse::LayersChanged { layers } => {
                     // The page must be drawn again: a layer's state decides what the
                     // interpreter paints, and every cached scene predates the toggle.

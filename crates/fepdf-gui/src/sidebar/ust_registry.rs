@@ -1,3 +1,4 @@
+use crate::worker::WorkerRequest;
 use serde::{Deserialize, Serialize};
 
 /// Presentation node for structure tree hierarchy in GUI.
@@ -82,54 +83,36 @@ impl USTRegistry {
         None
     }
 
-    pub fn remove_node(&mut self, id: usize) -> Option<USTNode> {
-        if let Some(ref mut root) = self.root {
-            if root.id == id {
-                return None;
-            }
-            return Self::remove_node_recursive(root, id);
-        }
-        None
-    }
-
-    fn remove_node_recursive(node: &mut USTNode, id: usize) -> Option<USTNode> {
-        for idx in 0..node.children.len() {
-            if node.children[idx].id == id {
-                return Some(node.children.remove(idx));
-            }
-        }
-        for child in &mut node.children {
-            if let Some(removed) = Self::remove_node_recursive(child, id) {
-                return Some(removed);
-            }
-        }
-        None
-    }
-
-    pub fn move_node(
-        &mut self,
+    /// The request a finished drag becomes, or `None` when there is nothing to ask for.
+    ///
+    /// **Two of the three refusals are the engine's, and this makes neither of them.** A
+    /// cycle and a target that is not in the tree are refused by `MoveStructElem`, which
+    /// is where the file's own shape is known. What is decided here is only what the
+    /// window can see: a drag onto itself, and an element with no handle — a tag drawn in
+    /// this window stands for a selection and is in no file yet, so there is nothing to
+    /// move.
+    pub fn move_request(
+        &self,
         dragged_id: usize,
         target_id: usize,
         relation: DragRelation,
-    ) -> bool {
+    ) -> Option<WorkerRequest> {
         if dragged_id == target_id {
-            return false;
+            return None;
         }
-
-        if let Some(ref root) = self.root
-            && let Some(dragged_node) = Self::find_node_by_id_recursive(root, dragged_id)
-            && Self::is_descendant(dragged_node, target_id)
-        {
-            return false;
-        }
-
-        if let Some(dragged_node) = self.remove_node(dragged_id)
-            && let Some(ref mut root) = self.root
-            && Self::insert_node_recursive(root, target_id, dragged_node, relation).is_ok()
-        {
-            return true;
-        }
-        false
+        let root = self.root.as_ref()?;
+        let handle_index = Self::find_node_by_id_recursive(root, dragged_id)?.handle_index?;
+        let target_index = Self::find_node_by_id_recursive(root, target_id)?.handle_index?;
+        let placement = match relation {
+            DragRelation::Above => fepdf::Placement::Before,
+            DragRelation::Below => fepdf::Placement::After,
+            DragRelation::AsChild => fepdf::Placement::Inside,
+        };
+        Some(WorkerRequest::MoveNode(fepdf::StructElemMove {
+            handle_index,
+            target_index,
+            placement,
+        }))
     }
 
     pub fn find_node_by_id_recursive(current: &USTNode, id: usize) -> Option<&USTNode> {
@@ -154,51 +137,6 @@ impl USTRegistry {
             }
         }
         false
-    }
-
-    fn insert_node_recursive(
-        current: &mut USTNode,
-        target_id: usize,
-        node_to_insert: USTNode,
-        relation: DragRelation,
-    ) -> Result<(), USTNode> {
-        if relation == DragRelation::AsChild && current.id == target_id {
-            current.children.push(node_to_insert);
-            return Ok(());
-        }
-
-        for idx in 0..current.children.len() {
-            if current.children[idx].id == target_id {
-                match relation {
-                    DragRelation::Above => {
-                        current.children.insert(idx, node_to_insert);
-                        return Ok(());
-                    }
-                    DragRelation::Below => {
-                        current.children.insert(idx + 1, node_to_insert);
-                        return Ok(());
-                    }
-                    DragRelation::AsChild => {
-                        current.children[idx].children.push(node_to_insert);
-                        return Ok(());
-                    }
-                }
-            }
-        }
-
-        let mut temp = Some(node_to_insert);
-        for child in &mut current.children {
-            if let Some(n) = temp.take() {
-                match Self::insert_node_recursive(child, target_id, n, relation) {
-                    Ok(()) => return Ok(()),
-                    Err(n) => {
-                        temp = Some(n);
-                    }
-                }
-            }
-        }
-
-        if let Some(n) = temp { Err(n) } else { Ok(()) }
     }
 }
 
@@ -239,95 +177,71 @@ pub fn update_alt_text(node: &mut USTNode, id: usize, new_alt: Option<String>) -
 mod tests {
     use super::*;
 
-    #[test]
-    fn test_move_node() {
-        let mut registry = USTRegistry::new();
-        let doc_node = USTNode {
-            id: 0,
-            tag: "Document".to_string(),
-            title: "PDF Document Catalog".to_string(),
+    /// A tree with handles on it, since a move is addressed by handle and not by row.
+    fn tagged_tree() -> USTRegistry {
+        let leaf = |id: usize, handle: u32| USTNode {
+            id,
+            tag: "P".to_string(),
+            title: "P".to_string(),
             alt_text: None,
             rect: None,
-            page_index: None,
-            handle_index: None,
+            page_index: Some(0),
+            handle_index: Some(handle),
             mcids: Vec::new(),
             lang: None,
             role: None,
-            children: vec![USTNode {
-                id: 1,
-                tag: "Part".to_string(),
-                title: "Page 1 Section".to_string(),
-                alt_text: None,
-                rect: None,
-                page_index: None,
-                handle_index: None,
-                mcids: Vec::new(),
-                lang: None,
-                role: None,
-                children: vec![
-                    USTNode {
-                        id: 2,
-                        tag: "H1".to_string(),
-                        title: "Heading of Page 1".to_string(),
-                        alt_text: None,
-                        rect: None,
-                        page_index: None,
-                        handle_index: None,
-                        mcids: Vec::new(),
-                        lang: None,
-                        role: None,
-                        children: Vec::new(),
-                    },
-                    USTNode {
-                        id: 3,
-                        tag: "P".to_string(),
-                        title: "Paragraph content for page 1".to_string(),
-                        alt_text: None,
-                        rect: None,
-                        page_index: None,
-                        handle_index: None,
-                        mcids: Vec::new(),
-                        lang: None,
-                        role: None,
-                        children: Vec::new(),
-                    },
-                    USTNode {
-                        id: 4,
-                        tag: "Figure".to_string(),
-                        title: "Illustration on page 1".to_string(),
-                        alt_text: None,
-                        rect: None,
-                        page_index: None,
-                        handle_index: None,
-                        mcids: Vec::new(),
-                        lang: None,
-                        role: None,
-                        children: Vec::new(),
-                    },
-                ],
-            }],
+            children: Vec::new(),
         };
-        registry.root = Some(doc_node);
-        registry.next_node_id = 5;
+        let mut root = leaf(0, 10);
+        root.tag = "Document".to_string();
+        root.children = vec![leaf(1, 11), leaf(2, 12)];
+        let mut registry = USTRegistry::new();
+        registry.root = Some(root);
+        registry
+    }
 
-        // Move Paragraph (id 3) Above Heading (id 2)
-        assert!(registry.move_node(3, 2, DragRelation::Above));
+    #[test]
+    fn a_drag_becomes_a_request_addressed_by_handle() {
+        // The window numbers its rows as it walks them; the file knows nothing of those
+        // numbers. A move that named them would move whatever happened to be counted
+        // second on that pass.
+        let registry = tagged_tree();
+        let request = registry.move_request(2, 1, DragRelation::Above).expect("a request");
+        let WorkerRequest::MoveNode(moved) = request else {
+            panic!("a drag became something other than a move");
+        };
+        assert_eq!((moved.handle_index, moved.target_index), (12, 11));
+        assert_eq!(moved.placement, fepdf::Placement::Before);
+    }
 
-        let root = registry.root.as_ref().unwrap();
-        let page = &root.children[0];
-        assert_eq!(page.children[0].id, 3);
-        assert_eq!(page.children[1].id, 2);
+    #[test]
+    fn the_three_relations_map_onto_the_three_placements() {
+        let registry = tagged_tree();
+        let placement = |relation| {
+            let Some(WorkerRequest::MoveNode(moved)) = registry.move_request(2, 1, relation) else {
+                panic!("a drag became something other than a move");
+            };
+            moved.placement
+        };
+        assert_eq!(placement(DragRelation::Above), fepdf::Placement::Before);
+        assert_eq!(placement(DragRelation::Below), fepdf::Placement::After);
+        assert_eq!(placement(DragRelation::AsChild), fepdf::Placement::Inside);
+    }
 
-        // Move Illustration (id 4) As Child of Paragraph (id 3)
-        assert!(registry.move_node(4, 3, DragRelation::AsChild));
+    #[test]
+    fn a_drag_onto_itself_asks_for_nothing() {
+        assert!(tagged_tree().move_request(1, 1, DragRelation::Above).is_none());
+    }
 
-        let root = registry.root.as_ref().unwrap();
-        let page = &root.children[0];
-        let para = &page.children[0];
-        assert_eq!(para.children[0].id, 4);
-
-        // Invalid moves: dragging parent to child should fail
-        assert!(!registry.move_node(3, 4, DragRelation::Above));
+    #[test]
+    fn an_element_that_is_in_no_file_yet_cannot_be_moved_in_one() {
+        // A tag drawn in this window stands for a selection and carries no handle. The
+        // cycle and the missing target are the engine's refusals, not this one's.
+        let mut registry = tagged_tree();
+        if let Some(root) = registry.root.as_mut() {
+            root.children[0].handle_index = None;
+        }
+        assert!(registry.move_request(1, 2, DragRelation::Above).is_none());
     }
 
     fn node(id: usize, page_index: Option<usize>, rect: Option<[f32; 4]>) -> USTNode {

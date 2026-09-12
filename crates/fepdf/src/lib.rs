@@ -107,8 +107,11 @@ pub use fepdf_doc::{
     // `PdfStandard` moved here from this file when `Operation::Upgrade` came to carry it:
     // a type an operation holds has to live with the vocabulary.
     PdfStandard,
+    // The same reason as `PdfStandard` below: `Operation::MoveStructElem` carries it.
+    Placement,
     Quarter,
     RotateMode,
+    StructElemMove,
     StructElemUpdate,
     StructureTreeNode,
     StructureTreeVisitor,

@@ -168,11 +168,11 @@ Every document mutation is a value of one type, defined in `fepdf-doc` and re-ex
 through the facade. Frontends construct it; only `fepdf-doc` interprets it.
 
 ```
-   fepdf-cli    argv          ─┐      8 of 30 variants
-   fepdf-gui    button press  ─┤     12 of 30
+   fepdf-cli    argv          ─┐      8 of 31 variants
+   fepdf-gui    button press  ─┤     13 of 31
    fepdf-mcp    tool call     ─┼─►  Operation  ─►  fepdf-doc::apply
    fepdf-wasm   —             ─┘     (a value)      (the only implementation)
-                                     30 variants      and the only way in
+                                     31 variants      and the only way in
 ```
 
 ```rust
@@ -189,6 +189,7 @@ pub enum Operation {
     Upgrade { standard: PdfStandard },
     UpdateStructElem(StructElemUpdate),
     DeleteStructElem { handle_index: u32 },
+    MoveStructElem(StructElemMove),
 
     // --- Metadata & Structure ---
     CreatePortfolio(PortfolioCollection),

@@ -11,19 +11,19 @@ use crate::tools::{
     AddAnnotationArgs, AddMeshShadingArgs, AddPageDecorationArgs, AddPublicKeyRecipientArgs,
     AddUserPropertiesArgs, ApplyBatesNumberingArgs, ApplyOperationArgs, AttachAssociatedFileArgs,
     AuditArgs, CreatePortfolioArgs, DeleteStructElemArgs, ExecuteActionArgs, ExtractTextArgs,
-    RedactDocumentArgs, RemovePagesArgs, ReorderPagesArgs, RotatePagesArgs, SetFormFieldValueArgs,
-    SetGeospatialAnchorArgs, SetMeasurementScaleArgs, SetOutputIntentArgs, SetPageLabelsArgs,
-    SetPronunciationLexiconArgs, SetUnencryptedWrapperArgs, UpdateArticleThreadsArgs,
-    UpdateLayersArgs, UpdateOutlinesArgs, UpdateStructElemArgs, VerifySignaturesArgs,
-    add_annotation_impl, add_mesh_shading_impl, add_page_decoration_impl,
+    MoveStructElemArgs, RedactDocumentArgs, RemovePagesArgs, ReorderPagesArgs, RotatePagesArgs,
+    SetFormFieldValueArgs, SetGeospatialAnchorArgs, SetMeasurementScaleArgs, SetOutputIntentArgs,
+    SetPageLabelsArgs, SetPronunciationLexiconArgs, SetUnencryptedWrapperArgs,
+    UpdateArticleThreadsArgs, UpdateLayersArgs, UpdateOutlinesArgs, UpdateStructElemArgs,
+    VerifySignaturesArgs, add_annotation_impl, add_mesh_shading_impl, add_page_decoration_impl,
     add_public_key_recipient_impl, add_user_properties_impl, apply_bates_numbering_impl,
     apply_operation_impl, apply_redaction_impl, attach_associated_file_impl, audit_document_impl,
     create_portfolio_impl, delete_struct_elem_impl, execute_action_impl, extract_text_impl,
-    remove_pages_impl, reorder_pages_impl, rotate_pages_impl, set_form_field_value_impl,
-    set_geospatial_anchor_impl, set_measurement_scale_impl, set_output_intent_impl,
-    set_page_labels_impl, set_pronunciation_lexicon_impl, set_unencrypted_wrapper_impl,
-    update_article_threads_impl, update_layers_impl, update_outlines_impl, update_struct_elem_impl,
-    verify_signatures_impl,
+    move_struct_elem_impl, remove_pages_impl, reorder_pages_impl, rotate_pages_impl,
+    set_form_field_value_impl, set_geospatial_anchor_impl, set_measurement_scale_impl,
+    set_output_intent_impl, set_page_labels_impl, set_pronunciation_lexicon_impl,
+    set_unencrypted_wrapper_impl, update_article_threads_impl, update_layers_impl,
+    update_outlines_impl, update_struct_elem_impl, verify_signatures_impl,
 };
 use rmcp::{
     ServiceExt,
@@ -351,6 +351,20 @@ impl FepdfServer {
         Parameters(args): Parameters<DeleteStructElemArgs>,
     ) -> Result<String, String> {
         delete_struct_elem_impl(args)
+    }
+
+    /// Moves a structural element beside or inside another, which is how reading order
+    /// is changed (14.7.4).
+    #[tool(
+        name = "move_struct_elem",
+        description = "Moves a structural element before, after or inside another one, \
+                       changing the document's reading order."
+    )]
+    pub async fn move_struct_elem(
+        &self,
+        Parameters(args): Parameters<MoveStructElemArgs>,
+    ) -> Result<String, String> {
+        move_struct_elem_impl(args)
     }
 
     /// Attaches user-defined properties (/UserProperties) to a Tagged PDF element.
