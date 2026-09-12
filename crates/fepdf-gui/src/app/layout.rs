@@ -35,73 +35,6 @@ impl FepdfApp {
         self.view.pan = egui::Vec2::ZERO;
     }
 
-    /// The pages a fit measures: the current spread in a two-page mode, the current page
-    /// alone otherwise.
-    ///
-    /// **The pairing is [`PDFView::get_spread_indices`] and nowhere else.** It stood
-    /// written out here as well, once inside each fit, in arithmetic that agreed with it
-    /// for every page of every non-empty document — three copies of one rule, of which
-    /// only the original was reachable from a test.
-    fn spread_to_fit(&self) -> Vec<usize> {
-        let current_page =
-            self.view.visible_pages.first().copied().unwrap_or(self.view.active_page);
-        if self.view.display_mode == DisplayMode::TwoPageSpread
-            || self.view.display_mode == DisplayMode::TwoPageSingle
-        {
-            self.view.get_spread_indices(current_page, self.total_pages)
-        } else {
-            vec![current_page]
-        }
-    }
-
-    pub fn fit_to_width(&mut self, viewport_rect: egui::Rect) {
-        let indices = self.spread_to_fit();
-
-        let mut min_x = f32::MAX;
-        let mut max_x = f32::MIN;
-        for &idx in &indices {
-            if let Some(layout) = self.page_layouts.get(idx) {
-                min_x = min_x.min(layout.rect.min.x);
-                max_x = max_x.max(layout.rect.max.x);
-            }
-        }
-
-        let spread_w = max_x - min_x;
-        if spread_w > 0.0 && min_x < f32::MAX {
-            let target_zoom = (viewport_rect.width() - 40.0) / spread_w;
-            self.view.set_zoom(target_zoom);
-            self.view.pan.x = 0.0;
-        }
-    }
-
-    pub fn fit_to_height(&mut self, viewport_rect: egui::Rect) {
-        let indices = self.spread_to_fit();
-
-        let mut min_y = f32::MAX;
-        let mut max_y = f32::MIN;
-        for &idx in &indices {
-            if let Some(layout) = self.page_layouts.get(idx) {
-                min_y = min_y.min(layout.rect.min.y);
-                max_y = max_y.max(layout.rect.max.y);
-            }
-        }
-
-        let spread_h = max_y - min_y;
-        if spread_h > 0.0 && min_y < f32::MAX {
-            let target_zoom = (viewport_rect.height() - 40.0) / spread_h;
-            self.view.set_zoom(target_zoom);
-            if self.view.display_mode == DisplayMode::Continuous
-                || self.view.display_mode == DisplayMode::TwoPageSpread
-                || self.view.display_mode == DisplayMode::TwoPageSingle
-            {
-                self.view.pan.y = -min_y * self.view.zoom();
-            } else {
-                self.view.pan.y = 0.0;
-            }
-            self.view.pan.x = 0.0;
-        }
-    }
-
     /// How many pages a row of tiles holds.
     ///
     /// **Fixed, so that zooming does not rearrange the document.** The count used to come
@@ -142,7 +75,6 @@ impl FepdfApp {
     /// most of the margins inside the pages it separated.
     pub const PAGE_GAP: f32 = 72.0;
 
-    /// Recomputes page rectangles from `doc_page_sizes` and the current view mode.
     pub fn compute_layouts(&mut self) {
         // RR-15 Limit: GUI
         // **The one place a change of arrangement can be noticed.** Sixteen call sites

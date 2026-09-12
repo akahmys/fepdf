@@ -191,8 +191,8 @@ impl PDFView {
 
     /// The bounds a zoom factor is held to, in one place.
     ///
-    /// Written out three times before — inside `zoom_at` and twice in `fit_to_width` — and
-    /// a bound repeated is a bound that drifts.
+    /// Written out three times before — inside `zoom_at` and twice in the fits that used
+    /// to sit beside it — and a bound repeated is a bound that drifts.
     const ZOOM_BOUNDS: std::ops::RangeInclusive<f32> = Self::ZOOM_FLOOR..=10.0;
 
     /// The smallest zoom the viewer offers.
@@ -247,12 +247,10 @@ impl PDFView {
     /// at.
     ///
     /// **`{:.0}%` printed 99.6% as `100%`** — the same string a true 100% shows, over a
-    /// page rendered at a different size. Every zoom a gesture or a button produces is now
-    /// a step, so the rounding only ever bit a fit: `fit_to_width` sets whatever the page
-    /// needs and does not snap, because a fit that snapped would not fit.
-    ///
-    /// One decimal, and a trailing `.0` dropped, so that a step reads `100%` and `12.5%`
-    /// reads as itself.
+    /// page rendered at a different size. Every zoom a gesture or a button produces is a
+    /// step, so with the fit buttons gone nothing off the ladder reaches this any more;
+    /// one decimal stays because `12.5%` is on the ladder and reads as itself, and a
+    /// trailing `.0` is dropped so that a step reads `100%`.
     #[must_use]
     pub fn zoom_label(&self) -> String {
         let percent = self.zoom * 100.0;
@@ -385,9 +383,9 @@ impl PDFView {
     ///
     /// **Not the same operation as [`Self::zoom_at`], which is why both exist.** `zoom_at`
     /// keeps a chosen point under the cursor and computes `pan` to do it; this is for
-    /// `reset_view`, `fit_to_width` and double-click-to-fit, which set `pan` explicitly on
-    /// the line after and would have that work thrown away. Routing them through `zoom_at`
-    /// would compute an anchor nobody reads.
+    /// `reset_view` and double-click-to-fit, which set `pan` explicitly on the line after
+    /// and would have that work thrown away. Routing them through `zoom_at` would compute
+    /// an anchor nobody reads.
     pub fn set_zoom(&mut self, zoom: f32) {
         self.apply_zoom(zoom);
         self.zoom_unsnapped = self.zoom;
@@ -2040,11 +2038,10 @@ mod spread_pairing {
 
     /// **This is the one place that decides which pages are shown together.**
     ///
-    /// `fit_to_width` and `fit_to_height` each carried their own copy of the arithmetic,
-    /// so the rule stood in three places. The copies agreed with this one for every page
-    /// index of every non-empty document — the substitution that removed them changes
-    /// nothing — but a rule in three places is a rule that drifts, and only this one was
-    /// reachable from a test.
+    /// The two fit buttons each carried their own copy of the arithmetic, so the rule
+    /// stood in three places; the copies agreed with this one for every page index of
+    /// every non-empty document, but a rule in three places is a rule that drifts and only
+    /// this one was reachable from a test. The buttons are gone and so are the copies.
     #[test]
     fn a_cover_stands_alone_and_the_rest_pair_off_after_it() {
         let mut view = PDFView::new();

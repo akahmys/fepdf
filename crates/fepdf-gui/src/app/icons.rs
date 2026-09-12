@@ -53,10 +53,6 @@ pub mod glyph {
     pub const PAGE_CONTINUOUS: &str = "\u{e439}";
     /// `book-open` — two pages facing.
     pub const PAGE_SPREAD: &str = "\u{e05f}";
-    /// `move-horizontal` — fit the width.
-    pub const FIT_WIDTH: &str = "\u{e1c6}";
-    /// `move-vertical` — fit the height.
-    pub const FIT_HEIGHT: &str = "\u{e1c7}";
     /// `zoom-in`.
     pub const ZOOM_IN: &str = "\u{e1b6}";
     /// `zoom-out`.

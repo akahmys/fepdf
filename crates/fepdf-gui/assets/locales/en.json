@@ -307,8 +307,6 @@
   "tooltip_delete_page": "Delete selected page",
   "tooltip_export_pdf": "Export PDF (Ctrl+E)",
   "tooltip_first_page": "First Page",
-  "tooltip_fit_height": "Fit the height",
-  "tooltip_fit_width": "Fit the width",
   "tooltip_import_pdf": "Import PDF (Ctrl+O)",
   "tooltip_last_page": "Last Page",
   "tooltip_load_pdf": "Import PDF (Ctrl+O)",

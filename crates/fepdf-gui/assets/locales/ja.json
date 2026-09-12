@@ -307,8 +307,6 @@
   "tooltip_delete_page": "選択ページを削除",
   "tooltip_export_pdf": "PDFをエクスポート (Ctrl+E)",
   "tooltip_first_page": "先頭ページに移動",
-  "tooltip_fit_height": "高さに合わせる",
-  "tooltip_fit_width": "幅に合わせる",
   "tooltip_import_pdf": "PDFをインポート (Ctrl+O)",
   "tooltip_last_page": "最終ページに移動",
   "tooltip_load_pdf": "PDFをインポート (Ctrl+O)",

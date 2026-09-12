@@ -132,8 +132,6 @@ impl FepdfApp {
             ui.add_space(space::SECTION);
             self.mode_group(ui);
             ui.add_space(space::SECTION);
-            self.fit_group(ui);
-            ui.add_space(space::SECTION);
             self.zoom_group(ui);
             ui.add_space(space::SECTION);
             self.page_group(ui, current_page);
@@ -205,18 +203,6 @@ impl FepdfApp {
                 self.view.display_mode = mode;
                 self.compute_layouts();
             }
-        }
-    }
-
-    /// Fit the spread to the window.
-    fn fit_group(&mut self, ui: &mut egui::Ui) {
-        let viewport = self.last_viewport_rect.unwrap_or_else(|| ui.max_rect());
-        if icon_action(ui, glyph::FIT_HEIGHT, false, true, &self.tr("tooltip_fit_height")).clicked()
-        {
-            self.fit_to_height(viewport);
-        }
-        if icon_action(ui, glyph::FIT_WIDTH, false, true, &self.tr("tooltip_fit_width")).clicked() {
-            self.fit_to_width(viewport);
         }
     }
 
