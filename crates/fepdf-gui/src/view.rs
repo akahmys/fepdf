@@ -507,13 +507,20 @@ impl PDFView {
         self.layout_under(at, origin, self.zoom, layouts).map(|layout| layout.index)
     }
 
-    /// Puts the page the view was anchored to in the middle of the window.
+    /// Puts the page the view was anchored to under the cursor, centred on it.
     ///
-    /// **This is the whole of what a change of arrangement has to do.** Every zoom holds
-    /// one point of one page still under the cursor; when the pages are re-laid the same
-    /// point has moved, and moving the view by the difference is what keeps the gesture
-    /// continuous. Anything else — snapping to a chosen page, scrolling to the top —
-    /// fights the rest of the gesture, which goes on anchoring on the cursor.
+    /// **The cursor chooses the page and the cursor is where it goes.** A zoom holds one
+    /// point of a page still under the cursor, and that is right while the pages stay
+    /// where they are; across a rearrangement it is not, because the column and the grid
+    /// put the same page in quite different places and the point that was under the
+    /// cursor may be anywhere on it. The page's own middle is put there instead, so the
+    /// page the reader was pointing at is the page under their pointer afterwards,
+    /// wherever on it they happened to be.
+    ///
+    /// Bounded by `clamp_pan` alone, which keeps the document on screen and nothing
+    /// narrower: the grid's alignment says where its `x = 0` is, not where the grid has
+    /// to sit. A tile in the first column has to be able to travel right to reach a
+    /// cursor on the right.
     pub fn restore_anchor(
         &mut self,
         anchor: Option<usize>,
@@ -523,23 +530,9 @@ impl PDFView {
         self.arranged_as_tiles = !self.is_page_view();
         let Some(page) = anchor else { return };
         let Some(layout) = layouts.get(page) else { return };
+        let at = self.last_anchor.unwrap_or_else(|| viewport.center());
         let origin_no_pan = self.get_origin_no_pan(viewport);
-        // **The page that was under the cursor is put in the middle of the window.**
-        //
-        // A zoom holds one point still under the cursor, and that is right while the
-        // pages stay where they are. It is not right across a rearrangement: the column
-        // and the grid put the same page in quite different places, and holding a point
-        // of it under a cursor near an edge leaves the grid hanging half out of the
-        // window with the rest of it empty — a tile in the first column has to travel the
-        // width of the window to reach a cursor on the right, and takes the other nine
-        // columns with it.
-        //
-        // So the cursor chooses *which* page the view comes out on, and the window's
-        // middle is where that page is put. `clamp_pan` then keeps the document on
-        // screen. The reader's gesture goes on from there, anchored on the cursor again,
-        // because from here on the pages are staying where they are.
-        let middle = layout.rect.center().to_vec2() * self.zoom;
-        self.pan = viewport.center() - origin_no_pan - middle;
+        self.pan = at - origin_no_pan - layout.rect.center().to_vec2() * self.zoom;
         self.active_page = page;
     }
 
@@ -1515,14 +1508,13 @@ mod arrangement_crossing {
         view.layout_under(at, origin, view.zoom(), layouts).expect("a page").index
     }
 
-    /// **The cursor chooses the page; the window's middle is where it is put.** Reported
-    /// from the window four times. A zoom holds a point still under the cursor, which is
-    /// right while the pages stay where they are and wrong across a rearrangement: the
-    /// column and the grid put the same page in quite different places, and a tile in the
-    /// first column has to travel the width of the window to reach a cursor on the right,
-    /// taking the other nine columns with it.
+    /// **The cursor chooses the page, and the cursor is where it goes.** Reported from
+    /// the window five times. A zoom holds a point still under the cursor, which is right
+    /// while the pages stay where they are and wrong across a rearrangement: the column
+    /// and the grid put the same page in quite different places, and the point that was
+    /// under the cursor may be anywhere on it. The page's own middle goes there instead.
     #[test]
-    fn the_page_under_the_cursor_comes_out_in_the_middle_of_the_window() {
+    fn the_page_under_the_cursor_comes_out_centred_on_the_cursor() {
         let mut view = PDFView::new();
         view.display_mode = DisplayMode::Continuous;
         let tiles = grid(25);
@@ -1542,16 +1534,15 @@ mod arrangement_crossing {
         assert_eq!(view.active_page, chosen);
         let middle = middle_of(&view, chosen, &pages);
         assert!(
-            (middle - WINDOW.center()).length() < 1.0,
-            "the page came out centred on {middle:?}, not {:?}",
-            WINDOW.center()
+            (middle - cursor).length() < 1.0,
+            "the page came out centred on {middle:?}, not on the cursor at {cursor:?}"
         );
     }
 
     /// The same in the other direction: zooming out into the tiles puts the page that was
-    /// being read in the middle, and the grid goes wherever that needs it to.
+    /// being read under the cursor, and the grid goes wherever that needs it to.
     #[test]
-    fn going_into_the_tiles_centres_the_page_that_was_being_read() {
+    fn going_into_the_tiles_puts_that_page_under_the_cursor() {
         let mut view = PDFView::new();
         view.display_mode = DisplayMode::Continuous;
         let pages = column(25);
@@ -1568,29 +1559,29 @@ mod arrangement_crossing {
         view.restore_anchor(carried, WINDOW, &tiles);
 
         let middle = middle_of(&view, chosen, &tiles);
-        assert!(
-            (middle - WINDOW.center()).length() < 1.0,
-            "the tile came out centred on {middle:?}"
-        );
+        assert!((middle - cursor).length() < 1.0, "the tile came out centred on {middle:?}");
     }
 
     /// **The grid's edge is a bound, not a position.** A tile in the first column is at
-    /// the grid's own `x = 0`, so centring it needs the grid to move right — which a grid
-    /// pinned to the left of the window cannot do. "When it becomes tiles the whole grid
-    /// is left-aligned to the display area, so it does not do what was meant."
+    /// the grid's own `x = 0`, so putting it under a cursor on the right needs the grid to
+    /// move right — which a grid pinned to the left of the window cannot do. "When it
+    /// becomes tiles the whole grid is left-aligned to the display area, so it does not do
+    /// what was meant."
     #[test]
-    fn a_tile_in_the_first_column_can_still_be_centred() {
+    fn a_tile_in_the_first_column_can_still_reach_the_cursor() {
         let mut view = PDFView::new();
         view.display_mode = DisplayMode::Continuous;
         let pages = column(25);
         view.set_zoom(0.25);
         view.restore_anchor(None, WINDOW, &pages);
 
+        let cursor = egui::pos2(820.0, 300.0);
+        view.zoom_at(0.25, cursor, WINDOW, &pages);
         let tiles = grid(25);
         view.restore_anchor(Some(10), WINDOW, &tiles); // first column, second row
         assert!(view.pan.x > 1.0, "the grid stayed on its edge: pan.x is {}", view.pan.x);
         let middle = middle_of(&view, 10, &tiles);
-        assert!((middle - WINDOW.center()).length() < 1.0, "it came out at {middle:?}");
+        assert!((middle - cursor).length() < 1.0, "it came out at {middle:?}, not {cursor:?}");
     }
 
     /// A zoom that stays on one side of the boundary rearranges nothing, so nothing is
