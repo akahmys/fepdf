@@ -123,17 +123,21 @@ impl FepdfApp {
         if self.total_pages == 0 {
             return;
         }
-        let window = ui.max_rect();
+        // **The whole window, not what is left of it.** The reveal band is measured from
+        // the bottom of the screen, which is where the reader's hand goes.
+        let window = ui.ctx().content_rect();
         let reached_for = ui
             .ctx()
             .pointer_latest_pos()
             .is_some_and(|at| at.y > window.max.y - size::REVEAL && window.contains(at));
-        let shown = ui.ctx().animate_bool_with_time(
-            egui::Id::new("view_controls_shown"),
-            self.controls_pinned || reached_for,
-            0.12,
-        );
-        if shown < f32::EPSILON {
+        // **Shown or not shown, with nothing in between.** A fade sat here and could stall
+        // at zero: `Context::animate_bool_with_time` asks for the next frame only while
+        // the value is strictly between 0 and 1, so on the frame the target flips — before
+        // any time has passed — nothing is requested, and a pointer that stopped as it
+        // crossed the line left the bar at zero with no frame coming to move it. It
+        // appeared while the pointer kept moving and not when it came to rest, which is
+        // the wrong way round for a control one reaches for.
+        if !self.controls_pinned && !reached_for {
             return;
         }
 
@@ -147,7 +151,6 @@ impl FepdfApp {
             .anchor(egui::Align2::CENTER_BOTTOM, egui::vec2(0.0, -(size::STATUS + space::SECTION)))
             .order(egui::Order::Foreground)
             .show(ui.ctx(), |ui| {
-                ui.set_opacity(shown);
                 frame.show(ui, |ui| {
                     ui.horizontal(|ui| {
                         ui.spacing_mut().item_spacing.x = space::ITEM;
