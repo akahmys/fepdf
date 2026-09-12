@@ -53,6 +53,10 @@ pub mod glyph {
     pub const PAGE_CONTINUOUS: &str = "\u{e439}";
     /// `book-open` — two pages facing.
     pub const PAGE_SPREAD: &str = "\u{e05f}";
+    /// `pin` — the controls are held open.
+    pub const PIN: &str = "\u{e259}";
+    /// `pin-off` — they come and go with the pointer.
+    pub const PIN_OFF: &str = "\u{e2b6}";
     /// `zoom-in`.
     pub const ZOOM_IN: &str = "\u{e1b6}";
     /// `zoom-out`.

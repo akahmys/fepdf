@@ -1,10 +1,13 @@
-//! The status bar: what the engine is doing on the left, what the view is doing on the
-//! right.
+//! The status bar, and the view controls that used to sit on its right.
 //!
-//! **The right-hand cluster is built in reverse.** `Layout::right_to_left` places the
-//! first widget furthest right, so the groups below are added last-on-screen first. That
-//! inversion is stated once, here, and the groups are named — reading fourteen anonymous
-//! buttons backwards is how a control that draws nothing went unnoticed.
+//! **They are two things and are now drawn as two.** The bar says what the engine is
+//! doing — which document, what just happened, what the renderer left out — and does not
+//! move. The controls act on the view, float over the page, and are only there when they
+//! are being reached for.
+//!
+//! The controls used to be built in reverse, because `Layout::right_to_left` places the
+//! first widget furthest right and they were pinned to the bar's right end. Floating, they
+//! read left to right and are written that way.
 
 use super::FepdfApp;
 use super::icons::{glyph, icon_action, named};
@@ -14,17 +17,6 @@ use crate::view::{BindingDirection, DisplayMode};
 impl FepdfApp {
     pub(crate) fn render_status_bar(&mut self, ui: &mut egui::Ui) {
         let has_doc = self.total_pages > 0;
-        // **The page in the middle of the window, not the first one any part of which
-        // is visible.** A page centred with a sliver of the one above it still showing
-        // was reported as the page above — which reads as the view having landed
-        // somewhere else, because the number is the only thing that says where it landed.
-        let current_page = if self.view.display_mode == DisplayMode::SinglePage {
-            self.view.active_page
-        } else {
-            self.last_viewport_rect
-                .and_then(|viewport| self.view.page_at_middle(viewport, &self.page_layouts))
-                .unwrap_or(self.view.active_page)
-        };
 
         egui::Panel::bottom("status_bar").default_size(size::STATUS).resizable(false).show_inside(
             ui,
@@ -33,7 +25,6 @@ impl FepdfApp {
                     ui.spacing_mut().item_spacing.x = space::ITEM;
                     self.say_file_name(ui);
                     self.status_indicators(ui, has_doc);
-                    self.view_controls(ui, has_doc, current_page);
                 });
             },
         );
@@ -121,39 +112,92 @@ impl FepdfApp {
         }
     }
 
-    /// The right of the bar, added in reverse of how it reads: see the module note.
-    fn view_controls(&mut self, ui: &mut egui::Ui, has_doc: bool, current_page: usize) {
-        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            ui.add_space(space::ITEM);
-            if !has_doc {
-                return;
-            }
-            self.document_group(ui);
-            ui.add_space(space::SECTION);
-            self.mode_group(ui);
-            ui.add_space(space::SECTION);
-            self.zoom_group(ui);
-            ui.add_space(space::SECTION);
-            self.page_group(ui, current_page);
-            ui.add_space(space::SECTION);
-            self.history_group(ui);
-        });
+    /// The controls that act on the view, floating over the page near the bottom.
+    ///
+    /// **Not on the status bar, and not movable.** They are about the view rather than
+    /// about the document, they are wanted while reading and in the way while looking, and
+    /// a bar the reader can drag is a bar the reader has to find again. It sits above the
+    /// status bar, centred, and appears when the pointer comes down to it — or stays, when
+    /// the pin says so.
+    pub(crate) fn render_view_controls(&mut self, ui: &mut egui::Ui) {
+        if self.total_pages == 0 {
+            return;
+        }
+        let window = ui.max_rect();
+        let reached_for = ui
+            .ctx()
+            .pointer_latest_pos()
+            .is_some_and(|at| at.y > window.max.y - size::REVEAL && window.contains(at));
+        let shown = ui.ctx().animate_bool_with_time(
+            egui::Id::new("view_controls_shown"),
+            self.controls_pinned || reached_for,
+            0.12,
+        );
+        if shown < f32::EPSILON {
+            return;
+        }
+
+        let current_page = self.page_being_read();
+        let frame = egui::Frame::new()
+            .fill(colors::paper::WHITE)
+            .stroke(egui::Stroke::new(1.0_f32, colors::steel::RULE))
+            .corner_radius(super::theme::radius::CONTROL)
+            .inner_margin(space::GROUP);
+        egui::Area::new(egui::Id::new("view_controls"))
+            .anchor(egui::Align2::CENTER_BOTTOM, egui::vec2(0.0, -(size::STATUS + space::SECTION)))
+            .order(egui::Order::Foreground)
+            .show(ui.ctx(), |ui| {
+                ui.set_opacity(shown);
+                frame.show(ui, |ui| {
+                    ui.horizontal(|ui| {
+                        ui.spacing_mut().item_spacing.x = space::ITEM;
+                        self.history_group(ui);
+                        ui.add_space(space::SECTION);
+                        self.page_group(ui, current_page);
+                        ui.add_space(space::SECTION);
+                        self.zoom_group(ui);
+                        ui.add_space(space::SECTION);
+                        self.mode_group(ui);
+                        ui.add_space(space::SECTION);
+                        self.document_group(ui);
+                        ui.add_space(space::SECTION);
+                        self.pin_control(ui);
+                    });
+                });
+            });
     }
 
-    /// Leftmost of the cluster: taking back, and putting back.
+    /// Holds the controls open, or lets them come and go again.
+    fn pin_control(&mut self, ui: &mut egui::Ui) {
+        let pinned = self.controls_pinned;
+        let icon = if pinned { glyph::PIN } else { glyph::PIN_OFF };
+        let tip = self.tr(if pinned { "tooltip_unpin_controls" } else { "tooltip_pin_controls" });
+        if icon_action(ui, icon, pinned, true, &tip).clicked() {
+            self.controls_pinned = !pinned;
+        }
+    }
+
+    /// The page the reader is on, which is the one in the middle of the window.
+    ///
+    /// **Not the first one any part of which is visible.** A page centred with a sliver of
+    /// the one above it still showing was reported as the page above — which reads as the
+    /// view having landed somewhere else, because the number is the only thing that says
+    /// where it landed.
+    fn page_being_read(&self) -> usize {
+        if self.view.display_mode == DisplayMode::SinglePage {
+            return self.view.active_page;
+        }
+        self.last_viewport_rect
+            .and_then(|viewport| self.view.page_at_middle(viewport, &self.page_layouts))
+            .unwrap_or(self.view.active_page)
+    }
+
+    /// Leftmost of the bar: taking back, and putting back.
     ///
     /// **A shortcut is not an entry point (UI-4).** `Cmd+Z` reaches these two and a
     /// reader who does not already know that would find nothing; drawn disabled rather
     /// than hidden, they also say that the window has a history at all.
     fn history_group(&mut self, ui: &mut egui::Ui) {
-        let redo_name = self.tr("tooltip_redo");
-        if icon_action(ui, glyph::REDO, false, self.can_redo, &redo_name).clicked() && self.can_redo
-        {
-            self.can_redo = false;
-            self.begin_rebuild("history_redoing");
-            let _ = self.tx_worker.send(crate::worker::WorkerRequest::Redo);
-        }
-
         let undo_name = self.tr("tooltip_undo");
         if icon_action(ui, glyph::UNDO, false, self.can_undo, &undo_name).clicked() && self.can_undo
         {
@@ -161,14 +205,18 @@ impl FepdfApp {
             self.begin_rebuild("history_undoing");
             let _ = self.tx_worker.send(crate::worker::WorkerRequest::Undo);
         }
+
+        let redo_name = self.tr("tooltip_redo");
+        if icon_action(ui, glyph::REDO, false, self.can_redo, &redo_name).clicked() && self.can_redo
+        {
+            self.can_redo = false;
+            self.begin_rebuild("history_redoing");
+            let _ = self.tx_worker.send(crate::worker::WorkerRequest::Redo);
+        }
     }
 
     /// Rightmost: what to do to the document itself.
     fn document_group(&mut self, ui: &mut egui::Ui) {
-        if icon_action(ui, glyph::ROTATE, false, true, &self.tr("tooltip_rotate_cw")).clicked() {
-            self.rotate_selected_pages(fepdf::Quarter::Q90);
-        }
-
         let is_r2l = self.view.binding_direction == BindingDirection::RightToLeft;
         let label = egui::RichText::new(self.tr(if is_r2l {
             "btn_binding_vertical"
@@ -187,15 +235,18 @@ impl FepdfApp {
                 if is_r2l { BindingDirection::LeftToRight } else { BindingDirection::RightToLeft };
             self.compute_layouts();
         }
+
+        if icon_action(ui, glyph::ROTATE, false, true, &self.tr("tooltip_rotate_cw")).clicked() {
+            self.rotate_selected_pages(fepdf::Quarter::Q90);
+        }
     }
 
-    /// How the pages are arranged. Added spread-first, so it reads continuous, single,
-    /// spread.
+    /// How the pages are arranged, reading continuous, single, spread.
     fn mode_group(&mut self, ui: &mut egui::Ui) {
         for (mode, icon, key) in [
-            (DisplayMode::TwoPageSpread, glyph::PAGE_SPREAD, "tooltip_view_spread"),
-            (DisplayMode::SinglePage, glyph::PAGE_SINGLE, "tooltip_view_single"),
             (DisplayMode::Continuous, glyph::PAGE_CONTINUOUS, "tooltip_view_continuous"),
+            (DisplayMode::SinglePage, glyph::PAGE_SINGLE, "tooltip_view_single"),
+            (DisplayMode::TwoPageSpread, glyph::PAGE_SPREAD, "tooltip_view_spread"),
         ] {
             let selected = self.view.display_mode == mode;
             let tip = self.tr(key);
@@ -206,13 +257,13 @@ impl FepdfApp {
         }
     }
 
-    /// Zoom in, the current factor, zoom out — reading out, factor, in.
+    /// Zoom out, the current factor, zoom in.
     fn zoom_group(&mut self, ui: &mut egui::Ui) {
         let viewport = self.last_viewport_rect.unwrap_or_else(|| ui.max_rect());
         let center = viewport.center();
 
-        if icon_action(ui, glyph::ZOOM_IN, false, true, &self.tr("tooltip_zoom_in")).clicked() {
-            self.view.zoom_at(self.view.zoom_step_up(), center, viewport, &self.page_layouts);
+        if icon_action(ui, glyph::ZOOM_OUT, false, true, &self.tr("tooltip_zoom_out")).clicked() {
+            self.view.zoom_at(self.view.zoom_step_down(), center, viewport, &self.page_layouts);
         }
 
         let label = egui::RichText::new(self.view.zoom_label()).size(text::SMALL);
@@ -223,22 +274,23 @@ impl FepdfApp {
             self.view.zoom_at(1.0, center, viewport, &self.page_layouts);
         }
 
-        if icon_action(ui, glyph::ZOOM_OUT, false, true, &self.tr("tooltip_zoom_out")).clicked() {
-            self.view.zoom_at(self.view.zoom_step_down(), center, viewport, &self.page_layouts);
+        if icon_action(ui, glyph::ZOOM_IN, false, true, &self.tr("tooltip_zoom_in")).clicked() {
+            self.view.zoom_at(self.view.zoom_step_up(), center, viewport, &self.page_layouts);
         }
     }
 
     /// The page counter and the four buttons around it, reading first, previous, `n/N`,
     /// next, last.
     fn page_group(&mut self, ui: &mut egui::Ui, current_page: usize) {
-        if icon_action(ui, glyph::PAGE_LAST, false, true, &self.tr("tooltip_page_last")).clicked() {
-            self.view.scroll_to_page(self.total_pages - 1, &self.page_layouts);
+        if icon_action(ui, glyph::PAGE_FIRST, false, true, &self.tr("tooltip_page_first")).clicked()
+        {
+            self.view.scroll_to_page(0, &self.page_layouts);
         }
 
-        if icon_action(ui, glyph::PAGE_NEXT, false, true, &self.tr("tooltip_page_next")).clicked()
-            && current_page + 1 < self.total_pages
+        if icon_action(ui, glyph::PAGE_PREV, false, true, &self.tr("tooltip_page_prev")).clicked()
+            && current_page > 0
         {
-            self.view.scroll_to_page(current_page + 1, &self.page_layouts);
+            self.view.scroll_to_page(current_page - 1, &self.page_layouts);
         }
 
         ui.label(
@@ -247,15 +299,14 @@ impl FepdfApp {
                 .color(colors::steel::TEXT),
         );
 
-        if icon_action(ui, glyph::PAGE_PREV, false, true, &self.tr("tooltip_page_prev")).clicked()
-            && current_page > 0
+        if icon_action(ui, glyph::PAGE_NEXT, false, true, &self.tr("tooltip_page_next")).clicked()
+            && current_page + 1 < self.total_pages
         {
-            self.view.scroll_to_page(current_page - 1, &self.page_layouts);
+            self.view.scroll_to_page(current_page + 1, &self.page_layouts);
         }
 
-        if icon_action(ui, glyph::PAGE_FIRST, false, true, &self.tr("tooltip_page_first")).clicked()
-        {
-            self.view.scroll_to_page(0, &self.page_layouts);
+        if icon_action(ui, glyph::PAGE_LAST, false, true, &self.tr("tooltip_page_last")).clicked() {
+            self.view.scroll_to_page(self.total_pages - 1, &self.page_layouts);
         }
     }
 }

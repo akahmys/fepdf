@@ -40,6 +40,8 @@ pub enum Step {
     /// jumps; this is what a reader's fingers actually send, and the two are not the same
     /// question — a gesture that crosses the tile boundary keeps going afterwards.
     Wheel(u32, u32, i32),
+    /// Holds the view controls open. A plan has no pointer to reach for them with.
+    Pin,
     /// Selects the text of the page being shown, as a drag across it would.
     ///
     /// **Everything a drag does except the pointer.** A plan cannot press a mouse button,
@@ -188,6 +190,7 @@ fn parse(line: &str) -> Option<Step> {
         "zoom" => Step::Zoom(rest.parse().ok()?),
         "zoomin" => Step::ZoomIn,
         "selecttext" => Step::SelectText,
+        "pin" => Step::Pin,
         "wheel" => {
             let mut parts = rest.split_whitespace();
             Step::Wheel(
@@ -282,6 +285,7 @@ impl crate::app::FepdfApp {
             }
             Step::Node(id) => self.ust_registry.selected_node_id = Some(id),
             Step::Wheel(x, y, steps) => self.wheel_zoom(x, y, steps),
+            Step::Pin => self.controls_pinned = !self.controls_pinned,
             Step::SelectText => self.select_text_of_active_page(),
             Step::ZoomIn => {
                 let viewport = self.last_viewport_rect.unwrap_or(egui::Rect::NOTHING);

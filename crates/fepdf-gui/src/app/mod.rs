@@ -174,6 +174,8 @@ pub struct FepdfApp {
     pub is_loading: bool,
     pub loading_message: String,
     pub show_reading_order: bool,
+    /// Whether the view controls stay on screen rather than coming and going.
+    pub controls_pinned: bool,
     pub show_command_palette: bool,
     pub command_palette_search: String,
     pub last_viewport_rect: Option<egui::Rect>,
@@ -310,6 +312,7 @@ impl FepdfApp {
             close_confirmed: false,
             capture: None,
             show_reading_order: true,
+            controls_pinned: false,
             show_command_palette: false,
             command_palette_search: String::new(),
             last_viewport_rect: None,
@@ -788,6 +791,9 @@ impl eframe::App for FepdfApp {
 
         // 4. Central PDF view canvas (full width main panel)
         self.update_vello(ui, frame);
+
+        // 5. The view's own controls, floating over it
+        self.render_view_controls(ui);
 
         // 5. Floating modals & dialogs
         self.render_overlay_windows(&ctx);

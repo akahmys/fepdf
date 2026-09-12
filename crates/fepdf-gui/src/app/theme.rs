@@ -308,6 +308,12 @@ pub mod size {
     pub const DRAWER_MIN: f32 = 260.0;
     /// The widest the drawer may become.
     pub const DRAWER_MAX: f32 = 600.0;
+    /// How far up from the bottom of the window the view controls answer a pointer.
+    ///
+    /// **Tall enough to contain the bar itself**, so that reaching for a control does not
+    /// dismiss the control being reached for: the bar's top edge is about 88 points from
+    /// the bottom, and this leaves 40 above it.
+    pub const REVEAL: f32 = 128.0;
     /// The bench's grid, at zoom 1.
     pub const GRID: f32 = 32.0;
     /// The label column of a two-column property grid.
@@ -339,7 +345,8 @@ const _SIZES_ARE_ON_THE_GRID: () = assert!(
         && (size::TABLE_W as u32).is_multiple_of(4)
         && (size::DRAWER_W as u32).is_multiple_of(4)
         && (size::LABEL_W as u32).is_multiple_of(4)
-        && (size::GRID as u32).is_multiple_of(4),
+        && (size::GRID as u32).is_multiple_of(4)
+        && (size::REVEAL as u32).is_multiple_of(4),
     "chrome dimensions are multiples of the 4pt grid"
 );
 
