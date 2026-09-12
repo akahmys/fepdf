@@ -568,6 +568,22 @@ impl PDFView {
         self.active_page = anchor.page;
     }
 
+    /// The page the reader is on, by the one rule two things read it by.
+    ///
+    /// **In the tiles it is the page they are on; in the page view it is the page in the
+    /// middle of the window.** The grid is a chooser — its middle holds whichever tile the
+    /// scroll left there, which is not where the reader is — and a column of pages is a
+    /// surface, where the middle is exactly where they are. The rule under a page number
+    /// and the counter in the view controls both answer from here, because two answers to
+    /// "which page am I on" is what this replaces.
+    #[must_use]
+    pub fn current_page(&self, viewport: egui::Rect, layouts: &[PageLayout]) -> usize {
+        if self.display_mode == DisplayMode::SinglePage || self.selects_pages() {
+            return self.active_page;
+        }
+        self.page_at_middle(viewport, layouts).unwrap_or(self.active_page)
+    }
+
     /// The page the middle of the viewport is over, which is the one being read.
     ///
     /// Nearest-by-distance rather than strictly containing, so the gaps between pages
@@ -710,6 +726,7 @@ impl PDFView {
 
         let mut new_visible = Vec::new();
 
+        let current = self.current_page(viewport_rect, layouts);
         for (layout, page_rect) in self.visible_page_rects(viewport_rect, layouts) {
             new_visible.push(layout.index);
             let is_selected = selected_pages.contains(&layout.index);
@@ -772,7 +789,7 @@ impl PDFView {
                 ui,
                 page_rect,
                 layout.index,
-                is_selected && self.selects_pages(),
+                (is_selected && self.selects_pages(), layout.index == current),
                 self.zoom,
                 gap * self.zoom,
             );
@@ -916,14 +933,24 @@ impl PDFView {
         }
     }
 
+    /// The page's number, under it, and whether the reader is on it.
+    ///
+    /// **Current and selected are two different things, and only one of them is the
+    /// accent.** A selection is what an operation would act on; the current page is where
+    /// the reader is — the page the arrows step from and the page the view was showing
+    /// before it came out to the grid. Rust means "you are touching this" (UI-10) and is
+    /// already spoken for, so *current* is a rule under the number instead. It inherits
+    /// the number's colour, so a page that is both reads as both without a third mark.
+    #[allow(clippy::fn_params_excessive_bools)]
     fn draw_page_number_badge(
         ui: &mut egui::Ui,
         page_rect: egui::Rect,
         page_index: usize,
-        is_selected: bool,
+        marks: (bool, bool),
         zoom: f32,
         gap_px: f32,
     ) {
+        let (is_selected, is_current) = marks;
         let badge_text = format!("{}", page_index + 1);
         let font_size = if zoom < Self::TILE_ZOOM { 11.0 } else { 12.0 };
         // The number is set on the canvas, not in a chip. A filled rounded rectangle with
@@ -940,11 +967,16 @@ impl PDFView {
             return;
         }
         let offset = 6.0_f32.min((gap_px - galley.size().y).max(0.0) / 2.0);
-        ui.painter().galley(
-            egui::pos2(page_rect.center().x - galley.size().x / 2.0, page_rect.max.y + offset),
-            galley,
-            colour,
-        );
+        let size = galley.size();
+        let at = egui::pos2(page_rect.center().x - size.x / 2.0, page_rect.max.y + offset);
+        ui.painter().galley(at, galley, colour);
+        if is_current {
+            let under = at.y + size.y + 1.0;
+            ui.painter().line_segment(
+                [egui::pos2(at.x, under), egui::pos2(at.x + size.x, under)],
+                egui::Stroke::new(1.0_f32, colour),
+            );
+        }
     }
 
     /// Draws what is selected on this page.
@@ -1667,6 +1699,29 @@ mod arrangement_crossing {
             WINDOW.center()
         );
         assert!(view.centre_next.is_none(), "the request outlived the gesture");
+    }
+
+    /// **Two things read "which page am I on" and they read the same rule.** The line
+    /// under a page number in the tiles and the counter in the view controls disagreed
+    /// once — the counter answered with whatever tile the scroll had left in the middle of
+    /// the window, which in a grid is nobody's idea of where they are.
+    #[test]
+    fn the_current_page_is_the_one_being_read_in_each_arrangement() {
+        let mut view = PDFView::new();
+        view.display_mode = DisplayMode::Continuous;
+        let pages = column(25);
+        view.set_zoom(1.0);
+        view.restore_anchor(None, WINDOW, &pages);
+        view.scroll_to_page(8, &pages);
+        assert_eq!(view.current_page(WINDOW, &pages), 8, "the page view reads its middle");
+
+        // In the tiles, scrolling past a page is not being on it.
+        let tiles = grid(25);
+        view.set_zoom(0.2);
+        view.restore_anchor(None, WINDOW, &tiles);
+        view.active_page = 8;
+        view.pan = egui::vec2(0.0, -2000.0);
+        assert_eq!(view.current_page(WINDOW, &tiles), 8, "the grid reads where the reader is");
     }
 
     /// A zoom that stays on one side of the boundary rearranges nothing, so nothing is

@@ -180,19 +180,12 @@ impl FepdfApp {
         }
     }
 
-    /// The page the reader is on, which is the one in the middle of the window.
-    ///
-    /// **Not the first one any part of which is visible.** A page centred with a sliver of
-    /// the one above it still showing was reported as the page above — which reads as the
-    /// view having landed somewhere else, because the number is the only thing that says
-    /// where it landed.
+    /// The page the reader is on. The rule is [`crate::view::PDFView::current_page`],
+    /// which is also what draws the line under that page's number.
     fn page_being_read(&self) -> usize {
-        if self.view.display_mode == DisplayMode::SinglePage {
-            return self.view.active_page;
-        }
-        self.last_viewport_rect
-            .and_then(|viewport| self.view.page_at_middle(viewport, &self.page_layouts))
-            .unwrap_or(self.view.active_page)
+        self.last_viewport_rect.map_or(self.view.active_page, |viewport| {
+            self.view.current_page(viewport, &self.page_layouts)
+        })
     }
 
     /// Leftmost of the bar: taking back, and putting back.
