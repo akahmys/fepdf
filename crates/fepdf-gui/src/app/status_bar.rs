@@ -14,10 +14,16 @@ use crate::view::{BindingDirection, DisplayMode};
 impl FepdfApp {
     pub(crate) fn render_status_bar(&mut self, ui: &mut egui::Ui) {
         let has_doc = self.total_pages > 0;
+        // **The page in the middle of the window, not the first one any part of which
+        // is visible.** A page centred with a sliver of the one above it still showing
+        // was reported as the page above — which reads as the view having landed
+        // somewhere else, because the number is the only thing that says where it landed.
         let current_page = if self.view.display_mode == DisplayMode::SinglePage {
             self.view.active_page
         } else {
-            self.view.visible_pages.first().copied().unwrap_or(self.view.active_page)
+            self.last_viewport_rect
+                .and_then(|viewport| self.view.page_at_middle(viewport, &self.page_layouts))
+                .unwrap_or(self.view.active_page)
         };
 
         egui::Panel::bottom("status_bar").default_size(size::STATUS).resizable(false).show_inside(
@@ -25,11 +31,24 @@ impl FepdfApp {
             |ui| {
                 ui.horizontal(|ui| {
                     ui.spacing_mut().item_spacing.x = space::ITEM;
+                    self.say_file_name(ui);
                     self.status_indicators(ui, has_doc);
                     self.view_controls(ui, has_doc, current_page);
                 });
             },
         );
+    }
+
+    /// The name of the file the window is holding, at the far left.
+    ///
+    /// **The window's own title bar is not this.** It carries the application's name, and
+    /// a reader with two of these open has nothing on screen that says which document is
+    /// in front of them. Absent rather than blank when nothing is open: an empty label
+    /// still takes the space of one.
+    fn say_file_name(&mut self, ui: &mut egui::Ui) {
+        let Some(name) = self.pdf_name.clone() else { return };
+        ui.label(egui::RichText::new(name).size(text::SMALL).color(colors::steel::TEXT));
+        ui.separator();
     }
 
     /// The left of the bar: what just happened, what the renderer left out, which view

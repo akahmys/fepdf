@@ -302,7 +302,8 @@ impl FepdfApp {
         // zoom and any of them can carry it over `TILE_ZOOM`; a guard at each is a guard
         // that the seventeenth forgets. Continuous mode recomputes every frame, and
         // continuous mode is the only one with two arrangements to cross between.
-        self.view.follow_arrangement_change(&self.page_layouts);
+        let viewport = self.last_viewport_rect.unwrap_or(egui::Rect::NOTHING);
+        self.view.follow_arrangement_change(viewport, &self.page_layouts);
     }
 
     /// Stacks the pages in one column, each centred on `x = 0`.
@@ -350,31 +351,37 @@ impl FepdfApp {
         let columns = columns.max(1);
         let mut offset_y = 0.0_f32;
 
-        for row in (0..sizes.len()).collect::<Vec<_>>().chunks(columns) {
-            let row_w = row.iter().enumerate().fold(0.0_f32, |w, (n, &i)| {
-                let page_w = sizes[i].0 as f32;
-                if n == 0 { page_w } else { w + gap_x + page_w }
-            });
-            offset_y +=
-                Self::place_row(sizes, row, row_w, offset_y, gap_x, is_r2l, layouts) + gap_y;
+        // **The rows share an edge; the grid as a whole is what is centred.** Centring
+        // each row on its own middle left the last row — the one that is not full —
+        // hanging under the middle of the row above it, so the first tile of every row
+        // started somewhere different and a column of tiles was not a column of anything.
+        let order: Vec<usize> = (0..sizes.len()).collect();
+        for row in order.chunks(columns) {
+            offset_y += Self::place_row(sizes, row, offset_y, gap_x, is_r2l, layouts) + gap_y;
         }
     }
 
-    /// Lays one row out centred on `x = 0`, and answers its height.
+    /// Lays one row out from the grid's binding edge, and answers its height.
+    ///
+    /// **Every row starts at `x = 0` and the view puts that edge against the window.**
+    /// Rows used to be centred on their own middles, so the last row — the one that is
+    /// not full — hung under the middle of the row above it and no two rows began in the
+    /// same place. A right-bound book mirrors about the same zero, so its rows share a
+    /// right edge instead; `PDFView::get_origin_no_pan` is what decides which side of the
+    /// window that edge is against.
     ///
     /// Pages of differing heights are centred against the tallest, which is what the fixed
     /// grid did against its cell and the one part of it that was right.
     fn place_row(
         sizes: &[(f64, f64)],
         row: &[usize],
-        row_w: f32,
         offset_y: f32,
         gap_x: f32,
         is_r2l: bool,
         layouts: &mut [PageLayout],
     ) -> f32 {
         let row_h = row.iter().map(|&i| sizes[i].1 as f32).fold(0.0_f32, f32::max);
-        let mut x = -row_w / 2.0;
+        let mut x = 0.0_f32;
         for &i in row {
             let (w, h) = (sizes[i].0 as f32, sizes[i].1 as f32);
             // A right-bound book's grid runs right to left, for the same reason its
@@ -477,16 +484,26 @@ mod tiles {
         assert!(same(rects[2].min.x - rects[1].min.x, pitch));
     }
 
-    /// A left-bound book's grid runs left to right, and a right-bound book's runs the other
-    /// way, for the same reason its spread does.
+    /// A left-bound book's grid runs left to right, and a right-bound book's runs the
+    /// other way, for the same reason its spread does.
+    ///
+    /// **Mirrored about zero, and zero is the binding edge.** The grid used to be centred
+    /// on the window and both directions shared a span; it now hangs from one side, so
+    /// the left-bound grid lies at positive `x` and the right-bound one at negative, each
+    /// the other's reflection. `PDFView::get_origin_no_pan` puts that zero against the
+    /// window's left or right.
     #[test]
     fn the_grid_runs_the_way_the_book_is_bound() {
         let ltr = laid(&[(595.0, 842.0); 3], false);
         assert!(ltr[0].min.x < ltr[1].min.x && ltr[1].min.x < ltr[2].min.x);
+        assert!(same(ltr[0].min.x, 0.0), "the first tile is at the binding edge");
 
         let r2l = laid(&[(595.0, 842.0); 3], true);
         assert!(r2l[0].min.x > r2l[1].min.x && r2l[1].min.x > r2l[2].min.x);
-        assert!(same(ltr[0].min.x, r2l[2].min.x), "the same span, mirrored");
+        assert!(same(r2l[0].max.x, 0.0), "and so is the first tile of a right-bound book");
+        for i in 0..3 {
+            assert!(same(r2l[i].max.x, -ltr[i].min.x), "tile {i} is not the mirror of itself");
+        }
         assert!(same(r2l[0].min.y, r2l[2].min.y), "still one row");
     }
 
