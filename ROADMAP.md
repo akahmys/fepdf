@@ -3390,6 +3390,21 @@ build-time assertion over the tokens and nothing over their use.
       ./target/debug/fepdf-gui --capture scripts/dev/tour.txt --shots /tmp/tour
       ```
 
+      **Its verbs are what a reader does, and the gap between them and what a reader
+      actually does cost five wrong fixes.** A zoom reported as landing on the wrong page
+      could not be reproduced with `zoom 50`, because one large step is not the gesture: a
+      `⌘`-scroll is many small ones, and the failure lived in what happened *after* the
+      tile boundary was crossed. `wheel` sends them one at a time; `zoomin` presses the
+      button in the status bar; `node` selects a structure element, which nothing else
+      reaches because the tree is a drawer and a plan cannot click a row in it; and
+      `selecttext` drives everything a drag does except the pointer.
+
+      The same five attempts also taught that reading the code is not measuring it. The
+      window was built with the transition traced, the reader did the gesture that failed,
+      and the numbers named the defect in one run: `pan.x` placed at 699 and clamped to
+      -378 one frame later, a 1,077-point jump that three readings of the same code had
+      not suggested.
+
       **It found two defects in its first run, and one of them was systemic.** Every
       `RichText::strong()` in the application drew in the accent: egui's
       `Visuals::strong_text_color` returns `widgets.active.text_color()`, and the palette
