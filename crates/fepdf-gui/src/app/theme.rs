@@ -361,41 +361,76 @@ pub fn icon_family() -> egui::FontFamily {
     egui::FontFamily::Name("lucide".into())
 }
 
-fn load_system_cjk_font(fonts: &mut egui::FontDefinitions) {
+/// The Japanese faces to look for, in the order a reader would want them.
+///
+/// **The platform's own interface face first, and a pan-Unicode fallback last.** The list
+/// used to open with `Arial Unicode`, which is neither: it is a 1990s coverage font that
+/// nothing on macOS sets type in, so every Japanese word in this window was drawn in a
+/// face no other window on the machine uses — the "文書のプロパティ" heading among them.
+/// `Hiragino Sans GB` is not the answer either; `GB` is the Simplified Chinese face, and
+/// it draws kanji in Chinese forms.
+///
+/// Windows leads with Yu Gothic for the same reason, and MS Gothic — a face designed for
+/// bitmap screens — is its last resort rather than its first.
+fn cjk_font_paths() -> Vec<String> {
     let mut paths = vec![
-        "/System/Library/Fonts/Supplemental/Arial Unicode.ttf".to_owned(),
+        // macOS: the system interface face, then the Chinese sibling, then coverage.
+        "/System/Library/Fonts/ヒラギノ角ゴシック W3.ttc".to_owned(),
+        "/System/Library/Fonts/ヒラギノ角ゴシック W4.ttc".to_owned(),
         "/System/Library/Fonts/Hiragino Sans GB.ttc".to_owned(),
-        "/Library/Fonts/Arial Unicode.ttf".to_owned(),
+        "/System/Library/Fonts/Supplemental/Arial Unicode.ttf".to_owned(),
     ];
 
-    if let Ok(win_dir) = std::env::var("windir") {
-        paths.push(format!(r"{win_dir}\Fonts\msgothic.ttc"));
-        paths.push(format!(r"{win_dir}\Fonts\yugothm.ttc"));
-        paths.push(format!(r"{win_dir}\Fonts\meiryo.ttc"));
-    } else {
-        paths.push(r"C:\Windows\Fonts\msgothic.ttc".to_owned());
-        paths.push(r"C:\Windows\Fonts\yugothm.ttc".to_owned());
-        paths.push(r"C:\Windows\Fonts\meiryo.ttc".to_owned());
+    let windows = std::env::var("windir").unwrap_or_else(|_| r"C:\Windows".to_owned());
+    for face in ["yugothm.ttc", "YuGothM.ttc", "meiryo.ttc", "msgothic.ttc"] {
+        paths.push(format!(r"{windows}\Fonts\{face}"));
     }
 
-    paths.push("/usr/share/fonts/truetype/fonts-japanese-gothic.ttf".to_owned());
-    paths.push("/usr/share/fonts/opentype/ipafont-gothic/ipag.otf".to_owned());
     paths.push("/usr/share/fonts/google-noto-cjk/NotoSansCJK-Regular.ttc".to_owned());
     paths.push("/usr/share/fonts/TTF/NotoSansCJK-Regular.ttc".to_owned());
+    paths.push("/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc".to_owned());
+    paths.push("/usr/share/fonts/truetype/fonts-japanese-gothic.ttf".to_owned());
+    paths.push("/usr/share/fonts/opentype/ipafont-gothic/ipag.otf".to_owned());
+    paths
+}
 
-    for path in &paths {
-        if let Ok(font_data) = std::fs::read(path) {
-            log::info!("Successfully loaded CJK font from {path}");
-            fonts.font_data.insert("cjk".to_owned(), egui::FontData::from_owned(font_data).into());
-            if let Some(families) = fonts.families.get_mut(&egui::FontFamily::Proportional) {
-                families.insert(0, "cjk".to_owned());
-            }
-            if let Some(families) = fonts.families.get_mut(&egui::FontFamily::Monospace) {
-                families.insert(0, "cjk".to_owned());
-            }
-            break;
+/// The smallest a file can be and still be a font.
+///
+/// **A path that exists is not a font.** `/Library/Fonts/Arial Unicode.ttf` on this
+/// machine is a 52-byte symbolic link, and `fs::read` follows it — but a path that is a
+/// broken link, or a placeholder a font manager left behind, is read just as happily and
+/// handed to the shaper as a font with no tables in it.
+const SMALLEST_FONT: usize = 4096;
+
+fn load_system_cjk_font(fonts: &mut egui::FontDefinitions) {
+    for path in cjk_font_paths() {
+        let Ok(data) = std::fs::read(&path) else { continue };
+        if data.len() < SMALLEST_FONT {
+            log::warn!("{path} is too small to be a font ({} bytes)", data.len());
+            continue;
         }
+        log::info!("Japanese text is set in {path}");
+        // Index 0 of a collection, which is the face the file is named for.
+        fonts.font_data.insert("cjk".to_owned(), egui::FontData::from_owned(data).into());
+        // **First in the proportional family and last in the monospace one.** The window's
+        // prose is mostly Japanese, so the system face should set its Latin too rather
+        // than have every sentence change typeface at the first ASCII word. Monospace is
+        // the opposite: it is asked for when digits have to line up — a bounding box, a
+        // tag, a measurement — and a proportional face at the front of that list makes
+        // `ui.monospace` mean nothing. Hack keeps the ASCII; the system face is there for
+        // the kana that Hack does not have.
+        if let Some(names) = fonts.families.get_mut(&egui::FontFamily::Proportional) {
+            names.insert(0, "cjk".to_owned());
+        }
+        if let Some(names) = fonts.families.get_mut(&egui::FontFamily::Monospace) {
+            names.push("cjk".to_owned());
+        }
+        return;
     }
+    // **Said out loud, because the window still opens.** Every Japanese string in it
+    // becomes a row of empty boxes, which reads as a broken application rather than as a
+    // missing font.
+    log::warn!("no Japanese font was found; Japanese text will not draw");
 }
 
 pub fn configure_fonts_and_styles(ctx: &egui::Context) {
