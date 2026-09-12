@@ -473,6 +473,12 @@ impl PDFView {
 
         let origin_no_pan = self.get_origin_no_pan(viewport_rect);
         let current_origin = origin_no_pan + self.pan;
+        // **The grid does not move sideways when it is zoomed.** It hangs from the
+        // binding edge and its horizontal position is the reader's to set by scrolling;
+        // an anchor that moved it would be pushing against the clamp that holds it there,
+        // and the two together slid the grid 439 points under a cursor that had not
+        // moved.
+        let held_x = self.arranged_as_tiles.then_some(self.pan.x);
 
         let target_layout = self.layout_under(center_pos, current_origin, old_zoom, layouts);
 
@@ -489,6 +495,9 @@ impl PDFView {
             let cursor_doc = (center_pos - origin_no_pan - self.pan) / old_zoom;
             self.apply_zoom(new_zoom);
             self.pan = (center_pos - origin_no_pan) - cursor_doc * new_zoom;
+        }
+        if let Some(x) = held_x {
+            self.pan.x = x;
         }
     }
 
@@ -537,8 +546,15 @@ impl PDFView {
         let Some(anchor) = anchor else { return };
         let Some(layout) = layouts.get(anchor.page) else { return };
         let origin_no_pan = self.get_origin_no_pan(viewport);
-        self.pan =
-            (anchor.at - origin_no_pan) - (layout.rect.min.to_vec2() + anchor.local) * self.zoom;
+        // **The carry is vertical; each arrangement places itself sideways.** The column
+        // is centred on the window and the grid hangs from the binding edge, so a
+        // sideways offset carried from the other one has nothing to line up with — and
+        // the clamp that keeps the grid on its edge undid it in the same frame. Measured
+        // from the window: entering the tiles put `pan.x` at 699 and the clamp pulled it
+        // to -378 on the next, which is a 1,077-point jump the reader sees.
+        self.pan.x = 0.0;
+        self.pan.y =
+            (layout.rect.min.y + anchor.local.y).mul_add(-self.zoom, anchor.at.y - origin_no_pan.y);
         self.active_page = anchor.page;
     }
 
@@ -1513,6 +1529,11 @@ mod arrangement_crossing {
         (layout.index, (at - page_min) / view.zoom())
     }
 
+    /// Where on the screen a point of a page has ended up.
+    fn screen_y_of(view: &PDFView, page: usize, local_y: f32, layouts: &[PageLayout]) -> f32 {
+        (layouts[page].rect.min.y + local_y).mul_add(view.zoom(), view.get_origin(WINDOW).y)
+    }
+
     /// **What is under the cursor stays under the cursor, across the rearrangement.**
     /// The grid and the column are different coordinate systems and `pan` is in one of
     /// them: page 8 of a letter-size document is 812pt down the grid and 6,496pt down the
@@ -1529,20 +1550,24 @@ mod arrangement_crossing {
 
         let cursor = egui::pos2(630.0, 400.0);
         view.zoom_at(0.25, cursor, WINDOW, &tiles);
-        let (page, local) = under(&view, cursor, &tiles);
 
-        // The zoom that crosses, and then the layout it is laid out into.
+        // The zoom that crosses, and then the layout it is laid out into. What is under
+        // the cursor is read at the moment the anchor is taken, which is after that zoom:
+        // the grid is held still sideways while it is zoomed, so its columns spread and
+        // the tile under a cursor that has not moved is not the one that was there.
         view.zoom_at(0.33, cursor, WINDOW, &tiles);
+        let (page, local) = under(&view, cursor, &tiles);
         assert!(view.arrangement_is_changing(), "the crossing went unnoticed");
         let carried = view.take_anchor(WINDOW, &tiles);
         let pages = column(23);
         view.restore_anchor(carried, WINDOW, &pages);
 
-        let (after_page, after_local) = under(&view, cursor, &pages);
-        assert_eq!(after_page, page, "the cursor came out over a different page");
+        assert_eq!(view.active_page, page, "a different page was carried across");
+        let landed = screen_y_of(&view, page, local.y, &pages);
         assert!(
-            (after_local - local).length() < 1.0,
-            "the cursor came out at {after_local:?} of the page, not {local:?}"
+            (landed - cursor.y).abs() < 1.0,
+            "the point that was at {} of the window came out at {landed}",
+            cursor.y
         );
     }
 
@@ -1559,17 +1584,18 @@ mod arrangement_crossing {
 
         let cursor = egui::pos2(500.0, 300.0);
         view.zoom_at(0.5, cursor, WINDOW, &pages);
-        let (page, local) = under(&view, cursor, &pages);
 
         view.zoom_at(0.25, cursor, WINDOW, &pages);
+        let (page, local) = under(&view, cursor, &pages);
         assert!(view.arrangement_is_changing(), "the crossing went unnoticed");
         let carried = view.take_anchor(WINDOW, &pages);
         let tiles = grid(23);
         view.restore_anchor(carried, WINDOW, &tiles);
 
-        let (after_page, after_local) = under(&view, cursor, &tiles);
-        assert_eq!(after_page, page, "the cursor came out over a different page");
-        assert!((after_local - local).length() < 1.0, "and at {after_local:?}, not {local:?}");
+        assert_eq!(view.active_page, page, "a different page was carried across");
+        let landed = screen_y_of(&view, page, local.y, &tiles);
+        assert!((landed - cursor.y).abs() < 1.0, "it came out at {landed}, not {}", cursor.y);
+        assert!(view.pan.x.abs() < f32::EPSILON, "the grid was moved off its binding edge");
     }
 
     /// A zoom that stays on one side of the boundary rearranges nothing, so nothing is

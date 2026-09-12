@@ -156,7 +156,6 @@ impl FepdfApp {
             .view
             .arrangement_is_changing()
             .then(|| self.view.take_anchor(viewport, &self.page_layouts));
-
         let mut layouts =
             vec![PageLayout { index: 0, rect: egui::Rect::NOTHING }; self.doc_page_sizes.len()];
 
