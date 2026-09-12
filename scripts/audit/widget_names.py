@@ -30,9 +30,15 @@ GUI = ROOT / "crates/fepdf-gui/src"
 ICONS = GUI / "app/icons.rs"
 
 GLYPH = re.compile(r"\bglyph::([A-Z_]+)")
-# The two ways a glyph may reach the screen.
+# The ways a glyph may reach the screen.
 NAMED = re.compile(r"icon_action\(")
-DECORATION = re.compile(r"ui\.label\(")
+# Decoration: a glyph that is not a control and so has nothing to name.
+#
+# `ui.label` makes no `Response` anyone reads, and a `Painter` makes none at all — it
+# cannot be clicked, focused or reached by AccessKit, so a glyph drawn straight onto one
+# is a mark on the canvas rather than a control. The page-still-drawing icon is drawn that
+# way, over a page the reader cannot press.
+DECORATION = re.compile(r"ui\.label\(|painter\(\)\.text\(|painter\.text\(")
 
 
 def main() -> int:

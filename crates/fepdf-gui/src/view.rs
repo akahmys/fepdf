@@ -1,6 +1,7 @@
 use crate::app::theme::canvas;
 use crate::app::theme::colors;
 use crate::app::theme::radius;
+use crate::app::theme::space;
 use std::collections::BTreeMap;
 
 #[derive(Clone)]
@@ -912,12 +913,30 @@ impl PDFView {
             egui::Stroke::new(1.0_f32, colors::steel::EDGE),
             egui::StrokeKind::Inside,
         );
+        // **The sentence if the card can hold it, the icon if it cannot.** A tile at the
+        // zoom floor is 119 points wide and "page 12 is still drawing" is not; the text
+        // used to be drawn anyway, overflowing the sheet it was about. Measured rather
+        // than decided by view mode, so a narrow page in the page view answers the same
+        // way a tile does.
+        let words = placeholder.replace("{}", &(page_index + 1).to_string());
+        let galley = painter.layout_no_wrap(
+            words,
+            egui::FontId::proportional(crate::app::theme::text::HEAD),
+            colors::steel::MUTED,
+        );
+        if says_it_in_words(galley.size().x, page_rect.width()) {
+            painter.galley(page_rect.center() - galley.size() / 2.0, galley, colors::steel::MUTED);
+            return;
+        }
         painter.text(
             page_rect.center(),
             egui::Align2::CENTER_CENTER,
-            placeholder.replace("{}", &(page_index + 1).to_string()),
-            egui::FontId::proportional(crate::app::theme::text::HEAD),
-            colors::steel::MUTED,
+            crate::app::icons::glyph::LOADING,
+            egui::FontId::new(
+                crate::app::theme::size::GLYPH.min(page_rect.width() / 3.0),
+                crate::app::theme::icon_family(),
+            ),
+            colors::steel::EDGE,
         );
     }
 
@@ -956,7 +975,17 @@ impl PDFView {
         // The number is set on the canvas, not in a chip. A filled rounded rectangle with
         // a border around a two-digit number is a control the reader cannot press, and a
         // grid of them reads as a row of buttons between the rows of pages.
-        let colour = if is_selected { colors::rust::ACCENT } else { colors::steel::MUTED };
+        // **The current page's number is set in the darkest steel, not the faintest.**
+        // A page number is a label and labels are muted; the one the reader is on is not
+        // a label but an answer, and it carries the rule below it, which was legible and
+        // easy to miss on its own.
+        let colour = if is_selected {
+            colors::rust::ACCENT
+        } else if is_current {
+            colors::steel::TEXT
+        } else {
+            colors::steel::MUTED
+        };
 
         let galley =
             ui.painter().layout_no_wrap(badge_text, egui::FontId::proportional(font_size), colour);
@@ -971,10 +1000,13 @@ impl PDFView {
         let at = egui::pos2(page_rect.center().x - size.x / 2.0, page_rect.max.y + offset);
         ui.painter().galley(at, galley, colour);
         if is_current {
-            let under = at.y + size.y + 1.0;
+            // Two points thick and a little wider than the digits, so that a single `1`
+            // is as plainly marked as a `23`.
+            let under = at.y + size.y;
+            let reach = space::ITEM;
             ui.painter().line_segment(
-                [egui::pos2(at.x, under), egui::pos2(at.x + size.x, under)],
-                egui::Stroke::new(1.0_f32, colour),
+                [egui::pos2(at.x - reach, under), egui::pos2(at.x + size.x + reach, under)],
+                egui::Stroke::new(2.0_f32, colour),
             );
         }
     }
@@ -1540,6 +1572,39 @@ impl PDFView {
 
         self.pan.x = clamped_x;
         self.pan.y = clamped_y;
+    }
+}
+
+/// Whether a card that is still drawing can say so in words, or has to use the icon.
+///
+/// **Measured, not decided by the view mode.** A tile at the zoom floor is 119 points
+/// wide and "page 12 is still drawing" is not, so the sentence used to be drawn over the
+/// sheet it was about and past both its edges. A narrow page in the page view answers the
+/// same way a tile does, which is the point of asking the width rather than the mode.
+fn says_it_in_words(text_width: f32, card_width: f32) -> bool {
+    text_width + space::PANE < card_width
+}
+
+#[cfg(test)]
+mod placeholder_fit {
+    use super::says_it_in_words;
+
+    /// **A tile cannot hold a sentence, and a page can.** At the zoom floor an A4 tile is
+    /// 119 points across; the placeholder used to draw its sentence there anyway, over the
+    /// sheet it was about and past both of its edges.
+    #[test]
+    fn a_tile_uses_the_icon_and_a_page_uses_the_words() {
+        let sentence = 180.0; // what "page 12 is still drawing" measures at HEAD
+        assert!(!says_it_in_words(sentence, 119.0), "a tile tried to hold the sentence");
+        assert!(says_it_in_words(sentence, 612.0), "a page fell back to the icon");
+    }
+
+    /// The margin is part of the question: a sentence that exactly fills a card is a
+    /// sentence touching both its edges.
+    #[test]
+    fn a_sentence_that_only_just_fits_does_not() {
+        assert!(!says_it_in_words(100.0, 101.0));
+        assert!(says_it_in_words(100.0, 200.0));
     }
 }
 

@@ -53,6 +53,8 @@ pub mod glyph {
     pub const PAGE_CONTINUOUS: &str = "\u{e439}";
     /// `book-open` — two pages facing.
     pub const PAGE_SPREAD: &str = "\u{e05f}";
+    /// `loader` — a page that has not finished drawing.
+    pub const LOADING: &str = "\u{e109}";
     /// `pin` — the controls are held open.
     pub const PIN: &str = "\u{e259}";
     /// `pin-off` — they come and go with the pointer.
