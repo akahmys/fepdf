@@ -88,6 +88,14 @@ pub struct PDFView {
     arranged_as_tiles: bool,
     /// Where the last zoom was anchored, which a change of arrangement carries across.
     last_anchor: Option<egui::Pos2>,
+    /// A page to put in the middle of the window at the next change of arrangement,
+    /// instead of carrying the cursor's anchor across it.
+    ///
+    /// **One gesture asks for this and it is the double-click on the bench.** Every other
+    /// way into the tiles is a zoom, where the cursor is pointing at something and holding
+    /// it still is the whole rule; a double-click on the empty bench is pointing at
+    /// nothing, and what the reader wants back is the page they were reading.
+    centre_next: Option<usize>,
 }
 
 impl PDFView {
@@ -129,6 +137,7 @@ impl PDFView {
             overscroll_accumulator: egui::Vec2::ZERO,
             arranged_as_tiles: false,
             last_anchor: None,
+            centre_next: None,
         }
     }
     pub fn get_origin(&self, viewport_rect: egui::Rect) -> egui::Pos2 {
@@ -541,6 +550,16 @@ impl PDFView {
         layouts: &[PageLayout],
     ) {
         self.arranged_as_tiles = !self.is_page_view();
+        // A double-click on the bench asked for the page it was showing, in the middle.
+        if let Some(page) = self.centre_next.take()
+            && let Some(layout) = layouts.get(page)
+        {
+            let origin_no_pan = self.get_origin_no_pan(viewport);
+            self.pan =
+                viewport.center() - origin_no_pan - layout.rect.center().to_vec2() * self.zoom;
+            self.active_page = page;
+            return;
+        }
         let Some(anchor) = anchor else { return };
         let Some(layout) = layouts.get(anchor.page) else { return };
         let at = self.last_anchor.unwrap_or_else(|| viewport.center());
@@ -1154,6 +1173,12 @@ impl PDFView {
                 .input(|i| i.pointer.hover_pos().or(i.pointer.latest_pos()))
                 .filter(|p| viewport_rect.contains(*p))
                 .unwrap_or_else(|| viewport_rect.center());
+            // Going out to the tiles, the page being read comes to the middle of the
+            // window wherever the pointer was: this is a double-click on the bench, which
+            // points at nothing.
+            if self.is_page_view() {
+                self.centre_next = self.page_at_middle(viewport_rect, layouts);
+            }
             let target_zoom = if self.is_page_view() { Self::TILE_STEP } else { 1.0 };
             self.zoom_at(target_zoom, pos, viewport_rect, layouts);
         }
@@ -1612,6 +1637,36 @@ mod arrangement_crossing {
         let (after, after_local) = under(&view, cursor, &tiles);
         assert_eq!(after, chosen);
         assert!((after_local - local).length() < 1.0, "it came out at {after_local:?}");
+    }
+
+    /// **A double-click on the bench brings the page back to the middle**, wherever the
+    /// pointer was. Every other way into the tiles is a zoom, where the cursor is pointing
+    /// at something and holding it still is the whole rule; a double-click on the empty
+    /// bench points at nothing, and what the reader wants back is the page they were on.
+    #[test]
+    fn a_double_click_on_the_bench_centres_the_page_being_read() {
+        let mut view = PDFView::new();
+        view.display_mode = DisplayMode::Continuous;
+        let pages = column(25);
+        view.set_zoom(1.0);
+        view.restore_anchor(None, WINDOW, &pages);
+        view.scroll_to_page(10, &pages);
+
+        // The gesture: the page being read is remembered, then the zoom crosses.
+        view.centre_next = view.page_at_middle(WINDOW, &pages);
+        assert_eq!(view.centre_next, Some(10), "the fixture is not showing page 10");
+        view.zoom_at(0.25, egui::pos2(950.0, 60.0), WINDOW, &pages); // a far corner
+        let tiles = grid(25);
+        view.restore_anchor(view.take_anchor(WINDOW, &pages), WINDOW, &tiles);
+
+        assert_eq!(view.active_page, 10);
+        let middle = view.get_origin(WINDOW) + tiles[10].rect.center().to_vec2() * view.zoom();
+        assert!(
+            (middle - WINDOW.center()).length() < 1.0,
+            "the tile came out centred on {middle:?}, not {:?}",
+            WINDOW.center()
+        );
+        assert!(view.centre_next.is_none(), "the request outlived the gesture");
     }
 
     /// A zoom that stays on one side of the boundary rearranges nothing, so nothing is
