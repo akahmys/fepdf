@@ -95,3 +95,41 @@ impl RenderBackend for MarkBoundsBackend {
     ) {
     }
 }
+
+/// Gives every structure element without a `/BBox` the rectangle its marks drew in.
+///
+/// `boxes` is what [`MarkBoundsBackend`] collected, one entry per page the tree mentions.
+/// A `/BBox` the file declares is left alone: 14.8.5.4.5 lets an element state its own
+/// rectangle, and a measurement does not get to overrule a declaration.
+///
+/// Returns the node's rectangle so the walk can go bottom-up — a `/Sect` that holds only
+/// other elements claims no `/MCID` of its own and takes its extent from what it holds.
+pub fn fill_boxes(
+    node: &mut crate::struct_tree::StructureTreeNode,
+    boxes: &BTreeMap<usize, BTreeMap<u32, kurbo::Rect>>,
+) -> Option<kurbo::Rect> {
+    let page = node.page_index.and_then(|index| boxes.get(&index));
+    let mut extent: Option<kurbo::Rect> = None;
+    if let Some(page) = page {
+        for mcid in &node.mcids {
+            if let Some(found) = page.get(mcid) {
+                extent = Some(extent.map_or(*found, |seen| seen.union(*found)));
+            }
+        }
+    }
+    for child in &mut node.children {
+        if let Some(found) = fill_boxes(child, boxes) {
+            extent = Some(extent.map_or(found, |seen| seen.union(found)));
+        }
+    }
+    if node.rect.is_none() {
+        node.rect = extent.map(as_array);
+    }
+    node.rect.map(|r| kurbo::Rect::new(r[0].into(), r[1].into(), r[2].into(), r[3].into()))
+}
+
+/// A rectangle in the `[llx, lly, urx, ury]` shape `/BBox` is written in.
+#[allow(clippy::cast_possible_truncation)]
+fn as_array(rect: kurbo::Rect) -> [f32; 4] {
+    [rect.x0 as f32, rect.y0 as f32, rect.x1 as f32, rect.y1 as f32]
+}

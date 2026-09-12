@@ -17,12 +17,30 @@ pub struct StructureTreeNode {
     pub title: String,
     /// Alternative text description (/Alt entry).
     pub alt_text: Option<String>,
-    /// Bounding box rectangle ([llx, lly, urx, ury]) if specified (/BBox).
+    /// Bounding box rectangle ([llx, lly, urx, ury]) in default user space.
+    ///
+    /// `/BBox` when the element declares one (14.8.5.4.5), which no element in any of
+    /// the nine samples does. Otherwise it is filled from where the element's marked
+    /// content actually drew, which is what [`mcids`] is for and what
+    /// `fepdf::PdfDocument::fill_structure_boxes` does.
+    ///
+    /// [`mcids`]: StructureTreeNode::mcids
     pub rect: Option<[f32; 4]>,
     /// Resolved zero-based target page index (from /Pg entry or inherited).
     pub page_index: Option<usize>,
     /// Handle index of the underlying PdfArena object.
     pub handle_index: Option<u32>,
+    /// The marked-content ids this element claims directly (14.7.4.2).
+    ///
+    /// Its own, not its descendants': `/K` is a tree and each element names the marks it
+    /// stands for. An element that holds only other elements names none, and takes its
+    /// rectangle from theirs.
+    ///
+    /// Defaulted on the way in, because this type is also the shape a GUI draft is saved
+    /// in and a draft written before the field existed still has to load. The `Option`
+    /// fields beside it get that for nothing; a `Vec` has to ask.
+    #[serde(default)]
+    pub mcids: Vec<u32>,
     /// Child nodes in the structure hierarchy.
     pub children: Vec<StructureTreeNode>,
 }
@@ -186,32 +204,126 @@ fn parse_bbox_helper(arena: &PdfArena, bbox_obj: &Object) -> Option<[f32; 4]> {
     Some([x1, y1, x2, y2])
 }
 
+/// What one entry of `/K` turns out to be (14.7.4.2 Table 355).
+enum Kid {
+    /// A marked-content id, and the page the reference names when it names one.
+    ///
+    /// `/MCR` may carry its own `/Pg` (14.7.4.2 Table 324), and `volvo_xc90.pdf` puts it
+    /// there and nowhere else: not one of its 13,558 references hangs off an element with
+    /// a `/Pg` of its own, so an element that ignored this would know its marks and not
+    /// which page they are on — which is the same as not knowing them.
+    Mark(u32, Option<usize>),
+    /// Another structure element.
+    Element(Handle<Object>),
+    /// An `/OBJR`, or anything else `/K` is not allowed to hold.
+    ///
+    /// `/OBJR` names an annotation or a form field, which is content but is not marked
+    /// content and has no `/MCID` to place it by. It is dropped rather than descended
+    /// into: `print_sample.pdf` writes 20 as indirect objects, and every one of them came
+    /// out of this walk as a structure element tagged `P`, because a dictionary with no
+    /// `/S` falls back to that tag. (`volvo_xc90.pdf`'s 844 are written in place and were
+    /// already being lost, for the reason `classify_kid` gives.)
+    Nothing,
+}
+
+/// Which of the three an entry is.
+///
+/// The `/MCR` case is the reason this exists. 14.7.4.2 gives a marked-content reference
+/// the same shape as an element — a dictionary — and `volvo_xc90.pdf` writes 13,558 of
+/// them.
+///
+/// **The dictionary is read from the resolved object, not through
+/// [`resolve_to_node_handle`].** That function answers `Handle::new(dh.index())` for a
+/// dictionary written in place, which is a dictionary's index used as an object's: a
+/// different table. Every `/MCR` in `volvo_xc90.pdf` is written in place, so every one
+/// of them resolved to some unrelated object and then fell out of the walk in silence.
+/// That is the second reason this tree had no geometry to give anyone.
+fn classify_kid(arena: &PdfArena, kid: &Object, page_map: &BTreeMap<Handle<Object>, usize>) -> Kid {
+    let resolved = kid.resolve(arena);
+    if let Object::Integer(mcid) = resolved {
+        // A bare integer is a mark in the content stream of whatever page the element
+        // already resolved to, so it names none of its own.
+        return u32::try_from(mcid).map_or(Kid::Nothing, |mcid| Kid::Mark(mcid, None));
+    }
+    let Some(dict) = resolved.as_dict_handle().and_then(|dh| arena.get_dict(dh)) else {
+        return Kid::Nothing;
+    };
+    let kind = dict
+        .get(&arena.name("Type"))
+        .map(|t| t.resolve(arena))
+        .and_then(|t| t.as_name())
+        .and_then(|n| arena.get_name(n))
+        .map(|n| n.as_str().to_string());
+    match kind.as_deref() {
+        Some("MCR") => match dict.get(&arena.name("MCID")).map(|m| m.resolve(arena)) {
+            Some(Object::Integer(mcid)) => u32::try_from(mcid).map_or(Kid::Nothing, |mcid| {
+                Kid::Mark(mcid, parse_page_index_helper(arena, &dict, page_map))
+            }),
+            _ => Kid::Nothing,
+        },
+        Some("OBJR") => Kid::Nothing,
+        _ => resolve_to_node_handle(arena, kid).map_or(Kid::Nothing, Kid::Element),
+    }
+}
+
+/// What one element's `/K` yields: its children, its marks, and the page its marks name.
+#[derive(Default)]
+struct Kids {
+    children: Vec<StructureTreeNode>,
+    mcids: Vec<u32>,
+    /// The page the first `/MCR` named, for an element that carries no `/Pg` itself.
+    ///
+    /// The first rather than all of them: 14.7.4.2 permits an element whose references
+    /// name different pages, and nothing in the corpus writes one — a node carries one
+    /// page index, and inventing a second field for a shape no file uses would be
+    /// answering a question nobody asked.
+    page: Option<usize>,
+}
+
 fn parse_kids_helper(
     arena: &PdfArena,
     kids_obj: &Object,
     next_id: &mut usize,
     visited: &mut BTreeSet<Handle<Object>>,
-    children: &mut Vec<StructureTreeNode>,
     page_map: &BTreeMap<Handle<Object>, usize>,
     inherited_page: Option<usize>,
-) {
-    if let Some(kid_ref) = resolve_to_node_handle(arena, kids_obj) {
-        if let Some(child_node) =
-            parse_struct_node(arena, kid_ref, next_id, visited, page_map, inherited_page)
-        {
-            children.push(child_node);
-        }
-    } else if let Object::Array(ah) = kids_obj.resolve(arena)
+) -> Kids {
+    let mut out = Kids::default();
+    if let Object::Array(ah) = kids_obj.resolve(arena)
         && let Some(array) = arena.get_array(ah)
     {
         for kid in array {
-            if let Some(kid_ref) = resolve_to_node_handle(arena, &kid)
-                && let Some(child_node) =
-                    parse_struct_node(arena, kid_ref, next_id, visited, page_map, inherited_page)
+            take_kid(arena, &kid, next_id, visited, (page_map, inherited_page), &mut out);
+        }
+        return out;
+    }
+    take_kid(arena, kids_obj, next_id, visited, (page_map, inherited_page), &mut out);
+    out
+}
+
+/// Files one entry of `/K` into `out`.
+fn take_kid(
+    arena: &PdfArena,
+    kid: &Object,
+    next_id: &mut usize,
+    visited: &mut BTreeSet<Handle<Object>>,
+    where_: (&BTreeMap<Handle<Object>, usize>, Option<usize>),
+    out: &mut Kids,
+) {
+    let (page_map, inherited_page) = where_;
+    match classify_kid(arena, kid, page_map) {
+        Kid::Mark(mcid, page) => {
+            out.mcids.push(mcid);
+            out.page = out.page.or(page);
+        }
+        Kid::Element(handle) => {
+            if let Some(child) =
+                parse_struct_node(arena, handle, next_id, visited, page_map, inherited_page)
             {
-                children.push(child_node);
+                out.children.push(child);
             }
         }
+        Kid::Nothing => {}
     }
 }
 
@@ -286,10 +398,12 @@ fn parse_struct_node(
     let id = *next_id;
     *next_id += 1;
 
-    let mut children = Vec::new();
-    if let Some(kids) = dict.get(&arena.name("K")) {
-        parse_kids_helper(arena, kids, next_id, visited, &mut children, page_map, page_index);
-    }
+    let kids = dict.get(&arena.name("K")).map_or_else(Kids::default, |k| {
+        parse_kids_helper(arena, k, next_id, visited, page_map, page_index)
+    });
+    // An element with no `/Pg` of its own sits on the page its marks name. Taken after
+    // the kids rather than before, because that is where the answer comes from.
+    let page_index = page_index.or(kids.page);
 
     visited.remove(&handle);
 
@@ -301,6 +415,7 @@ fn parse_struct_node(
         rect,
         page_index,
         handle_index: Some(handle.index()),
-        children,
+        mcids: kids.mcids,
+        children: kids.children,
     })
 }

@@ -653,9 +653,10 @@ impl PDFView {
                     self.zoom,
                     layout.rect.height(),
                     root,
+                    layout.index,
                     ust_registry.selected_node_id,
                 );
-                self.draw_reading_order_bar(ui, page_rect, root);
+                self.draw_reading_order_bar(ui, page_rect, root, layout.index);
             }
         }
 
@@ -1057,28 +1058,42 @@ impl PDFView {
         }
     }
 
+    /// One element's rectangle, from PDF user space to the screen.
+    fn element_rect(
+        page_rect: egui::Rect,
+        zoom: f32,
+        unscaled_h: f32,
+        rect: [f32; 4],
+    ) -> egui::Rect {
+        let corner = |x: f32, y: f32| {
+            crate::interaction::SelectionManager::pdf_to_screen(
+                page_rect,
+                zoom,
+                unscaled_h,
+                egui::pos2(x, y),
+            )
+        };
+        egui::Rect::from_min_max(corner(rect[0], rect[3]), corner(rect[2], rect[1]))
+    }
+
+    /// **Filtered by page.** A structure tree covers the whole document, and this walks
+    /// all of it once per visible page — so without the test below, page 2 is drawn with
+    /// page 1's boxes on top of it. That went unseen for as long as no element had a
+    /// rectangle at all, which was until they were derived from marked content.
     fn draw_semantic_borders(
         ui: &mut egui::Ui,
         page_rect: egui::Rect,
         zoom: f32,
         unscaled_h: f32,
         node: &crate::sidebar::USTNode,
+        page_index: usize,
         selected_id: Option<usize>,
     ) {
-        if let Some(rect) = node.rect {
-            let min_screen = crate::interaction::SelectionManager::pdf_to_screen(
-                page_rect,
-                zoom,
-                unscaled_h,
-                egui::pos2(rect[0], rect[3]),
-            );
-            let max_screen = crate::interaction::SelectionManager::pdf_to_screen(
-                page_rect,
-                zoom,
-                unscaled_h,
-                egui::pos2(rect[2], rect[1]),
-            );
-            let element_rect = egui::Rect::from_min_max(min_screen, max_screen);
+        let here = node.page_index.is_none_or(|index| index == page_index);
+        if let Some(rect) = node.rect
+            && here
+        {
+            let element_rect = Self::element_rect(page_rect, zoom, unscaled_h, rect);
 
             // **The box says which tag it is, instead of being coloured for it.** Four
             // hues stood here — and again, verbatim, in `collect_nodes_for_reading_order`
@@ -1109,7 +1124,15 @@ impl PDFView {
         }
 
         for child in &node.children {
-            Self::draw_semantic_borders(ui, page_rect, zoom, unscaled_h, child, selected_id);
+            Self::draw_semantic_borders(
+                ui,
+                page_rect,
+                zoom,
+                unscaled_h,
+                child,
+                page_index,
+                selected_id,
+            );
         }
     }
 
@@ -1118,12 +1141,16 @@ impl PDFView {
     /// **The colour it used to carry alongside each tag was the same four-hue table as
     /// `draw_semantic_borders`, written out a second time.** Each chip is labelled
     /// `"3: Figure"`, so the hue restated the label beside it.
-    fn collect_nodes_for_reading_order(node: &crate::sidebar::USTNode, list: &mut Vec<String>) {
-        if node.rect.is_some() {
+    fn collect_nodes_for_reading_order(
+        node: &crate::sidebar::USTNode,
+        page_index: usize,
+        list: &mut Vec<String>,
+    ) {
+        if node.rect.is_some() && node.page_index.is_none_or(|index| index == page_index) {
             list.push(node.tag.clone());
         }
         for child in &node.children {
-            Self::collect_nodes_for_reading_order(child, list);
+            Self::collect_nodes_for_reading_order(child, page_index, list);
         }
     }
 
@@ -1132,9 +1159,10 @@ impl PDFView {
         ui: &mut egui::Ui,
         page_rect: egui::Rect,
         root_node: &crate::sidebar::USTNode,
+        page_index: usize,
     ) {
         let mut list = Vec::new();
-        Self::collect_nodes_for_reading_order(root_node, &mut list);
+        Self::collect_nodes_for_reading_order(root_node, page_index, &mut list);
 
         if list.is_empty() {
             return;

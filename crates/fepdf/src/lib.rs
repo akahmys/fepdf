@@ -1308,6 +1308,32 @@ impl PdfDocument {
         Ok(backend.into_bounds())
     }
 
+    /// Gives the tree's elements the rectangles their marked content drew in.
+    ///
+    /// **A second call, not part of `extract_struct_tree`.** The tree is read out of the
+    /// arena and costs nothing; this interprets every page the tree mentions, and a
+    /// caller that only wants the tags should not pay for geometry it will not draw.
+    ///
+    /// Pages are interpreted once each, in order, and only those an element with an
+    /// `/MCID` actually sits on.
+    ///
+    /// **A page that will not interpret is skipped rather than failing the walk**, and
+    /// that is not a swallowed error: the same page fails to draw, where the reader can
+    /// see it, and `render_page` records what it could not run. The alternative is a
+    /// document whose every element loses its rectangle because one page of forty is
+    /// malformed.
+    pub fn fill_structure_boxes(&self, root: &mut StructureTreeNode) {
+        let mut wanted = std::collections::BTreeSet::new();
+        collect_marked_pages(root, &mut wanted);
+        let mut boxes = std::collections::BTreeMap::new();
+        for index in wanted {
+            if let Ok(found) = self.marked_content_boxes(index) {
+                boxes.insert(index, found);
+            }
+        }
+        fepdf_doc::marked_content::fill_boxes(root, &boxes);
+    }
+
     /// Prints a textual representation of the logical structure tree.
     pub fn print_structure(&self) -> PdfResult<String> {
         let Some(root) = self.extract_struct_tree() else {
@@ -1749,4 +1775,16 @@ fn read_numbers(
     let items = arena.get_array(handle)?;
     let numbers: Vec<f64> = items.iter().filter_map(|item| item.resolve(arena).as_f64()).collect();
     (numbers.len() >= count).then_some(numbers)
+}
+
+/// The pages that carry marked content some structure element claims.
+fn collect_marked_pages(node: &StructureTreeNode, into: &mut std::collections::BTreeSet<usize>) {
+    if !node.mcids.is_empty()
+        && let Some(index) = node.page_index
+    {
+        into.insert(index);
+    }
+    for child in &node.children {
+        collect_marked_pages(child, into);
+    }
 }

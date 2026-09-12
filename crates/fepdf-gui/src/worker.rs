@@ -472,11 +472,20 @@ fn rebuild(history: &History, tx: &Sender<WorkerResponse>) -> Option<PdfDocument
     handle_open(data.clone(), name.clone(), password.clone(), &history.applied, tx)
 }
 
+/// The document's structure tree, with every element placed on the page it drew on.
+///
+/// The placement is a second call and it is made here, once, when the document opens:
+/// the reading-order overlay and the element outlines are both on by default, and both
+/// draw a rectangle per element. Without this they drew nothing at all — no element in
+/// any of the nine samples declares a `/BBox`, so the tree arrived with no geometry.
+///
 fn resolve_struct_tree_root(
     doc: &PdfDocument,
     _next_id: &mut usize,
 ) -> Option<crate::sidebar::USTNode> {
-    doc.extract_struct_tree()
+    let mut root = doc.extract_struct_tree()?;
+    doc.fill_structure_boxes(&mut root);
+    Some(root)
 }
 
 /// Whether a document with no declared reading direction is a vertically set CJK one.
@@ -614,6 +623,7 @@ fn handle_open(
                     rect: None,
                     page_index: None,
                     handle_index: None,
+                    mcids: Vec::new(),
                     children: Vec::new(),
                 });
             }

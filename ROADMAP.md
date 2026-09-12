@@ -3270,22 +3270,46 @@ build-time assertion over the tokens and nothing over their use.
 
 **Three things found while looking that are not rules.**
 
-- The reading-order overlay is on by default, announces itself in the status bar, and
-  **draws nothing for any document as opened**. The cause is not the window: `USTNode` is
-  `fepdf::StructureTreeNode` under another name, the engine fills its `rect` from the
-  element's `/BBox`, and the tree arrives whole — 126 elements for `samples/fugaku.pdf`
-  and 1,248 for `samples/print_sample.pdf`. **None of them carries a rectangle**, because
-  `/BBox` is required of a figure or a table and not of a paragraph, and nothing in these
-  files declares one.
+- [x] **The reading-order overlay drew nothing for any document as opened, and now draws
+      the structure.** The cause was not the window: `USTNode` is
+      `fepdf::StructureTreeNode` under another name, the tree arrives whole, and the
+      engine filled `rect` from the element's `/BBox` — which no element in any of the
+      nine samples declares, because `/BBox` is required of a figure or a table and not of
+      a paragraph.
 
-  Drawing a paragraph's box means deriving it from the content stream: the marked-content
-  `/MCID` the element points at, and the extent of what is drawn between its `BDC` and
-  `EMC`. That is `fepdf-content` work rather than a missing line in the GUI.
+      A rectangle now comes from the content stream instead: the `/MCID` the element
+      points at, and the extent of what is drawn between that mark's `BDC` and its `EMC`.
+      `Canvas` accumulates it — the same guard every mark already passes through on its
+      way to the page, so a hidden optional-content layer contributes nothing and a sixth
+      painting operator cannot forget the measurement without forgetting the guard.
 
-  **An earlier entry here said the GUI never fills the field, and that was wrong.** It
-  came from a `grep -v tests` that filtered by *path*, so the `#[cfg(test)]` module inside
-  `sidebar/ust_registry.rs` was counted as production code — five `rect: None` in a test
-  fixture read as five in the converter. The conversion is one line and copies everything.
+      ```bash
+      cargo test -p fepdf --test marked_content_boxes_test --test structure_boxes_test
+      ```
+
+      | sample | elements | placed | interpreting |
+      |---|---:|---:|---:|
+      | `print_sample.pdf` | 1,228 | 1,198 | 29 ms |
+      | `fugaku.pdf` | 126 | 126 | 163 ms |
+      | `volvo_xc90.pdf` | 23,416 | 23,414 | 438 ms |
+
+      The 30 that `print_sample.pdf` leaves unplaced hold `/OBJR`s and nothing else, and
+      an annotation has no mark to be measured by.
+
+      **Two defects fell out of this that nothing else would have found.** `/K` entries
+      written as dictionaries in place — 13,558 `/MCR`s in `volvo_xc90.pdf`, and 20
+      `/OBJR`s in `print_sample.pdf` — went through `resolve_to_node_handle`, which
+      answers `Handle::new(dh.index())` for one: a dictionary's index used as an object's.
+      The `/OBJR`s became structure elements tagged `P`; the `/MCR`s resolved to unrelated
+      objects and fell out of the walk in silence. And `draw_semantic_borders` walked the
+      whole tree once per visible page with no test of which page an element sits on,
+      which nobody could see while no element had a rectangle at all.
+
+      **An earlier entry here said the GUI never fills the field, and that was wrong.** It
+      came from a `grep -v tests` that filtered by *path*, so the `#[cfg(test)]` module
+      inside `sidebar/ust_registry.rs` was counted as production code — five `rect: None`
+      in a test fixture read as five in the converter. The conversion is one line and
+      copies everything.
 
 - **The element properties table showed two constants as if they were readings.** A
   document's language read `en-US` and its role map read `Default Mapping` whatever the
