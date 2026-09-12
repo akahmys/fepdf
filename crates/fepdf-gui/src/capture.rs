@@ -30,6 +30,10 @@ pub enum Step {
     Drawer(ActiveDrawer),
     /// Select a page by its 1-based number, as a reader would count it.
     Select(usize),
+    /// Selects a structure element by its id in the tree, which is what the element
+    /// properties panel draws. Nothing else reaches that panel: the tree is a drawer, and
+    /// a plan cannot click a row in it.
+    Node(usize),
     /// Delete whatever is selected.
     Delete,
     /// Turn the selection a quarter clockwise.
@@ -164,6 +168,7 @@ fn parse(line: &str) -> Option<Step> {
         "open" => Step::Open(PathBuf::from(rest)),
         "drawer" => Step::Drawer(drawer(rest)?),
         "select" => Step::Select(rest.parse().ok()?),
+        "node" => Step::Node(rest.parse().ok()?),
         "delete" => Step::Delete,
         "rotate" => Step::Rotate,
         "undo" => Step::Undo,
@@ -248,6 +253,7 @@ impl crate::app::FepdfApp {
                 self.selected_pages.insert(page.saturating_sub(1));
                 self.view.active_page = page.saturating_sub(1);
             }
+            Step::Node(id) => self.ust_registry.selected_node_id = Some(id),
             Step::Delete => self.remove_selected_pages(),
             Step::Rotate => self.rotate_selected_pages(fepdf::Quarter::Q90),
             Step::Undo => {

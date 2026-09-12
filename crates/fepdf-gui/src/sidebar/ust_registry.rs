@@ -251,6 +251,8 @@ mod tests {
             page_index: None,
             handle_index: None,
             mcids: Vec::new(),
+            lang: None,
+            role: None,
             children: vec![USTNode {
                 id: 1,
                 tag: "Part".to_string(),
@@ -260,6 +262,8 @@ mod tests {
                 page_index: None,
                 handle_index: None,
                 mcids: Vec::new(),
+                lang: None,
+                role: None,
                 children: vec![
                     USTNode {
                         id: 2,
@@ -270,6 +274,8 @@ mod tests {
                         page_index: None,
                         handle_index: None,
                         mcids: Vec::new(),
+                        lang: None,
+                        role: None,
                         children: Vec::new(),
                     },
                     USTNode {
@@ -281,6 +287,8 @@ mod tests {
                         page_index: None,
                         handle_index: None,
                         mcids: Vec::new(),
+                        lang: None,
+                        role: None,
                         children: Vec::new(),
                     },
                     USTNode {
@@ -292,6 +300,8 @@ mod tests {
                         page_index: None,
                         handle_index: None,
                         mcids: Vec::new(),
+                        lang: None,
+                        role: None,
                         children: Vec::new(),
                     },
                 ],
@@ -330,6 +340,8 @@ mod tests {
             page_index,
             handle_index: None,
             mcids: Vec::new(),
+            lang: None,
+            role: None,
             children: Vec::new(),
         }
     }

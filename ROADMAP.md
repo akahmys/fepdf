@@ -3311,10 +3311,30 @@ build-time assertion over the tokens and nothing over their use.
       in a test fixture read as five in the converter. The conversion is one line and
       copies everything.
 
-- **The element properties table showed two constants as if they were readings.** A
-  document's language read `en-US` and its role map read `Default Mapping` whatever the
-  element said: `USTNode` carries no `/Lang` and nothing consults `/RoleMap`. The rows say
-  the panel does not know, which is what it does not.
+- [x] **The element properties table showed two constants as if they were readings.** A
+      document's language read `en-US` and its role map read `Default Mapping` whatever
+      the element said, and neither entry had a reader anywhere in the workspace. Both are
+      read now. `/Lang` is inherited down from the catalogue as 14.9.2 requires, so the
+      answer is the one that applies to the element rather than the entry it happens to
+      carry; `/RoleMap` is read once off the `/StructTreeRoot` and shown as the mapping it
+      is.
+
+      ```bash
+      cargo test -p fepdf --test structure_language_test
+      ```
+
+      | sample | languages | mappings |
+      |---|---|---|
+      | `print_sample.pdf` | 1,048 `ja`, 147 `en`, 33 `zh` | `Slide → Sect`, `Textbox → Sect` |
+      | `fugaku.pdf` | 126 `ja` | none |
+      | `volvo_xc90.pdf` | 23,416 `en-US` | none |
+
+      Six other samples declare no `/Lang` at all, and the row says so rather than
+      answering `en-US`. `print_sample.pdf` carries the corpus's only `/RoleMap`.
+
+      Looking at the panel afterwards showed its label column had no floor, so
+      `境界ボックス (BBox):` came out broken across four lines between characters of a
+      word. `theme::size::LABEL_W`.
 
 - **`draw_page_backings` paints under an opaque texture.** In the viewport path a vello
   texture covers the whole viewport a step later, so the page fill and its drop shadow are

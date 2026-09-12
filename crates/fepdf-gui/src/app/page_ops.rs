@@ -29,6 +29,8 @@ impl FepdfApp {
             // A tag drawn in the GUI stands for a selection, not for marked content the
             // file already carries: it has a rectangle of its own and claims no `/MCID`.
             mcids: Vec::new(),
+            lang: None,
+            role: None,
             children: Vec::new(),
         };
         self.ust_registry.next_node_id += 1;

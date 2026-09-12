@@ -68,7 +68,8 @@ pub fn show_element_properties(
             node_found = true;
             egui::Grid::new("properties_grid")
                 .num_columns(2)
-                .spacing([10.0, 8.0])
+                .min_col_width(crate::app::theme::size::LABEL_W)
+                .spacing([crate::app::theme::space::GROUP, crate::app::theme::space::GROUP])
                 .striped(true)
                 .show(ui, |ui| {
                     ui.label(
@@ -118,20 +119,32 @@ pub fn show_element_properties(
                     ui.label(
                         egui::RichText::new(locale_mgr.tr(active_lang, "element_prop_lang")).weak(),
                     );
-                    // **Neither of these is read from the document.** The row showed a
-                    // constant `"en-US"` and a constant `"Default Mapping"` whatever the
-                    // element said, which is worse than an empty row: a reader checking a
-                    // document's language found an answer. `USTNode` carries no `/Lang`
-                    // and nothing consults `/RoleMap`, so until one does, the panel says
-                    // it does not know.
-                    ui.label(locale_mgr.tr(active_lang, "tree_prop_none"));
+                    // **Both of these used to be constants.** The row showed `"en-US"`
+                    // and `"Default Mapping"` whatever the element said, which is worse
+                    // than an empty row: a reader checking a document's language found an
+                    // answer. They are read now — `/Lang` as it applies here, inherited
+                    // down from the catalogue (14.9.2), and `/RoleMap` as what this tag
+                    // is mapped to (14.8.4.4) — and where there is nothing to read the
+                    // row still says so.
+                    ui.label(
+                        node.lang
+                            .clone()
+                            .unwrap_or_else(|| locale_mgr.tr(active_lang, "tree_prop_none")),
+                    );
                     ui.end_row();
 
                     ui.label(
                         egui::RichText::new(locale_mgr.tr(active_lang, "element_prop_role_map"))
                             .weak(),
                     );
-                    ui.label(locale_mgr.tr(active_lang, "tree_prop_none"));
+                    match &node.role {
+                        Some(role) => {
+                            ui.monospace(format!("{} → {role}", node.tag));
+                        }
+                        None => {
+                            ui.label(locale_mgr.tr(active_lang, "tree_prop_none"));
+                        }
+                    }
                     ui.end_row();
 
                     ui.label(

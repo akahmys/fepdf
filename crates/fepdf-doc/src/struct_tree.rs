@@ -41,8 +41,39 @@ pub struct StructureTreeNode {
     /// fields beside it get that for nothing; a `Vec` has to ask.
     #[serde(default)]
     pub mcids: Vec<u32>,
+    /// The natural language of this element's content (14.9.2).
+    ///
+    /// **The language in force, not the entry.** 14.9.2 makes `/Lang` inheritable: an
+    /// element without one is in the language of the element above it, and the tree's
+    /// root falls back to the catalogue's. A reader asking what language a paragraph is
+    /// in wants the answer that applies to it, and the entry alone answers that for 857
+    /// of `print_sample.pdf`'s elements and for none of the other eight samples'.
+    #[serde(default)]
+    pub lang: Option<String>,
+    /// The standard structure type [`tag`] stands for, when `/RoleMap` maps it (14.8.4.4).
+    ///
+    /// `None` says the tag needs no mapping, which is the answer for every tag in every
+    /// sample but one: the whole corpus declares a single `/RoleMap`.
+    ///
+    /// [`tag`]: StructureTreeNode::tag
+    #[serde(default)]
+    pub role: Option<String>,
     /// Child nodes in the structure hierarchy.
     pub children: Vec<StructureTreeNode>,
+}
+
+/// What does not change as the walk descends.
+struct Walk<'a> {
+    page_map: &'a BTreeMap<Handle<Object>, usize>,
+    /// `/StructTreeRoot` `/RoleMap`, read once (14.8.4.4).
+    roles: BTreeMap<String, String>,
+}
+
+/// What an element takes from the elements above it when it declares none itself.
+#[derive(Clone, Copy, Default)]
+struct Inherited<'a> {
+    page: Option<usize>,
+    lang: Option<&'a str>,
 }
 
 /// Visitor that extracts structure tree information from a document.
@@ -59,9 +90,60 @@ impl StructureTreeVisitor {
         let str_root_obj = dict.get(&str_root_key)?;
         let str_root_ref = resolve_to_node_handle(arena, str_root_obj)?;
         let page_map = build_page_handle_map(doc);
+        let walk = Walk { page_map: &page_map, roles: read_role_map(arena, str_root_ref) };
+        // The document's own language, which every element is in until one says otherwise
+        // (14.9.2). `print_sample.pdf` is the only sample that says otherwise.
+        let lang = text_entry(arena, &dict, "Lang");
+        let inherited = Inherited { page: None, lang: lang.as_deref() };
         let mut visited = BTreeSet::new();
         let mut next_id = 0;
-        parse_struct_node(arena, str_root_ref, &mut next_id, &mut visited, &page_map, None)
+        parse_struct_node(arena, str_root_ref, &mut next_id, &mut visited, &walk, inherited)
+    }
+}
+
+/// `/StructTreeRoot` `/RoleMap`, as tag to standard type (14.8.4.4).
+///
+/// Read once for the tree rather than per element: it is a single dictionary on the root,
+/// and a lookup per element through the arena would be the same answer found again.
+fn read_role_map(arena: &PdfArena, root: Handle<Object>) -> BTreeMap<String, String> {
+    let mut roles = BTreeMap::new();
+    let Some(dict) = arena
+        .get_object(root)
+        .and_then(|object| object.as_dict_handle())
+        .and_then(|dh| arena.get_dict(dh))
+    else {
+        return roles;
+    };
+    let Some(map) = dict
+        .get(&arena.name("RoleMap"))
+        .map(|entry| entry.resolve(arena))
+        .and_then(|entry| entry.as_dict_handle())
+        .and_then(|dh| arena.get_dict(dh))
+    else {
+        return roles;
+    };
+    for (key, value) in &map {
+        let Some(from) = arena.get_name(*key) else { continue };
+        let Some(to) = value.resolve(arena).as_name().and_then(|n| arena.get_name(n)) else {
+            continue;
+        };
+        roles.insert(from.as_str().to_string(), to.as_str().to_string());
+    }
+    roles
+}
+
+/// A text-string entry of a dictionary, in the shapes a `/Lang` is written in.
+fn text_entry(
+    arena: &PdfArena,
+    dict: &BTreeMap<Handle<PdfName>, Object>,
+    key: &str,
+) -> Option<String> {
+    match dict.get(&arena.name(key))?.resolve(arena) {
+        Object::String(bytes) | Object::Hex(bytes) => {
+            Some(fepdf_model::refine::text::recover_string(&bytes))
+        }
+        Object::Text(text) => Some(text),
+        _ => None,
     }
 }
 
@@ -285,19 +367,19 @@ fn parse_kids_helper(
     kids_obj: &Object,
     next_id: &mut usize,
     visited: &mut BTreeSet<Handle<Object>>,
-    page_map: &BTreeMap<Handle<Object>, usize>,
-    inherited_page: Option<usize>,
+    walk: &Walk<'_>,
+    inherited: Inherited<'_>,
 ) -> Kids {
     let mut out = Kids::default();
     if let Object::Array(ah) = kids_obj.resolve(arena)
         && let Some(array) = arena.get_array(ah)
     {
         for kid in array {
-            take_kid(arena, &kid, next_id, visited, (page_map, inherited_page), &mut out);
+            take_kid(arena, &kid, next_id, visited, walk, inherited, &mut out);
         }
         return out;
     }
-    take_kid(arena, kids_obj, next_id, visited, (page_map, inherited_page), &mut out);
+    take_kid(arena, kids_obj, next_id, visited, walk, inherited, &mut out);
     out
 }
 
@@ -307,18 +389,17 @@ fn take_kid(
     kid: &Object,
     next_id: &mut usize,
     visited: &mut BTreeSet<Handle<Object>>,
-    where_: (&BTreeMap<Handle<Object>, usize>, Option<usize>),
+    walk: &Walk<'_>,
+    inherited: Inherited<'_>,
     out: &mut Kids,
 ) {
-    let (page_map, inherited_page) = where_;
-    match classify_kid(arena, kid, page_map) {
+    match classify_kid(arena, kid, walk.page_map) {
         Kid::Mark(mcid, page) => {
             out.mcids.push(mcid);
             out.page = out.page.or(page);
         }
         Kid::Element(handle) => {
-            if let Some(child) =
-                parse_struct_node(arena, handle, next_id, visited, page_map, inherited_page)
+            if let Some(child) = parse_struct_node(arena, handle, next_id, visited, walk, inherited)
             {
                 out.children.push(child);
             }
@@ -378,8 +459,8 @@ fn parse_struct_node(
     handle: Handle<Object>,
     next_id: &mut usize,
     visited: &mut BTreeSet<Handle<Object>>,
-    page_map: &BTreeMap<Handle<Object>, usize>,
-    inherited_page: Option<usize>,
+    walk: &Walk<'_>,
+    inherited: Inherited<'_>,
 ) -> Option<StructureTreeNode> {
     if !visited.insert(handle) {
         return None;
@@ -393,14 +474,17 @@ fn parse_struct_node(
     let alt_text = parse_alt_text_helper(arena, &dict);
 
     let rect = dict.get(&arena.name("BBox")).and_then(|b| parse_bbox_helper(arena, b));
-    let page_index = parse_page_index_helper(arena, &dict, page_map).or(inherited_page);
+    let page_index = parse_page_index_helper(arena, &dict, walk.page_map).or(inherited.page);
+    let lang = text_entry(arena, &dict, "Lang").or_else(|| inherited.lang.map(str::to_owned));
+    let role = walk.roles.get(&tag).cloned();
 
     let id = *next_id;
     *next_id += 1;
 
-    let kids = dict.get(&arena.name("K")).map_or_else(Kids::default, |k| {
-        parse_kids_helper(arena, k, next_id, visited, page_map, page_index)
-    });
+    let below = Inherited { page: page_index, lang: lang.as_deref() };
+    let kids = dict
+        .get(&arena.name("K"))
+        .map_or_else(Kids::default, |k| parse_kids_helper(arena, k, next_id, visited, walk, below));
     // An element with no `/Pg` of its own sits on the page its marks name, or — holding
     // no marks — on the page the first thing it holds is on. Taken after the kids rather
     // than before, because that is where both answers come from.
@@ -423,6 +507,8 @@ fn parse_struct_node(
         page_index,
         handle_index: Some(handle.index()),
         mcids: kids.mcids,
+        lang,
+        role,
         children: kids.children,
     })
 }

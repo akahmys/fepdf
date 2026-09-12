@@ -247,6 +247,13 @@ pub mod size {
     pub const DRAWER_MIN: f32 = 260.0;
     /// The widest the drawer may become.
     pub const DRAWER_MAX: f32 = 600.0;
+    /// The label column of a two-column property grid.
+    ///
+    /// Wide enough for the longest label the drawer carries — `代替テキスト (Alt Text):`,
+    /// which is the name in the reader's language and the name of the entry in the file.
+    /// Without a floor the column takes whatever is left and breaks the label between two
+    /// characters of a word: `境界ボ / ックス / (BBox) / :` down four lines.
+    pub const LABEL_W: f32 = 144.0;
 }
 
 /// The steps are a scale, and a build says so.
@@ -267,7 +274,8 @@ const _SIZES_ARE_ON_THE_GRID: () = assert!(
         && (size::STATUS as u32).is_multiple_of(4)
         && (size::FORM_W as u32).is_multiple_of(4)
         && (size::TABLE_W as u32).is_multiple_of(4)
-        && (size::DRAWER_W as u32).is_multiple_of(4),
+        && (size::DRAWER_W as u32).is_multiple_of(4)
+        && (size::LABEL_W as u32).is_multiple_of(4),
     "chrome dimensions are multiples of the 4pt grid"
 );
 

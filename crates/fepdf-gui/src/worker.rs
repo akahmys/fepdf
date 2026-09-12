@@ -624,6 +624,8 @@ fn handle_open(
                     page_index: None,
                     handle_index: None,
                     mcids: Vec::new(),
+                    lang: None,
+                    role: None,
                     children: Vec::new(),
                 });
             }
