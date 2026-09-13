@@ -63,6 +63,13 @@ pub enum Step {
     /// retitling and moving are all tested without egui; what a plan alone can show is
     /// that the draft actually leaves the panel and reaches the document.
     MarkWrite,
+    /// Insert a document at a page position: `insert <path> <at>`.
+    ///
+    /// The panel's own entry opens a file dialog, which a plan cannot answer, so this
+    /// names the file instead and drives everything after the dialog.
+    Insert(PathBuf, usize),
+    /// Write the selected pages out to a named file: `extract <path>`.
+    Extract(PathBuf),
     /// Delete whatever is selected.
     Delete,
     /// Turn the selection a quarter clockwise.
@@ -213,6 +220,11 @@ fn parse(line: &str) -> Option<Step> {
         "mark" => Step::Mark(rest.split_whitespace().filter_map(|n| n.parse().ok()).collect()),
         "marktitle" => Step::MarkTitle(rest.to_owned()),
         "markwrite" => Step::MarkWrite,
+        "insert" => {
+            let (path, at) = rest.rsplit_once(' ')?;
+            Step::Insert(PathBuf::from(path), at.trim().parse().ok()?)
+        }
+        "extract" => Step::Extract(PathBuf::from(rest)),
         "delete" => Step::Delete,
         "rotate" => Step::Rotate,
         "undo" => Step::Undo,
@@ -305,6 +317,8 @@ impl crate::app::FepdfApp {
                 self.view.active_page = page.saturating_sub(1);
             }
             Step::Node(id) => self.ust_registry.selected_node_id = Some(id),
+            Step::Insert(path, at) => self.insert_document_bytes(&path, at),
+            Step::Extract(path) => self.extract_selection_to(path),
             Step::Mark(path) => self.bookmarks.choose(path),
             Step::MarkTitle(title) => self.bookmarks.retitle(&title),
             Step::MarkWrite => self.write_bookmarks(),

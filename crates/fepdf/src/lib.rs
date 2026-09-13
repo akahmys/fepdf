@@ -605,7 +605,11 @@ impl PdfDocument {
 
         let catalog_h =
             target_arena.alloc_object(Object::Dictionary(target_arena.alloc_dict(catalog_dict)));
-        Ok(Self { inner: Document::new(target_arena, catalog_h, None) })
+        let mut inner = Document::new(target_arena, catalog_h, None);
+        // Without this the document reports no pages at all: the page index is
+        // `Document::new`'s empty vector until something walks the tree.
+        inner.index_pages();
+        Ok(Self { inner })
     }
 
     fn merge_link_outlines(
@@ -715,7 +719,11 @@ impl PdfDocument {
         let catalog_handle =
             target_arena.alloc_object(Object::Dictionary(target_arena.alloc_dict(catalog_dict)));
 
-        Ok(Self { inner: Document::new(target_arena, catalog_handle, None) })
+        let mut inner = Document::new(target_arena, catalog_handle, None);
+        // Without this the document reports no pages at all: the page index is
+        // `Document::new`'s empty vector until something walks the tree.
+        inner.index_pages();
+        Ok(Self { inner })
     }
 
     /// Writes the document, returning what the write cost that the caller must know.

@@ -572,6 +572,23 @@ impl Document {
         }
     }
 
+    /// Walks `/Pages` and records what it finds, which is what makes this document
+    /// answer questions about its pages.
+    ///
+    /// **A document built by hand has an empty page index.** [`Self::new`] leaves it
+    /// empty and nothing fills it, so `page_count` answers 0, `get_page` fails for every
+    /// index and `get_page_handle` answers `None` — while the writer, which walks the
+    /// catalogue itself, writes every page correctly. `PdfDocument::extract_pages` and
+    /// `PdfDocument::merge` both built documents that way: the file each produced was
+    /// right and the object each returned said it held nothing.
+    ///
+    /// Ingestion calls this too, after the page tree has been normalised. It is separate
+    /// from [`Self::new`] because at that point in ingestion the tree is not yet in the
+    /// shape this walk expects.
+    pub fn index_pages(&mut self) {
+        self.pages = self.find_all_pages();
+    }
+
     /// Creates a new document wrapper with issues.
     pub fn with_issues(
         arena: PdfArena,
@@ -693,7 +710,7 @@ impl Document {
         doc.load_system_fonts();
         doc.normalize_resources();
         doc.normalize_page_tree();
-        doc.pages = doc.find_all_pages();
+        doc.index_pages();
         doc.rebuild_page_tree_in_arena()?;
         Ok(doc)
     }

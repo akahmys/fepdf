@@ -76,6 +76,15 @@ pub enum WorkerRequest {
     RemovePages {
         indices: Vec<usize>,
     },
+    /// Write the named pages out as a document of their own.
+    ///
+    /// **Not an `Apply`.** Extraction makes a second document and leaves this one
+    /// untouched, so it is not an operation, is not recorded in the history, and does
+    /// not mark the document edited.
+    ExtractPages {
+        indices: Vec<usize>,
+        path: std::path::PathBuf,
+    },
     DuplicatePage {
         index: usize,
     },
@@ -189,6 +198,17 @@ pub enum WorkerResponse {
     /// saved.
     StructTreeChanged {
         root: Option<Box<crate::sidebar::USTNode>>,
+    },
+    /// The pages as the document now holds them, after an operation changed how many
+    /// there are.
+    ///
+    /// **Sent only when the count changed.** The window keeps its own count and sizes so
+    /// it can lay out a frame without asking, and every operation that alters them
+    /// adjusts them before sending — except the ones that cannot: `InsertFrom` adds as
+    /// many pages as the file it is given holds, which this thread learns by opening it
+    /// and the window cannot know at all.
+    PagesChanged {
+        page_sizes: Vec<(f64, f64)>,
     },
     /// The bookmark tree as the file now holds it, after an operation changed something.
     ///
@@ -334,7 +354,13 @@ pub fn run_worker(rx: Receiver<WorkerRequest>, tx: Sender<WorkerResponse>, ctx: 
                 // `Retag` rebuilds the structure tree from heuristics; the others are
                 // quick, and one arm cannot tell which it was handed.
                 let _ = tx.send(WorkerResponse::Busy { key: "busy_applying" });
-                apply_recorded(&mut current_doc, &mut history, *operation, Some(done), &tx);
+                handle_apply(&mut current_doc, &mut history, *operation, done, &tx);
+                let _ = tx.send(WorkerResponse::Idle);
+                ctx.request_repaint();
+            }
+            WorkerRequest::ExtractPages { indices, path } => {
+                let _ = tx.send(WorkerResponse::Busy { key: "busy_exporting" });
+                handle_extract(current_doc.as_ref(), &indices, &path, &tx);
                 let _ = tx.send(WorkerResponse::Idle);
                 ctx.request_repaint();
             }
@@ -812,6 +838,86 @@ fn handle_audit(doc_opt: Option<&PdfDocument>, tx: &Sender<WorkerResponse>) {
         .map(|f| (f.checkpoint, f.severity, f.message, f.handle_id))
         .collect();
     let _ = tx.send(WorkerResponse::AuditFindings { findings: audit_findings });
+}
+
+/// Applies one operation and tells the window everything that changed with it.
+///
+/// `Busy` and `Idle` stay in the arm that calls this rather than moving in with the work:
+/// `scripts/audit/progress.py` reads the arms, and an arm whose saying has been factored
+/// out is an arm it cannot see saying anything.
+///
+/// **The page count is compared rather than derived from the operation.** Most of the
+/// vocabulary leaves it alone, several arms change it and the window adjusts its own
+/// count before sending those — but `InsertFrom` adds as many pages as the file it is
+/// given holds, which is not knowable until it has been opened here. Reading the count
+/// on both sides of the apply covers that without this thread having to know which
+/// operations can move a page.
+fn handle_apply(
+    doc: &mut Option<PdfDocument>,
+    history: &mut History,
+    operation: Operation,
+    done: String,
+    tx: &Sender<WorkerResponse>,
+) {
+    let before = page_count_of(doc.as_ref());
+    apply_recorded(doc, history, operation, Some(done), tx);
+    if page_count_of(doc.as_ref()) != before {
+        send_page_sizes(doc.as_ref(), tx);
+    }
+}
+
+/// How many pages the document has, or none when there is no document.
+fn page_count_of(doc: Option<&PdfDocument>) -> Option<usize> {
+    doc.and_then(|d| d.page_count().ok())
+}
+
+/// Sends every page's size, which is also how the window learns the new count.
+fn send_page_sizes(doc: Option<&PdfDocument>, tx: &Sender<WorkerResponse>) {
+    let Some(doc) = doc else { return };
+    let Ok(count) = doc.page_count() else { return };
+    let mut page_sizes = Vec::with_capacity(count);
+    for index in 0..count {
+        page_sizes.push(doc.get_page_size(index).unwrap_or((595.0, 842.0)));
+    }
+    let _ = tx.send(WorkerResponse::PagesChanged { page_sizes });
+}
+
+/// Extracts `indices` into a new document and writes it to `path`.
+///
+/// The decisions the write reports are passed on rather than dropped: extraction
+/// decrypts, so a document whose `/P` forbade modification produces output declaring
+/// nothing, and the reader is told.
+fn handle_extract(
+    doc: Option<&PdfDocument>,
+    indices: &[usize],
+    path: &std::path::Path,
+    tx: &Sender<WorkerResponse>,
+) {
+    let Some(doc) = doc else { return };
+    let extracted = match doc.extract_pages(indices.to_vec()) {
+        Ok(out) => out,
+        Err(why) => {
+            let _ = tx.send(WorkerResponse::Failed {
+                key: "notice_operation_failed",
+                detail: Some(format!("{why:?}")),
+            });
+            return;
+        }
+    };
+    match extracted.save_as_version(path, "2.0") {
+        Ok(notices) => {
+            let _ = tx.send(WorkerResponse::DocumentSaved {
+                path: path.to_path_buf(),
+                notices: notices.iter().map(ToString::to_string).collect(),
+            });
+        }
+        Err(why) => {
+            let _ = tx.send(WorkerResponse::Failed {
+                key: "notice_export_failed",
+                detail: Some(format!("{why:?}")),
+            });
+        }
+    }
 }
 
 /// Retags an element, and re-reads what that did to the document's compliance.

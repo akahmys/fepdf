@@ -192,6 +192,79 @@ impl FepdfApp {
         let _ = self.tx_worker.send(WorkerRequest::RemovePages { indices });
     }
 
+    /// Puts every page of another document in at `at`, which is a page position in the
+    /// current numbering.
+    ///
+    /// **The bytes are read here and the document is opened in the worker.** An
+    /// operation is a value that has to serialise — `fepdf-mcp` reaches the same one
+    /// through JSON — so `InsertFrom` carries the source file rather than a handle to
+    /// one already open.
+    ///
+    /// The page count is not adjusted here. Unlike a removal, this window does not know
+    /// how many pages are coming until the worker has opened the file, so the count and
+    /// the layout come back with the reload rather than being guessed at.
+    pub fn insert_document_at(&mut self, at: usize) {
+        let Some(path) = rfd::FileDialog::new().add_filter("PDF", &["pdf"]).pick_file() else {
+            return;
+        };
+        self.insert_document_bytes(&path, at);
+    }
+
+    /// Everything [`Self::insert_document_at`] does once a file has been named.
+    ///
+    /// Split out because a capture plan cannot answer a file dialog, and a second copy of
+    /// the read and the send would be a second thing to keep true (UI-12).
+    pub fn insert_document_bytes(&mut self, path: &std::path::Path, at: usize) {
+        let source = match std::fs::read(path) {
+            Ok(bytes) => bytes,
+            Err(why) => {
+                self.notice =
+                    Some(super::Notice::check("notice_open_failed").about(why.to_string()));
+                return;
+            }
+        };
+        let _ = self.tx_worker.send(WorkerRequest::Apply {
+            operation: Box::new(fepdf::Operation::InsertFrom { source, at }),
+            done: self.tr("menu_insert_done"),
+        });
+    }
+
+    /// Writes the selected pages out as a document of their own.
+    ///
+    /// **A new file, not an edit.** Extraction makes a second document and leaves this
+    /// one alone, which is why it goes nowhere near the undo history and why the button
+    /// asks for a path rather than marking the document changed.
+    pub fn extract_selected_pages(&mut self) {
+        if self.selected_pages.is_empty() {
+            return;
+        }
+        let mut indices: Vec<usize> = self.selected_pages.iter().copied().collect();
+        indices.sort_unstable();
+        let stem = self.pdf_name.as_deref().unwrap_or("document").trim_end_matches(".pdf");
+        let Some(path) = rfd::FileDialog::new()
+            .add_filter("PDF", &["pdf"])
+            .set_file_name(format!("{stem}-{}.pdf", indices.len()))
+            .save_file()
+        else {
+            return;
+        };
+        self.extract_selection_to(path);
+    }
+
+    /// Everything [`Self::extract_selected_pages`] does once a path has been named.
+    ///
+    /// Split for the same reason as [`Self::insert_document_bytes`]: a capture plan
+    /// cannot answer a save dialog, and this is the half worth proving — it writes a
+    /// file (UI-12).
+    pub fn extract_selection_to(&mut self, path: PathBuf) {
+        let mut indices: Vec<usize> = self.selected_pages.iter().copied().collect();
+        indices.sort_unstable();
+        if indices.is_empty() {
+            return;
+        }
+        let _ = self.tx_worker.send(WorkerRequest::ExtractPages { indices, path });
+    }
+
     pub fn rotate_pages(&mut self, indices: Vec<usize>, delta: fepdf::Quarter) {
         if indices.is_empty() || self.total_pages == 0 {
             return;

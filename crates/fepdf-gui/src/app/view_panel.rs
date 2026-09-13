@@ -117,7 +117,7 @@ impl FepdfApp {
 
     fn render_page_context_menu(&mut self, response: &egui::Response, page_idx: usize) {
         response.context_menu(|ui| {
-            ui.label(format!("Page {}", page_idx + 1));
+            ui.label(format!("{} {}", self.tr("tools_page"), page_idx + 1));
             ui.separator();
             if ui.button(self.tr("menu_rotate_cw")).clicked() {
                 self.rotate_page_action(page_idx, fepdf::Quarter::Q90);
@@ -145,7 +145,36 @@ impl FepdfApp {
                     ui.close();
                 }
             }
+            ui.separator();
+            self.render_page_file_menu(ui, page_idx);
         });
+    }
+
+    /// Bringing another document in, and sending pages of this one out.
+    ///
+    /// **Its own group under a separator**, because these two are not edits to the page
+    /// they are reached from: one adds pages beside it and the other writes a second
+    /// file, and neither is the kind of thing the four above it are.
+    fn render_page_file_menu(&mut self, ui: &mut egui::Ui, page_idx: usize) {
+        if ui.button(self.tr("menu_insert_before")).clicked() {
+            self.insert_document_at(page_idx);
+            ui.close();
+        }
+        if ui.button(self.tr("menu_insert_after")).clicked() {
+            self.insert_document_at(page_idx + 1);
+            ui.close();
+        }
+        // The selection is what gets extracted, and a right-click on a page that is not
+        // in it means the page itself — the same rule the delete above follows.
+        if !self.selected_pages.contains(&page_idx) {
+            self.selected_pages.clear();
+            self.selected_pages.insert(page_idx);
+        }
+        let label = format!("{} ({})", self.tr("menu_extract"), self.selected_pages.len());
+        if ui.button(label).clicked() {
+            self.extract_selected_pages();
+            ui.close();
+        }
     }
 
     fn handle_page_click_selection(

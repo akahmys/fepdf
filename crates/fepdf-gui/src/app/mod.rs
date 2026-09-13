@@ -379,6 +379,21 @@ impl FepdfApp {
                     self.raw_texts.clear();
                     self.page_spans.clear();
                 }
+                WorkerResponse::PagesChanged { page_sizes } => {
+                    self.total_pages = page_sizes.len();
+                    self.doc_page_sizes = page_sizes;
+                    self.selected_pages.clear();
+                    self.last_selected_page = None;
+                    if self.view.active_page >= self.total_pages {
+                        self.view.active_page = self.total_pages.saturating_sub(1);
+                    }
+                    self.scenes.clear();
+                    self.raw_texts.clear();
+                    self.page_spans.clear();
+                    self.clear_thumbnails_pending = true;
+                    self.compute_layouts();
+                    ctx.request_repaint();
+                }
                 WorkerResponse::OutlinesChanged { tree, report } => {
                     self.bookmarks.filed(*tree, report);
                 }
