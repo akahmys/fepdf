@@ -103,6 +103,7 @@ pub use fepdf_doc::{
     DecorationPosition,
     MatterhornAuditor,
     Operation,
+    OutlineReport,
     PageSelection,
     // `PdfStandard` moved here from this file when `Operation::Upgrade` came to carry it:
     // a type an operation holds has to live with the vocabulary.
@@ -1422,6 +1423,17 @@ impl PdfDocument {
     /// Extracts the presentation-ready logical structure tree.
     pub fn extract_struct_tree(&self) -> Option<StructureTreeNode> {
         StructureTreeVisitor::extract(&self.inner)
+    }
+
+    /// Reads the bookmark tree (12.3.3), with a count of what the read cost.
+    ///
+    /// The counterpart of `Operation::UpdateOutlines`, which had none: an editor could
+    /// only ever write an outline over whatever a document already had. The report says
+    /// how many items were read, how many named no page of this document, and whether a
+    /// `/Next` chain doubled back.
+    #[must_use]
+    pub fn outlines(&self) -> (fepdf_model::document::extensions::OutlineTree, OutlineReport) {
+        fepdf_doc::read_outlines(&self.inner)
     }
 
     /// Applies a canonical mutation operation to the document.

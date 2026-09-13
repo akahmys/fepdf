@@ -240,7 +240,12 @@ fn build_outline_item(
     let arena = doc.arena();
     let (index, parent_h, self_h) = where_;
     let mut dict = BTreeMap::new();
-    dict.insert(arena.name("Title"), Object::String(Bytes::from(node.title.clone())));
+    // **`Object::Text`, not `Object::String`.** A `/Title` is a text string (7.9.2.2),
+    // which is PDFDocEncoding or a marked UTF-16BE/UTF-8 — never raw UTF-8 bytes. Handing
+    // the writer the bytes wrote exactly those, so a bookmark titled `第一章` reached the
+    // file as `ç¬¬ä¸\u{80}ç«\u{a0}` and read back that way. `Object::Text` leaves the
+    // encoding to the writer, which is where the document's choice of encoding lives.
+    dict.insert(arena.name("Title"), Object::Text(node.title.clone()));
     dict.insert(arena.name("Parent"), Object::Reference(parent_h));
 
     if index > 0 {
