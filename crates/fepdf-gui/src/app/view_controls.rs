@@ -64,6 +64,8 @@ impl FepdfApp {
                         self.zoom_group(ui);
                         ui.add_space(space::SECTION);
                         self.mode_group(ui);
+                        ui.add_space(space::GROUP);
+                        self.binding_group(ui);
                         ui.add_space(space::SECTION);
                         self.document_group(ui);
                         ui.add_space(space::SECTION);
@@ -112,29 +114,33 @@ impl FepdfApp {
         }
     }
 
-    /// Rightmost: what to do to the document itself.
+    /// Rightmost: what to do to the document itself, rather than to the view of it.
     fn document_group(&mut self, ui: &mut egui::Ui) {
-        let is_r2l = self.view.binding_direction == BindingDirection::RightToLeft;
-        let label = egui::RichText::new(self.tr(if is_r2l {
-            "btn_binding_vertical"
-        } else {
-            "btn_binding_horizontal"
-        }))
-        .size(text::BODY);
-        let binding = egui::Button::new(label)
-            .min_size(egui::vec2(size::ICON, size::ICON))
-            .corner_radius(super::theme::radius::CONTROL)
-            .selected(is_r2l);
-        let binding_name =
-            self.tr(if is_r2l { "tooltip_binding_r2l" } else { "tooltip_binding_ltr" });
-        if named(ui.add(binding), true, &binding_name).clicked() {
-            self.view.binding_direction =
-                if is_r2l { BindingDirection::LeftToRight } else { BindingDirection::RightToLeft };
-            self.compute_layouts();
-        }
-
         if icon_action(ui, glyph::ROTATE, false, true, &self.tr("tooltip_rotate_cw")).clicked() {
             self.rotate_selected_pages(fepdf::Quarter::Q90);
+        }
+    }
+
+    /// Which edge the document is bound on, which decides the order its pages run in: the
+    /// grid's rows, the two halves of a spread, and which way the arrows go.
+    ///
+    /// **Two buttons, chosen the way the arrangement beside it is chosen.** It was one
+    /// button labelled `横` or `縦` — the only text in a bar of icons, naming the *writing*
+    /// direction for a control that sets the *binding*, its label saying the state it was
+    /// in while its tooltip said the state a click would reach, and sitting with rotate,
+    /// which edits the document, when it only changes the view. Two buttons have no state
+    /// to disagree about: one is selected, and that is the binding.
+    fn binding_group(&mut self, ui: &mut egui::Ui) {
+        for (direction, icon, key) in [
+            (BindingDirection::LeftToRight, glyph::BOUND_LEFT, "tooltip_bound_left"),
+            (BindingDirection::RightToLeft, glyph::BOUND_RIGHT, "tooltip_bound_right"),
+        ] {
+            let selected = self.view.binding_direction == direction;
+            let tip = self.tr(key);
+            if icon_action(ui, icon, selected, true, &tip).clicked() {
+                self.view.binding_direction = direction;
+                self.compute_layouts();
+            }
         }
     }
 

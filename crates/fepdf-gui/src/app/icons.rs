@@ -53,6 +53,10 @@ pub mod glyph {
     pub const PAGE_CONTINUOUS: &str = "\u{e439}";
     /// `book-open` — two pages facing.
     pub const PAGE_SPREAD: &str = "\u{e05f}";
+    /// `panel-left` — the spine is on the left, so the pages run left to right.
+    pub const BOUND_LEFT: &str = "\u{e12a}";
+    /// `panel-right` — the spine is on the right, and the pages run the other way.
+    pub const BOUND_RIGHT: &str = "\u{e431}";
     /// `loader` — a page that has not finished drawing.
     pub const LOADING: &str = "\u{e109}";
     /// `pin` — the controls are held open.
