@@ -121,6 +121,7 @@ impl FepdfApp {
             ActiveDrawer::Redaction => tr("tooltip_redact_brush"),
             ActiveDrawer::Caliper => tr("tooltip_caliper_brush"),
             ActiveDrawer::Tools => tr("tools_title"),
+            ActiveDrawer::Bookmarks => tr("marks_title"),
         }
     }
 
@@ -226,8 +227,51 @@ impl FepdfApp {
                             );
                         }
                         ActiveDrawer::Tools => crate::document_tools::show(self, ui),
+                        ActiveDrawer::Bookmarks => self.render_bookmarks(ui),
                     },
                 );
             });
+    }
+}
+
+impl FepdfApp {
+    /// The bookmark drawer, and what the reader asked it for.
+    ///
+    /// **The write goes through `apply`, like every other mutation** — one
+    /// `UpdateOutlines` for the whole draft, which is one step in the history rather
+    /// than one per edit the reader made.
+    fn render_bookmarks(&mut self, ui: &mut egui::Ui) {
+        let locale = &self.locale_mgr;
+        let lang = &self.active_language;
+        let pages = self.total_pages;
+        let asked = crate::sidebar::bookmarks::show(&mut self.bookmarks, ui, pages, &|key| {
+            locale.tr(lang, key)
+        });
+        match asked {
+            crate::sidebar::bookmarks::Asked::Nothing => {}
+            crate::sidebar::bookmarks::Asked::GoTo(page) => {
+                // The same landing as the page buttons: the page the reader asked for
+                // goes to the middle of the window, rather than to its top edge.
+                let viewport = self.last_viewport_rect.unwrap_or_else(|| ui.max_rect());
+                self.view.scroll_to_page(
+                    page.min(pages.saturating_sub(1)),
+                    viewport,
+                    &self.page_layouts,
+                );
+            }
+            crate::sidebar::bookmarks::Asked::Write => self.write_bookmarks(),
+        }
+    }
+
+    /// Sends the draft as one `UpdateOutlines`.
+    ///
+    /// **One home for it**, because the capture harness presses this too and a second
+    /// copy of these four lines is a second thing to keep true (UI-12).
+    pub(crate) fn write_bookmarks(&mut self) {
+        let tree = self.bookmarks.draft().clone();
+        let _ = self.tx_worker.send(crate::worker::WorkerRequest::Apply {
+            operation: Box::new(fepdf::Operation::UpdateOutlines(tree)),
+            done: self.tr("marks_written"),
+        });
     }
 }

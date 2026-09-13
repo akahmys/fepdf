@@ -1432,7 +1432,7 @@ impl PdfDocument {
     /// how many items were read, how many named no page of this document, and whether a
     /// `/Next` chain doubled back.
     #[must_use]
-    pub fn outlines(&self) -> (fepdf_model::document::extensions::OutlineTree, OutlineReport) {
+    pub fn outlines(&self) -> (OutlineTree, OutlineReport) {
         fepdf_doc::read_outlines(&self.inner)
     }
 

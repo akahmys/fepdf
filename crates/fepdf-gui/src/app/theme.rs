@@ -316,6 +316,15 @@ pub mod size {
     pub const REVEAL: f32 = 128.0;
     /// The bench's grid, at zoom 1.
     pub const GRID: f32 = 32.0;
+    /// The shortest the bookmark list is allowed to be before it starts scrolling.
+    ///
+    /// **A bound, because the fields that edit a bookmark sit under the list.** The list
+    /// took whatever height it wanted at first, and `fy05.pdf`'s 135 bookmarks put the
+    /// title field, the page field and every button 135 rows below the fold — a panel
+    /// whose controls could not be reached without scrolling past the thing they act on.
+    pub const TREE_MIN_H: f32 = 160.0;
+    /// How much of the drawer the bookmark list takes when there is room for more.
+    pub const TREE_SHARE: f32 = 0.55;
     /// The label column of a two-column property grid.
     ///
     /// Wide enough for the longest label the drawer carries — `代替テキスト (Alt Text):`,

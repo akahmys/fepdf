@@ -77,6 +77,30 @@ pub mod glyph {
     pub const PAGE_NEXT: &str = "\u{e06f}";
     /// `chevrons-right` — the last page.
     pub const PAGE_LAST: &str = "\u{e073}";
+    /// `bookmark` — the bookmark tree (12.3.3).
+    pub const MARKS: &str = "\u{e060}";
+    /// `bookmark-plus` — one more bookmark.
+    pub const MARK_ADD: &str = "\u{e23d}";
+    /// `trash` — this bookmark, and everything under it, goes.
+    pub const MARK_DELETE: &str = "\u{e18d}";
+    /// `arrow-up` — before the bookmark above.
+    pub const MARK_UP: &str = "\u{e04a}";
+    /// `arrow-down` — after the bookmark below.
+    pub const MARK_DOWN: &str = "\u{e042}";
+    /// `arrow-right` — under the bookmark above.
+    pub const MARK_IN: &str = "\u{e049}";
+    /// `arrow-left` — out to beside its parent.
+    pub const MARK_OUT: &str = "\u{e048}";
+    /// `check` — write the draft to the document.
+    pub const MARK_WRITE: &str = "\u{e06c}";
+    /// `rotate-ccw` — throw the draft away and take the document's tree back.
+    pub const MARK_REVERT: &str = "\u{e148}";
+    /// `chevron-down` — this bookmark's children are shown.
+    pub const TREE_OPEN: &str = "\u{e06d}";
+    /// `chevron-right` — they are hidden. The same codepoint as [`PAGE_NEXT`], which is
+    /// the same drawing meaning a different thing; this module names by meaning.
+    pub const TREE_SHUT: &str = "\u{e06f}";
+
     /// `x` — close. Lucide maps this one to ASCII `x` rather than to a private-use
     /// codepoint, which is harmless inside a family that holds nothing else.
     pub const CLOSE: &str = "\u{0078}";

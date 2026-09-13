@@ -52,6 +52,17 @@ pub enum Step {
     /// properties panel draws. Nothing else reaches that panel: the tree is a drawer, and
     /// a plan cannot click a row in it.
     Node(usize),
+    /// Choose a bookmark by its position, roots first: `mark 3` is the fourth root,
+    /// `mark 3 1` its second child.
+    Mark(Vec<usize>),
+    /// Retitle the chosen bookmark, as typing in the title field would.
+    MarkTitle(String),
+    /// Press the bookmark panel's write button, which sends one `UpdateOutlines`.
+    ///
+    /// **The last three lines of the panel are only reachable this way.** Choosing,
+    /// retitling and moving are all tested without egui; what a plan alone can show is
+    /// that the draft actually leaves the panel and reaches the document.
+    MarkWrite,
     /// Delete whatever is selected.
     Delete,
     /// Turn the selection a quarter clockwise.
@@ -199,6 +210,9 @@ fn parse(line: &str) -> Option<Step> {
                 parts.next()?.parse().ok()?,
             )
         }
+        "mark" => Step::Mark(rest.split_whitespace().filter_map(|n| n.parse().ok()).collect()),
+        "marktitle" => Step::MarkTitle(rest.to_owned()),
+        "markwrite" => Step::MarkWrite,
         "delete" => Step::Delete,
         "rotate" => Step::Rotate,
         "undo" => Step::Undo,
@@ -223,6 +237,7 @@ fn drawer(name: &str) -> Option<ActiveDrawer> {
         "redaction" => ActiveDrawer::Redaction,
         "caliper" => ActiveDrawer::Caliper,
         "tools" => ActiveDrawer::Tools,
+        "bookmarks" => ActiveDrawer::Bookmarks,
         _ => return None,
     })
 }
@@ -270,6 +285,12 @@ impl crate::app::FepdfApp {
         }
         let Some(step) = plan.next(idle) else {
             if plan.finished() {
+                // **The warning is answered before the close is asked for.** A document
+                // with edits cancels its own close and puts up "export, discard or stay"
+                // (`guard_close`), and a plan has no pointer to press any of the three
+                // with — so the first plan to apply an operation ran until it was killed.
+                // A plan that has run out is asking to end, and there is nobody to ask.
+                self.close_confirmed = true;
                 ctx.send_viewport_cmd(egui::ViewportCommand::Close);
             }
             return;
@@ -284,6 +305,9 @@ impl crate::app::FepdfApp {
                 self.view.active_page = page.saturating_sub(1);
             }
             Step::Node(id) => self.ust_registry.selected_node_id = Some(id),
+            Step::Mark(path) => self.bookmarks.choose(path),
+            Step::MarkTitle(title) => self.bookmarks.retitle(&title),
+            Step::MarkWrite => self.write_bookmarks(),
             Step::Wheel(x, y, steps) => self.wheel_zoom(x, y, steps),
             Step::Pin => self.controls_pinned = !self.controls_pinned,
             Step::SelectText => self.select_text_of_active_page(),

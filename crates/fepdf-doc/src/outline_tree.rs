@@ -22,6 +22,7 @@ use fepdf_model::destination::{Lookup, NamedDestinations, Target};
 use fepdf_model::document::extensions::{OutlineNode, OutlineTree};
 use fepdf_model::handle::Handle;
 use fepdf_model::object::{Object, PdfName};
+use std::cell::OnceCell;
 use std::collections::{BTreeMap, BTreeSet};
 
 /// How deep the `/First` chain is followed before the tree is taken to be looping.
@@ -52,8 +53,19 @@ pub struct OutlineReport {
 /// What the walk carries down and back up.
 struct Reader<'a> {
     arena: &'a PdfArena,
+    catalog: &'a Dict,
     pages: BTreeMap<Handle<Object>, usize>,
-    names: NamedDestinations,
+    /// **Collected on the first `/Dest` that needs a lookup, not before the walk.**
+    /// A destination written in place is an array, and resolving one consults no map, so
+    /// a document with a large `/Dests` tree and an outline that points at pages
+    /// directly need never pay for the tree.
+    ///
+    /// `intel_sdm.pdf` is not that document — it declares 279,501 named destinations and
+    /// its bookmarks name them, so the walk collects them and the read costs 74ms
+    /// against 0.8ms for `unicode_16.pdf`'s 1,319 bookmarks. That difference is the tree,
+    /// not the bookmarks. Measured 2026-09-14 with
+    /// `cargo run --release --example outline_survey -p fepdf`.
+    names: OnceCell<NamedDestinations>,
     seen: BTreeSet<Handle<Object>>,
     report: OutlineReport,
 }
@@ -79,8 +91,9 @@ pub fn read_outlines(doc: &Document) -> (OutlineTree, OutlineReport) {
 
     let mut reader = Reader {
         arena,
+        catalog: &dict,
         pages: page_handles(doc),
-        names: NamedDestinations::collect(arena, &dict),
+        names: OnceCell::new(),
         seen: BTreeSet::new(),
         report: OutlineReport::default(),
     };
@@ -137,7 +150,9 @@ impl Reader<'_> {
             // action's `/D` is a destination written one dictionary further down.
             None => go_to_destination(self.arena, dict.get(&self.arena.name("A"))?)?,
         };
-        let found = match self.names.resolve(&dest, self.arena) {
+        // An array is a destination written in place, and `resolve` answers it without
+        // consulting the maps — so ask before building them.
+        let found = match self.destinations(&dest).resolve(&dest, self.arena) {
             Lookup::Inline(d) | Lookup::Named(d) => d,
             Lookup::Dangling(_) | Lookup::Unreadable => return None,
         };
@@ -148,6 +163,18 @@ impl Reader<'_> {
         }
     }
 
+    /// The named-destination maps, empty until a `/Dest` is written as a name or a
+    /// string rather than as an array.
+    fn destinations(&self, dest: &Object) -> &NamedDestinations {
+        if let Some(collected) = self.names.get() {
+            return collected;
+        }
+        if matches!(dest.resolve(self.arena), Object::Array(_) | Object::Dictionary(_)) {
+            return EMPTY.get_or_init(NamedDestinations::default);
+        }
+        self.names.get_or_init(|| NamedDestinations::collect(self.arena, self.catalog))
+    }
+
     fn dict_of(&self, handle: Handle<Object>) -> Option<Dict> {
         self.arena.get_object(handle)?.as_dict_handle().and_then(|dh| self.arena.get_dict(dh))
     }
@@ -156,6 +183,10 @@ impl Reader<'_> {
         node_handle(self.arena, self.dict_of(handle)?.get(&self.arena.name(key))?)
     }
 }
+
+/// What [`Reader::destinations`] answers for a destination written in place: the maps
+/// are never consulted, so they are never built.
+static EMPTY: std::sync::OnceLock<NamedDestinations> = std::sync::OnceLock::new();
 
 /// An `/A` entry's destination, when the action is a go-to within this file (12.6.4.2).
 fn go_to_destination(arena: &PdfArena, action: &Object) -> Option<Object> {

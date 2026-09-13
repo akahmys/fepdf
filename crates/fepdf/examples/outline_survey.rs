@@ -5,14 +5,19 @@ fn main() {
     if args.is_empty() {
         args = glob_samples();
     }
-    println!("{:<24} {:>7} {:>9} {:>7}  first title", "file", "items", "placeless", "looped");
+    println!(
+        "{:<24} {:>7} {:>9} {:>7} {:>8}  first title",
+        "file", "items", "placeless", "looped", "read"
+    );
     for path in args {
         let Ok(bytes) = std::fs::read(&path) else { continue };
         let Ok(doc) = fepdf::PdfDocument::open(bytes.into()) else {
             println!("{path:<24} unreadable");
             continue;
         };
+        let started = std::time::Instant::now();
         let (tree, report) = fepdf_doc::read_outlines(doc.inner());
+        let took = started.elapsed();
         let name = std::path::Path::new(&path)
             .file_name()
             .map(|n| n.to_string_lossy().into_owned())
@@ -22,8 +27,8 @@ fn main() {
             |n| format!("{:?} → p{}", n.title, n.destination_page),
         );
         println!(
-            "{:<24} {:>7} {:>9} {:>7}  {}",
-            name, report.items, report.placeless, report.looped, first
+            "{:<24} {:>7} {:>9} {:>7} {:>7?}  {}",
+            name, report.items, report.placeless, report.looped, took, first
         );
     }
 }

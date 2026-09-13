@@ -196,6 +196,8 @@ pub struct FepdfApp {
     pub layers: Vec<fepdf::LayerRow>,
     /// Reading decisions recorded by the engine while opening or repairing the document (6.3.2.3).
     pub doc_decisions: Vec<fepdf::Decision>,
+    /// The bookmark tree, and the draft the reader is making of it (12.3.3).
+    pub bookmarks: crate::sidebar::bookmarks::BookmarkPanel,
     /// Whether there is an operation to take back, and one to put back.
     pub can_undo: bool,
     /// See [`Self::can_undo`].
@@ -330,6 +332,7 @@ impl FepdfApp {
             doc_fonts: Vec::new(),
             layers: Vec::new(),
             doc_decisions: Vec::new(),
+            bookmarks: crate::sidebar::bookmarks::BookmarkPanel::new(),
             pages_left_out: 0,
             locked: None,
             survey: crate::sidebar::what_it_does::Survey::default(),
@@ -376,6 +379,9 @@ impl FepdfApp {
                     self.raw_texts.clear();
                     self.page_spans.clear();
                 }
+                WorkerResponse::OutlinesChanged { tree, report } => {
+                    self.bookmarks.filed(*tree, report);
+                }
                 WorkerResponse::DocumentLoaded(loaded) => {
                     let crate::worker::LoadedDocument {
                         name,
@@ -391,7 +397,9 @@ impl FepdfApp {
                         viewer_direction,
                         layers,
                         decisions,
+                        outlines,
                     } = *loaded;
+                    self.bookmarks.filed(outlines.0, outlines.1);
                     self.layers = layers;
                     self.doc_decisions = decisions;
                     if name.is_some() {

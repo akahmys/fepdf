@@ -2,7 +2,7 @@
 
 use bytes::Bytes;
 use fepdf::{FallbackFontType, VelloBackend};
-use fepdf::{Operation, PageSelection, PdfDocument};
+use fepdf::{Operation, OutlineTree, PageSelection, PdfDocument};
 use std::sync::Arc;
 use std::sync::mpsc::{Receiver, Sender};
 use vello::Scene;
@@ -148,6 +148,8 @@ pub struct LoadedDocument {
     pub layers: Vec<fepdf::LayerRow>,
     /// Reading decisions recorded by the engine while opening or repairing the document (6.3.2.3).
     pub decisions: Vec<fepdf::Decision>,
+    /// The bookmark tree as the file holds it (12.3.3), and what the read cost.
+    pub outlines: (OutlineTree, fepdf::OutlineReport),
 }
 
 pub enum WorkerResponse {
@@ -187,6 +189,17 @@ pub enum WorkerResponse {
     /// saved.
     StructTreeChanged {
         root: Option<Box<crate::sidebar::USTNode>>,
+    },
+    /// The bookmark tree as the file now holds it, after an operation changed something.
+    ///
+    /// **Sent after every operation, not only after `UpdateOutlines`.** A bookmark names
+    /// a page, so removing, reordering, duplicating or inserting pages changes what the
+    /// existing bookmarks point at — and a panel keeping its own copy would go on showing
+    /// the old answer. Deciding here which operations can move a page would put the
+    /// vocabulary's business in the worker, which is `fepdf-doc`'s.
+    OutlinesChanged {
+        tree: Box<OutlineTree>,
+        report: fepdf::OutlineReport,
     },
     /// A layer was toggled: the panel's states have moved and the page needs redrawing.
     LayersChanged {
@@ -466,6 +479,8 @@ fn apply_recorded(
             if let Some(message) = done {
                 let _ = tx.send(WorkerResponse::OperationApplied { message });
             }
+            let (tree, report) = doc.outlines();
+            let _ = tx.send(WorkerResponse::OutlinesChanged { tree: Box::new(tree), report });
             let _ = tx.send(WorkerResponse::HistoryChanged {
                 can_undo: !history.applied.is_empty(),
                 can_redo: !history.undone.is_empty(),
@@ -685,6 +700,7 @@ fn handle_open(
                 viewer_direction,
                 layers: doc.layers().rows,
                 decisions,
+                outlines: doc.outlines(),
             })));
             Some(doc)
         }

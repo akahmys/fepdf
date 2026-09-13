@@ -1,4 +1,5 @@
 mod accessibility;
+pub mod bookmarks;
 pub mod document_info;
 pub mod layers;
 pub mod structure_tree;
@@ -29,6 +30,8 @@ pub enum ActiveDrawer {
     /// to say that seven of this window's twelve document operations could be reached
     /// only by a reader who already knew they existed (UI-4).
     Tools,
+    /// The bookmark tree, and the draft the reader is making of it (12.3.3).
+    Bookmarks,
 }
 
 impl ActiveDrawer {
@@ -37,13 +40,14 @@ impl ActiveDrawer {
     /// **The rail iterates this rather than naming its buttons**, so a drawer that
     /// exists has a door by construction (UI-4). `scripts/audit/reachability.py` holds
     /// this list against the enum, because an array cannot be exhaustive on its own.
-    pub const ALL: [Self; 6] = [
+    pub const ALL: [Self; 7] = [
         Self::DocumentInfo,
         Self::WhatItDoes,
         Self::Accessibility,
         Self::Redaction,
         Self::Caliper,
         Self::Tools,
+        Self::Bookmarks,
     ];
 
     /// The glyph the rail draws for it, and the locale key that names it.
@@ -60,6 +64,7 @@ impl ActiveDrawer {
             Self::Redaction => Some((glyph::REDACT, "tooltip_redact_brush")),
             Self::Caliper => Some((glyph::CALIPER, "tooltip_caliper_brush")),
             Self::Tools => Some((glyph::TOOLS, "tools_title")),
+            Self::Bookmarks => Some((glyph::MARKS, "marks_title")),
         }
     }
 }
