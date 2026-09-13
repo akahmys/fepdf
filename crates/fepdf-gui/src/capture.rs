@@ -308,7 +308,7 @@ impl crate::app::FepdfApp {
                 let _ = self.tx_worker.send(crate::worker::WorkerRequest::Redo);
             }
             Step::Palette => self.show_command_palette = true,
-            Step::Export => self.show_export_wizard = true,
+            Step::Export => self.open_export_wizard(),
             Step::Settings => self.show_settings_modal = true,
             Step::About => self.show_about_modal = true,
             Step::Language(lang) => self.active_language = lang,

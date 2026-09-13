@@ -22,6 +22,22 @@ enum Answer {
     GiveUp,
 }
 
+/// What the reader can do about edits that have not been written anywhere.
+///
+/// **Three, because the warning is about the one that used to be missing.** It said
+/// the document had edits that had not been exported and then offered to keep it open
+/// or to throw them away — so the reader had to dismiss it, find the export button
+/// behind it, and close again. The act it names is now one of the answers.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum CloseChoice {
+    /// Cancel the close and leave everything as it is.
+    Keep,
+    /// Cancel the close and open the export wizard.
+    Export,
+    /// Close, losing the edits.
+    Discard,
+}
+
 impl FepdfApp {
     pub(crate) fn show_export_wizard_window(&mut self, ctx: &egui::Context) {
         crate::export_wizard::ExportWizard::show(self, ctx);
@@ -212,7 +228,7 @@ impl FepdfApp {
             return;
         }
         let tr = |key: &str| self.locale_mgr.tr(&self.active_language, key);
-        let mut decision = None;
+        let mut chosen = None;
 
         egui::Window::new("close_confirmation")
             .title_bar(false)
@@ -226,9 +242,13 @@ impl FepdfApp {
                 ui.add_space(space::GROUP);
                 ui.label(egui::RichText::new(tr("close_edited_body")).size(text::BODY));
                 ui.add_space(space::PANE);
+                // Left to right by what each costs: nothing, a detour, the edits.
                 ui.horizontal(|ui| {
                     if ui.button(tr("close_keep")).clicked() {
-                        decision = Some(false);
+                        chosen = Some(CloseChoice::Keep);
+                    }
+                    if ui.button(tr("close_export")).clicked() {
+                        chosen = Some(CloseChoice::Export);
                     }
                     if ui
                         .button(
@@ -237,20 +257,28 @@ impl FepdfApp {
                         )
                         .clicked()
                     {
-                        decision = Some(true);
+                        chosen = Some(CloseChoice::Discard);
                     }
                 });
                 ui.add_space(space::ITEM);
             });
 
-        match decision {
-            Some(true) => {
-                self.confirming_close = false;
+        if let Some(chosen) = chosen {
+            self.act_on_close_choice(chosen, ctx);
+        }
+    }
+
+    /// Carries out what the reader chose. Every one of the three cancels the dialog;
+    /// only the last of them lets the window go.
+    fn act_on_close_choice(&mut self, chosen: CloseChoice, ctx: &egui::Context) {
+        self.confirming_close = false;
+        match chosen {
+            CloseChoice::Keep => {}
+            CloseChoice::Export => self.open_export_wizard(),
+            CloseChoice::Discard => {
                 self.close_confirmed = true;
                 ctx.send_viewport_cmd(egui::ViewportCommand::Close);
             }
-            Some(false) => self.confirming_close = false,
-            None => {}
         }
     }
 

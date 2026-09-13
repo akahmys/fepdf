@@ -66,7 +66,7 @@ impl FepdfApp {
         // fade took this button to 1.23:1 — below the point at which it says the feature
         // exists at all. `icon_button_disabled` holds 3:1 on every surface it can sit on.
         if icon_action(ui, glyph::EXPORT, false, has_doc, &tip_export).clicked() && has_doc {
-            self.show_export_wizard = true;
+            self.open_export_wizard();
         }
     }
 

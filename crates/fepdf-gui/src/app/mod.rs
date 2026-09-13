@@ -589,7 +589,7 @@ impl FepdfApp {
         }
         if ui.input(|i| i.modifiers.command && i.key_pressed(egui::Key::E)) && self.total_pages > 0
         {
-            self.show_export_wizard = true;
+            self.open_export_wizard();
         }
         if ui.input(|i| i.modifiers.command && i.key_pressed(egui::Key::K)) {
             self.show_command_palette = !self.show_command_palette;
@@ -648,6 +648,16 @@ impl FepdfApp {
     /// `CloseRequested` appeared nowhere in this crate: thirty pages could be deleted and
     /// the window closed on them without a word. `History::edited` is the answer to the
     /// question and this is the only place that asks it.
+    /// Opens the export wizard.
+    ///
+    /// **One place, reached from more than one control.** The rail's button, `Cmd+E`, the
+    /// palette and the warning shown when a document with edits is closed all want the
+    /// same thing to happen; each setting the flag itself is four copies of one act, which
+    /// is what UI-12 is about. Two of them existed before the warning asked for a third.
+    pub(crate) fn open_export_wizard(&mut self) {
+        self.show_export_wizard = true;
+    }
+
     fn guard_close(&mut self, ctx: &egui::Context) {
         if !ctx.input(|i| i.viewport().close_requested()) {
             return;

@@ -120,7 +120,7 @@ impl CommandPalette {
                                 };
                                 app.caliper_tool.is_active = !is_caliper;
                             }
-                            "Export PDF" => app.show_export_wizard = true,
+                            "Export PDF" => app.open_export_wizard(),
                             "Reading Order" => app.show_reading_order = !app.show_reading_order,
                             "Redaction Studio" => {
                                 app.active_drawer = if app.active_drawer
