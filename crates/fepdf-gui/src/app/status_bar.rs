@@ -278,15 +278,16 @@ impl FepdfApp {
     /// The page counter and the four buttons around it, reading first, previous, `n/N`,
     /// next, last.
     fn page_group(&mut self, ui: &mut egui::Ui, current_page: usize) {
+        let viewport = self.last_viewport_rect.unwrap_or_else(|| ui.max_rect());
         if icon_action(ui, glyph::PAGE_FIRST, false, true, &self.tr("tooltip_page_first")).clicked()
         {
-            self.view.scroll_to_page(0, &self.page_layouts);
+            self.view.scroll_to_page(0, viewport, &self.page_layouts);
         }
 
         if icon_action(ui, glyph::PAGE_PREV, false, true, &self.tr("tooltip_page_prev")).clicked()
             && current_page > 0
         {
-            self.view.scroll_to_page(current_page - 1, &self.page_layouts);
+            self.view.scroll_to_page(current_page - 1, viewport, &self.page_layouts);
         }
 
         ui.label(
@@ -298,11 +299,11 @@ impl FepdfApp {
         if icon_action(ui, glyph::PAGE_NEXT, false, true, &self.tr("tooltip_page_next")).clicked()
             && current_page + 1 < self.total_pages
         {
-            self.view.scroll_to_page(current_page + 1, &self.page_layouts);
+            self.view.scroll_to_page(current_page + 1, viewport, &self.page_layouts);
         }
 
         if icon_action(ui, glyph::PAGE_LAST, false, true, &self.tr("tooltip_page_last")).clicked() {
-            self.view.scroll_to_page(self.total_pages - 1, &self.page_layouts);
+            self.view.scroll_to_page(self.total_pages - 1, viewport, &self.page_layouts);
         }
     }
 }

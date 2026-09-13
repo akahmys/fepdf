@@ -323,7 +323,8 @@ impl FepdfApp {
         if response.double_clicked() && zoom < crate::view::PDFView::TILE_ZOOM {
             self.view.set_zoom(1.0);
             self.compute_layouts();
-            self.view.scroll_to_page(page_idx, &self.page_layouts);
+            let viewport = self.last_viewport_rect.unwrap_or_else(|| ui.max_rect());
+            self.view.scroll_to_page(page_idx, viewport, &self.page_layouts);
         }
 
         let is_r2l = self.view.binding_direction == crate::view::BindingDirection::RightToLeft;

@@ -569,6 +569,30 @@ impl PDFView {
         self.active_page = anchor.page;
     }
 
+    /// Puts `page` in the middle of the window along the axis it scrolls, or against the
+    /// near edge when it is too big to fit there.
+    ///
+    /// The other axis goes to zero: a column of pages is centred on the window by its
+    /// origin, and a pan sideways is the reader's to make.
+    fn place_along_the_scroll(&mut self, page: egui::Rect, viewport: egui::Rect) {
+        let origin = self.get_origin_no_pan(viewport);
+        if self.scroll_direction == ScrollDirection::Vertical {
+            self.pan.y = if page.height() * self.zoom <= viewport.height() {
+                page.center().y.mul_add(-self.zoom, viewport.center().y - origin.y)
+            } else {
+                -page.min.y * self.zoom
+            };
+            self.pan.x = 0.0;
+        } else {
+            self.pan.x = if page.width() * self.zoom <= viewport.width() {
+                page.center().x.mul_add(-self.zoom, viewport.center().x - origin.x)
+            } else {
+                -page.min.x * self.zoom
+            };
+            self.pan.y = 0.0;
+        }
+    }
+
     /// The page the reader is on, by the one rule two things read it by.
     ///
     /// **In the tiles it is the page they are on; in the page view it is the page in the
@@ -595,19 +619,26 @@ impl PDFView {
         self.layout_under(viewport.center(), origin, self.zoom, layouts).map(|layout| layout.index)
     }
 
-    pub fn scroll_to_page(&mut self, page_index: usize, layouts: &[PageLayout]) {
+    /// Moves the view to `page_index` and makes it the current one.
+    ///
+    /// **Centred if it fits, and otherwise placed by its top edge.** Going to a page is
+    /// going to look at it, and a page that fits in the window with its top against the
+    /// top edge reads as a page that has been scrolled past. One taller than the window
+    /// cannot be centred usefully — centring shows its middle, and the reader wants to
+    /// start at the top — so the two are not one rule with a nicer name but two, chosen by
+    /// measurement.
+    pub fn scroll_to_page(
+        &mut self,
+        page_index: usize,
+        viewport: egui::Rect,
+        layouts: &[PageLayout],
+    ) {
         self.active_page = page_index;
         if self.display_mode == DisplayMode::Continuous
             || self.display_mode == DisplayMode::TwoPageSpread
         {
             if let Some(layout) = layouts.get(page_index) {
-                if self.scroll_direction == ScrollDirection::Vertical {
-                    self.pan.y = -layout.rect.min.y * self.zoom;
-                    self.pan.x = 0.0;
-                } else {
-                    self.pan.x = -layout.rect.min.x * self.zoom;
-                    self.pan.y = 0.0;
-                }
+                self.place_along_the_scroll(layout.rect, viewport);
             }
         } else if self.display_mode == DisplayMode::TwoPageSingle {
             // In TwoPageSingle, we center the active spread's bounding box relative to origin
@@ -1411,7 +1442,7 @@ impl PDFView {
     /// its `RR-15 Limit: GUI` was paying for. Two axes deciding the same thing separately
     /// is the shape [`CODING.md`'s Rule D](../../../CODING.md) names for frontends, arrived
     /// at inside one.
-    fn page_forward(&mut self, layouts: &[PageLayout]) -> bool {
+    fn page_forward(&mut self, viewport: egui::Rect, layouts: &[PageLayout]) -> bool {
         let total_pages = layouts.len();
         let next = if self.display_mode == DisplayMode::TwoPageSingle {
             self.get_spread_indices(self.active_page, total_pages)
@@ -1422,11 +1453,11 @@ impl PDFView {
         } else {
             (self.active_page + 1 < total_pages).then_some(self.active_page + 1)
         };
-        self.step_to(next, layouts)
+        self.step_to(next, viewport, layouts)
     }
 
     /// Moves to the page or spread before the current one, and says whether there was one.
-    fn page_back(&mut self, layouts: &[PageLayout]) -> bool {
+    fn page_back(&mut self, viewport: egui::Rect, layouts: &[PageLayout]) -> bool {
         let prev = if self.display_mode == DisplayMode::TwoPageSingle {
             self.get_spread_indices(self.active_page, layouts.len())
                 .first()
@@ -1436,15 +1467,20 @@ impl PDFView {
         } else {
             (self.active_page > 0).then_some(self.active_page.saturating_sub(1))
         };
-        self.step_to(prev, layouts)
+        self.step_to(prev, viewport, layouts)
     }
 
     /// Scrolls to `target` and forgets what the overscroll had accumulated getting there.
-    fn step_to(&mut self, target: Option<usize>, layouts: &[PageLayout]) -> bool {
+    fn step_to(
+        &mut self,
+        target: Option<usize>,
+        viewport: egui::Rect,
+        layouts: &[PageLayout],
+    ) -> bool {
         let Some(target) = target else {
             return false;
         };
-        self.scroll_to_page(target, layouts);
+        self.scroll_to_page(target, viewport, layouts);
         self.overscroll_accumulator = egui::Vec2::ZERO;
         true
     }
@@ -1532,12 +1568,12 @@ impl PDFView {
                 if self.overscroll_accumulator.y.abs() > threshold {
                     if self.overscroll_accumulator.y < 0.0 {
                         // Pulled up / past bottom -> next page/spread
-                        if self.page_forward(layouts) {
+                        if self.page_forward(viewport_rect, layouts) {
                             return;
                         }
                     } else {
                         // Pulled down / past top -> prev page/spread
-                        if self.page_back(layouts) {
+                        if self.page_back(viewport_rect, layouts) {
                             return;
                         }
                     }
@@ -1557,12 +1593,12 @@ impl PDFView {
                         || (self.overscroll_accumulator.x > 0.0 && is_r2l)
                     {
                         // Go to next page/spread
-                        if self.page_forward(layouts) {
+                        if self.page_forward(viewport_rect, layouts) {
                             return;
                         }
                     } else {
                         // Go to prev page/spread
-                        if self.page_back(layouts) {
+                        if self.page_back(viewport_rect, layouts) {
                             return;
                         }
                     }
@@ -1693,7 +1729,7 @@ mod arrangement_crossing {
         let pages = column(25);
         view.set_zoom(1.0);
         view.restore_anchor(None, WINDOW, &pages);
-        view.scroll_to_page(10, &pages);
+        view.scroll_to_page(10, WINDOW, &pages);
 
         let cursor = egui::pos2(700.0, 300.0);
         view.zoom_at(0.25, cursor, WINDOW, &pages);
@@ -1720,7 +1756,7 @@ mod arrangement_crossing {
         let pages = column(25);
         view.set_zoom(1.0);
         view.restore_anchor(None, WINDOW, &pages);
-        view.scroll_to_page(10, &pages); // the grid's first column, second row
+        view.scroll_to_page(10, WINDOW, &pages); // the grid's first column, second row
 
         let cursor = egui::pos2(750.0, 300.0);
         view.zoom_at(0.25, cursor, WINDOW, &pages);
@@ -1747,7 +1783,7 @@ mod arrangement_crossing {
         let pages = column(25);
         view.set_zoom(1.0);
         view.restore_anchor(None, WINDOW, &pages);
-        view.scroll_to_page(10, &pages);
+        view.scroll_to_page(10, WINDOW, &pages);
 
         // The gesture: the page being read is remembered, then the zoom crosses.
         view.centre_next = view.page_at_middle(WINDOW, &pages);
@@ -1766,6 +1802,44 @@ mod arrangement_crossing {
         assert!(view.centre_next.is_none(), "the request outlived the gesture");
     }
 
+    /// **Going to a page is going to look at it.** The page buttons put the page's top
+    /// edge against the top of the window, which reads as a page that has been scrolled
+    /// past rather than one that has been gone to. It is centred when it fits.
+    #[test]
+    fn going_to_a_page_that_fits_puts_it_in_the_middle() {
+        let mut view = PDFView::new();
+        view.display_mode = DisplayMode::Continuous;
+        let pages = column(25);
+        // A letter page at 50% is 396 tall against a window of 800.
+        view.set_zoom(0.5);
+        view.restore_anchor(None, WINDOW, &pages);
+        view.scroll_to_page(8, WINDOW, &pages);
+
+        let middle = pages[8].rect.center().y.mul_add(view.zoom(), view.get_origin(WINDOW).y);
+        assert!(
+            (middle - WINDOW.center().y).abs() < 1.0,
+            "page 8's middle came out at {middle}, not {}",
+            WINDOW.center().y
+        );
+    }
+
+    /// And a page taller than the window starts at its top, because centring one shows
+    /// its middle and the reader wants to begin at the beginning.
+    #[test]
+    fn going_to_a_page_taller_than_the_window_puts_its_top_at_the_top() {
+        let mut view = PDFView::new();
+        view.display_mode = DisplayMode::Continuous;
+        let pages = column(25);
+        // The same page at 2x is 1,584 tall against the same 800.
+        view.set_zoom(2.0);
+        view.restore_anchor(None, WINDOW, &pages);
+        view.scroll_to_page(8, WINDOW, &pages);
+
+        let top = pages[8].rect.min.y.mul_add(view.zoom(), view.get_origin(WINDOW).y);
+        let want = view.get_origin_no_pan(WINDOW).y;
+        assert!((top - want).abs() < 1.0, "page 8's top came out at {top}, not {want}");
+    }
+
     /// **Two things read "which page am I on" and they read the same rule.** The line
     /// under a page number in the tiles and the counter in the view controls disagreed
     /// once — the counter answered with whatever tile the scroll had left in the middle of
@@ -1777,7 +1851,7 @@ mod arrangement_crossing {
         let pages = column(25);
         view.set_zoom(1.0);
         view.restore_anchor(None, WINDOW, &pages);
-        view.scroll_to_page(8, &pages);
+        view.scroll_to_page(8, WINDOW, &pages);
         assert_eq!(view.current_page(WINDOW, &pages), 8, "the page view reads its middle");
 
         // In the tiles, scrolling past a page is not being on it.
