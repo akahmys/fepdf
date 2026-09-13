@@ -195,16 +195,14 @@ impl FepdfApp {
     /// than hidden, they also say that the window has a history at all.
     fn history_group(&mut self, ui: &mut egui::Ui) {
         let undo_name = self.tr("tooltip_undo");
-        if icon_action(ui, glyph::UNDO, false, self.can_undo, &undo_name).clicked() && self.can_undo
-        {
+        if icon_action(ui, glyph::UNDO, false, self.can_undo, &undo_name).clicked() {
             self.can_undo = false;
             self.begin_rebuild("history_undoing");
             let _ = self.tx_worker.send(crate::worker::WorkerRequest::Undo);
         }
 
         let redo_name = self.tr("tooltip_redo");
-        if icon_action(ui, glyph::REDO, false, self.can_redo, &redo_name).clicked() && self.can_redo
-        {
+        if icon_action(ui, glyph::REDO, false, self.can_redo, &redo_name).clicked() {
             self.can_redo = false;
             self.begin_rebuild("history_redoing");
             let _ = self.tx_worker.send(crate::worker::WorkerRequest::Redo);
@@ -238,15 +236,22 @@ impl FepdfApp {
     }
 
     /// How the pages are arranged, reading continuous, single, spread.
+    ///
+    /// **Only the continuous arrangement has tiles.** Single-page and spread lay one page
+    /// or one pair out and draw nothing else, so pressing either from the grid replaced a
+    /// screen of pages with one small sheet and no way back but the zoom. They are
+    /// unavailable until the reader is looking at pages again.
     fn mode_group(&mut self, ui: &mut egui::Ui) {
+        let tiles = self.view.selects_pages();
         for (mode, icon, key) in [
             (DisplayMode::Continuous, glyph::PAGE_CONTINUOUS, "tooltip_view_continuous"),
             (DisplayMode::SinglePage, glyph::PAGE_SINGLE, "tooltip_view_single"),
             (DisplayMode::TwoPageSpread, glyph::PAGE_SPREAD, "tooltip_view_spread"),
         ] {
             let selected = self.view.display_mode == mode;
+            let available = !tiles || mode == DisplayMode::Continuous;
             let tip = self.tr(key);
-            if icon_action(ui, icon, selected, true, &tip).clicked() {
+            if icon_action(ui, icon, selected, available, &tip).clicked() {
                 self.view.display_mode = mode;
                 self.compute_layouts();
             }

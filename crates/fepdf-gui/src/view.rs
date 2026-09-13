@@ -92,10 +92,11 @@ pub struct PDFView {
     /// A page to put in the middle of the window at the next change of arrangement,
     /// instead of carrying the cursor's anchor across it.
     ///
-    /// **One gesture asks for this and it is the double-click on the bench.** Every other
-    /// way into the tiles is a zoom, where the cursor is pointing at something and holding
-    /// it still is the whole rule; a double-click on the empty bench is pointing at
-    /// nothing, and what the reader wants back is the page they were reading.
+    /// **Two gestures ask for this and both are double-clicks.** Every other way across
+    /// the tile boundary is a zoom, where the cursor is pointing at something and holding
+    /// it still is the whole rule. A double-click on the bench points at nothing and what
+    /// the reader wants back is the page they were reading; a double-click on a tile
+    /// points at one page and says open it. Both are answered by [`Self::open_page`].
     centre_next: Option<usize>,
 }
 
@@ -531,6 +532,19 @@ impl PDFView {
         let size = layout.rect.size();
         let local = egui::vec2(local.x.clamp(0.0, size.x), local.y.clamp(0.0, size.y));
         Some(Anchor { page: layout.index, local })
+    }
+
+    /// Asks for `page` to be put in the middle of the window once the pages have been
+    /// laid out again.
+    ///
+    /// **The intent, not the placement.** The layout the page will be placed into does
+    /// not exist yet — the zoom that changes the arrangement has not been applied and the
+    /// rectangles have not been recomputed — so the gesture records what it wants and
+    /// `compute_layouts` answers it. Doing it by hand was three steps in the caller
+    /// (`set_zoom`, recompute, scroll) and the one path across that boundary that did not
+    /// go through the anchor.
+    pub fn open_page(&mut self, page: usize) {
+        self.centre_next = Some(page);
     }
 
     /// Puts the anchored point back under the cursor, in the new arrangement.
@@ -1272,8 +1286,10 @@ impl PDFView {
             // Going out to the tiles, the page being read comes to the middle of the
             // window wherever the pointer was: this is a double-click on the bench, which
             // points at nothing.
-            if self.is_page_view() {
-                self.centre_next = self.page_at_middle(viewport_rect, layouts);
+            if self.is_page_view()
+                && let Some(page) = self.page_at_middle(viewport_rect, layouts)
+            {
+                self.open_page(page);
             }
             let target_zoom = if self.is_page_view() { Self::TILE_STEP } else { 1.0 };
             self.zoom_at(target_zoom, pos, viewport_rect, layouts);
@@ -1771,6 +1787,34 @@ mod arrangement_crossing {
         let (after, after_local) = under(&view, cursor, &tiles);
         assert_eq!(after, chosen);
         assert!((after_local - local).length() < 1.0, "it came out at {after_local:?}");
+    }
+
+    /// **A double-click on a tile opens that page, in the middle of the window**, by the
+    /// same route as the one on the bench. It used to rebuild the layout in the caller and
+    /// scroll into it — the one way across the tile boundary that did not go through the
+    /// anchor, and so the one whose landing had to be reasoned about separately.
+    #[test]
+    fn a_double_click_on_a_tile_opens_that_page_in_the_middle() {
+        let mut view = PDFView::new();
+        view.display_mode = DisplayMode::Continuous;
+        let tiles = grid(25);
+        view.set_zoom(0.2);
+        view.restore_anchor(None, WINDOW, &tiles);
+
+        // The gesture: name the page, then leave the tiles.
+        view.open_page(17);
+        view.set_zoom(1.0);
+        assert!(view.arrangement_is_changing(), "the crossing went unnoticed");
+        let pages = column(25);
+        view.restore_anchor(view.take_anchor(WINDOW, &tiles), WINDOW, &pages);
+
+        assert_eq!(view.active_page, 17);
+        let middle = view.get_origin(WINDOW) + pages[17].rect.center().to_vec2() * view.zoom();
+        assert!(
+            (middle - WINDOW.center()).length() < 1.0,
+            "page 17 came out centred on {middle:?}, not {:?}",
+            WINDOW.center()
+        );
     }
 
     /// **A double-click on the bench brings the page back to the middle**, wherever the

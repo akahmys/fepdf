@@ -315,16 +315,13 @@ impl FepdfApp {
             }
         }
 
-        // Double-clicking a tile opens that page. **The layout has to be rebuilt between
-        // the two.** `scroll_to_page` places the view from the rectangle the page has in
-        // the layout it is handed, and the layout in hand is the grid the double-click
-        // just left: page 25 is at `2 * 954` there and at `25 * 890` in a column, so
-        // scrolling with the grid's rectangle lands near the front of the document.
+        // Double-clicking a tile opens that page, in the middle of the window — the same
+        // answer a double-click on the bench gives for the page being read, and by the
+        // same route. It used to rebuild the layout itself and scroll into it, which was
+        // the one way across the tile boundary that did not go through the anchor.
         if response.double_clicked() && zoom < crate::view::PDFView::TILE_ZOOM {
+            self.view.open_page(page_idx);
             self.view.set_zoom(1.0);
-            self.compute_layouts();
-            let viewport = self.last_viewport_rect.unwrap_or_else(|| ui.max_rect());
-            self.view.scroll_to_page(page_idx, viewport, &self.page_layouts);
         }
 
         let is_r2l = self.view.binding_direction == crate::view::BindingDirection::RightToLeft;

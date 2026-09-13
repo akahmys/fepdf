@@ -94,7 +94,12 @@ pub fn icon_action(
     name: &str,
 ) -> egui::Response {
     let button = if enabled { icon_button(glyph, is_active) } else { icon_button_disabled(glyph) };
-    named(ui.add(button), enabled, name)
+    // **`add_enabled`, not `add`.** A control drawn as unavailable used to be fully
+    // clickable: `enabled` picked the colour and nothing else, so every caller with a
+    // reason to disable one had to repeat that reason at the call site — `undo` and `redo`
+    // each carried `&& self.can_undo` behind `.clicked()`, and a caller that forgot would
+    // have had a grey button that worked.
+    named(ui.add_enabled(enabled, button), enabled, name)
 }
 
 /// Gives `response` a name — to a screen reader and to the pointer alike.
