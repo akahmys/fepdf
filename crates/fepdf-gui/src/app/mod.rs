@@ -7,6 +7,7 @@ mod page_ops;
 mod side_panels;
 mod status_bar;
 pub mod theme;
+mod view_controls;
 mod view_panel;
 
 use crate::interaction::{SelectionManager, TextSpan};
