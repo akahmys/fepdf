@@ -301,6 +301,7 @@
   "tooltip_bound_left": "左綴じ — ページは左から右へ",
   "tooltip_bound_right": "右綴じ — ページは右から左へ",
   "tooltip_caliper_brush": "CAD計測 (キャリパー)",
+  "tooltip_centre_page": "現在のページを中央へ",
   "tooltip_command_palette": "コマンドパレット (Ctrl+K / ⌘K)",
   "tooltip_delete_page": "選択ページを削除",
   "tooltip_export_pdf": "PDFをエクスポート (Ctrl+E)",

@@ -53,6 +53,8 @@ pub mod glyph {
     pub const PAGE_CONTINUOUS: &str = "\u{e439}";
     /// `book-open` — two pages facing.
     pub const PAGE_SPREAD: &str = "\u{e05f}";
+    /// `crosshair` — put the page the reader is on in the middle of the window.
+    pub const CENTRE: &str = "\u{e0ac}";
     /// `panel-left` — the spine is on the left, so the pages run left to right.
     pub const BOUND_LEFT: &str = "\u{e12a}";
     /// `panel-right` — the spine is on the right, and the pages run the other way.

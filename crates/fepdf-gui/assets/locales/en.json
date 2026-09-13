@@ -301,6 +301,7 @@
   "tooltip_bound_left": "Left-bound — the pages run left to right",
   "tooltip_bound_right": "Right-bound — the pages run right to left",
   "tooltip_caliper_brush": "CAD Caliper",
+  "tooltip_centre_page": "Bring the current page to the middle",
   "tooltip_command_palette": "Command palette (Ctrl+K / Cmd+K)",
   "tooltip_delete_page": "Delete selected page",
   "tooltip_export_pdf": "Export PDF (Ctrl+E)",

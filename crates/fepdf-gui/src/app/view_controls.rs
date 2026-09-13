@@ -219,5 +219,12 @@ impl FepdfApp {
         if icon_action(ui, glyph::PAGE_LAST, false, true, &self.tr("tooltip_page_last")).clicked() {
             self.view.scroll_to_page(self.total_pages - 1, viewport, &self.page_layouts);
         }
+
+        // **With the pages rather than with the zoom.** It answers "where was I", which is
+        // the question the four buttons beside it are already about; the zoom's question
+        // is how close.
+        if icon_action(ui, glyph::CENTRE, false, true, &self.tr("tooltip_centre_page")).clicked() {
+            self.view.centre_current_page(viewport, &self.page_layouts);
+        }
     }
 }

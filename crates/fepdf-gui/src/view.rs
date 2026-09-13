@@ -618,6 +618,23 @@ impl PDFView {
         }
     }
 
+    /// Brings the page the reader is on to the middle of the window.
+    ///
+    /// **In either arrangement, because the question is the same in both.** A column
+    /// leaves a page wherever the scroll left it and the grid hangs from its binding edge,
+    /// so "where was I" and "put it in front of me" are two different things in each. The
+    /// page is the one [`Self::current_page`] names — the same one the counter reads and
+    /// the rule under a number marks.
+    pub fn centre_current_page(&mut self, viewport: egui::Rect, layouts: &[PageLayout]) {
+        let page = self.current_page(viewport, layouts);
+        let Some(layout) = layouts.get(page) else {
+            return;
+        };
+        let origin = self.get_origin_no_pan(viewport);
+        self.pan = viewport.center() - origin - layout.rect.center().to_vec2() * self.zoom;
+        self.active_page = page;
+    }
+
     /// The page the reader is on, by the one rule two things read it by.
     ///
     /// **In the tiles it is the page they are on; in the page view it is the page in the
@@ -1254,6 +1271,30 @@ mod arrangement_crossing {
         let pitch = (pages[11].rect.min.y - pages[8].rect.min.y) * view.zoom();
         assert!((view.pan.y - (was - pitch)).abs() < 0.01, "moved by {}", was - view.pan.y);
         assert_eq!(view.active_page, 11);
+    }
+
+    /// **The same button works in both arrangements, and has something to do in each.**
+    /// The grid hangs from its binding edge and the reader scrolls away from the page
+    /// they were on; the column leaves it wherever the scroll left it.
+    #[test]
+    fn centring_brings_the_current_page_to_the_middle_of_the_window() {
+        for (zoom, layouts) in [(0.2_f32, grid(25)), (1.0, column(25))] {
+            let mut view = PDFView::new();
+            view.display_mode = DisplayMode::Continuous;
+            view.set_zoom(zoom);
+            view.restore_anchor(None, WINDOW, &layouts);
+            view.active_page = 12;
+            view.pan = egui::vec2(-300.0, -4000.0); // scrolled somewhere else entirely
+
+            let page = view.current_page(WINDOW, &layouts);
+            view.centre_current_page(WINDOW, &layouts);
+            let middle = view.get_origin(WINDOW) + layouts[page].rect.center().to_vec2() * zoom;
+            assert!(
+                (middle - WINDOW.center()).length() < 0.01,
+                "at {zoom}x the page came out centred on {middle:?}, not {:?}",
+                WINDOW.center()
+            );
+        }
     }
 
     /// **Two things read "which page am I on" and they read the same rule.** The line
