@@ -254,16 +254,28 @@ impl FepdfApp {
         }
     }
 
+    /// Every window that floats over the document, in the order they stack.
+    ///
+    /// **A list, and only a list.** Two of the seven used to be written out here — the tag
+    /// popup and the settings window, about ninety lines between them — so the one place
+    /// that says what the windows *are* was also the place two of them lived, and it
+    /// carried a length exemption for the privilege.
     pub(crate) fn render_overlay_windows(&mut self, ctx: &egui::Context) {
-        // RR-15 Limit: GUI - Renders various overlay windows, tool wizards, and popup alerts
         if self.show_export_wizard {
             self.show_export_wizard_window(ctx);
         }
-
-        // Show Command Palette window overlay
         crate::command_palette::CommandPalette::show(self, ctx);
+        self.show_tag_popup(ctx);
+        self.show_settings_window(ctx);
+        self.show_about_modal_window(ctx);
+        self.show_close_confirmation(ctx);
+        // Last, so it draws over everything: a locked document has nothing behind this
+        // worth interacting with.
+        self.show_password_prompt(ctx);
+    }
 
-        // Show interactive Create Semantic Tag popup dialog on visual tag selector brush highlights
+    /// Asks what a brushed selection should be tagged as.
+    fn show_tag_popup(&mut self, ctx: &egui::Context) {
         if let Some(req) = self.selection_manager.pending_tag_request.clone() {
             let mut show_popup = true;
             let popup_title = self.locale_mgr.tr(&self.active_language, "tag_popup_title");
@@ -309,8 +321,10 @@ impl FepdfApp {
                 self.selection_manager.pending_tag_request = None;
             }
         }
+    }
 
-        // Show Settings Modal
+    /// The settings window.
+    fn show_settings_window(&mut self, ctx: &egui::Context) {
         if self.show_settings_modal {
             let mut show_settings = true;
             let title = self.locale_mgr.tr(&self.active_language, "settings_title");
@@ -357,14 +371,5 @@ impl FepdfApp {
                 self.show_settings_modal = false;
             }
         }
-
-        // Show About Modal
-        self.show_about_modal_window(ctx);
-
-        self.show_close_confirmation(ctx);
-
-        // Last, so it draws over everything: a locked document has nothing behind this
-        // worth interacting with.
-        self.show_password_prompt(ctx);
     }
 }

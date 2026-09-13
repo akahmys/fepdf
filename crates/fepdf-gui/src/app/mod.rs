@@ -781,25 +781,24 @@ impl eframe::App for FepdfApp {
         self.guard_close(&ctx);
         self.handle_keyboard_shortcuts(ui);
 
-        // 1. Bottom status bar (with page navigation & zoom controls)
+        // **The window, outside in.** Each of these takes what it needs from the space
+        // that is left, so the order is the layout: the bar and the rail claim their
+        // edges, the drawer takes a column beside the rail, and the canvas is what
+        // remains. The last three float over all of it.
+        //
+        // The numbers went 1, 2, 3, 4, 5, 5, 6 for as long as it took to notice — which
+        // is what a hand-kept list does, and why the two floating ones are named rather
+        // than counted.
         self.render_status_bar(ui);
-
-        // 2. Left vertical icon bar (file ops, drawer toggles, utilities)
         self.render_left_icon_bar(ui);
-
-        // 3. Left utility drawer (when active)
         self.render_side_drawer(ui);
-
-        // 4. Central PDF view canvas (full width main panel)
         self.update_vello(ui, frame);
 
-        // 5. The view's own controls, floating over it
+        // Over the canvas: the view's own controls, then anything modal over those.
         self.render_view_controls(ui);
-
-        // 5. Floating modals & dialogs
         self.render_overlay_windows(&ctx);
 
-        // 6. Last, so a screenshot catches what the five above drew.
+        // Last of all, so a screenshot catches what everything above drew.
         self.drive_capture(&ctx);
     }
 }
