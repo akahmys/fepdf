@@ -312,14 +312,20 @@ pub struct PdfDocument {
 }
 
 impl PdfDocument {
-    /// Creates a new empty PDF 2.0 document.
+    /// Creates a new PDF 2.0 document holding one blank Letter page.
+    ///
+    /// **The offsets are counted, not typed.** This was a byte string with its
+    /// cross-reference table written out by hand, and all four numbers in it were wrong:
+    /// object 2 was declared at 60 and lay at 58, object 3 at 120 and lay at 115, and
+    /// `startxref` pointed one byte before the table. It opened because ingestion repaired
+    /// it — four decisions every time, ending with the catalogue being found by scanning
+    /// for `/Type /Catalog` because the trailer had been lost with the rest — so a
+    /// function eleven callers use to start from nothing started them from a salvage.
+    ///
+    /// A file this small is not worth a writer, but it is worth a loop that adds up the
+    /// bytes it has emitted.
     pub fn create_empty() -> PdfResult<Self> {
-        let empty_pdf_bytes = Bytes::from_static(
-            b"%PDF-2.0\n1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n2 0 obj\n<< /Type /Pages /Count 1 /Kids [3 0 R] >>\nendobj\n3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] >>\nendobj\nxref\n0 4\n0000000000 65535 f \n0000000009 00000 n \n0000000060 00000 n \n0000000120 00000 n \ntrailer\n<< /Size 4 /Root 1 0 R >>\nstartxref\n185\n%%EOF\n",
-        );
-        let inner =
-            Document::open(empty_pdf_bytes, &fepdf_model::ingest::IngestionOptions::default())?;
-        Ok(Self { inner })
+        Self::open_with_options(blank_document(), &fepdf_model::ingest::IngestionOptions::default())
     }
 
     /// Opens a PDF document from a byte buffer with default ingestion options.
@@ -1778,6 +1784,42 @@ fn read_numbers(
     let items = arena.get_array(handle)?;
     let numbers: Vec<f64> = items.iter().filter_map(|item| item.resolve(arena).as_f64()).collect();
     (numbers.len() >= count).then_some(numbers)
+}
+
+/// The bytes of a one-page PDF 2.0 file, with a cross-reference table that agrees with
+/// them.
+///
+/// Written here rather than parsed from a literal so that the offsets are whatever the
+/// bytes turn out to be: see [`PdfDocument::create_empty`] for what the typed ones cost.
+fn blank_document() -> Bytes {
+    // `write!` into a `String` cannot fail — `fmt::Write for String` is infallible, and
+    // the `Result` exists only because the trait is shared with `io::Write`.
+    use std::fmt::Write as _;
+
+    const BODIES: [&str; 3] = [
+        "<< /Type /Catalog /Pages 2 0 R >>",
+        "<< /Type /Pages /Count 1 /Kids [3 0 R] >>",
+        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] >>",
+    ];
+
+    let mut out = String::from("%PDF-2.0\n");
+    let mut offsets = Vec::with_capacity(BODIES.len());
+    for (n, body) in BODIES.iter().enumerate() {
+        offsets.push(out.len());
+        let _ = write!(out, "{} 0 obj\n{body}\nendobj\n", n + 1);
+    }
+
+    let start_xref = out.len();
+    let _ = write!(out, "xref\n0 {}\n0000000000 65535 f \n", BODIES.len() + 1);
+    for offset in &offsets {
+        let _ = writeln!(out, "{offset:010} 00000 n ");
+    }
+    let _ = write!(
+        out,
+        "trailer\n<< /Size {} /Root 1 0 R >>\nstartxref\n{start_xref}\n%%EOF\n",
+        BODIES.len() + 1
+    );
+    Bytes::from(out.into_bytes())
 }
 
 /// The pages that carry marked content some structure element claims.
