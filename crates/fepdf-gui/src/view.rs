@@ -569,25 +569,28 @@ impl PDFView {
         self.active_page = anchor.page;
     }
 
-    /// Puts `page` in the middle of the window along the axis it scrolls, or against the
-    /// near edge when it is too big to fit there.
+    /// Moves from `from` to `page` by exactly the distance between them.
     ///
-    /// The other axis goes to zero: a column of pages is centred on the window by its
-    /// origin, and a pan sideways is the reader's to make.
-    fn place_along_the_scroll(&mut self, page: egui::Rect, viewport: egui::Rect) {
-        let origin = self.get_origin_no_pan(viewport);
+    /// **The button changes the page, not the composition.** Placing the new page against
+    /// an edge or in the middle re-frames the window every time it is pressed: a reader
+    /// looking a third of the way down page 8 presses *next* and the view jumps to a
+    /// different arrangement of page 9, which is a second thing happening that they did
+    /// not ask for. Moving by the pitch between the two leaves the window exactly where it
+    /// was over the page and changes only which page is under it.
+    ///
+    /// `from` is `None` when the page the view was on is not in the layout it is being
+    /// placed into, and then the page's near edge is where it starts.
+    fn place_along_the_scroll(&mut self, page: egui::Rect, from: Option<egui::Rect>) {
         if self.scroll_direction == ScrollDirection::Vertical {
-            self.pan.y = if page.height() * self.zoom <= viewport.height() {
-                page.center().y.mul_add(-self.zoom, viewport.center().y - origin.y)
-            } else {
-                -page.min.y * self.zoom
+            self.pan.y = match from {
+                Some(from) => (page.min.y - from.min.y).mul_add(-self.zoom, self.pan.y),
+                None => -page.min.y * self.zoom,
             };
             self.pan.x = 0.0;
         } else {
-            self.pan.x = if page.width() * self.zoom <= viewport.width() {
-                page.center().x.mul_add(-self.zoom, viewport.center().x - origin.x)
-            } else {
-                -page.min.x * self.zoom
+            self.pan.x = match from {
+                Some(from) => (page.min.x - from.min.x).mul_add(-self.zoom, self.pan.x),
+                None => -page.min.x * self.zoom,
             };
             self.pan.y = 0.0;
         }
@@ -621,24 +624,22 @@ impl PDFView {
 
     /// Moves the view to `page_index` and makes it the current one.
     ///
-    /// **Centred if it fits, and otherwise placed by its top edge.** Going to a page is
-    /// going to look at it, and a page that fits in the window with its top against the
-    /// top edge reads as a page that has been scrolled past. One taller than the window
-    /// cannot be centred usefully — centring shows its middle, and the reader wants to
-    /// start at the top — so the two are not one rule with a nicer name but two, chosen by
-    /// measurement.
+    /// **By the distance between the two pages, so that the view does not move.** See
+    /// [`Self::place_along_the_scroll`].
     pub fn scroll_to_page(
         &mut self,
         page_index: usize,
         viewport: egui::Rect,
         layouts: &[PageLayout],
     ) {
+        let was = self.current_page(viewport, layouts);
         self.active_page = page_index;
         if self.display_mode == DisplayMode::Continuous
             || self.display_mode == DisplayMode::TwoPageSpread
         {
             if let Some(layout) = layouts.get(page_index) {
-                self.place_along_the_scroll(layout.rect, viewport);
+                let from = layouts.get(was).map(|l| l.rect);
+                self.place_along_the_scroll(layout.rect, from);
             }
         } else if self.display_mode == DisplayMode::TwoPageSingle {
             // In TwoPageSingle, we center the active spread's bounding box relative to origin
@@ -1802,42 +1803,51 @@ mod arrangement_crossing {
         assert!(view.centre_next.is_none(), "the request outlived the gesture");
     }
 
-    /// **Going to a page is going to look at it.** The page buttons put the page's top
-    /// edge against the top of the window, which reads as a page that has been scrolled
-    /// past rather than one that has been gone to. It is centred when it fits.
+    /// **The button changes the page, not the composition.** Placing the new page against
+    /// an edge or in the middle re-frames the window every time it is pressed: a reader a
+    /// third of the way down page 8 presses *next* and the view jumps to a different
+    /// arrangement of page 9. Moving by the pitch between the two leaves the window where
+    /// it was over the page.
     #[test]
-    fn going_to_a_page_that_fits_puts_it_in_the_middle() {
+    fn going_to_a_page_leaves_the_view_where_it_was_over_it() {
         let mut view = PDFView::new();
         view.display_mode = DisplayMode::Continuous;
         let pages = column(25);
-        // A letter page at 50% is 396 tall against a window of 800.
         view.set_zoom(0.5);
         view.restore_anchor(None, WINDOW, &pages);
         view.scroll_to_page(8, WINDOW, &pages);
 
-        let middle = pages[8].rect.center().y.mul_add(view.zoom(), view.get_origin(WINDOW).y);
+        // A little way down page 8 — far enough to be off its top edge, near enough that
+        // the middle of the window is still over it, so that going to page 9 is going
+        // somewhere.
+        let into = 40.0_f32;
+        view.pan.y = into.mul_add(-view.zoom(), view.pan.y);
+        assert_eq!(view.current_page(WINDOW, &pages), 8, "the reader is no longer on page 8");
+        let before = (pages[8].rect.min.y + into).mul_add(view.zoom(), view.get_origin(WINDOW).y);
+
+        view.scroll_to_page(9, WINDOW, &pages);
+        let after = (pages[9].rect.min.y + into).mul_add(view.zoom(), view.get_origin(WINDOW).y);
         assert!(
-            (middle - WINDOW.center().y).abs() < 1.0,
-            "page 8's middle came out at {middle}, not {}",
-            WINDOW.center().y
+            (after - before).abs() < 0.01,
+            "the same point of the next page came out at {after}, not {before}"
         );
     }
 
-    /// And a page taller than the window starts at its top, because centring one shows
-    /// its middle and the reader wants to begin at the beginning.
+    /// And the page really did change, which is the half of it the reader asked for.
     #[test]
-    fn going_to_a_page_taller_than_the_window_puts_its_top_at_the_top() {
+    fn going_to_a_page_moves_by_the_distance_between_them() {
         let mut view = PDFView::new();
         view.display_mode = DisplayMode::Continuous;
         let pages = column(25);
-        // The same page at 2x is 1,584 tall against the same 800.
-        view.set_zoom(2.0);
+        view.set_zoom(0.5);
         view.restore_anchor(None, WINDOW, &pages);
         view.scroll_to_page(8, WINDOW, &pages);
+        let was = view.pan.y;
 
-        let top = pages[8].rect.min.y.mul_add(view.zoom(), view.get_origin(WINDOW).y);
-        let want = view.get_origin_no_pan(WINDOW).y;
-        assert!((top - want).abs() < 1.0, "page 8's top came out at {top}, not {want}");
+        view.scroll_to_page(11, WINDOW, &pages);
+        let pitch = (pages[11].rect.min.y - pages[8].rect.min.y) * view.zoom();
+        assert!((view.pan.y - (was - pitch)).abs() < 0.01, "moved by {}", was - view.pan.y);
+        assert_eq!(view.active_page, 11);
     }
 
     /// **Two things read "which page am I on" and they read the same rule.** The line
