@@ -59,6 +59,8 @@ pub fn apply_add_public_key_recipient(
         } else {
             Vec::new()
         };
+        // **Binary, and a byte string for that reason** — `/Recipients` holds DER-encoded
+        // CMS blobs (7.6.5), not text. Nothing decodes these as characters.
         rec_items.push(Object::String(Bytes::from(recipient.certificate_der_bytes)));
         let rec_ah = arena.alloc_array(rec_items);
         enc_dict.insert(rec_key, Object::Array(rec_ah));

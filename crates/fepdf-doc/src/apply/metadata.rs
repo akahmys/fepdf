@@ -43,8 +43,13 @@ pub fn create_embedded_filespec(
 
     let mut filespec = BTreeMap::new();
     filespec.insert(arena.name("Type"), Object::Name(arena.name("Filespec")));
+    // **`/F` stays a byte string and `/UF` becomes text.** Table 43 types the two
+    // differently on purpose: `/F` is a *file specification string* (7.11.2), whose bytes
+    // are a path in the slash-separated form that clause defines, and `/UF` is the text
+    // string that exists precisely because `/F` could not carry Unicode. Writing `/F` as
+    // text would put a BOM in front of a path.
     filespec.insert(arena.name("F"), Object::String(Bytes::from(filename.clone())));
-    filespec.insert(arena.name("UF"), Object::String(Bytes::from(filename)));
+    filespec.insert(arena.name("UF"), Object::Text(filename));
     if let Some(rel) = relationship {
         let af_rel = match rel {
             AFRelationship::Source => "Source",
@@ -57,7 +62,8 @@ pub fn create_embedded_filespec(
     }
     filespec.insert(arena.name("EF"), Object::Dictionary(ef_dh));
     if let Some(desc) = description {
-        filespec.insert(arena.name("Desc"), Object::String(Bytes::from(desc)));
+        // A text string (Table 43): it is shown to a reader, not matched against anything.
+        filespec.insert(arena.name("Desc"), Object::Text(desc));
     }
     let filespec_dh = arena.alloc_dict(filespec);
     arena.alloc_object(Object::Dictionary(filespec_dh))
@@ -140,6 +146,11 @@ pub fn add_embedded_files_to_catalog(
         Vec::new()
     };
     for (filename, filespec_h) in new_entries {
+        // **A name-tree key is a byte string, not a text string** (7.9.6). It is what a
+        // lookup compares bytes against — `/EmbeddedFiles` is keyed on it, the collection
+        // `/D` below names one, and so does a `GoToE` target's `/N` in `apply::annotations`.
+        // Encoding it as text would put a BOM on one side of every one of those
+        // comparisons and on neither of the others.
         ef_tree_items.push(Object::String(Bytes::from(filename)));
         ef_tree_items.push(Object::Reference(filespec_h));
     }
@@ -165,6 +176,8 @@ pub fn apply_create_portfolio(doc: &Document, portfolio: PortfolioCollection) ->
     };
     collection_dict.insert(arena.name("View"), Object::Name(arena.name(view_name)));
     if let Some(init_doc) = portfolio.initial_document {
+        // A byte string, because it must equal a key of the `/EmbeddedFiles` name tree
+        // written above — see the note there.
         collection_dict.insert(arena.name("D"), Object::String(Bytes::from(init_doc)));
     }
     let col_dh = arena.alloc_dict(collection_dict);
@@ -360,7 +373,8 @@ pub fn apply_update_layers(doc: &Document, layers: OptionalContentProperties) ->
     for layer in layers.layers {
         let mut ocg_dict = BTreeMap::new();
         ocg_dict.insert(arena.name("Type"), Object::Name(arena.name("OCG")));
-        ocg_dict.insert(arena.name("Name"), Object::String(Bytes::from(layer.name)));
+        // A text string (Table 98): this is the layer name a reader shows in its UI.
+        ocg_dict.insert(arena.name("Name"), Object::Text(layer.name));
         ocg_dict.insert(arena.name("Usage"), Object::Dictionary(print_usage(doc, layer.printable)));
         let ocg_dh = arena.alloc_dict(ocg_dict);
         let ocg_h = arena.alloc_object(Object::Dictionary(ocg_dh));
@@ -379,6 +393,10 @@ pub fn apply_update_layers(doc: &Document, layers: OptionalContentProperties) ->
     let as_ah = arena.alloc_array(vec![Object::Dictionary(print_application(doc, &ocg_refs))]);
 
     let mut d_dict = BTreeMap::new();
+    // A text string too (Table 100), and left a byte string deliberately: the value is
+    // this literal, whose PDFDocEncoded form is byte for byte what is written here. There
+    // is no input that could reach it from outside, so no test could tell the two spellings
+    // apart, and `Object::Text` would only add a BOM.
     d_dict.insert(arena.name("Name"), Object::String(Bytes::from("Default")));
     d_dict.insert(arena.name("BaseState"), Object::Name(arena.name("ON")));
     d_dict.insert(arena.name("ON"), Object::Array(on_ah));
@@ -456,12 +474,12 @@ pub fn apply_set_output_intent(doc: &Document, intent: OutputIntent) -> PdfResul
     let mut oi_dict = BTreeMap::new();
     oi_dict.insert(arena.name("Type"), Object::Name(arena.name("OutputIntent")));
     oi_dict.insert(arena.name("S"), Object::Name(arena.name(&intent.subtype)));
-    oi_dict.insert(
-        arena.name("OutputConditionIdentifier"),
-        Object::String(Bytes::from(intent.identifier)),
-    );
+    // Both text strings (Table 401). A registered condition's identifier is ASCII in
+    // practice, but the entry's type is what decides how it is written, not what the ICC
+    // registry happens to hold.
+    oi_dict.insert(arena.name("OutputConditionIdentifier"), Object::Text(intent.identifier));
     if let Some(info) = intent.info {
-        oi_dict.insert(arena.name("Info"), Object::String(Bytes::from(info)));
+        oi_dict.insert(arena.name("Info"), Object::Text(info));
     }
     if let Some(icc_data) = intent.icc_profile_bytes {
         let mut stream_dict = BTreeMap::new();

@@ -240,15 +240,26 @@ fn parse_tag_helper(arena: &PdfArena, dict: &BTreeMap<Handle<PdfName>, Object>) 
     }
 }
 
+/// A structure element's `/Alt`, decoded as 7.9.2.2 defines rather than as UTF-8.
+///
+/// **This read both halves of a text string wrong.** `as_string` answers `None` for an
+/// `Object::Text`, which is what `apply::structure` now writes, and `String::from_utf8`
+/// answers `None` for the UTF-16BE a file is most likely to carry — so a `/Alt` of `代替`
+/// was dropped whether it came from this engine or from another one. Only a description
+/// that was already ASCII survived, which is the same class of defect as writing one as
+/// raw UTF-8 bytes.
 fn parse_alt_text_helper(
     arena: &PdfArena,
     dict: &BTreeMap<Handle<PdfName>, Object>,
 ) -> Option<String> {
     let alt_key = arena.name("Alt");
-    let alt_obj = dict.get(&alt_key)?;
-    let resolved = alt_obj.resolve(arena);
-    let bytes = resolved.as_string()?;
-    String::from_utf8(bytes.to_vec()).ok()
+    match dict.get(&alt_key)?.resolve(arena) {
+        Object::Text(text) => Some(text),
+        Object::String(bytes) | Object::Hex(bytes) => {
+            Some(fepdf_model::refine::text::recover_string(&bytes))
+        }
+        _ => None,
+    }
 }
 
 fn parse_page_index_helper(

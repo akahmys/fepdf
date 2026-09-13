@@ -31,12 +31,17 @@ cargo test --workspace
 
 **Where the time goes, re-measured 2026-09-10 — one machine, nothing else running, two
 consecutive runs of each form, everything already built.** A run is **29.8 to 30.9
-seconds** and reports **848 tests**. Derive both from one run:
+seconds** and reported **848 tests**. Derive both from one run:
 
 ```bash
 time cargo test --workspace 2>&1 | grep -oE 'test result: ok\. [0-9]+' \
   | grep -oE '[0-9]+' | awk '{s+=$1} END{print s " tests"}'
 ```
+
+**The count is 855 as of 2026-09-13**, re-derived with that command: the seven added are
+`crates/fepdf/tests/text_string_encoding_test.rs`. Every other figure below belongs to the
+2026-09-10 run and is left at what that run measured — the timings are a statement about
+one machine, and re-deriving a number on a different one would not correct them.
 
 **This paragraph used to say 1m 57s for 591 tests, and to recommend a shorter form on the
 strength of it.** Both halves stopped being true:
@@ -146,6 +151,13 @@ compiles is now roughly fifteen times a warm run rather than four.
   - `tests/backend_operations_test.rs`: Document mutation operations execution.
   - `tests/encrypted_objstm_test.rs`: Encrypted object stream ingestion.
   - `tests/pattern_color_test.rs`: Pattern color extraction.
+  - `tests/text_string_encoding_test.rs`: that the entries ISO 32000-2 types as *text
+    strings* (7.9.2.2) survive being written and read back, and that the byte strings
+    beside them — a `/EmbeddedFiles` name-tree key, the collection `/D` that must equal
+    one, a filespec's `/F` — still match each other byte for byte. Every value is outside
+    PDFDocEncoding, because an ASCII one round-trips through the defect untouched. Each of
+    the eleven sites was verified by putting `Object::String(Bytes::from(…))` back, and
+    each of the three byte-string cases by making it `Object::Text` instead.
   - `tests/rasteriser_determinism_test.rs`: that `Rasteriser::Cpu` draws a page the same
     way twice, which `Rasteriser::Gpu` does not — RR-15 Rule 10 against the renderer, which
     nothing checked

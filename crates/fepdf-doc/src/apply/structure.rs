@@ -1,6 +1,5 @@
 use crate::operation::{ArticleThread, StructElemUpdate, UserProperty, UserPropertyValue};
 use crate::struct_tree;
-use bytes::Bytes;
 use fepdf_model::arena::PdfArena;
 use fepdf_model::{Document, Handle, Object, PdfResult};
 use std::collections::BTreeMap;
@@ -18,7 +17,9 @@ pub fn apply_update_struct(doc: &Document, update: StructElemUpdate) -> PdfResul
         }
         if let Some(alt) = update.new_alt {
             let alt_key = arena.name("Alt");
-            dict.insert(alt_key, Object::String(Bytes::from(alt)));
+            // A text string (14.9.3): an alternate description is read aloud, so it is the
+            // one entry here that a non-Latin document is certain to need.
+            dict.insert(alt_key, Object::Text(alt));
         }
         arena.set_dict(dh, dict);
     }
@@ -46,7 +47,9 @@ fn create_article_thread_dict(
     get_page_handle: impl Fn(usize) -> Option<Handle<Object>>,
 ) -> Handle<Object> {
     let mut info_dict = BTreeMap::new();
-    info_dict.insert(arena.name("Title"), Object::String(Bytes::from(thread.title.clone())));
+    // `/I` is a thread information dictionary (12.4.3), which takes the document
+    // information dictionary's entries — and `/Title` there is a text string (Table 349).
+    info_dict.insert(arena.name("Title"), Object::Text(thread.title.clone()));
     let info_dh = arena.alloc_dict(info_dict);
 
     let mut thread_dict = BTreeMap::new();
@@ -123,15 +126,17 @@ pub fn apply_add_user_properties(
 
     for prop in properties {
         let mut pdict = BTreeMap::new();
-        pdict.insert(arena.name("N"), Object::String(Bytes::from(prop.name)));
+        // `/N` and `/F` are text strings (Table 380), and a `/V` that is a string is the
+        // value those two describe — all three are shown to a reader.
+        pdict.insert(arena.name("N"), Object::Text(prop.name));
         let val_obj = match prop.value {
-            UserPropertyValue::Text(s) => Object::String(Bytes::from(s)),
+            UserPropertyValue::Text(s) => Object::Text(s),
             UserPropertyValue::Number(n) => Object::Real(n),
             UserPropertyValue::Boolean(b) => Object::Boolean(b),
         };
         pdict.insert(arena.name("V"), val_obj);
         if let Some(f) = prop.formatted {
-            pdict.insert(arena.name("F"), Object::String(Bytes::from(f)));
+            pdict.insert(arena.name("F"), Object::Text(f));
         }
         let pdh = arena.alloc_dict(pdict);
         let ph = arena.alloc_object(Object::Dictionary(pdh));
