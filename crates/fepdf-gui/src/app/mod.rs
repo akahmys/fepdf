@@ -792,15 +792,19 @@ impl eframe::App for FepdfApp {
         self.handle_keyboard_shortcuts(ui);
 
         // **The window, outside in.** Each of these takes what it needs from the space
-        // that is left, so the order is the layout: the bar and the rail claim their
-        // edges, the drawer takes a column beside the rail, and the canvas is what
-        // remains. The last three float over all of it.
+        // that is left, so the order is the layout — and the order is the whole of it:
+        // the rail runs the height of the window because it claims its edge first, and
+        // the status bar begins where the rail ends because it claims what is left. Swap
+        // these two lines and the corner between them changes hands.
+        //
+        // The drawer then takes a column beside the rail, and the canvas is what remains.
+        // The last three float over all of it.
         //
         // The numbers went 1, 2, 3, 4, 5, 5, 6 for as long as it took to notice — which
-        // is what a hand-kept list does, and why the two floating ones are named rather
-        // than counted.
-        self.render_status_bar(ui);
+        // is what a hand-kept list does, and why the floating ones are named rather than
+        // counted.
         self.render_left_icon_bar(ui);
+        self.render_status_bar(ui);
         self.render_side_drawer(ui);
         self.update_vello(ui, frame);
 
