@@ -51,11 +51,7 @@ impl FepdfApp {
             && let Some(p) = rfd::FileDialog::new().add_filter("PDF", &["pdf"]).pick_file()
         {
             if has_doc {
-                if let Ok(exe) = std::env::current_exe()
-                    && let Err(e) = std::process::Command::new(exe).arg(p).spawn()
-                {
-                    log::warn!("the external viewer would not start: {e}");
-                }
+                self.open_in_new_window(&p);
             } else {
                 self.open_file(p, ctx);
             }

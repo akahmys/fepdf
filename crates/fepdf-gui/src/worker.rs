@@ -76,14 +76,20 @@ pub enum WorkerRequest {
     RemovePages {
         indices: Vec<usize>,
     },
-    /// Write the named pages out as a document of their own.
+    /// Take the named pages out into a document of their own.
     ///
-    /// **Not an `Apply`.** Extraction makes a second document and leaves this one
-    /// untouched, so it is not an operation, is not recorded in the history, and does
-    /// not mark the document edited.
+    /// **The result goes to a file this thread names, not one the reader chose.** A
+    /// window holds one document, so the extracted pages arrive as a second window —
+    /// and a reader who is shown the pages can then export them wherever they like,
+    /// with every option the wizard has. Asking for a path first would be asking before
+    /// they have seen what they are saving.
     ExtractPages {
         indices: Vec<usize>,
-        path: std::path::PathBuf,
+        /// Whether the pages also leave this document.
+        ///
+        /// The removal is an `Operation` and is recorded, so it can be undone here; the
+        /// extraction is not, because it changes nothing about this document.
+        remove: bool,
     },
     DuplicatePage {
         index: usize,
@@ -198,6 +204,10 @@ pub enum WorkerResponse {
     /// saved.
     StructTreeChanged {
         root: Option<Box<crate::sidebar::USTNode>>,
+    },
+    /// The extracted pages are on disk here, ready to be opened in a window of their own.
+    PagesExtracted {
+        path: std::path::PathBuf,
     },
     /// The pages as the document now holds them, after an operation changed how many
     /// there are.
@@ -358,9 +368,9 @@ pub fn run_worker(rx: Receiver<WorkerRequest>, tx: Sender<WorkerResponse>, ctx: 
                 let _ = tx.send(WorkerResponse::Idle);
                 ctx.request_repaint();
             }
-            WorkerRequest::ExtractPages { indices, path } => {
+            WorkerRequest::ExtractPages { indices, remove } => {
                 let _ = tx.send(WorkerResponse::Busy { key: "busy_exporting" });
-                handle_extract(current_doc.as_ref(), &indices, &path, &tx);
+                handle_extract(&mut current_doc, &mut history, &indices, remove, &tx);
                 let _ = tx.send(WorkerResponse::Idle);
                 ctx.request_repaint();
             }
@@ -882,42 +892,89 @@ fn send_page_sizes(doc: Option<&PdfDocument>, tx: &Sender<WorkerResponse>) {
     let _ = tx.send(WorkerResponse::PagesChanged { page_sizes });
 }
 
-/// Extracts `indices` into a new document and writes it to `path`.
+/// Extracts `indices` into a document of its own, and takes them out of this one when
+/// asked.
 ///
-/// The decisions the write reports are passed on rather than dropped: extraction
-/// decrypts, so a document whose `/P` forbade modification produces output declaring
-/// nothing, and the reader is told.
+/// **Written before removed, and the removal is skipped if the write failed.** The two
+/// halves of "move these pages out" are a write and a delete, and a delete whose write
+/// did not happen is pages gone with nothing to show for them. The removal is recorded
+/// like every other operation, so it is also undoable.
 fn handle_extract(
-    doc: Option<&PdfDocument>,
+    doc: &mut Option<PdfDocument>,
+    history: &mut History,
     indices: &[usize],
-    path: &std::path::Path,
+    remove: bool,
     tx: &Sender<WorkerResponse>,
 ) {
-    let Some(doc) = doc else { return };
-    let extracted = match doc.extract_pages(indices.to_vec()) {
+    let Some(source) = doc.as_ref() else { return };
+    let extracted = match source.extract_pages(indices.to_vec()) {
         Ok(out) => out,
-        Err(why) => {
-            let _ = tx.send(WorkerResponse::Failed {
-                key: "notice_operation_failed",
-                detail: Some(format!("{why:?}")),
-            });
-            return;
-        }
+        Err(why) => return fail(tx, "notice_operation_failed", format!("{why:?}")),
     };
-    match extracted.save_as_version(path, "2.0") {
-        Ok(notices) => {
-            let _ = tx.send(WorkerResponse::DocumentSaved {
-                path: path.to_path_buf(),
-                notices: notices.iter().map(ToString::to_string).collect(),
-            });
-        }
-        Err(why) => {
-            let _ = tx.send(WorkerResponse::Failed {
-                key: "notice_export_failed",
-                detail: Some(format!("{why:?}")),
-            });
-        }
+    let path = match extraction_path(&extracted_name(history, indices)) {
+        Ok(path) => path,
+        // `Display` and not `Debug` for an `io::Error`: the reader is shown this, and
+        // "Permission denied (os error 13)" is not what it says under `{:?}`.
+        Err(why) => return fail(tx, "notice_export_failed", why.to_string()),
+    };
+    if let Err(why) = extracted.save_as_version(&path, "2.0") {
+        return fail(tx, "notice_export_failed", format!("{why:?}"));
     }
+    let _ = tx.send(WorkerResponse::PagesExtracted { path });
+
+    if remove {
+        let taken = PageSelection::Indices(indices.to_vec());
+        apply_recorded(doc, history, Operation::RemovePages(taken), None, tx);
+        send_page_sizes(doc.as_ref(), tx);
+    }
+}
+
+/// What to call the extracted document, from what it was taken out of.
+///
+/// The name reaches the reader as the new window's title, so it says which document the
+/// pages came from and which pages they were: `report p3-5.pdf`. A run of more than three
+/// is written as a span rather than a list, because a title is one line.
+fn extracted_name(history: &History, indices: &[usize]) -> String {
+    let stem = history
+        .origin
+        .as_ref()
+        .and_then(|(_, name, _)| name.clone())
+        .unwrap_or_else(|| "document".to_string());
+    let stem = stem.trim_end_matches(".pdf").trim_end_matches(".PDF");
+    format!("{stem} {}", pages_named(indices))
+}
+
+/// How a set of page indices is written in a window's title, one-based as a reader counts.
+fn pages_named(indices: &[usize]) -> String {
+    let mut pages: Vec<usize> = indices.iter().map(|i| i + 1).collect();
+    pages.sort_unstable();
+    match pages.as_slice() {
+        [] => "p0".to_string(),
+        [only] => format!("p{only}"),
+        [first, .., last] if last - first + 1 == pages.len() => format!("p{first}-{last}"),
+        many if many.len() <= 3 => {
+            format!("p{}", many.iter().map(usize::to_string).collect::<Vec<_>>().join(","))
+        }
+        many => format!("p{} +{}", many[0], many.len() - 1),
+    }
+}
+
+/// A fresh directory for one extraction, so the file inside it can keep a plain name.
+///
+/// The window's title is its file's name, and a name carrying a timestamp to stay unique
+/// would put that timestamp in the title. The directory carries the uniqueness instead.
+fn extraction_path(stem: &str) -> std::io::Result<std::path::PathBuf> {
+    let unique = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |since| since.as_millis());
+    let dir = std::env::temp_dir().join("fepdf-extracted").join(unique.to_string());
+    std::fs::create_dir_all(&dir)?;
+    Ok(dir.join(format!("{stem}.pdf")))
+}
+
+/// Reports a failure the reader is waiting on.
+fn fail(tx: &Sender<WorkerResponse>, key: &'static str, detail: String) {
+    let _ = tx.send(WorkerResponse::Failed { key, detail: Some(detail) });
 }
 
 /// Retags an element, and re-reads what that did to the document's compliance.
@@ -1242,5 +1299,27 @@ mod history {
 
         assert_eq!(history.applied, vec![remove(5)]);
         assert!(history.undone.is_empty(), "the abandoned branch is gone");
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::pages_named;
+
+    /// What the extracted window's title says it holds.
+    ///
+    /// A title is one line, so a long selection is summarised rather than listed — and a
+    /// run is written as a span whatever its length, because that is shorter *and* says
+    /// more than the first page and a count.
+    #[test]
+    fn a_selection_is_named_the_way_a_reader_counts() {
+        // One-based, because the menu these came from counts from 1.
+        assert_eq!(pages_named(&[2]), "p3");
+        assert_eq!(pages_named(&[2, 3, 4]), "p3-5");
+        assert_eq!(pages_named(&[0, 2, 4]), "p1,3,5");
+        assert_eq!(pages_named(&[0, 2, 4, 6]), "p1 +3");
+        // Out of order in, in order out: a selection is a set and has no order of its own.
+        assert_eq!(pages_named(&[4, 2, 3]), "p3-5");
+        assert_eq!(pages_named(&[]), "p0");
     }
 }

@@ -68,8 +68,8 @@ pub enum Step {
     /// The panel's own entry opens a file dialog, which a plan cannot answer, so this
     /// names the file instead and drives everything after the dialog.
     Insert(PathBuf, usize),
-    /// Write the selected pages out to a named file: `extract <path>`.
-    Extract(PathBuf),
+    /// Take the selected pages out: `extract` keeps them here, `extract remove` does not.
+    Extract(bool),
     /// Delete whatever is selected.
     Delete,
     /// Turn the selection a quarter clockwise.
@@ -224,7 +224,7 @@ fn parse(line: &str) -> Option<Step> {
             let (path, at) = rest.rsplit_once(' ')?;
             Step::Insert(PathBuf::from(path), at.trim().parse().ok()?)
         }
-        "extract" => Step::Extract(PathBuf::from(rest)),
+        "extract" => Step::Extract(rest == "remove"),
         "delete" => Step::Delete,
         "rotate" => Step::Rotate,
         "undo" => Step::Undo,
@@ -318,7 +318,7 @@ impl crate::app::FepdfApp {
             }
             Step::Node(id) => self.ust_registry.selected_node_id = Some(id),
             Step::Insert(path, at) => self.insert_document_bytes(&path, at),
-            Step::Extract(path) => self.extract_selection_to(path),
+            Step::Extract(remove) => self.extract_selected_pages(remove),
             Step::Mark(path) => self.bookmarks.choose(path),
             Step::MarkTitle(title) => self.bookmarks.retitle(&title),
             Step::MarkWrite => self.write_bookmarks(),

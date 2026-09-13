@@ -170,9 +170,18 @@ impl FepdfApp {
             self.selected_pages.clear();
             self.selected_pages.insert(page_idx);
         }
-        let label = format!("{} ({})", self.tr("menu_extract"), self.selected_pages.len());
-        if ui.button(label).clicked() {
-            self.extract_selected_pages();
+        let taking = self.selected_pages.len();
+        if ui.button(format!("{} ({taking})", self.tr("menu_extract_keep"))).clicked() {
+            self.extract_selected_pages(false);
+            ui.close();
+        }
+        // **Disabled rather than absent when it would empty the document.** A document
+        // with no pages is not a document, so the last page cannot be moved out — and a
+        // reader who cannot see the choice cannot tell it from one that was never there.
+        let can_remove = taking < self.total_pages;
+        let cut = egui::Button::new(format!("{} ({taking})", self.tr("menu_extract_remove")));
+        if ui.add_enabled(can_remove, cut).clicked() {
+            self.extract_selected_pages(true);
             ui.close();
         }
     }

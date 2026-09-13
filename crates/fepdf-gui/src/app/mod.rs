@@ -379,6 +379,9 @@ impl FepdfApp {
                     self.raw_texts.clear();
                     self.page_spans.clear();
                 }
+                WorkerResponse::PagesExtracted { path } => {
+                    self.open_in_new_window(&path);
+                }
                 WorkerResponse::PagesChanged { page_sizes } => {
                     self.total_pages = page_sizes.len();
                     self.doc_page_sizes = page_sizes;
@@ -588,11 +591,7 @@ impl FepdfApp {
             && path.extension().is_some_and(|ext| ext.eq_ignore_ascii_case("pdf"))
         {
             if self.total_pages > 0 {
-                if let Ok(exe) = std::env::current_exe()
-                    && let Err(e) = std::process::Command::new(exe).arg(&path).spawn()
-                {
-                    log::warn!("the external viewer would not start: {e}");
-                }
+                self.open_in_new_window(&path);
             } else {
                 self.open_file(path, ctx);
             }
@@ -601,11 +600,7 @@ impl FepdfApp {
             && let Some(p) = rfd::FileDialog::new().add_filter("PDF", &["pdf"]).pick_file()
         {
             if self.total_pages > 0 {
-                if let Ok(exe) = std::env::current_exe()
-                    && let Err(e) = std::process::Command::new(exe).arg(p).spawn()
-                {
-                    log::warn!("the external viewer would not start: {e}");
-                }
+                self.open_in_new_window(&p);
             } else {
                 self.open_file(p, ctx);
             }
@@ -677,6 +672,28 @@ impl FepdfApp {
     /// palette and the warning shown when a document with edits is closed all want the
     /// same thing to happen; each setting the flag itself is four copies of one act, which
     /// is what UI-12 is about. Two of them existed before the warning asked for a third.
+    /// Opens `path` in a window of its own.
+    ///
+    /// **One home, because there were three.** Dropping a file on an open document,
+    /// `Cmd+O` with one open, and the rail's open button each spawned the executable
+    /// themselves, and extraction wanted a fourth (UI-12). A window holds one document —
+    /// that is this product's shape — so a second document means a second process.
+    pub(crate) fn open_in_new_window(&mut self, path: &std::path::Path) {
+        match std::env::current_exe() {
+            Ok(exe) => {
+                if let Err(why) = std::process::Command::new(exe).arg(path).spawn() {
+                    // Not a log line only: the reader asked for a window and did not get
+                    // one, which is exactly the kind of silence Rule 13 is about.
+                    self.notice =
+                        Some(Notice::check("notice_window_failed").about(why.to_string()));
+                }
+            }
+            Err(why) => {
+                self.notice = Some(Notice::check("notice_window_failed").about(why.to_string()));
+            }
+        }
+    }
+
     pub(crate) fn open_export_wizard(&mut self) {
         self.show_export_wizard = true;
     }

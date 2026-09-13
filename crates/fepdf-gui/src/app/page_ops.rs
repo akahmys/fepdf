@@ -229,40 +229,23 @@ impl FepdfApp {
         });
     }
 
-    /// Writes the selected pages out as a document of their own.
+    /// Takes the selected pages out into a document of their own.
     ///
-    /// **A new file, not an edit.** Extraction makes a second document and leaves this
-    /// one alone, which is why it goes nowhere near the undo history and why the button
-    /// asks for a path rather than marking the document changed.
-    pub fn extract_selected_pages(&mut self) {
-        if self.selected_pages.is_empty() {
-            return;
-        }
+    /// **The result opens in a window, not a save dialog.** A window holds one document,
+    /// so the extracted pages arrive as a second window — where the reader can look at
+    /// what they got and then export it with every option the wizard has. Asking for a
+    /// path first would be asking before they have seen what they are saving.
+    ///
+    /// `remove` decides whether the pages also leave this document. That half is an
+    /// operation and is recorded, so it can be undone; the extraction itself changes
+    /// nothing here and is not.
+    pub fn extract_selected_pages(&mut self, remove: bool) {
         let mut indices: Vec<usize> = self.selected_pages.iter().copied().collect();
         indices.sort_unstable();
-        let stem = self.pdf_name.as_deref().unwrap_or("document").trim_end_matches(".pdf");
-        let Some(path) = rfd::FileDialog::new()
-            .add_filter("PDF", &["pdf"])
-            .set_file_name(format!("{stem}-{}.pdf", indices.len()))
-            .save_file()
-        else {
-            return;
-        };
-        self.extract_selection_to(path);
-    }
-
-    /// Everything [`Self::extract_selected_pages`] does once a path has been named.
-    ///
-    /// Split for the same reason as [`Self::insert_document_bytes`]: a capture plan
-    /// cannot answer a save dialog, and this is the half worth proving — it writes a
-    /// file (UI-12).
-    pub fn extract_selection_to(&mut self, path: PathBuf) {
-        let mut indices: Vec<usize> = self.selected_pages.iter().copied().collect();
-        indices.sort_unstable();
-        if indices.is_empty() {
+        if indices.is_empty() || (remove && indices.len() >= self.total_pages) {
             return;
         }
-        let _ = self.tx_worker.send(WorkerRequest::ExtractPages { indices, path });
+        let _ = self.tx_worker.send(WorkerRequest::ExtractPages { indices, remove });
     }
 
     pub fn rotate_pages(&mut self, indices: Vec<usize>, delta: fepdf::Quarter) {
