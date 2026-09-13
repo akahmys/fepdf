@@ -216,14 +216,19 @@ impl FepdfApp {
         let _ = self.tx_worker.send(WorkerRequest::RotatePages { indices, delta });
     }
 
+    /// Turns what the reader can see they have chosen.
+    ///
+    /// **The selection only counts where it is shown.** It is made in the tiles and kept
+    /// when the view zooms into the pages — deliberately, so that zooming in does not
+    /// throw it away — but there it is neither drawn nor changeable, so acting on it is
+    /// acting on something invisible: a reader who had picked three tiles, zoomed in to
+    /// read page 12 and pressed rotate turned those three and not the page in front of
+    /// them. In the page view the target is the page they are on.
     pub fn rotate_selected_pages(&mut self, delta: fepdf::Quarter) {
-        let targets = if !self.selected_pages.is_empty() {
-            self.selected_pages.iter().copied().collect()
-        } else if self.total_pages > 0 && self.view.active_page < self.total_pages {
-            vec![self.view.active_page]
-        } else {
-            Vec::new()
-        };
+        let viewport = self.last_viewport_rect.unwrap_or(egui::Rect::NOTHING);
+        let current =
+            (self.total_pages > 0).then(|| self.view.current_page(viewport, &self.page_layouts));
+        let targets = pages_to_turn(self.view.selects_pages(), &self.selected_pages, current);
         self.rotate_pages(targets, delta);
     }
 
@@ -234,5 +239,49 @@ impl FepdfApp {
             vec![clicked_idx]
         };
         self.rotate_pages(targets, delta);
+    }
+}
+
+/// Which pages a turn applies to.
+///
+/// **The selection only counts where it is shown.** Made in the tiles and kept when the
+/// view zooms into the pages — deliberately, so zooming in does not throw it away — it is
+/// neither drawn nor changeable there, so acting on it is acting on something invisible.
+fn pages_to_turn(
+    shows_selection: bool,
+    selected: &std::collections::BTreeSet<usize>,
+    current: Option<usize>,
+) -> Vec<usize> {
+    if shows_selection && !selected.is_empty() {
+        return selected.iter().copied().collect();
+    }
+    current.into_iter().collect()
+}
+
+#[cfg(test)]
+mod turning {
+    use super::pages_to_turn;
+    use std::collections::BTreeSet;
+
+    /// A reader who had picked three tiles, zoomed in to read page 12 and pressed rotate
+    /// turned those three and not the page in front of them.
+    #[test]
+    fn the_page_view_turns_the_page_being_read() {
+        let chosen: BTreeSet<usize> = [2, 5, 7].into_iter().collect();
+        assert_eq!(pages_to_turn(false, &chosen, Some(11)), vec![11]);
+    }
+
+    /// And the tiles turn what is marked there, which is what the reader can see.
+    #[test]
+    fn the_tiles_turn_what_is_marked() {
+        let chosen: BTreeSet<usize> = [2, 5, 7].into_iter().collect();
+        assert_eq!(pages_to_turn(true, &chosen, Some(11)), vec![2, 5, 7]);
+    }
+
+    /// With nothing marked, the tiles turn the page the reader is on too.
+    #[test]
+    fn nothing_marked_falls_back_to_the_current_page() {
+        assert_eq!(pages_to_turn(true, &BTreeSet::new(), Some(3)), vec![3]);
+        assert!(pages_to_turn(true, &BTreeSet::new(), None).is_empty());
     }
 }
