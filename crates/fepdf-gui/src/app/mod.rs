@@ -198,6 +198,8 @@ pub struct FepdfApp {
     pub doc_decisions: Vec<fepdf::Decision>,
     /// The bookmark tree, and the draft the reader is making of it (12.3.3).
     pub bookmarks: crate::sidebar::bookmarks::BookmarkPanel,
+    /// Whether the extraction now running takes every page, and so takes the document.
+    pub close_after_extract: bool,
     /// Whether there is an operation to take back, and one to put back.
     pub can_undo: bool,
     /// See [`Self::can_undo`].
@@ -229,6 +231,24 @@ pub struct FepdfApp {
     /// file that happens to have more pages on screen than one vello scene can hold. It is
     /// the engine's own limit, so it is reported as the engine's own state.
     pub pages_left_out: usize,
+}
+
+/// What the window is called, given the document it holds.
+///
+/// **The title was the literal `fepdf`**, set once when the viewport was built and never
+/// touched again — so every window of this product said the same thing, and a reader with
+/// three open had nothing but their contents to tell them apart. The file's name was on
+/// the status bar, which is inside the window you are trying to identify.
+///
+/// A free function because a `ViewportCommand` cannot be read back: what the window ends
+/// up displaying is the operating system's business, and the string handed over is the
+/// only part of this that can be held to anything.
+fn window_title(document: Option<&str>) -> String {
+    match document {
+        Some(name) if !name.trim().is_empty() => format!("{name} — fepdf"),
+        // The product's own name, which is what a window with nothing open is.
+        _ => "fepdf".to_string(),
+    }
 }
 
 impl FepdfApp {
@@ -333,6 +353,7 @@ impl FepdfApp {
             layers: Vec::new(),
             doc_decisions: Vec::new(),
             bookmarks: crate::sidebar::bookmarks::BookmarkPanel::new(),
+            close_after_extract: false,
             pages_left_out: 0,
             locked: None,
             survey: crate::sidebar::what_it_does::Survey::default(),
@@ -381,6 +402,19 @@ impl FepdfApp {
                 }
                 WorkerResponse::PagesExtracted { path } => {
                     self.open_in_new_window(&path);
+                    // Every page left, so there is no document here to go back to. The
+                    // file on disk is untouched — nothing was applied to it — which is
+                    // why this closes rather than emptying itself out.
+                    if self.close_after_extract {
+                        self.close_after_extract = false;
+                        // **The close warning is answered, not raised.** Extraction reads
+                        // the document as it stands, so every page *and every edit made
+                        // to it* is in the window that just opened; asking "you have
+                        // unsaved changes" about work that is on screen in the other
+                        // window would be a false alarm.
+                        self.close_confirmed = true;
+                        ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                    }
                 }
                 WorkerResponse::PagesChanged { page_sizes } => {
                     self.total_pages = page_sizes.len();
@@ -422,6 +456,7 @@ impl FepdfApp {
                     self.doc_decisions = decisions;
                     if name.is_some() {
                         self.pdf_name = name;
+                        self.name_the_window(ctx);
                     }
                     self.total_pages = num_pages;
                     self.scenes.clear();
@@ -660,18 +695,11 @@ impl FepdfApp {
         self.locale_mgr.tr(&self.active_language, key)
     }
 
-    /// Stops a close that would take unexported edits with it.
-    ///
-    /// **The window had no idea it had been edited.** `dirty`, `unsaved`, `on_close` and
-    /// `CloseRequested` appeared nowhere in this crate: thirty pages could be deleted and
-    /// the window closed on them without a word. `History::edited` is the answer to the
-    /// question and this is the only place that asks it.
-    /// Opens the export wizard.
-    ///
-    /// **One place, reached from more than one control.** The rail's button, `Cmd+E`, the
-    /// palette and the warning shown when a document with edits is closed all want the
-    /// same thing to happen; each setting the flag itself is four copies of one act, which
-    /// is what UI-12 is about. Two of them existed before the warning asked for a third.
+    /// Puts the open document's name on the window.
+    fn name_the_window(&self, ctx: &egui::Context) {
+        ctx.send_viewport_cmd(egui::ViewportCommand::Title(window_title(self.pdf_name.as_deref())));
+    }
+
     /// Opens `path` in a window of its own.
     ///
     /// **One home, because there were three.** Dropping a file on an open document,
@@ -694,10 +722,22 @@ impl FepdfApp {
         }
     }
 
+    /// Opens the export wizard.
+    ///
+    /// **One place, reached from more than one control.** The rail's button, `Cmd+E`, the
+    /// palette and the warning shown when a document with edits is closed all want the
+    /// same thing to happen; each setting the flag itself is four copies of one act, which
+    /// is what UI-12 is about. Two of them existed before the warning asked for a third.
     pub(crate) fn open_export_wizard(&mut self) {
         self.show_export_wizard = true;
     }
 
+    /// Stops a close that would take unexported edits with it.
+    ///
+    /// **The window had no idea it had been edited.** `dirty`, `unsaved`, `on_close` and
+    /// `CloseRequested` appeared nowhere in this crate: thirty pages could be deleted and
+    /// the window closed on them without a word. `History::edited` is the answer to the
+    /// question and this is the only place that asks it.
     fn guard_close(&mut self, ctx: &egui::Context) {
         if !ctx.input(|i| i.viewport().close_requested()) {
             return;
@@ -905,5 +945,23 @@ mod notices {
         let n = Notice::failed("notice_save_nothing");
         assert_eq!(n.say(&locale, "en"), "There is no document to write.");
         assert!(!n.say(&locale, "ja").contains("{}"));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::window_title;
+
+    /// The title says which document the window holds.
+    #[test]
+    fn the_window_is_named_after_what_it_holds() {
+        assert_eq!(window_title(Some("report.pdf")), "report.pdf — fepdf");
+        assert_eq!(
+            window_title(Some("print_sampleから抽出したページ.pdf")),
+            "print_sampleから抽出したページ.pdf — fepdf"
+        );
+        // Nothing open, and a name that is nothing, are the same window.
+        assert_eq!(window_title(None), "fepdf");
+        assert_eq!(window_title(Some("   ")), "fepdf");
     }
 }

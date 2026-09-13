@@ -107,6 +107,7 @@
   "export_sig_select_key": "Select Private Key (DER PKCS#8)",
   "export_signature_heading": "Digital Signature (PAdES)",
   "export_title": "💾 Production Studio Export Wizard",
+  "extracted_name": "Pages extracted from {source}",
   "gpu_compute_support_desc": "fepdf relies on high-performance GPU Compute Shaders (Vello) to render PDFs.",
   "gpu_compute_support_detail": "Either WebGPU is not supported by your hardware/browser, or your GPU drivers do not support compute shaders.",
   "gpu_compute_support_error": "GPU Compute Support Error",

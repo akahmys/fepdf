@@ -70,6 +70,8 @@ pub enum Step {
     Insert(PathBuf, usize),
     /// Take the selected pages out: `extract` keeps them here, `extract remove` does not.
     Extract(bool),
+    /// Mark every page, as a reader choosing all of them would.
+    SelectAll,
     /// Delete whatever is selected.
     Delete,
     /// Turn the selection a quarter clockwise.
@@ -225,6 +227,7 @@ fn parse(line: &str) -> Option<Step> {
             Step::Insert(PathBuf::from(path), at.trim().parse().ok()?)
         }
         "extract" => Step::Extract(rest == "remove"),
+        "selectall" => Step::SelectAll,
         "delete" => Step::Delete,
         "rotate" => Step::Rotate,
         "undo" => Step::Undo,
@@ -319,6 +322,9 @@ impl crate::app::FepdfApp {
             Step::Node(id) => self.ust_registry.selected_node_id = Some(id),
             Step::Insert(path, at) => self.insert_document_bytes(&path, at),
             Step::Extract(remove) => self.extract_selected_pages(remove),
+            Step::SelectAll => {
+                self.selected_pages = (0..self.total_pages).collect();
+            }
             Step::Mark(path) => self.bookmarks.choose(path),
             Step::MarkTitle(title) => self.bookmarks.retitle(&title),
             Step::MarkWrite => self.write_bookmarks(),

@@ -242,10 +242,34 @@ impl FepdfApp {
     pub fn extract_selected_pages(&mut self, remove: bool) {
         let mut indices: Vec<usize> = self.selected_pages.iter().copied().collect();
         indices.sort_unstable();
-        if indices.is_empty() || (remove && indices.len() >= self.total_pages) {
+        if indices.is_empty() {
             return;
         }
-        let _ = self.tx_worker.send(WorkerRequest::ExtractPages { indices, remove });
+        // Every page is leaving, so there will be no document left to show. The window
+        // closes once the new one is up; nothing is applied here, so the file it was
+        // opened from is exactly as it was.
+        self.close_after_extract = remove && indices.len() >= self.total_pages;
+        let name = self.extracted_file_name();
+        let _ = self.tx_worker.send(WorkerRequest::ExtractPages { indices, remove, name });
+    }
+
+    /// What the extracted document is called, in the reader's language.
+    ///
+    /// **Named here and not in the worker**, which holds the document and not the
+    /// language — the same division as `WorkerResponse::Busy` carrying a key rather than
+    /// a sentence. The name reaches the reader twice: as the file in the temporary
+    /// directory, and as the title of the window it opens in.
+    fn extracted_file_name(&self) -> String {
+        // The local is `stem` and not `source`: clippy reads `"{source}"` in a string
+        // beside a binding of that name as a formatting argument someone forgot to put
+        // in a `format!`, and it is right to — the placeholder's name is the locale
+        // file's business and matching it here is a coincidence waiting to mislead.
+        let stem = self.pdf_name.as_deref().unwrap_or_default();
+        let stem = stem.trim_end_matches(".pdf").trim_end_matches(".PDF");
+        let named = self.tr("extracted_name").replace("{source}", stem);
+        // A name is a path component, and a document called `a/b.pdf` would otherwise
+        // ask for a directory that is not there.
+        named.replace(['/', '\\'], "-")
     }
 
     pub fn rotate_pages(&mut self, indices: Vec<usize>, delta: fepdf::Quarter) {

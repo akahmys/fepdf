@@ -107,6 +107,7 @@
   "export_sig_select_key": "秘密鍵を選択 (DER PKCS#8)",
   "export_signature_heading": "電子署名 (PAdES)",
   "export_title": "💾 Production Studio 書き出しウィザード",
+  "extracted_name": "{source}から抽出したページ",
   "gpu_compute_support_desc": "fepdf は、PDFのレンダリングに高性能な GPU Compute Shader (Vello) を利用します。",
   "gpu_compute_support_detail": "WebGPU がお使いのハードウェアまたはブラウザでサポートされていないか、GPU ドライバがコンピュートシェーダーをサポートしていません。",
   "gpu_compute_support_error": "GPU Compute サポートエラー",
