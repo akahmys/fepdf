@@ -272,6 +272,39 @@ impl FepdfApp {
         named.replace(['/', '\\'], "-")
     }
 
+    /// Prints where the current page sits against the viewport, for a capture plan.
+    ///
+    /// **A screenshot cannot answer this.** The shots are scaled before they are read and
+    /// the window's own pixels are not the coordinates the placement is computed in, so
+    /// measuring a picture measures the picture.
+    pub(crate) fn probe_placement(&mut self, label: &str) {
+        let viewport = self.last_viewport_rect.unwrap_or(egui::Rect::NOTHING);
+        let page = self.view.current_page(viewport, &self.page_layouts);
+        let Some(layout) = self.page_layouts.get(page) else { return };
+        let origin = self.view.get_origin(viewport);
+        let zoom = self.view.zoom();
+        let on_screen = egui::Rect::from_min_size(
+            origin + layout.rect.min.to_vec2() * zoom,
+            layout.rect.size() * zoom,
+        );
+        println!(
+            "PROBE {label}: page {} viewport=({:.0},{:.0})..({:.0},{:.0}) \
+             page=({:.0},{:.0})..({:.0},{:.0}) dx={:.0} dy={:.0} fits_y={}",
+            page + 1,
+            viewport.min.x,
+            viewport.min.y,
+            viewport.max.x,
+            viewport.max.y,
+            on_screen.min.x,
+            on_screen.min.y,
+            on_screen.max.x,
+            on_screen.max.y,
+            on_screen.center().x - viewport.center().x,
+            on_screen.center().y - viewport.center().y,
+            on_screen.height() <= viewport.height(),
+        );
+    }
+
     pub fn rotate_pages(&mut self, indices: Vec<usize>, delta: fepdf::Quarter) {
         if indices.is_empty() || self.total_pages == 0 {
             return;

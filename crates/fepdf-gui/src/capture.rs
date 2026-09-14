@@ -72,6 +72,17 @@ pub enum Step {
     Extract(bool),
     /// Mark every page, as a reader choosing all of them would.
     SelectAll,
+    /// Double-click the bench at a point, which crosses the tile boundary:
+    /// `dblclick <x> <y>` in points from the viewport's top-left.
+    DoubleClick(u32, u32),
+    /// Print where the current page sits against the viewport: `probe <label>`.
+    Probe(String),
+    /// Open a page as a double-click on its tile does: `openpage <1-based>`.
+    ///
+    /// **Everything the double-click does except the pointer.** A plan cannot press a
+    /// mouse button twice, so this drives the two calls the tile's `double_clicked()`
+    /// frame makes — which is what shows where the page actually lands.
+    OpenPage(usize),
     /// Delete whatever is selected.
     Delete,
     /// Turn the selection a quarter clockwise.
@@ -228,6 +239,12 @@ fn parse(line: &str) -> Option<Step> {
         }
         "extract" => Step::Extract(rest == "remove"),
         "selectall" => Step::SelectAll,
+        "openpage" => Step::OpenPage(rest.parse().ok()?),
+        "probe" => Step::Probe(rest.to_owned()),
+        "dblclick" => {
+            let (x, y) = rest.split_once(' ')?;
+            Step::DoubleClick(x.trim().parse().ok()?, y.trim().parse().ok()?)
+        }
         "delete" => Step::Delete,
         "rotate" => Step::Rotate,
         "undo" => Step::Undo,
@@ -322,6 +339,18 @@ impl crate::app::FepdfApp {
             Step::Node(id) => self.ust_registry.selected_node_id = Some(id),
             Step::Insert(path, at) => self.insert_document_bytes(&path, at),
             Step::Extract(remove) => self.extract_selected_pages(remove),
+            Step::DoubleClick(x, y) => {
+                let viewport = self.last_viewport_rect.unwrap_or(egui::Rect::NOTHING);
+                let at = viewport.min + egui::vec2(x as f32, y as f32);
+                self.view.double_click_on_the_bench(at, viewport, &self.page_layouts);
+                self.compute_layouts();
+            }
+            Step::Probe(label) => self.probe_placement(&label),
+            Step::OpenPage(page) => {
+                self.view.open_page(page.saturating_sub(1));
+                self.view.set_zoom(1.0);
+                self.compute_layouts();
+            }
             Step::SelectAll => {
                 self.selected_pages = (0..self.total_pages).collect();
             }

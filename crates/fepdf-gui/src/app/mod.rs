@@ -475,6 +475,10 @@ impl FepdfApp {
                         self.view.binding_direction = crate::view::BindingDirection::LeftToRight;
                     }
                     self.doc_page_sizes = page_sizes;
+                    // The first page, in the middle — the same landing a double-click on
+                    // the bench gives, answered by the first layout that has a window to
+                    // centre in.
+                    self.view.open_page(0);
                     self.compute_layouts();
 
                     self.doc_file_size = Some(file_size);

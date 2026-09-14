@@ -573,14 +573,14 @@ impl PDFView {
         layouts: &[PageLayout],
     ) {
         self.arranged_as_tiles = !self.is_page_view();
-        // A double-click on the bench asked for the page it was showing, in the middle.
-        if let Some(page) = self.centre_next.take()
-            && let Some(layout) = layouts.get(page)
+        // A double-click, or a document that has just opened, asked for a page in the
+        // middle. **The intent is left standing until there is a window to centre in**:
+        // the first layout after a document loads runs before the viewport is known, and
+        // taking the intent there would spend it on a rectangle of no size.
+        if viewport.area() > 0.0
+            && let Some(page) = self.centre_next.take()
+            && self.centre_on(page, viewport, layouts)
         {
-            let origin_no_pan = self.get_origin_no_pan(viewport);
-            self.pan =
-                viewport.center() - origin_no_pan - layout.rect.center().to_vec2() * self.zoom;
-            self.active_page = page;
             return;
         }
         let Some(anchor) = anchor else { return };
@@ -627,12 +627,20 @@ impl PDFView {
     /// the rule under a number marks.
     pub fn centre_current_page(&mut self, viewport: egui::Rect, layouts: &[PageLayout]) {
         let page = self.current_page(viewport, layouts);
-        let Some(layout) = layouts.get(page) else {
-            return;
-        };
+        self.centre_on(page, viewport, layouts);
+    }
+
+    /// Puts `page` in the middle of the window, and says whether there was such a page.
+    ///
+    /// **One home for the act.** The crosshair button, a double-click on the bench and a
+    /// document that has just opened all want the same two lines, and three copies of
+    /// them is three places for the rule to drift (UI-12).
+    fn centre_on(&mut self, page: usize, viewport: egui::Rect, layouts: &[PageLayout]) -> bool {
+        let Some(layout) = layouts.get(page) else { return false };
         let origin = self.get_origin_no_pan(viewport);
         self.pan = viewport.center() - origin - layout.rect.center().to_vec2() * self.zoom;
         self.active_page = page;
+        true
     }
 
     /// The page the reader is on, by the one rule two things read it by.
@@ -845,22 +853,36 @@ impl PDFView {
                 .input(|i| i.pointer.hover_pos().or(i.pointer.latest_pos()))
                 .filter(|p| viewport_rect.contains(*p))
                 .unwrap_or_else(|| viewport_rect.center());
-            // Going out to the tiles, the page being read comes to the middle of the
-            // window wherever the pointer was: this is a double-click on the bench, which
-            // points at nothing.
-            if self.is_page_view()
-                && let Some(page) = self.page_at_middle(viewport_rect, layouts)
-            {
-                self.open_page(page);
-            }
-            let target_zoom = if self.is_page_view() { Self::TILE_STEP } else { 1.0 };
-            self.zoom_at(target_zoom, pos, viewport_rect, layouts);
+            self.double_click_on_the_bench(pos, viewport_rect, layouts);
         }
         if response.drag_stopped()
             || (!response.dragged() && ui.input(|i| i.pointer.any_released()))
         {
             self.overscroll_accumulator = egui::Vec2::ZERO;
         }
+    }
+
+    /// Crosses the tile boundary, putting the page the reader is on in the middle.
+    ///
+    /// **The bench points at nothing, in either direction.** Every other way across that
+    /// boundary is a zoom, where the cursor is over something and holding it still is the
+    /// whole rule; a double-click on the empty space between pages is over nothing, so
+    /// there is nothing to hold still and the answer is the page being read. That was
+    /// already the rule going out to the tiles and is now the rule coming back — a
+    /// double-click that lands in the page view used to leave it wherever the pointer
+    /// happened to be.
+    ///
+    /// `pos` still anchors the zoom itself, because [`Self::open_page`] is answered after
+    /// the pages are laid out again and overrides where the zoom left things.
+    pub fn double_click_on_the_bench(
+        &mut self,
+        pos: egui::Pos2,
+        viewport: egui::Rect,
+        layouts: &[PageLayout],
+    ) {
+        self.open_page(self.current_page(viewport, layouts));
+        let target_zoom = if self.is_page_view() { Self::TILE_STEP } else { 1.0 };
+        self.zoom_at(target_zoom, pos, viewport, layouts);
     }
 
     /// Moves to the page or spread after the current one, and says whether there was one.
@@ -1166,6 +1188,86 @@ mod arrangement_crossing {
         let (after, after_local) = under(&view, cursor, &tiles);
         assert_eq!(after, chosen);
         assert!((after_local - local).length() < 1.0, "it came out at {after_local:?}");
+    }
+
+    /// **A double-click on the bench coming *back* centres it too**, which it did not.
+    ///
+    /// Going out to the tiles had centred the page being read since the rule was written;
+    /// coming back in went through the cursor's anchor, so a reader who double-clicked the
+    /// empty bench at the edge of the window landed on the page view with their page
+    /// against that edge. The bench points at nothing in either direction.
+    #[test]
+    fn a_double_click_on_the_bench_centres_coming_back_as_well() {
+        let mut view = PDFView::new();
+        view.display_mode = DisplayMode::Continuous;
+        let tiles = grid(25);
+        view.set_zoom(0.2);
+        view.restore_anchor(None, WINDOW, &tiles);
+        view.active_page = 9;
+
+        // A corner, as far from the middle as the window allows.
+        view.double_click_on_the_bench(egui::pos2(950.0, 60.0), WINDOW, &tiles);
+        assert!(view.is_page_view(), "the double-click did not cross into the page view");
+        let pages = column(25);
+        view.restore_anchor(view.take_anchor(WINDOW, &tiles), WINDOW, &pages);
+
+        assert_eq!(view.active_page, 9);
+        let middle = view.get_origin(WINDOW) + pages[9].rect.center().to_vec2() * view.zoom();
+        assert!(
+            (middle - WINDOW.center()).length() < 1.0,
+            "page 9 came out centred on {middle:?}, not {:?}",
+            WINDOW.center()
+        );
+    }
+
+    /// **A layout that changes no arrangement still answers the request to centre.**
+    ///
+    /// This is how a document that has just opened shows its first page in the middle:
+    /// nothing has zoomed, so nothing crosses the tile boundary, and the intent used to
+    /// sit unanswered until some later zoom spent it somewhere the reader had not asked
+    /// for.
+    #[test]
+    fn a_page_asked_for_is_centred_even_when_the_arrangement_is_not_changing() {
+        let mut view = PDFView::new();
+        view.display_mode = DisplayMode::Continuous;
+        let pages = column(25);
+        view.set_zoom(1.0);
+        view.restore_anchor(None, WINDOW, &pages);
+        assert!(!view.arrangement_is_changing(), "the fixture is mid-crossing");
+
+        view.open_page(6);
+        view.restore_anchor(None, WINDOW, &pages);
+
+        let middle = view.get_origin(WINDOW) + pages[6].rect.center().to_vec2() * view.zoom();
+        assert!(
+            (middle - WINDOW.center()).length() < 1.0,
+            "page 6 came out centred on {middle:?}, not {:?}",
+            WINDOW.center()
+        );
+    }
+
+    /// **The request waits for a window to be centred in.**
+    ///
+    /// The first layout after a document loads runs before the viewport is known. Spending
+    /// the request on a rectangle of no size would centre the page on nothing and leave
+    /// the reader looking at whatever the pan happened to be.
+    #[test]
+    fn a_request_to_centre_survives_a_layout_with_no_window_yet() {
+        let mut view = PDFView::new();
+        view.display_mode = DisplayMode::Continuous;
+        let pages = column(25);
+        view.set_zoom(1.0);
+
+        view.open_page(6);
+        view.restore_anchor(None, egui::Rect::NOTHING, &pages);
+        view.restore_anchor(None, WINDOW, &pages);
+
+        let middle = view.get_origin(WINDOW) + pages[6].rect.center().to_vec2() * view.zoom();
+        assert!(
+            (middle - WINDOW.center()).length() < 1.0,
+            "page 6 came out centred on {middle:?}, not {:?}",
+            WINDOW.center()
+        );
     }
 
     /// **A double-click on a tile opens that page, in the middle of the window**, by the

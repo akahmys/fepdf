@@ -241,9 +241,12 @@ impl FepdfApp {
             }
         }
         self.page_layouts = layouts;
-        if let Some(anchor) = carried {
-            self.view.restore_anchor(anchor, viewport, &self.page_layouts);
-        }
+        // **Every pass, not only the ones that change the arrangement.** `open_page`
+        // records an intent for `restore_anchor` to answer, and this used to call it only
+        // when a zoom had crossed the tile boundary — so a document that had just opened
+        // asked for its first page in the middle and was never asked again, while the
+        // intent sat waiting to fire at whatever zoom came next.
+        self.view.restore_anchor(carried.flatten(), viewport, &self.page_layouts);
     }
 
     /// Stacks the pages in one column, each centred on `x = 0`.
