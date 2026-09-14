@@ -100,10 +100,12 @@ pub mod struct_tree {
 }
 pub use fepdf_doc::{
     AuditFinding,
+    ContentFit,
     DecorationPosition,
     MatterhornAuditor,
     Operation,
     OutlineReport,
+    PageResize,
     PageSelection,
     // `PdfStandard` moved here from this file when `Operation::Upgrade` came to carry it:
     // a type an operation holds has to live with the vocabulary.

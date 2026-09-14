@@ -27,6 +27,7 @@ fn variant_name(op: &Operation) -> &'static str {
         Operation::ReorderBatch { .. } => "ReorderBatch",
         Operation::DuplicatePages(_) => "DuplicatePages",
         Operation::InsertFrom { .. } => "InsertFrom",
+        Operation::ResizePages(..) => "ResizePages",
         Operation::AddLtvInfo { .. } => "AddLtvInfo",
         Operation::Retag => "Retag",
         Operation::Upgrade { .. } => "Upgrade",

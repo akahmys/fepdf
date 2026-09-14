@@ -5,9 +5,9 @@
 
 pub use fepdf_model::{
     AFRelationship, AnnotationKind, AnnotationSpec, ArticleThread, AssociatedFile,
-    CollectionViewMode, FormFieldSpec, FormValue, GeoSpatialAnchor, MeasurementScale,
+    CollectionViewMode, ContentFit, FormFieldSpec, FormValue, GeoSpatialAnchor, MeasurementScale,
     MeshShadingSpec, MeshShadingType, OptionalContentProperties, OutlineNode, OutlineTree,
-    OutputIntent, PageLabelSpec, PageLabelStyle, PdfAction, PortfolioCollection,
+    OutputIntent, PageLabelSpec, PageLabelStyle, PageResize, PdfAction, PortfolioCollection,
     PublicKeyRecipientSpec, TransitionSpec, TransitionStyle, UnencryptedWrapperSpec, UserProperty,
     UserPropertyValue, VisibilityState,
 };
@@ -180,6 +180,18 @@ pub enum Operation {
         /// The 0-based position to insert at, clamped to the page count.
         at: usize,
     },
+    /// Put the named pages on a different sheet, and say what happens to what is on them.
+    ///
+    /// **One operation for both "change the paper size" and "scale".** They are the same
+    /// act asked in two directions: a sheet, and a rule for the drawing on it. A4 content
+    /// on an A3 sheet is `size` A3 with [`ContentFit::Fit`]; the same content at 90% on
+    /// the sheet it is already on is the size it already has with
+    /// <code>[ContentFit::Scale](0.9)</code>. Two would have been two places to get the
+    /// boxes right.
+    ///
+    /// `size` is the new `/MediaBox`, in points, placed at the origin — which is where
+    /// 14.11.2's boxes are measured from and where every page in this corpus puts its own.
+    ResizePages(PageSelection, PageResize),
     /// Add a Document Security Store (`/DSS`, 12.8.4.3) carrying validation certificates.
     ///
     /// **The only piece of `/DSS` that exists.** It was a facade method nothing called

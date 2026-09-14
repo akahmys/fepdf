@@ -82,3 +82,7 @@ required-features = ["render"]
 name = "render_japanese_samples"
 required-features = ["render"]
 
+[[example]]
+name = "resize_preview"
+required-features = ["render"]
+

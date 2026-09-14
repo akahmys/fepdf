@@ -47,6 +47,55 @@ pub struct PortfolioItem {
     pub data: Vec<u8>,
 }
 
+/// What happens to what is already on a page when the sheet under it changes (14.11.2).
+///
+/// **The question the operation could not answer for itself.** A page is a sheet and a
+/// drawing on it, and changing the sheet says nothing about the drawing: A4 content on an
+/// A3 sheet can stay in the corner it was drawn in, move to the middle of the new sheet,
+/// or grow to fill it, and all three are things a person asks for. So the caller says
+/// which, and the operation has no default to be wrong about.
+///
+/// Every one of these is one transform applied to the content *and* to every other box
+/// the page declares — `/CropBox`, `/BleedBox`, `/TrimBox`, `/ArtBox`. Leaving those
+/// behind would change the sheet and not what a viewer shows: every page of every sample
+/// in this corpus declares a `/CropBox`, and 1,986 of them declare a `/TrimBox` too.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub enum ContentFit {
+    /// Left where it was drawn, measured from the origin — the bottom-left corner.
+    ///
+    /// What a page carrying a fold mark or a punched-hole margin wants: the geometry is
+    /// measured from an edge and moving it would move what it measures.
+    Anchor,
+    /// Moved so that the middle of the old sheet is the middle of the new one, at the
+    /// size it was drawn.
+    Centre,
+    /// Scaled to fit the new sheet and centred on it.
+    ///
+    /// Uniformly, by the smaller of the two ratios: a page scaled to fit by each axis
+    /// separately is a page with the wrong aspect, and nothing on it is the shape it was
+    /// drawn as.
+    Fit,
+    /// Scaled by a factor of the caller's choosing and centred.
+    ///
+    /// A factor with the sheet left alone is the other thing "scale" means: the drawing
+    /// shrinks and the margins grow, which is what printing a document inside a bound
+    /// edge asks for.
+    Scale(f64),
+}
+
+/// A sheet to put pages on, and what happens to what is on them (14.11.2).
+///
+/// One struct rather than three fields on the operation, which is the shape the
+/// vocabulary already uses where an operation takes more than a couple of things —
+/// `UpdateStructElem` and `MoveStructElem` each carry one.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PageResize {
+    /// The new sheet: width and height in points, placed at the origin.
+    pub size: (f64, f64),
+    /// What happens to what is already drawn there.
+    pub content: ContentFit,
+}
+
 /// Bookmark / Outline tree item (ISO 32000-2 Section 12.3.3).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct OutlineNode {

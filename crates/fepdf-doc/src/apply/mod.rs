@@ -18,6 +18,14 @@ use fepdf_model::{Document, PdfResult};
 
 /// Applies a canonical mutation operation to the document model.
 pub fn apply_operation(doc: &mut Document, op: Operation) -> PdfResult<()> {
+    // RR-15 Limit: Dispatcher - the vocabulary's one routing table, exhaustive by Rule 5
+    //
+    // Thirty-two arms, each a name and where it goes. It passed fifty when `ResizePages`
+    // was added, and the fix is not to split it: half a table is half an answer to "what
+    // can this engine do", and the halves would need a wildcard arm between them — which
+    // Rule 5 forbids over a domain enum, and rightly, since that arm is where a variant
+    // goes to be silently ignored.
+    //
     // An edit can rewrite the object a resolved colour space was parsed from, and the
     // cache is keyed by that object's arena handle.
     doc.forget_color_spaces();
@@ -28,6 +36,7 @@ pub fn apply_operation(doc: &mut Document, op: Operation) -> PdfResult<()> {
             page::apply_reorder_batch(doc, &sources, target).map(|_| ())
         }
         Operation::DuplicatePages(pages) => page::apply_duplicate_pages(doc, &pages),
+        Operation::ResizePages(pages, to) => page::apply_resize_pages(doc, &pages, &to),
         Operation::InsertFrom { source, at } => {
             page::apply_insert_from(doc, &source, at).map(|_| ())
         }
