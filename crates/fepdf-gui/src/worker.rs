@@ -878,27 +878,32 @@ fn handle_apply(
     done: String,
     tx: &Sender<WorkerResponse>,
 ) {
-    let before = page_count_of(doc.as_ref());
+    let before = page_sizes_of(doc.as_ref());
     apply_recorded(doc, history, operation, Some(done), tx);
-    if page_count_of(doc.as_ref()) != before {
-        send_page_sizes(doc.as_ref(), tx);
+    let after = page_sizes_of(doc.as_ref());
+    if after != before {
+        let _ = tx.send(WorkerResponse::PagesChanged { page_sizes: after });
+        // **The structure tree is measured against the pages, so it moved too.** Its
+        // rectangles come from where each element's marked content actually drew, and a
+        // resize moves every one of them — the reading-order overlay went on outlining
+        // where the content used to be. Re-read rather than adjusted: the boxes are read
+        // from the document, and a second way of arriving at them is a second answer.
+        let root = doc.as_ref().and_then(|doc| resolve_struct_tree_root(doc, &mut 0));
+        let _ = tx.send(WorkerResponse::StructTreeChanged { root: root.map(Box::new) });
     }
 }
 
-/// How many pages the document has, or none when there is no document.
-fn page_count_of(doc: Option<&PdfDocument>) -> Option<usize> {
-    doc.and_then(|d| d.page_count().ok())
-}
-
-/// Sends every page's size, which is also how the window learns the new count.
-fn send_page_sizes(doc: Option<&PdfDocument>, tx: &Sender<WorkerResponse>) {
-    let Some(doc) = doc else { return };
-    let Ok(count) = doc.page_count() else { return };
-    let mut page_sizes = Vec::with_capacity(count);
-    for index in 0..count {
-        page_sizes.push(doc.get_page_size(index).unwrap_or((595.0, 842.0)));
-    }
-    let _ = tx.send(WorkerResponse::PagesChanged { page_sizes });
+/// Every page's size, which is what the window lays out from.
+///
+/// **Compared rather than counted.** This asked whether the page *count* had changed,
+/// which `InsertFrom` and `RemovePages` alter and `ResizePages` does not: a document
+/// resized to A3 went on being drawn at its old size because the window keeps its own
+/// sizes and nothing told it. Comparing the sizes covers both, and covers the next
+/// operation that moves a box without adding a page.
+fn page_sizes_of(doc: Option<&PdfDocument>) -> Vec<(f64, f64)> {
+    let Some(doc) = doc else { return Vec::new() };
+    let Ok(count) = doc.page_count() else { return Vec::new() };
+    (0..count).map(|index| doc.get_page_size(index).unwrap_or((595.0, 842.0))).collect()
 }
 
 /// Extracts `indices` into a document of its own, and takes them out of this one when
@@ -929,7 +934,7 @@ fn handle_extract(
     if remove {
         let taken = PageSelection::Indices(indices.to_vec());
         apply_recorded(doc, history, Operation::RemovePages(taken), None, tx);
-        send_page_sizes(doc.as_ref(), tx);
+        let _ = tx.send(WorkerResponse::PagesChanged { page_sizes: page_sizes_of(doc.as_ref()) });
     }
 }
 

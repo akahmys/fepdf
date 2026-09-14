@@ -25,6 +25,8 @@ pub enum Tool {
     Attach,
     Geospatial,
     Portfolio,
+    /// The sheet the pages are on, and what happens to what is on them (14.11.2).
+    Resize,
 }
 
 /// What the forms are filling in, kept between frames.
@@ -45,6 +47,18 @@ pub struct ToolState {
     pub geo_latitude: f64,
     pub geo_longitude: f64,
     pub portfolio_paths: Vec<std::path::PathBuf>,
+    /// The sheet chosen by name, or `None` while the width and height are being typed.
+    pub sheet: Option<&'static str>,
+    /// The sheet turned on its side.
+    pub landscape: bool,
+    /// What the width and height fields say, in points — the sheet when one is named.
+    pub sheet_size: (f64, f64),
+    /// What happens to what is already drawn on the pages.
+    pub fit: fepdf::ContentFit,
+    /// The factor `ContentFit::Scale` uses, kept while another fit is chosen.
+    pub scale: f64,
+    /// Whether the selection is resized rather than the whole document.
+    pub resize_selection: bool,
 }
 
 impl Default for ToolState {
@@ -65,6 +79,14 @@ impl Default for ToolState {
             geo_latitude: 0.0,
             geo_longitude: 0.0,
             portfolio_paths: Vec::new(),
+            // A4, because this is the sheet most of the world's documents are on and the
+            // one every sample in this corpus but two is already using.
+            sheet: Some("A4"),
+            landscape: false,
+            sheet_size: (595.0, 842.0),
+            fit: fepdf::ContentFit::Fit,
+            scale: 1.0,
+            resize_selection: false,
         }
     }
 }
@@ -92,12 +114,13 @@ fn body(app: &mut FepdfApp, ui: &mut egui::Ui) {
         Tool::Attach => attach_form(app, ui),
         Tool::Geospatial => geospatial_form(app, ui),
         Tool::Portfolio => portfolio_form(app, ui),
+        Tool::Resize => resize_form(app, ui),
     }
 }
 
 /// The list of tools, each with the sentence that says when it is the one wanted.
 fn picker(app: &mut FepdfApp, ui: &mut egui::Ui) {
-    const TOOLS: [(Tool, &str, &str); 7] = [
+    const TOOLS: [(Tool, &str, &str); 8] = [
         (Tool::PageLabels, "tools_page_labels", "tools_page_labels_desc"),
         (Tool::Bates, "tools_bates", "tools_bates_desc"),
         (Tool::Retag, "tools_retag", "tools_retag_desc"),
@@ -105,6 +128,7 @@ fn picker(app: &mut FepdfApp, ui: &mut egui::Ui) {
         (Tool::Attach, "tools_attach", "tools_attach_desc"),
         (Tool::Geospatial, "tools_geo", "tools_geo_desc"),
         (Tool::Portfolio, "tools_portfolio", "tools_portfolio_desc"),
+        (Tool::Resize, "tools_resize", "tools_resize_desc"),
     ];
     for (tool, name, description) in TOOLS {
         let label = app.locale_mgr.tr(&app.active_language, name);
@@ -378,4 +402,124 @@ fn portfolio_form(app: &mut FepdfApp, ui: &mut egui::Ui) {
             "tools_portfolio",
         );
     }
+}
+
+/// Every string the resize form shows, so they can be read before the pickers borrow the
+/// state they draw.
+const RESIZE_WORDS: [&str; 12] = [
+    "tools_apply",
+    "tools_resize_sheet",
+    "tools_resize_width",
+    "tools_resize_height",
+    "tools_resize_points",
+    "tools_resize_landscape",
+    "tools_resize_content",
+    "tools_resize_selection",
+    "tools_fit_fit",
+    "tools_fit_centre",
+    "tools_fit_anchor",
+    "tools_fit_scale",
+];
+
+/// 14.11.2: the sheet the pages are on, and what happens to what is drawn there.
+///
+/// **The fit is the question this form exists to ask.** Changing the sheet says nothing
+/// about the drawing on it, so the operation refuses to guess and this offers the four
+/// answers by name.
+fn resize_form(app: &mut FepdfApp, ui: &mut egui::Ui) {
+    // **The strings are taken before the pickers run**, not read through a closure that
+    // borrows the locale: the pickers take the tool state mutably, and a shared borrow of
+    // one of `app`'s fields held across that is a borrow of the whole of it. The drawer
+    // above does the same with its title.
+    let words: Vec<String> =
+        RESIZE_WORDS.iter().map(|key| app.locale_mgr.tr(&app.active_language, key)).collect();
+    let tr = |key: &str| -> String {
+        RESIZE_WORDS.iter().position(|k| *k == key).map_or_else(String::new, |at| words[at].clone())
+    };
+    sheet_picker(&mut app.tools, ui, &tr);
+    ui.add_space(crate::app::theme::space::GROUP);
+    fit_picker(&mut app.tools, ui, &tr);
+    ui.add_space(crate::app::theme::space::GROUP);
+
+    let selected = app.selected_pages.len();
+    if selected > 0 {
+        let label = format!("{} ({selected})", tr("tools_resize_selection"));
+        ui.checkbox(&mut app.tools.resize_selection, label);
+    }
+    if ui.button(tr("tools_apply")).clicked() {
+        send_resize(app);
+    }
+}
+
+/// Builds the resize the form describes and sends it.
+///
+/// **One home**, because the capture harness presses this too and a second copy of the
+/// reading would be a second thing to keep true (UI-12).
+pub fn send_resize(app: &FepdfApp) {
+    let pages = if app.tools.resize_selection && !app.selected_pages.is_empty() {
+        let mut indices: Vec<usize> = app.selected_pages.iter().copied().collect();
+        indices.sort_unstable();
+        fepdf::PageSelection::Indices(indices)
+    } else {
+        fepdf::PageSelection::All
+    };
+    let size = app.tools.sheet_size;
+    let size = if app.tools.landscape { fepdf::PageResize::landscape(size) } else { size };
+    let resize = fepdf::PageResize { size, content: app.tools.fit };
+    apply(app, fepdf::Operation::ResizePages(pages, resize), "tools_resize");
+}
+
+/// The sheet, by name or by two numbers.
+fn sheet_picker(tools: &mut ToolState, ui: &mut egui::Ui, tr: &dyn Fn(&str) -> String) {
+    ui.label(tr("tools_resize_sheet"));
+    ui.horizontal_wrapped(|ui| {
+        for (name, size) in fepdf::PageResize::SHEETS {
+            // The names are identifiers — `A4` is `A4` in every language — so they carry
+            // no locale key, for the same reason `PDF/A-4` beside them does not.
+            if ui.selectable_label(tools.sheet == Some(name), name).clicked() {
+                tools.sheet = Some(name);
+                tools.sheet_size = size;
+            }
+        }
+    });
+    ui.horizontal(|ui| {
+        ui.label(tr("tools_resize_width"));
+        // Typing a number stops the sheet being a named one: it is whatever was typed.
+        if ui.add(egui::DragValue::new(&mut tools.sheet_size.0).speed(1.0)).changed() {
+            tools.sheet = None;
+        }
+        ui.label(tr("tools_resize_height"));
+        if ui.add(egui::DragValue::new(&mut tools.sheet_size.1).speed(1.0)).changed() {
+            tools.sheet = None;
+        }
+        ui.label(tr("tools_resize_points"));
+    });
+    ui.checkbox(&mut tools.landscape, tr("tools_resize_landscape"));
+}
+
+/// What happens to what is already on the page.
+fn fit_picker(tools: &mut ToolState, ui: &mut egui::Ui, tr: &dyn Fn(&str) -> String) {
+    const FITS: [(fepdf::ContentFit, &str); 3] = [
+        (fepdf::ContentFit::Fit, "tools_fit_fit"),
+        (fepdf::ContentFit::Centre, "tools_fit_centre"),
+        (fepdf::ContentFit::Anchor, "tools_fit_anchor"),
+    ];
+    ui.label(tr("tools_resize_content"));
+    for (fit, key) in FITS {
+        ui.radio_value(&mut tools.fit, fit, tr(key));
+    }
+    // **The factor is read whether or not this row is the chosen one**, so that dragging
+    // it is how a reader chooses it — a radio button that has to be pressed first before
+    // the number beside it does anything is two gestures for one intent.
+    ui.horizontal(|ui| {
+        let chosen = matches!(tools.fit, fepdf::ContentFit::Scale(_));
+        if ui.radio(chosen, tr("tools_fit_scale")).clicked() {
+            tools.fit = fepdf::ContentFit::Scale(tools.scale);
+        }
+        let dragged = ui
+            .add(egui::DragValue::new(&mut tools.scale).speed(0.01).range(0.05..=10.0).suffix("×"));
+        if dragged.changed() {
+            tools.fit = fepdf::ContentFit::Scale(tools.scale);
+        }
+    });
 }

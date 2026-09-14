@@ -282,6 +282,32 @@ impl FepdfApp {
         named.replace(['/', '\\'], "-")
     }
 
+    /// Fills the resize form and presses its apply, for a capture plan.
+    ///
+    /// **Everything the form does except the pointer.** A plan cannot click a radio
+    /// button, so this sets the same fields the pickers set and calls the same
+    /// `send_resize` the button calls.
+    pub(crate) fn drive_resize(&mut self, sheet: &str, fit: &str) {
+        if let Some(size) = fepdf::PageResize::sheet(sheet) {
+            self.tools.sheet = Some(sheet.to_string().leak());
+            self.tools.sheet_size = size;
+        } else if let Some((w, h)) = sheet.split_once('x')
+            && let (Ok(w), Ok(h)) = (w.parse(), h.parse())
+        {
+            self.tools.sheet = None;
+            self.tools.sheet_size = (w, h);
+        }
+        self.tools.fit = match fit.split_once(':') {
+            Some(("scale", by)) => fepdf::ContentFit::Scale(by.parse().unwrap_or(1.0)),
+            _ => match fit {
+                "centre" => fepdf::ContentFit::Centre,
+                "anchor" => fepdf::ContentFit::Anchor,
+                _ => fepdf::ContentFit::Fit,
+            },
+        };
+        crate::document_tools::send_resize(self);
+    }
+
     /// Prints where the current page sits against the viewport, for a capture plan.
     ///
     /// **A screenshot cannot answer this.** The shots are scaled before they are read and

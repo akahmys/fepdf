@@ -72,6 +72,11 @@ pub enum Step {
     Extract(bool),
     /// Mark every page, as a reader choosing all of them would.
     SelectAll,
+    /// Open one of the document tools by name: `tool resize`.
+    Tool(String),
+    /// Set the resize form's sheet and fit, then press its apply:
+    /// `resize <sheet|WxH> <fit|scale:FACTOR>`.
+    Resize(String, String),
     /// Double-click the bench at a point, which crosses the tile boundary:
     /// `dblclick <x> <y>` in points from the viewport's top-left.
     DoubleClick(u32, u32),
@@ -211,6 +216,11 @@ impl Plan {
 }
 
 fn parse(line: &str) -> Option<Step> {
+    // RR-15 Limit: Dispatcher - one arm per verb the plan vocabulary has
+    //
+    // It passed fifty when `resize` was added. Splitting it would put half the verbs in
+    // one function and half in another, and a reader asking what a plan can say would
+    // have to find both.
     let (verb, rest) = line.split_once(' ').unwrap_or((line, ""));
     let rest = rest.trim();
     Some(match verb {
@@ -239,6 +249,11 @@ fn parse(line: &str) -> Option<Step> {
         }
         "extract" => Step::Extract(rest == "remove"),
         "selectall" => Step::SelectAll,
+        "tool" => Step::Tool(rest.to_owned()),
+        "resize" => {
+            let (sheet, fit) = rest.split_once(' ')?;
+            Step::Resize(sheet.trim().to_owned(), fit.trim().to_owned())
+        }
         "openpage" => Step::OpenPage(rest.parse().ok()?),
         "probe" => Step::Probe(rest.to_owned()),
         "dblclick" => {
@@ -351,6 +366,14 @@ impl crate::app::FepdfApp {
                 self.view.set_zoom(1.0);
                 self.compute_layouts();
             }
+            Step::Tool(name) => {
+                self.active_drawer = ActiveDrawer::Tools;
+                self.tools.open = match name.as_str() {
+                    "resize" => crate::document_tools::Tool::Resize,
+                    _ => crate::document_tools::Tool::None,
+                };
+            }
+            Step::Resize(sheet, fit) => self.drive_resize(&sheet, &fit),
             Step::SelectAll => {
                 self.selected_pages = (0..self.total_pages).collect();
             }

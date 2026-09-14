@@ -96,6 +96,41 @@ pub struct PageResize {
     pub content: ContentFit,
 }
 
+impl PageResize {
+    /// The sheets a person names, in points, from the two standards that name them.
+    ///
+    /// **Here rather than in a frontend.** A frontend that typed these numbers out would
+    /// be the second place they were written, and the third would disagree with it:
+    /// `fepdf-cli` and `fepdf-mcp` want the same list, by the same names. The names are
+    /// identifiers — `A4` is `A4` in every language — so they carry no locale key.
+    ///
+    /// ISO 216's A and B series are defined in millimetres and rounded to whole points
+    /// here, which is what a PDF `/MediaBox` is written in and what every producer in
+    /// this corpus writes.
+    pub const SHEETS: [(&'static str, (f64, f64)); 8] = [
+        ("A3", (842.0, 1191.0)),
+        ("A4", (595.0, 842.0)),
+        ("A5", (420.0, 595.0)),
+        ("B4", (709.0, 1001.0)),
+        ("B5", (499.0, 709.0)),
+        ("Letter", (612.0, 792.0)),
+        ("Legal", (612.0, 1008.0)),
+        ("Tabloid", (792.0, 1224.0)),
+    ];
+
+    /// The sheet `name` stands for, if it is one of [`Self::SHEETS`].
+    #[must_use]
+    pub fn sheet(name: &str) -> Option<(f64, f64)> {
+        Self::SHEETS.iter().find(|(known, _)| *known == name).map(|(_, size)| *size)
+    }
+
+    /// The same sheet turned on its side.
+    #[must_use]
+    pub const fn landscape(size: (f64, f64)) -> (f64, f64) {
+        (size.1, size.0)
+    }
+}
+
 /// Bookmark / Outline tree item (ISO 32000-2 Section 12.3.3).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct OutlineNode {
@@ -467,4 +502,38 @@ pub struct PublicKeyRecipientSpec {
     pub certificate_der_bytes: Vec<u8>,
     /// Encrypted file key bytes for this recipient.
     pub encrypted_key_bytes: Vec<u8>,
+}
+
+#[cfg(test)]
+mod sheet_tests {
+    use super::PageResize;
+
+    /// The A series halves along its long edge, which is what defines it (ISO 216).
+    ///
+    /// Rounding to whole points costs at most a point, so the check is that each sheet is
+    /// the next one's long edge within one — not that the arithmetic is exact.
+    #[test]
+    fn each_a_sheet_is_half_the_one_before_it() {
+        let a3 = PageResize::sheet("A3").expect("A3");
+        let a4 = PageResize::sheet("A4").expect("A4");
+        let a5 = PageResize::sheet("A5").expect("A5");
+        assert!((a3.1 / 2.0 - a4.0).abs() <= 1.0, "A3 halved is {} and A4 is {}", a3.1 / 2.0, a4.0);
+        assert!((a4.1 / 2.0 - a5.0).abs() <= 1.0, "A4 halved is {} and A5 is {}", a4.1 / 2.0, a5.0);
+    }
+
+    /// Every sheet is taller than it is wide, so `landscape` means something.
+    #[test]
+    fn the_sheets_are_named_portrait() {
+        for (name, size) in PageResize::SHEETS {
+            assert!(size.1 > size.0, "{name} is listed on its side: {size:?}");
+            assert_eq!(PageResize::landscape(size), (size.1, size.0));
+        }
+    }
+
+    /// A name nobody declared answers nothing, rather than a default sheet.
+    #[test]
+    fn an_unknown_name_is_not_guessed_at() {
+        assert!(PageResize::sheet("A9").is_none());
+        assert!(PageResize::sheet("a4").is_none(), "the names are identifiers, not prose");
+    }
 }
