@@ -47,53 +47,83 @@ pub struct PortfolioItem {
     pub data: Vec<u8>,
 }
 
-/// What happens to what is already on a page when the sheet under it changes (14.11.2).
+/// How what is drawn on a page is resized when the sheet under it changes (14.11.2).
 ///
-/// **The question the operation could not answer for itself.** A page is a sheet and a
-/// drawing on it, and changing the sheet says nothing about the drawing: A4 content on an
-/// A3 sheet can stay in the corner it was drawn in, move to the middle of the new sheet,
-/// or grow to fill it, and all three are things a person asks for. So the caller says
-/// which, and the operation has no default to be wrong about.
-///
-/// Every one of these is one transform applied to the content *and* to every other box
-/// the page declares — `/CropBox`, `/BleedBox`, `/TrimBox`, `/ArtBox`. Leaving those
-/// behind would change the sheet and not what a viewer shows: every page of every sample
-/// in this corpus declares a `/CropBox`, and 1,986 of them declare a `/TrimBox` too.
+/// **Separate from where it is placed.** These were one enum, and the four values it had
+/// were four pairs: "keep the size, at the origin", "keep the size, centred", "scale to
+/// fit, centred", "scale by a factor, centred". Two of the nine combinations were
+/// reachable and the useful ones were not — a page scaled to fit but held against the
+/// binding edge, or shrunk to leave a margin on one side only.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
-pub enum ContentFit {
-    /// Left where it was drawn, measured from the origin — the bottom-left corner.
-    ///
-    /// What a page carrying a fold mark or a punched-hole margin wants: the geometry is
-    /// measured from an edge and moving it would move what it measures.
-    Anchor,
-    /// Moved so that the middle of the old sheet is the middle of the new one, at the
-    /// size it was drawn.
-    Centre,
-    /// Scaled to fit the new sheet and centred on it.
+pub enum ContentScale {
+    /// Left at the size it was drawn.
+    Keep,
+    /// Scaled so the whole of it lands on the sheet.
     ///
     /// Uniformly, by the smaller of the two ratios: a page scaled to fit by each axis
     /// separately is a page with the wrong aspect, and nothing on it is the shape it was
     /// drawn as.
     Fit,
-    /// Scaled by a factor of the caller's choosing and centred.
+    /// Scaled by a factor of the caller's choosing.
     ///
-    /// A factor with the sheet left alone is the other thing "scale" means: the drawing
-    /// shrinks and the margins grow, which is what printing a document inside a bound
-    /// edge asks for.
-    Scale(f64),
+    /// With the sheet left alone this is the other thing "scale" means: the drawing
+    /// shrinks and the margins grow, which is what printing inside a bound edge asks for.
+    By(f64),
 }
 
-/// A sheet to put pages on, and what happens to what is on them (14.11.2).
+/// Where the content sits on the sheet along one axis.
 ///
-/// One struct rather than three fields on the operation, which is the shape the
-/// vocabulary already uses where an operation takes more than a couple of things —
+/// **`Start` is the side the origin is on** — the left, and the bottom — because that is
+/// where a PDF measures from (8.3.2.3). A document put on a taller sheet usually wants
+/// `End` vertically: the reader expects the text at the top and the new room below it,
+/// and a page held at the bottom reads as having been pushed down.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub enum Align {
+    /// Against the origin: left, or bottom.
+    Start,
+    /// In the middle.
+    #[default]
+    Middle,
+    /// Against the far edge: right, or top.
+    End,
+}
+
+impl Align {
+    /// How far a run of `content` sits from the origin within `sheet`.
+    #[must_use]
+    pub fn offset_within(self, content: f64, sheet: f64) -> f64 {
+        match self {
+            Self::Start => 0.0,
+            Self::Middle => (sheet - content) / 2.0,
+            Self::End => sheet - content,
+        }
+    }
+}
+
+/// A sheet to put pages on, how what is drawn there is resized, and where it lands
+/// (14.11.2).
+///
+/// One struct rather than four fields on the operation, which is the shape the vocabulary
+/// already uses where an operation takes more than a couple of things —
 /// `UpdateStructElem` and `MoveStructElem` each carry one.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct PageResize {
-    /// The new sheet: width and height in points, placed at the origin.
-    pub size: (f64, f64),
-    /// What happens to what is already drawn there.
-    pub content: ContentFit,
+    /// The sheet to put the pages on, or `None` to keep the one they are already on.
+    ///
+    /// **`None` is what makes "scale the content" a thing this can say.** Scaling a
+    /// drawing inside the sheet it is already on had to be asked for by naming that same
+    /// sheet again, which meant reading it off the page first and getting it wrong for a
+    /// document whose pages are not all one size.
+    pub sheet: Option<(f64, f64)>,
+    /// How what is drawn there is resized.
+    pub scale: ContentScale,
+    /// Where it sits on the sheet once resized: across, then up.
+    pub place: (Align, Align),
+    /// Moved by this much afterwards, in points: right, then up.
+    ///
+    /// Applied after the placement, so it reads as a nudge from wherever that put it —
+    /// a binding margin is `Align::Middle` with a positive first number, and says so.
+    pub offset: (f64, f64),
 }
 
 impl PageResize {

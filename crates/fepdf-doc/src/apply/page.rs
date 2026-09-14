@@ -1,6 +1,6 @@
 #![allow(clippy::cast_possible_wrap, clippy::cast_possible_truncation)]
 use crate::operation::{
-    ContentFit, PageLabelSpec, PageLabelStyle, PageResize, PageSelection, PdfStandard, RotateMode,
+    ContentScale, PageLabelSpec, PageLabelStyle, PageResize, PageSelection, PdfStandard, RotateMode,
 };
 use bytes::Bytes;
 use fepdf_model::{Document, Object, PdfError, PdfResult};
@@ -256,31 +256,32 @@ pub fn apply_set_page_labels(doc: &Document, labels: Vec<PageLabelSpec>) -> PdfR
     Ok(())
 }
 
-/// The affine a [`ContentFit`] asks for, given the sheet being left and the one arrived at.
+/// The affine a [`PageResize`] asks for, given the sheet being left and the one arrived at.
 ///
 /// Returned as PDF's six numbers in the order a `cm` operator takes them (8.3.3): the
 /// matrix is `[a b c d e f]` and only the diagonal and the translation are ever set,
-/// because none of the fits rotate or skew.
+/// because none of this rotates or skews.
 ///
-/// **Pure, and tested on its own.** Every one of the four fits is a sentence about where
-/// a drawing ends up, and a sentence about geometry is the kind that reads as obviously
-/// right and is off by a factor of two.
+/// **Three independent things, in order: scale, then place, then nudge.** They were one
+/// four-valued enum, which could say "scale to fit, centred" and "keep the size, at the
+/// origin" and neither of the two anyone asks for next — fit it but hold it against the
+/// binding edge, or shrink it and leave the extra margin on one side.
+///
+/// Pure, and tested on its own: a sentence about where a drawing ends up is the kind that
+/// reads as obviously right and is off by a factor of two.
 #[must_use]
-pub fn fit_matrix(from: (f64, f64), to: (f64, f64), fit: ContentFit) -> [f64; 6] {
-    let scale = match fit {
-        ContentFit::Anchor | ContentFit::Centre => 1.0,
+pub fn fit_matrix(from: (f64, f64), to: (f64, f64), how: &PageResize) -> [f64; 6] {
+    let scale = match how.scale {
+        ContentScale::Keep => 1.0,
         // The smaller ratio, so the whole of it lands on the sheet.
-        ContentFit::Fit => (to.0 / from.0).min(to.1 / from.1),
-        ContentFit::Scale(by) => by,
+        ContentScale::Fit => (to.0 / from.0).min(to.1 / from.1),
+        ContentScale::By(by) => by,
     };
-    let (dx, dy) = match fit {
-        // The origin is the bottom-left corner, and that is where it stays.
-        ContentFit::Anchor => (0.0, 0.0),
-        ContentFit::Centre | ContentFit::Fit | ContentFit::Scale(_) => {
-            (from.0.mul_add(-scale, to.0) / 2.0, from.1.mul_add(-scale, to.1) / 2.0)
-        }
-    };
-    [scale, 0.0, 0.0, scale, dx, dy]
+    let placed = (
+        how.place.0.offset_within(from.0 * scale, to.0),
+        how.place.1.offset_within(from.1 * scale, to.1),
+    );
+    [scale, 0.0, 0.0, scale, placed.0 + how.offset.0, placed.1 + how.offset.1]
 }
 
 /// A rectangle with `m` applied to it, as the four numbers a page box is written as.
@@ -338,16 +339,20 @@ const CONTENT_BOXES: [&str; 3] = ["BleedBox", "TrimBox", "ArtBox"];
 /// positive finite number — either would produce a page nothing can be drawn on, and a
 /// zero in a `cm` matrix is not an error any viewer reports.
 pub fn apply_resize_pages(doc: &Document, pages: &PageSelection, to: &PageResize) -> PdfResult<()> {
-    let (size, fit) = (to.size, to.content);
-    if !(size.0.is_finite() && size.1.is_finite()) || size.0 <= 0.0 || size.1 <= 0.0 {
+    if let Some(size) = to.sheet
+        && (!(size.0.is_finite() && size.1.is_finite()) || size.0 <= 0.0 || size.1 <= 0.0)
+    {
         return Err(PdfError::Other(
             format!("a sheet of {} by {} points has no area", size.0, size.1).into(),
         ));
     }
-    if let ContentFit::Scale(by) = fit
+    if let ContentScale::By(by) = to.scale
         && (!by.is_finite() || by <= 0.0)
     {
         return Err(PdfError::Other(format!("a scale of {by} draws nothing").into()));
+    }
+    if !(to.offset.0.is_finite() && to.offset.1.is_finite()) {
+        return Err(PdfError::Other(format!("an offset of {:?} is nowhere", to.offset).into()));
     }
     let count = doc.page_count()?;
     let indices = match pages {
@@ -357,25 +362,22 @@ pub fn apply_resize_pages(doc: &Document, pages: &PageSelection, to: &PageResize
     };
     for idx in indices {
         if idx < count {
-            resize_one_page(doc, idx, size, fit)?;
+            resize_one_page(doc, idx, to)?;
         }
     }
     Ok(())
 }
 
 /// One page: the sheet, then the boxes on it, then the drawing.
-fn resize_one_page(
-    doc: &Document,
-    index: usize,
-    size: (f64, f64),
-    fit: ContentFit,
-) -> PdfResult<()> {
+fn resize_one_page(doc: &Document, index: usize, to: &PageResize) -> PdfResult<()> {
     let page = doc.get_page(index)?;
     let page_h = page.obj_handle();
     // The sheet being left, inherited if the page declares none, which is what the
-    // content was drawn against.
-    let (width, height) = doc_page_size(doc, index);
-    let matrix = fit_matrix((width, height), size, fit);
+    // content was drawn against. A resize that names no sheet keeps this one — which is
+    // per page, so a document of mixed sizes stays mixed.
+    let was = doc_page_size(doc, index);
+    let size = to.sheet.unwrap_or(was);
+    let matrix = fit_matrix(was, size, to);
 
     let page_dh = doc.resolve_to_dict(page_h)?;
     let arena = doc.arena();
@@ -481,72 +483,120 @@ fn stream_of(arena: &fepdf_model::arena::PdfArena, text: String) -> Object {
 
 #[cfg(test)]
 mod resize_geometry {
-    use super::{ContentFit, fit_matrix, moved_box};
-
-    /// Two matrices equal to within what a `cm` operator can express.
-    fn near(left: &[f64; 6], right: &[f64; 6]) -> bool {
-        left.iter().zip(right).all(|(a, b)| (a - b).abs() < 1e-9)
-    }
+    use super::{ContentScale, PageResize, fit_matrix, moved_box};
+    use crate::operation::Align;
 
     const A4: (f64, f64) = (595.0, 842.0);
     const A3: (f64, f64) = (842.0, 1191.0);
+    /// The whole of an A4 page, as a box to watch move.
+    const DRAWING: [f64; 4] = [0.0, 0.0, 595.0, 842.0];
 
-    /// The corner a PDF measures from is the one `Anchor` keeps still.
-    #[test]
-    fn anchoring_moves_nothing_and_scales_nothing() {
-        let m = fit_matrix(A4, A3, ContentFit::Anchor);
-        assert!(near(&m, &[1.0, 0.0, 0.0, 1.0, 0.0, 0.0]), "{m:?}");
-        // The bottom-left corner of the drawing is still the bottom-left of the sheet.
-        assert!(moved_box([0.0, 0.0, 595.0, 842.0], m)[1].abs() < 1e-9);
+    /// A resize that says only how to scale and where to put it.
+    fn resize(sheet: Option<(f64, f64)>, scale: ContentScale, place: (Align, Align)) -> PageResize {
+        PageResize { sheet, scale, place, offset: (0.0, 0.0) }
     }
 
-    /// Centring keeps the size and splits the difference on each axis.
-    #[test]
-    fn centring_leaves_equal_margins() {
-        let m = fit_matrix(A4, A3, ContentFit::Centre);
-        assert!((m[0] - 1.0).abs() < 1e-9 && (m[3] - 1.0).abs() < 1e-9, "centring is a scale");
-        assert!((m[4] - (842.0 - 595.0) / 2.0).abs() < 1e-9);
-        assert!((m[5] - (1191.0 - 842.0) / 2.0).abs() < 1e-9);
-        // What was in the middle is still in the middle.
-        let moved = moved_box([0.0, 0.0, 595.0, 842.0], m);
-        assert!((f64::midpoint(moved[0], moved[2]) - 842.0 / 2.0).abs() < 1e-9);
+    /// Two numbers equal to within what a `cm` operator can express.
+    fn near(left: f64, right: f64) -> bool {
+        (left - right).abs() < 1e-9
     }
 
-    /// **Fitting is uniform.** Scaling each axis by its own ratio fills the sheet and
-    /// leaves nothing on it the shape it was drawn as.
+    /// The origin corner is the one `Start, Start` keeps still.
+    #[test]
+    fn starting_at_the_origin_moves_nothing_and_scales_nothing() {
+        let m =
+            fit_matrix(A4, A3, &resize(Some(A3), ContentScale::Keep, (Align::Start, Align::Start)));
+        assert!(near(m[0], 1.0) && near(m[3], 1.0), "it scaled: {m:?}");
+        assert!(near(m[4], 0.0) && near(m[5], 0.0), "it moved: {m:?}");
+    }
+
+    /// Middle on both axes splits the difference on each.
+    #[test]
+    fn the_middle_leaves_equal_margins() {
+        let m = fit_matrix(
+            A4,
+            A3,
+            &resize(Some(A3), ContentScale::Keep, (Align::Middle, Align::Middle)),
+        );
+        assert!(near(m[4], (842.0 - 595.0) / 2.0) && near(m[5], (1191.0 - 842.0) / 2.0), "{m:?}");
+        let moved = moved_box(DRAWING, m);
+        assert!(near(f64::midpoint(moved[0], moved[2]), 842.0 / 2.0));
+    }
+
+    /// **`End` on the vertical axis is the top.** A document put on a taller sheet wants
+    /// its text where the reader looks first, with the new room below it.
+    #[test]
+    fn ending_on_the_vertical_axis_is_the_top_edge() {
+        let m =
+            fit_matrix(A4, A3, &resize(Some(A3), ContentScale::Keep, (Align::Start, Align::End)));
+        let moved = moved_box(DRAWING, m);
+        assert!(near(moved[3], 1191.0), "the top of the drawing is at {}", moved[3]);
+        assert!(near(moved[0], 0.0), "it left the left edge: {moved:?}");
+    }
+
+    /// Fitting is uniform: scaling each axis by its own ratio leaves nothing the shape it
+    /// was drawn as.
     #[test]
     fn fitting_uses_one_ratio_for_both_axes() {
-        let m = fit_matrix(A4, A3, ContentFit::Fit);
-        assert!((m[0] - m[3]).abs() < 1e-12, "the axes were scaled apart");
+        let m = fit_matrix(
+            A4,
+            A3,
+            &resize(Some(A3), ContentScale::Fit, (Align::Middle, Align::Middle)),
+        );
+        assert!(near(m[0], m[3]), "the axes were scaled apart");
         let by_width: f64 = 842.0 / 595.0;
         let by_height: f64 = 1191.0 / 842.0;
-        assert!((m[0] - by_width.min(by_height)).abs() < 1e-9);
+        assert!(near(m[0], by_width.min(by_height)));
 
-        // The whole of it lands on the sheet, and touches an edge.
-        let moved = moved_box([0.0, 0.0, 595.0, 842.0], m);
-        assert!(moved[0] >= -1e-9 && moved[1] >= -1e-9);
-        assert!(moved[2] <= 842.0 + 1e-9 && moved[3] <= 1191.0 + 1e-9);
-        let snug = (moved[2] - moved[0] - 842.0).abs() < 1e-6
-            || (moved[3] - moved[1] - 1191.0).abs() < 1e-6;
-        assert!(snug, "it fits with room to spare on both axes: {moved:?}");
+        let moved = moved_box(DRAWING, m);
+        assert!(moved[0] >= -1e-9 && moved[1] >= -1e-9, "{moved:?}");
+        assert!(moved[2] <= 842.0 + 1e-9 && moved[3] <= 1191.0 + 1e-9, "{moved:?}");
     }
 
-    /// A factor on the sheet it is already on is the other thing "scale" means.
+    /// **The combination the old four-valued enum could not say.** Scaled to fill the
+    /// sheet, and held against the binding edge rather than centred.
     #[test]
-    fn scaling_in_place_grows_the_margins() {
-        let m = fit_matrix(A4, A4, ContentFit::Scale(0.9));
-        assert!((m[0] - 0.9).abs() < 1e-9 && (m[3] - 0.9).abs() < 1e-9);
-        let moved = moved_box([0.0, 0.0, 595.0, 842.0], m);
-        let left = moved[0];
-        let right = 595.0 - moved[2];
-        assert!((left - right).abs() < 1e-9, "the margins are uneven: {left} and {right}");
-        assert!(left > 0.0, "a 90% drawing has no margin at all");
+    fn a_fitted_page_can_be_held_against_an_edge() {
+        let m =
+            fit_matrix(A4, A3, &resize(Some(A3), ContentScale::Fit, (Align::Start, Align::End)));
+        let moved = moved_box(DRAWING, m);
+        assert!(m[0] > 1.0, "it did not fit: {m:?}");
+        assert!(near(moved[0], 0.0), "it is not against the left edge: {moved:?}");
+        assert!(near(moved[3], 1191.0), "it is not against the top: {moved:?}");
+    }
+
+    /// A factor with no sheet named keeps the sheet and shrinks the drawing.
+    #[test]
+    fn scaling_with_no_sheet_named_grows_the_margins() {
+        let how = resize(None, ContentScale::By(0.9), (Align::Middle, Align::Middle));
+        // The caller passes the same sheet for both, which is what `apply` does when
+        // `sheet` is `None`.
+        let m = fit_matrix(A4, A4, &how);
+        assert!(near(m[0], 0.9) && near(m[3], 0.9));
+        let moved = moved_box(DRAWING, m);
+        assert!(near(moved[0], 595.0 - moved[2]), "uneven: {} and {}", moved[0], 595.0 - moved[2]);
+        assert!(moved[0] > 0.0, "a 90% drawing has no margin at all");
+    }
+
+    /// **The offset is a nudge from wherever the placement put it**, not from the origin.
+    #[test]
+    fn the_offset_moves_it_on_from_where_it_landed() {
+        let centred = resize(Some(A3), ContentScale::Keep, (Align::Middle, Align::Middle));
+        let nudged = PageResize { offset: (20.0, -10.0), ..centred };
+        let before = fit_matrix(A4, A3, &centred);
+        let after = fit_matrix(A4, A3, &nudged);
+        assert!(near(after[4] - before[4], 20.0), "across: {} to {}", before[4], after[4]);
+        assert!(near(after[5] - before[5], -10.0), "up: {} to {}", before[5], after[5]);
     }
 
     /// Shrinking a sheet fits onto it as readily as growing one.
     #[test]
     fn fitting_onto_a_smaller_sheet_shrinks() {
-        let m = fit_matrix(A3, A4, ContentFit::Fit);
+        let m = fit_matrix(
+            A3,
+            A4,
+            &resize(Some(A4), ContentScale::Fit, (Align::Middle, Align::Middle)),
+        );
         assert!(m[0] < 1.0, "it grew going from A3 to A4: {}", m[0]);
         let moved = moved_box([0.0, 0.0, 842.0, 1191.0], m);
         assert!(moved[2] <= 595.0 + 1e-9 && moved[3] <= 842.0 + 1e-9, "{moved:?}");

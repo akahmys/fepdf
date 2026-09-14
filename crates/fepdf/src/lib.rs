@@ -99,8 +99,9 @@ pub mod struct_tree {
     pub use fepdf_doc::struct_tree::*;
 }
 pub use fepdf_doc::{
+    Align,
     AuditFinding,
-    ContentFit,
+    ContentScale,
     DecorationPosition,
     MatterhornAuditor,
     Operation,

@@ -288,6 +288,7 @@ impl FepdfApp {
     /// button, so this sets the same fields the pickers set and calls the same
     /// `send_resize` the button calls.
     pub(crate) fn drive_resize(&mut self, sheet: &str, fit: &str) {
+        self.tools.place = (fepdf::Align::Middle, fepdf::Align::End);
         if let Some(size) = fepdf::PageResize::sheet(sheet) {
             self.tools.sheet = Some(sheet.to_string().leak());
             self.tools.sheet_size = size;
@@ -297,19 +298,19 @@ impl FepdfApp {
             self.tools.sheet = None;
             self.tools.sheet_size = (w, h);
         }
+        self.tools.change_sheet = sheet != "keep";
         self.tools.fit = match fit.split_once(':') {
             Some(("scale", by)) => {
                 // **The field as well as the fit.** Dragging the field is how a reader
-                // chooses this fit, so the two cannot disagree through the window — and a
+                // chooses this one, so the two cannot disagree through the window — and a
                 // plan that set only the fit put the form in a state the window cannot
                 // reach, showing `1.00×` beside a factor of 0.8.
                 self.tools.scale = by.parse().unwrap_or(1.0);
-                fepdf::ContentFit::Scale(self.tools.scale)
+                fepdf::ContentScale::By(self.tools.scale)
             }
             _ => match fit {
-                "centre" => fepdf::ContentFit::Centre,
-                "anchor" => fepdf::ContentFit::Anchor,
-                _ => fepdf::ContentFit::Fit,
+                "keep" => fepdf::ContentScale::Keep,
+                _ => fepdf::ContentScale::Fit,
             },
         };
         crate::document_tools::send_resize(self);

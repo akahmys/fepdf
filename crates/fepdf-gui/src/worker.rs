@@ -879,15 +879,23 @@ fn handle_apply(
     tx: &Sender<WorkerResponse>,
 ) {
     let before = page_sizes_of(doc.as_ref());
+    let moved = operation.moves_content();
     apply_recorded(doc, history, operation, Some(done), tx);
     let after = page_sizes_of(doc.as_ref());
-    if after != before {
+    let resized = after != before;
+    if resized {
         let _ = tx.send(WorkerResponse::PagesChanged { page_sizes: after });
-        // **The structure tree is measured against the pages, so it moved too.** Its
-        // rectangles come from where each element's marked content actually drew, and a
-        // resize moves every one of them — the reading-order overlay went on outlining
-        // where the content used to be. Re-read rather than adjusted: the boxes are read
-        // from the document, and a second way of arriving at them is a second answer.
+    }
+    // **The structure tree is measured against the pages, so what moved them moved it.**
+    // Its rectangles come from where each element's marked content actually drew, and the
+    // reading-order overlay went on outlining where the content used to be. Re-read
+    // rather than adjusted: the boxes are read from the document, and a second way of
+    // arriving at them is a second answer.
+    //
+    // Comparing the sizes is not enough on its own — a `ResizePages` naming no sheet
+    // leaves every page the size it was and moves everything on it — so the operation is
+    // asked as well, by `Operation::moves_content`, which is where the vocabulary is.
+    if resized || moved {
         let root = doc.as_ref().and_then(|doc| resolve_struct_tree_root(doc, &mut 0));
         let _ = tx.send(WorkerResponse::StructTreeChanged { root: root.map(Box::new) });
     }

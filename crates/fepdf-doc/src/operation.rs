@@ -4,8 +4,8 @@
 //! value and pass it to fepdf-doc. Only fepdf-doc interprets operations.
 
 pub use fepdf_model::{
-    AFRelationship, AnnotationKind, AnnotationSpec, ArticleThread, AssociatedFile,
-    CollectionViewMode, ContentFit, FormFieldSpec, FormValue, GeoSpatialAnchor, MeasurementScale,
+    AFRelationship, Align, AnnotationKind, AnnotationSpec, ArticleThread, AssociatedFile,
+    CollectionViewMode, ContentScale, FormFieldSpec, FormValue, GeoSpatialAnchor, MeasurementScale,
     MeshShadingSpec, MeshShadingType, OptionalContentProperties, OutlineNode, OutlineTree,
     OutputIntent, PageLabelSpec, PageLabelStyle, PageResize, PdfAction, PortfolioCollection,
     PublicKeyRecipientSpec, TransitionSpec, TransitionStyle, UnencryptedWrapperSpec, UserProperty,
@@ -314,4 +314,105 @@ pub enum Operation {
     SetUnencryptedWrapper(UnencryptedWrapperSpec),
     /// Add a public key recipient certificate (Clause 7.6.4).
     AddPublicKeyRecipient(PublicKeyRecipientSpec),
+}
+
+impl Operation {
+    /// Whether this moves what is drawn on a page.
+    ///
+    /// **The vocabulary answers for itself.** A frontend keeps things measured against
+    /// the pages — the structure tree's rectangles come from where each element's marked
+    /// content actually drew — and after an operation that moved the content they point
+    /// at where it used to be. The window cannot know which operations those are without
+    /// enumerating the vocabulary, which is this crate's business (Rule D).
+    ///
+    /// Comparing page sizes catches most of it and not all: `ResizePages` with no sheet
+    /// named leaves every page exactly the size it was and moves everything on it.
+    ///
+    /// No wildcard arm, so a new variant does not compile until someone has decided
+    /// (Rule 5) — which is the point, since what it prevents fails silently.
+    #[must_use]
+    pub const fn moves_content(&self) -> bool {
+        // RR-15 Limit: Dispatcher - one arm per variant, which is what exhaustive means
+        match self {
+            Self::Rotate { .. }
+            | Self::ResizePages(..)
+            | Self::AddPageDecoration { .. }
+            | Self::ApplyBatesNumbering { .. } => true,
+            // Rebuilt from the marks already on the page, which do not move.
+            Self::Retag => false,
+            Self::Reorder { .. }
+            | Self::RemovePages { .. }
+            | Self::ReorderBatch { .. }
+            | Self::DuplicatePages { .. }
+            | Self::InsertFrom { .. }
+            | Self::AddLtvInfo { .. }
+            | Self::Upgrade { .. }
+            | Self::UpdateStructElem { .. }
+            | Self::DeleteStructElem { .. }
+            | Self::MoveStructElem { .. }
+            | Self::CreatePortfolio { .. }
+            | Self::UpdateOutlines { .. }
+            | Self::UpdateLayers { .. }
+            | Self::AttachAssociatedFile { .. }
+            | Self::SetOutputIntent { .. }
+            | Self::SetPronunciationLexicon { .. }
+            | Self::AddAnnotation { .. }
+            | Self::SetMeasurementScale { .. }
+            | Self::SetFormFieldValue { .. }
+            | Self::SetPageLabels { .. }
+            | Self::UpdateArticleThreads { .. }
+            | Self::AddUserProperties { .. }
+            | Self::ExecuteAction { .. }
+            | Self::SetGeospatialAnchor { .. }
+            | Self::AddMeshShading { .. }
+            | Self::SetUnencryptedWrapper { .. }
+            | Self::AddPublicKeyRecipient { .. } => false,
+        }
+    }
+}
+
+#[cfg(test)]
+mod moves_content_tests {
+    use super::{ContentScale, Operation, PageResize, PageSelection};
+
+    fn resize(sheet: Option<(f64, f64)>) -> Operation {
+        Operation::ResizePages(
+            PageSelection::All,
+            PageResize {
+                sheet,
+                scale: ContentScale::By(0.6),
+                place: (super::Align::Middle, super::Align::End),
+                offset: (0.0, 0.0),
+            },
+        )
+    }
+
+    /// **A resize naming no sheet still moves what is on the page.**
+    ///
+    /// This is the case comparing page sizes cannot see: every page comes out the size it
+    /// went in, and everything drawn on it has moved. A frontend that watched the sizes
+    /// alone left its structure-tree rectangles pointing at where the content used to be.
+    #[test]
+    fn a_resize_moves_content_whether_or_not_it_names_a_sheet() {
+        assert!(resize(None).moves_content());
+        assert!(resize(Some((842.0, 1191.0))).moves_content());
+    }
+
+    /// Rotation and the two that draw on the page move it; the rest do not.
+    #[test]
+    fn only_what_touches_the_page_says_it_does() {
+        assert!(
+            Operation::Rotate {
+                pages: PageSelection::All,
+                mode: super::RotateMode::Relative(super::Quarter::Q90),
+            }
+            .moves_content()
+        );
+
+        // A reorder moves pages past each other and moves nothing on any of them.
+        assert!(!Operation::Reorder { from: 0, to: 1 }.moves_content());
+        assert!(!Operation::RemovePages(PageSelection::Single(0)).moves_content());
+        // Retag rebuilds the tree from the marks already there, which have not moved.
+        assert!(!Operation::Retag.moves_content());
+    }
 }
