@@ -32,12 +32,26 @@ Exits non-zero with a line per literal. No arguments.
 
 from __future__ import annotations
 
+import json
 import re
 import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 GUI = ROOT / "crates/fepdf-gui/src"
+TESTS = ROOT / "crates/fepdf-gui/tests"
+LOCALES = ROOT / "crates/fepdf-gui/assets/locales"
+
+# A locale key, as it is written wherever one is named.
+KEY = re.compile(r'"([a-z][a-z0-9_]{2,})"')
+
+# The calls and the fields that take a locale key.
+#
+# **Named, rather than guessed from the shape of the string.** `side_drawer_scroll` and
+# `properties_grid` are egui widget ids and look exactly like keys; a rule that read the
+# name instead of who was handed it reported twenty-five of those and two real ones.
+KEY_SINKS = {"tr", "Notice::done", "Notice::check", "Notice::failed", "fail"}
+KEY_FIELD = re.compile(r'\b(?:key|description)\s*:\s*"([a-z][a-z0-9_]{2,})"')
 
 # The calls that put a string in front of a reader.
 #
@@ -232,6 +246,44 @@ def strip_comment(line: str) -> str:
     return line
 
 
+def keys_and_homes() -> tuple[list[str], list[str]]:
+    """Keys nothing names, and names no key answers.
+
+    **Both directions are silent at runtime.** `LocaleManager::tr` falls back to English
+    and then to the key itself, so a key that no longer exists reaches the reader as
+    `busy_opneing` and a key nothing names sits translated while the thing it names is
+    shown in English — which is how `gpu_unavailable` and the three `acc_tab_*` came to be
+    carrying Japanese nobody was being given. Sixty-eight of these were left behind by one
+    removed file.
+    """
+    named: set[str] = set()
+    asked: set[str] = set()
+    for root in (GUI, TESTS):
+        if not root.exists():
+            continue
+        for path in root.rglob("*.rs"):
+            source = path.read_text()
+            named.update(KEY.findall(source))
+            asked.update(KEY_FIELD.findall(source))
+            for _, text, callee in literals(source):
+                if callee in KEY_SINKS:
+                    asked.add(text)
+
+    declared: dict[str, set[str]] = {}
+    for path in sorted(LOCALES.glob("*.json")):
+        declared[path.stem] = set(json.loads(path.read_text()))
+
+    english = declared.get("en", set())
+    # **Every literal for the first direction, only the asked-for ones for the second.**
+    # A key with no home is a key no literal anywhere spells, which is a whole-file
+    # question; a name with no key is a lookup that will fail, which is a question about
+    # the call that makes it. `locale.rs` covers the keys an enum answers with, by asking
+    # those functions rather than by reading them.
+    homeless = sorted(key for key in english if key not in named)
+    missing = sorted(name for name in asked if name not in english)
+    return homeless, missing
+
+
 def main() -> int:
     failures: list[str] = []
     exempted = 0
@@ -255,12 +307,19 @@ def main() -> int:
                 continue
             failures.append(f'{rel}:{line_no}: prose: "{text[:60]}"')
 
+    homeless, missing = keys_and_homes()
+    for key in homeless:
+        failures.append(f"locales: `{key}` is translated and nothing names it")
+    for key in missing:
+        failures.append(f"source: `{key}` is named and no locale declares it")
+
     for line in failures:
         print(line)
     print(
         f"UI-5: {len(failures)} user-facing literals, "
         f"{checked} prose-shaped literals read, {exempted} exempt by name, "
-        f"{tag_names} structure names at a sink"
+        f"{tag_names} structure names at a sink, "
+        f"{len(homeless)} keys with no home, {len(missing)} names with no key"
     )
     return 1 if failures else 0
 

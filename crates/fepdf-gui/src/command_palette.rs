@@ -47,7 +47,7 @@ impl Command {
     /// The locale keys naming it and describing it.
     ///
     /// No wildcard arm, so a tenth command does not compile until it has both (Rule 5).
-    const fn keys(self) -> (&'static str, &'static str) {
+    pub const fn keys(self) -> (&'static str, &'static str) {
         match self {
             Self::Load => ("cmd_load_pdf", "cmd_load_pdf_desc"),
             Self::ResetView => ("cmd_reset_view", "cmd_reset_view_desc"),

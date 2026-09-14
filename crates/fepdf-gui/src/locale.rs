@@ -90,6 +90,53 @@ mod tests {
         assert!(missing_in_en.is_empty(), "keys absent from en.json: {missing_in_en:?}");
     }
 
+    /// Every key a control answers with is declared.
+    ///
+    /// **The functions are called, not read.** `ActiveDrawer::face`, `Command::keys` and
+    /// `AccessibilitySubTab::key` each map a variant to a locale key, and a key returned
+    /// from a `match` arm is not a call `scripts/audit/strings.py` can follow: it checks
+    /// the literals handed to `tr` and the ones written into a `key:` field.
+    ///
+    /// That script does catch a *typo* here, but from the wrong end — misspelling
+    /// `acc_tab_tree` leaves the real key named by nothing, so it reports a key with no
+    /// home and not the misspelling. This says which one is wrong. `tr` answers an
+    /// unknown key with the key itself, so the reader would otherwise read `acc_tab_tre`
+    /// off the tab.
+    #[test]
+    fn every_key_a_control_answers_with_is_declared() {
+        let mgr = LocaleManager::new();
+        let en = mgr.translations.get("en").expect("en locale must be embedded");
+        let mut absent = Vec::new();
+        let mut asked = 0;
+        let check = |key: &str, absent: &mut Vec<String>| {
+            if !en.contains_key(key) {
+                absent.push(key.to_string());
+            }
+        };
+
+        for drawer in crate::sidebar::ActiveDrawer::ALL {
+            if let Some((_, key)) = drawer.face() {
+                asked += 1;
+                check(key, &mut absent);
+            }
+        }
+        for tab in crate::sidebar::AccessibilitySubTab::ALL {
+            asked += 1;
+            check(tab.key(), &mut absent);
+        }
+        for command in crate::command_palette::Command::ALL {
+            let (name, description) = command.keys();
+            asked += 2;
+            check(name, &mut absent);
+            check(description, &mut absent);
+        }
+
+        assert!(absent.is_empty(), "named by a control and in no locale: {absent:?}");
+        // The count is asserted so that a mapping emptied out cannot pass by asking
+        // nothing: seven drawers, three sub-tabs, and two keys for each of nine commands.
+        assert_eq!(asked, 7 + 3 + 18);
+    }
+
     #[test]
     fn tr_prefers_the_requested_language() {
         let mgr = LocaleManager::new();
