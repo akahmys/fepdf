@@ -298,7 +298,14 @@ impl FepdfApp {
             self.tools.sheet_size = (w, h);
         }
         self.tools.fit = match fit.split_once(':') {
-            Some(("scale", by)) => fepdf::ContentFit::Scale(by.parse().unwrap_or(1.0)),
+            Some(("scale", by)) => {
+                // **The field as well as the fit.** Dragging the field is how a reader
+                // chooses this fit, so the two cannot disagree through the window — and a
+                // plan that set only the fit put the form in a state the window cannot
+                // reach, showing `1.00×` beside a factor of 0.8.
+                self.tools.scale = by.parse().unwrap_or(1.0);
+                fepdf::ContentFit::Scale(self.tools.scale)
+            }
             _ => match fit {
                 "centre" => fepdf::ContentFit::Centre,
                 "anchor" => fepdf::ContentFit::Anchor,
