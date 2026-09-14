@@ -13,6 +13,19 @@ use crate::app::theme::radius;
 use crate::app::theme::space;
 use std::collections::BTreeMap;
 
+/// The sentences this view draws in its own voice, in the reader's language.
+///
+/// **A struct because there turned out to be two.** The placeholder card's was already
+/// passed in, with a comment saying why — this type holds a view and not a locale — and
+/// the signature field's was drawn in English beside it. One more positional `&str` would
+/// have made the next one easy to forget in the same way.
+pub struct Words<'a> {
+    /// What a page that has not finished rendering says, with `{}` for its number.
+    pub placeholder: &'a str,
+    /// What is drawn across a signature field the reader is placing.
+    pub signature: &'a str,
+}
+
 impl PDFView {
     pub fn show_virtual(
         // RR-15 Limit: Dispatcher - Renders a virtualized grid layout of PDF pages and overlays highlights/signals
@@ -31,9 +44,10 @@ impl PDFView {
         ust_registry: &crate::sidebar::USTRegistry,
         show_reading_order: bool,
         marquee_rect: Option<egui::Rect>,
-        // What a page that has not finished rendering says, with `{}` for its number.
-        // Passed in rather than read here: this type holds a view, not a locale.
-        placeholder: &str,
+        // What this view says in its own words, in the reader's language. **Passed in
+        // rather than read here**: this type holds a view, not a locale. There were two
+        // of these and only the first was passed; the second was drawn in English.
+        words: &Words<'_>,
     ) {
         // A second copy of the block `App::ui` carried stood here, to stop "flashing
         // orange/red borders" — egui's old default selection colour, which
@@ -98,11 +112,21 @@ impl PDFView {
                     egui::Color32::WHITE,
                 );
             } else if thumbnail.is_none() && !scenes.contains_key(&layout.index) {
-                Self::draw_placeholder_card(ui.painter(), page_rect, layout.index, placeholder);
+                Self::draw_placeholder_card(
+                    ui.painter(),
+                    page_rect,
+                    layout.index,
+                    words.placeholder,
+                );
             } else if matches!(pixels, PagePixels::Thumbnails(_)) {
                 // The scene is ready but its thumbnail is not yet: this frame made its
                 // quota. Say so rather than showing a blank page backing.
-                Self::draw_placeholder_card(ui.painter(), page_rect, layout.index, placeholder);
+                Self::draw_placeholder_card(
+                    ui.painter(),
+                    page_rect,
+                    layout.index,
+                    words.placeholder,
+                );
             }
 
             // Page selection border. Selecting pages is the tile view's, so showing a
@@ -150,7 +174,7 @@ impl PDFView {
             self.draw_redaction_highlights(ui, layout.index, redaction_highlights);
             self.draw_active_redaction_drag(ui, layout.index, active_redaction_drag);
             self.draw_structural_highlight(ui, layout.index, structural_highlight);
-            self.draw_signature_highlight(ui, layout.index, signature_highlight);
+            self.draw_signature_highlight(ui, layout.index, signature_highlight, words);
 
             if show_reading_order && let Some(ref root) = ust_registry.root {
                 Self::draw_semantic_borders(
@@ -445,6 +469,7 @@ impl PDFView {
         ui: &mut egui::Ui,
         page_index: usize,
         signature_highlight: &Option<(usize, egui::Rect)>,
+        words: &Words<'_>,
     ) {
         if let Some((sig_page, sig_rect)) = signature_highlight
             && *sig_page == page_index
@@ -470,7 +495,7 @@ impl PDFView {
                 ui.painter(),
                 sig_rect.center(),
                 egui::Align2::CENTER_CENTER,
-                "[ DIGITAL SIGNATURE FIELD ]",
+                words.signature,
                 egui::FontId::monospace(crate::app::theme::text::BODY),
                 colors::rust::ACCENT,
             );

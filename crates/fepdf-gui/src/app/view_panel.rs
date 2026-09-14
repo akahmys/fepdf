@@ -671,7 +671,10 @@ impl FepdfApp {
             // and the lines are finer than the glyphs they enclose.
             self.show_reading_order && self.view.is_page_view(),
             marquee_rect,
-            &self.tr("page_rendering"),
+            &crate::view::draw::Words {
+                placeholder: &self.tr("page_rendering"),
+                signature: &self.tr("signature_field"),
+            },
         );
     }
 

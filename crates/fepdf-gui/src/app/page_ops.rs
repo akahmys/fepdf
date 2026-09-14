@@ -74,7 +74,10 @@ impl FepdfApp {
         self.last_selected_page = None;
         self.clear_thumbnails_pending = true;
         self.is_loading = true;
-        self.loading_message = "1/4: Decrypting and normalizing document...".to_string();
+        // **A key, and no "1/4".** It was English in every language, and it counted a
+        // stage out of four when the other three come from the engine as they happen —
+        // `WorkerResponse::LoadingProgress` — and are not four.
+        self.loading_message = self.tr("busy_opening");
         self.doc_metadata = None;
         self.doc_file_size = None;
         self.doc_version = None;

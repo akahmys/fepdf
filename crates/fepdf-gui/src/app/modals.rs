@@ -160,7 +160,7 @@ impl FepdfApp {
     fn retry_with_password(&mut self, ctx: &egui::Context) {
         let Some(locked) = self.locked.take() else { return };
         self.is_loading = true;
-        self.loading_message = "Unlocking...".to_string();
+        self.loading_message = self.tr("busy_unlocking");
         let _ = self.tx_worker.send(crate::worker::WorkerRequest::Open {
             data: locked.data,
             name: locked.name,

@@ -9,7 +9,7 @@
 //! what moves it (the zoom ladder, the anchor a change of arrangement carries, the page
 //! stepping), and what the pointer means (`handle_input` and the gestures).
 
-mod draw;
+pub mod draw;
 use std::collections::BTreeMap;
 
 #[derive(Clone)]
