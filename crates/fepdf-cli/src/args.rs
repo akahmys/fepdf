@@ -89,14 +89,6 @@ pub struct SaveArgs {
     /// Write streams uncompressed (FlateDecode is applied by default)
     #[arg(long)]
     pub no_compress: bool,
-    // Hidden because it names a choice that does not exist. The writer traces from the
-    // catalogue and writes only what it reaches, so an unreferenced object is dropped
-    // whether this is passed or not: `samples/fy05.pdf` goes from a highest object
-    // number of 4,680 to 4,575 either way. Unlike the flags below, the behaviour is
-    // there — what is missing is the option to decline it.
-    /// Remove unreachable objects
-    #[arg(long, hide = true)]
-    pub vacuum: bool,
     /// Strip descriptive metadata
     #[arg(long)]
     pub strip: bool,
@@ -176,7 +168,6 @@ impl From<SaveArgs> for fepdf::SaveOptions {
         Self {
             compress: !args.no_compress,
             compression_level: 9,
-            vacuum: args.vacuum,
             strip: args.strip,
             password: args.password,
             owner_password: args.owner_password,

@@ -39,7 +39,14 @@ impl FepdfApp {
             root.children.push(new_node);
         }
 
-        self.notice = Some(super::Notice::done("notice_tag_created").about(tag));
+        // **`check`, not `done`, and it says where the tag actually goes.** A tag drawn
+        // here has no `handle_index`, which is to say it is in this window and in no PDF:
+        // the vocabulary has no operation that creates a structure element, so nothing
+        // writes it and nothing ever did. The export wizard carried a checkbox — "Compile
+        // & Inject USTRegistry Tags" — reading a flag nobody consulted, so the reader was
+        // told twice that something had been saved that had not been. What does preserve
+        // it is the UST draft JSON, which is in the same wizard and works.
+        self.notice = Some(super::Notice::check("notice_tag_window_only").about(tag));
     }
 
     pub fn open_file(&mut self, path: PathBuf, ctx: &egui::Context) {

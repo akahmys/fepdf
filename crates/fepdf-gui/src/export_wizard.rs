@@ -49,16 +49,8 @@ impl ExportWizard {
             app.locale_mgr.tr(&app.active_language, "export_opt_linearize"),
         );
         ui.checkbox(
-            &mut app.export_vacuum,
-            app.locale_mgr.tr(&app.active_language, "export_opt_vacuum"),
-        );
-        ui.checkbox(
             &mut app.export_compress,
             app.locale_mgr.tr(&app.active_language, "export_opt_compress"),
-        );
-        ui.checkbox(
-            &mut app.export_apply_tags,
-            app.locale_mgr.tr(&app.active_language, "export_opt_apply_tags"),
         );
         ui.checkbox(
             &mut app.export_burn_redactions,
@@ -262,7 +254,6 @@ impl ExportWizard {
                 owner_password: app.export_owner_password.clone(),
                 compress: app.export_compress,
                 linearize: app.export_linearize,
-                vacuum: app.export_vacuum,
                 upgrade_pdf20: app.export_upgrade_pdf20,
                 redaction_zones: app.redaction_manager.zones.clone(),
                 cert_path: app.cert_path.clone(),

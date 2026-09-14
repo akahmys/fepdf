@@ -134,8 +134,6 @@ pub struct SaveOptions {
     pub compress: bool,
     /// The compression level to use (0-9).
     pub compression_level: u32,
-    /// Whether to remove unreachable objects.
-    pub vacuum: bool,
     /// Whether to strip descriptive metadata.
     pub strip: bool,
     /// Encrypt the output, and the password that opens it.
@@ -190,7 +188,6 @@ impl Default for SaveOptions {
         Self {
             compress: true,
             compression_level: 9,
-            vacuum: false,
             strip: false,
             password: None,
             owner_password: None,

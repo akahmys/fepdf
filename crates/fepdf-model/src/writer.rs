@@ -219,11 +219,6 @@ impl<'a, W: Write> PdfWriter<'a, W> {
         self.compression_level = Some(level.min(9));
     }
 
-    /// Triggers a vacuum operation to remove unreferenced objects (implicit in linearization).
-    pub fn set_vacuum(&mut self, _vacuum: bool) {
-        // Implementation detail: vacuum is inherent in our ID remapping logic
-    }
-
     /// Returns the current byte offset in the output buffer.
     pub fn current_offset(&self) -> usize {
         self.buffer.len()
