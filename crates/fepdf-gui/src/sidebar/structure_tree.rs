@@ -288,7 +288,15 @@ pub fn render_node_recursive(
     depth: usize,
 ) {
     let is_selected = *selected_node_id == Some(node.id);
-    let header_label = format!("<{}> {}", node.tag, node.title);
+    // A node with no title of its own is the placeholder root the worker makes for a
+    // document that declares no structure tree — there is nothing in the file to name it
+    // after, so the panel names it.
+    let title = if node.title.is_empty() {
+        locale_mgr.tr(active_lang, "structure_tree_untagged")
+    } else {
+        node.title.clone()
+    };
+    let header_label = format!("<{}> {}", node.tag, title);
 
     ui.vertical(|ui| {
         let id = ui.make_persistent_id(node.id);

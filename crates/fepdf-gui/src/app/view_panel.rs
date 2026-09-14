@@ -13,9 +13,14 @@ impl FepdfApp {
         if !has_wgpu {
             egui::CentralPanel::default().show_inside(ui, |ui| {
                 ui.centered_and_justified(|ui| {
+                    // **The one screen a reader sees when nothing else works** was the
+                    // only one written in English in the source, while `gpu_unavailable`
+                    // sat translated in both locale files with nothing naming it. UI-5
+                    // missed it because the literal is the second argument of the call
+                    // and its check reads the first.
                     ui.colored_label(
                         crate::app::theme::colors::note::FAIL,
-                        "WGPU RenderState not available. GPU compute acceleration is disabled.",
+                        self.tr("gpu_unavailable"),
                     );
                 });
             });
@@ -405,7 +410,10 @@ impl FepdfApp {
                 &mut self.cad_snap_engine,
                 spans,
             );
-            self.caliper_tool.draw_overlay(ui, page_screen_rect, unscaled_h, zoom);
+            let locale = &self.locale_mgr;
+            let lang = &self.active_language;
+            self.caliper_tool
+                .draw_overlay(ui, page_screen_rect, unscaled_h, zoom, &|key| locale.tr(lang, key));
         }
     }
 

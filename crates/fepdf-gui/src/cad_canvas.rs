@@ -12,6 +12,12 @@ pub enum SnapType {
 pub struct SnapPoint {
     pub point: egui::Pos2, // PDF space
     pub snap_type: SnapType,
+    /// The locale key naming what kind of point this is.
+    ///
+    /// **A key and not a sentence**, for the same reason `WorkerResponse::Busy` carries
+    /// one: this file computes geometry and holds no language. The seven of these were
+    /// English written into the source — `Corner Vertex`, `Edge Midpoint` — and drawn
+    /// beside the cursor in every language the window offers.
     pub description: &'static str,
 }
 
@@ -44,7 +50,7 @@ impl CadSnapEngine {
             points.push(SnapPoint {
                 point: c,
                 snap_type: SnapType::EndPoint,
-                description: "Corner Vertex",
+                description: "snap_corner",
             });
         }
 
@@ -59,7 +65,7 @@ impl CadSnapEngine {
             points.push(SnapPoint {
                 point: m,
                 snap_type: SnapType::MidPoint,
-                description: "Edge Midpoint",
+                description: "snap_midpoint",
             });
         }
     }
@@ -74,17 +80,17 @@ impl CadSnapEngine {
             points.push(SnapPoint {
                 point: egui::pos2(r.min.x, r.min.y),
                 snap_type: SnapType::EndPoint,
-                description: "Base Point",
+                description: "snap_base",
             });
             points.push(SnapPoint {
                 point: egui::pos2(r.max.x, r.max.y),
                 snap_type: SnapType::EndPoint,
-                description: "Terminus",
+                description: "snap_terminus",
             });
             points.push(SnapPoint {
                 point: r.center(),
                 snap_type: SnapType::MidPoint,
-                description: "Centroid",
+                description: "snap_centroid",
             });
         }
     }
@@ -115,7 +121,7 @@ impl CadSnapEngine {
             points.push(SnapPoint {
                 point: egui::pos2(f32::midpoint(p1.x, p2.x), f32::midpoint(p1.y, p2.y) + 10.0),
                 snap_type: SnapType::Intersection,
-                description: "Path Junction",
+                description: "snap_junction",
             });
         }
 
@@ -237,7 +243,7 @@ impl CaliperTool {
                     self.start_point = Some(SnapPoint {
                         point: pdf_pos,
                         snap_type: SnapType::EndPoint,
-                        description: "Cursor Origin",
+                        description: "snap_cursor",
                     });
                 }
             }
@@ -267,6 +273,7 @@ impl CaliperTool {
         page_screen_rect: egui::Rect,
         page_unscaled_h: f32,
         zoom: f32,
+        tr: &dyn Fn(&str) -> String,
     ) {
         if !self.is_active {
             return;
@@ -331,7 +338,7 @@ impl CaliperTool {
                 painter,
                 screen_pos + egui::vec2(12.0, -12.0),
                 egui::Align2::LEFT_CENTER,
-                &format!("{} ({:.1}, {:.1})", snap.description, snap.point.x, snap.point.y),
+                &format!("{} ({:.1}, {:.1})", tr(snap.description), snap.point.x, snap.point.y),
                 egui::FontId::proportional(crate::app::theme::text::SMALL),
                 colors::steel::TEXT,
             );

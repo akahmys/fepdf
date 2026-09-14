@@ -77,6 +77,28 @@ pub enum AccessibilitySubTab {
     Audit,
 }
 
+impl AccessibilitySubTab {
+    /// The three, in the order the row lists them.
+    pub const ALL: [Self; 3] = [Self::Tree, Self::AltText, Self::Audit];
+
+    /// The locale key that names it.
+    ///
+    /// **These three were written into the source in English** — `Tree & Props`,
+    /// `Alt Text`, `Audit` — while `acc_tab_tree`, `acc_tab_alt` and `acc_tab_audit` sat
+    /// in both locale files carrying the translations nobody was asking for. UI-5 did not
+    /// see them because its check reads the first argument of a sink call and these were
+    /// in an array two lines above one.
+    ///
+    /// No wildcard arm, so a fourth tab does not compile until it has a name (Rule 5).
+    pub const fn key(self) -> &'static str {
+        match self {
+            Self::Tree => "acc_tab_tree",
+            Self::AltText => "acc_tab_alt",
+            Self::Audit => "acc_tab_audit",
+        }
+    }
+}
+
 pub struct SidebarPanel {
     pub accessibility_sub_tab: AccessibilitySubTab,
     pub alt_text_edit_buffer: String,
@@ -187,13 +209,9 @@ impl SidebarPanel {
                 // crate; the icon font now lives in a family of its own and is reached
                 // through `app::icons`. A tab that is already named does not need a
                 // picture of its name.
-                let sub_tabs = [
-                    (AccessibilitySubTab::Tree, "Tree & Props"),
-                    (AccessibilitySubTab::AltText, "Alt Text"),
-                    (AccessibilitySubTab::Audit, "Audit"),
-                ];
-                for (tab, label) in sub_tabs {
+                for tab in AccessibilitySubTab::ALL {
                     let is_active = self.accessibility_sub_tab == tab;
+                    let label = locale_mgr.tr(active_lang, tab.key());
                     if ui.selectable_label(is_active, label).clicked() {
                         self.accessibility_sub_tab = tab;
                     }

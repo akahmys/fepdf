@@ -693,7 +693,12 @@ fn handle_open(
                 ust_root = Some(crate::sidebar::USTNode {
                     id: 0,
                     tag: "Document".to_string(),
-                    title: "PDF Document Catalog (Untagged)".to_string(),
+                    // **No title, because this thread has no language to write one in.**
+                    // It said `PDF Document Catalog (Untagged)` — the only row of the
+                    // structure tree that was a sentence this product wrote rather than
+                    // something read out of the document, and it was English in every
+                    // language. A node with no title of its own is named by the panel.
+                    title: String::new(),
                     alt_text: None,
                     rect: None,
                     page_index: None,

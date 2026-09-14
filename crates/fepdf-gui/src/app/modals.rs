@@ -83,15 +83,26 @@ impl FepdfApp {
                         ui.add_space(space::ITEM);
                     });
 
-                    egui::ScrollArea::vertical().max_height(150.0).show(ui, |ui| {
+                    // **No height of its own.** It was a scroll area capped at 150
+                    // points, which fitted three of the four credits and clipped the
+                    // fourth with no scrollbar to say so — a licence notice quietly
+                    // missing one of the licences it is there to give. Four short entries
+                    // do not need to scroll; the window grows to hold them.
+                    ui.vertical(|ui| {
                         ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Wrap);
+                        // **The name and the licence are identifiers; the purpose is
+                        // prose.** `Apache-2.0` is the same string in every language and
+                        // translating it would name a different licence, which is the
+                        // same reason UI-5 exempts `H1` and `P`. What each crate is *for*
+                        // was English-only, in an array UI-5 does not look inside.
                         let credits = [
-                            ("pdf-writer", "Apache-2.0 License", "PDF object serialization"),
-                            ("vello", "Apache-2.0 / MIT", "GPU vector graphics"),
-                            ("egui / eframe", "MIT / Apache-2.0", "GUI library"),
-                            ("Lucide Icons", "ISC License", "Icon font asset"),
+                            ("pdf-writer", "Apache-2.0 License", "about_use_pdf_writer"),
+                            ("vello", "Apache-2.0 / MIT", "about_use_vello"),
+                            ("egui / eframe", "MIT / Apache-2.0", "about_use_egui"),
+                            ("Lucide Icons", "ISC License", "about_use_lucide"),
                         ];
                         for (name, license, purpose) in credits {
+                            let purpose = self.locale_mgr.tr(&self.active_language, purpose);
                             ui.horizontal(|ui| {
                                 ui.label(egui::RichText::new(name).strong());
                                 ui.label(format!("({license})"));
