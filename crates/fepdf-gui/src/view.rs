@@ -112,6 +112,13 @@ pub struct PDFView {
     /// that has just been turned to, which starts a window's width out and slides in. Each
     /// used to arrive in a single frame, which is a teleport and reads as a snap.
     adrift: f32,
+    /// How much of the remaining distance the page closes each frame, this journey.
+    ///
+    /// **The two journeys are not the same errand.** A page let go short of a turn is going
+    /// back to where it already was, and the reader wants that out of the way; a page
+    /// turned to is arriving, and that is the movement they are meant to see. One rate for
+    /// both made the second as brisk as the first.
+    homing: f32,
     /// Whether a page has just been turned and the gesture that turned it is still going.
     ///
     /// **One gesture turns one page.** A trackpad keeps sending the tail of a flick for
@@ -160,10 +167,17 @@ const PAGE_TURN_PULL: f32 = 40.0;
 /// anything but following it exactly reads as lag; coming home, nothing is holding it, and
 /// arriving in a single frame is the snap this eases out of.
 ///
-/// At 0.45 a full pull is back inside a tenth of a second and a whole page has slid in
-/// inside a fifth — enough frames to read as a movement rather than a jump, and not so many
-/// that the page is still travelling when the reader's next gesture arrives.
-const EASE_HOME: f32 = 0.45;
+/// At 0.45 a full pull is back inside a tenth of a second — enough frames to read as a
+/// movement rather than a jump, and not so many that the page is still travelling when the
+/// reader's next gesture arrives.
+const EASE_LET_GO: f32 = 0.45;
+
+/// The same, for a page arriving from a turn: about a third of a second.
+///
+/// **Slower than a page going back, because this one is worth watching.** A page put back
+/// where it already was is an undoing and wants to be over; a page coming in is the turn
+/// itself, and at the rate of an undoing it is over before the eye has followed it.
+const EASE_SLIDE: f32 = 0.28;
 
 /// The per-frame movement below which a gesture counts as over.
 ///
@@ -234,6 +248,7 @@ impl PDFView {
             cover_page_alone: true,
             pulling: false,
             adrift: 0.0,
+            homing: EASE_LET_GO,
             settling: false,
             arranged_as_tiles: false,
             last_anchor: None,
@@ -1126,9 +1141,11 @@ impl PDFView {
     /// points to nothing was the jerk a reader saw every time they let go short of a turn.
     fn ease_home(&mut self, want: f32) -> f32 {
         self.adrift = if want.abs() >= self.adrift.abs() {
+            // Following the reader out: the way back from here is the brisk one.
+            self.homing = EASE_LET_GO;
             want
         } else {
-            (want - self.adrift).mul_add(EASE_HOME, self.adrift)
+            (want - self.adrift).mul_add(self.homing, self.adrift)
         };
         // Below half a point there is nothing left to see, and stopping keeps the view
         // from asking for a repaint for ever.
@@ -1170,6 +1187,7 @@ impl PDFView {
         };
         let window = if horizontal { viewport.width() } else { viewport.height() };
         self.adrift = if behind { window } else { -window };
+        self.homing = EASE_SLIDE;
         // Across the page, wherever the reader had it, held inside the new page's own room.
         self.pan = if horizontal {
             egui::vec2(read_from + self.adrift, self.pan.y.clamp(cross.0, cross.1))
@@ -2115,7 +2133,7 @@ mod overscroll_paging {
             "page 2 came in from {arriving} to {home}, less than the window it starts beyond"
         );
         assert!(
-            (6..=30).contains(&travelled),
+            (10..=45).contains(&travelled),
             "it came in over {travelled} frames, which is a snap at one end or a crawl at \
              the other"
         );
