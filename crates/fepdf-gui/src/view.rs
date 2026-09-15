@@ -132,6 +132,14 @@ pub struct PDFView {
     /// end froze the view instead: a reader scrolling steadily never stops sending, so one
     /// page turned and nothing more happened until they took their fingers off.
     arriving: bool,
+    /// Frames since the reader last moved the view by anything worth counting.
+    ///
+    /// **A frame with nothing in it is not the end of a scroll.** The wheel arrives in
+    /// gaps — a slow swipe reaches egui as a few points, then nothing, then a few more —
+    /// and reading each gap as "let go" had the page spring nearly half the way back and
+    /// be hauled out again on the next frame: a page shaking in place, and a swipe that
+    /// could never turn anything either, because every gap ate what it had gained.
+    quiet: u8,
     /// Whether the layout the current `pan` was computed against was the tile grid.
     ///
     /// **The two arrangements are different coordinate systems, and `pan` is in one of
@@ -194,6 +202,14 @@ const EASE_SLIDE: f32 = 0.28;
 /// asked for. Slower than any deliberate scroll, and well under a turn either way.
 const GESTURE_TAIL: f32 = 1.5;
 
+/// How many frames of nothing end a scroll.
+///
+/// **The gaps inside one are longer than a frame.** Six of them is a tenth of a second —
+/// longer than any gap in a swipe that is still going, shorter than a reader would call a
+/// pause — and until they are up the page stays where the reader put it rather than
+/// springing back between one delivery and the next.
+const GESTURE_GAP: u8 = 6;
+
 /// The range `pan` may take on one axis for the page to fill the window, or the single
 /// value that centres it when it is smaller than the window.
 ///
@@ -254,6 +270,7 @@ impl PDFView {
             adrift: 0.0,
             homing: EASE_LET_GO,
             arriving: false,
+            quiet: GESTURE_GAP,
             arranged_as_tiles: false,
             last_anchor: None,
             centre_next: None,
@@ -975,11 +992,17 @@ impl PDFView {
     /// **A held pointer keeps the page off its edge even while it is still** — a reader
     /// holding a page half-turned has not let go of it. A trackpad that is merely finishing
     /// does not: below [`GESTURE_TAIL`] there is nothing deliberate left in a flick, and a
-    /// page nudged off its place by momentum that is nearly spent, only to spring back,
-    /// is the restlessness this leaves out. Its own function so that a test can say what a
-    /// reader did in the same words a frame does.
+    /// page nudged off its place by momentum that is nearly spent, only to spring back, is
+    /// the restlessness this leaves out — but it takes [`GESTURE_GAP`] such frames in a row
+    /// to say so, because a swipe that is still going has gaps of its own. Its own function
+    /// so that a test can say what a reader did in the same words a frame does.
     fn gesture(&mut self, held: bool, moved: f32) {
-        self.pulling = held || moved >= GESTURE_TAIL;
+        if moved >= GESTURE_TAIL {
+            self.quiet = 0;
+        } else {
+            self.quiet = self.quiet.saturating_add(1);
+        }
+        self.pulling = held || self.quiet < GESTURE_GAP;
     }
 
     /// Crosses the tile boundary, putting the page the reader is on in the middle.
@@ -2338,6 +2361,77 @@ mod overscroll_paging {
                 "{mode:?} left the document off the window at {origin:?}"
             );
         }
+    }
+
+    /// A slow swipe, as egui hands one over: a few points, a gap, a few more.
+    fn slow_swipe() -> impl Iterator<Item = f32> {
+        [3.0, 0.0, 2.5, 0.0, 0.0, 3.0, 1.0, 0.0, 2.0, 0.0, 3.0, 0.0, 0.0, 2.5, 0.0]
+            .into_iter()
+            .cycle()
+    }
+
+    /// **A slow swipe moves the page one way, and turns it.** Every gap in it used to read
+    /// as the reader letting go: the page sprang nearly half the way back to its place and
+    /// was hauled out again on the next delivery, which is a page shaking in place — and
+    /// shaking was all it could do, because each gap ate what the swipe had gained, so no
+    /// amount of slow swiping ever reached the distance that turns a page.
+    #[test]
+    fn a_slow_swipe_moves_the_page_one_way_and_turns_it() {
+        let window = egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(400.0, 400.0));
+        let layouts = pages();
+        let mut view = PDFView::new();
+        view.display_mode = DisplayMode::SinglePage;
+        view.active_page = 1;
+        view.clamp_pan(window, &layouts);
+        let resting = view.pan.y;
+
+        let mut previous = view.pan.y;
+        for (frame, delta) in slow_swipe().take(40).enumerate() {
+            view.gesture(false, delta);
+            view.pan.y -= delta;
+            view.clamp_pan(window, &layouts);
+            if view.active_page != 1 {
+                assert!(frame > 10, "it turned on frame {frame}, faster than the swipe moved");
+                return;
+            }
+            assert!(
+                view.pan.y <= previous + 0.01,
+                "on frame {frame} the page went back up, from {previous} to {}",
+                view.pan.y
+            );
+            previous = view.pan.y;
+        }
+        panic!("forty frames of swiping turned nothing; it got {} from {resting}", view.pan.y);
+    }
+
+    /// **A swipe that stops lets the page home.** The gaps inside a swipe are held through,
+    /// so the end of one has to be told apart from them: enough frames of nothing in a row.
+    #[test]
+    fn a_swipe_that_stops_lets_the_page_go_home() {
+        let window = egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(400.0, 400.0));
+        let layouts = pages();
+        let mut view = PDFView::new();
+        view.display_mode = DisplayMode::SinglePage;
+        view.active_page = 1;
+        view.clamp_pan(window, &layouts);
+        let resting = view.pan.y;
+
+        for delta in slow_swipe().take(12) {
+            view.gesture(false, delta);
+            view.pan.y -= delta;
+            view.clamp_pan(window, &layouts);
+        }
+        assert!((view.pan.y - resting).abs() > 5.0, "the swipe moved nothing to let go of");
+
+        for _ in 0..40 {
+            view.gesture(false, 0.0);
+            view.clamp_pan(window, &layouts);
+        }
+        assert!(
+            (view.pan.y - resting).abs() < 0.01,
+            "it stayed at {} after the swipe stopped, rather than {resting}",
+            view.pan.y
+        );
     }
 
     /// A pull that stops short of the threshold pages nothing.
