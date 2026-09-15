@@ -752,6 +752,29 @@ impl PDFView {
             - page_local_pos.to_vec2() * self.zoom;
     }
 
+    /// Keeps the page the view is on inside a document of `total` pages.
+    ///
+    /// **The pages can go away under the view.** An extraction moves them out, a deletion
+    /// removes them, and until this runs `active_page` names a page that is not there —
+    /// which in the spread view is an extent taken over nothing.
+    pub const fn keep_page_inside(&mut self, total: usize) {
+        if self.active_page >= total {
+            self.active_page = total.saturating_sub(1);
+        }
+    }
+
+    /// Ends whatever journey the page was on: nothing is arriving, nothing is adrift.
+    ///
+    /// **Anything that puts the view somewhere outright ends the travelling.** The offset
+    /// a page is carrying is measured from where that page belonged, and a view sent to
+    /// another page — by the page buttons, by a bookmark, by the crosshair — has left that
+    /// somewhere behind: kept, it displaces the page it was sent to by as much as a window
+    /// and then eases it in from nowhere in particular.
+    fn nothing_in_flight(&mut self) {
+        self.adrift = 0.0;
+        self.arriving = false;
+    }
+
     /// Brings the page the reader is on to the middle of the window.
     pub fn centre_current_page(&mut self, viewport: egui::Rect, layouts: &[PageLayout]) {
         let page = self.current_page();
@@ -768,6 +791,7 @@ impl PDFView {
         let origin = self.get_origin_no_pan(viewport);
         self.pan = viewport.center() - origin - layout.rect.center().to_vec2() * self.zoom;
         self.active_page = page;
+        self.nothing_in_flight();
         true
     }
 
@@ -806,34 +830,16 @@ impl PDFView {
                 let from = layouts.get(was).map(|l| l.rect);
                 self.place_along_the_scroll(layout.rect, from);
             }
-        } else if self.display_mode == DisplayMode::TwoPageSingle {
-            // In TwoPageSingle, we center the active spread's bounding box relative to origin
-            let spread_indices = self.get_spread_indices(page_index, layouts.len());
-            if !spread_indices.is_empty() {
-                let mut min_x = f32::MAX;
-                let mut max_x = f32::MIN;
-                let mut min_y = f32::MAX;
-                let mut max_y = f32::MIN;
-                for &idx in &spread_indices {
-                    if let Some(layout) = layouts.get(idx) {
-                        min_x = min_x.min(layout.rect.min.x);
-                        max_x = max_x.max(layout.rect.max.x);
-                        min_y = min_y.min(layout.rect.min.y);
-                        max_y = max_y.max(layout.rect.max.y);
-                    }
-                }
-                self.pan.x = -f32::midpoint(min_x, max_x) * self.zoom;
-                self.pan.y = -f32::midpoint(min_y, max_y) * self.zoom;
-            }
-        } else if self.display_mode == DisplayMode::SinglePage {
-            if let Some(layout) = layouts.get(page_index) {
-                // In SinglePage, we center the page on both x and y
-                self.pan.x = -layout.rect.center().x * self.zoom;
-                self.pan.y = -layout.rect.center().y * self.zoom;
-            }
         } else {
-            self.pan = egui::Vec2::ZERO;
+            // **A page and a spread are centred by the same two lines**, over whatever is
+            // shown: one page, or the pair the page is half of. They were written out
+            // twice, a `min`/`max` loop each, beside a third arm that nothing could reach
+            // once a page view meant one of two arrangements.
+            let ((min_x, max_x), (min_y, max_y)) = self.shown_extent(layouts);
+            self.pan.x = -f32::midpoint(min_x, max_x) * self.zoom;
+            self.pan.y = -f32::midpoint(min_y, max_y) * self.zoom;
         }
+        self.nothing_in_flight();
     }
 
     /// The pages the viewport shows, each with the rect it occupies on screen.
@@ -1049,7 +1055,6 @@ impl PDFView {
         };
         self.scroll_to_page(target, layouts);
         self.pulling = false;
-        self.adrift = 0.0;
         true
     }
 
@@ -1059,11 +1064,9 @@ impl PDFView {
     /// arrived at is not the page the clamp was computed for, and landing on its head
     /// needs its own height.
     fn shown_extent(&self, layouts: &[PageLayout]) -> ((f32, f32), (f32, f32)) {
-        let shown: Vec<&PageLayout> = if self.is_page_view() {
+        let mut shown: Vec<&PageLayout> = if self.is_page_view() {
             match self.display_mode {
-                DisplayMode::SinglePage => layouts
-                    .get(self.active_page)
-                    .map_or_else(|| layouts.iter().collect(), |page| vec![page]),
+                DisplayMode::SinglePage => layouts.get(self.active_page).into_iter().collect(),
                 DisplayMode::TwoPageSingle => self
                     .get_spread_indices(self.active_page, layouts.len())
                     .iter()
@@ -1073,6 +1076,14 @@ impl PDFView {
         } else {
             layouts.iter().collect()
         };
+        // **A page the layout does not have is not an empty extent.** `active_page` outlives
+        // the pages themselves for a frame whenever a document loses some — an extraction
+        // that moves its pages out, a deletion — and `f32::MAX`..`f32::MIN` travels from
+        // here into `page_hold` as a page of negative size, which places the view nowhere
+        // anybody asked for. What is on screen then is whatever there is.
+        if shown.is_empty() {
+            shown = layouts.iter().collect();
+        }
         let mut across = (f32::MAX, f32::MIN);
         let mut up = (f32::MAX, f32::MIN);
         for layout in &shown {
@@ -1099,6 +1110,9 @@ impl PDFView {
         // arrangement can leave it centred on one column, with the first tile — the one
         // a reader looks for first — pushed off the side they read from.
         if self.arranged_as_tiles {
+            // Zooming out to the grid while a page was still coming in leaves the offset
+            // it was carrying to be added to a pan that no longer means the same thing.
+            self.nothing_in_flight();
             // **The grid's edge is where its `x = 0` is, not where the grid has to sit.**
             // Binding it there took away the only freedom that can hold a reader's place
             // on the page while the pages are re-laid: a tile in the first column cannot
@@ -2263,6 +2277,67 @@ mod overscroll_paging {
             view.clamp_pan(window, &layouts);
         }
         assert_eq!(view.active_page, 3, "a steady scroll stopped paging: {}", view.active_page);
+    }
+
+    /// **A page sent for does not arrive carrying the last one's journey.** The offset a
+    /// page is coming in with is measured from where *that* page belonged: a reader who
+    /// presses *next page* while one is still sliding in used to get the page they asked
+    /// for displaced by most of a window, easing in from nowhere in particular.
+    #[test]
+    fn a_page_gone_to_while_another_arrives_is_where_it_belongs() {
+        let window = egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(400.0, 400.0));
+        let layouts = pages();
+        let mut view = PDFView::new();
+        view.display_mode = DisplayMode::SinglePage;
+        view.active_page = 1;
+        view.clamp_pan(window, &layouts);
+
+        view.pulling = true;
+        view.pan.y -= 1000.0;
+        view.clamp_pan(window, &layouts);
+        assert!(view.arriving, "the turn did not start a page on its way in");
+
+        // The reader presses *next page* while it is still travelling.
+        view.scroll_to_page(3, &layouts);
+        view.gesture(false, 0.0);
+        view.clamp_pan(window, &layouts);
+
+        let mut untouched = PDFView::new();
+        untouched.display_mode = DisplayMode::SinglePage;
+        untouched.active_page = 3;
+        untouched.clamp_pan(window, &layouts);
+        assert!(
+            (view.pan.y - untouched.pan.y).abs() < 0.01,
+            "page 3 came in at {} rather than where it belongs, {}",
+            view.pan.y,
+            untouched.pan.y
+        );
+    }
+
+    /// **A page the layout no longer has does not send the view nowhere.** `active_page`
+    /// outlives the pages for a frame whenever a document loses some — pages extracted out
+    /// of it, pages deleted — and an extent taken over nothing is `f32::MAX`..`f32::MIN`,
+    /// which reaches the hold as a page of negative size.
+    #[test]
+    fn a_view_on_a_page_that_is_gone_still_lands_on_the_document() {
+        let window = egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(400.0, 400.0));
+        let layouts = pages();
+        for mode in [DisplayMode::SinglePage, DisplayMode::TwoPageSingle] {
+            let mut view = PDFView::new();
+            view.display_mode = mode;
+            view.active_page = layouts.len() + 7;
+            view.clamp_pan(window, &layouts);
+            assert!(view.pan.is_finite(), "{mode:?} put the view at {:?}", view.pan);
+
+            let across = layouts.iter().fold(f32::MIN, |far, l| far.max(l.rect.max.x));
+            let up = layouts.iter().fold(f32::MIN, |far, l| far.max(l.rect.max.y));
+            let origin = view.get_origin(window);
+            assert!(
+                origin.x <= across.mul_add(view.zoom(), window.max.x)
+                    && origin.y <= up.mul_add(view.zoom(), window.max.y),
+                "{mode:?} left the document off the window at {origin:?}"
+            );
+        }
     }
 
     /// A pull that stops short of the threshold pages nothing.

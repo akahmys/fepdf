@@ -195,9 +195,7 @@ impl FepdfApp {
         self.selected_pages.clear();
         self.last_selected_page = None;
 
-        if self.view.active_page >= self.total_pages {
-            self.view.active_page = self.total_pages.saturating_sub(1);
-        }
+        self.view.keep_page_inside(self.total_pages);
 
         let _ = self.tx_worker.send(WorkerRequest::RemovePages { indices });
     }

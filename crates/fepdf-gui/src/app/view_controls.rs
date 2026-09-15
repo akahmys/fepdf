@@ -142,12 +142,13 @@ impl FepdfApp {
         }
     }
 
-    /// How the pages are arranged, reading continuous, single, spread.
+    /// How the pages are arranged when the reader is looking at pages: single, or spread.
     ///
-    /// **Only the continuous arrangement has tiles.** Single-page and spread lay one page
-    /// or one pair out and draw nothing else, so pressing either from the grid replaced a
-    /// screen of pages with one small sheet and no way back but the zoom. They are
-    /// unavailable until the reader is looking at pages again.
+    /// **Both stay pressable in the tiles**, because neither is the arrangement in hand
+    /// there — the grid belongs to the zoom — and each says what zooming back in will
+    /// give. There were three, of which one was the grid, and then only that one was
+    /// pressable from the grid: the button for what the reader was already looking at
+    /// looked like the mode, and the other two looked broken.
     fn mode_group(&mut self, ui: &mut egui::Ui) {
         // **The mode is what the page view will be, and the tiles are not one of them.**
         // Only `Continuous` used to be pressable in the tiles, because the grid was laid

@@ -77,7 +77,7 @@ pub enum Step {
     /// Set the resize form's sheet and fit, then press its apply:
     /// `resize <sheet|WxH> <fit|scale:FACTOR>`.
     Resize(String, String),
-    /// Choose the page-view mode: `mode continuous|single|spread`.
+    /// Choose the page-view mode: `mode single|spread`. The grid is the zoom's, not a mode.
     Mode(String),
     /// Set the resize form's offset without applying: `nudge <x> <y>`.
     Nudge(i32, i32),
