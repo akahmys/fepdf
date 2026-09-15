@@ -95,12 +95,16 @@ pub struct PDFView {
     pub scroll_direction: ScrollDirection,
     pub binding_direction: BindingDirection,
     pub cover_page_alone: bool,
-    /// Whether a drag is in hand, which is what lets a page be pulled off its edge.
+    /// Whether the reader is moving the view this frame, by a drag or by the wheel.
     ///
     /// **`clamp_pan` runs every frame and takes no input**, so without this it cannot tell
     /// a reader holding a page off the window from the frame after they let go — and the
     /// page would stay where it was pulled to rather than settling back.
-    dragging: bool,
+    ///
+    /// **The wheel counts.** It was a drag alone, so a wheel could never turn a page: on a
+    /// page that fits the window there is nothing to scroll and nothing happened at all,
+    /// which is a scroll wheel that does nothing on the commonest page there is.
+    pulling: bool,
     /// Whether the layout the current `pan` was computed against was the tile grid.
     ///
     /// **The two arrangements are different coordinate systems, and `pan` is in one of
@@ -188,7 +192,7 @@ impl PDFView {
             scroll_direction: ScrollDirection::Vertical,
             binding_direction: BindingDirection::LeftToRight,
             cover_page_alone: true,
-            dragging: false,
+            pulling: false,
             arranged_as_tiles: false,
             last_anchor: None,
             centre_next: None,
@@ -842,10 +846,12 @@ impl PDFView {
         });
     }
 
-    fn handle_scroll_panning(&mut self, ui: &egui::Ui) {
+    /// Pans by the wheel, and says whether it moved anything.
+    fn handle_scroll_panning(&mut self, ui: &egui::Ui) -> bool {
         ui.input(|i| {
             if !i.modifiers.command && !i.modifiers.ctrl {
                 let scroll_delta = i.smooth_scroll_delta;
+                let moved = scroll_delta != egui::Vec2::ZERO;
                 if self.scroll_direction == ScrollDirection::Horizontal {
                     if scroll_delta.x != 0.0 {
                         self.pan.x += scroll_delta.x;
@@ -855,8 +861,10 @@ impl PDFView {
                 } else {
                     self.pan += scroll_delta;
                 }
+                return moved;
             }
-        });
+            false
+        })
     }
 
     fn handle_input(
@@ -872,10 +880,12 @@ impl PDFView {
                 .or(i.pointer.latest_pos())
                 .is_some_and(|pos| viewport_rect.contains(pos))
         });
-        if is_hovered {
+        let moved_by_wheel = if is_hovered {
             self.handle_zoom_gestures(ui, viewport_rect, layouts);
-            self.handle_scroll_panning(ui);
-        }
+            self.handle_scroll_panning(ui)
+        } else {
+            false
+        };
         let shift_down = ui.input(|i| i.modifiers.shift);
         if response.dragged() && (!shift_down || self.is_page_view()) {
             self.pan += response.drag_delta();
@@ -887,7 +897,9 @@ impl PDFView {
                 .unwrap_or_else(|| viewport_rect.center());
             self.double_click_on_the_bench(pos, viewport_rect, layouts);
         }
-        self.dragging = response.dragged();
+        // A drag or the wheel: either is the reader moving the view, and the page comes
+        // away from its edge for both.
+        self.pulling = response.dragged() || moved_by_wheel;
     }
 
     /// Crosses the tile boundary, putting the page the reader is on in the middle.
@@ -960,7 +972,7 @@ impl PDFView {
             return false;
         };
         self.scroll_to_page(target, layouts);
-        self.dragging = false;
+        self.pulling = false;
         true
     }
 
@@ -1076,7 +1088,7 @@ impl PDFView {
         // a pull, and turning on it would page the document for reasons the reader never
         // asked about. The first version of this turned a page while settling the very
         // first frame.
-        if self.dragging && over.abs() >= PAGE_TURN_PULL {
+        if self.pulling && over.abs() >= PAGE_TURN_PULL {
             // Pulled the page up past its bottom, or leftwards past its right edge: on to
             // the next one. A right-bound document reads the other way across.
             let onwards = if horizontal {
@@ -1090,17 +1102,18 @@ impl PDFView {
             }
         }
 
-        // The pull is the reader's to hold, and only theirs: a page nobody is dragging
-        // sits where it belongs.
-        let allowed = if self.dragging { over.clamp(-PAGE_TURN_PULL, PAGE_TURN_PULL) } else { 0.0 };
-        let held = along.clamp(hold.0, hold.1) + allowed;
-        if horizontal {
-            self.pan.x = held;
-            self.pan.y = page_hold(up, (viewport.min.y, viewport.max.y), self.zoom, origin.y).0;
-        } else {
-            self.pan.y = held;
-            self.pan.x = page_hold(across, (viewport.min.x, viewport.max.x), self.zoom, origin.x).0;
-        }
+        // The pull is the reader's to hold, and only theirs: a page nobody is moving sits
+        // where it belongs.
+        let allowed = if self.pulling { over.clamp(-PAGE_TURN_PULL, PAGE_TURN_PULL) } else { 0.0 };
+        // **Both axes are held, and only the one that pages carries the pull.** The cross
+        // axis used to be set to its lower bound outright, which pinned a zoomed-in page
+        // against one side and made scrolling across it do nothing at all.
+        let sideways = page_hold(across, (viewport.min.x, viewport.max.x), self.zoom, origin.x);
+        let upright = page_hold(up, (viewport.min.y, viewport.max.y), self.zoom, origin.y);
+        self.pan.x =
+            self.pan.x.clamp(sideways.0, sideways.1) + if horizontal { allowed } else { 0.0 };
+        self.pan.y =
+            self.pan.y.clamp(upright.0, upright.1) + if horizontal { 0.0 } else { allowed };
     }
 }
 
@@ -1685,7 +1698,7 @@ mod overscroll_paging {
         // Settle where the page sits, then pull from there with a drag in hand — which is
         // the only thing that turns a page.
         view.clamp_pan(window, &layouts);
-        view.dragging = true;
+        view.pulling = true;
         view.pan += by;
         view.clamp_pan(window, &layouts);
         view.active_page
@@ -1775,10 +1788,69 @@ mod overscroll_paging {
         view.active_page = 1;
         let window = egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(400.0, 400.0));
         view.clamp_pan(window, &pages());
-        view.dragging = true;
+        view.pulling = true;
         view.pan += egui::vec2(400.0, 0.0);
         view.clamp_pan(window, &pages());
         assert_eq!(view.active_page, 2, "pulled past the left, bound right-to-left");
+    }
+
+    /// **A page that fills the window still answers the wheel**, by turning.
+    ///
+    /// This is the commonest page there is — one that fits — and there is nothing on it to
+    /// scroll to, so a wheel that only scrolled did nothing at all. The pull was a drag
+    /// and the wheel is not one, which is how "scrolling stopped working" came to be a
+    /// true report of a page view that looked finished.
+    #[test]
+    fn the_wheel_turns_a_page_that_has_nowhere_to_scroll() {
+        let window = egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(400.0, 400.0));
+        let layouts = pages();
+        let mut view = PDFView::new();
+        view.display_mode = DisplayMode::SinglePage;
+        view.active_page = 1;
+        view.clamp_pan(window, &layouts);
+        let (lo, hi) = super::page_hold(
+            (layouts[1].rect.min.y, layouts[1].rect.max.y),
+            (window.min.y, window.max.y),
+            view.zoom(),
+            view.get_origin_no_pan(window).y,
+        );
+        assert!((lo - hi).abs() < 1e-6, "the fixture's page does not fit, so it would scroll");
+
+        // What the wheel does: move the pan, and say it moved it.
+        view.pulling = true;
+        view.pan.y -= super::PAGE_TURN_PULL + 1.0;
+        view.clamp_pan(window, &layouts);
+        assert_eq!(view.active_page, 2, "the wheel did nothing on a page that fits");
+    }
+
+    /// **A page larger than the window still scrolls, on both axes.**
+    #[test]
+    fn a_page_larger_than_the_window_scrolls_within_itself() {
+        let window = egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(200.0, 200.0));
+        // One page, 100 by 100 in layout units, at four times the size of the window.
+        let layouts = vec![PageLayout {
+            index: 0,
+            rect: egui::Rect::from_min_max(egui::pos2(-50.0, 0.0), egui::pos2(50.0, 100.0)),
+        }];
+        let mut view = PDFView::new();
+        view.display_mode = DisplayMode::SinglePage;
+        view.set_zoom(4.0);
+        view.clamp_pan(window, &layouts);
+        let rest = view.pan;
+
+        for step in [egui::vec2(0.0, -30.0), egui::vec2(-30.0, 0.0)] {
+            let mut scrolled = PDFView::new();
+            scrolled.display_mode = DisplayMode::SinglePage;
+            scrolled.set_zoom(4.0);
+            scrolled.pan = rest + step;
+            scrolled.clamp_pan(window, &layouts);
+            assert!(
+                (scrolled.pan - (rest + step)).length() < 0.01,
+                "scrolling by {step:?} was undone: {:?} instead of {:?}",
+                scrolled.pan,
+                rest + step
+            );
+        }
     }
 
     /// **The page moves while it is being pulled, and settles back when it is let go.**
@@ -1797,7 +1869,7 @@ mod overscroll_paging {
         view.clamp_pan(window, &layouts);
         let resting = view.pan.y;
 
-        view.dragging = true;
+        view.pulling = true;
         view.pan.y -= 50.0;
         view.clamp_pan(window, &layouts);
         assert_eq!(view.active_page, 1, "50 is under the 80 a turn asks for");
@@ -1807,7 +1879,7 @@ mod overscroll_paging {
             view.pan.y
         );
 
-        view.dragging = false;
+        view.pulling = false;
         view.clamp_pan(window, &layouts);
         assert!((view.pan.y - resting).abs() < 0.01, "it stayed pulled after being let go");
     }
@@ -1825,7 +1897,7 @@ mod overscroll_paging {
         let resting = view.pan.y;
 
         // Backwards off page 0, where there is no previous page to turn to.
-        view.dragging = true;
+        view.pulling = true;
         view.pan.y += 400.0;
         view.clamp_pan(window, &layouts);
         assert_eq!(view.active_page, 0, "there is no page before the first");
