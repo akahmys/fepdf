@@ -58,10 +58,11 @@ impl PDFView {
         let response = ui.allocate_rect(viewport_rect, egui::Sense::click_and_drag());
         self.handle_input(ui, &response, viewport_rect, layouts);
         self.clamp_pan(viewport_rect, layouts);
-        // A page coming back to its edge is moving with nothing driving it, and egui stops
-        // drawing when the input stops: without this it would settle one frame per wheel
-        // tick and freeze half-way the moment the reader let go.
-        if self.pull != 0.0 {
+        // A page on its way to its place — sliding in after a turn, or coming back from a
+        // pull — is moving with nothing driving it, and egui stops drawing when the input
+        // stops: without this it would travel one frame per wheel tick and freeze half-way
+        // the moment the reader let go.
+        if self.adrift != 0.0 {
             ui.ctx().request_repaint();
         }
 

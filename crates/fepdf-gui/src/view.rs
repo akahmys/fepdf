@@ -105,12 +105,13 @@ pub struct PDFView {
     /// page that fits the window there is nothing to scroll and nothing happened at all,
     /// which is a scroll wheel that does nothing on the commonest page there is.
     pulling: bool,
-    /// How far the page is currently held off its edge, in window points.
+    /// How far the page is from where it belongs, along the axis that pages, in points.
     ///
-    /// **The pull is a position, not a reading of `pan`.** It follows the gesture out at
-    /// once and comes back on its own over several frames; a pull that was let go used to
-    /// be undone in the one frame after, so the page teleported back to its edge.
-    pull: f32,
+    /// **A position of its own, not a reading of `pan`.** Two things put a page off its
+    /// place and both come home the same way: a reader pulling it off its edge, and a page
+    /// that has just been turned to, which starts a window's width out and slides in. Each
+    /// used to arrive in a single frame, which is a teleport and reads as a snap.
+    adrift: f32,
     /// Whether a page has just been turned and the gesture that turned it is still going.
     ///
     /// **One gesture turns one page.** A trackpad keeps sending the tail of a flick for
@@ -153,16 +154,16 @@ pub struct PDFView {
 /// nothing; forty is still far enough that a page cannot turn by a twitch.
 const PAGE_TURN_PULL: f32 = 40.0;
 
-/// How much of the way back to its edge a let-go page travels each frame.
+/// How much of the way to its place an out-of-place page travels each frame.
 ///
-/// **Only the way back is eased.** Going out, the page is under the reader's finger and
-/// anything but following it exactly reads as lag; coming back, nothing is holding it, and
-/// a jump to its edge in a single frame is the jerk this eases out of.
+/// **Only the way home is eased.** Going out, the page is under the reader's finger and
+/// anything but following it exactly reads as lag; coming home, nothing is holding it, and
+/// arriving in a single frame is the snap this eases out of.
 ///
-/// At 0.45 a full pull is back inside a tenth of a second — enough frames to read as a
-/// movement rather than a jump, and not so many that the page is still travelling when the
-/// reader's next gesture arrives.
-const PULL_EASE: f32 = 0.45;
+/// At 0.45 a full pull is back inside a tenth of a second and a whole page has slid in
+/// inside a fifth — enough frames to read as a movement rather than a jump, and not so many
+/// that the page is still travelling when the reader's next gesture arrives.
+const EASE_HOME: f32 = 0.45;
 
 /// The per-frame movement below which a gesture counts as over.
 ///
@@ -232,7 +233,7 @@ impl PDFView {
             binding_direction: BindingDirection::LeftToRight,
             cover_page_alone: true,
             pulling: false,
-            pull: 0.0,
+            adrift: 0.0,
             settling: false,
             arranged_as_tiles: false,
             last_anchor: None,
@@ -1032,7 +1033,7 @@ impl PDFView {
         };
         self.scroll_to_page(target, layouts);
         self.pulling = false;
-        self.pull = 0.0;
+        self.adrift = 0.0;
         self.settling = true;
         true
     }
@@ -1123,21 +1124,22 @@ impl PDFView {
     /// the reader's finger, and anything but following it exactly reads as lag; coming
     /// back nothing is holding it, and the single-frame jump it used to make from eighty
     /// points to nothing was the jerk a reader saw every time they let go short of a turn.
-    fn ease_pull(&mut self, want: f32) -> f32 {
-        self.pull = if want.abs() >= self.pull.abs() {
+    fn ease_home(&mut self, want: f32) -> f32 {
+        self.adrift = if want.abs() >= self.adrift.abs() {
             want
         } else {
-            (want - self.pull).mul_add(PULL_EASE, self.pull)
+            (want - self.adrift).mul_add(EASE_HOME, self.adrift)
         };
         // Below half a point there is nothing left to see, and stopping keeps the view
         // from asking for a repaint for ever.
-        if self.pull.abs() < 0.5 {
-            self.pull = 0.0;
+        if self.adrift.abs() < 0.5 {
+            self.adrift = 0.0;
         }
-        self.pull
+        self.adrift
     }
 
-    /// Places the page just turned to: at its head going on, at its foot going back.
+    /// Starts the page just turned to on its way in: to its head going on, its foot going
+    /// back.
     ///
     /// **A page too big for the window arrives at the edge it is read from, not its
     /// middle.** Landing in the middle hides the lines a page starts with, and from there
@@ -1157,11 +1159,22 @@ impl PDFView {
         let upright = page_hold(up, (viewport.min.y, viewport.max.y), self.zoom, origin.y);
         let (along, cross) = if horizontal { (sideways, upright) } else { (upright, sideways) };
         let read_from = if onwards { along.1 } else { along.0 };
+        // **It comes in from the side it comes from**, a window's width away and travelling,
+        // rather than being where the last page was between one frame and the next. Reading
+        // on, the next page is below, or past the binding edge — and a document bound on the
+        // right has that edge on the other side, so the same page arrives from the other way.
+        let behind = if horizontal && self.binding_direction == BindingDirection::RightToLeft {
+            !onwards
+        } else {
+            onwards
+        };
+        let window = if horizontal { viewport.width() } else { viewport.height() };
+        self.adrift = if behind { window } else { -window };
         // Across the page, wherever the reader had it, held inside the new page's own room.
         self.pan = if horizontal {
-            egui::vec2(read_from, self.pan.y.clamp(cross.0, cross.1))
+            egui::vec2(read_from + self.adrift, self.pan.y.clamp(cross.0, cross.1))
         } else {
-            egui::vec2(self.pan.x.clamp(cross.0, cross.1), read_from)
+            egui::vec2(self.pan.x.clamp(cross.0, cross.1), read_from + self.adrift)
         };
     }
 
@@ -1225,7 +1238,7 @@ impl PDFView {
         } else {
             0.0
         };
-        let allowed = self.ease_pull(want);
+        let allowed = self.ease_home(want);
         // **Both axes are held, and only the one that pages carries the pull.** The cross
         // axis used to be set to its lower bound outright, which pinned a zoomed-in page
         // against one side and made scrolling across it do nothing at all.
@@ -1803,6 +1816,14 @@ mod overscroll_paging {
             .collect()
     }
 
+    /// Runs the frames a page needs to reach its place, with nobody touching the view.
+    fn settle(view: &mut PDFView, window: egui::Rect, layouts: &[PageLayout]) {
+        for _ in 0..60 {
+            view.gesture(false, 0.0);
+            view.clamp_pan(window, layouts);
+        }
+    }
+
     /// Pulls the view `by` past where the page sits, and says where it landed.
     ///
     /// **From rest, not from the origin.** These used to set `pan` outright, which meant
@@ -2035,6 +2056,7 @@ mod overscroll_paging {
         view.pan.y -= 1000.0;
         view.clamp_pan(window, &layouts);
         assert_eq!(view.active_page, 2, "the pull did not turn the page");
+        settle(&mut view, window, &layouts);
         let head = layouts[2].rect.min.y.mul_add(view.zoom(), view.get_origin(window).y);
         assert!(
             (head - window.min.y).abs() < 0.01,
@@ -2044,16 +2066,70 @@ mod overscroll_paging {
 
         // Back: the bottom edge of page 1 arrives on the bottom of the window, because
         // that is where a reader going back was last looking.
-        view.gesture(false, 0.0);
         view.gesture(true, 1000.0);
         view.pan.y += 1000.0;
         view.clamp_pan(window, &layouts);
         assert_eq!(view.active_page, 1, "the pull did not turn back");
+        settle(&mut view, window, &layouts);
         let foot = layouts[1].rect.max.y.mul_add(view.zoom(), view.get_origin(window).y);
         assert!(
             (foot - window.max.y).abs() < 0.01,
             "page 1 came back with its bottom at {foot}, not at the window's {}",
             window.max.y
+        );
+    }
+
+    /// **The page turned to slides in from the side it comes from.** Arriving where it
+    /// belongs between one frame and the next is a snap; this is the same landing, reached
+    /// over a fifth of a second, and it starts a window away so that what a reader sees is
+    /// a page coming in rather than a page appearing.
+    #[test]
+    fn the_page_turned_to_comes_in_from_its_own_side() {
+        let window = egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(400.0, 400.0));
+        let layouts = pages();
+        let mut view = PDFView::new();
+        view.display_mode = DisplayMode::SinglePage;
+        view.active_page = 1;
+        view.clamp_pan(window, &layouts);
+
+        // Forward: the next page is below, so it starts below and travels up.
+        view.pulling = true;
+        view.pan.y -= 1000.0;
+        view.clamp_pan(window, &layouts);
+        assert_eq!(view.active_page, 2, "the pull did not turn the page");
+        let arriving = view.pan.y;
+
+        // It closes the distance every frame, and every frame of it is on screen.
+        let mut travelled = 0;
+        for _ in 0..60 {
+            let before = view.pan.y;
+            view.gesture(false, 0.0);
+            view.clamp_pan(window, &layouts);
+            if (view.pan.y - before).abs() > 0.01 {
+                travelled += 1;
+            }
+        }
+        let home = view.pan.y;
+        assert!(
+            arriving - home >= window.height() - 0.01,
+            "page 2 came in from {arriving} to {home}, less than the window it starts beyond"
+        );
+        assert!(
+            (6..=30).contains(&travelled),
+            "it came in over {travelled} frames, which is a snap at one end or a crawl at \
+             the other"
+        );
+
+        // And where it stops is where the page belongs — the same place a page that fits
+        // sits when nothing has been touched.
+        let mut untouched = PDFView::new();
+        untouched.display_mode = DisplayMode::SinglePage;
+        untouched.active_page = 2;
+        untouched.clamp_pan(window, &layouts);
+        assert!(
+            (home - untouched.pan.y).abs() < 0.01,
+            "it stopped at {home} rather than where page 2 belongs, {}",
+            untouched.pan.y
         );
     }
 
