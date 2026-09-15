@@ -76,7 +76,7 @@ impl FepdfApp {
             let is_open = self.active_drawer == drawer;
             let tip = self.locale_mgr.tr(&self.active_language, key);
             if icon_action(ui, icon, is_open, has_doc, &tip).clicked() && has_doc {
-                self.active_drawer = if is_open { ActiveDrawer::None } else { drawer };
+                self.show_drawer(if is_open { ActiveDrawer::None } else { drawer });
                 self.caliper_tool.is_active = !is_open && drawer == ActiveDrawer::Caliper;
             }
         }
@@ -148,7 +148,7 @@ impl FepdfApp {
 
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         if icon_action(ui, glyph::CLOSE, false, true, &close_label).clicked() {
-                            self.active_drawer = ActiveDrawer::None;
+                            self.show_drawer(ActiveDrawer::None);
                             self.caliper_tool.is_active = false;
                         }
                     });

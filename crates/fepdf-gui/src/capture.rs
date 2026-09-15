@@ -357,7 +357,7 @@ impl crate::app::FepdfApp {
 
         match step {
             Step::Open(path) => self.open_file(path, ctx),
-            Step::Drawer(drawer) => self.active_drawer = drawer,
+            Step::Drawer(drawer) => self.show_drawer(drawer),
             Step::Select(page) => {
                 self.selected_pages.clear();
                 self.selected_pages.insert(page.saturating_sub(1));
@@ -379,7 +379,7 @@ impl crate::app::FepdfApp {
                 self.compute_layouts();
             }
             Step::Tool(name) => {
-                self.active_drawer = ActiveDrawer::Tools;
+                self.show_drawer(ActiveDrawer::Tools);
                 self.tools.open = match name.as_str() {
                     "resize" => crate::document_tools::Tool::Resize,
                     _ => crate::document_tools::Tool::None,
@@ -427,7 +427,7 @@ impl crate::app::FepdfApp {
                 self.show_export_wizard = false;
                 self.show_settings_modal = false;
                 self.show_about_modal = false;
-                self.active_drawer = ActiveDrawer::None;
+                self.show_drawer(ActiveDrawer::None);
             }
             Step::Shot(name) => {
                 if let Some(plan) = self.capture.as_mut() {

@@ -330,7 +330,7 @@ impl FepdfApp {
             busy: None,
             close_confirmed: false,
             capture: None,
-            show_reading_order: true,
+            show_reading_order: false,
             controls_pinned: false,
             show_command_palette: false,
             command_palette_search: String::new(),
@@ -693,6 +693,26 @@ impl FepdfApp {
     /// the literal look like the cheaper option (UI-5).
     pub fn tr(&self, key: &str) -> String {
         self.locale_mgr.tr(&self.active_language, key)
+    }
+
+    /// Opens a drawer, closes one, or swaps between them.
+    ///
+    /// **One home, because the overlay follows it.** Eight places set `active_drawer` —
+    /// the rail, its close button, three commands in the palette and three capture steps
+    /// — and the reading-order overlay is on while the structure is being looked at and
+    /// off otherwise. Syncing that at each of the eight is seven chances to forget.
+    pub(crate) fn show_drawer(&mut self, drawer: crate::sidebar::ActiveDrawer) {
+        // **The overlay used to be on when a document opened.** Every element of a tagged
+        // document came up outlined and labelled with nothing on screen saying what the
+        // frames were; the one control that turned them off was at the far end of the
+        // status bar, with nothing tying it to them. `print_sample.pdf` opens with about
+        // sixty of them.
+        //
+        // It is a real thing to want to see, so it comes with the drawer that is about
+        // it: opening `Accessibility` turns it on, leaving turns it off, and the status
+        // bar still switches it either way in between.
+        self.show_reading_order = drawer == crate::sidebar::ActiveDrawer::Accessibility;
+        self.active_drawer = drawer;
     }
 
     /// Puts the open document's name on the window.

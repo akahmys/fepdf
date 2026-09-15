@@ -89,16 +89,16 @@ impl Command {
             }
             Self::Caliper => {
                 let on = app.active_drawer == crate::sidebar::ActiveDrawer::Caliper;
-                app.active_drawer = Self::toggled(on, crate::sidebar::ActiveDrawer::Caliper);
+                app.show_drawer(Self::toggled(on, crate::sidebar::ActiveDrawer::Caliper));
                 app.caliper_tool.is_active = !on;
             }
             Self::Export => app.open_export_wizard(),
             Self::ReadingOrder => app.show_reading_order = !app.show_reading_order,
             Self::RedactionStudio => {
                 let on = app.active_drawer == crate::sidebar::ActiveDrawer::Redaction;
-                app.active_drawer = Self::toggled(on, crate::sidebar::ActiveDrawer::Redaction);
+                app.show_drawer(Self::toggled(on, crate::sidebar::ActiveDrawer::Redaction));
             }
-            Self::Tools => app.active_drawer = crate::sidebar::ActiveDrawer::Tools,
+            Self::Tools => app.show_drawer(crate::sidebar::ActiveDrawer::Tools),
         }
     }
 
