@@ -630,9 +630,11 @@ impl PDFView {
 
     /// The page under `center_pos`, else the nearest, else the active one.
     ///
-    /// Only pages the current display mode actually shows are candidates: zooming in
-    /// single-page mode must not anchor to a page that is not on screen, and a two-page
-    /// spread anchors within its own spread.
+    /// Only pages that are actually on screen are candidates: zooming in the page view must
+    /// not anchor to a page that is not shown, and a spread anchors within its own pair.
+    /// **In the tiles every page on screen is a candidate** — the mode says `SinglePage`
+    /// there and means nothing by it, and a zoom anchored on the one active tile moved the
+    /// grid out from under the reader's cursor.
     fn layout_under<'a>(
         &self,
         center_pos: egui::Pos2,
@@ -642,14 +644,8 @@ impl PDFView {
     ) -> Option<&'a PageLayout> {
         let (mut closest, mut min_dist_sq) = (None, f32::MAX);
         for layout in layouts {
-            if self.display_mode == DisplayMode::SinglePage && layout.index != self.active_page {
+            if self.is_page_view() && !self.shows(layout.index, layouts.len()) {
                 continue;
-            }
-            if self.display_mode == DisplayMode::TwoPageSingle {
-                let spread = self.get_spread_indices(self.active_page, layouts.len());
-                if !spread.contains(&layout.index) {
-                    continue;
-                }
             }
             let page_screen_rect = egui::Rect::from_min_size(
                 current_origin + layout.rect.min.to_vec2() * old_zoom,
@@ -944,24 +940,27 @@ impl PDFView {
     /// the zoom — in the app's `collect_visible_pages_data`, which is what hands the
     /// renderer its work. A page one drew and another did not showed as a backing with no
     /// page on it, or as a tile that span for ever waiting for pixels nobody had asked for.
+    /// Whether the page view shows `index`: it is the page, or one of the spread's pair.
+    fn shows(&self, index: usize, total: usize) -> bool {
+        match self.display_mode {
+            DisplayMode::SinglePage => index == self.active_page,
+            DisplayMode::TwoPageSingle => {
+                self.get_spread_indices(self.active_page, total).contains(&index)
+            }
+        }
+    }
+
     pub(crate) fn visible_page_rects<'a>(
         &self,
         viewport_rect: egui::Rect,
         layouts: &'a [PageLayout],
     ) -> Vec<(&'a PageLayout, egui::Rect)> {
         let origin = self.get_origin(viewport_rect);
-        let active_spread = self.get_spread_indices(self.active_page, layouts.len());
         layouts
             .iter()
             // **The tiles show the document, whatever the mode is.** A grid is a chooser
             // and a chooser that hid every page but the active one would be a page.
-            .filter(|layout| {
-                !self.is_page_view()
-                    || match self.display_mode {
-                        DisplayMode::SinglePage => layout.index == self.active_page,
-                        DisplayMode::TwoPageSingle => active_spread.contains(&layout.index),
-                    }
-            })
+            .filter(|layout| !self.is_page_view() || self.shows(layout.index, layouts.len()))
             .map(|layout| {
                 (
                     layout,
@@ -2707,6 +2706,29 @@ mod visible_pages {
     fn a_single_spread_shows_both_of_its_pages_and_nothing_else() {
         assert_eq!(shown(DisplayMode::TwoPageSingle, 2), vec![1, 2]);
         assert_eq!(shown(DisplayMode::TwoPageSingle, 0), vec![0], "the cover is alone");
+    }
+
+    /// **In the tiles every page on screen is shown, whatever the mode says.** The mode is
+    /// `SinglePage` there and means nothing by it — the grid belongs to the zoom — and this
+    /// one answer is what the drawing, the renderer's work list and the click targets all
+    /// read. Three copies of it had drifted: the tiles were drawn with no pixels asked for,
+    /// and a click or a right-click on any tile but one reached nothing at all.
+    #[test]
+    fn the_tiles_show_every_page_on_screen() {
+        let layouts = pages();
+        let window = egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(400.0, 2000.0));
+        for mode in [DisplayMode::SinglePage, DisplayMode::TwoPageSingle] {
+            let mut view = PDFView::new();
+            view.display_mode = mode;
+            view.active_page = 2;
+            view.set_zoom(PDFView::TILE_STEP);
+            let shown: Vec<usize> = view
+                .visible_page_rects(window, &layouts)
+                .into_iter()
+                .map(|(layout, _)| layout.index)
+                .collect();
+            assert_eq!(shown, (0..layouts.len()).collect::<Vec<usize>>(), "in {mode:?}");
+        }
     }
 
     /// A page the viewport does not reach is not drawn.

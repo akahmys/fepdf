@@ -587,34 +587,29 @@ impl FepdfApp {
     ) {
         let mut reorder_target = None;
         let dragged_from = egui::DragAndDrop::payload::<usize>(ui.ctx()).map(|p| *p);
-        let visible_pages = self.view.visible_pages.clone();
-        let active_spread = self.view.get_spread_indices(self.view.active_page, self.total_pages);
-        for &visible_index in &visible_pages {
-            if (self.view.display_mode == DisplayMode::SinglePage
-                && visible_index != self.view.active_page)
-                || (self.view.display_mode == DisplayMode::TwoPageSingle
-                    && !active_spread.contains(&visible_index))
-            {
-                continue;
-            }
-            if let Some(layout) = self.page_layouts.get(visible_index) {
-                let origin = self.view.get_origin(viewport_rect);
-                let page_screen_rect = egui::Rect::from_min_size(
-                    origin + layout.rect.min.to_vec2() * zoom,
-                    layout.rect.size() * zoom,
-                );
-                let unscaled_h = layout.rect.height();
-
-                if let Some(target) = self.handle_single_page_interaction(
-                    ui,
-                    visible_index,
-                    page_screen_rect,
-                    unscaled_h,
-                    zoom,
-                    dragged_from,
-                ) {
-                    reorder_target = Some(target);
-                }
+        // **A page that is drawn is a page that can be clicked.** This chose which pages
+        // to allocate a rect for by `display_mode`, the third copy of a decision that
+        // predates the grid belonging to the zoom: in the tiles the mode is `SinglePage`,
+        // so every tile but one was skipped and neither a click nor a right-click reached
+        // any of them.
+        let pages: Vec<(usize, egui::Rect, f32)> = self
+            .view
+            .visible_page_rects(viewport_rect, &self.page_layouts)
+            .into_iter()
+            .map(|(layout, page_screen_rect)| {
+                (layout.index, page_screen_rect, layout.rect.height())
+            })
+            .collect();
+        for (visible_index, page_screen_rect, unscaled_h) in pages {
+            if let Some(target) = self.handle_single_page_interaction(
+                ui,
+                visible_index,
+                page_screen_rect,
+                unscaled_h,
+                zoom,
+                dragged_from,
+            ) {
+                reorder_target = Some(target);
             }
         }
 
