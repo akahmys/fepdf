@@ -288,7 +288,7 @@ impl FepdfApp {
     /// button, so this sets the same fields the pickers set and calls the same
     /// `send_resize` the button calls.
     pub(crate) fn drive_resize(&mut self, sheet: &str, fit: &str) {
-        self.tools.place = (fepdf::Align::Middle, fepdf::Align::End);
+        self.tools.offset = (0.0, 0.0);
         if let Some(size) = fepdf::PageResize::sheet(sheet) {
             self.tools.sheet = Some(sheet.to_string().leak());
             self.tools.sheet_size = size;

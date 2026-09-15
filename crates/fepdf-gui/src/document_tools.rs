@@ -60,12 +60,32 @@ pub struct ToolState {
     pub fit: fepdf::ContentScale,
     /// The factor `ContentScale::By` uses, kept while another one is chosen.
     pub scale: f64,
-    /// Where the content sits on the sheet: across, then up.
-    pub place: (fepdf::Align, fepdf::Align),
-    /// Moved by this much afterwards, in points.
+    /// Where the content sits, as a distance from the middle of the sheet in points.
     pub offset: (f64, f64),
     /// Whether the selection is resized rather than the whole document.
     pub resize_selection: bool,
+}
+
+impl ToolState {
+    /// The factor the form is asking for, which `Fit` works out from the two sheets.
+    #[must_use]
+    pub fn scale_of(&self, page: (f64, f64)) -> f64 {
+        let sheet = self.sheet_for(page);
+        match self.fit {
+            fepdf::ContentScale::Keep => 1.0,
+            fepdf::ContentScale::Fit => (sheet.0 / page.0).min(sheet.1 / page.1),
+            fepdf::ContentScale::By(by) => by,
+        }
+    }
+
+    /// The sheet the form is asking for, which is the page's own when it changes none.
+    #[must_use]
+    pub fn sheet_for(&self, page: (f64, f64)) -> (f64, f64) {
+        if !self.change_sheet {
+            return page;
+        }
+        if self.landscape { fepdf::PageResize::landscape(self.sheet_size) } else { self.sheet_size }
+    }
 }
 
 impl Default for ToolState {
@@ -94,9 +114,6 @@ impl Default for ToolState {
             change_sheet: true,
             fit: fepdf::ContentScale::Fit,
             scale: 1.0,
-            // Centred across, and at the top up the page: a document put on a taller
-            // sheet wants its text where the reader looks first.
-            place: (fepdf::Align::Middle, fepdf::Align::End),
             offset: (0.0, 0.0),
             resize_selection: false,
         }
@@ -431,13 +448,18 @@ fn resize_form(app: &mut FepdfApp, ui: &mut egui::Ui) {
     // looked a key up in that list. It was a second table beside the locale: a key the
     // form used and the list did not name drew as an empty string, which is how two of
     // the placement buttons came to have no labels at all.
-    let FepdfApp { tools, locale_mgr, active_language, selected_pages, .. } = app;
+    let FepdfApp {
+        tools, locale_mgr, active_language, selected_pages, doc_page_sizes, view, ..
+    } = app;
     let lang = active_language.as_str();
+    let page = doc_page_sizes.get(view.active_page).copied().unwrap_or((595.0, 842.0));
     sheet_picker(tools, ui, locale_mgr, lang);
     ui.add_space(crate::app::theme::space::GROUP);
     scale_picker(tools, ui, locale_mgr, lang);
     ui.add_space(crate::app::theme::space::GROUP);
-    place_picker(tools, ui, locale_mgr, lang);
+    // The page the form is reasoning about, so the named positions can be worked out:
+    // the one the reader is looking at, since that is the one they have in mind.
+    place_picker(tools, ui, locale_mgr, lang, page);
     ui.add_space(crate::app::theme::space::GROUP);
 
     let selected = selected_pages.len();
@@ -462,16 +484,8 @@ pub fn send_resize(app: &FepdfApp) {
     } else {
         fepdf::PageSelection::All
     };
-    let sheet = app.tools.change_sheet.then(|| {
-        let size = app.tools.sheet_size;
-        if app.tools.landscape { fepdf::PageResize::landscape(size) } else { size }
-    });
-    let resize = fepdf::PageResize {
-        sheet,
-        scale: app.tools.fit,
-        place: app.tools.place,
-        offset: app.tools.offset,
-    };
+    let sheet = app.tools.change_sheet.then(|| app.tools.sheet_for((0.0, 0.0)));
+    let resize = fepdf::PageResize { sheet, scale: app.tools.fit, offset: app.tools.offset };
     apply(app, fepdf::Operation::ResizePages(pages, resize), "tools_resize");
 }
 
@@ -544,39 +558,68 @@ fn scale_picker(
     });
 }
 
-/// Where the content lands, and how far it is nudged from there.
+/// Where the content lands: nine named positions, and the two numbers they fill in.
+///
+/// **The names are defaults, not a second axis.** An offset already spans every position
+/// — zero is centred — so a placement beside it would say the same thing twice. Pressing
+/// one writes the number it means into the fields, where it can then be changed: a
+/// binding margin is "centred, then 42 to the right", and both halves of that are visible.
 fn place_picker(
     tools: &mut ToolState,
     ui: &mut egui::Ui,
     locale: &crate::locale::LocaleManager,
     lang: &str,
+    page: (f64, f64),
 ) {
-    let tr = |key: &str| locale.tr(lang, key);
-    const ACROSS: [(fepdf::Align, &str); 3] = [
-        (fepdf::Align::Start, "tools_place_left"),
-        (fepdf::Align::Middle, "tools_place_centre"),
-        (fepdf::Align::End, "tools_place_right"),
-    ];
-    const UP: [(fepdf::Align, &str); 3] = [
+    const ROWS: [(fepdf::Align, &str); 3] = [
         (fepdf::Align::End, "tools_place_top"),
         (fepdf::Align::Middle, "tools_place_middle"),
         (fepdf::Align::Start, "tools_place_bottom"),
     ];
+    const COLUMNS: [(fepdf::Align, &str); 3] = [
+        (fepdf::Align::Start, "tools_place_left"),
+        (fepdf::Align::Middle, "tools_place_centre"),
+        (fepdf::Align::End, "tools_place_right"),
+    ];
+    let tr = |key: &str| locale.tr(lang, key);
     ui.label(tr("tools_resize_place"));
-    ui.horizontal(|ui| {
-        for (align, key) in ACROSS {
-            ui.radio_value(&mut tools.place.0, align, tr(key));
-        }
-    });
-    ui.horizontal(|ui| {
-        for (align, key) in UP {
-            ui.radio_value(&mut tools.place.1, align, tr(key));
-        }
-    });
+
+    let sheet = tools.sheet_for(page);
+    let scale = tools.scale_of(page);
+    // **One cell is marked, even when several mean the same place.** Content scaled to
+    // fill the sheet touches two edges, so on that axis top, middle and bottom are the
+    // same offset — and marking all three reads as a fault rather than as "there is no
+    // room to move it that way". The middle is preferred, because that is the one a
+    // reader has not asked for anything unusual by being at.
+    let marked = ROWS
+        .iter()
+        .flat_map(|(up, _)| COLUMNS.iter().map(move |(across, _)| (*across, *up)))
+        .filter(|place| {
+            near(tools.offset, fepdf::PageResize::offset_to(*place, page, sheet, scale))
+        })
+        .min_by_key(|(across, up)| {
+            usize::from(*across != fepdf::Align::Middle) + usize::from(*up != fepdf::Align::Middle)
+        });
+    for (up, up_key) in ROWS {
+        ui.horizontal(|ui| {
+            for (across, across_key) in COLUMNS {
+                let name = format!("{} {}", tr(up_key), tr(across_key));
+                if ui.selectable_label(marked == Some((across, up)), name).clicked() {
+                    tools.offset = fepdf::PageResize::offset_to((across, up), page, sheet, scale);
+                }
+            }
+        });
+    }
     ui.horizontal(|ui| {
         ui.label(tr("tools_resize_offset"));
         ui.add(egui::DragValue::new(&mut tools.offset.0).speed(1.0).prefix("x "));
         ui.add(egui::DragValue::new(&mut tools.offset.1).speed(1.0).prefix("y "));
         ui.label(tr("tools_resize_points"));
     });
+}
+
+/// Whether two offsets are the same to within half a point, which is finer than a drag
+/// can express and finer than any sheet is specified.
+fn near(left: (f64, f64), right: (f64, f64)) -> bool {
+    (left.0 - right.0).abs() < 0.5 && (left.1 - right.1).abs() < 0.5
 }

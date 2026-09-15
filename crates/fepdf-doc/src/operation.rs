@@ -378,12 +378,7 @@ mod moves_content_tests {
     fn resize(sheet: Option<(f64, f64)>) -> Operation {
         Operation::ResizePages(
             PageSelection::All,
-            PageResize {
-                sheet,
-                scale: ContentScale::By(0.6),
-                place: (super::Align::Middle, super::Align::End),
-                offset: (0.0, 0.0),
-            },
+            PageResize { sheet, scale: ContentScale::By(0.6), offset: (0.0, 0.0) },
         )
     }
 

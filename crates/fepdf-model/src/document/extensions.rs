@@ -73,10 +73,19 @@ pub enum ContentScale {
 
 /// Where the content sits on the sheet along one axis.
 ///
-/// **`Start` is the side the origin is on** — the left, and the bottom — because that is
-/// where a PDF measures from (8.3.2.3). A document put on a taller sheet usually wants
-/// `End` vertically: the reader expects the text at the top and the new room below it,
-/// and a page held at the bottom reads as having been pushed down.
+/// **Not a field of [`PageResize`] — a way of working out one.** It was a field, beside
+/// the offset, and the two said the same thing twice: an offset already spans every
+/// position, and "centred" is `(0, 0)`. What alignment is good for is *naming* the
+/// position a person wants, so [`PageResize::offset_to`] turns a name into the number the
+/// offset field then shows. Press "left" and the number appears; change it afterwards and
+/// it is yours.
+///
+/// The cost of a name that becomes a number: change the scale afterwards and the number
+/// no longer touches the edge. That is the trade for one axis instead of two, and for a
+/// binding margin reading as `x + 42` rather than as "centred, and also shifted".
+///
+/// `Start` is the side the origin is on — the left, and the bottom — because that is
+/// where a PDF measures from (8.3.2.3).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub enum Align {
     /// Against the origin: left, or bottom.
@@ -89,13 +98,16 @@ pub enum Align {
 }
 
 impl Align {
-    /// How far a run of `content` sits from the origin within `sheet`.
+    /// How far from the middle a run of `content` sits within `sheet`.
+    ///
+    /// Measured from the middle because that is where an offset of zero puts it.
     #[must_use]
-    pub fn offset_within(self, content: f64, sheet: f64) -> f64 {
+    pub fn from_middle(self, content: f64, sheet: f64) -> f64 {
+        let room = (sheet - content) / 2.0;
         match self {
-            Self::Start => 0.0,
-            Self::Middle => (sheet - content) / 2.0,
-            Self::End => sheet - content,
+            Self::Start => -room,
+            Self::Middle => 0.0,
+            Self::End => room,
         }
     }
 }
@@ -117,12 +129,12 @@ pub struct PageResize {
     pub sheet: Option<(f64, f64)>,
     /// How what is drawn there is resized.
     pub scale: ContentScale,
-    /// Where it sits on the sheet once resized: across, then up.
-    pub place: (Align, Align),
-    /// Moved by this much afterwards, in points: right, then up.
+    /// Where it sits, as a distance from the middle of the sheet in points: right, then
+    /// up.
     ///
-    /// Applied after the placement, so it reads as a nudge from wherever that put it —
-    /// a binding margin is `Align::Middle` with a positive first number, and says so.
+    /// **Zero is centred, which is why there is no separate placement.** A binding margin
+    /// is `(42.0, 0.0)` and reads as one; an edge is a number [`Self::offset_to`] works
+    /// out for a form to put here.
     pub offset: (f64, f64),
 }
 
@@ -158,6 +170,21 @@ impl PageResize {
     #[must_use]
     pub const fn landscape(size: (f64, f64)) -> (f64, f64) {
         (size.1, size.0)
+    }
+
+    /// The offset that puts `from`, scaled by `scale`, where `place` names on `to`.
+    ///
+    /// **So that a form offers the named positions without doing geometry.** A panel that
+    /// worked out "flush left" itself would be the second place this arithmetic lives, and
+    /// the third would disagree.
+    #[must_use]
+    pub fn offset_to(
+        place: (Align, Align),
+        from: (f64, f64),
+        to: (f64, f64),
+        scale: f64,
+    ) -> (f64, f64) {
+        (place.0.from_middle(from.0 * scale, to.0), place.1.from_middle(from.1 * scale, to.1))
     }
 }
 

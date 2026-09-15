@@ -11,19 +11,16 @@
 //! document in this corpus: the sheet would change and the viewer would go on showing the
 //! old crop.
 
-use fepdf::{Align, ContentScale, Operation, PageResize, PageSelection, PdfDocument};
+use fepdf::{ContentScale, Operation, PageResize, PageSelection, PdfDocument};
 
 const A4: (f64, f64) = (595.0, 842.0);
 const A3: (f64, f64) = (842.0, 1191.0);
 /// A sheet whose aspect is nothing like A4's, so a box that follows the content cannot
 /// be mistaken for one that became the sheet.
 const SQUARE: (f64, f64) = (842.0, 842.0);
-/// Centred on both axes, which is what most of these ask for.
-const MIDDLE: (Align, Align) = (Align::Middle, Align::Middle);
-
 /// A resize onto `sheet` that scales the content to fill it, centred.
 fn fitted(sheet: (f64, f64)) -> PageResize {
-    PageResize { sheet: Some(sheet), scale: ContentScale::Fit, place: MIDDLE, offset: (0.0, 0.0) }
+    PageResize { sheet: Some(sheet), scale: ContentScale::Fit, offset: (0.0, 0.0) }
 }
 
 fn sample(name: &str) -> Option<PdfDocument> {
@@ -101,12 +98,7 @@ fn a_blank_page_gains_no_content_stream() {
     let mut doc = PdfDocument::create_empty().expect("a new document opens");
     doc.apply(Operation::ResizePages(
         PageSelection::All,
-        PageResize {
-            sheet: Some(A4),
-            scale: ContentScale::Keep,
-            place: MIDDLE,
-            offset: (0.0, 0.0),
-        },
+        PageResize { sheet: Some(A4), scale: ContentScale::Keep, offset: (0.0, 0.0) },
     ))
     .expect("it resizes");
     assert_eq!(doc.extract_text(0).expect("it reads").trim(), "");
@@ -127,7 +119,7 @@ fn a_sheet_or_a_scale_that_draws_nothing_is_refused() {
     for (w, h, scale) in refusals {
         let asked = Operation::ResizePages(
             PageSelection::All,
-            PageResize { sheet: Some((w, h)), scale, place: MIDDLE, offset: (0.0, 0.0) },
+            PageResize { sheet: Some((w, h)), scale, offset: (0.0, 0.0) },
         );
         assert!(doc.apply(asked).is_err(), "({w}, {h}) with {scale:?} was accepted");
     }
@@ -170,7 +162,7 @@ fn a_resize_that_names_no_sheet_keeps_each_pages_own() {
 
     doc.apply(Operation::ResizePages(
         PageSelection::All,
-        PageResize { sheet: None, scale: ContentScale::By(0.9), place: MIDDLE, offset: (0.0, 0.0) },
+        PageResize { sheet: None, scale: ContentScale::By(0.9), offset: (0.0, 0.0) },
     ))
     .expect("it resizes");
 
@@ -194,7 +186,7 @@ fn an_offset_moves_the_content_and_not_the_sheet() {
 
     doc.apply(Operation::ResizePages(
         PageSelection::Single(0),
-        PageResize { sheet: None, scale: ContentScale::Keep, place: MIDDLE, offset: (30.0, -10.0) },
+        PageResize { sheet: None, scale: ContentScale::Keep, offset: (30.0, -10.0) },
     ))
     .expect("it resizes");
 
