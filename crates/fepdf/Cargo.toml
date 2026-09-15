@@ -86,3 +86,7 @@ required-features = ["render"]
 name = "resize_preview"
 required-features = ["render"]
 
+[[example]]
+name = "offset_overflow"
+required-features = ["render"]
+

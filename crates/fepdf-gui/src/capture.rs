@@ -77,6 +77,8 @@ pub enum Step {
     /// Set the resize form's sheet and fit, then press its apply:
     /// `resize <sheet|WxH> <fit|scale:FACTOR>`.
     Resize(String, String),
+    /// Set the resize form's offset without applying: `nudge <x> <y>`.
+    Nudge(i32, i32),
     /// Double-click the bench at a point, which crosses the tile boundary:
     /// `dblclick <x> <y>` in points from the viewport's top-left.
     DoubleClick(u32, u32),
@@ -250,6 +252,10 @@ fn parse(line: &str) -> Option<Step> {
         "extract" => Step::Extract(rest == "remove"),
         "selectall" => Step::SelectAll,
         "tool" => Step::Tool(rest.to_owned()),
+        "nudge" => {
+            let (x, y) = rest.split_once(' ')?;
+            Step::Nudge(x.trim().parse().ok()?, y.trim().parse().ok()?)
+        }
         "resize" => {
             let (sheet, fit) = rest.split_once(' ')?;
             Step::Resize(sheet.trim().to_owned(), fit.trim().to_owned())
@@ -374,6 +380,7 @@ impl crate::app::FepdfApp {
                 };
             }
             Step::Resize(sheet, fit) => self.drive_resize(&sheet, &fit),
+            Step::Nudge(x, y) => self.tools.offset = (f64::from(x), f64::from(y)),
             Step::SelectAll => {
                 self.selected_pages = (0..self.total_pages).collect();
             }

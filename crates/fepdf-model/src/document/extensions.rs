@@ -172,6 +172,30 @@ impl PageResize {
         (size.1, size.0)
     }
 
+    /// How far `from`, scaled and offset, hangs over each edge of `to`: left, bottom,
+    /// right, top, in points. Zero where it does not.
+    ///
+    /// **Arithmetic, not interpretation.** Whether a particular mark falls outside needs
+    /// the page read; whether the *page* does is the box against the sheet, which a form
+    /// can ask on every frame while a number is being dragged.
+    ///
+    /// What hangs over is not shown — `/CropBox` becomes the sheet, and 14.11.2 makes
+    /// that the region a viewer displays — and it is still in the file. Those are
+    /// different things and only the first is visible, which is why this exists to be
+    /// said out loud.
+    #[must_use]
+    pub fn overhang(&self, from: (f64, f64), to: (f64, f64), scale: f64) -> [f64; 4] {
+        let content = (from.0 * scale, from.1 * scale);
+        let centred = ((to.0 - content.0) / 2.0, (to.1 - content.1) / 2.0);
+        let at = (centred.0 + self.offset.0, centred.1 + self.offset.1);
+        [
+            (-at.0).max(0.0),
+            (-at.1).max(0.0),
+            (at.0 + content.0 - to.0).max(0.0),
+            (at.1 + content.1 - to.1).max(0.0),
+        ]
+    }
+
     /// The offset that puts `from`, scaled by `scale`, where `place` names on `to`.
     ///
     /// **So that a form offers the named positions without doing geometry.** A panel that
@@ -592,5 +616,49 @@ mod sheet_tests {
     fn an_unknown_name_is_not_guessed_at() {
         assert!(PageResize::sheet("A9").is_none());
         assert!(PageResize::sheet("a4").is_none(), "the names are identifiers, not prose");
+    }
+}
+
+#[cfg(test)]
+mod overhang_tests {
+    use super::{ContentScale, PageResize};
+
+    const A4: (f64, f64) = (595.0, 842.0);
+
+    fn at(offset: (f64, f64)) -> PageResize {
+        PageResize { sheet: Some(A4), scale: ContentScale::Keep, offset }
+    }
+
+    /// Centred on the sheet it was drawn for, nothing hangs over.
+    #[test]
+    fn a_centred_page_on_its_own_sheet_hangs_over_nothing() {
+        assert_eq!(at((0.0, 0.0)).overhang(A4, A4, 1.0), [0.0; 4]);
+    }
+
+    /// Moved right by 30, thirty points hang over the right edge and none over the left.
+    #[test]
+    fn an_offset_hangs_over_the_edge_it_is_moved_towards() {
+        let over = at((30.0, 0.0)).overhang(A4, A4, 1.0);
+        assert!((over[2] - 30.0).abs() < 1e-9, "right: {over:?}");
+        assert_eq!((over[0], over[1], over[3]), (0.0, 0.0, 0.0), "{over:?}");
+    }
+
+    /// Room on the sheet absorbs an offset until there is none left.
+    #[test]
+    fn room_on_the_sheet_is_used_before_anything_hangs_over() {
+        let bigger = (A4.0 + 100.0, A4.1);
+        // Fifty points of room on each side, so a shift of forty stays on the sheet.
+        assert_eq!(at((40.0, 0.0)).overhang(A4, bigger, 1.0), [0.0; 4]);
+        let over = at((60.0, 0.0)).overhang(A4, bigger, 1.0);
+        assert!((over[2] - 10.0).abs() < 1e-9, "ten points should hang over: {over:?}");
+    }
+
+    /// Scaling the content down makes room, which is what a scale is for.
+    #[test]
+    fn a_smaller_drawing_hangs_over_less() {
+        let over =
+            PageResize { sheet: Some(A4), scale: ContentScale::By(0.5), offset: (30.0, 0.0) }
+                .overhang(A4, A4, 0.5);
+        assert_eq!(over, [0.0; 4], "half an A4 shifted by 30 is still on the sheet: {over:?}");
     }
 }

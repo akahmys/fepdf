@@ -616,6 +616,46 @@ fn place_picker(
         ui.add(egui::DragValue::new(&mut tools.offset.1).speed(1.0).prefix("y "));
         ui.label(tr("tools_resize_points"));
     });
+    say_what_hangs_over(tools, ui, locale, lang, page);
+}
+
+/// Says when the sheet will not hold what is being put on it, and what that means.
+///
+/// **Two sentences, because they are two facts and only one of them is visible.** What
+/// hangs over is not shown — `/CropBox` becomes the sheet, and 14.11.2 makes that the
+/// region a viewer displays — and it is still in the file: measured on `print_sample.pdf`
+/// page 3 shifted 300 points right, the render loses the right-hand half and
+/// `extract_text` returns all 428 characters it did before.
+///
+/// A tool that audits documents is the last one that should let those two be heard as one.
+fn say_what_hangs_over(
+    tools: &ToolState,
+    ui: &mut egui::Ui,
+    locale: &crate::locale::LocaleManager,
+    lang: &str,
+    page: (f64, f64),
+) {
+    let resize = fepdf::PageResize {
+        sheet: tools.change_sheet.then(|| tools.sheet_for(page)),
+        scale: tools.fit,
+        offset: tools.offset,
+    };
+    let over = resize.overhang(page, tools.sheet_for(page), tools.scale_of(page));
+    // Half a point, which is finer than a drag can express and finer than any sheet is
+    // specified: below it, nothing is hanging over that anyone could see.
+    if over.iter().all(|edge| *edge < 0.5) {
+        return;
+    }
+    let most = over.iter().fold(0.0_f64, |a, b| a.max(*b));
+    ui.colored_label(
+        crate::app::theme::colors::note::WARN,
+        format!("{} ({most:.0} pt)", locale.tr(lang, "tools_resize_overhangs")),
+    );
+    ui.label(
+        egui::RichText::new(locale.tr(lang, "tools_resize_overhang_kept"))
+            .size(crate::app::theme::text::SMALL)
+            .weak(),
+    );
 }
 
 /// Whether two offsets are the same to within half a point, which is finer than a drag

@@ -281,6 +281,8 @@
   "tools_resize_keep_sheet": "今の用紙のままにします。",
   "tools_resize_landscape": "横向き",
   "tools_resize_offset": "ずらす量",
+  "tools_resize_overhang_kept": "表示はされませんが、ファイルには残ります — その部分の文字は検索でも抽出でも出てきます。",
+  "tools_resize_overhangs": "ページの一部が用紙からはみ出します",
   "tools_resize_place": "配置",
   "tools_resize_points": "pt",
   "tools_resize_selection": "選択したページだけ",

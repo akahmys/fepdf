@@ -281,6 +281,8 @@
   "tools_resize_keep_sheet": "They stay on the sheet they are on.",
   "tools_resize_landscape": "Landscape",
   "tools_resize_offset": "Nudged by",
+  "tools_resize_overhang_kept": "It will not be shown, and it stays in the file — text on it is still there to be found.",
+  "tools_resize_overhangs": "Some of the page will fall outside the sheet",
   "tools_resize_place": "Where it sits",
   "tools_resize_points": "pt",
   "tools_resize_selection": "Only the selected pages",
