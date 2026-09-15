@@ -95,7 +95,12 @@ pub struct PDFView {
     pub scroll_direction: ScrollDirection,
     pub binding_direction: BindingDirection,
     pub cover_page_alone: bool,
-    pub overscroll_accumulator: egui::Vec2,
+    /// Whether a drag is in hand, which is what lets a page be pulled off its edge.
+    ///
+    /// **`clamp_pan` runs every frame and takes no input**, so without this it cannot tell
+    /// a reader holding a page off the window from the frame after they let go — and the
+    /// page would stay where it was pulled to rather than settling back.
+    dragging: bool,
     /// Whether the layout the current `pan` was computed against was the tile grid.
     ///
     /// **The two arrangements are different coordinate systems, and `pan` is in one of
@@ -116,6 +121,35 @@ pub struct PDFView {
     /// the reader wants back is the page they were reading; a double-click on a tile
     /// points at one page and says open it. Both are answered by [`Self::open_page`].
     centre_next: Option<usize>,
+}
+
+/// How far a page may be pulled past its edge before the view turns to the next one.
+///
+/// **It is a distance the reader can see, not a total they cannot.** The pull used to be
+/// summed into an accumulator while `pan` was held at its bound every frame, so the page
+/// never moved: a reader dragged, nothing happened, and then the page changed. This is the
+/// gap that opens between the page's edge and the window's, which is on screen the whole
+/// time it is growing.
+const PAGE_TURN_PULL: f32 = 80.0;
+
+/// The range `pan` may take on one axis for the page to fill the window, or the single
+/// value that centres it when it is smaller than the window.
+///
+/// **A page view holds its page.** The bound here used to be the general one — keep fifty
+/// points of the document on screen — which let a single page be dragged until almost all
+/// of it was off the window, and made "past the edge" mean nothing in particular. A page
+/// taller than the window scrolls within itself; one that fits does not move.
+///
+/// `lo <= hi` always: when the page fits, both are the value that centres it.
+fn page_hold(page: (f32, f32), window: (f32, f32), zoom: f32, origin: f32) -> (f32, f32) {
+    let covered = (page.1 - page.0) * zoom;
+    let window_size = window.1 - window.0;
+    if covered <= window_size {
+        let centred = f32::midpoint(page.0, page.1)
+            .mul_add(-zoom, f32::midpoint(window.0, window.1) - origin);
+        return (centred, centred);
+    }
+    (page.1.mul_add(-zoom, window.1 - origin), page.0.mul_add(-zoom, window.0 - origin))
 }
 
 impl PDFView {
@@ -154,7 +188,7 @@ impl PDFView {
             scroll_direction: ScrollDirection::Vertical,
             binding_direction: BindingDirection::LeftToRight,
             cover_page_alone: true,
-            overscroll_accumulator: egui::Vec2::ZERO,
+            dragging: false,
             arranged_as_tiles: false,
             last_anchor: None,
             centre_next: None,
@@ -853,11 +887,7 @@ impl PDFView {
                 .unwrap_or_else(|| viewport_rect.center());
             self.double_click_on_the_bench(pos, viewport_rect, layouts);
         }
-        if response.drag_stopped()
-            || (!response.dragged() && ui.input(|i| i.pointer.any_released()))
-        {
-            self.overscroll_accumulator = egui::Vec2::ZERO;
-        }
+        self.dragging = response.dragged();
     }
 
     /// Crosses the tile boundary, putting the page the reader is on in the middle.
@@ -919,13 +949,18 @@ impl PDFView {
         self.step_to(prev, layouts)
     }
 
-    /// Scrolls to `target` and forgets what the overscroll had accumulated getting there.
+    /// Goes to `target`, and stops the pull that got there from carrying on into it.
+    ///
+    /// **The drag is disowned, not the distance.** The pull is measured from where the
+    /// page sits, and the page has just moved — so without this the same held pointer
+    /// would be over the next page's edge by the same amount and turn it too, a page per
+    /// frame for as long as the reader kept hold.
     fn step_to(&mut self, target: Option<usize>, layouts: &[PageLayout]) -> bool {
         let Some(target) = target else {
             return false;
         };
         self.scroll_to_page(target, layouts);
-        self.overscroll_accumulator = egui::Vec2::ZERO;
+        self.dragging = false;
         true
     }
 
@@ -996,62 +1031,76 @@ impl PDFView {
             min_y.mul_add(-self.zoom, viewport_rect.max.y - min_overlap - origin_no_pan.y);
         let clamped_y = self.pan.y.clamp(min_pan_y, max_pan_y);
 
-        if self.display_mode == DisplayMode::SinglePage
-            || self.display_mode == DisplayMode::TwoPageSingle
-        {
-            let threshold = 80.0; // Pull past edge distance threshold
-
-            if self.scroll_direction == ScrollDirection::Vertical {
-                let diff_y = self.pan.y - clamped_y;
-                if diff_y.abs() > 0.0 {
-                    self.overscroll_accumulator.y += diff_y;
-                } else {
-                    self.overscroll_accumulator.y = 0.0;
-                }
-
-                if self.overscroll_accumulator.y.abs() > threshold {
-                    if self.overscroll_accumulator.y < 0.0 {
-                        // Pulled up / past bottom -> next page/spread
-                        if self.page_forward(layouts) {
-                            return;
-                        }
-                    } else {
-                        // Pulled down / past top -> prev page/spread
-                        if self.page_back(layouts) {
-                            return;
-                        }
-                    }
-                }
-            } else {
-                let diff_x = self.pan.x - clamped_x;
-                if diff_x.abs() > 0.0 {
-                    self.overscroll_accumulator.x += diff_x;
-                } else {
-                    self.overscroll_accumulator.x = 0.0;
-                }
-
-                if self.overscroll_accumulator.x.abs() > threshold {
-                    let is_r2l = self.binding_direction == BindingDirection::RightToLeft;
-
-                    if (self.overscroll_accumulator.x < 0.0 && !is_r2l)
-                        || (self.overscroll_accumulator.x > 0.0 && is_r2l)
-                    {
-                        // Go to next page/spread
-                        if self.page_forward(layouts) {
-                            return;
-                        }
-                    } else {
-                        // Go to prev page/spread
-                        if self.page_back(layouts) {
-                            return;
-                        }
-                    }
-                }
-            }
+        if self.is_page_view() {
+            return self.hold_the_page(viewport_rect, (min_x, max_x), (min_y, max_y), layouts);
         }
 
         self.pan.x = clamped_x;
         self.pan.y = clamped_y;
+    }
+
+    /// Holds the page against the window, and turns to the next one when it is pulled far
+    /// enough off it.
+    ///
+    /// **The page moves while it is being pulled.** It used to be pinned to its bound on
+    /// every frame while a hidden accumulator counted the drag, so nothing happened and
+    /// then the page changed; what the reader sees now is the gap opening between the
+    /// page's edge and the window's, and the turn comes when that gap reaches
+    /// [`PAGE_TURN_PULL`]. Letting go without reaching it puts the page back, because the
+    /// pull is only allowed while a drag is in hand.
+    fn hold_the_page(
+        &mut self,
+        viewport: egui::Rect,
+        across: (f32, f32),
+        up: (f32, f32),
+        layouts: &[PageLayout],
+    ) {
+        let origin = self.get_origin_no_pan(viewport);
+        let horizontal = self.scroll_direction == ScrollDirection::Horizontal;
+        let (hold, along) = if horizontal {
+            (page_hold(across, (viewport.min.x, viewport.max.x), self.zoom, origin.x), self.pan.x)
+        } else {
+            (page_hold(up, (viewport.min.y, viewport.max.y), self.zoom, origin.y), self.pan.y)
+        };
+
+        let over = if along > hold.1 {
+            along - hold.1
+        } else if along < hold.0 {
+            along - hold.0
+        } else {
+            0.0
+        };
+
+        // **Only a drag turns a page.** Anything that leaves `pan` far from where the
+        // page sits — a document opening, a zoom, a change of mode — is a distance and not
+        // a pull, and turning on it would page the document for reasons the reader never
+        // asked about. The first version of this turned a page while settling the very
+        // first frame.
+        if self.dragging && over.abs() >= PAGE_TURN_PULL {
+            // Pulled the page up past its bottom, or leftwards past its right edge: on to
+            // the next one. A right-bound document reads the other way across.
+            let onwards = if horizontal {
+                (over < 0.0) != (self.binding_direction == BindingDirection::RightToLeft)
+            } else {
+                over < 0.0
+            };
+            let turned = if onwards { self.page_forward(layouts) } else { self.page_back(layouts) };
+            if turned {
+                return;
+            }
+        }
+
+        // The pull is the reader's to hold, and only theirs: a page nobody is dragging
+        // sits where it belongs.
+        let allowed = if self.dragging { over.clamp(-PAGE_TURN_PULL, PAGE_TURN_PULL) } else { 0.0 };
+        let held = along.clamp(hold.0, hold.1) + allowed;
+        if horizontal {
+            self.pan.x = held;
+            self.pan.y = page_hold(up, (viewport.min.y, viewport.max.y), self.zoom, origin.y).0;
+        } else {
+            self.pan.y = held;
+            self.pan.x = page_hold(across, (viewport.min.x, viewport.max.x), self.zoom, origin.x).0;
+        }
     }
 }
 
@@ -1620,17 +1669,25 @@ mod overscroll_paging {
             .collect()
     }
 
-    /// Pulls the view past an edge from page 1 and says where it landed.
-    fn pull_from_page_one(mode: DisplayMode, dir: ScrollDirection, pan: egui::Vec2) -> usize {
+    /// Pulls the view `by` past where the page sits, and says where it landed.
+    ///
+    /// **From rest, not from the origin.** These used to set `pan` outright, which meant
+    /// something when the bound was the general "keep fifty points on screen" one; against
+    /// a page held on its window it means whatever the page's layout happens to make it.
+    /// Settling first and pulling from there is the gesture being described.
+    fn pull_from_page_one(mode: DisplayMode, dir: ScrollDirection, by: egui::Vec2) -> usize {
+        let window = egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(400.0, 400.0));
+        let layouts = pages();
         let mut view = PDFView::new();
         view.display_mode = mode;
         view.scroll_direction = dir;
         view.active_page = 1;
-        view.pan = pan;
-        view.clamp_pan(
-            egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(400.0, 400.0)),
-            &pages(),
-        );
+        // Settle where the page sits, then pull from there with a drag in hand — which is
+        // the only thing that turns a page.
+        view.clamp_pan(window, &layouts);
+        view.dragging = true;
+        view.pan += by;
+        view.clamp_pan(window, &layouts);
         view.active_page
     }
 
@@ -1716,12 +1773,67 @@ mod overscroll_paging {
         view.scroll_direction = ScrollDirection::Horizontal;
         view.binding_direction = BindingDirection::RightToLeft;
         view.active_page = 1;
-        view.pan = egui::vec2(400.0, 0.0);
-        view.clamp_pan(
-            egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(400.0, 400.0)),
-            &pages(),
-        );
+        let window = egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(400.0, 400.0));
+        view.clamp_pan(window, &pages());
+        view.dragging = true;
+        view.pan += egui::vec2(400.0, 0.0);
+        view.clamp_pan(window, &pages());
         assert_eq!(view.active_page, 2, "pulled past the left, bound right-to-left");
+    }
+
+    /// **The page moves while it is being pulled, and settles back when it is let go.**
+    ///
+    /// This is what the pull is for: the reader sees the gap opening between the page's
+    /// edge and the window's and knows how far there is to go. The old rule held `pan` at
+    /// its bound on every frame and summed the drag into an accumulator nobody could see,
+    /// so the page did not move and then it changed.
+    #[test]
+    fn a_page_being_pulled_comes_away_from_the_edge_and_goes_back() {
+        let window = egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(400.0, 400.0));
+        let layouts = pages();
+        let mut view = PDFView::new();
+        view.display_mode = DisplayMode::SinglePage;
+        view.active_page = 1;
+        view.clamp_pan(window, &layouts);
+        let resting = view.pan.y;
+
+        view.dragging = true;
+        view.pan.y -= 50.0;
+        view.clamp_pan(window, &layouts);
+        assert_eq!(view.active_page, 1, "50 is under the 80 a turn asks for");
+        assert!(
+            (resting - view.pan.y - 50.0).abs() < 0.01,
+            "the page did not come away: it sits at {} and rested at {resting}",
+            view.pan.y
+        );
+
+        view.dragging = false;
+        view.clamp_pan(window, &layouts);
+        assert!((view.pan.y - resting).abs() < 0.01, "it stayed pulled after being let go");
+    }
+
+    /// A pull is capped at the distance that turns the page, so it cannot be dragged into
+    /// open space.
+    #[test]
+    fn a_pull_goes_no_further_than_the_turn() {
+        let window = egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(400.0, 400.0));
+        let layouts = pages();
+        let mut view = PDFView::new();
+        view.display_mode = DisplayMode::SinglePage;
+        view.active_page = 0;
+        view.clamp_pan(window, &layouts);
+        let resting = view.pan.y;
+
+        // Backwards off page 0, where there is no previous page to turn to.
+        view.dragging = true;
+        view.pan.y += 400.0;
+        view.clamp_pan(window, &layouts);
+        assert_eq!(view.active_page, 0, "there is no page before the first");
+        assert!(
+            (view.pan.y - resting) <= super::PAGE_TURN_PULL + 0.01,
+            "it was pulled {} past its rest",
+            view.pan.y - resting
+        );
     }
 
     /// A pull that stops short of the threshold pages nothing.
@@ -1856,5 +1968,58 @@ mod visible_pages {
         let some = shown(short);
         assert!(some.len() < all.len(), "a 40-tall viewport reached all six: {some:?}");
         assert!(!some.is_empty(), "it reached none of them, so this proves nothing");
+    }
+}
+
+#[cfg(test)]
+mod page_hold_tests {
+    use super::{PAGE_TURN_PULL, page_hold};
+
+    /// A window 800 tall, and a page laid from 0 to 1000 in layout units.
+    const WINDOW: (f32, f32) = (0.0, 800.0);
+    const PAGE: (f32, f32) = (0.0, 1000.0);
+
+    /// **A page taller than the window scrolls within itself, and no further.**
+    ///
+    /// At either end of the range the page's edge is exactly on the window's: there is no
+    /// position inside the bound that shows anything but page.
+    #[test]
+    fn a_tall_page_scrolls_from_one_edge_to_the_other() {
+        let (lo, hi) = page_hold(PAGE, WINDOW, 1.0, 0.0);
+        assert!(lo < hi, "a 1000-tall page in an 800-tall window cannot move: {lo}..{hi}");
+        // At `hi` the top of the page is on the top of the window.
+        assert!((PAGE.0.mul_add(1.0, hi) - WINDOW.0).abs() < 1e-3, "top: {hi}");
+        // At `lo` the bottom of the page is on the bottom of the window.
+        assert!((PAGE.1.mul_add(1.0, lo) - WINDOW.1).abs() < 1e-3, "bottom: {lo}");
+        assert!((hi - lo - 200.0).abs() < 1e-3, "the slack is the 200 it overhangs by");
+    }
+
+    /// **A page that fits does not move at all**, and the one position it has centres it.
+    #[test]
+    fn a_page_that_fits_is_pinned_in_the_middle() {
+        let (lo, hi) = page_hold(PAGE, WINDOW, 0.5, 0.0);
+        assert!((lo - hi).abs() < 1e-6, "a 500-tall page in an 800-tall window slid: {lo}..{hi}");
+        let top = PAGE.0.mul_add(0.5, lo);
+        let bottom = PAGE.1.mul_add(0.5, lo);
+        assert!((top - WINDOW.0 - (WINDOW.1 - bottom)).abs() < 1e-3, "uneven: {top} and {bottom}");
+    }
+
+    /// The zoom decides which of the two it is, and the crossing is where they meet.
+    #[test]
+    fn the_two_answers_meet_where_the_page_exactly_fills_the_window() {
+        let exact = 800.0 / 1000.0;
+        let (lo, hi) = page_hold(PAGE, WINDOW, exact, 0.0);
+        assert!((lo - hi).abs() < 1e-3, "exactly filling is not one position: {lo}..{hi}");
+        let (lo2, hi2) = page_hold(PAGE, WINDOW, exact + 0.01, 0.0);
+        assert!(hi2 > lo2, "a hair taller does not scroll");
+        assert!((hi2 - lo2) < PAGE_TURN_PULL, "and barely, which is what a hair means");
+    }
+
+    /// The origin is subtracted, so a window whose origin is not zero holds the same way.
+    #[test]
+    fn the_origin_shifts_the_range_and_nothing_else() {
+        let (lo, hi) = page_hold(PAGE, WINDOW, 1.0, 0.0);
+        let (lo2, hi2) = page_hold(PAGE, WINDOW, 1.0, 150.0);
+        assert!((lo - lo2 - 150.0).abs() < 1e-3 && (hi - hi2 - 150.0).abs() < 1e-3);
     }
 }
