@@ -171,7 +171,14 @@ impl PDFView {
                 ui,
                 page_rect,
                 layout.index,
-                (is_selected && self.does(Act::SelectPages), layout.index == current),
+                // **Nothing to point out in the page view**: the page on screen is the
+                // page the reader is on, so a mark saying which one that is answers a
+                // question nobody standing in front of it can have. It belongs to the
+                // grid, where one page among many has to be found.
+                (
+                    is_selected && self.does(Act::SelectPages),
+                    !self.is_page_view() && layout.index == current,
+                ),
                 self.zoom,
                 gap * self.zoom,
             );
@@ -308,6 +315,10 @@ impl PDFView {
     /// before it came out to the grid. Rust means "you are touching this" (UI-10) and is
     /// already spoken for, so *current* is a rule under the number instead. It inherits
     /// the number's colour, so a page that is both reads as both without a third mark.
+    ///
+    /// **Both marks are the grid's.** A page view shows the page the reader is on and
+    /// nothing else, so there is nothing there for either mark to tell apart: the number
+    /// under a page being read is a label like any other.
     #[allow(clippy::fn_params_excessive_bools)]
     fn draw_page_number_badge(
         ui: &mut egui::Ui,
