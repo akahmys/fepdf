@@ -813,11 +813,13 @@ impl FepdfApp {
     }
 
     fn handle_page_and_selection_shortcuts(&mut self, ui: &egui::Ui) {
-        // Removing pages belongs where pages are arranged. A selection survives the trip
-        // into the page view — checking a page before deleting it is the ordinary reason to
-        // zoom in — so the key that acts on it stays behind rather than the selection being
-        // thrown away. In the page view `Delete` could only ever have meant a page the
-        // reader was not looking at.
+        // **The key stays with the selection, though the menu entry does not.** Taking
+        // pages out is answered in both views now — the right-click menu offers the page
+        // being read — but a keystroke is not a menu entry: `Delete` is one finger from
+        // `Backspace` and reaches no dialogue, and the page a reader is looking at is the
+        // one they would least expect to lose to a stray key. A selection survives the trip
+        // into the page view, which is why the key is held rather than the selection thrown
+        // away: checking a page before deleting it is the ordinary reason to zoom in.
         if ui.input(|i| i.key_pressed(egui::Key::Delete) || i.key_pressed(egui::Key::Backspace))
             && self.view.does(Act::SelectPages)
             && !self.selected_pages.is_empty()
@@ -830,13 +832,10 @@ impl FepdfApp {
             self.selection_manager.clear();
         }
         if ui.input(|i| i.modifiers.command && i.key_pressed(egui::Key::A))
-            && !self.view.is_page_view()
+            && self.view.does(Act::SelectPages)
             && self.total_pages > 0
         {
-            self.selected_pages.clear();
-            for p in 0..self.total_pages {
-                self.selected_pages.insert(p);
-            }
+            self.select_run(crate::app::page_ops::Run::Every);
         }
         if self.total_pages == 0 {
             return;

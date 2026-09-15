@@ -4,6 +4,43 @@ use super::FepdfApp;
 use crate::interaction::PendingTagRequest;
 use crate::sidebar::USTNode;
 use crate::view::Act;
+
+/// Which pages a bulk selection takes, as the reader counts them.
+///
+/// **Counted from one, stored from zero.** Page 1 is odd and sits at index 0, which is the
+/// one place this can go wrong and therefore the one place it is written.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Run {
+    /// Every page in the document.
+    Every,
+    /// Pages 1, 3, 5 — the right-hand pages of a left-bound book.
+    Odd,
+    /// Pages 2, 4, 6.
+    Even,
+}
+
+impl Run {
+    /// Every run, in the order the menu offers them.
+    pub const ALL: [Self; 3] = [Self::Every, Self::Odd, Self::Even];
+
+    /// Whether the page at `index`, counted from zero, is one of them.
+    pub const fn takes(self, index: usize) -> bool {
+        match self {
+            Self::Every => true,
+            Self::Odd => index.is_multiple_of(2),
+            Self::Even => !index.is_multiple_of(2),
+        }
+    }
+
+    /// The locale key naming it. No wildcard arm, so a fourth run needs a name (Rule 5).
+    pub const fn key(self) -> &'static str {
+        match self {
+            Self::Every => "menu_select_every",
+            Self::Odd => "menu_select_odd",
+            Self::Even => "menu_select_even",
+        }
+    }
+}
 use crate::worker::WorkerRequest;
 use std::collections::BTreeSet;
 use std::path::PathBuf;
@@ -166,6 +203,19 @@ impl FepdfApp {
         self.last_selected_page = Some(index + 1);
 
         let _ = self.tx_worker.send(WorkerRequest::DuplicatePage { index });
+    }
+
+    /// Picks out a run of pages by their number, and forgets any anchor.
+    ///
+    /// **One home for "pick out several"** (UI-12): `Cmd+A` reached into `selected_pages`
+    /// itself, so select-all was a shortcut with no visible door and nothing for the two
+    /// runs beside it to be written next to.
+    pub fn select_run(&mut self, run: Run) {
+        self.selected_pages.clear();
+        self.selected_pages.extend((0..self.total_pages).filter(|&index| run.takes(index)));
+        // Shift extends from the page last clicked, and a run was not clicked: extending
+        // from one of its pages would mean whichever the loop above happened to reach last.
+        self.last_selected_page = None;
     }
 
     pub fn remove_selected_pages(&mut self) {
@@ -418,6 +468,40 @@ fn pages_to_turn(
         return selected.iter().copied().collect();
     }
     current.into_iter().collect()
+}
+
+#[cfg(test)]
+mod runs {
+    use super::Run;
+
+    /// **A reader counts from one and the document from zero**, which is the whole of what
+    /// this type is for: page 1 is odd and its index is 0, so an odd run takes the even
+    /// indices. Written the other way round it takes every page the reader did not ask for.
+    #[test]
+    fn odd_takes_the_pages_a_reader_calls_odd() {
+        let numbers =
+            |run: Run| (0..8).filter(|&i| run.takes(i)).map(|i| i + 1).collect::<Vec<usize>>();
+        assert_eq!(numbers(Run::Odd), vec![1, 3, 5, 7]);
+        assert_eq!(numbers(Run::Even), vec![2, 4, 6, 8]);
+        assert_eq!(numbers(Run::Every), (1..=8).collect::<Vec<usize>>());
+    }
+
+    /// The two halves are a document: neither takes a page twice, together they take all.
+    #[test]
+    fn odd_and_even_divide_the_document() {
+        for index in 0..100 {
+            assert_ne!(Run::Odd.takes(index), Run::Even.takes(index), "page {}", index + 1);
+            assert!(Run::Every.takes(index));
+        }
+    }
+
+    /// Every run is offered, and each one is named. `ALL` is what the menu walks.
+    #[test]
+    fn every_run_is_offered_and_named() {
+        assert_eq!(Run::ALL.len(), 3);
+        let keys: Vec<&str> = Run::ALL.iter().map(|run| run.key()).collect();
+        assert_eq!(keys.len(), keys.iter().collect::<std::collections::BTreeSet<_>>().len());
+    }
 }
 
 #[cfg(test)]

@@ -1,6 +1,7 @@
 //! Viewport panel and canvas rendering for `FepdfApp`.
 
 use super::FepdfApp;
+use super::page_ops::Run;
 use crate::interaction::SelectionManager;
 use crate::view::{Act, DisplayMode};
 use crate::worker::WorkerRequest;
@@ -131,6 +132,18 @@ impl FepdfApp {
         response.context_menu(|ui| {
             ui.label(format!("{} {}", self.tr("tools_page"), page_idx + 1));
             ui.separator();
+            // **Picking out several pages is the grid's**, and it is offered where the
+            // pages are rather than only behind `Cmd+A`, which a reader who does not
+            // already know it would never find (UI-4).
+            if self.view.does(Act::SelectPages) {
+                for run in Run::ALL {
+                    if ui.button(self.tr(run.key())).clicked() {
+                        self.select_run(run);
+                        ui.close();
+                    }
+                }
+                ui.separator();
+            }
             if self.view.does(Act::RotatePages) {
                 for (key, quarter) in [
                     ("menu_rotate_cw", fepdf::Quarter::Q90),
@@ -143,6 +156,11 @@ impl FepdfApp {
                     }
                 }
             }
+            // **Taking pages out is answered wherever the pages are.** What goes is what
+            // the view has in hand: the page being read, or the pages picked out — and the
+            // entry says which, because a reader who read "delete" and lost four pages
+            // would have been told the truth by neither word of it.
+            self.render_page_delete(ui, page_idx);
             if !self.view.does(Act::ArrangePages) {
                 return;
             }
@@ -151,18 +169,51 @@ impl FepdfApp {
                 self.duplicate_page(page_idx);
                 ui.close();
             }
-            if self.total_pages > 1 {
-                ui.separator();
-                if ui.button(self.tr("menu_delete_page")).clicked() {
-                    self.selected_pages.clear();
-                    self.selected_pages.insert(page_idx);
-                    self.remove_selected_pages();
-                    ui.close();
-                }
-            }
             ui.separator();
             self.render_page_file_menu(ui, page_idx);
         });
+    }
+
+    /// The one entry that takes pages out, named for what it would take.
+    ///
+    /// **A right-click on a page that is not in the selection means that page** — the rule
+    /// the extract entries follow, and the reason this is not simply "the selection": a
+    /// reader who picks out four pages, right-clicks a fifth and reads "delete the selected
+    /// pages" would lose the four they were not pointing at.
+    fn render_page_delete(&mut self, ui: &mut egui::Ui, page_idx: usize) {
+        // **Its own separator, drawn where the entry is.** Drawn by the caller, it stayed
+        // on screen in the one case this draws nothing — a rule under the rotations with
+        // nothing under it.
+        if self.total_pages <= 1 || !self.view.does(Act::DeletePages) {
+            return;
+        }
+        if !self.view.does(Act::SelectPages) {
+            ui.separator();
+            if ui.button(self.tr("menu_delete_this_page")).clicked() {
+                self.selected_pages.clear();
+                self.selected_pages.insert(page_idx);
+                self.remove_selected_pages();
+                ui.close();
+            }
+            return;
+        }
+        if !self.selected_pages.contains(&page_idx) {
+            self.selected_pages.clear();
+            self.selected_pages.insert(page_idx);
+        }
+        let going = self.selected_pages.len();
+        // **A document cannot be deleted down to nothing**, and `remove_selected_pages`
+        // answers a request to do it by doing nothing at all: with every page picked out —
+        // one `Cmd+A` away — the entry would have been there to press and press again.
+        // Taking every page out is what *extract* is for, and it is offered below.
+        if going >= self.total_pages {
+            return;
+        }
+        ui.separator();
+        if ui.button(format!("{} ({going})", self.tr("menu_delete_selected"))).clicked() {
+            self.remove_selected_pages();
+            ui.close();
+        }
     }
 
     /// Bringing another document in, and sending pages of this one out.

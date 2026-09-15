@@ -206,10 +206,19 @@ pub enum Act {
     OpenPage,
     /// Turning a page a quarter at a time.
     ///
-    /// **The one act both views answer.** A reader who is reading a page that came in
-    /// sideways wants it upright there and then, and a reader looking at the grid wants
+    /// **One of the two acts both views answer.** A reader who is reading a page that came
+    /// in sideways wants it upright there and then, and a reader looking at the grid wants
     /// the same for the pages they have picked out.
     RotatePages,
+    /// Taking pages out of the document.
+    ///
+    /// **The other act both answer, and for the same reason**: a reader who has read a
+    /// page and does not want it should not have to go and find it in the grid first. What
+    /// goes is what the view has in hand — the page being read, or the pages picked out —
+    /// which is the same rule [`Self::RotatePages`] follows and is why the two are not one
+    /// act: rotating changes a page and this removes it, and a menu that offered "delete"
+    /// where it meant something else is how a reader loses a page they were looking at.
+    DeletePages,
 }
 
 /// Which end of a page the view stops at when it gets there.
@@ -567,7 +576,7 @@ impl PDFView {
         match act {
             Act::SelectText | Act::DrawOnPage | Act::TurnPages => self.is_page_view(),
             Act::SelectPages | Act::ArrangePages | Act::OpenPage => !self.is_page_view(),
-            Act::RotatePages => true,
+            Act::RotatePages | Act::DeletePages => true,
         }
     }
 
@@ -1930,10 +1939,12 @@ mod click_ownership {
         for act in [Act::SelectPages, Act::ArrangePages, Act::OpenPage] {
             assert!(tiles.does(act) && !pages.does(act), "{act:?} is the tiles'");
         }
-        assert!(
-            pages.does(Act::RotatePages) && tiles.does(Act::RotatePages),
-            "a page can be turned upright wherever it is being looked at"
-        );
+        for act in [Act::RotatePages, Act::DeletePages] {
+            assert!(
+                pages.does(act) && tiles.does(act),
+                "{act:?} is answered wherever the page it acts on is being looked at"
+            );
+        }
     }
 }
 
