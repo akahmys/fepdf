@@ -939,11 +939,12 @@ impl PDFView {
 
     /// The pages the viewport shows, each with the rect it occupies on screen.
     ///
-    /// **Which pages are shown is the display mode's decision**, and it stood written out
-    /// in both `draw_pages` and `draw_page_backings` — the same two guards, the same rect
-    /// arithmetic, the same intersection test. A page one drew and the other did not would
-    /// have shown as a backing with no page on it, or the reverse.
-    fn visible_page_rects<'a>(
+    /// **Which pages are shown is one decision**, and it stood written out in `draw_pages`,
+    /// in `draw_page_backings`, and — in a copy that had not been told the grid moved to
+    /// the zoom — in the app's `collect_visible_pages_data`, which is what hands the
+    /// renderer its work. A page one drew and another did not showed as a backing with no
+    /// page on it, or as a tile that span for ever waiting for pixels nobody had asked for.
+    pub(crate) fn visible_page_rects<'a>(
         &self,
         viewport_rect: egui::Rect,
         layouts: &'a [PageLayout],

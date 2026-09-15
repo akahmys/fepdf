@@ -30,10 +30,29 @@ impl FepdfApp {
         true
     }
 
+    /// Asks the worker for the pages that are on screen, and the ones either side of them.
+    ///
+    /// **What is on screen is the view's question, not the mode's.** This chose its targets
+    /// by `display_mode`, and the arm that queued every visible tile was the one for the
+    /// mode that no longer exists: with the grid moved to the zoom, a reader who zoomed out
+    /// was in `SinglePage` looking at twenty-three tiles while this asked for three pages.
+    /// The other twenty never arrived, and the tiles spun for ever.
     pub(crate) fn queue_visible_pages(&mut self) {
         // Collect visible pages and calculate pre-render lookahead indices
         let mut render_targets = std::collections::BTreeSet::new();
-        if self.view.display_mode == DisplayMode::SinglePage {
+        if !self.view.is_page_view() {
+            for &visible_index in &self.view.visible_pages {
+                render_targets.insert(visible_index);
+
+                // Lookahead pre-rendering: queue previous page and next page in the background
+                if visible_index > 0 {
+                    render_targets.insert(visible_index - 1);
+                }
+                if visible_index + 1 < self.total_pages {
+                    render_targets.insert(visible_index + 1);
+                }
+            }
+        } else if self.view.display_mode == DisplayMode::SinglePage {
             let active = self.view.active_page;
             render_targets.insert(active);
             if active > 0 {
@@ -58,18 +77,6 @@ impl FepdfApp {
                 && last_idx + 1 < self.total_pages
             {
                 render_targets.insert(last_idx + 1);
-            }
-        } else {
-            for &visible_index in &self.view.visible_pages {
-                render_targets.insert(visible_index);
-
-                // Lookahead pre-rendering: queue previous page and next page in the background
-                if visible_index > 0 {
-                    render_targets.insert(visible_index - 1);
-                }
-                if visible_index + 1 < self.total_pages {
-                    render_targets.insert(visible_index + 1);
-                }
             }
         }
 
@@ -197,11 +204,8 @@ impl FepdfApp {
             }
             return;
         }
-        if !self.selected_pages.contains(&page_idx) {
-            self.selected_pages.clear();
-            self.selected_pages.insert(page_idx);
-        }
-        let going = self.selected_pages.len();
+        let taking = self.pages_in_hand(page_idx);
+        let going = taking.len();
         // **A document cannot be deleted down to nothing**, and `remove_selected_pages`
         // answers a request to do it by doing nothing at all: with every page picked out —
         // one `Cmd+A` away — the entry would have been there to press and press again.
@@ -211,6 +215,7 @@ impl FepdfApp {
         }
         ui.separator();
         if ui.button(format!("{} ({going})", self.tr("menu_delete_selected"))).clicked() {
+            self.selected_pages = taking;
             self.remove_selected_pages();
             ui.close();
         }
@@ -230,24 +235,26 @@ impl FepdfApp {
             self.insert_document_at(page_idx + 1);
             ui.close();
         }
-        // The selection is what gets extracted, and a right-click on a page that is not
-        // in it means the page itself — the same rule the delete above follows.
-        if !self.selected_pages.contains(&page_idx) {
-            self.selected_pages.clear();
-            self.selected_pages.insert(page_idx);
-        }
-        let taking = self.selected_pages.len();
-        if ui.button(format!("{} ({taking})", self.tr("menu_extract_keep"))).clicked() {
+        let taking = self.pages_in_hand(page_idx);
+        let count = taking.len();
+        if ui.button(format!("{} ({count})", self.tr("menu_extract_keep"))).clicked() {
+            self.selected_pages = taking.clone();
             self.extract_selected_pages(false);
             ui.close();
         }
         // Taking every page is allowed, and takes the document with it: the new window
         // holds all of it and this one closes, having applied nothing to the file it was
         // opened from.
-        if ui.button(format!("{} ({taking})", self.tr("menu_extract_remove"))).clicked() {
+        if ui.button(format!("{} ({count})", self.tr("menu_extract_remove"))).clicked() {
+            self.selected_pages = taking;
             self.extract_selected_pages(true);
             ui.close();
         }
+    }
+
+    /// The pages an entry reached from `page_idx` acts on. See [`pages_in_hand`].
+    fn pages_in_hand(&self, page_idx: usize) -> std::collections::BTreeSet<usize> {
+        pages_in_hand(&self.selected_pages, page_idx)
     }
 
     fn handle_page_click_selection(
@@ -777,44 +784,25 @@ impl FepdfApp {
         }
     }
 
+    /// The pages to hand the renderer: what the view shows, with the pixels they have.
+    ///
+    /// **It asked the display mode which pages were on screen**, and the answer predates
+    /// the grid belonging to the zoom: a reader who zoomed out was in `SinglePage` looking
+    /// at twenty-three tiles while this named one, so every other tile was handed no scene
+    /// and span for ever. [`PDFView::visible_page_rects`] is the one answer now.
     fn collect_visible_pages_data(
         &self,
         viewport_rect: egui::Rect,
-        zoom: f32,
     ) -> Vec<(usize, Arc<vello::Scene>, egui::Rect, egui::Vec2)> {
-        let mut visible_pages_data = Vec::new();
-        let origin = self.view.get_origin(viewport_rect);
-        let active_spread = self.view.get_spread_indices(self.view.active_page, self.total_pages);
-
-        for layout in &self.page_layouts {
-            if self.view.display_mode == DisplayMode::SinglePage
-                && layout.index != self.view.active_page
-            {
-                continue;
-            }
-            if self.view.display_mode == DisplayMode::TwoPageSingle
-                && !active_spread.contains(&layout.index)
-            {
-                continue;
-            }
-            let page_screen_rect = egui::Rect::from_min_size(
-                origin + layout.rect.min.to_vec2() * zoom,
-                layout.rect.size() * zoom,
-            );
-
-            if viewport_rect.intersects(page_screen_rect)
-                && let Some(scene) = self.scenes.get(&layout.index)
-            {
+        self.view
+            .visible_page_rects(viewport_rect, &self.page_layouts)
+            .into_iter()
+            .filter_map(|(layout, page_screen_rect)| {
+                let scene = self.scenes.get(&layout.index)?;
                 let unscaled_size = egui::vec2(layout.rect.width(), layout.rect.height());
-                visible_pages_data.push((
-                    layout.index,
-                    Arc::clone(scene),
-                    page_screen_rect,
-                    unscaled_size,
-                ));
-            }
-        }
-        visible_pages_data
+                Some((layout.index, Arc::clone(scene), page_screen_rect, unscaled_size))
+            })
+            .collect()
     }
 
     pub(crate) fn render_document_panel(
@@ -850,7 +838,7 @@ impl FepdfApp {
 
         let zoom = self.view.zoom();
         self.handle_marquee_drag_selection(ui, viewport_rect, zoom);
-        let visible_pages_data = self.collect_visible_pages_data(viewport_rect, zoom);
+        let visible_pages_data = self.collect_visible_pages_data(viewport_rect);
 
         let vello_renderer = match self.vello_renderer.as_mut() {
             Some(r) => r,
@@ -890,6 +878,26 @@ impl FepdfApp {
     }
 }
 
+/// The pages a menu entry reached from `page_idx` acts on: the selection when that page is
+/// in it, and the page alone when it is not.
+///
+/// **Worked out, not written down.** Both halves of the menu used to *set* the selection
+/// while drawing themselves, so a right-click on an unselected page threw the selection
+/// away before the reader had chosen anything — pressing Escape cost them a selection —
+/// and choosing "even pages" from the menu above lost it on the same frame, because the
+/// entries below ran afterwards and found the clicked page was not one of the even ones.
+/// `&self` is what keeps it that way now.
+fn pages_in_hand(
+    selection: &std::collections::BTreeSet<usize>,
+    page_idx: usize,
+) -> std::collections::BTreeSet<usize> {
+    if selection.contains(&page_idx) {
+        selection.clone()
+    } else {
+        std::collections::BTreeSet::from([page_idx])
+    }
+}
+
 /// What a click on a page is for, this frame.
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 enum PageInput {
@@ -913,6 +921,39 @@ const fn page_input(tool_active: bool, page_view: bool) -> PageInput {
         (true, true) => PageInput::Tool,
         (true, false) => PageInput::Suppressed,
         (false, _) => PageInput::Normal,
+    }
+}
+
+#[cfg(test)]
+mod what_an_entry_acts_on {
+    use super::pages_in_hand;
+    use std::collections::BTreeSet;
+
+    /// A right-click inside the selection acts on all of it.
+    #[test]
+    fn a_page_in_the_selection_brings_the_selection() {
+        let picked: BTreeSet<usize> = [1, 3, 5, 7].into_iter().collect();
+        assert_eq!(pages_in_hand(&picked, 3), picked);
+    }
+
+    /// **And outside it means that page alone.** A reader who picks out four pages, then
+    /// right-clicks a fifth and reads "delete the selected pages (4)", would lose four
+    /// pages they were not pointing at.
+    #[test]
+    fn a_page_outside_the_selection_means_that_page() {
+        let picked: BTreeSet<usize> = [1, 3, 5, 7].into_iter().collect();
+        assert_eq!(pages_in_hand(&picked, 4), BTreeSet::from([4]));
+        assert_eq!(pages_in_hand(&BTreeSet::new(), 0), BTreeSet::from([0]));
+    }
+
+    /// Asking cannot change what it is asking about: the entries are drawn every frame the
+    /// menu is open, and one that wrote the selection as it drew ate the reader's.
+    #[test]
+    fn asking_leaves_the_selection_alone() {
+        let picked: BTreeSet<usize> = [0, 2, 4].into_iter().collect();
+        let before = picked.clone();
+        assert_eq!(pages_in_hand(&picked, 9), BTreeSet::from([9]));
+        assert_eq!(picked, before, "asking changed the selection");
     }
 }
 
