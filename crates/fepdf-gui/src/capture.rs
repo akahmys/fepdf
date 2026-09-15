@@ -77,6 +77,8 @@ pub enum Step {
     /// Set the resize form's sheet and fit, then press its apply:
     /// `resize <sheet|WxH> <fit|scale:FACTOR>`.
     Resize(String, String),
+    /// Choose the page-view mode: `mode continuous|single|spread`.
+    Mode(String),
     /// Set the resize form's offset without applying: `nudge <x> <y>`.
     Nudge(i32, i32),
     /// Set the resize form's sheet and scale without applying: `setresize <sheet> <fit>`.
@@ -254,6 +256,7 @@ fn parse(line: &str) -> Option<Step> {
         "extract" => Step::Extract(rest == "remove"),
         "selectall" => Step::SelectAll,
         "tool" => Step::Tool(rest.to_owned()),
+        "mode" => Step::Mode(rest.to_owned()),
         "nudge" => {
             let (x, y) = rest.split_once(' ')?;
             Step::Nudge(x.trim().parse().ok()?, y.trim().parse().ok()?)
@@ -386,6 +389,14 @@ impl crate::app::FepdfApp {
                 };
             }
             Step::Resize(sheet, fit) => self.drive_resize(&sheet, &fit),
+            Step::Mode(name) => {
+                self.view.display_mode = match name.as_str() {
+                    "single" => crate::view::DisplayMode::SinglePage,
+                    "spread" => crate::view::DisplayMode::TwoPageSpread,
+                    _ => crate::view::DisplayMode::Continuous,
+                };
+                self.compute_layouts();
+            }
             Step::Nudge(x, y) => self.tools.offset = (f64::from(x), f64::from(y)),
             Step::SetResize(sheet, fit) => self.fill_resize_form(&sheet, &fit),
             Step::SelectAll => {

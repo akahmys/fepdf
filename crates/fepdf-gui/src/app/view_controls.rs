@@ -151,16 +151,19 @@ impl FepdfApp {
     /// screen of pages with one small sheet and no way back but the zoom. They are
     /// unavailable until the reader is looking at pages again.
     fn mode_group(&mut self, ui: &mut egui::Ui) {
-        let tiles = self.view.selects_pages();
+        // **The mode is what the page view will be, and the tiles are not one of them.**
+        // Only `Continuous` used to be pressable in the tiles, because the grid was laid
+        // out inside that mode's branch — so the button for the arrangement in hand looked
+        // like the mode, and the other two looked broken. The grid belongs to the zoom
+        // now, so all three stay available and each says what zooming back in will give.
         for (mode, icon, key) in [
             (DisplayMode::Continuous, glyph::PAGE_CONTINUOUS, "tooltip_view_continuous"),
             (DisplayMode::SinglePage, glyph::PAGE_SINGLE, "tooltip_view_single"),
             (DisplayMode::TwoPageSpread, glyph::PAGE_SPREAD, "tooltip_view_spread"),
         ] {
             let selected = self.view.display_mode == mode;
-            let available = !tiles || mode == DisplayMode::Continuous;
             let tip = self.tr(key);
-            if icon_action(ui, icon, selected, available, &tip).clicked() {
+            if icon_action(ui, icon, selected, true, &tip).clicked() {
                 self.view.display_mode = mode;
                 self.compute_layouts();
             }

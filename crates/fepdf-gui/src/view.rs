@@ -191,7 +191,7 @@ impl PDFView {
     /// the anchor carried across the change was measured against an origin that belonged
     /// to neither, which came out a page off.
     fn origin_x(&self, viewport_rect: egui::Rect) -> f32 {
-        if !self.arranged_as_tiles || self.display_mode != DisplayMode::Continuous {
+        if !self.arranged_as_tiles {
             return viewport_rect.center().x;
         }
         if self.binding_direction == BindingDirection::RightToLeft {
@@ -758,10 +758,15 @@ impl PDFView {
         let active_spread = self.get_spread_indices(self.active_page, layouts.len());
         layouts
             .iter()
-            .filter(|layout| match self.display_mode {
-                DisplayMode::SinglePage => layout.index == self.active_page,
-                DisplayMode::TwoPageSingle => active_spread.contains(&layout.index),
-                DisplayMode::Continuous | DisplayMode::TwoPageSpread => true,
+            // **The tiles show the document, whatever the mode is.** A grid is a chooser
+            // and a chooser that hid every page but the active one would be a page.
+            .filter(|layout| {
+                !self.is_page_view()
+                    || match self.display_mode {
+                        DisplayMode::SinglePage => layout.index == self.active_page,
+                        DisplayMode::TwoPageSingle => active_spread.contains(&layout.index),
+                        DisplayMode::Continuous | DisplayMode::TwoPageSpread => true,
+                    }
             })
             .map(|layout| {
                 (
@@ -976,7 +981,7 @@ impl PDFView {
         // wider than the window. Without this the anchor carried across a change of
         // arrangement can leave it centred on one column, with the first tile — the one
         // a reader looks for first — pushed off the side they read from.
-        if self.arranged_as_tiles && self.display_mode == DisplayMode::Continuous {
+        if self.arranged_as_tiles {
             // **The grid's edge is where its `x = 0` is, not where the grid has to sit.**
             // Binding it there took away the only freedom that can hold a reader's place
             // on the page while the pages are re-laid: a tile in the first column cannot
@@ -1268,6 +1273,40 @@ mod arrangement_crossing {
             "page 6 came out centred on {middle:?}, not {:?}",
             WINDOW.center()
         );
+    }
+
+    /// **The tiles are the tiles whatever the mode is.**
+    ///
+    /// The grid used to be laid out inside `Continuous`'s branch, so zooming out of the
+    /// single-page or the spread view left every page stacked at the origin with one of
+    /// them drawn — a chooser showing one thing to choose from. `is_page_view` is the zoom
+    /// and nothing else, so the zoom decides the arrangement and the mode decides what the
+    /// page view will be when the zoom comes back.
+    ///
+    /// The count is compared against `Continuous` rather than against 25: the viewport
+    /// culls what is off-screen, so the number is the fixture's business and the claim
+    /// here is only that the mode does not change it.
+    #[test]
+    fn the_mode_does_not_change_which_tiles_are_shown() {
+        let tiles = grid(25);
+        let shown = |mode| {
+            let mut view = PDFView::new();
+            view.display_mode = mode;
+            view.set_zoom(0.2);
+            assert!(!view.is_page_view(), "0.2 is not a tile zoom");
+            view.restore_anchor(None, WINDOW, &tiles);
+            view.visible_page_rects(WINDOW, &tiles)
+                .into_iter()
+                .map(|(layout, _)| layout.index)
+                .collect::<Vec<_>>()
+        };
+        let all = shown(DisplayMode::Continuous);
+        assert!(all.len() > 1, "the fixture shows one tile, so this proves nothing");
+        for mode in
+            [DisplayMode::SinglePage, DisplayMode::TwoPageSpread, DisplayMode::TwoPageSingle]
+        {
+            assert_eq!(shown(mode), all, "{mode:?} shows a different set of tiles");
+        }
     }
 
     /// **A double-click on a tile opens that page, in the middle of the window**, by the

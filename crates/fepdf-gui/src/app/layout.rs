@@ -91,7 +91,21 @@ impl FepdfApp {
         let mut layouts =
             vec![PageLayout { index: 0, rect: egui::Rect::NOTHING }; self.doc_page_sizes.len()];
 
-        if self.view.display_mode == DisplayMode::TwoPageSpread
+        // **The grid is an arrangement, not a mode.** It was laid out inside the
+        // `Continuous` branch, so "continuous" named two unrelated things — how the pages
+        // scroll, and whether they are tiles — and the tile view could only be reached
+        // from one of the four modes. `is_page_view` is the zoom and nothing else, so the
+        // zoom decides this and the mode decides the rest.
+        if !self.view.is_page_view() {
+            Self::grid_rows(
+                &self.doc_page_sizes,
+                Self::TILE_COLUMNS,
+                Self::PAGE_GAP,
+                Self::TILE_ROW_GAP,
+                self.view.binding_direction == BindingDirection::RightToLeft,
+                &mut layouts,
+            );
+        } else if self.view.display_mode == DisplayMode::TwoPageSpread
             || self.view.display_mode == DisplayMode::TwoPageSingle
         {
             let mut current_offset = 0.0;
@@ -207,25 +221,12 @@ impl FepdfApp {
                 layouts[i] = PageLayout { index: i, rect };
             }
         } else {
-            // Continuous display: one column of pages, or a fixed grid of tiles. Neither
-            // arrangement reads the zoom or the window — only which of the two applies
-            // does — so zooming moves the view over a layout that is holding still.
+            // Continuous: one column of pages, or one row of them. The arrangement reads
+            // neither the zoom nor the window, so zooming moves the view over a layout
+            // that is holding still.
             let gap_x = Self::PAGE_GAP;
-            let gap_y = if self.view.is_page_view() { Self::PAGE_GAP } else { Self::TILE_ROW_GAP };
-
             if self.view.scroll_direction == ScrollDirection::Vertical {
-                if self.view.is_page_view() {
-                    Self::column_rows(&self.doc_page_sizes, gap_y, &mut layouts);
-                } else {
-                    Self::grid_rows(
-                        &self.doc_page_sizes,
-                        Self::TILE_COLUMNS,
-                        gap_x,
-                        gap_y,
-                        self.view.binding_direction == BindingDirection::RightToLeft,
-                        &mut layouts,
-                    );
-                }
+                Self::column_rows(&self.doc_page_sizes, Self::PAGE_GAP, &mut layouts);
             } else {
                 let mut current_offset = 0.0;
                 for (i, &(w, h)) in self.doc_page_sizes.iter().enumerate() {
