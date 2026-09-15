@@ -288,6 +288,13 @@ impl FepdfApp {
     /// button, so this sets the same fields the pickers set and calls the same
     /// `send_resize` the button calls.
     pub(crate) fn drive_resize(&mut self, sheet: &str, fit: &str) {
+        self.fill_resize_form(sheet, fit);
+        crate::document_tools::send_resize(self);
+    }
+
+    /// Fills the resize form without pressing anything, so a plan can photograph what it
+    /// says before it is applied.
+    pub(crate) fn fill_resize_form(&mut self, sheet: &str, fit: &str) {
         self.tools.offset = (0.0, 0.0);
         if let Some(size) = fepdf::PageResize::sheet(sheet) {
             self.tools.sheet = Some(sheet.to_string().leak());
@@ -310,10 +317,10 @@ impl FepdfApp {
             }
             _ => match fit {
                 "keep" => fepdf::ContentScale::Keep,
+                "fill" => fepdf::ContentScale::Fill,
                 _ => fepdf::ContentScale::Fit,
             },
         };
-        crate::document_tools::send_resize(self);
     }
 
     /// Prints where the current page sits against the viewport, for a capture plan.

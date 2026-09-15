@@ -74,6 +74,7 @@ impl ToolState {
         match self.fit {
             fepdf::ContentScale::Keep => 1.0,
             fepdf::ContentScale::Fit => (sheet.0 / page.0).min(sheet.1 / page.1),
+            fepdf::ContentScale::Fill => (sheet.0 / page.0).max(sheet.1 / page.1),
             fepdf::ContentScale::By(by) => by,
         }
     }
@@ -541,6 +542,7 @@ fn scale_picker(
     let tr = |key: &str| locale.tr(lang, key);
     ui.label(tr("tools_resize_content"));
     ui.radio_value(&mut tools.fit, fepdf::ContentScale::Fit, tr("tools_scale_fit"));
+    ui.radio_value(&mut tools.fit, fepdf::ContentScale::Fill, tr("tools_scale_fill"));
     ui.radio_value(&mut tools.fit, fepdf::ContentScale::Keep, tr("tools_scale_keep"));
     // **The factor is read whether or not this row is the chosen one**, so that dragging
     // it is how a reader chooses it — a radio button that has to be pressed before the
@@ -647,10 +649,16 @@ fn say_what_hangs_over(
         return;
     }
     let most = over.iter().fold(0.0_f64, |a, b| a.max(*b));
-    ui.colored_label(
-        crate::app::theme::colors::note::WARN,
-        format!("{} ({most:.0} pt)", locale.tr(lang, "tools_resize_overhangs")),
-    );
+    // **Filling the sheet hangs over by definition, so it is not warned about.** The
+    // warning colour says "you may not have meant this", and here they did — what is left
+    // to say is the part that is true either way, which is the line below.
+    let asked_for = tools.fit == fepdf::ContentScale::Fill;
+    let said = format!("{} ({most:.0} pt)", locale.tr(lang, "tools_resize_overhangs"));
+    if asked_for {
+        ui.label(egui::RichText::new(said).size(crate::app::theme::text::SMALL).weak());
+    } else {
+        ui.colored_label(crate::app::theme::colors::note::WARN, said);
+    }
     ui.label(
         egui::RichText::new(locale.tr(lang, "tools_resize_overhang_kept"))
             .size(crate::app::theme::text::SMALL)

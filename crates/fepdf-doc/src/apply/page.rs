@@ -275,6 +275,8 @@ pub fn fit_matrix(from: (f64, f64), to: (f64, f64), how: &PageResize) -> [f64; 6
         ContentScale::Keep => 1.0,
         // The smaller ratio, so the whole of it lands on the sheet.
         ContentScale::Fit => (to.0 / from.0).min(to.1 / from.1),
+        // The larger, so the sheet is covered and the rest hangs over.
+        ContentScale::Fill => (to.0 / from.0).max(to.1 / from.1),
         ContentScale::By(by) => by,
     };
     // Centred, then moved by the offset — which is what an offset of zero meaning
@@ -555,6 +557,33 @@ mod resize_geometry {
         let moved = moved_box(DRAWING, m);
         assert!(near(moved[0], 0.0), "not against the left edge: {moved:?}");
         assert!(near(moved[3], 1191.0), "not against the top: {moved:?}");
+    }
+
+    /// **Filling covers the sheet and hangs over one axis**, which is the other half of
+    /// the same question fitting answers — and the aspect is kept by both.
+    ///
+    /// `Letter` is chosen over A3 on purpose: A4 and A3 differ in aspect by a quarter of
+    /// a percent, so fit and fill are the same scale on them to three decimals and a test
+    /// using them would pass whichever this computed.
+    #[test]
+    fn filling_covers_the_sheet_and_fitting_stays_inside_it() {
+        const LETTER: (f64, f64) = (612.0, 792.0);
+        let fitted = fit_matrix(A4, LETTER, &resize(Some(LETTER), ContentScale::Fit, (0.0, 0.0)));
+        let filled = fit_matrix(A4, LETTER, &resize(Some(LETTER), ContentScale::Fill, (0.0, 0.0)));
+        assert!(filled[0] > fitted[0], "filling did not scale up more: {filled:?} {fitted:?}");
+        assert!(near(filled[0], filled[3]) && near(fitted[0], fitted[3]), "an axis was stretched");
+
+        let inside = moved_box(DRAWING, fitted);
+        assert!(inside[0] >= -1e-9 && inside[2] <= 612.0 + 1e-9, "fitting ran off: {inside:?}");
+        assert!(inside[1] >= -1e-9 && inside[3] <= 792.0 + 1e-9, "fitting ran off: {inside:?}");
+
+        let over = moved_box(DRAWING, filled);
+        let covers_x = over[0] <= 1e-9 && over[2] >= 612.0 - 1e-9;
+        let covers_y = over[1] <= 1e-9 && over[3] >= 792.0 - 1e-9;
+        assert!(covers_x && covers_y, "filling left a gap: {over:?}");
+        let hangs =
+            over[0] < -1e-9 || over[1] < -1e-9 || over[2] > 612.0 + 1e-9 || over[3] > 792.0 + 1e-9;
+        assert!(hangs, "filling a sheet of a different aspect hung over nothing: {over:?}");
     }
 
     /// A factor with no sheet named keeps the sheet and shrinks the drawing.

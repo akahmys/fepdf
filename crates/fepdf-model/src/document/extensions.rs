@@ -58,12 +58,22 @@ pub struct PortfolioItem {
 pub enum ContentScale {
     /// Left at the size it was drawn.
     Keep,
-    /// Scaled so the whole of it lands on the sheet.
+    /// Scaled so the whole of it lands on the sheet, leaving a margin on one axis.
     ///
-    /// Uniformly, by the smaller of the two ratios: a page scaled to fit by each axis
-    /// separately is a page with the wrong aspect, and nothing on it is the shape it was
-    /// drawn as.
+    /// The smaller of the two ratios, which is what "all of it is on the sheet" comes to.
     Fit,
+    /// Scaled so the sheet is covered, with what does not fit hanging over the edges.
+    ///
+    /// The larger of the two ratios. What hangs over is not displayed — `/CropBox`
+    /// becomes the sheet — and stays in the file, which is the same bargain any offset
+    /// past the edge makes.
+    ///
+    /// **Both of these keep the aspect, and there is no third that does not.** Scaling
+    /// each axis by its own ratio fills the sheet exactly and leaves nothing on it the
+    /// shape it was drawn as: a page of text with the letters stretched is a fault
+    /// someone has to notice, and no one asks a document for it on purpose. If that ever
+    /// turns out to be wanted it is a fourth value here, not a flag on these two.
+    Fill,
     /// Scaled by a factor of the caller's choosing.
     ///
     /// With the sheet left alone this is the other thing "scale" means: the drawing
