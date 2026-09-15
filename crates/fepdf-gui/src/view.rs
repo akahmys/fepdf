@@ -105,6 +105,19 @@ pub struct PDFView {
     /// page that fits the window there is nothing to scroll and nothing happened at all,
     /// which is a scroll wheel that does nothing on the commonest page there is.
     pulling: bool,
+    /// How far the page is currently held off its edge, in window points.
+    ///
+    /// **The pull is a position, not a reading of `pan`.** It follows the gesture out at
+    /// once and comes back on its own over several frames; a pull that was let go used to
+    /// be undone in the one frame after, so the page teleported back to its edge.
+    pull: f32,
+    /// Whether a page has just been turned and the gesture that turned it is still going.
+    ///
+    /// **One gesture turns one page.** A trackpad keeps sending the tail of a flick for
+    /// most of a second after the fingers leave it, and a held drag never stops sending
+    /// anything: either would re-earn the pull immediately and turn again, so a single
+    /// flick paged through the document. Cleared by the first frame that moves nothing.
+    settling: bool,
     /// Whether the layout the current `pan` was computed against was the tile grid.
     ///
     /// **The two arrangements are different coordinate systems, and `pan` is in one of
@@ -135,6 +148,13 @@ pub struct PDFView {
 /// gap that opens between the page's edge and the window's, which is on screen the whole
 /// time it is growing.
 const PAGE_TURN_PULL: f32 = 80.0;
+
+/// How much of the way back to its edge a let-go page travels each frame.
+///
+/// **Only the way back is eased.** Going out, the page is under the reader's finger and
+/// anything but following it exactly reads as lag; coming back, nothing is holding it, and
+/// a jump to its edge in a single frame is the jerk this eases out of.
+const PULL_EASE: f32 = 0.3;
 
 /// The range `pan` may take on one axis for the page to fill the window, or the single
 /// value that centres it when it is smaller than the window.
@@ -193,6 +213,8 @@ impl PDFView {
             binding_direction: BindingDirection::LeftToRight,
             cover_page_alone: true,
             pulling: false,
+            pull: 0.0,
+            settling: false,
             arranged_as_tiles: false,
             last_anchor: None,
             centre_next: None,
@@ -899,7 +921,20 @@ impl PDFView {
         }
         // A drag or the wheel: either is the reader moving the view, and the page comes
         // away from its edge for both.
-        self.pulling = response.dragged() || moved_by_wheel;
+        self.gesture(response.dragged() || moved_by_wheel);
+    }
+
+    /// Says whether the reader is moving the view this frame.
+    ///
+    /// **A frame that moves nothing ends the gesture**, and the next one may turn a page
+    /// again. Its own function so that a test can say "the flick is still going" in the
+    /// same words the frame does, rather than setting the two fields by hand and drifting
+    /// from what an actual frame would have done.
+    fn gesture(&mut self, moving: bool) {
+        self.pulling = moving;
+        if !moving {
+            self.settling = false;
+        }
     }
 
     /// Crosses the tile boundary, putting the page the reader is on in the middle.
@@ -966,14 +1001,47 @@ impl PDFView {
     /// **The drag is disowned, not the distance.** The pull is measured from where the
     /// page sits, and the page has just moved — so without this the same held pointer
     /// would be over the next page's edge by the same amount and turn it too, a page per
-    /// frame for as long as the reader kept hold.
+    /// frame for as long as the reader kept hold. Disowning it for one frame was not
+    /// enough for the wheel, whose tail arrives over the frames after: [`Self::settling`]
+    /// holds until the gesture itself is over.
     fn step_to(&mut self, target: Option<usize>, layouts: &[PageLayout]) -> bool {
         let Some(target) = target else {
             return false;
         };
         self.scroll_to_page(target, layouts);
         self.pulling = false;
+        self.pull = 0.0;
+        self.settling = true;
         true
+    }
+
+    /// What is on screen, in layout units: the page, the spread, or the whole grid.
+    ///
+    /// **Asked again after a page turns**, which is why it is its own function: the page
+    /// arrived at is not the page the clamp was computed for, and landing on its head
+    /// needs its own height.
+    fn shown_extent(&self, layouts: &[PageLayout]) -> ((f32, f32), (f32, f32)) {
+        let shown: Vec<&PageLayout> = if self.is_page_view() {
+            match self.display_mode {
+                DisplayMode::SinglePage => layouts
+                    .get(self.active_page)
+                    .map_or_else(|| layouts.iter().collect(), |page| vec![page]),
+                DisplayMode::TwoPageSingle => self
+                    .get_spread_indices(self.active_page, layouts.len())
+                    .iter()
+                    .filter_map(|&idx| layouts.get(idx))
+                    .collect(),
+            }
+        } else {
+            layouts.iter().collect()
+        };
+        let mut across = (f32::MAX, f32::MIN);
+        let mut up = (f32::MAX, f32::MIN);
+        for layout in &shown {
+            across = (across.0.min(layout.rect.min.x), across.1.max(layout.rect.max.x));
+            up = (up.0.min(layout.rect.min.y), up.1.max(layout.rect.max.y));
+        }
+        (across, up)
     }
 
     pub fn clamp_pan(&mut self, viewport_rect: egui::Rect, layouts: &[PageLayout]) {
@@ -982,31 +1050,7 @@ impl PDFView {
             return;
         }
 
-        let mut min_x = f32::MAX;
-        let mut max_x = f32::MIN;
-        let mut min_y = f32::MAX;
-        let mut max_y = f32::MIN;
-
-        // If SinglePage or TwoPageSingle, only clamp using target layouts
-        let target_layouts: Vec<&PageLayout> = if self.display_mode == DisplayMode::SinglePage {
-            if let Some(layout) = layouts.get(self.active_page) {
-                vec![layout]
-            } else {
-                layouts.iter().collect()
-            }
-        } else if self.display_mode == DisplayMode::TwoPageSingle {
-            let spread_indices = self.get_spread_indices(self.active_page, layouts.len());
-            spread_indices.iter().filter_map(|&idx| layouts.get(idx)).collect()
-        } else {
-            layouts.iter().collect()
-        };
-
-        for layout in &target_layouts {
-            min_x = min_x.min(layout.rect.min.x);
-            max_x = max_x.max(layout.rect.max.x);
-            min_y = min_y.min(layout.rect.min.y);
-            max_y = max_y.max(layout.rect.max.y);
-        }
+        let ((min_x, max_x), (min_y, max_y)) = self.shown_extent(layouts);
 
         let origin_no_pan = self.get_origin_no_pan(viewport_rect);
         let min_overlap = 50.0f32;
@@ -1051,6 +1095,54 @@ impl PDFView {
         self.pan.y = clamped_y;
     }
 
+    /// Moves the held-off distance towards `want`, and says where it now is.
+    ///
+    /// **Out with the gesture at once, back on its own time.** Going out the page is under
+    /// the reader's finger, and anything but following it exactly reads as lag; coming
+    /// back nothing is holding it, and the single-frame jump it used to make from eighty
+    /// points to nothing was the jerk a reader saw every time they let go short of a turn.
+    fn ease_pull(&mut self, want: f32) -> f32 {
+        self.pull = if want.abs() >= self.pull.abs() {
+            want
+        } else {
+            (want - self.pull).mul_add(PULL_EASE, self.pull)
+        };
+        // Below half a point there is nothing left to see, and stopping keeps the view
+        // from asking for a repaint for ever.
+        if self.pull.abs() < 0.5 {
+            self.pull = 0.0;
+        }
+        self.pull
+    }
+
+    /// Places the page just turned to: at its head going on, at its foot going back.
+    ///
+    /// **A page too big for the window arrives at the edge it is read from, not its
+    /// middle.** Landing in the middle hides the lines a page starts with, and from there
+    /// the foot is half a page away — so a reader turning pages saw only bottom halves,
+    /// and each turn took a pull far shorter than the last had. `along.1` is the near edge
+    /// on either axis — the top, or the binding side — and `along.0` the far one; a page
+    /// that fits has only the one place to be and [`page_hold`] returns it for both.
+    fn land(
+        &mut self,
+        viewport: egui::Rect,
+        (horizontal, onwards): (bool, bool),
+        layouts: &[PageLayout],
+    ) {
+        let (across, up) = self.shown_extent(layouts);
+        let origin = self.get_origin_no_pan(viewport);
+        let sideways = page_hold(across, (viewport.min.x, viewport.max.x), self.zoom, origin.x);
+        let upright = page_hold(up, (viewport.min.y, viewport.max.y), self.zoom, origin.y);
+        let (along, cross) = if horizontal { (sideways, upright) } else { (upright, sideways) };
+        let read_from = if onwards { along.1 } else { along.0 };
+        // Across the page, wherever the reader had it, held inside the new page's own room.
+        self.pan = if horizontal {
+            egui::vec2(read_from, self.pan.y.clamp(cross.0, cross.1))
+        } else {
+            egui::vec2(self.pan.x.clamp(cross.0, cross.1), read_from)
+        };
+    }
+
     /// Holds the page against the window, and turns to the next one when it is pulled far
     /// enough off it.
     ///
@@ -1088,7 +1180,7 @@ impl PDFView {
         // a pull, and turning on it would page the document for reasons the reader never
         // asked about. The first version of this turned a page while settling the very
         // first frame.
-        if self.pulling && over.abs() >= PAGE_TURN_PULL {
+        if self.pulling && !self.settling && over.abs() >= PAGE_TURN_PULL {
             // Pulled the page up past its bottom, or leftwards past its right edge: on to
             // the next one. A right-bound document reads the other way across.
             let onwards = if horizontal {
@@ -1098,13 +1190,20 @@ impl PDFView {
             };
             let turned = if onwards { self.page_forward(layouts) } else { self.page_back(layouts) };
             if turned {
+                self.land(viewport, (horizontal, onwards), layouts);
                 return;
             }
         }
 
         // The pull is the reader's to hold, and only theirs: a page nobody is moving sits
-        // where it belongs.
-        let allowed = if self.pulling { over.clamp(-PAGE_TURN_PULL, PAGE_TURN_PULL) } else { 0.0 };
+        // where it belongs — and a page whose turn has already happened waits at its edge
+        // for the rest of the flick rather than leaning into the next one.
+        let want = if self.pulling && !self.settling {
+            over.clamp(-PAGE_TURN_PULL, PAGE_TURN_PULL)
+        } else {
+            0.0
+        };
+        let allowed = self.ease_pull(want);
         // **Both axes are held, and only the one that pages carries the pull.** The cross
         // axis used to be set to its lower bound outright, which pinned a zoomed-in page
         // against one side and made scrolling across it do nothing at all.
@@ -1879,9 +1978,90 @@ mod overscroll_paging {
             view.pan.y
         );
 
+        // Let go. It comes back over several frames — a single frame of it is a jump,
+        // which is what the page turning used to look like.
         view.pulling = false;
         view.clamp_pan(window, &layouts);
+        assert!(
+            (view.pan.y - resting).abs() > 0.01,
+            "it went back in one frame, which is the jerk this eases"
+        );
+        for _ in 0..60 {
+            view.clamp_pan(window, &layouts);
+        }
         assert!((view.pan.y - resting).abs() < 0.01, "it stayed pulled after being let go");
+    }
+
+    /// **A page too big to fit shows its head when it is turned to, not its middle.**
+    ///
+    /// Landing in the middle of such a page hides the lines it starts with, and the pull
+    /// that reaches its foot from there is short enough that a reader turning pages sees
+    /// only their bottom halves — which is the page turn reading as jerky.
+    #[test]
+    fn a_page_that_does_not_fit_is_turned_to_at_its_head() {
+        let window = egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(200.0, 200.0));
+        let layouts = pages();
+        let mut view = PDFView::new();
+        view.display_mode = DisplayMode::SinglePage;
+        view.set_zoom(4.0); // a 100-unit page is 400 points tall against a 200-point window
+        view.active_page = 1;
+        view.clamp_pan(window, &layouts);
+
+        // Forward: the top edge of page 2 arrives on the top of the window.
+        view.pulling = true;
+        view.pan.y -= 1000.0;
+        view.clamp_pan(window, &layouts);
+        assert_eq!(view.active_page, 2, "the pull did not turn the page");
+        let head = layouts[2].rect.min.y.mul_add(view.zoom(), view.get_origin(window).y);
+        assert!(
+            (head - window.min.y).abs() < 0.01,
+            "page 2 came in with its top at {head}, not at the window's {}",
+            window.min.y
+        );
+
+        // Back: the bottom edge of page 1 arrives on the bottom of the window, because
+        // that is where a reader going back was last looking.
+        view.gesture(false);
+        view.gesture(true);
+        view.pan.y += 1000.0;
+        view.clamp_pan(window, &layouts);
+        assert_eq!(view.active_page, 1, "the pull did not turn back");
+        let foot = layouts[1].rect.max.y.mul_add(view.zoom(), view.get_origin(window).y);
+        assert!(
+            (foot - window.max.y).abs() < 0.01,
+            "page 1 came back with its bottom at {foot}, not at the window's {}",
+            window.max.y
+        );
+    }
+
+    /// **One flick turns one page.** The wheel keeps delivering for most of a second after
+    /// the fingers leave the trackpad, and a held drag never stops; either one re-earned
+    /// the pull on the frame after the turn, so a single gesture paged through the
+    /// document several pages at a time.
+    #[test]
+    fn a_gesture_that_keeps_going_turns_only_one_page() {
+        let window = egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(400.0, 400.0));
+        let layouts = pages();
+        let mut view = PDFView::new();
+        view.display_mode = DisplayMode::SinglePage;
+        view.active_page = 0;
+        view.clamp_pan(window, &layouts);
+
+        // Twenty frames of one flick still arriving.
+        for _ in 0..20 {
+            view.gesture(true);
+            view.pan.y -= 100.0;
+            view.clamp_pan(window, &layouts);
+        }
+        assert_eq!(view.active_page, 1, "one gesture, one page");
+
+        // It stops, and the next flick turns again.
+        view.gesture(false);
+        view.clamp_pan(window, &layouts);
+        view.gesture(true);
+        view.pan.y -= 100.0;
+        view.clamp_pan(window, &layouts);
+        assert_eq!(view.active_page, 2, "a new gesture could not turn the page");
     }
 
     /// A pull is capped at the distance that turns the page, so it cannot be dragged into
