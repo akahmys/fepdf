@@ -16,11 +16,24 @@ impl FepdfApp {
         egui::Panel::bottom("status_bar").default_size(size::STATUS).resizable(false).show_inside(
             ui,
             |ui| {
-                ui.horizontal(|ui| {
-                    ui.spacing_mut().item_spacing.x = space::ITEM;
-                    self.say_file_name(ui);
-                    self.status_indicators(ui, has_doc);
-                });
+                // **Down the middle of the bar, not at the top of it.** `horizontal` makes
+                // a row as tall as what is in it and leaves it where the cursor is, which
+                // in a panel taller than one line of text is against its top edge: the bar
+                // reads as text with a gap under it rather than as a bar with text in it.
+                // **[`size::ROW`] high, which is what the bar is made of.** Asking the
+                // panel what height is available answers with what it could take rather
+                // than what it has, and a row allocated at that grew the bar by three
+                // points every time it was drawn.
+                let room = egui::vec2(ui.available_width(), size::ROW);
+                ui.allocate_ui_with_layout(
+                    room,
+                    egui::Layout::left_to_right(egui::Align::Center),
+                    |ui| {
+                        ui.spacing_mut().item_spacing.x = space::ITEM;
+                        self.say_file_name(ui);
+                        self.status_indicators(ui, has_doc);
+                    },
+                );
             },
         );
     }

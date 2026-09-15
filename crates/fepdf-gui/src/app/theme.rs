@@ -411,6 +411,51 @@ fn cjk_font_paths() -> Vec<String> {
 /// handed to the shaper as a font with no tables in it.
 const SMALLEST_FONT: usize = 4096;
 
+/// Where a table sits in the first face of a TrueType file, or a collection of them.
+fn table_at(font: &[u8], want: &[u8; 4]) -> Option<usize> {
+    let face = if font.get(..4)? == b"ttcf" {
+        u32::from_be_bytes(font.get(12..16)?.try_into().ok()?) as usize
+    } else {
+        0
+    };
+    let count = u16::from_be_bytes(font.get(face + 4..face + 6)?.try_into().ok()?) as usize;
+    (0..count).find_map(|i| {
+        let entry = face + 12 + 16 * i;
+        if font.get(entry..entry + 4)? != want {
+            return None;
+        }
+        let at = u32::from_be_bytes(font.get(entry + 8..entry + 12)?.try_into().ok()?);
+        Some(at as usize)
+    })
+}
+
+/// How far a face's glyphs have to come down to sit in the middle of their own row.
+///
+/// **A font's leading is not shared out.** A row in epaint is `ascent - descent + line_gap`
+/// and the glyphs hang from the top of it, so a face that declares half an em of leading in
+/// its `hhea` — Hiragino, which is what this window is set in on macOS — draws every label
+/// a quarter of an em above the middle of whatever holds it: the status bar, a button, a
+/// row beside an icon. Half the leading above and half below is what a typesetter does with
+/// it, and it is what this returns.
+///
+/// **Measured from the face, not chosen.** Noto CJK declares no leading at all and wants no
+/// correction; a number picked to make one face look right would tip the other over.
+fn leading_to_share(font: &[u8]) -> f32 {
+    let Some(head) = table_at(font, b"head") else { return 0.0 };
+    let Some(hhea) = table_at(font, b"hhea") else { return 0.0 };
+    let upem = font
+        .get(head + 18..head + 20)
+        .and_then(|b| b.try_into().ok())
+        .map_or(0, u16::from_be_bytes);
+    let gap =
+        font.get(hhea + 8..hhea + 10).and_then(|b| b.try_into().ok()).map_or(0, i16::from_be_bytes);
+    if upem == 0 || gap <= 0 {
+        return 0.0;
+    }
+    // Half of it, and never more than half an em, which no face means.
+    (f32::from(gap) / f32::from(upem) / 2.0).min(0.5)
+}
+
 fn load_system_cjk_font(fonts: &mut egui::FontDefinitions) {
     for path in cjk_font_paths() {
         let Ok(data) = std::fs::read(&path) else { continue };
@@ -420,7 +465,13 @@ fn load_system_cjk_font(fonts: &mut egui::FontDefinitions) {
         }
         log::info!("Japanese text is set in {path}");
         // Index 0 of a collection, which is the face the file is named for.
-        fonts.font_data.insert("cjk".to_owned(), egui::FontData::from_owned(data).into());
+        let tweak = egui::FontTweak {
+            y_offset_factor: leading_to_share(&data),
+            ..egui::FontTweak::default()
+        };
+        fonts
+            .font_data
+            .insert("cjk".to_owned(), egui::FontData::from_owned(data).tweak(tweak).into());
         // **First in the proportional family and last in the monospace one.** The window's
         // prose is mostly Japanese, so the system face should set its Latin too rather
         // than have every sentence change typeface at the first ASCII word. Monospace is
@@ -514,6 +565,89 @@ pub fn apply_global_styles(ctx: &egui::Context) {
     style.text_styles.insert(egui::TextStyle::Small, egui::FontId::proportional(text::SMALL));
     style.text_styles.insert(egui::TextStyle::Heading, egui::FontId::proportional(text::HEAD));
     ctx.set_global_style(style);
+}
+
+#[cfg(test)]
+mod leading {
+    use super::leading_to_share;
+
+    /// A font file with just the two tables this reads, and nothing else in it.
+    fn face(upem: u16, line_gap: i16) -> Vec<u8> {
+        let mut head = vec![0_u8; 54];
+        head[18..20].copy_from_slice(&upem.to_be_bytes());
+        let mut hhea = vec![0_u8; 36];
+        hhea[4..6].copy_from_slice(&880_i16.to_be_bytes()); // ascender
+        hhea[6..8].copy_from_slice(&(-120_i16).to_be_bytes()); // descender
+        hhea[8..10].copy_from_slice(&line_gap.to_be_bytes());
+
+        let mut font = vec![0_u8; 12 + 32];
+        font[4..6].copy_from_slice(&2_u16.to_be_bytes()); // two tables
+        let mut at = 12 + 32;
+        for (i, (tag, table)) in [(b"head", &head), (b"hhea", &hhea)].into_iter().enumerate() {
+            let entry = 12 + 16 * i;
+            font[entry..entry + 4].copy_from_slice(tag);
+            font[entry + 8..entry + 12].copy_from_slice(&(at as u32).to_be_bytes());
+            font[entry + 12..entry + 16].copy_from_slice(&(table.len() as u32).to_be_bytes());
+            font.extend_from_slice(table);
+            at += table.len();
+        }
+        font
+    }
+
+    /// Wraps a face the way a `.ttc` does, which is what macOS ships its interface face as.
+    ///
+    /// A table's offset in a collection is from the start of the file, not of the face, so
+    /// every record moves by the length of the header put in front of it.
+    fn collection(face: &[u8]) -> Vec<u8> {
+        const HEADER: u32 = 16;
+        let mut moved = face.to_vec();
+        let count = u16::from_be_bytes([moved[4], moved[5]]) as usize;
+        for i in 0..count {
+            let at = 12 + 16 * i + 8;
+            if at + 4 <= moved.len() {
+                let was = u32::from_be_bytes(moved[at..at + 4].try_into().unwrap_or([0; 4]));
+                moved[at..at + 4].copy_from_slice(&(was + HEADER).to_be_bytes());
+            }
+        }
+        let mut ttc = b"ttcf".to_vec();
+        ttc.extend_from_slice(&[0, 1, 0, 0]); // version 1.0
+        ttc.extend_from_slice(&1_u32.to_be_bytes()); // one face
+        ttc.extend_from_slice(&HEADER.to_be_bytes()); // which starts after this header
+        ttc.extend_from_slice(&moved);
+        ttc
+    }
+
+    /// **Half the leading, so the other half stays above.** Hiragino declares half an em of
+    /// it, all of which epaint hangs below the glyphs: every label in the window sat a
+    /// quarter of an em above the middle of whatever held it.
+    #[test]
+    fn half_the_leading_comes_down() {
+        assert!((leading_to_share(&face(1000, 500)) - 0.25).abs() < 1e-6);
+        assert!((leading_to_share(&collection(&face(1000, 500))) - 0.25).abs() < 1e-6);
+        assert!((leading_to_share(&face(2048, 512)) - 0.125).abs() < 1e-6);
+    }
+
+    /// **A face that declares none is left alone.** Noto CJK is one, and a correction
+    /// chosen to suit Hiragino would tip it over by a quarter of an em.
+    #[test]
+    fn a_face_with_no_leading_is_not_moved() {
+        assert!(leading_to_share(&face(1000, 0)).abs() < f32::EPSILON);
+        assert!(leading_to_share(&face(1000, -200)).abs() < f32::EPSILON);
+    }
+
+    /// Nothing here can be read from a file that is not a font, and nothing here panics on
+    /// one: the window opens with whatever it was pointed at.
+    #[test]
+    fn anything_that_is_not_a_font_asks_for_no_correction() {
+        let headless_collection = b"ttcf\x00\x01\x00\x00\x00\x00\x00\x01".to_vec();
+        for bytes in [b"not a font at all".to_vec(), vec![0_u8; 3], Vec::new(), headless_collection]
+        {
+            assert!(leading_to_share(&bytes).abs() < f32::EPSILON);
+        }
+        let mut truncated = face(1000, 500);
+        truncated.truncate(30);
+        assert!(leading_to_share(&truncated).abs() < f32::EPSILON);
+    }
 }
 
 #[cfg(test)]
