@@ -49,8 +49,6 @@ pub mod glyph {
     pub const ROTATE: &str = "\u{e149}";
     /// `file` — one page at a time. Was `layout`, which is a panel arrangement.
     pub const PAGE_SINGLE: &str = "\u{e0c0}";
-    /// `rows-2` — pages stacked, scrolling.
-    pub const PAGE_CONTINUOUS: &str = "\u{e439}";
     /// `book-open` — two pages facing.
     pub const PAGE_SPREAD: &str = "\u{e05f}";
     /// `crosshair` — put the page the reader is on in the middle of the window.

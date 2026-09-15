@@ -105,9 +105,7 @@ impl FepdfApp {
                 self.view.binding_direction == BindingDirection::RightToLeft,
                 &mut layouts,
             );
-        } else if self.view.display_mode == DisplayMode::TwoPageSpread
-            || self.view.display_mode == DisplayMode::TwoPageSingle
-        {
+        } else if self.view.display_mode == DisplayMode::TwoPageSingle {
             let mut current_offset = 0.0;
             let gap = 20.0;
             let inner_gap = 8.0;
@@ -209,7 +207,11 @@ impl FepdfApp {
                     i += 1;
                 }
             }
-        } else if self.view.display_mode == DisplayMode::SinglePage {
+        } else {
+            // One page, laid on the origin. Which one is drawn is `active_page`'s
+            // business, not the layout's: every page sits here and `visible_page_rects`
+            // picks. It costs nothing and it means a page can be gone to without the
+            // layout being rebuilt.
             for (i, &(w, h)) in self.doc_page_sizes.iter().enumerate() {
                 let w = w as f32;
                 let h = h as f32;
@@ -220,26 +222,6 @@ impl FepdfApp {
                 };
                 layouts[i] = PageLayout { index: i, rect };
             }
-        } else {
-            // Continuous: one column of pages, or one row of them. The arrangement reads
-            // neither the zoom nor the window, so zooming moves the view over a layout
-            // that is holding still.
-            let gap_x = Self::PAGE_GAP;
-            if self.view.scroll_direction == ScrollDirection::Vertical {
-                Self::column_rows(&self.doc_page_sizes, Self::PAGE_GAP, &mut layouts);
-            } else {
-                let mut current_offset = 0.0;
-                for (i, &(w, h)) in self.doc_page_sizes.iter().enumerate() {
-                    let w = w as f32;
-                    let h = h as f32;
-                    let r = egui::Rect::from_min_size(
-                        egui::pos2(current_offset, -h / 2.0),
-                        egui::vec2(w, h),
-                    );
-                    current_offset += w + gap_x;
-                    layouts[i] = PageLayout { index: i, rect: r };
-                }
-            }
         }
         self.page_layouts = layouts;
         // **Every pass, not only the ones that change the arrangement.** `open_page`
@@ -248,25 +230,6 @@ impl FepdfApp {
         // asked for its first page in the middle and was never asked again, while the
         // intent sat waiting to fire at whatever zoom came next.
         self.view.restore_anchor(carried.flatten(), viewport, &self.page_layouts);
-    }
-
-    /// Stacks the pages in one column, each centred on `x = 0`.
-    ///
-    /// **A page sits somewhere quite different here than it does in the grid**, which is
-    /// why crossing between the two views has to recompute before it scrolls: page 25 is at
-    /// `2 * 954` in a ten-wide grid and at `25 * 890` in a column, twelve times further
-    /// down. Scrolling to a page with the layout of the view being left from lands near the
-    /// top of the document.
-    fn column_rows(sizes: &[(f64, f64)], gap_y: f32, layouts: &mut [PageLayout]) {
-        let mut offset_y = 0.0_f32;
-        for (i, &(w, h)) in sizes.iter().enumerate() {
-            let (w, h) = (w as f32, h as f32);
-            layouts[i] = PageLayout {
-                index: i,
-                rect: egui::Rect::from_min_size(egui::pos2(-w / 2.0, offset_y), egui::vec2(w, h)),
-            };
-            offset_y += h + gap_y;
-        }
     }
 
     /// Places pages left to right in rows of `columns`.
@@ -372,12 +335,6 @@ mod tiles {
         laid(sizes, false)
     }
 
-    fn column(sizes: &[(f64, f64)]) -> Vec<egui::Rect> {
-        let mut layouts = vec![PageLayout { index: 0, rect: egui::Rect::NOTHING }; sizes.len()];
-        FepdfApp::column_rows(sizes, GAP, &mut layouts);
-        layouts.into_iter().map(|l| l.rect).collect()
-    }
-
     fn laid(sizes: &[(f64, f64)], is_r2l: bool) -> Vec<egui::Rect> {
         let mut layouts = vec![PageLayout { index: 0, rect: egui::Rect::NOTHING }; sizes.len()];
         FepdfApp::grid_rows(sizes, COLS, GAP, ROW_GAP, is_r2l, &mut layouts);
@@ -466,35 +423,17 @@ mod tiles {
 
     /// **A page is in a different place in the two arrangements**, which is what makes the
     /// order of operations matter when a double-click crosses between them: the zoom
-    /// changes the view, the layout has to be rebuilt for it, and only then does scrolling
-    /// to the page mean the right place. Scrolling first lands near the front of the
-    /// document, because a grid packs ten pages into the height a column gives one.
+    /// changes the view, the layout has to be rebuilt for it, and only then does going to
+    /// the page mean the right place.
+    ///
+    /// The two used to be a grid and a column. The page view stacks every page on the
+    /// origin now, so the difference is larger rather than smaller: page 26 is two rows
+    /// down in the grid and at `y = 0` in the page view, along with every other page.
     #[test]
     fn a_page_sits_somewhere_else_in_the_other_arrangement() {
-        let sizes = [(595.0, 842.0); 40];
-
-        let grid = lay(&sizes);
-        let column = column(&sizes);
-
+        let grid = lay(&[(595.0, 842.0); 40]);
         assert!(same(grid[25].min.y, 2.0 * (842.0 + ROW_GAP)), "row 2 of a ten-wide grid");
-        assert!(same(column[25].min.y, 25.0 * (842.0 + GAP)), "the 26th page of a column");
-        assert!(
-            column[25].min.y > grid[25].min.y * 10.0,
-            "and the two are an order of magnitude apart, not a rounding difference"
-        );
-    }
-
-    /// A column keeps the pages in order, one under the next, centred.
-    #[test]
-    fn a_column_stacks_the_pages_in_order() {
-        let column = column(&[(595.0, 842.0), (297.0, 420.0), (595.0, 842.0)]);
-
-        assert!(same(column[0].min.y, 0.0));
-        assert!(same(column[1].min.y, 842.0 + GAP), "the next page clears this one");
-        assert!(same(column[2].min.y, 842.0 + GAP + 420.0 + GAP), "by its own height");
-        for r in &column {
-            assert!(same(r.center().x, 0.0), "each page centred, whatever its width");
-        }
+        assert!(grid[25].min.y > 0.0, "the grid puts it where the page view does not");
     }
 
     /// **The gaps have to hold the page number at the smallest zoom each view reaches.**

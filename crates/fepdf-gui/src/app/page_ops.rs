@@ -330,7 +330,7 @@ impl FepdfApp {
     /// measuring a picture measures the picture.
     pub(crate) fn probe_placement(&mut self, label: &str) {
         let viewport = self.last_viewport_rect.unwrap_or(egui::Rect::NOTHING);
-        let page = self.view.current_page(viewport, &self.page_layouts);
+        let page = self.view.current_page();
         let Some(layout) = self.page_layouts.get(page) else { return };
         let origin = self.view.get_origin(viewport);
         let zoom = self.view.zoom();
@@ -389,9 +389,7 @@ impl FepdfApp {
     /// read page 12 and pressed rotate turned those three and not the page in front of
     /// them. In the page view the target is the page they are on.
     pub fn rotate_selected_pages(&mut self, delta: fepdf::Quarter) {
-        let viewport = self.last_viewport_rect.unwrap_or(egui::Rect::NOTHING);
-        let current =
-            (self.total_pages > 0).then(|| self.view.current_page(viewport, &self.page_layouts));
+        let current = (self.total_pages > 0).then(|| self.view.current_page());
         let targets = pages_to_turn(self.view.selects_pages(), &self.selected_pages, current);
         self.rotate_pages(targets, delta);
     }

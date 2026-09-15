@@ -248,12 +248,7 @@ impl FepdfApp {
             crate::sidebar::bookmarks::Asked::GoTo(page) => {
                 // The same landing as the page buttons: the page the reader asked for
                 // goes to the middle of the window, rather than to its top edge.
-                let viewport = self.last_viewport_rect.unwrap_or_else(|| ui.max_rect());
-                self.view.scroll_to_page(
-                    page.min(pages.saturating_sub(1)),
-                    viewport,
-                    &self.page_layouts,
-                );
+                self.view.scroll_to_page(page.min(pages.saturating_sub(1)), &self.page_layouts);
             }
             crate::sidebar::bookmarks::Asked::Write => self.write_bookmarks(),
         }

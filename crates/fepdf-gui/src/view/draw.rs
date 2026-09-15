@@ -91,7 +91,7 @@ impl PDFView {
 
         let mut new_visible = Vec::new();
 
-        let current = self.current_page(viewport_rect, layouts);
+        let current = self.current_page();
         for (layout, page_rect) in self.visible_page_rects(viewport_rect, layouts) {
             new_visible.push(layout.index);
             let is_selected = selected_pages.contains(&layout.index);

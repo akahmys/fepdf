@@ -391,9 +391,8 @@ impl crate::app::FepdfApp {
             Step::Resize(sheet, fit) => self.drive_resize(&sheet, &fit),
             Step::Mode(name) => {
                 self.view.display_mode = match name.as_str() {
-                    "single" => crate::view::DisplayMode::SinglePage,
-                    "spread" => crate::view::DisplayMode::TwoPageSpread,
-                    _ => crate::view::DisplayMode::Continuous,
+                    "spread" => crate::view::DisplayMode::TwoPageSingle,
+                    _ => crate::view::DisplayMode::SinglePage,
                 };
                 self.compute_layouts();
             }

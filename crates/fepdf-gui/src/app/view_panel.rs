@@ -764,7 +764,19 @@ impl FepdfApp {
         viewport_rect: egui::Rect,
     ) {
         self.last_viewport_rect = Some(viewport_rect);
-        if self.view.display_mode == DisplayMode::Continuous {
+        // **The tiles are laid out against the window, so they are laid out again when it
+        // changes.** This asked whether the mode was `Continuous`, which was the mode the
+        // grid used to live in; the grid belongs to the zoom now and the page view's
+        // layout does not read the window at all.
+        if self.view.is_page_view() {
+            // **A request to centre a page waits for a window to centre it in.** The first
+            // layout after a document loads runs before the viewport is known, so the
+            // request is left standing; the tiles get their answer from the recompute
+            // below, and the page view — which does not recompute, its layout reading
+            // neither the zoom nor the window — needs asking here. Without this a document
+            // opened at its first page half a page below the middle.
+            self.view.restore_anchor(None, viewport_rect, &self.page_layouts);
+        } else {
             self.compute_layouts();
         }
 

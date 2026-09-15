@@ -88,9 +88,7 @@ impl FepdfApp {
     /// The page the reader is on. The rule is [`crate::view::PDFView::current_page`],
     /// which is also what draws the line under that page's number.
     fn page_being_read(&self) -> usize {
-        self.last_viewport_rect.map_or(self.view.active_page, |viewport| {
-            self.view.current_page(viewport, &self.page_layouts)
-        })
+        self.view.current_page()
     }
 
     /// Leftmost of the bar: taking back, and putting back.
@@ -157,9 +155,8 @@ impl FepdfApp {
         // like the mode, and the other two looked broken. The grid belongs to the zoom
         // now, so all three stay available and each says what zooming back in will give.
         for (mode, icon, key) in [
-            (DisplayMode::Continuous, glyph::PAGE_CONTINUOUS, "tooltip_view_continuous"),
             (DisplayMode::SinglePage, glyph::PAGE_SINGLE, "tooltip_view_single"),
-            (DisplayMode::TwoPageSpread, glyph::PAGE_SPREAD, "tooltip_view_spread"),
+            (DisplayMode::TwoPageSingle, glyph::PAGE_SPREAD, "tooltip_view_spread"),
         ] {
             let selected = self.view.display_mode == mode;
             let tip = self.tr(key);
@@ -198,13 +195,13 @@ impl FepdfApp {
         let viewport = self.last_viewport_rect.unwrap_or_else(|| ui.max_rect());
         if icon_action(ui, glyph::PAGE_FIRST, false, true, &self.tr("tooltip_page_first")).clicked()
         {
-            self.view.scroll_to_page(0, viewport, &self.page_layouts);
+            self.view.scroll_to_page(0, &self.page_layouts);
         }
 
         if icon_action(ui, glyph::PAGE_PREV, false, true, &self.tr("tooltip_page_prev")).clicked()
             && current_page > 0
         {
-            self.view.scroll_to_page(current_page - 1, viewport, &self.page_layouts);
+            self.view.scroll_to_page(current_page - 1, &self.page_layouts);
         }
 
         ui.label(
@@ -216,11 +213,11 @@ impl FepdfApp {
         if icon_action(ui, glyph::PAGE_NEXT, false, true, &self.tr("tooltip_page_next")).clicked()
             && current_page + 1 < self.total_pages
         {
-            self.view.scroll_to_page(current_page + 1, viewport, &self.page_layouts);
+            self.view.scroll_to_page(current_page + 1, &self.page_layouts);
         }
 
         if icon_action(ui, glyph::PAGE_LAST, false, true, &self.tr("tooltip_page_last")).clicked() {
-            self.view.scroll_to_page(self.total_pages - 1, viewport, &self.page_layouts);
+            self.view.scroll_to_page(self.total_pages - 1, &self.page_layouts);
         }
 
         // **With the pages rather than with the zoom.** It answers "where was I", which is
