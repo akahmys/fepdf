@@ -633,8 +633,8 @@ impl PDFView {
     /// Only pages that are actually on screen are candidates: zooming in the page view must
     /// not anchor to a page that is not shown, and a spread anchors within its own pair.
     /// **In the tiles every page on screen is a candidate** — the mode says `SinglePage`
-    /// there and means nothing by it, and a zoom anchored on the one active tile moved the
-    /// grid out from under the reader's cursor.
+    /// there and means nothing by it, and the anchor this hands to a zoom crossing into the
+    /// page view decides which page the reader arrives on.
     fn layout_under<'a>(
         &self,
         center_pos: egui::Pos2,
@@ -644,7 +644,12 @@ impl PDFView {
     ) -> Option<&'a PageLayout> {
         let (mut closest, mut min_dist_sq) = (None, f32::MAX);
         for layout in layouts {
-            if self.is_page_view() && !self.shows(layout.index, layouts.len()) {
+            // **Which arrangement `layouts` is, not which the zoom has become.** This is
+            // asked in the middle of a crossing — the zoom is already the page view's and
+            // the rectangles are still the grid's — so reading the zoom here filters the
+            // grid down to one tile and carries the page the reader came out on rather
+            // than the tile under their cursor.
+            if !self.arranged_as_tiles && !self.shows(layout.index, layouts.len()) {
                 continue;
             }
             let page_screen_rect = egui::Rect::from_min_size(
@@ -1477,6 +1482,77 @@ mod arrangement_crossing {
         let layout = &layouts[view.active_page];
         let page_min = view.get_origin(WINDOW) + layout.rect.min.to_vec2() * view.zoom();
         (at - page_min) / view.zoom()
+    }
+
+    /// Which tile a point is over, and where on it, by hit-testing every layout.
+    ///
+    /// Deliberately not the view's own answer: this is what the reader sees under their
+    /// cursor, and the thing being tested is whether the view agrees with it.
+    fn tile_under(view: &PDFView, at: egui::Pos2, layouts: &[PageLayout]) -> (usize, egui::Vec2) {
+        let origin = view.get_origin(WINDOW);
+        for layout in layouts {
+            let rect = egui::Rect::from_min_size(
+                origin + layout.rect.min.to_vec2() * view.zoom(),
+                layout.rect.size() * view.zoom(),
+            );
+            if rect.contains(at) {
+                return (layout.index, (at - rect.min) / view.zoom());
+            }
+        }
+        panic!("the cursor at {at:?} is over no tile");
+    }
+
+    /// **Zooming in from the grid opens the tile under the cursor.** The anchor looks for
+    /// the page under the point among the pages the *display mode* shows, which in the
+    /// tiles is one out of twenty-five — so whichever tile a reader zoomed in on, they
+    /// arrived on the page they had come out to the grid from.
+    ///
+    /// It is asked in the middle of the crossing, when the zoom is already the page view's
+    /// and the rectangles are still the grid's, so what says which is which is
+    /// `arranged_as_tiles` and not the zoom.
+    #[test]
+    fn zooming_in_from_the_grid_opens_the_tile_under_the_cursor() {
+        let tiles = grid(25);
+        let mut view = PDFView::new();
+        view.display_mode = DisplayMode::SinglePage;
+        view.active_page = 0;
+        view.set_zoom(0.2);
+        view.restore_anchor(None, WINDOW, &tiles);
+
+        let origin = view.get_origin(WINDOW);
+        let cursor = origin + tiles[7].rect.center().to_vec2() * view.zoom();
+        view.zoom_at(0.33, cursor, WINDOW, &tiles);
+        assert!(view.arrangement_is_changing(), "the fixture did not cross the boundary");
+
+        let carried = view.take_anchor(WINDOW, &tiles).expect("a page under the cursor");
+        assert_eq!(carried.page, 7, "it carried the page the reader came out on");
+    }
+
+    /// A zoom inside the grid leaves the tile under the cursor where it is.
+    #[test]
+    fn zooming_over_a_tile_holds_that_tile_still() {
+        let tiles = grid(25);
+        let mut view = PDFView::new();
+        view.display_mode = DisplayMode::SinglePage;
+        view.active_page = 0;
+        view.set_zoom(0.2);
+        view.restore_anchor(None, WINDOW, &tiles);
+
+        // A cursor over the middle of some tile that is not the active one.
+        let origin = view.get_origin(WINDOW);
+        let cursor = origin + tiles[7].rect.center().to_vec2() * view.zoom();
+        let (page, local) = tile_under(&view, cursor, &tiles);
+        assert_ne!(page, view.active_page, "the fixture points at the active tile");
+
+        view.zoom_at(0.28, cursor, WINDOW, &tiles);
+        assert!(!view.is_page_view(), "the zoom left the tiles");
+
+        let (now, after) = tile_under(&view, cursor, &tiles);
+        assert_eq!(now, page, "a different tile came under the cursor");
+        assert!(
+            (after - local).length() < 1.0,
+            "the tile moved under the cursor: {local:?} became {after:?}"
+        );
     }
 
     /// **The point under the cursor does not move.** One sentence for every zoom,
