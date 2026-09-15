@@ -147,14 +147,33 @@ pub struct PDFView {
 /// never moved: a reader dragged, nothing happened, and then the page changed. This is the
 /// gap that opens between the page's edge and the window's, which is on screen the whole
 /// time it is growing.
-const PAGE_TURN_PULL: f32 = 80.0;
+///
+/// **Half what it was**, because until the turn comes the scrolling is going nowhere and
+/// the reader feels it catch. Eighty points is two lines of body text of travel spent on
+/// nothing; forty is still far enough that a page cannot turn by a twitch.
+const PAGE_TURN_PULL: f32 = 40.0;
 
 /// How much of the way back to its edge a let-go page travels each frame.
 ///
 /// **Only the way back is eased.** Going out, the page is under the reader's finger and
 /// anything but following it exactly reads as lag; coming back, nothing is holding it, and
 /// a jump to its edge in a single frame is the jerk this eases out of.
-const PULL_EASE: f32 = 0.3;
+///
+/// At 0.45 a full pull is back inside a tenth of a second — enough frames to read as a
+/// movement rather than a jump, and not so many that the page is still travelling when the
+/// reader's next gesture arrives.
+const PULL_EASE: f32 = 0.45;
+
+/// The per-frame movement below which a gesture counts as over.
+///
+/// **The tail of a flick is not a new flick.** A trackpad's momentum dies away rather than
+/// stopping, so a latch that waits for exactly nothing waits most of a second, and a reader
+/// who flicks again in that time sees the second flick do nothing at all — which is the
+/// same catch read the other way round. A point and a half in a frame is slower than any
+/// deliberate scroll, and what a dying flick has left to give below it — about twenty
+/// points, at the rate momentum decays — is well under a turn, so the tail cannot turn a
+/// second page on its own.
+const GESTURE_TAIL: f32 = 1.5;
 
 /// The range `pan` may take on one axis for the page to fill the window, or the single
 /// value that centres it when it is smaller than the window.
@@ -869,11 +888,10 @@ impl PDFView {
     }
 
     /// Pans by the wheel, and says whether it moved anything.
-    fn handle_scroll_panning(&mut self, ui: &egui::Ui) -> bool {
+    fn handle_scroll_panning(&mut self, ui: &egui::Ui) -> egui::Vec2 {
         ui.input(|i| {
             if !i.modifiers.command && !i.modifiers.ctrl {
                 let scroll_delta = i.smooth_scroll_delta;
-                let moved = scroll_delta != egui::Vec2::ZERO;
                 if self.scroll_direction == ScrollDirection::Horizontal {
                     if scroll_delta.x != 0.0 {
                         self.pan.x += scroll_delta.x;
@@ -883,9 +901,9 @@ impl PDFView {
                 } else {
                     self.pan += scroll_delta;
                 }
-                return moved;
+                return scroll_delta;
             }
-            false
+            egui::Vec2::ZERO
         })
     }
 
@@ -906,11 +924,13 @@ impl PDFView {
             self.handle_zoom_gestures(ui, viewport_rect, layouts);
             self.handle_scroll_panning(ui)
         } else {
-            false
+            egui::Vec2::ZERO
         };
         let shift_down = ui.input(|i| i.modifiers.shift);
+        let mut moved = moved_by_wheel.length();
         if response.dragged() && (!shift_down || self.is_page_view()) {
             self.pan += response.drag_delta();
+            moved += response.drag_delta().length();
         }
         if response.double_clicked() {
             let pos = ui
@@ -921,18 +941,20 @@ impl PDFView {
         }
         // A drag or the wheel: either is the reader moving the view, and the page comes
         // away from its edge for both.
-        self.gesture(response.dragged() || moved_by_wheel);
+        self.gesture(response.dragged(), moved);
     }
 
-    /// Says whether the reader is moving the view this frame.
+    /// Takes what the reader did to the view this frame: a pointer held, and a distance.
     ///
-    /// **A frame that moves nothing ends the gesture**, and the next one may turn a page
-    /// again. Its own function so that a test can say "the flick is still going" in the
-    /// same words the frame does, rather than setting the two fields by hand and drifting
-    /// from what an actual frame would have done.
-    fn gesture(&mut self, moving: bool) {
-        self.pulling = moving;
-        if !moving {
+    /// **A held pointer keeps the page off its edge even while it is still** — a reader
+    /// holding a page half-turned has not let go of it — but the gesture that turned a page
+    /// is over as soon as it stops going anywhere, [`GESTURE_TAIL`] being as slow as it may
+    /// get and still be one. Its own function so that a test can say "the flick is still
+    /// arriving" in the same words a frame does, rather than setting the two fields by hand
+    /// and drifting from what an actual frame would have done.
+    fn gesture(&mut self, held: bool, moved: f32) {
+        self.pulling = held || moved > 0.0;
+        if moved < GESTURE_TAIL {
             self.settling = false;
         }
     }
@@ -1968,12 +1990,13 @@ mod overscroll_paging {
         view.clamp_pan(window, &layouts);
         let resting = view.pan.y;
 
+        let short_of_a_turn = super::PAGE_TURN_PULL * 0.6;
         view.pulling = true;
-        view.pan.y -= 50.0;
+        view.pan.y -= short_of_a_turn;
         view.clamp_pan(window, &layouts);
-        assert_eq!(view.active_page, 1, "50 is under the 80 a turn asks for");
+        assert_eq!(view.active_page, 1, "the pull stopped short of what a turn asks for");
         assert!(
-            (resting - view.pan.y - 50.0).abs() < 0.01,
+            (resting - view.pan.y - short_of_a_turn).abs() < 0.01,
             "the page did not come away: it sits at {} and rested at {resting}",
             view.pan.y
         );
@@ -2021,8 +2044,8 @@ mod overscroll_paging {
 
         // Back: the bottom edge of page 1 arrives on the bottom of the window, because
         // that is where a reader going back was last looking.
-        view.gesture(false);
-        view.gesture(true);
+        view.gesture(false, 0.0);
+        view.gesture(true, 1000.0);
         view.pan.y += 1000.0;
         view.clamp_pan(window, &layouts);
         assert_eq!(view.active_page, 1, "the pull did not turn back");
@@ -2047,18 +2070,19 @@ mod overscroll_paging {
         view.active_page = 0;
         view.clamp_pan(window, &layouts);
 
-        // Twenty frames of one flick still arriving.
+        // Twenty frames of one flick still arriving, none of them slow enough to be its
+        // tail.
         for _ in 0..20 {
-            view.gesture(true);
+            view.gesture(true, 100.0);
             view.pan.y -= 100.0;
             view.clamp_pan(window, &layouts);
         }
         assert_eq!(view.active_page, 1, "one gesture, one page");
 
-        // It stops, and the next flick turns again.
-        view.gesture(false);
+        // It dies away, and the next flick turns again.
+        view.gesture(false, super::GESTURE_TAIL / 2.0);
         view.clamp_pan(window, &layouts);
-        view.gesture(true);
+        view.gesture(true, 100.0);
         view.pan.y -= 100.0;
         view.clamp_pan(window, &layouts);
         assert_eq!(view.active_page, 2, "a new gesture could not turn the page");
@@ -2095,10 +2119,10 @@ mod overscroll_paging {
             pull_from_page_one(
                 DisplayMode::SinglePage,
                 ScrollDirection::Vertical,
-                egui::vec2(0.0, 60.0)
+                egui::vec2(0.0, super::PAGE_TURN_PULL * 0.6)
             ),
             1,
-            "60 is under the 80 the overscroll asks for"
+            "a pull of three fifths of the threshold turned the page"
         );
     }
 }
