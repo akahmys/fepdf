@@ -14,7 +14,7 @@ use crate::interaction::{SelectionManager, TextSpan};
 use crate::redaction::RedactionManager;
 use crate::sidebar::{SidebarPanel, USTRegistry};
 use crate::vello_egui::VelloRenderer;
-use crate::view::{PDFView, PageLayout};
+use crate::view::{Act, PDFView, PageLayout};
 use crate::worker::{WorkerRequest, WorkerResponse, run_worker};
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
@@ -819,7 +819,7 @@ impl FepdfApp {
         // thrown away. In the page view `Delete` could only ever have meant a page the
         // reader was not looking at.
         if ui.input(|i| i.key_pressed(egui::Key::Delete) || i.key_pressed(egui::Key::Backspace))
-            && self.view.selects_pages()
+            && self.view.does(Act::SelectPages)
             && !self.selected_pages.is_empty()
             && self.total_pages > 1
         {
@@ -838,30 +838,41 @@ impl FepdfApp {
                 self.selected_pages.insert(p);
             }
         }
-        if self.total_pages > 0 {
-            let shift = ui.input(|i| i.modifiers.shift);
-            let prev_key = ui.input(|i| {
-                i.key_pressed(egui::Key::ArrowLeft) || i.key_pressed(egui::Key::ArrowUp)
-            });
-            let next_key = ui.input(|i| {
-                i.key_pressed(egui::Key::ArrowRight) || i.key_pressed(egui::Key::ArrowDown)
-            });
-            if prev_key && self.view.active_page > 0 {
-                self.view.active_page -= 1;
-                if !shift {
-                    self.selected_pages.clear();
-                }
-                self.selected_pages.insert(self.view.active_page);
-                self.last_selected_page = Some(self.view.active_page);
-            } else if next_key && self.view.active_page + 1 < self.total_pages {
-                self.view.active_page += 1;
-                if !shift {
-                    self.selected_pages.clear();
-                }
-                self.selected_pages.insert(self.view.active_page);
-                self.last_selected_page = Some(self.view.active_page);
-            }
+        if self.total_pages == 0 {
+            return;
         }
+        let prev_key =
+            ui.input(|i| i.key_pressed(egui::Key::ArrowLeft) || i.key_pressed(egui::Key::ArrowUp));
+        let next_key = ui
+            .input(|i| i.key_pressed(egui::Key::ArrowRight) || i.key_pressed(egui::Key::ArrowDown));
+        let page = self.view.active_page;
+        let asked = if prev_key && page > 0 {
+            Some(page - 1)
+        } else if next_key && page + 1 < self.total_pages {
+            Some(page + 1)
+        } else {
+            None
+        };
+        let Some(asked) = asked else { return };
+
+        // **In the page view an arrow key turns the page, and turns it the way every other
+        // route does.** It used to move `active_page` by hand: the window's contents were
+        // swapped for the next page's where a pull would have brought it in, and the page
+        // it swapped in kept the pan of the page it replaced — so at any zoom where a page
+        // does not fit, the reader arrived half way down a page they had not started.
+        if self.view.does(Act::TurnPages) {
+            let viewport = self.last_viewport_rect.unwrap_or_else(|| ui.max_rect());
+            self.view.turn_to(asked, viewport, &self.page_layouts);
+            return;
+        }
+
+        // In the tiles it moves which page is picked out, and Shift keeps the ones before.
+        self.view.active_page = asked;
+        if !ui.input(|i| i.modifiers.shift) {
+            self.selected_pages.clear();
+        }
+        self.selected_pages.insert(asked);
+        self.last_selected_page = Some(asked);
     }
 
     fn handle_keyboard_shortcuts(&mut self, ui: &egui::Ui) {

@@ -160,15 +160,28 @@ impl ExportWizard {
 
         if app.cert_path.is_some() && app.key_path.is_some() {
             ui.horizontal(|ui| {
+                // Placing the field is done on the page, so it cannot be started from the
+                // grid: the wizard would close onto a view that throws the clicks away.
+                let on_a_page = app.view.does(crate::view::Act::DrawOnPage);
+                let label = app.locale_mgr.tr(&app.active_language, "export_sig_place_field");
+                let label = if on_a_page {
+                    label
+                } else {
+                    app.locale_mgr
+                        .tr(&app.active_language, "tooltip_page_view_only")
+                        .replacen("{}", &label, 1)
+                };
                 if ui
-                    .toggle_value(
-                        &mut app.is_placing_signature,
-                        app.locale_mgr.tr(&app.active_language, "export_sig_place_field"),
+                    .add_enabled(
+                        on_a_page,
+                        egui::Button::selectable(app.is_placing_signature, label),
                     )
                     .clicked()
-                    && app.is_placing_signature
                 {
-                    app.show_export_wizard = false;
+                    app.is_placing_signature = !app.is_placing_signature;
+                    if app.is_placing_signature {
+                        app.show_export_wizard = false;
+                    }
                 }
                 // The page, and only the page: the field is invisible, so where on the
                 // page it was placed decides nothing.

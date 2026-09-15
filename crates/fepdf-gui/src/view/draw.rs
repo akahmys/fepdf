@@ -6,7 +6,7 @@
 //! parent module, which is why the fields below are reachable from here without being
 //! public to the crate.
 
-use super::{PDFView, PageLayout, PagePixels};
+use super::{Act, PDFView, PageLayout, PagePixels};
 use crate::app::theme::canvas;
 use crate::app::theme::colors;
 use crate::app::theme::radius;
@@ -146,7 +146,7 @@ impl PDFView {
             // page view the sheet had none at all and its margin ran into the bench.
             // `steel::EDGE` is 3.43:1 against the bench (WCAG 1.4.11), and a selection replaces it with
             // the accent rather than adding a second line beside it.
-            let (width, colour) = if is_selected && self.selects_pages() {
+            let (width, colour) = if is_selected && self.does(Act::SelectPages) {
                 (2.0_f32, colors::rust::ACCENT)
             } else {
                 (1.0_f32, colors::steel::EDGE)
@@ -171,7 +171,7 @@ impl PDFView {
                 ui,
                 page_rect,
                 layout.index,
-                (is_selected && self.selects_pages(), layout.index == current),
+                (is_selected && self.does(Act::SelectPages), layout.index == current),
                 self.zoom,
                 gap * self.zoom,
             );
@@ -319,7 +319,7 @@ impl PDFView {
     ) {
         let (is_selected, is_current) = marks;
         let badge_text = format!("{}", page_index + 1);
-        let font_size = if zoom < Self::TILE_ZOOM { 11.0 } else { 12.0 };
+        let font_size = if PDFView::page_zoom(zoom) { 12.0 } else { 11.0 };
         // The number is set on the canvas, not in a chip. A filled rounded rectangle with
         // a border around a two-digit number is a control the reader cannot press, and a
         // grid of them reads as a row of buttons between the rows of pages.

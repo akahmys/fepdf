@@ -74,8 +74,19 @@ impl FepdfApp {
         for drawer in ActiveDrawer::ALL {
             let Some((icon, key)) = drawer.face() else { continue };
             let is_open = self.active_drawer == drawer;
+            // A drawer that draws on a page is not pressable where a page cannot be drawn
+            // on, and says so rather than opening onto a tool whose clicks go elsewhere.
+            let reachable = drawer.needs().is_none_or(|act| self.view.does(act));
             let tip = self.locale_mgr.tr(&self.active_language, key);
-            if icon_action(ui, icon, is_open, has_doc, &tip).clicked() && has_doc {
+            let tip = if reachable {
+                tip
+            } else {
+                self.locale_mgr
+                    .tr(&self.active_language, "tooltip_page_view_only")
+                    .replacen("{}", &tip, 1)
+            };
+            let live = has_doc && reachable;
+            if icon_action(ui, icon, is_open, live, &tip).clicked() && live {
                 self.show_drawer(if is_open { ActiveDrawer::None } else { drawer });
                 self.caliper_tool.is_active = !is_open && drawer == ActiveDrawer::Caliper;
             }
@@ -246,9 +257,10 @@ impl FepdfApp {
         match asked {
             crate::sidebar::bookmarks::Asked::Nothing => {}
             crate::sidebar::bookmarks::Asked::GoTo(page) => {
-                // The same landing as the page buttons: the page the reader asked for
-                // goes to the middle of the window, rather than to its top edge.
-                self.view.scroll_to_page(page.min(pages.saturating_sub(1)), &self.page_layouts);
+                // The same turn as the page buttons: a page asked for by name comes in the
+                // way a page turned to comes in, and stops at its head.
+                let viewport = self.last_viewport_rect.unwrap_or_else(|| ui.max_rect());
+                self.view.turn_to(page.min(pages.saturating_sub(1)), viewport, &self.page_layouts);
             }
             crate::sidebar::bookmarks::Asked::Write => self.write_bookmarks(),
         }

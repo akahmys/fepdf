@@ -102,6 +102,23 @@ impl Command {
         }
     }
 
+    /// The act a command cannot be run without, if it belongs to one view.
+    ///
+    /// **The palette is a shortcut, not a second door** (UI-4), so it offers what the
+    /// window offers and no more: the brushes and the caliper draw on a page, and the
+    /// redaction studio opens onto a brush that does. They stay listed where they cannot
+    /// run, greyed, because a reader searching for one wants to be told it exists and
+    /// where — not to find the list a word shorter.
+    const fn needs(self) -> Option<crate::view::Act> {
+        match self {
+            Self::RedactBrush | Self::Caliper | Self::RedactionStudio => {
+                Some(crate::view::Act::DrawOnPage)
+            }
+            Self::TagBrush => Some(crate::view::Act::SelectText),
+            Self::Load | Self::ResetView | Self::Export | Self::ReadingOrder | Self::Tools => None,
+        }
+    }
+
     /// The drawer a toggle lands on: closed if it was already showing.
     const fn toggled(
         showing: bool,
@@ -148,7 +165,14 @@ impl CommandPalette {
                     let matches = query.is_empty()
                         || name.to_lowercase().contains(&query)
                         || desc.to_lowercase().contains(&query);
-                    if matches && ui.selectable_label(false, format!("{name} — {desc}")).clicked()
+                    let here = command.needs().is_none_or(|act| app.view.does(act));
+                    if matches
+                        && ui
+                            .add_enabled(
+                                here,
+                                egui::Button::selectable(false, format!("{name} — {desc}")),
+                            )
+                            .clicked()
                     {
                         chosen = Some(command);
                         close_palette = true;

@@ -437,6 +437,9 @@ python3 scripts/audit/accent.py || ERROR=1
 echo "[Rule UI-7] Checking that work the reader waits for says so..."
 python3 scripts/audit/progress.py || ERROR=1
 
+echo "[Rule UI-14] Checking that each act names the view that answers it..."
+python3 scripts/audit/surfaces.py || ERROR=1
+
 echo "[Rule 19] Checking formatting..."
 if cargo fmt --all --check > /dev/null 2>&1; then
     echo "  PASS"

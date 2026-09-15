@@ -67,6 +67,25 @@ impl ActiveDrawer {
             Self::Bookmarks => Some((glyph::MARKS, "marks_title")),
         }
     }
+
+    /// The act a drawer cannot be used without, if it is one of the two that draw.
+    ///
+    /// **A tool switched on where its clicks are thrown away is a tool that looks broken.**
+    /// Opening the caliper turns it on and the redaction studio's brush draws boxes on a
+    /// page; in the tile view a page is sixty points wide and every click on one goes to
+    /// choosing pages instead, so both of these came on, lit up, and did nothing. The
+    /// others read or list and are the same in either view.
+    pub const fn needs(self) -> Option<crate::view::Act> {
+        match self {
+            Self::Redaction | Self::Caliper => Some(crate::view::Act::DrawOnPage),
+            Self::None
+            | Self::DocumentInfo
+            | Self::WhatItDoes
+            | Self::Accessibility
+            | Self::Tools
+            | Self::Bookmarks => None,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize, Default)]

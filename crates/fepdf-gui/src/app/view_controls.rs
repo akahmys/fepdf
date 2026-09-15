@@ -12,7 +12,7 @@
 use super::FepdfApp;
 use super::icons::{glyph, icon_action, named};
 use super::theme::{colors, size, space, text};
-use crate::view::{BindingDirection, DisplayMode};
+use crate::view::{Act, BindingDirection, DisplayMode};
 
 impl FepdfApp {
     /// The controls that act on the view, floating over the page near the bottom.
@@ -113,8 +113,15 @@ impl FepdfApp {
     }
 
     /// Rightmost: what to do to the document itself, rather than to the view of it.
+    /// Turning pages upright, which both views answer — see [`Act::RotatePages`].
+    ///
+    /// What it turns is the selection in the tiles and the page being read in the page
+    /// view; `rotate_selected_pages` asks the same table which of the two it is looking at.
     fn document_group(&mut self, ui: &mut egui::Ui) {
-        if icon_action(ui, glyph::ROTATE, false, true, &self.tr("tooltip_rotate_cw")).clicked() {
+        let here = self.view.does(Act::RotatePages);
+        if icon_action(ui, glyph::ROTATE, false, here, &self.tr("tooltip_rotate_cw")).clicked()
+            && here
+        {
             self.rotate_selected_pages(fepdf::Quarter::Q90);
         }
     }
@@ -196,13 +203,13 @@ impl FepdfApp {
         let viewport = self.last_viewport_rect.unwrap_or_else(|| ui.max_rect());
         if icon_action(ui, glyph::PAGE_FIRST, false, true, &self.tr("tooltip_page_first")).clicked()
         {
-            self.view.scroll_to_page(0, &self.page_layouts);
+            self.view.turn_to(0, viewport, &self.page_layouts);
         }
 
         if icon_action(ui, glyph::PAGE_PREV, false, true, &self.tr("tooltip_page_prev")).clicked()
             && current_page > 0
         {
-            self.view.scroll_to_page(current_page - 1, &self.page_layouts);
+            self.view.turn_to(current_page - 1, viewport, &self.page_layouts);
         }
 
         ui.label(
@@ -214,11 +221,11 @@ impl FepdfApp {
         if icon_action(ui, glyph::PAGE_NEXT, false, true, &self.tr("tooltip_page_next")).clicked()
             && current_page + 1 < self.total_pages
         {
-            self.view.scroll_to_page(current_page + 1, &self.page_layouts);
+            self.view.turn_to(current_page + 1, viewport, &self.page_layouts);
         }
 
         if icon_action(ui, glyph::PAGE_LAST, false, true, &self.tr("tooltip_page_last")).clicked() {
-            self.view.scroll_to_page(self.total_pages - 1, &self.page_layouts);
+            self.view.turn_to(self.total_pages - 1, viewport, &self.page_layouts);
         }
 
         // **With the pages rather than with the zoom.** It answers "where was I", which is

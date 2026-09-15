@@ -307,13 +307,14 @@ and these are not, and reassigning a number is what made Rules 9 and 14 mean two
 | **UI-11** | Dimensional tokens | Spacing, type size and corner radius come from the declared scales | `scripts/audit/dimensions.py` via `verify_compliance.sh` |
 | **UI-12** | One home per action | An action belongs to one surface; the others are shortcuts to it | `scripts/audit/reachability.py` via `verify_compliance.sh` |
 | **UI-13** | Layout grid | Chrome stands on the 4pt grid; the page keeps the 72pt one | a build-time `assert!` over the tokens; the rest **nothing** |
+| **UI-14** | One surface table | Which view answers an act is declared once, in `view::Act`; the zoom boundary is compared in `view.rs` and nowhere else | `scripts/audit/surfaces.py` via `verify_compliance.sh` — and every variant must be asked for somewhere |
 
-**One of thirteen says "nothing"**, and it is not an omission: UI-13's second half is
+**One of fourteen says "nothing"**, and it is not an omission: UI-13's second half is
 that widgets *use* the tokens, which is exactly what UI-11 measures, so the row names the
 build-time assertion it has and leaves the rest to that rather than counting the same
 thing twice.
 
-**Twelve of thirteen name something that runs**, and seven of those checkers found a
+**Thirteen of fourteen name something that runs**, and eight of those checkers found a
 defect on the run that introduced them. That is the argument for the column, rather than
 for the rules being well chosen.
 

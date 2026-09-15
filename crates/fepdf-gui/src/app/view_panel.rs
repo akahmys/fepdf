@@ -2,7 +2,7 @@
 
 use super::FepdfApp;
 use crate::interaction::SelectionManager;
-use crate::view::DisplayMode;
+use crate::view::{Act, DisplayMode};
 use crate::worker::WorkerRequest;
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -120,21 +120,31 @@ impl FepdfApp {
         }
     }
 
+    /// What a right-click on a page offers, which is not the same in the two views.
+    ///
+    /// **Turning a page upright is the only thing both of them answer.** Duplicating,
+    /// deleting, inserting and extracting are all about a page's place among the others —
+    /// [`Act::ArrangePages`] — and the page view shows one page with no others around it,
+    /// so the menu that offered them there was offering to rearrange a document the reader
+    /// could not see.
     fn render_page_context_menu(&mut self, response: &egui::Response, page_idx: usize) {
         response.context_menu(|ui| {
             ui.label(format!("{} {}", self.tr("tools_page"), page_idx + 1));
             ui.separator();
-            if ui.button(self.tr("menu_rotate_cw")).clicked() {
-                self.rotate_page_action(page_idx, fepdf::Quarter::Q90);
-                ui.close();
+            if self.view.does(Act::RotatePages) {
+                for (key, quarter) in [
+                    ("menu_rotate_cw", fepdf::Quarter::Q90),
+                    ("menu_rotate_ccw", fepdf::Quarter::Q270),
+                    ("menu_rotate_180", fepdf::Quarter::Q180),
+                ] {
+                    if ui.button(self.tr(key)).clicked() {
+                        self.rotate_page_action(page_idx, quarter);
+                        ui.close();
+                    }
+                }
             }
-            if ui.button(self.tr("menu_rotate_ccw")).clicked() {
-                self.rotate_page_action(page_idx, fepdf::Quarter::Q270);
-                ui.close();
-            }
-            if ui.button(self.tr("menu_rotate_180")).clicked() {
-                self.rotate_page_action(page_idx, fepdf::Quarter::Q180);
-                ui.close();
+            if !self.view.does(Act::ArrangePages) {
+                return;
             }
             ui.separator();
             if ui.button(self.tr("menu_duplicate_page")).clicked() {
@@ -302,7 +312,7 @@ impl FepdfApp {
         unscaled_h: f32,
         zoom: f32,
     ) {
-        if self.view.selects_text()
+        if self.view.does(Act::SelectText)
             && let Some(spans) = self.page_spans.get(&page_idx)
         {
             if self.selection_manager.is_tagging_brush_active {
@@ -346,7 +356,7 @@ impl FepdfApp {
         // `Response` belongs to text selection, and having both meant a drag over a
         // sentence also selected the page under it — which `Delete`, gated by nothing,
         // would then remove.
-        if self.view.selects_pages() {
+        if self.view.does(Act::SelectPages) {
             self.handle_page_click_selection(ui, &response, page_idx);
 
             if response.drag_started() && !self.selected_pages.contains(&page_idx) {
@@ -360,13 +370,13 @@ impl FepdfApp {
         // answer a double-click on the bench gives for the page being read, and by the
         // same route. It used to rebuild the layout itself and scroll into it, which was
         // the one way across the tile boundary that did not go through the anchor.
-        if response.double_clicked() && zoom < crate::view::PDFView::TILE_ZOOM {
+        if response.double_clicked() && self.view.does(Act::OpenPage) {
             self.view.open_page(page_idx);
             self.view.set_zoom(1.0);
         }
 
         let is_r2l = self.view.binding_direction == crate::view::BindingDirection::RightToLeft;
-        let target_slot = if zoom < crate::view::PDFView::TILE_ZOOM {
+        let target_slot = if self.view.does(Act::ArrangePages) {
             Self::handle_tile_drag_and_drop(
                 ui,
                 &response,
@@ -690,7 +700,7 @@ impl FepdfApp {
         let any_down = ui.input(|i| i.pointer.any_down());
         let any_released = ui.input(|i| i.pointer.any_released());
 
-        if zoom < crate::view::PDFView::TILE_ZOOM && shift_down {
+        if self.view.does(Act::SelectPages) && shift_down {
             if any_pressed && let Some(pos) = mouse_pos {
                 self.selection_manager.marquee_start = Some(pos);
                 self.selection_manager.marquee_current = Some(pos);

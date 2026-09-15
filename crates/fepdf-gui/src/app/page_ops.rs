@@ -3,6 +3,7 @@
 use super::FepdfApp;
 use crate::interaction::PendingTagRequest;
 use crate::sidebar::USTNode;
+use crate::view::Act;
 use crate::worker::WorkerRequest;
 use std::collections::BTreeSet;
 use std::path::PathBuf;
@@ -388,7 +389,8 @@ impl FepdfApp {
     /// them. In the page view the target is the page they are on.
     pub fn rotate_selected_pages(&mut self, delta: fepdf::Quarter) {
         let current = (self.total_pages > 0).then(|| self.view.current_page());
-        let targets = pages_to_turn(self.view.selects_pages(), &self.selected_pages, current);
+        let targets =
+            pages_to_turn(self.view.does(Act::SelectPages), &self.selected_pages, current);
         self.rotate_pages(targets, delta);
     }
 

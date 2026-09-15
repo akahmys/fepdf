@@ -132,6 +132,14 @@ pub struct PDFView {
     /// end froze the view instead: a reader scrolling steadily never stops sending, so one
     /// page turned and nothing more happened until they took their fingers off.
     arriving: bool,
+    /// Where the arriving page stops, as a `pan` along the axis that pages.
+    ///
+    /// **Remembered rather than clamped to.** The travelling offset used to be added to a
+    /// `pan` that had just been held inside the page's own range, which works only while
+    /// the page comes in from the side its landing edge is on: a page turned back to from
+    /// a later one arrives at its head and slides down from above, and the hold ate the
+    /// offset every frame and settled it on its foot instead.
+    landing: f32,
     /// Frames since the reader last moved the view by anything worth counting.
     ///
     /// **A frame with nothing in it is not the end of a scroll.** The wheel arrives in
@@ -160,6 +168,57 @@ pub struct PDFView {
     /// the reader wants back is the page they were reading; a double-click on a tile
     /// points at one page and says open it. Both are answered by [`Self::open_page`].
     centre_next: Option<usize>,
+}
+
+/// Something a reader can ask for that only one of the two views answers.
+///
+/// **The split was spelled four ways and declared nowhere.** `is_page_view`,
+/// `selects_pages`, `selects_text` and a bare `zoom < TILE_ZOOM` all said the same thing at
+/// different call sites, so which view could do what was something you found out by reading
+/// the whole window — and two of the four spellings had drifted: a content tool could be
+/// switched on where its clicks were thrown away, and the arrow keys built a selection
+/// nothing showed.
+///
+/// **Selecting text and selecting pages are opposites**, which is the invariant that
+/// matters most here: one `Response` covers a page and both of them read it. While both
+/// were live, a drag meant to select text also selected the page, and `Delete` then removed
+/// the page the reader had merely clicked in. One act — rotating a page — belongs to both
+/// views, and it says so here rather than at the six places that would each have to
+/// remember.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Act {
+    /// Selecting words on a page, and the brushes that work over a selection.
+    SelectText,
+    /// Drawing on a page: a redaction box, a caliper measurement, a signature.
+    DrawOnPage,
+    /// Going from one page to the next, by pulling the page or by the arrow keys.
+    TurnPages,
+    /// Choosing whole pages: a click, a marquee, select-all.
+    SelectPages,
+    /// Changing which pages there are and in what order: dragging one to a new place,
+    /// duplicating, deleting, inserting another document, extracting a selection.
+    ///
+    /// **The grid is where a document is arranged**, because every one of these is about a
+    /// page's place among the others and the page view shows a page with no others around
+    /// it. Rotation is not one of them: it changes the page rather than the document.
+    ArrangePages,
+    /// Opening one page from the grid, by double-clicking it.
+    OpenPage,
+    /// Turning a page a quarter at a time.
+    ///
+    /// **The one act both views answer.** A reader who is reading a page that came in
+    /// sideways wants it upright there and then, and a reader looking at the grid wants
+    /// the same for the pages they have picked out.
+    RotatePages,
+}
+
+/// Which end of a page the view stops at when it gets there.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Edge {
+    /// The top of it, or the binding side: where the reading starts.
+    Head,
+    /// The other end, which is where a reader going backwards was last looking.
+    Foot,
 }
 
 /// How far a page may be pulled past its edge before the view turns to the next one.
@@ -270,6 +329,7 @@ impl PDFView {
             adrift: 0.0,
             homing: EASE_LET_GO,
             arriving: false,
+            landing: 0.0,
             quiet: GESTURE_GAP,
             arranged_as_tiles: false,
             last_anchor: None,
@@ -501,27 +561,36 @@ impl PDFView {
             .unwrap_or(zoom)
     }
 
-    /// Whether a click on a page selects *the page*. See [`Self::selects_text`].
-    ///
-    /// **The two must never both be true.** One `Response` covers a page, and page
-    /// selection and text selection both read it: while both were live, a drag meant to
-    /// select text also selected the page, and `Delete` — which is not gated by mode —
-    /// then removed the page the reader had merely clicked in.
+    /// Whether this view is the one that answers `act`. See [`Act`].
     #[must_use]
-    pub fn selects_pages(&self) -> bool {
-        !self.is_page_view()
-    }
-
-    /// Whether a click on a page selects *text on it*. See [`Self::selects_pages`].
-    #[must_use]
-    pub fn selects_text(&self) -> bool {
-        self.is_page_view()
+    pub fn does(&self, act: Act) -> bool {
+        match act {
+            Act::SelectText | Act::DrawOnPage | Act::TurnPages => self.is_page_view(),
+            Act::SelectPages | Act::ArrangePages | Act::OpenPage => !self.is_page_view(),
+            Act::RotatePages => true,
+        }
     }
 
     /// Whether the view is showing pages rather than tiles. See [`Self::TILE_ZOOM`].
+    ///
+    /// **What is drawn, not what can be done.** The layout, the renderer and the status
+    /// bar each read this to decide what to put on screen; anything deciding whether the
+    /// reader may *do* something asks [`Self::does`], which names the thing being asked
+    /// about rather than the surface it happens on.
     #[must_use]
     pub fn is_page_view(&self) -> bool {
-        self.zoom >= Self::TILE_ZOOM
+        Self::page_zoom(self.zoom)
+    }
+
+    /// Whether `zoom` is a page-view zoom, for a caller that has one but not a view.
+    ///
+    /// **The one comparison against [`Self::TILE_ZOOM`] in the window.** A page number is
+    /// drawn from a free function that is handed a zoom, and it read the boundary itself;
+    /// four such readings is how the split came to mean slightly different things in
+    /// different places (UI-14).
+    #[must_use]
+    pub fn page_zoom(zoom: f32) -> bool {
+        zoom >= Self::TILE_ZOOM
     }
 
     /// Sets the zoom without moving anything, for a caller that places the view itself.
@@ -1081,6 +1150,21 @@ impl PDFView {
         true
     }
 
+    /// Goes to `page` and brings it in the way a page turned to comes in.
+    ///
+    /// **The buttons and the keys turn pages the same way the reader's hand does.** Going
+    /// to a page used to place it and nothing else, so the four page buttons and the arrow
+    /// keys swapped the contents of the window while a pull slid the next page in — two
+    /// answers to "show me the next page", one of which was the one nobody had written a
+    /// turn for. A page asked for by name arrives at its head whichever side of it the
+    /// reader was on, and comes in from the side they are travelling.
+    pub fn turn_to(&mut self, page: usize, viewport: egui::Rect, layouts: &[PageLayout]) {
+        let onwards = page >= self.active_page;
+        if self.step_to(Some(page), layouts) && self.is_page_view() {
+            self.land(viewport, onwards, Edge::Head, layouts);
+        }
+    }
+
     /// What is on screen, in layout units: the page, the spread, or the whole grid.
     ///
     /// **Asked again after a page turns**, which is why it is its own function: the page
@@ -1193,27 +1277,32 @@ impl PDFView {
         self.adrift
     }
 
-    /// Starts the page just turned to on its way in: to its head going on, its foot going
-    /// back.
+    /// Starts the page just turned to on its way in, stopping it at `at`.
     ///
-    /// **A page too big for the window arrives at the edge it is read from, not its
-    /// middle.** Landing in the middle hides the lines a page starts with, and from there
-    /// the foot is half a page away — so a reader turning pages saw only bottom halves,
-    /// and each turn took a pull far shorter than the last had. `along.1` is the near edge
-    /// on either axis — the top, or the binding side — and `along.0` the far one; a page
-    /// that fits has only the one place to be and [`page_hold`] returns it for both.
-    fn land(
-        &mut self,
-        viewport: egui::Rect,
-        (horizontal, onwards): (bool, bool),
-        layouts: &[PageLayout],
-    ) {
+    /// **A page too big for the window arrives at one of its edges, not its middle.**
+    /// Landing in the middle hides the lines a page starts with, and from there the foot is
+    /// half a page away — so a reader turning pages saw only bottom halves, and each turn
+    /// took a pull far shorter than the last had. `along.1` is the head on either axis —
+    /// the top, or the binding side — and `along.0` the foot; a page that fits has only the
+    /// one place to be and [`page_hold`] returns it for both.
+    ///
+    /// `onwards` is the direction of travel, which is the side the page comes in from; it
+    /// is not the same question as which edge it stops at. A pull that reaches the foot of
+    /// one page carries on to the head of the next, and a pull the other way stops at the
+    /// foot of the one before — but a reader who asks for page 40 wants its head whichever
+    /// side of 40 they were on.
+    fn land(&mut self, viewport: egui::Rect, onwards: bool, at: Edge, layouts: &[PageLayout]) {
+        let horizontal = self.scroll_direction == ScrollDirection::Horizontal;
         let (across, up) = self.shown_extent(layouts);
         let origin = self.get_origin_no_pan(viewport);
         let sideways = page_hold(across, (viewport.min.x, viewport.max.x), self.zoom, origin.x);
         let upright = page_hold(up, (viewport.min.y, viewport.max.y), self.zoom, origin.y);
         let (along, cross) = if horizontal { (sideways, upright) } else { (upright, sideways) };
-        let read_from = if onwards { along.1 } else { along.0 };
+        let read_from = match at {
+            Edge::Head => along.1,
+            Edge::Foot => along.0,
+        };
+        self.landing = read_from;
         // **It comes in from the side it comes from**, a window's width away and travelling,
         // rather than being where the last page was between one frame and the next. Reading
         // on, the next page is below, or past the binding edge — and a document bound on the
@@ -1235,6 +1324,29 @@ impl PDFView {
         };
     }
 
+    /// Carries the arriving page the rest of the way to where it stops.
+    ///
+    /// **Nothing else moves it while it travels.** The pull is measured from where a page
+    /// belongs and an arriving one is a window away from that, so a reader still scrolling
+    /// would be read as hauling it backwards — which is a page flapping between two. Their
+    /// scrolling reaches the page once it is home.
+    fn glide(&mut self, viewport: egui::Rect, across: (f32, f32), up: (f32, f32)) {
+        let origin = self.get_origin_no_pan(viewport);
+        let sideways = page_hold(across, (viewport.min.x, viewport.max.x), self.zoom, origin.x);
+        let upright = page_hold(up, (viewport.min.y, viewport.max.y), self.zoom, origin.y);
+        let horizontal = self.scroll_direction == ScrollDirection::Horizontal;
+        let (along, cross) = if horizontal { (sideways, upright) } else { (upright, sideways) };
+        // Held inside the page's own range, so that a zoom or a re-layout part way through
+        // cannot land it somewhere the page is not.
+        let stops_at = self.landing.clamp(along.0, along.1);
+        let travelling = self.ease_home(0.0);
+        if horizontal {
+            self.pan = egui::vec2(stops_at + travelling, self.pan.y.clamp(cross.0, cross.1));
+        } else {
+            self.pan = egui::vec2(self.pan.x.clamp(cross.0, cross.1), stops_at + travelling);
+        }
+    }
+
     /// Holds the page against the window, and turns to the next one when it is pulled far
     /// enough off it.
     ///
@@ -1253,6 +1365,9 @@ impl PDFView {
     ) {
         let origin = self.get_origin_no_pan(viewport);
         let horizontal = self.scroll_direction == ScrollDirection::Horizontal;
+        if self.arriving {
+            return self.glide(viewport, across, up);
+        }
         let (hold, along) = if horizontal {
             (page_hold(across, (viewport.min.x, viewport.max.x), self.zoom, origin.x), self.pan.x)
         } else {
@@ -1282,7 +1397,8 @@ impl PDFView {
             };
             let turned = if onwards { self.page_forward(layouts) } else { self.page_back(layouts) };
             if turned {
-                self.land(viewport, (horizontal, onwards), layouts);
+                let at = if onwards { Edge::Head } else { Edge::Foot };
+                self.land(viewport, onwards, at, layouts);
                 return;
             }
         }
@@ -1776,7 +1892,7 @@ mod zoom_steps {
 
 #[cfg(test)]
 mod click_ownership {
-    use super::PDFView;
+    use super::{Act, PDFView};
 
     /// **A click belongs to exactly one of them, at every zoom.** Page selection and text
     /// selection read the same `Response` over a page, so a zoom where both are live means
@@ -1789,24 +1905,35 @@ mod click_ownership {
         for zoom in [0.10_f32, 0.25, 0.29, 0.30, 0.33, 0.50, 1.0, 4.0, 10.0] {
             view.set_zoom(zoom);
             assert_ne!(
-                view.selects_pages(),
-                view.selects_text(),
+                view.does(Act::SelectPages),
+                view.does(Act::SelectText),
                 "at {zoom} pages={} text={}",
-                view.selects_pages(),
-                view.selects_text()
+                view.does(Act::SelectPages),
+                view.does(Act::SelectText)
             );
         }
     }
 
-    /// And each view owns the one that belongs to it: pages are arranged in the tile view
-    /// and read in the page view.
+    /// **Every act belongs to the page view, to the tiles, or to both — and to the same
+    /// one wherever it is asked about.** The split used to be spelled four ways at the
+    /// call sites and declared nowhere; this is the table those call sites now read.
     #[test]
-    fn the_tile_view_selects_pages_and_the_page_view_selects_text() {
-        let mut view = PDFView::new();
-        view.set_zoom(PDFView::TILE_STEP);
-        assert!(view.selects_pages() && !view.selects_text());
-        view.set_zoom(1.0);
-        assert!(view.selects_text() && !view.selects_pages());
+    fn each_act_has_the_view_it_belongs_to() {
+        let mut tiles = PDFView::new();
+        tiles.set_zoom(PDFView::TILE_STEP);
+        let mut pages = PDFView::new();
+        pages.set_zoom(1.0);
+
+        for act in [Act::SelectText, Act::DrawOnPage, Act::TurnPages] {
+            assert!(pages.does(act) && !tiles.does(act), "{act:?} is the page view's");
+        }
+        for act in [Act::SelectPages, Act::ArrangePages, Act::OpenPage] {
+            assert!(tiles.does(act) && !pages.does(act), "{act:?} is the tiles'");
+        }
+        assert!(
+            pages.does(Act::RotatePages) && tiles.does(Act::RotatePages),
+            "a page can be turned upright wherever it is being looked at"
+        );
     }
 }
 
@@ -2432,6 +2559,36 @@ mod overscroll_paging {
             "it stayed at {} after the swipe stopped, rather than {resting}",
             view.pan.y
         );
+    }
+
+    /// **A page asked for by name comes in like a page turned to, and stops at its head.**
+    /// The four page buttons, the bookmarks and the arrow keys placed it and nothing else,
+    /// so half the ways to reach a page slid it in and half swapped it for the last one —
+    /// and the swap kept the pan of the page it replaced, which at any zoom where a page
+    /// does not fit put the reader half way down a page they had not started.
+    #[test]
+    fn a_page_asked_for_by_name_is_turned_to() {
+        let window = egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(200.0, 200.0));
+        let layouts = pages();
+        for (from, to) in [(1_usize, 3_usize), (3, 1)] {
+            let mut view = PDFView::new();
+            view.display_mode = DisplayMode::SinglePage;
+            view.set_zoom(4.0); // a 100-unit page is 400 points tall in a 200-point window
+            view.active_page = from;
+            view.clamp_pan(window, &layouts);
+
+            view.turn_to(to, window, &layouts);
+            assert_eq!(view.active_page, to);
+            assert!(view.arriving, "page {to} was placed rather than turned to");
+
+            settle(&mut view, window, &layouts);
+            let head = layouts[to].rect.min.y.mul_add(view.zoom(), view.get_origin(window).y);
+            assert!(
+                (head - window.min.y).abs() < 0.01,
+                "going {from} to {to} left its top at {head}, not at the window's {}",
+                window.min.y
+            );
+        }
     }
 
     /// A pull that stops short of the threshold pages nothing.
