@@ -143,8 +143,10 @@ impl FepdfApp {
     /// says what it would take.
     fn render_page_context_menu(&mut self, response: &egui::Response, page_idx: usize) {
         response.context_menu(|ui| {
-            ui.label(format!("{} {}", self.tr("tools_page"), page_idx + 1));
-            ui.separator();
+            // **No heading.** The menu opened with the number of the page it was on, which
+            // is the one thing a reader right-clicking a page already knows — and in the
+            // grid it named the page under the pointer while the entries below acted on
+            // the selection, so the heading and the menu disagreed.
             // **Picking out several pages is the grid's**, and it is offered where the
             // pages are rather than only behind `Cmd+A`, which a reader who does not
             // already know it would never find (UI-4).
@@ -194,9 +196,20 @@ impl FepdfApp {
         });
     }
 
-    /// The three quarters a page can be turned, under one name.
+    /// The three quarters a page can be turned, under the name of what would turn.
+    ///
+    /// **It says which pages, because the two views turn different ones.** The page view
+    /// turns the page being read — a selection carried in from the grid is not visible
+    /// there and must not be what a menu on the page acts on — and the grid turns what is
+    /// picked out, with the count, the way the entries below it do.
     fn render_rotate_menu(&mut self, ui: &mut egui::Ui, page_idx: usize) {
-        ui.menu_button(self.tr("menu_rotate"), |ui| {
+        let turning = self.acting_on(page_idx);
+        let name = if self.view.does(Act::SelectPages) {
+            format!("{} ({})", self.tr("menu_rotate_selected"), turning.len())
+        } else {
+            self.tr("menu_rotate_this")
+        };
+        ui.menu_button(name, |ui| {
             for (key, quarter) in [
                 ("menu_rotate_cw", fepdf::Quarter::Q90),
                 ("menu_rotate_ccw", fepdf::Quarter::Q270),
@@ -208,6 +221,20 @@ impl FepdfApp {
                 }
             }
         });
+    }
+
+    /// The pages an entry reached from `page_idx` acts on.
+    ///
+    /// **In the page view that is the page being read, and nothing else.** A selection
+    /// survives the trip in from the grid — checking a page before deleting it is the
+    /// ordinary reason to zoom in — and it is invisible there, so an entry that acted on it
+    /// would act on pages the reader cannot see while its own name said "this page".
+    pub(crate) fn acting_on(&self, page_idx: usize) -> BTreeSet<usize> {
+        if self.view.does(Act::SelectPages) {
+            self.pages_in_hand(page_idx)
+        } else {
+            BTreeSet::from([page_idx])
+        }
     }
 
     /// What the entry that takes pages out would say, and what it would take — or nothing,
@@ -227,10 +254,10 @@ impl FepdfApp {
         if self.total_pages <= 1 || !self.view.does(Act::DeletePages) {
             return None;
         }
+        let taking = self.acting_on(page_idx);
         if !self.view.does(Act::SelectPages) {
-            return Some((self.tr("menu_delete_this_page"), BTreeSet::from([page_idx])));
+            return Some((self.tr("menu_delete_this_page"), taking));
         }
-        let taking = self.pages_in_hand(page_idx);
         if taking.len() >= self.total_pages {
             return None;
         }

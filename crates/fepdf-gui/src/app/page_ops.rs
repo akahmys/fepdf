@@ -444,12 +444,13 @@ impl FepdfApp {
         self.rotate_pages(targets, delta);
     }
 
+    /// Turns what a menu entry reached from `clicked_idx` acts on. See `acting_on`.
+    ///
+    /// **It asked the selection alone**, which in the page view is one carried in from the
+    /// grid and invisible: a reader who had picked pages out, zoomed in on one of them and
+    /// turned it from the menu turned all of them, under an entry that said "this page".
     pub fn rotate_page_action(&mut self, clicked_idx: usize, delta: fepdf::Quarter) {
-        let targets = if self.selected_pages.contains(&clicked_idx) {
-            self.selected_pages.iter().copied().collect()
-        } else {
-            vec![clicked_idx]
-        };
+        let targets = self.acting_on(clicked_idx).into_iter().collect();
         self.rotate_pages(targets, delta);
     }
 }
