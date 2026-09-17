@@ -210,15 +210,16 @@ pub enum Act {
     /// in sideways wants it upright there and then, and a reader looking at the grid wants
     /// the same for the pages they have picked out.
     RotatePages,
-    /// Taking pages out of the document.
+    /// Taking pages out of this document and into one of their own.
     ///
-    /// **The other act both answer, and for the same reason**: a reader who has read a
-    /// page and does not want it should not have to go and find it in the grid first. What
+    /// **The other act both answer, and for the same reason**: a reader who has read a page
+    /// and does not want it here should not have to go and find it in the grid first. What
     /// goes is what the view has in hand — the page being read, or the pages picked out —
-    /// which is the same rule [`Self::RotatePages`] follows and is why the two are not one
-    /// act: rotating changes a page and this removes it, and a menu that offered "delete"
-    /// where it meant something else is how a reader loses a page they were looking at.
-    DeletePages,
+    /// the same rule [`Self::RotatePages`] follows.
+    ///
+    /// **Nothing is destroyed by it.** The pages leave in a window of their own, so the act
+    /// is a split rather than a delete, and the two views name it for what they would take.
+    SplitPages,
 }
 
 /// Which end of a page the view stops at when it gets there.
@@ -576,7 +577,7 @@ impl PDFView {
         match act {
             Act::SelectText | Act::DrawOnPage | Act::TurnPages => self.is_page_view(),
             Act::SelectPages | Act::ArrangePages | Act::OpenPage => !self.is_page_view(),
-            Act::RotatePages | Act::DeletePages => true,
+            Act::RotatePages | Act::SplitPages => true,
         }
     }
 
@@ -2015,7 +2016,7 @@ mod click_ownership {
         for act in [Act::SelectPages, Act::ArrangePages, Act::OpenPage] {
             assert!(tiles.does(act) && !pages.does(act), "{act:?} is the tiles'");
         }
-        for act in [Act::RotatePages, Act::DeletePages] {
+        for act in [Act::RotatePages, Act::SplitPages] {
             assert!(
                 pages.does(act) && tiles.does(act),
                 "{act:?} is answered wherever the page it acts on is being looked at"

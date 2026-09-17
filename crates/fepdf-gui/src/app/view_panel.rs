@@ -157,30 +157,33 @@ impl FepdfApp {
                 self.render_rotate_menu(ui, page_idx);
             }
 
-            // The two edits to a page that have no variants, and so no submenu: one line
-            // each, with the destructive one last.
+            // The copy that stays here, which is the one edit with no variants to hang
+            // under a name of its own.
             let arranges = self.view.does(Act::ArrangePages);
-            let delete = self.delete_in_hand(page_idx);
-            if arranges || delete.is_some() {
+            if arranges {
+                ui.separator();
+                if ui.button(self.tr("menu_duplicate_page")).clicked() {
+                    self.duplicate_page(page_idx);
+                    ui.close();
+                }
+            }
+
+            // Documents in, and documents out: the last group is the one that changes which
+            // document a page belongs to.
+            let split = self.split_in_hand(page_idx);
+            if arranges || split.is_some() {
                 ui.separator();
             }
-            if arranges && ui.button(self.tr("menu_duplicate_page")).clicked() {
-                self.duplicate_page(page_idx);
-                ui.close();
+            if arranges {
+                self.render_page_file_menu(ui, page_idx);
             }
-            if let Some((label, taking)) = delete
+            if let Some((label, taking)) = split
                 && ui.button(label).clicked()
             {
                 self.selected_pages = taking;
-                self.remove_selected_pages();
+                self.extract_selected_pages(true);
                 ui.close();
             }
-
-            if !arranges {
-                return;
-            }
-            ui.separator();
-            self.render_page_file_menu(ui, page_idx);
         });
     }
 
@@ -237,31 +240,24 @@ impl FepdfApp {
         }
     }
 
-    /// What the entry that takes pages out would say, and what it would take — or nothing,
-    /// where it cannot be offered at all.
+    /// What the entry that takes pages out of the document would say, and what it would
+    /// take — or nothing, where the view does not answer for it.
     ///
     /// **Asked before the separator above it is drawn**, because an entry that is not there
-    /// leaves a rule with nothing under it. It is not there for a document of one page,
-    /// which cannot lose it, and not there when every page is picked out: taking all of
-    /// them is what *extract* is for, and `remove_selected_pages` answers a request to
-    /// delete them by doing nothing at all.
+    /// leaves a rule with nothing under it.
     ///
-    /// **A right-click on a page that is not in the selection means that page**, which is
-    /// the rule the extract entries follow: a reader who picks out four pages, right-clicks
-    /// a fifth and reads "delete the selected pages" would lose the four they were not
-    /// pointing at.
-    fn delete_in_hand(&self, page_idx: usize) -> Option<(String, BTreeSet<usize>)> {
-        if self.total_pages <= 1 || !self.view.does(Act::DeletePages) {
+    /// **It takes every page it is given, the whole document included.** Splitting all of
+    /// them out is a document moving to a window of its own, which is what the reader asked
+    /// for; the delete this replaced could not do it, and refused in silence.
+    fn split_in_hand(&self, page_idx: usize) -> Option<(String, BTreeSet<usize>)> {
+        if !self.view.does(Act::SplitPages) {
             return None;
         }
         let taking = self.acting_on(page_idx);
         if !self.view.does(Act::SelectPages) {
-            return Some((self.tr("menu_delete_this_page"), taking));
+            return Some((self.tr("menu_split_this_page"), taking));
         }
-        if taking.len() >= self.total_pages {
-            return None;
-        }
-        Some((format!("{} ({})", self.tr("menu_delete_selected"), taking.len()), taking))
+        Some((format!("{} ({})", self.tr("menu_split_selected"), taking.len()), taking))
     }
 
     /// Bringing another document in, and sending pages of this one out.
@@ -270,35 +266,23 @@ impl FepdfApp {
     /// they are reached from: one adds pages beside it and the other writes a second
     /// file, and neither is the kind of thing the four above it are.
     fn render_page_file_menu(&mut self, ui: &mut egui::Ui, page_idx: usize) {
-        ui.menu_button(self.tr("menu_insert"), |ui| {
-            if ui.button(self.tr("menu_insert_before")).clicked() {
-                self.insert_document_at(page_idx);
-                ui.close();
-            }
-            if ui.button(self.tr("menu_insert_after")).clicked() {
-                self.insert_document_at(page_idx + 1);
-                ui.close();
-            }
-        });
-        // **The count is on the act, not on each way of doing it.** Both leaves take the
-        // same pages and differ only in what happens to the originals.
-        let taking = self.pages_in_hand(page_idx);
-        let count = taking.len();
-        ui.menu_button(format!("{} ({count})", self.tr("menu_extract")), |ui| {
-            if ui.button(self.tr("menu_extract_keep")).clicked() {
-                self.selected_pages.clone_from(&taking);
-                self.extract_selected_pages(false);
-                ui.close();
-            }
-            // Taking every page is allowed, and takes the document with it: the new window
-            // holds all of it and this one closes, having applied nothing to the file it
-            // was opened from.
-            if ui.button(self.tr("menu_extract_remove")).clicked() {
-                self.selected_pages.clone_from(&taking);
-                self.extract_selected_pages(true);
-                ui.close();
-            }
-        });
+        let taking = self.acting_on(page_idx);
+        // **One place, which is where the pages in hand start.** It was before *or* after
+        // the page clicked, two entries for a choice a reader makes by clicking one page
+        // to the left; where the selection begins is the answer to both.
+        if ui.button(self.tr("menu_insert_at_selection")).clicked() {
+            let at = taking.iter().next().copied().unwrap_or(page_idx);
+            self.insert_document_at(at);
+            ui.close();
+        }
+        // **Extracting leaves the originals.** Taking them out is the split below, which is
+        // the same operation with the pages removed here — one act each, rather than one
+        // act and a question about what happens to what it took.
+        if ui.button(format!("{} ({})", self.tr("menu_extract_selected"), taking.len())).clicked() {
+            self.selected_pages = taking;
+            self.extract_selected_pages(false);
+            ui.close();
+        }
     }
 
     /// The pages an entry reached from `page_idx` acts on. See [`pages_in_hand`].
