@@ -12,6 +12,8 @@ pub mod annex_d;
 pub mod cff_standard;
 /// CMap character map parsers and utilities.
 pub mod cmap;
+/// What a font program permits, from `OS/2.fsType`.
+pub mod embedding;
 /// Surgical font binary reconstructor and SFNT patcher.
 pub mod reconstruction;
 /// CMap rescue and recovery heuristics.
@@ -25,6 +27,7 @@ pub mod subset;
 pub use agl::*;
 pub use cff_standard::*;
 pub use cmap::*;
+pub use embedding::*;
 pub use reconstruction::*;
 pub use rescue::*;
 pub use subset::*;

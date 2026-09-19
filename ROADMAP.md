@@ -3543,11 +3543,36 @@ Wiring, first, because none of it touches the engine:
 
 Then the gate:
 
-- [ ] **W-E1 — embedding a font.** Subsetting a TrueType or CFF program down to a glyph
-      set, and writing `/FontFile2` or `/FontFile3` with the `/FontDescriptor`,
-      `/ToUnicode` and Identity-H encoding that make it readable back.
+- [x] **W-E1a — a font program's own terms are read.** `OS/2.fsType` (ISO 14496-22)
+      states what a face permits, and nothing in this engine read it: one write, the
+      `OS/2` table `reconstruction.rs` synthesises, and no read. `fepdf-font::embedding`
+      reads it, and the nine samples measured on 2026-09-19 are why the ladder below ends
+      where it does — 235 embedded programs, 64 stating a permission, **7 of those
+      refusing an editable embedding**, and **171 stating nothing at all**, 153 being
+      CFF-based `FontFile3`, a format with no such table.
+
+      ```bash
+      cargo test -p fepdf-model --test font_embedding_permission_test -- --nocapture
+      ```
+
+      The first run of that measurement said 1 of 235: it read the stream as the arena
+      holds it, which is still `/FlateDecode`d, so every table tag was noise off a zlib
+      header. Printing the tags caught it, and the test carries the trap in writing.
+
+- [ ] **W-E1b — subsetting a program to a glyph set**, out of the SFNT disassembler
+      `reconstruction.rs` already has, and the CFF one beside it.
+- [ ] **W-E1c — writing the PDF side**: `/FontFile2` or `/FontFile3` with the
+      `/FontDescriptor`, `/ToUnicode` and Identity-H encoding that make it readable back.
       *Fails if*: text written in Japanese does not come back out of `inspect text`, or
       `inspect audit` reports a non-embedded font in output this engine produced.
+- [ ] **W-E1d — the ladder**
+      ([ADR-0089](docs/adr/0089-a-face-is-embedded-only-where-it-permits-it.md)): the
+      document's own face, then a face on this machine whose `fsType` permits an editable
+      *and* subsettable embedding, then **refuse** — naming the characters, recording a
+      `Decision`, substituting nothing. No face is bundled with this engine, and silence
+      from a program that carries no `OS/2` table is not consent.
+      *Fails if*: a refusal writes a glyph anyway, or a substitution reaches a file
+      without a `Decision` beside it.
 
 - [x] **W-E2a — the decoration's font is written indirect.** The `9.6.2` repairs above
       are gone; `page_decoration_test.rs` fails against the old writer with 13 of them,

@@ -2004,7 +2004,7 @@ fn parse_dict_number(d: &[u8]) -> (i32, usize) {
     }
 }
 
-fn find_table_range(s: &[u8], t: &[u8; 4]) -> Option<(usize, usize)> {
+pub(crate) fn find_table_range(s: &[u8], t: &[u8; 4]) -> Option<(usize, usize)> {
     if s.len() < 12 {
         return None;
     }

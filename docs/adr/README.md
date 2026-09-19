@@ -153,3 +153,4 @@ quietly wrong — which is the failure this log exists to make visible.
 | 0086 | [The engine does not read a scan; it binds what does](0086-the-engine-does-not-read-a-scan-it-binds-what-does.md) | After Phase M |
 | 0087 | [A form field is created here, not only filled](0087-a-form-field-is-created-here-not-only-filled.md) | Extends 0048 |
 | 0088 | [What a crop puts outside the sheet is removed](0088-what-a-crop-puts-outside-the-sheet-is-removed.md) | Continues 0064 |
+| 0089 | [A face is embedded only where it permits it, and nothing is substituted](0089-a-face-is-embedded-only-where-it-permits-it.md) | Settles 0085's open question |
