@@ -459,3 +459,56 @@ pub fn private_dicts(program: &[u8]) -> Vec<Vec<u8>> {
         None => vec![private_of(&layout.top_dict)],
     }
 }
+
+/// The CID each glyph of a CID-keyed program is known by.
+///
+/// **A CID-keyed CFF is not addressed by glyph id.** Its charset maps a glyph to the
+/// character identifier its collection gave it, and a PDF that shows the glyph writes
+/// *that* — so a Type 0 font over one of these needs the map in this direction, where
+/// `inspect_cff` builds it in the other.
+///
+/// `None` where the program is not CID-keyed, which is where a glyph id is the whole of
+/// the answer and there is nothing to map.
+#[must_use]
+pub fn glyph_to_cid(program: &[u8]) -> Option<std::collections::BTreeMap<u16, u16>> {
+    let info = FontReconstructor::inspect_cff(body(program)).ok()?;
+    if !info.is_cid {
+        return None;
+    }
+    let cid_to_gid = info.sid_to_gid?;
+    Some(
+        cid_to_gid
+            .into_iter()
+            .filter_map(|(cid, gid)| Some((u16::try_from(gid).ok()?, u16::try_from(cid).ok()?)))
+            .collect(),
+    )
+}
+
+/// The collection a CID-keyed program's identifiers belong to: registry, ordering and
+/// supplement, as its `ROS` operator states them.
+///
+/// **A PDF has to repeat this and agree with it.** A Type 0 font's `/CIDSystemInfo` says
+/// which collection the codes in the content stream are identifiers from, and a reader
+/// that finds it disagreeing with the embedded program has two answers to one question.
+///
+/// `None` where the program is not CID-keyed.
+#[must_use]
+pub fn registry_ordering_supplement(program: &[u8]) -> Option<(String, String, i32)> {
+    let cff = body(program);
+    let layout = read_layout(cff).ok()?;
+    let ros = layout.top_dict.iter().find(|entry| entry.op == 0x0C1E)?;
+    let (registry, ordering, supplement) =
+        (*ros.operands.first()?, *ros.operands.get(1)?, *ros.operands.get(2)?);
+
+    let strings = FontReconstructor::inspect_cff(cff).ok()?.string_index;
+    let resolve = |sid: i32| -> Option<String> {
+        let sid = usize::try_from(sid).ok()?;
+        match crate::cff_standard::CFF_STANDARD_STRINGS.get(sid) {
+            Some(standard) => Some((*standard).to_string()),
+            // Everything past the standard strings is in the program's own String INDEX,
+            // which starts where they leave off.
+            None => strings.get(sid - crate::cff_standard::CFF_STANDARD_STRINGS.len()).cloned(),
+        }
+    };
+    Some((resolve(registry)?, resolve(ordering)?, supplement))
+}

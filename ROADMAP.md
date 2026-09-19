@@ -3672,6 +3672,32 @@ Then the gate:
       program's units through without scaling into glyph space agrees with `hmtx` and
       still fails.
 
+- [x] **W-E1c-iv — a CFF face is embedded as a `CIDFontType0`.** `/FontFile3` with
+      `/Subtype /CIDFontType0C`, no `/CIDToGIDMap` — 9.7.4.2 gives that to a
+      `CIDFontType2` and a charstring index is reached through the program's own charset
+      instead — and a `/CIDSystemInfo` taken from the program's `ROS` rather than declared
+      `Identity` over a collection that is not.
+
+      **What the codes are is the whole of this item.** A CID-keyed CFF's glyphs carry the
+      identifiers its collection assigned, and on the Hiragino face this machine has,
+      **20,316 of 20,326 have a CID equal to their id and ten do not** — 20317 is CID
+      21072, and the rest are scattered up to 23059. Writing the id draws the right letter
+      for all but those ten, which is the kind of wrong nobody notices. `/W` and
+      `/ToUnicode` are keyed by the code for the same reason, while the width itself is
+      read by the glyph.
+
+- [x] **W-E2b — 図面-0001, on a page, in a file.** The case this phase started from, end
+      to end: the face's terms read, the glyphs found through its `cmap`, the CFF subsetted
+      to five of its 20,327, embedded, shown by CID, and extracted back as `図面-0001` from
+      a 47,654-byte file — with no `9.6.2` or `9.10.2` decision against this engine's own
+      output, where the old path produced both. It renders as 明朝 glyphs rather than as
+      the row of Latin noise the repro in this phase's opening draws.
+
+      **`/ToUnicode` said that the glyph for `0` stood for `000`.** The map from glyph to
+      text appended where it should have inserted, so a glyph drawn three times claimed
+      all three, and `0001` came back as `0000000001`. The round trip is what caught it;
+      nothing else would have.
+
 - [ ] **W-E1d — the ladder**, which has two rungs rather than three
       ([ADR-0090](docs/adr/0090-the-face-a-document-embeds-is-not-a-licence-to-set-new-text.md)
       amending [ADR-0089](docs/adr/0089-a-face-is-embedded-only-where-it-permits-it.md)):

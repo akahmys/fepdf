@@ -34,12 +34,76 @@ pub struct EmbeddedFace<'a> {
     pub glyphs: &'a BTreeMap<u16, String>,
 }
 
+/// A glyph, the code a content stream shows it by, and the text it stands for.
+///
+/// **The two numbers are not always the same.** Through `Identity-H` a code is a CID, and
+/// a CID-keyed CFF gives its glyphs the identifiers its collection assigned: on the
+/// Japanese face this machine carries, 20,316 of 20,326 glyphs have a CID equal to their
+/// id and **ten do not**. Taking the two for one draws those ten as other characters, and
+/// only those ten, which is the kind of wrong that is never noticed.
+pub struct Coded {
+    /// What the content stream writes.
+    pub code: u16,
+    /// What the font program draws.
+    pub gid: u16,
+    /// What it says, for `/ToUnicode`.
+    pub text: String,
+}
+
+/// A face put into a document, and how to show its glyphs.
+pub struct Embedded {
+    /// The font dictionary to name in a resource dictionary.
+    pub font: Handle<Object>,
+    /// The code to write for each glyph.
+    pub code_of: BTreeMap<u16, u16>,
+}
+
+/// Embeds `face` as whichever kind of font its program is, and says how to show it.
+///
+/// # Errors
+/// Fails when the program is neither a TrueType nor a CFF this engine can subset, or
+/// states no metrics.
+pub fn embed(doc: &Document, face: &EmbeddedFace<'_>) -> PdfResult<Embedded> {
+    let cid_of = fepdf_font::cff::glyph_to_cid(face.program);
+    let coded: Vec<Coded> = face
+        .glyphs
+        .iter()
+        .map(|(gid, text)| Coded {
+            code: cid_of.as_ref().and_then(|map| map.get(gid).copied()).unwrap_or(*gid),
+            gid: *gid,
+            text: text.clone(),
+        })
+        .collect();
+    let code_of = coded.iter().map(|c| (c.gid, c.code)).collect();
+
+    let font = if fepdf_font::subset::cff_table(face.program).is_some() {
+        embed_cff(doc, face, &coded)?
+    } else {
+        embed_truetype_coded(doc, face, &coded)?
+    };
+    Ok(Embedded { font, code_of })
+}
+
 /// Embeds `face`, and answers the handle of the font dictionary to name in a resource
 /// dictionary.
 ///
 /// # Errors
 /// Fails when the program is not a TrueType this engine can subset, or states no metrics.
 pub fn embed_truetype(doc: &Document, face: &EmbeddedFace<'_>) -> PdfResult<Handle<Object>> {
+    let coded: Vec<Coded> = face
+        .glyphs
+        .iter()
+        .map(|(gid, text)| Coded { code: *gid, gid: *gid, text: text.clone() })
+        .collect();
+    embed_truetype_coded(doc, face, &coded)
+}
+
+/// A TrueType face, shown by glyph id.
+fn embed_truetype_coded(
+    doc: &Document,
+    face: &EmbeddedFace<'_>,
+    coded: &[Coded],
+) -> PdfResult<Handle<Object>> {
     let arena = doc.arena();
     let wanted = face.glyphs.keys().copied().collect();
     let subsetted = fepdf_font::subset::subset_truetype(face.program, &wanted)
@@ -48,9 +112,51 @@ pub fn embed_truetype(doc: &Document, face: &EmbeddedFace<'_>) -> PdfResult<Hand
         .ok_or_else(|| PdfError::Other("the program states no metrics".into()))?;
 
     let name = arena.name(&format!("{}+{}", subset_tag(face), face.base_font));
-    let descriptor = write_descriptor(doc, name, &metrics, &subsetted)?;
-    let descendant = write_cid_font(doc, name, &metrics, face, descriptor);
-    let to_unicode = write_to_unicode(doc, face);
+    let descriptor = write_descriptor(doc, name, &metrics, &subsetted, "FontFile2", None)?;
+    let descendant = write_cid_font(doc, name, &metrics, face, coded, descriptor, Kind::TrueType);
+    let to_unicode = write_to_unicode(doc, coded);
+
+    let mut font = BTreeMap::new();
+    font.insert(arena.name("Type"), Object::Name(arena.name("Font")));
+    font.insert(arena.name("Subtype"), Object::Name(arena.name("Type0")));
+    font.insert(arena.name("BaseFont"), Object::Name(name));
+    font.insert(arena.name("Encoding"), Object::Name(arena.name("Identity-H")));
+    font.insert(arena.name("DescendantFonts"), Object::Array(arena.alloc_array(vec![descendant])));
+    font.insert(arena.name("ToUnicode"), to_unicode);
+    Ok(arena.alloc_object(Object::Dictionary(arena.alloc_dict(font))))
+}
+
+/// Which of the two shapes 9.7.4 gives a CIDFont this face takes.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Kind {
+    /// Outlines in `glyf`, shown by glyph id, with `/CIDToGIDMap`.
+    TrueType,
+    /// Outlines in a charstring index, shown by the identifier the collection gave them.
+    Cff,
+}
+
+/// A CFF face, shown by the identifiers its own collection assigned.
+///
+/// **A bare `/FontFile3` out of another document has no `head` or `hhea`**, so it states
+/// no metrics this engine can read and is refused here rather than embedded with invented
+/// ones. The faces the ladder reaches are OpenType and carry both.
+fn embed_cff(
+    doc: &Document,
+    face: &EmbeddedFace<'_>,
+    coded: &[Coded],
+) -> PdfResult<Handle<Object>> {
+    let arena = doc.arena();
+    let wanted = face.glyphs.keys().copied().collect();
+    let subsetted = fepdf_font::cff::subset_cff(face.program, &wanted)
+        .map_err(|e| PdfError::Other(format!("the program will not subset: {e}").into()))?;
+    let metrics = fepdf_font::metrics::read_metrics(face.program)
+        .ok_or_else(|| PdfError::Other("the program states no metrics".into()))?;
+
+    let name = arena.name(&format!("{}+{}", subset_tag(face), face.base_font));
+    let descriptor =
+        write_descriptor(doc, name, &metrics, &subsetted, "FontFile3", Some("CIDFontType0C"))?;
+    let descendant = write_cid_font(doc, name, &metrics, face, coded, descriptor, Kind::Cff);
+    let to_unicode = write_to_unicode(doc, coded);
 
     let mut font = BTreeMap::new();
     font.insert(arena.name("Type"), Object::Name(arena.name("Font")));
@@ -83,9 +189,11 @@ fn write_descriptor(
     name: Handle<PdfName>,
     metrics: &fepdf_font::metrics::ProgramMetrics,
     subsetted: &[u8],
+    key: &str,
+    stream_subtype: Option<&str>,
 ) -> PdfResult<Object> {
     let arena = doc.arena();
-    let file = write_font_file(arena, subsetted);
+    let file = write_font_file(arena, subsetted, stream_subtype);
     let scale = |v: i16| Object::Real(f64::from(v) * GLYPH_SPACE / f64::from(metrics.units_per_em));
 
     let mut descriptor = BTreeMap::new();
@@ -116,7 +224,7 @@ fn write_descriptor(
     if let Some(cap) = metrics.cap_height {
         descriptor.insert(arena.name("CapHeight"), scale(cap));
     }
-    descriptor.insert(arena.name("FontFile2"), file);
+    descriptor.insert(arena.name(key), file);
     Ok(Object::Reference(arena.alloc_object(Object::Dictionary(arena.alloc_dict(descriptor)))))
 }
 
@@ -141,13 +249,21 @@ fn flags(metrics: &fepdf_font::metrics::ProgramMetrics) -> u32 {
     flags
 }
 
-/// The font file stream, with the `/Length1` Table 124 requires of a TrueType one.
-fn write_font_file(arena: &PdfArena, subsetted: &[u8]) -> Object {
+/// The font file stream: `/Length1` for a TrueType one, `/Subtype` for a CFF one, as
+/// Table 124 asks of each.
+fn write_font_file(arena: &PdfArena, subsetted: &[u8], stream_subtype: Option<&str>) -> Object {
     let mut dict = BTreeMap::new();
-    dict.insert(
-        arena.name("Length1"),
-        Object::Integer(i64::try_from(subsetted.len()).unwrap_or(i64::MAX)),
-    );
+    match stream_subtype {
+        Some(subtype) => {
+            dict.insert(arena.name("Subtype"), Object::Name(arena.name(subtype)));
+        }
+        None => {
+            dict.insert(
+                arena.name("Length1"),
+                Object::Integer(i64::try_from(subsetted.len()).unwrap_or(i64::MAX)),
+            );
+        }
+    }
     let stream = Object::Stream(
         arena.alloc_dict(dict),
         Arc::new(SublimatedData::Raw(Bytes::copy_from_slice(subsetted))),
@@ -161,23 +277,45 @@ fn write_cid_font(
     name: Handle<PdfName>,
     metrics: &fepdf_font::metrics::ProgramMetrics,
     face: &EmbeddedFace<'_>,
+    coded: &[Coded],
     descriptor: Object,
+    kind: Kind,
 ) -> Object {
     let arena = doc.arena();
+    // **The collection has to be the program's own.** A CID-keyed CFF's codes are
+    // identifiers its collection assigned, so saying `Identity` over one of those would
+    // give a reader two answers to the same question; a TrueType shown by glyph id has no
+    // collection, and `Identity` is what that is called.
+    let (registry, ordering, supplement) = match kind {
+        Kind::Cff => fepdf_font::cff::registry_ordering_supplement(face.program)
+            .unwrap_or_else(|| ("Adobe".to_string(), "Identity".to_string(), 0)),
+        Kind::TrueType => ("Adobe".to_string(), "Identity".to_string(), 0),
+    };
     let mut info = BTreeMap::new();
-    info.insert(arena.name("Registry"), Object::String(Bytes::from_static(b"Adobe")));
-    info.insert(arena.name("Ordering"), Object::String(Bytes::from_static(b"Identity")));
-    info.insert(arena.name("Supplement"), Object::Integer(0));
+    info.insert(arena.name("Registry"), Object::String(Bytes::from(registry.into_bytes())));
+    info.insert(arena.name("Ordering"), Object::String(Bytes::from(ordering.into_bytes())));
+    info.insert(arena.name("Supplement"), Object::Integer(i64::from(supplement)));
 
     let mut cid = BTreeMap::new();
     cid.insert(arena.name("Type"), Object::Name(arena.name("Font")));
-    cid.insert(arena.name("Subtype"), Object::Name(arena.name("CIDFontType2")));
+    let subtype = match kind {
+        Kind::TrueType => "CIDFontType2",
+        Kind::Cff => "CIDFontType0",
+    };
+    cid.insert(arena.name("Subtype"), Object::Name(arena.name(subtype)));
     cid.insert(arena.name("BaseFont"), Object::Name(name));
     cid.insert(arena.name("CIDSystemInfo"), Object::Dictionary(arena.alloc_dict(info)));
     cid.insert(arena.name("FontDescriptor"), descriptor);
-    cid.insert(arena.name("CIDToGIDMap"), Object::Name(arena.name("Identity")));
+    if kind == Kind::TrueType {
+        // 9.7.4.2 gives this to a CIDFontType2 and not to a CIDFontType0, where the
+        // charstring index is reached through the program's own charset instead.
+        cid.insert(arena.name("CIDToGIDMap"), Object::Name(arena.name("Identity")));
+    }
     cid.insert(arena.name("DW"), Object::Integer(1000));
-    cid.insert(arena.name("W"), Object::Array(arena.alloc_array(widths(arena, metrics, face))));
+    cid.insert(
+        arena.name("W"),
+        Object::Array(arena.alloc_array(widths(arena, metrics, face.program, coded))),
+    );
     Object::Reference(arena.alloc_object(Object::Dictionary(arena.alloc_dict(cid))))
 }
 
@@ -188,22 +326,29 @@ fn write_cid_font(
 fn widths(
     arena: &PdfArena,
     metrics: &fepdf_font::metrics::ProgramMetrics,
-    face: &EmbeddedFace<'_>,
+    program: &[u8],
+    coded: &[Coded],
 ) -> Vec<Object> {
+    let mut by_code: Vec<&Coded> = coded.iter().collect();
+    by_code.sort_by_key(|c| c.code);
+
     let mut out: Vec<Object> = Vec::new();
     let mut run: Vec<Object> = Vec::new();
     let mut run_start: Option<u16> = None;
     let mut previous: Option<u16> = None;
 
-    for &gid in face.glyphs.keys() {
-        let advance = fepdf_font::metrics::advance_width(face.program, gid).unwrap_or(0);
+    for glyph in by_code {
+        // **The width is the glyph's and the key is the code's.** Reading `hmtx` by the
+        // code would answer with whatever glyph happens to have that id, which on a
+        // CID-keyed face is a different letter.
+        let advance = fepdf_font::metrics::advance_width(program, glyph.gid).unwrap_or(0);
         let width = f64::from(advance) * GLYPH_SPACE / f64::from(metrics.units_per_em);
-        if previous.is_some_and(|p| gid != p.saturating_add(1)) {
+        if previous.is_some_and(|p| glyph.code != p.saturating_add(1)) {
             flush(arena, &mut out, &mut run, run_start.take());
         }
-        run_start.get_or_insert(gid);
+        run_start.get_or_insert(glyph.code);
         run.push(Object::Real(width));
-        previous = Some(gid);
+        previous = Some(glyph.code);
     }
     flush(arena, &mut out, &mut run, run_start);
     out
@@ -225,7 +370,7 @@ fn flush(arena: &PdfArena, out: &mut Vec<Object>, run: &mut Vec<Object>, start: 
 /// **Without it the text this engine writes cannot be read back**, and that is the defect
 /// this whole phase started from — a Bates prefix that drew as Latin noise and extracted
 /// as nothing.
-fn write_to_unicode(doc: &Document, face: &EmbeddedFace<'_>) -> Object {
+fn write_to_unicode(doc: &Document, coded: &[Coded]) -> Object {
     let arena = doc.arena();
     let mut cmap = String::from(
         "/CIDInit /ProcSet findresource begin\n12 dict begin\nbegincmap\n\
@@ -233,15 +378,18 @@ fn write_to_unicode(doc: &Document, face: &EmbeddedFace<'_>) -> Object {
          1 begincodespacerange\n<0000> <FFFF>\nendcodespacerange\n",
     );
     // A `bfchar` section takes at most 100 entries, which is the one limit of the form.
-    for chunk in face.glyphs.iter().collect::<Vec<_>>().chunks(100) {
+    let mut by_code: Vec<&Coded> = coded.iter().collect();
+    by_code.sort_by_key(|c| c.code);
+    for chunk in by_code.chunks(100) {
         use std::fmt::Write as _;
         let _ = writeln!(cmap, "{} beginbfchar", chunk.len());
-        for (gid, text) in chunk {
+        for glyph in chunk {
             let mut utf16 = String::new();
-            for unit in text.encode_utf16() {
+            for unit in glyph.text.encode_utf16() {
                 let _ = write!(utf16, "{unit:04X}");
             }
-            let _ = writeln!(cmap, "<{gid:04X}> <{utf16}>");
+            let code = glyph.code;
+            let _ = writeln!(cmap, "<{code:04X}> <{utf16}>");
         }
         cmap.push_str("endbfchar\n");
     }
@@ -283,11 +431,16 @@ pub fn show_text(doc: &Document, page: usize, shown: &ShownText<'_>) -> PdfResul
     let glyph_ids = fepdf_font::subset::glyphs_for(shown.program, shown.text)
         .map_err(|c| PdfError::Other(format!("this face draws no {c:?}").into()))?;
 
+    // **One glyph stands for one character here, and a glyph drawn twice is still one
+    // glyph.** Appending instead of inserting made `/ToUnicode` say that the glyph for
+    // `0` stood for `000`, so `0001` came back out of the file as `0000000001`: every
+    // occurrence extracted as every occurrence. Where a face draws two characters with
+    // one glyph, the first is what the entry says, which is all a single entry can say.
     let mut glyphs: BTreeMap<u16, String> = BTreeMap::new();
     for (gid, c) in glyph_ids.iter().zip(shown.text.chars()) {
-        glyphs.entry(*gid).or_default().push(c);
+        glyphs.entry(*gid).or_insert_with(|| c.to_string());
     }
-    let font = embed_truetype(
+    let embedded = embed(
         doc,
         &EmbeddedFace { program: shown.program, base_font: shown.base_font, glyphs: &glyphs },
     )?;
@@ -297,12 +450,16 @@ pub fn show_text(doc: &Document, page: usize, shown: &ShownText<'_>) -> PdfResul
         doc.get_page_handle(page).ok_or_else(|| PdfError::Other("the page is not there".into()))?;
     let page_dh = doc.resolve_to_dict(page_h)?;
     let mut page_dict = arena.get_dict(page_dh).unwrap_or_default();
-    let name = name_font_in_page(doc, page_h, &mut page_dict, font);
+    let name = name_font_in_page(doc, page_h, &mut page_dict, embedded.font);
 
+    // **What goes in the string is the code, not the glyph.** On a CID-keyed face they
+    // differ for some glyphs and not others, so writing the id draws the right letter
+    // almost always.
     let mut codes = String::with_capacity(glyph_ids.len() * 4);
     for gid in &glyph_ids {
         use std::fmt::Write as _;
-        let _ = write!(codes, "{gid:04X}");
+        let code = embedded.code_of.get(gid).copied().unwrap_or(*gid);
+        let _ = write!(codes, "{code:04X}");
     }
     let (x, y) = shown.at;
     let drawing = format!(
