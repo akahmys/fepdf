@@ -14,6 +14,8 @@ pub mod page;
 pub mod security;
 /// Structure element and article thread operation handlers.
 pub mod structure;
+/// Changing the text a page already draws.
+pub mod text;
 
 use crate::operation::Operation;
 use fepdf_model::{Document, PdfResult};
@@ -71,6 +73,9 @@ pub fn apply_operation(doc: &mut Document, op: Operation) -> PdfResult<()> {
             annotations::apply_bates(doc, &pages, &prefix, start_number, digits, &position)
         }
         Operation::AddAnnotation(a) => annotations::apply_add_annotation(doc, a),
+        Operation::EditTextRun { page, find, replace } => {
+            text::apply_edit_text_run(doc, page, &find, &replace)
+        }
         Operation::SetMeasurementScale(s) => annotations::apply_set_measurement_scale(doc, s),
         Operation::SetFormFieldValue(f) => annotations::apply_set_form_field_value(doc, f),
         Operation::ExecuteAction(a) => annotations::apply_execute_action(doc, a),

@@ -43,6 +43,7 @@ fn variant_name(op: &Operation) -> &'static str {
         Operation::AddPageDecoration { .. } => "AddPageDecoration",
         Operation::ApplyBatesNumbering { .. } => "ApplyBatesNumbering",
         Operation::AddAnnotation(_) => "AddAnnotation",
+        Operation::EditTextRun { .. } => "EditTextRun",
         Operation::SetMeasurementScale(_) => "SetMeasurementScale",
         Operation::SetFormFieldValue(_) => "SetFormFieldValue",
         Operation::SetPageLabels(_) => "SetPageLabels",

@@ -3846,11 +3846,33 @@ Content editing, under D-1:
       291 of them answering with a program. None of those claims is wrong as stated, and
       each is one file less varied than it sounds.
 
-- [ ] **W-E3 — changing a run of text that is already on the page**
-      (`Operation::EditTextRun`), re-embedding through W-E1 where the font has no glyph
-      for what is asked.
-      *Fails if*: `extract_spans` after the edit does not return the new string at the old
-      line's position.
+- [x] **W-E3 — changing a run of text that is already on the page.**
+      `Operation::EditTextRun { page, find, replace }` rewrites every run that reads
+      exactly `find`, encoding the replacement in the font that run is set in and in no
+      other. A character that font does not draw is refused by name and the page is left
+      alone — substituting one draws a different letter, and writing the character's own
+      bytes draws whatever glyph sits at that code, which is how 図面 became six Latin
+      glyphs before this phase.
+
+      **The unit is a run and the line is drawn there.** `UNORIGINAL` is not rewritten when
+      `ORIGINAL` is asked for: splitting a run means re-spacing what remains, and that is
+      W-E4 and the edge of [ADR-0085](docs/adr/0085-editing-what-a-page-draws-is-in-scope.md).
+
+      **A run is found by what it reads rather than by where it is**, because `op_index`
+      carries nothing on the default path (W-E3a). The rewrite walks the token stream,
+      tracks the font each run is set in, decodes and compares — the ground redaction works
+      on, for the same reason.
+
+      Two mutations were run: matching on `contains` rather than equality fails the run
+      that only contains it, and substituting a character the font cannot draw fails the
+      refusal. Each fails exactly the one test written for it.
+
+- [ ] **W-E3c — no frontend can reach `EditTextRun`.** The vocabulary is 33 variants and
+      the frontends build 16, 8 and 31, so the operation this phase just added is one
+      nothing calls. That is the state `AddAnnotation` was in for phases, and it is why its
+      three defects went unseen until W-8 looked. `fepdf-mcp` is where it goes — it is the
+      frontend ARCHITECTURE calls the most complete — and the window is W-E6.
+
 - [ ] **W-E4 — advance widths, reflow within a line, insertion and deletion.** This is
       where the D-1 line sits: a paragraph re-flowed across lines is a layout engine, and
       the decision to cross that line is a second decision, taken when W-E3 runs.

@@ -1181,7 +1181,7 @@ pub fn apply_physical_redaction_to_page(
     Ok(0)
 }
 
-fn decode_page_contents(doc: &Document, contents: &Object) -> PdfResult<bytes::Bytes> {
+pub(crate) fn decode_page_contents(doc: &Document, contents: &Object) -> PdfResult<bytes::Bytes> {
     let arena = doc.arena();
     let resolved = match contents {
         Object::Reference(h) => doc.resolve(h)?,

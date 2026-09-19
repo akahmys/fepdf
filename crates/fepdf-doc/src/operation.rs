@@ -279,6 +279,22 @@ pub enum Operation {
         /// Position of the number.
         position: DecorationPosition,
     },
+    /// Replaces every run of text on a page that reads exactly `find`.
+    ///
+    /// **A run, not a range.** One show-text operator is the unit: a run that reads
+    /// `find` is rewritten whole, and one that merely contains it is left alone, because
+    /// splitting a run means re-spacing what remains and that is a different piece of work
+    /// (W-E4). The replacement is encoded in the font that run is set in and in no other;
+    /// a character that font does not draw is refused by name rather than substituted
+    /// ([ADR-0090](../../../docs/adr/0090-the-face-a-document-embeds-is-not-a-licence-to-set-new-text.md)).
+    EditTextRun {
+        /// The page to look on.
+        page: usize,
+        /// The text a run must read to be replaced.
+        find: String,
+        /// What it reads afterwards.
+        replace: String,
+    },
     /// Add an annotation to a page.
     AddAnnotation(AnnotationSpec),
     /// Set a measurement scale for CAD/geospatial drawings (/Measure).
@@ -357,6 +373,7 @@ impl Operation {
             | Self::SetOutputIntent { .. }
             | Self::SetPronunciationLexicon { .. }
             | Self::AddAnnotation { .. }
+            | Self::EditTextRun { .. }
             | Self::SetMeasurementScale { .. }
             | Self::SetFormFieldValue { .. }
             | Self::SetPageLabels { .. }
