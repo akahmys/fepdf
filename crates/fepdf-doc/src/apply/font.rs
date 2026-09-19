@@ -657,10 +657,16 @@ pub fn face_for(text: &str) -> Result<(String, Arc<Vec<u8>>), NoFace> {
         return Err(NoFace::NothingInstalled);
     }
 
+    // **One face of a collection, chosen and taken out.** Everything downstream reads the
+    // first face of whatever it is given, so the choice is made here and what leaves is a
+    // font of its own — which also stops the engine carrying Hiragino's four faces and
+    // 19,409,608 bytes around to use one of them.
     let mut draws_it = Vec::new();
-    for (kind, program) in &installed {
-        if fepdf_font::subset::glyphs_for(program, text).is_ok() {
-            draws_it.push((format!("{kind:?}"), program.clone()));
+    for (kind, collection) in &installed {
+        let index = fepdf_font::metrics::regular_face(collection);
+        let Ok(program) = fepdf_font::subset::standalone_face(collection, index) else { continue };
+        if fepdf_font::subset::glyphs_for(&program, text).is_ok() {
+            draws_it.push((format!("{kind:?}"), Arc::new(program)));
         }
     }
     if draws_it.is_empty() {

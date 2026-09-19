@@ -2025,18 +2025,43 @@ fn parse_dict_number(d: &[u8]) -> (i32, usize) {
 /// Font 0 is the one taken, which is a choice a collection does not make for us: Hiragino
 /// ships several weights in one file. Naming which face is wanted is W-E2c.
 pub(crate) fn sfnt_base(s: &[u8]) -> usize {
+    sfnt_base_at(s, 0)
+}
+
+/// Where the table directory of face `index` starts.
+///
+/// **A collection is several faces and the first is not a choice.** Hiragino ships
+/// `ProN W3`, `Pro W3`, `ProN W6` and `Pro W6` in one file, and Helvetica six weights;
+/// taking face 0 gets the regular weight on this machine by convention rather than by
+/// rule, and a collection that lists a bold first would be set in bold without a word.
+pub(crate) fn sfnt_base_at(s: &[u8], index: u32) -> usize {
     if s.len() < 16 || &s[0..4] != b"ttcf" {
         return 0;
     }
-    let base = u32::from_be_bytes([s[12], s[13], s[14], s[15]]) as usize;
+    let at = 12 + (index as usize) * 4;
+    let Some(bytes) = s.get(at..at + 4) else { return 0 };
+    let base = u32::from_be_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]) as usize;
     if base + 12 <= s.len() { base } else { 0 }
 }
 
+/// How many faces `s` holds: one, unless it is a collection.
+#[must_use]
+pub fn face_count(s: &[u8]) -> u32 {
+    if s.len() < 12 || &s[0..4] != b"ttcf" {
+        return 1;
+    }
+    u32::from_be_bytes([s[8], s[9], s[10], s[11]])
+}
+
 pub(crate) fn find_table_range(s: &[u8], t: &[u8; 4]) -> Option<(usize, usize)> {
+    find_table_range_at(s, t, sfnt_base(s))
+}
+
+/// The same, in the face whose directory starts at `base`.
+pub(crate) fn find_table_range_at(s: &[u8], t: &[u8; 4], base: usize) -> Option<(usize, usize)> {
     if s.len() < 12 {
         return None;
     }
-    let base = sfnt_base(s);
     let nt = u16::from_be_bytes([*s.get(base + 4)?, *s.get(base + 5)?]) as usize;
     for i in 0..nt {
         let e = base + 12 + i * 16;

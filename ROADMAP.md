@@ -3706,6 +3706,23 @@ Then the gate:
       all three, and `0001` came back as `0000000001`. The round trip is what caught it;
       nothing else would have.
 
+- [x] **W-E2c — the face taken out of a collection is the regular one.** Every face this
+      machine offers is a collection, and the engine took face 0 of each. That was right
+      here and right by luck: Helvetica lists six faces, Times four and Hiragino Mincho
+      four — `ProN W3`, `Pro W3`, `ProN W6`, `Pro W6` — and the regular weight happens to
+      be first in all four. A collection that listed a bold first would have been set in
+      bold without a word about it.
+
+      `regular_face` chooses by what each face states: `OS/2.usWeightClass` nearest 400,
+      with `head.macStyle`'s italic bit clear. A synthetic collection listing a bold first
+      is what shows it does something — an implementation that returned 0 passes every
+      other test here.
+
+      `standalone_face` then takes that face out as a font of its own, because everything
+      downstream reads the first face of whatever it is handed; the collection is opened
+      once, in the ladder, and Hiragino's 19,409,608 bytes stop being carried around to use
+      9,578,592 of them.
+
 - [x] **W-E1d — the ladder**, which has two rungs rather than three
       ([ADR-0090](docs/adr/0090-the-face-a-document-embeds-is-not-a-licence-to-set-new-text.md)
       amending [ADR-0089](docs/adr/0089-a-face-is-embedded-only-where-it-permits-it.md)):

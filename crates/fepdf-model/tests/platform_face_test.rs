@@ -156,3 +156,53 @@ fn what_this_machine_offers_is_printable() {
         }
     }
 }
+
+/// **The face chosen out of a collection is the regular weight, upright.**
+///
+/// Face 0 is that face in all four of this machine's collections — Helvetica of six,
+/// Times of four, Hiragino Mincho of four — so taking the first was right here by
+/// convention. This asks the question the convention answers by luck: a collection that
+/// listed a bold or an italic first would be set in it without a word.
+#[test]
+fn the_face_taken_from_a_collection_is_the_regular_one() {
+    for (kind, data) in &fepdf_model::document::fallback_fonts() {
+        let chosen = fepdf_font::metrics::regular_face(data);
+        let weight = weight_of(data, chosen);
+        assert!(
+            weight.is_none_or(|w| (300..=500).contains(&w)),
+            "{kind:?}: face {chosen} was chosen and states weight {weight:?}"
+        );
+        assert!(!italic(data, chosen), "{kind:?}: face {chosen} was chosen and is italic");
+    }
+}
+
+/// `OS/2.usWeightClass` of face `index`, through the engine's own reader.
+fn weight_of(program: &[u8], index: u32) -> Option<u16> {
+    let bold = fepdf_font::metrics::regular_face(program);
+    let _ = bold;
+    face_u16(program, index, b"OS/2", 4)
+}
+
+fn italic(program: &[u8], index: u32) -> bool {
+    face_u16(program, index, b"head", 44).is_some_and(|style| style & 0x0002 != 0)
+}
+
+/// A `uint16` read out of a face of a collection, the long way, so that the test does not
+/// ask the code under test where to look.
+fn face_u16(program: &[u8], index: u32, tag: &[u8; 4], offset: usize) -> Option<u16> {
+    let base = if program.get(..4) == Some(b"ttcf") {
+        let at = 12 + (index as usize) * 4;
+        u32::from_be_bytes(program.get(at..at + 4)?.try_into().ok()?) as usize
+    } else {
+        0
+    };
+    let count = u16::from_be_bytes([*program.get(base + 4)?, *program.get(base + 5)?]) as usize;
+    (0..count).find_map(|i| {
+        let e = base + 12 + i * 16;
+        if program.get(e..e + 4)? != tag {
+            return None;
+        }
+        let start = u32::from_be_bytes(program.get(e + 8..e + 12)?.try_into().ok()?) as usize;
+        Some(u16::from_be_bytes([*program.get(start + offset)?, *program.get(start + offset + 1)?]))
+    })
+}

@@ -544,3 +544,52 @@ mod glyphs_for_tests {
         assert!(super::glyphs_for(b"not a font", "A").is_err());
     }
 }
+
+/// Face `index` of `program`, as a font of its own.
+///
+/// **Everything downstream reads face 0**, so a collection is opened once, here, and what
+/// comes out is a plain SFNT that needs no index carried beside it. It also stops the rest
+/// of the engine carrying a collection around: Hiragino's four faces are 19,409,608 bytes
+/// together and one of them is a fraction of that.
+///
+/// A program that is not a collection is answered unchanged.
+///
+/// # Errors
+/// Fails when the collection has no face at `index`, or its tables cannot be read.
+pub fn standalone_face(program: &[u8], index: u32) -> FontResult<Vec<u8>> {
+    if crate::reconstruction::face_count(program) <= 1 {
+        return Ok(program.to_vec());
+    }
+    let base = crate::reconstruction::sfnt_base_at(program, index);
+    if base == 0 && index != 0 {
+        return Err(FontError::Internal(format!("the collection has no face {index}")));
+    }
+
+    let count = usize::from(
+        read_u16(program, base + 4)
+            .ok_or_else(|| FontError::Internal("the face has no table directory".to_string()))?,
+    );
+    let mut tables = Vec::with_capacity(count);
+    for i in 0..count {
+        let entry = base + 12 + i * 16;
+        let Some(tag) = program.get(entry..entry + 4) else { break };
+        let (Some(at), Some(length)) =
+            (read_u32(program, entry + 8), read_u32(program, entry + 12))
+        else {
+            break;
+        };
+        let (at, length) = (at as usize, length as usize);
+        let Some(data) = program.get(at..at.saturating_add(length)) else { continue };
+        let mut owned = [0u8; 4];
+        owned.copy_from_slice(tag);
+        tables.push((owned, data.to_vec()));
+    }
+    if tables.is_empty() {
+        return Err(FontError::Internal("the face states no tables".to_string()));
+    }
+    let magic = program
+        .get(base..base + 4)
+        .and_then(|m| <[u8; 4]>::try_from(m).ok())
+        .unwrap_or([0, 1, 0, 0]);
+    FontReconstructor::assemble_sfnt(&magic, &tables)
+}
