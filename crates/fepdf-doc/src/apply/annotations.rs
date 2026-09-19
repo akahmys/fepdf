@@ -233,50 +233,19 @@ pub(crate) fn ensure_page_resources(
     inherited
 }
 
-fn ensure_helvetica_in_page_dict(
-    doc: &Document,
-    page_h: Handle<Object>,
-    page_dict: &mut BTreeMap<Handle<PdfName>, Object>,
-) {
-    let arena = doc.arena();
-    let font_key = arena.name("Font");
-    let helv_key = arena.name("Helvetica");
-    let res_dh = ensure_page_resources(doc, page_h, page_dict);
-
-    let mut res_dict = arena.get_dict(res_dh).unwrap_or_default();
-    let font_dh = if let Some(font_obj) = res_dict.get(&font_key)
-        && let Some(dh) = font_obj.as_dict_handle()
-    {
-        dh
-    } else {
-        let dh = arena.alloc_dict(BTreeMap::new());
-        res_dict.insert(font_key, Object::Dictionary(dh));
-        dh
-    };
-
-    let mut font_dict = arena.get_dict(font_dh).unwrap_or_default();
-    font_dict.entry(helv_key).or_insert_with(|| {
-        let mut helv_dict = BTreeMap::new();
-        helv_dict.insert(arena.name("Type"), Object::Name(arena.name("Font")));
-        helv_dict.insert(arena.name("Subtype"), Object::Name(arena.name("Type1")));
-        helv_dict.insert(arena.name("BaseFont"), Object::Name(arena.name("Helvetica")));
-        let helv_dh = arena.alloc_dict(helv_dict);
-        // **Indirect, because a refined read follows nothing else.** A font entry
-        // reaches the content stream's context through `extract_context_fonts`, which
-        // takes it with `as_reference` and resolves it in a map keyed by object number —
-        // a direct dictionary has no number and cannot be in that map. Written direct,
-        // this font was invisible to every stream that named it: 13 `9.6.2` repairs on
-        // the 13 pages of `samples/constitution.pdf`, one per decoration, each rescued
-        // by a fallback face so that the text still drew and nothing looked wrong.
-        //
-        // Unrefined, the same file was fine — `fepdf-content` resolves the direct
-        // dictionary — so the shape of the defect was a file that read two ways.
-        Object::Reference(arena.alloc_object(Object::Dictionary(helv_dh)))
-    });
-    arena.set_dict(font_dh, font_dict);
-    arena.set_dict(res_dh, res_dict);
-}
-
+/// Draws `text` on `page_h`, in a face this machine permits embedding.
+///
+/// **It used to write `/Helvetica 10 Tf` and a literal string.** Neither half held: the
+/// font was named in the page's resources and never embedded, and a Rust `String` escaped
+/// into a literal becomes one character code per *byte*, so 図面 went in as six codes of a
+/// WinAnsi font and came back as six Latin glyphs and no extracted text. What replaces it
+/// is the ladder — a face installed here whose own terms permit it — and glyph codes
+/// through an embedded subset
+/// ([ADR-0090](../../../../docs/adr/0090-the-face-a-document-embeds-is-not-a-licence-to-set-new-text.md)).
+///
+/// **This can fail where it used to succeed**, and that is the decision rather than a
+/// regression: a decoration that cannot be set in a permitted face is refused, naming the
+/// character or the faces that refused, instead of being drawn as something else.
 fn overlay_text_on_page(
     doc: &Document,
     page_h: Handle<Object>,
@@ -293,9 +262,17 @@ fn overlay_text_on_page(
     let mbox = page_view.media_box();
     let (x, y) = calculate_decoration_coords(&mbox, position);
 
-    let escaped_text = text.replace('\\', "\\\\").replace('(', "\\(").replace(')', "\\)");
-    let drawing =
-        format!("q\nBT\n/Helvetica 10 Tf\n1 0 0 1 {x:.2} {y:.2} Tm\n({escaped_text}) Tj\nET\nQ\n");
+    let (face, program) = crate::apply::font::face_for(text)
+        .map_err(|why| PdfError::Other(format!("{text:?} cannot be set: {why}").into()))?;
+    let shown = crate::apply::font::ShownText {
+        program: &program,
+        base_font: &face,
+        text,
+        at: (x, y),
+        size: 10.0,
+    };
+    let drawing = crate::apply::font::draw_run(doc, page_h, &mut page_dict, &shown)?;
+
     let stream_content = match layer {
         Some(group) => {
             let tag = name_layer_in_page(doc, page_h, &mut page_dict, group);
@@ -303,31 +280,8 @@ fn overlay_text_on_page(
         }
         None => drawing,
     };
-
-    let stream_dict = arena.alloc_dict(BTreeMap::new());
-    let stream_obj = Object::Stream(
-        stream_dict,
-        Arc::new(SublimatedData::Raw(Bytes::from(stream_content.into_bytes()))),
-    );
-    let stream_h = arena.alloc_object(stream_obj);
-
-    ensure_helvetica_in_page_dict(doc, page_h, &mut page_dict);
-
-    let contents_key = arena.name("Contents");
-    let mut contents_items = if let Some(existing_contents) = page_dict.get(&contents_key) {
-        match existing_contents {
-            Object::Array(ah) => arena.get_array(*ah).unwrap_or_default(),
-            Object::Reference(h) => vec![Object::Reference(*h)],
-            _ => Vec::new(),
-        }
-    } else {
-        Vec::new()
-    };
-    contents_items.push(Object::Reference(stream_h));
-    let contents_ah = arena.alloc_array(contents_items);
-    page_dict.insert(contents_key, Object::Array(contents_ah));
+    crate::apply::font::append_content(doc, page_dh, &mut page_dict, stream_content.into_bytes());
     arena.set_dict(page_dh, page_dict);
-
     Ok(())
 }
 

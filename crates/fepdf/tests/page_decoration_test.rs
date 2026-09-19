@@ -1,9 +1,9 @@
 //! What adding a decoration must not cost the page it is added to.
 //!
-//! Overlaying a header, a footer or a Bates number needs Helvetica in the page's
-//! resources, and the code that put it there reached for `/Resources` on the page
-//! dictionary alone — building a fresh empty one when it was not found. Two shapes the
-//! standard allows break under that:
+//! Overlaying a header, a footer or a Bates number needs a font in the page's resources,
+//! and the code that put it there reached for `/Resources` on the page dictionary alone —
+//! building a fresh empty one when it was not found. Two shapes the standard allows break
+//! under that:
 //!
 //! - `/Resources` written as an indirect reference. `as_dict_handle` does not resolve
 //!   one, so the page's resources were **replaced** by the new empty dictionary.
@@ -85,16 +85,16 @@ fn a_page_carrying_its_own_resources_keeps_them() {
 /// resolve still draws it: the parser substitutes a fallback face and records a `9.6.2`
 /// repair. So all three passed while every header, footer and Bates number this engine
 /// wrote selected a `/Helvetica` the page's resources did not define — measured on
-/// 2026-09-19 as 13 repairs, one per page of `samples/constitution.pdf`.
+/// 2026-09-19 as 13 repairs, one per page of `samples/constitution.pdf`. The cause was a
+/// font written as a *direct* dictionary, which the refined read reaches only through
+/// `as_reference`; the same file read clean without refinement, so the defect was a file
+/// that read two ways.
 ///
-/// **The fixtures above cannot see it, which is why this one reads a file from the
-/// corpus.** The cause lives in the refined read: `extract_context_fonts` takes a font
-/// entry only through `as_reference`, because the map it resolves against is keyed by
-/// object number and a direct dictionary has none — and `ensure_helvetica_in_page_dict`
-/// wrote one. A stream that refinement does not reach is interpreted by
-/// `fepdf-content`, which resolves the direct dictionary perfectly well, and the small
-/// assembled pages above are all of that kind. The same file therefore read two ways:
-/// 13 repairs with `active_refinement`, none without it.
+/// **The `/Helvetica` it was about is gone**, and a decoration is now set in a face this
+/// machine permits embedding. What this asks is the question that outlives the cause: is
+/// the font a decoration names still the font a reader finds, after a round trip through
+/// a file? It fails against a writer that names one and writes another, whichever font
+/// that is.
 #[test]
 fn a_decorations_font_resolves_after_a_round_trip() {
     let path =

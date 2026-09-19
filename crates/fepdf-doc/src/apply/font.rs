@@ -428,6 +428,33 @@ pub struct ShownText<'a> {
 /// Fails when the program has no glyph for a character of `text`, naming it; when the
 /// program cannot be subsetted; or when the page is not there.
 pub fn show_text(doc: &Document, page: usize, shown: &ShownText<'_>) -> PdfResult<()> {
+    let arena = doc.arena();
+    let page_h =
+        doc.get_page_handle(page).ok_or_else(|| PdfError::Other("the page is not there".into()))?;
+    let page_dh = doc.resolve_to_dict(page_h)?;
+    let mut page_dict = arena.get_dict(page_dh).unwrap_or_default();
+    let drawing = draw_run(doc, page_h, &mut page_dict, shown)?;
+    append_content(doc, page_dh, &mut page_dict, drawing.into_bytes());
+    arena.set_dict(page_dh, page_dict);
+    Ok(())
+}
+
+/// The content stream fragment that sets `shown`, with its face named in the page's
+/// resources.
+///
+/// **Separate from writing it out** so that a decoration can wrap the same fragment in the
+/// optional content it belongs to, and there is one place that turns text into glyph
+/// codes rather than two.
+///
+/// # Errors
+/// Fails when the program has no glyph for a character of the text, naming it, or when it
+/// cannot be subsetted.
+pub fn draw_run(
+    doc: &Document,
+    page_h: Handle<Object>,
+    page_dict: &mut BTreeMap<Handle<PdfName>, Object>,
+    shown: &ShownText<'_>,
+) -> PdfResult<String> {
     let glyph_ids = fepdf_font::subset::glyphs_for(shown.program, shown.text)
         .map_err(|c| PdfError::Other(format!("this face draws no {c:?}").into()))?;
 
@@ -444,13 +471,7 @@ pub fn show_text(doc: &Document, page: usize, shown: &ShownText<'_>) -> PdfResul
         doc,
         &EmbeddedFace { program: shown.program, base_font: shown.base_font, glyphs: &glyphs },
     )?;
-
-    let arena = doc.arena();
-    let page_h =
-        doc.get_page_handle(page).ok_or_else(|| PdfError::Other("the page is not there".into()))?;
-    let page_dh = doc.resolve_to_dict(page_h)?;
-    let mut page_dict = arena.get_dict(page_dh).unwrap_or_default();
-    let name = name_font_in_page(doc, page_h, &mut page_dict, embedded.font);
+    let name = name_font_in_page(doc, page_h, page_dict, embedded.font);
 
     // **What goes in the string is the code, not the glyph.** On a CID-keyed face they
     // differ for some glyphs and not others, so writing the id draws the right letter
@@ -462,13 +483,10 @@ pub fn show_text(doc: &Document, page: usize, shown: &ShownText<'_>) -> PdfResul
         let _ = write!(codes, "{code:04X}");
     }
     let (x, y) = shown.at;
-    let drawing = format!(
+    Ok(format!(
         "q\nBT\n/{name} {:.2} Tf\n1 0 0 1 {x:.2} {y:.2} Tm\n<{codes}> Tj\nET\nQ\n",
         shown.size
-    );
-    append_content(doc, page_dh, &mut page_dict, drawing.into_bytes());
-    arena.set_dict(page_dh, page_dict);
-    Ok(())
+    ))
 }
 
 /// Names `font` in the page's resources, under a name nothing else there uses.
@@ -514,7 +532,7 @@ fn name_font_in_page(
 }
 
 /// Adds `drawing` to the page's content, after whatever is already there.
-fn append_content(
+pub(crate) fn append_content(
     doc: &Document,
     page_dh: Handle<Dict>,
     page_dict: &mut BTreeMap<Handle<PdfName>, Object>,
@@ -539,4 +557,97 @@ fn append_content(
     items.push(Object::Reference(stream_h));
     page_dict.insert(contents_key, Object::Array(arena.alloc_array(items)));
     let _ = page_dh;
+}
+
+/// Why no face could be used for a run of text.
+///
+/// **A refusal names what stopped it**, because "the text could not be set" is not
+/// something a reader can act on and "no installed face draws 図, and the two that do are
+/// licensed for viewing only" is.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum NoFace {
+    /// This machine offers no faces at all.
+    NothingInstalled,
+    /// Every face that draws the text states terms that forbid this use.
+    Forbidden {
+        /// The faces that could have drawn it, and what each of them permits.
+        refused: Vec<(String, String)>,
+    },
+    /// No installed face draws this character.
+    NoGlyph {
+        /// The first character none of them has a glyph for.
+        character: char,
+    },
+}
+
+impl std::fmt::Display for NoFace {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::NothingInstalled => write!(f, "this machine offers no font at all"),
+            Self::NoGlyph { character } => {
+                write!(f, "no font on this machine draws {character:?}")
+            }
+            Self::Forbidden { refused } => {
+                write!(f, "no font on this machine may be embedded for editing; ")?;
+                for (name, terms) in refused {
+                    write!(f, "{name} permits {terms}; ")?;
+                }
+                Ok(())
+            }
+        }
+    }
+}
+
+/// A face installed here that draws `text` and permits being embedded in a document that
+/// is then edited.
+///
+/// **The ladder of [ADR-0090](../../../../docs/adr/0090-the-face-a-document-embeds-is-not-a-licence-to-set-new-text.md),
+/// which has two rungs and ends in a refusal.** 9.9.1 is why there is no third: a program
+/// may permit embedding for viewing and printing and not for setting new text, that needs
+/// a licensed copy rather than one taken out of a PDF, and absent explicit information an
+/// embedded program *shall* be used only to view and print. So the face in the file being
+/// edited is not a source, and nothing is substituted when this finds nothing.
+///
+/// # Errors
+/// Says which character stopped it, or which faces refused and on what terms.
+pub fn face_for(text: &str) -> Result<(String, Arc<Vec<u8>>), NoFace> {
+    let installed = fepdf_model::document::fallback_fonts();
+    if installed.is_empty() {
+        return Err(NoFace::NothingInstalled);
+    }
+
+    let mut draws_it = Vec::new();
+    for (kind, program) in &installed {
+        if fepdf_font::subset::glyphs_for(program, text).is_ok() {
+            draws_it.push((format!("{kind:?}"), program.clone()));
+        }
+    }
+    if draws_it.is_empty() {
+        // The character to name is the first one no face here has, which is the one a
+        // reader has to do something about.
+        let missing = text
+            .chars()
+            .find(|c| {
+                installed
+                    .values()
+                    .all(|p| fepdf_font::subset::glyphs_for(p, &c.to_string()).is_err())
+            })
+            .unwrap_or('\u{FFFD}');
+        return Err(NoFace::NoGlyph { character: missing });
+    }
+
+    let mut refused = Vec::new();
+    for (name, program) in draws_it {
+        match fepdf_font::embedding::embedding_permission(&program) {
+            Some(permission) if permission.allows_embedding_for_editing() => {
+                return Ok((name, program));
+            }
+            Some(permission) => refused.push((name, format!("{:?}", permission.usage))),
+            // Silence is not consent: 9.9.1 makes an embedded program view-and-print only
+            // in the absence of explicit information, and a program with no `OS/2` table
+            // has stated none.
+            None => refused.push((name, "nothing at all".to_string())),
+        }
+    }
+    Err(NoFace::Forbidden { refused })
 }
