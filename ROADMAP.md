@@ -3631,14 +3631,23 @@ Then the gate:
       *Fails if*: a sample counts differently with and without refinement, a font written
       directly into a resource dictionary is not counted, or one no page reaches is.
 
-- [ ] **W-E1b3 — the document's own program, reachable.** `Document::get_font` returns a
-      `FontResource` whose `data` is `None` for **all 335 font dictionaries of the nine
-      samples**, measured 2026-09-19, while rendering plainly gets the program from
-      somewhere. It is no longer the ladder's first rung
-      ([ADR-0090](docs/adr/0090-the-face-a-document-embeds-is-not-a-licence-to-set-new-text.md)),
-      but the engine still has to reach a program to read its `fsType` and, where that
-      permits, to subset it. *Fails if*: a font the samples embed is reached through the
-      public API and its program is not there.
+- [x] **W-E1b3 — the document's own program is reachable, and this entry was wrong about
+      it.** It said `Document::get_font` answers with no program for all 335 font
+      dictionaries of the nine samples. Two things were wrong with that. **36 of them are
+      Type 3 fonts**, whose glyphs are content streams and which have no program by
+      definition (9.6.4); and the field it read is the one `initialize_lifecycle`
+      deliberately *releases* — the engine patches the program into `reconstructed_data`
+      and drops `data` rather than carrying both.
+
+      Read through `FontResource::program`, which answers the question once instead of
+      making a caller know there are two fields, **291 of the 299 fonts that are not Type 3
+      answer**, and the eight that do not are the ones their documents never embedded —
+      which agrees with `inspect info`'s own embedded counts.
+
+      The lesson is the one [ADR-0039](docs/adr/0039-the-design-document-was-narrating-its-own-corrections.md)
+      is about: a figure recorded from a measurement taken in passing, in a commit about
+      something else, was wrong in two ways at once and sat here until it was read again.
+
 - [x] **W-E1c-i — the numbers a descriptor states.** `fepdf-font::metrics` reads
       `head.unitsPerEm` and its bounding box, `hhea`'s ascent, descent and
       `numberOfHMetrics`, `OS/2.sCapHeight` where the table is version 2 or later, and
