@@ -3821,6 +3821,31 @@ Annotations, which are the largest single row of the comparison:
 
 Content editing, under D-1:
 
+- [ ] **W-E3a — `TextSpan.op_index` carries nothing on the default path.** Measured on
+      `samples/constitution.pdf`: with `active_refinement` off, 1007 spans carry 1007
+      distinct operator indices — 4, 13, 23, 30, … — and with it **on, which is the
+      default, all 1007 carry 0**. A caller that uses the field to locate the operator that
+      drew a span is given the same answer for every one of them.
+
+      Redaction is not affected and that is the clue: it reaches the same
+      `CollectorBackend` by a path where the indices are real, and a rectangle over one
+      corner scrubs two runs rather than all or none. So the field is right in one place
+      and empty in another, which is worse than wrong everywhere.
+
+      **W-E3 identifies a run by the text it reads rather than by this index**, which was
+      decided before this was measured and is the reason the measurement did not stop it.
+      Fixing the field means giving the sublimated command list an index that corresponds
+      to the token stream — which is precisely the divergence
+      [ADR-0064](docs/adr/0064-redaction-removed-the-second-run-of-a-page-and-no-other.md)
+      records, where two ways of counting met at 9 and nowhere else.
+
+- [ ] **W-E3b — the nine samples are eight documents.** `samples/sample.pdf` and
+      `samples/constitution.pdf` are byte-identical, same length and same MD5, so every
+      figure taken "over the nine samples" counts that file twice — including the ones this
+      phase quotes: 235 embedded font programs, 299 font dictionaries that are not Type 3,
+      291 of them answering with a program. None of those claims is wrong as stated, and
+      each is one file less varied than it sounds.
+
 - [ ] **W-E3 — changing a run of text that is already on the page**
       (`Operation::EditTextRun`), re-embedding through W-E1 where the font has no glyph
       for what is asked.

@@ -25,6 +25,14 @@ pub struct TextSpan {
     pub width: f64,
     /// Index of the operation in the content stream.
     pub op_index: usize,
+    /// The resource name of the font it is set in, as the content stream names it.
+    ///
+    /// **A span says what it reads and, until now, not what it was written with.** The
+    /// collector has tracked the font in force since it existed — `set_font` puts it in
+    /// `current_font` — and dropped it when it built the span. Changing the text of a run
+    /// needs it: a replacement has to be encoded in the font that run is set in, and in
+    /// no other.
+    pub font: Option<String>,
 }
 
 /// A positioned run of extracted text.
@@ -611,6 +619,7 @@ impl RenderBackend for CollectorBackend {
             y: coeffs[5],
             width,
             op_index,
+            font: self.current_font.clone(),
         });
     }
     fn define_font(
