@@ -284,6 +284,14 @@ fn a_cff_subset_keeps_the_charstrings_it_was_asked_for() {
             fepdf_font::cff::private_dicts(program),
             "a font dictionary points where its Private DICT used to be"
         );
+        // Both are `None` for a CFF that is not CID-keyed, which is every one the samples
+        // carry — so this holds the property here and is exercised by the platform face,
+        // where a 20,327-glyph CID-keyed program does have an `FDSelect`.
+        assert_eq!(
+            fepdf_font::cff::glyph_to_font_dict(&subsetted),
+            fepdf_font::cff::glyph_to_font_dict(program),
+            "FDSelect moved out from under the offset that names it"
+        );
     }
 }
 

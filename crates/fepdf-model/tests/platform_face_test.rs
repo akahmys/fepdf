@@ -124,6 +124,17 @@ fn a_face_with_a_cff_subsets_and_keeps_its_charstrings() {
             !fepdf_font::cff::private_dicts(data).is_empty(),
             "{kind:?}: no font dictionary was read, so the comparison above asks nothing"
         );
+        // The last of the Top DICT's offsets that had no evidence of its own. A stale one
+        // here draws every glyph with another dictionary's stems and widths.
+        assert_eq!(
+            fepdf_font::cff::glyph_to_font_dict(&subsetted),
+            fepdf_font::cff::glyph_to_font_dict(data),
+            "{kind:?}: FDSelect moved out from under the offset that names it"
+        );
+        assert!(
+            fepdf_font::cff::glyph_to_font_dict(data).is_some_and(|m| m.len() == count),
+            "{kind:?}: FDSelect was not read, so the comparison above asks nothing"
+        );
     }
     println!("{exercised} of this machine's faces carry a CFF and were subsetted");
 }

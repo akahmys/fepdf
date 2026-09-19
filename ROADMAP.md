@@ -3585,7 +3585,7 @@ Then the gate:
       ```
 
       Font 0 is the one taken, which a collection does not choose for us: Hiragino ships
-      several weights in one file. Naming the face wanted is W-E2c.
+      several weights in one file. Naming the face wanted is W-E2g.
 
 - [x] **W-E1b2 — subsetting a CFF program**, which is the critical path for Japanese: the
       face on this machine is a CID-keyed CFF of **20,327 glyphs** with a 15-entry
@@ -3694,7 +3694,7 @@ Then the gate:
       `/ToUnicode` are keyed by the code for the same reason, while the width itself is
       read by the glyph.
 
-- [x] **W-E2b — 図面-0001, on a page, in a file.** The case this phase started from, end
+- [x] **W-E2f — 図面-0001, on a page, in a file.** The case this phase started from, end
       to end: the face's terms read, the glyphs found through its `cmap`, the CFF subsetted
       to five of its 20,327, embedded, shown by CID, and extracted back as `図面-0001` from
       a 47,654-byte file — with no `9.6.2` or `9.10.2` decision against this engine's own
@@ -3706,7 +3706,7 @@ Then the gate:
       all three, and `0001` came back as `0000000001`. The round trip is what caught it;
       nothing else would have.
 
-- [x] **W-E2c — the face taken out of a collection is the regular one.** Every face this
+- [x] **W-E2g — the face taken out of a collection is the regular one.** Every face this
       machine offers is a collection, and the engine took face 0 of each. That was right
       here and right by luck: Helvetica lists six faces, Times four and Hiragino Mincho
       four — `ProN W3`, `Pro W3`, `ProN W6`, `Pro W6` — and the regular weight happens to
@@ -3765,9 +3765,13 @@ Then the gate:
       are gone; `page_decoration_test.rs` fails against the old writer with 13 of them,
       and the three fixtures beside it cannot see the defect at all, which is recorded in
       the test rather than left to be rediscovered.
-- [ ] **W-E2b — Bates, watermarks and headers onto W-E1**, so that what they write is
-      embedded and not standard-14. *Fails if*: the repro above does not extract
-      `図面-0001`.
+- [x] **W-E2b — Bates, watermarks and headers onto W-E1.** `overlay_text_on_page` goes
+      through the ladder and writes glyph codes into an embedded subset, so what the three
+      of them write is embedded rather than a standard-14 name. **The path that wrote
+      neither is deleted**: `ensure_helvetica_in_page_dict` had no caller left. What they
+      write can now be refused, which is the decision and not a regression — and a
+      decoration therefore depends on this machine having an installed face, as do the
+      tests that assert one lands.
 - [ ] **W-E2c — a direct font dictionary is read.** 7.3.10 lets any object be direct, and
       a file from another producer that writes `/Font << /F1 << … >> >>` reaches
       `fepdf-content` intact and the refined path not at all. What it costs is a

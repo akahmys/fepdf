@@ -12,13 +12,15 @@
 //! the dictionary's own size does not depend on the offsets it holds and one pass settles
 //! them.
 //!
-//! **Three of the offsets here are held by a test that fails when they are left behind**,
+//! **Every offset here is held by a test that fails when it is left behind**,
 //! and each took a mutation to establish: the charstrings, through the charstrings that
-//! come back; the charset, through the map `inspect_cff` builds by reading it; and the
+//! come back; the charset, through the map `inspect_cff` builds by reading it; the
 //! `FDArray` with the Private DICT each of its font dictionaries names, through
-//! [`private_dicts`]. `FDSelect` is not checked on its own — it sits in the same block as
-//! the charset and moves with it, so it is right by the same arithmetic and not by its own
-//! evidence.
+//! [`private_dicts`]; and `FDSelect` through [`glyph_to_font_dict`].
+//!
+//! **Only the face installed on a machine exercises the last two.** No CFF program in the
+//! samples is CID-keyed, so the corpus has no `FDArray` and no `FDSelect` to move; the
+//! 20,327-glyph Hiragino face has both, and is where those two mutations fail.
 
 use crate::reconstruction::{FontReconstructor, get_index_item, skip_index};
 use crate::{FontError, FontResult};
@@ -511,4 +513,54 @@ pub fn registry_ordering_supplement(program: &[u8]) -> Option<(String, String, i
         }
     };
     Some((resolve(registry)?, resolve(ordering)?, supplement))
+}
+
+/// Which font dictionary each glyph of a CID-keyed program is drawn with.
+///
+/// **The last of the Top DICT's offsets without evidence of its own.** `FDSelect` sits in
+/// the same block as the charset and moves by the same arithmetic, so it was right by
+/// inference rather than by measurement — and a stale offset here does not stop a glyph
+/// being drawn. It draws it with another font dictionary's private values: the same
+/// outline, the wrong stems and the wrong nominal width, which is a defect that renders.
+///
+/// One entry per glyph. `None` where the program names no `FDSelect`, which is every CFF
+/// that is not CID-keyed.
+#[must_use]
+pub fn glyph_to_font_dict(program: &[u8]) -> Option<Vec<u8>> {
+    let cff = body(program);
+    let layout = read_layout(cff).ok()?;
+    let at = layout
+        .top_dict
+        .iter()
+        .find(|entry| entry.op == 0x0C25)
+        .and_then(|entry| entry.operands.last())
+        .and_then(|offset| usize::try_from(*offset).ok())?;
+    let glyphs = index_count(cff, layout.charstrings.0);
+
+    match cff.get(at).copied()? {
+        // Format 0: one byte per glyph, in order.
+        0 => cff.get(at + 1..at + 1 + glyphs).map(<[u8]>::to_vec),
+        // Format 3: ranges of glyphs, each naming the dictionary its glyphs use.
+        3 => {
+            let ranges = usize::from(read_u16(cff, at + 1)?);
+            let mut out = vec![0u8; glyphs];
+            for i in 0..ranges {
+                let entry = at + 3 + i * 3;
+                let first = usize::from(read_u16(cff, entry)?);
+                let fd = cff.get(entry + 2).copied()?;
+                let next = usize::from(read_u16(cff, entry + 3)?);
+                for slot in out.get_mut(first..next.min(glyphs)).unwrap_or_default() {
+                    *slot = fd;
+                }
+            }
+            Some(out)
+        }
+        // A format this engine does not read is not one it will claim to have checked.
+        _ => None,
+    }
+}
+
+/// A big-endian `uint16` at `at`.
+fn read_u16(data: &[u8], at: usize) -> Option<u16> {
+    Some(u16::from_be_bytes([*data.get(at)?, *data.get(at + 1)?]))
 }
