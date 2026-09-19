@@ -3572,11 +3572,28 @@ Then the gate:
       twenty glyphs keep 84% to 95% of four of them and 40% of the fifth. What a system
       face costs is not measurable here and belongs where one is read.
 
-- [ ] **W-E1b2 — subsetting a CFF program.** 153 of the 235 embedded programs in the
-      samples are CFF-based `FontFile3`, a charstring index rather than a `glyf` table, so
-      the work above does not reach them. Which formats the faces on each platform take is
-      the first thing to measure, because it decides whether this gates the ladder or
-      follows it.
+- [x] **W-E1b1 — a collection is read from its first font.** Every face this engine finds
+      on macOS is a `ttcf` — four of four, holding four to six fonts each, measured
+      2026-09-19 — and a table directory read at offset 0 of one parses the collection
+      header as a font, so no table is found at all. The face then reads as stating no
+      permission and carrying no outlines, which is indistinguishable from a face that
+      states neither. With the header resolved, three of the four state `fsType` 0 and the
+      Japanese one states an editable embedding.
+
+      ```bash
+      cargo test -p fepdf-model --test platform_face_test -- --nocapture
+      ```
+
+      Font 0 is the one taken, which a collection does not choose for us: Hiragino ships
+      several weights in one file. Naming the face wanted is W-E2c.
+
+- [ ] **W-E1b2 — subsetting a CFF program, which is the critical path for Japanese.**
+      The measurement above settles what this gates: **the Japanese face on this machine
+      is CFF** — `CFF `, `VORG`, `vhea`, `vmtx`, no `glyf`, 0 of 39 glyphs with a TrueType
+      outline — while the three Latin faces carry `glyf` and subset today. 153 of the 235
+      embedded programs in the samples are CFF-based `FontFile3` besides. So Latin can be
+      embedded now and 図面 cannot, for want of a subsetter and not for want of a
+      permission: the face permits an editable embedding and says so.
 - [ ] **W-E1b3 — the document's own program, reachable.** `Document::get_font` returns a
       `FontResource` whose `data` is `None` for **all 335 font dictionaries of the nine
       samples**, measured 2026-09-19, while rendering plainly gets the program from

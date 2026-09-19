@@ -2007,13 +2007,33 @@ fn parse_dict_number(d: &[u8]) -> (i32, usize) {
     }
 }
 
+/// Where the first font's table directory starts.
+///
+/// **A collection puts its fonts behind a header**, and every face installed on a macOS
+/// system is one: all four of the platform faces this engine finds there are `ttcf`,
+/// measured 2026-09-19. Reading a table directory at offset 0 of one of those reads the
+/// collection header as if it were a font, so `OS/2` is not found, `glyf` is not found,
+/// and the face reads as carrying neither — which is indistinguishable from a face that
+/// states no permission and has no outlines.
+///
+/// Font 0 is the one taken, which is a choice a collection does not make for us: Hiragino
+/// ships several weights in one file. Naming which face is wanted is W-E2c.
+pub(crate) fn sfnt_base(s: &[u8]) -> usize {
+    if s.len() < 16 || &s[0..4] != b"ttcf" {
+        return 0;
+    }
+    let base = u32::from_be_bytes([s[12], s[13], s[14], s[15]]) as usize;
+    if base + 12 <= s.len() { base } else { 0 }
+}
+
 pub(crate) fn find_table_range(s: &[u8], t: &[u8; 4]) -> Option<(usize, usize)> {
     if s.len() < 12 {
         return None;
     }
-    let nt = u16::from_be_bytes([s[4], s[5]]) as usize;
+    let base = sfnt_base(s);
+    let nt = u16::from_be_bytes([*s.get(base + 4)?, *s.get(base + 5)?]) as usize;
     for i in 0..nt {
-        let e = 12 + i * 16;
+        let e = base + 12 + i * 16;
         if e + 16 > s.len() {
             break;
         }

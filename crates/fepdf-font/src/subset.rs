@@ -466,3 +466,43 @@ mod subset_truetype_tests {
         );
     }
 }
+
+#[cfg(test)]
+mod collection_tests {
+    use super::super::reconstruction::sfnt_base;
+
+    /// A collection holding one font whose directory sits at `offset`.
+    fn collection(offset: u32) -> Vec<u8> {
+        let mut out = Vec::new();
+        out.extend_from_slice(b"ttcf");
+        out.extend_from_slice(&0x0001_0000_u32.to_be_bytes()); // version
+        out.extend_from_slice(&1u32.to_be_bytes()); // numFonts
+        out.extend_from_slice(&offset.to_be_bytes());
+        out.resize(offset as usize + 12, 0);
+        out
+    }
+
+    /// **Every face installed on this machine is a collection**, so this is the ordinary
+    /// case rather than the odd one.
+    #[test]
+    fn a_collection_is_read_from_its_first_font() {
+        assert_eq!(sfnt_base(&collection(40)), 40);
+    }
+
+    #[test]
+    fn a_plain_font_starts_where_it_starts() {
+        let mut plain = vec![0u8; 20];
+        plain[0..4].copy_from_slice(&0x0001_0000_u32.to_be_bytes());
+        assert_eq!(sfnt_base(&plain), 0);
+    }
+
+    /// An offset past the end is a file saying something impossible, and reading from it
+    /// would be reading whatever is in memory after the buffer.
+    #[test]
+    fn an_offset_that_does_not_fit_is_not_followed() {
+        let mut truncated = collection(40);
+        truncated.truncate(30);
+        assert_eq!(sfnt_base(&truncated), 0, "an offset past the end must not be followed");
+        assert_eq!(sfnt_base(b"ttcf"), 0, "a header too short to hold an offset states none");
+    }
+}
