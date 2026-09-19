@@ -561,3 +561,39 @@ fn setting_a_field_recalculates_what_is_computed_from_it() {
         "10 + 3, which only a calculation run produces"
     );
 }
+
+/// The text editing tool changes the page it is pointed at, through a file.
+#[test]
+fn edit_text_run_replaces_what_it_was_asked_to() {
+    let content = "BT /F1 24 Tf 1 0 0 1 40 700 Tm (ORIGINAL) Tj ET";
+    let bodies = [
+        "<< /Type /Catalog /Pages 2 0 R >>".to_string(),
+        "<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_string(),
+        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R \
+         /Resources << /Font << /F1 5 0 R >> >> >>"
+            .to_string(),
+        format!("<< /Length {} >>\nstream\n{content}\nendstream", content.len()),
+        "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>".to_string(),
+    ];
+    let input = std::env::temp_dir().join("fepdf_mcp_edit_in.pdf");
+    let output = std::env::temp_dir().join("fepdf_mcp_edit_out.pdf");
+    std::fs::write(&input, fepdf_fixtures::assemble(&bodies)).expect("the fixture writes");
+
+    let said = fepdf_mcp::tools::edit_text_run_impl(fepdf_mcp::tools::EditTextRunArgs {
+        input_path: input.to_string_lossy().to_string(),
+        output_path: output.to_string_lossy().to_string(),
+        page: 0,
+        find: "ORIGINAL".to_string(),
+        replace: "CHANGED".to_string(),
+    })
+    .expect("the tool runs");
+    assert!(said.contains("replaced") || said.contains("Text run"), "it said: {said}");
+
+    let written = std::fs::read(&output).expect("the output is there");
+    let doc = fepdf::PdfDocument::open(written.into()).expect("it opens");
+    let text = doc.extract_text(0).expect("it extracts");
+    assert!(text.contains("CHANGED"), "the tool did not change the page: {text:?}");
+
+    let _ = std::fs::remove_file(&input);
+    let _ = std::fs::remove_file(&output);
+}

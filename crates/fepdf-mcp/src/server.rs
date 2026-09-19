@@ -10,20 +10,20 @@ use crate::tools::operations::vocabulary::{
 use crate::tools::{
     AddAnnotationArgs, AddMeshShadingArgs, AddPageDecorationArgs, AddPublicKeyRecipientArgs,
     AddUserPropertiesArgs, ApplyBatesNumberingArgs, ApplyOperationArgs, AttachAssociatedFileArgs,
-    AuditArgs, CreatePortfolioArgs, DeleteStructElemArgs, ExecuteActionArgs, ExtractTextArgs,
-    MoveStructElemArgs, RedactDocumentArgs, RemovePagesArgs, ReorderPagesArgs, RotatePagesArgs,
-    SetFormFieldValueArgs, SetGeospatialAnchorArgs, SetMeasurementScaleArgs, SetOutputIntentArgs,
-    SetPageLabelsArgs, SetPronunciationLexiconArgs, SetUnencryptedWrapperArgs,
+    AuditArgs, CreatePortfolioArgs, DeleteStructElemArgs, EditTextRunArgs, ExecuteActionArgs,
+    ExtractTextArgs, MoveStructElemArgs, RedactDocumentArgs, RemovePagesArgs, ReorderPagesArgs,
+    RotatePagesArgs, SetFormFieldValueArgs, SetGeospatialAnchorArgs, SetMeasurementScaleArgs,
+    SetOutputIntentArgs, SetPageLabelsArgs, SetPronunciationLexiconArgs, SetUnencryptedWrapperArgs,
     UpdateArticleThreadsArgs, UpdateLayersArgs, UpdateOutlinesArgs, UpdateStructElemArgs,
     VerifySignaturesArgs, add_annotation_impl, add_mesh_shading_impl, add_page_decoration_impl,
     add_public_key_recipient_impl, add_user_properties_impl, apply_bates_numbering_impl,
     apply_operation_impl, apply_redaction_impl, attach_associated_file_impl, audit_document_impl,
-    create_portfolio_impl, delete_struct_elem_impl, execute_action_impl, extract_text_impl,
-    move_struct_elem_impl, remove_pages_impl, reorder_pages_impl, rotate_pages_impl,
-    set_form_field_value_impl, set_geospatial_anchor_impl, set_measurement_scale_impl,
-    set_output_intent_impl, set_page_labels_impl, set_pronunciation_lexicon_impl,
-    set_unencrypted_wrapper_impl, update_article_threads_impl, update_layers_impl,
-    update_outlines_impl, update_struct_elem_impl, verify_signatures_impl,
+    create_portfolio_impl, delete_struct_elem_impl, edit_text_run_impl, execute_action_impl,
+    extract_text_impl, move_struct_elem_impl, remove_pages_impl, reorder_pages_impl,
+    rotate_pages_impl, set_form_field_value_impl, set_geospatial_anchor_impl,
+    set_measurement_scale_impl, set_output_intent_impl, set_page_labels_impl,
+    set_pronunciation_lexicon_impl, set_unencrypted_wrapper_impl, update_article_threads_impl,
+    update_layers_impl, update_outlines_impl, update_struct_elem_impl, verify_signatures_impl,
 };
 use rmcp::{
     ServiceExt,
@@ -487,6 +487,22 @@ impl FepdfServer {
         Parameters(args): Parameters<AddAnnotationArgs>,
     ) -> Result<String, String> {
         add_annotation_impl(args)
+    }
+
+    /// Replaces a whole run of text on a page with other text, in the run's own font.
+    ///
+    /// The description says "in full" because the unit is a run: a run that reads the
+    /// text is rewritten and one that merely contains it is not, and a caller who expects
+    /// find-and-replace over a page would otherwise be surprised by which runs moved.
+    #[tool(
+        name = "edit_text_run",
+        description = "Replaces every run of text on a page that reads the given text in full, encoding the replacement in that run's own font. A character the font cannot draw is refused by name."
+    )]
+    pub async fn edit_text_run(
+        &self,
+        Parameters(args): Parameters<EditTextRunArgs>,
+    ) -> Result<String, String> {
+        edit_text_run_impl(args)
     }
 
     /// Configures drawing measurement scale dictionary (/Measure) for CAD and technical drawings.

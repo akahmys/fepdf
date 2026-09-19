@@ -82,3 +82,18 @@ fn the_tools_that_run_scripts_are_the_ones_that_say_so() {
     expected.sort();
     assert_eq!(says, expected, "the descriptions and the implementation disagree about scripts");
 }
+
+/// **An operation no frontend can call is one nobody looks at.**
+///
+/// `AddAnnotation` existed for phases with no caller, and its three defects — no `/AP`,
+/// no `/QuadPoints` on a highlight, a stamp that discarded its image — were found the day
+/// something finally called it. This server is the frontend `ARCHITECTURE.md` calls the
+/// most complete, so a vocabulary entry it cannot reach is the same trap being set again.
+#[test]
+fn the_text_editing_operation_is_reachable() {
+    let tools = served();
+    assert!(
+        tools.iter().any(|name| name == "edit_text_run"),
+        "no tool reaches `Operation::EditTextRun`: {tools:?}"
+    );
+}

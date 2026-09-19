@@ -111,6 +111,27 @@ pub fn add_page_decoration_impl(args: AddPageDecorationArgs) -> Result<String, S
     execute_single_op(&args.input_path, &args.output_path, op, "Page decoration added")
 }
 
+/// Arguments for `edit_text_run`.
+#[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
+pub struct EditTextRunArgs {
+    /// Path to input PDF file.
+    pub input_path: String,
+    /// Path to output PDF file.
+    pub output_path: String,
+    /// Target 0-based page index.
+    pub page: usize,
+    /// The text a run must read in full to be replaced.
+    pub find: String,
+    /// What it reads afterwards.
+    pub replace: String,
+}
+
+/// Implementation of the edit_text_run tool.
+pub fn edit_text_run_impl(args: EditTextRunArgs) -> Result<String, String> {
+    let op = Operation::EditTextRun { page: args.page, find: args.find, replace: args.replace };
+    execute_single_op(&args.input_path, &args.output_path, op, "Text run replaced")
+}
+
 /// Implementation of the apply_bates_numbering tool.
 pub fn apply_bates_numbering_impl(args: ApplyBatesNumberingArgs) -> Result<String, String> {
     let position = parse_pos(args.position.as_deref().unwrap_or("bottom_right"));

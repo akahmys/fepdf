@@ -3867,11 +3867,11 @@ Content editing, under D-1:
       that only contains it, and substituting a character the font cannot draw fails the
       refusal. Each fails exactly the one test written for it.
 
-- [ ] **W-E3c — no frontend can reach `EditTextRun`.** The vocabulary is 33 variants and
-      the frontends build 16, 8 and 31, so the operation this phase just added is one
-      nothing calls. That is the state `AddAnnotation` was in for phases, and it is why its
-      three defects went unseen until W-8 looked. `fepdf-mcp` is where it goes — it is the
-      frontend ARCHITECTURE calls the most complete — and the window is W-E6.
+- [x] **W-E3c — `EditTextRun` is reachable.** `fepdf-mcp` serves `edit_text_run`, so the
+      frontends build **16, 8 and 32** of the vocabulary's 33. An operation nothing can
+      call is one nobody looks at — which is the state `AddAnnotation` was in for phases,
+      and why its three defects waited for W-8 — so the tool surface test now asks for this
+      one by name rather than leaving the trap to be set again.
 
 - [ ] **W-E4 — advance widths, reflow within a line, insertion and deletion.** This is
       where the D-1 line sits: a paragraph re-flowed across lines is a layout engine, and
