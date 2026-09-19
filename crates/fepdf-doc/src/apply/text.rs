@@ -104,14 +104,18 @@ fn rewrite_runs(
         if op == "Tf" {
             current = font_named(&operands, fonts);
         }
-        let shows_text = matches!(op.as_str(), "Tj" | "TJ" | "'" | "\"");
-        for operand in std::mem::take(&mut operands) {
-            match (&operand, shows_text, current.as_ref()) {
-                (Token::String(s) | Token::Hex(s), true, Some(font)) if decode(font, s) == find => {
-                    Token::String(encode(font, replace)?).write_to(&mut out);
-                }
-                _ => operand.write_to(&mut out),
-            }
+        let taken = std::mem::take(&mut operands);
+        let rewritten = match (op.as_str(), current.as_ref()) {
+            ("Tj" | "'" | "\"", Some(font)) => replace_in_run(&taken, font, find, replace)?,
+            // **A run is the whole array, not each string in it.** `[(ORIG) -50 (INAL)] TJ`
+            // is one run reading `ORIGINAL`, split where the producer kerned it, and
+            // matching the pieces on their own finds neither — silence on the ordinary
+            // shape of real text rather than on an unusual one.
+            ("TJ", Some(font)) => replace_in_array(&taken, font, find, replace)?,
+            _ => None,
+        };
+        for operand in rewritten.unwrap_or(taken) {
+            operand.write_to(&mut out);
         }
         token.write_to(&mut out);
     }
@@ -119,6 +123,63 @@ fn rewrite_runs(
         operand.write_to(&mut out);
     }
     Ok(out)
+}
+
+/// The operands of a `Tj`, with the string replaced where the run reads `find`.
+///
+/// `None` leaves them as they were.
+fn replace_in_run(
+    operands: &[Token],
+    font: &FontResource,
+    find: &str,
+    replace: &str,
+) -> PdfResult<Option<Vec<Token>>> {
+    if reads_as(operands, font) != find {
+        return Ok(None);
+    }
+    let mut out = Vec::with_capacity(operands.len());
+    let mut written = false;
+    for token in operands {
+        match token {
+            Token::String(_) | Token::Hex(_) if !written => {
+                out.push(Token::String(encode(font, replace)?));
+                written = true;
+            }
+            // The rest of the strings of a replaced run are dropped, or the page would
+            // read the new text and then the tail of the old.
+            Token::String(_) | Token::Hex(_) => {}
+            other => out.push(other.clone()),
+        }
+    }
+    Ok(Some(out))
+}
+
+/// The operands of a `TJ`, with the array replaced where what it reads is `find`.
+///
+/// **The kerning goes with the text it kerned.** Those numbers space letters that are
+/// being replaced, so keeping them would space the new letters by the old letters'
+/// corrections; the replacement goes in as one string, at the font's own advances.
+fn replace_in_array(
+    operands: &[Token],
+    font: &FontResource,
+    find: &str,
+    replace: &str,
+) -> PdfResult<Option<Vec<Token>>> {
+    if reads_as(operands, font) != find {
+        return Ok(None);
+    }
+    Ok(Some(vec![Token::LeftArray, Token::String(encode(font, replace)?), Token::RightArray]))
+}
+
+/// What the strings among `operands` read, joined, through `font`.
+fn reads_as(operands: &[Token], font: &FontResource) -> String {
+    operands
+        .iter()
+        .filter_map(|token| match token {
+            Token::String(s) | Token::Hex(s) => Some(decode(font, s)),
+            _ => None,
+        })
+        .collect()
 }
 
 /// The font a `Tf` names, out of the operands before it.

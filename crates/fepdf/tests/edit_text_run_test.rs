@@ -104,3 +104,50 @@ fn asking_for_text_no_run_reads_changes_nothing() {
     .expect("it applies");
     assert!(doc.extract_text(0).expect("it extracts").contains("ORIGINAL"));
 }
+
+/// A page drawing `text` as one run split by a kerning correction, which is the ordinary
+/// shape of text in a file a person did not hand-write.
+fn page_drawing_kerned(text: &str) -> PdfDocument {
+    let (head, tail) = text.split_at(text.len() / 2);
+    let content = format!("BT /F1 24 Tf 1 0 0 1 40 700 Tm [({head}) -50 ({tail})] TJ ET");
+    let bodies = [
+        "<< /Type /Catalog /Pages 2 0 R >>".to_string(),
+        "<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_string(),
+        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R \
+         /Resources << /Font << /F1 5 0 R >> >> >>"
+            .to_string(),
+        format!("<< /Length {} >>\nstream\n{content}\nendstream", content.len()),
+        "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>".to_string(),
+    ];
+    PdfDocument::open_with_options(
+        fepdf_fixtures::assemble(&bodies).into(),
+        &IngestionOptions::default(),
+    )
+    .expect("the fixture opens")
+}
+
+/// **A run is the whole array, not each string in it.**
+///
+/// `[(ORIG) -50 (INAL)] TJ` is one run reading `ORIGINAL`, split where the producer kerned
+/// it. Matching the pieces on their own finds neither, so the edit did nothing and said it
+/// had succeeded — on the ordinary shape of real text rather than on an unusual one.
+#[test]
+fn a_run_split_by_kerning_is_still_one_run() {
+    let mut doc = page_drawing_kerned("ORIGINAL");
+    assert_eq!(
+        doc.extract_spans(0).expect("it extracts").len(),
+        2,
+        "the fixture is not kerned, so this asks nothing"
+    );
+
+    doc.apply(Operation::EditTextRun {
+        page: 0,
+        find: "ORIGINAL".to_string(),
+        replace: "CHANGED".to_string(),
+    })
+    .expect("the edit applies");
+
+    let text = round_trip(&doc, "kerned").extract_text(0).expect("it extracts");
+    assert!(text.contains("CHANGED"), "a kerned run was not edited: {text:?}");
+    assert!(!text.contains("ORIG"), "part of the old run is still there: {text:?}");
+}

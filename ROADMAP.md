@@ -3873,9 +3873,32 @@ Content editing, under D-1:
       and why its three defects waited for W-8 — so the tool surface test now asks for this
       one by name rather than leaving the trap to be set again.
 
-- [ ] **W-E4 — advance widths, reflow within a line, insertion and deletion.** This is
-      where the D-1 line sits: a paragraph re-flowed across lines is a layout engine, and
-      the decision to cross that line is a second decision, taken when W-E3 runs.
+- [x] **W-E4a — a run split by kerning is still one run**, and the reflow this item was
+      written about turned out not to exist.
+
+      **Measured first, and the premise was wrong.** Replacing a run with longer text was
+      supposed to leave what follows where it was; it does not. Consecutive runs draw from
+      the current point, so the text after an edit moves with it — `ORIGINAL` to `CHANGED`
+      shifts the next run from x=149.39 to 152.06, and to `MUCH LONGER TEXT` shifts it to
+      280.10. PDF reflows a line on its own, and there was nothing to build.
+
+      **What the measurement found instead was silence on the common case.**
+      `[(ORIG) -50 (INAL)] TJ` is one run reading `ORIGINAL`, split where the producer
+      kerned it — the ordinary shape of text in a file nobody hand-wrote. The pieces match
+      neither on their own, so the edit did nothing **and reported success**, which is the
+      failure this repository has a history with. A `TJ` is now matched as the whole array.
+
+      The kerning goes with the text it kerned: those numbers space letters that are being
+      replaced, so keeping them would space the new letters by the old letters'
+      corrections. The replacement goes in as one string at the font's own advances.
+
+- [ ] **W-E4b — inserting and deleting inside a run**, which is what is left of this item
+      once reflow turned out to be free: a run is replaced whole today, and replacing part
+      of one means splitting it and spacing what remains. That is where
+      [ADR-0085](docs/adr/0085-editing-what-a-page-draws-is-in-scope.md) put the line
+      between editing and a layout engine, and the decision it left open — whether a
+      paragraph re-flows across its line breaks — is the one to take when this runs.
+
 - [ ] **W-E5 — the drawn objects**: moving, scaling, rotating and replacing an XObject
       (`Operation::EditXObject`). *Fails if*: the CPU rasterisation of the result differs
       from the expected image.
