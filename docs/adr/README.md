@@ -149,3 +149,7 @@ quietly wrong — which is the failure this log exists to make visible.
 | 0082 | [The script crate is a library the frontends call](0082-the-script-crate-is-a-library-the-frontends-call.md) | Amends 0025, after 0032 |
 | 0083 | [A fixture crate that depends on nothing](0083-a-fixture-crate-that-depends-on-nothing.md) | Thirty-two hand-written assemblers |
 | 0084 | [The GUI gets rules, not a rulebook](0084-the-gui-gets-rules-not-a-rulebook.md) | Third attempt after 0038 |
+| 0085 | [Editing what a page draws is in scope](0085-editing-what-a-page-draws-is-in-scope.md) | Rests on 0079 |
+| 0086 | [The engine does not read a scan; it binds what does](0086-the-engine-does-not-read-a-scan-it-binds-what-does.md) | After Phase M |
+| 0087 | [A form field is created here, not only filled](0087-a-form-field-is-created-here-not-only-filled.md) | Extends 0048 |
+| 0088 | [What a crop puts outside the sheet is removed](0088-what-a-crop-puts-outside-the-sheet-is-removed.md) | Continues 0064 |

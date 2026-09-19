@@ -3425,6 +3425,222 @@ build-time assertion over the tokens and nothing over their use.
       row — `<Document> Document` — for a document with 1,248 elements under it. A reader
       looking for a document's structure finds a single line and a disclosure triangle.
 
+## Phase W — What a shipping editor does that this one does not
+
+`fepdf-gui` was compared against JUST PDF [編集Pro] on 2026-09-19, ribbon by ribbon, from
+screenshots of a working session on an engineering drawing. The list of differences is not
+the interesting part of it. **What the list turned up underneath is**, and one item of that
+reorders everything else. Every figure below is re-derived on 2026-09-19 and the command
+that derives it sits beside it.
+
+Four decisions were taken against that list. Each is contested, each rests on a
+measurement, and each therefore wants a record of its own rather than a line here:
+
+| | Decision | Record |
+| :--- | :--- | :--- |
+| **D-1** | Editing what is drawn on a page is built | [ADR-0085](docs/adr/0085-editing-what-a-page-draws-is-in-scope.md) |
+| **D-2** | No OCR engine is built. A window is opened for an external one, and this engine binds what comes back | [ADR-0086](docs/adr/0086-the-engine-does-not-read-a-scan-it-binds-what-does.md) |
+| **D-3** | Forms are built through to creating fields, not only filling them | [ADR-0087](docs/adr/0087-a-form-field-is-created-here-not-only-filled.md) |
+| **D-4** | Content that a crop or a split puts outside the sheet is removed, not hidden | [ADR-0088](docs/adr/0088-what-a-crop-puts-outside-the-sheet-is-removed.md) |
+
+ADR-0085 redraws the line that ["Not planned"](#not-planned) drew against a DOCX
+converter: that refusal rests on writing a layout engine, and editing a word in place does
+not reach one. Where it starts to is between W-E3 and W-E4 below.
+
+### The critical path is one part nobody has built
+
+```bash
+grep -rn "FontFile" crates/fepdf-doc/src crates/fepdf/src --include='*.rs' | wc -l   # 0
+grep -c "pub fn " crates/fepdf-font/src/subset.rs                                    # 1
+```
+
+**This engine has never embedded a font.** The one function in `subset.rs` is
+`subset_tag`, which reads the `ABCDEF+` prefix off a `/BaseFont` name; nothing anywhere
+writes a `/FontFile`. Every item below that puts a character on a page is that same
+missing part wearing different clothes — a watermark, an annotation's appearance stream,
+a form field's value, an edited word, and a text layer handed back by an OCR engine.
+
+**It is already broken in a feature that ships.** Bates numbering is in the GUI's document
+tools:
+
+```bash
+fepdf edit bates samples/constitution.pdf -o /tmp/x.pdf --prefix "図面-" --digits 4
+fepdf inspect text /tmp/x.pdf
+```
+
+The extracted text reads `-0001`. The two kanji are gone, and the reader says why twice
+before it gets there:
+
+```text
+[REPAIRED]  ISO 9.6.2  : the content stream selects /Helvetica, which its resources do not define
+[VIOLATION] ISO 9.10.2 : 6 of 16 glyphs drawn on this page have no Unicode value
+```
+
+Six is the number of UTF-8 bytes in 図面. `overlay_text_on_page` escapes a Rust `String`
+into a literal string and shows it through a non-embedded `/Helvetica`, so each byte
+becomes a character code of its own; the fallback substitution then draws a row of Latin
+glyphs in the bottom-right corner where `図面-0001` was asked for. The same function writes
+every watermark and every header this engine will produce, and a non-embedded standard-14
+font is not something PDF/A-4 or UA-2 accepts in the first place.
+
+**Why the reader finds `/Helvetica` undefined is not established.**
+`ensure_helvetica_in_page_dict` does put it in the page's `/Font`. Finding out is the
+first task of W-E2, from the repro above, rather than a thing to reason out of the source.
+
+### What is already there, which is more than it looks
+
+| Part | State |
+| :--- | :--- |
+| Content streams as an editable value | `SublimatedData::Commands { items: Vec<Command> }`, with `ShowText`, `ShowTextArray` and the TJ offsets kept for vertical text and ruby |
+| Writing them back | `serialize_commands`, on the save path in `arena.rs` |
+| Positioned text | `PdfDocument::extract_spans` |
+| Removing marks inside a rectangle | physical redaction, in `remediation.rs` ([ADR-0064](docs/adr/0064-redaction-removed-the-second-run-of-a-page-and-no-other.md)) |
+| Glyph and Unicode machinery | `fepdf-font`: `cmap`, `agl`, `annex_d`, `reconstruction`, `rescue` |
+
+So the round trip that content editing needs — read a page into commands, change them,
+write them back — **already runs on every save**. Text editing is not a new path through
+the engine; it is an edit to a list.
+
+Two limits in that table set prices further down. Redaction works at the granularity of
+**one text-showing operator**, and replaces the string rather than removing it, so a run
+that straddles a boundary goes whole — which is exactly what a page split does to a line
+of text crossing the cut. Splitting a run at a glyph needs advance widths, which is the
+same font work as W-E4. And no `/Annots` is read anywhere in `fepdf-render` or
+`fepdf-content` (`grep -rn "Annots"` over both returns 0), so annotations are not drawn at
+all, whatever is in them.
+
+### The frontends against the operations
+
+```bash
+for f in gui cli mcp; do grep -rhoE 'Operation::[A-Z][A-Za-z0-9]*' "crates/fepdf-$f/src" \
+  --include="*.rs" | sed 's/Operation:://' | sort -u | wc -l; done
+```
+
+**32 variants; `fepdf-mcp` builds 31, `fepdf-gui` 16, `fepdf-cli` 8** on 2026-09-19.
+`ARCHITECTURE.md` §3 reads 30, 12 and 8, which was true when it was written.
+`ResizePages` is the one `fepdf-mcp` does not build. Four of the sixteen the GUI leaves
+alone are rows of the comparison — `AddAnnotation`, `AddPageDecoration`,
+`SetFormFieldValue` and `SetMeasurementScale` — which is to say that part of what is
+missing from this product is missing from the window only.
+
+### The work
+
+Wiring, first, because none of it touches the engine:
+
+- [ ] **Seven operations the engine performs and the window cannot ask for**: headers and
+      footers (`AddPageDecoration`), permissions and certificate protection
+      (`SaveOptions::permissions`, `::recipients` — both read on the save path),
+      stripping descriptive metadata (`::strip`), exporting a page as an image (the CLI's
+      `publish render`), verifying a signature (the CLI's `publish verify-signature`), and
+      replacing a page (`RemovePages` and `InsertFrom` in one act). `reachability.py`
+      fails on any of them that lands without one home.
+
+Then the gate:
+
+- [ ] **W-E1 — embedding a font.** Subsetting a TrueType or CFF program down to a glyph
+      set, and writing `/FontFile2` or `/FontFile3` with the `/FontDescriptor`,
+      `/ToUnicode` and Identity-H encoding that make it readable back.
+      *Fails if*: text written in Japanese does not come back out of `inspect text`, or
+      `inspect audit` reports a non-embedded font in output this engine produced.
+
+- [ ] **W-E2 — Bates, watermarks and headers onto it**, and the `/Helvetica` question
+      above answered. *Fails if*: the repro above does not extract `図面-0001`, or any
+      `9.6.2` decision survives it.
+
+Annotations, which are the largest single row of the comparison:
+
+- [ ] **W-8 — appearance streams.** `AddAnnotation` writes no `/AP` for any of its four
+      kinds, `Highlight` carries no `/QuadPoints` (12.5.6.10), and `Stamp` binds
+      `stamp_image_bytes` to `_` and writes `/Name /Draft` — a success that writes none of
+      what it was given. *Fails if*: an annotation reaches a file without an `/AP`.
+- [ ] **W-14 — drawing them.** `/Annots` into the form XObject path the interpreter
+      already has. *Fails if*: a page with a highlight on it rasterises identically to the
+      same page without one.
+- [ ] **W-13 — making them**: note, typewriter, text box, callout, the four text markups,
+      ink, shapes, stamp and link. `AnnotationKind` grows from four to twelve.
+
+Content editing, under D-1:
+
+- [ ] **W-E3 — changing a run of text that is already on the page**
+      (`Operation::EditTextRun`), re-embedding through W-E1 where the font has no glyph
+      for what is asked.
+      *Fails if*: `extract_spans` after the edit does not return the new string at the old
+      line's position.
+- [ ] **W-E4 — advance widths, reflow within a line, insertion and deletion.** This is
+      where the D-1 line sits: a paragraph re-flowed across lines is a layout engine, and
+      the decision to cross that line is a second decision, taken when W-E3 runs.
+- [ ] **W-E5 — the drawn objects**: moving, scaling, rotating and replacing an XObject
+      (`Operation::EditXObject`). *Fails if*: the CPU rasterisation of the result differs
+      from the expected image.
+- [ ] **W-E6 — the window for it.**
+
+Forms, through to creation, under D-3:
+
+- [ ] **W-F1 — drawing widgets and filling them.** `SetFormFieldValue` and the appearance
+      regeneration of [ADR-0048](docs/adr/0048-reading-and-setting-choice-fields.md) exist;
+      nothing in the window reaches either.
+- [ ] **W-F2 — creating fields.** Nine widget types, `/AcroForm`, tab order and a
+      calculation order. *Fails if*: `inspect interactive` does not report every type
+      created, or `inspect audit` finds a field without a `/TU`.
+
+Page geometry, under D-4:
+
+- [ ] **W-10 — cropping.**
+- [ ] **W-G1 — removing what a crop puts outside**, rather than letting `/CropBox` hide
+      it. Runs split at a glyph, images re-encoded to the part that remains, paths
+      clipped and rebuilt. Needs W-E4's widths.
+      *Fails if*: `extract_text` on the cropped side returns a character that was cut
+      away. **The present behaviour fails this check**, which is the point of writing it —
+      `document_tools.rs` records the measurement beside the warning it shows a reader:
+      `print_sample.pdf` page 3 shifted 300 points right renders with its right-hand half
+      gone, and `extract_text` returns all 428 characters it did before.
+- [ ] **W-11 — one page into several**, on W-G1.
+- [ ] **W-12 — several pages onto one**, on the form XObject work of W-8.
+
+The window for an OCR engine, under D-2:
+
+- [ ] **W-O1.** Out: the page rasterised, its dimensions, and whatever text is already
+      there with its positions. In: `Operation::AddTextLayer { page, items }`, written at
+      text rendering mode 3 with a `/ToUnicode` on an embedded font. Two tools on
+      `fepdf-mcp`, which already builds 31 of the 32 operations, and a
+      `fepdf edit text-layer --json` beside them for callers that are not an assistant.
+      *Fails if*: `inspect text` does not return the layer, **or the page's CPU
+      rasterisation changes by one byte**. `--cpu` exists to make the second of those
+      writable.
+
+Independent of all of the above:
+
+- [ ] **W-15 — finding text in a document.** The studio's search is the only one, and its
+      match rectangle is the whole span rather than the match. The fallback in
+      `app/mod.rs` that lays words onto a synthetic grid when `extract_spans` returns
+      nothing goes with it: invented geometry that a reader cannot tell from measured
+      geometry is worse than no geometry.
+- [ ] **W-16 — perimeter and area** beside the caliper's distance, and
+      `SetMeasurementScale` where a drawing declares one.
+- [ ] **W-17 — printing.** No check can be written for whether ink reached paper, and
+      this line says so rather than listing a command that cannot fail.
+- [ ] **W-18 — comparing two documents.**
+- [ ] **W-19a — the reading order, the language and the lexicon**, assembled for a
+      synthesiser: structure order, `/Lang` resolved by inheritance (14.9.2) and the PLS
+      lexicon `SetPronunciationLexicon` already writes. Testable without sound, which is
+      why it is separate from:
+- [ ] **W-19b — the platform's synthesiser.** Every target ships one — AVSpeechSynthesizer,
+      SAPI 5 and WinRT, speech-dispatcher — so nothing is built, only bound, and the
+      binding belongs in `fepdf-gui` beside `rfd` and `wgpu` rather than in the engine.
+      Rule 9 admits a platform API and refuses a vendored library, so the Linux side talks
+      to speech-dispatcher over its socket rather than through `libspeechd`.
+      *Fails if*: `cargo tree -i cc` finds a new C builder on any of the four targets.
+
+Declined here, for reasons a corpus cannot overturn: **3D and sound annotations**, under
+the same clause 13.4 retirement that ["Not planned"](#not-planned) already records, and
+**XFA** beside them.
+
+*Done when*: `fepdf-gui` builds 28 of the 32 operations; a document this engine writes
+carries no non-embedded font; and every check named above exists and has been shown to
+fail against the defect it was written for (Rule 5 of [AGENTS.md](AGENTS.md)).
+
+---
+
 *Updated 2026-08-22 (Phase P). The figures above come from the sample corpus, a set of
 deliberately malformed files, and the 515 external files Phases G and O fetched; the catalogue,
 annotation and form-field counts in Phases J and K were taken by running `inspect
