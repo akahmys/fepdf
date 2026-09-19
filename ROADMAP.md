@@ -3846,7 +3846,9 @@ Content editing, under D-1:
       291 of them answering with a program. None of those claims is wrong as stated, and
       each is one file less varied than it sounds.
 
-- [x] **W-E3 — changing a run of text that is already on the page.**
+- [ ] **W-E3 — changing a run of text that is already on the page.** The mechanism is
+      built and **is not yet usable on a real document**: see W-E3d below, which measures
+      why. What follows is what it does today.
       `Operation::EditTextRun { page, find, replace }` rewrites every run that reads
       exactly `find`, encoding the replacement in the font that run is set in and in no
       other. A character that font does not draw is refused by name and the page is left
@@ -3891,6 +3893,28 @@ Content editing, under D-1:
       The kerning goes with the text it kerned: those numbers space letters that are being
       replaced, so keeping them would space the new letters by the old letters'
       corrections. The replacement goes in as one string at the font's own advances.
+
+- [ ] **W-E3d — a run is one or two characters, so matching one matches nothing.**
+      Measured over the samples, runs per show-text operator: the median is **1 to 2
+      characters**, 26% to 100% of runs are a single character, and `volvo_xc90.pdf` is
+      **100% single-character runs with a longest run of 1**. `constitution.pdf`'s longest
+      run is four.
+
+      So `EditTextRun` finds nothing a person would ask for. Replacing `日本国憲法` on its
+      first page — a word a reader would actually want to change — changes nothing and
+      says it succeeded, because those five characters are five runs.
+
+      **The tests pass because the fixtures have a shape real files do not.** One run, one
+      word, hand-written. That is the same failure the decoration fixtures had this
+      morning, recorded three items above: a fixture that cannot see the defect it is
+      standing next to.
+
+      What it needs is matching **across** runs and re-placing the glyphs that follow,
+      which is the advance-width work of W-E1c-i applied within a line. That is still the
+      editing side of
+      [ADR-0085](docs/adr/0085-editing-what-a-page-draws-is-in-scope.md)'s line, and moves
+      it nowhere: a paragraph re-flowing across its line breaks remains the open question,
+      further away than it looked.
 
 - [ ] **W-E4b — inserting and deleting inside a run**, which is what is left of this item
       once reflow turned out to be free: a run is replaced whole today, and replacing part
