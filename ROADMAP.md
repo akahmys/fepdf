@@ -3483,9 +3483,15 @@ glyphs in the bottom-right corner where `図面-0001` was asked for. The same fu
 every watermark and every header this engine will produce, and a non-embedded standard-14
 font is not something PDF/A-4 or UA-2 accepts in the first place.
 
-**Why the reader finds `/Helvetica` undefined is not established.**
-`ensure_helvetica_in_page_dict` does put it in the page's `/Font`. Finding out is the
-first task of W-E2, from the repro above, rather than a thing to reason out of the source.
+**Why the reader found `/Helvetica` undefined, measured on 2026-09-19**:
+`ensure_helvetica_in_page_dict` put it in the page's `/Font` as a **direct dictionary**,
+and the refined read takes a font entry only through `as_reference`, because
+`extract_context_fonts` resolves it in a map keyed by object number — which a direct
+dictionary has none of. Written indirect, as every other font entry on the page already
+was, the repro comes back clean. **The same file read two ways** until it was:
+`active_refinement` on gave 13 repairs and off gave none, because a stream refinement does
+not reach is interpreted by `fepdf-content`, which resolves the direct dictionary. That
+second half is a reading gap and is its own item below.
 
 ### What is already there, which is more than it looks
 
@@ -3543,9 +3549,20 @@ Then the gate:
       *Fails if*: text written in Japanese does not come back out of `inspect text`, or
       `inspect audit` reports a non-embedded font in output this engine produced.
 
-- [ ] **W-E2 — Bates, watermarks and headers onto it**, and the `/Helvetica` question
-      above answered. *Fails if*: the repro above does not extract `図面-0001`, or any
-      `9.6.2` decision survives it.
+- [x] **W-E2a — the decoration's font is written indirect.** The `9.6.2` repairs above
+      are gone; `page_decoration_test.rs` fails against the old writer with 13 of them,
+      and the three fixtures beside it cannot see the defect at all, which is recorded in
+      the test rather than left to be rediscovered.
+- [ ] **W-E2b — Bates, watermarks and headers onto W-E1**, so that what they write is
+      embedded and not standard-14. *Fails if*: the repro above does not extract
+      `図面-0001`.
+- [ ] **W-E2c — a direct font dictionary is read.** 7.3.10 lets any object be direct, and
+      a file from another producer that writes `/Font << /F1 << … >> >>` reaches
+      `fepdf-content` intact and the refined path not at all. What it costs is a
+      `FontResource` built from a dictionary handle, where today the map is keyed by
+      object number. *Fails if*: a fixture with a direct font dictionary records a
+      `9.6.2` repair with `active_refinement` on. **How many files of the corpus carry
+      one is not measured**, and is the first task of the item.
 
 Annotations, which are the largest single row of the comparison:
 

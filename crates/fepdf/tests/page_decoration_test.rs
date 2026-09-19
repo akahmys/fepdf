@@ -78,3 +78,68 @@ fn a_page_carrying_its_own_resources_keeps_them() {
     assert!(drawn.contains("ORIGINAL"), "the page's own text was lost: {drawn:?}");
     assert!(drawn.contains("HEADER"), "the decoration was not added: {drawn:?}");
 }
+
+/// **A decoration's font has to resolve, not be rescued.**
+///
+/// The three tests above assert that the text is drawn, and a page whose font does not
+/// resolve still draws it: the parser substitutes a fallback face and records a `9.6.2`
+/// repair. So all three passed while every header, footer and Bates number this engine
+/// wrote selected a `/Helvetica` the page's resources did not define — measured on
+/// 2026-09-19 as 13 repairs, one per page of `samples/constitution.pdf`.
+///
+/// **The fixtures above cannot see it, which is why this one reads a file from the
+/// corpus.** The cause lives in the refined read: `extract_context_fonts` takes a font
+/// entry only through `as_reference`, because the map it resolves against is keyed by
+/// object number and a direct dictionary has none — and `ensure_helvetica_in_page_dict`
+/// wrote one. A stream that refinement does not reach is interpreted by
+/// `fepdf-content`, which resolves the direct dictionary perfectly well, and the small
+/// assembled pages above are all of that kind. The same file therefore read two ways:
+/// 13 repairs with `active_refinement`, none without it.
+#[test]
+fn a_decorations_font_resolves_after_a_round_trip() {
+    let path =
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../samples/constitution.pdf");
+    let bytes = std::fs::read(&path).expect("samples/constitution.pdf is in the tree");
+    let mut doc = PdfDocument::open_with_options(bytes.into(), &IngestionOptions::default())
+        .expect("the sample opens");
+    assert!(
+        clause_962(&doc).is_empty(),
+        "the sample must arrive clean, or this test is measuring the file: {:?}",
+        clause_962(&doc)
+    );
+
+    doc.apply(Operation::AddPageDecoration {
+        pages: PageSelection::All,
+        text: "HEADER".to_string(),
+        position: DecorationPosition::TopCenter,
+        layer: None,
+    })
+    .expect("the decoration applies");
+
+    let out = std::env::temp_dir().join("fepdf_decoration_font_round_trip.pdf");
+    doc.save_with_options(&out, "2.0", &fepdf::SaveOptions::default())
+        .expect("the document is written");
+    let written = std::fs::read(&out).expect("the output is there");
+    let _ = std::fs::remove_file(&out);
+
+    let reopened = PdfDocument::open_with_options(written.into(), &IngestionOptions::default())
+        .expect("what this engine wrote, this engine opens");
+    assert!(
+        reopened.extract_text(0).expect("page 1 extracts").contains("HEADER"),
+        "the decoration did not survive the round trip"
+    );
+    assert!(
+        clause_962(&reopened).is_empty(),
+        "the decoration's font was repaired rather than resolved: {:?}",
+        clause_962(&reopened)
+    );
+}
+
+/// Every `9.6.2` repair the document recorded, as clause, finding and action.
+fn clause_962(doc: &PdfDocument) -> Vec<String> {
+    doc.decisions()
+        .iter()
+        .filter(|d| d.clause == "9.6.2")
+        .map(|d| format!("{} {} -> {}", d.clause, d.found, d.action))
+        .collect()
+}

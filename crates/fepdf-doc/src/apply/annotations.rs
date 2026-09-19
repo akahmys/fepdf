@@ -261,7 +261,17 @@ fn ensure_helvetica_in_page_dict(
         helv_dict.insert(arena.name("Subtype"), Object::Name(arena.name("Type1")));
         helv_dict.insert(arena.name("BaseFont"), Object::Name(arena.name("Helvetica")));
         let helv_dh = arena.alloc_dict(helv_dict);
-        Object::Dictionary(helv_dh)
+        // **Indirect, because a refined read follows nothing else.** A font entry
+        // reaches the content stream's context through `extract_context_fonts`, which
+        // takes it with `as_reference` and resolves it in a map keyed by object number —
+        // a direct dictionary has no number and cannot be in that map. Written direct,
+        // this font was invisible to every stream that named it: 13 `9.6.2` repairs on
+        // the 13 pages of `samples/constitution.pdf`, one per decoration, each rescued
+        // by a fallback face so that the text still drew and nothing looked wrong.
+        //
+        // Unrefined, the same file was fine — `fepdf-content` resolves the direct
+        // dictionary — so the shape of the defect was a file that read two ways.
+        Object::Reference(arena.alloc_object(Object::Dictionary(helv_dh)))
     });
     arena.set_dict(font_dh, font_dict);
     arena.set_dict(res_dh, res_dict);
