@@ -1,6 +1,6 @@
 # ADR-0089: A face is embedded only where it permits it, and nothing is substituted
 
-- **Status**: Accepted
+- **Status**: Amended by [ADR-0090](0090-the-face-a-document-embeds-is-not-a-licence-to-set-new-text.md)
 - **Date**: 2026-09-19
 - **Commit**: (see the commit that adds this file)
 

@@ -3580,21 +3580,31 @@ Then the gate:
 - [ ] **W-E1b3 — the document's own program, reachable.** `Document::get_font` returns a
       `FontResource` whose `data` is `None` for **all 335 font dictionaries of the nine
       samples**, measured 2026-09-19, while rendering plainly gets the program from
-      somewhere. Rung 1 of the ladder is exactly "re-subset the face this document
-      already embeds", so it needs that path found and named. *Fails if*: a font the
-      samples embed is reached through the public API and its program is not there.
+      somewhere. It is no longer the ladder's first rung
+      ([ADR-0090](docs/adr/0090-the-face-a-document-embeds-is-not-a-licence-to-set-new-text.md)),
+      but the engine still has to reach a program to read its `fsType` and, where that
+      permits, to subset it. *Fails if*: a font the samples embed is reached through the
+      public API and its program is not there.
 - [ ] **W-E1c — writing the PDF side**: `/FontFile2` or `/FontFile3` with the
       `/FontDescriptor`, `/ToUnicode` and Identity-H encoding that make it readable back.
       *Fails if*: text written in Japanese does not come back out of `inspect text`, or
       `inspect audit` reports a non-embedded font in output this engine produced.
-- [ ] **W-E1d — the ladder**
-      ([ADR-0089](docs/adr/0089-a-face-is-embedded-only-where-it-permits-it.md)): the
-      document's own face, then a face on this machine whose `fsType` permits an editable
-      *and* subsettable embedding, then **refuse** — naming the characters, recording a
-      `Decision`, substituting nothing. No face is bundled with this engine, and silence
-      from a program that carries no `OS/2` table is not consent.
-      *Fails if*: a refusal writes a glyph anyway, or a substitution reaches a file
-      without a `Decision` beside it.
+- [ ] **W-E1d — the ladder**, which has two rungs rather than three
+      ([ADR-0090](docs/adr/0090-the-face-a-document-embeds-is-not-a-licence-to-set-new-text.md)
+      amending [ADR-0089](docs/adr/0089-a-face-is-embedded-only-where-it-permits-it.md)):
+      a face installed on this machine whose `fsType` permits an editable *and*
+      subsettable embedding, then **refuse** — naming the characters, recording a
+      `Decision`, substituting nothing. No face is bundled with this engine.
+
+      **9.9.1 is why the document's own face is not the first rung.** A program may permit
+      embedding for viewing and printing and not for setting new or modified text, the
+      latter needs a licensed copy rather than one taken out of the PDF, and absent
+      explicit information an embedded program *shall* be used only to view and print. The
+      clause was read on 2026-09-19 out of `docs/specs/ISO_32000-2_sponsored-ec2.pdf`,
+      which is in this tree, with `fepdf inspect text`.
+
+      *Fails if*: a refusal writes a glyph anyway, or a substitution reaches a file without
+      a `Decision` beside it.
 
 - [x] **W-E2a — the decoration's font is written indirect.** The `9.6.2` repairs above
       are gone; `page_decoration_test.rs` fails against the old writer with 13 of them,
