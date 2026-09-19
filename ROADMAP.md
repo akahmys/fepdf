@@ -3585,10 +3585,25 @@ Then the gate:
       but the engine still has to reach a program to read its `fsType` and, where that
       permits, to subset it. *Fails if*: a font the samples embed is reached through the
       public API and its program is not there.
-- [ ] **W-E1c — writing the PDF side**: `/FontFile2` or `/FontFile3` with the
-      `/FontDescriptor`, `/ToUnicode` and Identity-H encoding that make it readable back.
+- [x] **W-E1c-i — the numbers a descriptor states.** `fepdf-font::metrics` reads
+      `head.unitsPerEm` and its bounding box, `hhea`'s ascent, descent and
+      `numberOfHMetrics`, `OS/2.sCapHeight` where the table is version 2 or later, and
+      `post`'s angle and fixed pitch where there is a `post` at all — a subset this engine
+      writes has none, so the angle is absent rather than zero, which is a different
+      claim. `advance_width` reads `hmtx`, **including its tail**: a face states one
+      advance for every glyph after `numberOfHMetrics`, which is most of a CJK face, and a
+      reader that stops at the end of the array gives all of them no width and sets text
+      on top of itself. Scaling to glyph space is the caller's, because this crate carries
+      no PDF notion.
+- [ ] **W-E1c-ii — writing the PDF side**: `/FontFile2` with the `/FontDescriptor`,
+      `/W`, `/ToUnicode` and Identity-H encoding that make it readable back.
       *Fails if*: text written in Japanese does not come back out of `inspect text`, or
       `inspect audit` reports a non-embedded font in output this engine produced.
+- [ ] **W-E1c-iii — the widths agree, both ways.** A font written by W-E1c-ii and read
+      back states a width per glyph in two independent places: the `/W` array, and the
+      `hmtx` of the program beside it. *Fails if*: they disagree on any glyph of a
+      document this engine wrote — which is the round trip that validates the reader and
+      the writer at once, and is worth more than checking either against the corpus alone.
 - [ ] **W-E1d — the ladder**, which has two rungs rather than three
       ([ADR-0090](docs/adr/0090-the-face-a-document-embeds-is-not-a-licence-to-set-new-text.md)
       amending [ADR-0089](docs/adr/0089-a-face-is-embedded-only-where-it-permits-it.md)):
