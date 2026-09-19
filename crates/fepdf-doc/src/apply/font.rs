@@ -455,22 +455,52 @@ pub fn draw_run(
     page_dict: &mut BTreeMap<Handle<PdfName>, Object>,
     shown: &ShownText<'_>,
 ) -> PdfResult<String> {
+    let embedded = embed_for(doc, shown.program, shown.base_font, &[shown.text])?;
+    draw_with(doc, page_h, page_dict, &embedded, shown)
+}
+
+/// Embeds `program` once, for every glyph `texts` between them need.
+///
+/// **A caller that knows all its text should say so.** Embedding per run put a subset of
+/// the same face on every page: thirteen Bates footers took `samples/constitution.pdf`
+/// from 244,790 bytes to 830,167, and a hundred-page document would have paid a hundred
+/// times over for one face.
+///
+/// # Errors
+/// Fails with the first character the face does not draw, or when it will not subset.
+pub fn embed_for(
+    doc: &Document,
+    program: &[u8],
+    base_font: &str,
+    texts: &[&str],
+) -> PdfResult<Embedded> {
+    let mut glyphs: BTreeMap<u16, String> = BTreeMap::new();
+    for text in texts {
+        let ids = fepdf_font::subset::glyphs_for(program, text)
+            .map_err(|c| PdfError::Other(format!("this face draws no {c:?}").into()))?;
+        // **One glyph stands for one character, and a glyph drawn twice is still one
+        // glyph.** Appending instead of inserting made `/ToUnicode` say that the glyph for
+        // `0` stood for `000`, so `0001` came back out of the file as `0000000001`.
+        for (gid, c) in ids.iter().zip(text.chars()) {
+            glyphs.entry(*gid).or_insert_with(|| c.to_string());
+        }
+    }
+    embed(doc, &EmbeddedFace { program, base_font, glyphs: &glyphs })
+}
+
+/// The content stream fragment that sets `shown` in a face already embedded.
+///
+/// # Errors
+/// Fails with the first character the face does not draw.
+pub fn draw_with(
+    doc: &Document,
+    page_h: Handle<Object>,
+    page_dict: &mut BTreeMap<Handle<PdfName>, Object>,
+    embedded: &Embedded,
+    shown: &ShownText<'_>,
+) -> PdfResult<String> {
     let glyph_ids = fepdf_font::subset::glyphs_for(shown.program, shown.text)
         .map_err(|c| PdfError::Other(format!("this face draws no {c:?}").into()))?;
-
-    // **One glyph stands for one character here, and a glyph drawn twice is still one
-    // glyph.** Appending instead of inserting made `/ToUnicode` say that the glyph for
-    // `0` stood for `000`, so `0001` came back out of the file as `0000000001`: every
-    // occurrence extracted as every occurrence. Where a face draws two characters with
-    // one glyph, the first is what the entry says, which is all a single entry can say.
-    let mut glyphs: BTreeMap<u16, String> = BTreeMap::new();
-    for (gid, c) in glyph_ids.iter().zip(shown.text.chars()) {
-        glyphs.entry(*gid).or_insert_with(|| c.to_string());
-    }
-    let embedded = embed(
-        doc,
-        &EmbeddedFace { program: shown.program, base_font: shown.base_font, glyphs: &glyphs },
-    )?;
     let name = name_font_in_page(doc, page_h, page_dict, embedded.font);
 
     // **What goes in the string is the code, not the glyph.** On a CID-keyed face they
@@ -510,6 +540,17 @@ fn name_font_in_page(
         }
     };
     let mut fonts = arena.get_dict(fonts_dh).unwrap_or_default();
+
+    // **A face already on this page keeps the name it has.** One embedding shown on
+    // thirteen pages is one font, and naming it again per run would put thirteen entries
+    // in one resource dictionary pointing at the same object.
+    for (key, value) in &fonts {
+        if value.as_reference() == Some(font)
+            && let Some(name) = arena.get_name(*key)
+        {
+            return name.as_str().to_string();
+        }
+    }
 
     // A name nothing else in this dictionary answers to. The resources of a page this
     // engine did not write hold whatever its producer chose, so a fixed `/F1` would take

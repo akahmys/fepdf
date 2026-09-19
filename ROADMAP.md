@@ -3698,7 +3698,7 @@ Then the gate:
       all three, and `0001` came back as `0000000001`. The round trip is what caught it;
       nothing else would have.
 
-- [ ] **W-E1d — the ladder**, which has two rungs rather than three
+- [x] **W-E1d — the ladder**, which has two rungs rather than three
       ([ADR-0090](docs/adr/0090-the-face-a-document-embeds-is-not-a-licence-to-set-new-text.md)
       amending [ADR-0089](docs/adr/0089-a-face-is-embedded-only-where-it-permits-it.md)):
       a face installed on this machine whose `fsType` permits an editable *and*
@@ -3712,8 +3712,29 @@ Then the gate:
       clause was read on 2026-09-19 out of `docs/specs/ISO_32000-2_sponsored-ec2.pdf`,
       which is in this tree, with `fepdf inspect text`.
 
-      *Fails if*: a refusal writes a glyph anyway, or a substitution reaches a file without
-      a `Decision` beside it.
+      `face_for` walks the faces this machine has, keeps the ones that draw the text, and
+      takes the first whose `fsType` permits an editable and subsettable embedding. `NoFace`
+      is what it says when none does: which character nothing installed draws, or which
+      faces could have drawn it and on what terms — because "the text could not be set" is
+      not something a reader can act on.
+
+      **`ensure_helvetica_in_page_dict` is deleted.** Every header, footer and Bates number
+      goes through the ladder now, so the path that named a font it did not embed is gone
+      rather than fixed, and the repro this phase opened with answers `図面-0001` in 明朝
+      glyphs with no `9.6.2` or `9.10.2` decision against it.
+
+      **A decoration can now fail**, which is the decision and not a regression, and it has
+      a second consequence: a decoration depends on this machine having an installed face,
+      so the tests that assert one lands depend on one too.
+
+- [x] **W-E2d — one face for an operation, not one per page.** Embedding per run put a
+      subset of the same face on every page: thirteen Bates footers took
+      `samples/constitution.pdf` from 244,790 bytes to **830,167**, and with one embedding
+      of the union of their glyphs it is **277,392** — 32,602 for the face rather than
+      585,377. Both callers know every string before they touch the first page, so neither
+      had any reason to find out one page at a time. A face already named in a page's
+      resources keeps the name it has, or one resource dictionary would carry thirteen
+      entries pointing at one object.
 
 - [x] **W-E2a — the decoration's font is written indirect.** The `9.6.2` repairs above
       are gone; `page_decoration_test.rs` fails against the old writer with 13 of them,

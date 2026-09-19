@@ -249,6 +249,8 @@ pub(crate) fn ensure_page_resources(
 fn overlay_text_on_page(
     doc: &Document,
     page_h: Handle<Object>,
+    face: &(String, std::sync::Arc<Vec<u8>>),
+    embedded: &crate::apply::font::Embedded,
     text: &str,
     position: &DecorationPosition,
     layer: Option<Handle<Object>>,
@@ -262,16 +264,14 @@ fn overlay_text_on_page(
     let mbox = page_view.media_box();
     let (x, y) = calculate_decoration_coords(&mbox, position);
 
-    let (face, program) = crate::apply::font::face_for(text)
-        .map_err(|why| PdfError::Other(format!("{text:?} cannot be set: {why}").into()))?;
     let shown = crate::apply::font::ShownText {
-        program: &program,
-        base_font: &face,
+        program: &face.1,
+        base_font: &face.0,
         text,
         at: (x, y),
         size: 10.0,
     };
-    let drawing = crate::apply::font::draw_run(doc, page_h, &mut page_dict, &shown)?;
+    let drawing = crate::apply::font::draw_with(doc, page_h, &mut page_dict, embedded, &shown)?;
 
     let stream_content = match layer {
         Some(group) => {
@@ -358,11 +358,16 @@ pub fn apply_add_page_decoration(
         PageSelection::Single(i) => vec![*i],
         PageSelection::Indices(idx) => idx.clone(),
     };
+    // One face, embedded once, shown on every page it is asked for.
+    let face = crate::apply::font::face_for(text)
+        .map_err(|why| PdfError::Other(format!("{text:?} cannot be set: {why}").into()))?;
+    let embedded = crate::apply::font::embed_for(doc, &face.1, &face.0, &[text])?;
+
     for idx in indices {
         if idx < count
             && let Some(page_h) = doc.get_page_handle(idx)
         {
-            overlay_text_on_page(doc, page_h, text, position, group)?;
+            overlay_text_on_page(doc, page_h, &face, &embedded, text, position, group)?;
         }
     }
     Ok(())
@@ -383,13 +388,30 @@ pub fn apply_bates_numbering(
         PageSelection::Single(i) => vec![*i],
         PageSelection::Indices(idx) => idx.clone(),
     };
+    // **Every label is known before the first page is touched**, so the face carries the
+    // glyphs of all of them and is embedded once. Embedding per page put a subset of the
+    // same face on each: thirteen footers took `samples/constitution.pdf` from 244,790
+    // bytes to 830,167.
+    let labels: Vec<String> = indices
+        .iter()
+        .enumerate()
+        .map(|(i, _)| {
+            let num = start_number + i as u64;
+            format!("{prefix}{num:0digits$}")
+        })
+        .collect();
+    let every: Vec<&str> = labels.iter().map(String::as_str).collect();
+    let together = labels.join("");
+    let face = crate::apply::font::face_for(&together)
+        .map_err(|why| PdfError::Other(format!("{prefix:?} cannot be set: {why}").into()))?;
+    let embedded = crate::apply::font::embed_for(doc, &face.1, &face.0, &every)?;
+
     for (i, idx) in indices.into_iter().enumerate() {
         if idx < count
             && let Some(page_h) = doc.get_page_handle(idx)
+            && let Some(label) = labels.get(i)
         {
-            let num = start_number + i as u64;
-            let bates_text = format!("{prefix}{num:0digits$}");
-            overlay_text_on_page(doc, page_h, &bates_text, position, None)?;
+            overlay_text_on_page(doc, page_h, &face, &embedded, label, position, None)?;
         }
     }
     Ok(())
