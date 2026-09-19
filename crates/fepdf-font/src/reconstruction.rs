@@ -29,9 +29,9 @@ pub trait FontInfo {
 /// A surgical patcher for SFNT binaries.
 pub struct FontReconstructor;
 
-struct DisassembledSfnt {
-    magic: [u8; 4],
-    tables: Vec<([u8; 4], Vec<u8>)>,
+pub(crate) struct DisassembledSfnt {
+    pub(crate) magic: [u8; 4],
+    pub(crate) tables: Vec<([u8; 4], Vec<u8>)>,
 }
 
 /// The result of a font reconstruction operation.
@@ -1328,7 +1328,7 @@ impl FontReconstructor {
         Some(cmap)
     }
 
-    fn disassemble_sfnt(sfnt: &[u8]) -> FontResult<DisassembledSfnt> {
+    pub(crate) fn disassemble_sfnt(sfnt: &[u8]) -> FontResult<DisassembledSfnt> {
         if sfnt.len() < 12 {
             return Err(FontError::Internal("SFNT too short".into()));
         }
@@ -1381,7 +1381,10 @@ impl FontReconstructor {
         Ok(DisassembledSfnt { magic, tables })
     }
 
-    fn assemble_sfnt(magic: &[u8; 4], tables: &[([u8; 4], Vec<u8>)]) -> FontResult<Vec<u8>> {
+    pub(crate) fn assemble_sfnt(
+        magic: &[u8; 4],
+        tables: &[([u8; 4], Vec<u8>)],
+    ) -> FontResult<Vec<u8>> {
         let mut output = Vec::new();
         output.extend_from_slice(magic);
 

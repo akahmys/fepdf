@@ -144,3 +144,85 @@ fn the_tally_is_printable() {
          {preview} preview-and-print, {restricted} restricted, {silent} saying nothing"
     );
 }
+
+// ---------------------------------------------------------------------------
+// What a subset of one of those programs keeps.
+//
+// The same extraction answers both questions, so they share a file rather than a second
+// walk to `/FontFile`.
+// ---------------------------------------------------------------------------
+
+/// Every program above that is TrueType — the ones a `glyf` subset applies to.
+fn truetype_programs() -> Vec<Vec<u8>> {
+    samples()
+        .iter()
+        .flat_map(|p| font_programs(p))
+        .filter(|program| fepdf_font::subset::glyph_outline(program, 0).is_some())
+        .collect()
+}
+
+/// **A real font's composites are where a synthetic fixture stops being evidence.**
+///
+/// Every composite in the samples' TrueType programs is subsetted on its own, and what it
+/// draws has to come with it — byte for byte, at the glyph id it had, because the subset
+/// does not renumber.
+#[test]
+fn a_composite_in_a_real_font_keeps_what_it_draws() {
+    let mut composites_seen = 0;
+    for program in truetype_programs() {
+        for gid in 0..512u16 {
+            let Ok(kept) = fepdf_font::subset::glyph_closure(&program, &[gid].into()) else {
+                continue;
+            };
+            // `gid` and glyph 0; anything more is a component the closure pulled in.
+            if kept.len() <= 2 {
+                continue;
+            }
+            composites_seen += 1;
+            let Ok(subsetted) = fepdf_font::subset::subset_truetype(&program, &[gid].into()) else {
+                panic!("a program that closes has to subset");
+            };
+            for component in kept {
+                assert_eq!(
+                    fepdf_font::subset::glyph_outline(&subsetted, component),
+                    fepdf_font::subset::glyph_outline(&program, component),
+                    "glyph {component}, drawn by composite {gid}, did not survive the subset"
+                );
+            }
+            assert!(
+                subsetted.len() < program.len(),
+                "a subset of one glyph is not smaller than the whole program"
+            );
+            break;
+        }
+    }
+    assert!(
+        composites_seen > 0,
+        "no composite glyph was found in the samples' TrueType programs, so this test \
+         asserts nothing about the case it exists for"
+    );
+}
+
+/// What a subset costs against what it started from.
+///
+/// **These programs are already subsets**, cut by the producer to the glyphs its document
+/// used, so asking for twenty of them keeps most of what is there — 84% to 95% on four of
+/// the five, and 40% on the fifth. The figure this does *not* give is the one that
+/// matters to rung 2 of the ladder, where a system face carrying thousands of glyphs is
+/// cut to the few a document needs; that face is not in this tree and the measurement
+/// belongs where it is read.
+///
+/// `cargo test -p fepdf-model --test font_embedding_permission_test -- --nocapture`
+#[test]
+fn the_weight_a_subset_saves_is_printable() {
+    for program in truetype_programs().iter().take(5) {
+        let wanted: std::collections::BTreeSet<u16> = (1..=20).collect();
+        let Ok(subsetted) = fepdf_font::subset::subset_truetype(program, &wanted) else { continue };
+        println!(
+            "{} bytes -> {} bytes for 20 glyphs ({}%)",
+            program.len(),
+            subsetted.len(),
+            subsetted.len() * 100 / program.len().max(1)
+        );
+    }
+}

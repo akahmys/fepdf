@@ -3559,8 +3559,30 @@ Then the gate:
       holds it, which is still `/FlateDecode`d, so every table tag was noise off a zlib
       header. Printing the tags caught it, and the test carries the trap in writing.
 
-- [ ] **W-E1b — subsetting a program to a glyph set**, out of the SFNT disassembler
-      `reconstruction.rs` already has, and the CFF one beside it.
+- [x] **W-E1b — subsetting a TrueType program to a glyph set**, out of the SFNT
+      disassembler `reconstruction.rs` already has. **Glyph ids do not move**: a subset
+      that renumbers has to renumber `cmap`, `hmtx`, every composite's components and the
+      PDF's own `/CIDToGIDMap` with it, and each of those is a place to be wrong in a way
+      that draws the wrong letter rather than failing. `loca` keeps its length, a dropped
+      glyph becomes a zero-length entry, and `glyf` — the bulk of a CJK program — still
+      goes. The closure follows composites, and the short `loca` form's halved offsets are
+      what the fixtures are for: breaking either fails three tests and one respectively.
+
+      Measured against the samples' own TrueType programs, which are already subsets, so
+      twenty glyphs keep 84% to 95% of four of them and 40% of the fifth. What a system
+      face costs is not measurable here and belongs where one is read.
+
+- [ ] **W-E1b2 — subsetting a CFF program.** 153 of the 235 embedded programs in the
+      samples are CFF-based `FontFile3`, a charstring index rather than a `glyf` table, so
+      the work above does not reach them. Which formats the faces on each platform take is
+      the first thing to measure, because it decides whether this gates the ladder or
+      follows it.
+- [ ] **W-E1b3 — the document's own program, reachable.** `Document::get_font` returns a
+      `FontResource` whose `data` is `None` for **all 335 font dictionaries of the nine
+      samples**, measured 2026-09-19, while rendering plainly gets the program from
+      somewhere. Rung 1 of the ladder is exactly "re-subset the face this document
+      already embeds", so it needs that path found and named. *Fails if*: a font the
+      samples embed is reached through the public API and its program is not there.
 - [ ] **W-E1c — writing the PDF side**: `/FontFile2` or `/FontFile3` with the
       `/FontDescriptor`, `/ToUnicode` and Identity-H encoding that make it readable back.
       *Fails if*: text written in Japanese does not come back out of `inspect text`, or
