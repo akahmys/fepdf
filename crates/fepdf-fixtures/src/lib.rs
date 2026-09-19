@@ -213,3 +213,117 @@ impl Pdf {
         out
     }
 }
+
+/// A TrueType program of four glyphs, advancing by `advances`, drawn on a 2048 grid.
+///
+/// **2048 rather than 1000 on purpose.** Glyph space is a thousandth of an em whatever
+/// grid a program uses, so a writer that passes the program's own units through agrees
+/// with `hmtx` and is still wrong; on a 1000 grid the two are the same number and the
+/// defect passes.
+///
+/// The glyphs are the four the `cmap` below names for `A`, `B`, `C` and `D`, so a test can
+/// ask for text and get glyph ids that are not the ones it asked for by coincidence.
+#[must_use]
+pub fn truetype_program(advances: &[u16; 4]) -> Vec<u8> {
+    let mut head = vec![0u8; 54];
+    // A parser checks these before it reads anything else: the table's own version, and
+    // the magic number that says this is a `head` at all.
+    head[0..4].copy_from_slice(&0x0001_0000_u32.to_be_bytes());
+    head[12..16].copy_from_slice(&0x5F0F_3CF5_u32.to_be_bytes());
+    head[18..20].copy_from_slice(&2048u16.to_be_bytes());
+    head[36..38].copy_from_slice(&(-100i16).to_be_bytes());
+    head[38..40].copy_from_slice(&(-200i16).to_be_bytes());
+    head[40..42].copy_from_slice(&1000i16.to_be_bytes());
+    head[42..44].copy_from_slice(&2000i16.to_be_bytes());
+    head[50..52].copy_from_slice(&1i16.to_be_bytes()); // a long `loca`
+
+    let mut hhea = vec![0u8; 36];
+    hhea[0..4].copy_from_slice(&0x0001_0000_u32.to_be_bytes());
+    hhea[4..6].copy_from_slice(&1800i16.to_be_bytes());
+    hhea[6..8].copy_from_slice(&(-400i16).to_be_bytes());
+    hhea[34..36].copy_from_slice(&4u16.to_be_bytes());
+
+    let mut hmtx = Vec::new();
+    for advance in advances {
+        hmtx.extend_from_slice(&advance.to_be_bytes());
+        hmtx.extend_from_slice(&0i16.to_be_bytes());
+    }
+
+    // Version 0.5, which is the form a `glyf` font uses and the length this table is.
+    let mut maxp = vec![0u8; 6];
+    maxp[0..4].copy_from_slice(&0x0000_5000_u32.to_be_bytes());
+    maxp[4..6].copy_from_slice(&4u16.to_be_bytes());
+
+    let mut glyf = Vec::new();
+    let mut loca = Vec::new();
+    for filler in [0xA1u8, 0xB2, 0xC3, 0xD4] {
+        loca.extend_from_slice(&u32::try_from(glyf.len()).unwrap_or_default().to_be_bytes());
+        glyf.extend_from_slice(&1i16.to_be_bytes());
+        glyf.extend_from_slice(&[0; 8]);
+        glyf.extend(std::iter::repeat_n(filler, 8));
+    }
+    loca.extend_from_slice(&u32::try_from(glyf.len()).unwrap_or_default().to_be_bytes());
+
+    sfnt(&[
+        (*b"cmap", cmap_for_abcd()),
+        (*b"glyf", glyf),
+        (*b"head", head),
+        (*b"hhea", hhea),
+        (*b"hmtx", hmtx),
+        (*b"loca", loca),
+        (*b"maxp", maxp),
+    ])
+}
+
+/// A `cmap` naming glyphs 1, 2 and 3 for `A`, `B` and `C`, in format 4.
+fn cmap_for_abcd() -> Vec<u8> {
+    // One segment covering A..C, and the terminator every format 4 table carries.
+    let mut sub = Vec::new();
+    sub.extend_from_slice(&4u16.to_be_bytes()); // format
+    sub.extend_from_slice(&32u16.to_be_bytes()); // length
+    sub.extend_from_slice(&0u16.to_be_bytes()); // language
+    sub.extend_from_slice(&4u16.to_be_bytes()); // segCountX2
+    sub.extend_from_slice(&4u16.to_be_bytes()); // searchRange
+    sub.extend_from_slice(&1u16.to_be_bytes()); // entrySelector
+    sub.extend_from_slice(&0u16.to_be_bytes()); // rangeShift
+    sub.extend_from_slice(&0x0043u16.to_be_bytes()); // endCode: 'C'
+    sub.extend_from_slice(&0xFFFFu16.to_be_bytes());
+    sub.extend_from_slice(&0u16.to_be_bytes()); // reservedPad
+    sub.extend_from_slice(&0x0041u16.to_be_bytes()); // startCode: 'A'
+    sub.extend_from_slice(&0xFFFFu16.to_be_bytes());
+    // idDelta: 'A' is 0x41 and its glyph is 1, so the delta is 1 - 0x41.
+    sub.extend_from_slice(&(1i16 - 0x41).to_be_bytes());
+    sub.extend_from_slice(&1i16.to_be_bytes());
+    sub.extend_from_slice(&0u16.to_be_bytes()); // idRangeOffset
+    sub.extend_from_slice(&0u16.to_be_bytes());
+
+    let mut out = Vec::new();
+    out.extend_from_slice(&0u16.to_be_bytes()); // version
+    out.extend_from_slice(&1u16.to_be_bytes()); // numTables
+    out.extend_from_slice(&3u16.to_be_bytes()); // platformID: Windows
+    out.extend_from_slice(&1u16.to_be_bytes()); // encodingID: Unicode BMP
+    out.extend_from_slice(&12u32.to_be_bytes()); // offset
+    out.extend_from_slice(&sub);
+    out
+}
+
+/// The tables, in an SFNT container.
+fn sfnt(tables: &[([u8; 4], Vec<u8>)]) -> Vec<u8> {
+    let mut out = Vec::new();
+    out.extend_from_slice(&0x0001_0000_u32.to_be_bytes());
+    out.extend_from_slice(&u16::try_from(tables.len()).unwrap_or_default().to_be_bytes());
+    out.extend_from_slice(&[0; 6]);
+    let mut offset = 12 + tables.len() * 16;
+    for (tag, data) in tables {
+        out.extend_from_slice(tag);
+        out.extend_from_slice(&[0; 4]);
+        out.extend_from_slice(&u32::try_from(offset).unwrap_or_default().to_be_bytes());
+        out.extend_from_slice(&u32::try_from(data.len()).unwrap_or_default().to_be_bytes());
+        offset += (data.len() + 3) & !3;
+    }
+    for (_, data) in tables {
+        out.extend_from_slice(data);
+        out.extend(std::iter::repeat_n(0, (4 - (data.len() % 4)) % 4));
+    }
+    out
+}

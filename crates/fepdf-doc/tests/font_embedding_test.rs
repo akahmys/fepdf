@@ -12,72 +12,7 @@ use fepdf_model::ingest::IngestionOptions;
 use fepdf_model::{Handle, Object, PdfArena};
 use std::collections::BTreeMap;
 
-/// A TrueType program of four glyphs, advancing by `advances`, on a 2048 grid.
-///
-/// **2048 rather than 1000**, so that a writer which forgot to scale into glyph space
-/// fails rather than passing by coincidence.
-fn program(advances: &[u16; 4]) -> Vec<u8> {
-    let mut head = vec![0u8; 54];
-    head[18..20].copy_from_slice(&2048u16.to_be_bytes()); // unitsPerEm
-    head[36..38].copy_from_slice(&(-100i16).to_be_bytes());
-    head[38..40].copy_from_slice(&(-200i16).to_be_bytes());
-    head[40..42].copy_from_slice(&1000i16.to_be_bytes());
-    head[42..44].copy_from_slice(&2000i16.to_be_bytes());
-    head[50..52].copy_from_slice(&1i16.to_be_bytes()); // long loca
-
-    let mut hhea = vec![0u8; 36];
-    hhea[4..6].copy_from_slice(&1800i16.to_be_bytes()); // ascender
-    hhea[6..8].copy_from_slice(&(-400i16).to_be_bytes()); // descender
-    hhea[34..36].copy_from_slice(&4u16.to_be_bytes()); // numberOfHMetrics
-
-    let mut hmtx = Vec::new();
-    for advance in advances {
-        hmtx.extend_from_slice(&advance.to_be_bytes());
-        hmtx.extend_from_slice(&0i16.to_be_bytes());
-    }
-
-    let mut maxp = vec![0u8; 6];
-    maxp[4..6].copy_from_slice(&4u16.to_be_bytes());
-
-    let mut glyf = Vec::new();
-    let mut loca = Vec::new();
-    for filler in [0xA1u8, 0xB2, 0xC3, 0xD4] {
-        loca.extend_from_slice(&u32::try_from(glyf.len()).unwrap_or_default().to_be_bytes());
-        glyf.extend_from_slice(&1i16.to_be_bytes()); // one contour: a simple glyph
-        glyf.extend_from_slice(&[0; 8]);
-        glyf.extend(std::iter::repeat_n(filler, 8));
-    }
-    loca.extend_from_slice(&u32::try_from(glyf.len()).unwrap_or_default().to_be_bytes());
-
-    sfnt(&[
-        (*b"head", head),
-        (*b"hhea", hhea),
-        (*b"hmtx", hmtx),
-        (*b"maxp", maxp),
-        (*b"loca", loca),
-        (*b"glyf", glyf),
-    ])
-}
-
-fn sfnt(tables: &[([u8; 4], Vec<u8>)]) -> Vec<u8> {
-    let mut out = Vec::new();
-    out.extend_from_slice(&0x0001_0000_u32.to_be_bytes());
-    out.extend_from_slice(&u16::try_from(tables.len()).unwrap_or_default().to_be_bytes());
-    out.extend_from_slice(&[0; 6]);
-    let mut offset = 12 + tables.len() * 16;
-    for (tag, data) in tables {
-        out.extend_from_slice(tag);
-        out.extend_from_slice(&[0; 4]);
-        out.extend_from_slice(&u32::try_from(offset).unwrap_or_default().to_be_bytes());
-        out.extend_from_slice(&u32::try_from(data.len()).unwrap_or_default().to_be_bytes());
-        offset += (data.len() + 3) & !3;
-    }
-    for (_, data) in tables {
-        out.extend_from_slice(data);
-        out.extend(std::iter::repeat_n(0, (4 - (data.len() % 4)) % 4));
-    }
-    out
-}
+use fepdf_fixtures::truetype_program as program;
 
 /// An empty one-page document to embed into.
 fn document() -> Document {

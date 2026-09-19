@@ -14,6 +14,9 @@ use fepdf_model::arena::PdfArena;
 use fepdf_model::interpretation::Decision;
 use fepdf_model::object::{PdfName, SublimatedData};
 use fepdf_model::{Document, Handle, Object, PdfError, PdfResult};
+
+/// A dictionary as the arena holds it.
+type Dict = BTreeMap<Handle<PdfName>, Object>;
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
@@ -249,4 +252,134 @@ fn write_to_unicode(doc: &Document, face: &EmbeddedFace<'_>) -> Object {
         Arc::new(SublimatedData::Raw(Bytes::from(cmap.into_bytes()))),
     );
     Object::Reference(arena.alloc_object(stream))
+}
+
+/// Where a run of text goes on a page, and in what face.
+pub struct ShownText<'a> {
+    /// The font program to embed. It is subsetted to the glyphs this text needs.
+    pub program: &'a [u8],
+    /// The `/BaseFont` name to carry.
+    pub base_font: &'a str,
+    /// The text itself.
+    pub text: &'a str,
+    /// Where its first glyph sits, in default user space.
+    pub at: (f64, f64),
+    /// The size to set it at, in points.
+    pub size: f64,
+}
+
+/// Draws `shown` on page `page` in a face embedded for the purpose.
+///
+/// **The codes written are glyph ids**, because the font is `Identity-H`: a two-byte code
+/// is the glyph, and `/ToUnicode` is what tells a reader back what it stood for. That is
+/// the whole of the difference from `overlay_text_on_page`, which escapes a Rust string
+/// into a literal and shows it through a font nobody embedded — and which loses every
+/// character outside WinAnsi on the way.
+///
+/// # Errors
+/// Fails when the program has no glyph for a character of `text`, naming it; when the
+/// program cannot be subsetted; or when the page is not there.
+pub fn show_text(doc: &Document, page: usize, shown: &ShownText<'_>) -> PdfResult<()> {
+    let glyph_ids = fepdf_font::subset::glyphs_for(shown.program, shown.text)
+        .map_err(|c| PdfError::Other(format!("this face draws no {c:?}").into()))?;
+
+    let mut glyphs: BTreeMap<u16, String> = BTreeMap::new();
+    for (gid, c) in glyph_ids.iter().zip(shown.text.chars()) {
+        glyphs.entry(*gid).or_default().push(c);
+    }
+    let font = embed_truetype(
+        doc,
+        &EmbeddedFace { program: shown.program, base_font: shown.base_font, glyphs: &glyphs },
+    )?;
+
+    let arena = doc.arena();
+    let page_h =
+        doc.get_page_handle(page).ok_or_else(|| PdfError::Other("the page is not there".into()))?;
+    let page_dh = doc.resolve_to_dict(page_h)?;
+    let mut page_dict = arena.get_dict(page_dh).unwrap_or_default();
+    let name = name_font_in_page(doc, page_h, &mut page_dict, font);
+
+    let mut codes = String::with_capacity(glyph_ids.len() * 4);
+    for gid in &glyph_ids {
+        use std::fmt::Write as _;
+        let _ = write!(codes, "{gid:04X}");
+    }
+    let (x, y) = shown.at;
+    let drawing = format!(
+        "q\nBT\n/{name} {:.2} Tf\n1 0 0 1 {x:.2} {y:.2} Tm\n<{codes}> Tj\nET\nQ\n",
+        shown.size
+    );
+    append_content(doc, page_dh, &mut page_dict, drawing.into_bytes());
+    arena.set_dict(page_dh, page_dict);
+    Ok(())
+}
+
+/// Names `font` in the page's resources, under a name nothing else there uses.
+fn name_font_in_page(
+    doc: &Document,
+    page_h: Handle<Object>,
+    page_dict: &mut BTreeMap<Handle<PdfName>, Object>,
+    font: Handle<Object>,
+) -> String {
+    let arena = doc.arena();
+    let res_dh = super::annotations::ensure_page_resources(doc, page_h, page_dict);
+    let mut resources = arena.get_dict(res_dh).unwrap_or_default();
+    let font_key = arena.name("Font");
+
+    let fonts_dh = match resources.get(&font_key).and_then(|o| o.resolve(arena).as_dict_handle()) {
+        Some(dh) => dh,
+        None => {
+            let dh = arena.alloc_dict(BTreeMap::new());
+            resources.insert(font_key, Object::Dictionary(dh));
+            dh
+        }
+    };
+    let mut fonts = arena.get_dict(fonts_dh).unwrap_or_default();
+
+    // A name nothing else in this dictionary answers to. The resources of a page this
+    // engine did not write hold whatever its producer chose, so a fixed `/F1` would take
+    // a name that already draws something.
+    let taken: Vec<String> =
+        fonts.keys().filter_map(|k| arena.get_name(*k).map(|n| n.as_str().to_string())).collect();
+    // Bounded, because an unbounded search for a free name is a loop that a page with
+    // enough fonts on it would not leave. A page naming a thousand of this engine's faces
+    // is not a case that has happened; falling back to the last one if it ever does is a
+    // collision rather than a hang.
+    let name = (1..1000)
+        .map(|i| format!("FE{i}"))
+        .find(|candidate| !taken.contains(candidate))
+        .unwrap_or_else(|| "FE1000".to_string());
+
+    fonts.insert(arena.name(&name), Object::Reference(font));
+    arena.set_dict(fonts_dh, fonts);
+    arena.set_dict(res_dh, resources);
+    name
+}
+
+/// Adds `drawing` to the page's content, after whatever is already there.
+fn append_content(
+    doc: &Document,
+    page_dh: Handle<Dict>,
+    page_dict: &mut BTreeMap<Handle<PdfName>, Object>,
+    drawing: Vec<u8>,
+) {
+    let arena = doc.arena();
+    let stream = Object::Stream(
+        arena.alloc_dict(BTreeMap::new()),
+        Arc::new(SublimatedData::Raw(Bytes::from(drawing))),
+    );
+    let stream_h = arena.alloc_object(stream);
+
+    let contents_key = arena.name("Contents");
+    let mut items = match page_dict.get(&contents_key).map(|o| o.resolve(arena)) {
+        Some(Object::Array(ah)) => arena.get_array(ah).unwrap_or_default(),
+        Some(_) => match page_dict.get(&contents_key) {
+            Some(Object::Reference(h)) => vec![Object::Reference(*h)],
+            _ => Vec::new(),
+        },
+        None => Vec::new(),
+    };
+    items.push(Object::Reference(stream_h));
+    page_dict.insert(contents_key, Object::Array(arena.alloc_array(items)));
+    let _ = page_dh;
 }

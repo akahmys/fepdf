@@ -3612,6 +3612,26 @@ Then the gate:
       `FDSelect` is right by the same arithmetic as the charset and not by its own
       evidence, which the module says in writing.
 
+- [ ] **W-E1b4 — a document's fonts are counted twice.** `fepdf inspect info` reports
+      **24 fonts for `samples/constitution.pdf`, 72 for `fugaku.pdf` and 14 for
+      `print_sample.pdf`**; with `--no-refinement` the same files report 12, 36 and 7.
+      Exactly twice, on every sample, in a tool whose business is telling people what is
+      in their documents.
+
+      ```bash
+      fepdf inspect info samples/constitution.pdf | grep "Total Fonts"
+      fepdf inspect info --no-refinement samples/constitution.pdf | grep "Total Fonts"
+      ```
+
+      **The cause is located and the fix is not obvious.** `commit_to_arena` allocates a
+      *new* dictionary handle for every refined dictionary, so the pre-refinement one stays
+      in the arena unreferenced, and `list_fonts` walks `all_dict_handles` rather than what
+      the document reaches. Counting through objects instead would drop the orphan — and
+      would also drop a font dictionary written *directly* into a resource dictionary,
+      which is the shape the decoration writer used until 2026-09-19. The answer is
+      reachability from the catalogue, which is a walk this engine does not have.
+      *Fails if*: a sample's font count differs with and without refinement.
+
 - [ ] **W-E1b3 — the document's own program, reachable.** `Document::get_font` returns a
       `FontResource` whose `data` is `None` for **all 335 font dictionaries of the nine
       samples**, measured 2026-09-19, while rendering plainly gets the program from

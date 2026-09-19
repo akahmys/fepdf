@@ -516,3 +516,31 @@ mod collection_tests {
         assert_eq!(sfnt_base(b"ttcf"), 0, "a header too short to hold an offset states none");
     }
 }
+
+/// The glyph each character of `text` is drawn by, in order.
+///
+/// **This is a lookup, not shaping.** It asks the face's `cmap` for one glyph per
+/// character: no ligatures, no combining marks joined to their base, no reordering, and
+/// nothing from `GSUB`. Japanese and Latin set correctly that way; scripts that do not are
+/// not served by it and this says so rather than appearing to serve them.
+///
+/// # Errors
+/// Fails with the first character the face has no glyph for, which is what a refusal
+/// names ([ADR-0090](../../../docs/adr/0090-the-face-a-document-embeds-is-not-a-licence-to-set-new-text.md)).
+pub fn glyphs_for(program: &[u8], text: &str) -> Result<Vec<u16>, char> {
+    let face = ttf_parser::Face::parse(program, 0).map_err(|_| '\u{FFFD}')?;
+    text.chars()
+        .map(|c| face.glyph_index(c).map(|gid| gid.0).ok_or(c))
+        .collect::<Result<Vec<u16>, char>>()
+}
+
+#[cfg(test)]
+mod glyphs_for_tests {
+    /// The faces this machine has are the only real ones to hand, and what matters is the
+    /// shape of the answer rather than which glyph a particular face uses.
+    #[test]
+    fn a_character_no_face_draws_is_named_back() {
+        // A program that is not a font at all has no glyph for anything.
+        assert!(super::glyphs_for(b"not a font", "A").is_err());
+    }
+}

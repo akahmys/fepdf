@@ -214,7 +214,7 @@ fn calculate_decoration_coords(
 /// dictionary, and a page that *inherits* one from the page tree had it **shadowed**, so
 /// the fonts and XObjects its own content stream names stopped resolving. Adding a
 /// decoration is not supposed to be able to blank a page.
-fn ensure_page_resources(
+pub(crate) fn ensure_page_resources(
     doc: &Document,
     page_h: Handle<Object>,
     page_dict: &mut BTreeMap<Handle<PdfName>, Object>,
