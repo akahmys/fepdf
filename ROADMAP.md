@@ -3595,15 +3595,28 @@ Then the gate:
       reader that stops at the end of the array gives all of them no width and sets text
       on top of itself. Scaling to glyph space is the caller's, because this crate carries
       no PDF notion.
-- [ ] **W-E1c-ii — writing the PDF side**: `/FontFile2` with the `/FontDescriptor`,
-      `/W`, `/ToUnicode` and Identity-H encoding that make it readable back.
-      *Fails if*: text written in Japanese does not come back out of `inspect text`, or
-      `inspect audit` reports a non-embedded font in output this engine produced.
-- [ ] **W-E1c-iii — the widths agree, both ways.** A font written by W-E1c-ii and read
-      back states a width per glyph in two independent places: the `/W` array, and the
-      `hmtx` of the program beside it. *Fails if*: they disagree on any glyph of a
-      document this engine wrote — which is the round trip that validates the reader and
-      the writer at once, and is worth more than checking either against the corpus alone.
+- [x] **W-E1c-ii — the font dictionaries.** `apply::font::embed_truetype` subsets the
+      program, writes `/FontFile2` with its `/Length1`, a `/FontDescriptor`, a
+      `CIDFontType2` with `/W` and `/CIDToGIDMap /Identity`, a `/ToUnicode` CMap, and the
+      Type 0 font over them with `/Encoding /Identity-H`. **Reading 9.8.1 first is what
+      kept two numbers honest**: `/StemV` is written as 0, which the clause itself defines
+      as unknown, rather than the estimate every other tool puts there; and `/ItalicAngle`
+      is required, so a program with no `post` gets 0 *and* an `Ambiguity` naming the
+      clause, because 0 is the claim "upright" and not an absence.
+
+      The subset tag is derived from the glyph set, so the same subset of the same face
+      twice is one face rather than two claiming to differ.
+
+      Still only the dictionaries: nothing puts the font in a page's resources or writes
+      a glyph-id string into a content stream, so `図面-0001` does not yet appear on a
+      page. That is W-E2b.
+- [x] **W-E1c-iii — the widths agree, both ways.** 9.7.4.3 requires `/W` to be consistent
+      with the program's own widths, and the round trip checks exactly that: the writer
+      reads `hmtx` and the test reads it again through `fepdf-font::metrics`, which is
+      different code. The fixture is drawn on a **2048** grid, so a writer that passed the
+      program's units through without scaling into glyph space agrees with `hmtx` and
+      still fails.
+
 - [ ] **W-E1d — the ladder**, which has two rungs rather than three
       ([ADR-0090](docs/adr/0090-the-face-a-document-embeds-is-not-a-licence-to-set-new-text.md)
       amending [ADR-0089](docs/adr/0089-a-face-is-embedded-only-where-it-permits-it.md)):

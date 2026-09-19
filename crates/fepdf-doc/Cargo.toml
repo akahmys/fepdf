@@ -12,6 +12,7 @@ repository.workspace = true
 [dependencies]
 fepdf-model.workspace = true
 fepdf-content.workspace = true
+fepdf-font.workspace = true
 kurbo.workspace = true
 serde.workspace = true
 bytes.workspace = true
