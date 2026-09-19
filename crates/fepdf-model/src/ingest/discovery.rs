@@ -77,7 +77,7 @@ pub fn discover_fonts(
     cache
 }
 
-fn accumulate_resources(
+pub(crate) fn accumulate_resources(
     arena: &PdfArena,
     dict: &BTreeMap<Handle<PdfName>, Object>,
     is_form: bool,

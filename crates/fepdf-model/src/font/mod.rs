@@ -2771,25 +2771,91 @@ pub fn list_fonts(doc: &Document) -> Vec<FontSummary> {
     let mut fonts = Vec::new();
     let mut seen = std::collections::BTreeSet::new();
 
-    let type_key = arena.get_name_by_str("Type");
-    let font_val = arena.get_name_by_str("Font");
+    let Some(font_val) = arena.get_name_by_str("Font") else { return fonts };
+    for handle in reachable_font_dicts(doc) {
+        if !seen.insert(handle) {
+            continue;
+        }
+        if let Some(dict) = arena.get_dict(handle)
+            && let Some(summary) = extract_font_summary(arena, &dict, font_val, handle)
+        {
+            fonts.push(summary);
+        }
+    }
+    fonts
+}
 
-    if let (Some(tk), Some(fv)) = (type_key, font_val) {
-        for handle in arena.all_dict_handles() {
-            if let Some(dict) = arena.get_dict(handle)
-                && dict.get(&tk).and_then(|o| o.resolve(arena).as_name()) == Some(fv)
-            {
-                if seen.contains(&handle) {
-                    continue;
-                }
-                seen.insert(handle);
-                if let Some(summary) = extract_font_summary(arena, &dict, fv, handle) {
-                    fonts.push(summary);
+/// Every font dictionary a page or a form reaches, and the descendants they name.
+///
+/// **Reachability rather than every dictionary in the arena.** Refinement commits each
+/// dictionary it rewrites to a *new* handle, leaving the one it replaced behind
+/// unreferenced, so a walk over `all_dict_handles` counted both: `inspect info` reported
+/// 24 fonts for `samples/constitution.pdf` where it has 12, and twice the true number on
+/// every sample.
+///
+/// **Walking objects instead would have been the other error.** 7.3.10 lets a font
+/// dictionary sit *directly* in a resource dictionary, with no object of its own to be
+/// found by — the shape this engine's own decorations used until 2026-09-19 — so the fonts
+/// are reached the way a content stream reaches them: through the resources of the page or
+/// form that names them.
+fn reachable_font_dicts(doc: &Document) -> Vec<Handle<BTreeMap<Handle<PdfName>, Object>>> {
+    let arena = doc.arena();
+    let (type_key, subtype_key, font_key, resources_key) =
+        (arena.name("Type"), arena.name("Subtype"), arena.name("Font"), arena.name("Resources"));
+    let (page_val, form_val) = (arena.name("Page"), arena.name("Form"));
+
+    let mut out = Vec::new();
+    for index in 0..arena.object_count() {
+        let handle = Handle::new(index);
+        let Some(Object::Dictionary(dh) | Object::Stream(dh, _)) = arena.get_object(handle) else {
+            continue;
+        };
+        let Some(dict) = arena.get_dict(dh) else { continue };
+        let is_page =
+            dict.get(&type_key).and_then(|o| o.resolve(arena).as_name()) == Some(page_val);
+        let is_form =
+            dict.get(&subtype_key).and_then(|o| o.resolve(arena).as_name()) == Some(form_val);
+        if !is_page && !is_form {
+            continue;
+        }
+
+        for resources in
+            crate::ingest::discovery::accumulate_resources(arena, &dict, is_form, &resources_key)
+        {
+            let Some(fonts_dh) =
+                resources.get(&font_key).and_then(|o| o.resolve(arena).as_dict_handle())
+            else {
+                continue;
+            };
+            let Some(named) = arena.get_dict(fonts_dh) else { continue };
+            for entry in named.values() {
+                if let Some(font_dh) = entry.resolve(arena).as_dict_handle() {
+                    out.push(font_dh);
+                    out.extend(descendants_of(arena, font_dh));
                 }
             }
         }
     }
-    fonts
+    out
+}
+
+/// The CIDFonts a Type 0 font names, which are fonts in their own right (9.7.4).
+fn descendants_of(
+    arena: &PdfArena,
+    font_dh: Handle<BTreeMap<Handle<PdfName>, Object>>,
+) -> Vec<Handle<BTreeMap<Handle<PdfName>, Object>>> {
+    let Some(dict) = arena.get_dict(font_dh) else { return Vec::new() };
+    let Some(Object::Array(ah)) =
+        dict.get(&arena.name("DescendantFonts")).map(|o| o.resolve(arena))
+    else {
+        return Vec::new();
+    };
+    arena
+        .get_array(ah)
+        .unwrap_or_default()
+        .iter()
+        .filter_map(|item| item.resolve(arena).as_dict_handle())
+        .collect()
 }
 
 fn extract_font_summary(

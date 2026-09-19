@@ -3612,25 +3612,24 @@ Then the gate:
       `FDSelect` is right by the same arithmetic as the charset and not by its own
       evidence, which the module says in writing.
 
-- [ ] **W-E1b4 — a document's fonts are counted twice.** `fepdf inspect info` reports
-      **24 fonts for `samples/constitution.pdf`, 72 for `fugaku.pdf` and 14 for
-      `print_sample.pdf`**; with `--no-refinement` the same files report 12, 36 and 7.
-      Exactly twice, on every sample, in a tool whose business is telling people what is
-      in their documents.
+- [x] **W-E1b4 — a document's fonts were counted twice.** `inspect info` reported **24
+      fonts for `samples/constitution.pdf`, 72 for `fugaku.pdf` and 14 for
+      `print_sample.pdf`**, against 12, 36 and 7 with `--no-refinement`: exactly twice, on
+      every sample, from a tool whose business is telling people what is in their
+      documents. `commit_to_arena` gives every dictionary it refines a new handle, so the
+      one it replaced stays in the arena unreferenced, and `list_fonts` walked every handle
+      there.
 
-      ```bash
-      fepdf inspect info samples/constitution.pdf | grep "Total Fonts"
-      fepdf inspect info --no-refinement samples/constitution.pdf | grep "Total Fonts"
-      ```
+      **Counting through objects would have been the other error**, and is why this took a
+      third route rather than the obvious one: 7.3.10 lets a font dictionary sit *directly*
+      in a resource dictionary with no object of its own, which is the shape this engine's
+      own decorations used until 2026-09-19. The fonts are reached the way a content stream
+      reaches them — the resources of each page and form, up the parent chain, through
+      `/Font`, following a Type 0 font's descendants — sharing `accumulate_resources` so
+      that the walk has one home.
 
-      **The cause is located and the fix is not obvious.** `commit_to_arena` allocates a
-      *new* dictionary handle for every refined dictionary, so the pre-refinement one stays
-      in the arena unreferenced, and `list_fonts` walks `all_dict_handles` rather than what
-      the document reaches. Counting through objects instead would drop the orphan — and
-      would also drop a font dictionary written *directly* into a resource dictionary,
-      which is the shape the decoration writer used until 2026-09-19. The answer is
-      reachability from the catalogue, which is a walk this engine does not have.
-      *Fails if*: a sample's font count differs with and without refinement.
+      *Fails if*: a sample counts differently with and without refinement, a font written
+      directly into a resource dictionary is not counted, or one no page reaches is.
 
 - [ ] **W-E1b3 — the document's own program, reachable.** `Document::get_font` returns a
       `FontResource` whose `data` is `None` for **all 335 font dictionaries of the nine

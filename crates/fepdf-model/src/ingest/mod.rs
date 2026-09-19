@@ -11,7 +11,7 @@ use crate::refine::{ParallelRefinery, RefineContext};
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
-mod discovery;
+pub(crate) mod discovery;
 pub use discovery::*;
 
 /// Policy for color validation (ISO 32000-2 Clause 8.6).
