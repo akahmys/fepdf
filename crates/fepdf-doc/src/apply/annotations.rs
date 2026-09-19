@@ -417,31 +417,63 @@ pub fn apply_bates_numbering(
     Ok(())
 }
 
+/// Where a link goes: a URI action, or a destination in this document (12.5.6.5).
+fn link_target(
+    arena: &PdfArena,
+    dict: &mut BTreeMap<Handle<PdfName>, Object>,
+    destination_page: usize,
+    url: Option<&str>,
+    get_page_handle: impl Fn(usize) -> Option<Handle<Object>>,
+) {
+    if let Some(uri) = url {
+        let mut action = BTreeMap::new();
+        action.insert(arena.name("Type"), Object::Name(arena.name("Action")));
+        action.insert(arena.name("S"), Object::Name(arena.name("URI")));
+        action.insert(arena.name("URI"), Object::String(Bytes::from(uri.to_string())));
+        dict.insert(arena.name("A"), Object::Dictionary(arena.alloc_dict(action)));
+    } else if let Some(target) = get_page_handle(destination_page) {
+        let destination = vec![Object::Reference(target), Object::Name(arena.name("Fit"))];
+        dict.insert(arena.name("Dest"), Object::Array(arena.alloc_array(destination)));
+    }
+}
+
+/// The quadrilateral a text markup covers, from the rectangle it was given.
+///
+/// **Required of a text markup** (12.5.6.10, Table 179), and the whole of what one marks:
+/// a highlight over three lines is three quadrilaterals and one `/Rect`. One rectangle is
+/// one of them, and the four vertices go in the order the table gives — upper left, upper
+/// right, lower left, lower right.
+fn quad_points(arena: &PdfArena, rect: [f32; 4]) -> Object {
+    let (x1, y1, x2, y2) =
+        (f64::from(rect[0]), f64::from(rect[1]), f64::from(rect[2]), f64::from(rect[3]));
+    let quad = vec![
+        Object::Real(x1),
+        Object::Real(y2),
+        Object::Real(x2),
+        Object::Real(y2),
+        Object::Real(x1),
+        Object::Real(y1),
+        Object::Real(x2),
+        Object::Real(y1),
+    ];
+    Object::Array(arena.alloc_array(quad))
+}
+
 fn populate_annotation_kind(
     arena: &PdfArena,
     dict: &mut BTreeMap<Handle<PdfName>, Object>,
     kind: &AnnotationKind,
+    annot_rect: [f32; 4],
     get_page_handle: impl Fn(usize) -> Option<Handle<Object>>,
 ) {
     match kind {
         AnnotationKind::Link { destination_page, url } => {
             dict.insert(arena.name("Subtype"), Object::Name(arena.name("Link")));
-            if let Some(uri) = url {
-                let mut action_dict = BTreeMap::new();
-                action_dict.insert(arena.name("Type"), Object::Name(arena.name("Action")));
-                action_dict.insert(arena.name("S"), Object::Name(arena.name("URI")));
-                action_dict.insert(arena.name("URI"), Object::String(Bytes::from(uri.clone())));
-                let action_dh = arena.alloc_dict(action_dict);
-                dict.insert(arena.name("A"), Object::Dictionary(action_dh));
-            } else if let Some(target_page_h) = get_page_handle(*destination_page) {
-                let dest_items =
-                    vec![Object::Reference(target_page_h), Object::Name(arena.name("Fit"))];
-                let dest_ah = arena.alloc_array(dest_items);
-                dict.insert(arena.name("Dest"), Object::Array(dest_ah));
-            }
+            link_target(arena, dict, *destination_page, url.as_deref(), get_page_handle);
         }
         AnnotationKind::Highlight { color_rgb } => {
             dict.insert(arena.name("Subtype"), Object::Name(arena.name("Highlight")));
+            dict.insert(arena.name("QuadPoints"), quad_points(arena, annot_rect));
             let c_items = vec![
                 Object::Real(f64::from(color_rgb[0])),
                 Object::Real(f64::from(color_rgb[1])),
@@ -454,9 +486,14 @@ fn populate_annotation_kind(
             dict.insert(arena.name("Subtype"), Object::Name(arena.name("Text")));
             dict.insert(arena.name("Contents"), Object::String(Bytes::from(contents.clone())));
         }
-        AnnotationKind::Stamp { stamp_image_bytes: _ } => {
+        AnnotationKind::Stamp { stamp_image_bytes } => {
             dict.insert(arena.name("Subtype"), Object::Name(arena.name("Stamp")));
-            dict.insert(arena.name("Name"), Object::Name(arena.name("Draft")));
+            // `/Name` is the icon a reader falls back to where there is no appearance
+            // (12.5.6.12); the picture itself goes in the `/AP` beside it, which is where
+            // the bytes this used to discard now are.
+            if stamp_image_bytes.is_empty() {
+                dict.insert(arena.name("Name"), Object::Name(arena.name("Draft")));
+            }
         }
     }
 }
@@ -477,8 +514,102 @@ fn create_annotation_dict(
     let rect_ah = arena.alloc_array(rect_items);
     dict.insert(arena.name("Rect"), Object::Array(rect_ah));
 
-    populate_annotation_kind(arena, &mut dict, &annot.kind, get_page_handle);
+    populate_annotation_kind(arena, &mut dict, &annot.kind, annot.rect, get_page_handle);
+    // **12.5.5, and this engine's own renderer.** `render_annotations` skips an
+    // annotation with no appearance, which is right for a file somebody else wrote and
+    // wrong for one this engine writes: what it made, it could not draw.
+    if let Some(appearance) = appearance_for(arena, annot) {
+        dict.insert(arena.name("AP"), appearance);
+    }
     arena.alloc_dict(dict)
+}
+
+/// The `/AP` an annotation of this kind is drawn by, as a normal appearance (12.5.5).
+///
+/// **A `/Link` has none and wants none.** Its appearance is the border a reader draws
+/// around it, and 12.5.6.5 gives it `/Border` rather than a stream; writing one would put
+/// a rectangle on the page where the file asks for nothing to be painted.
+fn appearance_for(arena: &PdfArena, annot: &AnnotationSpec) -> Option<Object> {
+    let (width, height) = (
+        f64::from(annot.rect[2] - annot.rect[0]).abs(),
+        f64::from(annot.rect[3] - annot.rect[1]).abs(),
+    );
+    let drawing = match &annot.kind {
+        AnnotationKind::Link { .. } => return None,
+        AnnotationKind::Highlight { color_rgb } => format!(
+            "{:.3} {:.3} {:.3} rg\n0 0 {width:.2} {height:.2} re\nf\n",
+            color_rgb[0], color_rgb[1], color_rgb[2]
+        ),
+        // A note is an icon a reader may replace with its own; what matters is that the
+        // file says where the mark is rather than leaving the page blank.
+        AnnotationKind::TextComment { .. } => format!(
+            "0.98 0.85 0.24 rg\n0 0 {width:.2} {height:.2} re\nf\n0 0 0 RG\n             0 0 {width:.2} {height:.2} re\nS\n"
+        ),
+        AnnotationKind::Stamp { stamp_image_bytes } => {
+            return stamp_appearance(arena, stamp_image_bytes, width, height);
+        }
+    };
+    Some(normal_appearance(arena, &drawing.into_bytes(), width, height, None))
+}
+
+/// An appearance stream: a form XObject of `bbox`, holding `drawing`.
+fn normal_appearance(
+    arena: &PdfArena,
+    drawing: &[u8],
+    width: f64,
+    height: f64,
+    resources: Option<Object>,
+) -> Object {
+    let mut dict = BTreeMap::new();
+    dict.insert(arena.name("Type"), Object::Name(arena.name("XObject")));
+    dict.insert(arena.name("Subtype"), Object::Name(arena.name("Form")));
+    let bbox =
+        vec![Object::Real(0.0), Object::Real(0.0), Object::Real(width), Object::Real(height)];
+    dict.insert(arena.name("BBox"), Object::Array(arena.alloc_array(bbox)));
+    if let Some(resources) = resources {
+        dict.insert(arena.name("Resources"), resources);
+    }
+    let stream = Object::Stream(
+        arena.alloc_dict(dict),
+        Arc::new(SublimatedData::Raw(Bytes::copy_from_slice(drawing))),
+    );
+    let stream_h = arena.alloc_object(stream);
+
+    let mut ap = BTreeMap::new();
+    ap.insert(arena.name("N"), Object::Reference(stream_h));
+    Object::Dictionary(arena.alloc_dict(ap))
+}
+
+/// A stamp's appearance: the image it was given, drawn over its rectangle.
+///
+/// **The bytes were discarded**, bound to `_` while the dictionary got `/Name /Draft`, so
+/// an operation that reported success wrote none of what it was handed.
+fn stamp_appearance(arena: &PdfArena, image: &[u8], width: f64, height: f64) -> Option<Object> {
+    if image.is_empty() {
+        return None;
+    }
+    let mut xobject = BTreeMap::new();
+    xobject.insert(arena.name("Type"), Object::Name(arena.name("XObject")));
+    xobject.insert(arena.name("Subtype"), Object::Name(arena.name("Image")));
+    let stream = Object::Stream(
+        arena.alloc_dict(xobject),
+        Arc::new(SublimatedData::Raw(Bytes::copy_from_slice(image))),
+    );
+    let image_h = arena.alloc_object(stream);
+
+    let mut images = BTreeMap::new();
+    images.insert(arena.name("Im0"), Object::Reference(image_h));
+    let mut resources = BTreeMap::new();
+    resources.insert(arena.name("XObject"), Object::Dictionary(arena.alloc_dict(images)));
+
+    let drawing = format!("q\n{width:.2} 0 0 {height:.2} 0 0 cm\n/Im0 Do\nQ\n");
+    Some(normal_appearance(
+        arena,
+        drawing.as_bytes(),
+        width,
+        height,
+        Some(Object::Dictionary(arena.alloc_dict(resources))),
+    ))
 }
 
 /// Appends an annotation to a target page (Clause 12.5).

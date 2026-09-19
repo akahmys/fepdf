@@ -3782,13 +3782,40 @@ Then the gate:
 
 Annotations, which are the largest single row of the comparison:
 
-- [ ] **W-8 — appearance streams.** `AddAnnotation` writes no `/AP` for any of its four
-      kinds, `Highlight` carries no `/QuadPoints` (12.5.6.10), and `Stamp` binds
-      `stamp_image_bytes` to `_` and writes `/Name /Draft` — a success that writes none of
-      what it was given. *Fails if*: an annotation reaches a file without an `/AP`.
-- [ ] **W-14 — drawing them.** `/Annots` into the form XObject path the interpreter
-      already has. *Fails if*: a page with a highlight on it rasterises identically to the
-      same page without one.
+- [x] **W-8 — appearance streams, and the two other things `AddAnnotation` did not do.**
+      It had existed for phases with no frontend calling it, so nothing had looked at what
+      it produced. It wrote no `/AP` for any of its four kinds — which this engine's own
+      renderer skips, so what it made it could not draw; it wrote a `Highlight` with no
+      `/QuadPoints`, which 12.5.6.10 makes required and which is the whole of what a text
+      markup marks; and it bound `stamp_image_bytes` to `_` and wrote `/Name /Draft`, so a
+      caller's picture reached the file nowhere.
+
+      A highlight is a coloured rectangle, a note a bordered mark, and a stamp the image it
+      was handed, in an image XObject inside its appearance. `/Name` stays as the icon a
+      reader falls back to, and only where there is no picture to draw.
+
+      **A link is the exception and is one on purpose**: 12.5.6.5 gives it a `/Border` and
+      the reader draws that, so an appearance would paint where the file asks for nothing.
+      The test asserts the exception rather than leaving it to be noticed.
+
+      **The first placement check was too weak to catch anything.** 12.5.5 maps an
+      appearance's `/BBox` onto the annotation's `/Rect`, so a box four times too large is
+      drawn a quarter size — inside the rectangle, and wrong. Asking whether the ink
+      *covers* what the highlight marks is what fails against it, and what a highlight is
+      for.
+
+- [x] **W-14 — drawing them was already done, and this entry was wrong about that.** The
+      engine renders appearance streams: `render_annotations`, eight tests over the flags
+      that stop it (`Hidden`, `NoView`, `Print`), the state `/AS` names, and placement on
+      `/Rect`, with `pdf20examples/PDF 2.0 UTF-8 string and annotation.pdf` in
+      `crosscheck_image.sh`.
+
+      **The entry came from a grep of two crates that do not hold it.** `fepdf-render` and
+      `fepdf-content` return nothing for `Annots` because the walk lives in the facade's
+      `render_page`, which is the third place and the one not looked at. That is the second
+      entry in this phase written from a search whose edge went unchecked — the first said
+      a document's own font program was out of reach — and `PLANNING.md` names the habit:
+      *say where you looked, and check the edges of it*.
 - [ ] **W-13 — making them**: note, typewriter, text box, callout, the four text markups,
       ink, shapes, stamp and link. `AnnotationKind` grows from four to twelve.
 
