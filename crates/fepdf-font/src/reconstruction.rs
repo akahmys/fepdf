@@ -480,7 +480,7 @@ impl FontReconstructor {
         out
     }
 
-    fn push_cff_index(out: &mut Vec<u8>, entries: &[&[u8]]) {
+    pub(crate) fn push_cff_index(out: &mut Vec<u8>, entries: &[&[u8]]) {
         let count = entries.len() as u16;
         out.extend_from_slice(&count.to_be_bytes());
         if count == 0 {
@@ -1579,8 +1579,14 @@ impl FontReconstructor {
     }
 
     fn extract_cff_stream(data: &[u8]) -> FontResult<&[u8]> {
-        let is_sfnt =
-            data.len() >= 4 && (data.starts_with(b"OTTO") || data.starts_with(&[0, 1, 0, 0]));
+        // **A collection is an SFNT too**, and this did not say so: `detect` at the top of
+        // this file lists `ttcf` beside `OTTO` and the version tag, and this second test
+        // of the same thing left it out. So every CFF-based face installed on macOS —
+        // which is all of the Japanese ones — fell through to being read as a bare CFF,
+        // and answered with the count a failed parse leaves behind.
+        let base = sfnt_base(data);
+        let is_sfnt = data.len() >= base + 4
+            && (data[base..].starts_with(b"OTTO") || data[base..].starts_with(&[0, 1, 0, 0]));
         if is_sfnt {
             if let Some((o, e)) = find_table_range(data, b"CFF ") {
                 log::debug!("[RECONSTRUCT] Found CFF table at {}-{} (size: {})", o, e, e - o);
@@ -1922,7 +1928,7 @@ impl FontReconstructor {
     }
 }
 
-fn skip_index(data: &[u8], pos: usize) -> usize {
+pub(crate) fn skip_index(data: &[u8], pos: usize) -> usize {
     if pos + 2 > data.len() {
         return pos;
     }
@@ -1956,7 +1962,7 @@ fn skip_index(data: &[u8], pos: usize) -> usize {
 /// bounds-checking each read is the whole fix. Arithmetic is checked too, because a
 /// wrapped offset panics in a debug build before `get` ever sees it — and `cli_smoke.sh`
 /// runs a debug build for exactly that class of reason.
-fn get_index_item(data: &[u8], ip: usize, i: usize) -> Option<Vec<u8>> {
+pub(crate) fn get_index_item(data: &[u8], ip: usize, i: usize) -> Option<Vec<u8>> {
     let count = u16::from_be_bytes([*data.get(ip)?, *data.get(ip + 1)?]) as usize;
     if i >= count {
         return None;

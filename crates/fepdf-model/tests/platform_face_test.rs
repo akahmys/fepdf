@@ -45,6 +45,89 @@ fn every_face_this_machine_offers_can_be_read() {
     }
 }
 
+/// **A face is inspected as a CFF exactly when it carries one.**
+///
+/// `extract_cff_stream` tested for an SFNT by looking for `OTTO` or the version tag at
+/// offset 0 and did not list `ttcf`, although `detect` three hundred lines above it does.
+/// So every face on this machine took the other branch and was read as a bare CFF: the
+/// three TrueType collections reported a glyph count out of a failed parse instead of
+/// saying they have none, and the Japanese one reported 1,024 glyphs where it has 20,327.
+///
+/// This asks the question that separates the two: does the engine agree with itself about
+/// which faces have a charstring index at all?
+#[test]
+fn a_face_is_inspected_as_a_cff_exactly_when_it_carries_one() {
+    for (kind, data) in &fepdf_model::document::fallback_fonts() {
+        let carries = fepdf_font::subset::cff_table(data).is_some();
+        let inspected = fepdf_font::reconstruction::FontReconstructor::inspect_cff(data).is_ok();
+        assert_eq!(
+            carries, inspected,
+            "{kind:?} carries a CFF table: {carries}, and is inspected as one: {inspected}"
+        );
+    }
+}
+
+/// **A face with a CFF subsets, and what comes out draws the same glyphs.**
+///
+/// The corpus's CFF programs are the general case and are checked elsewhere; this is the
+/// one that matters on this platform, where the Japanese face is a CID-keyed CFF of 20,327
+/// glyphs with an `FDArray` — a shape the samples do not carry.
+#[test]
+fn a_face_with_a_cff_subsets_and_keeps_its_charstrings() {
+    let mut exercised = 0;
+    for (kind, data) in &fepdf_model::document::fallback_fonts() {
+        let Ok(count) = fepdf_font::cff::glyph_count(data) else { continue };
+        if count < 12 {
+            continue;
+        }
+        exercised += 1;
+        let wanted: std::collections::BTreeSet<u16> = (1..12).collect();
+        let subsetted = fepdf_font::cff::subset_cff(data, &wanted)
+            .unwrap_or_else(|e| panic!("{kind:?} carries a CFF and will not subset: {e}"));
+
+        assert_eq!(
+            fepdf_font::cff::glyph_count(&subsetted).ok(),
+            Some(count),
+            "{kind:?}: a subset that changes the glyph count moves every id after it"
+        );
+        for gid in &wanted {
+            assert_eq!(
+                fepdf_font::cff::charstring(&subsetted, *gid),
+                fepdf_font::cff::charstring(data, *gid),
+                "{kind:?}: glyph {gid} did not survive"
+            );
+        }
+        assert!(
+            subsetted.len() < data.len() / 2,
+            "{kind:?}: a subset of eleven glyphs is not half the program"
+        );
+        let charset = |program: &[u8]| {
+            fepdf_font::reconstruction::FontReconstructor::inspect_cff(fepdf_font::cff::body(
+                program,
+            ))
+            .ok()
+            .and_then(|info| info.sid_to_gid)
+        };
+        assert_eq!(
+            charset(&subsetted),
+            charset(data),
+            "{kind:?}: the charset moved out from under the offset that names it"
+        );
+        // The block after the charstrings moves by a different amount again, and holds
+        // the `FDArray` a CID-keyed face picks a font dictionary from.
+        assert_eq!(
+            fepdf_font::cff::private_dicts(&subsetted),
+            fepdf_font::cff::private_dicts(data),
+            "{kind:?}: a font dictionary points where its Private DICT used to be"
+        );
+        assert!(
+            !fepdf_font::cff::private_dicts(data).is_empty(),
+            "{kind:?}: no font dictionary was read, so the comparison above asks nothing"
+        );
+    }
+    println!("{exercised} of this machine's faces carry a CFF and were subsetted");
+}
+
 /// What this machine has, for the record rather than as an assertion.
 ///
 /// `cargo test -p fepdf-model --test platform_face_test -- --nocapture`
@@ -58,5 +141,18 @@ fn what_this_machine_offers_is_printable() {
             if data.get(..4) == Some(b"ttcf") { "a collection" } else { "one face" },
             embedding_permission(data).map(|p| p.usage),
         );
+        if let Ok(cff) = fepdf_font::reconstruction::FontReconstructor::inspect_cff(data) {
+            println!("    a CFF of {} glyphs, CID-keyed: {}", cff.num_glyphs, cff.is_cid);
+            let wanted: std::collections::BTreeSet<u16> = (1..12).collect();
+            match fepdf_font::cff::subset_cff(data, &wanted) {
+                Ok(subsetted) => println!(
+                    "    subsetted to 11 glyphs: {} bytes, from {} ({}%)",
+                    subsetted.len(),
+                    data.len(),
+                    subsetted.len() * 100 / data.len().max(1)
+                ),
+                Err(e) => println!("    will not subset: {e}"),
+            }
+        }
     }
 }

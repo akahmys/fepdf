@@ -3587,13 +3587,31 @@ Then the gate:
       Font 0 is the one taken, which a collection does not choose for us: Hiragino ships
       several weights in one file. Naming the face wanted is W-E2c.
 
-- [ ] **W-E1b2 — subsetting a CFF program, which is the critical path for Japanese.**
-      The measurement above settles what this gates: **the Japanese face on this machine
-      is CFF** — `CFF `, `VORG`, `vhea`, `vmtx`, no `glyf`, 0 of 39 glyphs with a TrueType
-      outline — while the three Latin faces carry `glyf` and subset today. 153 of the 235
-      embedded programs in the samples are CFF-based `FontFile3` besides. So Latin can be
-      embedded now and 図面 cannot, for want of a subsetter and not for want of a
-      permission: the face permits an editable embedding and says so.
+- [x] **W-E1b2 — subsetting a CFF program**, which is the critical path for Japanese: the
+      face on this machine is a CID-keyed CFF of **20,327 glyphs** with a 15-entry
+      `FDArray`, and 153 of the samples' 235 embedded programs are CFF besides. The same
+      rule as `glyf` — ids do not move, a dropped charstring becomes `endchar` — so the
+      charset, `FDSelect` and every count stay true and only the Top DICT is rewritten,
+      with five-byte fixed offsets so that one pass settles them. **19,409,608 bytes to
+      105,011 for eleven glyphs.**
+
+      **Two defects were found by mutation rather than by review, and the second was
+      real.** Zeroing every shift passed the whole suite, because nothing read the charset
+      — `sid_to_gid` compared before and after fixed that. Zeroing only the tail still
+      passed, and that one was not a gap in the tests but a gap in the writer: the font
+      dictionaries inside `FDArray` hold their own absolute Private offsets, and copying
+      the array left all fifteen pointing into the old file. The rewritten array is
+      appended rather than moved, and `private_dicts` is the reader that makes it
+      checkable.
+
+      ```bash
+      cargo test -p fepdf-model --test platform_face_test -- --nocapture
+      cargo test -p fepdf-model --test font_embedding_permission_test
+      ```
+
+      `FDSelect` is right by the same arithmetic as the charset and not by its own
+      evidence, which the module says in writing.
+
 - [ ] **W-E1b3 — the document's own program, reachable.** `Document::get_font` returns a
       `FontResource` whose `data` is `None` for **all 335 font dictionaries of the nine
       samples**, measured 2026-09-19, while rendering plainly gets the program from

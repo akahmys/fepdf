@@ -170,6 +170,16 @@ fn glyph_bytes<'a>(
     program.get(start..end)
 }
 
+/// The `CFF ` table of `program`, where it has one.
+///
+/// **A program has outlines by one route or the other**, and which one decides what can
+/// be subsetted: `glyf` by [`subset_truetype`], and a charstring index by nothing yet.
+#[must_use]
+pub fn cff_table(program: &[u8]) -> Option<&[u8]> {
+    let (from, to) = find_table(program, b"CFF ")?;
+    program.get(from..to)
+}
+
 /// The outline bytes of glyph `gid`, as `glyf` holds them.
 ///
 /// `None` where the glyph has no outline — a space is a legal empty entry — or where the

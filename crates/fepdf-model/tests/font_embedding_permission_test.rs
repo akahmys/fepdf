@@ -226,3 +226,106 @@ fn the_weight_a_subset_saves_is_printable() {
         );
     }
 }
+
+// ---------------------------------------------------------------------------
+// And what a CFF subset of one keeps. 153 of the 235 programs above are
+// CFF-based, and so is every Japanese face this machine has.
+// ---------------------------------------------------------------------------
+
+/// Every program above that a CFF subsetter applies to.
+fn cff_programs() -> Vec<Vec<u8>> {
+    samples()
+        .iter()
+        .flat_map(|p| font_programs(p))
+        .filter(|program| fepdf_font::cff::glyph_count(program).is_ok_and(|n| n > 1))
+        .collect()
+}
+
+/// **A charstring that was asked for comes out as it went in, at the id it had.**
+///
+/// Run against every CFF program the samples carry, because a synthetic one exercises the
+/// shapes this engine thought of and a real one exercises the shapes producers write:
+/// CID-keyed fonts with an `FDArray`, predefined charsets, and Top DICTs whose operands
+/// were written in every encoding the format allows.
+#[test]
+fn a_cff_subset_keeps_the_charstrings_it_was_asked_for() {
+    let programs = cff_programs();
+    assert!(!programs.is_empty(), "the samples carry CFF programs, or this test asks nothing");
+
+    for program in &programs {
+        let count = fepdf_font::cff::glyph_count(program).expect("it counts");
+        let wanted: std::collections::BTreeSet<u16> =
+            (1..count.min(8)).filter_map(|g| u16::try_from(g).ok()).collect();
+        let subsetted = fepdf_font::cff::subset_cff(program, &wanted).expect("it subsets");
+
+        assert_eq!(
+            fepdf_font::cff::glyph_count(&subsetted).expect("the subset counts"),
+            count,
+            "a subset that changes the glyph count moves every id after it"
+        );
+        for gid in &wanted {
+            assert_eq!(
+                fepdf_font::cff::charstring(&subsetted, *gid),
+                fepdf_font::cff::charstring(program, *gid),
+                "glyph {gid} did not survive the subset"
+            );
+        }
+        // **The charstrings are not the only thing the Top DICT points at.** The charset
+        // sits before them and moves by a different amount, and nothing above would
+        // notice if it were left pointing where it used to be: `sid_to_gid` is built by
+        // reading it, so comparing the two maps asks whether that offset landed.
+        assert_eq!(
+            charset_of(&subsetted),
+            charset_of(program),
+            "the charset moved out from under the offset that names it"
+        );
+        assert_eq!(
+            fepdf_font::cff::private_dicts(&subsetted),
+            fepdf_font::cff::private_dicts(program),
+            "a font dictionary points where its Private DICT used to be"
+        );
+    }
+}
+
+/// The glyph each name or CID maps to, read back through the charset the Top DICT names.
+fn charset_of(program: &[u8]) -> Option<std::collections::BTreeMap<u32, u32>> {
+    fepdf_font::reconstruction::FontReconstructor::inspect_cff(fepdf_font::cff::body(program))
+        .ok()?
+        .sid_to_gid
+}
+
+/// A glyph nobody asked for draws nothing, and is one byte rather than gone.
+#[test]
+fn a_cff_glyph_nobody_asked_for_is_endchar() {
+    for program in cff_programs().iter().take(20) {
+        let count = fepdf_font::cff::glyph_count(program).expect("it counts");
+        if count < 12 {
+            continue;
+        }
+        let subsetted = fepdf_font::cff::subset_cff(program, &[1u16].into()).expect("it subsets");
+        assert_eq!(
+            fepdf_font::cff::charstring(&subsetted, 10),
+            Some(vec![14]),
+            "a dropped charstring is `endchar` and nothing else"
+        );
+    }
+}
+
+/// What a subset of a real CFF costs, for the record.
+///
+/// `cargo test -p fepdf-model --test font_embedding_permission_test -- --nocapture`
+#[test]
+fn what_a_cff_subset_saves_is_printable() {
+    for program in cff_programs().iter().take(5) {
+        let count = fepdf_font::cff::glyph_count(program).expect("it counts");
+        let wanted: std::collections::BTreeSet<u16> =
+            (1..count.min(8)).filter_map(|g| u16::try_from(g).ok()).collect();
+        let subsetted = fepdf_font::cff::subset_cff(program, &wanted).expect("it subsets");
+        println!(
+            "CFF of {count} glyphs: {} bytes -> {} bytes for {} of them",
+            program.len(),
+            subsetted.len(),
+            wanted.len()
+        );
+    }
+}
