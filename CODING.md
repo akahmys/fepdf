@@ -74,7 +74,9 @@ engine is built for it.
 
 **One exemption**: `fepdf-gui` compiles C on Linux, through Wayland's build shim
 (`rfd` → `ashpd`, and `eframe` → `winit` → `smithay-client-toolkit`). It is recorded in
-`deny.toml`, scoped to that crate and that target
+`verify_compliance.sh` as `RULE9_EXEMPT_CRATES`, and it names **`wayland-backend`, the
+crate that compiles the C — not `fepdf-gui`, and not a target**: forgiving the member
+would forgive whatever the GUI acquires next and the check would keep reporting PASS
 ([ADR-0033](docs/adr/0033-the-linux-gui-keeps-wayland-so-rule-9-names-one-exemption.md)).
 Any other `cc` in any tree fails the audit.
 
