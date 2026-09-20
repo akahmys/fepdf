@@ -34,6 +34,8 @@ pub mod glyph {
     pub const TOOLS: &str = "\u{e5a0}";
     /// `text-cursor-input` — the runs on a page, and editing one.
     pub const TEXT_RUNS: &str = "\u{e265}";
+    /// `form-input` — the fields of a form, and filling one.
+    pub const FORM: &str = "\u{e21f}";
     /// `settings`.
     pub const SETTINGS: &str = "\u{e154}";
     /// `circle-help`.

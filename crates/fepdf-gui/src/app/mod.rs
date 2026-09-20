@@ -141,6 +141,10 @@ pub struct FepdfApp {
     pub dragging_run: Option<crate::interaction::DraggingRun>,
     /// What the text runs drawer is holding between frames.
     pub text_runs_panel: crate::sidebar::text_runs::TextRunsPanel,
+    /// The document's form, as the worker last read it.
+    pub form: fepdf::FormFields,
+    /// What the form drawer is holding between frames.
+    pub form_panel: crate::sidebar::form::FormPanel,
 
     pub ust_registry: USTRegistry,
     pub sidebar_panel: SidebarPanel,
@@ -304,6 +308,8 @@ impl FepdfApp {
             selected_run: None,
             dragging_run: None,
             text_runs_panel: crate::sidebar::text_runs::TextRunsPanel::default(),
+            form: fepdf::FormFields::default(),
+            form_panel: crate::sidebar::form::FormPanel::default(),
             ust_registry: USTRegistry::new(),
             sidebar_panel: SidebarPanel::new(),
             redaction_manager: RedactionManager::new(),
@@ -502,6 +508,10 @@ impl FepdfApp {
 
                     self.is_loading = false;
                     self.busy = None;
+                    ctx.request_repaint();
+                }
+                WorkerResponse::FormChanged { form } => {
+                    self.form = *form;
                     ctx.request_repaint();
                 }
                 WorkerResponse::PageRendered { index, scene, text, spans, runs, .. } => {

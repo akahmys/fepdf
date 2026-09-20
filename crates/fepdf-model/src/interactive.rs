@@ -607,9 +607,15 @@ fn read_form(arena: &PdfArena, catalog: &Dict) -> FormFields {
     form.has_default_resources = acro.contains_key(&arena.name("DR"));
 
     let mut by_type: BTreeMap<String, usize> = BTreeMap::new();
+    // **Seeded backwards, because the stack is read from its back.** `/Fields` is an
+    // ordered array and a caller filling a form goes down it; popping from the end walked
+    // it in reverse, which nothing noticed while the only readers were counting by type.
+    // Reversing here and reversing the kids below gives the document's own order, depth
+    // first.
     let mut queue: Vec<(Object, u32, Inherited)> = array_of(arena, acro.get(&arena.name("Fields")))
         .unwrap_or_default()
         .into_iter()
+        .rev()
         .map(|f| (f, 0, Inherited::default()))
         .collect();
     while let Some((node, depth, inherited)) = queue.pop() {
@@ -621,7 +627,7 @@ fn read_form(arena: &PdfArena, catalog: &Dict) -> FormFields {
         let here = inherited.and(arena, &d);
         match array_of(arena, d.get(&arena.name("Kids"))) {
             Some(kids) if !kids.is_empty() => {
-                queue.extend(kids.into_iter().map(|k| (k, depth + 1, here.clone())));
+                queue.extend(kids.into_iter().rev().map(|k| (k, depth + 1, here.clone())));
             }
             Some(_) | None => {
                 form.fields += 1;
@@ -1085,6 +1091,30 @@ pub fn calculation_order(doc: &crate::Document) -> Vec<String> {
             name.as_string().map(|bytes| String::from_utf8_lossy(bytes).into_owned())
         })
         .collect()
+}
+
+/// The form an *open* document carries, rather than the one a file on disk does.
+///
+/// [`InteractiveReport::survey`] reads bytes, which is what an audit of a file wants and
+/// what a window cannot use: the document a reader is filling in has been changed since
+/// it was opened, and serialising it again to ask what is in it would answer about a file
+/// nobody has. This reaches the same `read_form` through the arena the edits are in.
+///
+/// Returns a form that declares nothing when the document has no `/AcroForm`, which is
+/// what `FormFields::default` says and not an error: a document without a form is the
+/// ordinary case, not a failure to read one.
+#[must_use]
+pub fn form_of(doc: &crate::Document) -> FormFields {
+    let arena = doc.arena();
+    let Some(catalog) = doc
+        .catalog_handle()
+        .and_then(|handle| arena.get_object(handle))
+        .and_then(|root| root.as_dict_handle())
+        .and_then(|handle| arena.get_dict(handle))
+    else {
+        return FormFields::default();
+    };
+    read_form(arena, &catalog)
 }
 
 /// A terminal field's `/V`, as text, by name (12.7.4.2).

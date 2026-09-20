@@ -4220,9 +4220,31 @@ Content editing, under D-1:
 
 Forms, through to creation, under D-3:
 
-- [ ] **W-F1 — drawing widgets and filling them.** `SetFormFieldValue` and the appearance
-      regeneration of [ADR-0048](docs/adr/0048-reading-and-setting-choice-fields.md) exist;
-      nothing in the window reaches either.
+- [x] **W-F1 — filling a form from the window.** A drawer on the rail lists the
+      document's fields and writes what a reader puts in them through
+      `SetFormFieldValue`. The engine could already set a value and regenerate the
+      appearance ([ADR-0048](docs/adr/0048-reading-and-setting-choice-fields.md)); nothing
+      in the window asked it to, so a form could be read, audited and not touched.
+
+      **What is drawn for a field follows its `/FT`.** A choice field offers its own
+      `/Opt` rather than a box to type in, because a box would let a reader write a value
+      the form does not offer (12.7.4.4). A signature field says it is signed rather than
+      filled: offering to type into one would be offering to forge it.
+
+      **The form is read from the open document, not from its bytes.**
+      `InteractiveReport::survey` reads a file, which is what an audit wants and what a
+      window cannot use — the document being filled in has changed since it was opened,
+      and serialising it again to ask what is in it would answer about a file nobody has.
+      `interactive::form_of` reaches the same `read_form` through the arena the edits are
+      in.
+
+      **The fields came back in the reverse of the order the document declares them**, and
+      nothing had noticed: `read_form` walks a `Vec` with `pop`, which reads from the
+      back, and every reader until now was counting by type rather than listing. A window
+      filling a form in that order presents the last field first. Fixed by seeding and
+      extending the stack in reverse, which is the document's own order, depth first.
+
+
 - [ ] **W-F2 — creating fields.** Nine widget types, `/AcroForm`, tab order and a
       calculation order. *Fails if*: `inspect interactive` does not report every type
       created, or `inspect audit` finds a field without a `/TU`.

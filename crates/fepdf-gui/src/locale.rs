@@ -133,8 +133,8 @@ mod tests {
 
         assert!(absent.is_empty(), "named by a control and in no locale: {absent:?}");
         // The count is asserted so that a mapping emptied out cannot pass by asking
-        // nothing: eight drawers, three sub-tabs, and two keys for each of ten commands.
-        assert_eq!(asked, 8 + 3 + 20);
+        // nothing: nine drawers, three sub-tabs, and two keys for each of eleven commands.
+        assert_eq!(asked, 9 + 3 + 22);
     }
 
     #[test]

@@ -1,6 +1,7 @@
 mod accessibility;
 pub mod bookmarks;
 pub mod document_info;
+pub mod form;
 pub mod layers;
 pub mod structure_tree;
 pub mod text_runs;
@@ -40,6 +41,12 @@ pub enum ActiveDrawer {
     /// ([ADR-0091](../../../../docs/adr/0091-paragraphs-are-not-inferred-and-overflow-is-shown.md)).
     /// So the drawer lists them and the reader points at one.
     TextRuns,
+    /// The fields of the document's form, and what a reader puts in them.
+    ///
+    /// **The engine could set a field value and nothing in this window asked it to.** A
+    /// form could be read, audited and not touched
+    /// ([ADR-0087](../../../../docs/adr/0087-a-form-field-is-created-here-not-only-filled.md)).
+    Form,
 }
 
 impl ActiveDrawer {
@@ -48,7 +55,7 @@ impl ActiveDrawer {
     /// **The rail iterates this rather than naming its buttons**, so a drawer that
     /// exists has a door by construction (UI-4). `scripts/audit/reachability.py` holds
     /// this list against the enum, because an array cannot be exhaustive on its own.
-    pub const ALL: [Self; 8] = [
+    pub const ALL: [Self; 9] = [
         Self::DocumentInfo,
         Self::WhatItDoes,
         Self::Accessibility,
@@ -57,6 +64,7 @@ impl ActiveDrawer {
         Self::Tools,
         Self::Bookmarks,
         Self::TextRuns,
+        Self::Form,
     ];
 
     /// The glyph the rail draws for it, and the locale key that names it.
@@ -75,6 +83,7 @@ impl ActiveDrawer {
             Self::Tools => Some((glyph::TOOLS, "tools_title")),
             Self::Bookmarks => Some((glyph::MARKS, "marks_title")),
             Self::TextRuns => Some((glyph::TEXT_RUNS, "cmd_edit_text")),
+            Self::Form => Some((glyph::FORM, "cmd_fill_form")),
         }
     }
 
@@ -96,7 +105,10 @@ impl ActiveDrawer {
             | Self::WhatItDoes
             | Self::Accessibility
             | Self::Tools
-            | Self::Bookmarks => None,
+            | Self::Bookmarks
+            // A form is filled in a panel and its fields are wherever they are, so this
+            // is the same in either view.
+            | Self::Form => None,
         }
     }
 }

@@ -30,11 +30,13 @@ pub enum Command {
     Tools,
     /// The runs of the page, and editing one.
     EditText,
+    /// The document's form, and filling it.
+    FillForm,
 }
 
 impl Command {
     /// Every command, in the order the palette lists them.
-    pub const ALL: [Self; 10] = [
+    pub const ALL: [Self; 11] = [
         Self::Load,
         Self::ResetView,
         Self::RedactBrush,
@@ -45,6 +47,7 @@ impl Command {
         Self::RedactionStudio,
         Self::Tools,
         Self::EditText,
+        Self::FillForm,
     ];
 
     /// The locale keys naming it and describing it.
@@ -62,6 +65,7 @@ impl Command {
             Self::RedactionStudio => ("cmd_redaction_studio", "cmd_redaction_studio_desc"),
             Self::Tools => ("cmd_document_tools", "cmd_document_tools_desc"),
             Self::EditText => ("cmd_edit_text", "cmd_edit_text_desc"),
+            Self::FillForm => ("cmd_fill_form", "cmd_fill_form_desc"),
         }
     }
 
@@ -107,6 +111,10 @@ impl Command {
                 let on = app.active_drawer == crate::sidebar::ActiveDrawer::TextRuns;
                 app.show_drawer(Self::toggled(on, crate::sidebar::ActiveDrawer::TextRuns));
             }
+            Self::FillForm => {
+                let on = app.active_drawer == crate::sidebar::ActiveDrawer::Form;
+                app.show_drawer(Self::toggled(on, crate::sidebar::ActiveDrawer::Form));
+            }
         }
     }
 
@@ -123,7 +131,13 @@ impl Command {
                 Some(crate::view::Act::DrawOnPage)
             }
             Self::TagBrush => Some(crate::view::Act::SelectText),
-            Self::Load | Self::ResetView | Self::Export | Self::ReadingOrder | Self::Tools => None,
+            Self::Load
+            | Self::ResetView
+            | Self::Export
+            | Self::ReadingOrder
+            | Self::Tools
+            // A form is filled in a panel and its fields are wherever they are.
+            | Self::FillForm => None,
         }
     }
 

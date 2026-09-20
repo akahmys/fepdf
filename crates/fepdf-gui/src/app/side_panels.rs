@@ -130,6 +130,7 @@ impl FepdfApp {
             ActiveDrawer::Tools => tr("tools_title"),
             ActiveDrawer::Bookmarks => tr("marks_title"),
             ActiveDrawer::TextRuns => tr("runs_title"),
+            ActiveDrawer::Form => tr("form_title"),
         }
     }
 
@@ -174,6 +175,7 @@ impl FepdfApp {
                     |ui| match self.active_drawer {
                         ActiveDrawer::None => {}
                         ActiveDrawer::TextRuns => self.render_text_runs(ui),
+                        ActiveDrawer::Form => self.render_form(ui),
                         ActiveDrawer::WhatItDoes => {
                             let locale = &self.locale_mgr;
                             let lang = &self.active_language;
@@ -270,6 +272,28 @@ impl FepdfApp {
 
     /// Sends the draft as one `UpdateOutlines`.
     ///
+    /// The document's form, and what the reader puts in it.
+    ///
+    /// **The drawer names the field and the value and this turns it into an `Operation`**,
+    /// which is all a frontend may do (Rule D). The form is read from the open document
+    /// rather than from the file, because the one being filled in has been changed since
+    /// it was opened.
+    fn render_form(&mut self, ui: &mut egui::Ui) {
+        let form = self.form.clone();
+        let locale = &self.locale_mgr;
+        let lang = &self.active_language;
+        let named = self.pdf_name.clone();
+        let asked = self.form_panel.show(ui, &form, named.as_deref(), &|key| locale.tr(lang, key));
+        let Some(asked) = asked else { return };
+        let _ = self.tx_worker.send(crate::worker::WorkerRequest::Apply {
+            operation: Box::new(fepdf::Operation::SetFormFieldValue(fepdf::FormFieldSpec {
+                name: asked.field,
+                value: asked.value,
+            })),
+            done: self.tr("form_title"),
+        });
+    }
+
     /// The runs of the page the reader is on, and what they ask of one.
     ///
     /// **The drawer names what was asked and this turns it into an `Operation`**, which

@@ -191,6 +191,15 @@ pub enum WorkerResponse {
     LoadingProgress {
         message: String,
     },
+    /// The document's form, as it stands now.
+    ///
+    /// **Sent after every change and not only on opening**, because filling a field
+    /// changes the form: the drawer listing it has to list what the document has, not
+    /// what the file had.
+    FormChanged {
+        /// The fields, in the order the document declares them.
+        form: Box<fepdf::FormFields>,
+    },
     PageRendered {
         index: usize,
         _scale: f64,
@@ -303,6 +312,7 @@ pub fn run_worker(rx: Receiver<WorkerRequest>, tx: Sender<WorkerResponse>, ctx: 
                 history = History::new();
                 history.origin = Some((data.clone(), name.clone(), password.clone()));
                 current_doc = handle_open(data, name, password, &[], &tx);
+                send_form(current_doc.as_ref(), &tx);
                 ctx.request_repaint();
             }
             WorkerRequest::RenderPage { index, scale } => {
@@ -773,6 +783,16 @@ fn get_or_extract_text(
     text
 }
 
+/// Hands the drawer the form the document has now.
+///
+/// Read from the open document rather than from its bytes: the one being filled in has
+/// been changed since it was opened, and serialising it again to ask what is in it would
+/// answer about a file nobody has.
+fn send_form(doc: Option<&PdfDocument>, tx: &Sender<WorkerResponse>) {
+    let form = doc.map(|doc| fepdf::form_of(doc.inner())).unwrap_or_default();
+    let _ = tx.send(WorkerResponse::FormChanged { form: Box::new(form) });
+}
+
 /// What this worker remembers about the pages it has read, and throws away together.
 ///
 /// **They go stale together, because each describes the page as it was.** They were three
@@ -933,6 +953,7 @@ fn handle_apply(
     apply_recorded(doc, history, operation, Some(done), tx);
     let after = page_sizes_of(doc.as_ref());
     let resized = after != before;
+    send_form(doc.as_ref(), tx);
     if resized {
         let _ = tx.send(WorkerResponse::PagesChanged { page_sizes: after });
     }
