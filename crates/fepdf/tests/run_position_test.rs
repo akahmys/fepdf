@@ -321,3 +321,55 @@ fn a_moved_run_keeps_the_matrix_it_was_set_with() {
         (after[4], after[5])
     );
 }
+
+/// **A run's box ends where the next contiguous run begins.**
+///
+/// The advance is what a window draws a box with and what a click is tested against, and
+/// it is also what places every run after this one on the line — so this asks the
+/// renderer, which placed the following run by its own arithmetic, where that run starts.
+/// `SCALED` and `AFTER SCALING` are consecutive with nothing between them, which is the
+/// case where the two answers have to be the same number.
+#[test]
+fn a_runs_box_ends_where_the_next_run_begins() {
+    let doc = page_using_every_placement();
+    let listed = runs_of_page(doc.inner(), 0).expect("it lists");
+    let drawn = drawn_at(&doc, 0);
+    assert_eq!(listed[4].text, "SCALED", "the fixture is not the one this is written about");
+    assert_eq!(listed[5].text, "AFTER SCALING", "the two runs are not the contiguous pair");
+
+    let ends = (listed[4].origin.0 + listed[4].advance.0, listed[4].origin.1 + listed[4].advance.1);
+    assert!(
+        (ends.0 - drawn[5].0).abs() < 0.01 && (ends.1 - drawn[5].1).abs() < 0.01,
+        "the box ends at {ends:?} and the page draws the next run at {:?}",
+        drawn[5]
+    );
+}
+
+/// **A run set at an angle has a box at that angle.**
+///
+/// The advance is a vector rather than a width because a run is not always horizontal on
+/// the page. `page_drawing_at_an_angle` turns one a quarter turn and doubles it, so a box
+/// measured as a plain width would be wrong in both directions at once.
+#[test]
+fn a_runs_box_follows_the_angle_it_is_set_at() {
+    let doc = page_drawing_at_an_angle();
+    let listed = runs_of_page(doc.inner(), 0).expect("it lists");
+    let drawn = drawn_at(&doc, 0);
+
+    assert!(
+        listed[0].advance.0.abs() < 0.01 && listed[0].advance.1 > 1.0,
+        "a run turned on its side advances along the page's y, and this one advances {:?}",
+        listed[0].advance
+    );
+    let ends = (listed[0].origin.0 + listed[0].advance.0, listed[0].origin.1 + listed[0].advance.1);
+    assert!(
+        (ends.0 - drawn[1].0).abs() < 0.01 && (ends.1 - drawn[1].1).abs() < 0.01,
+        "the box ends at {ends:?} and the page draws the next run at {:?}",
+        drawn[1]
+    );
+    assert!(
+        (listed[0].height - 24.0).abs() < 0.01,
+        "a 12-point run doubled by its matrix is 24 points tall, and this one says {}",
+        listed[0].height
+    );
+}

@@ -4152,7 +4152,30 @@ Content editing, under D-1:
 - [ ] **W-E5 — the drawn objects**: moving, scaling, rotating and replacing an XObject
       (`Operation::EditXObject`). *Fails if*: the CPU rasterisation of the result differs
       from the expected image.
-- [ ] **W-E6 — the window for it.**
+- [x] **W-E6-a — a run says what box to click.** `RunInfo` carries `advance` and
+      `height` beside `origin`, so a window can draw a frame round a run and a click can
+      find one. The advance is a *vector*, because a run is not always horizontal on the
+      page: a run turned a quarter turn advances along the page's y, and a box measured as
+      a plain width would be wrong in both directions at once.
+
+      It is the advance, not the extent of the ink — a letter may overhang it and a space
+      draws nothing inside it, which is what a text editor's box does too.
+
+      Nothing measures the advance on its own, and nothing needs to: a run's origin is the
+      one before it plus what that one advanced by, so
+      `a_runs_origin_is_where_the_page_draws_it` already fails over 3434 runs when it is
+      wrong. What the new tests add is the *shape* — that the box ends where the next
+      contiguous run begins, and that both parts follow the angle.
+
+      **What the window has today is not this.** `SelectionManager` hit-tests
+      `extract_spans`, which is a different unit and carries two known faults: it cannot
+      see word or character spacing (W-E3e), and it returns nothing at all for a page set
+      in Type 3 fonts — measured on `fugaku.pdf`, 20 of 20 pages, where a reader sees text
+      and can select none of it. Over 153 pages of the eight samples it never *failed*, so
+      the fabricated fallback in `app/mod.rs` — which lays the page's raw text out on an
+      invented grid of even lines and 50-point margins — never fired either.
+
+- [ ] **W-E6 — the window for it**, on W-E6-a.
 
 Forms, through to creation, under D-3:
 

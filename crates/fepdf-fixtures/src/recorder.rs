@@ -296,6 +296,23 @@ impl Recorder {
             .collect()
     }
 
+    /// What each run of glyphs advances by, as the interpreter measured it.
+    ///
+    /// The unit is the glyph's own: `TextGlyph::width`, summed over the run. A test that
+    /// wants a page-space distance has to scale it the way the run is scaled.
+    pub fn text_advances(&self) -> Vec<f64> {
+        self.events
+            .iter()
+            .filter_map(|e| {
+                if let Event::Text { glyphs, .. } = e {
+                    Some(glyphs.iter().map(|g| f64::from(g.width)).sum())
+                } else {
+                    None
+                }
+            })
+            .collect()
+    }
+
     /// The last image the page drew, when it drew one.
     pub fn last_image(&self) -> Option<ImageDrawn<'_>> {
         self.events.iter().rev().find_map(|e| {

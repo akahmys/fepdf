@@ -54,6 +54,20 @@ pub struct RunInfo {
     /// codes — and an empty piece is an honest report that a glyph is drawn there which
     /// this engine cannot name.
     pub pieces: Vec<String>,
+    /// How far it advances the text, on the page, as a vector from [`Self::origin`].
+    ///
+    /// **With [`Self::origin`] and [`Self::height`] this is the box a reader clicks.** It
+    /// is the advance the run makes, not the extent of its ink: a letter may overhang it
+    /// and a space draws nothing inside it, which is what a text editor's box does too.
+    ///
+    /// Nothing measures this on its own — what checks it is
+    /// `a_runs_origin_is_where_the_page_draws_it`, because a run's origin is the one
+    /// before it plus what that one advanced by, so an advance that is wrong puts every
+    /// contiguous run after it somewhere the renderer does not draw it.
+    pub advance: (f64, f64),
+    /// The height of that box on the page: the size the run is set at, as the transform
+    /// in force scales it. The line's height, not the ink's.
+    pub height: f64,
     /// Where it draws from, on the page, in the default user space of ISO 32000-2 8.3.2.
     ///
     /// **A run's position is cumulative**, so this is not read off any one operator: it is
@@ -85,6 +99,8 @@ pub fn runs_of_page(doc: &Document, page: usize) -> PdfResult<Vec<RunInfo>> {
             pieces: run.pieces.clone(),
             font: run.font_name.clone(),
             origin: run.origin,
+            advance: run.box_advance(),
+            height: run.box_height(),
         })
         .collect())
 }
@@ -910,5 +926,23 @@ fn write_moved(out: &mut Vec<u8>, codes: &[u8], to: Affine, restore: (Affine, f6
         Token::Real(offset).write_to(out);
         Token::RightArray.write_to(out);
         keyword("TJ", out);
+    }
+}
+
+impl Run {
+    /// How far it advances the text, on the page, as a vector from its origin.
+    ///
+    /// The advance is along the text matrix's own x direction, so a run set at an angle
+    /// advances along that angle: the linear part of the matrix is what turns the
+    /// distance into a vector.
+    fn box_advance(&self) -> (f64, f64) {
+        let placed = (self.placement.ctm * self.placement.matrix).as_coeffs();
+        (placed[0] * self.placement.advance, placed[1] * self.placement.advance)
+    }
+
+    /// The height of the box, on the page: the font size as the transform scales it.
+    fn box_height(&self) -> f64 {
+        let placed = (self.placement.ctm * self.placement.matrix).as_coeffs();
+        self.placement.size * placed[2].hypot(placed[3])
     }
 }

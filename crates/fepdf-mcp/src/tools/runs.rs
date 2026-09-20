@@ -43,6 +43,13 @@ pub struct ListedRun {
     pub pieces: Vec<String>,
     /// The resource name of that font, as the content stream names it.
     pub font: String,
+    /// Where it draws from, on the page, in points from the bottom-left corner.
+    pub origin: (f64, f64),
+    /// How far it advances from there, as a vector — a run set at an angle advances along
+    /// that angle. With `origin` and `height` this is the box a reader clicks.
+    pub advance: (f64, f64),
+    /// The height of that box: the size the run is set at, as the page scales it.
+    pub height: f64,
 }
 
 /// What `list_runs` returns.
@@ -78,6 +85,9 @@ fn list_runs_internal(args: ListRunsArgs) -> McpResult<String> {
                 text: run.text,
                 pieces: run.pieces,
                 font: run.font,
+                origin: run.origin,
+                advance: run.advance,
+                height: run.height,
             })
             .collect(),
     };
