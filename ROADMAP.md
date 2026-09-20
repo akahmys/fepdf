@@ -4200,9 +4200,23 @@ Content editing, under D-1:
       **Moving a run is not in the drawer.** It is a drag on the page rather than a
       button, and it is W-E6-b.
 
-- [ ] **W-E6-b — dragging a run to move it.** `Operation::MoveRun` exists and the window
-      does not reach it: the other four are a click and a button, and this one is a
-      gesture. It needs the drag to show where the run will land before it is let go.
+- [x] **W-E6-b — a run is moved by dragging it.** The other four verbs are a click and a
+      button; this one is a gesture, so it is on the page rather than in the drawer — a
+      reader moving something wants to see where it will land before they let go. The
+      frame is drawn at the landing place while the drag is under way.
+
+      **The run goes by the pointer's distance, not to the pointer's place.** Grabbing a
+      run by its far end and having it jump so its origin sits under the cursor is what
+      moving something by hand is supposed to avoid; the arithmetic that says so has a
+      test, and replacing it with "wherever the pointer is" fails both halves of it.
+
+      The offset is added in the page's own coordinates rather than on screen, because
+      the page counts upwards from its foot and the screen downwards from its head — a
+      distance carried across that changes sign on the way, and a frame that drifted the
+      wrong way with the pointer would be the first thing a reader saw.
+
+      A drag that went nowhere is a click, and a click names a run rather than rewriting
+      the page.
 
 Forms, through to creation, under D-3:
 

@@ -425,12 +425,24 @@ impl PDFView {
         };
         let unscaled_h = layout.rect.height();
         for run in on_page {
+            // A run being dragged is drawn where it will land, not where it still is: a
+            // reader moving something wants to see the answer before they let go. The
+            // offset is added in the page's own space rather than on screen, because the
+            // page counts upwards from its foot and the screen downwards from its head —
+            // a distance carried across that changes sign on the way.
+            let carried = runs
+                .dragging
+                .filter(|drag| (drag.page, drag.run) == (page_index, run.index))
+                .map_or(egui::Vec2::ZERO, |drag| drag.moved_by());
             let corners: Vec<egui::Pos2> = run
                 .corners()
                 .iter()
                 .map(|corner| {
                     crate::interaction::SelectionManager::pdf_to_screen(
-                        page_rect, self.zoom, unscaled_h, *corner,
+                        page_rect,
+                        self.zoom,
+                        unscaled_h,
+                        *corner + carried,
                     )
                 })
                 .collect();
@@ -740,6 +752,8 @@ pub struct TextRuns<'a> {
     pub boxes: &'a BTreeMap<usize, Vec<crate::interaction::RunBox>>,
     /// The named one, as a page and a number on it.
     pub selected: Option<(usize, usize)>,
+    /// The one being dragged, while one is, so its frame can be drawn where it will land.
+    pub dragging: Option<crate::interaction::DraggingRun>,
     /// Whether the text tool is on. Off, nothing here is drawn.
     pub showing: bool,
 }

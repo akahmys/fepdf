@@ -694,3 +694,71 @@ mod run_box {
         assert_eq!(corners[3], egui::pos2(50.0, 712.0), "the fourth is not above the origin");
     }
 }
+
+/// A run being dragged to a new place, and where it was taken from.
+///
+/// **The run moves by what the pointer moved, not to where the pointer is.** Grabbing a
+/// run by its far end and having it jump so that its origin sits under the cursor is the
+/// thing moving it by hand is supposed to avoid.
+#[derive(Debug, Clone, Copy)]
+pub struct DraggingRun {
+    /// The page it is on.
+    pub page: usize,
+    /// Its number on that page.
+    pub run: usize,
+    /// Where its origin was when the drag started, in PDF user space.
+    pub origin: egui::Pos2,
+    /// Where the pointer was then, in the same space.
+    pub grabbed_at: egui::Pos2,
+    /// Where the pointer is now.
+    pub now: egui::Pos2,
+}
+
+impl DraggingRun {
+    /// Where the run's origin lands if the drag ends here.
+    pub fn lands_at(self) -> egui::Pos2 {
+        self.origin + (self.now - self.grabbed_at)
+    }
+
+    /// How far it has come, which is what the frame under the pointer is drawn by.
+    pub fn moved_by(self) -> egui::Vec2 {
+        self.now - self.grabbed_at
+    }
+}
+
+/// A run moved by hand goes by the pointer's distance, not to the pointer's place.
+#[cfg(test)]
+mod dragging_run {
+    use super::DraggingRun;
+
+    fn grabbed_near_the_end() -> DraggingRun {
+        DraggingRun {
+            page: 0,
+            run: 3,
+            origin: egui::pos2(100.0, 700.0),
+            // Ninety points along the run and six above its baseline, which is where a
+            // reader who meant to pick up its last word would press.
+            grabbed_at: egui::pos2(190.0, 706.0),
+            now: egui::pos2(190.0, 706.0),
+        }
+    }
+
+    #[test]
+    fn a_run_that_has_not_moved_lands_where_it_was() {
+        let drag = grabbed_near_the_end();
+        assert_eq!(drag.lands_at(), drag.origin, "picking a run up moved it");
+        assert_eq!(drag.moved_by(), egui::Vec2::ZERO, "it has come somewhere already");
+    }
+
+    #[test]
+    fn it_moves_by_the_pointers_distance_and_not_to_its_place() {
+        let mut drag = grabbed_near_the_end();
+        drag.now = egui::pos2(240.0, 606.0);
+        assert_eq!(
+            drag.lands_at(),
+            egui::pos2(150.0, 600.0),
+            "the run jumped to the pointer instead of travelling with it"
+        );
+        assert_eq!(drag.moved_by(), egui::vec2(50.0, -100.0), "it came a different way");
+    }
+}

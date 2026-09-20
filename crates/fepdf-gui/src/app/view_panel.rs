@@ -429,6 +429,97 @@ impl FepdfApp {
             .map(|run| (page_idx, run.index));
     }
 
+    /// Moves the run under the pointer while it is dragged, and puts it down on release.
+    ///
+    /// **The other four verbs are a click and a button and this one is a gesture**, so it
+    /// is here rather than in the drawer: a reader moving something wants to see where it
+    /// will land before they let go.
+    fn handle_run_drag_on_page(
+        &mut self,
+        response: &egui::Response,
+        page_idx: usize,
+        page_screen_rect: egui::Rect,
+        unscaled_h: f32,
+        zoom: f32,
+    ) {
+        if self.active_drawer != crate::sidebar::ActiveDrawer::TextRuns {
+            return;
+        }
+        let at = |screen: egui::Pos2| {
+            crate::interaction::SelectionManager::screen_to_pdf(
+                page_screen_rect,
+                zoom,
+                unscaled_h,
+                screen,
+            )
+        };
+        if response.drag_started() {
+            self.pick_up_run(response, page_idx, page_screen_rect, &at);
+        }
+        let Some(mut drag) = self.dragging_run.filter(|drag| drag.page == page_idx) else {
+            return;
+        };
+        if let Some(screen) = response.interact_pointer_pos() {
+            drag.now = at(screen);
+            self.dragging_run = Some(drag);
+        }
+        if response.drag_stopped() {
+            self.put_down_run(drag);
+        }
+    }
+
+    /// Takes hold of the run the drag started on, if it started on one.
+    fn pick_up_run(
+        &mut self,
+        response: &egui::Response,
+        page_idx: usize,
+        page_screen_rect: egui::Rect,
+        at: &dyn Fn(egui::Pos2) -> egui::Pos2,
+    ) {
+        let Some(screen) = response.interact_pointer_pos() else { return };
+        if !page_screen_rect.contains(screen) {
+            return;
+        }
+        let grabbed_at = at(screen);
+        // The last one containing the point, so a run drawn over another is the one that
+        // answers — which is the one the reader sees.
+        let Some(run) = self
+            .page_runs
+            .get(&page_idx)
+            .and_then(|runs| runs.iter().rev().find(|run| run.contains(grabbed_at)))
+        else {
+            return;
+        };
+        self.dragging_run = Some(crate::interaction::DraggingRun {
+            page: page_idx,
+            run: run.index,
+            origin: run.origin,
+            grabbed_at,
+            now: grabbed_at,
+        });
+        self.selected_run = Some((page_idx, run.index));
+    }
+
+    /// Puts the run down where the drag ended.
+    ///
+    /// A drag that went nowhere is a click, and a click names a run rather than rewriting
+    /// the page. The run keeps its number through a move, so what is named stays named.
+    fn put_down_run(&mut self, drag: crate::interaction::DraggingRun) {
+        self.dragging_run = None;
+        if drag.moved_by().length() < 1.0 {
+            return;
+        }
+        let lands = drag.lands_at();
+        let _ = self.tx_worker.send(crate::worker::WorkerRequest::Apply {
+            operation: Box::new(fepdf::Operation::MoveRun {
+                page: drag.page,
+                run: drag.run,
+                to: (f64::from(lands.x), f64::from(lands.y)),
+            }),
+            done: self.tr("runs_title"),
+        });
+    }
+
     fn handle_text_selection_on_page(
         &mut self,
         ui: &mut egui::Ui,
@@ -439,6 +530,7 @@ impl FepdfApp {
         zoom: f32,
     ) {
         self.handle_run_click_on_page(response, page_idx, page_screen_rect, unscaled_h, zoom);
+        self.handle_run_drag_on_page(response, page_idx, page_screen_rect, unscaled_h, zoom);
         if self.view.does(Act::SelectText)
             && let Some(spans) = self.page_spans.get(&page_idx)
         {
@@ -810,6 +902,7 @@ impl FepdfApp {
             &crate::view::draw::TextRuns {
                 boxes: &self.page_runs,
                 selected: self.selected_run,
+                dragging: self.dragging_run,
                 // Off in the tile view, for the reason the reading order is: a frame per
                 // run of every visible page is finer than the glyphs it encloses.
                 // **The drawer is the switch**, rather than a flag beside it: a frame

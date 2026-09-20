@@ -137,6 +137,8 @@ pub struct FepdfApp {
     pub page_runs: BTreeMap<usize, Vec<crate::interaction::RunBox>>,
     /// The run the reader has named, as a page and a number on it.
     pub selected_run: Option<(usize, usize)>,
+    /// The run being dragged to a new place, while one is.
+    pub dragging_run: Option<crate::interaction::DraggingRun>,
     /// What the text runs drawer is holding between frames.
     pub text_runs_panel: crate::sidebar::text_runs::TextRunsPanel,
 
@@ -300,6 +302,7 @@ impl FepdfApp {
             page_spans: BTreeMap::new(),
             page_runs: BTreeMap::new(),
             selected_run: None,
+            dragging_run: None,
             text_runs_panel: crate::sidebar::text_runs::TextRunsPanel::default(),
             ust_registry: USTRegistry::new(),
             sidebar_panel: SidebarPanel::new(),
