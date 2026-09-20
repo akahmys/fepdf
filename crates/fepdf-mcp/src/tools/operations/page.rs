@@ -202,3 +202,36 @@ pub fn split_page_impl(args: SplitPageArgs) -> Result<String, String> {
     let op = Operation::SplitPage { page: args.page, into };
     execute_single_op(&args.input_path, &args.output_path, op, "Page split")
 }
+
+/// Arguments for `combine_pages`.
+#[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
+pub struct CombinePagesArgs {
+    /// Path to input PDF file.
+    pub input_path: String,
+    /// Path to output PDF file.
+    pub output_path: String,
+    /// Which pages, as "0", "0-3", "0,2,4", or omitted for all.
+    pub pages: Option<String>,
+    /// How many cells across.
+    pub columns: usize,
+    /// How many cells down.
+    pub rows: usize,
+    /// The width of the sheet they go onto, in points. Left out, the first page's own.
+    pub sheet_width: Option<f64>,
+    /// The height of that sheet.
+    pub sheet_height: Option<f64>,
+}
+
+/// Implementation of the combine_pages tool.
+pub fn combine_pages_impl(args: CombinePagesArgs) -> Result<String, String> {
+    let pages = super::parse_selection(args.pages.as_deref())?;
+    let sheet = match (args.sheet_width, args.sheet_height) {
+        (Some(width), Some(height)) => Some((width, height)),
+        _ => None,
+    };
+    let op = Operation::CombinePages(
+        pages,
+        fepdf::PageArrangement { sheet, columns: args.columns, rows: args.rows },
+    );
+    execute_single_op(&args.input_path, &args.output_path, op, "Pages combined")
+}

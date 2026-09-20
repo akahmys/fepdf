@@ -4300,7 +4300,34 @@ Page geometry, under D-4:
 
       `./scripts/dev/status.sh` on 2026-09-20: the frontends build **21, 8 and 38** of the
       vocabulary's 40.
-- [ ] **W-12 — several pages onto one**, on the form XObject work of W-8.
+- [x] **W-12 — several pages onto one**, the operation JUST PDF calls ページの結合.
+      `Operation::CombinePages(pages, PageArrangement { sheet, columns, rows })`, served as
+      `combine_pages`.
+
+      **Each source page becomes a form XObject and is drawn into a cell.** A form XObject
+      carries its own resources (8.10), so a page brought onto another sheet keeps the
+      fonts and images it names without those having to be merged into anything — which is
+      what makes this an arrangement rather than a rewrite.
+
+      The cells fill in reading order, the same order `PageDivision::Grid` cuts a page up
+      in, so that cutting one sheet into four and putting four onto a sheet are the two
+      directions of one thing. Each page is scaled by the smaller of the two ratios and
+      centred, so a tall page in a square cell stands in the middle of it rather than
+      running over into the cell below.
+
+      **What is not content does not come.** Annotations, and anything else a page carries
+      beside what it draws, belong to the page they were on.
+
+      Five mutations. The last of them needed a fixture of its own: every page in the
+      corpus and in the first four fixtures has the same shape as its cell, so stretching
+      to the width instead of fitting is the same number — a page 200 by 400 in a cell 300
+      by 300 is where the two part.
+
+      **The first test compared the sheet's text against each page's as a substring and
+      was wrong to.** Pages side by side are read across the sheet, so the top-left page's
+      second line follows the top-right page's first, and a run of `print_sample.pdf` is
+      one or two characters. It counts how many of each character is drawn instead, which
+      no ordering can disturb.
 
 The window for an OCR engine, under D-2:
 

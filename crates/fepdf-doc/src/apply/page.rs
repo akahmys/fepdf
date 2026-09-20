@@ -1,7 +1,7 @@
 #![allow(clippy::cast_possible_wrap, clippy::cast_possible_truncation)]
 use crate::operation::{
-    ContentScale, PageDivision, PageLabelSpec, PageLabelStyle, PageResize, PageSelection,
-    PdfStandard, RotateMode, WhatFallsOutside,
+    ContentScale, PageArrangement, PageDivision, PageLabelSpec, PageLabelStyle, PageResize,
+    PageSelection, PdfStandard, RotateMode, WhatFallsOutside,
 };
 use bytes::Bytes;
 use fepdf_model::{Document, Object, PdfError, PdfResult};
@@ -621,6 +621,158 @@ pub fn apply_split_page(doc: &mut Document, page: usize, division: &PageDivision
         apply_crop_pages(doc, &PageSelection::Single(page + nth), *region, WhatFallsOutside::Goes)?;
     }
     Ok(())
+}
+
+/// Puts several pages onto one sheet, in a grid.
+///
+/// **Each source page becomes a form XObject and is drawn into a cell.** A form XObject
+/// carries its own resources (8.10), so a page brought onto another sheet keeps the fonts
+/// and images it names without those having to be merged into anything — which is what
+/// makes this an arrangement rather than a rewrite.
+///
+/// The pages fill the grid in reading order, across a row and then down, which is the
+/// order [`PageDivision::Grid`] cuts one up in. Each is scaled to fit its cell whole and
+/// centred in it, so a portrait page in a landscape cell keeps its shape.
+///
+/// **What is not content does not come.** Annotations, and anything else a page carries
+/// beside what it draws, belong to the page they were on; this draws pages and says so
+/// rather than carrying half of them across.
+///
+/// # Errors
+/// Fails when the grid has no cells, when the sheet has no area, or when a page cannot be
+/// read.
+pub fn apply_combine_pages(
+    doc: &mut Document,
+    pages: &PageSelection,
+    onto: &PageArrangement,
+) -> PdfResult<()> {
+    let count = doc.page_count()?;
+    let per_sheet = onto.columns.checked_mul(onto.rows).unwrap_or(0);
+    if per_sheet == 0 {
+        return Err(PdfError::Other(
+            format!("a grid of {} by {} has no cells", onto.columns, onto.rows).into(),
+        ));
+    }
+    let mut indices = indices_of(pages, count);
+    indices.sort_unstable();
+    indices.dedup();
+    indices.retain(|index| *index < count);
+    if indices.is_empty() {
+        return Ok(());
+    }
+
+    let sheet = onto.sheet.unwrap_or_else(|| doc_page_size(doc, indices[0]));
+    if !(sheet.0.is_finite() && sheet.1.is_finite()) || sheet.0 <= 0.0 || sheet.1 <= 0.0 {
+        return Err(PdfError::Other(
+            format!("a sheet of {} by {} points has no area", sheet.0, sheet.1).into(),
+        ));
+    }
+
+    let at = indices[0];
+    let mut built = Vec::new();
+    for group in indices.chunks(per_sheet) {
+        built.push(combined_sheet(doc, group, sheet, onto)?);
+    }
+    // The new sheets go in where the first of the sources was, and the sources come out
+    // afterwards — removing first would move the place they are meant to go to. Every
+    // source is at or after `at`, so each of them has moved along by however many sheets
+    // went in.
+    let sheets = built.len();
+    for (nth, page) in built.into_iter().enumerate() {
+        doc.pages.insert(at + nth, page);
+    }
+    let moved: Vec<usize> = indices.iter().map(|index| index + sheets).collect();
+    apply_remove_pages(doc, &PageSelection::Indices(moved))
+}
+
+/// A count of cells as a number the arithmetic can use.
+///
+/// Beyond what a `u32` holds there is no sheet to speak of, and a grid that fine is one
+/// `apply_combine_pages` has already refused or would divide into nothing.
+fn cells(count: usize) -> f64 {
+    f64::from(u32::try_from(count).unwrap_or(u32::MAX))
+}
+
+/// One sheet with `group`'s pages drawn into its cells.
+fn combined_sheet(
+    doc: &Document,
+    group: &[usize],
+    sheet: (f64, f64),
+    onto: &PageArrangement,
+) -> PdfResult<fepdf_model::Handle<Object>> {
+    let arena = doc.arena();
+    // Counted as `u32`, which every `f64` holds exactly. `apply_combine_pages` has
+    // already refused a grid with no cells, and one finer than four thousand million
+    // across divides a sheet into cells no unit of this format can express.
+    let across = cells(onto.columns);
+    let down = cells(onto.rows);
+    let (wide, tall) = (sheet.0 / across, sheet.1 / down);
+    let mut xobjects = BTreeMap::new();
+    let mut drawing = String::new();
+
+    for (cell, index) in group.iter().enumerate() {
+        let name = format!("P{cell}");
+        let source = doc_page_size(doc, *index);
+        let Some(form) = page_as_form(doc, *index)? else { continue };
+        xobjects.insert(arena.name(&name), Object::Reference(form));
+
+        let column = cells(cell % onto.columns);
+        let row = cells(cell / onto.columns);
+        // Whole and centred: the smaller of the two ratios, so a portrait page in a
+        // landscape cell keeps its shape rather than being stretched to fill it.
+        let scale = (wide / source.0).min(tall / source.1);
+        let left = column.mul_add(wide, source.0.mul_add(-scale, wide) / 2.0);
+        let bottom = (row + 1.0).mul_add(-tall, sheet.1) + source.1.mul_add(-scale, tall) / 2.0;
+        use std::fmt::Write as _;
+        let _ =
+            writeln!(drawing, "q {scale:.6} 0 0 {scale:.6} {left:.4} {bottom:.4} cm /{name} Do Q");
+    }
+
+    let mut resources = BTreeMap::new();
+    resources.insert(arena.name("XObject"), Object::Dictionary(arena.alloc_dict(xobjects)));
+    let contents = arena.alloc_object(Object::Stream(
+        arena.alloc_dict(BTreeMap::new()),
+        std::sync::Arc::new(fepdf_model::object::SublimatedData::Raw(Bytes::from(drawing))),
+    ));
+
+    let mut dict = BTreeMap::new();
+    dict.insert(arena.name("Type"), Object::Name(arena.name("Page")));
+    let media = [0.0, 0.0, sheet.0, sheet.1];
+    for name in ["MediaBox", "CropBox"] {
+        dict.insert(arena.name(name), Object::Array(arena.alloc_array(numbers(media))));
+    }
+    dict.insert(arena.name("Resources"), Object::Dictionary(arena.alloc_dict(resources)));
+    dict.insert(arena.name("Contents"), Object::Reference(contents));
+    let dict_h = arena.alloc_dict(dict);
+    Ok(arena.alloc_object(Object::Dictionary(dict_h)))
+}
+
+/// A page as a form XObject drawing the same thing (8.10).
+///
+/// Its `/BBox` is the page's own box, so the caller places it with a `cm` and nothing has
+/// to know what is inside. Its `/Resources` are the page's, which is what lets the drawing
+/// keep naming the fonts and images it always named.
+fn page_as_form(doc: &Document, index: usize) -> PdfResult<Option<fepdf_model::Handle<Object>>> {
+    let page = doc.get_page(index)?;
+    let page_dh = doc.resolve_to_dict(page.obj_handle())?;
+    let arena = doc.arena();
+    let dict = arena.get_dict(page_dh).unwrap_or_default();
+    let Some(contents) = dict.get(&arena.name("Contents")).cloned() else { return Ok(None) };
+    let data = crate::remediation::decode_page_contents(doc, &contents)?;
+    let size = doc_page_size(doc, index);
+
+    let mut form = BTreeMap::new();
+    form.insert(arena.name("Type"), Object::Name(arena.name("XObject")));
+    form.insert(arena.name("Subtype"), Object::Name(arena.name("Form")));
+    let box_ = [0.0, 0.0, size.0, size.1];
+    form.insert(arena.name("BBox"), Object::Array(arena.alloc_array(numbers(box_))));
+    let resources = arena.get_dict(page.resources_handle()).unwrap_or_default();
+    form.insert(arena.name("Resources"), Object::Dictionary(arena.alloc_dict(resources)));
+    let form_dh = arena.alloc_dict(form);
+    Ok(Some(arena.alloc_object(Object::Stream(
+        form_dh,
+        std::sync::Arc::new(fepdf_model::object::SublimatedData::Raw(data)),
+    ))))
 }
 
 #[cfg(test)]

@@ -10,23 +10,24 @@ use crate::tools::operations::vocabulary::{
 use crate::tools::{
     AddAnnotationArgs, AddMeshShadingArgs, AddPageDecorationArgs, AddPublicKeyRecipientArgs,
     AddUserPropertiesArgs, ApplyBatesNumberingArgs, ApplyOperationArgs, AttachAssociatedFileArgs,
-    AuditArgs, CreatePortfolioArgs, CropPagesArgs, DeleteRunArgs, DeleteStructElemArgs,
-    EditRunArgs, ExecuteActionArgs, ExtractTextArgs, ListRunsArgs, MergeRunsArgs, MoveRunArgs,
-    MoveStructElemArgs, RedactDocumentArgs, RemovePagesArgs, ReorderPagesArgs, RotatePagesArgs,
-    SetFormFieldValueArgs, SetGeospatialAnchorArgs, SetMeasurementScaleArgs, SetOutputIntentArgs,
-    SetPageLabelsArgs, SetPronunciationLexiconArgs, SetUnencryptedWrapperArgs, SplitPageArgs,
-    SplitRunArgs, UpdateArticleThreadsArgs, UpdateLayersArgs, UpdateOutlinesArgs,
-    UpdateStructElemArgs, VerifySignaturesArgs, add_annotation_impl, add_mesh_shading_impl,
-    add_page_decoration_impl, add_public_key_recipient_impl, add_user_properties_impl,
-    apply_bates_numbering_impl, apply_operation_impl, apply_redaction_impl,
-    attach_associated_file_impl, audit_document_impl, create_portfolio_impl, crop_pages_impl,
-    delete_run_impl, delete_struct_elem_impl, edit_run_impl, execute_action_impl,
-    extract_text_impl, list_runs_impl, merge_runs_impl, move_run_impl, move_struct_elem_impl,
-    remove_pages_impl, reorder_pages_impl, rotate_pages_impl, set_form_field_value_impl,
-    set_geospatial_anchor_impl, set_measurement_scale_impl, set_output_intent_impl,
-    set_page_labels_impl, set_pronunciation_lexicon_impl, set_unencrypted_wrapper_impl,
-    split_page_impl, split_run_impl, update_article_threads_impl, update_layers_impl,
-    update_outlines_impl, update_struct_elem_impl, verify_signatures_impl,
+    AuditArgs, CombinePagesArgs, CreatePortfolioArgs, CropPagesArgs, DeleteRunArgs,
+    DeleteStructElemArgs, EditRunArgs, ExecuteActionArgs, ExtractTextArgs, ListRunsArgs,
+    MergeRunsArgs, MoveRunArgs, MoveStructElemArgs, RedactDocumentArgs, RemovePagesArgs,
+    ReorderPagesArgs, RotatePagesArgs, SetFormFieldValueArgs, SetGeospatialAnchorArgs,
+    SetMeasurementScaleArgs, SetOutputIntentArgs, SetPageLabelsArgs, SetPronunciationLexiconArgs,
+    SetUnencryptedWrapperArgs, SplitPageArgs, SplitRunArgs, UpdateArticleThreadsArgs,
+    UpdateLayersArgs, UpdateOutlinesArgs, UpdateStructElemArgs, VerifySignaturesArgs,
+    add_annotation_impl, add_mesh_shading_impl, add_page_decoration_impl,
+    add_public_key_recipient_impl, add_user_properties_impl, apply_bates_numbering_impl,
+    apply_operation_impl, apply_redaction_impl, attach_associated_file_impl, audit_document_impl,
+    combine_pages_impl, create_portfolio_impl, crop_pages_impl, delete_run_impl,
+    delete_struct_elem_impl, edit_run_impl, execute_action_impl, extract_text_impl, list_runs_impl,
+    merge_runs_impl, move_run_impl, move_struct_elem_impl, remove_pages_impl, reorder_pages_impl,
+    rotate_pages_impl, set_form_field_value_impl, set_geospatial_anchor_impl,
+    set_measurement_scale_impl, set_output_intent_impl, set_page_labels_impl,
+    set_pronunciation_lexicon_impl, set_unencrypted_wrapper_impl, split_page_impl, split_run_impl,
+    update_article_threads_impl, update_layers_impl, update_outlines_impl, update_struct_elem_impl,
+    verify_signatures_impl,
 };
 use rmcp::{
     ServiceExt,
@@ -595,6 +596,18 @@ impl FepdfServer {
         Parameters(args): Parameters<SplitPageArgs>,
     ) -> Result<String, String> {
         split_page_impl(args)
+    }
+
+    /// Puts several pages onto one sheet.
+    #[tool(
+        name = "combine_pages",
+        description = "Puts several pages onto one sheet in a grid, filling it in reading order: across a row first, then down. Each page is scaled to fit its cell whole and centred, so it keeps its shape. What a page carries beside what it draws — its annotations above all — belongs to the page it was on and does not come across."
+    )]
+    pub async fn combine_pages(
+        &self,
+        Parameters(args): Parameters<CombinePagesArgs>,
+    ) -> Result<String, String> {
+        combine_pages_impl(args)
     }
 
     /// Configures drawing measurement scale dictionary (/Measure) for CAD and technical drawings.

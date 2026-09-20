@@ -354,6 +354,13 @@ pub enum Operation {
         /// Where it draws from afterwards, in the page's default user space.
         to: (f64, f64),
     },
+    /// Puts several pages onto one sheet, in a grid.
+    ///
+    /// Each source page becomes a form XObject drawn into a cell, so it keeps the fonts
+    /// and images it names without those having to be merged into anything (8.10). What a
+    /// page carries beside what it draws — its annotations, above all — belongs to the
+    /// page it was on and does not come across.
+    CombinePages(PageSelection, PageArrangement),
     /// Cuts one page into several, each carrying one region of it.
     ///
     /// **A split always removes what belongs to the other sheets** (ADR-0088). Half a
@@ -488,6 +495,7 @@ impl Operation {
             | Self::RemoveOutside { .. }
             | Self::CropPages { .. }
             | Self::SplitPage { .. }
+            | Self::CombinePages { .. }
             | Self::SetMeasurementScale { .. }
             | Self::SetFormFieldValue { .. }
             | Self::SetPageLabels { .. }
@@ -500,6 +508,17 @@ impl Operation {
             | Self::AddPublicKeyRecipient { .. } => false,
         }
     }
+}
+
+/// How several pages are laid out on one sheet.
+#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct PageArrangement {
+    /// The sheet they go onto, or `None` to use the first page's own.
+    pub sheet: Option<(f64, f64)>,
+    /// How many cells across.
+    pub columns: usize,
+    /// How many cells down.
+    pub rows: usize,
 }
 
 /// How one page is cut into several.
