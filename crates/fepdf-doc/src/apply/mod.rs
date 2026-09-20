@@ -79,6 +79,7 @@ pub fn apply_operation(doc: &mut Document, op: Operation) -> PdfResult<()> {
         Operation::MergeRuns { page, run } => text::apply_merge_runs(doc, page, run),
         Operation::MoveRun { page, run, to } => text::apply_move_run(doc, page, run, to),
         Operation::RemoveOutside { page, keep } => text::apply_remove_outside(doc, page, keep),
+        Operation::SplitPage { page, into } => page::apply_split_page(doc, page, &into),
         Operation::CropPages(pages, region) => {
             page::apply_crop_pages(doc, &pages, region.keep, region.outside)
         }

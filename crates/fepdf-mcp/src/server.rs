@@ -14,17 +14,18 @@ use crate::tools::{
     EditRunArgs, ExecuteActionArgs, ExtractTextArgs, ListRunsArgs, MergeRunsArgs, MoveRunArgs,
     MoveStructElemArgs, RedactDocumentArgs, RemovePagesArgs, ReorderPagesArgs, RotatePagesArgs,
     SetFormFieldValueArgs, SetGeospatialAnchorArgs, SetMeasurementScaleArgs, SetOutputIntentArgs,
-    SetPageLabelsArgs, SetPronunciationLexiconArgs, SetUnencryptedWrapperArgs, SplitRunArgs,
-    UpdateArticleThreadsArgs, UpdateLayersArgs, UpdateOutlinesArgs, UpdateStructElemArgs,
-    VerifySignaturesArgs, add_annotation_impl, add_mesh_shading_impl, add_page_decoration_impl,
-    add_public_key_recipient_impl, add_user_properties_impl, apply_bates_numbering_impl,
-    apply_operation_impl, apply_redaction_impl, attach_associated_file_impl, audit_document_impl,
-    create_portfolio_impl, crop_pages_impl, delete_run_impl, delete_struct_elem_impl,
-    edit_run_impl, execute_action_impl, extract_text_impl, list_runs_impl, merge_runs_impl,
-    move_run_impl, move_struct_elem_impl, remove_pages_impl, reorder_pages_impl, rotate_pages_impl,
-    set_form_field_value_impl, set_geospatial_anchor_impl, set_measurement_scale_impl,
-    set_output_intent_impl, set_page_labels_impl, set_pronunciation_lexicon_impl,
-    set_unencrypted_wrapper_impl, split_run_impl, update_article_threads_impl, update_layers_impl,
+    SetPageLabelsArgs, SetPronunciationLexiconArgs, SetUnencryptedWrapperArgs, SplitPageArgs,
+    SplitRunArgs, UpdateArticleThreadsArgs, UpdateLayersArgs, UpdateOutlinesArgs,
+    UpdateStructElemArgs, VerifySignaturesArgs, add_annotation_impl, add_mesh_shading_impl,
+    add_page_decoration_impl, add_public_key_recipient_impl, add_user_properties_impl,
+    apply_bates_numbering_impl, apply_operation_impl, apply_redaction_impl,
+    attach_associated_file_impl, audit_document_impl, create_portfolio_impl, crop_pages_impl,
+    delete_run_impl, delete_struct_elem_impl, edit_run_impl, execute_action_impl,
+    extract_text_impl, list_runs_impl, merge_runs_impl, move_run_impl, move_struct_elem_impl,
+    remove_pages_impl, reorder_pages_impl, rotate_pages_impl, set_form_field_value_impl,
+    set_geospatial_anchor_impl, set_measurement_scale_impl, set_output_intent_impl,
+    set_page_labels_impl, set_pronunciation_lexicon_impl, set_unencrypted_wrapper_impl,
+    split_page_impl, split_run_impl, update_article_threads_impl, update_layers_impl,
     update_outlines_impl, update_struct_elem_impl, verify_signatures_impl,
 };
 use rmcp::{
@@ -582,6 +583,18 @@ impl FepdfServer {
         Parameters(args): Parameters<CropPagesArgs>,
     ) -> Result<String, String> {
         crop_pages_impl(args)
+    }
+
+    /// Cuts one page into several.
+    #[tool(
+        name = "split_page",
+        description = "Cuts one page into several, as an even grid of columns and rows or as regions named outright. A grid comes out in reading order: across a row first, then down. What belongs to the other sheets is taken out of the file rather than hidden — half a drawing left behind is still searchable on a page showing the other half."
+    )]
+    pub async fn split_page(
+        &self,
+        Parameters(args): Parameters<SplitPageArgs>,
+    ) -> Result<String, String> {
+        split_page_impl(args)
     }
 
     /// Configures drawing measurement scale dictionary (/Measure) for CAD and technical drawings.

@@ -354,6 +354,17 @@ pub enum Operation {
         /// Where it draws from afterwards, in the page's default user space.
         to: (f64, f64),
     },
+    /// Cuts one page into several, each carrying one region of it.
+    ///
+    /// **A split always removes what belongs to the other sheets** (ADR-0088). Half a
+    /// drawing, still searchable, on a page showing the other half is a leak dressed as a
+    /// feature, so there is no option here to hide rather than cut.
+    SplitPage {
+        /// The page to cut up.
+        page: usize,
+        /// How to divide it.
+        into: PageDivision,
+    },
     /// Cuts pages down to a rectangle (14.11.2).
     ///
     /// **Two things are called cropping and only one of them cuts.** `/CropBox` names the
@@ -476,6 +487,7 @@ impl Operation {
             | Self::MoveRun { .. }
             | Self::RemoveOutside { .. }
             | Self::CropPages { .. }
+            | Self::SplitPage { .. }
             | Self::SetMeasurementScale { .. }
             | Self::SetFormFieldValue { .. }
             | Self::SetPageLabels { .. }
@@ -486,6 +498,63 @@ impl Operation {
             | Self::AddMeshShading { .. }
             | Self::SetUnencryptedWrapper { .. }
             | Self::AddPublicKeyRecipient { .. } => false,
+        }
+    }
+}
+
+/// How one page is cut into several.
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub enum PageDivision {
+    /// Equal parts, so many across and so many down.
+    ///
+    /// The pages come out in reading order: across a row first, then down. A drawing cut
+    /// two by two is read top-left, top-right, bottom-left, bottom-right, which is the
+    /// order somebody laying the sheets out on a table puts them in.
+    Grid {
+        /// How many parts across.
+        columns: usize,
+        /// How many parts down.
+        rows: usize,
+    },
+    /// Regions named outright, in the space the page's boxes are written in, in the order
+    /// the pages are to come out.
+    Regions(Vec<(f64, f64, f64, f64)>),
+}
+
+impl PageDivision {
+    /// The regions this divides a page of `size` into.
+    ///
+    /// A grid is worked out here rather than by whoever asks for one, because the sheet's
+    /// measurements are the engine's to read: a frontend computing its own would be
+    /// reading the page to tell the engine about the page.
+    #[must_use]
+    pub fn regions(&self, size: (f64, f64)) -> Vec<(f64, f64, f64, f64)> {
+        match self {
+            Self::Regions(named) => named.clone(),
+            Self::Grid { columns, rows } => {
+                // Counted as `u32`, which every `f64` holds exactly. A grid finer than
+                // four thousand million parts across divides a sheet into pieces no unit
+                // of this format can express, and answering no regions to that is what
+                // `apply_split_page` refuses.
+                let (Ok(across), Ok(down)) = (u32::try_from(*columns), u32::try_from(*rows)) else {
+                    return Vec::new();
+                };
+                if across == 0 || down == 0 {
+                    return Vec::new();
+                }
+                let (wide, tall) = (size.0 / f64::from(across), size.1 / f64::from(down));
+                // Down the rows from the top, because that is the order they are read in,
+                // and a page's own coordinates count up from its foot.
+                (0..down)
+                    .flat_map(|row| {
+                        (0..across).map(move |column| {
+                            let left = f64::from(column) * wide;
+                            let top = f64::from(row).mul_add(-tall, size.1);
+                            (left, top - tall, left + wide, top)
+                        })
+                    })
+                    .collect()
+            }
         }
     }
 }

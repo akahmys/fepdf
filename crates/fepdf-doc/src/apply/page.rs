@@ -1,7 +1,7 @@
 #![allow(clippy::cast_possible_wrap, clippy::cast_possible_truncation)]
 use crate::operation::{
-    ContentScale, PageLabelSpec, PageLabelStyle, PageResize, PageSelection, PdfStandard,
-    RotateMode, WhatFallsOutside,
+    ContentScale, PageDivision, PageLabelSpec, PageLabelStyle, PageResize, PageSelection,
+    PdfStandard, RotateMode, WhatFallsOutside,
 };
 use bytes::Bytes;
 use fepdf_model::{Document, Object, PdfError, PdfResult};
@@ -582,6 +582,45 @@ fn crop_one_page(
     arena.set_dict(page_dh, dict);
 
     wrap_contents(doc, page_h, shift)
+}
+
+/// Cuts one page into several, each carrying one region of it.
+///
+/// **A split always removes what belongs to the other sheets.** Half a drawing, still
+/// searchable, on a page that shows the other half is a leak dressed as a feature: a
+/// reader who cuts an A3 assembly drawing into two A4 sheets to send one of them has sent
+/// both ([ADR-0088](../../../../docs/adr/0088-what-a-crop-puts-outside-the-sheet-is-removed.md)).
+/// So this is the crop that cuts, and there is no option to make it the one that hides.
+///
+/// The new pages are in the order the regions are given, and a grid is given in reading
+/// order: across a row first, then down. They take the place of the page they came from.
+///
+/// # Errors
+/// Fails when the page is not there, when the division names no region, or when a region
+/// has no area.
+pub fn apply_split_page(doc: &mut Document, page: usize, division: &PageDivision) -> PdfResult<()> {
+    let count = doc.page_count()?;
+    if page >= count {
+        return Err(PdfError::Other(
+            format!("this document has {count} pages and no page {page}").into(),
+        ));
+    }
+    let regions = division.regions(doc_page_size(doc, page));
+    if regions.is_empty() {
+        return Err(PdfError::Other("a split into no regions leaves nothing".into()));
+    }
+
+    // One copy per region, all of them in place of the page they came from. Duplicating
+    // first and cropping after is what keeps each region's arithmetic in the space the
+    // original was drawn in: cropping one copy moves its content, and a second region
+    // measured against the moved page would be measured against the wrong thing.
+    for _ in 1..regions.len() {
+        apply_duplicate_pages(doc, &PageSelection::Single(page))?;
+    }
+    for (nth, region) in regions.iter().enumerate() {
+        apply_crop_pages(doc, &PageSelection::Single(page + nth), *region, WhatFallsOutside::Goes)?;
+    }
+    Ok(())
 }
 
 #[cfg(test)]

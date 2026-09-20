@@ -4278,7 +4278,28 @@ Page geometry, under D-4:
 - [ ] **W-G1-c — the paths a crop puts outside**, clipped and rebuilt rather than clipped
       for display.
 
-- [ ] **W-11 — one page into several**, on W-G1.
+- [x] **W-11 — one page into several**, on W-G1 — the operation JUST PDF calls
+      ページの分割. `Operation::SplitPage { page, into }` with `PageDivision::Grid` or
+      `Regions`, served as `split_page`.
+
+      **A split always removes what belongs to the other sheets**, and has no option to
+      hide instead: half a drawing, still searchable, on a page showing the other half is
+      the leak ADR-0088 names, and it is the reason this operation waited for the removal
+      rather than shipping on `/CropBox`.
+
+      **A grid comes out in reading order**, across a row and then down — the order
+      somebody laying the sheets on a table puts them in, and a mistake nobody notices
+      until a four-page handout is stapled. The fixture draws one letter per quarter, so
+      the order is read off the pages rather than off the arithmetic.
+
+      Duplicating happens before cropping, all of it. Cropping a copy moves its content,
+      so a region measured after one crop would be measured against a page that had
+      already moved; a mutation that interleaves the two fails.
+
+      Five mutations, each failing a test written for it.
+
+      `./scripts/dev/status.sh` on 2026-09-20: the frontends build **21, 8 and 38** of the
+      vocabulary's 40.
 - [ ] **W-12 — several pages onto one**, on the form XObject work of W-8.
 
 The window for an OCR engine, under D-2:

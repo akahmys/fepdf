@@ -169,3 +169,36 @@ pub fn crop_pages_impl(args: CropPagesArgs) -> Result<String, String> {
     );
     execute_single_op(&args.input_path, &args.output_path, op, "Pages cropped")
 }
+
+/// Arguments for `split_page`.
+#[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
+pub struct SplitPageArgs {
+    /// Path to input PDF file.
+    pub input_path: String,
+    /// Path to output PDF file.
+    pub output_path: String,
+    /// Which page to cut up, counting from zero.
+    pub page: usize,
+    /// How many parts across. With `rows`, the page is cut into an even grid.
+    pub columns: Option<usize>,
+    /// How many parts down.
+    pub rows: Option<usize>,
+    /// Regions named outright instead of a grid, each as [left, bottom, right, top] in
+    /// points from the page's bottom-left corner, in the order the pages are to come out.
+    pub regions: Option<Vec<[f64; 4]>>,
+}
+
+/// Implementation of the split_page tool.
+pub fn split_page_impl(args: SplitPageArgs) -> Result<String, String> {
+    let into = match args.regions {
+        Some(named) => fepdf::PageDivision::Regions(
+            named.into_iter().map(|r| (r[0], r[1], r[2], r[3])).collect(),
+        ),
+        None => fepdf::PageDivision::Grid {
+            columns: args.columns.unwrap_or(1),
+            rows: args.rows.unwrap_or(1),
+        },
+    };
+    let op = Operation::SplitPage { page: args.page, into };
+    execute_single_op(&args.input_path, &args.output_path, op, "Page split")
+}
