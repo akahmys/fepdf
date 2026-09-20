@@ -222,6 +222,8 @@ struct Run {
     codes: Vec<u8>,
     /// What placed it, and what it leaves the text matrix saying.
     placement: Placement,
+    /// Where each of its codes sits along it, and how wide that code is.
+    places: Vec<(f64, f64)>,
 }
 
 /// What a run is placed by, kept so that a move can put it back exactly.
@@ -342,7 +344,7 @@ impl Walk {
             advance: moved,
             in_text_object: self.in_text_object,
         };
-        let drawn = run_drawn_by(operands, tokens, index, selected, placement);
+        let drawn = run_drawn_by(operands, tokens, index, selected, placement, &self.state);
         self.state.advance(moved);
         drawn
     }
@@ -640,6 +642,44 @@ impl Default for TextState {
     }
 }
 
+/// Where each code of a run sits along it, and how wide it is.
+///
+/// **A crop cuts between glyphs, so it needs to know where they are.** A run's own advance
+/// says where the run ends and nothing about what is inside it; this walks the operands in
+/// the order the array holds them — the numbers of a `TJ` move the pen without drawing and
+/// count towards the next code's place — and answers one pair per code.
+///
+/// The distances are in the same units as `Placement::advance`, so a code's place on the
+/// page is the run's origin stepped along its own direction by the first of the pair.
+fn code_places(
+    font: &FontResource,
+    tokens: &[Token],
+    operands: &[usize],
+    state: &TextState,
+) -> Vec<(f64, f64)> {
+    let width = if font.is_cid_keyed { 2 } else { 1 };
+    let scale = state.scale / 100.0;
+    let mut places = Vec::new();
+    let mut along = 0.0;
+    for index in operands {
+        match tokens.get(*index) {
+            Some(Token::String(bytes) | Token::Hex(bytes)) => {
+                for chunk in bytes.chunks(width) {
+                    let step = shown_displacement(font, chunk, state) * scale;
+                    places.push((along, step));
+                    along += step;
+                }
+            }
+            Some(Token::Integer(n)) => {
+                along = (as_f64(*n) / 1000.0 * state.size).mul_add(-scale, along);
+            }
+            Some(Token::Real(n)) => along = (n / 1000.0 * state.size).mul_add(-scale, along),
+            _ => {}
+        }
+    }
+    places
+}
+
 /// How far a run moves the text matrix, in unscaled text space (9.4.4).
 ///
 /// The glyphs of a `TJ` are interrupted by numbers that move the pen without drawing, so
@@ -696,6 +736,7 @@ fn run_drawn_by(
     operator: usize,
     (font_name, font): (String, Arc<FontResource>),
     placement: Placement,
+    state: &TextState,
 ) -> Run {
     let strings: Vec<usize> = operands
         .iter()
@@ -713,6 +754,7 @@ fn run_drawn_by(
     let text = pieces.concat();
     // An operator with no operands cannot happen for show-text, but a stream is whatever
     // somebody wrote: the run then starts at the operator and a delete takes that alone.
+    let places = code_places(&font, tokens, operands, state);
     let codes = strings
         .iter()
         .filter_map(|i| match tokens.get(*i) {
@@ -724,7 +766,19 @@ fn run_drawn_by(
     let start = operands.first().copied().unwrap_or(operator);
     let placed = (placement.ctm * placement.matrix).as_coeffs();
     let origin = (placed[4], placed[5]);
-    Run { strings, start, operator, text, pieces, font, font_name, origin, codes, placement }
+    Run {
+        strings,
+        start,
+        operator,
+        text,
+        pieces,
+        font,
+        font_name,
+        origin,
+        codes,
+        placement,
+        places,
+    }
 }
 
 /// The numeric operands standing before an operator, in the order they were written.
@@ -948,5 +1002,148 @@ impl Run {
     fn box_rise(&self) -> (f64, f64) {
         let placed = (self.placement.ctm * self.placement.matrix).as_coeffs();
         (placed[2] * self.placement.size, placed[3] * self.placement.size)
+    }
+}
+
+/// Takes off `page` every glyph that falls outside `keep`, leaving the rest where it is.
+///
+/// **What a crop puts outside the sheet is removed rather than hidden.** `/CropBox` makes
+/// a region the viewer displays (14.11.2) and leaves the rest in the file: half a drawing,
+/// still searchable, on a page showing the other half
+/// ([ADR-0088](../../../../docs/adr/0088-what-a-crop-puts-outside-the-sheet-is-removed.md)).
+/// A reader who cuts an A3 assembly drawing into two A4 sheets to send one of them has
+/// sent both.
+///
+/// **What stays does not move.** A run is not deleted, because deleting one takes its
+/// advance with it and everything after it on the line closes up. Each run becomes one
+/// `TJ` of the strings that remain and the offsets that stand for what went, so the text
+/// matrix arrives everywhere it arrived before and nothing is drawn where the glyphs were.
+///
+/// **The cut falls between glyphs**, and a glyph is kept when its own box meets `keep` at
+/// all: one straddling the boundary is visible on the side that is kept, so dropping it
+/// would take ink a reader can see. What is removed is what was entirely on the other
+/// side.
+///
+/// # Errors
+/// Fails when the page is not there or its content cannot be read.
+pub fn apply_remove_outside(
+    doc: &Document,
+    page: usize,
+    keep: (f64, f64, f64, f64),
+) -> PdfResult<()> {
+    let fonts = fonts_of_page(doc, page)?;
+    let Some(data) = page_content(doc, page)? else { return Ok(()) };
+    let (tokens, runs) = read_runs(&data, &fonts);
+
+    let mut rewritten: BTreeMap<usize, Vec<u8>> = BTreeMap::new();
+    for run in &runs {
+        if let Some(bytes) = run.without_what_falls_outside(keep) {
+            rewritten.insert(run.operator, bytes);
+        }
+    }
+    if rewritten.is_empty() {
+        return Ok(());
+    }
+
+    let mut out = Vec::with_capacity(data.len());
+    let spans: Vec<(usize, usize)> = runs.iter().map(|run| (run.start, run.operator)).collect();
+    for (index, token) in tokens.iter().enumerate() {
+        if let Some(bytes) = rewritten.get(&index) {
+            out.extend_from_slice(bytes);
+            continue;
+        }
+        // The operands of a rewritten run are inside what replaced it.
+        let inside = spans.iter().any(|(start, operator)| {
+            rewritten.contains_key(operator) && index >= *start && index < *operator
+        });
+        if !inside {
+            token.write_to(&mut out);
+        }
+    }
+    write_page_content(doc, page, out)
+}
+
+impl Run {
+    /// The run written out with the glyphs outside `keep` gone, or `None` to leave it be.
+    ///
+    /// The answer is one `TJ`: the strings that remain, and between them the offsets that
+    /// stand for the glyphs that went. A `TJ` offset moves the text matrix without drawing
+    /// (9.4.3), which is exactly what a removed glyph has to leave behind.
+    fn without_what_falls_outside(&self, keep: (f64, f64, f64, f64)) -> Option<Vec<u8>> {
+        let width = if self.font.is_cid_keyed { 2 } else { 1 };
+        let kept: Vec<bool> =
+            self.places.iter().map(|place| self.code_meets(*place, keep)).collect();
+        if kept.iter().all(|inside| *inside) {
+            return None;
+        }
+
+        let mut out = Vec::new();
+        Token::LeftArray.write_to(&mut out);
+        let mut run_of_codes: Vec<u8> = Vec::new();
+        let mut skipped = 0.0_f64;
+        for (nth, inside) in kept.iter().enumerate() {
+            let Some(codes) = self.codes.get(nth * width..(nth + 1) * width) else { continue };
+            let Some(place) = self.places.get(nth) else { continue };
+            if *inside {
+                Self::write_offset(&mut out, std::mem::take(&mut skipped), self.placement);
+                run_of_codes.extend_from_slice(codes);
+            } else {
+                Self::write_codes(&mut out, std::mem::take(&mut run_of_codes));
+                skipped += place.1;
+            }
+        }
+        Self::write_codes(&mut out, run_of_codes);
+        Self::write_offset(&mut out, skipped, self.placement);
+        Token::RightArray.write_to(&mut out);
+        Token::Keyword("TJ".to_string()).write_to(&mut out);
+        Some(out)
+    }
+
+    /// Whether the code at `place` meets `keep` at all.
+    ///
+    /// Its box is a parallelogram and `keep` is a rectangle, so the two are compared
+    /// through the box's bounding rectangle. That keeps a glyph a turned run leans into
+    /// the margin with, which errs towards leaving ink a reader can see.
+    fn code_meets(&self, place: (f64, f64), keep: (f64, f64, f64, f64)) -> bool {
+        let (along, width) = place;
+        let step = |distance: f64| {
+            let placed = (self.placement.ctm * self.placement.matrix).as_coeffs();
+            (placed[0] * distance, placed[1] * distance)
+        };
+        let rise = self.box_rise();
+        let (start, end) = (step(along), step(along + width));
+        let corners = [
+            (self.origin.0 + start.0, self.origin.1 + start.1),
+            (self.origin.0 + end.0, self.origin.1 + end.1),
+            (self.origin.0 + end.0 + rise.0, self.origin.1 + end.1 + rise.1),
+            (self.origin.0 + start.0 + rise.0, self.origin.1 + start.1 + rise.1),
+        ];
+        let xs: Vec<f64> = corners.iter().map(|corner| corner.0).collect();
+        let ys: Vec<f64> = corners.iter().map(|corner| corner.1).collect();
+        let (low_x, high_x) = (
+            xs.iter().copied().fold(f64::MAX, f64::min),
+            xs.iter().copied().fold(f64::MIN, f64::max),
+        );
+        let (low_y, high_y) = (
+            ys.iter().copied().fold(f64::MAX, f64::min),
+            ys.iter().copied().fold(f64::MIN, f64::max),
+        );
+        low_x < keep.2 && high_x > keep.0 && low_y < keep.3 && high_y > keep.1
+    }
+
+    /// Writes a string of codes into the array, when there are any.
+    fn write_codes(out: &mut Vec<u8>, codes: Vec<u8>) {
+        if !codes.is_empty() {
+            Token::String(bytes::Bytes::from(codes)).write_to(out);
+        }
+    }
+
+    /// Writes the offset that stands for what was taken out, when anything was.
+    fn write_offset(out: &mut Vec<u8>, skipped: f64, placed: Placement) {
+        let scaled = placed.size * placed.scale / 100.0;
+        if skipped.abs() <= f64::EPSILON || scaled.abs() <= f64::EPSILON {
+            return;
+        }
+        Token::Real(-skipped * 1000.0 / scaled).write_to(out);
     }
 }

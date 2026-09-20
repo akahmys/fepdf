@@ -78,6 +78,7 @@ pub fn apply_operation(doc: &mut Document, op: Operation) -> PdfResult<()> {
         Operation::DeleteRun { page, run } => text::apply_delete_run(doc, page, run),
         Operation::MergeRuns { page, run } => text::apply_merge_runs(doc, page, run),
         Operation::MoveRun { page, run, to } => text::apply_move_run(doc, page, run, to),
+        Operation::RemoveOutside { page, keep } => text::apply_remove_outside(doc, page, keep),
         Operation::SetMeasurementScale(s) => annotations::apply_set_measurement_scale(doc, s),
         Operation::SetFormFieldValue(f) => annotations::apply_set_form_field_value(doc, f),
         Operation::ExecuteAction(a) => annotations::apply_execute_action(doc, a),

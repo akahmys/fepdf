@@ -354,6 +354,22 @@ pub enum Operation {
         /// Where it draws from afterwards, in the page's default user space.
         to: (f64, f64),
     },
+    /// Takes off a page every glyph that falls outside a rectangle.
+    ///
+    /// **What a crop puts outside the sheet is removed rather than hidden.** `/CropBox`
+    /// makes a region the viewer displays (14.11.2) and leaves the rest in the file: half
+    /// a drawing, still searchable, on a page showing the other half
+    /// ([ADR-0088](../../../docs/adr/0088-what-a-crop-puts-outside-the-sheet-is-removed.md)).
+    ///
+    /// What stays does not move: a run is not deleted, because that takes its advance
+    /// with it, but rewritten as the glyphs that remain and the offsets that stand for
+    /// the ones that went.
+    RemoveOutside {
+        /// The page to cut down.
+        page: usize,
+        /// What to keep, in the page's default user space: left, bottom, right, top.
+        keep: (f64, f64, f64, f64),
+    },
     /// Takes one run off the page.
     ///
     /// **Deleting a run is not editing it to nothing.** An emptied run is still a run: it
@@ -450,6 +466,7 @@ impl Operation {
             | Self::DeleteRun { .. }
             | Self::MergeRuns { .. }
             | Self::MoveRun { .. }
+            | Self::RemoveOutside { .. }
             | Self::SetMeasurementScale { .. }
             | Self::SetFormFieldValue { .. }
             | Self::SetPageLabels { .. }

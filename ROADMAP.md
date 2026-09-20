@@ -4230,14 +4230,39 @@ Forms, through to creation, under D-3:
 Page geometry, under D-4:
 
 - [ ] **W-10 — cropping.**
-- [ ] **W-G1 — removing what a crop puts outside**, rather than letting `/CropBox` hide
-      it. Runs split at a glyph, images re-encoded to the part that remains, paths
-      clipped and rebuilt. Needs W-E4's widths.
-      *Fails if*: `extract_text` on the cropped side returns a character that was cut
-      away. **The present behaviour fails this check**, which is the point of writing it —
-      `document_tools.rs` records the measurement beside the warning it shows a reader:
+- [x] **W-G1-a — the text a crop puts outside is removed.**
+      `Operation::RemoveOutside { page, keep }` takes off a page every glyph whose own box
+      does not meet `keep`. The check ADR-0088 asked for now passes, and it failed against
+      the behaviour of the day it was written, which is why it was worth writing:
       `print_sample.pdf` page 3 shifted 300 points right renders with its right-hand half
-      gone, and `extract_text` returns all 428 characters it did before.
+      gone, **78 of its 112 runs end past the sheet's edge**, and `extract_text` returned
+      all 428 characters it did before.
+
+      **What stays does not move.** A run is not deleted, because deleting one takes its
+      advance with it and everything after it on the line closes up. Each run becomes one
+      `TJ` of the strings that remain and the offsets that stand for what went, so the
+      text matrix arrives everywhere it arrived before.
+
+      **The cut falls between glyphs, and one the boundary crosses is kept**: it is
+      visible on the side that stays, so dropping it would take ink a reader can see.
+
+      Six mutations, each failing a test written for it. Two of them needed a fixture of
+      their own: on `print_sample.pdf` every removed glyph is at the *end* of its run, so
+      nothing kept follows anything removed and the offsets are never load-bearing.
+      `one_long_run` is cropped to its middle, where the letters taken off the front are
+      what the offset stands for.
+
+      **A first attempt at the mutations aimed at the wrong line** — the branch that
+      writes a kept code rather than the one that decides which codes are kept — and three
+      of five passed. A mutation that fails no test has two readings, and "the code is
+      dead" is only one of them; the other is that it was not aimed at the thing under
+      test.
+
+- [ ] **W-G1-b — the images a crop puts outside**, re-encoded to the part that remains
+      rather than left whole under a clip (ADR-0088).
+- [ ] **W-G1-c — the paths a crop puts outside**, clipped and rebuilt rather than clipped
+      for display.
+
 - [ ] **W-11 — one page into several**, on W-G1.
 - [ ] **W-12 — several pages onto one**, on the form XObject work of W-8.
 
