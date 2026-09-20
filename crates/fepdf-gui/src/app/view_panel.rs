@@ -394,6 +394,41 @@ impl FepdfApp {
     ///
     /// Below `PDFView::TILE_ZOOM` the tiles are thumbnails being reordered, not pages
     /// being read from.
+    /// Names the run under a click, while the text tool is on.
+    ///
+    /// **The unit is the run**, which is the unit an edit names — not the span the
+    /// dragging selection works in. Clicking where no run is unnames the one that was
+    /// named, because a reader who clicks off a thing means to stop pointing at it.
+    fn handle_run_click_on_page(
+        &mut self,
+        response: &egui::Response,
+        page_idx: usize,
+        page_screen_rect: egui::Rect,
+        unscaled_h: f32,
+        zoom: f32,
+    ) {
+        if self.active_drawer != crate::sidebar::ActiveDrawer::TextRuns || !response.clicked() {
+            return;
+        }
+        let Some(at) = response.interact_pointer_pos() else { return };
+        if !page_screen_rect.contains(at) {
+            return;
+        }
+        let on_page = crate::interaction::SelectionManager::screen_to_pdf(
+            page_screen_rect,
+            zoom,
+            unscaled_h,
+            at,
+        );
+        // The last one that contains the point, so that a run drawn over another is the
+        // one that answers — which is the one the reader sees.
+        self.selected_run = self
+            .page_runs
+            .get(&page_idx)
+            .and_then(|runs| runs.iter().rev().find(|run| run.contains(on_page)))
+            .map(|run| (page_idx, run.index));
+    }
+
     fn handle_text_selection_on_page(
         &mut self,
         ui: &mut egui::Ui,
@@ -403,6 +438,7 @@ impl FepdfApp {
         unscaled_h: f32,
         zoom: f32,
     ) {
+        self.handle_run_click_on_page(response, page_idx, page_screen_rect, unscaled_h, zoom);
         if self.view.does(Act::SelectText)
             && let Some(spans) = self.page_spans.get(&page_idx)
         {
@@ -770,6 +806,17 @@ impl FepdfApp {
             &crate::view::draw::Words {
                 placeholder: &self.tr("page_rendering"),
                 signature: &self.tr("signature_field"),
+            },
+            &crate::view::draw::TextRuns {
+                boxes: &self.page_runs,
+                selected: self.selected_run,
+                // Off in the tile view, for the reason the reading order is: a frame per
+                // run of every visible page is finer than the glyphs it encloses.
+                // **The drawer is the switch**, rather than a flag beside it: a frame
+                // round every run is what a reader asks for by opening the drawer that
+                // edits them, and two switches for one thing is one of them going stale.
+                showing: self.active_drawer == crate::sidebar::ActiveDrawer::TextRuns
+                    && self.view.is_page_view(),
             },
         );
     }

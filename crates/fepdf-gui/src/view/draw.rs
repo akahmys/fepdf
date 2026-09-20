@@ -48,6 +48,9 @@ impl PDFView {
         // rather than read here**: this type holds a view, not a locale. There were two
         // of these and only the first was passed; the second was drawn in English.
         words: &Words<'_>,
+        // The runs a reader can edit, and which one they have named. One argument rather
+        // than three, because they are one thing: what the text tool is showing.
+        runs: &TextRuns<'_>,
     ) {
         // A second copy of the block `App::ui` carried stood here, to stop "flashing
         // orange/red borders" — egui's old default selection colour, which
@@ -189,6 +192,7 @@ impl PDFView {
             self.draw_active_redaction_drag(ui, layout.index, active_redaction_drag);
             self.draw_structural_highlight(ui, layout.index, structural_highlight);
             self.draw_signature_highlight(ui, layout.index, signature_highlight, words);
+            self.draw_run_boxes(ui, layout.index, page_rect, layout, runs);
 
             if show_reading_order && let Some(ref root) = ust_registry.root {
                 Self::draw_semantic_borders(
@@ -393,6 +397,56 @@ impl PDFView {
                 page_rect, self.zoom, unscaled_h, *span,
             );
             ui.painter().rect_filled(rect, radius::FLAT, colors::rust::wash());
+        }
+    }
+
+    /// Draws a frame round every run of the page, and fills the one that is named.
+    ///
+    /// **A run is what a text edit names**, so this is the reader's way of pointing at
+    /// one. It is drawn only while the text tool is on: a frame round every run is what
+    /// somebody asks for when they mean to edit and clutter the rest of the time.
+    ///
+    /// The frame is a closed path through the box's four corners rather than a rectangle,
+    /// because a run set at an angle does not have one — and a window that drew an
+    /// upright box round a turned run would be wrong while looking right.
+    fn draw_run_boxes(
+        &self,
+        ui: &mut egui::Ui,
+        page_index: usize,
+        page_rect: egui::Rect,
+        layout: &PageLayout,
+        runs: &TextRuns<'_>,
+    ) {
+        if !runs.showing {
+            return;
+        }
+        let Some(on_page) = runs.boxes.get(&page_index) else {
+            return;
+        };
+        let unscaled_h = layout.rect.height();
+        for run in on_page {
+            let corners: Vec<egui::Pos2> = run
+                .corners()
+                .iter()
+                .map(|corner| {
+                    crate::interaction::SelectionManager::pdf_to_screen(
+                        page_rect, self.zoom, unscaled_h, *corner,
+                    )
+                })
+                .collect();
+            let named = runs.selected == Some((page_index, run.index));
+            if named {
+                ui.painter().add(egui::Shape::convex_polygon(
+                    corners.clone(),
+                    colors::rust::wash(),
+                    egui::Stroke::new(1.5_f32, colors::rust::ACCENT),
+                ));
+            } else {
+                ui.painter().add(egui::Shape::closed_line(
+                    corners,
+                    egui::Stroke::new(1.0_f32, colors::steel::EDGE),
+                ));
+            }
         }
     }
 
@@ -678,6 +732,16 @@ impl PDFView {
 /// same way a tile does, which is the point of asking the width rather than the mode.
 fn says_it_in_words(text_width: f32, card_width: f32) -> bool {
     text_width + space::PANE < card_width
+}
+
+/// The runs the text tool is showing, and which one the reader has named.
+pub struct TextRuns<'a> {
+    /// Every page's runs, by page index.
+    pub boxes: &'a BTreeMap<usize, Vec<crate::interaction::RunBox>>,
+    /// The named one, as a page and a number on it.
+    pub selected: Option<(usize, usize)>,
+    /// Whether the text tool is on. Off, nothing here is drawn.
+    pub showing: bool,
 }
 
 #[cfg(test)]

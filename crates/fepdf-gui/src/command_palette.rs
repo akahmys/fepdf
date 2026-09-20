@@ -28,11 +28,13 @@ pub enum Command {
     RedactionStudio,
     /// The document-tools drawer.
     Tools,
+    /// The runs of the page, and editing one.
+    EditText,
 }
 
 impl Command {
     /// Every command, in the order the palette lists them.
-    pub const ALL: [Self; 9] = [
+    pub const ALL: [Self; 10] = [
         Self::Load,
         Self::ResetView,
         Self::RedactBrush,
@@ -42,6 +44,7 @@ impl Command {
         Self::ReadingOrder,
         Self::RedactionStudio,
         Self::Tools,
+        Self::EditText,
     ];
 
     /// The locale keys naming it and describing it.
@@ -58,6 +61,7 @@ impl Command {
             Self::ReadingOrder => ("cmd_reading_order", "cmd_reading_order_desc"),
             Self::RedactionStudio => ("cmd_redaction_studio", "cmd_redaction_studio_desc"),
             Self::Tools => ("cmd_document_tools", "cmd_document_tools_desc"),
+            Self::EditText => ("cmd_edit_text", "cmd_edit_text_desc"),
         }
     }
 
@@ -99,6 +103,10 @@ impl Command {
                 app.show_drawer(Self::toggled(on, crate::sidebar::ActiveDrawer::Redaction));
             }
             Self::Tools => app.show_drawer(crate::sidebar::ActiveDrawer::Tools),
+            Self::EditText => {
+                let on = app.active_drawer == crate::sidebar::ActiveDrawer::TextRuns;
+                app.show_drawer(Self::toggled(on, crate::sidebar::ActiveDrawer::TextRuns));
+            }
         }
     }
 
@@ -111,7 +119,7 @@ impl Command {
     /// where — not to find the list a word shorter.
     const fn needs(self) -> Option<crate::view::Act> {
         match self {
-            Self::RedactBrush | Self::Caliper | Self::RedactionStudio => {
+            Self::RedactBrush | Self::Caliper | Self::RedactionStudio | Self::EditText => {
                 Some(crate::view::Act::DrawOnPage)
             }
             Self::TagBrush => Some(crate::view::Act::SelectText),

@@ -197,6 +197,12 @@ pub enum WorkerResponse {
         scene: Arc<Scene>,
         text: Option<String>,
         spans: Option<Vec<crate::interaction::TextSpan>>,
+        /// The page's runs, which are what a text edit names.
+        ///
+        /// Carried beside `spans` rather than instead of them: a span is what extraction
+        /// read and a run is one show-text operator, and selection and editing want
+        /// different ones.
+        runs: Option<Vec<crate::interaction::RunBox>>,
     },
     AuditFindings {
         findings: Vec<(String, String, String, Option<u32>)>,
@@ -287,14 +293,12 @@ pub fn run_worker(rx: Receiver<WorkerRequest>, tx: Sender<WorkerResponse>, ctx: 
     let mut current_bytes: Option<Bytes> = None;
     let mut history = History::new();
     let system_fonts = VelloBackend::load_system_fonts();
-    let mut text_cache = std::collections::BTreeMap::new();
-    let mut spans_cache = std::collections::BTreeMap::new();
+    let mut pages = PageCache::default();
 
     for request in rx {
         match request {
             WorkerRequest::Open { data, name, password } => {
-                text_cache.clear();
-                spans_cache.clear();
+                pages.clear();
                 current_bytes = Some(data.clone());
                 history = History::new();
                 history.origin = Some((data.clone(), name.clone(), password.clone()));
@@ -308,8 +312,7 @@ pub fn run_worker(rx: Receiver<WorkerRequest>, tx: Sender<WorkerResponse>, ctx: 
                     scale,
                     &tx,
                     Arc::clone(&system_fonts),
-                    &mut text_cache,
-                    &mut spans_cache,
+                    &mut pages,
                 );
                 ctx.request_repaint();
             }
@@ -322,8 +325,7 @@ pub fn run_worker(rx: Receiver<WorkerRequest>, tx: Sender<WorkerResponse>, ctx: 
                 ctx.request_repaint();
             }
             WorkerRequest::UpdateNode { handle_id, tag, alt_text } => {
-                text_cache.clear();
-                spans_cache.clear();
+                pages.clear();
                 // Retagging re-runs the whole PDF/UA audit, which is the long half.
                 let _ = tx.send(WorkerResponse::Busy { key: "busy_auditing" });
                 handle_update_node(&mut current_doc, &mut history, handle_id, tag, alt_text, &tx);
@@ -342,8 +344,7 @@ pub fn run_worker(rx: Receiver<WorkerRequest>, tx: Sender<WorkerResponse>, ctx: 
                 key_path,
                 signature_position,
             } => {
-                text_cache.clear();
-                spans_cache.clear();
+                pages.clear();
                 let _ = tx.send(WorkerResponse::Busy { key: "busy_saving" });
                 handle_save(
                     current_doc.as_ref(),
@@ -363,8 +364,7 @@ pub fn run_worker(rx: Receiver<WorkerRequest>, tx: Sender<WorkerResponse>, ctx: 
                 ctx.request_repaint();
             }
             WorkerRequest::Apply { operation, done } => {
-                text_cache.clear();
-                spans_cache.clear();
+                pages.clear();
                 // `Retag` rebuilds the structure tree from heuristics; the others are
                 // quick, and one arm cannot tell which it was handed.
                 let _ = tx.send(WorkerResponse::Busy { key: "busy_applying" });
@@ -405,8 +405,7 @@ pub fn run_worker(rx: Receiver<WorkerRequest>, tx: Sender<WorkerResponse>, ctx: 
                     let panel = doc.layers();
                     if doc.set_layer_visible(&panel, layer, on) {
                         // What is drawn changed, so every cached page is stale.
-                        text_cache.clear();
-                        spans_cache.clear();
+                        pages.clear();
                         let _ =
                             tx.send(WorkerResponse::LayersChanged { layers: doc.layers().rows });
                     }
@@ -414,8 +413,7 @@ pub fn run_worker(rx: Receiver<WorkerRequest>, tx: Sender<WorkerResponse>, ctx: 
                 ctx.request_repaint();
             }
             WorkerRequest::ReorderPagesBatch { source_indices, target_insert_pos } => {
-                text_cache.clear();
-                spans_cache.clear();
+                pages.clear();
                 apply_recorded(
                     &mut current_doc,
                     &mut history,
@@ -426,8 +424,7 @@ pub fn run_worker(rx: Receiver<WorkerRequest>, tx: Sender<WorkerResponse>, ctx: 
                 ctx.request_repaint();
             }
             WorkerRequest::RemovePages { mut indices } => {
-                text_cache.clear();
-                spans_cache.clear();
+                pages.clear();
                 // One operation, not a descending loop. Sorting the indices so that
                 // removing one did not move the next was the frontend doing the engine's
                 // arithmetic; `RemovePages` takes the set and owns the order.
@@ -443,8 +440,7 @@ pub fn run_worker(rx: Receiver<WorkerRequest>, tx: Sender<WorkerResponse>, ctx: 
                 ctx.request_repaint();
             }
             WorkerRequest::DuplicatePage { index } => {
-                text_cache.clear();
-                spans_cache.clear();
+                pages.clear();
                 apply_recorded(
                     &mut current_doc,
                     &mut history,
@@ -455,8 +451,7 @@ pub fn run_worker(rx: Receiver<WorkerRequest>, tx: Sender<WorkerResponse>, ctx: 
                 ctx.request_repaint();
             }
             WorkerRequest::RotatePages { indices, delta } => {
-                text_cache.clear();
-                spans_cache.clear();
+                pages.clear();
                 apply_recorded(
                     &mut current_doc,
                     &mut history,
@@ -470,8 +465,7 @@ pub fn run_worker(rx: Receiver<WorkerRequest>, tx: Sender<WorkerResponse>, ctx: 
                 ctx.request_repaint();
             }
             WorkerRequest::Undo => {
-                text_cache.clear();
-                spans_cache.clear();
+                pages.clear();
                 let _ = tx.send(WorkerResponse::Busy { key: "history_undoing" });
                 if let Some(taken) = history.applied.pop() {
                     history.undone.push(taken);
@@ -481,8 +475,7 @@ pub fn run_worker(rx: Receiver<WorkerRequest>, tx: Sender<WorkerResponse>, ctx: 
                 ctx.request_repaint();
             }
             WorkerRequest::Redo => {
-                text_cache.clear();
-                spans_cache.clear();
+                pages.clear();
                 let _ = tx.send(WorkerResponse::Busy { key: "history_redoing" });
                 if let Some(back) = history.undone.pop() {
                     history.applied.push(back);
@@ -780,6 +773,57 @@ fn get_or_extract_text(
     text
 }
 
+/// What this worker remembers about the pages it has read, and throws away together.
+///
+/// **They go stale together, because each describes the page as it was.** They were three
+/// maps cleared by hand at eleven sites, which is one thing counted three times: a twelfth
+/// site that cleared two of them would leave the window drawing boxes round text that had
+/// moved, and nothing would say so.
+#[derive(Default)]
+struct PageCache {
+    /// The page's text, as extraction read it.
+    text: std::collections::BTreeMap<usize, String>,
+    /// What extraction read and where it thinks it was, for selection.
+    spans: std::collections::BTreeMap<usize, Vec<crate::interaction::TextSpan>>,
+    /// The page's runs, which are what a text edit names.
+    runs: std::collections::BTreeMap<usize, Vec<crate::interaction::RunBox>>,
+}
+
+impl PageCache {
+    /// Forgets every page. One call, because forgetting half of it is the trap.
+    fn clear(&mut self) {
+        self.text.clear();
+        self.spans.clear();
+        self.runs.clear();
+    }
+}
+
+/// The page's runs, as the window sees them, cached for as long as the page is unchanged.
+fn get_or_read_runs(
+    doc: &PdfDocument,
+    index: usize,
+    cache: &mut std::collections::BTreeMap<usize, Vec<crate::interaction::RunBox>>,
+) -> Option<Vec<crate::interaction::RunBox>> {
+    if let Some(cached) = cache.get(&index) {
+        return Some(cached.clone());
+    }
+    let runs: Vec<crate::interaction::RunBox> = fepdf::text::runs_of_page(doc.inner(), index)
+        .ok()?
+        .into_iter()
+        .map(|run| crate::interaction::RunBox {
+            index: run.index,
+            text: run.text,
+            pieces: run.pieces,
+            font: run.font,
+            origin: egui::pos2(run.origin.0 as f32, run.origin.1 as f32),
+            advance: egui::vec2(run.advance.0 as f32, run.advance.1 as f32),
+            rise: egui::vec2(run.rise.0 as f32, run.rise.1 as f32),
+        })
+        .collect();
+    cache.insert(index, runs.clone());
+    Some(runs)
+}
+
 fn get_or_extract_spans(
     doc: &PdfDocument,
     index: usize,
@@ -813,8 +857,7 @@ fn handle_render(
     scale: f64,
     tx: &Sender<WorkerResponse>,
     system_fonts: Arc<std::collections::BTreeMap<FallbackFontType, Arc<Vec<u8>>>>,
-    text_cache: &mut std::collections::BTreeMap<usize, String>,
-    spans_cache: &mut std::collections::BTreeMap<usize, Vec<crate::interaction::TextSpan>>,
+    pages: &mut PageCache,
 ) {
     let Some(doc) = doc_opt else { return };
     let r = doc.get_page_box(index).unwrap_or_else(|_| fepdf::Rect::new(0.0, 0.0, 595.0, 842.0));
@@ -830,14 +873,21 @@ fn handle_render(
     };
     let mut backend = VelloBackend::new(system_fonts);
 
-    let text = get_or_extract_text(doc, index, text_cache);
-    let spans = get_or_extract_spans(doc, index, spans_cache);
+    let text = get_or_extract_text(doc, index, &mut pages.text);
+    let spans = get_or_extract_spans(doc, index, &mut pages.spans);
+    let runs = get_or_read_runs(doc, index, &mut pages.runs);
 
     match doc.render_page(index, &mut backend, initial_transform) {
         Ok(()) => {
             let scene = Arc::new(backend.scene().clone());
-            let _ =
-                tx.send(WorkerResponse::PageRendered { index, _scale: scale, scene, text, spans });
+            let _ = tx.send(WorkerResponse::PageRendered {
+                index,
+                _scale: scale,
+                scene,
+                text,
+                spans,
+                runs,
+            });
         }
         Err(e) => {
             let _ = tx.send(WorkerResponse::Failed {

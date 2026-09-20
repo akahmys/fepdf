@@ -129,6 +129,7 @@ impl FepdfApp {
             ActiveDrawer::Caliper => tr("tooltip_caliper_brush"),
             ActiveDrawer::Tools => tr("tools_title"),
             ActiveDrawer::Bookmarks => tr("marks_title"),
+            ActiveDrawer::TextRuns => tr("runs_title"),
         }
     }
 
@@ -172,6 +173,7 @@ impl FepdfApp {
                     ui,
                     |ui| match self.active_drawer {
                         ActiveDrawer::None => {}
+                        ActiveDrawer::TextRuns => self.render_text_runs(ui),
                         ActiveDrawer::WhatItDoes => {
                             let locale = &self.locale_mgr;
                             let lang = &self.active_language;
@@ -268,6 +270,44 @@ impl FepdfApp {
 
     /// Sends the draft as one `UpdateOutlines`.
     ///
+    /// The runs of the page the reader is on, and what they ask of one.
+    ///
+    /// **The drawer names what was asked and this turns it into an `Operation`**, which
+    /// is all a frontend may do (Rule D). The page comes from the selection rather than
+    /// from the drawer, so a run named on one page and a document scrolled to another
+    /// cannot be crossed.
+    fn render_text_runs(&mut self, ui: &mut egui::Ui) {
+        let page = self.selected_run.map_or_else(|| self.view.current_page(), |(page, _)| page);
+        let runs = self.page_runs.get(&page).cloned().unwrap_or_default();
+        let named = self.selected_run.and_then(|(on, run)| (on == page).then_some(run));
+        let locale = &self.locale_mgr;
+        let lang = &self.active_language;
+        let asked = self.text_runs_panel.show(ui, &runs, named, &|key| locale.tr(lang, key));
+        // Nothing is asked of a run that was not named: the drawer says so and answers
+        // `None`, so this cannot be reached with one missing.
+        let (Some(asked), Some(run)) = (asked, named) else { return };
+
+        let operation = match asked {
+            crate::sidebar::text_runs::Asked::Replace(text) => {
+                fepdf::Operation::EditRun { page, run, text }
+            }
+            crate::sidebar::text_runs::Asked::Cut(after) => {
+                fepdf::Operation::SplitRun { page, run, after }
+            }
+            crate::sidebar::text_runs::Asked::Delete => fepdf::Operation::DeleteRun { page, run },
+            crate::sidebar::text_runs::Asked::Join => fepdf::Operation::MergeRuns { page, run },
+        };
+        // The run numbers move under an edit — a cut makes two of one, a delete moves the
+        // rest up — so what was named and what was typed are both stale the moment this
+        // is sent.
+        self.selected_run = None;
+        self.text_runs_panel.forget();
+        let _ = self.tx_worker.send(crate::worker::WorkerRequest::Apply {
+            operation: Box::new(operation),
+            done: self.tr("runs_title"),
+        });
+    }
+
     /// **One home for it**, because the capture harness presses this too and a second
     /// copy of these four lines is a second thing to keep true (UI-12).
     pub(crate) fn write_bookmarks(&mut self) {

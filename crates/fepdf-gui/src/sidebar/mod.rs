@@ -3,6 +3,7 @@ pub mod bookmarks;
 pub mod document_info;
 pub mod layers;
 pub mod structure_tree;
+pub mod text_runs;
 pub mod ust_registry;
 pub mod what_it_does;
 
@@ -32,6 +33,13 @@ pub enum ActiveDrawer {
     Tools,
     /// The bookmark tree, and the draft the reader is making of it (12.3.3).
     Bookmarks,
+    /// The runs of the page, and the four things a reader does to one.
+    ///
+    /// **A run is what an edit names**, and nothing groups runs: which of them belong
+    /// together is a question about meaning that a content stream does not answer
+    /// ([ADR-0091](../../../../docs/adr/0091-paragraphs-are-not-inferred-and-overflow-is-shown.md)).
+    /// So the drawer lists them and the reader points at one.
+    TextRuns,
 }
 
 impl ActiveDrawer {
@@ -40,7 +48,7 @@ impl ActiveDrawer {
     /// **The rail iterates this rather than naming its buttons**, so a drawer that
     /// exists has a door by construction (UI-4). `scripts/audit/reachability.py` holds
     /// this list against the enum, because an array cannot be exhaustive on its own.
-    pub const ALL: [Self; 7] = [
+    pub const ALL: [Self; 8] = [
         Self::DocumentInfo,
         Self::WhatItDoes,
         Self::Accessibility,
@@ -48,6 +56,7 @@ impl ActiveDrawer {
         Self::Caliper,
         Self::Tools,
         Self::Bookmarks,
+        Self::TextRuns,
     ];
 
     /// The glyph the rail draws for it, and the locale key that names it.
@@ -65,6 +74,7 @@ impl ActiveDrawer {
             Self::Caliper => Some((glyph::CALIPER, "tooltip_caliper_brush")),
             Self::Tools => Some((glyph::TOOLS, "tools_title")),
             Self::Bookmarks => Some((glyph::MARKS, "marks_title")),
+            Self::TextRuns => Some((glyph::TEXT_RUNS, "cmd_edit_text")),
         }
     }
 
@@ -77,7 +87,10 @@ impl ActiveDrawer {
     /// others read or list and are the same in either view.
     pub const fn needs(self) -> Option<crate::view::Act> {
         match self {
-            Self::Redaction | Self::Caliper => Some(crate::view::Act::DrawOnPage),
+            // The frames are drawn on the page and a click on one names a run, so in the
+            // tile view — where a page is sixty points wide and every click goes to
+            // choosing pages — this would come on, light up and do nothing.
+            Self::Redaction | Self::Caliper | Self::TextRuns => Some(crate::view::Act::DrawOnPage),
             Self::None
             | Self::DocumentInfo
             | Self::WhatItDoes

@@ -48,8 +48,9 @@ pub struct ListedRun {
     /// How far it advances from there, as a vector — a run set at an angle advances along
     /// that angle. With `origin` and `height` this is the box a reader clicks.
     pub advance: (f64, f64),
-    /// The height of that box: the size the run is set at, as the page scales it.
-    pub height: f64,
+    /// The box's other edge, as a vector from `origin`: the size the run is set at, in
+    /// the direction its text matrix puts "up".
+    pub rise: (f64, f64),
 }
 
 /// What `list_runs` returns.
@@ -87,7 +88,7 @@ fn list_runs_internal(args: ListRunsArgs) -> McpResult<String> {
                 font: run.font,
                 origin: run.origin,
                 advance: run.advance,
-                height: run.height,
+                rise: run.rise,
             })
             .collect(),
     };

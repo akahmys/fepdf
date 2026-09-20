@@ -133,6 +133,12 @@ pub struct FepdfApp {
 
     pub selection_manager: SelectionManager,
     pub page_spans: BTreeMap<usize, Vec<TextSpan>>,
+    /// The runs of each page, which are what a text edit names.
+    pub page_runs: BTreeMap<usize, Vec<crate::interaction::RunBox>>,
+    /// The run the reader has named, as a page and a number on it.
+    pub selected_run: Option<(usize, usize)>,
+    /// What the text runs drawer is holding between frames.
+    pub text_runs_panel: crate::sidebar::text_runs::TextRunsPanel,
 
     pub ust_registry: USTRegistry,
     pub sidebar_panel: SidebarPanel,
@@ -292,6 +298,9 @@ impl FepdfApp {
             request_queue: BTreeSet::new(),
             selection_manager: SelectionManager::new(),
             page_spans: BTreeMap::new(),
+            page_runs: BTreeMap::new(),
+            selected_run: None,
+            text_runs_panel: crate::sidebar::text_runs::TextRunsPanel::default(),
             ust_registry: USTRegistry::new(),
             sidebar_panel: SidebarPanel::new(),
             redaction_manager: RedactionManager::new(),
@@ -492,7 +501,7 @@ impl FepdfApp {
                     self.busy = None;
                     ctx.request_repaint();
                 }
-                WorkerResponse::PageRendered { index, scene, text, spans, .. } => {
+                WorkerResponse::PageRendered { index, scene, text, spans, runs, .. } => {
                     self.scenes.insert(index, scene);
                     self.request_queue.remove(&index);
                     self.invalidated_thumbnails.insert(index);
@@ -501,6 +510,9 @@ impl FepdfApp {
                         self.raw_texts.insert(index, text);
                     }
 
+                    if let Some(runs) = runs {
+                        self.page_runs.insert(index, runs);
+                    }
                     if let Some(spans) = spans {
                         self.page_spans.insert(index, spans);
                     } else if let Some(text) = self.raw_texts.get(&index)

@@ -32,6 +32,8 @@ pub mod glyph {
     pub const CALIPER: &str = "\u{e14b}";
     /// `file-sliders` — the operations that act on the document as a whole.
     pub const TOOLS: &str = "\u{e5a0}";
+    /// `text-cursor-input` — the runs on a page, and editing one.
+    pub const TEXT_RUNS: &str = "\u{e265}";
     /// `settings`.
     pub const SETTINGS: &str = "\u{e154}";
     /// `circle-help`.

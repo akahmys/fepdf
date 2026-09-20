@@ -549,3 +549,148 @@ mod selecting_real_text {
         assert_eq!(covered, spans.len(), "the screen-space drag missed some of the page");
     }
 }
+
+/// One run of a page, as the window sees it.
+///
+/// **A run is not a span.** A span is what extraction read and where it thinks it was;
+/// a run is one show-text operator, which is the unit the engine edits — and the two
+/// differ in more than name. Extraction cannot see word or character spacing, and it
+/// returns nothing at all for a page set in Type 3 fonts, where a reader sees text and
+/// could select none of it.
+#[derive(Debug, Clone)]
+pub struct RunBox {
+    /// Its number on the page, which is what an edit names.
+    pub index: usize,
+    /// What it reads, through the font it is set in.
+    pub text: String,
+    /// What each of its codes reads. A cut names a code, and this is how a place in the
+    /// text becomes one.
+    pub pieces: Vec<String>,
+    /// The resource name of its font.
+    pub font: String,
+    /// Where it draws from, in PDF user space.
+    pub origin: egui::Pos2,
+    /// How far it advances from there, as a vector.
+    pub advance: egui::Vec2,
+    /// The box's other edge, as a vector: a run turned on its side rises sideways.
+    pub rise: egui::Vec2,
+}
+
+impl RunBox {
+    /// The four corners of the box, in PDF user space, going round it.
+    ///
+    /// **Not a rectangle**, because a run set at an angle does not have one. A window
+    /// that drew an upright box round a turned run would be wrong while looking right.
+    pub fn corners(&self) -> [egui::Pos2; 4] {
+        [
+            self.origin,
+            self.origin + self.advance,
+            self.origin + self.advance + self.rise,
+            self.origin + self.rise,
+        ]
+    }
+
+    /// Whether `point`, in PDF user space, is inside the box.
+    ///
+    /// **The point is written in the box's own two edges**, which is a pair of equations
+    /// rather than two projections: projecting is only the same answer when the edges are
+    /// at right angles, and a text matrix is free to skew them. A bounding rectangle
+    /// would be wrong sooner still — two runs at an angle can have overlapping bounding
+    /// rectangles and share no point at all.
+    ///
+    /// The box stands on the baseline and rises by the size the run is set at, so a click
+    /// on a descender falls just outside it. That is the box a text editor draws too.
+    pub fn contains(&self, point: egui::Pos2) -> bool {
+        // A box with no area needs no guard of its own: the determinant is zero, the
+        // divisions give an infinity or a NaN, and neither is in `0..=1`. One was written
+        // here and removing it failed no test, which is what said it decided nothing.
+        let (a, r) = (self.advance, self.rise);
+        let determinant = a.x.mul_add(r.y, -(a.y * r.x));
+        let from = point - self.origin;
+        let along = from.x.mul_add(r.y, -(from.y * r.x)) / determinant;
+        let up = a.x.mul_add(from.y, -(a.y * from.x)) / determinant;
+        (0.0..=1.0).contains(&along) && (0.0..=1.0).contains(&up)
+    }
+}
+
+/// The box a reader clicks to name a run.
+///
+/// **A run is not always upright on the page.** Its box is a parallelogram with the two
+/// edges the engine hands over, and a window that drew an axis-aligned rectangle instead
+/// would be wrong while looking right: two runs set at an angle can have overlapping
+/// bounding rectangles and share no point at all.
+#[cfg(test)]
+mod run_box {
+    use super::RunBox;
+
+    /// A run 100 long and 12 tall, drawn upright from (50, 700).
+    fn upright() -> RunBox {
+        RunBox {
+            index: 0,
+            text: "UPRIGHT".to_string(),
+            pieces: Vec::new(),
+            font: "F1".to_string(),
+            origin: egui::pos2(50.0, 700.0),
+            advance: egui::vec2(100.0, 0.0),
+            rise: egui::vec2(0.0, 12.0),
+        }
+    }
+
+    /// The same run turned a quarter turn: it advances up the page and rises to the left.
+    fn turned() -> RunBox {
+        RunBox {
+            index: 0,
+            text: "TURNED".to_string(),
+            pieces: Vec::new(),
+            font: "F1".to_string(),
+            origin: egui::pos2(300.0, 400.0),
+            advance: egui::vec2(0.0, 100.0),
+            rise: egui::vec2(-12.0, 0.0),
+        }
+    }
+
+    #[test]
+    fn a_point_on_the_run_is_inside_its_box_and_one_beside_it_is_not() {
+        let run = upright();
+        assert!(run.contains(egui::pos2(100.0, 706.0)), "the middle of the run is outside its box");
+        assert!(run.contains(egui::pos2(50.0, 700.0)), "the run's own origin is outside its box");
+        assert!(!run.contains(egui::pos2(160.0, 706.0)), "a point past the end is inside it");
+        assert!(!run.contains(egui::pos2(100.0, 690.0)), "a point below the baseline is inside it");
+        assert!(!run.contains(egui::pos2(100.0, 720.0)), "a point above the line is inside it");
+    }
+
+    /// **The box follows the run's angle.**
+    ///
+    /// The turned run occupies x from 288 to 300 and y from 400 to 500. A point at (295, 450)
+    /// is on it; a point at (350, 450) is in the same *bounding* region of the page but not on
+    /// the run — which is the case a rectangle gets wrong.
+    #[test]
+    fn a_turned_runs_box_is_turned_with_it() {
+        let run = turned();
+        assert!(
+            run.contains(egui::pos2(295.0, 450.0)),
+            "the middle of the turned run is outside it"
+        );
+        assert!(!run.contains(egui::pos2(350.0, 450.0)), "a point off the run is inside its box");
+        assert!(!run.contains(egui::pos2(295.0, 520.0)), "a point past its end is inside it");
+    }
+
+    /// A run that advances nowhere has no box to be inside of, and saying so beats dividing
+    /// by the area it does not have.
+    #[test]
+    fn a_run_with_no_extent_contains_nothing() {
+        let mut run = upright();
+        run.advance = egui::vec2(0.0, 0.0);
+        assert!(!run.contains(run.origin), "a box with no width contained its own corner");
+    }
+
+    /// The corners go round the box, so a window can stroke them as a closed shape.
+    #[test]
+    fn the_corners_go_round_the_box() {
+        let corners = upright().corners();
+        assert_eq!(corners[0], egui::pos2(50.0, 700.0), "the first corner is not the origin");
+        assert_eq!(corners[1], egui::pos2(150.0, 700.0), "the second is not along the advance");
+        assert_eq!(corners[2], egui::pos2(150.0, 712.0), "the third is not the far top");
+        assert_eq!(corners[3], egui::pos2(50.0, 712.0), "the fourth is not above the origin");
+    }
+}

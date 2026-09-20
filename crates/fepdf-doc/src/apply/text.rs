@@ -65,9 +65,13 @@ pub struct RunInfo {
     /// before it plus what that one advanced by, so an advance that is wrong puts every
     /// contiguous run after it somewhere the renderer does not draw it.
     pub advance: (f64, f64),
-    /// The height of that box on the page: the size the run is set at, as the transform
-    /// in force scales it. The line's height, not the ink's.
-    pub height: f64,
+    /// The box's other edge, as a vector from [`Self::origin`]: the size the run is set
+    /// at, in the direction the text matrix puts "up". The line's height, not the ink's.
+    ///
+    /// **A vector for the same reason [`Self::advance`] is one.** A scalar height would
+    /// have a window drawing an upright box round a run turned on its side, which is the
+    /// shape of being wrong while looking right.
+    pub rise: (f64, f64),
     /// Where it draws from, on the page, in the default user space of ISO 32000-2 8.3.2.
     ///
     /// **A run's position is cumulative**, so this is not read off any one operator: it is
@@ -100,7 +104,7 @@ pub fn runs_of_page(doc: &Document, page: usize) -> PdfResult<Vec<RunInfo>> {
             font: run.font_name.clone(),
             origin: run.origin,
             advance: run.box_advance(),
-            height: run.box_height(),
+            rise: run.box_rise(),
         })
         .collect())
 }
@@ -940,9 +944,9 @@ impl Run {
         (placed[0] * self.placement.advance, placed[1] * self.placement.advance)
     }
 
-    /// The height of the box, on the page: the font size as the transform scales it.
-    fn box_height(&self) -> f64 {
+    /// The box's other edge, on the page: the font size along the text matrix's own y.
+    fn box_rise(&self) -> (f64, f64) {
         let placed = (self.placement.ctm * self.placement.matrix).as_coeffs();
-        self.placement.size * placed[2].hypot(placed[3])
+        (placed[2] * self.placement.size, placed[3] * self.placement.size)
     }
 }

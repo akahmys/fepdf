@@ -367,9 +367,11 @@ fn a_runs_box_follows_the_angle_it_is_set_at() {
         "the box ends at {ends:?} and the page draws the next run at {:?}",
         drawn[1]
     );
+    // The run is turned a quarter turn by `0 2 -2 0 … Tm`, so its "up" points along the
+    // page's negative x and is twice the 12 points it is set at.
     assert!(
-        (listed[0].height - 24.0).abs() < 0.01,
-        "a 12-point run doubled by its matrix is 24 points tall, and this one says {}",
-        listed[0].height
+        (listed[0].rise.0 + 24.0).abs() < 0.01 && listed[0].rise.1.abs() < 0.01,
+        "a 12-point run doubled and turned rises by {:?}",
+        listed[0].rise
     );
 }

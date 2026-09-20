@@ -4175,7 +4175,34 @@ Content editing, under D-1:
       the fabricated fallback in `app/mod.rs` — which lays the page's raw text out on an
       invented grid of even lines and 50-point margins — never fired either.
 
-- [ ] **W-E6 — the window for it**, on W-E6-a.
+- [x] **W-E6 — the window for it.** A drawer on the rail lists the runs of the page a
+      reader is on, draws a frame round each one, and does four things to the one they
+      click: replace its text, cut it in two, take it off the page, join it with the next.
+      `./scripts/dev/status.sh` on 2026-09-20: `fepdf-gui` now builds **20** of the
+      vocabulary's 37, from 16.
+
+      **The frame is a closed path through four corners, not a rectangle.** A run set at
+      an angle has no rectangle, and the hit test writes the click in the box's own two
+      edges rather than projecting onto them — projection is only the same answer when the
+      edges are at right angles, and a text matrix is free to skew them.
+
+      **The drawer says it does not group runs**, in the drawer, because a reader who
+      expected find-and-replace should learn why they are not getting it from the thing
+      itself rather than from a manual. A word is usually several runs; joining them would
+      be this window deciding what the document means (ADR-0091).
+
+      What was almost built twice, and is not: a flag beside the drawer saying the tool is
+      on. The drawer *is* the switch. Two switches for one thing is one of them going
+      stale, which is the same shape as the three caches the worker cleared by hand at
+      eleven sites — now one `PageCache` with one `clear()`, because a twelfth site that
+      cleared two of them would leave the window drawing frames round text that had moved.
+
+      **Moving a run is not in the drawer.** It is a drag on the page rather than a
+      button, and it is W-E6-b.
+
+- [ ] **W-E6-b — dragging a run to move it.** `Operation::MoveRun` exists and the window
+      does not reach it: the other four are a click and a button, and this one is a
+      gesture. It needs the drag to show where the run will land before it is let go.
 
 Forms, through to creation, under D-3:
 
