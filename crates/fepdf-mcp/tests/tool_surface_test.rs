@@ -96,7 +96,7 @@ fn the_tools_that_run_scripts_are_the_ones_that_say_so() {
 #[test]
 fn the_text_editing_operations_are_reachable() {
     let tools = served();
-    for wanted in ["list_runs", "edit_run", "split_run", "delete_run"] {
+    for wanted in ["list_runs", "edit_run", "split_run", "delete_run", "merge_runs"] {
         assert!(tools.iter().any(|name| name == wanted), "no tool reaches `{wanted}`: {tools:?}");
     }
 }

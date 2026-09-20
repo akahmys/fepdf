@@ -315,6 +315,22 @@ pub enum Operation {
         /// How many characters of it stay in the first half.
         after: usize,
     },
+    /// Joins one run with the run after it.
+    ///
+    /// **The other half of `SplitRun`.** A reader who knows two runs are one phrase says
+    /// so by joining them; one who knows a run is two things says so by cutting it.
+    /// Neither asks this engine to decide which, which is the whole of ADR-0091.
+    ///
+    /// Nothing may stand between the two. A `Td`, a `Tf`, a `T*` between them moves the
+    /// text or changes what it is set in, so joining across one would draw the second
+    /// half somewhere it was not; the operator in the way is named rather than stepped
+    /// over.
+    MergeRuns {
+        /// The page the runs are on.
+        page: usize,
+        /// The first of the two, counting show-text operators from the start of the page.
+        run: usize,
+    },
     /// Takes one run off the page.
     ///
     /// **Deleting a run is not editing it to nothing.** An emptied run is still a run: it
@@ -409,6 +425,7 @@ impl Operation {
             | Self::EditRun { .. }
             | Self::SplitRun { .. }
             | Self::DeleteRun { .. }
+            | Self::MergeRuns { .. }
             | Self::SetMeasurementScale { .. }
             | Self::SetFormFieldValue { .. }
             | Self::SetPageLabels { .. }

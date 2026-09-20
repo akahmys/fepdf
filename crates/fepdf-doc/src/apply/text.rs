@@ -360,3 +360,74 @@ pub fn apply_delete_run(doc: &Document, page: usize, run: usize) -> PdfResult<()
     }
     write_page_content(doc, page, out)
 }
+
+/// Joins run `run` with the run after it.
+///
+/// **This is the other half of [`apply_split_run`]**, and the reason both exist: a reader
+/// who knows two runs are one phrase says so by joining them, and one who knows a run is
+/// two things says so by cutting it. Neither asks this engine to decide which
+/// ([ADR-0091](../../../../docs/adr/0091-paragraphs-are-not-inferred-and-overflow-is-shown.md)).
+///
+/// **Nothing may stand between them.** A `Td`, a `Tf`, a `T*` — anything at all between
+/// the first run's operator and the second run's first operand moves the text, changes
+/// the face it is set in, or sets something the second run is drawn under. Joining across
+/// one would draw the second half somewhere it was not. The operator in the way is named
+/// rather than stepped over, because a caller that meant those two runs wants to know why
+/// they are not one.
+///
+/// That check is also what makes a font check unnecessary: the face changes only at a
+/// `Tf`, and a `Tf` between the two is something standing between them.
+///
+/// # Errors
+/// Fails when the page is not there, when it has no such run, when that run is the last
+/// one, when an operator stands between the two, or when the joined text cannot be encoded
+/// in the font they are both set in.
+pub fn apply_merge_runs(doc: &Document, page: usize, run: usize) -> PdfResult<()> {
+    let fonts = fonts_of_page(doc, page)?;
+    let Some(data) = page_content(doc, page)? else { return Ok(()) };
+    let (tokens, runs) = read_runs(&data, &fonts);
+
+    let Some(first) = runs.get(run) else {
+        return Err(PdfError::Other(
+            format!("this page has {} runs and no run {run}", runs.len()).into(),
+        ));
+    };
+    let Some(second) = runs.get(run + 1) else {
+        return Err(PdfError::Other(
+            format!("run {run} is the last on this page, so there is nothing to join it to").into(),
+        ));
+    };
+    if let Some(between) = between(&tokens, first.operator, second.start) {
+        return Err(PdfError::Other(
+            format!("{between} stands between run {run} and run {}, so joining them would draw the second somewhere it was not", run + 1)
+                .into(),
+        ));
+    }
+    let joined = encode(&first.font, &format!("{}{}", first.text, second.text))?;
+
+    let mut out = Vec::with_capacity(data.len());
+    let mut written = false;
+    for (index, token) in tokens.iter().enumerate() {
+        if first.strings.contains(&index) {
+            let replacement = if written { bytes::Bytes::new() } else { joined.clone() };
+            written = true;
+            Token::String(replacement).write_to(&mut out);
+        } else if index < second.start || index > second.operator {
+            token.write_to(&mut out);
+        }
+    }
+    write_page_content(doc, page, out)
+}
+
+/// What stands between one run's operator and the next run's first operand, if anything.
+///
+/// An operator is named; a bare operand is not, because it has no name to give and what
+/// matters to the caller is only that the two runs are not touching.
+fn between(tokens: &[Token], operator: usize, next: usize) -> Option<String> {
+    let gap = tokens.get(operator + 1..next)?;
+    let named = gap.iter().find_map(|token| match token {
+        Token::Keyword(op) => Some(format!("`{op}`")),
+        _ => None,
+    });
+    named.or_else(|| (!gap.is_empty()).then(|| "an operand".to_string()))
+}

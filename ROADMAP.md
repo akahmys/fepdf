@@ -3865,7 +3865,8 @@ Content editing, under D-1:
       drawn.
 
 - [x] **W-E3c — the run tools are reachable, and so is the listing they need.**
-      `fepdf-mcp` serves `list_runs`, `edit_run`, `split_run` and `delete_run`. An
+      `fepdf-mcp` serves `list_runs`, `edit_run`, `split_run`, `delete_run` and
+      `merge_runs`. An
       operation nothing can call is one nobody looks at — the state `AddAnnotation` was in
       for phases, and why its three defects waited for W-8 — so the tool surface test asks
       for all four by name.
@@ -3876,8 +3877,8 @@ Content editing, under D-1:
       and the font it is set in, and `list_runs_gives_the_number_the_other_run_tools_take`
       uses the number the listing gave rather than one written into the test.
 
-      `./scripts/dev/status.sh` on 2026-09-20: the frontends build **16, 8 and 34** of the
-      vocabulary's 35.
+      `./scripts/dev/status.sh` on 2026-09-20: the frontends build **16, 8 and 35** of the
+      vocabulary's 36.
 
 - [x] **W-E4a — a run split by kerning is still one run**, and the reflow this item was
       written about turned out not to exist.
@@ -3954,11 +3955,27 @@ Content editing, under D-1:
       before it. Each fails the tests written for it, and the last one is what makes the
       spacing assertion itself fire (78.016 against 78.016).
 
-- [ ] **W-E4e — joining two runs into one**, the other half of W-E4c. Two show-text
-      operators reading one phrase become one run, so a caller that had to name two things
-      can name one. The runs have to be adjacent in the stream and set in the same font,
-      and what sits between them — a `Td`, a `Tf`, a `Tw` — decides whether joining them
-      draws what they drew.
+- [x] **W-E4e — joining two runs into one**, the other half of W-E4c.
+      `Operation::MergeRuns { page, run }` joins a run with the one after it, so a phrase
+      drawn as two runs becomes one name and changing it is one edit instead of two.
+
+      **Nothing may stand between them, and what does is named.** A `Td`, a `Tf`, a `T*`
+      between the two moves the text or changes what it is set in, so joining across one
+      would draw the second half somewhere it was not. The refusal names the operator
+      rather than stepping over it, because a caller that meant those two runs wants to
+      know why they are not one.
+
+      That check is also what makes a font check unnecessary — the face changes only at a
+      `Tf`, and a `Tf` between the two is something standing between them. A separate
+      comparison of the two fonts would be unreachable, which is the shape of the dead
+      code W-E4d found.
+
+      **A cut and a join undo each other**, and `a_run_that_is_cut_and_joined_is_the_run_it_was`
+      is what says the two are one pair of verbs rather than two rewrites that happen to
+      sit near each other.
+
+      Three mutations: not checking what stands between, joining the halves the wrong way
+      round, and leaving the second run where it was. Each fails the tests written for it.
 
 - [ ] **W-E4f — moving a run.** The one of the four that needs a different foundation: a
       run's position is cumulative, so placing one somewhere else means tracking the text

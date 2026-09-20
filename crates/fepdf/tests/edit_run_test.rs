@@ -321,3 +321,99 @@ fn deleting_a_run_that_is_not_there_is_an_error() {
     let text = doc.extract_text(0).expect("it extracts");
     assert!(text.contains("ALPHA") && text.contains("BETA"), "a refused delete changed the page");
 }
+
+/// A page drawing three runs with `between` standing between the first two.
+fn page_with_between(between: &str) -> PdfDocument {
+    let content =
+        format!("BT /F1 24 Tf 1 0 0 1 40 700 Tm (ALPHA) Tj {between} (BETA) Tj (GAMMA) Tj ET");
+    let bodies = [
+        "<< /Type /Catalog /Pages 2 0 R >>".to_string(),
+        "<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_string(),
+        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R \
+         /Resources << /Font << /F1 5 0 R >> >> >>"
+            .to_string(),
+        format!("<< /Length {} >>\nstream\n{content}\nendstream", content.len()),
+        "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>".to_string(),
+    ];
+    PdfDocument::open_with_options(
+        fepdf_fixtures::assemble(&bodies).into(),
+        &IngestionOptions::default(),
+    )
+    .expect("the fixture opens")
+}
+
+/// **Two runs become one, and the page draws what it drew.**
+///
+/// This is how a reader says two runs are one phrase. Nothing here decided that for them,
+/// which is the whole of ADR-0091; what the join buys is that the phrase is one name
+/// afterwards, so changing it is one edit instead of two.
+#[test]
+fn two_runs_join_into_one_that_draws_the_same() {
+    let mut doc = page_with_between("");
+    let before = doc.extract_text(0).expect("it extracts");
+
+    doc.apply(Operation::MergeRuns { page: 0, run: 0 }).expect("the join applies");
+    let reopened = round_trip(&doc, "merged");
+
+    let listed = runs_of_page(reopened.inner(), 0).expect("it lists");
+    assert_eq!(
+        listed.iter().map(|r| r.text.as_str()).collect::<Vec<_>>(),
+        vec!["ALPHABETA", "GAMMA"],
+        "the two runs did not become one"
+    );
+    assert_eq!(
+        reopened.extract_text(0).expect("it extracts").replace(['\n', ' '], ""),
+        before.replace(['\n', ' '], ""),
+        "joining them changed what the page reads"
+    );
+}
+
+/// **A cut and a join undo each other**, which is what says the two are one pair of verbs
+/// rather than two rewrites that happen to be near each other.
+#[test]
+fn a_run_that_is_cut_and_joined_is_the_run_it_was() {
+    let mut doc = page_drawing("ALPHA", "BETA");
+    let before: Vec<String> =
+        runs_of_page(doc.inner(), 0).expect("it lists").iter().map(|r| r.text.clone()).collect();
+
+    doc.apply(Operation::SplitRun { page: 0, run: 0, after: 2 }).expect("the cut applies");
+    doc.apply(Operation::MergeRuns { page: 0, run: 0 }).expect("the join applies");
+
+    let after: Vec<String> = runs_of_page(round_trip(&doc, "round").inner(), 0)
+        .expect("it lists")
+        .iter()
+        .map(|r| r.text.clone())
+        .collect();
+    assert_eq!(after, before, "the page did not come back to the runs it had");
+}
+
+/// **An operator between two runs is named, not stepped over.**
+///
+/// A `Td` moves the text, so joining across one would draw the second half where the
+/// first one is. A caller that meant those two runs wants to know why they are not one.
+#[test]
+fn an_operator_between_two_runs_refuses_the_join() {
+    for between in ["100 0 Td", "/F1 8 Tf", "T*"] {
+        let mut doc = page_with_between(between);
+        let error = doc.apply(Operation::MergeRuns { page: 0, run: 0 }).expect_err("it refuses");
+        let said = error.to_string();
+        let operator = between.split_whitespace().last().expect("the fixture names one");
+        assert!(
+            said.contains(operator),
+            "the refusal does not name what stands between them: {said}"
+        );
+        let text = doc.extract_text(0).expect("it extracts");
+        assert!(
+            text.contains("ALPHA") && text.contains("BETA"),
+            "a refused join changed the page: {text:?}"
+        );
+    }
+}
+
+/// The last run has nothing after it, and saying so beats joining it to itself.
+#[test]
+fn the_last_run_has_nothing_to_join_to() {
+    let mut doc = page_drawing("ALPHA", "BETA");
+    let error = doc.apply(Operation::MergeRuns { page: 0, run: 1 }).expect_err("it refuses");
+    assert!(error.to_string().contains("last"), "the refusal does not say why: {error}");
+}

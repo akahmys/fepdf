@@ -701,3 +701,47 @@ fn split_run_leaves_the_page_drawing_what_it_drew() {
     let text = doc.extract_text(0).expect("it extracts");
     assert!(text.contains("ALPHA"), "the page stopped reading as it did: {text:?}");
 }
+
+/// Joining through the server makes two runs one, and names what stands in the way.
+#[test]
+fn merge_runs_joins_two_and_refuses_across_an_operator() {
+    let input = written("merge_runs", &two_run_page());
+    let output = out("merge_runs");
+
+    fepdf_mcp::tools::merge_runs_impl(fepdf_mcp::tools::MergeRunsArgs {
+        input_path: input,
+        output_path: output.clone(),
+        page: 0,
+        run: 0,
+    })
+    .expect("the tool runs");
+
+    let bytes = std::fs::read(&output).expect("the output is there");
+    let doc = fepdf::PdfDocument::open(bytes.into()).expect("it opens");
+    let listed = fepdf::text::runs_of_page(doc.inner(), 0).expect("it lists");
+    assert_eq!(
+        listed.iter().map(|r| r.text.as_str()).collect::<Vec<_>>(),
+        vec!["ALPHABETA"],
+        "the two runs did not become one"
+    );
+
+    let content = "BT /F1 24 Tf 1 0 0 1 40 700 Tm (ALPHA) Tj 100 0 Td (BETA) Tj ET";
+    let bodies = [
+        "<< /Type /Catalog /Pages 2 0 R >>".to_string(),
+        "<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_string(),
+        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R \
+         /Resources << /Font << /F1 5 0 R >> >> >>"
+            .to_string(),
+        format!("<< /Length {} >>\nstream\n{content}\nendstream", content.len()),
+        "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>".to_string(),
+    ];
+    let apart = written("merge_runs_apart", &fepdf_fixtures::assemble(&bodies));
+    let said = fepdf_mcp::tools::merge_runs_impl(fepdf_mcp::tools::MergeRunsArgs {
+        input_path: apart,
+        output_path: out("merge_runs_apart"),
+        page: 0,
+        run: 0,
+    })
+    .expect_err("it refuses");
+    assert!(said.contains("Td"), "the refusal does not name what is in the way: {said}");
+}

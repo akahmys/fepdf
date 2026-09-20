@@ -136,3 +136,23 @@ pub fn delete_run_impl(args: DeleteRunArgs) -> Result<String, String> {
     let op = Operation::DeleteRun { page: args.page, run: args.run };
     execute_single_op(&args.input_path, &args.output_path, op, "Run deleted")
 }
+
+/// Arguments for `merge_runs`.
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct MergeRunsArgs {
+    /// Path to input PDF file.
+    pub input_path: String,
+    /// Path to output PDF file.
+    pub output_path: String,
+    /// Target 0-based page index.
+    pub page: usize,
+    /// The first of the two runs to join, as `list_runs` numbers it. The second is the
+    /// one after it.
+    pub run: usize,
+}
+
+/// Implementation of the merge_runs tool.
+pub fn merge_runs_impl(args: MergeRunsArgs) -> Result<String, String> {
+    let op = Operation::MergeRuns { page: args.page, run: args.run };
+    execute_single_op(&args.input_path, &args.output_path, op, "Runs joined into one")
+}

@@ -11,8 +11,8 @@ use crate::tools::{
     AddAnnotationArgs, AddMeshShadingArgs, AddPageDecorationArgs, AddPublicKeyRecipientArgs,
     AddUserPropertiesArgs, ApplyBatesNumberingArgs, ApplyOperationArgs, AttachAssociatedFileArgs,
     AuditArgs, CreatePortfolioArgs, DeleteRunArgs, DeleteStructElemArgs, EditRunArgs,
-    ExecuteActionArgs, ExtractTextArgs, ListRunsArgs, MoveStructElemArgs, RedactDocumentArgs,
-    RemovePagesArgs, ReorderPagesArgs, RotatePagesArgs, SetFormFieldValueArgs,
+    ExecuteActionArgs, ExtractTextArgs, ListRunsArgs, MergeRunsArgs, MoveStructElemArgs,
+    RedactDocumentArgs, RemovePagesArgs, ReorderPagesArgs, RotatePagesArgs, SetFormFieldValueArgs,
     SetGeospatialAnchorArgs, SetMeasurementScaleArgs, SetOutputIntentArgs, SetPageLabelsArgs,
     SetPronunciationLexiconArgs, SetUnencryptedWrapperArgs, SplitRunArgs, UpdateArticleThreadsArgs,
     UpdateLayersArgs, UpdateOutlinesArgs, UpdateStructElemArgs, VerifySignaturesArgs,
@@ -20,7 +20,7 @@ use crate::tools::{
     add_public_key_recipient_impl, add_user_properties_impl, apply_bates_numbering_impl,
     apply_operation_impl, apply_redaction_impl, attach_associated_file_impl, audit_document_impl,
     create_portfolio_impl, delete_run_impl, delete_struct_elem_impl, edit_run_impl,
-    execute_action_impl, extract_text_impl, list_runs_impl, move_struct_elem_impl,
+    execute_action_impl, extract_text_impl, list_runs_impl, merge_runs_impl, move_struct_elem_impl,
     remove_pages_impl, reorder_pages_impl, rotate_pages_impl, set_form_field_value_impl,
     set_geospatial_anchor_impl, set_measurement_scale_impl, set_output_intent_impl,
     set_page_labels_impl, set_pronunciation_lexicon_impl, set_unencrypted_wrapper_impl,
@@ -546,6 +546,18 @@ impl FepdfServer {
         Parameters(args): Parameters<DeleteRunArgs>,
     ) -> Result<String, String> {
         delete_run_impl(args)
+    }
+
+    /// Joins one run with the run after it.
+    #[tool(
+        name = "merge_runs",
+        description = "Joins one run with the run after it, so a phrase drawn as two runs becomes one name. Nothing may stand between them: an operator in the way — a `Td`, a `Tf`, a `T*` — is named and the join refused, because joining across one would draw the second half somewhere it was not."
+    )]
+    pub async fn merge_runs(
+        &self,
+        Parameters(args): Parameters<MergeRunsArgs>,
+    ) -> Result<String, String> {
+        merge_runs_impl(args)
     }
 
     /// Configures drawing measurement scale dictionary (/Measure) for CAD and technical drawings.
