@@ -11,21 +11,21 @@ use crate::tools::{
     AddAnnotationArgs, AddMeshShadingArgs, AddPageDecorationArgs, AddPublicKeyRecipientArgs,
     AddUserPropertiesArgs, ApplyBatesNumberingArgs, ApplyOperationArgs, AttachAssociatedFileArgs,
     AuditArgs, CreatePortfolioArgs, DeleteRunArgs, DeleteStructElemArgs, EditRunArgs,
-    ExecuteActionArgs, ExtractTextArgs, ListRunsArgs, MergeRunsArgs, MoveStructElemArgs,
-    RedactDocumentArgs, RemovePagesArgs, ReorderPagesArgs, RotatePagesArgs, SetFormFieldValueArgs,
-    SetGeospatialAnchorArgs, SetMeasurementScaleArgs, SetOutputIntentArgs, SetPageLabelsArgs,
-    SetPronunciationLexiconArgs, SetUnencryptedWrapperArgs, SplitRunArgs, UpdateArticleThreadsArgs,
-    UpdateLayersArgs, UpdateOutlinesArgs, UpdateStructElemArgs, VerifySignaturesArgs,
-    add_annotation_impl, add_mesh_shading_impl, add_page_decoration_impl,
+    ExecuteActionArgs, ExtractTextArgs, ListRunsArgs, MergeRunsArgs, MoveRunArgs,
+    MoveStructElemArgs, RedactDocumentArgs, RemovePagesArgs, ReorderPagesArgs, RotatePagesArgs,
+    SetFormFieldValueArgs, SetGeospatialAnchorArgs, SetMeasurementScaleArgs, SetOutputIntentArgs,
+    SetPageLabelsArgs, SetPronunciationLexiconArgs, SetUnencryptedWrapperArgs, SplitRunArgs,
+    UpdateArticleThreadsArgs, UpdateLayersArgs, UpdateOutlinesArgs, UpdateStructElemArgs,
+    VerifySignaturesArgs, add_annotation_impl, add_mesh_shading_impl, add_page_decoration_impl,
     add_public_key_recipient_impl, add_user_properties_impl, apply_bates_numbering_impl,
     apply_operation_impl, apply_redaction_impl, attach_associated_file_impl, audit_document_impl,
     create_portfolio_impl, delete_run_impl, delete_struct_elem_impl, edit_run_impl,
-    execute_action_impl, extract_text_impl, list_runs_impl, merge_runs_impl, move_struct_elem_impl,
-    remove_pages_impl, reorder_pages_impl, rotate_pages_impl, set_form_field_value_impl,
-    set_geospatial_anchor_impl, set_measurement_scale_impl, set_output_intent_impl,
-    set_page_labels_impl, set_pronunciation_lexicon_impl, set_unencrypted_wrapper_impl,
-    split_run_impl, update_article_threads_impl, update_layers_impl, update_outlines_impl,
-    update_struct_elem_impl, verify_signatures_impl,
+    execute_action_impl, extract_text_impl, list_runs_impl, merge_runs_impl, move_run_impl,
+    move_struct_elem_impl, remove_pages_impl, reorder_pages_impl, rotate_pages_impl,
+    set_form_field_value_impl, set_geospatial_anchor_impl, set_measurement_scale_impl,
+    set_output_intent_impl, set_page_labels_impl, set_pronunciation_lexicon_impl,
+    set_unencrypted_wrapper_impl, split_run_impl, update_article_threads_impl, update_layers_impl,
+    update_outlines_impl, update_struct_elem_impl, verify_signatures_impl,
 };
 use rmcp::{
     ServiceExt,
@@ -558,6 +558,18 @@ impl FepdfServer {
         Parameters(args): Parameters<MergeRunsArgs>,
     ) -> Result<String, String> {
         merge_runs_impl(args)
+    }
+
+    /// Puts one run somewhere else on the page.
+    #[tool(
+        name = "move_run",
+        description = "Puts one run somewhere else on the page, in points from the bottom-left corner, and leaves every other run where it is. The run keeps its number and the face, size and angle it was set in; only where it draws from changes."
+    )]
+    pub async fn move_run(
+        &self,
+        Parameters(args): Parameters<MoveRunArgs>,
+    ) -> Result<String, String> {
+        move_run_impl(args)
     }
 
     /// Configures drawing measurement scale dictionary (/Measure) for CAD and technical drawings.

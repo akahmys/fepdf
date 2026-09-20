@@ -3865,8 +3865,8 @@ Content editing, under D-1:
       drawn.
 
 - [x] **W-E3c — the run tools are reachable, and so is the listing they need.**
-      `fepdf-mcp` serves `list_runs`, `edit_run`, `split_run`, `delete_run` and
-      `merge_runs`. An
+      `fepdf-mcp` serves `list_runs`, `edit_run`, `split_run`, `delete_run`,
+      `merge_runs` and `move_run`. An
       operation nothing can call is one nobody looks at — the state `AddAnnotation` was in
       for phases, and why its three defects waited for W-8 — so the tool surface test asks
       for all four by name.
@@ -3877,8 +3877,8 @@ Content editing, under D-1:
       and the font it is set in, and `list_runs_gives_the_number_the_other_run_tools_take`
       uses the number the listing gave rather than one written into the test.
 
-      `./scripts/dev/status.sh` on 2026-09-20: the frontends build **16, 8 and 35** of the
-      vocabulary's 36.
+      `./scripts/dev/status.sh` on 2026-09-20: the frontends build **16, 8 and 36** of the
+      vocabulary's 37.
 
 - [x] **W-E4a — a run split by kerning is still one run**, and the reflow this item was
       written about turned out not to exist.
@@ -4037,10 +4037,38 @@ Content editing, under D-1:
 - [ ] **W-E4f-d — cutting a run in codes rather than in characters**, so that a run this
       engine reads short can still be split. Today it is refused by W-E4f-c's guard.
 
-- [ ] **W-E4f — moving a run.** The one of the four that needs a different foundation: a
-      run's position is cumulative, so placing one somewhere else means tracking the text
-      matrix (`Tm`, `Td`, `TD`, `T*` and every advance before it) rather than rewriting a
-      string in place.
+- [x] **W-E4f — moving a run.** `Operation::MoveRun { page, run, to }`, the last of the
+      four and the only one that needed a different foundation.
+
+      **`Tm` cannot put back what showing text does.** It sets the text matrix and the
+      line matrix together, and drawing advances only the first, so after a run the two
+      differ and no single `Tm` restores both. The run is drawn in a text object of its
+      own and the one it came from is reopened around it:
+
+      ```text
+      … ET  BT <new Tm> Tm (its codes) Tj ET  BT <the old Tlm> Tm [ n ] TJ  …
+      ```
+
+      `BT` and `ET` reset the two matrices and nothing else — the font, the spacings and
+      the horizontal scaling are graphics state and outlive them (9.4.1) — so only `Tm` is
+      restated. The `[ n ] TJ` then steps the text matrix on by what the run advanced it
+      by, without touching the line matrix, which is the one thing `Tm` cannot express.
+
+      **The codes are reused rather than re-encoded**, so a run this engine reads short
+      (W-E4f-c) can still be moved, and the run keeps its number: its show-text operator
+      is still the same one in the same place among the page's runs.
+
+      **An operator showing no string stopped counting as a run.** `[ -250 ] TJ` draws
+      nothing, and listing it would have put an entry in front of a reader for something
+      they cannot see. An *empty string* still counts, because `edit_run` to nothing
+      leaves a run there to be typed into again — the two are different on purpose.
+
+      Seven mutations, each failing the test written for it: dropping the restoring `TJ`,
+      dropping the restoring `Tm`, reversing the offset's sign, leaving `Th` out of it,
+      placing `to` without the transform in force, replacing the run's whole matrix, and
+      counting a stringless operator as a run. The sixth needed a fixture of its own — a
+      run set at an angle — because replacing the matrix puts the text upright in the
+      right place, and an origin cannot see that.
 
 - [ ] **W-T1 — the two gates take 39 minutes, and 5 of them are a second `cargo check`.**
       Measured on 2026-09-20, one run of `cargo test --workspace` followed by

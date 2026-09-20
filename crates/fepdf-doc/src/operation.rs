@@ -331,6 +331,24 @@ pub enum Operation {
         /// The first of the two, counting show-text operators from the start of the page.
         run: usize,
     },
+    /// Puts one run somewhere else on the page, leaving every other run where it is.
+    ///
+    /// **A run's position is cumulative, so this is not rewriting an operand.** `Tm` sets
+    /// the text matrix and the line matrix together, and showing text advances only the
+    /// first, so after a run the two differ and no single `Tm` puts both back. The run is
+    /// drawn in a text object of its own and the one it came from is reopened with its
+    /// line matrix restored and a `TJ` offset stepping the text matrix on from it.
+    ///
+    /// The codes are reused rather than re-encoded, so a run this engine reads short can
+    /// still be moved, and the run keeps its number.
+    MoveRun {
+        /// The page the run is on.
+        page: usize,
+        /// Which run, counting show-text operators from the start of the page's content.
+        run: usize,
+        /// Where it draws from afterwards, in the page's default user space.
+        to: (f64, f64),
+    },
     /// Takes one run off the page.
     ///
     /// **Deleting a run is not editing it to nothing.** An emptied run is still a run: it
@@ -426,6 +444,7 @@ impl Operation {
             | Self::SplitRun { .. }
             | Self::DeleteRun { .. }
             | Self::MergeRuns { .. }
+            | Self::MoveRun { .. }
             | Self::SetMeasurementScale { .. }
             | Self::SetFormFieldValue { .. }
             | Self::SetPageLabels { .. }

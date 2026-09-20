@@ -189,6 +189,28 @@ struct Run {
     origin: (f64, f64),
     /// The codes it was written with, all its strings run together.
     codes: Vec<u8>,
+    /// What placed it, and what it leaves the text matrix saying.
+    placement: Placement,
+}
+
+/// What a run is placed by, kept so that a move can put it back exactly.
+#[derive(Clone, Copy)]
+struct Placement {
+    /// `Tm` where the run starts drawing.
+    matrix: Affine,
+    /// `Tlm`, which showing text does not touch.
+    line: Affine,
+    /// The transform in force, which `BT` and `ET` do not touch either.
+    ctm: Affine,
+    /// `Tfs`, which a `TJ` offset is measured in.
+    size: f64,
+    /// `Th`, as a percentage, which scales that offset.
+    scale: f64,
+    /// How far the run moves the text matrix.
+    advance: f64,
+    /// Whether a `BT` is open where it draws. A run outside a text object cannot be
+    /// moved by splicing one, so it is refused rather than guessed at.
+    in_text_object: bool,
 }
 
 /// Every token of the stream, and every run among them, in order.
@@ -200,10 +222,7 @@ fn read_runs(data: &[u8], fonts: &BTreeMap<String, Arc<FontResource>>) -> (Vec<T
     let mut tokens: Vec<Token> = Vec::new();
     let mut runs: Vec<Run> = Vec::new();
     let mut operands: Vec<usize> = Vec::new();
-    let mut font: Option<(String, Arc<FontResource>)> = None;
-    let mut state = TextState::default();
-    let mut ctm = Affine::IDENTITY;
-    let mut saved: Vec<Affine> = Vec::new();
+    let mut walk = Walk::default();
 
     while let Ok(token) = lexer.next_token() {
         if token == Token::EOF {
@@ -217,25 +236,85 @@ fn read_runs(data: &[u8], fonts: &BTreeMap<String, Arc<FontResource>>) -> (Vec<T
         };
         let op = op.clone();
         tokens.push(token);
-
-        let numbers = numbers(&operands, &tokens);
-        if op == "Tf" {
-            font = font_named(&operands, &tokens, fonts);
-            state.size = numbers.last().copied().unwrap_or(state.size);
-        }
-        place(&mut state, &mut ctm, &mut saved, &op, &numbers);
-        if matches!(op.as_str(), "Tj" | "TJ")
-            && let Some(selected) = font.clone()
-        {
-            let moved = displacement(&selected.1, &tokens, &operands, &state);
-            let placed = (ctm * state.matrix).as_coeffs();
-            let origin = (placed[4], placed[5]);
-            runs.push(run_drawn_by(&operands, &tokens, index, selected, origin));
-            state.advance(moved);
+        if let Some(run) = walk.operator(&op, &operands, &tokens, index, fonts) {
+            runs.push(run);
         }
         operands.clear();
     }
     (tokens, runs)
+}
+
+/// What the walk carries from one operator to the next.
+#[derive(Default)]
+struct Walk {
+    /// Where the text is and what moves it.
+    state: TextState,
+    /// The transform in force, and what `q` saved of it.
+    ctm: Affine,
+    /// The stack `q` pushes and `Q` pops.
+    saved: Vec<Affine>,
+    /// Whether a `BT` is open.
+    in_text_object: bool,
+    /// The font a `Tf` last selected, when this walk could resolve it.
+    font: Option<(String, Arc<FontResource>)>,
+}
+
+impl Walk {
+    /// Applies one operator, and hands back the run it drew when it drew one.
+    fn operator(
+        &mut self,
+        op: &str,
+        operands: &[usize],
+        tokens: &[Token],
+        index: usize,
+        fonts: &BTreeMap<String, Arc<FontResource>>,
+    ) -> Option<Run> {
+        let numbers = numbers(operands, tokens);
+        if op == "Tf" {
+            self.font = font_named(operands, tokens, fonts);
+            self.state.size = numbers.last().copied().unwrap_or(self.state.size);
+        }
+        place(&mut self.state, &mut self.ctm, &mut self.saved, op, &numbers);
+        match op {
+            "BT" => self.in_text_object = true,
+            "ET" => self.in_text_object = false,
+            _ => {}
+        }
+        if !matches!(op, "Tj" | "TJ") {
+            return None;
+        }
+        let selected = self.font.clone()?;
+        let drawn = self.shown(operands, tokens, index, selected);
+        // **An operator showing no string is not a run.** `[ -250 ] TJ` moves the text
+        // matrix and draws nothing, which is how a move puts back what the run it took
+        // away had advanced; counting it would put an entry in the listing for something
+        // a reader never sees. An *empty* string is different and still counts:
+        // `edit_run` to nothing leaves a run there to be typed into again.
+        (!drawn.strings.is_empty()).then_some(drawn)
+    }
+
+    /// The run a show-text operator draws, with the text matrix advanced past it.
+    fn shown(
+        &mut self,
+        operands: &[usize],
+        tokens: &[Token],
+        index: usize,
+        selected: (String, Arc<FontResource>),
+    ) -> Run {
+        let moved = displacement(&selected.1, tokens, operands, &self.state);
+        let placement = Placement {
+            matrix: self.state.matrix,
+            line: self.state.line,
+            ctm: self.ctm,
+            size: self.state.size,
+            scale: self.state.scale,
+            advance: moved,
+            in_text_object: self.in_text_object,
+        };
+        let drawn = run_drawn_by(operands, tokens, index, selected, placement);
+        self.state.advance(moved);
+        drawn
+    }
 }
 
 /// The font a `Tf` names, out of the operands before it.
@@ -580,7 +659,7 @@ fn run_drawn_by(
     tokens: &[Token],
     operator: usize,
     (font_name, font): (String, Arc<FontResource>),
-    origin: (f64, f64),
+    placement: Placement,
 ) -> Run {
     let strings: Vec<usize> = operands
         .iter()
@@ -605,7 +684,9 @@ fn run_drawn_by(
         .collect::<Vec<_>>()
         .concat();
     let start = operands.first().copied().unwrap_or(operator);
-    Run { strings, start, operator, text, font, font_name, origin, codes }
+    let placed = (placement.ctm * placement.matrix).as_coeffs();
+    let origin = (placed[4], placed[5]);
+    Run { strings, start, operator, text, font, font_name, origin, codes, placement }
 }
 
 /// The numeric operands standing before an operator, in the order they were written.
@@ -706,4 +787,150 @@ fn reencodes_as_it_is(run: &Run, what: &str, index: usize) -> PdfResult<()> {
 #[allow(clippy::cast_precision_loss)]
 fn as_f64(n: i64) -> f64 {
     n as f64
+}
+
+/// Puts run `run` of `page` so that it draws from `to`, and leaves every other run alone.
+///
+/// **A run's position is cumulative, so moving one is not rewriting an operand.** `Tm`
+/// sets both the text matrix and the line matrix, and showing text advances only the
+/// first — so after a run the two differ, and no single `Tm` can put both back. The run is
+/// therefore drawn in a text object of its own:
+///
+/// ```text
+/// … ET  BT <new Tm> Tm (its codes) Tj ET  BT <the old Tlm> Tm [ n ] TJ  …
+/// ```
+///
+/// `BT` and `ET` reset the two matrices and nothing else — the font, the spacings and the
+/// horizontal scaling are graphics state and outlive them (9.4.1) — so only `Tm` has to be
+/// restated. The `[ n ] TJ` then advances the text matrix by what the run advanced it by,
+/// without touching the line matrix, which is the one thing `Tm` cannot express. It shows
+/// no string, so it draws nothing and is not a run.
+///
+/// **The codes are reused rather than re-encoded**, so a run this engine reads short can
+/// still be moved, and the run keeps its number: its show-text operator is still the same
+/// one, in the same place among the page's runs.
+///
+/// # Errors
+/// Fails when the page is not there, when it has no such run, when the run is drawn
+/// outside a text object, when nothing can express the restoring offset — a zero font
+/// size or horizontal scaling, or a text matrix that a translation does not relate to the
+/// line matrix, which is what vertical writing gives — or when `to` cannot be reached
+/// through the transform in force.
+pub fn apply_move_run(doc: &Document, page: usize, run: usize, to: (f64, f64)) -> PdfResult<()> {
+    let fonts = fonts_of_page(doc, page)?;
+    let Some(data) = page_content(doc, page)? else { return Ok(()) };
+    let (tokens, runs) = read_runs(&data, &fonts);
+
+    let Some(target) = runs.get(run) else {
+        return Err(PdfError::Other(
+            format!("this page has {} runs and no run {run}", runs.len()).into(),
+        ));
+    };
+    let placed = target.placement;
+    if !placed.in_text_object {
+        return Err(PdfError::Other(
+            format!("run {run} is drawn outside a text object, so there is none to move it in")
+                .into(),
+        ));
+    }
+    let moved_to = matrix_reaching(&placed, to, run)?;
+    let offset = restoring_offset(&placed, run)?;
+
+    let mut out = Vec::with_capacity(data.len() + 96);
+    for (index, token) in tokens.iter().enumerate() {
+        if index < target.start || index > target.operator {
+            token.write_to(&mut out);
+            continue;
+        }
+        if index == target.operator {
+            write_moved(&mut out, &target.codes, moved_to, (placed.line, offset));
+        }
+    }
+    write_page_content(doc, page, out)
+}
+
+/// The text matrix that draws a run from `to` on the page.
+///
+/// Only the translation changes: whatever scale or rotation the run was set with is what
+/// it keeps, because a move was asked for and nothing else.
+fn matrix_reaching(placed: &Placement, to: (f64, f64), run: usize) -> PdfResult<Affine> {
+    if placed.ctm.determinant().abs() < f64::EPSILON {
+        return Err(PdfError::Other(
+            format!("run {run} is drawn under a transform that flattens the page, so no position reaches it")
+                .into(),
+        ));
+    }
+    let wanted = placed.ctm.inverse() * Affine::translate(to);
+    let keep = placed.matrix.as_coeffs();
+    let reach = wanted.as_coeffs();
+    Ok(Affine::new([keep[0], keep[1], keep[2], keep[3], reach[4], reach[5]]))
+}
+
+/// The `TJ` number that puts the text matrix back where the run left it.
+///
+/// A `TJ` offset moves the current point by `-n/1000 × Tfs × Th/100` along the writing
+/// direction (9.4.3), so it can express a horizontal step and nothing else. That is
+/// exactly the shape of what showing text leaves behind in horizontal writing; a text
+/// matrix that some other transform separates from the line matrix is refused rather than
+/// approximated.
+fn restoring_offset(placed: &Placement, run: usize) -> PdfResult<f64> {
+    let after = placed.matrix * Affine::translate((placed.advance, 0.0));
+    if placed.line.determinant().abs() < f64::EPSILON {
+        return Err(PdfError::Other(
+            format!("run {run} is placed by a line matrix nothing can be measured against").into(),
+        ));
+    }
+    let step = (placed.line.inverse() * after).as_coeffs();
+    let is_translation = (step[0] - 1.0).abs() < 1e-9
+        && step[1].abs() < 1e-9
+        && step[2].abs() < 1e-9
+        && (step[3] - 1.0).abs() < 1e-9
+        && step[5].abs() < 1e-9;
+    if !is_translation {
+        return Err(PdfError::Other(
+            format!("run {run} sits at {step:?} from the line it is on, which a horizontal offset cannot put back")
+                .into(),
+        ));
+    }
+    let scaled = placed.size * placed.scale / 100.0;
+    if scaled.abs() < f64::EPSILON {
+        return Err(PdfError::Other(
+            format!("run {run} is set at a size of zero, so no offset can be measured in it")
+                .into(),
+        ));
+    }
+    Ok(-step[4] * 1000.0 / scaled)
+}
+
+/// Writes the run in a text object of its own, then reopens the one it came from with
+/// both matrices where it left them.
+///
+/// The text object the run was in is closed and a new one opened around it, so the run
+/// draws from `to` under its own `Tm`. What follows needs `Tlm` back as it was and `Tm`
+/// advanced by what the run advanced it by — two values one `Tm` cannot set, so the
+/// matrix restores the line and the `TJ` offset steps the text matrix on from it.
+fn write_moved(out: &mut Vec<u8>, codes: &[u8], to: Affine, restore: (Affine, f64)) {
+    let (line, offset) = restore;
+    let matrix = |m: Affine, out: &mut Vec<u8>| {
+        for coefficient in m.as_coeffs() {
+            Token::Real(coefficient).write_to(out);
+        }
+        Token::Keyword("Tm".to_string()).write_to(out);
+    };
+    let keyword = |word: &str, out: &mut Vec<u8>| Token::Keyword(word.to_string()).write_to(out);
+
+    keyword("ET", out);
+    keyword("BT", out);
+    matrix(to, out);
+    Token::String(bytes::Bytes::copy_from_slice(codes)).write_to(out);
+    keyword("Tj", out);
+    keyword("ET", out);
+    keyword("BT", out);
+    matrix(line, out);
+    if offset.abs() > f64::EPSILON {
+        Token::LeftArray.write_to(out);
+        Token::Real(offset).write_to(out);
+        Token::RightArray.write_to(out);
+        keyword("TJ", out);
+    }
 }

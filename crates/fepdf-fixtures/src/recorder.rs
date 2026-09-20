@@ -278,6 +278,24 @@ impl Recorder {
             .collect()
     }
 
+    /// The matrix each run of glyphs was placed by, with the CTM in force applied.
+    ///
+    /// [`Self::device_text_origins`] answers where a run starts and says nothing about
+    /// how it is set. A test that a move keeps a run's scale or rotation needs the rest
+    /// of the matrix, and dropping those from a moved run shifts no origin at all.
+    pub fn device_text_matrices(&self) -> Vec<Affine> {
+        self.events
+            .iter()
+            .filter_map(|e| {
+                if let Event::Text { transform, ctm, .. } = e {
+                    Some(*ctm * *transform)
+                } else {
+                    None
+                }
+            })
+            .collect()
+    }
+
     /// The last image the page drew, when it drew one.
     pub fn last_image(&self) -> Option<ImageDrawn<'_>> {
         self.events.iter().rev().find_map(|e| {

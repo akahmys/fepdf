@@ -174,3 +174,133 @@ fn a_run_that_does_not_survive_a_round_trip_is_refused() {
     let after = runs_of_page(doc.inner(), 0).expect("it lists");
     assert_eq!(after.len(), listed.len(), "a refused cut changed the page");
 }
+
+/// Where the page draws each of its runs, after a round trip through a file.
+fn drawn_after(doc: &PdfDocument, name: &str) -> Vec<(f64, f64)> {
+    let path = std::env::temp_dir().join(format!("fepdf_move_run_{name}.pdf"));
+    doc.save_with_options(&path, "2.0", &fepdf::SaveOptions::default()).expect("it writes");
+    let written = std::fs::read(&path).expect("the output is there");
+    let _ = std::fs::remove_file(&path);
+    let reopened = PdfDocument::open_with_options(written.into(), &IngestionOptions::default())
+        .expect("what this engine wrote, this engine opens");
+    drawn_at(&reopened, 0)
+}
+
+/// **A moved run draws from where it was put, and nothing else moves.**
+///
+/// The second half is the whole difficulty. A run that follows on the same line draws
+/// from the current point, so taking one out of the middle of a text object shifts
+/// everything after it — unless what it advanced the text matrix by is put back. The
+/// fixture puts three runs on one line so that there is something after the move to be
+/// wrong.
+#[test]
+fn a_moved_run_draws_where_it_was_put_and_the_rest_stays() {
+    let doc = page_using_every_placement();
+    let before = drawn_at(&doc, 0);
+
+    let mut moved = page_using_every_placement();
+    moved
+        .apply(Operation::MoveRun { page: 0, run: 4, to: (300.0, 120.0) })
+        .expect("the move applies");
+    let after = drawn_after(&moved, "one");
+
+    assert_eq!(after.len(), before.len(), "the page draws a different number of runs");
+    assert!(
+        (after[4].0 - 300.0).abs() < 0.1 && (after[4].1 - 120.0).abs() < 0.1,
+        "the run was put at {:?} and draws at {:?}",
+        (300.0, 120.0),
+        after[4]
+    );
+    for (index, (before, after)) in before.iter().zip(after.iter()).enumerate() {
+        if index == 4 {
+            continue;
+        }
+        assert!(
+            (before.0 - after.0).abs() < 0.1 && (before.1 - after.1).abs() < 0.1,
+            "run {index} moved from {before:?} to {after:?} although another run was named"
+        );
+    }
+}
+
+/// And the listing agrees with the page about where it went.
+#[test]
+fn a_moved_run_keeps_its_number_and_says_where_it_is() {
+    let mut doc = page_using_every_placement();
+    let before = runs_of_page(doc.inner(), 0).expect("it lists");
+    doc.apply(Operation::MoveRun { page: 0, run: 1, to: (200.0, 400.0) })
+        .expect("the move applies");
+    let after = runs_of_page(doc.inner(), 0).expect("it lists");
+
+    assert_eq!(
+        after.iter().map(|r| r.text.as_str()).collect::<Vec<_>>(),
+        before.iter().map(|r| r.text.as_str()).collect::<Vec<_>>(),
+        "the move renumbered the page's runs"
+    );
+    assert!(
+        (after[1].origin.0 - 200.0).abs() < 0.1 && (after[1].origin.1 - 400.0).abs() < 0.1,
+        "the listing says the moved run is at {:?}",
+        after[1].origin
+    );
+}
+
+/// Naming a run that is not there is an error, not a page with something else moved.
+#[test]
+fn moving_a_run_that_is_not_there_is_an_error() {
+    let mut doc = page_using_every_placement();
+    let error = doc
+        .apply(Operation::MoveRun { page: 0, run: 99, to: (10.0, 10.0) })
+        .expect_err("it refuses");
+    assert!(error.to_string().contains("no run 99"), "the refusal does not say which: {error}");
+}
+
+/// A page whose run is set at an angle, so that moving it has something to lose.
+fn page_drawing_at_an_angle() -> PdfDocument {
+    let content = "BT /F1 12 Tf 0 2 -2 0 100 300 Tm (TURNED) Tj (AFTER) Tj ET";
+    let bodies = [
+        "<< /Type /Catalog /Pages 2 0 R >>".to_string(),
+        "<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_string(),
+        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R \
+         /Resources << /Font << /F1 5 0 R >> >> >>"
+            .to_string(),
+        format!("<< /Length {} >>\nstream\n{content}\nendstream", content.len()),
+        "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>".to_string(),
+    ];
+    PdfDocument::open_with_options(
+        fepdf_fixtures::assemble(&bodies).into(),
+        &IngestionOptions::default(),
+    )
+    .expect("the fixture opens")
+}
+
+/// **A move changes where a run is and nothing about how it is set.**
+///
+/// A run turned on its side and scaled keeps both. Only the translation of its matrix is
+/// the caller's business here, and replacing the whole matrix would put the text upright
+/// at the right place — which shifts no origin, so an origin is not what says this.
+#[test]
+fn a_moved_run_keeps_the_matrix_it_was_set_with() {
+    let doc = page_drawing_at_an_angle();
+    let mut recorder = Recorder::new();
+    doc.render_page(0, &mut recorder, Affine::IDENTITY).expect("the page interprets");
+    let before = recorder.device_text_matrices()[0].as_coeffs();
+
+    let mut moved = page_drawing_at_an_angle();
+    moved
+        .apply(Operation::MoveRun { page: 0, run: 0, to: (400.0, 500.0) })
+        .expect("the move applies");
+    let mut recorder = Recorder::new();
+    moved.render_page(0, &mut recorder, Affine::IDENTITY).expect("the page interprets");
+    let after = recorder.device_text_matrices()[0].as_coeffs();
+
+    for (index, (before, after)) in before.iter().zip(after.iter()).take(4).enumerate() {
+        assert!(
+            (before - after).abs() < 1e-9,
+            "coefficient {index} of the matrix went from {before} to {after}"
+        );
+    }
+    assert!(
+        (after[4] - 400.0).abs() < 0.1 && (after[5] - 500.0).abs() < 0.1,
+        "the run was put at (400, 500) and its matrix translates to {:?}",
+        (after[4], after[5])
+    );
+}

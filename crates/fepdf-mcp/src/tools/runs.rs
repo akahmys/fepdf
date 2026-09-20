@@ -156,3 +156,26 @@ pub fn merge_runs_impl(args: MergeRunsArgs) -> Result<String, String> {
     let op = Operation::MergeRuns { page: args.page, run: args.run };
     execute_single_op(&args.input_path, &args.output_path, op, "Runs joined into one")
 }
+
+/// Arguments for `move_run`.
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct MoveRunArgs {
+    /// Path to input PDF file.
+    pub input_path: String,
+    /// Path to output PDF file.
+    pub output_path: String,
+    /// Target 0-based page index.
+    pub page: usize,
+    /// Which run to move, as `list_runs` numbers it.
+    pub run: usize,
+    /// Where it draws from afterwards, in points from the left edge of the page.
+    pub x: f64,
+    /// Where it draws from afterwards, in points from the bottom edge of the page.
+    pub y: f64,
+}
+
+/// Implementation of the move_run tool.
+pub fn move_run_impl(args: MoveRunArgs) -> Result<String, String> {
+    let op = Operation::MoveRun { page: args.page, run: args.run, to: (args.x, args.y) };
+    execute_single_op(&args.input_path, &args.output_path, op, "Run moved")
+}

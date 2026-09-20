@@ -745,3 +745,48 @@ fn merge_runs_joins_two_and_refuses_across_an_operator() {
     .expect_err("it refuses");
     assert!(said.contains("Td"), "the refusal does not name what is in the way: {said}");
 }
+
+/// Moving through the server puts the run where it was asked for and leaves the other.
+#[test]
+fn move_run_puts_the_named_run_where_it_was_asked_for() {
+    let input = written("move_run", &two_run_page());
+    let output = out("move_run");
+    // Where the second run was before anything moved. It is *not* the start of the line:
+    // it draws from where the first one ended, which is the whole reason a move has to
+    // put back what the run it took away had advanced.
+    let before = fepdf::text::runs_of_page(
+        fepdf::PdfDocument::open(two_run_page().into()).expect("it opens").inner(),
+        0,
+    )
+    .expect("it lists")[1]
+        .origin;
+
+    fepdf_mcp::tools::move_run_impl(fepdf_mcp::tools::MoveRunArgs {
+        input_path: input,
+        output_path: output.clone(),
+        page: 0,
+        run: 0,
+        x: 300.0,
+        y: 120.0,
+    })
+    .expect("the tool runs");
+
+    let bytes = std::fs::read(&output).expect("the output is there");
+    let doc = fepdf::PdfDocument::open(bytes.into()).expect("it opens");
+    let listed = fepdf::text::runs_of_page(doc.inner(), 0).expect("it lists");
+    assert_eq!(
+        listed.iter().map(|r| r.text.as_str()).collect::<Vec<_>>(),
+        vec!["ALPHA", "BETA"],
+        "the move changed what the page reads or how its runs are numbered"
+    );
+    assert!(
+        (listed[0].origin.0 - 300.0).abs() < 0.1 && (listed[0].origin.1 - 120.0).abs() < 0.1,
+        "the run was put at (300, 120) and reads as {:?}",
+        listed[0].origin
+    );
+    assert!(
+        (listed[1].origin.0 - before.0).abs() < 0.1 && (listed[1].origin.1 - before.1).abs() < 0.1,
+        "the run that was not named moved from {before:?} to {:?}",
+        listed[1].origin
+    );
+}
