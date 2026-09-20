@@ -564,7 +564,7 @@ fn setting_a_field_recalculates_what_is_computed_from_it() {
 
 /// The text editing tool changes the page it is pointed at, through a file.
 #[test]
-fn edit_text_run_replaces_what_it_was_asked_to() {
+fn edit_run_replaces_the_run_it_was_asked_for() {
     let content = "BT /F1 24 Tf 1 0 0 1 40 700 Tm (ORIGINAL) Tj ET";
     let bodies = [
         "<< /Type /Catalog /Pages 2 0 R >>".to_string(),
@@ -575,25 +575,129 @@ fn edit_text_run_replaces_what_it_was_asked_to() {
         format!("<< /Length {} >>\nstream\n{content}\nendstream", content.len()),
         "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>".to_string(),
     ];
-    let input = std::env::temp_dir().join("fepdf_mcp_edit_in.pdf");
-    let output = std::env::temp_dir().join("fepdf_mcp_edit_out.pdf");
-    std::fs::write(&input, fepdf_fixtures::assemble(&bodies)).expect("the fixture writes");
+    let input = written("edit_run", &fepdf_fixtures::assemble(&bodies));
+    let output = out("edit_run");
 
-    let said = fepdf_mcp::tools::edit_text_run_impl(fepdf_mcp::tools::EditTextRunArgs {
-        input_path: input.to_string_lossy().to_string(),
-        output_path: output.to_string_lossy().to_string(),
+    let said = fepdf_mcp::tools::edit_run_impl(fepdf_mcp::tools::EditRunArgs {
+        input_path: input,
+        output_path: output.clone(),
         page: 0,
-        find: "ORIGINAL".to_string(),
-        replace: "CHANGED".to_string(),
+        run: 0,
+        text: "CHANGED".to_string(),
     })
     .expect("the tool runs");
-    assert!(said.contains("replaced") || said.contains("Text run"), "it said: {said}");
+    assert!(said.contains("replaced") || said.contains("Run"), "it said: {said}");
 
-    let written = std::fs::read(&output).expect("the output is there");
-    let doc = fepdf::PdfDocument::open(written.into()).expect("it opens");
+    let bytes = std::fs::read(&output).expect("the output is there");
+    let doc = fepdf::PdfDocument::open(bytes.into()).expect("it opens");
     let text = doc.extract_text(0).expect("it extracts");
     assert!(text.contains("CHANGED"), "the tool did not change the page: {text:?}");
+}
 
-    let _ = std::fs::remove_file(&input);
-    let _ = std::fs::remove_file(&output);
+/// A page drawing two runs, for the tools that name one of them.
+fn two_run_page() -> Vec<u8> {
+    let content = "BT /F1 24 Tf 1 0 0 1 40 700 Tm (ALPHA) Tj (BETA) Tj ET";
+    let bodies = [
+        "<< /Type /Catalog /Pages 2 0 R >>".to_string(),
+        "<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_string(),
+        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R \
+         /Resources << /Font << /F1 5 0 R >> >> >>"
+            .to_string(),
+        format!("<< /Length {} >>\nstream\n{content}\nendstream", content.len()),
+        "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>".to_string(),
+    ];
+    fepdf_fixtures::assemble(&bodies)
+}
+
+/// **The number the listing gives is the number the edits take.**
+///
+/// The three run tools all name a run by an index into a content stream the caller cannot
+/// see, and for a day nothing served that listing — so the only way to get a number was to
+/// guess one. This asks for the listing and then uses what it said.
+#[test]
+fn list_runs_gives_the_number_the_other_run_tools_take() {
+    let input = written("list_runs", &two_run_page());
+
+    let said = fepdf_mcp::tools::list_runs_impl(fepdf_mcp::tools::ListRunsArgs {
+        path: input.clone(),
+        page: 0,
+    })
+    .expect("the tool runs");
+    let report: serde_json::Value = serde_json::from_str(&said).expect("it is JSON");
+    let runs = report["runs"].as_array().expect("it lists runs");
+    assert_eq!(runs.len(), 2, "the listing does not read the page: {said}");
+    assert_eq!(runs[1]["text"], "BETA", "the listing is in a different order: {said}");
+
+    let named = usize::try_from(runs[1]["run"].as_u64().expect("a run carries its number"))
+        .expect("a run number fits a usize");
+    let output = out("list_runs");
+    fepdf_mcp::tools::edit_run_impl(fepdf_mcp::tools::EditRunArgs {
+        input_path: input,
+        output_path: output.clone(),
+        page: 0,
+        run: named,
+        text: "OMEGA".to_string(),
+    })
+    .expect("the tool runs");
+
+    let bytes = std::fs::read(&output).expect("the output is there");
+    let text = fepdf::PdfDocument::open(bytes.into())
+        .expect("it opens")
+        .extract_text(0)
+        .expect("it extracts");
+    assert!(text.contains("OMEGA"), "the number the listing gave named another run: {text:?}");
+    assert!(text.contains("ALPHA"), "the run that was not named changed: {text:?}");
+}
+
+/// Deleting through the server takes the run off the page and leaves the other one.
+#[test]
+fn delete_run_takes_the_named_run_off_the_page() {
+    let input = written("delete_run", &two_run_page());
+    let output = out("delete_run");
+
+    fepdf_mcp::tools::delete_run_impl(fepdf_mcp::tools::DeleteRunArgs {
+        input_path: input,
+        output_path: output.clone(),
+        page: 0,
+        run: 0,
+    })
+    .expect("the tool runs");
+
+    let bytes = std::fs::read(&output).expect("the output is there");
+    let doc = fepdf::PdfDocument::open(bytes.into()).expect("it opens");
+    let text = doc.extract_text(0).expect("it extracts");
+    assert!(!text.contains("ALPHA"), "the deleted run is still drawn: {text:?}");
+    assert!(text.contains("BETA"), "the run that was not named went too: {text:?}");
+    assert_eq!(
+        fepdf::text::runs_of_page(doc.inner(), 0).expect("it lists").len(),
+        1,
+        "the deleted run is still in the listing"
+    );
+}
+
+/// Splitting through the server leaves the page drawing the same and lists two runs.
+#[test]
+fn split_run_leaves_the_page_drawing_what_it_drew() {
+    let input = written("split_run", &two_run_page());
+    let output = out("split_run");
+
+    fepdf_mcp::tools::split_run_impl(fepdf_mcp::tools::SplitRunArgs {
+        input_path: input,
+        output_path: output.clone(),
+        page: 0,
+        run: 0,
+        after: 2,
+    })
+    .expect("the tool runs");
+
+    let bytes = std::fs::read(&output).expect("the output is there");
+    let doc = fepdf::PdfDocument::open(bytes.into()).expect("it opens");
+    let listed = fepdf::text::runs_of_page(doc.inner(), 0).expect("it lists");
+    assert_eq!(
+        listed.iter().map(|r| r.text.as_str()).collect::<Vec<_>>(),
+        vec!["AL", "PHA", "BETA"],
+        "the cut did not fall where it was asked for"
+    );
+    let text = doc.extract_text(0).expect("it extracts");
+    assert!(text.contains("ALPHA"), "the page stopped reading as it did: {text:?}");
 }

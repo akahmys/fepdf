@@ -279,21 +279,54 @@ pub enum Operation {
         /// Position of the number.
         position: DecorationPosition,
     },
-    /// Replaces every run of text on a page that reads exactly `find`.
+    /// Replaces the text of one run — one show-text operator — on a page.
     ///
-    /// **A run, not a range.** One show-text operator is the unit: a run that reads
-    /// `find` is rewritten whole, and one that merely contains it is left alone, because
-    /// splitting a run means re-spacing what remains and that is a different piece of work
-    /// (W-E4). The replacement is encoded in the font that run is set in and in no other;
-    /// a character that font does not draw is refused by name rather than substituted
-    /// ([ADR-0090](../../../docs/adr/0090-the-face-a-document-embeds-is-not-a-licence-to-set-new-text.md)).
-    EditTextRun {
-        /// The page to look on.
+    /// **A run is what the file declares, and nothing here groups them.** Which runs
+    /// belong together is a question about meaning that a content stream does not answer:
+    /// characters drawn next to each other may be a word, or a label and its value, or two
+    /// columns, and a processor that joined them would be guessing at what it was editing
+    /// ([ADR-0091](../../../docs/adr/0091-paragraphs-are-not-inferred-and-overflow-is-shown.md)).
+    /// So a caller names a run, by its position among the page's runs, and gets exactly
+    /// that run changed.
+    ///
+    /// The text is encoded in the font that run is set in; a character it does not draw is
+    /// refused by name. What follows on the line moves by the difference in advance, which
+    /// is what the operators already do, and text that no longer fits is drawn anyway.
+    EditRun {
+        /// The page the run is on.
         page: usize,
-        /// The text a run must read to be replaced.
-        find: String,
+        /// Which run, counting show-text operators from the start of the page's content.
+        run: usize,
         /// What it reads afterwards.
-        replace: String,
+        text: String,
+    },
+    /// Cuts one run in two, after `after` characters of what it reads.
+    ///
+    /// **A split needs no arithmetic.** Consecutive show-text operators draw from the
+    /// current point, so two runs in place of one put the same glyphs in the same places;
+    /// what changes is that a caller can then name either half. It is how a reader says
+    /// that part of a run is a thing on its own, which is the other half of merging
+    /// ([ADR-0091](../../../docs/adr/0091-paragraphs-are-not-inferred-and-overflow-is-shown.md)).
+    SplitRun {
+        /// The page the run is on.
+        page: usize,
+        /// Which run, counting show-text operators from the start of the page's content.
+        run: usize,
+        /// How many characters of it stay in the first half.
+        after: usize,
+    },
+    /// Takes one run off the page.
+    ///
+    /// **Deleting a run is not editing it to nothing.** An emptied run is still a run: it
+    /// keeps its number, and a caller can put text back into it. A deleted one is gone
+    /// from the listing, and the runs after it move up by one. What the operator did
+    /// besides draw — a line movement, a spacing setting — stays, because the rest of the
+    /// page is placed by it.
+    DeleteRun {
+        /// The page the run is on.
+        page: usize,
+        /// Which run, counting show-text operators from the start of the page's content.
+        run: usize,
     },
     /// Add an annotation to a page.
     AddAnnotation(AnnotationSpec),
@@ -373,7 +406,9 @@ impl Operation {
             | Self::SetOutputIntent { .. }
             | Self::SetPronunciationLexicon { .. }
             | Self::AddAnnotation { .. }
-            | Self::EditTextRun { .. }
+            | Self::EditRun { .. }
+            | Self::SplitRun { .. }
+            | Self::DeleteRun { .. }
             | Self::SetMeasurementScale { .. }
             | Self::SetFormFieldValue { .. }
             | Self::SetPageLabels { .. }

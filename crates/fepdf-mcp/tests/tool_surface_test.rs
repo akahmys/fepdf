@@ -89,11 +89,14 @@ fn the_tools_that_run_scripts_are_the_ones_that_say_so() {
 /// no `/QuadPoints` on a highlight, a stamp that discarded its image — were found the day
 /// something finally called it. This server is the frontend `ARCHITECTURE.md` calls the
 /// most complete, so a vocabulary entry it cannot reach is the same trap being set again.
+///
+/// **And a tool that takes a number nobody can obtain is the same trap.** `edit_run` was
+/// served for a day with no listing beside it, so a caller had to guess which run it meant
+/// — which is why `list_runs` is named here with the three that change a run.
 #[test]
-fn the_text_editing_operation_is_reachable() {
+fn the_text_editing_operations_are_reachable() {
     let tools = served();
-    assert!(
-        tools.iter().any(|name| name == "edit_text_run"),
-        "no tool reaches `Operation::EditTextRun`: {tools:?}"
-    );
+    for wanted in ["list_runs", "edit_run", "split_run", "delete_run"] {
+        assert!(tools.iter().any(|name| name == wanted), "no tool reaches `{wanted}`: {tools:?}");
+    }
 }

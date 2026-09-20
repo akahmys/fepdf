@@ -73,9 +73,9 @@ pub fn apply_operation(doc: &mut Document, op: Operation) -> PdfResult<()> {
             annotations::apply_bates(doc, &pages, &prefix, start_number, digits, &position)
         }
         Operation::AddAnnotation(a) => annotations::apply_add_annotation(doc, a),
-        Operation::EditTextRun { page, find, replace } => {
-            text::apply_edit_text_run(doc, page, &find, &replace)
-        }
+        Operation::EditRun { page, run, text: to } => text::apply_edit_run(doc, page, run, &to),
+        Operation::SplitRun { page, run, after } => text::apply_split_run(doc, page, run, after),
+        Operation::DeleteRun { page, run } => text::apply_delete_run(doc, page, run),
         Operation::SetMeasurementScale(s) => annotations::apply_set_measurement_scale(doc, s),
         Operation::SetFormFieldValue(f) => annotations::apply_set_form_field_value(doc, f),
         Operation::ExecuteAction(a) => annotations::apply_execute_action(doc, a),

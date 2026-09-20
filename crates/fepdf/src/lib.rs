@@ -90,6 +90,14 @@ pub mod operation {
 pub mod remediation {
     pub use fepdf_doc::remediation::*;
 }
+/// Reading the runs of a page, which are what a text edit names (owned by `fepdf-doc`).
+///
+/// A frontend that changes text has to show a caller the runs to choose between first;
+/// `edit_run` was reachable through the MCP server for a day with no way to get a run
+/// number, which is naming a thing by guessing at its index.
+pub mod text {
+    pub use fepdf_doc::apply::text::*;
+}
 /// The structure module for UA-2 logical tree handling (owned by `fepdf-doc`).
 pub mod structure {
     pub use fepdf_doc::structure::*;

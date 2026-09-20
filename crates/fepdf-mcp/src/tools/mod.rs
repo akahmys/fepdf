@@ -6,6 +6,7 @@ pub mod operations;
 pub mod redact;
 #[cfg(feature = "render")]
 pub mod render;
+pub mod runs;
 pub mod signature;
 
 pub use audit::*;
@@ -19,4 +20,5 @@ pub use operations::*;
 pub use redact::*;
 #[cfg(feature = "render")]
 pub use render::*;
+pub use runs::*;
 pub use signature::*;

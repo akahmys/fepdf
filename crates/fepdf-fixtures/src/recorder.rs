@@ -249,6 +249,25 @@ impl Recorder {
             .collect()
     }
 
+    /// Where each run of glyphs was placed, in the order the page drew them.
+    ///
+    /// **This is how a test sees a run's position**, which extraction cannot always give:
+    /// the span collector does not honour word or character spacing, so a page whose
+    /// placement depends on `Tw` or `Tc` reads the same either way through it.
+    pub fn text_origins(&self) -> Vec<(f64, f64)> {
+        self.events
+            .iter()
+            .filter_map(|e| {
+                if let Event::Text { transform, .. } = e {
+                    let coeffs = transform.as_coeffs();
+                    Some((coeffs[4], coeffs[5]))
+                } else {
+                    None
+                }
+            })
+            .collect()
+    }
+
     /// The last image the page drew, when it drew one.
     pub fn last_image(&self) -> Option<ImageDrawn<'_>> {
         self.events.iter().rev().find_map(|e| {

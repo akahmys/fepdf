@@ -10,20 +10,22 @@ use crate::tools::operations::vocabulary::{
 use crate::tools::{
     AddAnnotationArgs, AddMeshShadingArgs, AddPageDecorationArgs, AddPublicKeyRecipientArgs,
     AddUserPropertiesArgs, ApplyBatesNumberingArgs, ApplyOperationArgs, AttachAssociatedFileArgs,
-    AuditArgs, CreatePortfolioArgs, DeleteStructElemArgs, EditTextRunArgs, ExecuteActionArgs,
-    ExtractTextArgs, MoveStructElemArgs, RedactDocumentArgs, RemovePagesArgs, ReorderPagesArgs,
-    RotatePagesArgs, SetFormFieldValueArgs, SetGeospatialAnchorArgs, SetMeasurementScaleArgs,
-    SetOutputIntentArgs, SetPageLabelsArgs, SetPronunciationLexiconArgs, SetUnencryptedWrapperArgs,
-    UpdateArticleThreadsArgs, UpdateLayersArgs, UpdateOutlinesArgs, UpdateStructElemArgs,
-    VerifySignaturesArgs, add_annotation_impl, add_mesh_shading_impl, add_page_decoration_impl,
+    AuditArgs, CreatePortfolioArgs, DeleteRunArgs, DeleteStructElemArgs, EditRunArgs,
+    ExecuteActionArgs, ExtractTextArgs, ListRunsArgs, MoveStructElemArgs, RedactDocumentArgs,
+    RemovePagesArgs, ReorderPagesArgs, RotatePagesArgs, SetFormFieldValueArgs,
+    SetGeospatialAnchorArgs, SetMeasurementScaleArgs, SetOutputIntentArgs, SetPageLabelsArgs,
+    SetPronunciationLexiconArgs, SetUnencryptedWrapperArgs, SplitRunArgs, UpdateArticleThreadsArgs,
+    UpdateLayersArgs, UpdateOutlinesArgs, UpdateStructElemArgs, VerifySignaturesArgs,
+    add_annotation_impl, add_mesh_shading_impl, add_page_decoration_impl,
     add_public_key_recipient_impl, add_user_properties_impl, apply_bates_numbering_impl,
     apply_operation_impl, apply_redaction_impl, attach_associated_file_impl, audit_document_impl,
-    create_portfolio_impl, delete_struct_elem_impl, edit_text_run_impl, execute_action_impl,
-    extract_text_impl, move_struct_elem_impl, remove_pages_impl, reorder_pages_impl,
-    rotate_pages_impl, set_form_field_value_impl, set_geospatial_anchor_impl,
-    set_measurement_scale_impl, set_output_intent_impl, set_page_labels_impl,
-    set_pronunciation_lexicon_impl, set_unencrypted_wrapper_impl, update_article_threads_impl,
-    update_layers_impl, update_outlines_impl, update_struct_elem_impl, verify_signatures_impl,
+    create_portfolio_impl, delete_run_impl, delete_struct_elem_impl, edit_run_impl,
+    execute_action_impl, extract_text_impl, list_runs_impl, move_struct_elem_impl,
+    remove_pages_impl, reorder_pages_impl, rotate_pages_impl, set_form_field_value_impl,
+    set_geospatial_anchor_impl, set_measurement_scale_impl, set_output_intent_impl,
+    set_page_labels_impl, set_pronunciation_lexicon_impl, set_unencrypted_wrapper_impl,
+    split_run_impl, update_article_threads_impl, update_layers_impl, update_outlines_impl,
+    update_struct_elem_impl, verify_signatures_impl,
 };
 use rmcp::{
     ServiceExt,
@@ -489,20 +491,61 @@ impl FepdfServer {
         add_annotation_impl(args)
     }
 
-    /// Replaces a whole run of text on a page with other text, in the run's own font.
+    /// Replaces the text of one run on a page, named by its position among the runs.
     ///
-    /// The description says "in full" because the unit is a run: a run that reads the
-    /// text is rewritten and one that merely contains it is not, and a caller who expects
-    /// find-and-replace over a page would otherwise be surprised by which runs moved.
+    /// The description says the unit because a caller expecting find-and-replace would be
+    /// surprised: a word is several runs in a real file, and this changes one of them and
+    /// nothing else. Nothing groups runs, because which of them are one phrase is a
+    /// question the content stream does not answer.
     #[tool(
-        name = "edit_text_run",
-        description = "Replaces every run of text on a page that reads the given text in full, encoding the replacement in that run's own font. A character the font cannot draw is refused by name."
+        name = "edit_run",
+        description = "Replaces the text of one run — one show-text operator — on a page, named by its position among the page's runs. The text is encoded in that run's own font, and a character the font cannot draw is refused by name. Runs are not grouped: a word is usually several of them."
     )]
-    pub async fn edit_text_run(
+    pub async fn edit_run(
         &self,
-        Parameters(args): Parameters<EditTextRunArgs>,
+        Parameters(args): Parameters<EditRunArgs>,
     ) -> Result<String, String> {
-        edit_text_run_impl(args)
+        edit_run_impl(args)
+    }
+
+    /// Lists a page's runs, so that a caller has a number to name.
+    ///
+    /// **The three edits take a run number and nothing offered one.** `edit_run` shipped
+    /// reachable with no listing beside it, which leaves a caller guessing at an index
+    /// into a stream it cannot see. This is the other half of naming a run.
+    #[tool(
+        name = "list_runs",
+        description = "Lists the runs of a page — one per show-text operator — with what each reads and the font it is set in. The `run` number here is the one `edit_run`, `split_run` and `delete_run` take."
+    )]
+    pub async fn list_runs(
+        &self,
+        Parameters(args): Parameters<ListRunsArgs>,
+    ) -> Result<String, String> {
+        list_runs_impl(args)
+    }
+
+    /// Cuts one run in two, so that either half can be named afterwards.
+    #[tool(
+        name = "split_run",
+        description = "Cuts one run in two after a given number of its characters. The page draws exactly what it drew before — consecutive show-text operators draw from the current point — and afterwards a caller can name either half."
+    )]
+    pub async fn split_run(
+        &self,
+        Parameters(args): Parameters<SplitRunArgs>,
+    ) -> Result<String, String> {
+        split_run_impl(args)
+    }
+
+    /// Takes one run off the page.
+    #[tool(
+        name = "delete_run",
+        description = "Takes one run off a page. This is not the same as editing it to the empty string: an emptied run keeps its number and can be typed into again, while a deleted one is gone from the listing and the runs after it move up by one."
+    )]
+    pub async fn delete_run(
+        &self,
+        Parameters(args): Parameters<DeleteRunArgs>,
+    ) -> Result<String, String> {
+        delete_run_impl(args)
     }
 
     /// Configures drawing measurement scale dictionary (/Measure) for CAD and technical drawings.

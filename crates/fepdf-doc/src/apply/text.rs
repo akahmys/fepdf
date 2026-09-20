@@ -6,11 +6,17 @@
 //! and for the same reason: it is where the bytes are, whatever form the stream is held in
 //! elsewhere.
 //!
-//! **A run is found by what it reads, not by where it is.** `TextSpan.op_index` is the
-//! obvious way to name one and it carries nothing on the default path — 1007 spans of
-//! `samples/constitution.pdf` all report 0 with refinement on, and 1007 distinct indices
-//! with it off. So this walks the stream, tracks the font each run is set in, decodes each
-//! run through that font, and compares.
+//! **A run is named, not searched for.** Which runs belong together is a question about
+//! meaning, and a content stream does not answer it: characters drawn next to each other
+//! may be a word, or a label and its value, or two columns set in one stream. Joining them
+//! would be a processor guessing at what it was editing, so a caller names the run it
+//! means and gets that one
+//! ([ADR-0091](../../../../docs/adr/0091-paragraphs-are-not-inferred-and-overflow-is-shown.md)).
+//!
+//! **The numbering has one home.** [`runs_of_page`] both lists the runs and is what the
+//! edit walks, so the number a caller reads is the number the edit acts on. Two counters
+//! for one thing is the shape of ADR-0064, where the interpreter's index and another way
+//! of counting met at 9 and nowhere else.
 
 use fepdf_model::font::FontResource;
 use fepdf_model::lexer::{Lexer, Token};
@@ -18,37 +24,94 @@ use fepdf_model::{Document, Object, PdfError, PdfResult};
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
-/// Replaces every run on `page` that reads exactly `find`.
+/// One run of a page: what it reads, and the font it is set in.
+pub struct RunInfo {
+    /// Its position among the page's show-text operators, counting from zero.
+    pub index: usize,
+    /// What it reads, through the font in force where it is drawn.
+    pub text: String,
+    /// The resource name of that font, as the content stream names it.
+    pub font: String,
+}
+
+/// Every run on `page`, in the order the content stream draws them.
+///
+/// **This is the listing a caller chooses from**, and it is the same walk the edit uses,
+/// so an index read here is the index acted on there.
 ///
 /// # Errors
-/// Fails when the page is not there, or when the font a matching run is set in cannot
-/// draw a character of `replace` — naming the character.
-pub fn apply_edit_text_run(
-    doc: &Document,
-    page: usize,
-    find: &str,
-    replace: &str,
-) -> PdfResult<()> {
+/// Fails when the page is not there or its content cannot be read.
+pub fn runs_of_page(doc: &Document, page: usize) -> PdfResult<Vec<RunInfo>> {
     let fonts = fonts_of_page(doc, page)?;
+    let Some(data) = page_content(doc, page)? else { return Ok(Vec::new()) };
+    let (tokens, runs) = read_runs(&data, &fonts);
+    let _ = tokens;
+    Ok(runs
+        .iter()
+        .enumerate()
+        .map(|(index, run)| RunInfo { index, text: run.text.clone(), font: run.font_name.clone() })
+        .collect())
+}
+
+/// Replaces the text of run `run` on `page`.
+///
+/// # Errors
+/// Fails when the page is not there, when it has no such run, or when the font that run is
+/// set in cannot draw a character of `text` — naming the character.
+pub fn apply_edit_run(doc: &Document, page: usize, run: usize, text: &str) -> PdfResult<()> {
+    let fonts = fonts_of_page(doc, page)?;
+    let Some(data) = page_content(doc, page)? else { return Ok(()) };
+    let (mut tokens, runs) = read_runs(&data, &fonts);
+
+    let Some(target) = runs.get(run) else {
+        return Err(PdfError::Other(
+            format!("this page has {} runs and no run {run}", runs.len()).into(),
+        ));
+    };
+    let encoded = encode(&target.font, text)?;
+    let mut written = false;
+    for index in &target.strings {
+        let Some(slot) = tokens.get_mut(*index) else { continue };
+        *slot = if written {
+            // A run drawn as several strings becomes one, and the rest show nothing. The
+            // operators between them still run, so whatever they set goes on being set.
+            Token::String(bytes::Bytes::new())
+        } else {
+            written = true;
+            Token::String(encoded.clone())
+        };
+    }
+
+    let mut out = Vec::with_capacity(data.len());
+    for token in &tokens {
+        token.write_to(&mut out);
+    }
+    write_page_content(doc, page, out)
+}
+
+/// The page's content, decoded and concatenated.
+fn page_content(doc: &Document, page: usize) -> PdfResult<Option<bytes::Bytes>> {
+    let arena = doc.arena();
+    let page_h =
+        doc.get_page_handle(page).ok_or_else(|| PdfError::Other("the page is not there".into()))?;
+    let page_dh = doc.resolve_to_dict(page_h)?;
+    let page_dict = arena.get_dict(page_dh).unwrap_or_default();
+    let Some(contents) = page_dict.get(&arena.name("Contents")).cloned() else {
+        return Ok(None);
+    };
+    Ok(Some(crate::remediation::decode_page_contents(doc, &contents)?))
+}
+
+/// Puts `content` on the page, as its one content stream.
+fn write_page_content(doc: &Document, page: usize, content: Vec<u8>) -> PdfResult<()> {
     let arena = doc.arena();
     let page_h =
         doc.get_page_handle(page).ok_or_else(|| PdfError::Other("the page is not there".into()))?;
     let page_dh = doc.resolve_to_dict(page_h)?;
     let mut page_dict = arena.get_dict(page_dh).unwrap_or_default();
-
-    let Some(contents) = page_dict.get(&arena.name("Contents")).cloned() else { return Ok(()) };
-    let data = crate::remediation::decode_page_contents(doc, &contents)?;
-    let rewritten = rewrite_runs(&data, &fonts, find, replace)?;
-    if rewritten == data.as_ref() {
-        return Ok(());
-    }
-
-    // **One stream in place of however many there were**, which is what redaction does
-    // with the same bytes: the page's content is the concatenation of its streams, and a
-    // rewrite of the whole is one stream.
     let stream = arena.alloc_object(Object::Stream(
         arena.alloc_dict(BTreeMap::new()),
-        Arc::new(fepdf_model::object::SublimatedData::Raw(bytes::Bytes::from(rewritten))),
+        Arc::new(fepdf_model::object::SublimatedData::Raw(bytes::Bytes::from(content))),
     ));
     page_dict.insert(arena.name("Contents"), Object::Reference(stream));
     arena.set_dict(page_dh, page_dict);
@@ -81,115 +144,91 @@ fn fonts_of_page(doc: &Document, page: usize) -> PdfResult<BTreeMap<String, Arc<
     Ok(out)
 }
 
-/// The stream, with every matching run's string replaced.
-fn rewrite_runs(
-    data: &[u8],
-    fonts: &BTreeMap<String, Arc<FontResource>>,
-    find: &str,
-    replace: &str,
-) -> PdfResult<Vec<u8>> {
+/// One show-text operator: where its strings are among the tokens, and what it reads.
+struct Run {
+    /// Indices into the token list of every string this operator shows.
+    strings: Vec<usize>,
+    /// The first of this operator's operands — where deleting the run starts.
+    start: usize,
+    /// Where the show-text operator itself sits among the tokens.
+    operator: usize,
+    /// What those strings read, through the font in force.
+    text: String,
+    /// That font, which a replacement has to be encodable in.
+    font: Arc<FontResource>,
+    /// The resource name of that font, for a caller choosing between runs.
+    font_name: String,
+}
+
+/// Every token of the stream, and every run among them, in order.
+///
+/// **Nothing here groups runs.** A run is one show-text operator, which is what the file
+/// declares; whether two of them are one phrase is not something the stream says.
+fn read_runs(data: &[u8], fonts: &BTreeMap<String, Arc<FontResource>>) -> (Vec<Token>, Vec<Run>) {
     let mut lexer = Lexer::new(bytes::Bytes::copy_from_slice(data));
-    let mut out = Vec::with_capacity(data.len());
-    let mut operands: Vec<Token> = Vec::new();
-    let mut current: Option<Arc<FontResource>> = None;
+    let mut tokens: Vec<Token> = Vec::new();
+    let mut runs: Vec<Run> = Vec::new();
+    let mut operands: Vec<usize> = Vec::new();
+    let mut font: Option<(String, Arc<FontResource>)> = None;
 
     while let Ok(token) = lexer.next_token() {
         if token == Token::EOF {
             break;
         }
+        let index = tokens.len();
         let Token::Keyword(ref op) = token else {
-            operands.push(token);
+            operands.push(index);
+            tokens.push(token);
             continue;
         };
+        let op = op.clone();
+        tokens.push(token);
+
         if op == "Tf" {
-            current = font_named(&operands, fonts);
+            font = font_named(&operands, &tokens, fonts);
         }
-        let taken = std::mem::take(&mut operands);
-        let rewritten = match (op.as_str(), current.as_ref()) {
-            ("Tj" | "'" | "\"", Some(font)) => replace_in_run(&taken, font, find, replace)?,
-            // **A run is the whole array, not each string in it.** `[(ORIG) -50 (INAL)] TJ`
-            // is one run reading `ORIGINAL`, split where the producer kerned it, and
-            // matching the pieces on their own finds neither — silence on the ordinary
-            // shape of real text rather than on an unusual one.
-            ("TJ", Some(font)) => replace_in_array(&taken, font, find, replace)?,
-            _ => None,
-        };
-        for operand in rewritten.unwrap_or(taken) {
-            operand.write_to(&mut out);
+        if matches!(op.as_str(), "Tj" | "TJ" | "'" | "\"")
+            && let Some((name, resource)) = font.clone()
+        {
+            let strings: Vec<usize> = operands
+                .iter()
+                .copied()
+                .filter(|i| matches!(tokens.get(*i), Some(Token::String(_) | Token::Hex(_))))
+                .collect();
+            let text = strings
+                .iter()
+                .filter_map(|i| match tokens.get(*i) {
+                    Some(Token::String(s) | Token::Hex(s)) => Some(decode(&resource, s)),
+                    _ => None,
+                })
+                .collect();
+            let start = operands.first().copied().unwrap_or(index);
+            runs.push(Run {
+                strings,
+                start,
+                operator: index,
+                text,
+                font: resource,
+                font_name: name,
+            });
         }
-        token.write_to(&mut out);
+        operands.clear();
     }
-    for operand in operands {
-        operand.write_to(&mut out);
-    }
-    Ok(out)
-}
-
-/// The operands of a `Tj`, with the string replaced where the run reads `find`.
-///
-/// `None` leaves them as they were.
-fn replace_in_run(
-    operands: &[Token],
-    font: &FontResource,
-    find: &str,
-    replace: &str,
-) -> PdfResult<Option<Vec<Token>>> {
-    if reads_as(operands, font) != find {
-        return Ok(None);
-    }
-    let mut out = Vec::with_capacity(operands.len());
-    let mut written = false;
-    for token in operands {
-        match token {
-            Token::String(_) | Token::Hex(_) if !written => {
-                out.push(Token::String(encode(font, replace)?));
-                written = true;
-            }
-            // The rest of the strings of a replaced run are dropped, or the page would
-            // read the new text and then the tail of the old.
-            Token::String(_) | Token::Hex(_) => {}
-            other => out.push(other.clone()),
-        }
-    }
-    Ok(Some(out))
-}
-
-/// The operands of a `TJ`, with the array replaced where what it reads is `find`.
-///
-/// **The kerning goes with the text it kerned.** Those numbers space letters that are
-/// being replaced, so keeping them would space the new letters by the old letters'
-/// corrections; the replacement goes in as one string, at the font's own advances.
-fn replace_in_array(
-    operands: &[Token],
-    font: &FontResource,
-    find: &str,
-    replace: &str,
-) -> PdfResult<Option<Vec<Token>>> {
-    if reads_as(operands, font) != find {
-        return Ok(None);
-    }
-    Ok(Some(vec![Token::LeftArray, Token::String(encode(font, replace)?), Token::RightArray]))
-}
-
-/// What the strings among `operands` read, joined, through `font`.
-fn reads_as(operands: &[Token], font: &FontResource) -> String {
-    operands
-        .iter()
-        .filter_map(|token| match token {
-            Token::String(s) | Token::Hex(s) => Some(decode(font, s)),
-            _ => None,
-        })
-        .collect()
+    (tokens, runs)
 }
 
 /// The font a `Tf` names, out of the operands before it.
 fn font_named(
-    operands: &[Token],
+    operands: &[usize],
+    tokens: &[Token],
     fonts: &BTreeMap<String, Arc<FontResource>>,
-) -> Option<Arc<FontResource>> {
+) -> Option<(String, Arc<FontResource>)> {
     // `/F1 12 Tf`: the name is the operand before the size.
-    operands.iter().rev().find_map(|token| match token {
-        Token::Name(name) => fonts.get(String::from_utf8_lossy(name).as_ref()).cloned(),
+    operands.iter().rev().find_map(|index| match tokens.get(*index) {
+        Some(Token::Name(name)) => {
+            let name = String::from_utf8_lossy(name).to_string();
+            fonts.get(&name).map(|font| (name, font.clone()))
+        }
         _ => None,
     })
 }
@@ -229,4 +268,95 @@ fn encode(font: &FontResource, text: &str) -> PdfResult<bytes::Bytes> {
         }
     }
     Ok(bytes::Bytes::from(out))
+}
+
+/// Cuts run `run` on `page` in two, after `after` of the characters it reads.
+///
+/// **No arithmetic and no new position.** Consecutive show-text operators draw from the
+/// current point, so `(ABCD) Tj` and `(AB) Tj (CD) Tj` put the same glyphs in the same
+/// places. What a split buys is that a caller can name either half afterwards — which is
+/// how a reader says that part of a run is a thing of its own.
+///
+/// # Errors
+/// Fails when the page is not there, when it has no such run, when `after` is not inside
+/// the run, or when what the run reads cannot be encoded back into its own font.
+pub fn apply_split_run(doc: &Document, page: usize, run: usize, after: usize) -> PdfResult<()> {
+    let fonts = fonts_of_page(doc, page)?;
+    let Some(data) = page_content(doc, page)? else { return Ok(()) };
+    let (tokens, runs) = read_runs(&data, &fonts);
+
+    let Some(target) = runs.get(run) else {
+        return Err(PdfError::Other(
+            format!("this page has {} runs and no run {run}", runs.len()).into(),
+        ));
+    };
+    let characters: Vec<char> = target.text.chars().collect();
+    if after == 0 || after >= characters.len() {
+        return Err(PdfError::Other(
+            format!(
+                "run {run} reads {} characters, so it cannot be cut after {after}",
+                characters.len()
+            )
+            .into(),
+        ));
+    }
+    let head: String = characters[..after].iter().collect();
+    let tail: String = characters[after..].iter().collect();
+    let (head, tail) = (encode(&target.font, &head)?, encode(&target.font, &tail)?);
+
+    // The first of the run's strings becomes the head, and a second show-text operator
+    // carrying the tail goes after the operator that drew it. The run's other strings, if
+    // a `TJ` drew it as several, are emptied into the head above.
+    let mut out = Vec::with_capacity(data.len() + 16);
+    let mut written = false;
+    for (index, token) in tokens.iter().enumerate() {
+        if target.strings.contains(&index) {
+            let replacement = if written { bytes::Bytes::new() } else { head.clone() };
+            written = true;
+            Token::String(replacement).write_to(&mut out);
+            continue;
+        }
+        token.write_to(&mut out);
+        if index == target.operator {
+            Token::String(tail.clone()).write_to(&mut out);
+            Token::Keyword("Tj".to_string()).write_to(&mut out);
+        }
+    }
+    write_page_content(doc, page, out)
+}
+
+/// Takes run `run` off `page` altogether.
+///
+/// **This is not an edit to the empty string.** Emptying a run leaves the run there, so it
+/// keeps its number and a caller can put text back into it; deleting one takes the
+/// show-text operator out of the stream, so the run is gone from the listing and the runs
+/// after it move up by one. Both are reachable, and they answer different questions.
+///
+/// **Nothing of the operator has to be kept back.** `'` and `"` carry a line movement, and
+/// `"` two spacing settings, which the rest of the page is placed by — but neither reaches
+/// here. The stream this works on has been through `handle_quote_op` and
+/// `handle_double_quote_op`, which expand them into `T*` and `Tw` `Tc` `T*` with a plain
+/// show-text operator after, so those settings stand outside the run and a delete steps
+/// over them. `deleting_a_run_keeps_the_line_it_moved_to` is what says this is still true.
+///
+/// # Errors
+/// Fails when the page is not there or it has no such run.
+pub fn apply_delete_run(doc: &Document, page: usize, run: usize) -> PdfResult<()> {
+    let fonts = fonts_of_page(doc, page)?;
+    let Some(data) = page_content(doc, page)? else { return Ok(()) };
+    let (tokens, runs) = read_runs(&data, &fonts);
+
+    let Some(target) = runs.get(run) else {
+        return Err(PdfError::Other(
+            format!("this page has {} runs and no run {run}", runs.len()).into(),
+        ));
+    };
+
+    let mut out = Vec::with_capacity(data.len());
+    for (index, token) in tokens.iter().enumerate() {
+        if index < target.start || index > target.operator {
+            token.write_to(&mut out);
+        }
+    }
+    write_page_content(doc, page, out)
 }

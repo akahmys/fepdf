@@ -155,3 +155,4 @@ quietly wrong — which is the failure this log exists to make visible.
 | 0088 | [What a crop puts outside the sheet is removed](0088-what-a-crop-puts-outside-the-sheet-is-removed.md) | Continues 0064 |
 | 0089 | [A face is embedded only where it permits it, and nothing is substituted](0089-a-face-is-embedded-only-where-it-permits-it.md) | Settles 0085's open question |
 | 0090 | [The face a document embeds is not a licence to set new text in it](0090-the-face-a-document-embeds-is-not-a-licence-to-set-new-text.md) | Amends 0089, from 9.9.1 |
+| 0091 | [Paragraphs are not inferred; the reader marks the range, and overflow shows](0091-paragraphs-are-not-inferred-and-overflow-is-shown.md) | Extends 0085 |

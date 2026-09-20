@@ -3846,34 +3846,38 @@ Content editing, under D-1:
       291 of them answering with a program. None of those claims is wrong as stated, and
       each is one file less varied than it sounds.
 
-- [ ] **W-E3 — changing a run of text that is already on the page.** The mechanism is
-      built and **is not yet usable on a real document**: see W-E3d below, which measures
-      why. What follows is what it does today.
-      `Operation::EditTextRun { page, find, replace }` rewrites every run that reads
-      exactly `find`, encoding the replacement in the font that run is set in and in no
-      other. A character that font does not draw is refused by name and the page is left
-      alone — substituting one draws a different letter, and writing the character's own
-      bytes draws whatever glyph sits at that code, which is how 図面 became six Latin
-      glyphs before this phase.
+- [x] **W-E3 — changing the text of one run.** `Operation::EditRun { page, run, text }`
+      replaces what one show-text operator draws, encoded in the font that run is set in; a
+      character it does not draw is refused by name. `runs_of_page` lists the runs a caller
+      chooses from, **and is the same walk the edit uses**, so the number read is the
+      number acted on — two counters for one thing is the shape of ADR-0064.
 
-      **The unit is a run and the line is drawn there.** `UNORIGINAL` is not rewritten when
-      `ORIGINAL` is asked for: splitting a run means re-spacing what remains, and that is
-      W-E4 and the edge of [ADR-0085](docs/adr/0085-editing-what-a-page-draws-is-in-scope.md).
+      **Nothing groups runs**, and the first two attempts both did.
+      [ADR-0091](docs/adr/0091-paragraphs-are-not-inferred-and-overflow-is-shown.md)
+      records why: matching a whole run found nothing real (W-E3d), and matching across
+      runs that the operators call contiguous joined text that is adjacent without being
+      one phrase — a label and its value, two columns, the cells of a row. Most PDFs are
+      unstructured and many draw in an order unrelated to their sense, so that is a
+      processor deciding what a document means.
 
-      **A run is found by what it reads rather than by where it is**, because `op_index`
-      carries nothing on the default path (W-E3a). The rewrite walks the token stream,
-      tracks the font each run is set in, decodes and compares — the ground redaction works
-      on, for the same reason.
+      What follows on the line moves by the difference in advance, which is what the
+      operators already do and not something this builds, and text that no longer fits is
+      drawn.
 
-      Two mutations were run: matching on `contains` rather than equality fails the run
-      that only contains it, and substituting a character the font cannot draw fails the
-      refusal. Each fails exactly the one test written for it.
+- [x] **W-E3c — the run tools are reachable, and so is the listing they need.**
+      `fepdf-mcp` serves `list_runs`, `edit_run`, `split_run` and `delete_run`. An
+      operation nothing can call is one nobody looks at — the state `AddAnnotation` was in
+      for phases, and why its three defects waited for W-8 — so the tool surface test asks
+      for all four by name.
 
-- [x] **W-E3c — `EditTextRun` is reachable.** `fepdf-mcp` serves `edit_text_run`, so the
-      frontends build **16, 8 and 32** of the vocabulary's 33. An operation nothing can
-      call is one nobody looks at — which is the state `AddAnnotation` was in for phases,
-      and why its three defects waited for W-8 — so the tool surface test now asks for this
-      one by name rather than leaving the trap to be set again.
+      **A tool taking a number nobody can obtain is the same trap.** `edit_run` was served
+      first with no listing beside it, so the only way to get a run number was to guess an
+      index into a stream the caller cannot see. `list_runs` returns what each run reads
+      and the font it is set in, and `list_runs_gives_the_number_the_other_run_tools_take`
+      uses the number the listing gave rather than one written into the test.
+
+      `./scripts/dev/status.sh` on 2026-09-20: the frontends build **16, 8 and 34** of the
+      vocabulary's 35.
 
 - [x] **W-E4a — a run split by kerning is still one run**, and the reflow this item was
       written about turned out not to exist.
@@ -3915,6 +3919,62 @@ Content editing, under D-1:
       [ADR-0085](docs/adr/0085-editing-what-a-page-draws-is-in-scope.md)'s line, and moves
       it nowhere: a paragraph re-flowing across its line breaks remains the open question,
       further away than it looked.
+
+- [x] **W-E4c — cutting one run in two.** `Operation::SplitRun { page, run, after }`.
+      **No arithmetic and no new position**: consecutive show-text operators draw from the
+      current point, so `(ABCD) Tj` and `(AB) Tj (CD) Tj` put the same glyphs in the same
+      places. What it buys is that a caller can name either half afterwards, which is how a
+      reader says that part of a run is a thing of its own — without this engine guessing
+      that for them ([ADR-0091](docs/adr/0091-paragraphs-are-not-inferred-and-overflow-is-shown.md)).
+
+      Two mutations: writing `TD` in place of the tail's `Tj`, and overlapping the halves
+      by a character. Each fails the one test written for it.
+
+- [x] **W-E4d — taking a run off the page.** `Operation::DeleteRun { page, run }`.
+
+      **It is not an edit to the empty string, and the difference is the numbering.** An
+      emptied run keeps its number and can be typed into again; a deleted one is gone from
+      the listing and the runs after it move up by one. Both are reachable and they answer
+      different questions, so `an_emptied_run_is_still_a_run_and_a_deleted_one_is_not`
+      holds them apart.
+
+      **The side-effect preservation this was built with was dead code, and a mutation
+      that refused to fire is what said so.** `'` carries a line movement and `"` two
+      spacing settings, so deleting such a run looked like it would move every line below;
+      the first version kept them back by hand. Replacing that whole function with
+      `Vec::new()` failed no test. The reason is `handle_quote_op` and
+      `handle_double_quote_op` in `fepdf-model`'s sublimation parser, which expand `'` into
+      `T*` and a show-text operator, and `"` into `Tw` `Tc` `T*` and one — so by the time
+      an edit sees the stream those settings stand outside the run and a delete steps over
+      them. The function is gone; `deleting_a_run_keeps_the_line_it_moved_to` and
+      `deleting_a_run_keeps_the_spacing_it_set` are what say this stays true.
+
+      Four mutations on what is left: dropping one token too many, leaving the operator
+      behind, emptying the strings instead of removing the run, and eating the five tokens
+      before it. Each fails the tests written for it, and the last one is what makes the
+      spacing assertion itself fire (78.016 against 78.016).
+
+- [ ] **W-E4e — joining two runs into one**, the other half of W-E4c. Two show-text
+      operators reading one phrase become one run, so a caller that had to name two things
+      can name one. The runs have to be adjacent in the stream and set in the same font,
+      and what sits between them — a `Td`, a `Tf`, a `Tw` — decides whether joining them
+      draws what they drew.
+
+- [ ] **W-E4f — moving a run.** The one of the four that needs a different foundation: a
+      run's position is cumulative, so placing one somewhere else means tracking the text
+      matrix (`Tm`, `Td`, `TD`, `T*` and every advance before it) rather than rewriting a
+      string in place.
+
+- [ ] **W-E3e — extraction cannot see word or character spacing.** Every
+      `set_word_spacing` and `set_char_spacing` on the extraction side is an empty body —
+      three of each, in `remediation.rs` and `marked_content.rs` — so a page placed with
+      `Tw` reads identically through `extract_spans` whatever the value is. Measured on the
+      `"` fixture of `edit_run_test.rs`: the renderer puts the following run at 98.016 with
+      `20 Tw` and 78.016 without, and extraction gives the same number for both.
+
+      `fepdf-render` honours both (`lib.rs:788`), which is why the test for W-E4d measures
+      through the renderer. A caller reading span positions out of a file that sets spacing
+      is given coordinates that are wrong by one space per space.
 
 - [ ] **W-E4b — inserting and deleting inside a run**, which is what is left of this item
       once reflow turned out to be free: a run is replaced whole today, and replacing part
