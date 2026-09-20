@@ -144,6 +144,13 @@ pub enum Event {
         size: f64,
         /// The text matrix the run was placed with.
         transform: Affine,
+        /// The CTM in force when the run arrived — the page position is `ctm * transform`.
+        ///
+        /// **`Fill` and `Stroke` carried this and `Text` did not**, so a test reading a
+        /// run's position off `transform` alone was right only on a page with no `cm`.
+        /// `bokutokitan.pdf` opens with `1 0 0 1 72 249.02 cm`, and every run of it came
+        /// back short by exactly that.
+        ctm: Affine,
     },
 }
 
@@ -249,17 +256,20 @@ impl Recorder {
             .collect()
     }
 
-    /// Where each run of glyphs was placed, in the order the page drew them.
+    /// Where each run of glyphs was placed on the page, in the order the page drew them.
     ///
     /// **This is how a test sees a run's position**, which extraction cannot always give:
     /// the span collector does not honour word or character spacing, so a page whose
     /// placement depends on `Tw` or `Tc` reads the same either way through it.
-    pub fn text_origins(&self) -> Vec<(f64, f64)> {
+    ///
+    /// Named `device_` for the same reason [`Self::device_fills`] is: the CTM in force is
+    /// applied, so this is where the ink lands rather than where the text object put it.
+    pub fn device_text_origins(&self) -> Vec<(f64, f64)> {
         self.events
             .iter()
             .filter_map(|e| {
-                if let Event::Text { transform, .. } = e {
-                    let coeffs = transform.as_coeffs();
+                if let Event::Text { transform, ctm, .. } = e {
+                    let coeffs = (*ctm * *transform).as_coeffs();
                     Some((coeffs[4], coeffs[5]))
                 } else {
                     None
@@ -426,6 +436,6 @@ impl RenderBackend for Recorder {
         _state: TextState,
         _op_index: usize,
     ) {
-        self.events.push(Event::Text { glyphs: glyphs.to_vec(), size, transform });
+        self.events.push(Event::Text { glyphs: glyphs.to_vec(), size, transform, ctm: self.ctm });
     }
 }

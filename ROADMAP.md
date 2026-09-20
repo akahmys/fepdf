@@ -3977,10 +3977,96 @@ Content editing, under D-1:
       Three mutations: not checking what stands between, joining the halves the wrong way
       round, and leaving the second run where it was. Each fails the tests written for it.
 
+- [x] **W-E4f-a — where a run is.** `RunInfo` carries an `origin`, because a run's
+      position is cumulative and no operator states it: `Tm` sets the matrix, `Td` and
+      `T*` step the line from it, and every glyph drawn advances it by its own width and
+      the spacing in force (9.4.2 to 9.4.4). Moving a run needs this; nothing can be put
+      somewhere else without something knowing where it is.
+
+      **Checked against a reader written separately.** `fepdf-render` computes the same
+      placement by its own route for its own purpose, so the two agreeing is evidence
+      neither is a restatement of the other. Over the samples, first page each:
+
+      | | runs listed | runs drawn | disagreeing |
+      | :--- | ---: | ---: | ---: |
+      | `bokutokitan.pdf` | 3 | 3 | 0 |
+      | `constitution.pdf` | 1007 | 1007 | 0 |
+      | `fy05.pdf` | 2 | 4 | 0 |
+      | `intel_sdm.pdf` | 22 | 143 | 0 |
+      | `print_sample.pdf` | 4 | 10 | 0 |
+      | `unicode_16.pdf` | 15 | 130 | 0 |
+      | `volvo_xc90.pdf` | 2381 | 2381 | 0 |
+
+      All 3434 within half a point. The renderer draws a run in more pieces than the
+      listing counts — a `TJ` kerned into several strings arrives as several calls — so
+      the origins are matched as a subsequence. `fugaku.pdf` is left out with its reason:
+      it is set in Type 3 fonts, whose glyphs are content streams, so the page arrives as
+      503 fills and no text at all.
+
+      **A corpus says what real files do, not that a branch works.** Reversing `T*` failed
+      none of the seven, because not one of them moves a line that way; a fixture using
+      every tracked operator was written for that, and reversing `T*` fails it.
+
+- [x] **W-E4f-b — three branches written for a stream that never arrives.** `'`, `"` and
+      `TD` are expanded before any edit sees them — `handle_quote_op`,
+      `handle_double_quote_op` and `handle_td_op` write them out as `T*`, as `Tw` `Tc`
+      `T*`, and as `TL` `Td`. Each was handled anyway, each looked right, and each was
+      found only by a mutation that failed nothing: deleting the code entirely broke no
+      test, over the samples and a fixture written to use those very operators.
+
+      The root is one fact with three consequences, so it is stated once at the top of
+      `apply/text.rs` rather than three times beside the code that no longer needs it.
+      What holds it true is that the placement tests measure against `fepdf-render`, which
+      reads the raw stream by its own route.
+
+- [x] **W-E4f-c — a cut or a join would have taken glyphs off the page.** `decode` answers
+      through `unified_map` and drops a code it has no character for. Measured on the
+      first page of each sample, characters the listing loses against what the renderer
+      reads: `unicode_16.pdf` **60 of 348**, `volvo_xc90.pdf` 2 of 2381, the other five
+      none.
+
+      `SplitRun` and `MergeRuns` re-encode what a run reads, so on such a run the dropped
+      glyphs would have come off the page — silently, as a side effect of moving a
+      boundary. Both now check that the run writes back as the bytes it was written with
+      and name it if it does not. `EditRun` needs none of this: it replaces the text
+      outright.
+
+      The better answer is to cut in codes rather than in characters, which needs no round
+      trip. That is W-E4f-d.
+
+- [ ] **W-E4f-d — cutting a run in codes rather than in characters**, so that a run this
+      engine reads short can still be split. Today it is refused by W-E4f-c's guard.
+
 - [ ] **W-E4f — moving a run.** The one of the four that needs a different foundation: a
       run's position is cumulative, so placing one somewhere else means tracking the text
       matrix (`Tm`, `Td`, `TD`, `T*` and every advance before it) rather than rewriting a
       string in place.
+
+- [ ] **W-T1 — the two gates take 39 minutes, and 5 of them are a second `cargo check`.**
+      Measured on 2026-09-20, one run of `cargo test --workspace` followed by
+      `./scripts/audit/verify_compliance.sh` after a source edit:
+
+      | | |
+      | :--- | ---: |
+      | `cargo test --workspace` | 28 min |
+      | — of which running tests | **2.5 min** |
+      | audit, `cargo check --quiet` | ~5 min |
+      | audit, `cargo clippy --workspace --all-targets` | 5 min 06 s |
+      | audit, Rule 9's 56 `cargo tree` calls | 4.1 s |
+
+      **Almost none of it is testing.** Touching one test file and rebuilding that binary
+      alone takes 12.2 s; 126 of them is 25.6 minutes, which is the 25 minutes the suite
+      spends outside the 2.5 it spends running. Warm, `cargo check` takes 0.28 s and
+      clippy 4.0 s — the caches work, and the cost is that an edit invalidates three
+      separate profiles, so the workspace is compiled three times over.
+
+      `cargo check --quiet` is the one that buys nothing: `--workspace --all-targets` is a
+      strict superset of it and clippy-driver reports every rustc error too, but the two
+      keep separate caches so the pass is paid twice. The comment above the line already
+      says it states nothing about the MSRV that `msrv_check.sh` checks.
+
+      Not changed, on 2026-09-20, because the gate is the gate and shortening it is a
+      decision about what is verified, not only about what it costs.
 
 - [ ] **W-E3e — extraction cannot see word or character spacing.** Every
       `set_word_spacing` and `set_char_spacing` on the extraction side is an empty body —

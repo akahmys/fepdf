@@ -1,0 +1,176 @@
+//! Where a run says it draws, checked against where the page draws it.
+//!
+//! **A run's position is cumulative.** No operator states it: `Tm` sets the matrix, `Td`,
+//! `TD` and `T*` step the line down from it, and every glyph drawn advances it by its own
+//! width and the spacing in force (ISO 32000-2:2020, 9.4.2 to 9.4.4). `runs_of_page` now
+//! carries the answer, which is the foundation moving a run needs — a caller cannot say
+//! "put this somewhere else" without something knowing where it is.
+//!
+//! **The check is against a reader that was written separately.** `fepdf-render` computes
+//! the same placement by its own route, for its own purpose, and the two agreeing over
+//! real documents is evidence that neither is a restatement of the other. A test that
+//! compared this walk to itself would pass whatever it said.
+
+use fepdf::operation::Operation;
+use fepdf::text::runs_of_page;
+use fepdf::{IngestionOptions, PdfDocument};
+use fepdf_fixtures::recorder::Recorder;
+use kurbo::Affine;
+
+/// Where the renderer puts each run of a page, in the order it draws them.
+fn drawn_at(doc: &PdfDocument, page: usize) -> Vec<(f64, f64)> {
+    let mut recorder = Recorder::new();
+    doc.render_page(page, &mut recorder, Affine::IDENTITY).expect("the page interprets");
+    recorder.device_text_origins()
+}
+
+fn opened(name: &str) -> PdfDocument {
+    let bytes = std::fs::read(format!("../../samples/{name}")).expect("the sample is there");
+    PdfDocument::open_with_options(bytes.into(), &IngestionOptions::default())
+        .expect("the sample opens")
+}
+
+/// **The listing and the renderer agree about where every run is.**
+///
+/// Over the sample documents, first page each, 3434 runs. The renderer draws a run in
+/// more pieces than the listing counts — a `TJ` kerned into several strings arrives as
+/// several calls — so the listing's origins are checked as a *subsequence* of the drawn
+/// ones rather than one for one. Every listed origin must turn up, in order, within half
+/// a point.
+///
+/// Two samples are left out, each for a stated reason:
+///
+/// - `sample.pdf` is byte-identical to `constitution.pdf` (W-E3b), so counting it would
+///   make this look broader than it is.
+/// - `fugaku.pdf` is set in Type 3 fonts. A Type 3 glyph is a content stream that draws
+///   paths, so the page arrives as 503 fills and **no text at all** — there is nothing
+///   here to compare it with, rather than a disagreement.
+#[test]
+fn a_runs_origin_is_where_the_page_draws_it() {
+    let samples = [
+        "bokutokitan.pdf",
+        "constitution.pdf",
+        "fy05.pdf",
+        "intel_sdm.pdf",
+        "print_sample.pdf",
+        "unicode_16.pdf",
+        "volvo_xc90.pdf",
+    ];
+    let mut checked = 0usize;
+    for name in samples {
+        let doc = opened(name);
+        let listed = runs_of_page(doc.inner(), 0).expect("it lists");
+        let drawn = drawn_at(&doc, 0);
+        assert!(!drawn.is_empty(), "{name}: the renderer drew no text, so nothing is compared");
+
+        let mut next = 0usize;
+        for run in &listed {
+            let found = drawn[next..].iter().position(|at| {
+                (run.origin.0 - at.0).abs() < 0.5 && (run.origin.1 - at.1).abs() < 0.5
+            });
+            let Some(offset) = found else {
+                panic!(
+                    "{name}: run {:?} says it draws at {:?}, and the page draws nothing there",
+                    run.text, run.origin
+                );
+            };
+            next += offset + 1;
+            checked += 1;
+        }
+    }
+    assert_eq!(checked, 3434, "the samples no longer hold the runs this was measured over");
+}
+
+/// A page that uses every operator the walk tracks, so that none of them is only
+/// exercised by documents that happen to contain it.
+fn page_using_every_placement() -> PdfDocument {
+    // `q`/`cm`/`Q` around the text object, `TD` setting the leading that `T*` then moves
+    // by, `Tz` scaling the advance, and `Tc`/`Tw` added to every glyph and every space.
+    //
+    // `AFTER SCALING` follows `SCALED` with nothing between, because a run placed by a
+    // `Td` is placed from the line matrix and says nothing about what the run before it
+    // advanced by. Without it, ignoring `Tz` altogether failed nothing.
+    let content = "q 2 0 0 2 10 20 cm \
+                   BT /F1 12 Tf 1 0 0 1 30 700 Tm (FIRST RUN) Tj \
+                   40 -18 TD (SECOND) Tj \
+                   T* (THIRD) Tj \
+                   1.5 Tc 4 Tw (WITH SPACING) Tj \
+                   50 Tz (SCALED) Tj (AFTER SCALING) Tj \
+                   5 -6 Td (LAST) Tj ET Q";
+    let bodies = [
+        "<< /Type /Catalog /Pages 2 0 R >>".to_string(),
+        "<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_string(),
+        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R \
+         /Resources << /Font << /F1 5 0 R >> >> >>"
+            .to_string(),
+        format!("<< /Length {} >>\nstream\n{content}\nendstream", content.len()),
+        "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>".to_string(),
+    ];
+    PdfDocument::open_with_options(
+        fepdf_fixtures::assemble(&bodies).into(),
+        &IngestionOptions::default(),
+    )
+    .expect("the fixture opens")
+}
+
+/// **Every operator the walk tracks is checked, not only the ones the samples use.**
+///
+/// Reversing `T*`'s direction failed none of the sample comparison: not one of the seven
+/// documents moves a line that way, so the branch was carried untested beside four that
+/// the samples do exercise. A corpus says what real files do; it does not say that a
+/// branch works, and the difference is invisible until something breaks and nothing
+/// notices.
+#[test]
+fn every_operator_that_moves_the_text_is_followed() {
+    let doc = page_using_every_placement();
+    let listed = runs_of_page(doc.inner(), 0).expect("it lists");
+    let drawn = drawn_at(&doc, 0);
+
+    assert_eq!(
+        listed.iter().map(|r| r.text.as_str()).collect::<Vec<_>>(),
+        vec!["FIRST RUN", "SECOND", "THIRD", "WITH SPACING", "SCALED", "AFTER SCALING", "LAST"],
+        "the fixture does not draw what this is written about"
+    );
+    assert_eq!(listed.len(), drawn.len(), "the page draws a different number of runs");
+    for (run, (listed, drawn)) in listed.iter().zip(drawn.iter()).enumerate() {
+        assert!(
+            (listed.origin.0 - drawn.0).abs() < 0.01 && (listed.origin.1 - drawn.1).abs() < 0.01,
+            "run {run} ({:?}): the listing says {:?} and the page draws it at {drawn:?}",
+            listed.text,
+            listed.origin
+        );
+    }
+}
+
+/// **A run that cannot be written back as it stands is refused, not quietly damaged.**
+///
+/// `decode` answers through `unified_map` and drops a code it has no character for, so a
+/// run can read shorter than it was written. Cutting or joining such a run re-encodes
+/// what it read, which would take the dropped glyphs off the page as a side effect of
+/// moving a boundary. Measured on the first page of each sample: `unicode_16.pdf` loses
+/// 60 characters of 348 and `volvo_xc90.pdf` 2 of 2381, and the other five lose none.
+///
+/// This asks `unicode_16.pdf` for the cut and expects to be told no.
+#[test]
+fn a_run_that_does_not_survive_a_round_trip_is_refused() {
+    let mut doc = opened("unicode_16.pdf");
+    let listed = runs_of_page(doc.inner(), 0).expect("it lists");
+
+    let lossy = listed
+        .iter()
+        .enumerate()
+        .find(|(_, run)| run.text.contains("Uncode") || run.text.contains("ncode"))
+        .map(|(index, _)| index)
+        .expect("the sample still has a run this engine reads short");
+
+    let error = doc
+        .apply(Operation::SplitRun { page: 0, run: lossy, after: 3 })
+        .expect_err("a run that cannot be written back is refused");
+    assert!(
+        error.to_string().contains("writes back as"),
+        "the refusal does not say what is wrong: {error}"
+    );
+
+    let after = runs_of_page(doc.inner(), 0).expect("it lists");
+    assert_eq!(after.len(), listed.len(), "a refused cut changed the page");
+}

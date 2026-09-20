@@ -300,7 +300,7 @@ fn deleting_a_run_keeps_the_spacing_it_set() {
         let doc = round_trip(&doc, name);
         let mut recorder = Recorder::new();
         doc.render_page(0, &mut recorder, Affine::IDENTITY).expect("the page interprets");
-        let origins = recorder.text_origins();
+        let origins = recorder.device_text_origins();
         assert_eq!(origins.len(), 2, "the page after the delete does not draw two runs");
         origins[1].0
     };

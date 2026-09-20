@@ -13,6 +13,19 @@
 //! means and gets that one
 //! ([ADR-0091](../../../../docs/adr/0091-paragraphs-are-not-inferred-and-overflow-is-shown.md)).
 //!
+//! **The stream this works on has been normalised, and three branches written for the
+//! raw one were dead.** `decode_page_contents` hands back what the sublimation parser
+//! wrote, and that parser expands the compact operators: `handle_quote_op` turns `'` into
+//! `T*` and a show-text operator, `handle_double_quote_op` turns `"` into `Tw`, `Tc`, `T*`
+//! and one, and `handle_td_op` turns `TD` into `TL` and `Td`. So `'`, `"` and `TD` never
+//! arrive here. Each was handled anyway, each looked correct, and each was found only by a
+//! mutation that failed nothing: removing the code entirely broke no test, over the sample
+//! documents and a fixture written to use those very operators.
+//!
+//! What holds this true is that the tests measure placement against `fepdf-render`, which
+//! reads the raw stream by its own route. If the normalisation ever stops happening, the
+//! two readers disagree and say so.
+//!
 //! **The numbering has one home.** [`runs_of_page`] both lists the runs and is what the
 //! edit walks, so the number a caller reads is the number the edit acts on. Two counters
 //! for one thing is the shape of ADR-0064, where the interpreter's index and another way
@@ -21,6 +34,7 @@
 use fepdf_model::font::FontResource;
 use fepdf_model::lexer::{Lexer, Token};
 use fepdf_model::{Document, Object, PdfError, PdfResult};
+use kurbo::Affine;
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
@@ -32,6 +46,14 @@ pub struct RunInfo {
     pub text: String,
     /// The resource name of that font, as the content stream names it.
     pub font: String,
+    /// Where it draws from, on the page, in the default user space of ISO 32000-2 8.3.2.
+    ///
+    /// **A run's position is cumulative**, so this is not read off any one operator: it is
+    /// what `Tm`, the line movements and every glyph drawn before it leave the text matrix
+    /// saying. `runs_of_page_agree_with_what_the_renderer_draws` checks it against the
+    /// renderer over the sample documents, which is the only reading of it that was not
+    /// written by the same code.
+    pub origin: (f64, f64),
 }
 
 /// Every run on `page`, in the order the content stream draws them.
@@ -49,7 +71,12 @@ pub fn runs_of_page(doc: &Document, page: usize) -> PdfResult<Vec<RunInfo>> {
     Ok(runs
         .iter()
         .enumerate()
-        .map(|(index, run)| RunInfo { index, text: run.text.clone(), font: run.font_name.clone() })
+        .map(|(index, run)| RunInfo {
+            index,
+            text: run.text.clone(),
+            font: run.font_name.clone(),
+            origin: run.origin,
+        })
         .collect())
 }
 
@@ -158,6 +185,10 @@ struct Run {
     font: Arc<FontResource>,
     /// The resource name of that font, for a caller choosing between runs.
     font_name: String,
+    /// Where it draws from, on the page, with the transform in force applied.
+    origin: (f64, f64),
+    /// The codes it was written with, all its strings run together.
+    codes: Vec<u8>,
 }
 
 /// Every token of the stream, and every run among them, in order.
@@ -170,6 +201,9 @@ fn read_runs(data: &[u8], fonts: &BTreeMap<String, Arc<FontResource>>) -> (Vec<T
     let mut runs: Vec<Run> = Vec::new();
     let mut operands: Vec<usize> = Vec::new();
     let mut font: Option<(String, Arc<FontResource>)> = None;
+    let mut state = TextState::default();
+    let mut ctm = Affine::IDENTITY;
+    let mut saved: Vec<Affine> = Vec::new();
 
     while let Ok(token) = lexer.next_token() {
         if token == Token::EOF {
@@ -184,33 +218,20 @@ fn read_runs(data: &[u8], fonts: &BTreeMap<String, Arc<FontResource>>) -> (Vec<T
         let op = op.clone();
         tokens.push(token);
 
+        let numbers = numbers(&operands, &tokens);
         if op == "Tf" {
             font = font_named(&operands, &tokens, fonts);
+            state.size = numbers.last().copied().unwrap_or(state.size);
         }
-        if matches!(op.as_str(), "Tj" | "TJ" | "'" | "\"")
-            && let Some((name, resource)) = font.clone()
+        place(&mut state, &mut ctm, &mut saved, &op, &numbers);
+        if matches!(op.as_str(), "Tj" | "TJ")
+            && let Some(selected) = font.clone()
         {
-            let strings: Vec<usize> = operands
-                .iter()
-                .copied()
-                .filter(|i| matches!(tokens.get(*i), Some(Token::String(_) | Token::Hex(_))))
-                .collect();
-            let text = strings
-                .iter()
-                .filter_map(|i| match tokens.get(*i) {
-                    Some(Token::String(s) | Token::Hex(s)) => Some(decode(&resource, s)),
-                    _ => None,
-                })
-                .collect();
-            let start = operands.first().copied().unwrap_or(index);
-            runs.push(Run {
-                strings,
-                start,
-                operator: index,
-                text,
-                font: resource,
-                font_name: name,
-            });
+            let moved = displacement(&selected.1, &tokens, &operands, &state);
+            let placed = (ctm * state.matrix).as_coeffs();
+            let origin = (placed[4], placed[5]);
+            runs.push(run_drawn_by(&operands, &tokens, index, selected, origin));
+            state.advance(moved);
         }
         operands.clear();
     }
@@ -290,6 +311,7 @@ pub fn apply_split_run(doc: &Document, page: usize, run: usize, after: usize) ->
             format!("this page has {} runs and no run {run}", runs.len()).into(),
         ));
     };
+    reencodes_as_it_is(target, "cutting", run)?;
     let characters: Vec<char> = target.text.chars().collect();
     if after == 0 || after >= characters.len() {
         return Err(PdfError::Other(
@@ -403,6 +425,8 @@ pub fn apply_merge_runs(doc: &Document, page: usize, run: usize) -> PdfResult<()
                 .into(),
         ));
     }
+    reencodes_as_it_is(first, "joining", run)?;
+    reencodes_as_it_is(second, "joining", run + 1)?;
     let joined = encode(&first.font, &format!("{}{}", first.text, second.text))?;
 
     let mut out = Vec::with_capacity(data.len());
@@ -430,4 +454,256 @@ fn between(tokens: &[Token], operator: usize, next: usize) -> Option<String> {
         _ => None,
     });
     named.or_else(|| (!gap.is_empty()).then(|| "an operand".to_string()))
+}
+
+/// Where the text is placed, and what moves it.
+///
+/// **A run's position is cumulative**, which is why this exists and why moving a run is
+/// not the same shape of change as rewriting its string. `Tm` sets the matrix outright,
+/// `Td`, `TD` and `T*` step the line down from it, and every glyph drawn advances it by
+/// its own width. None of those say where the text ends up on its own; the state that
+/// carries them does (ISO 32000-2:2020, 9.4.2 and 9.4.3).
+#[derive(Clone)]
+struct TextState {
+    /// `Tm`, the text matrix.
+    matrix: Affine,
+    /// `Tlm`, the line matrix a `Td` steps from.
+    line: Affine,
+    /// `Tfs`, the font size.
+    size: f64,
+    /// `TL`, the leading a `T*` moves by.
+    leading: f64,
+    /// `Tc`, added to every glyph's displacement.
+    char_spacing: f64,
+    /// `Tw`, added to every single-byte code 32.
+    word_spacing: f64,
+    /// `Th`, the horizontal scaling, as a percentage.
+    scale: f64,
+}
+
+impl TextState {
+    /// The state a `BT` starts from: both matrices the identity, the rest as the graphics
+    /// state left them.
+    fn begin(&mut self) {
+        self.matrix = Affine::IDENTITY;
+        self.line = Affine::IDENTITY;
+    }
+
+    /// `a b c d e f Tm` — both matrices, outright.
+    fn set_matrix(&mut self, matrix: Affine) {
+        self.matrix = matrix;
+        self.line = matrix;
+    }
+
+    /// `tx ty Td` — the line matrix steps, and the text matrix goes back to it.
+    ///
+    /// In 9.4.2's notation `Tlm` becomes the translation *times* the old `Tlm`, which in
+    /// this library's convention — where a transform is applied to a column vector — is
+    /// the old matrix times the translation.
+    fn next_line(&mut self, tx: f64, ty: f64) {
+        self.line *= Affine::translate((tx, ty));
+        self.matrix = self.line;
+    }
+
+    /// What a run drew, added to the text matrix. Only `Tm` moves, never `Tlm`.
+    fn advance(&mut self, displacement: f64) {
+        self.matrix *= Affine::translate((displacement, 0.0));
+    }
+}
+
+impl Default for TextState {
+    fn default() -> Self {
+        Self {
+            matrix: Affine::IDENTITY,
+            line: Affine::IDENTITY,
+            size: 0.0,
+            leading: 0.0,
+            char_spacing: 0.0,
+            word_spacing: 0.0,
+            scale: 100.0,
+        }
+    }
+}
+
+/// How far a run moves the text matrix, in unscaled text space (9.4.4).
+///
+/// The glyphs of a `TJ` are interrupted by numbers that move the pen without drawing, so
+/// the operands are walked in the order the array holds them rather than filtered down to
+/// the strings.
+fn displacement(
+    font: &FontResource,
+    tokens: &[Token],
+    operands: &[usize],
+    state: &TextState,
+) -> f64 {
+    let mut total = 0.0;
+    for index in operands {
+        match tokens.get(*index) {
+            Some(Token::String(bytes) | Token::Hex(bytes)) => {
+                total += shown_displacement(font, bytes, state);
+            }
+            Some(Token::Integer(n)) => {
+                total = (as_f64(*n) / 1000.0).mul_add(-state.size, total);
+            }
+            Some(Token::Real(n)) => total = (n / 1000.0).mul_add(-state.size, total),
+            _ => {}
+        }
+    }
+    total * state.scale / 100.0
+}
+
+/// What one shown string advances by, before the horizontal scaling is applied.
+///
+/// **The width comes from [`FontResource::glyph_width`]**, which is what the rest of the
+/// engine asks. Reading `widths` directly is right only for a font that carries the array:
+/// a standard-14 face declares none, and the fixture set in Helvetica put every run after
+/// the first on a line 49 points off, because a missing entry fell back to a full em
+/// rather than to the estimate the engine already keeps for exactly this.
+fn shown_displacement(font: &FontResource, bytes: &[u8], state: &TextState) -> f64 {
+    let width = if font.is_cid_keyed { 2 } else { 1 };
+    bytes
+        .chunks(width)
+        .map(|chunk| {
+            let w0 = f64::from(font.glyph_width(chunk)) / 1000.0;
+            // 9.4.4: word spacing applies to a single-byte code 32 and to nothing else,
+            // which is why a CID font set in two-byte codes does not get it.
+            let single_space = width == 1 && chunk.first() == Some(&32);
+            let word = if single_space { state.word_spacing } else { 0.0 };
+            w0 * state.size + state.char_spacing + word
+        })
+        .sum()
+}
+
+/// The run a show-text operator draws, out of the operands standing before it.
+fn run_drawn_by(
+    operands: &[usize],
+    tokens: &[Token],
+    operator: usize,
+    (font_name, font): (String, Arc<FontResource>),
+    origin: (f64, f64),
+) -> Run {
+    let strings: Vec<usize> = operands
+        .iter()
+        .copied()
+        .filter(|i| matches!(tokens.get(*i), Some(Token::String(_) | Token::Hex(_))))
+        .collect();
+    let text = strings
+        .iter()
+        .filter_map(|i| match tokens.get(*i) {
+            Some(Token::String(s) | Token::Hex(s)) => Some(decode(&font, s)),
+            _ => None,
+        })
+        .collect();
+    // An operator with no operands cannot happen for show-text, but a stream is whatever
+    // somebody wrote: the run then starts at the operator and a delete takes that alone.
+    let codes = strings
+        .iter()
+        .filter_map(|i| match tokens.get(*i) {
+            Some(Token::String(s) | Token::Hex(s)) => Some(s.to_vec()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .concat();
+    let start = operands.first().copied().unwrap_or(operator);
+    Run { strings, start, operator, text, font, font_name, origin, codes }
+}
+
+/// The numeric operands standing before an operator, in the order they were written.
+fn numbers(operands: &[usize], tokens: &[Token]) -> Vec<f64> {
+    operands
+        .iter()
+        .filter_map(|index| match tokens.get(*index) {
+            Some(Token::Integer(n)) => Some(as_f64(*n)),
+            Some(Token::Real(n)) => Some(*n),
+            _ => None,
+        })
+        .collect()
+}
+
+/// Applies one operator to the text and transformation matrices.
+///
+/// **Only the operators that move something are here.** Everything else a content stream
+/// says — colours, clipping, what is drawn that is not text — leaves both matrices where
+/// they were, so it passes through untouched.
+fn place(
+    state: &mut TextState,
+    ctm: &mut Affine,
+    saved: &mut Vec<Affine>,
+    op: &str,
+    numbers: &[f64],
+) {
+    let at = |i: usize| numbers.get(i).copied().unwrap_or(0.0);
+    let six = || Affine::new([at(0), at(1), at(2), at(3), at(4), at(5)]);
+    match op {
+        "BT" => state.begin(),
+        "Tm" if numbers.len() >= 6 => state.set_matrix(six()),
+        "cm" if numbers.len() >= 6 => *ctm *= six(),
+        "q" => saved.push(*ctm),
+        "Q" => {
+            if let Some(restored) = saved.pop() {
+                *ctm = restored;
+            }
+        }
+        "Td" => state.next_line(at(0), at(1)),
+        // `TD` is not here because it never arrives: `handle_td_op` writes it out as
+        // `SetTextLeading` and `MoveText`, which reach this as `TL` and `Td`. A branch for
+        // it looked right and was dead — removing the whole of it failed no test, which is
+        // how it was found.
+        "T*" => state.next_line(0.0, -state.leading),
+        "TL" => state.leading = at(0),
+        "Tc" => state.char_spacing = at(0),
+        "Tw" => state.word_spacing = at(0),
+        "Tz" => state.scale = at(0),
+        _ => {}
+    }
+}
+
+/// Refuses a run whose text cannot be written back as the codes it came from.
+///
+/// **Splitting and joining re-encode text the page already draws**, which is safe only
+/// where reading and writing are inverses. They are not always: `decode` answers through
+/// `unified_map` and drops a code it has no character for, so a run can read shorter than
+/// it is. Measured over the samples, first page each — `unicode_16.pdf` loses 60 of 348
+/// characters and `volvo_xc90.pdf` 2 of 2381; the other five lose none.
+///
+/// Writing such a run back would take the dropped glyphs off the page, silently, as part
+/// of an operation that says it only moved a boundary. So the round trip is checked and a
+/// run that fails it is named instead.
+///
+/// `edit_run` needs none of this: it replaces the text outright, so what the old codes
+/// read never enters the answer.
+///
+/// **The bytes are compared, not their number.** Two codes that read as one character
+/// write back as two codes of a different identity, which a count would pass. Nothing in
+/// the samples does that, so the choice between the two is untested — but byte equality
+/// is the stronger of the pair and a stronger guard only ever refuses more, so the
+/// untested half cannot let a run through and damage it.
+fn reencodes_as_it_is(run: &Run, what: &str, index: usize) -> PdfResult<()> {
+    let Ok(written) = encode(&run.font, &run.text) else {
+        return Err(PdfError::Other(
+            format!("run {index} cannot be written back in its own font, so {what} it would change what it draws").into(),
+        ));
+    };
+    if written.as_ref() == run.codes.as_slice() {
+        return Ok(());
+    }
+    Err(PdfError::Other(
+        format!(
+            "run {index} reads {:?}, which writes back as {} bytes where it was written with {} — {what} it would change what it draws",
+            run.text,
+            written.len(),
+            run.codes.len()
+        )
+        .into(),
+    ))
+}
+
+/// A content stream's integer operand as the number it stands for.
+///
+/// ISO 32000-2:2020 Annex C.1 puts an integer's range at ±2³¹−1, which every `f64` holds
+/// exactly, so the cast this lint warns about cannot lose anything a conforming file
+/// wrote. A file outside that range has already left the range the format defines.
+#[allow(clippy::cast_precision_loss)]
+fn as_f64(n: i64) -> f64 {
+    n as f64
 }

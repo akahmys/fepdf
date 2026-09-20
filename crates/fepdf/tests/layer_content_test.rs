@@ -37,9 +37,19 @@ fn document_with_a_decorated_layer(state: VisibilityState) -> Vec<u8> {
     })
     .expect("the decoration goes in the layer");
 
-    let out = std::env::temp_dir().join(format!("fepdf-layer-{state:?}.pdf"));
+    // **Two tests ask for the same state**, and cargo runs them on parallel threads. With
+    // the state alone in the name they wrote and read one path at once, and whichever
+    // read first got a file the other was still writing: "the file has no document
+    // catalogue (ISO 7.7.2); it may be truncated before the trailer", on a document this
+    // engine had just written correctly.
+    static NEXT: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+    let nth = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let out = std::env::temp_dir()
+        .join(format!("fepdf-layer-{state:?}-{}-{nth}.pdf", std::process::id()));
     let _ = doc.save_as_version(&out, "2.0").expect("the document is written");
-    std::fs::read(&out).expect("the file is on disk")
+    let bytes = std::fs::read(&out).expect("the file is on disk");
+    let _ = std::fs::remove_file(&out);
+    bytes
 }
 
 /// How many glyph runs page 1 of `bytes` puts on the page.
