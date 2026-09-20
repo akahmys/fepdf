@@ -354,6 +354,14 @@ pub enum Operation {
         /// Where it draws from afterwards, in the page's default user space.
         to: (f64, f64),
     },
+    /// Cuts pages down to a rectangle (14.11.2).
+    ///
+    /// **Two things are called cropping and only one of them cuts.** `/CropBox` names the
+    /// region a viewer displays and leaves everything else in the file, which is a view:
+    /// any reader can move it back and see what it hid. Taking the content out is a
+    /// different act with a different consequence, so the caller says which
+    /// ([ADR-0088](../../../docs/adr/0088-what-a-crop-puts-outside-the-sheet-is-removed.md)).
+    CropPages(PageSelection, CropRegion),
     /// Takes off a page every glyph that falls outside a rectangle.
     ///
     /// **What a crop puts outside the sheet is removed rather than hidden.** `/CropBox`
@@ -467,6 +475,7 @@ impl Operation {
             | Self::MergeRuns { .. }
             | Self::MoveRun { .. }
             | Self::RemoveOutside { .. }
+            | Self::CropPages { .. }
             | Self::SetMeasurementScale { .. }
             | Self::SetFormFieldValue { .. }
             | Self::SetPageLabels { .. }
@@ -479,6 +488,30 @@ impl Operation {
             | Self::AddPublicKeyRecipient { .. } => false,
         }
     }
+}
+
+/// What a crop keeps, and what it does with the rest.
+#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct CropRegion {
+    /// What to keep, in the space the page's boxes are written in: left, bottom, right,
+    /// top. It becomes the new sheet, with its lower-left corner at the origin.
+    pub keep: (f64, f64, f64, f64),
+    /// What happens to the content outside it.
+    pub outside: WhatFallsOutside,
+}
+
+/// What becomes of the content a crop puts outside the sheet.
+///
+/// **Named rather than a flag**, because the two are different acts and a reader choosing
+/// between them is choosing what leaves the file. A `bool` at the call site says which
+/// only to somebody who remembers which way round it goes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize, Default)]
+pub enum WhatFallsOutside {
+    /// It stays in the file and `/CropBox` hides it, which is a view rather than a cut.
+    #[default]
+    Stays,
+    /// It is taken out of the file (ADR-0088).
+    Goes,
 }
 
 #[cfg(test)]

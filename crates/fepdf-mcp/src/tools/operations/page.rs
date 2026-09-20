@@ -131,3 +131,41 @@ pub(crate) fn execute_single_op(
 
     serde_json::to_string_pretty(&res).map_err(|e| e.to_string())
 }
+
+/// Arguments for `crop_pages`.
+#[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
+pub struct CropPagesArgs {
+    /// Path to input PDF file.
+    pub input_path: String,
+    /// Path to output PDF file.
+    pub output_path: String,
+    /// Which pages, as "0", "0-3", "0,2,4", or omitted for all.
+    pub pages: Option<String>,
+    /// The left edge of what to keep, in points from the page's left edge.
+    pub left: f64,
+    /// The bottom edge of what to keep, in points from the page's foot.
+    pub bottom: f64,
+    /// The right edge of what to keep.
+    pub right: f64,
+    /// The top edge of what to keep.
+    pub top: f64,
+    /// Whether the content outside is taken out of the file. Left out or false, it stays
+    /// and `/CropBox` hides it, which is a view rather than a cut: any reader can move
+    /// the box back and see what it hid.
+    pub remove_outside: Option<bool>,
+}
+
+/// Implementation of the crop_pages tool.
+pub fn crop_pages_impl(args: CropPagesArgs) -> Result<String, String> {
+    let pages = super::parse_selection(args.pages.as_deref())?;
+    let outside = if args.remove_outside.unwrap_or(false) {
+        fepdf::WhatFallsOutside::Goes
+    } else {
+        fepdf::WhatFallsOutside::Stays
+    };
+    let op = Operation::CropPages(
+        pages,
+        fepdf::CropRegion { keep: (args.left, args.bottom, args.right, args.top), outside },
+    );
+    execute_single_op(&args.input_path, &args.output_path, op, "Pages cropped")
+}

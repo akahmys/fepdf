@@ -106,6 +106,7 @@ pub mod structure {
 pub mod struct_tree {
     pub use fepdf_doc::struct_tree::*;
 }
+pub use fepdf_doc::operation::{CropRegion, WhatFallsOutside};
 pub use fepdf_doc::{
     Align,
     AuditFinding,

@@ -1,6 +1,7 @@
 #![allow(clippy::cast_possible_wrap, clippy::cast_possible_truncation)]
 use crate::operation::{
-    ContentScale, PageLabelSpec, PageLabelStyle, PageResize, PageSelection, PdfStandard, RotateMode,
+    ContentScale, PageLabelSpec, PageLabelStyle, PageResize, PageSelection, PdfStandard,
+    RotateMode, WhatFallsOutside,
 };
 use bytes::Bytes;
 use fepdf_model::{Document, Object, PdfError, PdfResult};
@@ -499,6 +500,88 @@ fn stream_of(arena: &fepdf_model::arena::PdfArena, text: String) -> Object {
         ))),
     );
     Object::Reference(arena.alloc_object(stream))
+}
+
+/// Cuts the named pages down to `keep`, in the space their boxes are written in.
+///
+/// **Two things are called cropping and only one of them cuts.** `/CropBox` names the
+/// region a viewer displays (14.11.2) and leaves everything else in the file, which is a
+/// view: any reader can move it back and see what it hid. Taking the content out is a
+/// different act with a different consequence, and
+/// [ADR-0088](../../../../docs/adr/0088-what-a-crop-puts-outside-the-sheet-is-removed.md)
+/// keeps both rather than choosing for the reader — so the caller says which.
+///
+/// The kept rectangle becomes the new sheet, with its lower-left corner at the origin.
+/// The content is moved rather than rewritten, the way a resize moves it: a `q <cm>` in
+/// front and a `Q` behind transform everything already there without this having to
+/// understand any of it (7.8.2).
+///
+/// # Errors
+/// Fails when the rectangle has no area, when it is not made of finite numbers, or when a
+/// page cannot be read.
+pub fn apply_crop_pages(
+    doc: &Document,
+    pages: &PageSelection,
+    keep: (f64, f64, f64, f64),
+    outside: WhatFallsOutside,
+) -> PdfResult<()> {
+    let (width, height) = (keep.2 - keep.0, keep.3 - keep.1);
+    if ![keep.0, keep.1, keep.2, keep.3].iter().all(|edge| edge.is_finite())
+        || width <= 0.0
+        || height <= 0.0
+    {
+        return Err(PdfError::Other(
+            format!("a crop to {keep:?} keeps a region with no area").into(),
+        ));
+    }
+    let count = doc.page_count()?;
+    let indices = match pages {
+        PageSelection::All => (0..count).collect(),
+        PageSelection::Single(i) => vec![*i],
+        PageSelection::Indices(idx) => idx.clone(),
+    };
+    for index in indices {
+        if index < count {
+            crop_one_page(doc, index, keep, outside)?;
+        }
+    }
+    Ok(())
+}
+
+/// One page: what goes out of the file, then the sheet, then the drawing moved onto it.
+///
+/// The order matters. Removing works in the space the page is drawn in, so it happens
+/// before anything moves; the sheet and the shift then put what is left at the origin.
+fn crop_one_page(
+    doc: &Document,
+    index: usize,
+    keep: (f64, f64, f64, f64),
+    outside: WhatFallsOutside,
+) -> PdfResult<()> {
+    if outside == WhatFallsOutside::Goes {
+        crate::apply::text::apply_remove_outside(doc, index, keep)?;
+    }
+    let page_h = doc.get_page(index)?.obj_handle();
+    let page_dh = doc.resolve_to_dict(page_h)?;
+    let arena = doc.arena();
+    let mut dict = arena.get_dict(page_dh).unwrap_or_default();
+
+    let media = [0.0, 0.0, keep.2 - keep.0, keep.3 - keep.1];
+    for sheet in ["MediaBox", "CropBox"] {
+        dict.insert(arena.name(sheet), Object::Array(arena.alloc_array(numbers(media))));
+    }
+    // The content boxes describe the drawing and move with it, then are brought inside
+    // the new sheet — one that fell outside would be a box a viewer either ignores or
+    // obeys, and neither is what was asked for (14.11.2).
+    let shift = [1.0, 0.0, 0.0, 1.0, -keep.0, -keep.1];
+    for name in CONTENT_BOXES {
+        let Some(existing) = declared_box(arena, &dict, name) else { continue };
+        let moved = clamp_into(moved_box(existing, shift), media);
+        dict.insert(arena.name(name), Object::Array(arena.alloc_array(numbers(moved))));
+    }
+    arena.set_dict(page_dh, dict);
+
+    wrap_contents(doc, page_h, shift)
 }
 
 #[cfg(test)]

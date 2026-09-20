@@ -49,6 +49,7 @@ fn variant_name(op: &Operation) -> &'static str {
         Operation::MergeRuns { .. } => "MergeRuns",
         Operation::MoveRun { .. } => "MoveRun",
         Operation::RemoveOutside { .. } => "RemoveOutside",
+        Operation::CropPages(..) => "CropPages",
         Operation::SetMeasurementScale(_) => "SetMeasurementScale",
         Operation::SetFormFieldValue(_) => "SetFormFieldValue",
         Operation::SetPageLabels(_) => "SetPageLabels",

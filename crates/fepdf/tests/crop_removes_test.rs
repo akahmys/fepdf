@@ -198,3 +198,133 @@ fn a_glyph_the_boundary_crosses_is_kept() {
 
     assert!(kept.starts_with('A'), "the letter the boundary crosses was dropped: {kept:?}");
 }
+
+/// **The two crops differ in what is left in the file, and only there.**
+///
+/// `/CropBox` names the region a viewer displays and leaves the rest in the file, which
+/// is a view: any reader can move it back and see what it hid. Taking the content out is
+/// a different act with a different consequence, so the caller says which
+/// ([ADR-0088](../../../docs/adr/0088-what-a-crop-puts-outside-the-sheet-is-removed.md)).
+/// Both put the same sheet on the page and draw the same thing on it.
+#[test]
+fn a_crop_that_hides_and_a_crop_that_cuts_show_the_same_and_hold_different_things() {
+    let keep = (60.0, 300.0, 400.0, 600.0);
+    let region = |outside| fepdf::CropRegion { keep, outside };
+
+    let mut hidden = opened("print_sample.pdf");
+    hidden
+        .apply(Operation::CropPages(
+            PageSelection::Indices(vec![2]),
+            region(fepdf::WhatFallsOutside::Stays),
+        ))
+        .expect("the crop applies");
+
+    let mut cut = opened("print_sample.pdf");
+    cut.apply(Operation::CropPages(
+        PageSelection::Indices(vec![2]),
+        region(fepdf::WhatFallsOutside::Goes),
+    ))
+    .expect("the crop applies");
+
+    let sheet_of = |doc: &PdfDocument| {
+        let page = doc.get_page_box(2).expect("the page has a box");
+        (page.x2 - page.x1, page.y2 - page.y1)
+    };
+    assert_eq!(sheet_of(&hidden), (340.0, 300.0), "the sheet is not the region kept");
+    assert_eq!(sheet_of(&cut), sheet_of(&hidden), "the two crops put different sheets on");
+
+    let held_by = |doc: &PdfDocument| doc.extract_text(2).expect("it extracts").chars().count();
+    assert!(
+        held_by(&cut) < held_by(&hidden),
+        "the cutting crop left as much in the file as the hiding one: {} against {}",
+        held_by(&cut),
+        held_by(&hidden)
+    );
+}
+
+/// **What a crop keeps lands where the new sheet is.**
+///
+/// The kept rectangle's lower-left corner becomes the origin, so a reader who asked for
+/// the middle of a page gets the middle of a page rather than a small sheet with the
+/// drawing off its top-right.
+///
+/// The shift is measured through the crop that hides, which moves everything and removes
+/// nothing — so what this compares is the move alone. Whether a glyph belongs on the
+/// sheet is the other test's question, and mixing the two would let either answer cover
+/// for the other.
+#[test]
+fn what_a_crop_keeps_is_moved_onto_the_new_sheet() {
+    let keep = (60.0, 300.0, 400.0, 600.0);
+    let drawn_at = |doc: &PdfDocument| {
+        let mut recorder = Recorder::new();
+        doc.render_page(2, &mut recorder, Affine::IDENTITY).expect("the page interprets");
+        recorder.device_text_origins()
+    };
+
+    let before = drawn_at(&opened("print_sample.pdf"));
+    let mut hidden = opened("print_sample.pdf");
+    hidden
+        .apply(Operation::CropPages(
+            PageSelection::Indices(vec![2]),
+            fepdf::CropRegion { keep, outside: fepdf::WhatFallsOutside::Stays },
+        ))
+        .expect("the crop applies");
+    let after = drawn_at(&hidden);
+
+    assert_eq!(after.len(), before.len(), "the crop that hides removed something");
+    for (nth, (was, is)) in before.iter().zip(after.iter()).enumerate() {
+        assert!(
+            (was.0 - keep.0 - is.0).abs() < 0.01 && (was.1 - keep.1 - is.1).abs() < 0.01,
+            "run {nth} was at {was:?} and the crop put it at {is:?}, not at the region's \
+             corner {:?} away",
+            (keep.0, keep.1)
+        );
+    }
+}
+
+/// **The crop that cuts draws what the crop that hides draws, inside the sheet.**
+///
+/// The two differ in what is left in the file and not in where anything is, so every run
+/// the cutting crop draws is one the hiding crop draws in the same place.
+#[test]
+fn the_crop_that_cuts_draws_what_the_one_that_hides_draws() {
+    let keep = (60.0, 300.0, 400.0, 600.0);
+    let cropped = |outside| {
+        let mut doc = opened("print_sample.pdf");
+        doc.apply(Operation::CropPages(
+            PageSelection::Indices(vec![2]),
+            fepdf::CropRegion { keep, outside },
+        ))
+        .expect("the crop applies");
+        let mut recorder = Recorder::new();
+        doc.render_page(2, &mut recorder, Affine::IDENTITY).expect("the page interprets");
+        recorder.device_text_origins()
+    };
+
+    let hidden = cropped(fepdf::WhatFallsOutside::Stays);
+    let cut = cropped(fepdf::WhatFallsOutside::Goes);
+    assert!(cut.len() > 10, "the cutting crop drew almost nothing: {} runs", cut.len());
+    assert!(cut.len() < hidden.len(), "the cutting crop removed nothing");
+    for at in &cut {
+        assert!(
+            hidden.iter().any(|was| (was.0 - at.0).abs() < 0.01 && (was.1 - at.1).abs() < 0.01),
+            "the cutting crop drew something at {at:?} that the hiding one does not"
+        );
+    }
+}
+
+/// A region with no area is refused, rather than making a page nothing can be drawn on.
+#[test]
+fn a_crop_to_nothing_is_refused() {
+    let mut doc = opened("print_sample.pdf");
+    let error = doc
+        .apply(Operation::CropPages(
+            PageSelection::Indices(vec![2]),
+            fepdf::CropRegion {
+                keep: (100.0, 600.0, 100.0, 720.0),
+                outside: fepdf::WhatFallsOutside::Goes,
+            },
+        ))
+        .expect_err("it refuses");
+    assert!(error.to_string().contains("no area"), "the refusal does not say why: {error}");
+}

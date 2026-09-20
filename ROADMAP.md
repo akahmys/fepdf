@@ -4229,7 +4229,22 @@ Forms, through to creation, under D-3:
 
 Page geometry, under D-4:
 
-- [ ] **W-10 — cropping.**
+- [x] **W-10 — cropping.** `Operation::CropPages(pages, CropRegion { keep, outside })`.
+      The kept rectangle becomes the new sheet with its lower-left corner at the origin,
+      and the content is moved rather than rewritten — a `q <cm>` in front and a `Q`
+      behind, the way a resize moves it (7.8.2).
+
+      **Two things are called cropping and only one of them cuts.** `/CropBox` names the
+      region a viewer displays (14.11.2) and leaves everything else in the file, which is
+      a view any reader can undo by moving the box back. Taking the content out is a
+      different act with a different consequence, so `WhatFallsOutside` is a name at the
+      call site rather than a `bool` that says which only to somebody who remembers which
+      way round it goes. ADR-0088 keeps both rather than choosing for the reader.
+
+      **The move is measured through the crop that hides**, which moves everything and
+      removes nothing, so what that test compares is the move alone. Whether a glyph
+      belongs on the sheet is the other test's question, and mixing the two would let
+      either answer cover for the other. Five mutations, each failing a test.
 - [x] **W-G1-a — the text a crop puts outside is removed.**
       `Operation::RemoveOutside { page, keep }` takes off a page every glyph whose own box
       does not meet `keep`. The check ADR-0088 asked for now passes, and it failed against
