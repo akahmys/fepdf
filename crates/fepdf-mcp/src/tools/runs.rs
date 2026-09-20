@@ -38,6 +38,9 @@ pub struct ListedRun {
     pub run: usize,
     /// What it reads, through the font in force where it is drawn.
     pub text: String,
+    /// What each of its codes reads, in order — `text` run apart again. An empty one is
+    /// a glyph this engine cannot name, drawn where it says.
+    pub pieces: Vec<String>,
     /// The resource name of that font, as the content stream names it.
     pub font: String,
 }
@@ -70,7 +73,12 @@ fn list_runs_internal(args: ListRunsArgs) -> McpResult<String> {
         page: args.page,
         runs: listed
             .into_iter()
-            .map(|run| ListedRun { run: run.index, text: run.text, font: run.font })
+            .map(|run| ListedRun {
+                run: run.index,
+                text: run.text,
+                pieces: run.pieces,
+                font: run.font,
+            })
             .collect(),
     };
     Ok(serde_json::to_string_pretty(&report)?)
@@ -108,7 +116,8 @@ pub struct SplitRunArgs {
     pub page: usize,
     /// Which run to cut, as `list_runs` numbers it.
     pub run: usize,
-    /// How many of its characters stay in the first half.
+    /// How many of its codes stay in the first half. `list_runs` reports what each code
+    /// reads, which is how a place in the text becomes a place among the codes.
     pub after: usize,
 }
 

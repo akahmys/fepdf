@@ -46,6 +46,14 @@ pub struct RunInfo {
     pub text: String,
     /// The resource name of that font, as the content stream names it.
     pub font: String,
+    /// What each of the run's codes reads, in order. [`Self::text`] is these run together.
+    ///
+    /// **A cut names a code, not a character**, because reading and writing are not always
+    /// inverses: a code the font does not map reads as nothing, and `unicode_16.pdf` loses
+    /// 60 of 348 that way. This is what turns a place in the text into a place among the
+    /// codes — and an empty piece is an honest report that a glyph is drawn there which
+    /// this engine cannot name.
+    pub pieces: Vec<String>,
     /// Where it draws from, on the page, in the default user space of ISO 32000-2 8.3.2.
     ///
     /// **A run's position is cumulative**, so this is not read off any one operator: it is
@@ -74,6 +82,7 @@ pub fn runs_of_page(doc: &Document, page: usize) -> PdfResult<Vec<RunInfo>> {
         .map(|(index, run)| RunInfo {
             index,
             text: run.text.clone(),
+            pieces: run.pieces.clone(),
             font: run.font_name.clone(),
             origin: run.origin,
         })
@@ -181,6 +190,8 @@ struct Run {
     operator: usize,
     /// What those strings read, through the font in force.
     text: String,
+    /// What each of its codes reads, in order. `text` is these run together.
+    pieces: Vec<String>,
     /// That font, which a replacement has to be encodable in.
     font: Arc<FontResource>,
     /// The resource name of that font, for a caller choosing between runs.
@@ -334,15 +345,15 @@ fn font_named(
 }
 
 /// What a run's bytes read, through the font it is set in.
-fn decode(font: &FontResource, bytes: &[u8]) -> String {
+fn decode(font: &FontResource, bytes: &[u8]) -> Vec<String> {
     let width = if font.is_cid_keyed { 2 } else { 1 };
     let by_code: BTreeMap<u32, &str> =
         font.unified_map.iter().map(|(text, code)| (*code, text.as_str())).collect();
     bytes
         .chunks(width)
-        .filter_map(|chunk| {
+        .map(|chunk| {
             let code = chunk.iter().fold(0u32, |acc, byte| (acc << 8) | u32::from(*byte));
-            by_code.get(&code).copied()
+            by_code.get(&code).copied().unwrap_or_default().to_string()
         })
         .collect()
 }
@@ -390,20 +401,22 @@ pub fn apply_split_run(doc: &Document, page: usize, run: usize, after: usize) ->
             format!("this page has {} runs and no run {run}", runs.len()).into(),
         ));
     };
-    reencodes_as_it_is(target, "cutting", run)?;
-    let characters: Vec<char> = target.text.chars().collect();
-    if after == 0 || after >= characters.len() {
+    let glyphs = target.pieces.len();
+    if after == 0 || after >= glyphs {
         return Err(PdfError::Other(
-            format!(
-                "run {run} reads {} characters, so it cannot be cut after {after}",
-                characters.len()
-            )
-            .into(),
+            format!("run {run} draws {glyphs} glyphs, so it cannot be cut after {after}").into(),
         ));
     }
-    let head: String = characters[..after].iter().collect();
-    let tail: String = characters[after..].iter().collect();
-    let (head, tail) = (encode(&target.font, &head)?, encode(&target.font, &tail)?);
+    // **The codes are cut, not the characters.** Reading a run and writing it back is not
+    // always the identity — `decode` has no character for a code the font does not map,
+    // and `unicode_16.pdf` loses 60 of 348 that way — so a cut that re-encoded would take
+    // those glyphs off the page as a side effect of moving a boundary. Cutting the bytes
+    // asks nothing of the reading, and `RunInfo::pieces` is what turns a place in the text
+    // into a place among the codes.
+    let width = if target.font.is_cid_keyed { 2 } else { 1 };
+    let at = after * width;
+    let head = bytes::Bytes::copy_from_slice(&target.codes[..at]);
+    let tail = bytes::Bytes::copy_from_slice(&target.codes[at..]);
 
     // The first of the run's strings becomes the head, and a second show-text operator
     // carrying the tail goes after the operator that drew it. The run's other strings, if
@@ -504,9 +517,12 @@ pub fn apply_merge_runs(doc: &Document, page: usize, run: usize) -> PdfResult<()
                 .into(),
         ));
     }
-    reencodes_as_it_is(first, "joining", run)?;
-    reencodes_as_it_is(second, "joining", run + 1)?;
-    let joined = encode(&first.font, &format!("{}{}", first.text, second.text))?;
+    // Their codes run together, for the reason the cut works on codes: nothing is read and
+    // written back, so nothing can be lost in between. The two are set in the same font —
+    // the face changes only at a `Tf`, and a `Tf` between them is something standing
+    // between them — so the second run's codes mean in the first what they meant on their
+    // own.
+    let joined = bytes::Bytes::from([first.codes.clone(), second.codes.clone()].concat());
 
     let mut out = Vec::with_capacity(data.len());
     let mut written = false;
@@ -666,13 +682,15 @@ fn run_drawn_by(
         .copied()
         .filter(|i| matches!(tokens.get(*i), Some(Token::String(_) | Token::Hex(_))))
         .collect();
-    let text = strings
+    let pieces: Vec<String> = strings
         .iter()
         .filter_map(|i| match tokens.get(*i) {
             Some(Token::String(s) | Token::Hex(s)) => Some(decode(&font, s)),
             _ => None,
         })
-        .collect();
+        .collect::<Vec<_>>()
+        .concat();
+    let text = pieces.concat();
     // An operator with no operands cannot happen for show-text, but a stream is whatever
     // somebody wrote: the run then starts at the operator and a delete takes that alone.
     let codes = strings
@@ -686,7 +704,7 @@ fn run_drawn_by(
     let start = operands.first().copied().unwrap_or(operator);
     let placed = (placement.ctm * placement.matrix).as_coeffs();
     let origin = (placed[4], placed[5]);
-    Run { strings, start, operator, text, font, font_name, origin, codes, placement }
+    Run { strings, start, operator, text, pieces, font, font_name, origin, codes, placement }
 }
 
 /// The numeric operands standing before an operator, in the order they were written.
@@ -737,46 +755,6 @@ fn place(
         "Tz" => state.scale = at(0),
         _ => {}
     }
-}
-
-/// Refuses a run whose text cannot be written back as the codes it came from.
-///
-/// **Splitting and joining re-encode text the page already draws**, which is safe only
-/// where reading and writing are inverses. They are not always: `decode` answers through
-/// `unified_map` and drops a code it has no character for, so a run can read shorter than
-/// it is. Measured over the samples, first page each — `unicode_16.pdf` loses 60 of 348
-/// characters and `volvo_xc90.pdf` 2 of 2381; the other five lose none.
-///
-/// Writing such a run back would take the dropped glyphs off the page, silently, as part
-/// of an operation that says it only moved a boundary. So the round trip is checked and a
-/// run that fails it is named instead.
-///
-/// `edit_run` needs none of this: it replaces the text outright, so what the old codes
-/// read never enters the answer.
-///
-/// **The bytes are compared, not their number.** Two codes that read as one character
-/// write back as two codes of a different identity, which a count would pass. Nothing in
-/// the samples does that, so the choice between the two is untested — but byte equality
-/// is the stronger of the pair and a stronger guard only ever refuses more, so the
-/// untested half cannot let a run through and damage it.
-fn reencodes_as_it_is(run: &Run, what: &str, index: usize) -> PdfResult<()> {
-    let Ok(written) = encode(&run.font, &run.text) else {
-        return Err(PdfError::Other(
-            format!("run {index} cannot be written back in its own font, so {what} it would change what it draws").into(),
-        ));
-    };
-    if written.as_ref() == run.codes.as_slice() {
-        return Ok(());
-    }
-    Err(PdfError::Other(
-        format!(
-            "run {index} reads {:?}, which writes back as {} bytes where it was written with {} — {what} it would change what it draws",
-            run.text,
-            written.len(),
-            run.codes.len()
-        )
-        .into(),
-    ))
 }
 
 /// A content stream's integer operand as the number it stands for.

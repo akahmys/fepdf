@@ -64,13 +64,26 @@ impl Token {
         }
     }
 
+    /// Writes a literal string so that reading it back gives the same bytes.
+    ///
+    /// **An end-of-line inside a literal string is a single line feed** (7.3.4.2), so a
+    /// carriage return written raw comes back as `0x0A` and a CRLF comes back as one byte.
+    /// A string of text is unharmed by that and a string of *codes* is not: in a CID font
+    /// the code `0x010D` for `n` came back as `0x010D`\u{2009}→\u{2009}`0x010A`, which is a
+    /// different glyph, and `Unicode` was written back as `Ukicode`. The escapes `\r` and
+    /// `\n` say the byte and not the line break.
     fn write_literal_string(&self, s: &[u8], output: &mut Vec<u8>) {
         output.push(b'(');
         for &b in s {
-            if b == b'(' || b == b')' || b == b'\\' {
-                output.push(b'\\');
+            match b {
+                b'(' | b')' | b'\\' => {
+                    output.push(b'\\');
+                    output.push(b);
+                }
+                b'\r' => output.extend_from_slice(b"\\r"),
+                b'\n' => output.extend_from_slice(b"\\n"),
+                _ => output.push(b),
             }
-            output.push(b);
         }
         output.push(b')');
         output.push(b' ');

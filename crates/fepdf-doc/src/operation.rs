@@ -312,7 +312,12 @@ pub enum Operation {
         page: usize,
         /// Which run, counting show-text operators from the start of the page's content.
         run: usize,
-        /// How many characters of it stay in the first half.
+        /// How many of its codes stay in the first half.
+        ///
+        /// Codes, not characters: reading a run and writing it back is not always the
+        /// identity, so a cut made on the reading would lose whatever the reading lost.
+        /// `RunInfo::pieces` says what each code reads, which is how a place in the text
+        /// becomes a place among the codes.
         after: usize,
     },
     /// Joins one run with the run after it.

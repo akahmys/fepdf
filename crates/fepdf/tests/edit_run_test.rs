@@ -417,3 +417,68 @@ fn the_last_run_has_nothing_to_join_to() {
     let error = doc.apply(Operation::MergeRuns { page: 0, run: 1 }).expect_err("it refuses");
     assert!(error.to_string().contains("last"), "the refusal does not say why: {error}");
 }
+
+/// **Inserting and deleting inside a run are the four verbs used together.**
+///
+/// This was carried as its own item on the ground that replacing part of a run means
+/// splitting it and re-spacing what remains. Splitting exists now, and the re-spacing was
+/// measured not to exist: consecutive show-text operators draw from the current point, so
+/// the line closes up or opens out on its own. So there is nothing left to build, and
+/// this is what says so — a claim that something is reachable is worth what a test of it
+/// is worth.
+#[test]
+fn inserting_inside_a_run_is_a_cut_and_an_edit() {
+    let mut doc = page_drawing("ABCD", "TAIL");
+    let before = doc.extract_spans(0).expect("it extracts")[1].x;
+
+    doc.apply(Operation::SplitRun { page: 0, run: 0, after: 2 }).expect("the cut applies");
+    doc.apply(Operation::EditRun { page: 0, run: 0, text: "ABXY".to_string() })
+        .expect("the edit applies");
+    let reopened = round_trip(&doc, "insert");
+
+    assert_eq!(
+        runs_of_page(reopened.inner(), 0)
+            .expect("it lists")
+            .iter()
+            .map(|r| r.text.as_str())
+            .collect::<Vec<_>>(),
+        vec!["ABXY", "CD", "TAIL"],
+        "the characters did not go in where the cut was made"
+    );
+    let after = reopened.extract_spans(0).expect("it extracts");
+    let tail = after.iter().find(|s| s.text.contains("TAIL")).expect("it is still drawn");
+    assert!(
+        tail.x > before + 10.0,
+        "the text after the insertion did not move along with it: {before} then {}",
+        tail.x
+    );
+}
+
+/// And deleting inside one is two cuts and a delete, with the line closing up.
+#[test]
+fn deleting_inside_a_run_is_two_cuts_and_a_delete() {
+    let mut doc = page_drawing("ABCD", "TAIL");
+    let before = doc.extract_spans(0).expect("it extracts")[1].x;
+
+    doc.apply(Operation::SplitRun { page: 0, run: 0, after: 1 }).expect("the first cut");
+    doc.apply(Operation::SplitRun { page: 0, run: 1, after: 2 }).expect("the second cut");
+    doc.apply(Operation::DeleteRun { page: 0, run: 1 }).expect("the delete applies");
+    let reopened = round_trip(&doc, "cut_out");
+
+    assert_eq!(
+        runs_of_page(reopened.inner(), 0)
+            .expect("it lists")
+            .iter()
+            .map(|r| r.text.as_str())
+            .collect::<Vec<_>>(),
+        vec!["A", "D", "TAIL"],
+        "the characters taken out are not the ones that were named"
+    );
+    let after = reopened.extract_spans(0).expect("it extracts");
+    let tail = after.iter().find(|s| s.text.contains("TAIL")).expect("it is still drawn");
+    assert!(
+        tail.x < before - 10.0,
+        "the text after the deletion did not close up: {before} then {}",
+        tail.x
+    );
+}

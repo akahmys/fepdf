@@ -142,37 +142,54 @@ fn every_operator_that_moves_the_text_is_followed() {
     }
 }
 
-/// **A run that cannot be written back as it stands is refused, not quietly damaged.**
+/// **A run this engine reads short can still be cut, and loses no glyph.**
 ///
-/// `decode` answers through `unified_map` and drops a code it has no character for, so a
-/// run can read shorter than it was written. Cutting or joining such a run re-encodes
-/// what it read, which would take the dropped glyphs off the page as a side effect of
-/// moving a boundary. Measured on the first page of each sample: `unicode_16.pdf` loses
-/// 60 characters of 348 and `volvo_xc90.pdf` 2 of 2381, and the other five lose none.
+/// `decode` answers through `unified_map` and has no character for a code the font does
+/// not map: on the first page of each sample, `unicode_16.pdf` loses 60 characters of 348
+/// and `volvo_xc90.pdf` 2 of 2381. A cut that re-encoded what a run *read* would take
+/// those glyphs off the page as a side effect of moving a boundary, so for a while such a
+/// run was refused outright. The cut works on the codes instead, which asks nothing of
+/// the reading.
 ///
-/// This asks `unicode_16.pdf` for the cut and expects to be told no.
+/// What decides is the renderer: every glyph the page drew before the cut, it draws after.
 #[test]
-fn a_run_that_does_not_survive_a_round_trip_is_refused() {
-    let mut doc = opened("unicode_16.pdf");
+fn a_run_this_engine_reads_short_is_still_cut_without_loss() {
+    let doc = opened("unicode_16.pdf");
     let listed = runs_of_page(doc.inner(), 0).expect("it lists");
-
     let lossy = listed
         .iter()
-        .enumerate()
-        .find(|(_, run)| run.text.contains("Uncode") || run.text.contains("ncode"))
-        .map(|(index, _)| index)
-        .expect("the sample still has a run this engine reads short");
+        .position(|run| run.pieces.iter().any(|piece| piece.is_empty()) && run.pieces.len() > 3)
+        .expect("the sample still has a run with a code this engine cannot name");
 
-    let error = doc
-        .apply(Operation::SplitRun { page: 0, run: lossy, after: 3 })
-        .expect_err("a run that cannot be written back is refused");
-    assert!(
-        error.to_string().contains("writes back as"),
-        "the refusal does not say what is wrong: {error}"
+    let mut before = Recorder::new();
+    doc.render_page(0, &mut before, Affine::IDENTITY).expect("the page interprets");
+    let drew = before.text();
+
+    let mut cut = opened("unicode_16.pdf");
+    cut.apply(Operation::SplitRun { page: 0, run: lossy, after: 3 }).expect("the cut applies");
+
+    let mut after = Recorder::new();
+    cut.render_page(0, &mut after, Affine::IDENTITY).expect("the page interprets");
+    assert_eq!(after.text(), drew, "the cut changed what the page draws");
+    assert_eq!(
+        runs_of_page(cut.inner(), 0).expect("it lists").len(),
+        listed.len() + 1,
+        "the cut did not make two runs of one"
     );
+}
 
-    let after = runs_of_page(doc.inner(), 0).expect("it lists");
-    assert_eq!(after.len(), listed.len(), "a refused cut changed the page");
+/// And `pieces` is what turns a place in the text into a place among the codes.
+#[test]
+fn a_runs_pieces_are_what_each_of_its_codes_reads() {
+    let doc = opened("unicode_16.pdf");
+    for run in runs_of_page(doc.inner(), 0).expect("it lists") {
+        assert_eq!(
+            run.pieces.concat(),
+            run.text,
+            "the pieces of run {} do not run together into what it reads",
+            run.index
+        );
+    }
 }
 
 /// Where the page draws each of its runs, after a round trip through a file.

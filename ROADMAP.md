@@ -4034,8 +4034,32 @@ Content editing, under D-1:
       The better answer is to cut in codes rather than in characters, which needs no round
       trip. That is W-E4f-d.
 
-- [ ] **W-E4f-d — cutting a run in codes rather than in characters**, so that a run this
-      engine reads short can still be split. Today it is refused by W-E4f-c's guard.
+- [x] **W-E4f-d — a run is cut in codes, not in characters**, so the round-trip guard of
+      W-E4f-c is gone and the run `unicode_16.pdf` reads short can be cut like any other.
+      `MergeRuns` runs the two runs' codes together for the same reason: nothing is read
+      and written back, so nothing can be lost in between.
+
+      `RunInfo` carries `pieces` — what each code reads, in order, which `text` is the
+      concatenation of. It is how a place in the text becomes a place among the codes, and
+      an empty piece is an honest report that a glyph is drawn there this engine cannot
+      name.
+
+- [x] **W-E4f-e — the literal string writer lost a byte in every CID code holding `0x0D`.**
+      `write_literal_string` escaped `(`, `)` and `\` and let a carriage return through
+      raw. 7.3.4.2 says an end-of-line inside a literal string is one line feed, so the
+      code `0x010D` was written and read back as `0x010A` — a different glyph. On the
+      first page of `unicode_16.pdf` that turned `Unicode` into `Ukicode` and `Standard`
+      into `Stakdard`, twice, in a cut that had moved a boundary and nothing else.
+
+      **It was found by a test that rendered the page and compared every glyph**, not by
+      one that compared the listing to itself — the listing said the same thing before and
+      after, because the listing is not what draws.
+
+      The fault was the writer's, and it was the writer's for everything that writes a
+      `Token::String`: `edit_run`, `split_run`, `merge_runs` and `move_run` all put codes
+      in one. `crates/fepdf-syntax/tests/string_round_trip_test.rs` asks the question where
+      it belongs — every byte, out through the writer and back — and the hex writer is
+      asked the same, which is what says the reader was never at fault.
 
 - [x] **W-E4f — moving a run.** `Operation::MoveRun { page, run, to }`, the last of the
       four and the only one that needed a different foundation.
@@ -4107,12 +4131,23 @@ Content editing, under D-1:
       through the renderer. A caller reading span positions out of a file that sets spacing
       is given coordinates that are wrong by one space per space.
 
-- [ ] **W-E4b — inserting and deleting inside a run**, which is what is left of this item
-      once reflow turned out to be free: a run is replaced whole today, and replacing part
-      of one means splitting it and spacing what remains. That is where
-      [ADR-0085](docs/adr/0085-editing-what-a-page-draws-is-in-scope.md) put the line
-      between editing and a layout engine, and the decision it left open — whether a
-      paragraph re-flows across its line breaks — is the one to take when this runs.
+- [x] **W-E4b — inserting and deleting inside a run** is the four verbs used together,
+      and there was nothing left to build. It was carried on the ground that replacing
+      part of a run means splitting it and re-spacing what remains: splitting is W-E4c,
+      and the re-spacing was measured not to exist (W-E4a) — consecutive show-text
+      operators draw from the current point, so the line closes up or opens out on its
+      own.
+
+      Inserting is a cut and an edit: `ABCD` cut after 2 and the head edited to `ABXY`
+      reads `ABXYCD`, and what follows on the line moves along with it. Deleting is two
+      cuts and a delete: cut after 1, cut the remainder after 2, delete the middle, and
+      the page reads `AD` with the line closed up. Both are tested rather than asserted —
+      a claim that something is reachable is worth what a test of it is worth.
+
+      The question [ADR-0085](docs/adr/0085-editing-what-a-page-draws-is-in-scope.md) left
+      open, whether a paragraph re-flows across its line breaks, is not taken here and is
+      not on the path: [ADR-0091](docs/adr/0091-paragraphs-are-not-inferred-and-overflow-is-shown.md)
+      took it off.
 
 - [ ] **W-E5 — the drawn objects**: moving, scaling, rotating and replacing an XObject
       (`Operation::EditXObject`). *Fails if*: the CPU rasterisation of the result differs
