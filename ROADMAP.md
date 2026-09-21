@@ -3839,12 +3839,30 @@ Content editing, under D-1:
       [ADR-0064](docs/adr/0064-redaction-removed-the-second-run-of-a-page-and-no-other.md)
       records, where two ways of counting met at 9 and nowhere else.
 
-- [ ] **W-E3b — the nine samples are eight documents.** `samples/sample.pdf` and
-      `samples/constitution.pdf` are byte-identical, same length and same MD5, so every
-      figure taken "over the nine samples" counts that file twice — including the ones this
-      phase quotes: 235 embedded font programs, 299 font dictionaries that are not Type 3,
-      291 of them answering with a program. None of those claims is wrong as stated, and
-      each is one file less varied than it sounds.
+- [ ] **W-E3b — the corpus is eleven files and ten documents, and was nine and eight.**
+      `samples/sample.pdf` and `samples/constitution.pdf` are byte-identical, same length
+      and same MD5, so every figure taken "over the samples" counts that file twice —
+      including the ones this phase quotes: 235 embedded font programs, 299 font
+      dictionaries that are not Type 3, 291 of them answering with a program. None of
+      those claims is wrong as stated, and each is one file less varied than it sounds.
+
+      **Two documents were added on 2026-09-21**, each for a hole the measurement found:
+
+      - `sample_02c.pdf` — one page, an `/AcroForm` of **30 fields** (19 text, 7 button,
+        4 choice) and an `/OCProperties`. Until it arrived **no sample carried a form at
+        all**, so W-F1 and W-F2 were built and checked against hand-made fixtures only;
+        the optional-content panel is in the same position. **Not one of its 30 fields
+        carries a `/TU`** — the Matterhorn failure ADR-0087 was taken over, measured on a
+        real document for the first time.
+      - `02_低段汚水ポンプ電動機.pdf` — 17 pages, **no text at all** on the first five, 51
+        images, and page boxes that change from 595×842 to 1684×1190 within the document.
+        A scanned drawing set, which W-O1 is about and which the corpus had none of; the
+        mixed page sizes are a first too.
+
+      Every figure above this line was measured over the nine, and is a measurement of
+      the nine. A figure quoted after it is over eleven files unless it says otherwise.
+      `parser_twin_test` reads the directory and so already covers both: the refined and
+      raw readers agree on them call for call.
 
 - [x] **W-E3 — changing the text of one run.** `Operation::EditRun { page, run, text }`
       replaces what one show-text operator draws, encoded in the font that run is set in; a
