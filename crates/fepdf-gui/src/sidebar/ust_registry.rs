@@ -4,20 +4,42 @@ use serde::{Deserialize, Serialize};
 /// Presentation node for structure tree hierarchy in GUI.
 pub use fepdf::StructureTreeNode as USTNode;
 
+/// One line of the accessibility report.
+///
+/// **Named rather than a tuple of three strings and an option.** It was
+/// `(String, String, String, Option<u32>)` with the order in a trailing comment, which is
+/// a shape two of the three can be swapped in without anything saying so — and the report
+/// now sorts on a field that decides what a reader does about the row.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AuditRow {
+    /// The Matterhorn failure condition, e.g. `13-004`.
+    pub condition: String,
+    /// What checking it came to, which is the section of the report it belongs in.
+    pub outcome: fepdf::Outcome,
+    /// What to tell the reader.
+    pub message: String,
+    /// The object it is about, when it is about one.
+    pub handle_id: Option<u32>,
+}
+
 #[derive(Serialize, Deserialize)]
 pub struct USTRegistry {
     pub root: Option<USTNode>,
     pub selected_node_id: Option<usize>,
     pub next_node_id: usize,
-    pub audit_findings: Vec<(String, String, String, Option<u32>)>, // (checkpoint, severity, message, handle_id)
-    /// How many Matterhorn checkpoints the audit that produced those findings looked at.
+    pub audit_findings: Vec<AuditRow>,
+    /// How many Matterhorn failure conditions the audit that produced those findings
+    /// looked at.
     ///
     /// **Beside the findings, because it decides what they mean.** An empty list from
-    /// three checkpoints of 136 is not a document that conforms, and a panel that showed
+    /// a couple of 136 conditions is not a document that conforms, and a panel that showed
     /// one without the other showed an assurance nobody gave — it said "Matterhorn: 100%
     /// Compliant", on a percentage computed as `100 - findings * 7`.
     pub audit_checked: usize,
-    /// How many checkpoints the protocol has, as the engine states it.
+    /// How many failure conditions the protocol has, as the engine states it.
+    ///
+    /// The protocol is 31 checkpoints comprised of 136 failure conditions; this is the
+    /// second number, and the panel says which noun it is counting.
     ///
     /// **Not written into the label.** A "136" in a translated string is a number that
     /// goes stale silently the day the engine counts differently.

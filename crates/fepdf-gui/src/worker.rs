@@ -215,10 +215,10 @@ pub enum WorkerResponse {
     /// How much of the Matterhorn protocol the audit looked at.
     ///
     /// **Sent with the findings and not instead of them.** An empty list of findings from
-    /// three checkpoints of 136 is not a document that conforms, and a reader shown one
-    /// without the other is shown an assurance nobody gave.
+    /// a couple of 136 failure conditions is not a document that conforms, and a reader
+    /// shown one without the other is shown an assurance nobody gave.
     AuditScope {
-        /// How many checkpoints were looked at.
+        /// How many failure conditions were looked at.
         checked: usize,
         /// How many the protocol has.
         in_protocol: usize,
@@ -246,7 +246,7 @@ pub enum WorkerResponse {
         runs: Option<Vec<crate::interaction::RunBox>>,
     },
     AuditFindings {
-        findings: Vec<(String, String, String, Option<u32>)>,
+        findings: Vec<crate::sidebar::AuditRow>,
     },
     /// The structure tree has changed shape, and here it is as the file now holds it.
     ///
@@ -1003,7 +1003,12 @@ fn send_audit(doc: &PdfDocument, tx: &Sender<WorkerResponse>) {
             let findings = report
                 .findings
                 .into_iter()
-                .map(|f| (f.checkpoint, f.severity, f.message, f.handle_id))
+                .map(|f| crate::sidebar::AuditRow {
+                    condition: f.checkpoint,
+                    outcome: f.outcome,
+                    message: f.message,
+                    handle_id: f.handle_id,
+                })
                 .collect();
             let _ = tx.send(WorkerResponse::AuditFindings { findings });
         }

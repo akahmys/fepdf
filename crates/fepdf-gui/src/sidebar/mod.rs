@@ -8,7 +8,7 @@ pub mod text_runs;
 pub mod ust_registry;
 pub mod what_it_does;
 
-pub use ust_registry::{DragRelation, USTNode, USTRegistry};
+pub use ust_registry::{AuditRow, DragRelation, USTNode, USTRegistry};
 
 use crate::locale::LocaleManager;
 use crate::worker::WorkerRequest;

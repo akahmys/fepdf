@@ -1,4 +1,5 @@
 use super::ust_registry::{USTRegistry, collect_figures, update_alt_text};
+use crate::app::theme::colors;
 use crate::locale::LocaleManager;
 use crate::worker::WorkerRequest;
 use std::sync::mpsc::Sender;
@@ -19,15 +20,23 @@ pub fn show_accessibility_audit(
         ui.add_space(crate::app::theme::space::GROUP);
 
         let has_doc = registry.root.is_some();
-        let audit_findings_count = registry.audit_findings.len();
+        // **A sound condition is not a finding.** Since a checked-and-unbroken condition
+        // became a row, `audit_findings.len()` counts them too: a clean document read
+        // "Findings: 2" above a section headed "Checked and sound (2)". What this line
+        // answers is how much is waiting for the reader.
+        let audit_findings_count =
+            registry.audit_findings.iter().filter(|r| r.outcome != fepdf::Outcome::Sound).count();
 
         ui.vertical(|ui| {
             if has_doc {
                 // **This said "Matterhorn: 100% Compliant" when nothing was found**, on
-                // an audit that looks at three of the protocol's 136 checkpoints — and
-                // the percentage was `100 - findings * 7`, which is a number with no
-                // measurement behind it at all. What a reader is owed is how much was
-                // looked at, so that "no findings" means what it means.
+                // an audit that looks at a handful of the protocol's 136 failure
+                // conditions — and the percentage was `100 - findings * 7`, which is a
+                // number with no measurement behind it at all. What a reader is owed is
+                // how much was looked at, so that "no findings" means what it means.
+                //
+                // The protocol has 31 checkpoints comprised of 136 failure conditions;
+                // this counts conditions, and the line says so.
                 ui.label(
                     locale_mgr
                         .tr(active_lang, "audit_compliant")
@@ -47,44 +56,64 @@ pub fn show_accessibility_audit(
 
         ui.add_space(crate::app::theme::space::ITEM);
 
-        egui::ScrollArea::vertical().id_salt("audit_scroll").max_height(100.0).show(ui, |ui| {
+        egui::ScrollArea::vertical().id_salt("audit_scroll").show(ui, |ui| {
             if !has_doc {
                 ui.label(egui::RichText::new(locale_mgr.tr(active_lang, "no_doc_loaded")).weak());
-            } else if registry.audit_findings.is_empty() {
-                // **This said "100% Compliant! No errors." in green.** Two of the
-                // protocol's 136 failure conditions are checked, so an empty list is two
-                // conditions finding nothing — which it now says, in the colour of a
-                // remark rather than of a pass.
+                return;
+            }
+            // **Three sections, and this order.** A reader does a different thing with
+            // each kind, and one list is read as though they are one kind: the eye takes
+            // the first column of every row — a number and a clause — and every row looks
+            // like a violation. What must be fixed comes first, then what a reader has to
+            // look at, then what came out sound.
+            let sections = [
+                (fepdf::Outcome::Broken, "audit_section_broken", colors::note::FAIL),
+                (fepdf::Outcome::ForAReader, "audit_section_reader", colors::note::WARN),
+                (fepdf::Outcome::Sound, "audit_section_sound", colors::note::PASS),
+            ];
+            for (outcome, title, colour) in sections {
+                let rows: Vec<&crate::sidebar::AuditRow> =
+                    registry.audit_findings.iter().filter(|r| r.outcome == outcome).collect();
+                if rows.is_empty() {
+                    continue;
+                }
+                ui.add_space(crate::app::theme::space::GROUP);
+                ui.label(
+                    egui::RichText::new(
+                        locale_mgr.tr(active_lang, title).replace("{}", &rows.len().to_string()),
+                    )
+                    .strong(),
+                );
+                let clicked: Vec<u32> =
+                    rows.iter().filter_map(|row| audit_row(ui, row, colour)).collect();
+                for handle in clicked {
+                    if let Some(node_id) = registry.find_node_id_by_handle_id(handle) {
+                        registry.selected_node_id = Some(node_id);
+                        registry.pending_center_node_id = Some(node_id);
+                    }
+                }
+            }
+            // A document with a structure tree this engine could not walk shows no
+            // sections at all, which would otherwise be a blank panel reading as a pass.
+            if registry.audit_findings.is_empty() {
                 ui.label(
                     locale_mgr
                         .tr(active_lang, "audit_success_100")
                         .replace("{}", &registry.audit_checked.to_string()),
                 );
-            } else {
-                for (checkpoint, severity, message, handle_id) in &registry.audit_findings {
-                    let card_resp = ui.vertical(|ui| {
-                        ui.horizontal(|ui| {
-                            ui.colored_label(crate::app::theme::colors::note::FAIL, checkpoint);
-                            ui.label(format!("({severity})"));
-                        });
-                        ui.label(message);
-                    });
-
-                    let id = ui.id().with(checkpoint).with(message);
-                    let response = ui.interact(card_resp.response.rect, id, egui::Sense::click());
-                    if response.clicked()
-                        && let Some(h_id) = handle_id
-                        && let Some(node_id) = registry.find_node_id_by_handle_id(*h_id)
-                    {
-                        registry.selected_node_id = Some(node_id);
-                        registry.pending_center_node_id = Some(node_id);
-                    }
-                    if response.hovered() {
-                        ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
-                    }
-                    ui.add_space(crate::app::theme::space::ITEM);
-                }
             }
+            // **What was never looked at is said, not left out.** A report that listed
+            // only what it examined would let a reader believe it covered the protocol.
+            ui.add_space(crate::app::theme::space::GROUP);
+            let unlooked = registry.audit_in_protocol.saturating_sub(registry.audit_checked);
+            ui.label(
+                egui::RichText::new(
+                    locale_mgr
+                        .tr(active_lang, "audit_section_unlooked")
+                        .replace("{}", &unlooked.to_string()),
+                )
+                .weak(),
+            );
         });
     });
 }
@@ -152,4 +181,29 @@ pub fn show_alt_text_gallery(
             });
         }
     });
+}
+
+/// One row of the report, and the object it names when a reader clicks it.
+///
+/// **A row carries what it found, not only that it found something.** A suspicion without
+/// its evidence tells a reader nothing they can act on, and this engine's part of the
+/// bargain — for declining to decide — is handing over the materials for deciding.
+fn audit_row(
+    ui: &mut egui::Ui,
+    row: &crate::sidebar::AuditRow,
+    colour: egui::Color32,
+) -> Option<u32> {
+    let card = ui.vertical(|ui| {
+        ui.horizontal(|ui| {
+            ui.colored_label(colour, &row.condition);
+        });
+        ui.label(&row.message);
+    });
+    let id = ui.id().with(&row.condition).with(&row.message);
+    let response = ui.interact(card.response.rect, id, egui::Sense::click());
+    if response.hovered() && row.handle_id.is_some() {
+        ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+    }
+    ui.add_space(crate::app::theme::space::ITEM);
+    response.clicked().then_some(row.handle_id).flatten()
 }

@@ -18,7 +18,7 @@
 //! because a broken reference is not a way to fail PDF/UA-1, and it went.
 
 use fepdf::{IngestionOptions, PdfDocument};
-use fepdf_doc::{MatterhornAuditor, Outcome};
+use fepdf_doc::{AuditFinding, AuditReport, AuditScope, MatterhornAuditor, Outcome};
 
 fn opened(bytes: Vec<u8>) -> PdfDocument {
     PdfDocument::open_with_options(bytes.into(), &IngestionOptions::default())
@@ -45,8 +45,8 @@ fn broken_tagging() -> Vec<u8> {
 
 /// **The report says how much of the protocol it looked at.**
 ///
-/// Three of 136. A reader told "no findings" and not told that would have been told the
-/// document conforms.
+/// A couple of 136 failure conditions. A reader told "no findings" and not told that
+/// would have been told the document conforms.
 #[test]
 fn the_report_says_how_much_of_the_protocol_it_checked() {
     let doc = opened(broken_tagging());
@@ -127,6 +127,55 @@ fn an_untagged_document_is_told_apart_from_a_clean_one() {
 
     assert!(!report.found_nothing(), "an untagged document came back with nothing said");
     assert_eq!(report.scope.in_protocol, 136, "the scope forgot the protocol");
+}
+
+/// A tagged document that breaks neither condition this auditor looks at.
+///
+/// The headings go H1 then H2 (14-003 wants no level skipped) and the figure carries its
+/// alternative text (13-004).
+fn sound_tagging() -> Vec<u8> {
+    fepdf_fixtures::assemble(&[
+        "<< /Type /Catalog /Pages 2 0 R /StructTreeRoot 7 0 R >>",
+        "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] >>",
+        "<< /Type /StructElem /S /H1 /P 7 0 R /Pg 3 0 R >>",
+        "<< /Type /StructElem /S /H2 /P 7 0 R /Pg 3 0 R >>",
+        "<< /Type /StructElem /S /Figure /P 7 0 R /Pg 3 0 R /Alt (a duck) >>",
+        "<< /Type /StructTreeRoot /K [4 0 R 5 0 R 6 0 R] >>",
+    ])
+    .into_iter()
+    .collect()
+}
+
+/// **`found_nothing` could not return true, and nothing noticed.**
+///
+/// It was `findings.is_empty()`. Once a checked and unbroken condition became a `Sound`
+/// finding, a clean document carried one row per condition in `CHECKED`, so the list was
+/// never empty and the method always answered `false` — which made the assertion above,
+/// that a broken document did not come back silent, pass for every input including a
+/// perfect one. This is the document that makes it answer `true`.
+#[test]
+fn a_document_breaking_nothing_checked_is_said_to_have_broken_nothing() {
+    let doc = opened(sound_tagging());
+    let report = doc.audit_ua2_report().expect("it audits");
+
+    assert!(
+        report.found_nothing(),
+        "a document breaking neither checked condition was reported as breaking one: {:?}",
+        report
+            .findings
+            .iter()
+            .filter(|f| f.outcome != Outcome::Sound)
+            .map(|f| (&f.checkpoint, &f.message))
+            .collect::<Vec<_>>()
+    );
+    // And it is not silent: the sound conditions are still reported, so "nothing to act
+    // on" and "nothing was looked at" stay apart.
+    assert_eq!(
+        report.findings.iter().filter(|f| f.outcome == Outcome::Sound).count(),
+        MatterhornAuditor::CHECKED.len(),
+        "a clean document did not report the conditions it was checked against"
+    );
 }
 
 /// **Every number this auditor reports says, in the protocol, what this auditor checks.**
@@ -295,5 +344,43 @@ fn an_untagged_document_has_nothing_to_call_sound() {
         report.findings.iter().all(|f| f.outcome != Outcome::Sound),
         "an untagged document had a condition called sound: {:?}",
         report.findings
+    );
+}
+
+/// **A condition waiting for a reader is not "nothing found".**
+///
+/// Dropping `ForAReader` from [`AuditReport::found_nothing`] failed no test, because no
+/// condition emits one yet: `CHECKED` is two machine-decided conditions, and the ones the
+/// protocol leaves to a person are W-21d. The variant is in the method's contract and in
+/// the panel's second section, so it is tested here against a report built by hand rather
+/// than left until a producer exists.
+#[test]
+fn a_condition_left_for_a_reader_is_not_nothing_found() {
+    let waiting = AuditReport {
+        findings: vec![
+            AuditFinding {
+                checkpoint: "13-004".into(),
+                severity: "Pass".into(),
+                outcome: Outcome::Sound,
+                message: "13-004 was checked and this document does not break it".into(),
+                handle_id: None,
+            },
+            AuditFinding {
+                checkpoint: "14-003".into(),
+                severity: "Warning".into(),
+                outcome: Outcome::ForAReader,
+                message: "the heading levels are yours to judge".into(),
+                handle_id: None,
+            },
+        ],
+        scope: AuditScope {
+            checked: MatterhornAuditor::CHECKED.iter().map(|c| (*c).to_string()).collect(),
+            in_protocol: MatterhornAuditor::IN_PROTOCOL,
+        },
+    };
+
+    assert!(
+        !waiting.found_nothing(),
+        "a condition handed to a reader to decide was reported as nothing to act on"
     );
 }

@@ -4591,7 +4591,7 @@ Independent of all of the above:
 
       - [x] **W-21a — say how much is checked.** `audit_ua2_report` answers an
         `AuditReport` carrying an `AuditScope` beside the findings, and the window shows
-        "Matterhorn: 3 / 136 項目を検査" where the findings are. `found_nothing()` is
+        "Matterhorn の 2 / 136 件の失格条件を検査" where the findings are. `found_nothing()` is
         named so that a caller cannot write `findings.is_empty()` and mean "conforms".
 
         **The panel said "Matterhorn: 100% Compliant".** The percentage was
@@ -4637,8 +4637,8 @@ Independent of all of the above:
         comment had said "broken or sound, never both" while the assertion could not see
         the difference.
 
-      - **W-21f — the report a reader reads.** The findings are a panel 100 points tall
-        in a drawer today, which is a list and not a report. What a reader does with a
+      - [x] **W-21f — the report a reader reads.** The findings were a panel 100 points
+        tall in a drawer, which is a list and not a report. What a reader does with a
         finding differs by kind, and a single list is read as though it does not:
 
         | | What this engine can say | What the reader does |
@@ -4664,6 +4664,44 @@ Independent of all of the above:
         **What is not looked at is still listed.** Dropping the conditions this engine
         cannot judge would leave a reader believing the report covers the protocol. That
         is the same silence W-21a removed from the summary, one level down.
+
+        **Four sections, not three.** W-21g made a checked-and-unbroken condition a result,
+        so the panel heads `Broken`, `ForAReader` and `Sound` in that order — fix, look,
+        sound — and closes with a weak line counting `in_protocol - checked`. An empty
+        section is not drawn; the closing line always is. The `max_height(100.0)` is gone.
+
+        **The summary line counted sound conditions as findings.** `audit_findings.len()`
+        became every row when `Sound` rows joined the list, so a clean document read
+        "Findings: 2" directly above "Checked and sound (2)". It counts what is not
+        `Sound`: what is waiting for the reader.
+
+        **It said "checkpoints" where it meant failure conditions.** 136 is the count of
+        failure conditions; the protocol has 31 checkpoints. This is the noun W-21e got
+        wrong in the other direction, in the same panel.
+
+        **A document whose structure tree could not be walked drew nothing at all.** Every
+        section is empty, so the panel was blank below the summary — a pass by silence, of
+        the kind this phase keeps finding. It says how many conditions were checked and
+        that none of them reported.
+
+        **`found_nothing()` could not return true.** W-21a named it so that a caller could
+        not write `findings.is_empty()` and mean "conforms" — and it *was*
+        `findings.is_empty()`. W-21g then made every checked and unbroken condition a
+        `Sound` row, so a clean document always carried one row per condition in `CHECKED`,
+        the list was never empty, and the method answered `false` for every input. The
+        assertion that a broken document "came back with nothing said" had stopped being
+        able to fail. It asks whether anything is `Broken` or waiting `ForAReader`.
+
+        **Four mutations.** Restoring `findings.is_empty()`, dropping the `Sound` rows, and
+        each of the two arms of the outcome test. Dropping `ForAReader` survived the first
+        round: nothing emits one, because both checked conditions are machine-decided and
+        the ones the protocol leaves to a person are W-21d. The variant is in the method's
+        contract and in the panel's second section, so it is tested against a report built
+        by hand rather than left until a producer exists.
+
+        **Four comments and one roadmap line said "three checkpoints of 136".** Two of the
+        three numbers went in W-21e, and 136 counts failure conditions — the protocol is 31
+        checkpoints comprised of 136 of them. The panel said "checkpoints" too.
 
       - **W-21d — the ones the protocol expects a person to decide.** Its `How` column
         marks 47 of the 136 `H`, and defines the column as "**not determinative** … the

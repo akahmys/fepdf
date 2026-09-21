@@ -137,13 +137,22 @@ pub struct AuditReport {
 }
 
 impl AuditReport {
-    /// Whether the audit found nothing — which is not the same as the document passing.
+    /// Whether the audit found nothing a reader must act on — which is not the same as
+    /// the document passing.
     ///
     /// **Named so that a caller cannot write `findings.is_empty()` and mean "conforms".**
-    /// Three checkpoints of 136 finding nothing is three checkpoints finding nothing.
+    /// A couple of failure conditions out of 136 finding nothing is a couple of failure
+    /// conditions finding nothing. Read [`AuditReport::scope`] beside this.
+    ///
+    /// **This was `findings.is_empty()`, and that could not be true.** Once a checked and
+    /// unbroken condition became a `Sound` finding, a clean document carried one row per
+    /// condition in `CHECKED` and an empty list became unreachable: the method always
+    /// answered `false`, and the test asserting `!found_nothing()` on a broken document
+    /// could no longer fail. It asks what it is named for — whether anything is `Broken`
+    /// or waiting `ForAReader`.
     #[must_use]
     pub fn found_nothing(&self) -> bool {
-        self.findings.is_empty()
+        !self.findings.iter().any(|f| matches!(f.outcome, Outcome::Broken | Outcome::ForAReader))
     }
 }
 
