@@ -52,6 +52,7 @@ fn variant_name(op: &Operation) -> &'static str {
         Operation::CropPages(..) => "CropPages",
         Operation::SplitPage { .. } => "SplitPage",
         Operation::CombinePages(..) => "CombinePages",
+        Operation::AddFormField(..) => "AddFormField",
         Operation::SetMeasurementScale(_) => "SetMeasurementScale",
         Operation::SetFormFieldValue(_) => "SetFormFieldValue",
         Operation::SetPageLabels(_) => "SetPageLabels",

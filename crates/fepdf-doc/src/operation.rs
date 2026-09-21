@@ -354,6 +354,12 @@ pub enum Operation {
         /// Where it draws from afterwards, in the page's default user space.
         to: (f64, f64),
     },
+    /// Creates a form field, with its widget on a page.
+    ///
+    /// **Through to creation, not only filling** (ADR-0087). A document this engine
+    /// declares PDF/UA-2 conforming has to have accessible fields, and a field it did not
+    /// create is one it can only complain about.
+    AddFormField(NewField),
     /// Puts several pages onto one sheet, in a grid.
     ///
     /// Each source page becomes a form XObject drawn into a cell, so it keeps the fonts
@@ -496,6 +502,7 @@ impl Operation {
             | Self::CropPages { .. }
             | Self::SplitPage { .. }
             | Self::CombinePages { .. }
+            | Self::AddFormField { .. }
             | Self::SetMeasurementScale { .. }
             | Self::SetFormFieldValue { .. }
             | Self::SetPageLabels { .. }
@@ -506,6 +513,114 @@ impl Operation {
             | Self::AddMeshShading { .. }
             | Self::SetUnencryptedWrapper { .. }
             | Self::AddPublicKeyRecipient { .. } => false,
+        }
+    }
+}
+
+/// A form field to create, and where its widget sits.
+///
+/// **`/TU` is not optional here.** A field without one is a Matterhorn failure this engine
+/// already reports, and [ADR-0087](../../../docs/adr/0087-a-form-field-is-created-here-not-only-filled.md)
+/// was taken so that it could repair what it names rather than only name it. A creator
+/// that let the defect in would be the auditor writing its own findings.
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct NewField {
+    /// The page the widget goes on, counting from zero.
+    pub page: usize,
+    /// Where on it, in the page's own space: left, bottom, right, top.
+    pub rect: (f64, f64, f64, f64),
+    /// `/T`, the field's name, which is what an edit to its value names.
+    pub name: String,
+    /// `/TU`, what a reader is told the field is for — announced by a screen reader and
+    /// shown as a tooltip.
+    pub tooltip: String,
+    /// What kind of field it is, and what that kind needs.
+    pub kind: FieldKind,
+}
+
+/// The nine kinds of widget a form is made of (12.7.5).
+///
+/// **The kind decides `/FT` and `/Ff` together**, which is why they are one choice here
+/// rather than a type and a bag of flags: bit 13 is `Multiline` on a text field and
+/// nothing on any other, and a caller assembling those by hand assembles them wrong.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub enum FieldKind {
+    /// One line of text.
+    Text {
+        /// What it holds to begin with.
+        value: String,
+    },
+    /// Several lines of text (Table 228, bit 13).
+    TextArea {
+        /// What it holds to begin with.
+        value: String,
+    },
+    /// A text field that shows what is typed as dots (Table 228, bit 14).
+    ///
+    /// The value is not given here: a password written into a document is a password in
+    /// the document, and this engine will not put one there.
+    Password,
+    /// A box that is ticked or not.
+    CheckBox {
+        /// Whether it starts ticked.
+        on: bool,
+    },
+    /// One of a group, of which one at a time is chosen (Table 230, bit 16).
+    RadioButton {
+        /// The name of the group it belongs to, which is the field name they share.
+        group: String,
+        /// Whether it starts chosen.
+        on: bool,
+    },
+    /// A button that does something rather than holding a value (Table 230, bit 17).
+    PushButton {
+        /// What it says on it.
+        caption: String,
+    },
+    /// A list that drops down, and shows the chosen one when it is closed (Table 231,
+    /// bit 18).
+    ComboBox {
+        /// What it offers, as `/Opt`.
+        options: Vec<String>,
+        /// Which of them it starts on.
+        value: String,
+    },
+    /// A list that stands open.
+    ListBox {
+        /// What it offers, as `/Opt`.
+        options: Vec<String>,
+        /// Which of them it starts on.
+        value: String,
+    },
+    /// A place for a signature, which is signed rather than filled (12.7.5.5).
+    Signature,
+}
+
+impl FieldKind {
+    /// `/FT`, the field type this kind is (Table 226).
+    #[must_use]
+    pub const fn field_type(&self) -> &'static str {
+        match self {
+            Self::Text { .. } | Self::TextArea { .. } | Self::Password => "Tx",
+            Self::CheckBox { .. } | Self::RadioButton { .. } | Self::PushButton { .. } => "Btn",
+            Self::ComboBox { .. } | Self::ListBox { .. } => "Ch",
+            Self::Signature => "Sig",
+        }
+    }
+
+    /// `/Ff`, the flags this kind sets. Counted from bit 1, so bit 13 is `1 << 12`.
+    #[must_use]
+    pub const fn flags(&self) -> i64 {
+        match self {
+            Self::Text { .. } | Self::CheckBox { .. } | Self::ListBox { .. } | Self::Signature => 0,
+            // Table 228: Multiline, then Password.
+            Self::TextArea { .. } => 1 << 12,
+            Self::Password => 1 << 13,
+            // Table 230: Radio, then Pushbutton.
+            Self::RadioButton { .. } => 1 << 15,
+            Self::PushButton { .. } => 1 << 16,
+            // Table 231: Combo.
+            Self::ComboBox { .. } => 1 << 17,
         }
     }
 }

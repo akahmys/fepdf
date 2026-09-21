@@ -1,9 +1,11 @@
 //! Dispatcher and domain modules for applying operations to documents.
 
-/// Annotation, form field, action, and decoration operation handlers.
+/// Annotation, action, and decoration operation handlers.
 pub mod annotations;
 /// Building a field's appearance from its value (12.7.4.3).
 pub mod appearance;
+/// Creating a form field, not only filling one (ADR-0087).
+pub mod fields;
 /// Putting a font program into a document.
 pub mod font;
 /// Portfolio, outline, layer, associated file, and metadata operation handlers.
@@ -81,6 +83,7 @@ pub fn apply_operation(doc: &mut Document, op: Operation) -> PdfResult<()> {
         Operation::RemoveOutside { page, keep } => text::apply_remove_outside(doc, page, keep),
         Operation::SplitPage { page, into } => page::apply_split_page(doc, page, &into),
         Operation::CombinePages(pages, onto) => page::apply_combine_pages(doc, &pages, &onto),
+        Operation::AddFormField(field) => fields::apply_add_form_field(doc, &field),
         Operation::CropPages(pages, region) => {
             page::apply_crop_pages(doc, &pages, region.keep, region.outside)
         }

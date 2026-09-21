@@ -159,3 +159,56 @@ pub fn set_form_field_value_impl(args: SetFormFieldValueArgs) -> Result<String, 
     let op = Operation::SetFormFieldValue(spec);
     execute_single_op(&args.input_path, &args.output_path, op, "Form field value updated")
 }
+
+/// Arguments for `add_form_field`.
+#[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
+pub struct AddFormFieldArgs {
+    /// Path to input PDF file.
+    pub input_path: String,
+    /// Path to output PDF file.
+    pub output_path: String,
+    /// The page the widget goes on, counting from zero.
+    pub page: usize,
+    /// Where on it, as [left, bottom, right, top] in points from the bottom-left corner.
+    pub rect: [f64; 4],
+    /// The field's name, which is what filling it names.
+    pub name: String,
+    /// What a reader is told the field is for. Required: a field without one is a
+    /// Matterhorn failure this engine reports.
+    pub tooltip: String,
+    /// One of `text`, `text_area`, `password`, `check_box`, `radio_button`,
+    /// `push_button`, `combo_box`, `list_box`, `signature`.
+    pub kind: String,
+    /// What it holds to begin with, for a text or choice field; the caption for a push
+    /// button; `true` or `false` for a box or a radio.
+    pub value: Option<String>,
+    /// What a choice field offers.
+    pub options: Option<Vec<String>>,
+}
+
+/// Implementation of the add_form_field tool.
+pub fn add_form_field_impl(args: AddFormFieldArgs) -> Result<String, String> {
+    let value = args.value.clone().unwrap_or_default();
+    let options = args.options.clone().unwrap_or_default();
+    let on = value.eq_ignore_ascii_case("true");
+    let kind = match args.kind.as_str() {
+        "text" => fepdf::FieldKind::Text { value },
+        "text_area" => fepdf::FieldKind::TextArea { value },
+        "password" => fepdf::FieldKind::Password,
+        "check_box" => fepdf::FieldKind::CheckBox { on },
+        "radio_button" => fepdf::FieldKind::RadioButton { group: args.name.clone(), on },
+        "push_button" => fepdf::FieldKind::PushButton { caption: value },
+        "combo_box" => fepdf::FieldKind::ComboBox { options, value },
+        "list_box" => fepdf::FieldKind::ListBox { options, value },
+        "signature" => fepdf::FieldKind::Signature,
+        other => return Err(format!("no field kind is called {other:?}")),
+    };
+    let op = Operation::AddFormField(fepdf::NewField {
+        page: args.page,
+        rect: (args.rect[0], args.rect[1], args.rect[2], args.rect[3]),
+        name: args.name,
+        tooltip: args.tooltip,
+        kind,
+    });
+    execute_single_op(&args.input_path, &args.output_path, op, "Form field created")
+}

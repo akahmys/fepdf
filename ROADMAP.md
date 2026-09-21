@@ -4245,9 +4245,36 @@ Forms, through to creation, under D-3:
       extending the stack in reverse, which is the document's own order, depth first.
 
 
-- [ ] **W-F2 — creating fields.** Nine widget types, `/AcroForm`, tab order and a
-      calculation order. *Fails if*: `inspect interactive` does not report every type
-      created, or `inspect audit` finds a field without a `/TU`.
+- [x] **W-F2-a — creating the nine kinds of field.** `Operation::AddFormField(NewField)`,
+      served as `add_form_field`. The `/AcroForm` is written when the document has none,
+      with the `/DA` and `/DR` a variable-text field is drawn by (12.7.4.3) — a form
+      declaring fields without them is one whose fields a reader sees nothing of.
+
+      **The kind decides `/FT` and `/Ff` together**, which is why they are one choice and
+      not a type beside a bag of flags: bit 13 is `Multiline` on a text field and nothing
+      on any other, and a caller assembling those by hand assembles them wrong.
+
+      **`/TU` is not optional.** A field without one is a Matterhorn failure this engine
+      already reports, and an auditor that created the defect it names would be writing
+      its own findings. `FormField` now carries it, so the audit can say *which* field is
+      missing one rather than only how many are.
+
+      **A password's value is not written.** A password in a document is a password in the
+      document.
+
+      The check is the round trip ADR-0087 named, not the screen: created, written out,
+      opened again, and reported by the same reader that reports somebody else's document.
+
+      **Two of six mutations did not fire, and both were halves the tests had not looked
+      at**: writing the `/TU`, and writing the value a field was given. The refusal when a
+      tooltip is missing was tested and the tooltip *arriving* was not — which is the
+      failure ADR-0087 actually named. Tested now, and a third mutation with them: writing
+      a password's value fails a test that says it must not be there.
+
+- [ ] **W-F2-b — tab order and calculation order.** A created field joins `/Fields` in the
+      order it was made and the page's `/Annots` in the same; neither is a `/Tabs` nor a
+      `/CO`, and 12.5.1 leaves the order unspecified when `/Tabs` is absent.
+
 
 Page geometry, under D-4:
 
@@ -4373,6 +4400,41 @@ Independent of all of the above:
       `SetMeasurementScale` where a drawing declares one.
 - [ ] **W-17 — printing.** No check can be written for whether ink reached paper, and
       this line says so rather than listing a command that cannot fail.
+- [ ] **W-20 — the snapshot**, which Acrobat calls スナップショット: a reader drags a
+      rectangle on the page and what is inside it lands on the clipboard as a picture.
+
+      **It is a read, not an `Operation`.** Nothing about the document changes, so it
+      belongs beside `extract_text` and `render_page` rather than in the vocabulary that
+      Rule D governs.
+
+      Measured before planning, 2026-09-21:
+
+      - `egui 0.34` has `Context::copy_image`, so the clipboard needs **no new
+        dependency** and Rule 9 is not in question. `arboard` and the like would have
+        been, and this is the reason to check before writing the item rather than after.
+      - `headless::render_to_bytes` already rasterises a scene to RGBA at a width and
+        height. What is missing is a *region*: everything above it renders a whole page,
+        and `render_page_to_file_with` fixes the scale at 4/3 of the page's user unit.
+      - The window already puts text on the clipboard two ways
+        (`interaction.rs`, `app/mod.rs`), so there is a place for this to sit and a
+        precedent for how.
+
+      The work, in the order it can be checked:
+
+      - **W-20a — a region of a page, rasterised.** `PdfDocument::render_region`, taking a
+        rectangle in the page's own space and a scale, answering pixels rather than
+        writing a file. The scale is the caller's: Acrobat asks at a resolution, and a
+        snapshot taken at what the screen happens to be showing is a snapshot nobody can
+        ask for twice. *Fails if*: the pixels of a region differ from the same region cut
+        out of the whole page rendered at that scale.
+      - **W-20b — the gesture and the clipboard.** A drag on the page while the tool is
+        on, the rectangle drawn as it is dragged, and `copy_image` on release. The
+        drag is the one from W-E6-b and the frame is the one from W-E6; neither should be
+        written twice.
+      - **W-20c — where it went.** A picture put on the clipboard with nothing said is a
+        gesture a reader cannot tell worked from one that did not, which is the shape of
+        defect this repository has a history with. It says what it copied and how big.
+
 - [ ] **W-18 — comparing two documents.**
 - [ ] **W-19a — the reading order, the language and the lexicon**, assembled for a
       synthesiser: structure order, `/Lang` resolved by inheritance (14.9.2) and the PLS

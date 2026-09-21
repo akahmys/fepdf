@@ -8,26 +8,26 @@ use crate::tools::operations::vocabulary::{
     upgrade_impl,
 };
 use crate::tools::{
-    AddAnnotationArgs, AddMeshShadingArgs, AddPageDecorationArgs, AddPublicKeyRecipientArgs,
-    AddUserPropertiesArgs, ApplyBatesNumberingArgs, ApplyOperationArgs, AttachAssociatedFileArgs,
-    AuditArgs, CombinePagesArgs, CreatePortfolioArgs, CropPagesArgs, DeleteRunArgs,
-    DeleteStructElemArgs, EditRunArgs, ExecuteActionArgs, ExtractTextArgs, ListRunsArgs,
-    MergeRunsArgs, MoveRunArgs, MoveStructElemArgs, RedactDocumentArgs, RemovePagesArgs,
-    ReorderPagesArgs, RotatePagesArgs, SetFormFieldValueArgs, SetGeospatialAnchorArgs,
-    SetMeasurementScaleArgs, SetOutputIntentArgs, SetPageLabelsArgs, SetPronunciationLexiconArgs,
-    SetUnencryptedWrapperArgs, SplitPageArgs, SplitRunArgs, UpdateArticleThreadsArgs,
-    UpdateLayersArgs, UpdateOutlinesArgs, UpdateStructElemArgs, VerifySignaturesArgs,
-    add_annotation_impl, add_mesh_shading_impl, add_page_decoration_impl,
-    add_public_key_recipient_impl, add_user_properties_impl, apply_bates_numbering_impl,
-    apply_operation_impl, apply_redaction_impl, attach_associated_file_impl, audit_document_impl,
-    combine_pages_impl, create_portfolio_impl, crop_pages_impl, delete_run_impl,
-    delete_struct_elem_impl, edit_run_impl, execute_action_impl, extract_text_impl, list_runs_impl,
-    merge_runs_impl, move_run_impl, move_struct_elem_impl, remove_pages_impl, reorder_pages_impl,
-    rotate_pages_impl, set_form_field_value_impl, set_geospatial_anchor_impl,
-    set_measurement_scale_impl, set_output_intent_impl, set_page_labels_impl,
-    set_pronunciation_lexicon_impl, set_unencrypted_wrapper_impl, split_page_impl, split_run_impl,
-    update_article_threads_impl, update_layers_impl, update_outlines_impl, update_struct_elem_impl,
-    verify_signatures_impl,
+    AddAnnotationArgs, AddFormFieldArgs, AddMeshShadingArgs, AddPageDecorationArgs,
+    AddPublicKeyRecipientArgs, AddUserPropertiesArgs, ApplyBatesNumberingArgs, ApplyOperationArgs,
+    AttachAssociatedFileArgs, AuditArgs, CombinePagesArgs, CreatePortfolioArgs, CropPagesArgs,
+    DeleteRunArgs, DeleteStructElemArgs, EditRunArgs, ExecuteActionArgs, ExtractTextArgs,
+    ListRunsArgs, MergeRunsArgs, MoveRunArgs, MoveStructElemArgs, RedactDocumentArgs,
+    RemovePagesArgs, ReorderPagesArgs, RotatePagesArgs, SetFormFieldValueArgs,
+    SetGeospatialAnchorArgs, SetMeasurementScaleArgs, SetOutputIntentArgs, SetPageLabelsArgs,
+    SetPronunciationLexiconArgs, SetUnencryptedWrapperArgs, SplitPageArgs, SplitRunArgs,
+    UpdateArticleThreadsArgs, UpdateLayersArgs, UpdateOutlinesArgs, UpdateStructElemArgs,
+    VerifySignaturesArgs, add_annotation_impl, add_form_field_impl, add_mesh_shading_impl,
+    add_page_decoration_impl, add_public_key_recipient_impl, add_user_properties_impl,
+    apply_bates_numbering_impl, apply_operation_impl, apply_redaction_impl,
+    attach_associated_file_impl, audit_document_impl, combine_pages_impl, create_portfolio_impl,
+    crop_pages_impl, delete_run_impl, delete_struct_elem_impl, edit_run_impl, execute_action_impl,
+    extract_text_impl, list_runs_impl, merge_runs_impl, move_run_impl, move_struct_elem_impl,
+    remove_pages_impl, reorder_pages_impl, rotate_pages_impl, set_form_field_value_impl,
+    set_geospatial_anchor_impl, set_measurement_scale_impl, set_output_intent_impl,
+    set_page_labels_impl, set_pronunciation_lexicon_impl, set_unencrypted_wrapper_impl,
+    split_page_impl, split_run_impl, update_article_threads_impl, update_layers_impl,
+    update_outlines_impl, update_struct_elem_impl, verify_signatures_impl,
 };
 use rmcp::{
     ServiceExt,
@@ -608,6 +608,18 @@ impl FepdfServer {
         Parameters(args): Parameters<CombinePagesArgs>,
     ) -> Result<String, String> {
         combine_pages_impl(args)
+    }
+
+    /// Creates a form field with its widget on a page.
+    #[tool(
+        name = "add_form_field",
+        description = "Creates a form field of one of nine kinds — text, text_area, password, check_box, radio_button, push_button, combo_box, list_box, signature — with its widget on a page, and writes the /AcroForm if the document has none. A tooltip is required: a field without one is an accessibility failure this engine reports."
+    )]
+    pub async fn add_form_field(
+        &self,
+        Parameters(args): Parameters<AddFormFieldArgs>,
+    ) -> Result<String, String> {
+        add_form_field_impl(args)
     }
 
     /// Configures drawing measurement scale dictionary (/Measure) for CAD and technical drawings.

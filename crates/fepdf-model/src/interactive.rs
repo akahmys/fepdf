@@ -241,6 +241,14 @@ pub struct FormField {
     /// `/Ch` either, and a `/Sig` a dictionary — so this says what is there rather than
     /// pretending the four are one type.
     pub value: Option<String>,
+    /// `/TU`, what a reader is told the field is for — announced by a screen reader and
+    /// shown as a tooltip.
+    ///
+    /// **A field without one is a Matterhorn failure**, which is why it is reported
+    /// beside the field rather than only counted: an auditor that can say which field is
+    /// missing it can repair that field
+    /// ([ADR-0087](../../../docs/adr/0087-a-form-field-is-created-here-not-only-filled.md)).
+    pub tooltip: Option<String>,
     /// Whether the field carries its own `/DA`. Required on a variable-text field when
     /// the form has none (12.7.4.3), which is what `isartor-6-9-t01` breaks.
     pub has_default_appearance: bool,
@@ -580,6 +588,7 @@ fn build_terminal_field(arena: &PdfArena, d: &Dict, here: &Inherited) -> FormFie
         field_type: here.field_type.clone(),
         flags: here.flags,
         value: here.value.clone(),
+        tooltip: d.get(&arena.name("TU")).and_then(|t| string_of(arena, t)),
         has_default_appearance: here.has_default_appearance,
         is_widget: name_of_key(arena, d, "Subtype").as_deref() == Some("Widget"),
         options,
