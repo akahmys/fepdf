@@ -1635,6 +1635,78 @@ impl PdfDocument {
         self.render_page_to_file_with(index, output_path, Rasteriser::Gpu)
     }
 
+    /// A rectangle of a page, rasterised, as RGBA pixels and the size they came out.
+    ///
+    /// **The snapshot Acrobat calls スナップショット is a read**, not an `Operation`:
+    /// nothing about the document changes, so it belongs here beside `extract_text` and
+    /// `render_page` rather than in the vocabulary Rule D governs.
+    ///
+    /// `keep` is in the page's own space and `scale` is the caller's. A snapshot taken at
+    /// whatever the screen happens to be showing is a snapshot nobody can ask for twice,
+    /// so the resolution is asked for rather than inferred — `4.0 / 3.0` is the 96 DPI
+    /// `render_page_to_file` uses, and twice that is twice the detail.
+    ///
+    /// **`/UserUnit` is not applied here** and is where `render_page_to_file` does apply
+    /// it (Table 31). A caller asking for a region of a page in that page's coordinates
+    /// has already said what it wants in those coordinates; multiplying by the unit would
+    /// answer a rectangle it did not ask about. A caller that wants the page's own sense
+    /// of scale multiplies `scale` by [`Self::get_page_user_unit`].
+    ///
+    /// # Errors
+    /// Fails when the page is not there, when the rectangle has no area, when the scale
+    /// is not a positive finite number, or when the rasteriser does.
+    #[cfg(feature = "render")]
+    pub fn render_region(
+        &self,
+        index: usize,
+        keep: (f64, f64, f64, f64),
+        scale: f64,
+    ) -> PdfResult<(Vec<u8>, u32, u32)> {
+        self.render_region_with(index, keep, scale, Rasteriser::Gpu)
+    }
+
+    /// [`Self::render_region`], naming which rasteriser runs.
+    ///
+    /// # Errors
+    /// The same as [`Self::render_region`].
+    #[cfg(feature = "render")]
+    pub fn render_region_with(
+        &self,
+        index: usize,
+        keep: (f64, f64, f64, f64),
+        scale: f64,
+        rasteriser: Rasteriser,
+    ) -> PdfResult<(Vec<u8>, u32, u32)> {
+        let (wide, tall) = (keep.2 - keep.0, keep.3 - keep.1);
+        if !scale.is_finite() || scale <= 0.0 {
+            return Err(PdfError::Other(format!("a scale of {scale} draws nothing").into()));
+        }
+        if !(wide.is_finite() && tall.is_finite()) || wide <= 0.0 || tall <= 0.0 {
+            return Err(PdfError::Other(
+                format!("a region of {wide} by {tall} points has no area").into(),
+            ));
+        }
+        let (width, height) = pixels_across(wide, tall, scale)?;
+
+        let mut backend = VelloBackend::new(Arc::clone(&self.inner.system_fonts));
+        // The page is drawn whole and the region is what the frame is put around: the
+        // transform puts `keep`'s lower-left corner at the image's lower-left, and the
+        // flip is the one every render of a page does — a page counts up from its foot
+        // and an image down from its head.
+        let transform =
+            kurbo::Affine::new([scale, 0.0, 0.0, -scale, -keep.0 * scale, keep.3 * scale]);
+        self.render_page(index, &mut backend, transform)?;
+
+        let pixels = pollster::block_on(fepdf_render::headless::render_to_bytes_with(
+            backend.scene(),
+            width,
+            height,
+            rasteriser,
+        ))
+        .map_err(|e: Box<dyn std::error::Error>| PdfError::Other(e.to_string().into()))?;
+        Ok((pixels, width, height))
+    }
+
     /// [`PdfDocument::render_page_to_file`], naming which rasteriser runs.
     ///
     /// **A caller wanting the same image twice must ask for `Cpu`.** The engine encodes a
@@ -1862,5 +1934,28 @@ fn collect_marked_pages(node: &StructureTreeNode, into: &mut std::collections::B
     }
     for child in &node.children {
         collect_marked_pages(child, into);
+    }
+}
+
+#[cfg(feature = "render")]
+/// How many pixels across and down a region of `wide` by `tall` points is at `scale`.
+///
+/// **Rounded up, never to nothing.** A region a third of a point wide is a region the
+/// reader dragged, and answering it zero pixels would be answering that they dragged
+/// nothing. An image with no area is one no rasteriser will make.
+fn pixels_across(wide: f64, tall: f64, scale: f64) -> PdfResult<(u32, u32)> {
+    let across = (wide * scale).ceil();
+    let down = (tall * scale).ceil();
+    let fits = |side: f64| {
+        (side.is_finite() && side >= 1.0 && side <= f64::from(u32::MAX))
+            .then_some(side)
+            .and_then(|side| u32::try_from(side as u64).ok())
+    };
+    match (fits(across), fits(down)) {
+        (Some(across), Some(down)) => Ok((across, down)),
+        _ => Err(PdfError::Other(
+            format!("a region of {wide} by {tall} points at {scale} is {across} by {down} pixels, which is no image")
+                .into(),
+        )),
     }
 }

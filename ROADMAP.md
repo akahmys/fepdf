@@ -4439,12 +4439,26 @@ Independent of all of the above:
 
       The work, in the order it can be checked:
 
-      - **W-20a — a region of a page, rasterised.** `PdfDocument::render_region`, taking a
-        rectangle in the page's own space and a scale, answering pixels rather than
-        writing a file. The scale is the caller's: Acrobat asks at a resolution, and a
-        snapshot taken at what the screen happens to be showing is a snapshot nobody can
-        ask for twice. *Fails if*: the pixels of a region differ from the same region cut
-        out of the whole page rendered at that scale.
+      - [x] **W-20a — a region of a page, rasterised.** `PdfDocument::render_region`
+        takes a rectangle in the page's own space and a scale, and answers RGBA pixels
+        with the size they came out. The scale is the caller's: a snapshot taken at what
+        the screen happens to be showing is one nobody can ask for twice. `/UserUnit` is
+        deliberately **not** applied — a caller asking in the page's coordinates has said
+        what it wants in them — and the doc says where `render_page_to_file` differs.
+
+        **The first version of the test compared `render_region` against itself**, using
+        it for the whole page as well, and dropping the vertical flip from the transform
+        failed nothing: the comparison flipped with it. It compares against
+        `render_page_to_file_with` now, which works out its own transform and its own
+        size, and all four mutations fail — a horizontal shift of one pixel, the flip, the
+        bottom edge for the top, and ignoring the left edge.
+
+        **The region is chosen to land on the page image's pixel grid.** At 4/3 a
+        rectangle starting at 100 begins a third of a pixel into one, and a glyph edge
+        sampled a third of a pixel over is 142 of 255 away — the distance between two
+        renderings of one thing, not a defect in either. What remains at exact alignment
+        was measured before it was allowed: two images of different sizes tile
+        differently, so at scale 1 over 20,000 pixels **311 differ, 1.55%, worst by 5**.
       - **W-20b — the gesture and the clipboard.** A drag on the page while the tool is
         on, the rectangle drawn as it is dragged, and `copy_image` on release. The
         drag is the one from W-E6-b and the frame is the one from W-E6; neither should be
