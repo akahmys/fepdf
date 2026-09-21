@@ -87,8 +87,8 @@ impl FepdfApp {
             };
             let live = has_doc && reachable;
             if icon_action(ui, icon, is_open, live, &tip).clicked() && live {
+                // `show_drawer` turns the tool that belongs to the drawer with it.
                 self.show_drawer(if is_open { ActiveDrawer::None } else { drawer });
-                self.caliper_tool.is_active = !is_open && drawer == ActiveDrawer::Caliper;
             }
         }
     }
@@ -131,6 +131,7 @@ impl FepdfApp {
             ActiveDrawer::Bookmarks => tr("marks_title"),
             ActiveDrawer::TextRuns => tr("runs_title"),
             ActiveDrawer::Form => tr("form_title"),
+            ActiveDrawer::Snapshot => tr("snapshot_title"),
         }
     }
 
@@ -176,6 +177,7 @@ impl FepdfApp {
                         ActiveDrawer::None => {}
                         ActiveDrawer::TextRuns => self.render_text_runs(ui),
                         ActiveDrawer::Form => self.render_form(ui),
+                        ActiveDrawer::Snapshot => self.render_snapshot(ui),
                         ActiveDrawer::WhatItDoes => {
                             let locale = &self.locale_mgr;
                             let lang = &self.active_language;
@@ -272,6 +274,23 @@ impl FepdfApp {
 
     /// Sends the draft as one `UpdateOutlines`.
     ///
+    /// How a snapshot is taken, and at what resolution.
+    ///
+    /// **The drawer holds no gesture**: the drag is on the page, where the reader can see
+    /// what they are taking. What is here is the one thing the page cannot ask — how much
+    /// detail to take it at.
+    fn render_snapshot(&mut self, ui: &mut egui::Ui) {
+        ui.label(self.tr("snapshot_how"));
+        ui.add_space(crate::app::theme::space::ITEM);
+        ui.label(self.tr("snapshot_resolution"));
+        for (index, (key, _)) in crate::snapshot::RESOLUTIONS.iter().enumerate() {
+            let chosen = self.snapshot_tool.resolution == index;
+            if ui.selectable_label(chosen, self.tr(key)).clicked() {
+                self.snapshot_tool.resolution = index;
+            }
+        }
+    }
+
     /// The document's form, and what the reader puts in it.
     ///
     /// **The drawer names the field and the value and this turns it into an `Operation`**,

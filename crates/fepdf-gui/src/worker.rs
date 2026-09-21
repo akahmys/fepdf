@@ -108,6 +108,15 @@ pub enum WorkerRequest {
     Undo,
     /// Put back the last operation `Undo` took.
     Redo,
+    /// Rasterise a rectangle of a page, for the clipboard.
+    Snapshot {
+        /// Which page.
+        page: usize,
+        /// What to take, in the page's own space: left, bottom, right, top.
+        keep: (f64, f64, f64, f64),
+        /// What to take it at, as a multiple of a point.
+        scale: f64,
+    },
 }
 
 /// The document as it was opened, and every operation applied to it since.
@@ -190,6 +199,18 @@ pub enum WorkerResponse {
     },
     LoadingProgress {
         message: String,
+    },
+    /// A rectangle of a page, rasterised, for the clipboard.
+    ///
+    /// **Rendered here and not in the window.** The document lives on this side, and a
+    /// rasterisation on the drawing thread is a window that stops while it happens.
+    SnapshotTaken {
+        /// The pixels, RGBA.
+        pixels: Vec<u8>,
+        /// How many across.
+        width: u32,
+        /// How many down.
+        height: u32,
     },
     /// The document's form, as it stands now.
     ///
@@ -370,6 +391,12 @@ pub fn run_worker(rx: Receiver<WorkerRequest>, tx: Sender<WorkerResponse>, ctx: 
                     signature_position,
                     &tx,
                 );
+                let _ = tx.send(WorkerResponse::Idle);
+                ctx.request_repaint();
+            }
+            WorkerRequest::Snapshot { page, keep, scale } => {
+                let _ = tx.send(WorkerResponse::Busy { key: "busy_rendering" });
+                handle_snapshot(current_doc.as_ref(), page, keep, scale, &tx);
                 let _ = tx.send(WorkerResponse::Idle);
                 ctx.request_repaint();
             }
@@ -781,6 +808,32 @@ fn get_or_extract_text(
         cache.insert(index, t.clone());
     }
     text
+}
+
+/// Rasterises a rectangle of a page and sends it back for the clipboard.
+///
+/// A region that cannot be drawn is reported rather than logged: a snapshot that failed
+/// has taken whatever was on the clipboard with it either way, so the reader has to be
+/// told which happened.
+fn handle_snapshot(
+    doc: Option<&PdfDocument>,
+    page: usize,
+    keep: (f64, f64, f64, f64),
+    scale: f64,
+    tx: &Sender<WorkerResponse>,
+) {
+    let Some(doc) = doc else { return };
+    match doc.render_region(page, keep, scale) {
+        Ok((pixels, width, height)) => {
+            let _ = tx.send(WorkerResponse::SnapshotTaken { pixels, width, height });
+        }
+        Err(why) => {
+            let _ = tx.send(WorkerResponse::Failed {
+                key: "snapshot_failed",
+                detail: Some(why.to_string()),
+            });
+        }
+    }
 }
 
 /// Hands the drawer the form the document has now.

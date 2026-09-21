@@ -47,6 +47,8 @@ pub enum ActiveDrawer {
     /// form could be read, audited and not touched
     /// ([ADR-0087](../../../../docs/adr/0087-a-form-field-is-created-here-not-only-filled.md)).
     Form,
+    /// A rectangle of the page, copied as a picture — Acrobat's スナップショット.
+    Snapshot,
 }
 
 impl ActiveDrawer {
@@ -55,7 +57,7 @@ impl ActiveDrawer {
     /// **The rail iterates this rather than naming its buttons**, so a drawer that
     /// exists has a door by construction (UI-4). `scripts/audit/reachability.py` holds
     /// this list against the enum, because an array cannot be exhaustive on its own.
-    pub const ALL: [Self; 9] = [
+    pub const ALL: [Self; 10] = [
         Self::DocumentInfo,
         Self::WhatItDoes,
         Self::Accessibility,
@@ -65,6 +67,7 @@ impl ActiveDrawer {
         Self::Bookmarks,
         Self::TextRuns,
         Self::Form,
+        Self::Snapshot,
     ];
 
     /// The glyph the rail draws for it, and the locale key that names it.
@@ -84,6 +87,7 @@ impl ActiveDrawer {
             Self::Bookmarks => Some((glyph::MARKS, "marks_title")),
             Self::TextRuns => Some((glyph::TEXT_RUNS, "cmd_edit_text")),
             Self::Form => Some((glyph::FORM, "cmd_fill_form")),
+            Self::Snapshot => Some((glyph::SNAPSHOT, "cmd_snapshot")),
         }
     }
 
@@ -99,7 +103,9 @@ impl ActiveDrawer {
             // The frames are drawn on the page and a click on one names a run, so in the
             // tile view — where a page is sixty points wide and every click goes to
             // choosing pages — this would come on, light up and do nothing.
-            Self::Redaction | Self::Caliper | Self::TextRuns => Some(crate::view::Act::DrawOnPage),
+            Self::Redaction | Self::Caliper | Self::TextRuns | Self::Snapshot => {
+                Some(crate::view::Act::DrawOnPage)
+            }
             Self::None
             | Self::DocumentInfo
             | Self::WhatItDoes

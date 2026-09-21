@@ -4459,13 +4459,26 @@ Independent of all of the above:
         renderings of one thing, not a defect in either. What remains at exact alignment
         was measured before it was allowed: two images of different sizes tile
         differently, so at scale 1 over 20,000 pixels **311 differ, 1.55%, worst by 5**.
-      - **W-20b — the gesture and the clipboard.** A drag on the page while the tool is
-        on, the rectangle drawn as it is dragged, and `copy_image` on release. The
-        drag is the one from W-E6-b and the frame is the one from W-E6; neither should be
-        written twice.
-      - **W-20c — where it went.** A picture put on the clipboard with nothing said is a
-        gesture a reader cannot tell worked from one that did not, which is the shape of
-        defect this repository has a history with. It says what it copied and how big.
+      - [x] **W-20b — the gesture and the clipboard.** A drawer on the rail turns the
+        tool on, a drag on the page draws the rectangle as it is dragged, and letting go
+        copies what is inside it. The rectangle is drawn through the overlay the redaction
+        brush already uses — a reader dragging either is looking at the same question.
+
+        **The rendering happens on the worker's side.** The window holds scenes and not
+        the document, and a rasterisation on the drawing thread is a window that stops
+        while it happens. The first version called `render_region` from the window, which
+        did not compile for exactly that reason.
+
+        **The resolution is chosen, not taken from the zoom**: 96, 192 or 384 DPI, which
+        is what a reader means by "as it looks", "for print" and "to read the small type".
+
+        A drag that went nowhere takes nothing. A click on the page with the tool on would
+        otherwise put a picture of nothing on the clipboard, over whatever was there.
+
+      - [x] **W-20c — where it went.** The notice says how many pixels were copied, and a
+        region that could not be drawn says so rather than being logged. A picture put on
+        the clipboard with nothing said is a gesture a reader cannot tell worked from one
+        that did not — and either way it has taken whatever was on the clipboard with it.
 
 - [ ] **W-18 — comparing two documents.**
 - [ ] **W-19a — the reading order, the language and the lexicon**, assembled for a

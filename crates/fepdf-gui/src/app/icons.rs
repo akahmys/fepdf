@@ -36,6 +36,8 @@ pub mod glyph {
     pub const TEXT_RUNS: &str = "\u{e265}";
     /// `form-input` — the fields of a form, and filling one.
     pub const FORM: &str = "\u{e21f}";
+    /// `camera` — the snapshot: a rectangle of the page, copied as a picture.
+    pub const SNAPSHOT: &str = "\u{e064}";
     /// `settings`.
     pub const SETTINGS: &str = "\u{e154}";
     /// `circle-help`.

@@ -711,7 +711,31 @@ impl FepdfApp {
                 unscaled_h,
                 zoom,
             );
+        } else if self.snapshot_tool.is_active
+            && let Some(taken) = self.snapshot_tool.interaction(
+                ui,
+                visible_index,
+                page_screen_rect,
+                unscaled_h,
+                zoom,
+            )
+        {
+            self.copy_snapshot(taken);
         }
+    }
+
+    /// Asks the worker for the rectangle the reader dragged.
+    ///
+    /// **The window does not draw it.** The document lives on the worker's side, and a
+    /// rasterisation on the drawing thread is a window that stops while it happens. What
+    /// comes back goes on the clipboard, and what it was is said — a picture put there
+    /// with nothing said is a gesture a reader cannot tell worked from one that did not.
+    fn copy_snapshot(&mut self, taken: crate::snapshot::Taken) {
+        let _ = self.tx_worker.send(crate::worker::WorkerRequest::Snapshot {
+            page: taken.page,
+            keep: taken.keep,
+            scale: taken.scale,
+        });
     }
 
     /// Applies a page drag once the pointer is released, and clears the payload.
@@ -850,6 +874,7 @@ impl FepdfApp {
         let origin = self.view.get_origin(viewport_rect);
         let mut redaction_highlights = BTreeMap::new();
         let mut active_redaction_drag = None;
+        let mut snapshot_drag = None;
 
         for &visible_index in &self.view.visible_pages {
             if let Some(layout) = self.page_layouts.get(visible_index) {
@@ -871,6 +896,14 @@ impl FepdfApp {
                 if let Some(drag_rect) = active_drag {
                     active_redaction_drag = Some((visible_index, drag_rect));
                 }
+                // The snapshot's rectangle is drawn the same way the redaction brush's
+                // is, and through the same overlay: a reader dragging one is looking at
+                // the same question — what is inside this.
+                if let Some(drag_rect) =
+                    self.snapshot_tool.dragging(page_screen_rect, unscaled_h, zoom)
+                {
+                    snapshot_drag = Some((visible_index, drag_rect));
+                }
             }
         }
 
@@ -886,7 +919,7 @@ impl FepdfApp {
             &self.scenes,
             &self.selection_manager.highlights,
             &redaction_highlights,
-            &active_redaction_drag,
+            &active_redaction_drag.or(snapshot_drag),
             &structural_highlight,
             &signature_highlight,
             &self.selected_pages,

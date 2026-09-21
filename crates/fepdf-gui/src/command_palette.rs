@@ -32,11 +32,13 @@ pub enum Command {
     EditText,
     /// The document's form, and filling it.
     FillForm,
+    /// A rectangle of the page, copied as a picture.
+    Snapshot,
 }
 
 impl Command {
     /// Every command, in the order the palette lists them.
-    pub const ALL: [Self; 11] = [
+    pub const ALL: [Self; 12] = [
         Self::Load,
         Self::ResetView,
         Self::RedactBrush,
@@ -48,6 +50,7 @@ impl Command {
         Self::Tools,
         Self::EditText,
         Self::FillForm,
+        Self::Snapshot,
     ];
 
     /// The locale keys naming it and describing it.
@@ -66,6 +69,7 @@ impl Command {
             Self::Tools => ("cmd_document_tools", "cmd_document_tools_desc"),
             Self::EditText => ("cmd_edit_text", "cmd_edit_text_desc"),
             Self::FillForm => ("cmd_fill_form", "cmd_fill_form_desc"),
+            Self::Snapshot => ("cmd_snapshot", "cmd_snapshot_desc"),
         }
     }
 
@@ -95,26 +99,47 @@ impl Command {
                     app.caliper_tool.is_active = false;
                 }
             }
-            Self::Caliper => {
-                let on = app.active_drawer == crate::sidebar::ActiveDrawer::Caliper;
-                app.show_drawer(Self::toggled(on, crate::sidebar::ActiveDrawer::Caliper));
-                app.caliper_tool.is_active = !on;
-            }
             Self::Export => app.open_export_wizard(),
             Self::ReadingOrder => app.show_reading_order = !app.show_reading_order,
-            Self::RedactionStudio => {
-                let on = app.active_drawer == crate::sidebar::ActiveDrawer::Redaction;
-                app.show_drawer(Self::toggled(on, crate::sidebar::ActiveDrawer::Redaction));
-            }
-            Self::Tools => app.show_drawer(crate::sidebar::ActiveDrawer::Tools),
-            Self::EditText => {
-                let on = app.active_drawer == crate::sidebar::ActiveDrawer::TextRuns;
-                app.show_drawer(Self::toggled(on, crate::sidebar::ActiveDrawer::TextRuns));
-            }
-            Self::FillForm => {
-                let on = app.active_drawer == crate::sidebar::ActiveDrawer::Form;
-                app.show_drawer(Self::toggled(on, crate::sidebar::ActiveDrawer::Form));
-            }
+            Self::Caliper
+            | Self::RedactionStudio
+            | Self::Tools
+            | Self::EditText
+            | Self::FillForm
+            | Self::Snapshot => self.open_drawer(app),
+        }
+    }
+
+    /// Opens the drawer this command names, or closes it if it was already showing.
+    ///
+    /// **Six arms of `run` were these three lines with a different name in them.** The
+    /// tool that belongs to a drawer is turned by `show_drawer`, so this does not say it
+    /// again — that was the second of two places for one rule.
+    fn open_drawer(self, app: &mut crate::app::FepdfApp) {
+        let Some(drawer) = self.drawer() else { return };
+        let showing = app.active_drawer == drawer;
+        app.show_drawer(Self::toggled(showing, drawer));
+    }
+
+    /// The drawer a command opens, when opening one is what it does.
+    ///
+    /// No wildcard arm, so a thirteenth command does not compile until it has said
+    /// whether it opens one (Rule 5).
+    const fn drawer(self) -> Option<crate::sidebar::ActiveDrawer> {
+        use crate::sidebar::ActiveDrawer;
+        match self {
+            Self::Caliper => Some(ActiveDrawer::Caliper),
+            Self::RedactionStudio => Some(ActiveDrawer::Redaction),
+            Self::Tools => Some(ActiveDrawer::Tools),
+            Self::EditText => Some(ActiveDrawer::TextRuns),
+            Self::FillForm => Some(ActiveDrawer::Form),
+            Self::Snapshot => Some(ActiveDrawer::Snapshot),
+            Self::Load
+            | Self::ResetView
+            | Self::RedactBrush
+            | Self::TagBrush
+            | Self::Export
+            | Self::ReadingOrder => None,
         }
     }
 
@@ -127,9 +152,11 @@ impl Command {
     /// where — not to find the list a word shorter.
     const fn needs(self) -> Option<crate::view::Act> {
         match self {
-            Self::RedactBrush | Self::Caliper | Self::RedactionStudio | Self::EditText => {
-                Some(crate::view::Act::DrawOnPage)
-            }
+            Self::RedactBrush
+            | Self::Caliper
+            | Self::RedactionStudio
+            | Self::EditText
+            | Self::Snapshot => Some(crate::view::Act::DrawOnPage),
             Self::TagBrush => Some(crate::view::Act::SelectText),
             Self::Load
             | Self::ResetView

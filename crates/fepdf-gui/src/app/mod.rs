@@ -145,6 +145,8 @@ pub struct FepdfApp {
     pub form: fepdf::FormFields,
     /// What the form drawer is holding between frames.
     pub form_panel: crate::sidebar::form::FormPanel,
+    /// The snapshot tool: whether it is on, the drag, and the resolution.
+    pub snapshot_tool: crate::snapshot::SnapshotTool,
 
     pub ust_registry: USTRegistry,
     pub sidebar_panel: SidebarPanel,
@@ -310,6 +312,7 @@ impl FepdfApp {
             text_runs_panel: crate::sidebar::text_runs::TextRunsPanel::default(),
             form: fepdf::FormFields::default(),
             form_panel: crate::sidebar::form::FormPanel::default(),
+            snapshot_tool: crate::snapshot::SnapshotTool::default(),
             ust_registry: USTRegistry::new(),
             sidebar_panel: SidebarPanel::new(),
             redaction_manager: RedactionManager::new(),
@@ -508,6 +511,13 @@ impl FepdfApp {
 
                     self.is_loading = false;
                     self.busy = None;
+                    ctx.request_repaint();
+                }
+                WorkerResponse::SnapshotTaken { pixels, width, height } => {
+                    let size = [width as usize, height as usize];
+                    ctx.copy_image(egui::ColorImage::from_rgba_unmultiplied(size, &pixels));
+                    self.notice =
+                        Some(Notice::done("snapshot_copied").about(format!("{width}×{height}")));
                     ctx.request_repaint();
                 }
                 WorkerResponse::FormChanged { form } => {
@@ -735,6 +745,12 @@ impl FepdfApp {
         // it: opening `Accessibility` turns it on, leaving turns it off, and the status
         // bar still switches it either way in between.
         self.show_reading_order = drawer == crate::sidebar::ActiveDrawer::Accessibility;
+        // **A drawer that draws on the page turns its tool with it**, and one tool at a
+        // time: opening the snapshot puts the caliper down. The rail said this and the
+        // command palette said it again, which is two places for the same rule and one of
+        // them to forget a tool when a tenth drawer arrives (UI-12).
+        self.caliper_tool.is_active = drawer == crate::sidebar::ActiveDrawer::Caliper;
+        self.snapshot_tool.is_active = drawer == crate::sidebar::ActiveDrawer::Snapshot;
         self.active_drawer = drawer;
     }
 
