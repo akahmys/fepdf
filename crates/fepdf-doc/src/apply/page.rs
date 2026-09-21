@@ -230,7 +230,9 @@ pub fn apply_set_page_labels(doc: &Document, labels: Vec<PageLabelSpec>) -> PdfR
         if let Some(prefix) = spec.prefix
             && !prefix.is_empty()
         {
-            label_dict.insert(arena.name("P"), Object::String(Bytes::from(prefix)));
+            // A text string (Table 161): the prefix is shown beside the page number in a
+            // reader's UI, so `付録-` has to survive being written.
+            label_dict.insert(arena.name("P"), Object::Text(prefix));
         }
         if spec.start_number != 1 {
             label_dict.insert(arena.name("St"), Object::Integer(i64::from(spec.start_number)));

@@ -44,6 +44,12 @@ fn create_action_dict(
     match action {
         PdfAction::GoToRemote { file_path, page } => {
             dict.insert(arena.name("S"), Object::Name(arena.name("GoToR")));
+            // **A file specification string (7.11.2), not a text string.** Table 202 gives
+            // `/F` a file specification, and written as a bare string that is the
+            // slash-separated path form 7.11.2 defines. A Unicode path belongs in a filespec
+            // dictionary's `/UF` beside it — which this action does not build, so a non-ASCII
+            // remote path is still not expressible here. Making `/F` text would not fix that;
+            // it would write a BOM in front of a path instead.
             dict.insert(arena.name("F"), Object::String(Bytes::from(file_path.clone())));
             let dest_items = vec![Object::Integer(*page as i64), Object::Name(arena.name("Fit"))];
             let dest_ah = arena.alloc_array(dest_items);
@@ -53,6 +59,9 @@ fn create_action_dict(
             dict.insert(arena.name("S"), Object::Name(arena.name("GoToE")));
             let mut target_dict = BTreeMap::new();
             target_dict.insert(arena.name("R"), Object::Name(arena.name("C")));
+            // A byte string (Table 204): `/N` names a file in the `/EmbeddedFiles` name
+            // tree, and is compared against that tree's keys, which
+            // `apply::metadata::add_embedded_files_to_catalog` writes as raw bytes.
             target_dict.insert(arena.name("N"), Object::String(Bytes::from(embedded_name.clone())));
             let target_dh = arena.alloc_dict(target_dict);
             dict.insert(arena.name("T"), Object::Dictionary(target_dh));
@@ -101,6 +110,9 @@ pub fn apply_set_geospatial_anchor(doc: &Document, anchor: GeoSpatialAnchor) -> 
 
     let mut gcs_dict = BTreeMap::new();
     gcs_dict.insert(arena.name("Type"), Object::Name(arena.name("GEOGCS")));
+    // **Not a text string.** `/WKT` holds an OGC well-known-text coordinate system, whose
+    // grammar is ASCII and whose first token a parser expects at byte zero. A BOM in front
+    // of `GEOGCS[...]` makes it unparseable by every consumer of it.
     gcs_dict.insert(arena.name("WKT"), Object::String(Bytes::from(anchor.crs_wkt)));
     let gcs_dh = arena.alloc_dict(gcs_dict);
     measure_dict.insert(arena.name("GCS"), Object::Dictionary(gcs_dh));
