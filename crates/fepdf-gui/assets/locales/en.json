@@ -20,7 +20,7 @@
   "audit_compliant_none": "Matterhorn: no document",
   "audit_findings": "Findings: {}",
   "audit_findings_none": "Findings: -",
-  "audit_success_100": "100% Compliant! No errors.",
+  "audit_success_100": "No findings from the {} conditions checked. The rest of the protocol was not looked at.",
   "audit_title": "Accessibility Audit",
   "badge_ambiguity": "Ambiguity",
   "badge_repaired": "Repaired",

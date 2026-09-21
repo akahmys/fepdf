@@ -20,7 +20,7 @@
   "audit_compliant_none": "Matterhorn: 文書がありません",
   "audit_findings": "指摘事項: {}",
   "audit_findings_none": "指摘事項: -",
-  "audit_success_100": "100% 準拠！エラーはありません。",
+  "audit_success_100": "検査した {} 件の条件では所見なし。プロトコルの残りは見ていません。",
   "audit_title": "アクセシビリティ監査",
   "badge_ambiguity": "曖昧性",
   "badge_repaired": "修復済",

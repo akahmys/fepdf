@@ -1478,12 +1478,13 @@ impl PdfDocument {
         match self.inner.get_structure_root()? {
             Some(root) => MatterhornAuditor::new(self.inner.arena()).audit_report(root),
             // A document with no structure tree is not a tagged PDF, which is the one
-            // thing this can say without looking at a checkpoint at all — so the scope
-            // says what it would have looked at rather than claiming it did.
+            // thing this can say without looking at a condition at all — so nothing is
+            // reported sound, and the scope says what it would have looked at.
             None => Ok(fepdf_doc::AuditReport {
                 findings: vec![AuditFinding {
                     checkpoint: "00-001".into(),
                     severity: "Warning".into(),
+                    outcome: fepdf_doc::Outcome::Broken,
                     message: "Document missing Structural Tree Root. Not a tagged PDF.".into(),
                     handle_id: None,
                 }],

@@ -3,25 +3,32 @@
 //! **A clean report from a check that was never run is the worst answer this engine can
 //! give**, and it was the answer it gave. `audit_ua2` returned findings and a caller had
 //! no way to tell "nothing is wrong" from "almost nothing was examined": the Matterhorn
-//! protocol has 136 checkpoints and this auditor reports three.
+//! Protocol 1.1 is 31 checkpoints comprised of 136 failure conditions, and this auditor
+//! reports two.
 //!
 //! `PdfStandard::UA2` writes a conformance claim into the catalogue, and that claim is a
-//! statement about 136 things. Saying which three were looked at is not a nicety; it is
-//! the difference between a report and a assurance nobody checked.
+//! statement about 136 things. Saying which two were looked at is not a nicety; it is the
+//! difference between a report and an assurance nobody checked.
+//!
+//! **And the numbers have to be the right ones.** All three were wrong until 2026-09-21,
+//! cited from memory: 14-001 is "Headings are not tagged" where this checks that levels
+//! are not skipped, which is 14-003, and 13-001 is graphics not tagged as a `<Figure>`
+//! where this checks the missing alternative text, which is 13-004. The third — a
+//! structure element naming a page that is not there — matched **no** failure condition,
+//! because a broken reference is not a way to fail PDF/UA-1, and it went.
 
 use fepdf::{IngestionOptions, PdfDocument};
-use fepdf_doc::MatterhornAuditor;
+use fepdf_doc::{MatterhornAuditor, Outcome};
 
 fn opened(bytes: Vec<u8>) -> PdfDocument {
     PdfDocument::open_with_options(bytes.into(), &IngestionOptions::default())
         .expect("the fixture opens")
 }
 
-/// A tagged document that breaks every checkpoint this auditor looks at.
+/// A tagged document that breaks every failure condition this auditor looks at.
 ///
 /// **One element per check, so that a failure names which one is not found.** The figure
-/// has no `/Alt` (13-001), the headings go H1 then H3 (14-001), and the last element's
-/// `/Pg` names object 99, which is not in the file (01-002).
+/// has no alternative text (13-004), and the headings go H1 then H3 (14-003).
 fn broken_tagging() -> Vec<u8> {
     fepdf_fixtures::assemble(&[
         "<< /Type /Catalog /Pages 2 0 R /StructTreeRoot 7 0 R >>",
@@ -30,8 +37,7 @@ fn broken_tagging() -> Vec<u8> {
         "<< /Type /StructElem /S /H1 /P 7 0 R /Pg 3 0 R >>",
         "<< /Type /StructElem /S /H3 /P 7 0 R /Pg 3 0 R >>",
         "<< /Type /StructElem /S /Figure /P 7 0 R /Pg 3 0 R >>",
-        "<< /Type /StructTreeRoot /K [4 0 R 5 0 R 6 0 R 8 0 R] >>",
-        "<< /Type /StructElem /S /P /P 7 0 R /Pg 99 0 R >>",
+        "<< /Type /StructTreeRoot /K [4 0 R 5 0 R 6 0 R] >>",
     ])
     .into_iter()
     .collect()
@@ -50,7 +56,11 @@ fn the_report_says_how_much_of_the_protocol_it_checked() {
         report.scope.in_protocol, 136,
         "the protocol's size is not what this was written about"
     );
-    assert_eq!(report.scope.checked.len(), 3, "the scope does not name three checkpoints");
+    assert_eq!(
+        report.scope.checked.len(),
+        2,
+        "the scope does not name the two failure conditions this auditor looks at"
+    );
     assert!(
         report.scope.checked.len() < report.scope.in_protocol,
         "the scope claims the whole protocol"
@@ -117,4 +127,173 @@ fn an_untagged_document_is_told_apart_from_a_clean_one() {
 
     assert!(!report.found_nothing(), "an untagged document came back with nothing said");
     assert_eq!(report.scope.in_protocol, 136, "the scope forgot the protocol");
+}
+
+/// **Every number this auditor reports says, in the protocol, what this auditor checks.**
+///
+/// All three were wrong until 2026-09-21 and nothing noticed, because nothing compared
+/// them to the document. A wrong number is not a gap in the audit — it is a finding filed
+/// against a different defect, and a reader or a tool that looks the number up is told
+/// something untrue.
+///
+/// The protocol is `docs/specs/Matterhorn-Protocol-1-1.pdf`, which is untracked
+/// (`docs/specs/README.md` says where to get it at no cost). Without it this cannot
+/// check anything, and it says so rather than passing.
+#[test]
+fn every_number_reported_means_in_the_protocol_what_it_is_used_for() {
+    let path = "../../docs/specs/Matterhorn-Protocol-1-1.pdf";
+    let Ok(bytes) = std::fs::read(path) else {
+        panic!("{path} is not in this working copy; docs/specs/README.md says where it is");
+    };
+    let protocol = PdfDocument::open_with_options(bytes.into(), &IngestionOptions::default())
+        .expect("the protocol opens");
+    let pages = protocol.page_count().expect("it counts");
+    let text: String = (0..pages)
+        .map(|page| protocol.extract_text(page).unwrap_or_default())
+        .collect::<Vec<_>>()
+        .join(" ");
+
+    // What each number has to be followed by in the protocol's own words. Short enough to
+    // survive the line breaks a two-column table puts in, long enough to be that
+    // condition and no other.
+    let says = [
+        ("13-004", "alternative or replacement text missing"),
+        ("14-003", "Numbered heading levels in descending"),
+    ];
+    assert_eq!(
+        says.len(),
+        MatterhornAuditor::CHECKED.len(),
+        "a failure condition was added to the auditor and not to this list"
+    );
+
+    for (number, words) in says {
+        assert!(
+            MatterhornAuditor::CHECKED.contains(&number),
+            "{number} is checked for here and the auditor does not name it"
+        );
+        let at = text
+            .find(number)
+            .unwrap_or_else(|| panic!("the protocol does not contain {number} at all"));
+        let after: String = text[at..].chars().take(160).collect();
+        assert!(after.contains(words), "the protocol says {number} is something else: {after:?}");
+    }
+
+    // The protocol's own statement of its size, which `IN_PROTOCOL` claims.
+    assert!(
+        text.contains("136 failure conditions"),
+        "the protocol no longer states the count this auditor reports against"
+    );
+    assert_eq!(MatterhornAuditor::IN_PROTOCOL, 136, "the stated total drifted from the protocol");
+
+    // And what it is a protocol for, which is the reason none of this measures UA-2.
+    assert!(
+        text.contains("specified in PDF/UA-1"),
+        "the protocol no longer says which standard it is about"
+    );
+}
+
+/// **A condition checked and not broken is a result the report carries.**
+///
+/// A reader is owed what was examined, not only what was wrong. This document breaks
+/// 14-003 and not 13-004, so the report says both — one broken, one sound — and the two
+/// together are the whole of what was looked at.
+#[test]
+fn a_condition_that_came_out_sound_is_in_the_report() {
+    let doc = opened(
+        fepdf_fixtures::assemble(&[
+            "<< /Type /Catalog /Pages 2 0 R /StructTreeRoot 6 0 R >>",
+            "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] >>",
+            // H1 then H3: 14-003 is broken.
+            "<< /Type /StructElem /S /H1 /P 6 0 R /Pg 3 0 R >>",
+            "<< /Type /StructElem /S /H3 /P 6 0 R /Pg 3 0 R >>",
+            "<< /Type /StructTreeRoot /K [4 0 R 5 0 R] >>",
+        ])
+        .into_iter()
+        .collect(),
+    );
+    let report = doc.audit_ua2_report().expect("it audits");
+
+    let outcome = |condition: &str| {
+        report.findings.iter().find(|f| f.checkpoint == condition).map_or_else(
+            || panic!("{condition} is in neither column: {:?}", report.findings),
+            |f| f.outcome,
+        )
+    };
+    assert_eq!(outcome("14-003"), Outcome::Broken, "the skipped heading level was not reported");
+    assert_eq!(
+        outcome("13-004"),
+        Outcome::Sound,
+        "a condition checked and not broken is missing from the report"
+    );
+}
+
+/// **Sound and not-looked-at are different answers, and the report keeps them apart.**
+///
+/// Every condition the report calls sound has to be one the scope says was checked. A
+/// report that called an unexamined condition sound would say a document conforms on the
+/// strength of work nobody did — which is the shape this whole item exists to remove.
+#[test]
+fn nothing_is_called_sound_that_was_not_checked() {
+    let doc = opened(broken_tagging());
+    let report = doc.audit_ua2_report().expect("it audits");
+
+    for finding in &report.findings {
+        if finding.outcome == Outcome::Sound {
+            assert!(
+                report.scope.checked.contains(&finding.checkpoint),
+                "{} is reported sound and the scope does not say it was checked",
+                finding.checkpoint
+            );
+        }
+    }
+    // **A condition is broken or sound, never both** — and this counts rather than
+    // collecting into a set, because a set is exactly what hides the defect. A first
+    // version of this test gathered the checkpoints into a `BTreeSet` and looked one up
+    // with `find`, and a mutation that reported every condition sound *including the
+    // broken ones* passed all eight tests: the set collapsed the duplicate and `find`
+    // returned the first of the pair.
+    let mut sound_and_broken = Vec::new();
+    for condition in &report.scope.checked {
+        let outcomes: Vec<Outcome> = report
+            .findings
+            .iter()
+            .filter(|f| &f.checkpoint == condition)
+            .map(|f| f.outcome)
+            .collect();
+        assert_eq!(
+            outcomes.len(),
+            1,
+            "{condition} is reported {} times, as {outcomes:?}",
+            outcomes.len()
+        );
+        if outcomes.contains(&Outcome::Sound) && outcomes.contains(&Outcome::Broken) {
+            sound_and_broken.push(condition.clone());
+        }
+    }
+    assert!(sound_and_broken.is_empty(), "reported both sound and broken: {sound_and_broken:?}");
+}
+
+/// A document with no structure tree has nothing examined, so nothing is sound.
+///
+/// It is not a tagged PDF, and reporting the conditions as sound because the walk found
+/// no elements to break them would be the emptiest kind of pass.
+#[test]
+fn an_untagged_document_has_nothing_to_call_sound() {
+    let doc = opened(
+        fepdf_fixtures::assemble(&[
+            "<< /Type /Catalog /Pages 2 0 R >>",
+            "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] >>",
+        ])
+        .into_iter()
+        .collect(),
+    );
+    let report = doc.audit_ua2_report().expect("it audits");
+
+    assert!(
+        report.findings.iter().all(|f| f.outcome != Outcome::Sound),
+        "an untagged document had a condition called sound: {:?}",
+        report.findings
+    );
 }

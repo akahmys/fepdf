@@ -4549,15 +4549,44 @@ Independent of all of the above:
         the clipboard with nothing said is a gesture a reader cannot tell worked from one
         that did not — and either way it has taken whatever was on the clipboard with it.
 
-- [ ] **W-21 — the Matterhorn protocol, past the three checkpoints that exist.**
+- [x] **W-21e — the three numbers were three wrong numbers.** Read from
+      `docs/specs/Matterhorn-Protocol-1-1.pdf` on 2026-09-21, after citing it from memory
+      for a day: 14-001 is "Headings are not tagged" (`Doc H`, human judgment) where the
+      code checks skipped levels, which is **14-003**; 13-001 is graphics not tagged as a
+      `<Figure>` where the code checks the missing alternative text, which is **13-004**;
+      and 01-002 is "Real content is marked as artifact" where the code checked a
+      structure element naming a page that is not there — a condition the protocol does
+      not have, because a broken reference is not a way to fail PDF/UA-1. That check was
+      removed rather than renumbered to whatever was nearest.
 
-      Measured 2026-09-21: `MatterhornAuditor` is **168 lines and reports three
-      checkpoints** — 01-002 (a structure element naming a page that is not there), 13-001
-      (a `Figure` with no `/Alt`), 14-001 (a heading level skipped). The protocol has
-      **136**, and 01-001 appears in the file only as the example in a doc comment.
+      **A wrong number is worse than a missing check.** A missing check is silence; a
+      wrong number files a finding against a different defect, and whoever looks it up is
+      told something untrue. `every_number_reported_means_in_the_protocol_what_it_is_used_for`
+      reads the protocol and requires each number to be followed, in its own words, by the
+      condition it is used for. Four mutations, each failing two or three tests.
+
+      Recorded as [ADR-0092](docs/adr/0092-the-matterhorn-protocol-measures-ua-1-and-this-engine-declares-ua-2.md),
+      which is also where the larger finding is: **Matterhorn measures PDF/UA-1** — its own
+      text, twelve mentions of `PDF/UA-1` and none of `PDF/UA-2` — and this engine declares
+      UA-2. For UA-2 the source is ISO 14289-2, which is now in `docs/specs/`.
+
+- [ ] **W-21 — the Matterhorn protocol, past the two failure conditions that exist.**
+
+      Measured 2026-09-21: `MatterhornAuditor` reports **two of the protocol's 136 failure
+      conditions** — 13-004 (a `Figure` with no alternative text) and 14-003 (a numbered
+      heading level skipped). Of the 136, **87 can be determined by software, 47 usually
+      require human judgment, and 2 have no specific test** (23-001 and 27-001).
+
+      **That split is advice, not a ceiling.** The protocol defines its own `How` column
+      as "**not determinative** … the realistic best-practice approach **at the present
+      time**", so 87 is where the protocol expected software to reach in 2021 and an `H`
+      is not a prohibition. The target is 136 minus the two with no test; what changes
+      with `H` is that a finding must say it was decided by a machine, not that it may
+      not be made.
 
       **This is the gap ADR-0087 was taken over, in the large.** A document this engine
-      declares PDF/UA-2 conforming is one it has checked three things about. `PdfStandard::UA2`
+      declares PDF/UA-2 conforming is one it has checked two things about — and both of
+      them are PDF/UA-1 conditions ([ADR-0092](docs/adr/0092-the-matterhorn-protocol-measures-ua-1-and-this-engine-declares-ua-2.md)). `PdfStandard::UA2`
       writes that claim into the catalogue, and the claim is a statement about 136 things.
 
       - [x] **W-21a — say how much is checked.** `audit_ua2_report` answers an
@@ -4585,10 +4614,65 @@ Independent of all of the above:
         sequence has a structure element, whether text outside one is an artefact, whether
         a table's cells are in a row. These are the walk `apply/text.rs` already does,
         asked a different question.
-      - **W-21d — the ones that cannot be automated**, which Matterhorn names as such: 
-        the protocol divides its checkpoints into machine-checkable and human-checkable,
-        and reporting the second kind as passing is the same lie as reporting an unrun
-        check as passing. They are listed for a person, not decided.
+      - [x] **W-21g — a condition checked and not broken is a result.** `AuditFinding`
+        carries an `Outcome` — `Broken`, `Sound`, `ForAReader` — and `audit_report` adds
+        one `Sound` per condition it checked and did not break. **One per condition, not
+        one per object**: a reader wants to know 13-004 was examined, not that four
+        hundred figures each have their alternative text.
+
+        **The outcome is a type because a severity was a string.** `compliance.rs`
+        records what that cost the last time: stringifying one lost it, and a `Violation`
+        and a `Repaired` arrived at the CLI identically. The severity stays for the
+        callers that read it; what decides how a finding is read is the `Outcome`.
+
+        **"Nothing was found" and "nothing was looked for" stay apart.** A document with
+        no structure tree has nothing called sound — reporting the conditions as sound
+        because the walk found no elements to break them would be the emptiest kind of
+        pass — and nothing is called sound that the scope does not say was checked.
+
+        **A mutation that called every condition sound, including the broken ones, passed
+        all eight tests.** The test gathered checkpoints into a `BTreeSet` and looked one
+        up with `find`: the set collapsed the duplicate and `find` returned the first of
+        the pair. It counts occurrences now, and a condition reported twice fails. The
+        comment had said "broken or sound, never both" while the assertion could not see
+        the difference.
+
+      - **W-21f — the report a reader reads.** The findings are a panel 100 points tall
+        in a drawer today, which is a list and not a report. What a reader does with a
+        finding differs by kind, and a single list is read as though it does not:
+
+        | | What this engine can say | What the reader does |
+        | :--- | :--- | :--- |
+        | **Decided** (the `M` conditions) | "13-004 is broken here" | fixes it |
+        | **Suspected** (an `H` with evidence) | "18-001, perhaps — and here is why" | looks, and decides |
+        | **Not looked at** (an `H` with none, and every condition unimplemented) | "04-001 is yours to judge" | judges it |
+
+        **Three sections, in that order**, so that what must be fixed is not read past. A
+        reader who sees one list sees the first column of every row — a number and a
+        clause — and every row looks like a violation.
+
+        **A suspicion carries its evidence or it is not shown.** "18-001 suspected" tells a
+        reader nothing they can act on; "the same content at the same place on all 17
+        pages" is what lets them agree or disagree. If this engine will not decide, it owes
+        the materials for deciding.
+
+        **No confidence percentages.** ADR-0091 measured one heuristic at 30% on a slide
+        deck and 83% on a manual — the same rule, the same code. A number from an engine
+        that swings that far is the "100% Compliant" this phase has been deleting. The
+        strength of a suspicion is shown by naming what was found, not by scoring it.
+
+        **What is not looked at is still listed.** Dropping the conditions this engine
+        cannot judge would leave a reader believing the report covers the protocol. That
+        is the same silence W-21a removed from the summary, one level down.
+
+      - **W-21d — the ones the protocol expects a person to decide.** Its `How` column
+        marks 47 of the 136 `H`, and defines the column as "**not determinative** … the
+        realistic best-practice approach at the present time" — advice with a date, not a
+        boundary on what software may attempt. What the distinction does forbid is
+        reporting one of them as *decided*: a clean answer to a question a person was
+        supposed to answer is the same lie as a clean answer from a check that never ran.
+        They are listed for a person, with the protocol's own wording, and the report says
+        which kind each finding is.
 
 - [ ] **W-22 — Well-Tagged PDF (WTPDF 1.0), which this project does not mention.**
 

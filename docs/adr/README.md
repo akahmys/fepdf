@@ -156,3 +156,4 @@ quietly wrong — which is the failure this log exists to make visible.
 | 0089 | [A face is embedded only where it permits it, and nothing is substituted](0089-a-face-is-embedded-only-where-it-permits-it.md) | Settles 0085's open question |
 | 0090 | [The face a document embeds is not a licence to set new text in it](0090-the-face-a-document-embeds-is-not-a-licence-to-set-new-text.md) | Amends 0089, from 9.9.1 |
 | 0091 | [Paragraphs are not inferred; the reader marks the range, and overflow shows](0091-paragraphs-are-not-inferred-and-overflow-is-shown.md) | Extends 0085 |
+| 0092 | [The Matterhorn Protocol measures PDF/UA-1, and this engine declares PDF/UA-2](0092-the-matterhorn-protocol-measures-ua-1-and-this-engine-declares-ua-2.md) | |

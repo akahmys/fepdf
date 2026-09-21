@@ -51,9 +51,14 @@ pub fn show_accessibility_audit(
             if !has_doc {
                 ui.label(egui::RichText::new(locale_mgr.tr(active_lang, "no_doc_loaded")).weak());
             } else if registry.audit_findings.is_empty() {
-                ui.colored_label(
-                    crate::app::theme::colors::note::PASS,
-                    locale_mgr.tr(active_lang, "audit_success_100"),
+                // **This said "100% Compliant! No errors." in green.** Two of the
+                // protocol's 136 failure conditions are checked, so an empty list is two
+                // conditions finding nothing — which it now says, in the colour of a
+                // remark rather than of a pass.
+                ui.label(
+                    locale_mgr
+                        .tr(active_lang, "audit_success_100")
+                        .replace("{}", &registry.audit_checked.to_string()),
                 );
             } else {
                 for (checkpoint, severity, message, handle_id) in &registry.audit_findings {

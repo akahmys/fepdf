@@ -72,22 +72,53 @@ pub struct MatterhornAuditor<'a> {
 /// Represents a single finding from a structural audit.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AuditFinding {
-    /// The Matterhorn Protocol checkpoint ID (e.g., "01-001").
+    /// The Matterhorn Protocol failure condition (e.g., "13-004").
     pub checkpoint: String,
     /// The severity of the finding (e.g., "Error", "Warning").
+    ///
+    /// **Kept for the callers that read it as a string**, and no longer what decides how
+    /// a finding is read: [`Self::outcome`] does. A severity spelt `Error` and one spelt
+    /// `error` are two strings and one meaning, which is why the classification is not a
+    /// string — `compliance.rs` records the last time stringifying a severity lost it,
+    /// when a `Violation` and a `Repaired` arrived at the CLI identically.
     pub severity: String,
+    /// What checking this condition came to.
+    pub outcome: Outcome,
     /// A human-readable message describing the issue.
     pub message: String,
     /// The object handle ID associated with this finding, if any.
     pub handle_id: Option<u32>,
 }
 
+/// What came of checking one failure condition.
+///
+/// **A report says what was looked at, not only what was wrong.** A condition examined and
+/// found sound is a result a reader is owed; one nobody examined is a different thing
+/// entirely, and the two used to be told apart by an empty list.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum Outcome {
+    /// Checked, and the document breaks it.
+    Broken,
+    /// Checked, and the document does not break it.
+    ///
+    /// **Only for a condition this engine actually checks.** "Nothing was found" and
+    /// "nothing was looked for" are not the same answer, and a report that showed them
+    /// alike would say a document conforms on the strength of work nobody did.
+    Sound,
+    /// Not decided here. The protocol marks it `H`, or this engine has evidence and no
+    /// answer — the finding carries what it found and leaves the judgment to a reader.
+    ForAReader,
+}
+
 /// What an audit looked at, beside what it found.
 ///
 /// **A clean report from a check that was never run is the worst answer this engine can
 /// give**, and until this it was the answer it gave: `audit` returned findings and a
-/// caller had no way to tell "nothing is wrong" from "almost nothing was examined". The
-/// Matterhorn protocol has 136 checkpoints and this reports three of them.
+/// caller had no way to tell "nothing is wrong" from "almost nothing was examined".
+///
+/// The Matterhorn Protocol 1.1 is **31 checkpoints comprised of 136 failure conditions**,
+/// of which 87 can be determined by software, 47 usually require human judgment, and 2
+/// have no specific test. This reports two of them.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AuditScope {
     /// The checkpoints this auditor looks at, by their protocol number.
@@ -122,14 +153,24 @@ impl<'a> MatterhornAuditor<'a> {
         Self { arena }
     }
 
-    /// The checkpoints this auditor looks at (Matterhorn, 2nd edition).
+    /// The failure conditions this auditor looks at (Matterhorn Protocol 1.1).
+    ///
+    /// **All three of these were the wrong number until 2026-09-21.** The protocol was
+    /// cited from memory and the numbers named other defects entirely: 14-001 is
+    /// "Headings are not tagged" and is `Doc H` — a condition needing human judgment,
+    /// which software may not report at all — where this checks that numbered levels are
+    /// not skipped, which is 14-003. 13-001 is "Graphics objects … are not tagged with a
+    /// `<Figure>` tag"; the missing alternative text is 13-004. Reporting a finding under
+    /// the wrong number is not silence, it is testimony about a different defect.
     ///
     /// **Named one by one rather than counted**, so that adding a check and forgetting to
-    /// say so is a thing the tests can notice: `the_scope_names_every_checkpoint_reported`
-    /// compares this list against what an audit of a broken document actually reports.
-    pub const CHECKED: [&'static str; 3] = ["01-002", "13-001", "14-001"];
+    /// say so is a thing the tests can notice.
+    pub const CHECKED: [&'static str; 2] = ["13-004", "14-003"];
 
-    /// How many checkpoints the Matterhorn protocol has, across its 31 sections.
+    /// How many failure conditions the Matterhorn Protocol 1.1 has, across 31 checkpoints.
+    ///
+    /// Its own text: "a set of 31 checkpoints comprised of 136 failure conditions
+    /// encompassing file format requirements specified in **PDF/UA-1**".
     pub const IN_PROTOCOL: usize = 136;
 
     /// Performs a UA-2 structural audit, of the checkpoints in [`Self::CHECKED`].
@@ -137,8 +178,26 @@ impl<'a> MatterhornAuditor<'a> {
     /// # Errors
     /// Fails when the structure tree cannot be read.
     pub fn audit_report(&self, root: Handle<Object>) -> PdfResult<AuditReport> {
+        let mut findings = self.audit(root)?;
+        // **A condition checked and not broken is a result.** One finding per condition,
+        // not one per object that was sound: a reader wants to know that 13-004 was
+        // examined, not that four hundred figures each have their alternative text.
+        let broken: std::collections::BTreeSet<&str> =
+            findings.iter().map(|f| f.checkpoint.as_str()).collect();
+        let sound: Vec<AuditFinding> = Self::CHECKED
+            .iter()
+            .filter(|condition| !broken.contains(*condition))
+            .map(|condition| AuditFinding {
+                checkpoint: (*condition).to_string(),
+                severity: "Pass".into(),
+                outcome: Outcome::Sound,
+                message: format!("{condition} was checked and this document does not break it"),
+                handle_id: None,
+            })
+            .collect();
+        findings.extend(sound);
         Ok(AuditReport {
-            findings: self.audit(root)?,
+            findings,
             scope: AuditScope {
                 checked: Self::CHECKED.iter().map(|c| (*c).to_string()).collect(),
                 in_protocol: Self::IN_PROTOCOL,
@@ -182,8 +241,9 @@ impl<'a> MatterhornAuditor<'a> {
         {
             if lvl > *last_heading + 1 {
                 findings.push(AuditFinding {
-                    checkpoint: "14-001".into(),
+                    checkpoint: "14-003".into(),
                     severity: "Error".into(),
+                    outcome: Outcome::Broken,
                     message: format!("Heading level skipped: {tag_str} follows {last_heading}"),
                     handle_id: Some(element_handle.index()),
                 });
@@ -193,34 +253,14 @@ impl<'a> MatterhornAuditor<'a> {
 
         if tag_str == "Figure" && element.alt.is_none() {
             findings.push(AuditFinding {
-                checkpoint: "13-001".into(),
+                checkpoint: "13-004".into(),
                 severity: "Error".into(),
+                outcome: Outcome::Broken,
                 message: "Figure element missing /Alt text".into(),
                 handle_id: Some(element_handle.index()),
             });
         }
 
-        if let Some(finding) = check_dangling_page(self.arena, element_handle) {
-            findings.push(finding);
-        }
         Ok(())
-    }
-}
-
-fn check_dangling_page(arena: &PdfArena, elem_h: Handle<Object>) -> Option<AuditFinding> {
-    let dh = arena.get_object(elem_h)?.as_dict_handle()?;
-    let dict = arena.get_dict(dh)?;
-    let Object::Reference(pg_h) = dict.get(&arena.name("Pg"))? else {
-        return None;
-    };
-    if arena.get_object(*pg_h).is_none() {
-        Some(AuditFinding {
-            checkpoint: "01-002".into(),
-            severity: "Error".into(),
-            message: "Structure element references non-existent page".into(),
-            handle_id: Some(elem_h.index()),
-        })
-    } else {
-        None
     }
 }
