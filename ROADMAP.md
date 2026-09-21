@@ -4126,6 +4126,61 @@ Content editing, under D-1:
       that set the flag. Nothing about what is checked changed; what changed is that the
       run says which check to look at.
 
+- [ ] **W-T4 — Rust 1.98.1, after Phase W and not before.** Held deliberately: a
+      compiler change in the middle of a phase makes every failure ambiguous between the
+      work and the toolchain, and there is nothing in 1.98 this phase needs.
+
+      Surveyed 2026-09-21, at 1.97.1 (2026-07-14) against 1.98.1 (2026-09-03):
+
+      - **1.98.0 adds and does not take away** — algebraic float methods, `format_into`
+        on the integers with `NumBuffer`, `String::from_utf16{le,be}`,
+        `str::substr_range`. `format_into` is named as a standard replacement for `itoa`.
+      - **1.98.1 fixes a miscompilation 1.98.0 introduced**: a trait object vtable with a
+        null pointer where a function pointer belongs, which is undefined behaviour.
+        1.97.1 does not have it. Whenever this happens it goes to 1.98.1, never 1.98.0.
+      - **Of the twelve compatibility notes, none reaches this code.** Measured:
+        `repr(transparent)` 0 uses, `transmute` 0 uses, `std::env::Vars` 0 uses, glob
+        imports 2 and neither ambiguous, and the two hand-written `Ord`/`PartialOrd`
+        pairs both have `partial_cmp` returning `Some(self.cmp(other))`, so the
+        `derive(PartialOrd)` consistency change cannot bite.
+      - **No dependency asks for more than 1.98.** Of 595 external packages, 443 declare
+        a `rust-version`: the highest is **1.92** (egui 0.34.3 and its nine siblings, and
+        `hayro-jpeg2000`), then 1.88 for the `boa` engine and `darling`.
+
+      **This is a reading of declarations, not a build.** A crate that breaks under 1.98
+      breaks on one of those twelve notes, not on its stated minimum, and the insides of
+      595 crates were not read. What the survey supports is "nothing found that forbids
+      it" — not "it works". The build is the measurement, and it belongs to this item.
+
+- [ ] **W-T3 — the toolchain pin has never been one.** `.rust-toolchain.toml` says
+      `channel = "1.94"`. rustup reads `rust-toolchain.toml`, **without the leading dot**,
+      so the file is a hidden file rustup does not look for: it was added on 2026-08-29
+      and has never selected a compiler.
+
+      Measured 2026-09-21: `rustc --version` inside the repository and outside it both
+      answer **1.97.1**, against a stated minimum of 1.94. Every build this project has
+      ever made was made with whatever the default toolchain happened to be.
+
+      `msrv_check.sh` passed throughout, because it compared `Cargo.toml`,
+      `.rust-toolchain.toml` and `README.md` **to each other**. Three documents agreeing
+      is not a compiler. Its own comments record the same shape happening once before —
+      the README clause hunted a version retired before the check was written, and passed
+      by finding nothing.
+
+      **What was done instead of renaming the file**: the check now reads the compiler
+      that is actually running and refuses one below the stated minimum, and says in
+      passing that the pin is not live. That turns a silent claim into a measured one
+      without changing which compiler builds the workspace.
+
+      **What renaming would cost.** It would build this workspace with 1.94 for the first
+      time. Nothing here has been compiled with it — today's work included — so the first
+      run is an unknown number of errors from three years of code written against
+      whatever was installed. That is a piece of work, not a rename.
+
+      The question under it is whether 1.94 is the minimum this project wants. It is
+      declared in three places and tested nowhere; a minimum nobody builds against is a
+      number, and the honest choices are to make it live or to raise it to what is used.
+
 - [ ] **W-T1 — the two gates take 39 minutes, and 5 of them are a second `cargo check`.**
       Measured on 2026-09-20, one run of `cargo test --workspace` followed by
       `./scripts/audit/verify_compliance.sh` after a source edit:

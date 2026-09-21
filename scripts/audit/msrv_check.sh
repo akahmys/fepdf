@@ -57,5 +57,37 @@ for file in $CARGO_TOMLS; do
     fi
 done
 
+# 4. Check that the pin is a pin
+#
+# **This script compared three documents to each other and never asked what was
+# building.** `.rust-toolchain.toml` says `channel = "1.94"` and rustup has never read it:
+# the file rustup looks for is `rust-toolchain.toml`, without the leading dot, so the pin
+# has been inert since it was added on 2026-08-29 while the three documents agreed with
+# one another and this check passed.
+#
+# Measured 2026-09-21: `rustc --version` inside the repository and outside it both
+# answered 1.97.1, against a stated minimum of 1.94.
+#
+# The name is not corrected here, because making the pin live would build this workspace
+# with a compiler nothing has been built with (ROADMAP W-T3). What is checked is that the
+# compiler doing the work is *at least* what the documents promise — a promise of 1.94
+# kept by a 1.97 build is kept; one kept by a 1.93 build is not.
+ACTIVE=$(rustc --version | grep -oE "[0-9]+\.[0-9]+\.[0-9]+" | head -n 1)
+if [ -z "$ACTIVE" ]; then
+    echo "Error: could not read the active rustc version"
+    exit 1
+fi
+if [ -f "rust-toolchain.toml" ]; then
+    echo "  note: rust-toolchain.toml is present, so the pin is live"
+else
+    echo "  note: no rust-toolchain.toml — the pin in $TOOLCHAIN is not one rustup reads"
+fi
+lowest=$(printf '%s\n%s\n' "$EXPECTED_VERSION" "$ACTIVE" | sort -V | head -n 1)
+if [ "$lowest" != "$EXPECTED_VERSION" ]; then
+    echo "Error: building with rustc $ACTIVE, below the stated minimum of $EXPECTED_VERSION"
+    exit 1
+fi
+echo "  building with rustc $ACTIVE, at or above the stated minimum of $EXPECTED_VERSION"
+
 echo "MSRV consistency check passed!"
 exit 0
