@@ -4112,6 +4112,20 @@ Content editing, under D-1:
       run set at an angle — because replacing the matrix puts the text upright in the
       right place, and an origin cannot see that.
 
+- [x] **W-T2 — the audit said `AUDIT FAILED` and not which check failed.** Fourteen of
+      its checks are `python3 scripts/audit/*.py || ERROR=1`: the script prints its own
+      complaint *and* its own summary, and the summary of a failing run reads like a
+      passing one — "0 user-facing literals … 0 names with no key" sits two lines below
+      the sentence that failed it.
+
+      Measured 2026-09-21: finding which of the fourteen had failed took `bash -x` over
+      the whole audit, twice, at about twenty minutes a run. The failure itself was one
+      unused locale key.
+
+      Each of the fourteen now prints `FAIL: <script>.py said so above` when it is the one
+      that set the flag. Nothing about what is checked changed; what changed is that the
+      run says which check to look at.
+
 - [ ] **W-T1 — the two gates take 39 minutes, and 5 of them are a second `cargo check`.**
       Measured on 2026-09-20, one run of `cargo test --workspace` followed by
       `./scripts/audit/verify_compliance.sh` after a source edit:
@@ -4479,6 +4493,63 @@ Independent of all of the above:
         region that could not be drawn says so rather than being logged. A picture put on
         the clipboard with nothing said is a gesture a reader cannot tell worked from one
         that did not — and either way it has taken whatever was on the clipboard with it.
+
+- [ ] **W-21 — the Matterhorn protocol, past the three checkpoints that exist.**
+
+      Measured 2026-09-21: `MatterhornAuditor` is **168 lines and reports three
+      checkpoints** — 01-002 (a structure element naming a page that is not there), 13-001
+      (a `Figure` with no `/Alt`), 14-001 (a heading level skipped). The protocol has
+      **136**, and 01-001 appears in the file only as the example in a doc comment.
+
+      **This is the gap ADR-0087 was taken over, in the large.** A document this engine
+      declares PDF/UA-2 conforming is one it has checked three things about. `PdfStandard::UA2`
+      writes that claim into the catalogue, and the claim is a statement about 136 things.
+
+      - [x] **W-21a — say how much is checked.** `audit_ua2_report` answers an
+        `AuditReport` carrying an `AuditScope` beside the findings, and the window shows
+        "Matterhorn: 3 / 136 項目を検査" where the findings are. `found_nothing()` is
+        named so that a caller cannot write `findings.is_empty()` and mean "conforms".
+
+        **The panel said "Matterhorn: 100% Compliant".** The percentage was
+        `100 - findings * 7`, a number with no measurement behind it, and 100 of it meant
+        three checkpoints had found nothing. It is gone.
+
+        **Two `unwrap_or_default()` in the worker turned a failed audit into a clean
+        one.** A structure tree that could not be read came back as an empty list of
+        findings, which is the answer a conforming document gives. It is reported now.
+
+        Four mutations, each failing two tests: naming a checkpoint nothing looks at,
+        dropping one that is looked at, calling the protocol three checkpoints long, and
+        answering an empty scope. The fixture breaks all three checks at once, so a
+        missing one names itself.
+      - **W-21b — the checkpoints that need no new machinery.** The ones about entries
+        this engine already reads — `/Lang` on the catalogue and where it changes, `/TU`
+        on form fields (which W-F2 now writes and `FormField` now reports), `/Alt` and
+        `/ActualText`, a `/StructTreeRoot` that is there, artefacts marked as such.
+      - **W-21c — the checkpoints that need the content stream.** Whether a marked-content
+        sequence has a structure element, whether text outside one is an artefact, whether
+        a table's cells are in a row. These are the walk `apply/text.rs` already does,
+        asked a different question.
+      - **W-21d — the ones that cannot be automated**, which Matterhorn names as such: 
+        the protocol divides its checkpoints into machine-checkable and human-checkable,
+        and reporting the second kind as passing is the same lie as reporting an unrun
+        check as passing. They are listed for a person, not decided.
+
+- [ ] **W-22 — Well-Tagged PDF (WTPDF 1.0), which this project does not mention.**
+
+      Measured 2026-09-21: `WTPDF` and `Well-Tagged` appear **nowhere in the repository**.
+
+      WTPDF 1.0 (PDF Association, 2024) sits on ISO 32000-2 beside PDF/UA-2 and is not the
+      same document: it says what a *well-tagged* file is, where UA-2 says what an
+      *accessible* one is, and it goes into ground UA-2 leaves — the nesting of headings,
+      the structure of tables, where `/Lang` has to change, what `/ActualText` is for as
+      against `/Alt`.
+
+      **It waits on W-21 and says so.** A conformance claim is worth what the checking
+      behind it is worth, and three checkpoints is not a foundation to put a second claim
+      on. What can be done first is the reading: the structure tree editor this engine
+      already has is most of what a well-tagged file is made with, and what it cannot yet
+      express is the list this item starts as.
 
 - [ ] **W-18 — comparing two documents.**
 - [ ] **W-19a — the reading order, the language and the lexicon**, assembled for a

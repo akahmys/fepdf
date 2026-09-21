@@ -1461,19 +1461,43 @@ impl PdfDocument {
     }
 
     /// Performs a structural health audit for PDF/UA-2.
-    pub fn audit_ua2(&self) -> PdfResult<Vec<AuditFinding>> {
-        let root_opt = self.inner.get_structure_root()?;
-        if let Some(root) = root_opt {
-            let auditor = MatterhornAuditor::new(self.inner.arena());
-            auditor.audit(root)
-        } else {
-            Ok(vec![AuditFinding {
-                checkpoint: "00-001".into(),
-                severity: "Warning".into(),
-                message: "Document missing Structural Tree Root. Not a tagged PDF.".into(),
-                handle_id: None,
-            }])
+    ///
+    /// **What it looked at is in the report beside what it found**, because an empty list
+    /// of findings from three checkpoints of 136 says almost nothing and used to be
+    /// indistinguishable from a document that conforms. Use
+    /// [`fepdf_doc::AuditReport::found_nothing`] and read the scope; do not read
+    /// `findings.is_empty()` as "conforms".
+    ///
+    /// # Errors
+    /// Fails when the structure tree cannot be read.
+    pub fn audit_ua2_report(&self) -> PdfResult<fepdf_doc::AuditReport> {
+        let scope = fepdf_doc::AuditScope {
+            checked: MatterhornAuditor::CHECKED.iter().map(|c| (*c).to_string()).collect(),
+            in_protocol: MatterhornAuditor::IN_PROTOCOL,
+        };
+        match self.inner.get_structure_root()? {
+            Some(root) => MatterhornAuditor::new(self.inner.arena()).audit_report(root),
+            // A document with no structure tree is not a tagged PDF, which is the one
+            // thing this can say without looking at a checkpoint at all — so the scope
+            // says what it would have looked at rather than claiming it did.
+            None => Ok(fepdf_doc::AuditReport {
+                findings: vec![AuditFinding {
+                    checkpoint: "00-001".into(),
+                    severity: "Warning".into(),
+                    message: "Document missing Structural Tree Root. Not a tagged PDF.".into(),
+                    handle_id: None,
+                }],
+                scope,
+            }),
         }
+    }
+
+    /// The findings alone, for a caller that has read the scope elsewhere.
+    ///
+    /// # Errors
+    /// Fails when the structure tree cannot be read.
+    pub fn audit_ua2(&self) -> PdfResult<Vec<AuditFinding>> {
+        Ok(self.audit_ua2_report()?.findings)
     }
 
     /// Returns a comprehensive summary of the document.

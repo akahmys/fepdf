@@ -10,6 +10,18 @@ pub struct USTRegistry {
     pub selected_node_id: Option<usize>,
     pub next_node_id: usize,
     pub audit_findings: Vec<(String, String, String, Option<u32>)>, // (checkpoint, severity, message, handle_id)
+    /// How many Matterhorn checkpoints the audit that produced those findings looked at.
+    ///
+    /// **Beside the findings, because it decides what they mean.** An empty list from
+    /// three checkpoints of 136 is not a document that conforms, and a panel that showed
+    /// one without the other showed an assurance nobody gave — it said "Matterhorn: 100%
+    /// Compliant", on a percentage computed as `100 - findings * 7`.
+    pub audit_checked: usize,
+    /// How many checkpoints the protocol has, as the engine states it.
+    ///
+    /// **Not written into the label.** A "136" in a translated string is a number that
+    /// goes stale silently the day the engine counts differently.
+    pub audit_in_protocol: usize,
     pub pending_center_node_id: Option<usize>,
 }
 
@@ -33,6 +45,8 @@ impl USTRegistry {
             selected_node_id: None,
             next_node_id: 1,
             audit_findings: Vec::new(),
+            audit_checked: 0,
+            audit_in_protocol: 0,
             pending_center_node_id: None,
         }
     }

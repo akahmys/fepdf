@@ -70,7 +70,7 @@ pub struct MatterhornAuditor<'a> {
 }
 
 /// Represents a single finding from a structural audit.
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AuditFinding {
     /// The Matterhorn Protocol checkpoint ID (e.g., "01-001").
     pub checkpoint: String,
@@ -82,10 +82,68 @@ pub struct AuditFinding {
     pub handle_id: Option<u32>,
 }
 
+/// What an audit looked at, beside what it found.
+///
+/// **A clean report from a check that was never run is the worst answer this engine can
+/// give**, and until this it was the answer it gave: `audit` returned findings and a
+/// caller had no way to tell "nothing is wrong" from "almost nothing was examined". The
+/// Matterhorn protocol has 136 checkpoints and this reports three of them.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AuditScope {
+    /// The checkpoints this auditor looks at, by their protocol number.
+    pub checked: Vec<String>,
+    /// How many checkpoints the protocol has.
+    pub in_protocol: usize,
+}
+
+/// What an audit found, and what it looked for.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AuditReport {
+    /// What was found.
+    pub findings: Vec<AuditFinding>,
+    /// What was looked at.
+    pub scope: AuditScope,
+}
+
+impl AuditReport {
+    /// Whether the audit found nothing — which is not the same as the document passing.
+    ///
+    /// **Named so that a caller cannot write `findings.is_empty()` and mean "conforms".**
+    /// Three checkpoints of 136 finding nothing is three checkpoints finding nothing.
+    #[must_use]
+    pub fn found_nothing(&self) -> bool {
+        self.findings.is_empty()
+    }
+}
+
 impl<'a> MatterhornAuditor<'a> {
     /// Creates a new Matterhorn Auditor.
     pub fn new(arena: &'a PdfArena) -> Self {
         Self { arena }
+    }
+
+    /// The checkpoints this auditor looks at (Matterhorn, 2nd edition).
+    ///
+    /// **Named one by one rather than counted**, so that adding a check and forgetting to
+    /// say so is a thing the tests can notice: `the_scope_names_every_checkpoint_reported`
+    /// compares this list against what an audit of a broken document actually reports.
+    pub const CHECKED: [&'static str; 3] = ["01-002", "13-001", "14-001"];
+
+    /// How many checkpoints the Matterhorn protocol has, across its 31 sections.
+    pub const IN_PROTOCOL: usize = 136;
+
+    /// Performs a UA-2 structural audit, of the checkpoints in [`Self::CHECKED`].
+    ///
+    /// # Errors
+    /// Fails when the structure tree cannot be read.
+    pub fn audit_report(&self, root: Handle<Object>) -> PdfResult<AuditReport> {
+        Ok(AuditReport {
+            findings: self.audit(root)?,
+            scope: AuditScope {
+                checked: Self::CHECKED.iter().map(|c| (*c).to_string()).collect(),
+                in_protocol: Self::IN_PROTOCOL,
+            },
+        })
     }
 
     /// Performs a full UA-2 structural audit.

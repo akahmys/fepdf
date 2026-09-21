@@ -566,6 +566,11 @@ impl FepdfApp {
                     self.ust_registry.audit_findings = findings;
                     ctx.request_repaint();
                 }
+                WorkerResponse::AuditScope { checked, in_protocol } => {
+                    self.ust_registry.audit_checked = checked;
+                    self.ust_registry.audit_in_protocol = in_protocol;
+                    ctx.request_repaint();
+                }
                 WorkerResponse::Surveyed { actions, coverage } => {
                     self.survey.actions = Some(actions);
                     self.survey.coverage = coverage;

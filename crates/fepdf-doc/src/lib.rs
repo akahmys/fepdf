@@ -27,4 +27,4 @@ pub use operation::*;
 pub use outline_tree::{OutlineReport, read_outlines};
 pub use remediation::apply_physical_redaction_to_page;
 pub use struct_tree::{Placement, StructureTreeNode, StructureTreeVisitor};
-pub use structure::{AuditFinding, MatterhornAuditor, StructureVisitor};
+pub use structure::{AuditFinding, AuditReport, AuditScope, MatterhornAuditor, StructureVisitor};

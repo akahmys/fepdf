@@ -251,7 +251,7 @@ echo "[Rule 13] Checking for filter_map(Result::ok)..."
 grep -rn "filter_map(Result::ok)" $TARGET_DIRS --include="*.rs" && { echo "  FAIL: Silent swallowing found"; ERROR=1; } || echo "  PASS"
 
 echo "[Rule 13] Checking for a Result discarded by \`let _ =\`..."
-python3 scripts/audit/discarded_results.py || ERROR=1
+python3 scripts/audit/discarded_results.py || { echo "  FAIL: discarded_results.py said so above"; ERROR=1; }
 
 # Rule 14: Test Code Separation (No dedicated test files inside src/)
 echo "[Rule 14] Checking test code separation (no standalone test files in src/)..."
@@ -396,49 +396,49 @@ rm -f /tmp/fepdf_rule6.$$
 # "// RR-15 Limit:" marker from a function's signature region rather than its
 # fn line precisely so that formatting and the audit can both hold at once.
 echo "[Docs] Checking tense, links and the ADR index..."
-python3 scripts/audit/documents.py || ERROR=1
+python3 scripts/audit/documents.py || { echo "  FAIL: documents.py said so above"; ERROR=1; }
 
 # `status.sh` measured both of these and nothing gated on either, so a frontend gained a
 # dependency on another crate above the facade and this file said AUDIT PASSED anyway
 # (ADR-0082).
 echo "[Rules A, D] Checking the facade's boundary in both directions..."
-python3 scripts/audit/layering.py || ERROR=1
+python3 scripts/audit/layering.py || { echo "  FAIL: layering.py said so above"; ERROR=1; }
 
 # Two icons drew nothing and the palette governed less than half the colours on screen,
 # and both held for as long as nothing looked. A rule the audit does not run is a comment
 # (AGENTS.md 4), and these two are the only entries in CODING.md §4 a script can hold.
 echo "[Rule UI-1] Checking that every icon codepoint resolves to a glyph..."
-python3 scripts/audit/icon_glyphs.py || ERROR=1
+python3 scripts/audit/icon_glyphs.py || { echo "  FAIL: icon_glyphs.py said so above"; ERROR=1; }
 
 echo "[Rule UI-9] Checking that colours are written in the palette..."
-python3 scripts/audit/palette.py || ERROR=1
+python3 scripts/audit/palette.py || { echo "  FAIL: palette.py said so above"; ERROR=1; }
 
 echo "[Rule UI-11] Checking that dimensions come from the scales..."
-python3 scripts/audit/dimensions.py || ERROR=1
+python3 scripts/audit/dimensions.py || { echo "  FAIL: dimensions.py said so above"; ERROR=1; }
 
 echo "[Rule UI-5] Checking that user-facing strings are locale keys..."
-python3 scripts/audit/strings.py || ERROR=1
+python3 scripts/audit/strings.py || { echo "  FAIL: strings.py said so above"; ERROR=1; }
 
 echo "[Rule UI-2] Checking that icon controls carry a name..."
-python3 scripts/audit/widget_names.py || ERROR=1
+python3 scripts/audit/widget_names.py || { echo "  FAIL: widget_names.py said so above"; ERROR=1; }
 
 echo "[Rule UI-6] Checking that every change to the document is recorded..."
-python3 scripts/audit/history.py || ERROR=1
+python3 scripts/audit/history.py || { echo "  FAIL: history.py said so above"; ERROR=1; }
 
 echo "[Rule UI-8] Checking the palette's contrast..."
-python3 scripts/audit/contrast.py || ERROR=1
+python3 scripts/audit/contrast.py || { echo "  FAIL: contrast.py said so above"; ERROR=1; }
 
 echo "[Rules UI-4, UI-12] Checking that every feature has one door..."
-python3 scripts/audit/reachability.py || ERROR=1
+python3 scripts/audit/reachability.py || { echo "  FAIL: reachability.py said so above"; ERROR=1; }
 
 echo "[Rule UI-10] Checking that the accent means one thing..."
-python3 scripts/audit/accent.py || ERROR=1
+python3 scripts/audit/accent.py || { echo "  FAIL: accent.py said so above"; ERROR=1; }
 
 echo "[Rule UI-7] Checking that work the reader waits for says so..."
-python3 scripts/audit/progress.py || ERROR=1
+python3 scripts/audit/progress.py || { echo "  FAIL: progress.py said so above"; ERROR=1; }
 
 echo "[Rule UI-14] Checking that each act names the view that answers it..."
-python3 scripts/audit/surfaces.py || ERROR=1
+python3 scripts/audit/surfaces.py || { echo "  FAIL: surfaces.py said so above"; ERROR=1; }
 
 echo "[Rule 19] Checking formatting..."
 if cargo fmt --all --check > /dev/null 2>&1; then

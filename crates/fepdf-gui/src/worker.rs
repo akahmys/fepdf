@@ -212,6 +212,17 @@ pub enum WorkerResponse {
         /// How many down.
         height: u32,
     },
+    /// How much of the Matterhorn protocol the audit looked at.
+    ///
+    /// **Sent with the findings and not instead of them.** An empty list of findings from
+    /// three checkpoints of 136 is not a document that conforms, and a reader shown one
+    /// without the other is shown an assurance nobody gave.
+    AuditScope {
+        /// How many checkpoints were looked at.
+        checked: usize,
+        /// How many the protocol has.
+        in_protocol: usize,
+    },
     /// The document's form, as it stands now.
     ///
     /// **Sent after every change and not only on opening**, because filling a field
@@ -973,13 +984,36 @@ fn handle_render(
 
 fn handle_audit(doc_opt: Option<&PdfDocument>, tx: &Sender<WorkerResponse>) {
     let Some(doc) = doc_opt else { return };
-    let audit_findings = doc
-        .audit_ua2()
-        .unwrap_or_default()
-        .into_iter()
-        .map(|f| (f.checkpoint, f.severity, f.message, f.handle_id))
-        .collect();
-    let _ = tx.send(WorkerResponse::AuditFindings { findings: audit_findings });
+    send_audit(doc, tx);
+}
+
+/// Audits the document and tells the window what was looked at as well as what was found.
+///
+/// **An audit that failed used to arrive as a clean report.** Both callers wrote
+/// `.unwrap_or_default()`, so a structure tree that could not be read came back as an
+/// empty list of findings — which is the answer a conforming document gives. It is said
+/// now, and the scope comes with it either way.
+fn send_audit(doc: &PdfDocument, tx: &Sender<WorkerResponse>) {
+    match doc.audit_ua2_report() {
+        Ok(report) => {
+            let _ = tx.send(WorkerResponse::AuditScope {
+                checked: report.scope.checked.len(),
+                in_protocol: report.scope.in_protocol,
+            });
+            let findings = report
+                .findings
+                .into_iter()
+                .map(|f| (f.checkpoint, f.severity, f.message, f.handle_id))
+                .collect();
+            let _ = tx.send(WorkerResponse::AuditFindings { findings });
+        }
+        Err(why) => {
+            let _ = tx.send(WorkerResponse::Failed {
+                key: "notice_audit_failed",
+                detail: Some(why.to_string()),
+            });
+        }
+    }
 }
 
 /// Applies one operation and tells the window everything that changed with it.
@@ -1148,14 +1182,8 @@ fn handle_update_node(
     }
     let Some(doc) = doc_opt else { return };
 
-    // Run Matterhorn compliance audit on updated tree
-    let findings = doc
-        .audit_ua2()
-        .unwrap_or_default()
-        .into_iter()
-        .map(|f| (f.checkpoint, f.severity, f.message, f.handle_id))
-        .collect();
-    let _ = tx.send(WorkerResponse::AuditFindings { findings });
+    // The tree changed, so what it was audited against did too.
+    send_audit(doc, tx);
 }
 
 fn handle_save(

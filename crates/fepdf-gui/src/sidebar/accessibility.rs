@@ -23,15 +23,16 @@ pub fn show_accessibility_audit(
 
         ui.vertical(|ui| {
             if has_doc {
-                let compliant_pct = if audit_findings_count == 0 {
-                    100
-                } else {
-                    (100 - audit_findings_count * 7).max(10)
-                };
+                // **This said "Matterhorn: 100% Compliant" when nothing was found**, on
+                // an audit that looks at three of the protocol's 136 checkpoints — and
+                // the percentage was `100 - findings * 7`, which is a number with no
+                // measurement behind it at all. What a reader is owed is how much was
+                // looked at, so that "no findings" means what it means.
                 ui.label(
                     locale_mgr
                         .tr(active_lang, "audit_compliant")
-                        .replace("{}", &compliant_pct.to_string()),
+                        .replacen("{}", &registry.audit_checked.to_string(), 1)
+                        .replacen("{}", &registry.audit_in_protocol.to_string(), 1),
                 );
                 ui.label(
                     locale_mgr
