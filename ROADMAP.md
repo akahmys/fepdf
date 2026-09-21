@@ -4572,26 +4572,36 @@ Independent of all of the above:
 
 - [ ] **W-21 — the Matterhorn protocol, past the two failure conditions that exist.**
 
-      Measured 2026-09-21: `MatterhornAuditor` reports **two of the protocol's 136 failure
+      Measured 2026-09-21: `MatterhornAuditor` reported **two of the protocol's failure
       conditions** — 13-004 (a `Figure` with no alternative text) and 14-003 (a numbered
-      heading level skipped). Of the 136, **87 can be determined by software, 47 usually
-      require human judgment, and 2 have no specific test** (23-001 and 27-001).
+      heading level skipped). W-21b takes it to **ten of 137**.
+
+      **The protocol has 137 and says 136.** Its tables enumerate 137 failure conditions
+      across 31 checkpoints — `cargo test -p fepdf --test audit_scope_test
+      every_failure_condition_in_the_protocol_is_counted` derives the number from the
+      Index column — and the sentence that totals them is version 1.02's, carried into
+      1.1 with the condition 1.1 added but without the arithmetic
+      ([ADR-0093](docs/adr/0093-the-protocols-tables-enumerate-137-failure-conditions.md)).
+      Counting the `How` column gives **87 `M`, 48 `H` and 2 with no specific test**
+      (23-001 and 27-001); the sentence says 47 `H`, and 13-008 — added in 1.1, marked
+      `H` — is the one it is short.
 
       **That split is advice, not a ceiling.** The protocol defines its own `How` column
       as "**not determinative** … the realistic best-practice approach **at the present
       time**", so 87 is where the protocol expected software to reach in 2021 and an `H`
-      is not a prohibition. The target is 136 minus the two with no test; what changes
+      is not a prohibition. The target is 137 minus the two with no test; what changes
       with `H` is that a finding must say it was decided by a machine, not that it may
       not be made.
 
       **This is the gap ADR-0087 was taken over, in the large.** A document this engine
-      declares PDF/UA-2 conforming is one it has checked two things about — and both of
-      them are PDF/UA-1 conditions ([ADR-0092](docs/adr/0092-the-matterhorn-protocol-measures-ua-1-and-this-engine-declares-ua-2.md)). `PdfStandard::UA2`
-      writes that claim into the catalogue, and the claim is a statement about 136 things.
+      declares PDF/UA-2 conforming is one it has checked ten things about — and all ten
+      are PDF/UA-1 conditions ([ADR-0092](docs/adr/0092-the-matterhorn-protocol-measures-ua-1-and-this-engine-declares-ua-2.md)). `PdfStandard::UA2`
+      writes that claim into the catalogue, and the claim is a statement about 137 things.
 
       - [x] **W-21a — say how much is checked.** `audit_ua2_report` answers an
         `AuditReport` carrying an `AuditScope` beside the findings, and the window shows
-        "Matterhorn の 2 / 136 件の失格条件を検査" where the findings are. `found_nothing()` is
+        "Matterhorn の 2 / 136 件の失格条件を検査" where the findings are — 10 / 137 since W-21b.
+        `found_nothing()` is
         named so that a caller cannot write `findings.is_empty()` and mean "conforms".
 
         **The panel said "Matterhorn: 100% Compliant".** The percentage was
@@ -4606,10 +4616,71 @@ Independent of all of the above:
         dropping one that is looked at, calling the protocol three checkpoints long, and
         answering an empty scope. The fixture breaks all three checks at once, so a
         missing one names itself.
-      - **W-21b — the checkpoints that need no new machinery.** The ones about entries
-        this engine already reads — `/Lang` on the catalogue and where it changes, `/TU`
-        on form fields (which W-F2 now writes and `FormField` now reports), `/Alt` and
-        `/ActualText`, a `/StructTreeRoot` that is there, artefacts marked as such.
+      - [x] **W-21b — the failure conditions that need no new machinery.** Eight more,
+        taking the auditor from two to ten: **01-007** (`/MarkInfo /Suspects` true),
+        **07-001** and **07-002** (`/DisplayDocTitle` absent, and false), **11-002** (an
+        `/Alt`, `/ActualText` or `/E` no `/Lang` reaches), **14-002** (the first numbered
+        heading is not `<H1>`), **14-007** (both `<H>` and `<H#>`), **17-002** (a
+        `<Formula>` with no `/Alt`) and **28-005** (a form field with no `/TU`).
+
+        **The auditor holds the document, not the arena.** Four of the ten are properties
+        of the catalogue or of the form and are true or false of a file with no structure
+        tree at all, so reporting nothing but "not a tagged PDF" about such a file left
+        four checks promised by the scope and run on nothing. `audit_ua2_report` on the
+        facade assembled that report itself, under the checkpoint number `00-001` — a
+        number the protocol does not have, which is the defect W-21e took out of the
+        auditor surviving one level up because the scope test only ever read a document
+        that had a tree. The whole decision is the auditor's now, and a document with no
+        structure tree is reported under `UA1:7.1`, which is a clause that exists.
+
+        **13-004 is "alternative *or replacement* text missing"** and this read `/Alt`
+        alone, so a `<Figure>` carrying the `/ActualText` that 7.3 paragraph 3 allows was
+        reported as breaking a condition it does not break. 17-002 really is `/Alt` alone
+        — "`<Formula>` tag is missing an Alt attribute" — so the two are not one test
+        spelt twice.
+
+        **A heading level is a number, not a character.** The test for `<Hn>` was
+        `tag.len() == 2`, which stops at `<H9>`: a document going `<H1>` to `<H10>`
+        skipped eight levels and `<H10>` was not a heading at all.
+
+        **11-002 needed `/Lang` and `/E` on `StructElement`**, which the model declared
+        neither of, and the `/Lang` in force is the element's own, else the nearest
+        ancestor's through `/P`, else the catalogue's (14.9.2.2). Checking the element's
+        own alone reports a conforming document.
+
+        **28-005 is the first `ForAReader` producer.** It reads "a form field does not
+        have a `TU` entry **and** does not have an alternative description (in the form of
+        an `Alt` entry in the enclosing structure element)", and the second half is reached
+        through an `/OBJR`, which `struct_tree.rs` resolves to nothing. A field *with* a
+        `/TU` is decided — the conjunction fails on its first half — so the condition comes
+        out sound for a document whose fields all carry one; a field without one is handed
+        to a reader with its name, which is the evidence W-21f requires of a suspicion.
+
+        **Checkpoint 06 is not here, and the reason is worth more than the two checks
+        would have been.** 06-001 ("no XMP metadata stream") and 06-003 ("no `dc:title`")
+        were written, and 06-001 came back *sound* on a fixture stating no `/Metadata` at
+        all: `metadata::settle` writes the packet at ingest and promotes `/Info`'s
+        `/Title` into it, so this auditor's subject — the document as ingested (ADR-0013)
+        — has had both repaired before it is asked. A file whose only title is in the
+        deprecated dictionary breaks 06-003 and was reported conforming. Recorded as
+        [ADR-0094](docs/adr/0094-the-auditor-reads-the-ingested-document-so-ingestion-answers-checkpoint-06.md),
+        with the question to ask of every condition from here: *can this engine change the
+        answer between reading the file and running the audit?* 26-001 and 26-002 are the
+        same shape — decryption drops `/Encrypt` before anything could ask about its `/P`.
+
+        **A sound condition was arriving at the CLI as a compliance issue.** W-21g made a
+        checked-and-unbroken condition a row, and `get_summary` mapped every row to a
+        `ComplianceIssue` whose severity fell through to `Warning`, so a conforming
+        document listed one warning per check that passed.
+
+        **The artefact conditions are not here either.** 01-003, 01-004 and 28-018 are
+        about what a content stream marks, which is W-21c.
+
+        Nine mutations, each caught by the test written for it: `/Alt` alone for 13-004,
+        the element's own `/Lang` alone for 11-002, 28-005 decided rather than deferred,
+        28-005 reported for every field, the structure-tree conditions examined without a
+        tree, `IN_PROTOCOL` back to the prose's 136, `<Hn>` back to two characters, the
+        catalogue conditions skipped when there is no tree, and 07-001 and 07-002 swapped.
       - **W-21c — the checkpoints that need the content stream.** Whether a marked-content
         sequence has a structure element, whether text outside one is an artefact, whether
         a table's cells are in a row. These are the walk `apply/text.rs` already does,
@@ -4704,7 +4775,7 @@ Independent of all of the above:
         checkpoints comprised of 136 of them. The panel said "checkpoints" too.
 
       - **W-21d — the ones the protocol expects a person to decide.** Its `How` column
-        marks 47 of the 136 `H`, and defines the column as "**not determinative** … the
+        marks 48 of the 137 `H`, and defines the column as "**not determinative** … the
         realistic best-practice approach at the present time" — advice with a date, not a
         boundary on what software may attempt. What the distinction does forbid is
         reporting one of them as *decided*: a clean answer to a question a person was
@@ -4723,8 +4794,8 @@ Independent of all of the above:
       against `/Alt`.
 
       **It waits on W-21 and says so.** A conformance claim is worth what the checking
-      behind it is worth, and three checkpoints is not a foundation to put a second claim
-      on. What can be done first is the reading: the structure tree editor this engine
+      behind it is worth, and ten failure conditions of 137 is not a foundation to put a
+      second claim on. What can be done first is the reading: the structure tree editor this engine
       already has is most of what a well-tagged file is made with, and what it cannot yet
       express is the list this item starts as.
 

@@ -299,9 +299,18 @@ fn the_reporting_tools_answer_about_the_document() {
 
     let audit = audit_document_impl(AuditArgs { path: path.clone() }).expect("audit runs");
     assert!(audit.contains("\"status\""), "the report carries a verdict: {audit}");
+    // **The key, not a paraphrase of it.** This read "Structural Tree Root", which is
+    // not what the catalogue calls the entry and not what a reader would search the
+    // standard for. W-21b renamed the finding and this went with it — and the finding is
+    // no longer filed under `00-001`, a failure-condition number the Matterhorn Protocol
+    // does not have, but under the clause PDF/UA-1 states the requirement in.
     assert!(
-        audit.contains("Structural Tree Root"),
+        audit.contains("/StructTreeRoot"),
         "and names what an untagged document is missing: {audit}"
+    );
+    assert!(
+        audit.contains("[UA1:7.1]"),
+        "under the clause that requires it, rather than an invented number: {audit}"
     );
 
     let signatures = verify_signatures_impl(VerifySignaturesArgs { path: path.clone() })

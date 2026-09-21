@@ -28,5 +28,6 @@ pub use outline_tree::{OutlineReport, read_outlines};
 pub use remediation::apply_physical_redaction_to_page;
 pub use struct_tree::{Placement, StructureTreeNode, StructureTreeVisitor};
 pub use structure::{
-    AuditFinding, AuditReport, AuditScope, MatterhornAuditor, Outcome, StructureVisitor,
+    AuditFinding, AuditReport, AuditScope, FROM_CATALOGUE, FROM_FORM, FROM_STRUCTURE_TREE,
+    MatterhornAuditor, NO_STRUCTURE_TREE, Outcome, StructureVisitor,
 };

@@ -19,14 +19,14 @@ at $0.00. The Matterhorn Protocol is a free PDF Association publication under CC
 | `ISO-14289-1-2014-sponsored.pdf` | **PDF/UA-1**, on PDF 1.7. 25 pages |
 | `ISO-14289-2-2024-sponsored.pdf` | **PDF/UA-2**, on PDF 2.0, and not backward compatible with UA-1. 51 pages |
 | `Well-Tagged-PDF-WTPDF-1.0.pdf` | **WTPDF 1.0**, beside UA-2 rather than under it. 57 pages |
-| `Matterhorn-Protocol-1-1.pdf` | 31 checkpoints, 136 failure conditions — **for PDF/UA-1** |
+| `Matterhorn-Protocol-1-1.pdf` | 31 checkpoints, 137 failure conditions — **for PDF/UA-1** |
 | `ISO-TS-32005-2023-sponsored.pdf` | Structure namespaces |
 | `ISO_TS_3200{1,2,3,4}-*.pdf` | The four other extensions to PDF 2.0 |
 | `PDF20_AN00{1,2,3}-*.pdf` | Application notes: black point compensation, associated files, object metadata |
 | `Tagged-PDF-Best-Practice-Guide.pdf` | Implementation guidance — **for UA-1**, as its cover says |
 | `PDF-Declarations.pdf` | |
 
-**Two things this list exists to stop being got wrong**, both of which were got wrong on
+**Three things this list exists to stop being got wrong**, each of which was got wrong on
 2026-09-21 before the documents were read:
 
 - **The Matterhorn Protocol is a PDF/UA-1 document.** Its own text: "31 checkpoints
@@ -34,8 +34,16 @@ at $0.00. The Matterhorn Protocol is a free PDF Association publication under CC
   PDF/UA-1". It mentions PDF/UA-2 nowhere, and there is no Matterhorn 2.0. An engine
   declaring `PdfStandard::UA2` cannot measure that claim with it.
 - **Its numbers are failure conditions, not checkpoints.** `14-003` is the third failure
-  condition of checkpoint 14. Of the 136, **87 can be determined by software, 47 usually
-  require human judgment, and 2 have no specific test** (23-001 and 27-001).
+  condition of checkpoint 14.
+
+- **Its tables enumerate 137 of them and its own prose says 136.** The sentence quoted
+  above is version 1.02's: 1.1's Document History records "Failure condition 13-008
+  added", 13-008 is marked `H`, and counting the `How` column gives **87 `M`, 48 `H` and
+  2 with no specific test** (23-001 and 27-001) — one more `H` than the sentence's 47.
+  The tables are what a number can be looked up in, so 137 is what this engine counts
+  against ([ADR-0093](../adr/0093-the-protocols-tables-enumerate-137-failure-conditions.md)).
+  Quoting the sentence's 136 is the third thing this list exists to stop being got wrong,
+  and it was got wrong here until 2026-09-21.
 
 For PDF/UA-2 there is no Matterhorn. veraPDF's
 [validation profiles](https://github.com/veraPDF/veraPDF-validation-profiles) (CC BY 4.0)

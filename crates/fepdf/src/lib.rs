@@ -1464,34 +1464,22 @@ impl PdfDocument {
     /// Performs a structural health audit for PDF/UA-2.
     ///
     /// **What it looked at is in the report beside what it found**, because an empty list
-    /// of findings from three checkpoints of 136 says almost nothing and used to be
-    /// indistinguishable from a document that conforms. Use
+    /// of findings from a dozen failure conditions of 137 says almost nothing and used to
+    /// be indistinguishable from a document that conforms. Use
     /// [`fepdf_doc::AuditReport::found_nothing`] and read the scope; do not read
     /// `findings.is_empty()` as "conforms".
+    ///
+    /// **The whole decision is the auditor's.** This assembled a report of its own for a
+    /// document with no structure tree, under the checkpoint number `00-001` — a number
+    /// the protocol does not have, which is the defect W-21e took out of the auditor,
+    /// surviving here because the scope test only ever read a document that had a tree.
+    /// It also meant the five conditions that are properties of the catalogue went
+    /// unasked about a file that has a catalogue like any other.
     ///
     /// # Errors
     /// Fails when the structure tree cannot be read.
     pub fn audit_ua2_report(&self) -> PdfResult<fepdf_doc::AuditReport> {
-        let scope = fepdf_doc::AuditScope {
-            checked: MatterhornAuditor::CHECKED.iter().map(|c| (*c).to_string()).collect(),
-            in_protocol: MatterhornAuditor::IN_PROTOCOL,
-        };
-        match self.inner.get_structure_root()? {
-            Some(root) => MatterhornAuditor::new(self.inner.arena()).audit_report(root),
-            // A document with no structure tree is not a tagged PDF, which is the one
-            // thing this can say without looking at a condition at all — so nothing is
-            // reported sound, and the scope says what it would have looked at.
-            None => Ok(fepdf_doc::AuditReport {
-                findings: vec![AuditFinding {
-                    checkpoint: "00-001".into(),
-                    severity: "Warning".into(),
-                    outcome: fepdf_doc::Outcome::Broken,
-                    message: "Document missing Structural Tree Root. Not a tagged PDF.".into(),
-                    handle_id: None,
-                }],
-                scope,
-            }),
-        }
+        MatterhornAuditor::new(&self.inner).audit_report()
     }
 
     /// The findings alone, for a caller that has read the scope elsewhere.
@@ -1508,6 +1496,14 @@ impl PdfDocument {
         let findings = self.audit_ua2()?;
         let mut issues = Vec::new();
         for f in findings {
+            // **A condition examined and not broken is not an issue.** Since W-21g made
+            // it a row of the report, every clean condition arrived here as a
+            // `ComplianceIssue` of severity `Warning` — the `_` arm below reads "Pass"
+            // that way — so a conforming document listed one warning per check that
+            // passed. What a summary's issue list answers is what is wrong.
+            if f.outcome == fepdf_doc::Outcome::Sound {
+                continue;
+            }
             issues.push(ComplianceIssue {
                 standard: "PDF/UA-2".into(),
                 severity: match f.severity.as_str() {

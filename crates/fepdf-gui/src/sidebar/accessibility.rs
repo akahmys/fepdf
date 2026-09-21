@@ -30,13 +30,14 @@ pub fn show_accessibility_audit(
         ui.vertical(|ui| {
             if has_doc {
                 // **This said "Matterhorn: 100% Compliant" when nothing was found**, on
-                // an audit that looks at a handful of the protocol's 136 failure
+                // an audit that looks at a handful of the protocol's 137 failure
                 // conditions — and the percentage was `100 - findings * 7`, which is a
                 // number with no measurement behind it at all. What a reader is owed is
                 // how much was looked at, so that "no findings" means what it means.
                 //
-                // The protocol has 31 checkpoints comprised of 136 failure conditions;
-                // this counts conditions, and the line says so.
+                // The protocol has 31 checkpoints whose tables enumerate 137 failure
+                // conditions; this counts conditions, and the line says so. Both numbers
+                // come from the engine, so neither goes stale here.
                 ui.label(
                     locale_mgr
                         .tr(active_lang, "audit_compliant")

@@ -157,3 +157,5 @@ quietly wrong — which is the failure this log exists to make visible.
 | 0090 | [The face a document embeds is not a licence to set new text in it](0090-the-face-a-document-embeds-is-not-a-licence-to-set-new-text.md) | Amends 0089, from 9.9.1 |
 | 0091 | [Paragraphs are not inferred; the reader marks the range, and overflow shows](0091-paragraphs-are-not-inferred-and-overflow-is-shown.md) | Extends 0085 |
 | 0092 | [The Matterhorn Protocol measures PDF/UA-1, and this engine declares PDF/UA-2](0092-the-matterhorn-protocol-measures-ua-1-and-this-engine-declares-ua-2.md) | |
+| 0093 | [The protocol's tables enumerate 137 failure conditions, and its prose says 136](0093-the-protocols-tables-enumerate-137-failure-conditions.md) | Corrects 0092 |
+| 0094 | [The auditor reads the ingested document, so ingestion answers checkpoint 06](0094-the-auditor-reads-the-ingested-document-so-ingestion-answers-checkpoint-06.md) | Bounds 0092, rests on 0013 |

@@ -32,17 +32,19 @@ pub struct USTRegistry {
     /// looked at.
     ///
     /// **Beside the findings, because it decides what they mean.** An empty list from
-    /// a couple of 136 conditions is not a document that conforms, and a panel that showed
-    /// one without the other showed an assurance nobody gave — it said "Matterhorn: 100%
+    /// ten of 137 conditions is not a document that conforms, and a panel that showed one
+    /// without the other showed an assurance nobody gave — it said "Matterhorn: 100%
     /// Compliant", on a percentage computed as `100 - findings * 7`.
     pub audit_checked: usize,
     /// How many failure conditions the protocol has, as the engine states it.
     ///
-    /// The protocol is 31 checkpoints comprised of 136 failure conditions; this is the
-    /// second number, and the panel says which noun it is counting.
+    /// The protocol is 31 checkpoints whose tables enumerate 137 failure conditions; this
+    /// is the second number, and the panel says which noun it is counting.
     ///
-    /// **Not written into the label.** A "136" in a translated string is a number that
-    /// goes stale silently the day the engine counts differently.
+    /// **Not written into the label.** A "137" in a translated string is a number that
+    /// goes stale silently the day the engine counts differently — as it did, when the
+    /// protocol's own prose turned out to total its tables one short
+    /// ([ADR-0093](../../../../docs/adr/0093-the-protocols-tables-enumerate-137-failure-conditions.md)).
     pub audit_in_protocol: usize,
     pub pending_center_node_id: Option<usize>,
 }

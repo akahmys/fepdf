@@ -34,4 +34,16 @@ pub struct StructElement {
     #[pdf_key("ActualText")]
     /// `/ActualText`: the text this element actually represents.
     pub actual_text: Option<String>,
+    #[pdf_key("E")]
+    /// `/E`: the expanded form of an abbreviation or acronym.
+    ///
+    /// Read beside `/Alt` and `/ActualText` because 14.9.2.2 gives the three of them one
+    /// natural language — the element's own `/Lang`, or the nearest ancestor's, or the
+    /// catalogue's — and Matterhorn 11-002 fails a document where that language cannot
+    /// be determined for any of them.
+    pub expanded: Option<String>,
+    #[pdf_key("Lang")]
+    /// `/Lang`: the natural language of this element's content (14.9.2.2), as a BCP 47
+    /// tag, overriding the catalogue's `/Lang` for this subtree.
+    pub lang: Option<String>,
 }
