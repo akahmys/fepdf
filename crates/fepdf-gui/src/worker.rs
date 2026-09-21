@@ -215,7 +215,7 @@ pub enum WorkerResponse {
     /// How much of the Matterhorn protocol the audit looked at.
     ///
     /// **Sent with the findings and not instead of them.** An empty list of findings from
-    /// ten of 137 failure conditions is not a document that conforms, and a reader shown
+    /// fourteen of 137 failure conditions is not a document that conforms, and a reader shown
     /// one without the other is shown an assurance nobody gave.
     AuditScope {
         /// How many failure conditions were looked at.

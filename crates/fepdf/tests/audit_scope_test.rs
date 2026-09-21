@@ -4,10 +4,10 @@
 //! give**, and it was the answer it gave. `audit_ua2` returned findings and a caller had
 //! no way to tell "nothing is wrong" from "almost nothing was examined": the Matterhorn
 //! Protocol 1.1 is 31 checkpoints comprised of 137 failure conditions, and this auditor
-//! reports ten.
+//! reports fourteen.
 //!
 //! `PdfStandard::UA2` writes a conformance claim into the catalogue, and that claim is a
-//! statement about 137 things. Saying which ten were looked at is not a nicety; it is
+//! statement about 137 things. Saying which fourteen were looked at is not a nicety; it is
 //! the difference between a report and an assurance nobody checked.
 //!
 //! **And the numbers have to be the right ones.** All three were wrong until 2026-09-21,
@@ -21,8 +21,8 @@
 
 use fepdf::{IngestionOptions, PdfDocument};
 use fepdf_doc::{
-    AuditFinding, AuditReport, AuditScope, FROM_CATALOGUE, FROM_FORM, FROM_STRUCTURE_TREE,
-    MatterhornAuditor, NO_STRUCTURE_TREE, Outcome,
+    AuditFinding, AuditReport, AuditScope, FROM_CATALOGUE, FROM_CONTENT, FROM_FORM,
+    FROM_STRUCTURE_TREE, MatterhornAuditor, NO_STRUCTURE_TREE, Outcome,
 };
 use std::collections::BTreeSet;
 
@@ -40,30 +40,43 @@ fn opened(bytes: Vec<u8>) -> PdfDocument {
 ///
 /// | | How this document breaks it |
 /// | :--- | :--- |
+/// | 01-003 | an `/Artifact` sequence opened inside `/P <</MCID 0>>` |
+/// | 01-004 | a `/P <</MCID 1>>` opened inside an `/Artifact` |
+/// | 01-005 | a `re f` under neither |
 /// | 01-007 | `/MarkInfo /Suspects true` |
 /// | 07-001 | no `/ViewerPreferences`, so no `/DisplayDocTitle` |
 /// | 11-002 | a `<Span>` with `/ActualText` and no `/Lang` reaching it |
 /// | 13-004 | a `<Figure>` with neither `/Alt` nor `/ActualText` |
 /// | 14-002 | the first numbered heading is `<H2>` |
 /// | 14-003 | `<H4>` follows `<H2>` |
-/// | 14-007 | an `<H>` beside the `<H2>` and `<H4>` |
+/// | 14-006 | a `<Sect>` holding two `<H>` children |
+/// | 14-007 | those `<H>`s beside the `<H2>` and `<H4>` |
 /// | 17-002 | a `<Formula>` with no `/Alt` |
 /// | 28-005 | a form field with no `/TU` |
 fn breaks_everything() -> Vec<u8> {
+    // Three lines, one condition each. The `f` inside the nested sequences is under a
+    // tag or an artefact either way, so the only mark under neither is the first.
+    let content = "0 0 5 5 re f\n\
+                   /P <</MCID 0>> BDC /Artifact BMC 0 0 5 5 re f EMC EMC\n\
+                   /Artifact BMC /P <</MCID 1>> BDC 0 0 5 5 re f EMC EMC";
     fepdf_fixtures::assemble(&[
-        "<< /Type /Catalog /Pages 2 0 R /StructTreeRoot 10 0 R \
+        "<< /Type /Catalog /Pages 2 0 R /StructTreeRoot 12 0 R \
            /MarkInfo << /Marked true /Suspects true >> \
-           /AcroForm << /Fields [11 0 R] >> >>",
-        "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
-        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] >>",
-        "<< /Type /StructElem /S /H2 /P 10 0 R /Pg 3 0 R >>",
-        "<< /Type /StructElem /S /H4 /P 10 0 R /Pg 3 0 R >>",
-        "<< /Type /StructElem /S /H /P 10 0 R /Pg 3 0 R >>",
-        "<< /Type /StructElem /S /Figure /P 10 0 R /Pg 3 0 R >>",
-        "<< /Type /StructElem /S /Formula /P 10 0 R /Pg 3 0 R >>",
-        "<< /Type /StructElem /S /Span /P 10 0 R /Pg 3 0 R /ActualText (ibid.) >>",
-        "<< /Type /StructTreeRoot /K [4 0 R 5 0 R 6 0 R 7 0 R 8 0 R 9 0 R] >>",
-        "<< /FT /Tx /T (Given name) >>",
+           /AcroForm << /Fields [13 0 R] >> >>"
+            .to_string(),
+        "<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_string(),
+        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Contents 14 0 R >>".to_string(),
+        "<< /Type /StructElem /S /H2 /P 12 0 R /Pg 3 0 R >>".to_string(),
+        "<< /Type /StructElem /S /H4 /P 12 0 R /Pg 3 0 R >>".to_string(),
+        "<< /Type /StructElem /S /Sect /P 12 0 R /K [7 0 R 8 0 R] >>".to_string(),
+        "<< /Type /StructElem /S /H /P 6 0 R /Pg 3 0 R >>".to_string(),
+        "<< /Type /StructElem /S /H /P 6 0 R /Pg 3 0 R >>".to_string(),
+        "<< /Type /StructElem /S /Figure /P 12 0 R /Pg 3 0 R >>".to_string(),
+        "<< /Type /StructElem /S /Formula /P 12 0 R /Pg 3 0 R >>".to_string(),
+        "<< /Type /StructElem /S /Span /P 12 0 R /Pg 3 0 R /ActualText (ibid.) >>".to_string(),
+        "<< /Type /StructTreeRoot /K [4 0 R 5 0 R 6 0 R 9 0 R 10 0 R 11 0 R] >>".to_string(),
+        "<< /FT /Tx /T (Given name) >>".to_string(),
+        format!("<< /Length {} >>\nstream\n{content}\nendstream", content.len()),
     ])
     .into_iter()
     .collect()
@@ -86,7 +99,9 @@ fn display_doc_title_false() -> Vec<u8> {
 /// Headings `<H1>` then `<H2>` and no `<H>` (14-002, 14-003, 14-007), a figure with its
 /// alternative text and a formula with its own (13-004, 17-002), a `/Lang` on the
 /// catalogue for the `<Span>`'s `/ActualText` to be read in (11-002), `/Suspects` absent
-/// (01-007), `/DisplayDocTitle` true (07-001, 07-002), and no form at all (28-005).
+/// (01-007), `/DisplayDocTitle` true (07-001, 07-002), no form at all (28-005), one
+/// `<H>` per node and none of them beside a `<Hn>` (14-006), and a page whose every mark
+/// is under either an `/MCID` or an `/Artifact` (01-003, 01-004, 01-005).
 fn breaks_nothing() -> Vec<u8> {
     fepdf_fixtures::assemble(&[
         "<< /Type /Catalog /Pages 2 0 R /StructTreeRoot 9 0 R /Lang (en-GB) \
@@ -94,7 +109,7 @@ fn breaks_nothing() -> Vec<u8> {
            /ViewerPreferences << /DisplayDocTitle true >> >>"
             .to_string(),
         "<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_string(),
-        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] >>".to_string(),
+        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Contents 10 0 R >>".to_string(),
         "<< /Type /StructElem /S /H1 /P 9 0 R /Pg 3 0 R >>".to_string(),
         "<< /Type /StructElem /S /H2 /P 9 0 R /Pg 3 0 R >>".to_string(),
         "<< /Type /StructElem /S /Figure /P 9 0 R /Pg 3 0 R /Alt (a duck) >>".to_string(),
@@ -102,6 +117,14 @@ fn breaks_nothing() -> Vec<u8> {
             .to_string(),
         "<< /Type /StructElem /S /Span /P 9 0 R /Pg 3 0 R /ActualText (ibid.) >>".to_string(),
         "<< /Type /StructTreeRoot /K [4 0 R 5 0 R 6 0 R 7 0 R 8 0 R] >>".to_string(),
+        // **A page that is actually marked, rather than a page that draws nothing.** An
+        // empty `/Contents` passes checkpoint 01 vacuously, which is not the sound case
+        // worth having: one sequence carries an `/MCID` and the other is an artefact.
+        {
+            let content = "/P <</MCID 0>> BDC 0 0 5 5 re f EMC\n\
+                           /Artifact BMC 10 10 5 5 re f EMC";
+            format!("<< /Length {} >>\nstream\n{content}\nendstream", content.len())
+        },
     ])
     .into_iter()
     .collect()
@@ -130,7 +153,7 @@ fn outcomes(report: &AuditReport, condition: &str) -> Vec<Outcome> {
 
 /// **The report says how much of the protocol it looked at.**
 ///
-/// Ten of 137 failure conditions. A reader told "no findings" and not told that would
+/// Fourteen of 137 failure conditions. A reader told "no findings" and not told that would
 /// have been told the document conforms.
 #[test]
 fn the_report_says_how_much_of_the_protocol_it_checked() {
@@ -143,7 +166,7 @@ fn the_report_says_how_much_of_the_protocol_it_checked() {
     );
     assert_eq!(
         report.scope.checked.len(),
-        10,
+        14,
         "the scope does not name the failure conditions this auditor looks at"
     );
     assert!(
@@ -164,14 +187,15 @@ fn every_checked_condition_is_decided_by_exactly_one_reader() {
     let mut union: Vec<&str> = Vec::new();
     union.extend(FROM_CATALOGUE);
     union.extend(FROM_FORM);
+    union.extend(FROM_CONTENT);
     union.extend(FROM_STRUCTURE_TREE);
 
     let distinct: BTreeSet<&str> = union.iter().copied().collect();
-    assert_eq!(distinct.len(), union.len(), "a condition is in two of the three lists: {union:?}");
+    assert_eq!(distinct.len(), union.len(), "a condition is in two of the four lists: {union:?}");
     assert_eq!(
         distinct,
         MatterhornAuditor::CHECKED.iter().copied().collect::<BTreeSet<&str>>(),
-        "the three lists and the scope do not name the same conditions"
+        "the four lists and the scope do not name the same conditions"
     );
 }
 
@@ -594,6 +618,186 @@ fn a_heading_past_the_ninth_level_is_still_a_heading() {
     assert_eq!(outcomes(&report, "14-002"), vec![Outcome::Sound], "14-002 fired on <H1> first");
 }
 
+/// A tagged one-page document drawing `content`, with an image and a form to draw.
+///
+/// The structure tree is one `<P>` claiming `/MCID 0`, so a mark under that sequence is
+/// tagged and anything outside it is not.
+fn page_drawing(content: &str) -> Vec<u8> {
+    fepdf_fixtures::assemble(&[
+        "<< /Type /Catalog /Pages 2 0 R /StructTreeRoot 8 0 R /Lang (en-GB) >>".to_string(),
+        "<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_string(),
+        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Contents 4 0 R \
+           /Resources << /XObject << /Im0 5 0 R /Fm0 6 0 R >> \
+                         /Properties << /Pr1 << /MCID 4 >> /Pr2 << /Foo 1 >> >> >> >>"
+            .to_string(),
+        format!("<< /Length {} >>\nstream\n{content}\nendstream", content.len()),
+        "<< /Type /XObject /Subtype /Image /Width 1 /Height 1 /ColorSpace /DeviceGray \
+           /BitsPerComponent 8 /Length 1 >>\nstream\n0\nendstream"
+            .to_string(),
+        "<< /Type /XObject /Subtype /Form /BBox [0 0 10 10] /Length 0 >>\nstream\n\nendstream"
+            .to_string(),
+        "<< /Type /StructElem /S /P /P 8 0 R /Pg 3 0 R >>".to_string(),
+        "<< /Type /StructElem /S /Span /P 8 0 R /Pg 3 0 R >>".to_string(),
+        "<< /Type /StructTreeRoot /K [7 0 R] >>".to_string(),
+    ])
+    .into_iter()
+    .collect()
+}
+
+/// **A form XObject under neither a tag nor an artefact is a place to look, not a
+/// verdict.**
+///
+/// Its own content stream may open the sequences, and this walk does not descend into it.
+/// Reporting 01-005 broken here would be a finding against a file that conforms; saying
+/// nothing would be the silence this phase keeps removing.
+#[test]
+fn a_form_xobject_under_no_tag_is_left_for_a_reader() {
+    let doc = opened(page_drawing("q /Fm0 Do Q"));
+    let report = doc.audit_ua2_report().expect("it audits");
+
+    assert_eq!(
+        outcomes(&report, "01-005"),
+        vec![Outcome::ForAReader],
+        "a form drawn under neither was decided rather than handed over"
+    );
+    let row = report.findings.iter().find(|f| f.checkpoint == "01-005").expect("01-005 is there");
+    assert!(
+        row.message.contains("Fm0"),
+        "the row does not say which XObject it is about: {}",
+        row.message
+    );
+}
+
+/// **An image under neither is decided, because an image holds no marks of its own.**
+///
+/// The same `Do` operator, and the opposite answer: what makes the form undecidable is
+/// its content stream, and an image XObject has none. Treating the two alike would either
+/// lose a real finding or invent one.
+#[test]
+fn an_image_under_no_tag_is_decided() {
+    let doc = opened(page_drawing("q /Im0 Do Q"));
+    let report = doc.audit_ua2_report().expect("it audits");
+
+    assert_eq!(
+        outcomes(&report, "01-005"),
+        vec![Outcome::Broken],
+        "an image drawn under neither a tag nor an /Artifact was not reported"
+    );
+}
+
+/// **A property list named through `/Properties` carries its `/MCID` all the same.**
+///
+/// `/P /Pr1 BDC` is the same tagging as `/P <</MCID 4>> BDC`, and reading the name as "no
+/// `/MCID`" would report every mark on a page written that way as untagged — a document
+/// that conforms, reported broken throughout.
+#[test]
+fn a_named_property_list_tags_what_is_under_it() {
+    let tagged = opened(page_drawing("/P /Pr1 BDC 0 0 5 5 re f EMC"));
+    assert_eq!(
+        outcomes(&tagged.audit_ua2_report().expect("it audits"), "01-005"),
+        vec![Outcome::Sound],
+        "a named property list carrying an /MCID did not tag what was under it"
+    );
+
+    // And one that carries no `/MCID` tags nothing, which is what makes the lookup a
+    // lookup rather than a way of passing anything with a name in it.
+    let untagged = opened(page_drawing("/P /Pr2 BDC 0 0 5 5 re f EMC"));
+    assert_eq!(
+        outcomes(&untagged.audit_ua2_report().expect("it audits"), "01-005"),
+        vec![Outcome::Broken],
+        "a named property list with no /MCID was taken for tagging"
+    );
+}
+
+/// **A sequence with no `/MCID` tags nothing.**
+///
+/// A structure element reaches content by `/MCID` and by nothing else, so a sequence
+/// without one is not "tagged as real content" however much it looks like a tag. This is
+/// the arm that makes 01-005 fire on a file that looks well formed.
+///
+/// **Both well-formed spellings, because the malformed one proves nothing.** This was
+/// `/Span BDC` — `BDC` takes a tag *and* a property list, so with one operand the
+/// sublimator finds no tag and emits no sequence at all. The mark came out untagged
+/// because the operator was dropped, not because the arm under test said so: a mutation
+/// making that arm report `Tagged` left this test passing. `BMC` takes the tag alone and
+/// is the well-formed way to open a sequence without a property list.
+#[test]
+fn a_sequence_with_no_mcid_tags_nothing() {
+    for content in ["/Span BMC 0 0 5 5 re f EMC", "/Span <</Foo 1>> BDC 0 0 5 5 re f EMC"] {
+        let doc = opened(page_drawing(content));
+        assert_eq!(
+            outcomes(&doc.audit_ua2_report().expect("it audits"), "01-005"),
+            vec![Outcome::Broken],
+            "a sequence with no /MCID was taken for tagging: {content}"
+        );
+    }
+}
+
+/// **The two nesting conditions are told apart, and from the third.**
+///
+/// 01-003 and 01-004 are the same question asked in both directions, which is exactly the
+/// shape that gets implemented once and reported twice.
+#[test]
+fn the_nesting_conditions_are_told_apart() {
+    let artifact_in_tagged =
+        opened(page_drawing("/P <</MCID 0>> BDC /Artifact BMC 0 0 5 5 re f EMC EMC"));
+    let report = artifact_in_tagged.audit_ua2_report().expect("it audits");
+    assert_eq!(outcomes(&report, "01-003"), vec![Outcome::Broken], "01-003 did not fire");
+    assert_eq!(outcomes(&report, "01-004"), vec![Outcome::Sound], "01-004 fired the wrong way");
+
+    let tagged_in_artifact =
+        opened(page_drawing("/Artifact BMC /P <</MCID 0>> BDC 0 0 5 5 re f EMC EMC"));
+    let report = tagged_in_artifact.audit_ua2_report().expect("it audits");
+    assert_eq!(outcomes(&report, "01-004"), vec![Outcome::Broken], "01-004 did not fire");
+    assert_eq!(outcomes(&report, "01-003"), vec![Outcome::Sound], "01-003 fired the wrong way");
+
+    // Neither is broken by the two side by side, which is the ordinary shape of a tagged
+    // page: content under its tag, furniture under an artefact.
+    let beside =
+        opened(page_drawing("/P <</MCID 0>> BDC 0 0 5 5 re f EMC /Artifact BMC 9 9 5 5 re f EMC"));
+    let report = beside.audit_ua2_report().expect("it audits");
+    for condition in FROM_CONTENT {
+        assert_eq!(
+            outcomes(&report, condition),
+            vec![Outcome::Sound],
+            "{condition} fired on a page whose marks are each under one sequence"
+        );
+    }
+}
+
+/// **14-006 counts a node's children, not its descendants.**
+///
+/// Two `<Sect>`s under one `<Sect>`, each with a heading of its own, is two nodes with one
+/// heading each. Counting `<H>` anywhere beneath would report the outer one as holding
+/// two, which is how a check about a node becomes a check about a document.
+#[test]
+fn one_heading_per_node_counts_children_not_descendants() {
+    let doc = opened(
+        fepdf_fixtures::assemble(&[
+            "<< /Type /Catalog /Pages 2 0 R /StructTreeRoot 9 0 R /Lang (en-GB) >>",
+            "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] >>",
+            "<< /Type /StructElem /S /Sect /P 9 0 R /K [5 0 R 7 0 R] >>",
+            "<< /Type /StructElem /S /Sect /P 4 0 R /K [6 0 R] >>",
+            "<< /Type /StructElem /S /H /P 5 0 R /Pg 3 0 R >>",
+            "<< /Type /StructElem /S /Sect /P 4 0 R /K [8 0 R] >>",
+            "<< /Type /StructElem /S /H /P 7 0 R /Pg 3 0 R >>",
+            "<< /Type /StructTreeRoot /K [4 0 R] >>",
+        ])
+        .into_iter()
+        .collect(),
+    );
+    let report = doc.audit_ua2_report().expect("it audits");
+
+    assert_eq!(
+        outcomes(&report, "14-006"),
+        vec![Outcome::Sound],
+        "a heading in each of two child nodes was counted as two in one node"
+    );
+    // And no numbered heading anywhere, so 14-007 has nothing to pair the <H>s with.
+    assert_eq!(outcomes(&report, "14-007"), vec![Outcome::Sound], "14-007 fired on <H> alone");
+}
+
 /// **Checkpoint 06 is left out because ingestion answers it, not because it is hard.**
 ///
 /// 06-001 is "document does not contain an XMP metadata stream" and 06-003 is "XMP
@@ -683,6 +887,9 @@ fn every_number_reported_means_in_the_protocol_what_it_is_used_for() {
     // columns interrupt the first line of every row — and long enough to be that
     // condition and no other.
     let says = [
+        ("01-003", "Content marked as Artifact is present inside tagged content"),
+        ("01-004", "Tagged content is present inside content marked as Artifact"),
+        ("01-005", "Content is neither marked as Artifact nor tagged as real"),
         ("01-007", "Suspects entry has a value of true"),
         ("07-001", "does not contain a DisplayDocTitle"),
         ("07-002", "contains a DisplayDocTitle entry with a"),
@@ -690,6 +897,7 @@ fn every_number_reported_means_in_the_protocol_what_it_is_used_for() {
         ("13-004", "alternative or replacement text missing"),
         ("14-002", "Does use numbered headings, but the first"),
         ("14-003", "Numbered heading levels in descending"),
+        ("14-006", "A node contains more than one <H> tag"),
         ("14-007", "Document uses both <H> and <H#> tags"),
         ("17-002", "<Formula> tag is missing an Alt attribute"),
         ("28-005", "A form field does not have a TU entry and does not"),

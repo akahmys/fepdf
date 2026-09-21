@@ -151,7 +151,7 @@ impl AuditReport {
     /// the document passing.
     ///
     /// **Named so that a caller cannot write `findings.is_empty()` and mean "conforms".**
-    /// A dozen failure conditions out of 137 finding nothing is a dozen failure
+    /// Fourteen failure conditions out of 137 finding nothing is fourteen failure
     /// conditions finding nothing. Read [`AuditReport::scope`] beside this.
     ///
     /// **This was `findings.is_empty()`, and that could not be true.** Once a checked and
@@ -187,12 +187,20 @@ pub const FROM_CATALOGUE: [&str; 3] = ["01-007", "07-001", "07-002"];
 /// The failure conditions decided by reading the interactive form (12.7).
 pub const FROM_FORM: [&str; 1] = ["28-005"];
 
+/// The failure conditions decided by reading the pages' content streams (14.7.4.2).
+///
+/// **A tree says which marks belong to which element; it does not say what is on the
+/// page.** PDF/UA-1 7.1 is a requirement about all content, and the three conditions of
+/// checkpoint 01 that this engine can decide are about what a `BDC` encloses — which is
+/// in the content stream and nowhere else. See [`crate::tagging`].
+pub const FROM_CONTENT: [&str; 3] = ["01-003", "01-004", "01-005"];
+
 /// The failure conditions decided by walking the structure tree (14.7).
 ///
 /// **A document with no structure tree has none of these examined**, which is not the
 /// same as passing them, and is why the three lists are apart.
-pub const FROM_STRUCTURE_TREE: [&str; 6] =
-    ["11-002", "13-004", "14-002", "14-003", "14-007", "17-002"];
+pub const FROM_STRUCTURE_TREE: [&str; 7] =
+    ["11-002", "13-004", "14-002", "14-003", "14-006", "14-007", "17-002"];
 
 /// What a `/StructTreeRoot` that is not there is reported as.
 ///
@@ -324,9 +332,9 @@ impl<'a> MatterhornAuditor<'a> {
     /// **Named one by one rather than counted**, so that adding a check and forgetting to
     /// say so is a thing the tests can notice. The three lists above partition this one,
     /// and a test holds them to it.
-    pub const CHECKED: [&'static str; 10] = [
-        "01-007", "07-001", "07-002", "11-002", "13-004", "14-002", "14-003", "14-007", "17-002",
-        "28-005",
+    pub const CHECKED: [&'static str; 14] = [
+        "01-003", "01-004", "01-005", "01-007", "07-001", "07-002", "11-002", "13-004", "14-002",
+        "14-003", "14-006", "14-007", "17-002", "28-005",
     ];
 
     /// How many failure conditions the Matterhorn Protocol 1.1 has, across 31 checkpoints.
@@ -353,6 +361,7 @@ impl<'a> MatterhornAuditor<'a> {
         let mut examined: BTreeSet<&'static str> = BTreeSet::new();
         self.audit_catalogue(&mut findings, &mut examined);
         self.audit_form(&mut findings, &mut examined);
+        self.audit_content(&mut findings, &mut examined);
         match self.doc.get_structure_root()? {
             Some(root) => {
                 findings.extend(self.audit(root)?);
@@ -469,6 +478,96 @@ impl<'a> MatterhornAuditor<'a> {
         }
     }
 
+    /// Checkpoint 01's three, from what each page's content stream marks.
+    ///
+    /// **One finding per page per condition, with a count.** A page of four hundred
+    /// untagged glyphs is one thing wrong with one page, and four hundred rows saying so
+    /// is the list W-21f replaced with a report. The unit a reader acts on here is the
+    /// page.
+    ///
+    /// **A page whose content will not decode leaves all three unexamined.** Calling them
+    /// sound on the strength of the pages that did read would be a claim about the
+    /// document, made from part of it.
+    fn audit_content(
+        &self,
+        findings: &mut Vec<AuditFinding>,
+        examined: &mut BTreeSet<&'static str>,
+    ) {
+        let Ok(pages) = self.doc.page_count() else {
+            return;
+        };
+        let mut unreadable = Vec::new();
+        for page in 0..pages {
+            match crate::tagging::tagging_of_page(self.doc, page) {
+                Ok(tagging) => Self::note_page_tagging(page, &tagging, findings),
+                Err(_) => unreadable.push((page + 1).to_string()),
+            }
+        }
+        if unreadable.is_empty() {
+            examined.extend(FROM_CONTENT);
+            return;
+        }
+        findings.push(for_a_reader(
+            "01-005",
+            format!(
+                "The content of {} of the document's {pages} pages would not decode, so what \
+                 they mark is not established here — pages {}",
+                unreadable.len(),
+                unreadable.join(", ")
+            ),
+        ));
+    }
+
+    /// What one page's marked content came to, as the report says it.
+    fn note_page_tagging(
+        page: usize,
+        tagging: &crate::tagging::PageTagging,
+        findings: &mut Vec<AuditFinding>,
+    ) {
+        let at = page + 1;
+        if tagging.artifact_inside_tagged > 0 {
+            findings.push(broken(
+                "01-003",
+                format!(
+                    "Page {at}: an /Artifact sequence is inside tagged content ({} on this \
+                     page)",
+                    tagging.artifact_inside_tagged
+                ),
+            ));
+        }
+        if tagging.tagged_inside_artifact > 0 {
+            findings.push(broken(
+                "01-004",
+                format!(
+                    "Page {at}: content carrying an /MCID is inside an /Artifact ({} on this \
+                     page)",
+                    tagging.tagged_inside_artifact
+                ),
+            ));
+        }
+        if tagging.untagged_marks > 0 {
+            findings.push(broken(
+                "01-005",
+                format!(
+                    "Page {at}: content is marked as neither an /Artifact nor real content \
+                     ({} painting operators on this page)",
+                    tagging.untagged_marks
+                ),
+            ));
+        }
+        if !tagging.forms_outside.is_empty() {
+            findings.push(for_a_reader(
+                "01-005",
+                format!(
+                    "Page {at}: the form XObject {} is drawn under neither a tag nor an \
+                     /Artifact. Its own content stream may carry the marks and this walk does \
+                     not descend into it — look at the form",
+                    tagging.forms_outside.join(", ")
+                ),
+            ));
+        }
+    }
+
     /// Walks the structure tree, for the conditions that are properties of it.
     ///
     /// # Errors
@@ -516,6 +615,7 @@ impl<'a> MatterhornAuditor<'a> {
         let at = element_handle.index();
 
         Self::audit_heading(tag, at, headings, findings);
+        self.audit_one_heading_per_node(&element, at, findings);
         Self::audit_alternative_text(tag, &element, at, findings);
         self.audit_language(&element, document_language, at, findings);
         Ok(())
@@ -544,6 +644,61 @@ impl<'a> MatterhornAuditor<'a> {
         }
         headings.first_numbered.get_or_insert((level, at));
         headings.last_level = level;
+    }
+
+    /// 14-006: a node with more than one `<H>` among its children.
+    ///
+    /// **The children of one node, not every `<H>` beneath it.** A `<Sect>` holding two
+    /// `<Sect>`s, each with a heading of its own, is two nodes with one heading each and
+    /// breaks nothing — which is what makes this a question about a node rather than
+    /// about the document, and why 14-007 (both spellings in use) is the one that is
+    /// document-wide.
+    fn audit_one_heading_per_node(
+        &self,
+        element: &StructElement,
+        at: u32,
+        findings: &mut Vec<AuditFinding>,
+    ) {
+        let headings = self
+            .child_elements(element)
+            .into_iter()
+            .filter(|kid| self.tag_of(*kid) == Some("H".into()))
+            .count();
+        if headings > 1 {
+            findings.push(broken_at(
+                "14-006",
+                format!("Node holds {headings} <H> children, where 14-006 allows one"),
+                at,
+            ));
+        }
+    }
+
+    /// The structure elements a node's `/K` names, skipping marks and `/OBJR`s.
+    fn child_elements(&self, element: &StructElement) -> Vec<Handle<Object>> {
+        let mut out = Vec::new();
+        let Some(kids) = &element.kids else {
+            return out;
+        };
+        if let Some(one) = crate::struct_tree::resolve_to_node_handle(self.arena, kids) {
+            out.push(one);
+            return out;
+        }
+        if let Object::Array(handle) = kids.resolve(self.arena)
+            && let Some(array) = self.arena.get_array(handle)
+        {
+            out.extend(
+                array
+                    .iter()
+                    .filter_map(|kid| crate::struct_tree::resolve_to_node_handle(self.arena, kid)),
+            );
+        }
+        out
+    }
+
+    /// One element's `/S`, as the name it is written with.
+    fn tag_of(&self, handle: Handle<Object>) -> Option<String> {
+        let element = StructElement::from_pdf_object(Object::Reference(handle), self.arena).ok()?;
+        Some(self.arena.get_name(element.subtype?)?.as_str().to_string())
     }
 
     /// 13-004 and 17-002, which are two different requirements about one word.

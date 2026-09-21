@@ -146,7 +146,7 @@ pub fn apply_edit_run(doc: &Document, page: usize, run: usize, text: &str) -> Pd
 }
 
 /// The page's content, decoded and concatenated.
-fn page_content(doc: &Document, page: usize) -> PdfResult<Option<bytes::Bytes>> {
+pub(crate) fn page_content(doc: &Document, page: usize) -> PdfResult<Option<bytes::Bytes>> {
     let arena = doc.arena();
     let page_h =
         doc.get_page_handle(page).ok_or_else(|| PdfError::Other("the page is not there".into()))?;
@@ -175,7 +175,10 @@ fn write_page_content(doc: &Document, page: usize, content: Vec<u8>) -> PdfResul
 }
 
 /// The fonts a page names, by the resource name its content stream uses.
-fn fonts_of_page(doc: &Document, page: usize) -> PdfResult<BTreeMap<String, Arc<FontResource>>> {
+pub(crate) fn fonts_of_page(
+    doc: &Document,
+    page: usize,
+) -> PdfResult<BTreeMap<String, Arc<FontResource>>> {
     let arena = doc.arena();
     let page_h =
         doc.get_page_handle(page).ok_or_else(|| PdfError::Other("the page is not there".into()))?;

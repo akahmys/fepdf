@@ -1464,7 +1464,7 @@ impl PdfDocument {
     /// Performs a structural health audit for PDF/UA-2.
     ///
     /// **What it looked at is in the report beside what it found**, because an empty list
-    /// of findings from a dozen failure conditions of 137 says almost nothing and used to
+    /// of findings from fourteen failure conditions of 137 says almost nothing and used to
     /// be indistinguishable from a document that conforms. Use
     /// [`fepdf_doc::AuditReport::found_nothing`] and read the scope; do not read
     /// `findings.is_empty()` as "conforms".

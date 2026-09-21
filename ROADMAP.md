@@ -4574,7 +4574,7 @@ Independent of all of the above:
 
       Measured 2026-09-21: `MatterhornAuditor` reported **two of the protocol's failure
       conditions** — 13-004 (a `Figure` with no alternative text) and 14-003 (a numbered
-      heading level skipped). W-21b takes it to **ten of 137**.
+      heading level skipped). W-21b takes it to ten of 137 and W-21c to **fourteen**.
 
       **The protocol has 137 and says 136.** Its tables enumerate 137 failure conditions
       across 31 checkpoints — `cargo test -p fepdf --test audit_scope_test
@@ -4594,13 +4594,13 @@ Independent of all of the above:
       not be made.
 
       **This is the gap ADR-0087 was taken over, in the large.** A document this engine
-      declares PDF/UA-2 conforming is one it has checked ten things about — and all ten
-      are PDF/UA-1 conditions ([ADR-0092](docs/adr/0092-the-matterhorn-protocol-measures-ua-1-and-this-engine-declares-ua-2.md)). `PdfStandard::UA2`
+      declares PDF/UA-2 conforming is one it has checked fourteen things about — and all
+      fourteen are PDF/UA-1 conditions ([ADR-0092](docs/adr/0092-the-matterhorn-protocol-measures-ua-1-and-this-engine-declares-ua-2.md)). `PdfStandard::UA2`
       writes that claim into the catalogue, and the claim is a statement about 137 things.
 
       - [x] **W-21a — say how much is checked.** `audit_ua2_report` answers an
         `AuditReport` carrying an `AuditScope` beside the findings, and the window shows
-        "Matterhorn の 2 / 136 件の失格条件を検査" where the findings are — 10 / 137 since W-21b.
+        "Matterhorn の 2 / 136 件の失格条件を検査" where the findings are — 14 / 137 since W-21c.
         `found_nothing()` is
         named so that a caller cannot write `findings.is_empty()` and mean "conforms".
 
@@ -4681,10 +4681,70 @@ Independent of all of the above:
         28-005 reported for every field, the structure-tree conditions examined without a
         tree, `IN_PROTOCOL` back to the prose's 136, `<Hn>` back to two characters, the
         catalogue conditions skipped when there is no tree, and 07-001 and 07-002 swapped.
-      - **W-21c — the checkpoints that need the content stream.** Whether a marked-content
-        sequence has a structure element, whether text outside one is an artefact, whether
-        a table's cells are in a row. These are the walk `apply/text.rs` already does,
-        asked a different question.
+      - [x] **W-21c — the failure conditions that need the content stream.** Checkpoint
+        01's three — **01-003** (an `/Artifact` sequence inside tagged content), **01-004**
+        (content carrying an `/MCID` inside an `/Artifact`) and **01-005** (content under
+        neither) — with **14-006** (a node holding more than one `<H>`) beside them.
+        Fourteen of 137.
+
+        **A tree says which marks belong to which element; it does not say what is on the
+        page.** PDF/UA-1 7.1 is a requirement about *all* content, and until now every
+        condition this engine checked was answerable from the catalogue or the structure
+        tree — so a document could be reported sound while its pages drew whatever they
+        liked. `crate::tagging` reads the sublimated command stream, which already carries
+        `BDC`/`BMC` with its property list and `EMC`, and says what each page's marked
+        content came to.
+
+        **A sequence tags what is under it only if it carries an `/MCID`.** A structure
+        element reaches content by `/MCID` and by nothing else, so `/Span <</Foo 1>> BDC`
+        tags nothing however much it looks like a tag. A named property list — `/P /Pr1
+        BDC` — is resolved through the page's `/Properties`, because reading the name as
+        "no `/MCID`" would report every mark on a page written that way as untagged.
+
+        **A form XObject under neither is the first `ForAReader` this engine produces from
+        a limit of its own.** Its content stream may open the sequences and this walk does
+        not descend into it, so 01-005 is handed over with the XObject's name rather than
+        decided. An *image* XObject is the opposite and is decided: an image has no marked
+        content of its own, so nothing inside it can be tagged. The same `Do`, two answers.
+
+        **One finding per page per condition, with a count.** A page of four hundred
+        untagged glyphs is one thing wrong with one page; four hundred rows saying so is
+        the list W-21f replaced with a report.
+
+        **A page whose content will not decode leaves all three unexamined.** Calling them
+        sound on the strength of the pages that did read would be a claim about the
+        document made from part of it.
+
+        **09-004 is not here, and that is the finding.** W-21c named "whether a table's
+        cells are in a row", which is 09-004 — "does not conform to the syntax defined in
+        **ISO 32000-1, Table 337**". `docs/specs/` does not hold ISO 32000-1, and
+        `docs/specs/README.md`, whose job is to say which documents a working copy needs,
+        did not say it should. ISO 32000-2's Table 371 describes the same types in prose
+        and is not Table 337, so a check written from it and filed under 09-004 would be a
+        finding against a requirement nobody here has read — W-21e's defect with a
+        different surface. Eight `M` conditions cite ISO 32000-1: 09-004, 09-005, 09-006,
+        09-007, 09-008, 31-006, 31-008 and 31-027. Recorded as
+        [ADR-0095](docs/adr/0095-a-condition-citing-a-document-this-copy-lacks-is-not-implemented-from-memory.md);
+        they are W-21h.
+
+        **A test that passed for the wrong reason.** `a_sequence_with_no_mcid_tags_nothing`
+        wrote `/Span BDC`, which is malformed — `BDC` takes a tag *and* a property list, so
+        with one operand the sublimator finds no tag and emits no sequence at all. The mark
+        came out untagged because the operator was dropped, not because the arm under test
+        said so, and a mutation making that arm report `Tagged` left the test passing. It
+        uses `BMC`, which takes the tag alone.
+
+        Seven mutations, each caught by the test written for it: a sequence with no `/MCID`
+        taken for tagging, a named property list left unresolved, a form treated as an
+        image, an image treated as a form, 01-003 and 01-004 swapped, 14-006 firing on one
+        `<H>`, and `/Artifact` not recognised as a tag.
+
+      - **W-21h — the failure conditions that cite ISO 32000-1.** 09-004, 09-005, 09-006,
+        09-007, 09-008, 31-006, 31-008 and 31-027, all `M`, all naming a table or annex of
+        PDF 1.7. **The first step is getting the document**: neither sponsored bundle
+        carries it — the ISO 32000-2 bundle is 2.0 and the PDF/UA bundle is 14289 — and
+        ISO 32000-1:2008 is superseded. Until then they are not written from ISO 32000-2's
+        prose about the same types ([ADR-0095](docs/adr/0095-a-condition-citing-a-document-this-copy-lacks-is-not-implemented-from-memory.md)).
       - [x] **W-21g — a condition checked and not broken is a result.** `AuditFinding`
         carries an `Outcome` — `Broken`, `Sound`, `ForAReader` — and `audit_report` adds
         one `Sound` per condition it checked and did not break. **One per condition, not
@@ -4794,8 +4854,8 @@ Independent of all of the above:
       against `/Alt`.
 
       **It waits on W-21 and says so.** A conformance claim is worth what the checking
-      behind it is worth, and ten failure conditions of 137 is not a foundation to put a
-      second claim on. What can be done first is the reading: the structure tree editor this engine
+      behind it is worth, and fourteen failure conditions of 137 is not a foundation to
+      put a second claim on. What can be done first is the reading: the structure tree editor this engine
       already has is most of what a well-tagged file is made with, and what it cannot yet
       express is the list this item starts as.
 

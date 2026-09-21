@@ -32,7 +32,7 @@ pub struct USTRegistry {
     /// looked at.
     ///
     /// **Beside the findings, because it decides what they mean.** An empty list from
-    /// ten of 137 conditions is not a document that conforms, and a panel that showed one
+    /// fourteen of 137 conditions is not a document that conforms, and a panel that showed one
     /// without the other showed an assurance nobody gave — it said "Matterhorn: 100%
     /// Compliant", on a percentage computed as `100 - findings * 7`.
     pub audit_checked: usize,

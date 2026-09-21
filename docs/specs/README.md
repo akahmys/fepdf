@@ -45,6 +45,16 @@ at $0.00. The Matterhorn Protocol is a free PDF Association publication under CC
   Quoting the sentence's 136 is the third thing this list exists to stop being got wrong,
   and it was got wrong here until 2026-09-21.
 
+**ISO 32000-1 is not here, and eight `M` failure conditions want it.** Matterhorn cites
+tables of PDF 1.7 rather than of 2.0 — 09-004 (Table 337), 09-005 (Table 336), 09-006
+(Table 333), 09-007 and 09-008 (Table 338), 31-006 and 31-008 (Table 118), and 31-027
+(Annex D); 02-001 and 10-001 cite it in their notes. ISO 32000-2's own Table 371 describes
+the same table structure types in prose and is **not** Table 337, so a check written from
+it and reported under 09-004 would be a finding against a requirement nobody here has
+read ([ADR-0095](../adr/0095-a-condition-citing-a-document-this-copy-lacks-is-not-implemented-from-memory.md)).
+Neither sponsored bundle carries it: the ISO 32000-2 bundle is 2.0, and the PDF/UA bundle
+is 14289. Where a copy comes from is open.
+
 For PDF/UA-2 there is no Matterhorn. veraPDF's
 [validation profiles](https://github.com/veraPDF/veraPDF-validation-profiles) (CC BY 4.0)
 formalise each "shall" of ISO 14289-2 as a rule named by its clause — `8.2.1-2` is the
