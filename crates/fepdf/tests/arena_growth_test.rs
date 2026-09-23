@@ -109,3 +109,39 @@ fn an_edit_costs_one_object_and_gives_none_back() {
         "an edit costs more than one object now: {before} to {after} over {EDITS} edits"
     );
 }
+
+/// **A handle one arena stamped reads nothing in another.**
+///
+/// Two arenas are live whenever a document is written: `cloned_for_output` fills a second
+/// one and the writer consumes it, and `Handle<Object>` used to be a bare index that did
+/// not say which it belonged to. Passing the document's root where the copy's was wanted
+/// compiled, and wrote whatever object sat at that index in the other arena.
+///
+/// **The fixture is built so that the wrong answer is a different answer.** Both arenas
+/// hold an object at index 0 and they are not the same object, so a refusal and a wrong
+/// read are told apart — which a fixture with one object in each could not do.
+#[test]
+fn a_handle_from_one_arena_reads_nothing_in_another() {
+    use fepdf_model::{Object, PdfArena};
+
+    let first = PdfArena::new();
+    let second = PdfArena::new();
+    let in_first = first.alloc_object(Object::Integer(11));
+    let in_second = second.alloc_object(Object::Integer(22));
+    assert_eq!(in_first.index(), in_second.index(), "the fixture wants the same index in both");
+
+    assert_eq!(first.get_object(in_first), Some(Object::Integer(11)), "its own arena reads it");
+    assert_eq!(
+        second.get_object(in_first),
+        None,
+        "a handle from the first arena read something in the second"
+    );
+
+    // And a handle built from a raw index names no arena, so it is still accepted —
+    // `PdfDocument::get_font` takes an object number off the command line.
+    assert_eq!(
+        second.get_object(fepdf_model::Handle::new(in_second.index())),
+        Some(Object::Integer(22)),
+        "an unbound handle was refused"
+    );
+}

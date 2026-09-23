@@ -21,8 +21,18 @@ pub struct PdfArena {
 /// All pools are wrapped in `RwLock` to allow thread-safe interior mutability, enabling the
 /// "Pass-based" refinement system where objects are updated in-place as they move
 /// through the normalization pipeline.
-#[derive(Default)]
+/// The next arena's number. Starts at 1, because 0 is [`Handle::UNBOUND`].
+static NEXT_ARENA: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(1);
+
 struct ArenaInner {
+    /// Which arena this is, stamped into every handle it hands out.
+    ///
+    /// **Wraps rather than saturates**, and that is deliberate: after four billion
+    /// arenas two of them share a number and the check stops distinguishing those two,
+    /// which is the same weakening as `Handle::UNBOUND` and not a wrong answer. A
+    /// saturating counter would give every arena past the first four billion the *same*
+    /// number, which is worse.
+    id: u32,
     /// Contiguous pool of objects for maximum cache efficiency.
     ///
     /// **A `Vec<Object>`, since the slot it used to hold had one other field and that
@@ -58,6 +68,21 @@ struct ArenaInner {
     object_index: RwLock<Option<BTreeMap<Object, Vec<Handle<Object>>>>>,
 }
 
+impl Default for ArenaInner {
+    fn default() -> Self {
+        Self {
+            id: NEXT_ARENA.fetch_add(1, std::sync::atomic::Ordering::Relaxed),
+            objects: RwLock::default(),
+            dicts: RwLock::default(),
+            arrays: RwLock::default(),
+            names: RwLock::default(),
+            name_map: RwLock::default(),
+            version: RwLock::default(),
+            object_index: RwLock::default(),
+        }
+    }
+}
+
 impl PdfArena {
     /// Creates an empty arena declaring PDF 1.7.
     pub fn new() -> Self {
@@ -69,6 +94,31 @@ impl PdfArena {
         let arena = Self::default();
         *arena.inner.version.write() = version;
         arena
+    }
+
+    /// A handle into *this* arena, at `index`.
+    ///
+    /// **What an arena hands out is stamped**, so that a handle used against a different
+    /// arena is refused rather than read. Two arenas are live whenever a document is
+    /// written, and a `Handle<Object>` did not say which one it indexed (ROADMAP W-A3).
+    pub fn handle<T>(&self, index: u32) -> Handle<T> {
+        Handle::bound(index, self.inner.id)
+    }
+
+    /// Whether `handle` indexes this arena, or names none.
+    ///
+    /// **A foreign handle reads nothing rather than reading the wrong thing**, and
+    /// `None` is the true answer rather than a softened one: the handle does not index
+    /// this arena, so this arena holds nothing at it. What it replaces is the object that
+    /// happens to sit at that index here, handed back as though it were the one asked
+    /// for.
+    ///
+    /// **No `debug_assert` beside it.** One would be louder in a test build and absent
+    /// from a release, which makes the behaviour differ by profile and the test for it
+    /// pass in one and fail in the other. The property worth holding is the same in both:
+    /// never the wrong object.
+    fn ours<T>(&self, handle: Handle<T>) -> bool {
+        handle.belongs_to(self.inner.id)
     }
 
     /// The document version this arena will write.
@@ -96,7 +146,7 @@ impl PdfArena {
         }
 
         let idx = u32::try_from(names.len()).unwrap_or(0);
-        let h = Handle::new(idx);
+        let h = Handle::bound(idx, self.inner.id);
         names.push(name.clone());
         map.insert(name, h);
         h
@@ -112,6 +162,9 @@ impl PdfArena {
 
     /// Returns the string representation of a name handle.
     pub fn get_name_str(&self, handle: Handle<PdfName>) -> Option<String> {
+        if !self.ours(handle) {
+            return None;
+        }
         self.inner.names.read().get(handle.index() as usize).map(|n| n.as_str().to_string())
     }
 
@@ -122,19 +175,22 @@ impl PdfArena {
 
     /// Resolves a name handle back to the name.
     pub fn get_name(&self, handle: Handle<PdfName>) -> Option<PdfName> {
+        if !self.ours(handle) {
+            return None;
+        }
         self.inner.names.read().get(handle.index() as usize).cloned()
     }
 
     /// Returns all valid dictionary handles in the arena.
     pub fn all_dict_handles(&self) -> Vec<Handle<BTreeMap<Handle<PdfName>, Object>>> {
         let count = self.inner.dicts.read().len() as u32;
-        (0..count).map(Handle::new).collect()
+        (0..count).map(|i| self.handle(i)).collect()
     }
 
     /// Registers a new object, returning a unique handle.
     pub fn alloc_object(&self, object: Object) -> Handle<Object> {
         let mut objects = self.inner.objects.write();
-        let h = Handle::new(objects.len() as u32);
+        let h = Handle::bound(objects.len() as u32, self.inner.id);
         objects.push(object.clone());
 
         if let Some(idx) = self.inner.object_index.write().as_mut() {
@@ -151,7 +207,7 @@ impl PdfArena {
         let mut dicts = self.inner.dicts.write();
         let index = u32::try_from(dicts.len()).unwrap_or(0);
         dicts.push(dict);
-        Handle::new(index)
+        Handle::bound(index, self.inner.id)
     }
 
     /// Allocates an array.
@@ -159,16 +215,22 @@ impl PdfArena {
         let mut arrays = self.inner.arrays.write();
         let index = u32::try_from(arrays.len()).unwrap_or(0);
         arrays.push(array);
-        Handle::new(index)
+        Handle::bound(index, self.inner.id)
     }
 
     /// Reads an object by handle.
     pub fn get_object(&self, handle: Handle<Object>) -> Option<Object> {
+        if !self.ours(handle) {
+            return None;
+        }
         self.inner.objects.read().get(handle.index() as usize).cloned()
     }
 
     /// Replaces the object at `handle`.
     pub fn set_object(&self, handle: Handle<Object>, object: Object) {
+        if !self.ours(handle) {
+            return;
+        }
         let mut objects = self.inner.objects.write();
         if let Some(e) = objects.get_mut(handle.index() as usize) {
             let old_val = e.clone();
@@ -198,6 +260,9 @@ impl PdfArena {
         &self,
         handle: Handle<BTreeMap<Handle<PdfName>, Object>>,
     ) -> Option<BTreeMap<Handle<PdfName>, Object>> {
+        if !self.ours(handle) {
+            return None;
+        }
         self.inner.dicts.read().get(handle.index() as usize).cloned()
     }
 
@@ -218,6 +283,9 @@ impl PdfArena {
         handle: Handle<BTreeMap<Handle<PdfName>, Object>>,
         key: Handle<PdfName>,
     ) -> Option<Object> {
+        if !self.ours(handle) {
+            return None;
+        }
         self.inner.dicts.read().get(handle.index() as usize)?.get(&key).cloned()
     }
 
@@ -227,6 +295,9 @@ impl PdfArena {
         handle: Handle<BTreeMap<Handle<PdfName>, Object>>,
         dict: BTreeMap<Handle<PdfName>, Object>,
     ) {
+        if !self.ours(handle) {
+            return;
+        }
         if let Some(d) = self.inner.dicts.write().get_mut(handle.index() as usize) {
             *d = dict;
         }
@@ -234,11 +305,17 @@ impl PdfArena {
 
     /// Retrieves an array.
     pub fn get_array(&self, handle: Handle<Vec<Object>>) -> Option<Vec<Object>> {
+        if !self.ours(handle) {
+            return None;
+        }
         self.inner.arrays.read().get(handle.index() as usize).cloned()
     }
 
     /// Updates an existing array in place, keeping its handle valid.
     pub fn set_array(&self, handle: Handle<Vec<Object>>, array: Vec<Object>) {
+        if !self.ours(handle) {
+            return;
+        }
         if let Some(a) = self.inner.arrays.write().get_mut(handle.index() as usize) {
             *a = array;
         }

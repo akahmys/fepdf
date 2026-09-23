@@ -754,6 +754,25 @@ impl PdfDocument {
         self.save_with_options(output_path, version, &SaveOptions::default())
     }
 
+    /// The document copied into an arena of its own, for a writer to consume.
+    ///
+    /// **The one place two arenas are live**, and the reason it is a function rather than
+    /// four lines written twice. `root` and `info` index the arena this returns;
+    /// `self.inner`'s handles index a different one, and a `Handle<Object>` does not say
+    /// which — the pools are separated by handle *type*, not by arena (ROADMAP W-A3). Two
+    /// copies of this sat four lines above a `writer.finish(root, info)` where
+    /// `*self.inner.root_handle()` would have compiled and written a different object.
+    ///
+    /// It does not make that unwritable. What it does is stop the two from sharing a
+    /// scope, and stop the shape from being maintained in two places.
+    fn cloned_for_output(&self) -> PdfResult<(PdfArena, Handle<Object>, Option<Handle<Object>>)> {
+        let target = PdfArena::new();
+        let mut cloner = crate::cloning::ObjectCloner::new(self.inner.arena(), &target);
+        let root = cloner.clone_handle(*self.inner.root_handle())?;
+        let info = self.inner.info_handle().map(|h| cloner.clone_handle(h)).transpose()?;
+        Ok((target, root, info))
+    }
+
     /// Saves the document with custom options.
     pub fn save_with_options(
         &self,
@@ -844,10 +863,7 @@ impl PdfDocument {
         }
 
         let file = std::fs::File::create(output_path).map_err(PdfError::Io)?;
-        let final_arena = PdfArena::new();
-        let mut cloner = crate::cloning::ObjectCloner::new(self.inner.arena(), &final_arena);
-        let root = cloner.clone_handle(*self.inner.root_handle())?;
-        let info = self.inner.info_handle().map(|h| cloner.clone_handle(h)).transpose()?;
+        let (final_arena, root, info) = self.cloned_for_output()?;
 
         let mut writer = crate::writer::PdfWriter::new(file, &final_arena);
         writer.set_string_encoding(options.string_encoding);
@@ -966,10 +982,7 @@ impl PdfDocument {
         fepdf_model::metadata::update_document_metadata(&self.inner, &metadata)?;
 
         let file = std::fs::File::create(output_path).map_err(PdfError::Io)?;
-        let final_arena = PdfArena::new();
-        let mut cloner = crate::cloning::ObjectCloner::new(self.inner.arena(), &final_arena);
-        let root = cloner.clone_handle(*self.inner.root_handle())?;
-        let info = self.inner.info_handle().map(|h| cloner.clone_handle(h)).transpose()?;
+        let (final_arena, root, info) = self.cloned_for_output()?;
 
         let mut writer = crate::writer::PdfWriter::new(file, &final_arena);
         writer.set_string_encoding(options.string_encoding);

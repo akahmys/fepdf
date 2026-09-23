@@ -2959,19 +2959,47 @@ where the type system was supposed to make the question unaskable.
       no behaviour; what stands behind it is the suite, which passes. Reuse, if W-A5 ever
       calls for it, brings its own check back with it.
 
-- [ ] **W-A3 — a handle does not name its arena, and two arenas are live at once.**
-      `ObjectCloner::new(source, target)` (`crates/fepdf-doc/src/cloning.rs:37`) holds
-      both. `Handle<Object>` is a bare `u32` index, so a source handle used against the
-      target reads a different object rather than failing.
+- [x] **W-A3 — a handle names the arena it indexes.** `Handle<T>` carries a second `u32`
+      saying which arena stamped it, and an arena hands back `None` for one it did not.
 
-      **The type separation stops at the pool, not at the arena.** `Handle<Object>` and
-      `Handle<PdfName>` cannot be confused; two documents' object handles can.
-      [ADR-0056](docs/adr/0056-a-clone-that-was-never-finished.md) is what this area costs
-      when it goes wrong — six call sites cloning pages whose every reference came through
-      `Null` — and it was a different defect, so nothing here has been tried yet.
+      **The exposure was three places, not everywhere.** Enumerated 2026-09-23: of the
+      four production sites that build a second `PdfArena`, `load_document` has only one
+      in scope and `walk_sections`'s `scratch` never lets a handle out. What is left is
+      `ObjectCloner`, which takes two by design, and the two callers that use it —
+      `write_out` and `save_linearized`, which carried **the same four lines twice**, a
+      source handle and a target handle side by side, four lines above a
+      `writer.finish(root, info)` where `*self.inner.root_handle()` would have compiled
+      and written a different object. Those four lines are `cloned_for_output` now.
 
-      *Done when*: either a handle carries the arena it belongs to, or it is recorded why
-      that cost is not worth paying and what stands in its place.
+      **The cost was nothing, which is why this was worth doing.** Measured before
+      deciding: a `(Handle<PdfName>, Object)` is **48 bytes with a 4-byte handle and 48
+      with an 8-byte one** — alignment had already paid for it — and `Object` stays at 40.
+      `Handle::new` is 38 sites in `src` rather than the hundreds the entry implied.
+
+      **`Handle::new` keeps its signature and its meaning.** It makes an *unbound* handle,
+      which every arena accepts, so none of the 50 call sites changed and a caller that
+      computes an index for itself is not refused — `PdfDocument::get_font` takes an
+      object number off the command line. What the check catches is a handle **an arena
+      stamped**, used against a different one, which is the bug that was reachable.
+
+      **Identity stays the index alone.** `Handle` is the key of every dictionary in the
+      engine and a field of `Object`, which is itself the key of the arena's reverse
+      index; comparing the arena as well would reorder every dictionary and change what
+      `find_object` calls the same object, to separate handles that in practice come from
+      one arena. The number is carried so a *lookup* can refuse. It is not what a handle
+      is. `#[serde(skip)]`, too: an arena's number means nothing in another process.
+
+      **No `debug_assert` beside the refusal**, though one was written first. It is louder
+      in a test build and absent from a release, so the behaviour would differ by profile
+      and the test for it would pass in one and fail in the other. `None` holds in both,
+      and **`None` is the true answer** — the handle does not index this arena, so this
+      arena has nothing at it. What it replaces is the object that happens to sit at that
+      index here, handed back as the one that was asked for.
+
+      `a_handle_from_one_arena_reads_nothing_in_another` puts an object at index 0 of two
+      arenas and makes them different, so a refusal and a wrong read are told apart. All
+      1,189 tests pass unchanged, which is its own measurement: nothing in the suite was
+      relying on a handle crossing.
 
 - [x] **W-A4 — every arena read is a clone, and it costs 3% of opening the largest
       sample.** Measured 2026-09-23, and the entry's own framing — 268 call sites — was
@@ -3053,7 +3081,12 @@ where the type system was supposed to make the question unaskable.
       mechanism nobody built; reuse brings its own check back with it.
 
 *Done when*: W-A1 and W-A2 have landed, and W-A3, W-A4 and W-A5 each carry a measurement
-or a recorded reason for declining.
+or a recorded reason for declining. **Met 2026-09-24.** Two of the five were fixes, and
+three were measurements that each contradicted the entry that asked for them: the gate's
+`cargo check` is 35 seconds and not five minutes (W-T1, next door), the clone-per-read is
+four call sites and not 268, and branding a handle costs no memory at all. The phase's own
+opening — that what is wrong is the mechanisms meant to close the arena's gaps, declared
+and not built — held for all three.
 
 ---
 

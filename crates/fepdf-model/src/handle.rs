@@ -15,13 +15,34 @@ use std::marker::PhantomData;
 /// - **Type Safety**: The `PhantomData<T>` marker ensures that a `Handle<Object>` cannot be accidentally
 ///   used in a function expecting a `Handle<PdfName>`, preventing semantic errors during refinement.
 /// - **O(1) Access**: Provides direct index-based access into the arena's contiguous memory pools.
+/// - **It says which arena it indexes.** The pools are separated by handle *type*, so a
+///   `Handle<PdfName>` cannot read a dictionary; they are not separated by arena, and two
+///   are live whenever a document is written — the cloner fills a second one and the
+///   writer consumes it. A source handle used against the target would have read a
+///   different object and said nothing (ROADMAP W-A3). The second `u32` is free: a
+///   `(Handle<PdfName>, Object)` was 48 bytes with a 4-byte handle and is 48 bytes with
+///   an 8-byte one, the alignment having paid for it already.
 #[derive(Serialize, Deserialize)]
 #[serde(bound = "")]
 pub struct Handle<T> {
     index: u32,
+    /// Which arena stamped this, or [`Handle::UNBOUND`].
+    ///
+    /// **Not serialised**, because an arena's number means nothing in another process: a
+    /// handle read back from JSON is unbound, which is what it is.
+    #[serde(skip)]
+    arena: u32,
     _phantom: PhantomData<T>,
 }
 
+/// **Identity is the index, and the arena is not part of it.**
+///
+/// `Handle` is a key in `BTreeMap<Handle<PdfName>, Object>` — every dictionary in the
+/// engine — and a field of `Object`, which is itself a key in the arena's reverse index.
+/// Comparing the arena as well would reorder every dictionary and change what
+/// `find_object` considers the same object, to distinguish handles that in practice come
+/// from one arena. The number is carried so that a *lookup* can refuse; it is not what a
+/// handle is.
 impl<T> PartialEq for Handle<T> {
     fn eq(&self, other: &Self) -> bool {
         self.index == other.index
@@ -49,9 +70,26 @@ impl<T> std::hash::Hash for Handle<T> {
 }
 
 impl<T> Handle<T> {
-    /// Creates a new handle from a raw index.
+    /// A handle that names no arena, and which every arena accepts.
+    ///
+    /// What [`Handle::new`] makes, and what a handle deserialised from JSON is. **The
+    /// check this enables is about handles an arena stamped**: one made from a raw index
+    /// has no arena to disagree with, and refusing it would refuse every index a caller
+    /// computes for itself — `PdfDocument::get_font` takes an object number off the
+    /// command line.
+    pub const UNBOUND: u32 = 0;
+
+    /// Creates a new handle from a raw index, naming no arena.
     pub const fn new(index: u32) -> Self {
-        Self { index, _phantom: PhantomData }
+        Self { index, arena: Self::UNBOUND, _phantom: PhantomData }
+    }
+
+    /// Creates a handle that names the arena it indexes.
+    ///
+    /// Not public: an arena stamps its own handles, and nothing else can honestly say
+    /// which arena an index belongs to.
+    pub(crate) const fn bound(index: u32, arena: u32) -> Self {
+        Self { index, arena, _phantom: PhantomData }
     }
 
     /// Returns the raw index of the handle.
@@ -59,9 +97,14 @@ impl<T> Handle<T> {
         self.index
     }
 
-    /// Casts this handle to another type.
+    /// Whether `arena` is the arena this handle indexes, or it names none.
+    pub(crate) const fn belongs_to(&self, arena: u32) -> bool {
+        self.arena == Self::UNBOUND || self.arena == arena
+    }
+
+    /// Casts this handle to another type, keeping the arena it names.
     pub const fn cast<U>(self) -> Handle<U> {
-        Handle::new(self.index)
+        Handle::bound(self.index, self.arena)
     }
 }
 
@@ -80,7 +123,11 @@ impl<T> fmt::Debug for Handle<T> {
             "Handle<{}>({})",
             std::any::type_name::<T>().split("::").last().unwrap_or("Unknown"),
             self.index
-        )
+        )?;
+        if self.arena != Self::UNBOUND {
+            write!(f, "@{}", self.arena)?;
+        }
+        Ok(())
     }
 }
 
