@@ -360,13 +360,17 @@ fn capture_provenance(
     trailer: Option<DictHandle>,
 ) -> crate::document::Provenance {
     let mut signatures = 0;
-    for handle in arena.all_dict_handles() {
-        if let Some(dict) = arena.get_dict(handle)
-            && dict.get(&arena.name("Type")).and_then(|o| o.resolve(arena).as_name())
-                == arena.get_name_by_str("Sig")
-            && arena.get_name_by_str("Sig").is_some()
-        {
-            signatures += 1;
+    // **Ask before copying.** This cloned every dictionary in the arena to read `/Type`
+    // — 364,326 of the 1,882,351 `get_dict` calls opening `samples/intel_sdm.pdf`, and
+    // every one of them discarded on the next line (ROADMAP W-A4).
+    let type_key = arena.name("Type");
+    if let Some(sig_val) = arena.get_name_by_str("Sig") {
+        for handle in arena.all_dict_handles() {
+            if arena.dict_entry(handle, type_key).and_then(|o| o.resolve(arena).as_name())
+                == Some(sig_val)
+            {
+                signatures += 1;
+            }
         }
     }
 
@@ -464,11 +468,17 @@ fn scan_ingested_objects(arena: &PdfArena) -> (Vec<u32>, Vec<u32>) {
         let obj_h = Handle::new(i);
         if let Some(Object::Dictionary(handle) | Object::Stream(handle, _)) =
             arena.get_object(obj_h)
-            && let Some(dict) = arena.get_dict(handle)
         {
-            let type_val_resolved = dict.get(&type_key).and_then(|o| o.resolve(arena).as_name());
-            let subtype_val_resolved =
-                dict.get(&subtype_key).and_then(|o| o.resolve(arena).as_name());
+            // Two entries read, rather than the whole dictionary copied to read two —
+            // 341,317 of the 1,882,351 `get_dict` calls opening `samples/intel_sdm.pdf`
+            // (ROADMAP W-A4). `/Type` first, because a page needs no second look.
+            let type_val_resolved =
+                arena.dict_entry(handle, type_key).and_then(|o| o.resolve(arena).as_name());
+            let subtype_val_resolved = if type_val_resolved == Some(page_val) {
+                None
+            } else {
+                arena.dict_entry(handle, subtype_key).and_then(|o| o.resolve(arena).as_name())
+            };
 
             if type_val_resolved == Some(page_val) || subtype_val_resolved == Some(form_val) {
                 page_and_form_indices.push(i);
@@ -477,7 +487,10 @@ fn scan_ingested_objects(arena: &PdfArena) -> (Vec<u32>, Vec<u32>) {
             let is_font = if let Some(tv) = type_val_resolved {
                 tv == font_val
             } else {
-                dict.contains_key(&base_font_key) && dict.contains_key(&subtype_key)
+                // Only for a dictionary stating no `/Type`, which is the minority, so
+                // two more entry reads are cheaper than the copy they replaced.
+                arena.dict_entry(handle, base_font_key).is_some()
+                    && arena.dict_entry(handle, subtype_key).is_some()
             };
             if is_font {
                 font_indices.push(i);

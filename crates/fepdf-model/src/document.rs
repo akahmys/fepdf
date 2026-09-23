@@ -1543,49 +1543,66 @@ impl Document {
 
         let type_key = arena.name("Type");
         let font_val = arena.name("Font");
-        let base_font_key = arena.name("BaseFont");
-        let to_unicode_key = arena.name("ToUnicode");
-        let _descendant_fonts_key = arena.name("DescendantFonts");
 
         for h in arena.all_dict_handles() {
-            let Some(dict) = arena.get_dict(h) else { continue };
-            if let Some(t_h) = dict.get(&type_key).and_then(|o| o.resolve(arena).as_name())
-                && t_h == font_val
-            {
-                let base_font = dict
-                    .get(&base_font_key)
-                    .and_then(|o| o.resolve(arena).as_name())
-                    .and_then(|h| arena.get_name_str(h))
-                    .unwrap_or_else(|| "Untitled".to_string());
-                let is_cid = dict.contains_key(&arena.name("DescendantFonts"));
-                if is_cid {
-                    let csi_str = self.extract_csi_string(&dict);
-                    let key = (base_font, csi_str);
-                    font_groups.entry(key.clone()).or_insert_with(Vec::new).push(h);
-
-                    if let Some(tu) = dict.get(&to_unicode_key)
-                        && let Ok(data) = self.decode_stream(&tu.resolve(arena))
-                        && let Ok(m) = crate::font::cmap::CMap::parse(&data)
-                    {
-                        let count = m.mappings.len();
-                        use std::collections::btree_map::Entry;
-                        match best_to_unicode_count.entry(key.clone()) {
-                            Entry::Vacant(e) => {
-                                e.insert(count);
-                                best_to_unicode.insert(key, tu.clone());
-                            }
-                            Entry::Occupied(mut e) => {
-                                if count > *e.get() {
-                                    e.insert(count);
-                                    best_to_unicode.insert(key, tu.clone());
-                                }
-                            }
-                        }
-                    }
-                }
+            // **Ask before copying.** This copied every dictionary in the arena to read
+            // one entry of it — 720,603 of the 1,882,351 `get_dict` calls opening
+            // `samples/intel_sdm.pdf`, and all but the font dictionaries discarded on the
+            // next line (ROADMAP W-A4).
+            let Some(t_h) = arena.dict_entry(h, type_key).and_then(|o| o.resolve(arena).as_name())
+            else {
+                continue;
+            };
+            if t_h != font_val {
+                continue;
             }
+            let Some(dict) = arena.get_dict(h) else { continue };
+            self.group_one_font(
+                h,
+                &dict,
+                &mut font_groups,
+                &mut best_to_unicode,
+                &mut best_to_unicode_count,
+            );
         }
         (font_groups, best_to_unicode)
+    }
+
+    /// One font dictionary, into its group and that group's best `/ToUnicode`.
+    ///
+    /// Split out of [`Self::discover_font_groups`] when the loop above it grew past
+    /// RR-15 Rule 1's fifty lines. **Only a CID font is grouped**: the group is keyed by
+    /// base name and `CIDSystemInfo`, which a simple font has none of.
+    fn group_one_font(
+        &self,
+        handle: DictHandle,
+        dict: &BTreeMap<Handle<PdfName>, Object>,
+        font_groups: &mut FontGroupMap,
+        best_to_unicode: &mut BestToUnicodeMap,
+        best_count: &mut BTreeMap<(String, String), usize>,
+    ) {
+        let arena = &self.arena;
+        if !dict.contains_key(&arena.name("DescendantFonts")) {
+            return;
+        }
+        let base_font = dict
+            .get(&arena.name("BaseFont"))
+            .and_then(|o| o.resolve(arena).as_name())
+            .and_then(|h| arena.get_name_str(h))
+            .unwrap_or_else(|| "Untitled".to_string());
+        let key = (base_font, self.extract_csi_string(dict));
+        font_groups.entry(key.clone()).or_default().push(handle);
+
+        let Some(tu) = dict.get(&arena.name("ToUnicode")) else { return };
+        let Ok(data) = self.decode_stream(&tu.resolve(arena)) else { return };
+        let Ok(map) = crate::font::cmap::CMap::parse(&data) else { return };
+
+        // The group keeps the richest `/ToUnicode` any of its members carries.
+        let count = map.mappings.len();
+        if best_count.get(&key).is_none_or(|best| count > *best) {
+            best_count.insert(key.clone(), count);
+            best_to_unicode.insert(key, tu.clone());
+        }
     }
 
     fn extract_csi_string(&self, dict: &BTreeMap<Handle<PdfName>, Object>) -> String {

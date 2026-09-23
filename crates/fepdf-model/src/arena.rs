@@ -201,6 +201,26 @@ impl PdfArena {
         self.inner.dicts.read().get(handle.index() as usize).cloned()
     }
 
+    /// Reads one entry of a dictionary without copying the dictionary.
+    ///
+    /// **`get_dict` clones, and the hot callers throw the copy away.** Measured
+    /// 2026-09-23 on `samples/intel_sdm.pdf`: opening it calls `get_dict` **1,882,351
+    /// times**, and four call sites are 89.7% of that. The largest — 36.3% — walks every
+    /// dictionary in the arena to find the ones whose `/Type` is `/Font`, copying each in
+    /// full to read one entry and discarding it.
+    ///
+    /// The closure runs **while the pool's read lock is held**, so it must not call back
+    /// into the arena for anything that writes, and should not call back at all: take the
+    /// one value out and do the work outside. That is why this hands back an entry rather
+    /// than lending the map.
+    pub fn dict_entry(
+        &self,
+        handle: Handle<BTreeMap<Handle<PdfName>, Object>>,
+        key: Handle<PdfName>,
+    ) -> Option<Object> {
+        self.inner.dicts.read().get(handle.index() as usize)?.get(&key).cloned()
+    }
+
     /// Updates an existing dictionary.
     pub fn set_dict(
         &self,

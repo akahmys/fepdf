@@ -2973,34 +2973,84 @@ where the type system was supposed to make the question unaskable.
       *Done when*: either a handle carries the arena it belongs to, or it is recorded why
       that cost is not worth paying and what stands in its place.
 
-- [ ] **W-A4 — every arena read is a clone, and what that costs is not measured.**
-      `get_dict`, `get_object` and `get_array` all end in `.cloned()`; there is no
-      borrowing or closure-passing accessor
-      (`grep -n "pub fn with_\|-> Option<&" crates/fepdf-model/src/arena.rs` finds none).
-      Call sites, excluding tests: **`get_dict` 268, `get_array` 134, `get_object` 99**
-      (`grep -rn --include='*.rs' "\.get_dict(" crates/ | grep -v target | grep -v /tests/ | wc -l`,
-      2026-09-22).
+- [x] **W-A4 — every arena read is a clone, and it costs 3% of opening the largest
+      sample.** Measured 2026-09-23, and the entry's own framing — 268 call sites — was
+      the wrong unit.
 
-      **The elements are cheap and the container is not.** `Object::Stream` holds an `Arc`
-      and `Object::String` holds `Bytes`, so copying an entry is a refcount; what is paid
-      per read is a fresh `BTreeMap` allocation. Whether that matters on a 332,386-object
-      file is **unmeasured**, and this item is not to fix it but to find out — the
-      `object_index` comment in `arena.rs` is the precedent, where 3.6 s of a 6.2 s
-      `inspect info` turned out to be one eagerly maintained map.
+      **Opening `samples/intel_sdm.pdf` calls `get_dict` 1,882,351 times**, copying
+      3,611,085 entries; twenty pages of text extraction adds 103,727 more. But **four
+      sites are 89.7% of it**, and only 50 of the 268 in source run at all:
 
-      *Done when*: the cost is measured on `samples/intel_sdm.pdf`, A/B, and either a
-      borrowing accessor is taken with the numbers beside it or the clone is kept with the
-      numbers beside it.
+      | | share | what it was doing |
+      | :--- | ---: | :--- |
+      | `document.rs` `discover_font_groups` | 36.3% | copying every dictionary to read `/Type` |
+      | `ingest` `capture_provenance` | 18.3% | the same, for `/Sig` |
+      | `refine::refine_dict` | 17.9% | iterating every entry — it needs the whole map |
+      | `ingest` page-and-form scan | 17.2% | copying to read `/Type` and `/Subtype` |
 
-- [ ] **W-A5 — the arena only grows, and what that costs is not measured either.** There
-      is no deallocation and no free list, and `apply/` holds 46 `alloc_object` sites; a
-      page edited twice leaves the first content stream in the arena for the life of the
-      document. For a CLI run that is nothing. For a window held open through an afternoon
-      of editing it is not obviously nothing, and nobody has looked.
+      **`PdfArena::dict_entry` hands back one entry instead of the map**, and the three
+      peek-then-discard sites ask before copying. The closure question does not arise: it
+      takes the value out under the lock and hands it over, because a closure running
+      under the pool's read lock is an invitation to call back into the arena and stop.
 
-      *Done when*: `PdfArena::get_stats().object_count` is read before and after a hundred
-      of the same edit, and the answer is either "this is fine, and here is the number" or
-      a reclamation strategy that W-A2's generation field would be the check for.
+      | | |
+      | :--- | ---: |
+      | `intel_sdm.pdf`, before | **1.2706 s** |
+      | after the largest site alone | 1.2460 s |
+      | after all three | **1.2328 s** |
+      | saved | **37.8 ms, 3.0%** |
+
+      `cargo run --release --example open_timing -- samples/intel_sdm.pdf 5` re-derives
+      it. A micro-benchmark agrees independently: a two-entry `BTreeMap` clones in **36
+      ns**, so 1.88M of them is 67 ms, and 71.8% of that is 48 ms against the 37.8
+      measured.
+
+      **The remaining 17.9% stays.** `refine_dict` walks every entry of the dictionary it
+      reads, so there is nothing to peek at; lending the map instead would mean running a
+      caller's code under the pool's read lock, and that caller resolves objects.
+
+      **No general borrowing accessor, and the clone stays everywhere else.** Three per
+      cent bought by three call sites is worth the ten lines; the same three per cent
+      spread over 265 more, most of which never run, is not. What the measurement
+      actually found is that the cost was never about the number of call sites.
+
+- [x] **W-A5 — the arena only grows, and here is the number.** Measured 2026-09-23 on a
+      page of two runs, a hundred `Operation::EditRun` in one open document:
+
+      | | |
+      | :--- | ---: |
+      | objects before | 8 |
+      | objects after 100 edits | **108** |
+      | dictionaries | 17 → **117** |
+      | streams held, and their bytes | **102**, 9,333 |
+
+      **One object and one dictionary per edit, and nothing given back.**
+      `write_page_content` allocates a new stream for the page's contents and points
+      `/Contents` at it; the object it replaced stays, holding the bytes the page used to
+      draw. There is no free list, so a document open through an afternoon of editing
+      holds every draft of every page it has touched.
+
+      **It is a cost and not a defect, for two reasons, and neither is structural.**
+
+      The writer emits what the document *reaches*, so the drafts never reach the file: a
+      hundred edits and one edit write **the same number of bytes**, and reopening the
+      hundred-edit file finds 11 objects and the text the last edit made.
+      `arena_growth_test.rs` holds that, because a writer that walked the arena instead
+      would put every draft in the file and the growth would be on disk as well.
+
+      And every walk of the arena by index runs either at ingest — `decrypt`,
+      `ingest::discovery`, `normalize_resources` — before an edit can have happened, or
+      over bytes read afresh, which is `FileStructureReport::survey`. **That was not
+      always true.** `list_fonts` walked every handle and reported **24 fonts for a
+      document with 12**, because refinement leaves the dictionary it replaced behind in
+      exactly this way; it reaches fonts the way a reader does now.
+
+      **So no reclamation is built.** What would justify it is a walker that must run
+      after an edit and cannot use reachability, or a measurement of a real editing
+      session against a real page — this fixture's streams are 90 bytes, and a page of 50
+      KB edited a hundred times is 5 MB. `ObjectEntry.generation` was the check reuse
+      would have wanted, and W-A2 deleted it rather than leave a field describing a
+      mechanism nobody built; reuse brings its own check back with it.
 
 *Done when*: W-A1 and W-A2 have landed, and W-A3, W-A4 and W-A5 each carry a measurement
 or a recorded reason for declining.
