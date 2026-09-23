@@ -213,8 +213,14 @@ pub struct FontSummary {
     /// `name`, which is a naming convention rather than a declaration, and which
     /// `NotoSerif-Vietnamese` satisfies.
     pub is_vertical: bool,
-    /// Object number of the underlying font dictionary.
-    pub object_id: u32,
+    /// The indirect object holding the font dictionary, when one does.
+    ///
+    /// **`None` for a font dictionary written direct**, which 7.3.10 allows: such a
+    /// dictionary has no object number, and this reported one anyway — the *dictionary's*
+    /// index, out of a different pool, fabricated where a reverse scan of every object in
+    /// the arena came back empty. `fepdf inspect debug` hands this number to
+    /// `get_font`, so the wrong one is not only printed.
+    pub object_id: Option<u32>,
 }
 
 /// Whether a resolved character is withheld from extraction (9.10.2).
@@ -2782,19 +2788,60 @@ impl FontResource {
     }
 }
 
+/// One entry of a dictionary, by a key that may never have been interned.
+///
+/// **A name the arena has not seen is a key no dictionary here holds**, so the answer is
+/// "not there" rather than the value under some other key. Five sites read
+/// `arena.get_name_by_str(k).unwrap_or(fv)`, and `fv` is the handle for `/Font` — the
+/// resource name this walk starts from. Where the name was missing they looked `/Font`
+/// up in a font dictionary and reported what they found there as the font's subtype, its
+/// encoding or its name.
+///
+/// Reachable only for a document in which the key occurs nowhere at all, and harmful only
+/// where the dictionary happens to hold a `/Font` key of its own — so this is a fallback
+/// that could answer from the wrong place rather than one that was observed doing it. It
+/// is still a fallback that answers, which is the shape this engine keeps removing.
+fn entry<'d>(
+    arena: &PdfArena,
+    dict: &'d std::collections::BTreeMap<Handle<PdfName>, Object>,
+    key: &str,
+) -> Option<&'d Object> {
+    dict.get(&arena.get_name_by_str(key)?)
+}
+
+/// A font dictionary this document reaches, and the indirect object holding it.
+///
+/// **The two are not the same handle and not the same index space.** A dictionary lives in
+/// the arena's `dicts` pool and an indirect object in its `objects` pool, and the walk that
+/// finds a font reaches it through a `/Font` resource entry that is usually a reference —
+/// so the object handle is in hand at that moment and was being thrown away, then looked
+/// for again by scanning every object in the arena.
+struct ReachedFont {
+    /// The indirect object the `/Font` entry named, when it named one. `None` for a font
+    /// dictionary written **direct**, which 7.3.10 allows and which has no object number.
+    object: Option<Handle<Object>>,
+    /// The font dictionary itself.
+    dict: Handle<BTreeMap<Handle<PdfName>, Object>>,
+}
+
 /// Summarises every font the document references.
 pub fn list_fonts(doc: &Document) -> Vec<FontSummary> {
     let arena = doc.arena();
     let mut fonts = Vec::new();
     let mut seen = std::collections::BTreeSet::new();
 
-    let Some(font_val) = arena.get_name_by_str("Font") else { return fonts };
-    for handle in reachable_font_dicts(doc) {
-        if !seen.insert(handle) {
+    // A document that never wrote the name `/Font` has no font resource to reach one
+    // through. Cheap, and it is the only thing this name was still for: the five key
+    // lookups that used to substitute it now fail instead.
+    if arena.get_name_by_str("Font").is_none() {
+        return fonts;
+    }
+    for reached in reachable_font_dicts(doc) {
+        if !seen.insert(reached.dict) {
             continue;
         }
-        if let Some(dict) = arena.get_dict(handle)
-            && let Some(summary) = extract_font_summary(arena, &dict, font_val, handle)
+        if let Some(dict) = arena.get_dict(reached.dict)
+            && let Some(summary) = extract_font_summary(arena, &dict, reached.object)
         {
             fonts.push(summary);
         }
@@ -2815,7 +2862,7 @@ pub fn list_fonts(doc: &Document) -> Vec<FontSummary> {
 /// found by — the shape this engine's own decorations used until 2026-09-19 — so the fonts
 /// are reached the way a content stream reaches them: through the resources of the page or
 /// form that names them.
-fn reachable_font_dicts(doc: &Document) -> Vec<Handle<BTreeMap<Handle<PdfName>, Object>>> {
+fn reachable_font_dicts(doc: &Document) -> Vec<ReachedFont> {
     let arena = doc.arena();
     let (type_key, subtype_key, font_key, resources_key) =
         (arena.name("Type"), arena.name("Subtype"), arena.name("Font"), arena.name("Resources"));
@@ -2845,9 +2892,9 @@ fn reachable_font_dicts(doc: &Document) -> Vec<Handle<BTreeMap<Handle<PdfName>, 
                 continue;
             };
             let Some(named) = arena.get_dict(fonts_dh) else { continue };
-            for entry in named.values() {
-                if let Some(font_dh) = entry.resolve(arena).as_dict_handle() {
-                    out.push(font_dh);
+            for value in named.values() {
+                if let Some(font_dh) = value.resolve(arena).as_dict_handle() {
+                    out.push(ReachedFont { object: value.as_reference(), dict: font_dh });
                     out.extend(descendants_of(arena, font_dh));
                 }
             }
@@ -2860,7 +2907,7 @@ fn reachable_font_dicts(doc: &Document) -> Vec<Handle<BTreeMap<Handle<PdfName>, 
 fn descendants_of(
     arena: &PdfArena,
     font_dh: Handle<BTreeMap<Handle<PdfName>, Object>>,
-) -> Vec<Handle<BTreeMap<Handle<PdfName>, Object>>> {
+) -> Vec<ReachedFont> {
     let Some(dict) = arena.get_dict(font_dh) else { return Vec::new() };
     let Some(Object::Array(ah)) =
         dict.get(&arena.name("DescendantFonts")).map(|o| o.resolve(arena))
@@ -2871,29 +2918,27 @@ fn descendants_of(
         .get_array(ah)
         .unwrap_or_default()
         .iter()
-        .filter_map(|item| item.resolve(arena).as_dict_handle())
+        .filter_map(|item| {
+            Some(ReachedFont {
+                object: item.as_reference(),
+                dict: item.resolve(arena).as_dict_handle()?,
+            })
+        })
         .collect()
 }
 
 fn extract_font_summary(
     arena: &PdfArena,
     dict: &std::collections::BTreeMap<crate::handle::Handle<crate::object::PdfName>, Object>,
-    fv: crate::handle::Handle<crate::object::PdfName>,
-    dh: crate::handle::Handle<
-        std::collections::BTreeMap<crate::handle::Handle<crate::object::PdfName>, Object>,
-    >,
+    object: Option<Handle<Object>>,
 ) -> Option<FontSummary> {
-    let handle = arena.find_object_by_dict_handle(dh).unwrap_or_else(|| Handle::new(dh.index()));
-    let name = extract_font_name(arena, dict, fv);
-    let subtype_key = arena.get_name_by_str("Subtype");
-    let font_type = dict
-        .get(&subtype_key.unwrap_or(fv))
+    let name = extract_font_name(arena, dict);
+    let font_type = entry(arena, dict, "Subtype")
         .and_then(|o| o.resolve(arena).as_name())
         .and_then(|n| arena.get_name_str(n))
         .unwrap_or_else(|| "Type1".to_string());
 
-    let encoding_key = arena.get_name_by_str("Encoding");
-    let encoding = match dict.get(&encoding_key.unwrap_or(fv)).map(|o| o.resolve(arena)) {
+    let encoding = match entry(arena, dict, "Encoding").map(|o| o.resolve(arena)) {
         Some(Object::Name(h)) => arena.get_name_str(h).unwrap_or_else(|| "CustomName".to_string()),
         Some(Object::Dictionary(_)) => "CustomDict".to_string(),
         Some(Object::Stream(_, _)) => "CustomStream".to_string(),
@@ -2904,7 +2949,7 @@ fn extract_font_summary(
     let is_embedded = if is_type3 {
         dict.contains_key(&arena.name("CharProcs"))
     } else {
-        check_font_embedding(arena, dict, fv)
+        check_font_embedding(arena, dict)
     };
     let is_subset = fepdf_font::subset::subset_tag(&name).is_some();
     let has_to_unicode = dict.contains_key(&arena.name("ToUnicode"));
@@ -2918,18 +2963,15 @@ fn extract_font_summary(
         encoding,
         has_to_unicode,
         is_vertical: metrics::detect_wmode(dict, arena) == 1,
-        object_id: handle.index(),
+        object_id: object.map(|handle| handle.index()),
     })
 }
 
 fn extract_font_name(
     arena: &PdfArena,
     dict: &std::collections::BTreeMap<crate::handle::Handle<crate::object::PdfName>, Object>,
-    fv: crate::handle::Handle<crate::object::PdfName>,
 ) -> String {
-    let base_font_key = arena.get_name_by_str("BaseFont").unwrap_or(fv);
-    let mut name = dict
-        .get(&base_font_key)
+    let mut name = entry(arena, dict, "BaseFont")
         .and_then(|o| resolve_name_or_string(arena, o))
         .unwrap_or_else(|| "Untitled".to_string());
 
@@ -2953,7 +2995,8 @@ fn extract_font_name(
         && let Some(kid) = kids.first()
         && let Some(kdh) = kid.resolve(arena).as_dict_handle()
         && let Some(kdict) = arena.get_dict(kdh)
-        && let Some(bf) = kdict.get(&base_font_key).and_then(|o| resolve_name_or_string(arena, o))
+        && let Some(bf) =
+            entry(arena, &kdict, "BaseFont").and_then(|o| resolve_name_or_string(arena, o))
     {
         name = bf;
     }
@@ -2990,28 +3033,26 @@ const MAX_DESCENDANT_DEPTH: usize = 64;
 fn check_font_embedding(
     arena: &PdfArena,
     dict: &std::collections::BTreeMap<crate::handle::Handle<crate::object::PdfName>, Object>,
-    fv: crate::handle::Handle<crate::object::PdfName>,
 ) -> bool {
-    check_font_embedding_at(arena, dict, fv, 0)
+    check_font_embedding_at(arena, dict, 0)
 }
 
 fn check_font_embedding_at(
     arena: &PdfArena,
     dict: &std::collections::BTreeMap<crate::handle::Handle<crate::object::PdfName>, Object>,
-    fv: crate::handle::Handle<crate::object::PdfName>,
     depth: usize,
 ) -> bool {
     if depth >= MAX_DESCENDANT_DEPTH {
         return false;
     }
-    let desc_key = arena.get_name_by_str("FontDescriptor").unwrap_or(fv);
     let (f1, f2, f3) = (
         arena.get_name_by_str("FontFile"),
         arena.get_name_by_str("FontFile2"),
         arena.get_name_by_str("FontFile3"),
     );
 
-    if let Some(desc_handle) = dict.get(&desc_key).and_then(|o| o.resolve(arena).as_dict_handle())
+    if let Some(desc_handle) =
+        entry(arena, dict, "FontDescriptor").and_then(|o| o.resolve(arena).as_dict_handle())
         && let Some(desc_dict) = arena.get_dict(desc_handle)
         && [f1, f2, f3].iter().flatten().any(|k| desc_dict.contains_key(k))
     {
@@ -3019,15 +3060,14 @@ fn check_font_embedding_at(
     }
 
     // Check descendant fonts for Type0
-    let df_key = arena.get_name_by_str("DescendantFonts").unwrap_or(fv);
-    if let Some(df_obj) = dict.get(&df_key)
+    if let Some(df_obj) = entry(arena, dict, "DescendantFonts")
         && let Object::Array(ah) = df_obj.resolve(arena)
         && let Some(arr) = arena.get_array(ah)
     {
         for item in arr {
             if let Some(dh) = item.resolve(arena).as_dict_handle()
                 && let Some(dd) = arena.get_dict(dh)
-                && check_font_embedding_at(arena, &dd, fv, depth + 1)
+                && check_font_embedding_at(arena, &dd, depth + 1)
             {
                 return true;
             }

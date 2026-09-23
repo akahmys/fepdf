@@ -1331,7 +1331,7 @@ mod binding_direction {
                 encoding: if i < vertical { "Identity-V" } else { "Identity-H" }.to_string(),
                 has_to_unicode: false,
                 is_vertical: i < vertical,
-                object_id: 0,
+                object_id: None,
             })
             .collect()
     }

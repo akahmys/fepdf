@@ -411,15 +411,6 @@ impl From<Reference> for Handle<Object> {
     }
 }
 
-#[derive(Debug, Clone)]
-/// One slot in the arena's object pool.
-pub struct ObjectEntry {
-    /// The stored object.
-    pub object: Object,
-    /// Generation, incremented when the slot is reused.
-    pub generation: u16,
-}
-
 impl Eq for Object {}
 
 impl PartialOrd for Object {

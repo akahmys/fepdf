@@ -38,7 +38,11 @@ pub fn handle_debug_stats(input: PathBuf, ingest: IngestArgs) -> Result<()> {
     println!("Arrays:           {}", stats.array_count);
     println!("\n--- [ FONT RESOURCES ] ---");
     for font in doc.fonts() {
-        println!("  Handle {:>3}: {:<30} ({})", font.object_id, font.name, font.font_type);
+        // **A font dictionary written direct has no object number** (7.3.10), and this
+        // printed one — the dictionary's own index, out of a different pool. It says so
+        // now rather than naming an object that is something else.
+        let at = font.object_id.map_or_else(|| "direct".to_string(), |id| id.to_string());
+        println!("  Handle {at:>6}: {:<30} ({})", font.name, font.font_type);
     }
 
     Ok(())
@@ -138,7 +142,14 @@ pub fn handle_debug_trace_glyph(
             continue;
         }
 
-        let font = match doc.get_font(summary.object_id) {
+        // **Only a font the document holds indirectly can be fetched back by number.**
+        // This passed a fabricated one for a direct dictionary and `get_font` loaded
+        // whatever object happened to sit at that index.
+        let Some(object_id) = summary.object_id else {
+            println!("Skipping {name}: its dictionary is direct, so there is no object to load");
+            continue;
+        };
+        let font = match doc.get_font(object_id) {
             Ok(f) => f,
             Err(e) => {
                 println!("Warning: Failed to load font {name}: {e:?}");
@@ -147,7 +158,7 @@ pub fn handle_debug_trace_glyph(
         };
 
         found_any = true;
-        trace_single_font(&font, name, summary.object_id, target_char);
+        trace_single_font(&font, name, object_id, target_char);
     }
 
     if !found_any {

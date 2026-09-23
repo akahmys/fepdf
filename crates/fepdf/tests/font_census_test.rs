@@ -96,3 +96,117 @@ fn a_font_no_page_reaches_is_not_counted() {
     .expect("the fixture opens");
     assert!(doc.fonts().is_empty(), "an unreachable font was counted: {:?}", doc.fonts());
 }
+
+/// A one-page document whose `/Font` resource holds `entry`.
+fn page_with_font(entry: &str, extra: &[&str]) -> Vec<u8> {
+    let mut bodies = vec![
+        "<< /Type /Catalog /Pages 2 0 R >>".to_string(),
+        "<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_string(),
+        format!(
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] \
+               /Resources << /Font << /F1 {entry} >> >> >>"
+        ),
+    ];
+    bodies.extend(extra.iter().map(|b| (*b).to_string()));
+    fepdf_fixtures::assemble(&bodies).into_iter().collect()
+}
+
+fn opened(bytes: Vec<u8>) -> PdfDocument {
+    PdfDocument::open_with_options(bytes.into(), &IngestionOptions::default())
+        .expect("the fixture opens")
+}
+
+/// **A font dictionary written direct has no object number, and says so.**
+///
+/// 7.3.10 lets any object be direct, and this engine's own decorations wrote fonts that
+/// way until 2026-09-19. `FontSummary::object_id` was a `u32` filled by scanning every
+/// object in the arena for one holding this dictionary and, when that came back empty,
+/// by **fabricating a handle out of the dictionary's own index** — a number from the
+/// `dicts` pool reported as one from the `objects` pool. `inspect debug` hands it to
+/// `get_font`, so the wrong number was not only printed.
+#[test]
+fn a_direct_font_dictionary_has_no_object_number() {
+    let doc = opened(page_with_font("<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>", &[]));
+    let fonts = doc.fonts();
+
+    assert_eq!(fonts.len(), 1, "the direct font was not reached at all: {fonts:?}");
+    assert_eq!(
+        fonts[0].object_id, None,
+        "a direct font dictionary was given an object number: {:?}",
+        fonts[0]
+    );
+    assert_eq!(fonts[0].name, "Helvetica", "the wrong dictionary was summarised");
+}
+
+/// **An indirect one reports the object that holds it, and that object loads it back.**
+///
+/// The other half: the number has to be the one a caller can use, which is what
+/// `inspect debug` does with it. Asserting it is `Some` would pass on any number at all.
+#[test]
+fn an_indirect_font_dictionary_reports_the_object_that_holds_it() {
+    let doc = opened(page_with_font(
+        "4 0 R",
+        &["<< /Type /Font /Subtype /Type1 /BaseFont /Times-Roman >>"],
+    ));
+    let fonts = doc.fonts();
+
+    assert_eq!(fonts.len(), 1, "the font was not reached: {fonts:?}");
+    let id = fonts[0].object_id.expect("an indirect font dictionary has an object number");
+    let font = doc.get_font(id).expect("the reported object number loads the font");
+    assert!(
+        font.base_font.as_str().contains("Times"),
+        "the object number named something else: {:?}",
+        font.base_font
+    );
+}
+
+/// **The substituted-key fallback could not be reached, and this holds the reason.**
+///
+/// Five sites read `arena.get_name_by_str(k).unwrap_or(fv)`, where `fv` is the handle for
+/// `/Font` — the resource name the font walk starts from. Where the name had never been
+/// interned they looked `/Font` up in a font dictionary and reported what they found
+/// there as the font's subtype, encoding or name.
+///
+/// **It never happened, and a behavioural test for it is a test that cannot fail.** This
+/// document writes none of `/Encoding`, `/BaseFont`, `/FontDescriptor` or
+/// `/DescendantFonts`, and all four are interned by the time `open` returns, because
+/// normalisation-at-load builds every font and font construction reads them through
+/// `arena.name` — which interns
+/// ([ADR-0046](../../../docs/adr/0046-unify-font-construction-paths-at-load.md)). A first
+/// version of this test asserted the encoding instead and **survived a mutation restoring
+/// the fallback**, which is what sent it here.
+///
+/// So the fix is on principle — a fallback that answers from the wrong key is wrong
+/// whether or not anything reaches it — and what is checked is the reason it was
+/// unreachable. The day font construction stops interning these names, this fails and the
+/// arm needs a behavioural test.
+#[test]
+fn the_keys_a_font_summary_reads_are_interned_before_it_reads_them() {
+    let doc = opened(page_with_font(
+        "4 0 R",
+        &["<< /Type /Font /Subtype /TrueType /BaseFont /Helvetica /Font /Bogus >>"],
+    ));
+    let arena = doc.inner().arena();
+
+    for key in ["Subtype", "Encoding", "FontDescriptor", "DescendantFonts"] {
+        assert!(
+            arena.get_name_by_str(key).is_some(),
+            "/{key} is not interned after open, so the substituted-key fallback this \
+             document's /Font key would have been read by is now reachable and wants a \
+             test of its own"
+        );
+    }
+    // A name nothing writes and nothing looks up stays uninterned, so the check above is
+    // about these keys and not about interning everything.
+    assert!(
+        arena.get_name_by_str("NeverUsedAnywhere").is_none(),
+        "every name is interned, so the assertion above says nothing"
+    );
+
+    // And the reading itself is right: the font states no /Encoding, so it has none.
+    assert_eq!(
+        doc.fonts()[0].encoding,
+        "Standard",
+        "a font stating no /Encoding was given one from another key"
+    );
+}

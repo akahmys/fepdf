@@ -1,6 +1,6 @@
 use crate::PdfResult;
 use crate::handle::Handle;
-use crate::object::{Object, ObjectEntry, PdfName, SublimatedData};
+use crate::object::{Object, PdfName, SublimatedData};
 use bytes::Bytes;
 use parking_lot::RwLock;
 use std::collections::BTreeMap;
@@ -24,7 +24,15 @@ pub struct PdfArena {
 #[derive(Default)]
 struct ArenaInner {
     /// Contiguous pool of objects for maximum cache efficiency.
-    objects: RwLock<Vec<ObjectEntry>>,
+    ///
+    /// **A `Vec<Object>`, since the slot it used to hold had one other field and that
+    /// field was a claim.** `ObjectEntry.generation` said "incremented when the slot is
+    /// reused"; one site constructed it, always as `0`, nothing read it, and no slot is
+    /// ever reused because this pool has no free list. `docs/specs/README.md` records
+    /// that `refinery_engine.md` claimed generation bits on `Handle` and that the claim
+    /// was struck from the document — the field that made it look true outlived it by
+    /// three weeks. Reuse, if it is ever built, brings its own check back with it.
+    objects: RwLock<Vec<Object>>,
     /// Dedicated pools for complex types to allow typesafe handles.
     /// This separation prevents "Handle Confusion" (e.g., using an Array handle to access a Dictionary).
     dicts: RwLock<Vec<BTreeMap<Handle<PdfName>, Object>>>,
@@ -127,7 +135,7 @@ impl PdfArena {
     pub fn alloc_object(&self, object: Object) -> Handle<Object> {
         let mut objects = self.inner.objects.write();
         let h = Handle::new(objects.len() as u32);
-        objects.push(ObjectEntry { object: object.clone(), generation: 0 });
+        objects.push(object.clone());
 
         if let Some(idx) = self.inner.object_index.write().as_mut() {
             idx.entry(object).or_default().push(h);
@@ -156,18 +164,18 @@ impl PdfArena {
 
     /// Reads an object by handle.
     pub fn get_object(&self, handle: Handle<Object>) -> Option<Object> {
-        self.inner.objects.read().get(handle.index() as usize).map(|e| e.object.clone())
+        self.inner.objects.read().get(handle.index() as usize).cloned()
     }
 
     /// Replaces the object at `handle`.
     pub fn set_object(&self, handle: Handle<Object>, object: Object) {
         let mut objects = self.inner.objects.write();
         if let Some(e) = objects.get_mut(handle.index() as usize) {
-            let old_val = e.object.clone();
+            let old_val = e.clone();
             if old_val == object {
                 return;
             }
-            e.object = object.clone();
+            *e = object.clone();
 
             if let Some(idx) = self.inner.object_index.write().as_mut() {
                 // Remove from old entry list
@@ -232,7 +240,7 @@ impl PdfArena {
                 let mut built = BTreeMap::new();
                 for (index, entry) in objects.iter().enumerate() {
                     built
-                        .entry(entry.object.clone())
+                        .entry(entry.clone())
                         .or_insert_with(Vec::new)
                         .push(Handle::new(index as u32));
                 }
@@ -392,22 +400,6 @@ impl PdfArena {
         handle: Handle<Object>,
     ) -> Option<std::sync::Arc<crate::object::SublimatedData>> {
         if let Some(Object::Stream(_, data)) = self.get_object(handle) { Some(data) } else { None }
-    }
-
-    /// Finds an indirect object handle that points to the given dictionary handle.
-    pub fn find_object_by_dict_handle(
-        &self,
-        dh: Handle<BTreeMap<Handle<PdfName>, Object>>,
-    ) -> Option<Handle<Object>> {
-        let objects = self.inner.objects.read();
-        for (i, entry) in objects.iter().enumerate() {
-            if let Object::Dictionary(h) = entry.object
-                && h == dh
-            {
-                return Some(Handle::new(i as u32));
-            }
-        }
-        None
     }
 
     /// Returns high-level statistics about the arena's memory usage and object counts.

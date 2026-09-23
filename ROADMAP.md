@@ -2876,41 +2876,50 @@ justified it beside it.
 built.** Three of the items below are a fallback that returns a plausible wrong answer
 where the type system was supposed to make the question unaskable.
 
-- [ ] **W-A1 — two silent wrong answers reach the font census.** Both in
-      `extract_font_summary` (`crates/fepdf-model/src/font/mod.rs:2886`):
+- [x] **W-A1 — two silent wrong answers reach the font census.** One did and one could
+      not, and the difference is the entry.
 
-      `arena.find_object_by_dict_handle(dh).unwrap_or_else(|| Handle::new(dh.index()))`
-      crosses index spaces. `ArenaInner` holds `objects` and `dicts` as separate pools,
-      and the arena's own comment says the separation exists to prevent handle confusion;
-      building a `Handle<Object>` out of a dictionary's index is that confusion, committed
-      deliberately in a fallback. It does not panic — it names an unrelated object, and the
-      number reaches `FontSummary` and the report.
+      **The handle fabrication was live.** `extract_font_summary` read
+      `find_object_by_dict_handle(dh).unwrap_or_else(|| Handle::new(dh.index()))` — a
+      `Handle<Object>` built out of an index from the `dicts` pool when a scan of every
+      object in the arena came back empty. It comes back empty for a **direct** font
+      dictionary, which 7.3.10 allows and which this engine's own decorations wrote until
+      2026-09-19, and `fepdf inspect debug` hands the number to `get_font`.
 
-      Two lines down, `dict.get(&subtype_key.unwrap_or(fv))` looks up `/Subtype` and, when
-      that name was never interned, looks up the *font's name handle* instead, then reports
-      the answer as the font's type.
+      The fix removes the question rather than answering it better: `reachable_font_dicts`
+      reaches a font through a `/Font` resource entry that is usually a reference, so the
+      object handle **was in hand and being thrown away** by `resolve(…).as_dict_handle()`
+      before being looked for again by scanning. It carries `ReachedFont { object, dict }`
+      now, `FontSummary::object_id` is an `Option<u32>` because a direct dictionary has no
+      object number, and `PdfArena::find_object_by_dict_handle` — the only caller gone — is
+      deleted with it.
 
-      **This is the wrong-number defect W-21e removed from the auditor, in another
-      report.** A missing check is silence; a fallback that answers is testimony.
+      **The substituted key was not reachable, and finding that out cost a mutation.**
+      Five sites read `get_name_by_str(k).unwrap_or(fv)`, `fv` being `/Font`. A test
+      asserting the encoding of a font with a `/Font` key and no `/Encoding` passed — and
+      **passed with the fallback put back**, because normalisation-at-load builds every
+      font and font construction interns all five names through `arena.name` before
+      `list_fonts` runs. The document writes none of `/Encoding`, `/BaseFont`,
+      `/FontDescriptor` or `/DescendantFonts` and all four are interned when `open`
+      returns. The arm is gone on principle; what is tested is the reason it was
+      unreachable, so the day interning changes the arm gets a test of its own.
 
-      *Done when*: neither site can answer from the wrong index space — the first by
-      returning `Option` to its caller, the second by failing the lookup — and a test
-      breaks each by removing the name it depends on.
+      Three mutations: an object handle fabricated from the dictionary index (caught by
+      both new tests), every font reported direct (caught by one), and the substituted key
+      restored — which **survived**, and is why the entry above says what it says.
 
-- [ ] **W-A2 — `ObjectEntry.generation` describes a mechanism that does not exist.** Its
-      doc comment says "Generation, incremented when the slot is reused", and
-      `grep -rn --include='*.rs' "ObjectEntry {" crates/ | grep -v target` returns one
-      construction site (`arena.rs:130`), always `generation: 0`. Nothing reads it, nothing
-      increments it, and no slot is ever reused because there is no free list.
+- [x] **W-A2 — `ObjectEntry.generation` described a mechanism that did not exist.** Gone,
+      and `ObjectEntry` with it: the struct's other field was the object, so the pool is a
+      `Vec<Object>`. The doc comment said "incremented when the slot is reused"; one site
+      constructed it, always as `0`, nothing read it, and no slot is ever reused because
+      the pool has no free list. `docs/specs/README.md` records that `refinery_engine.md`
+      claimed generation bits on `Handle` and that **the claim was struck from the
+      document** — the field that made it look true outlived it by three weeks, which is
+      [ADR-0017](docs/adr/0017-declaring-a-catalogue-key-is-not-modelling-it.md)'s shape.
 
-      `docs/specs/README.md` records that `refinery_engine.md` claimed generation bits on
-      `Handle` and that **the claim was deleted from the document**. The field that made
-      the claim look true was left in the code. This is
-      [ADR-0017](docs/adr/0017-declaring-a-catalogue-key-is-not-modelling-it.md)'s shape:
-      declaring is not modelling.
-
-      *Done when*: the field is gone, or slot reuse exists and something checks a stale
-      handle against it. It is one or the other, not a comment.
+      **No test, and that is the honest answer.** Deleting a field nothing reads changes
+      no behaviour; what stands behind it is the suite, which passes. Reuse, if W-A5 ever
+      calls for it, brings its own check back with it.
 
 - [ ] **W-A3 — a handle does not name its arena, and two arenas are live at once.**
       `ObjectCloner::new(source, target)` (`crates/fepdf-doc/src/cloning.rs:37`) holds
