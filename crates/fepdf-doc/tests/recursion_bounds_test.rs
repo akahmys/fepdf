@@ -154,8 +154,13 @@ fn a_clone_survives_the_deepest_nesting_the_parser_will_admit() {
 fn nesting_past_the_parsers_limit_never_reaches_the_arena() {
     let deep = format!("{}1{}", "[".repeat(600), "]".repeat(600));
     let catalogue = format!("<< /Type /Catalog /Pages 2 0 R /Deep {deep} >>");
+    // **`catalogue.as_str()`, not `&catalogue`.** `assemble` takes `&[B: AsRef<[u8]>]`
+    // and this array mixes a `&String` with two `&str`s: rustc 1.97 picks `&str` and
+    // coerces, and **1.94 — the minimum this project states — picks `&String` from the
+    // first element and rejects the literals.** It was the one thing in the workspace
+    // that did not compile under the stated minimum (W-T3).
     let bytes = assemble(&[
-        &catalogue,
+        catalogue.as_str(),
         "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
         "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] >>",
     ]);

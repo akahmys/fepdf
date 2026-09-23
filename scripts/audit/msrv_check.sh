@@ -68,10 +68,14 @@ done
 # Measured 2026-09-21: `rustc --version` inside the repository and outside it both
 # answered 1.97.1, against a stated minimum of 1.94.
 #
-# The name is not corrected here, because making the pin live would build this workspace
-# with a compiler nothing has been built with (ROADMAP W-T3). What is checked is that the
-# compiler doing the work is *at least* what the documents promise — a promise of 1.94
-# kept by a 1.97 build is kept; one kept by a 1.93 build is not.
+# The name is not corrected here, because which compiler everyone builds with is a
+# decision and not a rename (ROADMAP W-T3). What *was* the reason — that nothing had ever
+# been built with the stated minimum — stopped being true on 2026-09-23, when
+# `msrv_build.sh` was written and the workspace compiled under 1.94.1 for the first time.
+#
+# What is checked here is that the compiler doing the work is *at least* what the
+# documents promise — a promise of 1.94 kept by a 1.97 build is kept; one kept by a 1.93
+# build is not. Whether 1.94 can keep it at all is `msrv_build.sh`, beside this one.
 ACTIVE=$(rustc --version | grep -oE "[0-9]+\.[0-9]+\.[0-9]+" | head -n 1)
 if [ -z "$ACTIVE" ]; then
     echo "Error: could not read the active rustc version"

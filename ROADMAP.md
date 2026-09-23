@@ -2567,60 +2567,90 @@ Content editing, under D-1:
       595 crates were not read. What the survey supports is "nothing found that forbids
       it" — not "it works". The build is the measurement, and it belongs to this item.
 
-- [ ] **W-T3 — the toolchain pin has never been one.** `.rust-toolchain.toml` says
-      `channel = "1.94"`. rustup reads `rust-toolchain.toml`, **without the leading dot**,
-      so the file is a hidden file rustup does not look for: it was added on 2026-08-29
-      and has never selected a compiler.
-
-      Measured 2026-09-21: `rustc --version` inside the repository and outside it both
-      answer **1.97.1**, against a stated minimum of 1.94. Every build this project has
-      ever made was made with whatever the default toolchain happened to be.
+- [ ] **W-T3 — the toolchain pin has never been one, and the minimum had never built.**
+      `.rust-toolchain.toml` says `channel = "1.94"`. rustup reads `rust-toolchain.toml`,
+      **without the leading dot**, so the file is a hidden file rustup does not look for:
+      it was added on 2026-08-29 and has never selected a compiler. `rustc --version`
+      inside the repository and outside it both answer 1.97.1.
 
       `msrv_check.sh` passed throughout, because it compared `Cargo.toml`,
       `.rust-toolchain.toml` and `README.md` **to each other**. Three documents agreeing
-      is not a compiler. Its own comments record the same shape happening once before —
-      the README clause hunted a version retired before the check was written, and passed
-      by finding nothing.
+      is not a compiler.
 
-      **What was done instead of renaming the file**: the check now reads the compiler
-      that is actually running and refuses one below the stated minimum, and says in
-      passing that the pin is not live. That turns a silent claim into a measured one
-      without changing which compiler builds the workspace.
+      **The minimum is now built with, and it did not build.** Measured 2026-09-23:
+      `cargo +1.94 check --workspace --all-targets` failed on one error in
+      `recursion_bounds_test.rs`, which passed `&[&String, &str, &str]` to a
+      `&[B: AsRef<[u8]>]` — 1.94 infers `&String` from the first element where 1.97 picks
+      `&str` and coerces. One line in one test, and the version three documents promise had
+      never compiled this workspace. Fixed, and the workspace now type-checks clean under
+      **rustc 1.94.1**.
 
-      **What renaming would cost.** It would build this workspace with 1.94 for the first
-      time. Nothing here has been compiled with it — today's work included — so the first
-      run is an unknown number of errors from three years of code written against
-      whatever was installed. That is a piece of work, not a rename.
+      **`msrv_build.sh` is in the gate**, because a claim nobody compiles is a claim
+      nobody keeps: it reads the minimum out of `Cargo.toml` and builds the workspace with
+      it. **73 s warm**, against 33 minutes the first time a toolchain is installed. A
+      missing toolchain fails rather than skips, and prints the `rustup` line — a check
+      that runs on one machine and not another is how a rule becomes a comment.
 
-      The question under it is whether 1.94 is the minimum this project wants. It is
-      declared in three places and tested nowhere; a minimum nobody builds against is a
-      number, and the honest choices are to make it live or to raise it to what is used.
+      **What is left is a decision, not work.** The pin is dead and the three choices are
+      not equivalent:
 
-- [ ] **W-T1 — the two gates take 39 minutes, and 5 of them are a second `cargo check`.**
-      Measured on 2026-09-20, one run of `cargo test --workspace` followed by
-      `./scripts/audit/verify_compliance.sh` after a source edit:
+      | | what it would mean |
+      | :--- | :--- |
+      | Rename to `rust-toolchain.toml` | everyone builds and gates at **1.94**. Now known to compile — but rustfmt and clippy differ by version, so Rule 19 and Rule 5 want re-checking, and W-T4 plans 1.98.1 |
+      | Pin at the toolchain in use | reproducible development at **1.97.1**, with `rust-version` staying 1.94 as the floor. `msrv_check.sh` insists the two are equal and would have to stop |
+      | Delete the file | the floor lives in `Cargo.toml` and `README.md` and is checked by building. Nothing claims to pin what it does not |
 
-      | | |
-      | :--- | ---: |
-      | `cargo test --workspace` | 28 min |
-      | — of which running tests | **2.5 min** |
-      | audit, `cargo check --quiet` | ~5 min |
-      | audit, `cargo clippy --workspace --all-targets` | 5 min 06 s |
-      | audit, Rule 9's 56 `cargo tree` calls | 4.1 s |
+      **The floor and the development toolchain are two numbers**, and this repository has
+      been writing one number in three places. Which of the three to take is a decision
+      about what every contributor compiles with.
 
-      **Almost none of it is testing.** Touching one test file and rebuilding that binary
-      alone takes 12.2 s; 126 of them is 25.6 minutes, which is the 25 minutes the suite
-      spends outside the 2.5 it spends running. Warm, `cargo check` takes 0.28 s and
-      clippy 4.0 s — the caches work, and the cost is that an edit invalidates three
-      separate profiles, so the workspace is compiled three times over.
+- [x] **W-T1 — the gate's cost, measured again, and the entry was wrong about all of it.**
+      Re-derived 2026-09-23. Every number this entry used to carry was out by enough to
+      change the conclusion, and the conclusion has changed: **nothing is taken.**
 
-      `cargo check --quiet` is the one that buys nothing: `--workspace --all-targets` is a
-      strict superset of it and clippy-driver reports every rustc error too, but the two
-      keep separate caches so the pass is paid twice. The comment above the line already
-      says it states nothing about the MSRV that `msrv_check.sh` checks.
+      | | this entry said | measured 2026-09-23 |
+      | :--- | ---: | ---: |
+      | audit, `cargo check --quiet` | ~5 min | **34.5 s** |
+      | audit, `cargo clippy --workspace --all-targets` | 5 min 06 s | 4 min 26 s |
+      | rebuilding one test binary | 12.2 s | **5.23 s** |
+      | `cargo test --workspace --no-run`, fully warm | — | 11.75 s |
 
-      Not changed, on 2026-09-20, because the gate is the gate and shortening it is a
-      decision about what is verified, not only about what it costs.
+      **`cargo check --quiet` is 34.5 seconds, not five minutes**, because it builds no
+      test target — which is also the whole of why the clippy pass is eight times its
+      size. It warms nothing for clippy (285 s after it, 266 s on its own), so the
+      duplication this entry named is real; it is 1.5% of the gate rather than 13%.
+
+      **And it is not the duplicate this entry called it.** `--all-targets` is a superset
+      in *targets* and a different thing in *feature resolution*: without it the
+      dev-dependencies are out of the graph. The two resolutions are identical today —
+      `cargo tree -e features --edges normal,build` against `--edges normal,build,dev`
+      differs only on `fepdf-fixtures`, which nothing depends on outside dev — and they
+      are identical **because `[workspace.dependencies]` states every feature centrally**,
+      which nothing enforces. The line stays, with that written above it.
+
+      **Debug information is not the lever either.** `[profile.dev]` carries the default
+      `debug = true`; building one test binary under it takes 5.23 s against 4.77 s with
+      `debug = "line-tables-only"` and dependencies at `debug = false`. **Nine per cent of
+      the marginal case**, against losing variable-level backtraces in every test. Not
+      taken.
+
+      **What the minutes actually are.** A fully warm `cargo test --workspace --no-run` is
+      11.75 s and one touched test file adds 5.23 s, so the gate's half-hour is not
+      per-binary overhead — it is **invalidation**: a change to `fepdf-model` rebuilds
+      everything downstream of it, and everything is downstream of it. That is the shape
+      of the workspace, not a setting, and shortening it means changing what depends on
+      what.
+
+      **Two measurements were thrown away before these stood up**, and both are traps
+      worth naming. `cargo test -p fepdf --test X --no-run` resolves features differently
+      from `--workspace` and rebuilt the dependency graph: 23 s became 337 s, measuring
+      the resolver rather than the profile. And restoring a profile does not give a cold
+      build back — Cargo keys artefacts by profile hash and the old set was still there,
+      so a "cold" 1885 s and a "warm" 320 s were compared as though they were the same
+      run. **Measure with the gate's own command**, or measure something else than what
+      you meant to.
+
+      `target/debug` stood at **93G** while both profiles' artefacts were present.
 
 - [ ] **W-E3e — extraction cannot see word or character spacing.** Every
       `set_word_spacing` and `set_char_spacing` on the extraction side is an empty body —

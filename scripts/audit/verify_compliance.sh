@@ -280,6 +280,27 @@ done < <(find $TARGET_DIRS -name "*.rs")
 # and was called by nothing.
 echo "[MSRV] Checking the stated minimum is one version..."
 bash scripts/audit/msrv_check.sh || ERROR=1
+# And that the version it states can actually build this. `msrv_check.sh` compares
+# documents and reads the running compiler; it cannot say whether the *minimum* compiles
+# anything, and until 2026-09-23 it did not — one test inferred a type 1.97 coerces and
+# 1.94 does not. 73 s warm (W-T3).
+echo "[MSRV] Checking the stated minimum builds the workspace..."
+bash scripts/audit/msrv_build.sh || ERROR=1
+# **What this buys, measured 2026-09-23, because the roadmap had it wrong twice.**
+#
+# It is not the five minutes W-T1 recorded: it is **34.5 seconds**, because it builds no
+# test target. The clippy pass below is a superset of it in *targets*, and gains nothing
+# from it in cache — clippy after this takes 285 s against 266 s run on its own.
+#
+# What it is not a subset of is the **feature resolution**. Without `--all-targets` the
+# dev-dependencies are out of the graph, so this asks whether the workspace compiles as a
+# library consumer gets it. Today the two resolutions are identical —
+# `cargo tree -e features --edges normal,build` against `--edges normal,build,dev` differs
+# only on `fepdf-fixtures`, which nothing depends on outside dev — and they are identical
+# because `[workspace.dependencies]` states every feature centrally. The day a
+# `[dev-dependencies]` entry carries `features = [...]` for a package `src/` also uses,
+# they diverge, and this line is what notices. That is what the 34.5 seconds are for; it
+# is not a duplicate of the clippy pass.
 echo "[MSRV] Checking Rust workspace compilation..."
 cargo check --quiet || ERROR=1
 
