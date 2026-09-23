@@ -2567,42 +2567,50 @@ Content editing, under D-1:
       595 crates were not read. What the survey supports is "nothing found that forbids
       it" — not "it works". The build is the measurement, and it belongs to this item.
 
-- [ ] **W-T3 — the toolchain pin has never been one, and the minimum had never built.**
-      `.rust-toolchain.toml` says `channel = "1.94"`. rustup reads `rust-toolchain.toml`,
-      **without the leading dot**, so the file is a hidden file rustup does not look for:
-      it was added on 2026-08-29 and has never selected a compiler. `rustc --version`
-      inside the repository and outside it both answer 1.97.1.
+- [x] **W-T3 — the toolchain pin has never been one, and the minimum had never built.**
+      Both halves are closed, and each turned out to be a different kind of problem.
 
-      `msrv_check.sh` passed throughout, because it compared `Cargo.toml`,
-      `.rust-toolchain.toml` and `README.md` **to each other**. Three documents agreeing
-      is not a compiler.
+      **The minimum had never compiled this workspace.** Three documents promised 1.94 and
+      `cargo +1.94 check --workspace --all-targets` failed:
+      `recursion_bounds_test.rs` passed `&[&String, &str, &str]` to a
+      `&[B: AsRef<[u8]>]`, and 1.94 infers `&String` from the first element where 1.97
+      picks `&str` and coerces. One line in one test. `msrv_check.sh` had passed
+      throughout, because it compared `Cargo.toml`, `README.md` and
+      `.rust-toolchain.toml` **to each other** — three documents agreeing is not a
+      compiler. Fixed, and `msrv_build.sh` now builds the workspace with the stated
+      minimum as part of the gate: **73 s warm**, a hard failure when the toolchain is not
+      installed rather than a skip.
 
-      **The minimum is now built with, and it did not build.** Measured 2026-09-23:
-      `cargo +1.94 check --workspace --all-targets` failed on one error in
-      `recursion_bounds_test.rs`, which passed `&[&String, &str, &str]` to a
-      `&[B: AsRef<[u8]>]` — 1.94 infers `&String` from the first element where 1.97 picks
-      `&str` and coerces. One line in one test, and the version three documents promise had
-      never compiled this workspace. Fixed, and the workspace now type-checks clean under
-      **rustc 1.94.1**.
+      **The pin was a hidden file rustup does not look for.** `.rust-toolchain.toml`, with
+      the leading dot, had selected nothing since 2026-08-29 while `stable` did the work.
+      It is `rust-toolchain.toml` now, at **`channel = "1.97.1"`**.
 
-      **`msrv_build.sh` is in the gate**, because a claim nobody compiles is a claim
-      nobody keeps: it reads the minimum out of `Cargo.toml` and builds the workspace with
-      it. **73 s warm**, against 33 minutes the first time a toolchain is installed. A
-      missing toolchain fails rather than skips, and prints the `rustup` line — a check
-      that runs on one machine and not another is how a rule becomes a comment.
+      **The floor and the development toolchain are two numbers**, and writing one number
+      in three places is what made them one. `rust-version` stays 1.94 — the promise to
+      whoever clones this and runs `cargo build --release`, which the README states under
+      *Building from source* and which `msrv_build.sh` keeps true. The pin is the other
+      number: what the gate runs on, so that `cargo fmt --check` and
+      `clippy -- -D warnings` answer the same on every machine. They are version-sensitive
+      — rustfmt reflows differently between releases and clippy gains lints — so an
+      unpinned gate is an instrument whose reading depends on who holds it.
+      `msrv_check.sh` demanded the two be equal, which is what collapsed them; it asks
+      that the pin be **at or above** the floor now, and fails on a pin below it or on a
+      `rust-toolchain.toml` that is not there.
 
-      **What is left is a decision, not work.** The pin is dead and the three choices are
-      not equivalent:
+      **1.97.1 and not 1.98.1, and the distinction is not caution.** Pinning at 1.97.1
+      changes no compiler — it is what was already running, so a gate failure after it is
+      the work and not the toolchain. Pinning at 1.98.1 *is* a compiler change, mid-phase,
+      which is exactly what W-T4 holds against; and W-T4's survey says in its own words
+      that it supports "nothing found that forbids it" and not "it works".
 
-      | | what it would mean |
-      | :--- | :--- |
-      | Rename to `rust-toolchain.toml` | everyone builds and gates at **1.94**. Now known to compile — but rustfmt and clippy differ by version, so Rule 19 and Rule 5 want re-checking, and W-T4 plans 1.98.1 |
-      | Pin at the toolchain in use | reproducible development at **1.97.1**, with `rust-version` staying 1.94 as the floor. `msrv_check.sh` insists the two are equal and would have to stop |
-      | Delete the file | the floor lives in `Cargo.toml` and `README.md` and is checked by building. Nothing claims to pin what it does not |
+      **It cost a download and no rebuild.** `stable-aarch64-apple-darwin` and
+      `1.97.1-aarch64-apple-darwin` emit identical `rustc -vV`, so Cargo's fingerprints
+      match: `cargo check --quiet` after the rename took **0.68 s**. Clippy rebuilt, its
+      cache being its own. `cargo fmt --all --check` came back with no diff, so rustfmt
+      1.97.1 agrees with what is committed.
 
-      **The floor and the development toolchain are two numbers**, and this repository has
-      been writing one number in three places. Which of the three to take is a decision
-      about what every contributor compiles with.
+      **W-T4 is now a defined piece of work**: change one line in `rust-toolchain.toml` and
+      run the gate.
 
 - [x] **W-T1 — the gate's cost, measured again, and the entry was wrong about all of it.**
       Re-derived 2026-09-23. Every number this entry used to carry was out by enough to

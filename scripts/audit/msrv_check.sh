@@ -3,7 +3,7 @@
 
 # Sources of truth
 ROOT_CARGO="Cargo.toml"
-TOOLCHAIN=".rust-toolchain.toml"
+TOOLCHAIN="rust-toolchain.toml"
 
 # Extract expected version from root Cargo.toml
 EXPECTED_VERSION=$(grep "rust-version =" "$ROOT_CARGO" | head -n 1 | cut -d '"' -f 2)
@@ -15,11 +15,27 @@ fi
 
 echo "Checking for MSRV consistency with version: $EXPECTED_VERSION"
 
-# 1. Check .rust-toolchain.toml
+# 1. The pin is at or above the floor, and is not required to equal it.
+#
+# **This demanded they be equal, and that is what collapsed two numbers into one.**
+# `rust-version` is a promise to whoever builds from source; the pin is what the gate runs
+# on, so that `cargo fmt --check` and clippy answer the same on every machine. Requiring
+# them equal means developing at the floor — which costs every clippy lint added since it,
+# on a project whose Rule 5 is enforced by clippy — or raising the floor whenever the
+# toolchain moves. A pin *below* the floor is still an error: it would gate on a compiler
+# that cannot keep the promise.
 TOOLCHAIN_VERSION=$(grep "channel =" "$TOOLCHAIN" | cut -d '"' -f 2)
-if [[ "$TOOLCHAIN_VERSION" != "$EXPECTED_VERSION" ]]; then
-    echo "Error: $TOOLCHAIN version ($TOOLCHAIN_VERSION) does not match $ROOT_CARGO ($EXPECTED_VERSION)"
+if [ -z "$TOOLCHAIN_VERSION" ]; then
+    echo "Error: $TOOLCHAIN states no channel"
     exit 1
+fi
+if [[ "$TOOLCHAIN_VERSION" != "$EXPECTED_VERSION" ]]; then
+    lower=$(printf '%s\n%s\n' "$EXPECTED_VERSION" "$TOOLCHAIN_VERSION" | sort -V | head -n 1)
+    if [[ "$lower" != "$EXPECTED_VERSION" ]]; then
+        echo "Error: $TOOLCHAIN pins $TOOLCHAIN_VERSION, below the stated minimum of $EXPECTED_VERSION"
+        exit 1
+    fi
+    echo "  the gate runs on $TOOLCHAIN_VERSION; $EXPECTED_VERSION is the floor it promises"
 fi
 
 # 2. Check README's stated minimum
@@ -81,10 +97,15 @@ if [ -z "$ACTIVE" ]; then
     echo "Error: could not read the active rustc version"
     exit 1
 fi
-if [ -f "rust-toolchain.toml" ]; then
-    echo "  note: rust-toolchain.toml is present, so the pin is live"
-else
-    echo "  note: no rust-toolchain.toml — the pin in $TOOLCHAIN is not one rustup reads"
+# **The pin is a file rustup reads, or it is not a pin.** It was `.rust-toolchain.toml`
+# from 2026-08-29 to 2026-09-23 and selected nothing in all that time.
+if [ ! -f "rust-toolchain.toml" ]; then
+    echo "Error: no rust-toolchain.toml, so nothing pins the toolchain the gate runs on"
+    exit 1
+fi
+if [[ "$ACTIVE" != "$TOOLCHAIN_VERSION" ]]; then
+    echo "Error: $TOOLCHAIN pins $TOOLCHAIN_VERSION and rustc $ACTIVE is running"
+    exit 1
 fi
 lowest=$(printf '%s\n%s\n' "$EXPECTED_VERSION" "$ACTIVE" | sort -V | head -n 1)
 if [ "$lowest" != "$EXPECTED_VERSION" ]; then

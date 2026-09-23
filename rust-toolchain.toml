@@ -1,0 +1,22 @@
+# The toolchain this repository is developed and gated with.
+#
+# **Not the same number as `rust-version`, and that is the point.** `Cargo.toml` states
+# 1.94 and `README.md` repeats it: that is the floor, a promise to whoever clones this and
+# runs `cargo build --release`, and `scripts/audit/msrv_build.sh` keeps it true by building
+# with it. This is the other number — what the gate runs on — and it exists so that
+# `cargo fmt --check` and `cargo clippy -- -D warnings` give the same answer on every
+# machine. They are version-sensitive: rustfmt reflows differently between releases and
+# clippy gains lints, so an unpinned gate is an instrument whose reading depends on who
+# holds it.
+#
+# **This file was `.rust-toolchain.toml` until 2026-09-23** — hidden, and not a name rustup
+# looks for — so from 2026-08-29 it selected nothing and three documents agreed with each
+# other while `stable` did the work (ROADMAP W-T3).
+#
+# 1.97.1 and not 1.98.1: the move to 1.98 is W-T4, held until Phase W closes so that a
+# failure is not ambiguous between the work and the compiler. Pinning here changes no
+# compiler — 1.97.1 is what was already running — which is the whole reason it can be done
+# mid-phase.
+[toolchain]
+channel = "1.97.1"
+components = ["rustfmt", "clippy"]
