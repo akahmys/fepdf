@@ -133,6 +133,14 @@ pub enum Outcome {
 pub struct AuditScope {
     /// The failure conditions this auditor looks at, by their protocol number.
     pub checked: Vec<String>,
+    /// The ones the protocol leaves to a person, with its own wording.
+    ///
+    /// **The same 48 for every document**, because what this says is a property of the
+    /// protocol and not of the file — which is why they are here and not among the
+    /// findings. A reader who is told only what was checked, and a count of what was not,
+    /// has no way to know which of the rest are questions someone is expected to answer
+    /// and which are simply unimplemented.
+    pub left_to_a_person: Vec<crate::matterhorn::LeftToAPerson>,
     /// How many failure conditions the protocol has.
     pub in_protocol: usize,
 }
@@ -398,6 +406,13 @@ impl<'a> MatterhornAuditor<'a> {
     pub fn scope() -> AuditScope {
         AuditScope {
             checked: Self::CHECKED.iter().map(|c| (*c).to_string()).collect(),
+            left_to_a_person: crate::matterhorn::LEFT_TO_A_PERSON
+                .iter()
+                .map(|(condition, wording)| crate::matterhorn::LeftToAPerson {
+                    condition: (*condition).to_string(),
+                    wording: (*wording).to_string(),
+                })
+                .collect(),
             in_protocol: Self::IN_PROTOCOL,
         }
     }

@@ -103,10 +103,36 @@ pub fn show_accessibility_audit(
                         .replace("{}", &registry.audit_checked.to_string()),
                 );
             }
+            // **The ones the protocol expects a person to answer, in its own words.**
+            // These are not findings: the same 48 for every document, because what they
+            // say is a property of the protocol and not of the file. A reader told only
+            // "48 more were not looked at" cannot tell a question someone is expected to
+            // answer from a check nobody has written, and only one of those is theirs.
+            if !registry.audit_left_to_a_person.is_empty() {
+                ui.add_space(crate::app::theme::space::GROUP);
+                ui.label(
+                    egui::RichText::new(
+                        locale_mgr
+                            .tr(active_lang, "audit_section_to_judge")
+                            .replace("{}", &registry.audit_left_to_a_person.len().to_string()),
+                    )
+                    .strong(),
+                );
+                for entry in &registry.audit_left_to_a_person {
+                    ui.colored_label(colors::note::INFO, &entry.condition);
+                    ui.label(&entry.wording);
+                    ui.add_space(crate::app::theme::space::ITEM);
+                }
+            }
             // **What was never looked at is said, not left out.** A report that listed
             // only what it examined would let a reader believe it covered the protocol.
+            // It counts what is in neither list now, the section above having taken the
+            // conditions that have a reader rather than merely a number.
             ui.add_space(crate::app::theme::space::GROUP);
-            let unlooked = registry.audit_in_protocol.saturating_sub(registry.audit_checked);
+            let unlooked = registry
+                .audit_in_protocol
+                .saturating_sub(registry.audit_checked)
+                .saturating_sub(registry.audit_left_to_a_person.len());
             ui.label(
                 egui::RichText::new(
                     locale_mgr

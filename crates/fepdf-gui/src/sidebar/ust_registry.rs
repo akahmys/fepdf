@@ -36,6 +36,13 @@ pub struct USTRegistry {
     /// without the other showed an assurance nobody gave — it said "Matterhorn: 100%
     /// Compliant", on a percentage computed as `100 - findings * 7`.
     pub audit_checked: usize,
+    /// The failure conditions the protocol expects a person to answer, in its own words.
+    ///
+    /// **Not findings, and not a number.** The same 48 for every document, because what
+    /// they say is a property of the protocol rather than of the file — and a reader told
+    /// only "48 more were not looked at" cannot tell a question someone is expected to
+    /// answer from a check nobody has written.
+    pub audit_left_to_a_person: Vec<fepdf::LeftToAPerson>,
     /// How many failure conditions the protocol has, as the engine states it.
     ///
     /// The protocol is 31 checkpoints whose tables enumerate 137 failure conditions; this
@@ -70,6 +77,7 @@ impl USTRegistry {
             next_node_id: 1,
             audit_findings: Vec::new(),
             audit_checked: 0,
+            audit_left_to_a_person: Vec::new(),
             audit_in_protocol: 0,
             pending_center_node_id: None,
         }

@@ -11,6 +11,8 @@ pub mod apply;
 pub mod cloning;
 /// Where a page's marked content landed, for the structure tree to read.
 pub mod marked_content;
+/// The Matterhorn Protocol's own text, for the conditions it leaves to a person.
+pub mod matterhorn;
 /// Canonical document mutation operations.
 pub mod operation;
 /// Reading the bookmark tree back out of a document.
@@ -25,6 +27,7 @@ pub mod structure;
 pub mod tagging;
 
 pub use apply::apply_operation;
+pub use matterhorn::{LEFT_TO_A_PERSON, LeftToAPerson};
 pub use operation::*;
 pub use outline_tree::{OutlineReport, read_outlines};
 pub use remediation::apply_physical_redaction_to_page;

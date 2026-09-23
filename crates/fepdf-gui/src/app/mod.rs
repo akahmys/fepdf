@@ -566,8 +566,9 @@ impl FepdfApp {
                     self.ust_registry.audit_findings = findings;
                     ctx.request_repaint();
                 }
-                WorkerResponse::AuditScope { checked, in_protocol } => {
+                WorkerResponse::AuditScope { checked, left_to_a_person, in_protocol } => {
                     self.ust_registry.audit_checked = checked;
+                    self.ust_registry.audit_left_to_a_person = left_to_a_person;
                     self.ust_registry.audit_in_protocol = in_protocol;
                     ctx.request_repaint();
                 }

@@ -20,9 +20,10 @@
 //! under `00-001`, which is not a number the protocol has either.
 
 use fepdf::{IngestionOptions, PdfDocument};
+use fepdf_doc::matterhorn::LEFT_TO_A_PERSON;
 use fepdf_doc::{
-    AuditFinding, AuditReport, AuditScope, FROM_CATALOGUE, FROM_CONTENT, FROM_FORM,
-    FROM_STRUCTURE_TREE, MatterhornAuditor, NO_STRUCTURE_TREE, Outcome,
+    AuditFinding, AuditReport, FROM_CATALOGUE, FROM_CONTENT, FROM_FORM, FROM_STRUCTURE_TREE,
+    MatterhornAuditor, NO_STRUCTURE_TREE, Outcome,
 };
 use std::collections::BTreeSet;
 
@@ -486,10 +487,7 @@ fn a_condition_left_for_a_reader_is_not_nothing_found() {
             message: "the field is yours to judge".into(),
             handle_id: None,
         }],
-        scope: AuditScope {
-            checked: MatterhornAuditor::CHECKED.iter().map(|c| (*c).to_string()).collect(),
-            in_protocol: MatterhornAuditor::IN_PROTOCOL,
-        },
+        scope: MatterhornAuditor::scope(),
     };
     assert!(
         !waiting.found_nothing(),
@@ -836,6 +834,130 @@ fn checkpoint_06_is_left_out_because_ingestion_answers_it() {
         "ingestion no longer writes an XMP packet, so 06-001 and 06-003 can be answered \
          about the file and belong in CHECKED"
     );
+}
+
+/// **The report says which conditions the protocol expects a person to answer.**
+///
+/// A reader told "fourteen of 137 checked" and nothing else cannot tell the rest apart:
+/// a condition nobody has implemented and a condition the protocol *assigns to a human
+/// auditor* are the same silence, and only one of them is work this engine could do.
+#[test]
+fn the_scope_says_which_conditions_are_left_to_a_person() {
+    let doc = opened(breaks_nothing());
+    let report = doc.audit_ua2_report().expect("it audits");
+
+    assert_eq!(
+        report.scope.left_to_a_person.len(),
+        48,
+        "the protocol marks 48 of its failure conditions H"
+    );
+    for entry in &report.scope.left_to_a_person {
+        assert_eq!(entry.condition.len(), 6, "{} is not an index number", entry.condition);
+        assert!(
+            entry.wording.len() > 20,
+            "{} is listed for a person with nothing to read: {:?}",
+            entry.condition,
+            entry.wording
+        );
+    }
+    // **The same list for every document**, which is the whole reason it is scope rather
+    // than a finding: a row per document would be 48 findings saying nothing about the
+    // document they are attached to.
+    let other = opened(breaks_everything()).audit_ua2_report().expect("it audits");
+    assert_eq!(
+        report.scope.left_to_a_person, other.scope.left_to_a_person,
+        "the conditions left to a person changed with the document"
+    );
+}
+
+/// **A condition is checked here or left to a person, never both.**
+///
+/// The protocol's `How` is advice — "not determinative … the realistic best-practice
+/// approach at the present time" — so an `H` condition may well be decided here one day.
+/// What must not happen is its staying on the list of questions for a reader after this
+/// engine has started answering it: that is a report asking someone to do work it has
+/// already done.
+#[test]
+fn nothing_is_both_checked_here_and_left_to_a_person() {
+    let left: BTreeSet<&str> = LEFT_TO_A_PERSON.iter().map(|(condition, _)| *condition).collect();
+    let checked: BTreeSet<&str> = MatterhornAuditor::CHECKED.iter().copied().collect();
+    let both: Vec<&&str> = left.intersection(&checked).collect();
+    assert!(both.is_empty(), "checked here and still listed for a reader to decide: {both:?}");
+
+    assert_eq!(left.len(), LEFT_TO_A_PERSON.len(), "a condition is listed for a person twice");
+    assert!(
+        checked.len() + left.len() <= MatterhornAuditor::IN_PROTOCOL,
+        "the two lists together claim more conditions than the protocol has: {} and {} of {}",
+        checked.len(),
+        left.len(),
+        MatterhornAuditor::IN_PROTOCOL
+    );
+}
+
+/// The Index, Type and How columns of one row of the protocol's tables.
+///
+/// **The `How` is not at a fixed place.** The Section, Type and How columns interrupt the
+/// *first line* of the Failure Condition text, wherever that line happens to end, so they
+/// are found by looking for the Section — the one column whose value has a shape.
+fn row_of(line: &str) -> Option<(&str, &str, &str)> {
+    let number = line.get(..6)?;
+    let bytes = number.as_bytes();
+    if !bytes[..2].iter().all(u8::is_ascii_digit)
+        || bytes[2] != b'-'
+        || !bytes[3..].iter().all(u8::is_ascii_digit)
+    {
+        return None;
+    }
+    let words: Vec<&str> = line.split_whitespace().collect();
+    let at = words.iter().position(|word| word.starts_with("UA1:"))?;
+    let kind = *words.get(at + 1)?;
+    if !["Doc", "Page", "Object", "JS", "All"].contains(&kind) {
+        return None;
+    }
+    // Everything between the number and the Section column is the first line of the
+    // condition's own text.
+    let said = line.get(6..line.find(words[at])?)?.trim();
+    Some((number, words.get(at + 2)?, said))
+}
+
+/// **Every condition listed for a person is one the protocol marks `H`, worded as it
+/// words it.**
+///
+/// Two ways this goes wrong and neither is visible from inside: handing a reader an `M`
+/// condition, which is work this engine promised and did not do, and quoting a condition
+/// as something it does not say. The protocol is untracked, so the wording is checked in
+/// — and a table that is checked in is a table that can drift.
+#[test]
+fn every_condition_left_to_a_person_is_one_the_protocol_marks_h() {
+    let text = protocol_text();
+    let mut marked_h = BTreeSet::new();
+    let mut said: std::collections::BTreeMap<&str, &str> = std::collections::BTreeMap::new();
+    for line in text.lines() {
+        if let Some((number, how, first_line)) = row_of(line) {
+            if how == "H" {
+                marked_h.insert(number);
+            }
+            said.entry(number).or_insert(first_line);
+        }
+    }
+
+    let listed: BTreeSet<&str> = LEFT_TO_A_PERSON.iter().map(|(condition, _)| *condition).collect();
+    assert_eq!(
+        listed, marked_h,
+        "the conditions listed for a person are not the ones the protocol marks H"
+    );
+    assert_eq!(marked_h.len(), 48, "the protocol no longer marks 48 of its conditions H");
+
+    for (condition, wording) in LEFT_TO_A_PERSON {
+        let opening = said.get(condition).unwrap_or_else(|| panic!("{condition} has no row"));
+        // The stored wording is the row's text with the line breaks taken out, so it
+        // begins with exactly what the row's first line says before the columns cut in.
+        assert!(
+            wording.starts_with(opening),
+            "{condition} is quoted as something the protocol does not say:\n  stored: \
+             {wording}\n  protocol: {opening}"
+        );
+    }
 }
 
 /// The protocol, as text, for the two tests that read it.

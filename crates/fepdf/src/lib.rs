@@ -115,6 +115,9 @@ pub use fepdf_doc::{
     AuditFinding,
     ContentScale,
     DecorationPosition,
+    // The protocol's own wording for the conditions it leaves to a person, which the
+    // window shows beside what was checked (W-21d).
+    LeftToAPerson,
     MatterhornAuditor,
     Operation,
     OutlineReport,

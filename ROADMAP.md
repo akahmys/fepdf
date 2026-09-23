@@ -4834,14 +4834,51 @@ Independent of all of the above:
         three numbers went in W-21e, and 136 counts failure conditions — the protocol is 31
         checkpoints comprised of 136 of them. The panel said "checkpoints" too.
 
-      - **W-21d — the ones the protocol expects a person to decide.** Its `How` column
-        marks 48 of the 137 `H`, and defines the column as "**not determinative** … the
-        realistic best-practice approach at the present time" — advice with a date, not a
-        boundary on what software may attempt. What the distinction does forbid is
-        reporting one of them as *decided*: a clean answer to a question a person was
-        supposed to answer is the same lie as a clean answer from a check that never ran.
-        They are listed for a person, with the protocol's own wording, and the report says
-        which kind each finding is.
+      - [x] **W-21d — the ones the protocol expects a person to decide.** All 48 the
+        `How` column marks `H`, named and quoted in the protocol's own words, in
+        `AuditScope::left_to_a_person`. The panel heads them "あなたが判断するもの (48)"
+        after the three outcome sections, and the weak closing line now counts what is in
+        *neither* list — 75 of the 137.
+
+        **They are scope, not findings.** The same 48 for every document, because what
+        they say is a property of the protocol and not of the file: a row per document
+        would be 48 findings that say nothing about the document they are attached to.
+        That is also why they are not a fourth `Outcome` — `Broken`, `Sound` and
+        `ForAReader` are all answers *about a file*, and this is not one.
+
+        **A count would not do, and that was the state before.** "48 more conditions were
+        not looked at" and "here are the 48 questions the protocol expects you to answer"
+        are the same number and different work. Only one of them is something a reader can
+        act on, and only one of them is honest about which part of the remainder is this
+        engine's unfinished business: 137 − 14 − 48 = **75** conditions that are neither
+        checked here nor anyone's to judge.
+
+        **The wording is checked in because the protocol is not.** `.gitignore` excludes
+        every `*.pdf`, so a report that quoted the document only when a working copy held
+        one would say different things on different machines. It is verbatim, including
+        what the protocol gets wrong: `<TBody,` and `<TFoot,` in 01-006 are missing their
+        closing angle brackets in the document and are missing them here, because a
+        quotation that silently corrects its source is not a quotation.
+
+        **`every_condition_left_to_a_person_is_one_the_protocol_marks_h` re-derives the
+        list.** It parses the Index, Section, Type and How columns out of the PDF — the
+        `How` is not at a fixed place, because the columns interrupt the first line of the
+        condition's text wherever that line happens to end — and requires the 48 listed to
+        be exactly the 48 the document marks `H`, each quoted with what its row opens
+        with. Handing a reader an `M` condition is work this engine promised and did not
+        do; quoting a condition as something it does not say is the wrong-number defect of
+        W-21e in prose.
+
+        **The `How` column is advice, and a condition may leave this list.** The protocol
+        defines it as "**not determinative** … the realistic best-practice approach at the
+        present time", so an `H` is not a prohibition on software deciding one — what it
+        forbids is reporting one *as decided*.
+        `nothing_is_both_checked_here_and_left_to_a_person` holds the two lists apart, so
+        a condition this engine comes to answer stops being a question asked of a reader.
+
+        Three mutations, each caught by the test written for it: an `M` condition listed
+        among the 48, a quotation drifting from the document, and the scope answering an
+        empty list.
 
 - [ ] **W-22 — Well-Tagged PDF (WTPDF 1.0), which this project does not mention.**
 

@@ -220,6 +220,12 @@ pub enum WorkerResponse {
     AuditScope {
         /// How many failure conditions were looked at.
         checked: usize,
+        /// The ones the protocol leaves to a person, with its own wording.
+        ///
+        /// **A count would not do.** "48 more were not looked at" and "here are the 48
+        /// questions the protocol expects you to answer" are the same number and
+        /// different work, and only the second is something a reader can act on.
+        left_to_a_person: Vec<fepdf::LeftToAPerson>,
         /// How many the protocol has.
         in_protocol: usize,
     },
@@ -998,6 +1004,7 @@ fn send_audit(doc: &PdfDocument, tx: &Sender<WorkerResponse>) {
         Ok(report) => {
             let _ = tx.send(WorkerResponse::AuditScope {
                 checked: report.scope.checked.len(),
+                left_to_a_person: report.scope.left_to_a_person,
                 in_protocol: report.scope.in_protocol,
             });
             let findings = report
