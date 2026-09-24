@@ -42,9 +42,9 @@ phase document and an ADR records why.
 
 ## Writing rules
 
-Three of these five are checked by `scripts/audit/documents.py`, which
+Three of these six are checked by `scripts/audit/documents.py`, which
 `verify_compliance.sh` runs: the tense rule 2 states, the links rule 1 implies, and the
-integrity of the ADR index. Rules 3 and 5 are held by review, and rule 4 says what that
+integrity of the ADR index. Rules 3, 5 and 6 are held by review, and rule 4 says what that
 costs ([ADR-0081](docs/adr/0081-the-writing-rules-had-nothing-behind-them.md)).
 
 1. **One fact, one home.** If it belongs in two places, one links instead of restating.
@@ -63,6 +63,17 @@ costs ([ADR-0081](docs/adr/0081-the-writing-rules-had-nothing-behind-them.md)).
    enforces it, and says "nothing" where nothing does. These rules say the same, above.
 5. **Prove a check fires by breaking the thing it checks.** Tests here have passed
    against the defect they were written for.
+6. **One ADR, one decision.** A record that reaches a second subject is split there.
+   [ADR-0071](docs/adr/0071-three-declarations-that-read-nothing-and-one-that-wrote-nothing.md) carries
+   eight and is the shape this rule exists to prevent.
+
+## Before you start
+
+`./scripts/dev/status.sh` re-derives the figures these documents lean on, so a stale one
+reads as a disagreement rather than as current. The gate is two commands, and each phase
+document holds its own: `cargo test --workspace` ([TESTING.md](TESTING.md)) and
+`./scripts/audit/verify_compliance.sh`, which must end `=== AUDIT PASSED ===`
+([AUDITING.md](AUDITING.md)).
 
 ## Principles
 
