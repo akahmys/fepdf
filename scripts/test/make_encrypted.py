@@ -267,7 +267,7 @@ def build_aes256(
         # derivation, and AES prefixes the IV.
         cipher = os.urandom(16)
         cipher += aes.cbc_encrypt(key, cipher, aes.pkcs7(stream))
-        # `/Length` may be `N` or `N G R`, and samples/sample.pdf writes every one of
+        # `/Length` may be `N` or `N G R`, and samples/constitution.pdf writes every one of
         # its 31 streams as an indirect reference. Matching only the integer turns
         # `/Length 5 0 R` into `/Length 1234 0 R`, which is why the first fixture
         # opened in PDFKit — the structure was fine — and rendered nothing.
@@ -352,7 +352,7 @@ VARIANTS = {
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--source", type=Path, default=Path("samples/sample.pdf"))
+    parser.add_argument("--source", type=Path, default=Path("samples/constitution.pdf"))
     parser.add_argument("--out", type=Path, default=Path("target/encrypted"))
     args = parser.parse_args()
 

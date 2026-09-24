@@ -81,6 +81,45 @@ pub struct TextState {
     pub is_vertical: bool,
 }
 
+/// How far one glyph advances the text, in text space (9.4.4).
+///
+/// **One calculation, because there were three and two of them were wrong.** The
+/// renderer applied `Tc`, `Tw` and `Tz`; `TextExtractionBackend` and `CollectorBackend`
+/// summed the glyph widths and nothing else, so a page set with `20 Tw` extracted to the
+/// same coordinates as one without it while the renderer drew them 20 points apart. A
+/// caller reading span positions out of a file that sets spacing was given coordinates
+/// wrong by one space per space (ROADMAP W-E3e).
+///
+/// `tx = ((w0 − Tj/1000) × Tfs + Tc + Tw) × Th`, with the `Tj` term already taken out of
+/// the glyph run by the interpreter. **`Tw` applies to the single-byte code 32 only** —
+/// not to a byte 32 inside a multi-byte code — which is what `char_code` is compared
+/// against rather than the text the glyph reads.
+///
+/// In vertical writing `Tz` scales the vertical dimension and the two spacings subtract,
+/// the advance being natively negative.
+#[must_use]
+pub fn advance_of(width: f64, char_code: u32, size: f64, state: &TextState) -> f64 {
+    let glyph = width / 1000.0 * size;
+    if state.is_vertical {
+        let mut advance = glyph.mul_add(state.th, -state.tc);
+        if char_code == 0x20 {
+            advance -= state.tw;
+        }
+        return advance;
+    }
+    let mut advance = (glyph + state.tc) * state.th;
+    if char_code == 0x20 {
+        advance = state.tw.mul_add(state.th, advance);
+    }
+    advance
+}
+
+/// The same, for a glyph that carries its own width.
+#[must_use]
+pub fn glyph_advance(glyph: &TextGlyph, size: f64, state: &TextState) -> f64 {
+    advance_of(f64::from(glyph.width), glyph.char_code, size, state)
+}
+
 /// The receiver of interpreted content-stream operations.
 ///
 /// A backend decides what "drawing" means: rasterising to a GPU surface, collecting
@@ -224,12 +263,25 @@ pub trait RenderBackend {
     /// Sets word spacing (`Tw`).
     fn set_word_spacing(&mut self, spacing: f64);
     /// Emits a run of positioned glyphs.
+    ///
+    /// **`op_index` is `None` when there is no operator stream to index into.** It names
+    /// an operator of the *bytes* a page was read from, because the only thing that uses
+    /// it re-lexes them — redaction scrubs the strings the same operators carry. A
+    /// document held as pre-sublimated commands has no such bytes, so there is no honest
+    /// number, and it reported **0 for every span on the default path** until
+    /// 2026-09-24: 1,007 spans of `constitution.pdf` carrying 1,007 distinct indices with
+    /// refinement off and one distinct index with it on (ROADMAP W-E3a).
+    ///
+    /// **It counts within one stream.** A form XObject executed from a page starts again
+    /// from its own bytes, so a page and a form drawn on it both report operator 4 for
+    /// their first run. That is what the consumers want — they re-lex the stream they are
+    /// rewriting — and it means the index is not unique across a page.
     fn show_text(
         &mut self,
         glyphs: &[TextGlyph],
         size: f64,
         transform: Affine,
         state: TextState,
-        op_index: usize,
+        op_index: Option<usize>,
     );
 }

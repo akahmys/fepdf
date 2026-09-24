@@ -24,7 +24,12 @@ pub struct TextSpan {
     /// Total advance width of the span.
     pub width: f64,
     /// Index of the operation in the content stream.
-    pub op_index: usize,
+    /// Which operator of the page's bytes drew it, when the page was read from bytes.
+    ///
+    /// **`None` on the default path**, where the document holds pre-sublimated commands
+    /// and there is no operator stream to index into. It was `0` for every span there
+    /// until 2026-09-24 (ROADMAP W-E3a), which a caller could not tell from an index.
+    pub op_index: Option<usize>,
     /// The resource name of the font it is set in, as the content stream names it.
     ///
     /// **A span says what it reads and, until now, not what it was written with.** The
@@ -45,7 +50,7 @@ struct ExtractedRun {
     size: f64,
     scale: f64,
     is_vertical: bool,
-    op_index: usize,
+    op_index: Option<usize>,
 }
 
 struct HorizontalLine {
@@ -339,7 +344,7 @@ impl TextExtractionBackend {
         size: f64,
         transform: Affine,
         is_vertical: bool,
-        op_index: usize,
+        op_index: Option<usize>,
     ) {
         // Composed, not bare: `transform` is the text transform and the page's `cm`
         // lives in the CTM this backend now tracks.
@@ -448,7 +453,7 @@ impl RenderBackend for TextExtractionBackend {
                     size: 10.0,
                     scale: 1.0,
                     is_vertical: false,
-                    op_index: 0,
+                    op_index: None,
                 });
             }
         }
@@ -461,7 +466,7 @@ impl RenderBackend for TextExtractionBackend {
         size: f64,
         transform: Affine,
         state: TextState,
-        op_index: usize,
+        op_index: Option<usize>,
     ) {
         if !self.actual_text.is_empty() {
             self.record_actual_text_glyphs(glyphs, size, transform, state.is_vertical, op_index);
@@ -475,8 +480,12 @@ impl RenderBackend for TextExtractionBackend {
             let coeffs = (self.current_transform * transform).as_coeffs();
             let (x, y) = (coeffs[4], coeffs[5]);
             let scale = coeffs[0].hypot(coeffs[1]).max(f64::EPSILON);
+            // **The glyph widths were the whole of this**, so `Tw`, `Tc` and `Tz` were
+            // invisible here and visible to the renderer: a page set with `20 Tw` put the
+            // following run at 98.016 on the page and at 78.016 in the extraction
+            // (ROADMAP W-E3e).
             let advance: f64 =
-                glyphs.iter().map(|glyph| f64::from(glyph.width)).sum::<f64>() / 1000.0 * size;
+                glyphs.iter().map(|g| fepdf_content::glyph_advance(g, size, &state)).sum();
             let width = advance.mul_add(scale, 0.0);
             self.runs.push(ExtractedRun {
                 text,
@@ -584,8 +593,8 @@ impl RenderBackend for CollectorBackend {
         glyphs: &[TextGlyph],
         size: f64,
         transform: Affine,
-        _state: TextState,
-        op_index: usize,
+        state: TextState,
+        op_index: Option<usize>,
     ) {
         let total_transform = self.current_transform * transform;
         let coeffs = total_transform.as_coeffs();
@@ -607,8 +616,7 @@ impl RenderBackend for CollectorBackend {
             } else {
                 glyph.width
             };
-            let adv_scaled = (f64::from(raw_width) * size) / 1000.0;
-            width += adv_scaled;
+            width += fepdf_content::advance_of(f64::from(raw_width), glyph.char_code, size, &state);
             text.push_str(&glyph.unicode);
         }
         self.spans.push(TextSpan {
@@ -906,8 +914,14 @@ impl HeuristicEngine {
                 | RemediationActionType::ClusterParagraphs { span_indices, .. } => span_indices,
             };
             for &idx in span_indices {
-                if let Some(span) = collector.spans.get(idx) {
-                    op_to_mcid.insert(span.op_index, (tag.clone(), mcid as i32));
+                // **A span with no operator index cannot be tagged by one.** It reaches
+                // here through `execute_raw`, where every span has one; the arm is the
+                // type saying that the pre-sublimated path could not, rather than a case
+                // this walk expects to meet.
+                if let Some(span) = collector.spans.get(idx)
+                    && let Some(at) = span.op_index
+                {
+                    op_to_mcid.insert(at, (tag.clone(), mcid as i32));
                 }
             }
             let page_ref = page.obj_handle();
@@ -1045,8 +1059,13 @@ impl HeuristicEngine {
         let mut redacted_op_indices = std::collections::BTreeSet::new();
         for span in spans {
             for rect in redacted_rects {
-                if Self::check_span_intersection(span, rect) {
-                    redacted_op_indices.insert(span.op_index);
+                // The same as the tagging above: redaction reads the bytes it is about
+                // to rewrite, so the index is there, and a span without one is not a
+                // span this can scrub.
+                if Self::check_span_intersection(span, rect)
+                    && let Some(at) = span.op_index
+                {
+                    redacted_op_indices.insert(at);
                 }
             }
         }

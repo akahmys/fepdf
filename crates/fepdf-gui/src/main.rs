@@ -39,6 +39,7 @@ mod capture;
 mod command_palette;
 mod document_tools;
 mod export_wizard;
+mod finding;
 mod interaction;
 mod locale;
 mod redaction;

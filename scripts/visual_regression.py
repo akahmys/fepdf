@@ -74,7 +74,7 @@ def compare_images(expected_png, actual_png):
         # -- verified by `cargo run -p fepdf-render --example render_determinism`, which
         # fingerprints the scene and then rasterises that one scene repeatedly -- and
         # vello's GPU pipeline turns it into more than one image: three distinct images in
-        # eight renders of `samples/sample.pdf` page 1. Measured on four pages of four
+        # eight renders of `samples/constitution.pdf` page 1. Measured on four pages of four
         # files, every such difference is **one isolated pixel at a channel delta of 1**,
         # so this line is what keeps the suite from flapping. Anything a reader could see
         # is far above it: the stale baseline this suite caught on `constitution.pdf` was

@@ -224,8 +224,7 @@ impl FepdfApp {
                         ActiveDrawer::Redaction => {
                             self.redaction_studio_panel.show(
                                 ui,
-                                &self.raw_texts,
-                                &self.page_spans,
+                                &self.tx_worker,
                                 &mut self.redaction_manager,
                                 &self.locale_mgr,
                                 &self.active_language,

@@ -241,7 +241,7 @@ impl RenderBackend for Canvas<'_> {
         size: f64,
         transform: Affine,
         state: TextState,
-        op_index: usize,
+        op_index: Option<usize>,
     ) {
         if self.paints() {
             self.note(self.text_box(glyphs, size, transform, state.is_vertical));

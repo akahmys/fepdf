@@ -84,7 +84,7 @@ fn a_page_that_is_not_there_is_refused() {
 #[test]
 fn a_merged_document_knows_how_many_pages_it_has() {
     let Some(first) = sample("print_sample.pdf") else { return };
-    let Some(second) = sample("sample.pdf") else { return };
+    let Some(second) = sample("constitution.pdf") else { return };
     let total = first.page_count().expect("it counts") + second.page_count().expect("it counts");
     let merged = PdfDocument::merge(vec![first, second]).expect("they merge");
     assert_eq!(merged.page_count().expect("it counts"), total);
@@ -93,12 +93,13 @@ fn a_merged_document_knows_how_many_pages_it_has() {
 /// `InsertFrom` puts every page of the source in, and the document says so afterwards.
 ///
 /// The counts are re-derived with
-/// `cargo run --release --example page_counts -p fepdf -- samples/print_sample.pdf samples/sample.pdf`
+/// `cargo run --release --example page_counts -p fepdf -- samples/print_sample.pdf samples/constitution.pdf`
 /// — 23 and 13 on 2026-09-14.
 #[test]
 fn inserting_a_document_adds_all_of_its_pages() {
     let Some(mut doc) = sample("print_sample.pdf") else { return };
-    let source = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../samples/sample.pdf");
+    let source =
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../samples/constitution.pdf");
     let Ok(bytes) = std::fs::read(source) else { return };
     let before = doc.page_count().expect("it counts");
     let added = PdfDocument::open(bytes.clone().into()).expect("it opens").page_count().unwrap();
@@ -107,6 +108,7 @@ fn inserting_a_document_adds_all_of_its_pages() {
 
     assert_eq!(doc.page_count().expect("it counts"), before + added);
     // The insertion went in at the position asked for: page 2 is the source's first page.
-    let source_first = sample("sample.pdf").expect("it opens").extract_text(0).expect("it reads");
+    let source_first =
+        sample("constitution.pdf").expect("it opens").extract_text(0).expect("it reads");
     assert_eq!(doc.extract_text(2).expect("it reads"), source_first);
 }

@@ -4,7 +4,7 @@
 //! it.** The engine keeps it: the vello `Encoding` for a page is byte-identical across
 //! repeated builds, which `fepdf-render`'s `render_determinism` example establishes by
 //! fingerprinting it. Vello's GPU pipeline does not — one scene became three distinct
-//! images in eight runs of `samples/sample.pdf` page 1, one isolated pixel apart at a
+//! images in eight runs of `samples/constitution.pdf` page 1, one isolated pixel apart at a
 //! channel delta of 1 — and its CPU shaders do
 //! ([ADR-0043](../../../docs/adr/0043-the-scene-repeats-and-the-rasteriser-does-not.md)).
 //!
@@ -35,7 +35,7 @@ fn render(name: &str, out: &std::path::Path, rasteriser: Rasteriser) -> Option<V
 /// written against `print_sample.pdf` first, this passed on `Rasteriser::Gpu` six runs out
 /// of six — green against the very defect it exists for, because that page happens not to
 /// flake. `sample.pdf` page 1 is one of the pages measured to come out two ways.
-const SAMPLE: &str = "sample.pdf";
+const SAMPLE: &str = "constitution.pdf";
 
 #[test]
 fn the_cpu_rasteriser_draws_the_same_page_the_same_way_twice() {

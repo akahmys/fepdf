@@ -8,7 +8,7 @@ sample so the measurements can be repeated rather than trusted.
 Each damage targets one part of ISO 32000-2 clause 7.5, and each is located by content
 rather than by offset, so the script survives a different sample.
 
-    python3 scripts/test/make_malformed.py [--source samples/sample.pdf] [--out DIR]
+    python3 scripts/test/make_malformed.py [--source samples/constitution.pdf] [--out DIR]
 """
 
 import argparse
@@ -74,7 +74,7 @@ DAMAGE = {
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--source", default="samples/sample.pdf", type=pathlib.Path)
+    parser.add_argument("--source", default="samples/constitution.pdf", type=pathlib.Path)
     parser.add_argument("--out", default="target/malformed", type=pathlib.Path)
     args = parser.parse_args()
 

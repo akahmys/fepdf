@@ -1,7 +1,7 @@
 //! Does the same page produce the same picture twice, and if not, where does it stop?
 //!
 //! **Measured: it does not.** Repeated renders of one page with one binary give two
-//! different PNGs — `samples/sample.pdf` page 1 four and four out of eight, differing at
+//! different PNGs — `samples/constitution.pdf` page 1 four and four out of eight, differing at
 //! one isolated pixel. RR-15 Rule 10 makes determinism a rule, so this exists to say
 //! *which layer* is not keeping it, because the fix is different at each:
 //!
@@ -21,7 +21,7 @@
 //! this does not read.
 //!
 //! ```text
-//! cargo run --release -p fepdf-render --example render_determinism -- samples/sample.pdf 1 8
+//! cargo run --release -p fepdf-render --example render_determinism -- samples/constitution.pdf 1 8
 //! ```
 
 use fepdf::PdfDocument;
@@ -94,7 +94,7 @@ fn tally<T: Ord + Copy>(values: &[T]) -> BTreeMap<T, usize> {
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args: Vec<String> = std::env::args().skip(1).collect();
-    let path = args.first().map_or("samples/sample.pdf", String::as_str);
+    let path = args.first().map_or("samples/constitution.pdf", String::as_str);
     let page: usize = args.get(1).and_then(|s| s.parse().ok()).unwrap_or(1);
     let runs: usize = args.get(2).and_then(|s| s.parse().ok()).unwrap_or(8);
 

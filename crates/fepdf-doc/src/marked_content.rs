@@ -91,7 +91,7 @@ impl RenderBackend for MarkBoundsBackend {
         _size: f64,
         _transform: Affine,
         _state: TextState,
-        _op_index: usize,
+        _op_index: Option<usize>,
     ) {
     }
 }

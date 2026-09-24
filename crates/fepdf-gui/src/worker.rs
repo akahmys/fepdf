@@ -108,6 +108,14 @@ pub enum WorkerRequest {
     Undo,
     /// Put back the last operation `Undo` took.
     Redo,
+    /// Find text in every page of the document.
+    Find {
+        /// What to find.
+        query: crate::finding::Query,
+        /// Which search this is, handed back so the window can drop an answer to one it
+        /// has since replaced.
+        search: u64,
+    },
     /// Rasterise a rectangle of a page, for the clipboard.
     Snapshot {
         /// Which page.
@@ -199,6 +207,13 @@ pub enum WorkerResponse {
     },
     LoadingProgress {
         message: String,
+    },
+    /// Where a `Find` found its query, over every page.
+    Found {
+        /// The `search` the request carried.
+        search: u64,
+        /// Every match, in page order.
+        found: Vec<crate::finding::Found>,
     },
     /// A rectangle of a page, rasterised, for the clipboard.
     ///
@@ -409,6 +424,11 @@ pub fn run_worker(rx: Receiver<WorkerRequest>, tx: Sender<WorkerResponse>, ctx: 
                     &tx,
                 );
                 let _ = tx.send(WorkerResponse::Idle);
+                ctx.request_repaint();
+            }
+            WorkerRequest::Find { query, search } => {
+                let busy = WorkerResponse::Busy { key: "busy_finding" };
+                handle_find(current_doc.as_ref(), (&query, search), &mut pages, busy, &tx);
                 ctx.request_repaint();
             }
             WorkerRequest::Snapshot { page, keep, scale } => {
@@ -877,14 +897,57 @@ struct PageCache {
     spans: std::collections::BTreeMap<usize, Vec<crate::interaction::TextSpan>>,
     /// The page's runs, which are what a text edit names.
     runs: std::collections::BTreeMap<usize, Vec<crate::interaction::RunBox>>,
+    /// The page's text as a search reads it.
+    found: std::collections::BTreeMap<usize, crate::finding::PageText>,
 }
 
 impl PageCache {
+    /// Whether a search of `doc` has a page to read first.
+    fn unread(&self, doc: &PdfDocument) -> bool {
+        (0..doc.page_count().unwrap_or(0)).any(|page| !self.found.contains_key(&page))
+    }
+
     /// Forgets every page. One call, because forgetting half of it is the trap.
     fn clear(&mut self) {
         self.text.clear();
         self.spans.clear();
         self.runs.clear();
+        self.found.clear();
+    }
+}
+
+/// Finds `query` on every page, reading each page's text once for as long as it is
+/// unchanged, and answering as search `search`.
+///
+/// **`busy` is said only when a page has to be read.** Reading every page of
+/// `intel_sdm.pdf`'s 5,057 takes 4 s and a search of what has been read takes
+/// milliseconds, so the first search says it is working and the ones typed after it do
+/// not flash.
+fn handle_find(
+    doc: Option<&PdfDocument>,
+    (query, search): (&crate::finding::Query, u64),
+    pages: &mut PageCache,
+    busy: WorkerResponse,
+    tx: &Sender<WorkerResponse>,
+) {
+    let Some(doc) = doc else { return };
+    let Ok(pattern) = query.pattern() else {
+        // The window checks the pattern before it asks, and says what is wrong with it.
+        return;
+    };
+    let reading = pages.unread(doc);
+    if reading {
+        let _ = tx.send(busy);
+    }
+    let mut found = Vec::new();
+    for page in 0..doc.page_count().unwrap_or(0) {
+        let text =
+            pages.found.entry(page).or_insert_with(|| crate::finding::PageText::read(doc, page));
+        found.extend(text.find(page, &pattern));
+    }
+    let _ = tx.send(WorkerResponse::Found { search, found });
+    if reading {
+        let _ = tx.send(WorkerResponse::Idle);
     }
 }
 
@@ -1457,5 +1520,55 @@ mod history {
 
         assert_eq!(history.applied, vec![remove(5)]);
         assert!(history.undone.is_empty(), "the abandoned branch is gone");
+    }
+}
+
+#[cfg(test)]
+mod finding {
+    //! **A search covers the document, not the pages the window has drawn.** The studio
+    //! used to search the spans the window had cached, so a word on a page nobody had
+    //! scrolled to was reported as not there.
+    use super::{PageCache, WorkerResponse, handle_find};
+    use crate::finding::Query;
+    use fepdf::{IngestionOptions, PdfDocument};
+
+    /// Two pages, the second drawing `word`, and neither of them rendered.
+    fn two_pages(word: &str) -> PdfDocument {
+        let content = format!("BT /F1 12 Tf 1 0 0 1 30 700 Tm ({word}) Tj ET");
+        let bodies = [
+            "<< /Type /Catalog /Pages 2 0 R >>".to_string(),
+            "<< /Type /Pages /Kids [3 0 R 4 0 R] /Count 2 >>".to_string(),
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] >>".to_string(),
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 5 0 R \
+             /Resources << /Font << /F1 6 0 R >> >> >>"
+                .to_string(),
+            format!("<< /Length {} >>\nstream\n{content}\nendstream", content.len()),
+            "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>".to_string(),
+        ];
+        PdfDocument::open_with_options(
+            fepdf_fixtures::assemble(&bodies).into(),
+            &IngestionOptions::default(),
+        )
+        .expect("the fixture opens")
+    }
+
+    #[test]
+    fn a_word_on_a_page_never_drawn_is_found() {
+        let doc = two_pages("ACME");
+        let mut pages = PageCache::default();
+        let (tx, rx) = std::sync::mpsc::channel();
+        let query = Query { text: "acme".to_string(), regex: false, case_sensitive: false };
+
+        handle_find(Some(&doc), (&query, 7), &mut pages, WorkerResponse::Idle, &tx);
+        let found = rx.try_iter().find_map(|response| {
+            if let WorkerResponse::Found { search, found } = response {
+                Some((search, found))
+            } else {
+                None
+            }
+        });
+        let Some((search, found)) = found else { panic!("the worker did not answer") };
+        assert_eq!(search, 7, "the answer does not say which search it answers");
+        assert_eq!(found.iter().map(|f| f.page).collect::<Vec<_>>(), vec![1]);
     }
 }

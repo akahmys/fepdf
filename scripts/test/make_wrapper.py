@@ -17,7 +17,7 @@ being able to decrypt anything:
   - an `/EP` dictionary on it, whose `/Subtype` names the filter needed (Table 28)
 
 Built here rather than found, because no corpus file is one. The payload is real: the
-bytes of `samples/sample.pdf` with every byte XOR-ed under a name this standard does
+bytes of `samples/constitution.pdf` with every byte XOR-ed under a name this standard does
 not define, which is the point — a conforming reader must recognise the wrapper and
 report the filter it cannot supply.
 
@@ -102,7 +102,7 @@ def build(source: bytes) -> bytes:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--source", type=Path, default=Path("samples/sample.pdf"))
+    parser.add_argument("--source", type=Path, default=Path("samples/constitution.pdf"))
     parser.add_argument("--out", type=Path, default=Path("target/encrypted"))
     args = parser.parse_args()
 

@@ -469,7 +469,7 @@ impl RenderBackend for Recorder {
         size: f64,
         transform: Affine,
         _state: TextState,
-        _op_index: usize,
+        _op_index: Option<usize>,
     ) {
         self.events.push(Event::Text { glyphs: glyphs.to_vec(), size, transform, ctm: self.ctm });
     }

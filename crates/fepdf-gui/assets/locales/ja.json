@@ -34,6 +34,7 @@
   "busy_applying": "適用しています…",
   "busy_auditing": "PDF/UA に照らして検査しています…",
   "busy_exporting": "ページを書き出しています…",
+  "busy_finding": "文書の中を検索しています…",
   "busy_opening": "文書を開いています…",
   "busy_rendering": "スナップショットを取得中…",
   "busy_retagging": "構造ツリーを並べ替えています…",

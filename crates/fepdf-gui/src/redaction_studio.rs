@@ -1,12 +1,13 @@
-use crate::interaction::TextSpan;
+use crate::finding::{Found, Query};
 use crate::redaction::{RedactionManager, RedactionZone};
-use regex::Regex;
-use std::collections::BTreeMap;
+use crate::worker::WorkerRequest;
+use std::sync::mpsc::Sender;
 
+/// One place the search found, and whether the reader wants it redacted.
 pub struct SearchMatch {
-    pub page_index: usize,
-    pub term: String,
-    pub rect: egui::Rect,
+    /// Where it is.
+    pub found: Found,
+    /// Whether it goes into the redaction when the reader asks.
     pub checked: bool,
 }
 
@@ -16,6 +17,9 @@ pub struct RedactionStudioPanel {
     pub matches: Vec<SearchMatch>,
     pub case_sensitive: bool,
     pub use_regex: bool,
+    /// The number of the last search asked for. An answer to an earlier one is dropped:
+    /// the worker answers in order, and a reader typing a word asks once a letter.
+    pub search: u64,
 }
 
 impl Default for RedactionStudioPanel {
@@ -25,13 +29,14 @@ impl Default for RedactionStudioPanel {
 }
 
 impl RedactionStudioPanel {
-    pub fn new() -> Self {
+    pub const fn new() -> Self {
         Self {
             search_query: String::new(),
             error_msg: None,
             matches: Vec::new(),
             case_sensitive: false,
             use_regex: false,
+            search: 0,
         }
     }
 
@@ -39,8 +44,7 @@ impl RedactionStudioPanel {
         // RR-15 Limit: GUI - Sequential egui declarations for Redaction Studio window layout
         &mut self,
         ui: &mut egui::Ui,
-        raw_texts: &BTreeMap<usize, String>,
-        page_spans: &BTreeMap<usize, Vec<TextSpan>>,
+        tx: &Sender<WorkerRequest>,
         redaction_manager: &mut RedactionManager,
         locale_mgr: &crate::locale::LocaleManager,
         lang: &str,
@@ -52,19 +56,19 @@ impl RedactionStudioPanel {
             ui.horizontal(|ui| {
                 ui.label(tr("redaction_studio_pattern"));
                 if ui.text_edit_singleline(&mut self.search_query).changed() {
-                    self.perform_search(raw_texts, page_spans, locale_mgr, lang);
+                    self.ask(tx, locale_mgr, lang);
                 }
             });
 
             ui.horizontal(|ui| {
                 if ui.checkbox(&mut self.use_regex, tr("redaction_studio_regex")).changed() {
-                    self.perform_search(raw_texts, page_spans, locale_mgr, lang);
+                    self.ask(tx, locale_mgr, lang);
                 }
                 if ui
                     .checkbox(&mut self.case_sensitive, tr("redaction_studio_match_case"))
                     .changed()
                 {
-                    self.perform_search(raw_texts, page_spans, locale_mgr, lang);
+                    self.ask(tx, locale_mgr, lang);
                 }
             });
 
@@ -88,11 +92,11 @@ impl RedactionStudioPanel {
                     }
                     if ui.button(format!("🔏 {}", tr("redaction_studio_redact_selected"))).clicked()
                     {
-                        for m in &self.matches {
-                            if m.checked {
+                        for m in self.matches.iter().filter(|m| m.checked) {
+                            for rect in &m.found.rects {
                                 redaction_manager
                                     .zones
-                                    .push(RedactionZone { page_index: m.page_index, rect: m.rect });
+                                    .push(RedactionZone { page_index: m.found.page, rect: *rect });
                             }
                         }
                         self.matches.clear();
@@ -113,8 +117,8 @@ impl RedactionStudioPanel {
                             ui.label(format!(
                                 "{} {}: {}",
                                 tr("redaction_studio_page_label"),
-                                m.page_index + 1,
-                                m.term
+                                m.found.page + 1,
+                                m.found.term
                             ));
                         });
                     }
@@ -130,94 +134,40 @@ impl RedactionStudioPanel {
         });
     }
 
-    fn perform_regex_search(
+    /// Asks the worker for what the query finds, or says why it cannot be asked.
+    fn ask(
         &mut self,
-        raw_texts: &BTreeMap<usize, String>,
-        page_spans: &BTreeMap<usize, Vec<TextSpan>>,
-        pattern: &str,
-        locale_mgr: &crate::locale::LocaleManager,
-        lang: &str,
-    ) {
-        match Regex::new(pattern) {
-            Ok(re) => {
-                for (&page_idx, text) in raw_texts {
-                    for m in re.find_iter(text) {
-                        let matched_str = m.as_str();
-                        if let Some(spans) = page_spans.get(&page_idx) {
-                            for span in spans {
-                                if span.text.contains(matched_str)
-                                    || matched_str.contains(&span.text)
-                                {
-                                    self.matches.push(SearchMatch {
-                                        page_index: page_idx,
-                                        term: span.text.clone(),
-                                        rect: span.rect,
-                                        checked: true,
-                                    });
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-            Err(e) => {
-                let label = locale_mgr.tr(lang, "redaction_studio_invalid_regex");
-                self.error_msg = Some(format!("{label} {e}"));
-            }
-        }
-    }
-
-    fn perform_simple_search(
-        &mut self,
-        page_spans: &BTreeMap<usize, Vec<TextSpan>>,
-        search_term: &str,
-    ) {
-        for (&page_idx, spans) in page_spans {
-            for span in spans {
-                let text_to_check =
-                    if self.case_sensitive { span.text.clone() } else { span.text.to_lowercase() };
-
-                if text_to_check.contains(search_term) {
-                    self.matches.push(SearchMatch {
-                        page_index: page_idx,
-                        term: span.text.clone(),
-                        rect: span.rect,
-                        checked: true,
-                    });
-                }
-            }
-        }
-    }
-
-    fn perform_search(
-        &mut self,
-        raw_texts: &BTreeMap<usize, String>,
-        page_spans: &BTreeMap<usize, Vec<TextSpan>>,
+        tx: &Sender<WorkerRequest>,
         locale_mgr: &crate::locale::LocaleManager,
         lang: &str,
     ) {
         self.matches.clear();
         self.error_msg = None;
-
         if self.search_query.trim().is_empty() {
             return;
         }
-
-        if self.use_regex {
-            let pattern = if self.case_sensitive {
-                self.search_query.clone()
-            } else {
-                format!("(?i){}", self.search_query)
-            };
-            self.perform_regex_search(raw_texts, page_spans, &pattern, locale_mgr, lang);
-        } else {
-            let search_term = if self.case_sensitive {
-                self.search_query.clone()
-            } else {
-                self.search_query.to_lowercase()
-            };
-            self.perform_simple_search(page_spans, &search_term);
+        let query = Query {
+            text: self.search_query.clone(),
+            regex: self.use_regex,
+            case_sensitive: self.case_sensitive,
+        };
+        if let Err(e) = query.pattern() {
+            let label = locale_mgr.tr(lang, "redaction_studio_invalid_regex");
+            self.error_msg = Some(format!("{label} {e}"));
+            return;
         }
+        self.search += 1;
+        let _ = tx.send(WorkerRequest::Find { query, search: self.search });
+    }
+
+    /// What search `search` found. Checked, because a reader who searched for a name to
+    /// redact wants every one of them unless they say otherwise.
+    pub fn found(&mut self, search: u64, found: Vec<Found>) {
+        if search != self.search {
+            return;
+        }
+        self.matches =
+            found.into_iter().map(|found| SearchMatch { found, checked: true }).collect();
     }
 }
 
@@ -225,89 +175,72 @@ impl RedactionStudioPanel {
 mod tests {
     use super::*;
     use crate::locale::LocaleManager;
+    use std::sync::mpsc::{Receiver, channel};
 
-    fn span(text: &str, x: f32) -> TextSpan {
-        TextSpan {
-            text: text.to_string(),
-            rect: egui::Rect::from_min_size(egui::pos2(x, 0.0), egui::vec2(10.0, 10.0)),
-        }
+    fn ask(panel: &mut RedactionStudioPanel) -> Receiver<WorkerRequest> {
+        let (tx, rx) = channel();
+        panel.ask(&tx, &LocaleManager::new(), "en");
+        rx
     }
 
-    fn fixture() -> (BTreeMap<usize, String>, BTreeMap<usize, Vec<TextSpan>>) {
-        let mut raw = BTreeMap::new();
-        raw.insert(0, "Invoice ACME 2026".to_string());
-        raw.insert(3, "Contact acme@example.com".to_string());
-
-        let mut spans = BTreeMap::new();
-        spans.insert(0, vec![span("Invoice", 0.0), span("ACME", 20.0), span("2026", 40.0)]);
-        spans.insert(3, vec![span("Contact", 0.0), span("acme@example.com", 20.0)]);
-        (raw, spans)
-    }
-
-    fn search(panel: &mut RedactionStudioPanel) {
-        let (raw, spans) = fixture();
-        let mgr = LocaleManager::new();
-        panel.perform_search(&raw, &spans, &mgr, "en");
+    fn one_found(term: &str) -> Vec<Found> {
+        vec![Found { page: 3, term: term.to_string(), rects: vec![egui::Rect::NOTHING] }]
     }
 
     #[test]
-    fn plain_search_is_case_insensitive_by_default() {
-        let mut panel = RedactionStudioPanel::new();
-        panel.search_query = "acme".to_string();
-        search(&mut panel);
-        assert!(!panel.matches.is_empty());
-        assert!(panel.matches.iter().any(|m| m.term == "ACME"));
-    }
-
-    #[test]
-    fn match_case_excludes_differently_cased_spans() {
+    fn a_query_goes_to_the_worker_as_typed() {
         let mut panel = RedactionStudioPanel::new();
         panel.search_query = "acme".to_string();
         panel.case_sensitive = true;
-        search(&mut panel);
-        assert!(panel.matches.iter().all(|m| m.term != "ACME"));
+        let rx = ask(&mut panel);
+        let Ok(WorkerRequest::Find { query, search }) = rx.try_recv() else {
+            panic!("nothing was asked");
+        };
+        assert_eq!(query.text, "acme");
+        assert!(query.case_sensitive && !query.regex, "the options were not carried");
+        assert_eq!(search, panel.search);
     }
 
     #[test]
-    fn matches_carry_the_page_they_were_found_on() {
-        // The page index is what RedactionZone needs; losing it would redact the
-        // wrong page.
-        let mut panel = RedactionStudioPanel::new();
-        panel.search_query = "Contact".to_string();
-        search(&mut panel);
-        assert!(!panel.matches.is_empty());
-        assert!(panel.matches.iter().all(|m| m.page_index == 3));
-    }
-
-    #[test]
-    fn regex_mode_matches_by_pattern() {
-        let mut panel = RedactionStudioPanel::new();
-        panel.use_regex = true;
-        panel.search_query = r"[a-z]+@[a-z.]+".to_string();
-        search(&mut panel);
-        assert!(panel.matches.iter().any(|m| m.term == "acme@example.com"));
-        assert!(panel.error_msg.is_none());
-    }
-
-    #[test]
-    fn invalid_regex_reports_an_error_instead_of_matching() {
+    fn invalid_regex_reports_an_error_instead_of_asking() {
         let mut panel = RedactionStudioPanel::new();
         panel.use_regex = true;
         panel.search_query = "[unclosed".to_string();
-        search(&mut panel);
-        assert!(panel.matches.is_empty());
+        let rx = ask(&mut panel);
+        assert!(rx.try_recv().is_err(), "a pattern that cannot match was sent");
         assert!(panel.error_msg.is_some());
     }
 
     #[test]
-    fn an_empty_query_clears_previous_results() {
+    fn an_empty_query_clears_previous_results_and_asks_nothing() {
         let mut panel = RedactionStudioPanel::new();
         panel.search_query = "acme".to_string();
-        search(&mut panel);
-        assert!(!panel.matches.is_empty());
+        ask(&mut panel);
+        panel.found(panel.search, one_found("ACME"));
+        assert_eq!(panel.matches.len(), 1);
 
         panel.search_query = "   ".to_string();
-        search(&mut panel);
+        let rx = ask(&mut panel);
         assert!(panel.matches.is_empty());
+        assert!(rx.try_recv().is_err(), "an empty query was sent");
+    }
+
+    /// **An answer to a search the reader has typed past is dropped.** The worker answers
+    /// in order, so the answer to `ac` can arrive after `acme` was asked, and showing it
+    /// would list matches for a query nobody is looking at.
+    #[test]
+    fn an_answer_to_an_earlier_search_is_dropped() {
+        let mut panel = RedactionStudioPanel::new();
+        panel.search_query = "ac".to_string();
+        ask(&mut panel);
+        let earlier = panel.search;
+        panel.search_query = "acme".to_string();
+        ask(&mut panel);
+
+        panel.found(earlier, one_found("ac"));
+        assert!(panel.matches.is_empty(), "the answer to `ac` was shown for `acme`");
+        panel.found(panel.search, one_found("ACME"));
+        assert_eq!(panel.matches.len(), 1, "the answer to `acme` was not shown");
+        assert!(panel.matches[0].checked, "a match arrives unchecked");
     }
 }

@@ -34,6 +34,7 @@
   "busy_applying": "Applying it…",
   "busy_auditing": "Checking it against PDF/UA…",
   "busy_exporting": "Writing the pages out…",
+  "busy_finding": "Searching the document…",
   "busy_opening": "Opening the document…",
   "busy_rendering": "Taking the snapshot…",
   "busy_retagging": "Rearranging the structure tree…",

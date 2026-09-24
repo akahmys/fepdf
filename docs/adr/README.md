@@ -160,3 +160,4 @@ quietly wrong — which is the failure this log exists to make visible.
 | 0093 | [The protocol's tables enumerate 137 failure conditions, and its prose says 136](0093-the-protocols-tables-enumerate-137-failure-conditions.md) | Corrects 0092 |
 | 0094 | [The auditor reads the ingested document, so ingestion answers checkpoint 06](0094-the-auditor-reads-the-ingested-document-so-ingestion-answers-checkpoint-06.md) | Bounds 0092, rests on 0013 |
 | 0095 | [A failure condition citing a document this copy lacks is not implemented from memory of it](0095-a-condition-citing-a-document-this-copy-lacks-is-not-implemented-from-memory.md) | Continues 0092, beside 0094 |
+| 0096 | [A run reads its codes by the route extraction reads them](0096-a-run-reads-its-codes-by-the-route-extraction-reads-them.md) | |

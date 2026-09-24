@@ -5,8 +5,13 @@
 //! with it: 36 of those are Type 3 fonts, which have no program by definition, and the
 //! field it read is the one `initialize_lifecycle` deliberately releases once the engine
 //! has patched the program into `reconstructed_data`. Read through `program`, 291 of the
-//! 299 fonts that are not Type 3 answer, and the eight that do not are the ones their
+//! 299 fonts that are not Type 3 answered, and the eight that did not were the ones their
 //! documents never embedded.
+//!
+//! **Re-derived 2026-09-24 over ten samples: 288 of 299**, beside 36 Type 3
+//! (`cargo run --release -p fepdf-model --example font_program_census`). The first figure
+//! was taken once and computed nowhere, over a corpus that counted `constitution.pdf`
+//! twice and is not in the repository to be counted again (ROADMAP W-E3b).
 
 use fepdf_model::{Handle, Object, document::Document, ingest::IngestionOptions};
 

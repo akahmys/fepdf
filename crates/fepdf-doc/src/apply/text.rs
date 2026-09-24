@@ -49,10 +49,10 @@ pub struct RunInfo {
     /// What each of the run's codes reads, in order. [`Self::text`] is these run together.
     ///
     /// **A cut names a code, not a character**, because reading and writing are not always
-    /// inverses: a code the font does not map reads as nothing, and `unicode_16.pdf` loses
-    /// 60 of 348 that way. This is what turns a place in the text into a place among the
-    /// codes — and an empty piece is an honest report that a glyph is drawn there which
-    /// this engine cannot name.
+    /// inverses: a code the font does not map reads as nothing — 4 of the 3,080 codes on
+    /// the first five pages of `fy05.pdf` (2026-09-24, `--example unread_codes`). This is
+    /// what turns a place in the text into a place among the codes — and an empty piece is
+    /// an honest report that a glyph is drawn there which this engine cannot name.
     pub pieces: Vec<String>,
     /// How far it advances the text, on the page, as a vector from [`Self::origin`].
     ///
@@ -80,6 +80,45 @@ pub struct RunInfo {
     /// renderer over the sample documents, which is the only reading of it that was not
     /// written by the same code.
     pub origin: (f64, f64),
+    /// Where each of its codes is drawn, one to a piece of [`Self::pieces`].
+    ///
+    /// **What turns a match into a box round the match** rather than round the run it
+    /// fell in. A run of 68 characters that holds a four-letter word is 68 characters
+    /// wide, and a redaction drawn to that width takes the other 64 with it.
+    pub places: Vec<Place>,
+}
+
+/// Where one code of a run is drawn, on the page.
+///
+/// The run's own box cut down to one code: it starts at [`Self::origin`], runs along
+/// [`Self::advance`], and rises by the run's [`RunInfo::rise`].
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Place {
+    /// Where the code starts, in the default user space.
+    pub origin: (f64, f64),
+    /// How far it advances, as a vector from [`Self::origin`].
+    pub advance: (f64, f64),
+}
+
+impl RunInfo {
+    /// The four corners of the box round codes `from..to`, going round it, or `None`
+    /// when the run has no such codes.
+    ///
+    /// **Corners and not a rectangle**, for the reason [`Self::advance`] is a vector: a
+    /// run set at an angle has no upright box, and whoever wants one can take the bounds
+    /// of these.
+    #[must_use]
+    pub fn corners(&self, from: usize, to: usize) -> Option<[(f64, f64); 4]> {
+        let first = self.places.get(from)?;
+        let last = self.places.get(to.checked_sub(1)?)?;
+        if to <= from {
+            return None;
+        }
+        let start = first.origin;
+        let end = (last.origin.0 + last.advance.0, last.origin.1 + last.advance.1);
+        let up = |at: (f64, f64)| (at.0 + self.rise.0, at.1 + self.rise.1);
+        Some([start, end, up(end), up(start)])
+    }
 }
 
 /// Every run on `page`, in the order the content stream draws them.
@@ -105,6 +144,7 @@ pub fn runs_of_page(doc: &Document, page: usize) -> PdfResult<Vec<RunInfo>> {
             origin: run.origin,
             advance: run.box_advance(),
             rise: run.box_rise(),
+            places: run.places.iter().map(|place| run.on_page(*place)).collect(),
         })
         .collect())
 }
@@ -370,17 +410,18 @@ fn font_named(
 }
 
 /// What a run's bytes read, through the font it is set in.
+///
+/// **By the route extraction reads by**, [`FontResource::to_unicode`]: `/ToUnicode`, then
+/// the encoding, then the CID collection. This read `unified_map` instead — the table a
+/// `/ToUnicode` is *written* from — which has no entry for most of what a Japanese page
+/// draws without one: 1,721 of 3,080 codes on the first five pages of `fy05.pdf` read as
+/// nothing, and 会計検査院は could not be searched for because は was one of them. It is
+/// also where the time went: the table was turned round for every string, and reading
+/// every page of `fy05.pdf` took 37 s. `cargo run --release --example unread_codes` and
+/// `--example find_timing` re-derive both.
 fn decode(font: &FontResource, bytes: &[u8]) -> Vec<String> {
     let width = if font.is_cid_keyed { 2 } else { 1 };
-    let by_code: BTreeMap<u32, &str> =
-        font.unified_map.iter().map(|(text, code)| (*code, text.as_str())).collect();
-    bytes
-        .chunks(width)
-        .map(|chunk| {
-            let code = chunk.iter().fold(0u32, |acc, byte| (acc << 8) | u32::from(*byte));
-            by_code.get(&code).copied().unwrap_or_default().to_string()
-        })
-        .collect()
+    bytes.chunks(width).map(|chunk| font.to_unicode(chunk).unwrap_or_default()).collect()
 }
 
 /// `text`, in the codes this font draws it by.
@@ -433,35 +474,76 @@ pub fn apply_split_run(doc: &Document, page: usize, run: usize, after: usize) ->
         ));
     }
     // **The codes are cut, not the characters.** Reading a run and writing it back is not
-    // always the identity — `decode` has no character for a code the font does not map,
-    // and `unicode_16.pdf` loses 60 of 348 that way — so a cut that re-encoded would take
+    // always the identity — `decode` has no character for a code the font does not map —
+    // so a cut that re-encoded would take
     // those glyphs off the page as a side effect of moving a boundary. Cutting the bytes
     // asks nothing of the reading, and `RunInfo::pieces` is what turns a place in the text
     // into a place among the codes.
     let width = if target.font.is_cid_keyed { 2 } else { 1 };
-    let at = after * width;
-    let head = bytes::Bytes::copy_from_slice(&target.codes[..at]);
-    let tail = bytes::Bytes::copy_from_slice(&target.codes[at..]);
-
-    // The first of the run's strings becomes the head, and a second show-text operator
-    // carrying the tail goes after the operator that drew it. The run's other strings, if
-    // a `TJ` drew it as several, are emptied into the head above.
-    let mut out = Vec::with_capacity(data.len() + 16);
-    let mut written = false;
-    for (index, token) in tokens.iter().enumerate() {
-        if target.strings.contains(&index) {
-            let replacement = if written { bytes::Bytes::new() } else { head.clone() };
-            written = true;
-            Token::String(replacement).write_to(&mut out);
+    let (mut head, mut tail) = (Vec::new(), Vec::new());
+    let mut placed = 0;
+    for element in elements_of(&tokens, target) {
+        let Token::String(bytes) = element else {
+            // A number moves the pen between the strings either side of it, so it stays
+            // between them: in the head until the tail has begun.
+            if tail.is_empty() {
+                head.push(element);
+            } else {
+                tail.push(element);
+            }
             continue;
+        };
+        let room = (after.saturating_sub(placed) * width).min(bytes.len());
+        placed += room / width;
+        if room > 0 {
+            head.push(Token::String(bytes.slice(..room)));
         }
-        token.write_to(&mut out);
-        if index == target.operator {
-            Token::String(tail.clone()).write_to(&mut out);
-            Token::Keyword("Tj".to_string()).write_to(&mut out);
+        if room < bytes.len() {
+            tail.push(Token::String(bytes.slice(room..)));
+        }
+    }
+
+    // The run becomes two `TJ`s, each holding its own strings and the numbers between
+    // them in the order the one did. Collapsing the strings into one and leaving the
+    // numbers where they stood applied every number of the array between the halves, and
+    // moved the tail of `[(Invoice ACME 2026) -700 (total)] TJ` 8.4 points to the right.
+    let mut out = Vec::with_capacity(data.len() + 16);
+    for (index, token) in tokens.iter().enumerate() {
+        if index == target.start {
+            write_shown(&mut out, &head);
+            write_shown(&mut out, &tail);
+        } else if index < target.start || index > target.operator {
+            token.write_to(&mut out);
         }
     }
     write_page_content(doc, page, out)
+}
+
+/// What a show-text operator shows, in order: its strings, and for a `TJ` the numbers
+/// between them. A string is handed back as [`Token::String`] whatever it was written as,
+/// because what is kept is its bytes.
+fn elements_of(tokens: &[Token], run: &Run) -> Vec<Token> {
+    let array = matches!(tokens.get(run.operator), Some(Token::Keyword(op)) if op == "TJ");
+    tokens
+        .get(run.start..run.operator)
+        .unwrap_or_default()
+        .iter()
+        .filter_map(|token| match token {
+            Token::String(bytes) | Token::Hex(bytes) => Some(Token::String(bytes.clone())),
+            Token::Integer(_) | Token::Real(_) if array => Some(token.clone()),
+            _ => None,
+        })
+        .collect()
+}
+
+/// Writes `elements` as one `TJ`.
+fn write_shown(out: &mut Vec<u8>, elements: &[Token]) {
+    Token::LeftArray.write_to(out);
+    for element in elements {
+        element.write_to(out);
+    }
+    Token::RightArray.write_to(out);
+    Token::Keyword("TJ".to_string()).write_to(out);
 }
 
 /// Takes run `run` off `page` altogether.
@@ -547,16 +629,18 @@ pub fn apply_merge_runs(doc: &Document, page: usize, run: usize) -> PdfResult<()
     // the face changes only at a `Tf`, and a `Tf` between them is something standing
     // between them — so the second run's codes mean in the first what they meant on their
     // own.
-    let joined = bytes::Bytes::from([first.codes.clone(), second.codes.clone()].concat());
+    //
+    // The numbers of a `TJ` go with them, in order. Joining the codes into one string
+    // dropped the second run's numbers and moved the first's to after the second's glyphs.
+    let joined = [elements_of(&tokens, first), elements_of(&tokens, second)].concat();
 
     let mut out = Vec::with_capacity(data.len());
-    let mut written = false;
     for (index, token) in tokens.iter().enumerate() {
-        if first.strings.contains(&index) {
-            let replacement = if written { bytes::Bytes::new() } else { joined.clone() };
-            written = true;
-            Token::String(replacement).write_to(&mut out);
-        } else if index < second.start || index > second.operator {
+        if index == first.start {
+            write_shown(&mut out, &joined);
+        } else if (index < first.start || index > first.operator)
+            && (index < second.start || index > second.operator)
+        {
             token.write_to(&mut out);
         }
     }
@@ -1001,6 +1085,18 @@ impl Run {
         (placed[0] * self.placement.advance, placed[1] * self.placement.advance)
     }
 
+    /// Where the code at `place` is drawn, on the page.
+    fn on_page(&self, (along, width): (f64, f64)) -> Place {
+        let placed = (self.placement.ctm * self.placement.matrix).as_coeffs();
+        Place {
+            origin: (
+                placed[0].mul_add(along, self.origin.0),
+                placed[1].mul_add(along, self.origin.1),
+            ),
+            advance: (placed[0] * width, placed[1] * width),
+        }
+    }
+
     /// The box's other edge, on the page: the font size along the text matrix's own y.
     fn box_rise(&self) -> (f64, f64) {
         let placed = (self.placement.ctm * self.placement.matrix).as_coeffs();
@@ -1149,4 +1245,166 @@ impl Run {
         }
         Token::Real(-skipped * 1000.0 / scaled).write_to(out);
     }
+}
+
+/// How far apart two runs may be and still be one piece of text, as a fraction of the em.
+///
+/// **The constant is not load-bearing, which is why it can be one.** Measured over the
+/// samples 2026-09-24, the distribution of `|next.origin − (origin + advance)| / em` is
+/// bimodal: `constitution.pdf` is 93% contiguous at 0.05 em and still 93% at 0.33, and
+/// `volvo_xc90.pdf` 93% and 95%. Runs are either carried along by the text matrix or put
+/// somewhere else entirely, and nothing sits in between — so the threshold is set well
+/// below a word space and nothing hinges on where exactly.
+const SAME_TEXT: f64 = 0.05;
+
+/// Which runs one match covers, and which codes of each.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MatchedRun {
+    /// The run's index among the page's show-text operators.
+    pub run: usize,
+    /// The half-open range of that run's [`RunInfo::pieces`] the match covers.
+    pub from: usize,
+    /// The end of that range.
+    pub to: usize,
+}
+
+/// Where a string is drawn on a page, across the runs that draw it.
+///
+/// **A run is not a word.** Measured over the samples 2026-09-24, the median run is one
+/// character in `constitution.pdf`, `fugaku.pdf` and `volvo_xc90.pdf` — the last two are
+/// 100% single-character — and 68 in `intel_sdm.pdf`. A caller that can only name one run
+/// cannot name 日本国憲法, which is five of them.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TextMatch {
+    /// The runs it covers, in the order the page draws them.
+    pub runs: Vec<MatchedRun>,
+}
+
+/// Whether `next` carries on from `run` — the text matrix having taken it there.
+///
+/// **Not "the same line", which is a different question.** A producer that places every
+/// glyph with its own `Td` leaves no trace of a line in the advances, and two of the
+/// samples are exactly that: `fugaku.pdf` sets 富嶽百景 vertically with each character its
+/// own run, stepping the origin down by an em while the font's advance points across. Its
+/// advance is not wrong — the page simply does not use it — so this answers 0% there, and
+/// says so rather than guessing a line from the geometry.
+fn carries_on(run: &RunInfo, next: &RunInfo) -> bool {
+    let em = run.rise.0.hypot(run.rise.1);
+    if em <= 0.0 {
+        return false;
+    }
+    let end = (run.origin.0 + run.advance.0, run.origin.1 + run.advance.1);
+    (next.origin.0 - end.0).hypot(next.origin.1 - end.1) / em < SAME_TEXT
+}
+
+/// A stretch of text the text matrix carries through, as one string with the place each
+/// of its characters came from.
+///
+/// **What a search runs over, whatever the search is.** [`find_on_page`] looks for a
+/// string; a window may want a pattern, or to ignore case — and each of those is a way of
+/// choosing a range of [`Self::text`], after which [`Self::matched`] says what that range
+/// is on the page. The matching stays with whoever knows what they are matching.
+#[derive(Debug, Clone, Default)]
+pub struct Stretch {
+    /// What it reads.
+    pub text: String,
+    /// Where each character of [`Self::text`] starts in it, and its run and code.
+    ///
+    /// **A code, not a character.** A code reads as zero characters when the font does
+    /// not map it and as several when it maps to a ligature, so the two are not in step
+    /// and a range of the text has to be handed back in codes.
+    at: Vec<(usize, usize, usize)>,
+}
+
+impl Stretch {
+    /// The runs and codes that draw the bytes `range` of [`Self::text`].
+    ///
+    /// A character is in the match when it starts inside the range, so a range that does
+    /// not fall on character boundaries still names whole codes.
+    #[must_use]
+    pub fn matched(&self, range: std::ops::Range<usize>) -> TextMatch {
+        let at: Vec<(usize, usize)> = self
+            .at
+            .iter()
+            .filter(|(byte, _, _)| range.contains(byte))
+            .map(|&(_, run, code)| (run, code))
+            .collect();
+        TextMatch { runs: covering(&at) }
+    }
+}
+
+/// The stretches of text `runs` make, in the order the page draws them.
+#[must_use]
+pub fn stretches_of(runs: &[RunInfo]) -> Vec<Stretch> {
+    chains_of(runs)
+        .into_iter()
+        .map(|chain| {
+            let mut stretch = Stretch::default();
+            for index in chain {
+                for (code, piece) in runs[index].pieces.iter().enumerate() {
+                    for character in piece.chars() {
+                        stretch.at.push((stretch.text.len(), index, code));
+                        stretch.text.push(character);
+                    }
+                }
+            }
+            stretch
+        })
+        .collect()
+}
+
+/// The runs of `page` grouped into the stretches the text matrix carries through.
+fn chains_of(runs: &[RunInfo]) -> Vec<Vec<usize>> {
+    let mut chains: Vec<Vec<usize>> = Vec::new();
+    for (index, run) in runs.iter().enumerate() {
+        match chains.last_mut() {
+            Some(chain) if chain.last().is_some_and(|&last| carries_on(&runs[last], run)) => {
+                chain.push(index);
+            }
+            Some(_) | None => chains.push(vec![index]),
+        }
+    }
+    chains
+}
+
+/// Finds `needle` on `page`, across the runs that draw it.
+///
+/// **What a reader asks for is a word, and what the vocabulary offered was a run.**
+/// `Operation::EditRun` names one run, and on `constitution.pdf` a run is one character:
+/// 日本国憲法 is five of them, so there was no way to say it. This is the reading half —
+/// where the string is — and it answers in codes, which is what an edit would have to
+/// rewrite.
+///
+/// **It finds nothing across a break in the text matrix**, which is the honest answer and
+/// not a complete one: where a producer places every glyph itself there is no chain to
+/// walk, and 0% of `fugaku.pdf`'s pairs are contiguous against 93% of
+/// `constitution.pdf`'s. Matching a line that was laid out rather than advanced is a
+/// different question and is not answered here.
+///
+/// # Errors
+/// Fails when the page is not there or its content cannot be read.
+pub fn find_on_page(doc: &Document, page: usize, needle: &str) -> PdfResult<Vec<TextMatch>> {
+    if needle.is_empty() {
+        return Ok(Vec::new());
+    }
+    let runs = runs_of_page(doc, page)?;
+    let mut found = Vec::new();
+    for stretch in stretches_of(&runs) {
+        for (at, _) in stretch.text.match_indices(needle) {
+            found.push(stretch.matched(at..at + needle.len()));
+        }
+    }
+    Ok(found)
+}
+
+/// The (run, code) pairs a match landed on, as one range per run.
+fn covering(at: &[(usize, usize)]) -> Vec<MatchedRun> {
+    let mut out: Vec<MatchedRun> = Vec::new();
+    for &(run, code) in at {
+        match out.last_mut() {
+            Some(last) if last.run == run => last.to = code + 1,
+            Some(_) | None => out.push(MatchedRun { run, from: code, to: code + 1 }),
+        }
+    }
+    out
 }

@@ -163,7 +163,7 @@ compiles is now roughly fifteen times a warm run rather than four.
     nothing checked
     ([ADR-0043](docs/adr/0043-the-scene-repeats-and-the-rasteriser-does-not.md)). **Its
     sample is load-bearing**: written against `print_sample.pdf` it passed on the GPU six
-    runs of six, because that page happens not to flake; on `sample.pdf` the GPU form fails
+    runs of six, because that page happens not to flake; on `constitution.pdf` the GPU form fails
     3 in 6 and the CPU form passes 8 in 8. Needs the `render` feature, which
     `cargo test --workspace` supplies by unification, and about 18 seconds.
 - **`fepdf-doc`**:
@@ -181,7 +181,7 @@ compiles is now roughly fifteen times a warm run rather than four.
 
 Six files, each damaging one part of ISO 32000-2 clause 7.5, are the reader's
 acceptance test; `docs/adr/0003` and `ROADMAP.md` both quote results measured against
-them. They are generated rather than committed, from `samples/sample.pdf`:
+them. They are generated rather than committed, from `samples/constitution.pdf`:
 
 ```bash
 python3 scripts/test/make_malformed.py
@@ -228,7 +228,7 @@ pixels at a delta of 222. Where a repeatable image is needed rather than a toler
 `publish render --cpu` gives one:
 
 ```bash
-cargo run -p fepdf-render --example render_determinism -- samples/sample.pdf 1 8
+cargo run -p fepdf-render --example render_determinism -- samples/constitution.pdf 1 8
 ```
 
 **A baseline is refreshed only with evidence that the new output is the better one.**

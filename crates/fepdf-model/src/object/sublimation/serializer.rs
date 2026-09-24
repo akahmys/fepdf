@@ -404,7 +404,7 @@ mod clipping {
     #[test]
     fn clipping_without_painting_does_not_grow() {
         // `W n` came back as `W n n`, and gained one more `n` on every pass:
-        // samples/sample.pdf grew by exactly 52 bytes each time, 26 clips at two bytes.
+        // samples/constitution.pdf grew by exactly 52 bytes each time, 26 clips at two bytes.
         assert_eq!(operators("q 10 10 100 100 re W n Q"), ["q", "re", "W", "n", "Q"]);
     }
 

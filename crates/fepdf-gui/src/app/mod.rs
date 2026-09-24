@@ -536,16 +536,17 @@ impl FepdfApp {
                     if let Some(runs) = runs {
                         self.page_runs.insert(index, runs);
                     }
+                    // A page extraction could not read has no spans, and nothing stands in
+                    // for them: words laid onto an invented grid could be selected and
+                    // redacted, and a reader cannot tell invented geometry from measured.
                     if let Some(spans) = spans {
-                        self.page_spans.insert(index, spans);
-                    } else if let Some(text) = self.raw_texts.get(&index)
-                        && let Some(layout) = self.page_layouts.get(index)
-                    {
-                        let size = layout.rect.size();
-                        let spans = SelectionManager::generate_spans_for_page(text, size.x, size.y);
                         self.page_spans.insert(index, spans);
                     }
 
+                    ctx.request_repaint();
+                }
+                WorkerResponse::Found { search, found } => {
+                    self.redaction_studio_panel.found(search, found);
                     ctx.request_repaint();
                 }
                 WorkerResponse::Busy { key } => {

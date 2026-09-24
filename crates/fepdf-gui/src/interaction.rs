@@ -98,67 +98,6 @@ impl SelectionManager {
         egui::pos2(x, y)
     }
 
-    /// Generates high-fidelity simulated TextSpans from raw extracted text of the page.
-    /// Distributes lines and words evenly inside the page boundaries for sub-pixel hit testing.
-    pub fn generate_spans_for_page(text: &str, page_w: f32, page_h: f32) -> Vec<TextSpan> {
-        let mut spans = Vec::new();
-        let lines: Vec<&str> = text.lines().collect();
-        if lines.is_empty() {
-            return spans;
-        }
-
-        // Layout parameters
-        let top_margin = 50.0f32;
-        let bottom_margin = 50.0f32;
-        let left_margin = 50.0f32;
-        let right_margin = 50.0f32;
-
-        let available_h = page_h - top_margin - bottom_margin;
-        let available_w = page_w - left_margin - right_margin;
-
-        let line_height = (available_h / lines.len() as f32).min(24.0);
-
-        for (row_idx, line) in lines.iter().enumerate() {
-            if line.trim().is_empty() {
-                continue;
-            }
-
-            // PDF coordinates: Y starts at 0 at bottom
-            let line_y = (row_idx as f32).mul_add(-line_height, page_h - top_margin);
-
-            let words: Vec<&str> = line.split_whitespace().collect();
-            if words.is_empty() {
-                continue;
-            }
-
-            let word_gap = 6.0f32;
-            let total_gap_w = (words.len() - 1) as f32 * word_gap;
-            let total_word_chars: usize = words.iter().map(|w| w.len()).sum();
-
-            let char_w = if total_word_chars > 0 {
-                (available_w - total_gap_w) / total_word_chars as f32
-            } else {
-                10.0
-            };
-
-            let mut current_x = left_margin;
-
-            for word in words {
-                let word_w = word.len() as f32 * char_w;
-                let rect = egui::Rect::from_min_size(
-                    egui::pos2(current_x, line_y - line_height * 0.8),
-                    egui::vec2(word_w, line_height),
-                );
-
-                spans.push(TextSpan { text: word.to_string(), rect });
-
-                current_x += word_w + word_gap;
-            }
-        }
-
-        spans
-    }
-
     /// Handles mouse dragging to select text spans on a page.
     pub fn handle_drag(
         &mut self,

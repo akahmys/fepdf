@@ -324,8 +324,13 @@ fn deleting_a_run_that_is_not_there_is_an_error() {
 
 /// A page drawing three runs with `between` standing between the first two.
 fn page_with_between(between: &str) -> PdfDocument {
-    let content =
-        format!("BT /F1 24 Tf 1 0 0 1 40 700 Tm (ALPHA) Tj {between} (BETA) Tj (GAMMA) Tj ET");
+    page_with_content(&format!(
+        "BT /F1 24 Tf 1 0 0 1 40 700 Tm (ALPHA) Tj {between} (BETA) Tj (GAMMA) Tj ET"
+    ))
+}
+
+/// A page whose content stream is `content`, set in Helvetica as `/F1`.
+fn page_with_content(content: &str) -> PdfDocument {
     let bodies = [
         "<< /Type /Catalog /Pages 2 0 R >>".to_string(),
         "<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_string(),
@@ -385,6 +390,62 @@ fn a_run_that_is_cut_and_joined_is_the_run_it_was() {
         .map(|r| r.text.clone())
         .collect();
     assert_eq!(after, before, "the page did not come back to the runs it had");
+}
+
+/// A page showing `content` inside one text object.
+fn page_showing(content: &str) -> PdfDocument {
+    page_with_content(&format!("BT /F1 24 Tf 1 0 0 1 40 700 Tm {content} ET"))
+}
+
+/// Where the renderer draws each string, in order: a `TJ` arrives as one call a string.
+fn strings_drawn_at(doc: &PdfDocument) -> Vec<(f64, f64)> {
+    let mut recorder = Recorder::new();
+    doc.render_page(0, &mut recorder, Affine::IDENTITY).expect("the page interprets");
+    recorder.device_text_origins()
+}
+
+/// **A cut keeps a `TJ`'s numbers between the glyphs they stood between.**
+///
+/// The cut used to put every code in the first string and leave the numbers where they
+/// were, so the whole array's kerning landed between the two halves: the D below moved
+/// 16.8 points right and the C lost the 700 it was kerned by. Every run of a `Tj` has no
+/// numbers, which is why the fixtures that drew runs with `Tj` could not see it.
+#[test]
+fn a_cut_keeps_the_kerning_of_the_run_it_cuts() {
+    let showing = "[(AB) -700 (CD)] TJ";
+    let before = strings_drawn_at(&page_showing(showing));
+    assert_eq!(before.len(), 2, "the fixture draws AB and CD");
+
+    let mut cut = page_showing(showing);
+    cut.apply(Operation::SplitRun { page: 0, run: 0, after: 3 }).expect("the cut applies");
+    let after = strings_drawn_at(&cut);
+    assert_eq!(after.len(), 3, "AB, C and D are not three strings: {after:?}");
+    assert!(
+        (after[1].0 - before[1].0).abs() < 0.01,
+        "the C was drawn at {:?} and after the cut at {:?}",
+        before[1],
+        after[1]
+    );
+}
+
+/// **A join keeps both runs' numbers, in the order they came.**
+///
+/// It used to join the codes into one string, which dropped the second run's numbers
+/// altogether and moved the first's to after the second's glyphs.
+#[test]
+fn a_join_keeps_the_kerning_of_both_runs() {
+    let showing = "[(AB) -700 (CD)] TJ [(EF) -500 (GH)] TJ";
+    let before = strings_drawn_at(&page_showing(showing));
+    assert_eq!(before.len(), 4, "the fixture draws four strings");
+
+    let mut joined = page_showing(showing);
+    joined.apply(Operation::MergeRuns { page: 0, run: 0 }).expect("the join applies");
+    assert_eq!(runs_of_page(joined.inner(), 0).expect("it lists").len(), 1, "not one run");
+    let after = strings_drawn_at(&joined);
+    assert_eq!(after.len(), before.len(), "the join drew {after:?} where {before:?} was");
+    for (nth, (was, is)) in before.iter().zip(&after).enumerate() {
+        assert!((was.0 - is.0).abs() < 0.01, "string {nth} moved from {was:?} to {is:?}");
+    }
 }
 
 /// **An operator between two runs is named, not stepped over.**

@@ -248,7 +248,7 @@ done
 # The matrix, on files small enough to run it on. Three switches: whether objects are
 # packed, which handler encrypts, and whether the file is signed.
 echo "--- the combinations, on two samples ---"
-for src in samples/sample.pdf samples/fugaku.pdf; do
+for src in samples/constitution.pdf samples/fugaku.pdf; do
     check loose            "$src" --no-obj-stm --
     check packed+password  "$src" --encrypt-password pw -- --password pw
     check loose+password   "$src" --no-obj-stm --encrypt-password pw -- --password pw
@@ -286,12 +286,12 @@ sign_check() {
     printf '  %-14s %-22s %s bytes, unchanged, signature verifies\n' \
         "$(basename "$src" .pdf)" "[$label]" "$(wc -c < "$WORK/got" | tr -d ' ')"
 }
-sign_check signed       samples/sample.pdf
-sign_check signed+loose samples/sample.pdf --no-obj-stm
+sign_check signed       samples/constitution.pdf
+sign_check signed+loose samples/constitution.pdf --no-obj-stm
 
 # The check has to be able to fail. Comparing one sample's text against another's must
 # be caught, or the comparison above proves nothing.
-read_text samples/sample.pdf > "$WORK/want"
+read_text samples/constitution.pdf > "$WORK/want"
 read_text samples/fugaku.pdf > "$WORK/got"
 if diff -q "$WORK/want" "$WORK/got" >/dev/null; then
     echo "  THE COMPARISON CANNOT TELL TWO DIFFERENT DOCUMENTS APART"; FAILED=1

@@ -211,7 +211,7 @@ fn resolve_stream_extent(
         // Nothing is recorded: an indirect /Length is conforming, and scanning to
         // `endstream` is how it is meant to be read on a single pass. Reporting this
         // made every stream of a clean file look like a departure — 31 of them in
-        // `samples/sample.pdf`, whose declared lengths all agree with the scan.
+        // `samples/constitution.pdf`, whose declared lengths all agree with the scan.
         (DeclaredLength::Indirect, Some(found)) => found,
         (DeclaredLength::Absent, Some(found)) => {
             decisions.push(Decision::repaired(
@@ -1016,7 +1016,7 @@ mod tests {
         // report: the file departed from nothing.
         //
         // This asserted the opposite until measured. All 31 streams in
-        // `samples/sample.pdf` carry an indirect /Length, so a conforming file reported
+        // `samples/constitution.pdf` carry an indirect /Length, so a conforming file reported
         // 31 departures and `DecisionLog::is_conforming` returned false for it. Every
         // one of those declared lengths agrees with the scan
         // (`examples/length_crosscheck.rs`).

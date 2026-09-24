@@ -280,23 +280,12 @@ impl VelloBackend {
         th: f64,
         is_vertical: bool,
     ) -> f64 {
-        let char_width = f64::from(glyph.width) / 1000.0 * size;
-        let advance = if !is_vertical {
-            let mut adv = (char_width + tc) * th;
-            if glyph.char_code == 0x20 {
-                adv = tw.mul_add(th, adv);
-            }
-            adv
-        } else {
-            // In vertical writing mode, Tz (th) applies to the y dimension.
-            // Spacing Tc and Tw are subtracted from the natively negative vertical advance.
-            let mut adv = (char_width * th) - tc;
-            if glyph.char_code == 0x20 {
-                adv -= tw;
-            }
-            adv
-        };
-        current_advance + advance
+        // **9.4.4 lives in `fepdf-content`**, beside the glyph and the text state it is
+        // about. It was written out here and summed without `Tc`, `Tw` or `Tz` in the two
+        // extraction backends, so the renderer and the extractor disagreed about where
+        // the next run starts by one space per space (ROADMAP W-E3e).
+        let state = TextState { tc, tw, th, is_vertical };
+        current_advance + fepdf_content::glyph_advance(glyph, size, &state)
     }
 }
 
@@ -798,7 +787,7 @@ impl RenderBackend for VelloBackend {
         size: f64,
         transform: kurbo::Affine,
         text_state: TextState,
-        _op_index: usize,
+        _op_index: Option<usize>,
     ) {
         let data_arc = self.state.font_data.clone();
         let data_ref = data_arc.as_deref().map_or(&[][..], |v| v.as_slice());

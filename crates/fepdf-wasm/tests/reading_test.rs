@@ -20,7 +20,7 @@ fn sample(name: &str) -> Option<PdfDocument> {
 
 #[test]
 fn a_page_yields_its_text() {
-    let Some(doc) = sample("sample.pdf") else { return };
+    let Some(doc) = sample("constitution.pdf") else { return };
     let text = text_of(&doc, 0).expect("page 1 extracts");
     assert!(!text.trim().is_empty(), "a page with text on it came back empty");
 }
@@ -29,7 +29,7 @@ fn a_page_yields_its_text() {
 /// answers and a caller acting on the first cannot tell.
 #[test]
 fn a_page_that_is_not_there_is_an_error() {
-    let Some(doc) = sample("sample.pdf") else { return };
+    let Some(doc) = sample("constitution.pdf") else { return };
     assert!(text_of(&doc, 9_999).is_err(), "a page past the end reported success");
 }
 

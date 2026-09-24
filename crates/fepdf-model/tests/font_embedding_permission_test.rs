@@ -11,6 +11,15 @@
 //! 171 saying nothing, of which 153 are CFF-based `FontFile3`, a format with no `OS/2`
 //! table at all, and 18 are TrueType subsets whose producer dropped it.
 //!
+//! **Re-derived 2026-09-24 over ten samples: 230 programs** — 37 editable, 23
+//! installable, 7 preview-and-print, 0 restricted, 163 saying nothing
+//! (`cargo test -p fepdf-model --test font_embedding_permission_test the_tally_is_printable
+//! -- --nocapture`). The 2026-09-19 corpus counted `constitution.pdf` twice, under a
+//! second name, and has since gained two documents; `samples/` is untracked, so the corpus
+//! the first figure was taken over cannot be rebuilt to say which change moved what
+//! (ROADMAP W-E3b). **Seven refusing an editable embedding** is the figure the ladder
+//! rests on, and it held.
+//!
 //! **The first run of this measurement was wrong and said 1 of 235.** It read the stream
 //! as the arena holds it, which is still `/FlateDecode`d; a zlib header is not an SFNT
 //! and every table tag came out as noise. The check that caught it was printing the tags.

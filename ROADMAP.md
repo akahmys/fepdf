@@ -761,7 +761,7 @@ Independent of A and B, and the area where a partial implementation is most harm
 
 ### The corpus is now three files, and that is why the defects surfaced
 
-`scripts/test/make_encrypted.py` builds RC4 fixtures from `samples/sample.pdf`,
+`scripts/test/make_encrypted.py` builds RC4 fixtures from `samples/constitution.pdf`,
 implementing Algorithms 1–5 from the standard with nothing but `hashlib`. Generating
 them with fepdf's own cryptography would have tested it against itself; PDFKit reads
 both fixtures and extracts the same 12,120 characters as the unencrypted source, so the
@@ -2406,48 +2406,93 @@ Annotations, which are the largest single row of the comparison:
 
 Content editing, under D-1:
 
-- [ ] **W-E3a — `TextSpan.op_index` carries nothing on the default path.** Measured on
-      `samples/constitution.pdf`: with `active_refinement` off, 1007 spans carry 1007
-      distinct operator indices — 4, 13, 23, 30, … — and with it **on, which is the
-      default, all 1007 carry 0**. A caller that uses the field to locate the operator that
-      drew a span is given the same answer for every one of them.
+- [x] **W-E3a — `TextSpan.op_index` carried nothing on the default path, and `None` is
+      what it should have said.** Re-derived 2026-09-24 on `samples/constitution.pdf`:
+      1,007 spans carrying **1,007 distinct** indices with `active_refinement` off, and
+      **one** — zero, for all of them — with it on, which is the default.
+      `cargo run --release --example op_index_probe` re-derives it.
 
-      Redaction is not affected and that is the clue: it reaches the same
-      `CollectorBackend` by a path where the indices are real, and a rectangle over one
-      corner scrubs two runs rather than all or none. So the field is right in one place
-      and empty in another, which is worse than wrong everywhere.
+      **Two entry points, and only one of them sets the field.** `execute_raw` sublimates
+      the bytes and stamps each command with the operator that produced it;
+      `execute_commands` takes a pre-sublimated list and never touched it, so it kept the
+      `0` it was constructed with.
 
-      **W-E3 identifies a run by the text it reads rather than by this index**, which was
-      decided before this was measured and is the reason the measurement did not stop it.
-      Fixing the field means giving the sublimated command list an index that corresponds
-      to the token stream — which is precisely the divergence
+      **The field is now an `Option`, and the pre-sublimated path answers `None`.** Not
+      because the index is hard to supply there but because there is nothing for it to
+      mean: `op_index` names an operator of the *bytes* a page was read from, the only
+      users being redaction, which re-lexes them to scrub the strings they carry, and
+      tagging, which attaches an `/MCID` to them. A document held as commands has no such
+      bytes. An index into them would be a number with no referent, which is what `0` was.
+
+      **Nothing inside the engine was reading the zeros.** All three consumers — the
+      reading-order tie-break, `op_to_mcid` and the redaction set — reach their spans
+      through `execute_raw`, and the tie-break is redundant besides, the sort being stable
+      and the index monotonic in draw order. What was wrong was what the field said to a
+      caller outside the engine.
+
+      **It counts within one stream, which nothing said.** A form XObject drawn on a page
+      starts again from its own bytes: measured on a fixture, the page's first run and the
+      form's first run both report operator 4. That is what the consumers want — each
+      re-lexes the stream it is rewriting — and it means the index is not unique across a
+      page. The distinctness measured above is a property of `constitution.pdf` having one
+      content stream.
+
+      **One guard has nothing behind it, and says so.** `execute_commands` clears the index
+      before *every* command, not once, because a form drawn from there might still be
+      bytes and would leave the rest of the page carrying the form's last operator. That
+      cannot happen today — refinement sublimates a form along with its page — so
+      `a_form_is_sublimated_with_the_page_that_draws_it` holds the reason rather than the
+      behaviour, and fails the day a form arrives as bytes under a page that did not.
+
+      Three mutations: the raw path giving every operator the same index, the command
+      position standing in for the operator index — which breaks redaction, exactly as
       [ADR-0064](docs/adr/0064-redaction-removed-the-second-run-of-a-page-and-no-other.md)
-      records, where two ways of counting met at 9 and nowhere else.
+      predicts — and the guard removed, which **survived**, and is why the entry above says
+      what it says about it.
 
-- [ ] **W-E3b — the corpus is eleven files and ten documents, and was nine and eight.**
-      `samples/sample.pdf` and `samples/constitution.pdf` are byte-identical, same length
-      and same MD5, so every figure taken "over the samples" counts that file twice —
-      including the ones this phase quotes: 235 embedded font programs, 299 font
-      dictionaries that are not Type 3, 291 of them answering with a program. None of
-      those claims is wrong as stated, and each is one file less varied than it sounds.
+- [x] **W-E3b — the corpus was eleven files and ten documents, and is not in the
+      repository to be counted.** `samples/sample.pdf` and `samples/constitution.pdf`
+      were byte-identical — same length, same MD5 — so every figure taken "over the
+      samples" counted one document twice.
+
+      **Removing the file removes it nowhere else**, and that is the larger finding.
+      `samples/` is untracked (`.gitignore` excludes it), so the corpus is whatever each
+      working copy happens to hold and no file in the repository says what that is.
+      `sample_corpus_test.rs` is what a commit can carry instead: on any working copy
+      where two samples are the same bytes, the gate fails and names them. Fifteen places
+      walk `samples/*.pdf`, and one check covers all of them rather than each learning to
+      deduplicate. Shown to fire by putting the duplicate back.
+
+      **`sample.pdf` was far more load-bearing than a first grep said.** Searching for
+      `sample\.pdf` matched every `print_sample.pdf` line and buried the rest; a stricter
+      search found 21 references in tracked code — `extract_pages_test.rs`, which would
+      have **failed** the gate with the file gone, and two tests in `fepdf-wasm` and
+      `fepdf-gui` that open a sample with `else { return }` and would have gone on
+      **passing while checking nothing**. All point at `constitution.pdf` now, which is
+      the same bytes. Two dated records that say what a test *used* to read are left as
+      they were.
+
+      **Two figures re-derived, and neither can be reconciled with the first time.**
+
+      | | before | 2026-09-24, ten samples |
+      | :--- | ---: | ---: |
+      | embedded font programs | 235 | **230** |
+      | — stating an `OS/2` permission | 64 | 67 |
+      | — stating nothing | 171 | 163 |
+      | — refusing an editable embedding | 7 | **7** |
+      | fonts not Type 3, answering with a program | 291 of 299 | **288 of 299** |
+
+      Removing a duplicate can only lower a count, and "stating a permission" rose. So
+      something else moved too — two documents were added on 2026-09-21 — and because the
+      corpus is untracked, **the one those figures were taken over cannot be rebuilt to say
+      which change moved what**. The source comments carry both, dated, with the command
+      beside the new one: `cargo run --release -p fepdf-model --example
+      font_program_census`, and `the_tally_is_printable` for the other. The figure the
+      permission ladder rests on — seven refusing — held.
 
       **Two documents were added on 2026-09-21**, each for a hole the measurement found:
-
-      - `sample_02c.pdf` — one page, an `/AcroForm` of **30 fields** (19 text, 7 button,
-        4 choice) and an `/OCProperties`. Until it arrived **no sample carried a form at
-        all**, so W-F1 and W-F2 were built and checked against hand-made fixtures only;
-        the optional-content panel is in the same position. **Not one of its 30 fields
-        carries a `/TU`** — the Matterhorn failure ADR-0087 was taken over, measured on a
-        real document for the first time.
-      - `02_低段汚水ポンプ電動機.pdf` — 17 pages, **no text at all** on the first five, 51
-        images, and page boxes that change from 595×842 to 1684×1190 within the document.
-        A scanned drawing set, which W-O1 is about and which the corpus had none of; the
-        mixed page sizes are a first too.
-
-      Every figure above this line was measured over the nine, and is a measurement of
-      the nine. A figure quoted after it is over eleven files unless it says otherwise.
-      `parser_twin_test` reads the directory and so already covers both: the refined and
-      raw readers agree on them call for call.
+      `sample_02c.pdf`, the corpus's first `/AcroForm` (30 fields, none carrying a `/TU`),
+      and `02_低段汚水ポンプ電動機.pdf`, the first scanned drawing set.
 
 - [x] **W-E3 — changing the text of one run.** `Operation::EditRun { page, run, text }`
       replaces what one show-text operator draws, encoded in the font that run is set in; a
@@ -2466,27 +2511,65 @@ Content editing, under D-1:
 - [x] **W-E4a — a run split by kerning is still one run**, and the reflow this item was
       written about turned out not to exist.
 
-- [ ] **W-E3d — a run is one or two characters, so matching one matches nothing.**
-      Measured over the samples, runs per show-text operator: the median is **1 to 2
-      characters**, 26% to 100% of runs are a single character, and `volvo_xc90.pdf` is
-      **100% single-character runs with a longest run of 1**. `constitution.pdf`'s longest
-      run is four.
+- [x] **W-E3d — a run is one or two characters, so matching one matches nothing.** Half
+      of it: `find_on_page` says where a string is, across the runs that draw it.
+      Rewriting one is the other half and is not here.
 
-      So `EditTextRun` finds nothing a person would ask for. Replacing `日本国憲法` on its
-      first page — a word a reader would actually want to change — changes nothing and
-      says it succeeded, because those five characters are five runs.
+      **"1 to 2 characters over the samples" was an average with an order of magnitude
+      inside it.** Re-derived 2026-09-24 with `cargo run --release --example run_lengths`:
 
-      **The tests pass because the fixtures have a shape real files do not.** One run, one
-      word, hand-written. That is the same failure the decoration fixtures had this
-      morning, recorded three items above: a fixture that cannot see the defect it is
-      standing next to.
+      | | runs | median | single-char | longest |
+      | :--- | ---: | ---: | ---: | ---: |
+      | `fugaku.pdf` | 15,265 | 1 | **100%** | **1** |
+      | `volvo_xc90.pdf` | 57,190 | 1 | **100%** | **1** |
+      | `constitution.pdf` | 10,454 | 1 | 83% | 4 |
+      | `bokutokitan.pdf` | 4,200 | **0** | 77% | 27 |
+      | `unicode_16.pdf` | 39,983 | 2 | 3% | 77 |
+      | **`intel_sdm.pdf`** | 3,179 | **68** | 11% | 127 |
 
-      What it needs is matching **across** runs and re-placing the glyphs that follow,
-      which is the advance-width work of W-E1c-i applied within a line. That is still the
-      editing side of
-      [ADR-0085](docs/adr/0085-editing-what-a-page-draws-is-in-scope.md)'s line, and moves
-      it nowhere: a paragraph re-flowing across its line breaks remains the open question,
-      further away than it looked.
+      A median of 0 is real: a code the font does not map reads as nothing. These figures
+      were read through `unified_map`, which left most of `bokutokitan.pdf`'s codes
+      unread ([ADR-0096](docs/adr/0096-a-run-reads-its-codes-by-the-route-extraction-reads-them.md)).
+
+      **Two runs are one piece of text when the text matrix carried it from the first to
+      the second**, which `carries_on` asks as `|next.origin − (origin + advance)| / em`.
+      The threshold is 0.05 em and **nothing hinges on it**, because the distribution is
+      bimodal — `cargo run --release --example run_gaps` gives `constitution.pdf` 93% at
+      0.05 em and 93% at 0.33, `volvo_xc90.pdf` 93% and 95%. Runs are carried along or put
+      somewhere else, with nothing in between.
+
+      **It answers 0% on the vertical Japanese, and the advance is not what is wrong
+      there.** `fugaku.pdf` sets 富嶽百景 downward with each character its own run, the
+      origin stepping down by an em while the font's advance points across — the producer
+      places every glyph itself and never lets the matrix carry one. The first measurement
+      of this compared *y* coordinates and called the file 0% contiguous, which is what
+      asking a horizontal question of vertical text looks like; measured as a distance it
+      is still 0%, and for a reason that is a property of the file. Finding a line that was
+      laid out rather than advanced is a different question, and this says so rather than
+      guessing one from the geometry.
+
+      | | contiguous at 0.05 em |
+      | :--- | ---: |
+      | `constitution.pdf`, `volvo_xc90.pdf` | 93% |
+      | `intel_sdm.pdf`, `print_sample.pdf` | 46%, 45% |
+      | `fy05.pdf` | 29% |
+      | `fugaku.pdf`, `unicode_16.pdf`, `sample_02c.pdf` | 0% |
+
+      **The entry's own example works.** 日本国憲法 on the first page of
+      `constitution.pdf` is found as four runs — 日, 本, 国 and 憲法 — and the match is
+      answered in *codes*, because a code reads as zero characters where the font does not
+      map it and as several where it does, so a place in the text is not a place in what an
+      edit would rewrite. `the_constitution_names_itself_across_four_runs` checks it
+      against the file rather than a fixture, the shape being one real producers make and
+      hand-written fixtures do not.
+
+      **`Operation::EditRun` is not a liar, which the entry implied it was.** It takes a
+      run *index*: pick run 3 and run 3 changes. What was wrong is that the unit the
+      vocabulary offers is not the unit a reader thinks in, and there is no search-then-
+      edit path in the engine for one to lie on.
+
+      Four mutations: every run joining every other, none joining any, the code range off
+      by one at its end, and a tolerance wide enough to swallow a word space.
 
 - [x] **W-E4c — cutting one run in two.** `Operation::SplitRun { page, run, after }`.
       **No arithmetic and no new position**: consecutive show-text operators draw from the
@@ -2660,16 +2743,43 @@ Content editing, under D-1:
 
       `target/debug` stood at **93G** while both profiles' artefacts were present.
 
-- [ ] **W-E3e — extraction cannot see word or character spacing.** Every
-      `set_word_spacing` and `set_char_spacing` on the extraction side is an empty body —
-      three of each, in `remediation.rs` and `marked_content.rs` — so a page placed with
-      `Tw` reads identically through `extract_spans` whatever the value is. Measured on the
-      `"` fixture of `edit_run_test.rs`: the renderer puts the following run at 98.016 with
-      `20 Tw` and 78.016 without, and extraction gives the same number for both.
+- [x] **W-E3e — extraction could not see word or character spacing, and the entry named
+      the wrong symptom.** One rule, 9.4.4, was written out **four times**, and the entry
+      pointed at a fifth thing that was not wrong at all.
 
-      `fepdf-render` honours both (`lib.rs:788`), which is why the test for W-E4d measures
-      through the renderer. A caller reading span positions out of a file that sets spacing
-      is given coordinates that are wrong by one space per space.
+      | | `Tc` | `Tw` | `Tz` |
+      | :--- | :---: | :---: | :---: |
+      | `fepdf-render::calculate_next_advance` | yes | yes | yes |
+      | `apply/text.rs::shown_displacement` | yes | yes | yes |
+      | `TextExtractionBackend::show_text` | **no** | **no** | **no** |
+      | `CollectorBackend::show_text` | **no** | **no** | **no** |
+
+      It is `fepdf_content::advance_of` now, beside the glyph and the text state it is
+      about, and all four ask it. `Tw` goes to the single-byte code 32 and to nothing else,
+      which is why the comparison is against `char_code` and not against the text a glyph
+      reads.
+
+      **The empty `set_word_spacing` bodies were not the defect.** The entry named them —
+      three pairs in `fepdf-doc` — and they are *correct*: the state arrives with every
+      `show_text` as a `TextState`, so a backend that tracks it separately is duplicating
+      what it is handed. The extraction backends simply never read the field.
+
+      **And the position was never wrong; the extent was.** The entry said the renderer put
+      a run at 98.016 with `20 Tw` and 78.016 without while extraction gave the same number
+      for both. Measured 2026-09-24, `x` responds to `Tw` either way — the interpreter
+      advances the text matrix with the spacing applied — and what did not respond is
+      `TextSpan::width`. A span that reports where it starts and lies about how far it
+      reaches is the half of the defect that was really there.
+
+      **Three sets of tests, and the mutations threw two of them away.** The first measured
+      `runs_of_page`, which has its own correct 9.4.4 and never touches the repaired code.
+      The second measured `extract_spans` but read `x`, which comes from the transform. All
+      four mutations of the rule survived both. The third reads `width` and catches all
+      four — and the entry's own operator, `"`, which sets both spacings and shows in one
+      go, is measured with them.
+
+      Four mutations: `Tw` dropped, `Tc` dropped, `Tz` dropped, and `Tw` given to every
+      glyph rather than to the space.
 
 - [x] **W-E4b — inserting and deleting inside a run** is the four verbs used together,
       and there was nothing left to build. It was carried on the ground that replacing
@@ -2753,11 +2863,47 @@ Page geometry, under D-4:
 
 Independent of all of the above:
 
-- [ ] **W-15 — finding text in a document.** The studio's search is the only one, and its
-      match rectangle is the whole span rather than the match. The fallback in
-      `app/mod.rs` that lays words onto a synthetic grid when `extract_spans` returns
-      nothing goes with it: invented geometry that a reader cannot tell from measured
-      geometry is worse than no geometry.
+- [x] **W-15 — finding text in a document.** The redaction studio's search runs over the
+      runs, in the worker, over every page, and a match's box is the codes it covers.
+
+      **What it replaced had three defects, and the entry named one.** The box was the
+      whole span a match fell in. The search covered only the pages the window had
+      rendered, so a word on a page nobody had scrolled to was "no results". And the
+      pattern mode pushed every span that the match contained or was contained by, each
+      checked for redaction — a four-digit pattern marked every span that was one of its
+      digits. The fallback that laid extracted words onto an invented grid when
+      `extract_spans` failed is gone with it.
+
+      **A match is a range of a `Stretch`** — the text of runs the text matrix carries
+      through — which says which codes of which runs draw it, and each run's `places`
+      says where those codes are on the page. One box a run crossed, not one round the
+      match, because a match across runs that turn would otherwise cover what lies between
+      them. Text and patterns go through one matcher: text is escaped into a pattern
+      rather than lowered and compared, because lowering changes lengths and a range in
+      the lowered text is not a range of the page's.
+
+      **The runs could not read what extraction reads, and that was the larger defect.**
+      Compared on every word extraction read on the first five pages of each sample, the
+      run search found 50 of `bokutokitan.pdf`'s 160 and 58 of `fy05.pdf`'s 169: the runs
+      decoded through `unified_map` and read 1,721 of `fy05.pdf`'s 3,080 codes as nothing.
+      They read by extraction's route now, and find every word but one
+      ([ADR-0096](docs/adr/0096-a-run-reads-its-codes-by-the-route-extraction-reads-them.md)).
+      Reading every page of `fy05.pdf` went from 37 s to 0.43 s in the same change.
+      `cargo run --release --example find_recall`, `--example unread_codes` and
+      `--example find_timing` re-derive the three.
+
+      **Measuring the boxes found a defect in `SplitRun` and `MergeRuns`.** Both collapsed
+      a run's strings into one and left a `TJ`'s numbers where they stood, so every number
+      in the array landed between the halves: cutting `[(Invoice ACME 2026) -700 (total)]`
+      after its first code moved the rest 6.72 points right. Every fixture that tested a
+      cut drew its runs with `Tj`, which has no numbers. Both write `TJ` arrays now, with
+      each number between the strings it stood between;
+      `a_cut_keeps_the_kerning_of_the_run_it_cuts` and
+      `a_join_keeps_the_kerning_of_both_runs` fail on the old code.
+
+      **What it does not find:** a word the producer placed glyph by glyph rather than
+      letting the text matrix carry — `fugaku.pdf`'s vertical text is every glyph its own
+      run, and W-E3d says why that is a different question.
 - [ ] **W-16 — perimeter and area** beside the caliper's distance, and
       `SetMeasurementScale` where a drawing declares one.
 - [ ] **W-17 — printing.** No check can be written for whether ink reached paper, and

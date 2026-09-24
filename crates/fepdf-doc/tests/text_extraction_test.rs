@@ -48,7 +48,7 @@ fn extract_runs(runs: &[(f64, f64, f64, &str)]) -> String {
             *size,
             at,
             TextState { tc: 0.0, tw: 0.0, th: 1.0, is_vertical: false },
-            0,
+            Some(0),
         );
     }
     backend.finish()
@@ -62,7 +62,7 @@ fn extract(glyphs: &[TextGlyph]) -> (String, Vec<fepdf_model::interpretation::De
             10.0,
             Affine::IDENTITY,
             TextState { tc: 0.0, tw: 0.0, th: 1.0, is_vertical: false },
-            0,
+            Some(0),
         );
     }
     let decisions = backend.take_decisions();
@@ -180,7 +180,7 @@ mod actual_text {
                 10.0,
                 Affine::new([1.0, 0.0, 0.0, 1.0, x, 0.0]),
                 TextState { tc: 0.0, tw: 0.0, th: 1.0, is_vertical: false },
-                0,
+                Some(0),
             );
         };
         show(&mut backend, before, 0.0);
@@ -213,7 +213,7 @@ mod actual_text {
             10.0,
             Affine::IDENTITY,
             TextState { tc: 0.0, tw: 0.0, th: 1.0, is_vertical: false },
-            0,
+            Some(0),
         );
         backend.end_actual_text();
         let (seen, unmapped, replaced) = backend.tally();
@@ -268,7 +268,7 @@ mod reading_order {
                 10.0,
                 Affine::new([1.0, 0.0, 0.0, 1.0, x, y]),
                 TextState { tc: 0.0, tw: 0.0, th: 1.0, is_vertical: false },
-                0,
+                Some(0),
             );
         };
         // Emit footer page number at bottom of page (y = 50) first
@@ -294,7 +294,7 @@ mod reading_order {
                 10.0,
                 Affine::new([1.0, 0.0, 0.0, 1.0, x, y]),
                 TextState { tc: 0.0, tw: 0.0, th: 1.0, is_vertical: false },
-                0,
+                Some(0),
             );
         };
         // Emit right fragment first
@@ -318,7 +318,7 @@ mod reading_order {
                 10.0,
                 Affine::new([1.0, 0.0, 0.0, 1.0, x, y]),
                 TextState { tc: 0.0, tw: 0.0, th: 1.0, is_vertical: true },
-                0,
+                Some(0),
             );
         };
         // Emit left column (x = 100) first
@@ -357,12 +357,12 @@ fn a_run_is_placed_by_the_ctm_in_force_and_not_by_its_text_transform_alone() {
     // By text transform alone BOTTOM is the higher of the two, and wrong.
     backend.push_state();
     backend.transform(Affine::translate((0.0, 700.0)));
-    backend.show_text(&run("TOP"), 10.0, Affine::translate((0.0, 10.0)), state, 0);
+    backend.show_text(&run("TOP"), 10.0, Affine::translate((0.0, 10.0)), state, Some(0));
     backend.pop_state();
 
     backend.push_state();
     backend.transform(Affine::translate((0.0, 100.0)));
-    backend.show_text(&run("BOTTOM"), 10.0, Affine::translate((0.0, 300.0)), state, 1);
+    backend.show_text(&run("BOTTOM"), 10.0, Affine::translate((0.0, 300.0)), state, Some(1));
     backend.pop_state();
 
     let out = backend.finish();
@@ -390,9 +390,9 @@ fn popping_the_graphics_state_restores_the_transform_that_was_pushed() {
     // INSIDE: cm 500 + text 10 = 510.  AFTER: no cm, text 300 = 300.
     backend.push_state();
     backend.transform(Affine::translate((0.0, 500.0)));
-    backend.show_text(&run("INSIDE"), 10.0, Affine::translate((0.0, 10.0)), state, 0);
+    backend.show_text(&run("INSIDE"), 10.0, Affine::translate((0.0, 10.0)), state, Some(0));
     backend.pop_state();
-    backend.show_text(&run("AFTER"), 10.0, Affine::translate((0.0, 300.0)), state, 1);
+    backend.show_text(&run("AFTER"), 10.0, Affine::translate((0.0, 300.0)), state, Some(1));
 
     let out = backend.finish();
     assert!(
@@ -425,7 +425,7 @@ fn ruby_is_read_before_its_base_whether_it_sits_above_level_or_below() {
                 .chars()
                 .map(|c| TextGlyph { width: 1000.0, ..glyph(&c.to_string()) })
                 .collect();
-            backend.show_text(&glyphs, size, Affine::translate((x, y)), state, op);
+            backend.show_text(&glyphs, size, Affine::translate((x, y)), state, Some(op));
         };
         // A body column at x = 228.5, 10.6pt, one character per run, as the file emits it.
         show("前", 228.54, 291.2, 10.6, 0);
@@ -455,7 +455,7 @@ fn a_gloss_split_across_runs_is_bound_to_one_base_and_stays_together() {
     let mut show = |text: &str, x: f64, y: f64, size: f64, op: usize| {
         let glyphs: Vec<TextGlyph> =
             text.chars().map(|c| TextGlyph { width: 1000.0, ..glyph(&c.to_string()) }).collect();
-        backend.show_text(&glyphs, size, Affine::translate((x, y)), state, op);
+        backend.show_text(&glyphs, size, Affine::translate((x, y)), state, Some(op));
     };
     show("単", 165.65 - 7.97, 85.1, 10.6, 0);
     show("衣", 165.65 - 7.97, 74.8, 10.6, 1);

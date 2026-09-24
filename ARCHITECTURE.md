@@ -439,7 +439,7 @@ verified by injecting a decision into the backend and watching it arrive.
 
 **A decision that fires on conforming input is worse than none**, because it makes the
 log a constant rather than a signal. Reading an indirect `/Length` — which 7.3.8.2
-permits — was recorded as an `Ambiguity`, so `samples/sample.pdf` reported 31
+permits — was recorded as an `Ambiguity`, so `samples/constitution.pdf` reported 31
 departures and `is_conforming` returned `false` for a clean file
 ([ADR-0008](docs/adr/0008-an-indirect-length-is-not-an-ambiguity.md)).
 

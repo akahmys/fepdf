@@ -1750,7 +1750,7 @@ impl PdfDocument {
     /// **A caller wanting the same image twice must ask for `Cpu`.** The engine encodes a
     /// byte-identical scene for a given page every time, and vello's GPU pipeline turns
     /// that one scene into more than one image — three distinct images in eight renders of
-    /// `samples/sample.pdf` page 1, one isolated pixel apart at a channel delta of 1. The
+    /// `samples/constitution.pdf` page 1, one isolated pixel apart at a channel delta of 1. The
     /// CPU shaders give one ([ADR-0043]).
     ///
     /// `scripts/visual_regression.py` is deliberately **not** this caller: it tolerates a

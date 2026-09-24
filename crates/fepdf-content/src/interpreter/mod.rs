@@ -55,8 +55,12 @@ pub struct Interpreter<'a> {
     /// Cache of fonts already defined in the backend.
     pub(crate) defined_fonts: BTreeSet<String>,
     pub(crate) font_name_map: BTreeMap<Handle<Object>, String>,
-    /// Index of the current operator in the content stream.
-    pub op_index: usize,
+    /// Which operator of the content stream is running, when there is one.
+    ///
+    /// **`None` while executing pre-sublimated commands**, which is the default path: an
+    /// index into bytes the document no longer holds is not a smaller truth than zero,
+    /// it is a different one.
+    pub op_index: Option<usize>,
     /// Captured advance and BBox from d0/d1 operator during Type 3 glyph execution.
     pub(crate) type3_advance: Option<Type3Advance>,
     /// Whether we are currently executing a Type 3 glyph stream.
@@ -136,7 +140,7 @@ impl<'a> Interpreter<'a> {
             text_matrices: None,
             defined_fonts: BTreeSet::new(),
             font_name_map: BTreeMap::new(),
-            op_index: 0,
+            op_index: None,
             type3_advance: None,
             in_type3_glyph: false,
             optional_content: None,
@@ -255,16 +259,25 @@ impl<'a> Interpreter<'a> {
         // scrubs the strings the same operators carry. Counting commands instead would
         // drift the moment one operator emitted two, which `Tf` does.
         for (position, command) in commands.iter().enumerate() {
-            self.op_index = indices.get(position).copied().unwrap_or(position + 1);
+            self.op_index = Some(indices.get(position).copied().unwrap_or(position + 1));
             self.execute_single_command(command)?;
         }
         Ok(())
     }
 
     /// Executes a sequence of pre-sublimated commands.
+    /// **Nothing here has an operator index**, and that is not an omission. These
+    /// commands came out of a sublimation whose bytes the document does not keep, so
+    /// there is no operator stream for a caller to re-lex — which is the whole of what
+    /// `op_index` is for. It reported 0 for every one of them until 2026-09-24.
     pub fn execute_commands(&mut self, cmds: &[Command]) -> PdfResult<()> {
         log::debug!("[SDK] Executing {} sublimated commands", cmds.len());
         for cmd in cmds {
+            // **Per command, not once at the top.** A form XObject drawn from here may
+            // still be held as bytes, and executing it sets the index; clearing only on
+            // the way in would leave the rest of this page carrying the form's last
+            // operator. `execute_raw` sets it per command for the same reason.
+            self.op_index = None;
             self.execute_single_command(cmd)?;
         }
         Ok(())
@@ -595,7 +608,7 @@ impl<'a> Interpreter<'a> {
     fn record_unknown_operator(&self, op: &str) {
         self.doc.record(Decision::violation(
             "8.2",
-            format!("operator {op:?} at index {} is not one this engine runs", self.op_index),
+            format!("operator {op:?} at index {:?} is not one this engine runs", self.op_index),
             "skipped it and carried on with the rest of the content stream",
         ));
     }

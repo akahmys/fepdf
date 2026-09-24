@@ -144,36 +144,58 @@ fn every_operator_that_moves_the_text_is_followed() {
 
 /// **A run this engine reads short can still be cut, and loses no glyph.**
 ///
-/// `decode` answers through `unified_map` and has no character for a code the font does
-/// not map: on the first page of each sample, `unicode_16.pdf` loses 60 characters of 348
-/// and `volvo_xc90.pdf` 2 of 2381. A cut that re-encoded what a run *read* would take
-/// those glyphs off the page as a side effect of moving a boundary, so for a while such a
-/// run was refused outright. The cut works on the codes instead, which asks nothing of
-/// the reading.
+/// `decode` has no character for a code the font does not map. A cut that re-encoded what
+/// a run *read* would take those glyphs off the page as a side effect of moving a
+/// boundary, so for a while such a run was refused outright. The cut works on the codes
+/// instead, which asks nothing of the reading.
+///
+/// **A fixture, because the samples stopped having one.** This used `unicode_16.pdf`,
+/// which lost 60 codes of 348 on its first page while runs were read through
+/// `unified_map`; read by the route extraction uses, it loses none, and the codes left
+/// unread in `fy05.pdf` are each a run of one, which cannot be cut. Code 1 is not in
+/// Helvetica's standard encoding and is below the range read as ASCII.
 ///
 /// What decides is the renderer: every glyph the page drew before the cut, it draws after.
 #[test]
 fn a_run_this_engine_reads_short_is_still_cut_without_loss() {
-    let doc = opened("unicode_16.pdf");
+    let content = "BT /F1 12 Tf 1 0 0 1 30 700 Tm (AB\\001CD) Tj ET";
+    let page = || {
+        let bodies = [
+            "<< /Type /Catalog /Pages 2 0 R >>".to_string(),
+            "<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_string(),
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R \
+             /Resources << /Font << /F1 5 0 R >> >> >>"
+                .to_string(),
+            format!("<< /Length {} >>\nstream\n{content}\nendstream", content.len()),
+            "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>".to_string(),
+        ];
+        PdfDocument::open_with_options(
+            fepdf_fixtures::assemble(&bodies).into(),
+            &IngestionOptions::default(),
+        )
+        .expect("the fixture opens")
+    };
+    let doc = page();
     let listed = runs_of_page(doc.inner(), 0).expect("it lists");
-    let lossy = listed
-        .iter()
-        .position(|run| run.pieces.iter().any(|piece| piece.is_empty()) && run.pieces.len() > 3)
-        .expect("the sample still has a run with a code this engine cannot name");
+    assert_eq!(listed[0].pieces, ["A", "B", "", "C", "D"], "the fixture does not read short");
 
     let mut before = Recorder::new();
     doc.render_page(0, &mut before, Affine::IDENTITY).expect("the page interprets");
     let drew = before.text();
 
-    let mut cut = opened("unicode_16.pdf");
-    cut.apply(Operation::SplitRun { page: 0, run: lossy, after: 3 }).expect("the cut applies");
+    let mut cut = page();
+    cut.apply(Operation::SplitRun { page: 0, run: 0, after: 3 }).expect("the cut applies");
 
     let mut after = Recorder::new();
     cut.render_page(0, &mut after, Affine::IDENTITY).expect("the page interprets");
     assert_eq!(after.text(), drew, "the cut changed what the page draws");
     assert_eq!(
-        runs_of_page(cut.inner(), 0).expect("it lists").len(),
-        listed.len() + 1,
+        runs_of_page(cut.inner(), 0)
+            .expect("it lists")
+            .iter()
+            .map(|r| r.pieces.len())
+            .collect::<Vec<_>>(),
+        vec![3, 2],
         "the cut did not make two runs of one"
     );
 }
