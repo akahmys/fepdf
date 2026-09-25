@@ -30,11 +30,11 @@ pub enum WorkerRequest {
     },
     Save {
         path: std::path::PathBuf,
-        /// `/U` (7.6.4.4). `None` writes the document unprotected.
-        password: Option<String>,
-        /// `/O`, which is meaningless without a user password and is ignored then.
-        owner_password: Option<String>,
+        /// What protects the output, if anything (7.6).
+        protection: Protection,
         compress: bool,
+        /// Take the descriptive metadata out: the Info dictionary and the XMP packet.
+        strip: bool,
         linearize: bool,
         upgrade_pdf20: bool,
         redaction_zones: Vec<crate::redaction::RedactionZone>,
@@ -108,6 +108,24 @@ pub enum WorkerRequest {
     Undo,
     /// Put back the last operation `Undo` took.
     Redo,
+    /// Put the pages of another document where these pages are, as one act.
+    ReplacePages {
+        /// The pages that go, counted from zero, in order.
+        pages: Vec<usize>,
+        /// The document whose pages come in, as bytes (an operation has to serialise).
+        source: Vec<u8>,
+        /// What to say when it worked, in the reader's language.
+        done: String,
+    },
+    /// Write each of these pages as a PNG into a folder the reader chose.
+    ExportImages {
+        /// The pages, counted from zero, in order.
+        pages: Vec<usize>,
+        /// The folder.
+        folder: std::path::PathBuf,
+        /// What each file is called before its page number.
+        stem: String,
+    },
     /// Find text in every page of the document.
     Find {
         /// What to find.
@@ -125,6 +143,50 @@ pub enum WorkerRequest {
         /// What to take it at, as a multiple of a point.
         scale: f64,
     },
+}
+
+/// What protects a saved document (7.6), as the export wizard asked for it.
+///
+/// **A password or certificates, never both**: a document takes one security handler, and
+/// 7.6.4 and 7.6.5 are different ones. The wizard offers them as one choice, and the
+/// engine refuses both at once as well.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Protection {
+    /// `/U` (7.6.4.4). `None` writes no password.
+    pub password: Option<String>,
+    /// `/O`, which is meaningless without a user password and is ignored then.
+    pub owner_password: Option<String>,
+    /// Certificates to encrypt to (7.6.5), as the files the reader chose.
+    pub recipients: Vec<std::path::PathBuf>,
+    /// What may be done with the document once open, as the keywords
+    /// `fepdf::permission_keywords` lists, comma-separated. `None` grants everything.
+    pub permissions: Option<String>,
+}
+
+impl Protection {
+    /// The options a save is written with, given the certificates' bytes.
+    ///
+    /// **An owner password with no user password protects nothing**, so it goes only where
+    /// there is one to restrict. The output is AES-256, because that is the one scheme
+    /// PDF 2.0 does not deprecate (ADR-0015).
+    #[must_use]
+    pub fn save_options(
+        self,
+        recipients: Vec<Vec<u8>>,
+        compress: bool,
+        strip: bool,
+    ) -> fepdf::SaveOptions {
+        fepdf::SaveOptions {
+            compress,
+            compression_level: 6,
+            strip,
+            owner_password: self.password.as_ref().and(self.owner_password),
+            password: self.password,
+            recipients,
+            permissions: self.permissions,
+            ..fepdf::SaveOptions::default()
+        }
+    }
 }
 
 /// The document as it was opened, and every operation applied to it since.
@@ -146,11 +208,16 @@ struct History {
     /// What `Open` was given, kept so the document can be rebuilt from it. `Bytes` is
     /// refcounted and the arena already points into this buffer.
     origin: Option<(Bytes, Option<String>, Option<String>)>,
-    /// Applied, in order.
-    applied: Vec<Operation>,
-    /// Taken back, most recent last. Emptied by any new operation, because a branch in
-    /// the history is a second thing to explain.
-    undone: Vec<Operation>,
+    /// Applied, in order, one entry an act.
+    ///
+    /// **An act, not an operation**, because an undo takes back what the reader did and
+    /// not what the engine was asked: replacing a page is `InsertFrom` and `RemovePages`,
+    /// and an undo that restored the old page and left the new one beside it would be
+    /// taking back half a click.
+    applied: Vec<Vec<Operation>>,
+    /// Taken back, most recent last. Emptied by any new act, because a branch in the
+    /// history is a second thing to explain.
+    undone: Vec<Vec<Operation>>,
 }
 
 impl History {
@@ -161,6 +228,24 @@ impl History {
     /// Whether the document differs from the file it was opened from.
     fn edited(&self) -> bool {
         !self.applied.is_empty()
+    }
+
+    /// Takes the last act back, or puts the last one taken back again, and says whether
+    /// there was one to move.
+    ///
+    /// **Moved across rather than dropped**, so an undone act can come back.
+    fn step(&mut self, undo: bool) -> bool {
+        let (from, to) = if undo {
+            (&mut self.applied, &mut self.undone)
+        } else {
+            (&mut self.undone, &mut self.applied)
+        };
+        from.pop().map(|act| to.push(act)).is_some()
+    }
+
+    /// Every operation still standing, in the order it was applied.
+    fn operations(&self) -> Vec<Operation> {
+        self.applied.concat()
     }
 }
 
@@ -331,6 +416,8 @@ pub enum WorkerResponse {
         actions: Box<fepdf::ActionReport>,
         /// The share of what the file presents whose contents the engine reads.
         coverage: Option<fepdf::Coverage>,
+        /// Every signature in the file as it was opened, and whether each verifies.
+        signatures: Option<Box<fepdf::SignatureReport>>,
     },
     DocumentSaved {
         path: std::path::PathBuf,
@@ -397,9 +484,9 @@ pub fn run_worker(rx: Receiver<WorkerRequest>, tx: Sender<WorkerResponse>, ctx: 
             }
             WorkerRequest::Save {
                 path,
-                password,
-                owner_password,
+                protection,
                 compress,
+                strip,
                 linearize,
                 upgrade_pdf20,
                 redaction_zones,
@@ -412,9 +499,8 @@ pub fn run_worker(rx: Receiver<WorkerRequest>, tx: Sender<WorkerResponse>, ctx: 
                 handle_save(
                     current_doc.as_ref(),
                     path,
-                    password,
-                    owner_password,
-                    compress,
+                    protection,
+                    (compress, strip),
                     linearize,
                     upgrade_pdf20,
                     redaction_zones,
@@ -423,6 +509,18 @@ pub fn run_worker(rx: Receiver<WorkerRequest>, tx: Sender<WorkerResponse>, ctx: 
                     signature_position,
                     &tx,
                 );
+                let _ = tx.send(WorkerResponse::Idle);
+                ctx.request_repaint();
+            }
+            WorkerRequest::ReplacePages { pages, source, done } => {
+                let _ = tx.send(WorkerResponse::Busy { key: "busy_applying" });
+                handle_replace(&mut current_doc, &mut history, (pages, source), done, &tx);
+                let _ = tx.send(WorkerResponse::Idle);
+                ctx.request_repaint();
+            }
+            WorkerRequest::ExportImages { pages, folder, stem } => {
+                let _ = tx.send(WorkerResponse::Busy { key: "busy_exporting" });
+                handle_export_images(current_doc.as_ref(), &pages, &folder, &stem, &tx);
                 let _ = tx.send(WorkerResponse::Idle);
                 ctx.request_repaint();
             }
@@ -442,7 +540,7 @@ pub fn run_worker(rx: Receiver<WorkerRequest>, tx: Sender<WorkerResponse>, ctx: 
                 // `Retag` rebuilds the structure tree from heuristics; the others are
                 // quick, and one arm cannot tell which it was handed.
                 let _ = tx.send(WorkerResponse::Busy { key: "busy_applying" });
-                handle_apply(&mut current_doc, &mut history, *operation, done, &tx);
+                handle_apply(&mut current_doc, &mut history, vec![*operation], done, &tx);
                 let _ = tx.send(WorkerResponse::Idle);
                 ctx.request_repaint();
             }
@@ -454,14 +552,7 @@ pub fn run_worker(rx: Receiver<WorkerRequest>, tx: Sender<WorkerResponse>, ctx: 
             }
             WorkerRequest::Survey => {
                 let _ = tx.send(WorkerResponse::Busy { key: "busy_surveying" });
-                if let Some(doc) = current_doc.as_ref() {
-                    let actions = fepdf::ActionReport::of(doc.inner()).unwrap_or_default();
-                    // Recorded as absent rather than as zero: a coverage this could not
-                    // compute and a document that presents nothing are different answers.
-                    let coverage = current_bytes.as_ref().and_then(|b| fepdf::Coverage::of(b).ok());
-                    let _ =
-                        tx.send(WorkerResponse::Surveyed { actions: Box::new(actions), coverage });
-                }
+                handle_survey(current_doc.as_ref(), current_bytes.as_ref(), &tx);
                 let _ = tx.send(WorkerResponse::Idle);
                 ctx.request_repaint();
             }
@@ -488,7 +579,7 @@ pub fn run_worker(rx: Receiver<WorkerRequest>, tx: Sender<WorkerResponse>, ctx: 
             }
             WorkerRequest::ReorderPagesBatch { source_indices, target_insert_pos } => {
                 pages.clear();
-                apply_recorded(
+                record(
                     &mut current_doc,
                     &mut history,
                     Operation::ReorderBatch { sources: source_indices, target: target_insert_pos },
@@ -504,7 +595,7 @@ pub fn run_worker(rx: Receiver<WorkerRequest>, tx: Sender<WorkerResponse>, ctx: 
                 // arithmetic; `RemovePages` takes the set and owns the order.
                 indices.sort_unstable();
                 indices.dedup();
-                apply_recorded(
+                record(
                     &mut current_doc,
                     &mut history,
                     Operation::RemovePages(PageSelection::Indices(indices)),
@@ -515,7 +606,7 @@ pub fn run_worker(rx: Receiver<WorkerRequest>, tx: Sender<WorkerResponse>, ctx: 
             }
             WorkerRequest::DuplicatePage { index } => {
                 pages.clear();
-                apply_recorded(
+                record(
                     &mut current_doc,
                     &mut history,
                     Operation::DuplicatePages(PageSelection::Single(index)),
@@ -526,7 +617,7 @@ pub fn run_worker(rx: Receiver<WorkerRequest>, tx: Sender<WorkerResponse>, ctx: 
             }
             WorkerRequest::RotatePages { indices, delta } => {
                 pages.clear();
-                apply_recorded(
+                record(
                     &mut current_doc,
                     &mut history,
                     Operation::Rotate {
@@ -538,21 +629,12 @@ pub fn run_worker(rx: Receiver<WorkerRequest>, tx: Sender<WorkerResponse>, ctx: 
                 );
                 ctx.request_repaint();
             }
-            WorkerRequest::Undo => {
+            step @ (WorkerRequest::Undo | WorkerRequest::Redo) => {
                 pages.clear();
-                let _ = tx.send(WorkerResponse::Busy { key: "history_undoing" });
-                if let Some(taken) = history.applied.pop() {
-                    history.undone.push(taken);
-                    current_doc = rebuild(&history, &tx);
-                }
-                let _ = tx.send(WorkerResponse::Idle);
-                ctx.request_repaint();
-            }
-            WorkerRequest::Redo => {
-                pages.clear();
-                let _ = tx.send(WorkerResponse::Busy { key: "history_redoing" });
-                if let Some(back) = history.undone.pop() {
-                    history.applied.push(back);
+                let undo = matches!(step, WorkerRequest::Undo);
+                let key = if undo { "history_undoing" } else { "history_redoing" };
+                let _ = tx.send(WorkerResponse::Busy { key });
+                if history.step(undo) {
                     current_doc = rebuild(&history, &tx);
                 }
                 let _ = tx.send(WorkerResponse::Idle);
@@ -572,14 +654,29 @@ pub fn run_worker(rx: Receiver<WorkerRequest>, tx: Sender<WorkerResponse>, ctx: 
 fn apply_recorded(
     doc: &mut Option<PdfDocument>,
     history: &mut History,
-    operation: Operation,
+    act: Vec<Operation>,
     done: Option<String>,
     tx: &Sender<WorkerResponse>,
 ) {
+    let Some(current) = doc.as_mut() else { return };
+    let mut result = Ok(());
+    for (nth, operation) in act.iter().enumerate() {
+        result = current.apply(operation.clone());
+        if result.is_err() {
+            // **Half an act is not left standing.** What the act had already changed is
+            // not in the history, so rebuilding from the history takes it back out. No
+            // test reaches this: the one act of two is a replacement, and `RemovePages`
+            // skips a page that is not there rather than refusing (ROADMAP).
+            if nth > 0 {
+                *doc = rebuild(history, tx);
+            }
+            break;
+        }
+    }
     let Some(doc) = doc.as_mut() else { return };
-    match doc.apply(operation.clone()) {
+    match result {
         Ok(()) => {
-            history.applied.push(operation);
+            history.applied.push(act);
             // A new operation after an undo abandons what was undone: a branch in the
             // history is a second thing the window would have to explain.
             history.undone.clear();
@@ -603,6 +700,76 @@ fn apply_recorded(
     }
 }
 
+/// Applies one operation as an act of its own.
+fn record(
+    doc: &mut Option<PdfDocument>,
+    history: &mut History,
+    operation: Operation,
+    done: Option<String>,
+    tx: &Sender<WorkerResponse>,
+) {
+    apply_recorded(doc, history, vec![operation], done, tx);
+}
+
+/// Replaces `pages` with every page of `source`, recorded as one act.
+///
+/// **Inserted first, then removed**, and the source is opened here first to count its
+/// pages, so both operations are known before either is applied: the pages that go are
+/// the same pages moved along by that many. A source that does not open fails here,
+/// before anything has changed.
+fn handle_replace(
+    doc: &mut Option<PdfDocument>,
+    history: &mut History,
+    (pages, source): (Vec<usize>, Vec<u8>),
+    done: String,
+    tx: &Sender<WorkerResponse>,
+) {
+    let Some(first) = pages.first().copied() else { return };
+    let options = fepdf::IngestionOptions::default();
+    let count = PdfDocument::open_with_options(Bytes::from(source.clone()), &options)
+        .and_then(|incoming| incoming.page_count());
+    let added = match count {
+        Ok(added) => added,
+        Err(e) => {
+            let detail = Some(format!("{e:?}"));
+            let _ = tx.send(WorkerResponse::Failed { key: "notice_operation_failed", detail });
+            return;
+        }
+    };
+    let moved = pages.iter().map(|page| page + added).collect();
+    let act = vec![
+        Operation::InsertFrom { source, at: first },
+        Operation::RemovePages(fepdf::PageSelection::Indices(moved)),
+    ];
+    handle_apply(doc, history, act, done, tx);
+}
+
+/// Writes each page as `<stem>-<page>.png` in `folder`, and says where.
+///
+/// **A read, not an operation**: the document does not change, so nothing is recorded,
+/// the way `extract_text` and the snapshot are reads. The pages are numbered as the reader
+/// counts them, padded so a folder lists them in order.
+fn handle_export_images(
+    doc: Option<&PdfDocument>,
+    pages: &[usize],
+    folder: &std::path::Path,
+    stem: &str,
+    tx: &Sender<WorkerResponse>,
+) {
+    let Some(doc) = doc else { return };
+    let width = doc.page_count().unwrap_or(0).to_string().len();
+    for &page in pages {
+        let path = folder.join(format!("{stem}-{:0width$}.png", page + 1));
+        if let Err(why) = doc.render_page_to_file(page, &path) {
+            let detail = Some(format!("{}: {why}", path.display()));
+            let _ = tx.send(WorkerResponse::Failed { key: "notice_export_failed", detail });
+            return;
+        }
+    }
+    let _ =
+        tx.send(WorkerResponse::DocumentSaved { path: folder.to_path_buf(), notices: Vec::new() });
+}
+
 /// Opens the original bytes again and replays what is still in the history onto them.
 fn rebuild(history: &History, tx: &Sender<WorkerResponse>) -> Option<PdfDocument> {
     let (data, name, password) = history.origin.as_ref()?;
@@ -611,7 +778,7 @@ fn rebuild(history: &History, tx: &Sender<WorkerResponse>) -> Option<PdfDocument
         can_redo: !history.undone.is_empty(),
         edited: history.edited(),
     });
-    handle_open(data.clone(), name.clone(), password.clone(), &history.applied, tx)
+    handle_open(data.clone(), name.clone(), password.clone(), &history.operations(), tx)
 }
 
 /// The document's structure tree, with every element placed on the page it drew on.
@@ -916,6 +1083,21 @@ impl PageCache {
     }
 }
 
+/// What the document is and what it does, for the panel that asks.
+///
+/// **The signatures are the file's, as it was opened.** `/ByteRange` names offsets into
+/// those bytes, and a `Document` has already normalised them away (ADR-0013); an edit made
+/// here since does not change what was signed, and is not what the answer is about.
+fn handle_survey(doc: Option<&PdfDocument>, bytes: Option<&Bytes>, tx: &Sender<WorkerResponse>) {
+    let Some(doc) = doc else { return };
+    let actions = fepdf::ActionReport::of(doc.inner()).unwrap_or_default();
+    // Recorded as absent rather than as zero: a coverage this could not compute and a
+    // document that presents nothing are different answers. The same for signatures.
+    let coverage = bytes.and_then(|b| fepdf::Coverage::of(b).ok());
+    let signatures = bytes.and_then(|b| fepdf::SignatureReport::survey(b).ok()).map(Box::new);
+    let _ = tx.send(WorkerResponse::Surveyed { actions: Box::new(actions), coverage, signatures });
+}
+
 /// Finds `query` on every page, reading each page's text once for as long as it is
 /// unchanged, and answering as search `search`.
 ///
@@ -1106,13 +1288,13 @@ fn send_audit(doc: &PdfDocument, tx: &Sender<WorkerResponse>) {
 fn handle_apply(
     doc: &mut Option<PdfDocument>,
     history: &mut History,
-    operation: Operation,
+    act: Vec<Operation>,
     done: String,
     tx: &Sender<WorkerResponse>,
 ) {
     let before = page_sizes_of(doc.as_ref());
-    let moved = operation.moves_content();
-    apply_recorded(doc, history, operation, Some(done), tx);
+    let moved = act.iter().any(Operation::moves_content);
+    apply_recorded(doc, history, act, Some(done), tx);
     let after = page_sizes_of(doc.as_ref());
     let resized = after != before;
     send_form(doc.as_ref(), tx);
@@ -1174,7 +1356,7 @@ fn handle_extract(
 
     if remove {
         let taken = PageSelection::Indices(indices.to_vec());
-        apply_recorded(doc, history, Operation::RemovePages(taken), None, tx);
+        record(doc, history, Operation::RemovePages(taken), None, tx);
         let _ = tx.send(WorkerResponse::PagesChanged { page_sizes: page_sizes_of(doc.as_ref()) });
     }
 }
@@ -1223,7 +1405,7 @@ fn handle_move_node(
     move_: fepdf::StructElemMove,
     tx: &Sender<WorkerResponse>,
 ) {
-    apply_recorded(doc_opt, history, Operation::MoveStructElem(move_), None, tx);
+    record(doc_opt, history, Operation::MoveStructElem(move_), None, tx);
     let root = doc_opt.as_ref().and_then(|doc| resolve_struct_tree_root(doc, &mut 0));
     let _ = tx.send(WorkerResponse::StructTreeChanged { root: root.map(Box::new) });
 }
@@ -1241,7 +1423,7 @@ fn handle_update_node(
     // failed edit sent the user a fresh set of findings for the *unchanged* document —
     // the one screen that would have told them the edit did not take was the screen
     // that showed the old tree as if it were the new one.
-    apply_recorded(
+    record(
         doc_opt,
         history,
         Operation::UpdateStructElem(fepdf::StructElemUpdate {
@@ -1265,9 +1447,8 @@ fn handle_save(
     // RR-15 Limit: Dispatcher - Thread pool worker saving request routing dispatcher handling signatures, redactions and compression saving options
     doc_opt: Option<&PdfDocument>,
     path: std::path::PathBuf,
-    password: Option<String>,
-    owner_password: Option<String>,
-    compress: bool,
+    protection: Protection,
+    (compress, strip): (bool, bool),
     linearize: bool,
     upgrade_pdf20: bool,
     redaction_zones: Vec<crate::redaction::RedactionZone>,
@@ -1301,16 +1482,20 @@ fn handle_save(
     }
 
     let version = if upgrade_pdf20 { "2.0" } else { "1.7" };
-    // 7.6: what protects the output, which the engine writes as AES-256 because that is
-    // the one scheme PDF 2.0 does not deprecate (ADR-0015). An owner password with no user
-    // password protects nothing, so it goes only where there is one to restrict.
-    let options = fepdf::SaveOptions {
-        compress,
-        compression_level: 6,
-        owner_password: password.as_ref().and(owner_password),
-        password,
-        ..fepdf::SaveOptions::default()
-    };
+    // Certificates are read here, beside the save that needs them: one the reader cannot
+    // read is said now, as the save failing, rather than written as no recipient at all.
+    let mut recipients = Vec::with_capacity(protection.recipients.len());
+    for path in &protection.recipients {
+        match std::fs::read(path) {
+            Ok(certificate) => recipients.push(certificate),
+            Err(e) => {
+                let detail = Some(format!("{}: {e}", path.display()));
+                let _ = tx.send(WorkerResponse::Failed { key: "notice_save_failed", detail });
+                return;
+            }
+        }
+    }
+    let options = protection.save_options(recipients, compress, strip);
 
     let res = if let (Some(certificate), Some(key)) = (cert_path, key_path) {
         // Read as-is and let the engine judge them. Reporting "not a PKCS#8 key" from
@@ -1461,8 +1646,8 @@ mod binding_direction {
 mod history {
     use super::{History, Operation, PageSelection};
 
-    fn remove(index: usize) -> Operation {
-        Operation::RemovePages(PageSelection::Single(index))
+    fn remove(index: usize) -> Vec<Operation> {
+        vec![Operation::RemovePages(PageSelection::Single(index))]
     }
 
     /// A document with nothing applied to it is the file it came from.
@@ -1480,13 +1665,11 @@ mod history {
         history.applied.push(remove(0));
         history.applied.push(remove(1));
 
-        let taken = history.applied.pop().expect("two were applied");
-        history.undone.push(taken);
+        assert!(history.step(true), "there was one to take back");
         assert_eq!(history.applied.len(), 1);
         assert!(history.edited(), "one operation still stands");
 
-        let back = history.undone.pop().expect("one was taken");
-        history.applied.push(back);
+        assert!(history.step(false), "there was one to put back");
         assert_eq!(history.applied.len(), 2);
         assert!(history.undone.is_empty());
     }
@@ -1570,5 +1753,255 @@ mod finding {
         let Some((search, found)) = found else { panic!("the worker did not answer") };
         assert_eq!(search, 7, "the answer does not say which search it answers");
         assert_eq!(found.iter().map(|f| f.page).collect::<Vec<_>>(), vec![1]);
+    }
+}
+
+#[cfg(test)]
+mod saving {
+    //! **What the export wizard asks for is what the file holds.** The wizard's choices
+    //! reach `handle_save` as a `Protection` and a `strip`, and nothing else looks at the
+    //! file that comes out — so this reads it back.
+    use super::{Protection, WorkerResponse, handle_save};
+    use fepdf::{Credentials, EncryptionReport, IngestionOptions, PdfDocument};
+
+    fn titled() -> PdfDocument {
+        let bodies = [
+            "<< /Type /Catalog /Pages 2 0 R >>".to_string(),
+            "<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_string(),
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] >>".to_string(),
+            "<< /Title (A title that should go) /Author (Someone) >>".to_string(),
+        ];
+        let mut bytes = fepdf_fixtures::assemble(&bodies);
+        // `assemble` writes no `/Info`; the trailer is the file's last dictionary, so
+        // the entry goes in front of its `/Root`.
+        let at = bytes.windows(5).rposition(|w| w == b"/Root").expect("a trailer");
+        bytes.splice(at..at, b"/Info 4 0 R ".iter().copied());
+        PdfDocument::open_with_options(bytes.into(), &IngestionOptions::default())
+            .expect("the fixture opens")
+    }
+
+    fn save(
+        doc: &PdfDocument,
+        protection: Protection,
+        strip: bool,
+    ) -> (Vec<WorkerResponse>, std::path::PathBuf) {
+        let path =
+            std::env::temp_dir().join(format!("fepdf_gui_saving_{}.pdf", std::process::id()));
+        let (tx, rx) = std::sync::mpsc::channel();
+        handle_save(
+            Some(doc),
+            path.clone(),
+            protection,
+            (true, strip),
+            false,
+            false,
+            Vec::new(),
+            None,
+            None,
+            None,
+            &tx,
+        );
+        (rx.try_iter().collect(), path)
+    }
+
+    /// A password, one permission taken away, and the metadata stripped — each read back.
+    #[test]
+    fn the_saved_file_holds_what_the_wizard_asked_for() {
+        let doc = titled();
+        let protection = Protection {
+            password: Some("open".to_string()),
+            owner_password: Some("owner".to_string()),
+            recipients: Vec::new(),
+            permissions: Some(
+                "print,modify,annotate,forms,accessibility,assemble,print-high".to_string(),
+            ),
+        };
+        let (said, path) = save(&doc, protection, true);
+        assert!(
+            said.iter().any(|r| matches!(r, WorkerResponse::DocumentSaved { .. })),
+            "the save did not report itself done"
+        );
+        let bytes = std::fs::read(&path).expect("the output is there");
+        // A temporary file this test wrote; failing to delete it changes no answer.
+        let _ = std::fs::remove_file(&path);
+
+        let report = EncryptionReport::survey(&bytes, Credentials::password("open"))
+            .expect("the output reads");
+        assert!(report.encrypted, "the output is not encrypted");
+        let copy = report.permissions.iter().find(|p| p.bit == 5).expect("bit 5 is reported");
+        assert!(!copy.granted, "copying was taken away and the file grants it");
+        let print = report.permissions.iter().find(|p| p.bit == 3).expect("bit 3 is reported");
+        assert!(print.granted, "printing was left and the file denies it");
+
+        let options =
+            IngestionOptions { password: Some("open".to_string()), ..IngestionOptions::default() };
+        let reopened = PdfDocument::open_with_options(bytes.into(), &options).expect("it opens");
+        let metadata = reopened.metadata();
+        assert_eq!(metadata.title, None, "the title was stripped and is still there");
+        assert_eq!(metadata.author, None, "the author was stripped and is still there");
+    }
+
+    /// **A certificate that cannot be read fails the save, naming it**, rather than being
+    /// written as no recipient — which would be a document encrypted to nobody, or not at
+    /// all.
+    #[test]
+    fn an_unreadable_certificate_fails_the_save() {
+        let doc = titled();
+        let missing = std::path::PathBuf::from("/nonexistent/recipient.der");
+        let protection = Protection { recipients: vec![missing], ..Protection::default() };
+        let (said, path) = save(&doc, protection, false);
+        let failure = said.iter().find_map(|r| {
+            if let WorkerResponse::Failed { detail, .. } = r { detail.clone() } else { None }
+        });
+        assert!(
+            failure.as_deref().is_some_and(|d| d.contains("recipient.der")),
+            "the failure does not name the certificate: {failure:?}"
+        );
+        assert!(!path.exists(), "a file was written anyway");
+    }
+}
+
+#[cfg(test)]
+mod survey {
+    //! The survey answers about signatures as well, from the bytes the document was
+    //! opened from. `verify-signature` was the CLI's alone.
+    use super::{WorkerResponse, handle_survey};
+    use fepdf::{IngestionOptions, PdfDocument};
+
+    /// **An unsigned file is answered as unsigned, not left unanswered.** `None` is what
+    /// the panel shows when the survey could not read the file; a file with no signature
+    /// is a report with none in it, and the two read differently to someone checking.
+    #[test]
+    fn an_unsigned_file_is_answered_as_unsigned() {
+        let bytes = bytes::Bytes::from(fepdf_fixtures::assemble(&[
+            "<< /Type /Catalog /Pages 2 0 R >>".to_string(),
+            "<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_string(),
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] >>".to_string(),
+        ]));
+        let doc = PdfDocument::open_with_options(bytes.clone(), &IngestionOptions::default())
+            .expect("the fixture opens");
+        let (tx, rx) = std::sync::mpsc::channel();
+        handle_survey(Some(&doc), Some(&bytes), &tx);
+
+        let signatures = rx.try_iter().find_map(|response| {
+            if let WorkerResponse::Surveyed { signatures, .. } = response {
+                Some(signatures)
+            } else {
+                None
+            }
+        });
+        let Some(Some(report)) = signatures else {
+            panic!("the survey did not answer about signatures");
+        };
+        assert!(report.signatures.is_empty(), "an unsigned file reported a signature");
+    }
+}
+
+#[cfg(test)]
+mod replacing {
+    //! **Replacing a page is one act**, `InsertFrom` and `RemovePages` recorded together,
+    //! so the reader's undo takes back what they did rather than half of it.
+    use super::{History, WorkerResponse, handle_export_images, handle_replace, rebuild};
+    use fepdf::{IngestionOptions, PdfDocument};
+
+    /// A document whose pages read `words`, one word a page.
+    fn pages(words: &[&str]) -> Vec<u8> {
+        let count = words.len();
+        let kids: Vec<String> = (0..count).map(|i| format!("{} 0 R", 4 + 2 * i)).collect();
+        let mut bodies = vec![
+            "<< /Type /Catalog /Pages 2 0 R >>".to_string(),
+            format!("<< /Type /Pages /Kids [{}] /Count {count} >>", kids.join(" ")),
+            "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>".to_string(),
+        ];
+        for (i, word) in words.iter().enumerate() {
+            let content = format!("BT /F1 24 Tf 1 0 0 1 20 100 Tm ({word}) Tj ET");
+            bodies.push(format!(
+                "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Contents {} 0 R \
+                 /Resources << /Font << /F1 3 0 R >> >> >>",
+                5 + 2 * i
+            ));
+            bodies.push(format!("<< /Length {} >>\nstream\n{content}\nendstream", content.len()));
+        }
+        fepdf_fixtures::assemble(&bodies)
+    }
+
+    fn reads(doc: &PdfDocument) -> Vec<String> {
+        (0..doc.page_count().expect("it counts"))
+            .map(|page| doc.extract_text(page).expect("it reads").trim().to_string())
+            .collect()
+    }
+
+    /// A document opened the way the worker opens one, with its history rooted in it.
+    fn opened(words: &[&str]) -> (Option<PdfDocument>, History) {
+        let bytes = bytes::Bytes::from(pages(words));
+        let mut history = History::new();
+        history.origin = Some((bytes.clone(), None, None));
+        let doc = PdfDocument::open_with_options(bytes, &IngestionOptions::default())
+            .expect("the fixture opens");
+        (Some(doc), history)
+    }
+
+    #[test]
+    fn a_page_is_replaced_by_every_page_of_the_source_and_undone_in_one_step() {
+        let (mut doc, mut history) = opened(&["A", "B", "C"]);
+        let (tx, _rx) = std::sync::mpsc::channel();
+        handle_replace(&mut doc, &mut history, (vec![1], pages(&["X", "Y"])), String::new(), &tx);
+
+        assert_eq!(reads(doc.as_ref().expect("a document")), ["A", "X", "Y", "C"]);
+        assert_eq!(history.applied.len(), 1, "the replacement is not one act");
+
+        assert!(history.step(true), "there was nothing to undo");
+        let undone = rebuild(&history, &tx).expect("it rebuilds");
+        assert_eq!(reads(&undone), ["A", "B", "C"], "one undo did not take it all back");
+    }
+
+    /// **Every page can be replaced**, which is why the insertion goes first: removing
+    /// first would leave a document with no pages, which is refused.
+    #[test]
+    fn every_page_can_be_replaced() {
+        let (mut doc, mut history) = opened(&["A", "B"]);
+        let (tx, _rx) = std::sync::mpsc::channel();
+        handle_replace(&mut doc, &mut history, (vec![0, 1], pages(&["X"])), String::new(), &tx);
+        assert_eq!(reads(doc.as_ref().expect("a document")), ["X"]);
+    }
+
+    /// **A source that does not open changes nothing and records nothing.**
+    #[test]
+    fn a_source_that_does_not_open_changes_nothing() {
+        let (mut doc, mut history) = opened(&["A", "B"]);
+        let (tx, rx) = std::sync::mpsc::channel();
+        let broken = b"%PDF-1.7\nnot a document".to_vec();
+        handle_replace(&mut doc, &mut history, (vec![1], broken), String::new(), &tx);
+
+        assert_eq!(reads(doc.as_ref().expect("a document")), ["A", "B"], "the document changed");
+        assert!(history.applied.is_empty(), "a refused act was recorded");
+        assert!(
+            rx.try_iter().any(|r| matches!(r, WorkerResponse::Failed { .. })),
+            "the refusal was not reported"
+        );
+    }
+
+    /// One PNG a page, named after the document and numbered as a reader counts.
+    #[test]
+    fn each_page_is_written_as_a_numbered_image() {
+        let (doc, _) = opened(&["A", "B", "C"]);
+        let folder = std::env::temp_dir().join(format!("fepdf_gui_images_{}", std::process::id()));
+        std::fs::create_dir_all(&folder).expect("a folder");
+        let (tx, rx) = std::sync::mpsc::channel();
+        handle_export_images(doc.as_ref(), &[0, 2], &folder, "doc", &tx);
+
+        let mut written: Vec<String> = std::fs::read_dir(&folder)
+            .expect("the folder reads")
+            .flatten()
+            .map(|e| e.file_name().to_string_lossy().into_owned())
+            .collect();
+        written.sort();
+        // A temporary folder this test made; failing to delete it changes no answer.
+        let _ = std::fs::remove_dir_all(&folder);
+        assert_eq!(written, ["doc-1.png", "doc-3.png"]);
+        assert!(
+            rx.try_iter().any(|r| matches!(r, WorkerResponse::DocumentSaved { .. })),
+            "the export did not say where it went"
+        );
     }
 }

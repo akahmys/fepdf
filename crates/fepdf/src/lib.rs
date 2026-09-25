@@ -37,7 +37,7 @@ pub use fepdf_model::document::{
     Direction, Duplex, PageBoundary, PageLayout, PageMode, PrintScaling, ViewerPreferences,
 };
 pub use fepdf_model::encryption::{
-    Conformance, CryptFilter, EncryptedPayload, EncryptionReport, Permission,
+    Conformance, CryptFilter, EncryptedPayload, EncryptionReport, Permission, permission_keywords,
 };
 pub use fepdf_model::file_structure::{
     FileStructure, FilterUse, ObjectCensus, ObjectStream, Revision,

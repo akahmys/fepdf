@@ -2241,13 +2241,52 @@ and is better stated than worked around.
 
 Wiring, first, because none of it touches the engine:
 
-- [ ] **Seven operations the engine performs and the window cannot ask for**: headers and
+- [x] **Seven operations the engine performs and the window cannot ask for**: headers and
       footers (`AddPageDecoration`), permissions and certificate protection
       (`SaveOptions::permissions`, `::recipients` — both read on the save path),
       stripping descriptive metadata (`::strip`), exporting a page as an image (the CLI's
       `publish render`), verifying a signature (the CLI's `publish verify-signature`), and
       replacing a page (`RemovePages` and `InsertFrom` in one act). `reachability.py`
       fails on any of them that lands without one home.
+
+      **Headers and footers reach the window.** The tools drawer's ヘッダー・フッター
+      takes a line of text, one of six places and optionally the selection, and sends
+      `AddPageDecoration`; the face is the engine's choice, so a Japanese footer needs
+      nothing a Latin one does not. A capture plan (`tool decoration`, then
+      `decorate bottom-centre 社外秘 — 草稿` and `decorate top-right DRAFT`) drew both on
+      `constitution.pdf` on 2026-09-25.
+
+      **Permissions, certificate protection and stripping reach the export wizard.**
+      Protection is one choice of three — none, a password, certificates — because a
+      document takes one security handler; changing it drops what the other held. Either
+      kind offers Table 22's eight permissions, all granted until the reader takes one away,
+      and the keywords are the engine's (`the_permissions_offered_are_the_engines`). A
+      certificate that cannot be read fails the save by name, and the wizard will not
+      export under certificate protection with no certificate chosen, which would have
+      written the file unprotected. `worker::saving` reads a saved file back and fails if
+      the permission taken away or the stripped title survives.
+
+      **Verifying signatures reaches the survey drawer**, from the bytes the document was
+      opened from, since `/ByteRange` names offsets into those. Each signature says whether
+      it verifies, who signed, and whether it covers the whole file; the panel says what
+      was not checked beside it. A file signed with `fepdf publish sign` showed as
+      verifying, and the same file with a line appended as covering 228,012 of 230,886
+      bytes (2026-09-25).
+
+      **Exporting pages as images and replacing pages reach the page menu.** Images go
+      into a folder, one PNG a page, named after the document. Replacing is `InsertFrom`
+      and then `RemovePages`, and the window's history now records **acts** rather than
+      operations, so one undo takes the replacement back whole; the insertion goes first
+      so that a source which does not open fails before anything changes. A capture plan
+      replaced page 2 of `constitution.pdf` with `sample_02c.pdf`'s page, undid it, and
+      wrote page 1 out as `constitution-01.png`.
+
+- [ ] **`RemovePages` skips a page that is not there instead of refusing.**
+      `apply_remove_pages` drops any index at or past the page count and returns `Ok`, so
+      removing page 99 of a two-page document succeeds having done nothing, and an MCP
+      caller with an off-by-one is told it worked. Found 2026-09-25 while trying to make a
+      replacement's removal fail. *Fails if*: `RemovePages(Indices([1, 9]))` on a
+      two-page document returns `Ok`.
 
 Then the gate:
 

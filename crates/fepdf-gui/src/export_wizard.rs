@@ -1,5 +1,65 @@
 use crate::sidebar::USTRegistry;
-use crate::worker::WorkerRequest;
+use crate::worker::{Protection, WorkerRequest};
+use std::collections::BTreeSet;
+use std::path::PathBuf;
+
+/// Table 22's permissions, each with the key that names it to the reader.
+///
+/// **The keywords are the engine's**, `fepdf::permission_keywords`; this only adds the
+/// names, and `the_permissions_offered_are_the_engines` fails if the two lists part.
+const PERMISSIONS: [(&str, &str); 8] = [
+    ("print", "export_perm_print"),
+    ("modify", "export_perm_modify"),
+    ("copy", "export_perm_copy"),
+    ("annotate", "export_perm_annotate"),
+    ("forms", "export_perm_forms"),
+    ("accessibility", "export_perm_accessibility"),
+    ("assemble", "export_perm_assemble"),
+    ("print-high", "export_perm_print_high"),
+];
+
+/// What protects the output, from what the wizard holds.
+///
+/// **A password or certificates, not both**, and the choice decides which: the other's
+/// fields are ignored rather than trusted to be empty. The permissions go with either.
+#[must_use]
+pub fn protection_of(
+    password: Option<&String>,
+    owner_password: Option<&String>,
+    recipients: Option<&Vec<PathBuf>>,
+    denied: &BTreeSet<&'static str>,
+) -> Protection {
+    let permissions = (!denied.is_empty()).then(|| {
+        PERMISSIONS
+            .iter()
+            .map(|(keyword, _)| *keyword)
+            .filter(|keyword| !denied.contains(keyword))
+            .collect::<Vec<_>>()
+            .join(",")
+    });
+    match password {
+        Some(password) => Protection {
+            password: Some(password.clone()),
+            owner_password: owner_password.cloned(),
+            recipients: Vec::new(),
+            permissions,
+        },
+        None => Protection {
+            password: None,
+            owner_password: None,
+            recipients: recipients.cloned().unwrap_or_default(),
+            permissions: recipients.is_some().then_some(permissions).flatten(),
+        },
+    }
+}
+
+/// Which protection the wizard is set to.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Protect {
+    Nothing,
+    Password,
+    Certificates,
+}
 
 // RR-15 Limit: GUI - Export Wizard window declaration and layout tree
 pub struct ExportWizard;
@@ -26,8 +86,12 @@ impl ExportWizard {
 
                 ui.separator();
 
+                // Certificate protection with no certificate would write the document
+                // unprotected, under a choice that says otherwise; the section above
+                // already says none is chosen.
+                let ready = app.export_recipients.as_ref().is_none_or(|r| !r.is_empty());
                 ui.vertical_centered_justified(|ui| {
-                    if ui.button(confirm_text).clicked() {
+                    if ui.add_enabled(ready, egui::Button::new(confirm_text)).clicked() {
                         should_close = Self::handle_confirm_export_pdf(app);
                     }
                 });
@@ -56,6 +120,10 @@ impl ExportWizard {
             &mut app.export_burn_redactions,
             app.locale_mgr.tr(&app.active_language, "export_opt_burn_redactions"),
         );
+        ui.checkbox(
+            &mut app.export_strip,
+            app.locale_mgr.tr(&app.active_language, "export_opt_strip"),
+        );
     }
 
     /// What protects the saved document (7.6.4).
@@ -74,48 +142,108 @@ impl ExportWizard {
         ui.heading(tr("export_encryption_heading"));
         ui.add_space(crate::app::theme::space::ITEM);
 
-        let mut protect = app.export_password.is_some();
-        if ui.checkbox(&mut protect, tr("export_enc_password")).changed() {
-            // Dropping the passwords with the checkbox, rather than keeping them hidden:
-            // a password still in the struct is one that gets written by the next save.
-            app.export_password = protect.then(String::new);
-            app.export_owner_password = None;
-        }
-
-        if let Some(password) = app.export_password.as_mut() {
-            ui.add_space(crate::app::theme::space::ITEM);
-            ui.label(tr("export_enc_user_password"));
-            ui.add(
-                egui::TextEdit::singleline(password).password(true).desired_width(f32::INFINITY),
-            );
-
-            let mut owner = app.export_owner_password.clone().unwrap_or_default();
-            ui.add_space(crate::app::theme::space::ITEM);
-            ui.label(tr("export_enc_owner_password"));
-            if ui
-                .add(
-                    egui::TextEdit::singleline(&mut owner)
-                        .password(true)
-                        .desired_width(f32::INFINITY),
-                )
-                .changed()
-            {
-                app.export_owner_password = (!owner.is_empty()).then_some(owner);
-            }
-
-            ui.add_space(crate::app::theme::space::ITEM);
-            ui.label(
-                egui::RichText::new(tr("export_enc_note"))
-                    .size(crate::app::theme::text::SMALL)
-                    .weak(),
-            );
+        let was = if app.export_password.is_some() {
+            Protect::Password
+        } else if app.export_recipients.is_some() {
+            Protect::Certificates
         } else {
-            ui.label(
-                egui::RichText::new(tr("export_enc_none"))
-                    .size(crate::app::theme::text::SMALL)
-                    .weak(),
-            );
+            Protect::Nothing
+        };
+        let mut chosen = was;
+        ui.radio_value(&mut chosen, Protect::Nothing, tr("export_enc_none"));
+        ui.radio_value(&mut chosen, Protect::Password, tr("export_enc_password"));
+        ui.radio_value(&mut chosen, Protect::Certificates, tr("export_enc_certificates"));
+        if chosen != was {
+            // Dropping what the other choice held, rather than keeping it hidden: a
+            // password still in the struct is one that gets written by the next save.
+            app.export_password = (chosen == Protect::Password).then(String::new);
+            app.export_owner_password = None;
+            app.export_recipients = (chosen == Protect::Certificates).then(Vec::new);
         }
+
+        match chosen {
+            Protect::Nothing => {}
+            Protect::Password => Self::render_password_fields(app, ui),
+            Protect::Certificates => Self::render_certificate_fields(app, ui),
+        }
+        if chosen != Protect::Nothing {
+            Self::render_permissions(app, ui);
+        }
+    }
+
+    /// The two passwords of the standard handler (7.6.4).
+    fn render_password_fields(app: &mut crate::app::FepdfApp, ui: &mut egui::Ui) {
+        let tr = |key: &str| app.locale_mgr.tr(&app.active_language, key);
+        let Some(password) = app.export_password.as_mut() else { return };
+        ui.add_space(crate::app::theme::space::ITEM);
+        ui.label(tr("export_enc_user_password"));
+        ui.add(egui::TextEdit::singleline(password).password(true).desired_width(f32::INFINITY));
+
+        let mut owner = app.export_owner_password.clone().unwrap_or_default();
+        ui.add_space(crate::app::theme::space::ITEM);
+        ui.label(tr("export_enc_owner_password"));
+        if ui
+            .add(egui::TextEdit::singleline(&mut owner).password(true).desired_width(f32::INFINITY))
+            .changed()
+        {
+            app.export_owner_password = (!owner.is_empty()).then_some(owner);
+        }
+        ui.add_space(crate::app::theme::space::ITEM);
+        ui.label(
+            egui::RichText::new(tr("export_enc_note")).size(crate::app::theme::text::SMALL).weak(),
+        );
+    }
+
+    /// The recipients of the public-key handler (7.6.5): whose certificate, not what
+    /// password, decides who opens it.
+    fn render_certificate_fields(app: &mut crate::app::FepdfApp, ui: &mut egui::Ui) {
+        let tr = |key: &str| app.locale_mgr.tr(&app.active_language, key);
+        let Some(recipients) = app.export_recipients.as_mut() else { return };
+        ui.add_space(crate::app::theme::space::ITEM);
+        if ui.button(tr("export_enc_pick_certs")).clicked()
+            && let Some(picked) =
+                rfd::FileDialog::new().add_filter("DER", &["der", "cer", "crt"]).pick_files()
+        {
+            recipients.extend(picked);
+            recipients.sort();
+            recipients.dedup();
+        }
+        if recipients.is_empty() {
+            ui.label(tr("export_enc_no_certs"));
+        }
+        for path in recipients.iter() {
+            ui.label(path.file_name().unwrap_or(path.as_os_str()).to_string_lossy());
+        }
+        ui.add_space(crate::app::theme::space::ITEM);
+        ui.label(
+            egui::RichText::new(tr("export_enc_cert_note"))
+                .size(crate::app::theme::text::SMALL)
+                .weak(),
+        );
+    }
+
+    /// What may be done with the document once it is open (Table 22).
+    ///
+    /// **Everything is ticked to start with**, because encrypting a document is not on
+    /// its own a statement about what may be done with it; the reader takes away what they
+    /// mean to.
+    fn render_permissions(app: &mut crate::app::FepdfApp, ui: &mut egui::Ui) {
+        let tr = |key: &str| app.locale_mgr.tr(&app.active_language, key);
+        ui.add_space(crate::app::theme::space::ITEM);
+        ui.label(tr("export_perm_heading"));
+        for (keyword, key) in PERMISSIONS {
+            let mut granted = !app.export_denied.contains(keyword);
+            if ui.checkbox(&mut granted, tr(key)).changed() {
+                if granted {
+                    app.export_denied.remove(keyword);
+                } else {
+                    app.export_denied.insert(keyword);
+                }
+            }
+        }
+        ui.label(
+            egui::RichText::new(tr("export_perm_note")).size(crate::app::theme::text::SMALL).weak(),
+        );
     }
 
     fn render_signature_section(app: &mut crate::app::FepdfApp, ui: &mut egui::Ui) {
@@ -263,9 +391,14 @@ impl ExportWizard {
                 app.signature_position.map(|(idx, r)| (idx, [r.min.x, r.min.y, r.max.x, r.max.y]));
             let _ = app.tx_worker.send(WorkerRequest::Save {
                 path: p,
-                password: app.export_password.clone(),
-                owner_password: app.export_owner_password.clone(),
+                protection: protection_of(
+                    app.export_password.as_ref(),
+                    app.export_owner_password.as_ref(),
+                    app.export_recipients.as_ref(),
+                    &app.export_denied,
+                ),
                 compress: app.export_compress,
+                strip: app.export_strip,
                 linearize: app.export_linearize,
                 upgrade_pdf20: app.export_upgrade_pdf20,
                 redaction_zones: app.redaction_manager.zones.clone(),
@@ -277,5 +410,59 @@ impl ExportWizard {
         } else {
             false
         }
+    }
+}
+
+#[cfg(test)]
+mod protection {
+    use super::{PERMISSIONS, protection_of};
+    use std::collections::BTreeSet;
+    use std::path::PathBuf;
+
+    #[test]
+    fn the_permissions_offered_are_the_engines() {
+        let offered: Vec<&str> = PERMISSIONS.iter().map(|(keyword, _)| *keyword).collect();
+        assert_eq!(offered, fepdf::permission_keywords());
+    }
+
+    /// Nothing taken away is no `/P` restriction at all, not a list of everything.
+    #[test]
+    fn granting_everything_asks_for_nothing() {
+        let password = "open".to_string();
+        let protection = protection_of(Some(&password), None, None, &BTreeSet::new());
+        assert_eq!(protection.permissions, None);
+        assert_eq!(protection.password.as_deref(), Some("open"));
+    }
+
+    /// What is taken away is left out of the list the engine grants from.
+    #[test]
+    fn what_is_taken_away_is_not_granted() {
+        let password = "open".to_string();
+        let denied = BTreeSet::from(["copy", "modify"]);
+        let protection = protection_of(Some(&password), None, None, &denied);
+        assert_eq!(
+            protection.permissions.as_deref(),
+            Some("print,annotate,forms,accessibility,assemble,print-high")
+        );
+    }
+
+    /// **Certificates and a password are one choice.** A password left over from the
+    /// other choice is not written beside certificates.
+    #[test]
+    fn certificates_carry_no_password() {
+        let recipients = vec![PathBuf::from("alice.der")];
+        let denied = BTreeSet::from(["print"]);
+        let protection = protection_of(None, None, Some(&recipients), &denied);
+        assert_eq!(protection.recipients, recipients);
+        assert_eq!(protection.password, None);
+        assert!(protection.permissions.is_some(), "the permissions did not go with them");
+    }
+
+    /// And with neither, the permissions have no handler to live in and are not sent.
+    #[test]
+    fn unprotected_carries_no_permissions() {
+        let denied = BTreeSet::from(["print"]);
+        let protection = protection_of(None, None, None, &denied);
+        assert_eq!(protection, crate::worker::Protection::default());
     }
 }

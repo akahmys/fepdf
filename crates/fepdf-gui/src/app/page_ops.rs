@@ -288,6 +288,61 @@ impl FepdfApp {
         });
     }
 
+    /// Writes `pages` as PNG files into a folder the reader picks.
+    ///
+    /// **A folder rather than a file**, because a selection is usually more than one page
+    /// and a save dialog names one file. Each is called after the document and numbered as
+    /// the reader counts pages.
+    pub fn export_pages_as_images(&mut self, pages: &BTreeSet<usize>) {
+        let Some(folder) = rfd::FileDialog::new().pick_folder() else { return };
+        self.export_pages_into(pages, folder);
+    }
+
+    /// Everything [`Self::export_pages_as_images`] does once a folder has been named.
+    ///
+    /// Split out because a capture plan cannot answer a folder dialog (UI-12).
+    pub fn export_pages_into(&mut self, pages: &BTreeSet<usize>, folder: PathBuf) {
+        if pages.is_empty() {
+            return;
+        }
+        let stem = self.pdf_name.as_deref().unwrap_or("page");
+        let stem = stem.trim_end_matches(".pdf").trim_end_matches(".PDF").replace(['/', '\\'], "-");
+        let pages = pages.iter().copied().collect();
+        let _ = self.tx_worker.send(WorkerRequest::ExportImages { pages, folder, stem });
+    }
+
+    /// Puts every page of another document where `pages` are, as one act.
+    ///
+    /// **One act, so one undo.** The engine has no operation for it and does not need one:
+    /// it is `InsertFrom` and `RemovePages`, and the worker records the two as a single
+    /// entry in the history, so taking it back restores the old pages and removes the new.
+    pub fn replace_pages(&mut self, pages: &BTreeSet<usize>) {
+        let Some(path) = rfd::FileDialog::new().add_filter("PDF", &["pdf"]).pick_file() else {
+            return;
+        };
+        self.replace_pages_from(pages, &path);
+    }
+
+    /// Everything [`Self::replace_pages`] does once a file has been named (UI-12).
+    pub fn replace_pages_from(&mut self, pages: &BTreeSet<usize>, path: &std::path::Path) {
+        if pages.is_empty() {
+            return;
+        }
+        let source = match std::fs::read(path) {
+            Ok(bytes) => bytes,
+            Err(why) => {
+                self.notice =
+                    Some(super::Notice::check("notice_open_failed").about(why.to_string()));
+                return;
+            }
+        };
+        let _ = self.tx_worker.send(WorkerRequest::ReplacePages {
+            pages: pages.iter().copied().collect(),
+            source,
+            done: self.tr("menu_replace_done"),
+        });
+    }
+
     /// Takes the selected pages out into a document of their own.
     ///
     /// **The result opens in a window, not a save dialog.** A window holds one document,
@@ -329,6 +384,28 @@ impl FepdfApp {
         // A name is a path component, and a document called `a/b.pdf` would otherwise
         // ask for a directory that is not there.
         named.replace(['/', '\\'], "-")
+    }
+
+    /// Fills the header-and-footer form and presses its apply, for a capture plan.
+    ///
+    /// `place` is `top-left` through `bottom-right`; one this does not know leaves the
+    /// position as the form has it, which a plan's screenshot then shows.
+    pub(crate) fn drive_decoration(&mut self, place: &str, text: String) {
+        use fepdf::DecorationPosition as At;
+        let position = match place {
+            "top-left" => Some(At::TopLeft),
+            "top-centre" => Some(At::TopCenter),
+            "top-right" => Some(At::TopRight),
+            "bottom-left" => Some(At::BottomLeft),
+            "bottom-centre" => Some(At::BottomCenter),
+            "bottom-right" => Some(At::BottomRight),
+            _ => None,
+        };
+        if let Some(position) = position {
+            self.tools.decoration_position = position;
+        }
+        self.tools.decoration_text = text;
+        crate::document_tools::send_decoration(self);
     }
 
     /// Fills the resize form and presses its apply, for a capture plan.

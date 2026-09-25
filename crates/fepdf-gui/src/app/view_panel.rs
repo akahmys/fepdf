@@ -279,8 +279,18 @@ impl FepdfApp {
         // the same operation with the pages removed here — one act each, rather than one
         // act and a question about what happens to what it took.
         if ui.button(format!("{} ({})", self.tr("menu_extract_selected"), taking.len())).clicked() {
-            self.selected_pages = taking;
+            self.selected_pages.clone_from(&taking);
             self.extract_selected_pages(false);
+            ui.close();
+        }
+        // The two that make a file from pages and put pages from a file in their place:
+        // the page as a picture, and the page swapped for a corrected one.
+        if ui.button(format!("{} ({})", self.tr("menu_images_selected"), taking.len())).clicked() {
+            self.export_pages_as_images(&taking);
+            ui.close();
+        }
+        if ui.button(format!("{} ({})", self.tr("menu_replace_selected"), taking.len())).clicked() {
+            self.replace_pages(&taking);
             ui.close();
         }
     }

@@ -37,6 +37,20 @@ BENIGN = re.compile(r"\bwrite!|\bwriteln!|\.send\(|\.try_send\(")
 # the line, so moving the line does not silently re-approve a different one.
 ACCOUNTED_FOR: dict[tuple[str, str], str] = {
     (
+        "crates/fepdf-gui/src/worker.rs",
+        "std::fs::remove_file(&path);",
+    ): (
+        "a test deleting the temporary file it saved; the answer was read before this "
+        "line, and a file left behind in the temporary directory changes no result"
+    ),
+    (
+        "crates/fepdf-gui/src/worker.rs",
+        "std::fs::remove_dir_all(&folder);",
+    ): (
+        "a test deleting the temporary folder it wrote images into; the listing was read "
+        "before this line, and a folder left behind changes no result"
+    ),
+    (
         "crates/fepdf/src/lib.rs",
         "inner.execute(stream);",
     ): (

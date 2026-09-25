@@ -77,6 +77,16 @@ pub enum Step {
     /// Set the resize form's sheet and fit, then press its apply:
     /// `resize <sheet|WxH> <fit|scale:FACTOR>`.
     Resize(String, String),
+    /// Fill the header-and-footer form and press its apply:
+    /// `decorate <top|bottom>-<left|centre|right> <text>`.
+    Decorate(String, String),
+    /// Put every page of the file at `path` where the selected pages are: `replace <path>`.
+    Replace(PathBuf),
+    /// Write the selected pages as images into a folder: `images <folder>`.
+    Images(PathBuf),
+    /// Choose the export wizard's protection, as its radio buttons would:
+    /// `protect <none|password|certificates>`.
+    Protect(String),
     /// Choose the page-view mode: `mode single|spread`. The grid is the zoom's, not a mode.
     Mode(String),
     /// Set the resize form's offset without applying: `nudge <x> <y>`.
@@ -269,6 +279,13 @@ fn parse(line: &str) -> Option<Step> {
             let (sheet, fit) = rest.split_once(' ')?;
             Step::Resize(sheet.trim().to_owned(), fit.trim().to_owned())
         }
+        "protect" => Step::Protect(rest.to_owned()),
+        "replace" => Step::Replace(PathBuf::from(rest)),
+        "images" => Step::Images(PathBuf::from(rest)),
+        "decorate" => {
+            let (place, text) = rest.split_once(' ')?;
+            Step::Decorate(place.to_owned(), text.trim().to_owned())
+        }
         "openpage" => Step::OpenPage(rest.parse().ok()?),
         "probe" => Step::Probe(rest.to_owned()),
         "dblclick" => {
@@ -385,10 +402,25 @@ impl crate::app::FepdfApp {
                 self.show_drawer(ActiveDrawer::Tools);
                 self.tools.open = match name.as_str() {
                     "resize" => crate::document_tools::Tool::Resize,
+                    "decoration" => crate::document_tools::Tool::Decoration,
                     _ => crate::document_tools::Tool::None,
                 };
             }
             Step::Resize(sheet, fit) => self.drive_resize(&sheet, &fit),
+            Step::Decorate(place, text) => self.drive_decoration(&place, text),
+            Step::Replace(path) => {
+                let pages = self.selected_pages.clone();
+                self.replace_pages_from(&pages, &path);
+            }
+            Step::Images(folder) => {
+                let pages = self.selected_pages.clone();
+                self.export_pages_into(&pages, folder);
+            }
+            Step::Protect(how) => {
+                self.export_password = (how == "password").then(String::new);
+                self.export_owner_password = None;
+                self.export_recipients = (how == "certificates").then(Vec::new);
+            }
             Step::Mode(name) => {
                 self.view.display_mode = match name.as_str() {
                     "spread" => crate::view::DisplayMode::TwoPageSingle,

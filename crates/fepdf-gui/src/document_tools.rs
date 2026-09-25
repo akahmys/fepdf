@@ -20,6 +20,8 @@ pub enum Tool {
     None,
     PageLabels,
     Bates,
+    /// A line of text on the pages, at the top or the bottom: a header or a footer.
+    Decoration,
     Retag,
     Upgrade,
     Attach,
@@ -40,6 +42,12 @@ pub struct ToolState {
     pub bates_prefix: String,
     pub bates_start: u64,
     pub bates_digits: usize,
+    /// What the header or footer says.
+    pub decoration_text: String,
+    /// Where it goes on the page.
+    pub decoration_position: fepdf::DecorationPosition,
+    /// Whether it goes on the selected pages rather than on every page.
+    pub decoration_selection: bool,
     pub standard: fepdf::PdfStandard,
     pub attach_path: Option<std::path::PathBuf>,
     pub attach_relationship: fepdf::AFRelationship,
@@ -100,6 +108,11 @@ impl Default for ToolState {
             bates_prefix: "DOC-".to_string(),
             bates_start: 1,
             bates_digits: 6,
+            decoration_text: String::new(),
+            // A footer, centred, because that is where a page number or a confidentiality
+            // line goes when nobody has said otherwise.
+            decoration_position: fepdf::DecorationPosition::BottomCenter,
+            decoration_selection: false,
             standard: fepdf::PdfStandard::UA2,
             attach_path: None,
             attach_relationship: fepdf::AFRelationship::Supplement,
@@ -139,6 +152,7 @@ fn body(app: &mut FepdfApp, ui: &mut egui::Ui) {
         }
         Tool::PageLabels => page_labels_form(app, ui),
         Tool::Bates => bates_form(app, ui),
+        Tool::Decoration => decoration_form(app, ui),
         Tool::Retag => retag_form(app, ui),
         Tool::Upgrade => upgrade_form(app, ui),
         Tool::Attach => attach_form(app, ui),
@@ -150,9 +164,10 @@ fn body(app: &mut FepdfApp, ui: &mut egui::Ui) {
 
 /// The list of tools, each with the sentence that says when it is the one wanted.
 fn picker(app: &mut FepdfApp, ui: &mut egui::Ui) {
-    const TOOLS: [(Tool, &str, &str); 8] = [
+    const TOOLS: [(Tool, &str, &str); 9] = [
         (Tool::PageLabels, "tools_page_labels", "tools_page_labels_desc"),
         (Tool::Bates, "tools_bates", "tools_bates_desc"),
+        (Tool::Decoration, "tools_decoration", "tools_decoration_desc"),
         (Tool::Retag, "tools_retag", "tools_retag_desc"),
         (Tool::Upgrade, "tools_upgrade", "tools_upgrade_desc"),
         (Tool::Attach, "tools_attach", "tools_attach_desc"),
@@ -251,6 +266,86 @@ fn bates_form(app: &mut FepdfApp, ui: &mut egui::Ui) {
             },
             "tools_bates",
         );
+    }
+}
+
+/// Where a header or footer can go, as the grid the form draws: top row, then bottom.
+const DECORATION_PLACES: [(&str, [(fepdf::DecorationPosition, &str); 3]); 2] = [
+    (
+        "tools_place_top",
+        [
+            (fepdf::DecorationPosition::TopLeft, "tools_place_left"),
+            (fepdf::DecorationPosition::TopCenter, "tools_place_centre"),
+            (fepdf::DecorationPosition::TopRight, "tools_place_right"),
+        ],
+    ),
+    (
+        "tools_place_bottom",
+        [
+            (fepdf::DecorationPosition::BottomLeft, "tools_place_left"),
+            (fepdf::DecorationPosition::BottomCenter, "tools_place_centre"),
+            (fepdf::DecorationPosition::BottomRight, "tools_place_right"),
+        ],
+    ),
+];
+
+/// A header or a footer: a line of text at the top or the bottom of the pages.
+///
+/// **The face is the engine's choice, not the form's.** `AddPageDecoration` picks one that
+/// draws every character of the text and embeds it, so a Japanese footer needs nothing
+/// here that a Latin one does not.
+fn decoration_form(app: &mut FepdfApp, ui: &mut egui::Ui) {
+    let tr = |k: &str| app.locale_mgr.tr(&app.active_language, k);
+    ui.horizontal(|ui| {
+        ui.label(tr("tools_decoration_text"));
+        ui.text_edit_singleline(&mut app.tools.decoration_text);
+    });
+    ui.label(tr("tools_resize_place"));
+    for (row, places) in DECORATION_PLACES {
+        ui.horizontal(|ui| {
+            for (position, column) in places {
+                let name = format!("{} {}", tr(row), tr(column));
+                ui.selectable_value(&mut app.tools.decoration_position, position, name);
+            }
+        });
+    }
+    let selected = app.selected_pages.len();
+    if selected > 0 {
+        let label = format!("{} ({selected})", tr("tools_resize_selection"));
+        ui.checkbox(&mut app.tools.decoration_selection, label);
+    }
+    let ready = !app.tools.decoration_text.trim().is_empty();
+    if ui.add_enabled(ready, egui::Button::new(tr("tools_apply"))).clicked() {
+        send_decoration(app);
+    }
+}
+
+/// Builds the header or footer the form describes and sends it.
+///
+/// **One home**, because the capture harness presses this too (UI-12).
+pub fn send_decoration(app: &FepdfApp) {
+    apply(app, decoration_of(&app.tools, &app.selected_pages), "tools_decoration");
+}
+
+/// The header or footer the form describes, on the pages it names.
+///
+/// **The selection is taken only when asked for and only when there is one.** A box left
+/// ticked after the selection was cleared would otherwise decorate no page at all.
+#[must_use]
+pub fn decoration_of(
+    tools: &ToolState,
+    selected: &std::collections::BTreeSet<usize>,
+) -> fepdf::Operation {
+    let pages = if tools.decoration_selection && !selected.is_empty() {
+        fepdf::PageSelection::Indices(selected.iter().copied().collect())
+    } else {
+        fepdf::PageSelection::All
+    };
+    fepdf::Operation::AddPageDecoration {
+        pages,
+        text: tools.decoration_text.clone(),
+        position: tools.decoration_position.clone(),
+        layer: None,
     }
 }
 
@@ -670,4 +765,54 @@ fn say_what_hangs_over(
 /// can express and finer than any sheet is specified.
 fn near(left: (f64, f64), right: (f64, f64)) -> bool {
     (left.0 - right.0).abs() < 0.5 && (left.1 - right.1).abs() < 0.5
+}
+
+#[cfg(test)]
+mod decoration {
+    use super::{ToolState, decoration_of};
+    use std::collections::BTreeSet;
+
+    fn form(text: &str, selection: bool) -> ToolState {
+        ToolState {
+            decoration_text: text.to_string(),
+            decoration_position: fepdf::DecorationPosition::TopRight,
+            decoration_selection: selection,
+            ..ToolState::default()
+        }
+    }
+
+    #[test]
+    fn the_form_becomes_the_operation_it_describes() {
+        let fepdf::Operation::AddPageDecoration { pages, text, position, layer } =
+            decoration_of(&form("社外秘", false), &BTreeSet::from([2]))
+        else {
+            panic!("the form built some other operation");
+        };
+        assert_eq!(pages, fepdf::PageSelection::All, "unticked, it went on the selection");
+        assert_eq!(text, "社外秘");
+        assert_eq!(position, fepdf::DecorationPosition::TopRight);
+        assert_eq!(layer, None);
+    }
+
+    /// Ticked, the selection is what is decorated, in page order.
+    #[test]
+    fn ticked_it_decorates_the_selected_pages() {
+        let fepdf::Operation::AddPageDecoration { pages, .. } =
+            decoration_of(&form("x", true), &BTreeSet::from([4, 0, 2]))
+        else {
+            panic!("the form built some other operation");
+        };
+        assert_eq!(pages, fepdf::PageSelection::Indices(vec![0, 2, 4]));
+    }
+
+    /// **A box left ticked with nothing selected decorates every page**, not none.
+    #[test]
+    fn ticked_with_nothing_selected_it_decorates_every_page() {
+        let fepdf::Operation::AddPageDecoration { pages, .. } =
+            decoration_of(&form("x", true), &BTreeSet::new())
+        else {
+            panic!("the form built some other operation");
+        };
+        assert_eq!(pages, fepdf::PageSelection::All);
+    }
 }

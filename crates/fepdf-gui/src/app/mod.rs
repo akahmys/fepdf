@@ -162,6 +162,14 @@ pub struct FepdfApp {
     pub export_password: Option<String>,
     /// `/O`, which restricts what a reader who has only the user password may do.
     pub export_owner_password: Option<String>,
+    /// Certificates to encrypt to (7.6.5). `Some` when the reader chose that protection,
+    /// even before they have picked one, so the choice and its contents are one field.
+    pub export_recipients: Option<Vec<PathBuf>>,
+    /// The permissions the reader took away, as `fepdf::permission_keywords` names them.
+    /// Empty grants everything, which is what encrypting says on its own.
+    pub export_denied: std::collections::BTreeSet<&'static str>,
+    /// Take the descriptive metadata out of the output.
+    pub export_strip: bool,
     pub export_compress: bool,
     pub export_linearize: bool,
     pub export_upgrade_pdf20: bool,
@@ -320,6 +328,9 @@ impl FepdfApp {
             show_export_wizard: false,
             export_password: None,
             export_owner_password: None,
+            export_recipients: None,
+            export_denied: std::collections::BTreeSet::new(),
+            export_strip: false,
             export_compress: true,
             export_linearize: true,
             export_upgrade_pdf20: true,
@@ -573,9 +584,10 @@ impl FepdfApp {
                     self.ust_registry.audit_in_protocol = in_protocol;
                     ctx.request_repaint();
                 }
-                WorkerResponse::Surveyed { actions, coverage } => {
+                WorkerResponse::Surveyed { actions, coverage, signatures } => {
                     self.survey.actions = Some(actions);
                     self.survey.coverage = coverage;
+                    self.survey.signatures = signatures;
                     ctx.request_repaint();
                 }
                 WorkerResponse::OperationApplied { message } => {
