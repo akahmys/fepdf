@@ -35,6 +35,49 @@ fn process_font_object(
     }
 }
 
+/// Gives every font dictionary written direct an object of its own, and the `/Font`
+/// entry that held it a reference to that object.
+///
+/// **7.3.10 lets any object be direct**, and a `/Font` resource written as
+/// `/F1 << /Type /Font … >>` is conforming. Every route that finds a font here keys it
+/// by object number, so such a font was found by none of them: ingestion recorded a 9.6.2
+/// repair saying the resources did not define a font they defined, and drew the text in
+/// a substitute. The interpreter's own fallback gave the dictionary a fresh object every
+/// time a `Tf` selected it, so the arena grew by one object a selection and the font was
+/// built again each time. Measured 2026-09-24 with `--example direct_fonts`: 5 of the 266
+/// files with a font resource in the samples and the external corpus, all in
+/// `pdf-differences`.
+///
+/// **Lifted, not special-cased**, because a font with a number reaches every route that
+/// already works — refinement, `Document::get_font`, the runs, appearances — and the
+/// document it describes is the same one (7.3.10). Nothing is recorded: the file did
+/// nothing wrong.
+///
+/// Every dictionary in a resource dictionary's `/Font` is a font (7.8.3), so none is asked
+/// whether it is one. An `ExtGState`'s `/Font` is an array, not a dictionary, and is left
+/// as it is.
+pub fn lift_direct_fonts(arena: &PdfArena) {
+    let font_key = arena.name("Font");
+    for holder in arena.all_dict_handles() {
+        let Some(Object::Dictionary(fonts)) =
+            arena.dict_entry(holder, font_key).map(|entry| entry.resolve(arena))
+        else {
+            continue;
+        };
+        let Some(mut entries) = arena.get_dict(fonts) else { continue };
+        let mut lifted = false;
+        for entry in entries.values_mut() {
+            if let Object::Dictionary(font) = entry {
+                *entry = Object::Reference(arena.alloc_object(Object::Dictionary(*font)));
+                lifted = true;
+            }
+        }
+        if lifted {
+            arena.set_dict(fonts, entries);
+        }
+    }
+}
+
 /// Finds and loads every font the document's pages reference.
 pub fn discover_fonts(
     arena: &PdfArena,

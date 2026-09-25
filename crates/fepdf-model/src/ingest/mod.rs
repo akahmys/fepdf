@@ -202,6 +202,7 @@ impl Ingestor {
         temp_doc: &Document,
         decisions: &mut crate::interpretation::DecisionLog,
     ) -> (FontCache, StreamContexts) {
+        lift_direct_fonts(arena);
         let (font_indices, page_and_form_indices) = scan_ingested_objects(arena);
         let handle_font_cache = discover_fonts(arena, temp_doc, Some(&font_indices));
 

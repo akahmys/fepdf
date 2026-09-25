@@ -215,11 +215,12 @@ pub struct FontSummary {
     pub is_vertical: bool,
     /// The indirect object holding the font dictionary, when one does.
     ///
-    /// **`None` for a font dictionary written direct**, which 7.3.10 allows: such a
-    /// dictionary has no object number, and this reported one anyway — the *dictionary's*
-    /// index, out of a different pool, fabricated where a reverse scan of every object in
-    /// the arena came back empty. `fepdf inspect debug` hands this number to
-    /// `get_font`, so the wrong one is not only printed.
+    /// **`None` for a font dictionary written direct that loading left direct.** 7.3.10
+    /// allows either, and a resource dictionary's `/Font` entries are given objects at load
+    /// (`lift_direct_fonts`), so this is `None` only for one reached some other way. Where
+    /// there is no object this reported one anyway — the *dictionary's* index, out of a
+    /// different pool — and `fepdf inspect debug` hands this number to `get_font`, so the
+    /// wrong one was not only printed.
     pub object_id: Option<u32>,
 }
 

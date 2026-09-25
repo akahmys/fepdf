@@ -2377,13 +2377,26 @@ Then the gate:
       decoration therefore depends on this machine having an installed face, as do the
       tests that assert one lands.
 
-- [ ] **W-E2c — a direct font dictionary is read.** 7.3.10 lets any object be direct, and
-      a file from another producer that writes `/Font << /F1 << … >> >>` reaches
-      `fepdf-content` intact and the refined path not at all. What it costs is a
-      `FontResource` built from a dictionary handle, where today the map is keyed by
-      object number. *Fails if*: a fixture with a direct font dictionary records a
-      `9.6.2` repair with `active_refinement` on. **How many files of the corpus carry
-      one is not measured**, and is the first task of the item.
+- [x] **W-E2c — a direct font dictionary is read.** 7.3.10 lets any object be direct, and
+      a `/Font << /F1 << … >> >>` resource reached no route that found fonts: each keyed
+      them by object number.
+
+      **Five files of the corpus write one**, all in `pdf-differences` — 6 entries among
+      the 266 files with a font resource (`cargo run --release --example direct_fonts`,
+      which reads the file as written, before ingestion). On every one ingestion recorded
+      a 9.6.2 repair saying the resources did not define a font they defined, and drew
+      the text in the substitute sans: `OverlappingGlyphClipping.pdf`'s Times-Bold came out
+      sans. **The raw path was wrong differently.** The interpreter gave a direct font a
+      fresh object each time a `Tf` resolved it, so drawing a page grew the arena and
+      loaded the font again.
+
+      **Lifted at load rather than keyed by dictionary handle.** `lift_direct_fonts` gives
+      each such font an object and the resource entry a reference to it, before fonts are
+      discovered — so refinement, `get_font`, the runs and the appearances all find it by
+      the route they already use, and the entry's proposed second key never exists. The
+      document is the same one (7.3.10), and nothing is recorded because the file did
+      nothing wrong. The five files now record no 9.6 decision and draw Times-Bold as
+      Times-Bold; `direct_font_test.rs` fails in all four tests with the lift removed.
 
 Annotations, which are the largest single row of the comparison:
 

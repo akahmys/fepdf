@@ -116,26 +116,27 @@ fn opened(bytes: Vec<u8>) -> PdfDocument {
         .expect("the fixture opens")
 }
 
-/// **A font dictionary written direct has no object number, and says so.**
+/// **A font dictionary written direct is reported by the number that names it.**
 ///
-/// 7.3.10 lets any object be direct, and this engine's own decorations wrote fonts that
-/// way until 2026-09-19. `FontSummary::object_id` was a `u32` filled by scanning every
-/// object in the arena for one holding this dictionary and, when that came back empty,
-/// by **fabricating a handle out of the dictionary's own index** — a number from the
-/// `dicts` pool reported as one from the `objects` pool. `inspect debug` hands it to
-/// `get_font`, so the wrong number was not only printed.
+/// 7.3.10 lets any object be direct. `FontSummary::object_id` was a `u32` filled by
+/// scanning every object in the arena for one holding this dictionary and, when that came
+/// back empty, by **fabricating a handle out of the dictionary's own index** — a number
+/// from the `dicts` pool reported as one from the `objects` pool. `inspect debug` hands it
+/// to `get_font`, so the wrong number was not only printed.
+///
+/// Loading now gives a direct `/Font` resource an object of its own (ROADMAP W-E2c), so
+/// the number exists. What this holds is that it is *that* object: handed back to
+/// `get_font`, it names the font the page draws with.
 #[test]
-fn a_direct_font_dictionary_has_no_object_number() {
+fn a_direct_font_dictionary_is_reported_by_the_number_that_names_it() {
     let doc = opened(page_with_font("<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>", &[]));
     let fonts = doc.fonts();
 
     assert_eq!(fonts.len(), 1, "the direct font was not reached at all: {fonts:?}");
-    assert_eq!(
-        fonts[0].object_id, None,
-        "a direct font dictionary was given an object number: {:?}",
-        fonts[0]
-    );
     assert_eq!(fonts[0].name, "Helvetica", "the wrong dictionary was summarised");
+    let number = fonts[0].object_id.expect("loading gave the direct font an object");
+    let font = doc.get_font(number).expect("the number it reports names a font");
+    assert_eq!(font.base_font.as_str(), "Helvetica", "object {number} is a different font");
 }
 
 /// **An indirect one reports the object that holds it, and that object loads it back.**
