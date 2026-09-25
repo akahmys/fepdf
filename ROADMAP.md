@@ -2875,9 +2875,23 @@ Content editing, under D-1:
       with the `/DA` and `/DR` a variable-text field is drawn by (12.7.4.3) — a form
       declaring fields without them is one whose fields a reader sees nothing of.
 
-- [ ] **W-F2-b — tab order and calculation order.** A created field joins `/Fields` in the
-      order it was made and the page's `/Annots` in the same; neither is a `/Tabs` nor a
-      `/CO`, and 12.5.1 leaves the order unspecified when `/Tabs` is absent.
+- [x] **W-F2-b — tab order and calculation order.** `Operation::SetTabOrder` writes a
+      page's `/Tabs` (Table 31) and `Operation::SetCalculationOrder` the form's `/CO`
+      (Table 224), served as `set_tab_order` and `set_calculation_order` and reached from
+      the page menu and the form drawer.
+
+      **What the corpus does**, from `cargo run --release --example tab_and_calc`
+      (2026-09-26): of 3,731 pages carrying annotations, 3,719 have no `/Tabs` and 12 have
+      `S`; three files calculate, and two of them — Isartor's — have no `/CO`, which
+      Table 224 requires.
+
+      **A calculation order names every field that calculates, once each, and nothing
+      else**, and is refused by name otherwise: `/CO` is required once any field has a
+      calculation action, so an order leaving one out writes a form that does not conform.
+      `form_of` now says which fields calculate and what `/CO` holds, and the drawer starts
+      from that, adding at the end what a file's `/CO` left out and saying it did.
+      `field_order_test.rs` reverses `sample_02c.pdf`'s seven and reads them back through
+      a save.
 
 Page geometry, under D-4:
 

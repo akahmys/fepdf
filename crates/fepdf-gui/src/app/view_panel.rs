@@ -155,6 +155,7 @@ impl FepdfApp {
             }
             if self.view.does(Act::RotatePages) {
                 self.render_rotate_menu(ui, page_idx);
+                self.render_tab_order_menu(ui, page_idx);
             }
 
             // The copy that stays here, which is the one edit with no variants to hang
@@ -220,6 +221,35 @@ impl FepdfApp {
             ] {
                 if ui.button(self.tr(key)).clicked() {
                     self.rotate_page_action(page_idx, quarter);
+                    ui.close();
+                }
+            }
+        });
+    }
+
+    /// The order a reader's Tab key takes through the annotations and fields of the pages
+    /// in hand (`/Tabs`).
+    ///
+    /// **Beside the turn, because both are the page's own setting** rather than something
+    /// drawn on it, and both act on the same pages. Structure order comes first: it is the
+    /// one PDF/UA asks of a page with annotations.
+    fn render_tab_order_menu(&mut self, ui: &mut egui::Ui, page_idx: usize) {
+        let pages = self.acting_on(page_idx);
+        let name = format!("{} ({})", self.tr("menu_tab_order"), pages.len());
+        ui.menu_button(name, |ui| {
+            for (key, order) in [
+                ("menu_tab_structure", fepdf::TabOrder::Structure),
+                ("menu_tab_row", fepdf::TabOrder::Row),
+                ("menu_tab_column", fepdf::TabOrder::Column),
+                ("menu_tab_annotations", fepdf::TabOrder::Annotations),
+                ("menu_tab_widgets", fepdf::TabOrder::Widgets),
+            ] {
+                if ui.button(self.tr(key)).clicked() {
+                    let pages = fepdf::PageSelection::Indices(pages.iter().copied().collect());
+                    let _ = self.tx_worker.send(crate::worker::WorkerRequest::Apply {
+                        operation: Box::new(fepdf::Operation::SetTabOrder { pages, order }),
+                        done: self.tr("menu_tab_order"),
+                    });
                     ui.close();
                 }
             }

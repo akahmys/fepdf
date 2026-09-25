@@ -89,6 +89,8 @@ pub fn apply_operation(doc: &mut Document, op: Operation) -> PdfResult<()> {
         }
         Operation::SetMeasurementScale(s) => annotations::apply_set_measurement_scale(doc, s),
         Operation::SetFormFieldValue(f) => annotations::apply_set_form_field_value(doc, f),
+        Operation::SetTabOrder { pages, order } => page::apply_set_tab_order(doc, &pages, order),
+        Operation::SetCalculationOrder(order) => fields::apply_set_calculation_order(doc, &order),
         Operation::ExecuteAction(a) => annotations::apply_execute_action(doc, a),
         Operation::SetGeospatialAnchor(a) => annotations::apply_set_geospatial_anchor(doc, a),
         Operation::AddMeshShading(s) => annotations::apply_add_mesh_shading(doc, s),

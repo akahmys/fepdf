@@ -258,6 +258,113 @@ fn declare_in_form(doc: &Document, widget: Handle<Object>) -> PdfResult<()> {
     Ok(())
 }
 
+/// Writes `/CO`: the fields that calculate, in the order `order` names them (Table 224).
+///
+/// # Errors
+/// Fails when the document has no form, when `order` names a field twice or names one
+/// that calculates nothing, or when it leaves out a field that calculates — each naming
+/// the field, because the caller has to know which to fix.
+pub fn apply_set_calculation_order(doc: &Document, order: &[String]) -> PdfResult<()> {
+    let arena = doc.arena();
+    let catalog_dh = doc.resolve_to_dict(
+        doc.catalog_handle()
+            .ok_or_else(|| PdfError::Other("the document has no catalogue".into()))?,
+    )?;
+    let acro_dh = arena
+        .dict_entry(catalog_dh, arena.name("AcroForm"))
+        .and_then(|a| a.resolve(arena).as_dict_handle())
+        .ok_or_else(|| PdfError::Other("the document has no form to order".into()))?;
+    let calculating = calculating_fields(arena, acro_dh);
+
+    let mut references = Vec::with_capacity(order.len());
+    for (nth, name) in order.iter().enumerate() {
+        if order[..nth].contains(name) {
+            return Err(PdfError::Other(format!("the order names {name:?} twice").into()));
+        }
+        let Some(field) = calculating.get(name) else {
+            return Err(PdfError::Other(
+                format!("no field named {name:?} has a calculation to order").into(),
+            ));
+        };
+        references.push(Object::Reference(*field));
+    }
+    if let Some(left_out) = calculating.keys().find(|name| !order.contains(name)) {
+        return Err(PdfError::Other(
+            format!("the order leaves out {left_out:?}, which calculates").into(),
+        ));
+    }
+
+    let mut acro = arena.get_dict(acro_dh).unwrap_or_default();
+    let key = arena.name("CO");
+    if references.is_empty() {
+        acro.remove(&key);
+    } else {
+        acro.insert(key, Object::Array(arena.alloc_array(references)));
+    }
+    arena.set_dict(acro_dh, acro);
+    Ok(())
+}
+
+/// Every field with a calculation action — `/AA` holding `/C` (12.6.3) — by its fully
+/// qualified name.
+///
+/// `/CO` holds indirect references, so a field written direct cannot be in it and is not
+/// collected; the walk stops at a depth no form in either corpus approaches, so a cycle
+/// in `/Kids` ends it rather than the process.
+fn calculating_fields(
+    arena: &PdfArena,
+    acro: fepdf_model::DictHandle,
+) -> BTreeMap<String, Handle<Object>> {
+    let mut found = BTreeMap::new();
+    let roots = match arena.dict_entry(acro, arena.name("Fields")).map(|f| f.resolve(arena)) {
+        Some(Object::Array(handle)) => arena.get_array(handle).unwrap_or_default(),
+        _ => Vec::new(),
+    };
+    let mut pending: Vec<(Object, Option<String>, usize)> =
+        roots.into_iter().map(|field| (field, None, 0)).collect();
+    let (t, kids, aa, c) = (arena.name("T"), arena.name("Kids"), arena.name("AA"), arena.name("C"));
+    while let Some((field, parent, depth)) = pending.pop() {
+        let Some(handle) = field.as_reference() else { continue };
+        let Some(dict) = arena.get_object(handle).and_then(|o| o.as_dict_handle()) else {
+            continue;
+        };
+        let own = arena.dict_entry(dict, t).and_then(|name| text_of(arena, &name));
+        let name = match (&parent, own) {
+            (Some(parent), Some(own)) => Some(format!("{parent}.{own}")),
+            (None, own) => own,
+            (Some(parent), None) => Some(parent.clone()),
+        };
+        let calculates = arena
+            .dict_entry(dict, aa)
+            .and_then(|actions| actions.resolve(arena).as_dict_handle())
+            .is_some_and(|actions| arena.dict_entry(actions, c).is_some());
+        if calculates && let Some(name) = &name {
+            found.insert(name.clone(), handle);
+        }
+        if depth < 32
+            && let Some(Object::Array(children)) =
+                arena.dict_entry(dict, kids).map(|k| k.resolve(arena))
+        {
+            for child in arena.get_array(children).unwrap_or_default() {
+                pending.push((child, name.clone(), depth + 1));
+            }
+        }
+    }
+    found
+}
+
+/// A text string, decoded the way the form's reading decodes one, so a name matches the
+/// name `form_of` reports.
+fn text_of(arena: &PdfArena, object: &Object) -> Option<String> {
+    match object.resolve(arena) {
+        Object::String(bytes) | Object::Hex(bytes) => {
+            Some(fepdf_model::refine::text::recover_string(&bytes))
+        }
+        Object::Text(text) => Some(text),
+        _ => None,
+    }
+}
+
 /// `/DR`, carrying the one font a created field is set in.
 fn default_resources(arena: &PdfArena) -> fepdf_model::DictHandle {
     let mut font = BTreeMap::new();

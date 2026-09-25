@@ -30,6 +30,26 @@ pub fn apply_rotate(doc: &mut Document, pages: &PageSelection, mode: &RotateMode
     Ok(())
 }
 
+/// Writes `/Tabs` on each of `pages` (Table 31).
+///
+/// # Errors
+/// Fails when a page is not there.
+pub fn apply_set_tab_order(
+    doc: &Document,
+    pages: &PageSelection,
+    order: crate::operation::TabOrder,
+) -> PdfResult<()> {
+    let arena = doc.arena();
+    let key = arena.name("Tabs");
+    for index in pages_named(pages, doc.page_count()?)? {
+        let page_dh = doc.resolve_to_dict(doc.get_page(index)?.obj_handle())?;
+        let mut dict = arena.get_dict(page_dh).unwrap_or_default();
+        dict.insert(key, Object::Name(arena.name(order.name())));
+        arena.set_dict(page_dh, dict);
+    }
+    Ok(())
+}
+
 /// Moves a page from one index to another.
 pub fn apply_reorder(doc: &mut Document, from: usize, to: usize) -> PdfResult<()> {
     let count = doc.page_count()?;

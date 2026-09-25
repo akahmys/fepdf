@@ -139,7 +139,7 @@ pub struct CropPagesArgs {
     pub input_path: String,
     /// Path to output PDF file.
     pub output_path: String,
-    /// Which pages, as "0", "0-3", "0,2,4", or omitted for all.
+    /// Selection of pages, **counting from 1**: "all", "1", "1-3". Default: "all".
     pub pages: Option<String>,
     /// The left edge of what to keep, in points from the page's left edge.
     pub left: f64,
@@ -210,7 +210,7 @@ pub struct CombinePagesArgs {
     pub input_path: String,
     /// Path to output PDF file.
     pub output_path: String,
-    /// Which pages, as "0", "0-3", "0,2,4", or omitted for all.
+    /// Selection of pages, **counting from 1**: "all", "1", "1-3". Default: "all".
     pub pages: Option<String>,
     /// How many cells across.
     pub columns: usize,
@@ -234,4 +234,32 @@ pub fn combine_pages_impl(args: CombinePagesArgs) -> Result<String, String> {
         fepdf::PageArrangement { sheet, columns: args.columns, rows: args.rows },
     );
     execute_single_op(&args.input_path, &args.output_path, op, "Pages combined")
+}
+
+/// Arguments for `set_tab_order`.
+#[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
+pub struct SetTabOrderArgs {
+    /// Path to input PDF file.
+    pub input_path: String,
+    /// Path to output PDF file.
+    pub output_path: String,
+    /// Selection of pages, **counting from 1**: "all", "1", "1-3". Default: "all".
+    pub pages: Option<String>,
+    /// One of `row`, `column`, `structure`, `annotations` or `widgets`.
+    pub order: String,
+}
+
+/// Implementation of the set_tab_order tool.
+pub fn set_tab_order_impl(args: SetTabOrderArgs) -> Result<String, String> {
+    let pages = super::parse_selection(args.pages.as_deref())?;
+    let order = match args.order.as_str() {
+        "row" => fepdf::TabOrder::Row,
+        "column" => fepdf::TabOrder::Column,
+        "structure" => fepdf::TabOrder::Structure,
+        "annotations" => fepdf::TabOrder::Annotations,
+        "widgets" => fepdf::TabOrder::Widgets,
+        other => return Err(format!("no tab order is called {other:?}")),
+    };
+    let op = Operation::SetTabOrder { pages, order };
+    execute_single_op(&args.input_path, &args.output_path, op, "Tab order set")
 }

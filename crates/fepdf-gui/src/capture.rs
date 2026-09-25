@@ -317,6 +317,7 @@ fn drawer(name: &str) -> Option<ActiveDrawer> {
         "caliper" => ActiveDrawer::Caliper,
         "tools" => ActiveDrawer::Tools,
         "bookmarks" => ActiveDrawer::Bookmarks,
+        "form" => ActiveDrawer::Form,
         _ => return None,
     })
 }

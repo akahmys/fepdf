@@ -55,6 +55,8 @@ fn variant_name(op: &Operation) -> &'static str {
         Operation::AddFormField(..) => "AddFormField",
         Operation::SetMeasurementScale(_) => "SetMeasurementScale",
         Operation::SetFormFieldValue(_) => "SetFormFieldValue",
+        Operation::SetTabOrder { .. } => "SetTabOrder",
+        Operation::SetCalculationOrder(_) => "SetCalculationOrder",
         Operation::SetPageLabels(_) => "SetPageLabels",
         Operation::UpdateArticleThreads(_) => "UpdateArticleThreads",
         Operation::AddUserProperties { .. } => "AddUserProperties",
@@ -103,6 +105,24 @@ fn a_hand_written_json_string_reaches_the_right_variant() {
 
     let op: Operation = serde_json::from_str(r#""Retag""#).expect("parse");
     assert_eq!(variant_name(&op), "Retag");
+}
+
+/// The two orders W-F2-b added, in the shape an MCP caller writes them.
+#[test]
+fn the_two_orders_are_written_as_a_caller_would_write_them() {
+    let op: Operation =
+        serde_json::from_str(r#"{"SetTabOrder":{"pages":"All","order":"Structure"}}"#)
+            .expect("parse");
+    assert_eq!(
+        op,
+        Operation::SetTabOrder {
+            pages: PageSelection::All,
+            order: fepdf_doc::operation::TabOrder::Structure
+        }
+    );
+    let op: Operation =
+        serde_json::from_str(r#"{"SetCalculationOrder":["total","tax"]}"#).expect("parse");
+    assert_eq!(op, Operation::SetCalculationOrder(vec!["total".into(), "tax".into()]));
 }
 
 #[test]

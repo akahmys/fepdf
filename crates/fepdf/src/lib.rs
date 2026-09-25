@@ -108,7 +108,7 @@ pub mod struct_tree {
 }
 pub use fepdf_doc::Outcome;
 pub use fepdf_doc::operation::{
-    CropRegion, FieldKind, NewField, PageArrangement, PageDivision, WhatFallsOutside,
+    CropRegion, FieldKind, NewField, PageArrangement, PageDivision, TabOrder, WhatFallsOutside,
 };
 pub use fepdf_doc::{
     Align,

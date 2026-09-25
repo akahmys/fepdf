@@ -31,6 +31,9 @@ use fepdf_mcp::tools::{
     reorder_pages_impl, rotate_pages_impl, set_form_field_value_impl, update_outlines_impl,
     verify_signatures_impl,
 };
+use fepdf_mcp::tools::{
+    SetCalculationOrderArgs, SetTabOrderArgs, set_calculation_order_impl, set_tab_order_impl,
+};
 use std::path::PathBuf;
 
 // --- fixtures -------------------------------------------------------------------------
@@ -798,4 +801,76 @@ fn move_run_puts_the_named_run_where_it_was_asked_for() {
         "the run that was not named moved from {before:?} to {:?}",
         listed[1].origin
     );
+}
+
+/// A form of two fields, `subtotal` and `total`, each recalculated by a script, with
+/// `/CO` naming them in that order.
+fn two_calculating_fields() -> Vec<u8> {
+    fepdf_fixtures::acroform(
+        &[
+            fepdf_fixtures::FormField::new("subtotal", "0").calculating("event.value = 1;"),
+            fepdf_fixtures::FormField::new("total", "0").calculating("event.value = 2;"),
+        ],
+        &[0, 1],
+    )
+}
+
+fn opened(path: &str) -> fepdf::PdfDocument {
+    fepdf::PdfDocument::open(bytes::Bytes::from(std::fs::read(path).expect("the output exists")))
+        .expect("the output opens")
+}
+
+/// The order given is the order the output recalculates in.
+#[test]
+fn set_calculation_order_writes_the_order_given() {
+    let path = written("calculation", &two_calculating_fields());
+    let dest = out("calculation");
+    set_calculation_order_impl(SetCalculationOrderArgs {
+        input_path: path,
+        output_path: dest.clone(),
+        fields: vec!["total".into(), "subtotal".into()],
+    })
+    .expect("the tool runs");
+    assert_eq!(fepdf::form_of(opened(&dest).inner()).calculation_order, ["total", "subtotal"]);
+}
+
+/// An order leaving out a field that calculates is refused, and nothing is written.
+#[test]
+fn set_calculation_order_refuses_an_order_that_leaves_one_out() {
+    let path = written("calculation_short", &two_calculating_fields());
+    let dest = out("calculation_short");
+    let refused = set_calculation_order_impl(SetCalculationOrderArgs {
+        input_path: path,
+        output_path: dest.clone(),
+        fields: vec!["total".into()],
+    })
+    .expect_err("an order without subtotal is refused");
+    assert!(refused.contains("subtotal"), "the refusal does not name the field: {refused}");
+    assert!(!std::path::Path::new(&dest).exists(), "a refused order wrote a file");
+}
+
+/// `/Tabs` reaches the page named — the second, since the selection counts from 1.
+#[test]
+fn set_tab_order_writes_the_order_on_the_page() {
+    let path = written("tabs", &pages(2));
+    let dest = out("tabs");
+    set_tab_order_impl(SetTabOrderArgs {
+        input_path: path,
+        output_path: dest.clone(),
+        pages: Some("2".into()),
+        order: "structure".into(),
+    })
+    .expect("the tool runs");
+    let doc = opened(&dest);
+    let tabs = |page: usize| {
+        let inner = doc.inner();
+        let arena = inner.arena();
+        let dict = inner.resolve_to_dict(inner.get_page(page).expect("a page").obj_handle());
+        arena
+            .dict_entry(dict.expect("a dictionary"), arena.name("Tabs"))
+            .and_then(|tabs| tabs.as_name())
+            .and_then(|name| arena.get_name_str(name))
+    };
+    assert_eq!(tabs(1).as_deref(), Some("S"));
+    assert_eq!(tabs(0), None, "a page not named was given an order");
 }

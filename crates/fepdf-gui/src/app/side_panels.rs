@@ -302,12 +302,17 @@ impl FepdfApp {
         let lang = &self.active_language;
         let named = self.pdf_name.clone();
         let asked = self.form_panel.show(ui, &form, named.as_deref(), &|key| locale.tr(lang, key));
-        let Some(asked) = asked else { return };
+        let operation = match asked {
+            None => return,
+            Some(crate::sidebar::form::Asked::Value { field, value }) => {
+                fepdf::Operation::SetFormFieldValue(fepdf::FormFieldSpec { name: field, value })
+            }
+            Some(crate::sidebar::form::Asked::CalculationOrder(order)) => {
+                fepdf::Operation::SetCalculationOrder(order)
+            }
+        };
         let _ = self.tx_worker.send(crate::worker::WorkerRequest::Apply {
-            operation: Box::new(fepdf::Operation::SetFormFieldValue(fepdf::FormFieldSpec {
-                name: asked.field,
-                value: asked.value,
-            })),
+            operation: Box::new(operation),
             done: self.tr("form_title"),
         });
     }

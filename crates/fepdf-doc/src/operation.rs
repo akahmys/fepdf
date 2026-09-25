@@ -423,6 +423,22 @@ pub enum Operation {
     // --- Phase 2: Interactive Forms Domain Operations ---
     /// Set a form field value in AcroForms.
     SetFormFieldValue(FormFieldSpec),
+    /// The order a reader's Tab key moves through the annotations of these pages
+    /// (`/Tabs`, Table 31).
+    SetTabOrder {
+        /// Which pages.
+        pages: PageSelection,
+        /// The order.
+        order: TabOrder,
+    },
+    /// The order the form's calculated fields are recalculated in (`/CO`, Table 224), by
+    /// their fully qualified names.
+    ///
+    /// **Every field that calculates, once each, and nothing else.** `/CO` is required
+    /// when any field has a calculation action, so an order that left one out would
+    /// write a form that does not conform, and one naming a field that calculates nothing
+    /// would recalculate a value nobody computes.
+    SetCalculationOrder(Vec<String>),
 
     // --- Phase 5: Navigation, Structure & Action Engine Operations ---
     /// Set page labels (/PageLabels).
@@ -505,6 +521,8 @@ impl Operation {
             | Self::AddFormField { .. }
             | Self::SetMeasurementScale { .. }
             | Self::SetFormFieldValue { .. }
+            | Self::SetTabOrder { .. }
+            | Self::SetCalculationOrder(_)
             | Self::SetPageLabels { .. }
             | Self::UpdateArticleThreads { .. }
             | Self::AddUserProperties { .. }
@@ -513,6 +531,39 @@ impl Operation {
             | Self::AddMeshShading { .. }
             | Self::SetUnencryptedWrapper { .. }
             | Self::AddPublicKeyRecipient { .. } => false,
+        }
+    }
+}
+
+/// The order a reader's Tab key moves through a page's annotations (Table 31, `/Tabs`).
+///
+/// **Absent means unspecified**, which 12.5.1 leaves to the reader — and 3,719 of the
+/// 3,731 pages carrying annotations in the samples and the external corpus have no
+/// `/Tabs` at all (`cargo run --release --example tab_and_calc`, 2026-09-26).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum TabOrder {
+    /// `R`: across each row, then down.
+    Row,
+    /// `C`: down each column, then across.
+    Column,
+    /// `S`: the order of the structure tree, which PDF/UA asks of a page with annotations.
+    Structure,
+    /// `A` (PDF 2.0): the order `/Annots` lists them in.
+    Annotations,
+    /// `W` (PDF 2.0): `/Annots` order, the widgets first and everything else after.
+    Widgets,
+}
+
+impl TabOrder {
+    /// The name `/Tabs` holds.
+    #[must_use]
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::Row => "R",
+            Self::Column => "C",
+            Self::Structure => "S",
+            Self::Annotations => "A",
+            Self::Widgets => "W",
         }
     }
 }

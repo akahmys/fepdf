@@ -212,3 +212,21 @@ pub fn add_form_field_impl(args: AddFormFieldArgs) -> Result<String, String> {
     });
     execute_single_op(&args.input_path, &args.output_path, op, "Form field created")
 }
+
+/// Arguments for `set_calculation_order`.
+#[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
+pub struct SetCalculationOrderArgs {
+    /// Path to input PDF file.
+    pub input_path: String,
+    /// Path to output PDF file.
+    pub output_path: String,
+    /// Every field that calculates, by fully qualified name, in the order they are to be
+    /// recalculated — each once, and no field that does not calculate.
+    pub fields: Vec<String>,
+}
+
+/// Implementation of the set_calculation_order tool.
+pub fn set_calculation_order_impl(args: SetCalculationOrderArgs) -> Result<String, String> {
+    let op = Operation::SetCalculationOrder(args.fields);
+    execute_single_op(&args.input_path, &args.output_path, op, "Calculation order set")
+}

@@ -13,19 +13,20 @@ use crate::tools::{
     AttachAssociatedFileArgs, AuditArgs, CombinePagesArgs, CreatePortfolioArgs, CropPagesArgs,
     DeleteRunArgs, DeleteStructElemArgs, EditRunArgs, ExecuteActionArgs, ExtractTextArgs,
     ListRunsArgs, MergeRunsArgs, MoveRunArgs, MoveStructElemArgs, RedactDocumentArgs,
-    RemovePagesArgs, ReorderPagesArgs, RotatePagesArgs, SetFormFieldValueArgs,
-    SetGeospatialAnchorArgs, SetMeasurementScaleArgs, SetOutputIntentArgs, SetPageLabelsArgs,
-    SetPronunciationLexiconArgs, SetUnencryptedWrapperArgs, SplitPageArgs, SplitRunArgs,
-    UpdateArticleThreadsArgs, UpdateLayersArgs, UpdateOutlinesArgs, UpdateStructElemArgs,
-    VerifySignaturesArgs, add_annotation_impl, add_form_field_impl, add_mesh_shading_impl,
-    add_page_decoration_impl, add_public_key_recipient_impl, add_user_properties_impl,
-    apply_bates_numbering_impl, apply_operation_impl, apply_redaction_impl,
-    attach_associated_file_impl, audit_document_impl, combine_pages_impl, create_portfolio_impl,
-    crop_pages_impl, delete_run_impl, delete_struct_elem_impl, edit_run_impl, execute_action_impl,
-    extract_text_impl, list_runs_impl, merge_runs_impl, move_run_impl, move_struct_elem_impl,
-    remove_pages_impl, reorder_pages_impl, rotate_pages_impl, set_form_field_value_impl,
-    set_geospatial_anchor_impl, set_measurement_scale_impl, set_output_intent_impl,
-    set_page_labels_impl, set_pronunciation_lexicon_impl, set_unencrypted_wrapper_impl,
+    RemovePagesArgs, ReorderPagesArgs, RotatePagesArgs, SetCalculationOrderArgs,
+    SetFormFieldValueArgs, SetGeospatialAnchorArgs, SetMeasurementScaleArgs, SetOutputIntentArgs,
+    SetPageLabelsArgs, SetPronunciationLexiconArgs, SetTabOrderArgs, SetUnencryptedWrapperArgs,
+    SplitPageArgs, SplitRunArgs, UpdateArticleThreadsArgs, UpdateLayersArgs, UpdateOutlinesArgs,
+    UpdateStructElemArgs, VerifySignaturesArgs, add_annotation_impl, add_form_field_impl,
+    add_mesh_shading_impl, add_page_decoration_impl, add_public_key_recipient_impl,
+    add_user_properties_impl, apply_bates_numbering_impl, apply_operation_impl,
+    apply_redaction_impl, attach_associated_file_impl, audit_document_impl, combine_pages_impl,
+    create_portfolio_impl, crop_pages_impl, delete_run_impl, delete_struct_elem_impl,
+    edit_run_impl, execute_action_impl, extract_text_impl, list_runs_impl, merge_runs_impl,
+    move_run_impl, move_struct_elem_impl, remove_pages_impl, reorder_pages_impl, rotate_pages_impl,
+    set_calculation_order_impl, set_form_field_value_impl, set_geospatial_anchor_impl,
+    set_measurement_scale_impl, set_output_intent_impl, set_page_labels_impl,
+    set_pronunciation_lexicon_impl, set_tab_order_impl, set_unencrypted_wrapper_impl,
     split_page_impl, split_run_impl, update_article_threads_impl, update_layers_impl,
     update_outlines_impl, update_struct_elem_impl, verify_signatures_impl,
 };
@@ -620,6 +621,30 @@ impl FepdfServer {
         Parameters(args): Parameters<AddFormFieldArgs>,
     ) -> Result<String, String> {
         add_form_field_impl(args)
+    }
+
+    /// Sets the order a reader's Tab key moves through a page's annotations.
+    #[tool(
+        name = "set_tab_order",
+        description = "Sets /Tabs on pages: the order a reader's Tab key moves through their annotations and form fields. One of row, column, structure (the structure tree's order, which PDF/UA asks of a page with annotations), annotations or widgets (PDF 2.0). Without it the order is left to the reader."
+    )]
+    pub async fn set_tab_order(
+        &self,
+        Parameters(args): Parameters<SetTabOrderArgs>,
+    ) -> Result<String, String> {
+        set_tab_order_impl(args)
+    }
+
+    /// Sets the order the form recalculates its calculated fields in.
+    #[tool(
+        name = "set_calculation_order",
+        description = "Sets /CO, the order a form recalculates its calculated fields in when any value changes. Name every field that has a calculation action, by fully qualified name, each once; an order that leaves one out, names one twice, or names a field that calculates nothing is refused by name."
+    )]
+    pub async fn set_calculation_order(
+        &self,
+        Parameters(args): Parameters<SetCalculationOrderArgs>,
+    ) -> Result<String, String> {
+        set_calculation_order_impl(args)
     }
 
     /// Configures drawing measurement scale dictionary (/Measure) for CAD and technical drawings.

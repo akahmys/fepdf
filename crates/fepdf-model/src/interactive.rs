@@ -192,6 +192,9 @@ pub struct FormFields {
     pub has_default_resources: bool,
     /// Every terminal field, in the order the walk reaches them.
     pub terminal: Vec<FormField>,
+    /// `/CO`: the fields recalculated when any value changes, in the order they are
+    /// (Table 224), by fully qualified name. An entry naming no field reads as empty.
+    pub calculation_order: Vec<String>,
     /// Fields whose `/Kids` nest deeper than the walk descends, and are therefore not
     /// counted. Zero everywhere in both corpora; reported because a silent truncation is
     /// how a count comes to mean "the ones that fitted".
@@ -261,6 +264,9 @@ pub struct FormField {
     pub selected_indices: Vec<usize>,
     /// `/TI`: top visible item index for scrollable list boxes (12.7.4.4).
     pub top_index: Option<usize>,
+    /// Whether the field carries a calculation action — `/AA` holding `/C` (12.6.3) —
+    /// which is what puts it in `/CO`.
+    pub calculates: bool,
 }
 
 impl FormField {
@@ -594,6 +600,7 @@ fn build_terminal_field(arena: &PdfArena, d: &Dict, here: &Inherited) -> FormFie
         options,
         selected_indices,
         top_index: here.top_index,
+        calculates: here.calculates,
     }
 }
 
@@ -649,7 +656,36 @@ fn read_form(arena: &PdfArena, catalog: &Dict) -> FormFields {
     }
     form.by_type = by_type.into_iter().collect();
     form.by_type.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(&b.0)));
+    form.calculation_order = array_of(arena, acro.get(&arena.name("CO")))
+        .unwrap_or_default()
+        .iter()
+        .map(|field| dict_of(arena, field).map(|d| name_by_parents(arena, &d)).unwrap_or_default())
+        .collect();
     form
+}
+
+/// Whether `d` has a calculation action: `/AA` holding `/C` (12.6.3).
+fn calculates(arena: &PdfArena, d: &Dict) -> bool {
+    d.get(&arena.name("AA"))
+        .and_then(|actions| dict_of(arena, actions))
+        .is_some_and(|actions| actions.contains_key(&arena.name("C")))
+}
+
+/// A field's fully qualified name, read upwards through `/Parent` — which is what `/CO`
+/// gives, a reference to the field and nothing about where it sits.
+fn name_by_parents(arena: &PdfArena, d: &Dict) -> String {
+    let (t_key, parent_key) = (arena.name("T"), arena.name("Parent"));
+    let mut parts = Vec::new();
+    let mut here = Some(d.clone());
+    for _ in 0..64 {
+        let Some(node) = here else { break };
+        if let Some(t) = node.get(&t_key).and_then(|t| string_of(arena, t)) {
+            parts.push(t);
+        }
+        here = node.get(&parent_key).and_then(|p| dict_of(arena, p));
+    }
+    parts.reverse();
+    parts.join(".")
 }
 
 /// The field entries 12.7.4.2 lets a field take from its ancestors.
@@ -663,6 +699,9 @@ struct Inherited {
     has_default_appearance: bool,
     options: Option<Vec<ChoiceOption>>,
     top_index: Option<usize>,
+    /// Whether the nearest field in the chain calculates. A widget with no `/T` is the
+    /// widget of the field above it, and it is that field's `/AA` that counts.
+    calculates: bool,
 }
 
 impl Inherited {
@@ -671,6 +710,7 @@ impl Inherited {
         let mut next = self.clone();
         if let Some(t) = d.get(&arena.name("T")).and_then(|t| string_of(arena, t)) {
             next.path.push(t);
+            next.calculates = calculates(arena, d);
         }
         if let Some(ft) = name_of_key(arena, d, "FT") {
             next.field_type = Some(ft);
