@@ -664,9 +664,7 @@ fn apply_recorded(
         result = current.apply(operation.clone());
         if result.is_err() {
             // **Half an act is not left standing.** What the act had already changed is
-            // not in the history, so rebuilding from the history takes it back out. No
-            // test reaches this: the one act of two is a replacement, and `RemovePages`
-            // skips a page that is not there rather than refusing (ROADMAP).
+            // not in the history, so rebuilding from the history takes it back out.
             if nth > 0 {
                 *doc = rebuild(history, tx);
             }
@@ -1963,6 +1961,22 @@ mod replacing {
         let (tx, _rx) = std::sync::mpsc::channel();
         handle_replace(&mut doc, &mut history, (vec![0, 1], pages(&["X"])), String::new(), &tx);
         assert_eq!(reads(doc.as_ref().expect("a document")), ["X"]);
+    }
+
+    /// **Half a replacement is not left standing.** Page 9 is not there, so the removal
+    /// is refused after the source is already in; the document goes back to what it was.
+    #[test]
+    fn a_refused_removal_leaves_the_document_as_it_was() {
+        let (mut doc, mut history) = opened(&["A", "B"]);
+        let (tx, rx) = std::sync::mpsc::channel();
+        handle_replace(&mut doc, &mut history, (vec![1, 9], pages(&["X"])), String::new(), &tx);
+
+        assert_eq!(reads(doc.as_ref().expect("a document")), ["A", "B"], "half of it stayed");
+        assert!(history.applied.is_empty(), "a refused act was recorded");
+        assert!(
+            rx.try_iter().any(|r| matches!(r, WorkerResponse::Failed { .. })),
+            "the refusal was not reported"
+        );
     }
 
     /// **A source that does not open changes nothing and records nothing.**

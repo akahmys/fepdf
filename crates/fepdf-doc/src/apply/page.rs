@@ -9,31 +9,23 @@ use std::collections::BTreeMap;
 
 /// Applies page rotation to selected pages.
 pub fn apply_rotate(doc: &mut Document, pages: &PageSelection, mode: &RotateMode) -> PdfResult<()> {
-    let count = doc.page_count()?;
-    let indices = match pages {
-        PageSelection::All => (0..count).collect(),
-        PageSelection::Single(i) => vec![*i],
-        PageSelection::Indices(idx) => idx.clone(),
-    };
-    for idx in indices {
-        if idx < count {
-            let page = doc.get_page(idx)?;
-            let current = if let Some(Object::Integer(angle)) = page.resolve_attribute("Rotate") {
-                let normalized = (angle % 360) as i32;
-                normalized.rem_euclid(360)
-            } else {
-                0
-            };
-            let target = match mode {
-                RotateMode::Absolute(q) => q.to_degrees(),
-                RotateMode::Relative(q) => (current + q.to_degrees()).rem_euclid(360),
-            };
-            let page_dh = doc.resolve_to_dict(page.obj_handle())?;
-            let arena = doc.arena();
-            let mut dict = arena.get_dict(page_dh).unwrap_or_default();
-            dict.insert(arena.name("Rotate"), Object::Integer(i64::from(target)));
-            arena.set_dict(page_dh, dict);
-        }
+    for idx in pages_named(pages, doc.page_count()?)? {
+        let page = doc.get_page(idx)?;
+        let current = if let Some(Object::Integer(angle)) = page.resolve_attribute("Rotate") {
+            let normalized = (angle % 360) as i32;
+            normalized.rem_euclid(360)
+        } else {
+            0
+        };
+        let target = match mode {
+            RotateMode::Absolute(q) => q.to_degrees(),
+            RotateMode::Relative(q) => (current + q.to_degrees()).rem_euclid(360),
+        };
+        let page_dh = doc.resolve_to_dict(page.obj_handle())?;
+        let arena = doc.arena();
+        let mut dict = arena.get_dict(page_dh).unwrap_or_default();
+        dict.insert(arena.name("Rotate"), Object::Integer(i64::from(target)));
+        arena.set_dict(page_dh, dict);
     }
     Ok(())
 }
@@ -41,8 +33,10 @@ pub fn apply_rotate(doc: &mut Document, pages: &PageSelection, mode: &RotateMode
 /// Moves a page from one index to another.
 pub fn apply_reorder(doc: &mut Document, from: usize, to: usize) -> PdfResult<()> {
     let count = doc.page_count()?;
-    if from >= count || to >= count {
-        return Err(fepdf_model::PdfError::Arena("Page index out of bounds".into()));
+    if let Some(missing) = [from, to].into_iter().find(|index| *index >= count) {
+        return Err(PdfError::Other(
+            format!("this document has {count} pages and no page {missing}").into(),
+        ));
     }
     doc.reorder_page(from, to)
 }
@@ -72,12 +66,7 @@ fn prune_struct_tree_pages(doc: &Document, removed: &[fepdf_model::Handle<Object
 
 /// Removes selected pages from the document.
 pub fn apply_remove_pages(doc: &mut Document, pages: &PageSelection) -> PdfResult<()> {
-    let count = doc.page_count()?;
-    let mut indices = match pages {
-        PageSelection::All => (0..count).collect(),
-        PageSelection::Single(i) => vec![*i],
-        PageSelection::Indices(idx) => idx.clone(),
-    };
+    let mut indices = pages_named(pages, doc.page_count()?)?;
     indices.sort_unstable();
     indices.dedup();
     let mut removed_handles = Vec::new();
@@ -87,21 +76,34 @@ pub fn apply_remove_pages(doc: &mut Document, pages: &PageSelection) -> PdfResul
         }
     }
     for idx in indices.into_iter().rev() {
-        if idx < count {
-            doc.remove_page(idx)?;
-        }
+        doc.remove_page(idx)?;
     }
     prune_struct_tree_pages(doc, &removed_handles);
     Ok(())
 }
 
-/// Resolves a selection against the current page count.
-fn indices_of(pages: &PageSelection, count: usize) -> Vec<usize> {
-    match pages {
+/// The pages a selection names, in the order it names them.
+///
+/// **A page that is not there is refused, by number.** Five of the operations that take a
+/// selection dropped such a page and returned `Ok`, so removing page 99 of a two-page
+/// document succeeded having done nothing, and a caller off by one was told it had worked;
+/// two others refused. One resolver, so the answer does not depend on which operation
+/// was asked.
+///
+/// # Errors
+/// Fails when the selection names a page at or past `count`.
+pub(crate) fn pages_named(pages: &PageSelection, count: usize) -> PdfResult<Vec<usize>> {
+    let indices = match pages {
         PageSelection::All => (0..count).collect(),
         PageSelection::Single(i) => vec![*i],
         PageSelection::Indices(idx) => idx.clone(),
+    };
+    if let Some(missing) = indices.iter().find(|index| **index >= count) {
+        return Err(PdfError::Other(
+            format!("this document has {count} pages and no page {missing}").into(),
+        ));
     }
+    Ok(indices)
 }
 
 /// Moves several pages to one position, as a single movement.
@@ -119,17 +121,9 @@ pub fn apply_reorder_batch(
 /// beside the vocabulary rather than through it (ARCHITECTURE §4.1, Rule D). Nothing about
 /// it belonged above `fepdf-doc`: the cloner it needs lives here.
 pub fn apply_duplicate_pages(doc: &mut Document, pages: &PageSelection) -> PdfResult<()> {
-    let count = doc.page_count()?;
-    let mut indices = indices_of(pages, count);
+    let mut indices = pages_named(pages, doc.page_count()?)?;
     indices.sort_unstable();
     indices.dedup();
-    if let Some(&worst) = indices.last()
-        && worst >= count
-    {
-        return Err(fepdf_model::PdfError::Arena(
-            format!("Page index {worst} out of bounds").into(),
-        ));
-    }
 
     // Descending, so each insertion leaves the indices still to be handled where they
     // were. Ascending does not merely mis-order: measured on three pages selected
@@ -358,16 +352,8 @@ pub fn apply_resize_pages(doc: &Document, pages: &PageSelection, to: &PageResize
     if !(to.offset.0.is_finite() && to.offset.1.is_finite()) {
         return Err(PdfError::Other(format!("an offset of {:?} is nowhere", to.offset).into()));
     }
-    let count = doc.page_count()?;
-    let indices = match pages {
-        PageSelection::All => (0..count).collect(),
-        PageSelection::Single(i) => vec![*i],
-        PageSelection::Indices(idx) => idx.clone(),
-    };
-    for idx in indices {
-        if idx < count {
-            resize_one_page(doc, idx, to)?;
-        }
+    for idx in pages_named(pages, doc.page_count()?)? {
+        resize_one_page(doc, idx, to)?;
     }
     Ok(())
 }
@@ -536,16 +522,8 @@ pub fn apply_crop_pages(
             format!("a crop to {keep:?} keeps a region with no area").into(),
         ));
     }
-    let count = doc.page_count()?;
-    let indices = match pages {
-        PageSelection::All => (0..count).collect(),
-        PageSelection::Single(i) => vec![*i],
-        PageSelection::Indices(idx) => idx.clone(),
-    };
-    for index in indices {
-        if index < count {
-            crop_one_page(doc, index, keep, outside)?;
-        }
+    for index in pages_named(pages, doc.page_count()?)? {
+        crop_one_page(doc, index, keep, outside)?;
     }
     Ok(())
 }
@@ -655,10 +633,9 @@ pub fn apply_combine_pages(
             format!("a grid of {} by {} has no cells", onto.columns, onto.rows).into(),
         ));
     }
-    let mut indices = indices_of(pages, count);
+    let mut indices = pages_named(pages, count)?;
     indices.sort_unstable();
     indices.dedup();
-    indices.retain(|index| *index < count);
     if indices.is_empty() {
         return Ok(());
     }

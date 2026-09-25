@@ -2281,12 +2281,15 @@ Wiring, first, because none of it touches the engine:
       replaced page 2 of `constitution.pdf` with `sample_02c.pdf`'s page, undid it, and
       wrote page 1 out as `constitution-01.png`.
 
-- [ ] **`RemovePages` skips a page that is not there instead of refusing.**
-      `apply_remove_pages` drops any index at or past the page count and returns `Ok`, so
-      removing page 99 of a two-page document succeeds having done nothing, and an MCP
-      caller with an off-by-one is told it worked. Found 2026-09-25 while trying to make a
-      replacement's removal fail. *Fails if*: `RemovePages(Indices([1, 9]))` on a
-      two-page document returns `Ok`.
+- [x] **A page selection naming a page that is not there is refused, by number.**
+      `RemovePages` dropped any index at or past the page count and returned `Ok`, so
+      removing page 99 of a two-page document succeeded having done nothing — and it was
+      not alone: rotating, resizing, cropping and combining pages, and the header and
+      Bates stamps, did the same, while duplicating, reordering and splitting refused. One
+      resolver, `pages_named`, answers for all of them now, before anything changes.
+      `page_selection_test.rs` asks each of the nine for pages 0 and 9 of a two-page
+      document and fails if any answers `Ok` or changes page 0; the window's replacement,
+      whose removal can now be refused, rebuilds rather than leaving half of it standing.
 
 Then the gate:
 

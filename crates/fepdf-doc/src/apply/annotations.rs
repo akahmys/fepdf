@@ -365,20 +365,14 @@ pub fn apply_add_page_decoration(
         None => None,
     };
     let count = doc.page_count()?;
-    let indices = match pages {
-        PageSelection::All => (0..count).collect(),
-        PageSelection::Single(i) => vec![*i],
-        PageSelection::Indices(idx) => idx.clone(),
-    };
+    let indices = crate::apply::page::pages_named(pages, count)?;
     // One face, embedded once, shown on every page it is asked for.
     let face = crate::apply::font::face_for(text)
         .map_err(|why| PdfError::Other(format!("{text:?} cannot be set: {why}").into()))?;
     let embedded = crate::apply::font::embed_for(doc, &face.1, &face.0, &[text])?;
 
     for idx in indices {
-        if idx < count
-            && let Some(page_h) = doc.get_page_handle(idx)
-        {
+        if let Some(page_h) = doc.get_page_handle(idx) {
             overlay_text_on_page(doc, page_h, &face, &embedded, text, position, group)?;
         }
     }
@@ -395,11 +389,7 @@ pub fn apply_bates_numbering(
     position: &DecorationPosition,
 ) -> PdfResult<()> {
     let count = doc.page_count()?;
-    let indices = match pages {
-        PageSelection::All => (0..count).collect(),
-        PageSelection::Single(i) => vec![*i],
-        PageSelection::Indices(idx) => idx.clone(),
-    };
+    let indices = crate::apply::page::pages_named(pages, count)?;
     // **Every label is known before the first page is touched**, so the face carries the
     // glyphs of all of them and is embedded once. Embedding per page put a subset of the
     // same face on each: thirteen footers took `samples/constitution.pdf` from 244,790
@@ -419,8 +409,7 @@ pub fn apply_bates_numbering(
     let embedded = crate::apply::font::embed_for(doc, &face.1, &face.0, &every)?;
 
     for (i, idx) in indices.into_iter().enumerate() {
-        if idx < count
-            && let Some(page_h) = doc.get_page_handle(idx)
+        if let Some(page_h) = doc.get_page_handle(idx)
             && let Some(label) = labels.get(i)
         {
             overlay_text_on_page(doc, page_h, &face, &embedded, label, position, None)?;
