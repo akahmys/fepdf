@@ -199,7 +199,7 @@ pub(crate) fn page_content(doc: &Document, page: usize) -> PdfResult<Option<byte
 }
 
 /// Puts `content` on the page, as its one content stream.
-fn write_page_content(doc: &Document, page: usize, content: Vec<u8>) -> PdfResult<()> {
+pub(crate) fn write_page_content(doc: &Document, page: usize, content: Vec<u8>) -> PdfResult<()> {
     let arena = doc.arena();
     let page_h =
         doc.get_page_handle(page).ok_or_else(|| PdfError::Other("the page is not there".into()))?;

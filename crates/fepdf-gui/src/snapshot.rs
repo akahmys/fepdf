@@ -27,6 +27,20 @@ pub struct SnapshotTool {
     pub drag_current: Option<egui::Pos2>,
     /// Which multiple of 96 DPI to take it at, as an index into [`RESOLUTIONS`].
     pub resolution: usize,
+    /// What the rectangle is for: copying it, or cropping the page to it.
+    pub purpose: Purpose,
+}
+
+/// What a dragged rectangle is for.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Purpose {
+    /// Copied as a picture.
+    #[default]
+    Copy,
+    /// The page cropped to it; what is outside stays in the file, hidden (`/CropBox`).
+    Crop,
+    /// The page cropped to it, and what is outside taken out of the file (ADR-0088).
+    CropAndRemove,
 }
 
 /// A rectangle a reader has finished dragging, on the page it was dragged on.
@@ -127,6 +141,7 @@ mod taken {
             drag_start: Some(egui::pos2(from.0, from.1)),
             drag_current: Some(egui::pos2(to.0, to.1)),
             resolution: 0,
+            purpose: super::Purpose::Copy,
         }
     }
 

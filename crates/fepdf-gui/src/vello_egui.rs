@@ -199,7 +199,12 @@ impl VelloRenderer {
                 &rect,
             );
 
+            // **Clipped to the sheet.** A page shows its crop box and nothing past it, and
+            // a page cropped with what lies outside kept in the file — `/CropBox` hiding
+            // it, which is what a crop that keeps is — drew all of it over the canvas.
+            viewport_scene.push_clip_layer(vello::peniko::Fill::NonZero, transform, &rect);
             viewport_scene.append(scene, Some(transform));
+            viewport_scene.pop_layer();
         }
 
         let device = &render_state.device;
@@ -341,7 +346,13 @@ impl VelloRenderer {
 
             let scale = (f64::from(thumb_width) / f64::from(unscaled_size.x)) / 2.0;
             let transform = kurbo::Affine::scale(scale);
+            thumb_scene.push_clip_layer(
+                vello::peniko::Fill::NonZero,
+                kurbo::Affine::IDENTITY,
+                &rect,
+            );
             thumb_scene.append(scene, Some(transform));
+            thumb_scene.pop_layer();
 
             let queue = &render_state.queue;
             if let Err(e) = self.thumb_renderer.render_to_texture(

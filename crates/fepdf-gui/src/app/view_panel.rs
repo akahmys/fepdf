@@ -156,6 +156,7 @@ impl FepdfApp {
             if self.view.does(Act::RotatePages) {
                 self.render_rotate_menu(ui, page_idx);
                 self.render_tab_order_menu(ui, page_idx);
+                self.render_sheet_menu(ui, page_idx);
             }
 
             // The copy that stays here, which is the one edit with no variants to hang
@@ -224,6 +225,66 @@ impl FepdfApp {
                     ui.close();
                 }
             }
+        });
+    }
+
+    /// Cutting the page into several and putting several onto one sheet (W-11, W-12).
+    ///
+    /// **Splitting is this page's; combining is the pages in hand's**, because a split
+    /// makes pages where there was one and a combine makes one where there were several.
+    fn render_sheet_menu(&mut self, ui: &mut egui::Ui, page_idx: usize) {
+        let combining = self.acting_on(page_idx);
+        ui.menu_button(self.tr("menu_sheets"), |ui| {
+            for (key, columns, rows) in [
+                ("menu_split_halves_across", 2, 1),
+                ("menu_split_halves_down", 1, 2),
+                ("menu_split_quarters", 2, 2),
+            ] {
+                if ui.button(self.tr(key)).clicked() {
+                    self.split_page(page_idx, columns, rows, key);
+                    ui.close();
+                }
+            }
+            ui.separator();
+            // Two side by side go on the first page's sheet turned, so each keeps its
+            // shape; four go two by two on the sheet as it is.
+            let first = combining.iter().next().and_then(|p| self.doc_page_sizes.get(*p)).copied();
+            for (key, columns, rows, sheet) in [
+                ("menu_combine_two", 2, 1, first.map(|(w, h)| (h, w))),
+                ("menu_combine_four", 2, 2, None),
+            ] {
+                let label = format!("{} ({})", self.tr(key), combining.len());
+                if ui.add_enabled(combining.len() > 1, egui::Button::new(label)).clicked() {
+                    let onto = fepdf::PageArrangement { sheet, columns, rows };
+                    self.combine_pages(&combining, onto, key);
+                    ui.close();
+                }
+            }
+        });
+    }
+
+    /// Cuts page `page` into `columns` by `rows` pages.
+    pub(crate) fn split_page(&self, page: usize, columns: usize, rows: usize, key: &str) {
+        let into = fepdf::PageDivision::Grid { columns, rows };
+        self.apply_from_menu(fepdf::Operation::SplitPage { page, into }, key);
+    }
+
+    /// Puts `pages` onto sheets as `onto` arranges them.
+    pub(crate) fn combine_pages(
+        &self,
+        pages: &BTreeSet<usize>,
+        onto: fepdf::PageArrangement,
+        key: &str,
+    ) {
+        let pages = fepdf::PageSelection::Indices(pages.iter().copied().collect());
+        self.apply_from_menu(fepdf::Operation::CombinePages(pages, onto), key);
+    }
+
+    /// Sends `operation`, saying `key` when it is done.
+    fn apply_from_menu(&self, operation: fepdf::Operation, key: &str) {
+        let _ = self.tx_worker.send(crate::worker::WorkerRequest::Apply {
+            operation: Box::new(operation),
+            done: self.tr(key),
         });
     }
 
@@ -681,8 +742,13 @@ impl FepdfApp {
             );
             let locale = &self.locale_mgr;
             let lang = &self.active_language;
-            self.caliper_tool
-                .draw_overlay(ui, page_screen_rect, unscaled_h, zoom, &|key| locale.tr(lang, key));
+            self.caliper_tool.draw_overlay(
+                ui,
+                (page_idx, page_screen_rect),
+                unscaled_h,
+                zoom,
+                &|key| locale.tr(lang, key),
+            );
         }
     }
 
@@ -695,9 +761,7 @@ impl FepdfApp {
         zoom: f32,
         dragged_from: Option<usize>,
     ) -> Option<usize> {
-        let tool_active = self.is_placing_signature
-            || self.caliper_tool.is_active
-            || self.redaction_manager.is_active;
+        let tool_active = self.content_tool().is_some();
 
         match page_input(tool_active, self.view.is_page_view()) {
             // A content tool is out where the tool cannot see what it is acting on, and
@@ -718,6 +782,28 @@ impl FepdfApp {
         }
     }
 
+    /// The content tool that has the page, if one does.
+    ///
+    /// **One home for which tools there are.** Whether a tool is on and what it is handed
+    /// were two lists: the snapshot was added to the second and not the first, and for
+    /// five days a drag with it on selected the words under it and copied nothing. A
+    /// `drag` in a capture plan is what showed it. Both now read this.
+    fn content_tool(&self) -> Option<ContentTool> {
+        if self.is_placing_signature {
+            Some(ContentTool::Signature)
+        } else if self.caliper_tool.is_active {
+            Some(ContentTool::Caliper)
+        } else if self.redaction_manager.is_active {
+            Some(ContentTool::Redaction)
+        } else if self.snapshot_tool.is_active {
+            Some(ContentTool::Snapshot)
+        } else if self.annotate_tool.is_active {
+            Some(ContentTool::Annotate)
+        } else {
+            None
+        }
+    }
+
     /// Hands the page to whichever content tool is active. Only reached in the page view.
     fn handle_content_tool(
         &mut self,
@@ -727,40 +813,38 @@ impl FepdfApp {
         unscaled_h: f32,
         zoom: f32,
     ) {
-        if self.is_placing_signature {
-            self.handle_signature_placement_interaction(
-                ui,
-                visible_index,
-                page_screen_rect,
-                unscaled_h,
-                zoom,
-            );
-        } else if self.caliper_tool.is_active {
-            self.handle_caliper_page_interaction(
-                ui,
-                visible_index,
-                page_screen_rect,
-                unscaled_h,
-                zoom,
-            );
-        } else if self.redaction_manager.is_active {
-            self.redaction_manager.handle_interaction(
-                ui,
-                visible_index,
-                page_screen_rect,
-                unscaled_h,
-                zoom,
-            );
-        } else if self.snapshot_tool.is_active
-            && let Some(taken) = self.snapshot_tool.interaction(
-                ui,
-                visible_index,
-                page_screen_rect,
-                unscaled_h,
-                zoom,
-            )
-        {
-            self.copy_snapshot(taken);
+        let Some(tool) = self.content_tool() else { return };
+        let (page, rect) = (visible_index, page_screen_rect);
+        match tool {
+            ContentTool::Signature => {
+                self.handle_signature_placement_interaction(ui, page, rect, unscaled_h, zoom);
+            }
+            ContentTool::Caliper => {
+                self.handle_caliper_page_interaction(ui, page, rect, unscaled_h, zoom);
+            }
+            ContentTool::Redaction => {
+                self.redaction_manager.handle_interaction(ui, page, rect, unscaled_h, zoom);
+            }
+            ContentTool::Snapshot => {
+                if let Some(taken) =
+                    self.snapshot_tool.interaction(ui, page, rect, unscaled_h, zoom)
+                {
+                    self.copy_snapshot(taken);
+                }
+            }
+            ContentTool::Annotate => {
+                match self.annotate_tool.interaction(ui, page, rect, unscaled_h, zoom) {
+                    None => {}
+                    Some(Ok(spec)) => {
+                        let done = self.tr("annotate_done");
+                        let _ = self.tx_worker.send(crate::worker::WorkerRequest::Apply {
+                            operation: Box::new(fepdf::Operation::AddAnnotation(spec)),
+                            done,
+                        });
+                    }
+                    Some(Err(why)) => self.notice = Some(crate::app::Notice::failed(why)),
+                }
+            }
         }
     }
 
@@ -771,10 +855,27 @@ impl FepdfApp {
     /// comes back goes on the clipboard, and what it was is said — a picture put there
     /// with nothing said is a gesture a reader cannot tell worked from one that did not.
     fn copy_snapshot(&mut self, taken: crate::snapshot::Taken) {
-        let _ = self.tx_worker.send(crate::worker::WorkerRequest::Snapshot {
-            page: taken.page,
-            keep: taken.keep,
-            scale: taken.scale,
+        use crate::snapshot::Purpose;
+        let outside = match self.snapshot_tool.purpose {
+            Purpose::Copy => {
+                let _ = self.tx_worker.send(crate::worker::WorkerRequest::Snapshot {
+                    page: taken.page,
+                    keep: taken.keep,
+                    scale: taken.scale,
+                });
+                return;
+            }
+            Purpose::Crop => fepdf::WhatFallsOutside::Stays,
+            Purpose::CropAndRemove => fepdf::WhatFallsOutside::Goes,
+        };
+        // The same rectangle, handed to the crop: the page becomes what was dragged.
+        let crop = fepdf::CropRegion { keep: taken.keep, outside };
+        let _ = self.tx_worker.send(crate::worker::WorkerRequest::Apply {
+            operation: Box::new(fepdf::Operation::CropPages(
+                fepdf::PageSelection::Single(taken.page),
+                crop,
+            )),
+            done: self.tr("snapshot_cropped"),
         });
     }
 
@@ -944,6 +1045,16 @@ impl FepdfApp {
                 {
                     snapshot_drag = Some((visible_index, drag_rect));
                 }
+                // Where the page looks different from the one it was compared with, on a
+                // layer above the page so it is drawn whatever else is.
+                crate::comparing::outline(
+                    &self.compare,
+                    ui,
+                    visible_index,
+                    page_screen_rect,
+                    unscaled_h,
+                    zoom,
+                );
             }
         }
 
@@ -1157,6 +1268,16 @@ enum PageInput {
 /// drawn there covers content nobody can see. Turning the tool off there is not enough on
 /// its own: the click would fall through to page selection, and a drag meant to redact
 /// would reorder the document instead.
+/// The tools that take the page's pointer from the page itself.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ContentTool {
+    Signature,
+    Caliper,
+    Redaction,
+    Snapshot,
+    Annotate,
+}
+
 const fn page_input(tool_active: bool, page_view: bool) -> PageInput {
     match (tool_active, page_view) {
         (true, true) => PageInput::Tool,

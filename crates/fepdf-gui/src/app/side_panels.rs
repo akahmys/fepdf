@@ -132,6 +132,10 @@ impl FepdfApp {
             ActiveDrawer::TextRuns => tr("runs_title"),
             ActiveDrawer::Form => tr("form_title"),
             ActiveDrawer::Snapshot => tr("snapshot_title"),
+            ActiveDrawer::Annotate => tr("annotate_title"),
+            ActiveDrawer::ReadAloud => tr("speech_title"),
+            ActiveDrawer::Compare => tr("compare_title"),
+            ActiveDrawer::Print => tr("print_title"),
         }
     }
 
@@ -178,6 +182,16 @@ impl FepdfApp {
                         ActiveDrawer::TextRuns => self.render_text_runs(ui),
                         ActiveDrawer::Form => self.render_form(ui),
                         ActiveDrawer::Snapshot => self.render_snapshot(ui),
+                        ActiveDrawer::ReadAloud => self.render_read_aloud(ui),
+                        ActiveDrawer::Compare => self.render_compare(ui),
+                        ActiveDrawer::Print => self.render_print(ui),
+                        ActiveDrawer::Annotate => {
+                            let locale = &self.locale_mgr;
+                            let lang = &self.active_language;
+                            crate::annotate::show(&mut self.annotate_tool, ui, &|key| {
+                                locale.tr(lang, key)
+                            });
+                        }
                         ActiveDrawer::WhatItDoes => {
                             let locale = &self.locale_mgr;
                             let lang = &self.active_language;
@@ -230,14 +244,7 @@ impl FepdfApp {
                                 &self.active_language,
                             );
                         }
-                        ActiveDrawer::Caliper => {
-                            self.caliper_tool.is_active = true;
-                            self.caliper_tool.show_panel(
-                                ui,
-                                &self.locale_mgr,
-                                &self.active_language,
-                            );
-                        }
+                        ActiveDrawer::Caliper => self.render_caliper(ui),
                         ActiveDrawer::Tools => crate::document_tools::show(self, ui),
                         ActiveDrawer::Bookmarks => self.render_bookmarks(ui),
                     },
@@ -273,6 +280,88 @@ impl FepdfApp {
 
     /// Sends the draft as one `UpdateOutlines`.
     ///
+    /// The caliper: what it measured, and the scale it can set on the page on screen.
+    fn render_caliper(&mut self, ui: &mut egui::Ui) {
+        self.caliper_tool.is_active = true;
+        let locale = &self.locale_mgr;
+        let lang = &self.active_language;
+        let page = self.view.active_page;
+        let asked =
+            crate::measuring::show(&mut self.caliper_tool, ui, &|key| locale.tr(lang, key), page);
+        if let Some(scale) = asked {
+            let done = self.tr("caliper_scale_set");
+            let _ = self.tx_worker.send(crate::worker::WorkerRequest::Apply {
+                operation: Box::new(fepdf::Operation::SetMeasurementScale(scale)),
+                done,
+            });
+        }
+    }
+
+    /// Printing: which printer, how many, which pages — and handing it over.
+    fn render_print(&mut self, ui: &mut egui::Ui) {
+        if self.print.printers.is_none() {
+            let platform = crate::speech::Platform::this();
+            self.print.printers = Some(platform.map(crate::printing::printers).unwrap_or_default());
+        }
+        let locale = &self.locale_mgr;
+        let lang = &self.active_language;
+        if crate::printing::show(&mut self.print, ui, &|key| locale.tr(lang, key)) {
+            self.print_document();
+        }
+    }
+
+    /// Hands the document as it stands to the worker, to write and pass to the spooler.
+    pub(crate) fn print_document(&mut self) {
+        self.print.waiting = true;
+        let form = self.print.clone();
+        let read = crate::worker::Read::Print(Box::new(form));
+        let _ = self.tx_worker.send(crate::worker::WorkerRequest::Read(read));
+    }
+
+    /// Comparing: choosing the other document, and going to a page that differs.
+    fn render_compare(&mut self, ui: &mut egui::Ui) {
+        let locale = &self.locale_mgr;
+        let lang = &self.active_language;
+        match crate::comparing::show(&self.compare, ui, &|key| locale.tr(lang, key)) {
+            crate::comparing::Asked::Nothing => {}
+            crate::comparing::Asked::With(path) => self.compare_with(path),
+            crate::comparing::Asked::GoTo(page) => {
+                let viewport = self.last_viewport_rect.unwrap_or_else(|| ui.max_rect());
+                let last = self.total_pages.saturating_sub(1);
+                self.view.turn_to(page.min(last), viewport, &self.page_layouts);
+            }
+        }
+    }
+
+    /// Asks the worker to compare this document with the one at `path`.
+    pub(crate) fn compare_with(&mut self, path: std::path::PathBuf) {
+        self.compare.other = path.file_name().map(|n| n.to_string_lossy().into_owned());
+        self.compare.waiting = true;
+        self.compare.result = None;
+        let read = crate::worker::Read::Compare { path };
+        let _ = self.tx_worker.send(crate::worker::WorkerRequest::Read(read));
+    }
+
+    /// Reading aloud: from the page on screen, and stopping.
+    fn render_read_aloud(&mut self, ui: &mut egui::Ui) {
+        let locale = &self.locale_mgr;
+        let lang = &self.active_language;
+        let asked = crate::read_aloud::show(&self.read_aloud, ui, &|key| locale.tr(lang, key));
+        match asked {
+            crate::read_aloud::Asked::Nothing => {}
+            crate::read_aloud::Asked::Read => self.read_aloud_from_here(),
+            crate::read_aloud::Asked::Stop => self.read_aloud.stop(),
+        }
+    }
+
+    /// Asks the worker for the reading, to start from the page on screen when it comes.
+    pub(crate) fn read_aloud_from_here(&mut self) {
+        self.read_aloud.stop();
+        self.read_aloud.waiting_from = Some(self.view.active_page);
+        let read = crate::worker::Read::Reading;
+        let _ = self.tx_worker.send(crate::worker::WorkerRequest::Read(read));
+    }
+
     /// How a snapshot is taken, and at what resolution.
     ///
     /// **The drawer holds no gesture**: the drag is on the page, where the reader can see
@@ -282,6 +371,18 @@ impl FepdfApp {
         ui.label(self.tr("snapshot_how"));
         ui.add_space(crate::app::theme::space::ITEM);
         ui.label(self.tr("snapshot_resolution"));
+        // The same drag, for a second purpose: what it covers becomes the page.
+        for (purpose, key) in [
+            (crate::snapshot::Purpose::Copy, "snapshot_purpose_copy"),
+            (crate::snapshot::Purpose::Crop, "snapshot_purpose_crop"),
+            (crate::snapshot::Purpose::CropAndRemove, "snapshot_purpose_crop_remove"),
+        ] {
+            let chosen = self.snapshot_tool.purpose == purpose;
+            if ui.selectable_label(chosen, self.tr(key)).clicked() {
+                self.snapshot_tool.purpose = purpose;
+            }
+        }
+        ui.add_space(crate::app::theme::space::ITEM);
         for (index, (key, _)) in crate::snapshot::RESOLUTIONS.iter().enumerate() {
             let chosen = self.snapshot_tool.resolution == index;
             if ui.selectable_label(chosen, self.tr(key)).clicked() {

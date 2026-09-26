@@ -500,11 +500,13 @@ fn implemented_operations_still_succeed() {
         .is_ok()
     );
 
+    // Refused: the lexicon is an entry of the structure tree root (Table 354), and this
+    // document has none. `reading_aloud_test.rs` holds where it goes when there is one.
     assert!(
         doc.apply(fepdf::Operation::SetPronunciationLexicon {
             lexicon_xml_bytes: b"<lexicon/>".to_vec(),
         })
-        .is_ok()
+        .is_err()
     );
 
     assert!(

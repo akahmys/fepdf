@@ -50,8 +50,10 @@ impl FepdfApp {
         let new_node = USTNode {
             id: self.ust_registry.next_node_id,
             tag: tag.to_string(),
-            title: if req.text.len() > 30 {
-                format!("{}...", &req.text[..30])
+            // Thirty characters, not thirty bytes: a byte slice panics when the thirtieth
+            // byte falls inside a character, which mixed Latin and kana text makes likely.
+            title: if req.text.chars().count() > 30 {
+                format!("{}...", req.text.chars().take(30).collect::<String>())
             } else {
                 req.text.clone()
             },
@@ -69,6 +71,11 @@ impl FepdfApp {
             mcids: Vec::new(),
             lang: None,
             role: None,
+            actual_text: None,
+            expansion: None,
+            phoneme: None,
+            phonetic_alphabet: "ipa".to_owned(),
+            order: Vec::new(),
             children: Vec::new(),
         };
         self.ust_registry.next_node_id += 1;

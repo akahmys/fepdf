@@ -2456,8 +2456,44 @@ Annotations, which are the largest single row of the comparison:
       `/Rect`, with `pdf20examples/PDF 2.0 UTF-8 string and annotation.pdf` in
       `crosscheck_image.sh`.
 
-- [ ] **W-13 — making them**: note, typewriter, text box, callout, the four text markups,
-      ink, shapes, stamp and link. `AnnotationKind` grows from four to twelve.
+- [x] **W-13 — making them**: note, typewriter, text box, callout, the four text markups,
+      ink, shapes, stamp and link. `AnnotationKind` grows from four to twelve, each written
+      with the entries its table requires and the appearance it is drawn by, and served by
+      `add_annotation`, which refused none of the names it did not know and wrote a note for
+      them.
+
+      **A highlight hid the words it marked.** Its appearance was a filled rectangle in
+      normal blending, and measured on `constitution.pdf` a yellow highlight over
+      日本国憲法 took the title's dark pixels from 449 to 0. `/BM /Multiply` was the fix in
+      the file and not on the screen: **the renderer stored the blend mode and composited
+      every fill, stroke and image normally** (11.3.5). A mark in a mode other than
+      `Normal` now goes into a layer composited in that mode, and the title reads 482
+      under the highlight; `annotation_drawing_test.rs` fails with the layer removed.
+
+      Three more were in the four kinds that existed. A note's words went in as their
+      UTF-8 bytes; a stamp's picture went into an image XObject with no size, colour space
+      or filter, which no reader can decode — it is now a JPEG, read for its frame and
+      carried under `/DCTDecode`, and anything else is refused; and nothing was marked for
+      printing. Text boxes, typewriter text and callouts are set in a face that draws every
+      character, embedded, and nothing wraps: a line longer than its box runs past it.
+
+      **From the window**, a drawer of fourteen pens — the twelve kinds, with the shape
+      split into its three forms — each drawn with the gesture it is drawn with
+      elsewhere: a drag over what a mark covers or a box holds, a drag from a point to
+      where a callout's words go, the path of a drag for ink, and a click for a note or
+      typed words. A pen missing what it needs — words, a stamp's picture, a link's
+      target, or a drag where a click came — says which rather than sending an
+      annotation the engine would refuse in its own words. `annotate.rs`'s tests hold
+      each pen's gesture to the annotation it makes.
+
+      **Checked with the pointer's own events, and that found the snapshot broken.**
+      `--capture` gained `drag`, which sends press, movement and release through
+      `raw_input_hook` where the platform's events go; every earlier step drove the call
+      a gesture ends in. The first `drag` with the snapshot drawer open selected the words
+      under it and copied nothing: the snapshot was in the list of tools the page is
+      handed to and not in the list that decides whether a tool has it, so a drag went to
+      text selection. One `content_tool()` answers both now. `scripts/dev/tour.txt` shots
+      19 and 20 are the snapshot and four annotations, each drawn by a drag.
 
 Content editing, under D-1:
 
@@ -2844,9 +2880,20 @@ Content editing, under D-1:
       own.
       Recorded as [ADR-0085](docs/adr/0085-editing-what-a-page-draws-is-in-scope.md), [ADR-0091](docs/adr/0091-paragraphs-are-not-inferred-and-overflow-is-shown.md).
 
-- [ ] **W-E5 — the drawn objects**: moving, scaling, rotating and replacing an XObject
+- [x] **W-E5 — the drawn objects**: moving, scaling, rotating and replacing an XObject
       (`Operation::EditXObject`). *Fails if*: the CPU rasterisation of the result differs
-      from the expected image.
+      from the expected image — and `edit_xobject_test.rs` asks exactly that, of each of
+      the three transforms, against a page drawn with the matrix written out by hand.
+
+      An object is named by its place among the page's `Do` operators, as
+      `fepdf::xobject::objects_of_page` lists them with their corners on the page (an
+      image's unit square, a form's `/BBox` through its `/Matrix`), and served as
+      `list_objects` and `edit_object`. An edit is said on the page — lower left corner
+      to here, scale or turn about the centre — and written as the `cm` that makes it so
+      under the matrix already in force, in a `q … Q` of its own round the one `Do`, so
+      the numbering survives it. A replacement is a JPEG added under a name of its own,
+      because the XObject a page names may be named by other pages too. **Not reached:**
+      an object inside a form XObject, and doing any of it from the window.
 - [x] **W-E6-a — a run says what box to click.** `RunInfo` carries `advance` and
       `height` beside `origin`, so a window can draw a frame round a run and a click can
       find one. The advance is a *vector*, because a run is not always horizontal on the
@@ -2924,10 +2971,35 @@ Page geometry, under D-4:
       gone, **78 of its 112 runs end past the sheet's edge**, and `extract_text` returned
       all 428 characters it did before.
 
-- [ ] **W-G1-b — the images a crop puts outside**, re-encoded to the part that remains
-      rather than left whole under a clip (ADR-0088).
-- [ ] **W-G1-c — the paths a crop puts outside**, clipped and rebuilt rather than clipped
-      for display.
+- [x] **W-G1-b — the images a crop puts outside**, re-encoded to the part that remains
+      rather than left whole under a clip (ADR-0088). `image_crop::cut_images_outside`
+      runs beside the text removal on every crop that removes, and so on every split:
+      each image XObject the page draws is decoded, cut to the pixels under the kept
+      rectangle taken into its own unit square, and drawn in place of the whole; one
+      wholly outside is not drawn, one wholly inside is left as it is, and a soft mask is
+      cut with its image. A turned or skewed image keeps the bounding box of what shows,
+      so a pixel a reader can see is never cut.
+
+      Split down the middle, `print_sample.pdf`'s page 4 picture of 1,367,663 pixels
+      became two of 684,321 — the column on the line goes to both — and an image
+      wholly on one side stayed there alone (2026-09-26). An image that will not decode,
+      and one carrying its own mask as JPEG 2000 does, are left whole with a decision
+      saying so. **Not reached:** inline images, and images inside a form XObject.
+      `crop_image_test.rs` fails in all six tests with the cut unhooked.
+- [x] **W-G1-c — the paths a crop puts outside**, clipped and rebuilt rather than clipped
+      for display. `path_crop::cut_paths_outside` runs beside the text and images on every
+      crop that removes: a path wholly outside is taken out, a filled path of straight
+      lines is cut to the kept rectangle as a polygon, and a stroked one segment by
+      segment against the rectangle grown by half the pen, so a line along the edge keeps
+      the half that shows. **Left whole**, because cutting would change what shows: a path
+      with a curve in it, one both filled and stroked, and one used to clip — including
+      `W f`, where taking out a clip lying outside would uncover what it hid.
+
+      Split down the middle, the first ten pages of `print_sample.pdf` had 43 paths wholly
+      on the right; none are left on the left sheet, and none of its 176 reach past the
+      line. Of `volvo_xc90.pdf`'s, 5 still do — the kinds left whole (2026-09-26).
+      **Not reached:** paths inside a form XObject. `crop_path_test.rs` fails with the cut
+      unhooked, and with the clip guard removed.
 
 - [x] **W-11 — one page into several**, on W-G1 — the operation JUST PDF calls
       ページの分割. `Operation::SplitPage { page, into }` with `PageDivision::Grid` or
@@ -2937,7 +3009,19 @@ Page geometry, under D-4:
       `Operation::CombinePages(pages, PageArrangement { sheet, columns, rows })`, served as
       `combine_pages`.
 
-- [ ] **W-O1.** Out: the page rasterised, its dimensions, and whatever text is already
+      **From the window, with W-10 and W-11**: the page menu splits the page in halves
+      either way or in quarters and puts the pages in hand two or four to a sheet, and
+      the snapshot's drag crops the page to what it covers — hiding the rest, or taking
+      it out. Driven in a capture plan, two defects showed that neither operation had.
+      **The window drew a page's content past its sheet**: each page's scene was
+      appended with no clip, so a page cropped with the rest kept in the file — what a
+      crop that keeps is — showed all of it over the canvas; the scene is clipped to the
+      sheet now, in the view and the thumbnails. **And an edit that leaves fewer pages
+      reported failures**: requests for the pages it removed were still queued, and each
+      came back "could not draw page 13"; the worker drops a request for a page the
+      document no longer has.
+
+- [x] **W-O1.** Out: the page rasterised, its dimensions, and whatever text is already
       there with its positions. In: `Operation::AddTextLayer { page, items }`, written at
       text rendering mode 3 with a `/ToUnicode` on an embedded font. Two tools on
       `fepdf-mcp`, which already builds 31 of the 32 operations, and a
@@ -2945,6 +3029,26 @@ Page geometry, under D-4:
       *Fails if*: `inspect text` does not return the layer, **or the page's CPU
       rasterisation changes by one byte**. `--cpu` exists to make the second of those
       writable.
+
+      `page_for_ocr` writes the page as a PNG (300 DPI unless asked) and answers its size,
+      `pixel_to_page` — the transform from the picture's pixels back to the page, turned
+      pages included — and the text already there; `add_text_layer` and
+      `fepdf edit text-layer` take the lines an engine read, in points or in those pixels.
+      Each line is set to its box's height and stretched by `Tz` to its width, so a
+      selection covers the word a reader sees. Both checks hold as stated:
+      `inspect text` on `constitution.pdf` with a layer returns it, and
+      `fepdf publish render --cpu` of page 1 before and after writes the same file.
+
+      **The second check failed first, and not because of the layer.** The renderer kept
+      the text rendering mode and never read it, so every mode was a fill (9.3.6): mode 3
+      — how every OCR'd scan carries its text — was drawn over the scan it was read from.
+      Modes are drawn as Table 106 says now, mode 3 and 7 painting nothing; a stroked
+      glyph takes the default line width, because the backend is given the graphics
+      state's only with a path, and the four modes that clip record that they did not.
+      And the first version of the check passed with the text drawn visibly — the
+      fixture's grey bars under grey text — so the fixture ends in black and the check
+      fails with mode 3 taken out. `text_layer_test.rs` and `rendering_mode_test.rs`.
+      **Not reached:** vertical writing, where a line's box is taller than it is wide.
 
 Independent of all of the above:
 
@@ -2989,10 +3093,49 @@ Independent of all of the above:
       **What it does not find:** a word the producer placed glyph by glyph rather than
       letting the text matrix carry — `fugaku.pdf`'s vertical text is every glyph its own
       run, and W-E3d says why that is a different question.
-- [ ] **W-16 — perimeter and area** beside the caliper's distance, and
+- [x] **W-16 — perimeter and area** beside the caliper's distance, and
       `SetMeasurementScale` where a drawing declares one.
-- [ ] **W-17 — printing.** No check can be written for whether ink reached paper, and
+
+      The caliper takes a shape a corner at a click and gives its perimeter and area, and
+      every measurement is also given in the scale the drawing declares where its first
+      point is (12.9.1): the last viewport whose `/BBox` holds it, read by the worker and
+      written as its measure dictionary's number format arrays say (12.9.2) —
+      `fepdf::measure::format` gives the standard's own example, 1.4505 miles as
+      "1 mi 2,378 ft 7 5/8 in". The drawer sets a page's scale as 1:N in a unit, which is
+      the window's first `SetMeasurementScale`. Checked with real clicks: a 200-point
+      square on a page set to 1:100 in metres reads 28.22 m round and 49.78 m².
+
+      **The scale it "already writes" was written where no reader looks, in a shape none
+      would read.** `/Measure` went into the page dictionary, which Table 31 does not
+      give one — a measure is a viewport's, in `/VP` (Table 265); `/R` held the unit's
+      label where Table 267 wants the ratio stated; `/X` held a bare number where it wants
+      number format dictionaries; and `/D` and `/A`, both required, were missing. The test
+      beside it asserted the page's `/Measure`. It is a viewport over the page now,
+      replacing a rectilinear one and keeping a geospatial one — and the geospatial anchor
+      goes through the same writer, because its viewport had no `/BBox` (required) and
+      replaced every viewport the page had. `measurement_test.rs` holds all of it.
+
+      `cargo run --release --example scale_probe` finds **no sample that declares a
+      scale**; what is read is held by fixtures, the standard's example among them.
+      **Not done:** the anchor writes one `/GPTS` pair and no `/LPTS`, the entry Table 269
+      pairs with it to say where on the viewport each place is — so it names a place and
+      not where the page shows it — and a
+      measurement across two viewports is given in the first's scale, as 12.9.1 says,
+      without saying that the second differs.
+- [x] **W-17 — printing.** No check can be written for whether ink reached paper, and
       this line says so rather than listing a command that cannot fail.
+
+      What can be checked ends at the spooler, and is. A drawer writes the document as
+      it stands — as an export writes it, edits and all — and hands the file to `lp` on
+      macOS and Linux, with the printer, copies and pages chosen, or on Windows to the
+      default application's print verb, which prints once on the default printer and
+      says so when more was asked. A process, not a binding, for the reason W-19b gives.
+      The page list is digits, commas and hyphens before it reaches the spooler's
+      arguments, and the Windows path goes in through the environment, not the script.
+      `printing.rs`'s tests hold the commands; on this machine, which has no printer, the
+      window's print reaches `lp` and shows its refusal in its own words. **Not checked:**
+      a job accepted, since no printer here would take one, and the Windows verb, which
+      has been built as arguments and never run.
 - [x] **W-20 — the snapshot**, which Acrobat calls スナップショット: a reader drags a
       rectangle on the page and what is inside it lands on the clipboard as a picture.
       **A read, not an `Operation`** — nothing about the document changes, so it sits
@@ -3111,17 +3254,105 @@ Independent of all of the above:
       already has is most of what a well-tagged file is made with, and what it cannot yet
       express is the list this item starts as.
 
-- [ ] **W-18 — comparing two documents.**
-- [ ] **W-19a — the reading order, the language and the lexicon**, assembled for a
+      **The reading, done 2026-09-26.** The document is in the working copy —
+      `docs/specs/Well-Tagged-PDF-WTPDF-1.0.pdf`, untracked like every specification, and
+      listed in `docs/specs/README.md` — so "nowhere in the repository" holds only of the
+      code. Read through this engine's own extraction: 239 "shall" sentences. Against a
+      vocabulary whose structure edits are `UpdateStructElem` (a tag and an `/Alt`),
+      `DeleteStructElem`, `MoveStructElem`, `AddUserProperties` and `Retag`, these are
+      what a well-tagged file needs and no operation writes:
+
+      1. **The claim itself** (6.1): a PDF Declaration whose `pdfd:conformsTo` is
+         `…/wtpdf/#reuse1.0` or `#accessibility1.0`. `Upgrade` writes `pdfuaid` for UA-2
+         and no declaration of any kind.
+      2. **Namespaces** (8.2.4, 8.2.5.2): the one `Document` element in the PDF 2.0
+         namespace, and role maps within a namespace — nothing writes `/NS`.
+      3. **Attributes** (8.2.6): `Scope` and `Headers` on table cells (8.2.5.26),
+         `ListNumbering`, `ContinuedList` and `ContinuedFrom` on lists (8.2.5.25),
+         `NoteType` on `FENote` (8.2.5.14.2), layout attributes (8.2.6.2) and ARIA
+         (8.2.6.4). Only `/UserProperties` can be written.
+      4. **`/Ref`** (8.8): a `TOCI` to its target, a citation to its `FENote` and back, a
+         continued list to its previous part.
+      5. **An element's `/Lang`, `/ActualText` and `/E`** (8.4, 8.2.5.23): the update
+         carries a tag and an `/Alt` and nothing else, though W-19a now reads all three.
+      6. **A new element round existing content** — the `Caption`, `Lbl`, `LBody` or the
+         `RB`/`RT`/`RP` of a `Ruby` that WTPDF requires: elements can be retagged, moved and
+         deleted, and the vocabulary has no operation that creates one.
+      7. **Marking content as an artifact** (8.3), which a TOC's leaders require (8.2.5.8).
+      8. **An associated file on a structure element** (8.2.5.29): a formula's MathML with
+         `AFRelationship` `Supplement`. `AttachAssociatedFile` attaches to the catalogue.
+
+- [x] **W-18 — comparing two documents.** `fepdf::compare::compare` pairs pages by
+      position and answers, for each that differs, the lines of text only one side has —
+      a longest common subsequence over extracted lines — and the regions where the page
+      looks different, both rendered on the CPU and differing cells merged into
+      rectangles. Served as `compare_documents` and as a drawer that lists the pages,
+      goes to one, and outlines its regions on the page. Measured with
+      `cargo run --release --example compare_probe --features render`:
+      `constitution.pdf` against a Bates-numbered copy is 13 pages differing, each by the
+      one added line `KEN-00000N` and one region at the bottom right, in 0.61 s.
+      `compare_test.rs` fails with the line match removed and with the pixel check blind.
+      **Not done:** pairing pages other than by position, so an inserted page makes every
+      page after it differ, which the comparison then says.
+- [x] **W-19a — the reading order, the language and the lexicon**, assembled for a
       synthesiser: structure order, `/Lang` resolved by inheritance (14.9.2) and the PLS
       lexicon `SetPronunciationLexicon` already writes. Testable without sound, which is
-      why it is separate from:
-- [ ] **W-19b — the platform's synthesiser.** Every target ships one — AVSpeechSynthesizer,
+      why it is separate from W-19b below.
+
+      `PdfDocument::reading` answers the structure tree's passages in its order, each with
+      the language in force, and the lexicons the tree names. What an element gives in
+      place of its content — `/ActualText`, `/Alt`, `/E` — is read in place of it, and a
+      `/Phoneme` goes with the words in the `/PhoneticAlphabet` inherited to it. An untagged
+      document answers no passages: reading it in drawing order would be a guess. The tree
+      is planned first and each page read once, every glyph going to extraction's own
+      composer for the passage its mark belongs to, so a passage is spaced as
+      `extract_text` spaces it; a node now carries its `/K` in order, because a `<Span>`
+      between two marks of a paragraph is read between them. `reading_aloud_test.rs`
+      draws every fixture in an order other than its structure's.
+
+      **The lexicon it "already writes" was written where nothing looks.** It went into
+      the catalogue as `/PL`, a key ISO 32000-2 does not define, and the test beside it
+      asserted `/PL` was there. Table 354 puts it on the structure tree root, as
+      `/PronunciationLexicon`, an array of file specifications; it is an embedded file
+      there now, and a document with no structure tree is refused rather than given one.
+
+      Measured with `cargo run --release --example reading_probe`: `volvo_xc90.pdf` reads
+      as 9,375 passages in 0.51 s, 263 of them `/Alt`; `print_sample.pdf` as 335, in the
+      three languages its elements declare. `fugaku.pdf` reads as nonsense, and so does
+      `extract_text` on the same page — the reading is extraction's, and so is that gap
+      (W-E3d). **Not read:** a `/Lang` on marked content rather than on an element, and
+      content no element claims.
+
+      Found in passing: a tag drawn in the window took its title from the first thirty
+      *bytes* of the selection, which panics when the thirtieth falls inside a
+      character — thirty characters now.
+- [x] **W-19b — the platform's synthesiser.** Every target ships one — AVSpeechSynthesizer,
       SAPI 5 and WinRT, speech-dispatcher — so nothing is built, only bound, and the
       binding belongs in `fepdf-gui` beside `rfd` and `wgpu` rather than in the engine.
       Rule 9 admits a platform API and refuses a vendored library, so the Linux side talks
       to speech-dispatcher over its socket rather than through `libspeechd`.
       *Fails if*: `cargo tree -i cc` finds a new C builder on any of the four targets.
+
+      **Bound through each platform's own front end, as a process**, because the APIs
+      named above cannot be called here: `objc2`'s `AVSpeechSynthesizer` methods are
+      `unsafe fn`, SAPI and WinRT are COM, and Rule 3 forbids `unsafe` with no override —
+      which this entry was written without weighing. `say` on macOS, `spd-say` on Linux (a
+      speech-dispatcher client run, not linked) and PowerShell's `System.Speech` on
+      Windows read the same synthesisers, and no crate was added, so the `cc` condition
+      holds by construction. A drawer reads from the page on screen, a passage at a time
+      in a voice for its language — on a Mac the locale's own voice, not the novelty
+      voices `say` lists first for English — and stops. The words go in on standard input
+      or as the one argument after `--`, and a `/Lang` that is not a well-formed tag is
+      dropped before it can reach the PowerShell script it would otherwise be spliced into.
+
+      Checked without anyone listening: `--capture`'s `readaloud <folder>` has `say` write
+      each passage to a file, and from page 9 of `print_sample.pdf` it wrote 28 AIFF files
+      of speech in the plan's 20 s, with no `say` left running once the window closed.
+      `speech.rs`'s tests hold the voice choice, the queue's order, a stop that stops the
+      rest, and a real `say` rendering Japanese and English. **Not checked:** the Linux and
+      Windows commands have been built as arguments and never run, since this machine is
+      a Mac. **Not passed:** the lexicons and phonemes — neither front end takes a PLS file
+      or an IPA transcription — and the drawer says how many lexicons go unused.
 
 Declined here, for reasons a corpus cannot overturn: **3D and sound annotations**, under
 the same clause 13.4 retirement that ["Not planned"](#not-planned) already records, and
@@ -3130,6 +3361,12 @@ the same clause 13.4 retirement that ["Not planned"](#not-planned) already recor
 *Done when*: `fepdf-gui` builds 28 of the 32 operations; a document this engine writes
 carries no non-embedded font; and every check named above exists and has been shown to
 fail against the defect it was written for (Rule 5 of [AGENTS.md](AGENTS.md)).
+
+**The vocabulary grew under the first of those.** Measured 2026-09-26 by `status.sh`,
+the window builds **30 of 46** operations: more than the 28 the line names, and fewer
+than its proportion, because fourteen operations were added after it was written. The
+sixteen it does not build are listed by
+`comm -23` of the enum's variants against `crates/fepdf-gui/src`'s `Operation::` names.
 
 ## Phase X — The arena, looked at
 

@@ -13,10 +13,14 @@ pub mod cloning;
 pub mod marked_content;
 /// The Matterhorn Protocol's own text, for the conditions it leaves to a person.
 pub mod matterhorn;
+/// The scale a drawing declares for measuring on it (12.9).
+pub mod measure;
 /// Canonical document mutation operations.
 pub mod operation;
 /// Reading the bookmark tree back out of a document.
 pub mod outline_tree;
+/// The text of a tagged document in reading order, for a synthesiser.
+pub mod reading;
 /// Structural remediation and redaction.
 pub mod remediation;
 /// Logical structure tree visitor and presentation data.

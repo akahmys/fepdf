@@ -525,23 +525,46 @@ pub fn apply_set_output_intent(doc: &Document, intent: OutputIntent) -> PdfResul
     Ok(())
 }
 
-/// Sets pronunciation lexicon stream in the catalogue (Clause 14.9.4).
+/// Names a pronunciation lexicon in the structure tree root (Table 354, 14.9.6).
+///
+/// **It was written into the catalogue as `/PL`, a key ISO 32000-2 does not have.** The
+/// standard's entry is `/PronunciationLexicon` on the structure tree root, an array of
+/// file specifications, so every lexicon this engine wrote was one no reader would look
+/// for; the test beside it asserted `/PL` was there. It is an embedded file now, in the
+/// entry the standard names, replacing any the root had.
+///
+/// # Errors
+/// Fails when the document has no structure tree: the lexicon is an entry of its root,
+/// and making one would make an untagged document claim a structure it does not have.
 pub fn apply_set_pronunciation_lexicon(doc: &Document, bytes: Vec<u8>) -> PdfResult<()> {
     let arena = doc.arena();
-    let mut stream_dict = BTreeMap::new();
-    stream_dict.insert(arena.name("Type"), Object::Name(arena.name("Lexicon")));
-    stream_dict.insert(arena.name("Subtype"), Object::Name(arena.name("pls+xml")));
-    let stream_dh = arena.alloc_dict(stream_dict);
-    let stream_obj = Object::Stream(stream_dh, Arc::new(SublimatedData::Raw(Bytes::from(bytes))));
-    let stream_h = arena.alloc_object(stream_obj);
-
-    if let Some(cah) = doc.catalog_handle() {
-        let cadh = doc.resolve_to_dict(cah)?;
-        let mut cdict = arena.get_dict(cadh).unwrap_or_default();
-        let pl_key = arena.name("PL");
-        let pl_arr_h = arena.alloc_array(vec![Object::Reference(stream_h)]);
-        cdict.insert(pl_key, Object::Array(pl_arr_h));
-        arena.set_dict(cadh, cdict);
-    }
+    let catalog = doc
+        .catalog_handle()
+        .ok_or_else(|| PdfError::Other("the document has no catalogue".into()))?;
+    let catalog = doc.resolve_to_dict(catalog)?;
+    let Some(root) = arena
+        .dict_entry(catalog, arena.name("StructTreeRoot"))
+        .and_then(|root| root.resolve(arena).as_dict_handle())
+    else {
+        return Err(PdfError::Other(
+            "a pronunciation lexicon is named by the structure tree root (Table 354), and \
+             this document has no structure tree"
+                .into(),
+        ));
+    };
+    let size = bytes.len() as u64;
+    let spec = create_embedded_filespec(
+        arena,
+        "lexicon.pls".to_owned(),
+        Some("application/pls+xml".to_owned()),
+        None,
+        size,
+        bytes,
+        None,
+    );
+    let mut dict = arena.get_dict(root).unwrap_or_default();
+    let named = arena.alloc_array(vec![Object::Reference(spec)]);
+    dict.insert(arena.name("PronunciationLexicon"), Object::Array(named));
+    arena.set_dict(root, dict);
     Ok(())
 }

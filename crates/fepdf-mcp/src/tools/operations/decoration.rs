@@ -3,7 +3,7 @@
 use super::page::execute_single_op;
 use fepdf::{
     AnnotationKind, AnnotationSpec, DecorationPosition, FormFieldSpec, FormValue, MeasurementScale,
-    Operation,
+    Operation, ShapeForm,
 };
 use schemars::JsonSchema;
 use serde::Deserialize;
@@ -54,12 +54,36 @@ pub struct AddAnnotationArgs {
     pub output_path: String,
     /// Target 0-based page index.
     pub page: usize,
-    /// Bounding rectangle `[x0, y0, x1, y1]`.
+    /// Bounding rectangle `[x0, y0, x1, y1]`, in points from the page's lower left.
     pub rect: [f32; 4],
-    /// Text content or comment.
+    /// What a note, text box, typewriter or callout says.
+    #[serde(default)]
     pub contents: String,
-    /// Annotation type ("link", "highlight", "text").
+    /// One of `note` (the default; `text` is the same), `highlight`, `underline`,
+    /// `strike_out`, `squiggly`, `text_box`, `typewriter`, `callout`, `ink`, `rectangle`,
+    /// `ellipse`, `line`, `stamp` or `link`. Any other name is refused.
     pub kind: Option<String>,
+    /// RGB colour, each from 0 to 1, for the marks, ink and shapes. Default black, and
+    /// yellow for a highlight.
+    pub color: Option<[f32; 3]>,
+    /// The size a text box, typewriter or callout is set at, in points. Default 12.
+    pub font_size: Option<f32>,
+    /// Where a callout's line points, on the page.
+    pub points_at: Option<[f32; 2]>,
+    /// An ink annotation's strokes, each the points it passes through on the page.
+    pub strokes: Option<Vec<Vec<[f32; 2]>>>,
+    /// A line's two ends, on the page.
+    pub from: Option<[f32; 2]>,
+    /// See `from`.
+    pub to: Option<[f32; 2]>,
+    /// The width of ink or a shape's outline, in points. Default 1.
+    pub width: Option<f32>,
+    /// Where a link goes on the web.
+    pub url: Option<String>,
+    /// Which page a link goes to, counting from zero, when it has no `url`.
+    pub destination_page: Option<usize>,
+    /// A JPEG file on disk to put in a stamp.
+    pub stamp_path: Option<String>,
 }
 
 /// Arguments for setting a measurement scale.
@@ -71,7 +95,8 @@ pub struct SetMeasurementScaleArgs {
     pub output_path: String,
     /// Target 0-based page index.
     pub page: usize,
-    /// Scale ratio factor (e.g. 0.01).
+    /// How many units one point on the page stands for: a 1:100 drawing measured in
+    /// metres is 0.0254 / 72 * 100, about 0.0353.
     pub scale_ratio: f32,
     /// Unit label (e.g. "mm", "m", "in").
     pub unit_label: String,
@@ -127,14 +152,62 @@ pub fn apply_bates_numbering_impl(args: ApplyBatesNumberingArgs) -> Result<Strin
 
 /// Implementation of the add_annotation tool.
 pub fn add_annotation_impl(args: AddAnnotationArgs) -> Result<String, String> {
-    let kind = match args.kind.as_deref() {
-        Some("link") => AnnotationKind::Link { destination_page: args.page, url: None },
-        Some("highlight") => AnnotationKind::Highlight { color_rgb: [1.0, 1.0, 0.0] },
-        _ => AnnotationKind::TextComment { contents: args.contents },
-    };
+    let kind = annotation_kind(&args)?;
     let spec = AnnotationSpec { page: args.page, rect: args.rect, kind };
     let op = Operation::AddAnnotation(spec);
     execute_single_op(&args.input_path, &args.output_path, op, "Annotation added")
+}
+
+/// The kind the arguments name, with what it needs taken from them.
+///
+/// **A name this does not know is refused.** It was read as a note, so `"underline"`
+/// wrote a sticky note and answered that it had added an annotation.
+fn annotation_kind(args: &AddAnnotationArgs) -> Result<AnnotationKind, String> {
+    let ink = args.color.unwrap_or([0.0, 0.0, 0.0]);
+    let width = args.width.unwrap_or(1.0);
+    let size = args.font_size.unwrap_or(12.0);
+    let words = || args.contents.clone();
+    let needs = |what: &str| {
+        format!("a {} annotation needs `{what}`", args.kind.as_deref().unwrap_or("note"))
+    };
+    let shape = |form| AnnotationKind::Shape { form, color_rgb: ink, width };
+    Ok(match args.kind.as_deref().unwrap_or("note") {
+        "note" | "text" => AnnotationKind::TextComment { contents: words() },
+        "highlight" => {
+            AnnotationKind::Highlight { color_rgb: args.color.unwrap_or([1.0, 1.0, 0.0]) }
+        }
+        "underline" => AnnotationKind::Underline { color_rgb: ink },
+        "strike_out" => AnnotationKind::StrikeOut { color_rgb: ink },
+        "squiggly" => AnnotationKind::Squiggly { color_rgb: ink },
+        "text_box" => AnnotationKind::TextBox { contents: words(), font_size: size },
+        "typewriter" => AnnotationKind::Typewriter { contents: words(), font_size: size },
+        "callout" => AnnotationKind::Callout {
+            contents: words(),
+            font_size: size,
+            points_at: args.points_at.ok_or_else(|| needs("points_at"))?,
+        },
+        "ink" => AnnotationKind::Ink {
+            strokes: args.strokes.clone().ok_or_else(|| needs("strokes"))?,
+            color_rgb: ink,
+            width,
+        },
+        "rectangle" => shape(ShapeForm::Rectangle),
+        "ellipse" => shape(ShapeForm::Ellipse),
+        "line" => shape(ShapeForm::Line {
+            from: args.from.ok_or_else(|| needs("from"))?,
+            to: args.to.ok_or_else(|| needs("to"))?,
+        }),
+        "stamp" => {
+            let path = args.stamp_path.as_deref().ok_or_else(|| needs("stamp_path"))?;
+            let picture = std::fs::read(path).map_err(|e| format!("{path}: {e}"))?;
+            AnnotationKind::Stamp { stamp_image_bytes: picture }
+        }
+        "link" => AnnotationKind::Link {
+            destination_page: args.destination_page.unwrap_or(args.page),
+            url: args.url.clone(),
+        },
+        other => return Err(format!("no annotation kind is called {other:?}")),
+    })
 }
 
 /// Implementation of the set_measurement_scale tool.

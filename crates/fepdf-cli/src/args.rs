@@ -531,6 +531,28 @@ pub enum EditSubcommands {
         #[command(flatten)]
         save: SaveArgs,
     },
+    /// Lay text an OCR engine read over a page, invisibly (ROADMAP W-O1)
+    TextLayer {
+        /// Input PDF file
+        input: PathBuf,
+        /// Output PDF file
+        #[arg(short, long)]
+        output: PathBuf,
+        /// The page, counting from 1
+        #[arg(long)]
+        page: usize,
+        /// A JSON file: {"items": [{"text": .., "rect": [l, b, r, t]}]} in page points,
+        /// or with "pixel_to_page": [a, b, c, d, e, f] and each rect [l, t, r, b] in
+        /// the pixels of the picture that transform belongs to
+        #[arg(long)]
+        json: PathBuf,
+        /// Ingestion control options
+        #[command(flatten)]
+        ingest: IngestArgs,
+        /// Output optimization options
+        #[command(flatten)]
+        save: SaveArgs,
+    },
 }
 
 /// What `publish sign` signs, and with what.

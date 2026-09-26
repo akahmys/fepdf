@@ -508,11 +508,13 @@ fn test_all_remaining_operations_execution() {
 
     doc.apply(Operation::AddPublicKeyRecipient(recipient)).expect("AddPublicKeyRecipient failed");
 
-    // 6. SetPronunciationLexicon
+    // 6. SetPronunciationLexicon — refused here: the lexicon is an entry of the structure
+    // tree root (Table 354) and this document has no structure tree. Where it is written
+    // when there is one is `reading_aloud_test.rs`'s.
     doc.apply(Operation::SetPronunciationLexicon {
         lexicon_xml_bytes: b"<?xml version=\"1.0\"?><lexicon/>".to_vec(),
     })
-    .expect("SetPronunciationLexicon failed");
+    .expect_err("a lexicon with no structure tree to name it");
 
     // 7. SetMeasurementScale
     let scale = MeasurementScale { page: 0, scale_ratio: 0.0254, unit_label: "in".to_string() };
@@ -528,11 +530,13 @@ fn test_all_remaining_operations_execution() {
     assert!(cdict.contains_key(&arena.name("Resources")), "Resources missing");
     assert!(cdict.contains_key(&arena.name("AF")), "AF missing");
     assert!(cdict.contains_key(&arena.name("Encrypt")), "Encrypt missing");
-    assert!(cdict.contains_key(&arena.name("PL")), "PL missing");
+    assert!(!cdict.contains_key(&arena.name("PL")), "a /PL ISO 32000-2 does not define");
 
     // Verify page dictionary entries
     let page_h = doc.inner().get_page_handle(0).expect("Page 0 missing");
     let page_dh = doc.inner().resolve_to_dict(page_h).expect("Page dict missing");
     let page_dict = arena.get_dict(page_dh).expect("Dict lookup failed");
-    assert!(page_dict.contains_key(&arena.name("Measure")), "Measure missing");
+    // A scale is a viewport's (Table 265); a page has no `/Measure` of its own (Table 31).
+    assert!(!page_dict.contains_key(&arena.name("Measure")), "a /Measure Table 31 does not have");
+    assert!(page_dict.contains_key(&arena.name("VP")), "the scale's viewport is missing");
 }

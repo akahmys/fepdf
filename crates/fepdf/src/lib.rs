@@ -60,7 +60,7 @@ pub use fepdf_model::{
     MeasurementScale, MeshShadingSpec, MeshShadingType, Object, OptionalContentProperties,
     OutlineNode, OutlineTree, OutputIntent, Page, PageLabelSpec, PageLabelStyle, PdfAction,
     PdfArena, PdfError, PdfName, PdfResult, PortfolioCollection, PortfolioItem,
-    PublicKeyRecipientSpec, SublimatedData, TransitionSpec, TransitionStyle,
+    PublicKeyRecipientSpec, ShapeForm, SublimatedData, TransitionSpec, TransitionStyle,
     UnencryptedWrapperSpec, UserProperty, UserPropertyValue, VisibilityState,
 };
 pub use fepdf_model::{DocumentSource, PdfSource};
@@ -98,6 +98,39 @@ pub mod remediation {
 pub mod text {
     pub use fepdf_doc::apply::text::*;
 }
+/// The box on the page that a rectangle in the page's picture shows.
+///
+/// Left, top, right, bottom in pixels, through `pixel_to_page` — the inverse of
+/// [`PdfDocument::page_to_pixels`], as six matrix numbers — into left, bottom, right,
+/// top in points.
+///
+/// Every corner is taken through, and the upright rectangle round them answered, so a
+/// page turned by `/Rotate` gives the box it should.
+#[must_use]
+pub fn pixel_box_on_page(rect: [f64; 4], pixel_to_page: [f64; 6]) -> [f64; 4] {
+    let to = kurbo::Affine::new(pixel_to_page);
+    let corners = [(rect[0], rect[1]), (rect[2], rect[1]), (rect[2], rect[3]), (rect[0], rect[3])]
+        .map(|(x, y)| to * kurbo::Point::new(x, y));
+    let low = |v: [f64; 4]| v.iter().copied().fold(f64::MAX, f64::min);
+    let high = |v: [f64; 4]| v.iter().copied().fold(f64::MIN, f64::max);
+    let (xs, ys) = (corners.map(|p| p.x), corners.map(|p| p.y));
+    [low(xs), low(ys), high(xs), high(ys)]
+}
+
+/// Comparing two documents, page by page (ROADMAP W-18).
+pub mod compare;
+/// The scale a drawing declares for measuring on it (12.9, ROADMAP W-16).
+pub mod measure {
+    pub use fepdf_doc::measure::{Fraction, NumberFormat, Scale, format, holding, polygon_area};
+}
+/// The text of a tagged document in reading order, for a synthesiser (ROADMAP W-19a).
+pub mod reading {
+    pub use fepdf_doc::reading::{Passage, Reading, Spoken};
+}
+/// The objects a page draws with `Do`, and where (ROADMAP W-E5).
+pub mod xobject {
+    pub use fepdf_doc::apply::xobject::*;
+}
 /// The structure module for UA-2 logical tree handling (owned by `fepdf-doc`).
 pub mod structure {
     pub use fepdf_doc::structure::*;
@@ -108,7 +141,8 @@ pub mod struct_tree {
 }
 pub use fepdf_doc::Outcome;
 pub use fepdf_doc::operation::{
-    CropRegion, FieldKind, NewField, PageArrangement, PageDivision, TabOrder, WhatFallsOutside,
+    CropRegion, FieldKind, NewField, PageArrangement, PageDivision, TabOrder, TextLayerItem,
+    WhatFallsOutside, XObjectEdit,
 };
 pub use fepdf_doc::{
     Align,
@@ -1354,6 +1388,48 @@ impl PdfDocument {
         Ok(backend.into_bounds())
     }
 
+    /// The scale that holds at `point` on `page`, in default user space, when a viewport
+    /// there declares a rectilinear one (12.9.1).
+    ///
+    /// A distance is measured in the scale of its first point, as 12.9.1 says.
+    #[must_use]
+    pub fn scale_at(&self, page: usize, point: (f64, f64)) -> Option<measure::Scale> {
+        fepdf_doc::measure::scale_at(&self.inner, page, point)
+    }
+
+    /// Every rectilinear scale `page` declares, in its viewport order (12.9.1); pick the
+    /// one for a point with [`measure::holding`].
+    #[must_use]
+    pub fn scales_on(&self, page: usize) -> Vec<measure::Scale> {
+        fepdf_doc::measure::scales_on(&self.inner, page)
+    }
+
+    /// The document as a synthesiser reads it (ROADMAP W-19a).
+    ///
+    /// The structure tree's passages in its order, each in its language, and the
+    /// pronunciation lexicons its root names.
+    ///
+    /// **A read, not an `Operation`**, like `extract_text`: nothing about the document
+    /// changes. An untagged document has no reading order to give and answers no passages
+    /// — reading it in drawing order would be a guess this engine would be making for it.
+    ///
+    /// Each page an element's marks sit on is interpreted once.
+    #[must_use]
+    pub fn reading(&self) -> reading::Reading {
+        let lexicons = fepdf_doc::reading::lexicons(&self.inner);
+        let Some(root) = self.extract_struct_tree() else {
+            return reading::Reading { lexicons, passages: Vec::new() };
+        };
+        let plan = fepdf_doc::reading::Plan::of(&root);
+        let mut composed = std::collections::BTreeMap::new();
+        for index in plan.pages() {
+            let mut backend = fepdf_doc::reading::MarkTextBackend::new(plan.passages_on(index));
+            let _ = self.render_page(index, &mut backend, kurbo::Affine::IDENTITY);
+            composed.insert(index, backend.into_text());
+        }
+        reading::Reading { lexicons, passages: plan.passages(&composed) }
+    }
+
     /// Gives the tree's elements the rectangles their marked content drew in.
     ///
     /// **A second call, not part of `extract_struct_tree`.** The tree is read out of the
@@ -1767,30 +1843,59 @@ impl PdfDocument {
         output_path: &Path,
         rasteriser: Rasteriser,
     ) -> PdfResult<()> {
+        self.render_page_to_file_at(index, output_path, 96.0, rasteriser)
+    }
+
+    /// Where page `index`'s user space lands in an image of it at `dpi`: the transform
+    /// from default user space to pixels, whose origin is the image's top left corner,
+    /// and the image's size.
+    ///
+    /// Its inverse takes a box an OCR engine found in the image back to the page.
+    ///
+    /// # Errors
+    /// Fails when the page is not there or `dpi` is not a positive number.
+    pub fn page_to_pixels(&self, index: usize, dpi: f64) -> PdfResult<(kurbo::Affine, u32, u32)> {
+        if !(dpi > 0.0 && dpi.is_finite()) {
+            return Err(PdfError::Other(format!("{dpi} dots per inch is no image").into()));
+        }
         let r = self.get_page_box(index)?;
         let w = (r.x2 - r.x1).abs();
         let h = (r.y2 - r.y1).abs();
         let rot = self.get_page_rotation(index)?;
         let (display_w, display_h) = if rot == 90 || rot == 270 { (h, w) } else { (w, h) };
 
-        // 96 DPI, times whatever a user space unit is worth on this page. `/UserUnit` is
+        // The DPI, times whatever a user space unit is worth on this page. `/UserUnit` is
         // how a drawing exceeds the 14,400-unit limit a box can express (Table 31): the
         // coordinates stay as written and each one is worth more of an inch, so honouring
         // it is a matter of the scale and nothing else — the content is drawn unchanged.
+        let scale = dpi / 72.0 * self.get_page_user_unit(index)?;
         #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-        let scale = (4.0 / 3.0) * self.get_page_user_unit(index)?;
-        let width = (display_w * scale).round() as u32;
-        let height = (display_h * scale).round() as u32;
-
-        let mut backend = VelloBackend::new(Arc::clone(&self.inner.system_fonts));
-
-        let initial_transform = match rot {
+        let (width, height) =
+            ((display_w * scale).round() as u32, (display_h * scale).round() as u32);
+        let transform = match rot {
             90 => kurbo::Affine::new([0.0, scale, -scale, 0.0, h * scale, 0.0]),
             180 => kurbo::Affine::new([-scale, 0.0, 0.0, scale, w * scale, 0.0]),
             270 => kurbo::Affine::new([0.0, -scale, scale, 0.0, 0.0, w * scale]),
             _ => kurbo::Affine::new([scale, 0.0, 0.0, -scale, 0.0, h * scale]),
         };
+        Ok((transform, width, height))
+    }
 
+    /// [`PdfDocument::render_page_to_file_with`], at `dpi` rather than 96.
+    ///
+    /// # Errors
+    /// Fails when the page is not there, `dpi` is not a positive number, the extension
+    /// names no format this writes, or the rasteriser does.
+    #[cfg(feature = "render")]
+    pub fn render_page_to_file_at(
+        &self,
+        index: usize,
+        output_path: &Path,
+        dpi: f64,
+        rasteriser: Rasteriser,
+    ) -> PdfResult<()> {
+        let (initial_transform, width, height) = self.page_to_pixels(index, dpi)?;
+        let mut backend = VelloBackend::new(Arc::clone(&self.inner.system_fonts));
         self.render_page(index, &mut backend, initial_transform)?;
 
         let format = match output_path

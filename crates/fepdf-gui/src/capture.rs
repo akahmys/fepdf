@@ -96,6 +96,35 @@ pub enum Step {
     /// Double-click the bench at a point, which crosses the tile boundary:
     /// `dblclick <x> <y>` in points from the viewport's top-left.
     DoubleClick(u32, u32),
+    /// Press the primary button at one point and let go at another, moving between them:
+    /// `drag <x0> <y0> <x1> <y1>` in points from the viewport's top-left.
+    ///
+    /// **The one step that is the gesture itself.** Every other step drives the call a
+    /// gesture would end in, and that is how the snapshot tool went a week answering
+    /// nothing to a drag: the call it ends in worked, and the drag never reached it. These
+    /// events go in where the platform's do, through `raw_input_hook`, one batch a frame.
+    Drag([u32; 4]),
+    /// Choose the annotation drawer's pen by its locale key's last part, and the words it
+    /// writes: `pen <highlight|note|callout|…> [words]`. A plan cannot click a pen or type.
+    Pen(String, String),
+    /// Read aloud from the page on screen, writing the speech into a folder rather than
+    /// out of the speakers: `readaloud <folder>`. Only `say` writes a file.
+    ReadAloud(PathBuf),
+    /// Compare the open document with another, as the drawer's file dialog would:
+    /// `comparewith <path>`.
+    CompareWith(PathBuf),
+    /// Choose what a snapshot drag is for: `purpose copy|crop|remove`.
+    Purpose(String),
+    /// Split the selected page as the page menu would: `split <columns> <rows>`.
+    Split(usize, usize),
+    /// Combine the selected pages as the page menu would: `combine <columns> <rows>`.
+    Combine(usize, usize),
+    /// Press the print drawer's button, as it stands.
+    Print,
+    /// Choose what the caliper takes: `caliper distance|polygon`.
+    Caliper(String),
+    /// Set the page's scale as the caliper drawer's form would: `scale <N> <unit>`, 1:N.
+    Scale(u32, String),
     /// Print where the current page sits against the viewport: `probe <label>`.
     Probe(String),
     /// Open a page as a double-click on its tile does: `openpage <1-based>`.
@@ -165,6 +194,8 @@ pub struct Plan {
     acted: std::time::Instant,
     /// The name a screenshot in flight will be saved under.
     pending: Option<String>,
+    /// Pointer events a `drag` is still to send, one batch a frame.
+    input: VecDeque<Vec<egui::Event>>,
 }
 
 /// How long to wait for the worker after an action.
@@ -209,18 +240,34 @@ impl Plan {
                     .ok_or_else(|| PlanError::Unknown { line: n + 1, text: line.to_owned() })?,
             );
         }
-        Ok(Self { steps, shots, acted: std::time::Instant::now(), pending: None })
+        Ok(Self {
+            steps,
+            shots,
+            acted: std::time::Instant::now(),
+            pending: None,
+            input: VecDeque::new(),
+        })
     }
 
     /// Whether anything is left to do.
     pub fn finished(&self) -> bool {
-        self.steps.is_empty() && self.pending.is_none()
+        self.steps.is_empty() && self.pending.is_none() && self.input.is_empty()
+    }
+
+    /// The pointer events for this frame, if a drag is under way.
+    pub fn input_for_this_frame(&mut self) -> Vec<egui::Event> {
+        let events = self.input.pop_front().unwrap_or_default();
+        if !events.is_empty() {
+            // The settling is measured from the release, not from when the drag began.
+            self.acted = std::time::Instant::now();
+        }
+        events
     }
 
     /// The next step, once the window has settled.
     fn next(&mut self, idle: bool) -> Option<Step> {
         let waited = self.acted.elapsed();
-        if waited < SETTLE_FLOOR {
+        if waited < SETTLE_FLOOR || !self.input.is_empty() {
             return None;
         }
         if !idle && waited < SETTLE_CAP {
@@ -288,6 +335,29 @@ fn parse(line: &str) -> Option<Step> {
         }
         "openpage" => Step::OpenPage(rest.parse().ok()?),
         "probe" => Step::Probe(rest.to_owned()),
+        "drag" => {
+            let mut parts = rest.split_whitespace().map(str::parse);
+            let mut next = || parts.next()?.ok();
+            Step::Drag([next()?, next()?, next()?, next()?])
+        }
+        "pen" => {
+            let (pen, words) = rest.split_once(' ').unwrap_or((rest, ""));
+            Step::Pen(pen.to_owned(), words.trim().to_owned())
+        }
+        "readaloud" => Step::ReadAloud(PathBuf::from(rest)),
+        "caliper" => Step::Caliper(rest.to_owned()),
+        "printit" => Step::Print,
+        "purpose" => Step::Purpose(rest.to_owned()),
+        "split" | "combine" => {
+            let (columns, rows) = rest.split_once(' ')?;
+            let (columns, rows) = (columns.trim().parse().ok()?, rows.trim().parse().ok()?);
+            if verb == "split" { Step::Split(columns, rows) } else { Step::Combine(columns, rows) }
+        }
+        "comparewith" => Step::CompareWith(PathBuf::from(rest)),
+        "scale" => {
+            let (n, unit) = rest.split_once(' ')?;
+            Step::Scale(n.trim().parse().ok()?, unit.trim().to_owned())
+        }
         "dblclick" => {
             let (x, y) = rest.split_once(' ')?;
             Step::DoubleClick(x.trim().parse().ok()?, y.trim().parse().ok()?)
@@ -318,6 +388,11 @@ fn drawer(name: &str) -> Option<ActiveDrawer> {
         "tools" => ActiveDrawer::Tools,
         "bookmarks" => ActiveDrawer::Bookmarks,
         "form" => ActiveDrawer::Form,
+        "snapshot" => ActiveDrawer::Snapshot,
+        "annotate" => ActiveDrawer::Annotate,
+        "readaloud" => ActiveDrawer::ReadAloud,
+        "compare" => ActiveDrawer::Compare,
+        "print" => ActiveDrawer::Print,
         _ => return None,
     })
 }
@@ -357,8 +432,16 @@ impl crate::app::FepdfApp {
         // the page was still rendering, which is exactly the sort of thing this exists to
         // catch — just not about itself.
         let drawn = self.total_pages == 0 || !self.scenes.is_empty();
-        let idle =
-            self.request_queue.is_empty() && !self.is_loading && self.busy.is_none() && drawn;
+        // A reading under way is not idle either: a plan that went on would close the
+        // window, and the speech with it, before the step after `readaloud` could look.
+        let idle = self.request_queue.is_empty()
+            && !self.is_loading
+            && self.busy.is_none()
+            && drawn
+            && self.read_aloud.waiting_from.is_none()
+            && !self.compare.waiting
+            && !self.print.waiting
+            && !self.read_aloud.is_reading();
         let Some(plan) = self.capture.as_mut() else { return };
         if plan.pending.is_some() {
             return;
@@ -392,6 +475,56 @@ impl crate::app::FepdfApp {
                 let at = viewport.min + egui::vec2(x as f32, y as f32);
                 self.view.double_click_on_the_bench(at, viewport, &self.page_layouts);
                 self.compute_layouts();
+            }
+            Step::Drag(ends) => self.queue_drag(ends),
+            Step::Pen(name, words) => {
+                self.show_drawer(ActiveDrawer::Annotate);
+                let key = format!("annotate_{name}");
+                if let Some(pen) = crate::annotate::Pen::ALL.into_iter().find(|p| p.keys().0 == key)
+                {
+                    self.annotate_tool.pen = pen;
+                }
+                self.annotate_tool.words = words;
+            }
+            Step::ReadAloud(folder) => {
+                self.show_drawer(ActiveDrawer::ReadAloud);
+                self.read_aloud.recording_into = Some(folder);
+                self.read_aloud_from_here();
+            }
+            Step::Caliper(mode) => {
+                self.show_drawer(ActiveDrawer::Caliper);
+                self.caliper_tool.clear();
+                self.caliper_tool.mode = if mode == "polygon" {
+                    crate::measuring::CaliperMode::Polygon
+                } else {
+                    crate::measuring::CaliperMode::Distance
+                };
+            }
+            Step::Scale(n, unit) => self.drive_scale(n, &unit),
+            Step::Print => {
+                self.show_drawer(ActiveDrawer::Print);
+                self.print_document();
+            }
+            Step::Purpose(name) => {
+                self.show_drawer(ActiveDrawer::Snapshot);
+                self.snapshot_tool.purpose = match name.as_str() {
+                    "crop" => crate::snapshot::Purpose::Crop,
+                    "remove" => crate::snapshot::Purpose::CropAndRemove,
+                    _ => crate::snapshot::Purpose::Copy,
+                };
+            }
+            Step::Split(columns, rows) => {
+                let page = self.selected_pages.iter().next().copied().unwrap_or_default();
+                self.split_page(page, columns, rows, "menu_split_quarters");
+            }
+            Step::Combine(columns, rows) => {
+                let pages = self.selected_pages.clone();
+                let onto = fepdf::PageArrangement { sheet: None, columns, rows };
+                self.combine_pages(&pages, onto, "menu_combine_four");
+            }
+            Step::CompareWith(path) => {
+                self.show_drawer(ActiveDrawer::Compare);
+                self.compare_with(path);
             }
             Step::Probe(label) => self.probe_placement(&label),
             Step::OpenPage(page) => {
@@ -534,6 +667,68 @@ impl crate::app::FepdfApp {
             let target = self.view.zoom_before_snapping() * factor;
             self.view.zoom_at(target, at, viewport, &self.page_layouts);
             self.compute_layouts();
+        }
+    }
+}
+
+/// How many frames a `drag` moves over between press and release.
+///
+/// Enough that egui sees movement past its click distance before the release, and that a
+/// tool collecting points — the ink pen — gets more than its two ends.
+const DRAG_FRAMES: u16 = 12;
+
+/// The events of a drag from `from` to `to`, one batch a frame: arrive, press, move, let go.
+fn drag_events(from: egui::Pos2, to: egui::Pos2) -> VecDeque<Vec<egui::Event>> {
+    let button = |pos, pressed| egui::Event::PointerButton {
+        pos,
+        button: egui::PointerButton::Primary,
+        pressed,
+        modifiers: egui::Modifiers::NONE,
+    };
+    let mut frames = VecDeque::new();
+    frames.push_back(vec![egui::Event::PointerMoved(from)]);
+    frames.push_back(vec![button(from, true)]);
+    for step in 1..=DRAG_FRAMES {
+        let t = f32::from(step) / f32::from(DRAG_FRAMES);
+        frames.push_back(vec![egui::Event::PointerMoved(from.lerp(to, t))]);
+    }
+    frames.push_back(vec![button(to, false)]);
+    frames
+}
+
+impl crate::app::FepdfApp {
+    /// Puts a drag in the plan's input, in screen points.
+    #[allow(clippy::cast_precision_loss)]
+    fn queue_drag(&mut self, [x0, y0, x1, y1]: [u32; 4]) {
+        let viewport = self.last_viewport_rect.unwrap_or(egui::Rect::NOTHING);
+        let at = |x: u32, y: u32| viewport.min + egui::vec2(x as f32, y as f32);
+        if let Some(plan) = self.capture.as_mut() {
+            plan.input = drag_events(at(x0, y0), at(x1, y1));
+        }
+    }
+
+    /// Hands egui this frame's share of a plan's drag, where the platform's events go.
+    pub(crate) fn feed_capture_input(&mut self, raw_input: &mut egui::RawInput) {
+        if let Some(plan) = self.capture.as_mut() {
+            raw_input.events.extend(plan.input_for_this_frame());
+        }
+    }
+}
+
+impl crate::app::FepdfApp {
+    /// Sets the page's scale through the caliper drawer's form, as its button would.
+    fn drive_scale(&mut self, denominator: u32, unit: &str) {
+        let Some(index) = crate::measuring::UNITS.iter().position(|(u, _)| *u == unit) else {
+            return;
+        };
+        self.caliper_tool.form =
+            crate::measuring::ScaleForm { denominator: f64::from(denominator), unit: index };
+        if let Some(scale) = self.caliper_tool.form.scale(self.view.active_page) {
+            let done = self.tr("caliper_scale_set");
+            let _ = self.tx_worker.send(crate::worker::WorkerRequest::Apply {
+                operation: Box::new(fepdf::Operation::SetMeasurementScale(scale)),
+                done,
+            });
         }
     }
 }

@@ -224,6 +224,7 @@ fn an_annotation_reaches_the_page() {
         rect: [100.0, 100.0, 200.0, 150.0],
         contents: "Test Comment".into(),
         kind: Some("text".into()),
+        ..annotation_defaults()
     })
     .expect("the tool runs");
 
@@ -873,4 +874,229 @@ fn set_tab_order_writes_the_order_on_the_page() {
     };
     assert_eq!(tabs(1).as_deref(), Some("S"));
     assert_eq!(tabs(0), None, "a page not named was given an order");
+}
+
+/// Every optional field of `AddAnnotationArgs` left out, as a caller who names only the
+/// kind and its rectangle does.
+fn annotation_defaults() -> AddAnnotationArgs {
+    AddAnnotationArgs {
+        input_path: String::new(),
+        output_path: String::new(),
+        page: 0,
+        rect: [0.0; 4],
+        contents: String::new(),
+        kind: None,
+        color: None,
+        font_size: None,
+        points_at: None,
+        strokes: None,
+        from: None,
+        to: None,
+        width: None,
+        url: None,
+        destination_page: None,
+        stamp_path: None,
+    }
+}
+
+/// **A kind this tool does not know is refused.** It was read as a note, so `underline`
+/// wrote a sticky note and said it had added an annotation.
+#[test]
+fn an_unknown_annotation_kind_is_refused() {
+    let path = written("annot_unknown", &pages(1));
+    let dest = out("annot_unknown");
+    let refused = add_annotation_impl(AddAnnotationArgs {
+        input_path: path,
+        output_path: dest.clone(),
+        rect: [100.0, 100.0, 200.0, 150.0],
+        kind: Some("sticker".into()),
+        ..annotation_defaults()
+    })
+    .expect_err("an unknown kind is refused");
+    assert!(refused.contains("sticker"), "the refusal does not name the kind: {refused}");
+    assert!(!std::path::Path::new(&dest).exists(), "a refused annotation wrote a file");
+}
+
+/// Each kind the schema names reaches the page as the subtype it is.
+#[test]
+fn every_kind_the_tool_names_reaches_the_page() {
+    let cases: [(&str, &str, AddAnnotationArgs); 5] = [
+        ("underline", "Underline", annotation_defaults()),
+        ("squiggly", "Squiggly", annotation_defaults()),
+        ("rectangle", "Square", annotation_defaults()),
+        (
+            "line",
+            "Line",
+            AddAnnotationArgs {
+                from: Some([100.0, 100.0]),
+                to: Some([200.0, 150.0]),
+                ..annotation_defaults()
+            },
+        ),
+        (
+            "ink",
+            "Ink",
+            AddAnnotationArgs {
+                strokes: Some(vec![vec![[110.0, 110.0], [190.0, 140.0]]]),
+                ..annotation_defaults()
+            },
+        ),
+    ];
+    for (kind, subtype, args) in cases {
+        let path = written(&format!("annot_{kind}"), &pages(1));
+        let dest = out(&format!("annot_{kind}"));
+        add_annotation_impl(AddAnnotationArgs {
+            input_path: path,
+            output_path: dest.clone(),
+            rect: [100.0, 100.0, 200.0, 150.0],
+            kind: Some(kind.into()),
+            ..args
+        })
+        .unwrap_or_else(|e| panic!("{kind}: {e}"));
+        let report =
+            fepdf::InteractiveReport::survey(&std::fs::read(&dest).expect("the output exists"))
+                .expect("the output surveys");
+        let said = format!("{:?}", report.annotations);
+        assert!(said.contains(subtype), "{kind} did not reach the page as /{subtype}: {said}");
+    }
+}
+
+/// A one-page document drawing a 2 by 2 grey image 40 by 20 points at (20, 30).
+fn page_with_an_image() -> Vec<u8> {
+    let content = "q 40 0 0 20 20 30 cm /Im0 Do Q";
+    let mut image = b"<< /Type /XObject /Subtype /Image /Width 2 /Height 2 \
+                      /ColorSpace /DeviceGray /BitsPerComponent 8 /Length 4 >>\nstream\n"
+        .to_vec();
+    image.extend_from_slice(&[0, 64, 128, 255]);
+    image.extend_from_slice(b"\nendstream");
+    fepdf_fixtures::assemble(&[
+        b"<< /Type /Catalog /Pages 2 0 R >>".to_vec(),
+        b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_vec(),
+        b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Contents 4 0 R \
+          /Resources << /XObject << /Im0 5 0 R >> >> >>"
+            .to_vec(),
+        format!("<< /Length {} >>\nstream\n{content}\nendstream", content.len()).into_bytes(),
+        image,
+    ])
+}
+
+/// **An object moved by number is where the listing then says it is.**
+#[test]
+fn edit_object_moves_what_list_objects_names() {
+    use fepdf_mcp::tools::{EditObjectArgs, ListObjectsArgs, edit_object_impl, list_objects_impl};
+    let path = written("objects", &page_with_an_image());
+    let listed =
+        list_objects_impl(ListObjectsArgs { path: path.clone(), page: 0 }).expect("it lists");
+    assert!(listed.contains("\"object\": 0") && listed.contains("image"), "{listed}");
+
+    let dest = out("objects");
+    edit_object_impl(EditObjectArgs {
+        input_path: path,
+        output_path: dest.clone(),
+        page: 0,
+        object: 0,
+        move_to: Some((100.0, 120.0)),
+        scale: None,
+        rotate_degrees: None,
+        replace_with: None,
+    })
+    .expect("the tool runs");
+    let moved = list_objects_impl(ListObjectsArgs { path: dest, page: 0 }).expect("it lists");
+    let value: serde_json::Value = serde_json::from_str(&moved).expect("json");
+    let corner = &value[0]["corners"][0];
+    assert!(
+        (corner[0].as_f64().unwrap_or(0.0) - 100.0).abs() < 0.01
+            && (corner[1].as_f64().unwrap_or(0.0) - 120.0).abs() < 0.01,
+        "the object is at {corner} and was put at (100, 120)"
+    );
+}
+
+/// Two edits at once is refused rather than one of them done.
+#[test]
+fn edit_object_refuses_two_edits_at_once() {
+    use fepdf_mcp::tools::{EditObjectArgs, edit_object_impl};
+    let path = written("objects_two", &page_with_an_image());
+    let refused = edit_object_impl(EditObjectArgs {
+        input_path: path,
+        output_path: out("objects_two"),
+        page: 0,
+        object: 0,
+        move_to: Some((1.0, 1.0)),
+        scale: Some(2.0),
+        rotate_degrees: None,
+        replace_with: None,
+    })
+    .expect_err("refused");
+    assert!(refused.contains("exactly one"), "{refused}");
+}
+
+/// **The window an OCR engine is given, and what it hands back**: the page goes out as a
+/// picture with the transform back, a box comes back in the picture's pixels, and the word
+/// is then in the page's text.
+#[test]
+fn a_word_read_off_the_picture_is_found_in_the_page() {
+    use fepdf_mcp::tools::text_layer::{
+        AddTextLayerArgs, PageForOcrArgs, ReadText, add_text_layer_impl, page_for_ocr_impl,
+    };
+    let path = written("ocr", &page_with_an_image());
+    let image = std::env::temp_dir().join(format!("fepdf_ocr_{}.png", std::process::id()));
+    let answer = page_for_ocr_impl(PageForOcrArgs {
+        path: path.clone(),
+        page: 0,
+        image_path: image.display().to_string(),
+        dpi: Some(144.0),
+    })
+    .expect("the page goes out");
+    let value: serde_json::Value = serde_json::from_str(&answer).expect("json");
+    assert!(std::fs::metadata(&image).map_or(0, |m| m.len()) > 0, "no picture was written");
+    let _ = std::fs::remove_file(&image);
+    let to: Vec<f64> = value["pixel_to_page"]
+        .as_array()
+        .expect("a transform")
+        .iter()
+        .filter_map(serde_json::Value::as_f64)
+        .collect();
+    let pixel_to_page: [f64; 6] = to.try_into().expect("six numbers");
+
+    let dest = out("ocr");
+    add_text_layer_impl(AddTextLayerArgs {
+        input_path: path,
+        output_path: dest.clone(),
+        page: 0,
+        items: vec![ReadText { text: "Scanned".into(), rect: [40.0, 40.0, 200.0, 70.0] }],
+        pixel_to_page: Some(pixel_to_page),
+    })
+    .expect("the layer is laid");
+    let bytes = std::fs::read(&dest).expect("it was written");
+    let text =
+        fepdf::PdfDocument::open(bytes.into()).expect("it opens").extract_text(0).expect("text");
+    assert!(text.contains("Scanned"), "{text:?}");
+}
+
+/// **A document is the same as itself, and not as a blank page of the same size**: the
+/// picture on it is where the two look different.
+#[test]
+fn compare_documents_finds_where_two_differ() {
+    use fepdf_mcp::tools::compare::{CompareArgs, compare_documents_impl};
+    let pictured = written("compare_a", &page_with_an_image());
+    let answer = compare_documents_impl(CompareArgs {
+        path_a: pictured.clone(),
+        path_b: pictured.clone(),
+        dpi: None,
+    })
+    .expect("it compares");
+    let value: serde_json::Value = serde_json::from_str(&answer).expect("json");
+    assert_eq!(value["differences"].as_array().map(Vec::len), Some(0), "{answer}");
+
+    let blank = fepdf_fixtures::assemble(&[
+        "<< /Type /Catalog /Pages 2 0 R >>",
+        "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] >>",
+    ]);
+    let blank = written("compare_b", &blank);
+    let answer = compare_documents_impl(CompareArgs { path_a: pictured, path_b: blank, dpi: None })
+        .expect("it compares");
+    let value: serde_json::Value = serde_json::from_str(&answer).expect("json");
+    let regions = value["differences"][0]["regions"].as_array().map_or(0, Vec::len);
+    assert!(regions > 0, "the picture was not found to differ: {answer}");
 }

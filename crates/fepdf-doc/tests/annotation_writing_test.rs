@@ -79,7 +79,26 @@ fn every_annotation_written_carries_an_appearance() {
     let kinds = [
         ("Highlight", AnnotationKind::Highlight { color_rgb: [1.0, 1.0, 0.0] }),
         ("TextComment", AnnotationKind::TextComment { contents: "a note".to_string() }),
-        ("Stamp", AnnotationKind::Stamp { stamp_image_bytes: (0..32u8).collect() }),
+        ("Stamp", AnnotationKind::Stamp { stamp_image_bytes: fepdf_fixtures::red_jpeg() }),
+        ("Underline", AnnotationKind::Underline { color_rgb: [0.0, 0.0, 1.0] }),
+        ("StrikeOut", AnnotationKind::StrikeOut { color_rgb: [1.0, 0.0, 0.0] }),
+        ("Squiggly", AnnotationKind::Squiggly { color_rgb: [0.0, 0.5, 0.0] }),
+        (
+            "Ink",
+            AnnotationKind::Ink {
+                strokes: vec![vec![[12.0, 22.0], [60.0, 38.0], [108.0, 22.0]]],
+                color_rgb: [0.0, 0.0, 0.0],
+                width: 2.0,
+            },
+        ),
+        (
+            "Shape",
+            AnnotationKind::Shape {
+                form: fepdf_doc::operation::ShapeForm::Ellipse,
+                color_rgb: [0.0, 0.0, 0.0],
+                width: 1.0,
+            },
+        ),
     ];
     for (name, kind) in kinds {
         let handle = annotate(&mut doc, [10.0, 20.0, 110.0, 40.0], kind);
@@ -145,8 +164,7 @@ fn a_highlight_says_which_quadrilateral_it_marks() {
 #[test]
 fn a_stamp_carries_the_image_it_was_given() {
     let mut doc = document();
-    // A one-pixel grey PNG-like payload: what matters is that these bytes reach the file.
-    let image: Vec<u8> = (0..64u8).collect();
+    let image = fepdf_fixtures::red_jpeg();
     let handle = annotate(
         &mut doc,
         [10.0, 20.0, 110.0, 120.0],
@@ -187,4 +205,130 @@ fn reaches_bytes(arena: &PdfArena, object: &Object, needle: &[u8], depth: usize)
             .any(|v| reaches_bytes(arena, v, needle, depth + 1)),
         _ => false,
     }
+}
+
+/// **A stamp's picture is a JPEG, and anything else is refused** rather than written as an
+/// image no reader can decode — which is what these bytes became before.
+#[test]
+fn a_stamp_whose_picture_is_not_a_jpeg_is_refused() {
+    let mut doc = document();
+    let refused = fepdf_doc::apply::apply_operation(
+        &mut doc,
+        Operation::AddAnnotation(AnnotationSpec {
+            page: 0,
+            rect: [10.0, 20.0, 110.0, 120.0],
+            kind: AnnotationKind::Stamp { stamp_image_bytes: (0..64u8).collect() },
+        }),
+    );
+    let error = refused.expect_err("bytes that are not a JPEG are refused");
+    assert!(error.to_string().contains("JPEG"), "the refusal does not say why: {error}");
+}
+
+/// **A stamp's image says how big it is and how it is encoded**, read from the JPEG.
+#[test]
+fn a_stamps_image_says_its_size_and_filter() {
+    let mut doc = document();
+    let handle = annotate(
+        &mut doc,
+        [10.0, 20.0, 110.0, 120.0],
+        AnnotationKind::Stamp { stamp_image_bytes: fepdf_fixtures::red_jpeg() },
+    );
+    let arena = doc.arena();
+    let normal = match entry(arena, handle, "AP") {
+        Some(Object::Dictionary(ap)) => arena.dict_entry(ap, arena.name("N")),
+        _ => None,
+    }
+    .and_then(|n| n.as_reference())
+    .expect("a normal appearance");
+    let Some(Object::Stream(form, _)) = arena.get_object(normal) else { panic!("not a stream") };
+    let image = arena
+        .dict_entry(form, arena.name("Resources"))
+        .and_then(|r| r.resolve(arena).as_dict_handle())
+        .and_then(|r| arena.dict_entry(r, arena.name("XObject")))
+        .and_then(|x| x.resolve(arena).as_dict_handle())
+        .and_then(|x| arena.dict_entry(x, arena.name("Im0")))
+        .and_then(|i| i.as_reference())
+        .expect("the image is named");
+    let Some(Object::Stream(image, _)) = arena.get_object(image) else { panic!("not a stream") };
+    let integer = |key: &str| arena.dict_entry(image, arena.name(key)).and_then(|v| v.as_integer());
+    let named = |key: &str| {
+        arena
+            .dict_entry(image, arena.name(key))
+            .and_then(|v| v.as_name())
+            .and_then(|n| arena.get_name_str(n))
+    };
+    assert_eq!((integer("Width"), integer("Height")), (Some(16), Some(16)));
+    assert_eq!(named("Filter").as_deref(), Some("DCTDecode"));
+    assert_eq!(named("ColorSpace").as_deref(), Some("DeviceRGB"));
+}
+
+/// **A note's words are a text string**, which the writer encodes; they were the UTF-8
+/// bytes of the text, which a reader takes for PDFDocEncoding.
+#[test]
+fn a_notes_words_are_a_text_string() {
+    let mut doc = document();
+    let handle = annotate(
+        &mut doc,
+        [10.0, 20.0, 30.0, 40.0],
+        AnnotationKind::TextComment { contents: "確認してください".to_string() },
+    );
+    assert_eq!(
+        entry(doc.arena(), handle, "Contents"),
+        Some(Object::Text("確認してください".to_string()))
+    );
+}
+
+/// **A line says where its ends are**, `/L` being required (Table 178), and its rectangle
+/// takes both in.
+#[test]
+fn a_line_says_its_ends_and_covers_them() {
+    let mut doc = document();
+    let handle = annotate(
+        &mut doc,
+        [0.0, 0.0, 0.0, 0.0],
+        AnnotationKind::Shape {
+            form: fepdf_doc::operation::ShapeForm::Line { from: [50.0, 60.0], to: [250.0, 160.0] },
+            color_rgb: [0.0, 0.0, 0.0],
+            width: 2.0,
+        },
+    );
+    let numbers = |key: &str| match entry(doc.arena(), handle, key) {
+        Some(Object::Array(a)) => {
+            doc.arena().get_array(a).unwrap_or_default().iter().filter_map(Object::as_f64).collect()
+        }
+        _ => Vec::new(),
+    };
+    assert_eq!(numbers("L"), [50.0, 60.0, 250.0, 160.0]);
+    let rect = numbers("Rect");
+    assert!(rect[0] <= 48.0 && rect[1] <= 58.0 && rect[2] >= 252.0 && rect[3] >= 162.0, "{rect:?}");
+}
+
+/// **A callout's line points where it was asked to**, from `/CL`, and its rectangle takes
+/// in both the box and the point.
+#[test]
+fn a_callout_points_where_it_was_asked_and_covers_the_point() {
+    let mut doc = document();
+    let handle = annotate(
+        &mut doc,
+        [200.0, 400.0, 360.0, 440.0],
+        AnnotationKind::Callout {
+            contents: "ここを確認".to_string(),
+            font_size: 12.0,
+            points_at: [100.0, 300.0],
+        },
+    );
+    let arena = doc.arena();
+    let intent = match entry(arena, handle, "IT") {
+        Some(Object::Name(n)) => arena.get_name_str(n),
+        _ => None,
+    };
+    assert_eq!(intent.as_deref(), Some("FreeTextCallout"));
+    let Some(Object::Array(line)) = entry(arena, handle, "CL") else { panic!("no /CL") };
+    let line: Vec<f64> =
+        arena.get_array(line).unwrap_or_default().iter().filter_map(Object::as_f64).collect();
+    assert_eq!(&line[..2], [100.0, 300.0], "the line does not start at the point it names");
+    let Some(Object::Array(rect)) = entry(arena, handle, "Rect") else { panic!("no /Rect") };
+    let rect: Vec<f64> =
+        arena.get_array(rect).unwrap_or_default().iter().filter_map(Object::as_f64).collect();
+    assert!(rect[0] < 100.0 && rect[1] < 300.0 && rect[2] >= 360.0 && rect[3] >= 440.0, "{rect:?}");
 }

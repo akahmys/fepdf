@@ -34,11 +34,19 @@ pub enum Command {
     FillForm,
     /// A rectangle of the page, copied as a picture.
     Snapshot,
+    /// Notes, marks and shapes, drawn on the page.
+    Annotate,
+    /// The document read aloud.
+    ReadAloud,
+    /// This document against another.
+    Compare,
+    /// The document handed to the spooler.
+    Print,
 }
 
 impl Command {
     /// Every command, in the order the palette lists them.
-    pub const ALL: [Self; 12] = [
+    pub const ALL: [Self; 16] = [
         Self::Load,
         Self::ResetView,
         Self::RedactBrush,
@@ -51,6 +59,10 @@ impl Command {
         Self::EditText,
         Self::FillForm,
         Self::Snapshot,
+        Self::Annotate,
+        Self::ReadAloud,
+        Self::Compare,
+        Self::Print,
     ];
 
     /// The locale keys naming it and describing it.
@@ -70,6 +82,10 @@ impl Command {
             Self::EditText => ("cmd_edit_text", "cmd_edit_text_desc"),
             Self::FillForm => ("cmd_fill_form", "cmd_fill_form_desc"),
             Self::Snapshot => ("cmd_snapshot", "cmd_snapshot_desc"),
+            Self::Annotate => ("cmd_annotate", "cmd_annotate_desc"),
+            Self::ReadAloud => ("cmd_read_aloud", "cmd_read_aloud_desc"),
+            Self::Compare => ("cmd_compare", "cmd_compare_desc"),
+            Self::Print => ("cmd_print", "cmd_print_desc"),
         }
     }
 
@@ -106,7 +122,11 @@ impl Command {
             | Self::Tools
             | Self::EditText
             | Self::FillForm
-            | Self::Snapshot => self.open_drawer(app),
+            | Self::Snapshot
+            | Self::Annotate
+            | Self::ReadAloud
+            | Self::Compare
+            | Self::Print => self.open_drawer(app),
         }
     }
 
@@ -134,6 +154,10 @@ impl Command {
             Self::EditText => Some(ActiveDrawer::TextRuns),
             Self::FillForm => Some(ActiveDrawer::Form),
             Self::Snapshot => Some(ActiveDrawer::Snapshot),
+            Self::Annotate => Some(ActiveDrawer::Annotate),
+            Self::ReadAloud => Some(ActiveDrawer::ReadAloud),
+            Self::Compare => Some(ActiveDrawer::Compare),
+            Self::Print => Some(ActiveDrawer::Print),
             Self::Load
             | Self::ResetView
             | Self::RedactBrush
@@ -156,13 +180,17 @@ impl Command {
             | Self::Caliper
             | Self::RedactionStudio
             | Self::EditText
-            | Self::Snapshot => Some(crate::view::Act::DrawOnPage),
+            | Self::Snapshot
+            | Self::Annotate => Some(crate::view::Act::DrawOnPage),
             Self::TagBrush => Some(crate::view::Act::SelectText),
             Self::Load
             | Self::ResetView
             | Self::Export
             | Self::ReadingOrder
             | Self::Tools
+            | Self::ReadAloud
+            | Self::Compare
+            | Self::Print
             // A form is filled in a panel and its fields are wherever they are.
             | Self::FillForm => None,
         }

@@ -8,8 +8,8 @@ pub use fepdf_model::{
     CollectionViewMode, ContentScale, FormFieldSpec, FormValue, GeoSpatialAnchor, MeasurementScale,
     MeshShadingSpec, MeshShadingType, OptionalContentProperties, OutlineNode, OutlineTree,
     OutputIntent, PageLabelSpec, PageLabelStyle, PageResize, PdfAction, PortfolioCollection,
-    PublicKeyRecipientSpec, TransitionSpec, TransitionStyle, UnencryptedWrapperSpec, UserProperty,
-    UserPropertyValue, VisibilityState,
+    PublicKeyRecipientSpec, ShapeForm, TransitionSpec, TransitionStyle, UnencryptedWrapperSpec,
+    UserProperty, UserPropertyValue, VisibilityState,
 };
 use serde::{Deserialize, Serialize};
 
@@ -239,7 +239,8 @@ pub enum Operation {
     AttachAssociatedFile(AssociatedFile),
     /// Set or update the document output intent (/OutputIntents).
     SetOutputIntent(OutputIntent),
-    /// Embed a pronunciation lexicon XML (/PL).
+    /// Name a pronunciation lexicon (PLS 1.0 XML) in the structure tree root's
+    /// `/PronunciationLexicon` (Table 354, 14.9.6), replacing any it named.
     SetPronunciationLexicon {
         /// Raw XML bytes of the PLS lexicon.
         lexicon_xml_bytes: Vec<u8>,
@@ -439,6 +440,26 @@ pub enum Operation {
     /// write a form that does not conform, and one naming a field that calculates nothing
     /// would recalculate a value nobody computes.
     SetCalculationOrder(Vec<String>),
+    /// Lays text an OCR engine read over a page, drawn invisibly (text rendering mode 3)
+    /// in an embedded face with `/ToUnicode`, so it is found and copied and never seen
+    /// (ADR-0086).
+    AddTextLayer {
+        /// Which page, counting from zero.
+        page: usize,
+        /// Each piece of text, and the box on the page it was read from.
+        items: Vec<TextLayerItem>,
+    },
+    /// Moves, scales, turns or replaces one object a page draws with `Do` — an image or a
+    /// form XObject — named by its place among the page's `Do` operators, as
+    /// `fepdf::xobject::objects_of_page` lists them.
+    EditXObject {
+        /// The page, counting from zero.
+        page: usize,
+        /// The object, by its place among the page's `Do` operators.
+        object: usize,
+        /// What to do to it.
+        edit: XObjectEdit,
+    },
 
     // --- Phase 5: Navigation, Structure & Action Engine Operations ---
     /// Set page labels (/PageLabels).
@@ -487,6 +508,7 @@ impl Operation {
         // RR-15 Limit: Dispatcher - one arm per variant, which is what exhaustive means
         match self {
             Self::Rotate { .. }
+            | Self::EditXObject { .. }
             | Self::ResizePages(..)
             | Self::AddPageDecoration { .. }
             | Self::ApplyBatesNumbering { .. } => true,
@@ -509,6 +531,8 @@ impl Operation {
             | Self::SetOutputIntent { .. }
             | Self::SetPronunciationLexicon { .. }
             | Self::AddAnnotation { .. }
+            // Laid over the page, which is not moved.
+            | Self::AddTextLayer { .. }
             | Self::EditRun { .. }
             | Self::SplitRun { .. }
             | Self::DeleteRun { .. }
@@ -533,6 +557,31 @@ impl Operation {
             | Self::AddPublicKeyRecipient { .. } => false,
         }
     }
+}
+
+/// What an `EditXObject` does to the object it names. Each is said on the page.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub enum XObjectEdit {
+    /// Moves it so its lower left corner is at `to`, in points from the page's.
+    Move {
+        /// Where.
+        to: (f64, f64),
+    },
+    /// Scales it about its centre.
+    Scale {
+        /// By how much: 2 is twice the size.
+        by: f64,
+    },
+    /// Turns it about its centre, anticlockwise.
+    Rotate {
+        /// By how many degrees.
+        degrees: f64,
+    },
+    /// Draws a JPEG in its place, stretched over the same square. An image only.
+    Replace {
+        /// The picture.
+        jpeg: Vec<u8>,
+    },
 }
 
 /// The order a reader's Tab key moves through a page's annotations (Table 31, `/Tabs`).
@@ -742,6 +791,16 @@ impl PageDivision {
             }
         }
     }
+}
+
+/// A piece of text an OCR engine read, and where.
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TextLayerItem {
+    /// What it says, on one line.
+    pub text: String,
+    /// The box it was read from, in default user space: left, bottom, right, top. The text
+    /// is set to its height and stretched to its width.
+    pub rect: [f64; 4],
 }
 
 /// What a crop keeps, and what it does with the rest.

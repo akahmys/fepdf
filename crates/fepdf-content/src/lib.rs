@@ -153,6 +153,17 @@ pub trait RenderBackend {
     /// implement to ignore is noise.
     fn receive_mark_bounds(&mut self, _bounds: std::collections::BTreeMap<u32, kurbo::Rect>) {}
 
+    /// A marked-content section that declared `/MCID` `mcid` has opened (14.7.4.2).
+    ///
+    /// **For a backend that sorts what is drawn by the mark it is drawn under** — the
+    /// reading a synthesiser is handed takes each element's words from its own marks.
+    /// Defaulted to nothing, like [`RenderBackend::receive_mark_bounds`]: a rasteriser
+    /// draws the same whichever section a glyph is in.
+    fn mark_opened(&mut self, _mcid: u32) {}
+
+    /// The innermost section [`RenderBackend::mark_opened`] announced has closed.
+    fn mark_closed(&mut self) {}
+
     /// Concatenates `transform` onto the current transformation matrix.
     fn transform(&mut self, transform: Affine);
     /// Replaces the current transformation matrix.

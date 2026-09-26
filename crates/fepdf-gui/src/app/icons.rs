@@ -38,6 +38,14 @@ pub mod glyph {
     pub const FORM: &str = "\u{e21f}";
     /// `camera` — the snapshot: a rectangle of the page, copied as a picture.
     pub const SNAPSHOT: &str = "\u{e064}";
+    /// `highlighter` — putting an annotation on the page.
+    pub const ANNOTATE: &str = "\u{e0f4}";
+    /// `audio-lines` — reading the document aloud.
+    pub const READ_ALOUD: &str = "\u{e55a}";
+    /// `git-compare` — this document against another.
+    pub const COMPARE: &str = "\u{e359}";
+    /// `printer` — the document handed to the spooler.
+    pub const PRINT: &str = "\u{e141}";
     /// `settings`.
     pub const SETTINGS: &str = "\u{e154}";
     /// `circle-help`.

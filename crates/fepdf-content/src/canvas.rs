@@ -76,12 +76,15 @@ impl<'a> Canvas<'a> {
     /// Opens a marked-content section that declared a `/MCID`.
     pub fn open_mark(&mut self, mcid: u32) {
         self.marks.open.push(mcid);
+        self.inner.mark_opened(mcid);
     }
 
     /// Closes the innermost one. Saturating in the same sense as [`Canvas::reveal`]: a
     /// stream with more `EMC`s than `BDC`s must not take the enclosing section down.
     pub fn close_mark(&mut self) {
-        self.marks.open.pop();
+        if self.marks.open.pop().is_some() {
+            self.inner.mark_closed();
+        }
     }
 
     /// Takes the boxes, in default user space, leaving none behind.

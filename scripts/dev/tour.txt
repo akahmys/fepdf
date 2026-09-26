@@ -62,3 +62,21 @@ drawer accessibility
 shot 17-structure-tree
 drawer info
 shot 18-tagged-info
+
+# **The gestures themselves.** `drag` sends the pointer's own events, where every step
+# above drives the call a gesture ends in — which is how a snapshot drag went unanswered
+# while the call it ends in worked. Points are from the viewport's top-left, and these
+# land on the first page of `constitution.pdf` at 100 %.
+clear
+open samples/constitution.pdf
+openpage 1
+drawer snapshot
+drag 350 150 550 300
+shot 19-snapshot-copied
+pen highlight
+drag 370 95 475 122
+pen callout 前文
+drag 560 160 640 110
+pen note ここを確認
+drag 700 300 700 300
+shot 20-annotations

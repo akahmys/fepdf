@@ -58,8 +58,43 @@ pub struct StructureTreeNode {
     /// [`tag`]: StructureTreeNode::tag
     #[serde(default)]
     pub role: Option<String>,
+    /// `/ActualText`: an exact replacement for the element and its children (14.9.4).
+    #[serde(default)]
+    pub actual_text: Option<String>,
+    /// `/E`: the expanded form of an abbreviation (14.9.5).
+    #[serde(default)]
+    pub expansion: Option<String>,
+    /// `/Phoneme`: how the element and its children are pronounced (14.9.6).
+    #[serde(default)]
+    pub phoneme: Option<String>,
+    /// The alphabet `phoneme` is written in: the element's `/PhoneticAlphabet`, or the
+    /// nearest ancestor's, or `ipa`, which Table 355 makes the default.
+    #[serde(default = "ipa")]
+    pub phonetic_alphabet: String,
+    /// What `/K` holds, in the order it holds it: marks, and elements by their place in
+    /// `children`.
+    ///
+    /// **`mcids` and `children` are the two halves of `/K`, and a reading needs them
+    /// interleaved.** A paragraph whose `/K` is a mark, a `<Span>`, then a mark reads the
+    /// span between the two; read as marks-then-children it would come last.
+    #[serde(default)]
+    pub order: Vec<Part>,
     /// Child nodes in the structure hierarchy.
     pub children: Vec<StructureTreeNode>,
+}
+
+/// One entry of an element's `/K`, in [`StructureTreeNode::order`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum Part {
+    /// A marked-content sequence, by its `/MCID`.
+    Mark(u32),
+    /// A child element, by its index in [`StructureTreeNode::children`].
+    Child(usize),
+}
+
+/// Table 355's default phonetic alphabet.
+fn ipa() -> String {
+    "ipa".to_owned()
 }
 
 /// What does not change as the walk descends.
@@ -74,6 +109,8 @@ struct Walk<'a> {
 struct Inherited<'a> {
     page: Option<usize>,
     lang: Option<&'a str>,
+    /// `/PhoneticAlphabet`, which applies to an element's children too (Table 355).
+    alphabet: Option<&'a str>,
 }
 
 /// Visitor that extracts structure tree information from a document.
@@ -94,7 +131,7 @@ impl StructureTreeVisitor {
         // The document's own language, which every element is in until one says otherwise
         // (14.9.2). `print_sample.pdf` is the only sample that says otherwise.
         let lang = text_entry(arena, &dict, "Lang");
-        let inherited = Inherited { page: None, lang: lang.as_deref() };
+        let inherited = Inherited { page: None, lang: lang.as_deref(), alphabet: None };
         let mut visited = BTreeSet::new();
         let mut next_id = 0;
         parse_struct_node(arena, str_root_ref, &mut next_id, &mut visited, &walk, inherited)
@@ -515,6 +552,8 @@ fn classify_kid(arena: &PdfArena, kid: &Object, page_map: &BTreeMap<Handle<Objec
 struct Kids {
     children: Vec<StructureTreeNode>,
     mcids: Vec<u32>,
+    /// Both of the above, in the order `/K` holds them.
+    order: Vec<Part>,
     /// The page the first `/MCR` named, for an element that carries no `/Pg` itself.
     ///
     /// The first rather than all of them: 14.7.4.2 permits an element whose references
@@ -558,11 +597,13 @@ fn take_kid(
     match classify_kid(arena, kid, walk.page_map) {
         Kid::Mark(mcid, page) => {
             out.mcids.push(mcid);
+            out.order.push(Part::Mark(mcid));
             out.page = out.page.or(page);
         }
         Kid::Element(handle) => {
             if let Some(child) = parse_struct_node(arena, handle, next_id, visited, walk, inherited)
             {
+                out.order.push(Part::Child(out.children.len()));
                 out.children.push(child);
             }
         }
@@ -627,6 +668,12 @@ fn parse_page_index_helper(
     page_map.get(&pg_ref).copied()
 }
 
+/// An element's own `/PhoneticAlphabet` (Table 355).
+fn alphabet_of(arena: &PdfArena, dict: &BTreeMap<Handle<PdfName>, Object>) -> Option<String> {
+    let name = dict.get(&arena.name("PhoneticAlphabet"))?.resolve(arena).as_name()?;
+    arena.get_name(name).map(|n| n.as_str().to_string())
+}
+
 fn parse_struct_node(
     arena: &PdfArena,
     handle: Handle<Object>,
@@ -643,18 +690,16 @@ fn parse_struct_node(
     let dict = arena.get_dict(dh)?;
 
     let tag = parse_tag_helper(arena, &dict);
-    let title = tag.clone();
-    let alt_text = parse_alt_text_helper(arena, &dict);
-
-    let rect = dict.get(&arena.name("BBox")).and_then(|b| parse_bbox_helper(arena, b));
     let page_index = parse_page_index_helper(arena, &dict, walk.page_map).or(inherited.page);
     let lang = text_entry(arena, &dict, "Lang").or_else(|| inherited.lang.map(str::to_owned));
     let role = walk.roles.get(&tag).cloned();
+    let alphabet = alphabet_of(arena, &dict).or_else(|| inherited.alphabet.map(str::to_owned));
 
     let id = *next_id;
     *next_id += 1;
 
-    let below = Inherited { page: page_index, lang: lang.as_deref() };
+    let below =
+        Inherited { page: page_index, lang: lang.as_deref(), alphabet: alphabet.as_deref() };
     let kids = dict
         .get(&arena.name("K"))
         .map_or_else(Kids::default, |k| parse_kids_helper(arena, k, next_id, visited, walk, below));
@@ -673,15 +718,20 @@ fn parse_struct_node(
 
     Some(StructureTreeNode {
         id,
+        title: tag.clone(),
         tag,
-        title,
-        alt_text,
-        rect,
+        alt_text: parse_alt_text_helper(arena, &dict),
+        rect: dict.get(&arena.name("BBox")).and_then(|b| parse_bbox_helper(arena, b)),
         page_index,
         handle_index: Some(handle.index()),
         mcids: kids.mcids,
         lang,
         role,
+        actual_text: text_entry(arena, &dict, "ActualText"),
+        expansion: text_entry(arena, &dict, "E"),
+        phoneme: text_entry(arena, &dict, "Phoneme"),
+        phonetic_alphabet: alphabet.unwrap_or_else(ipa),
+        order: kids.order,
         children: kids.children,
     })
 }

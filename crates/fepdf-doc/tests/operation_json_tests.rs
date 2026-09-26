@@ -57,6 +57,8 @@ fn variant_name(op: &Operation) -> &'static str {
         Operation::SetFormFieldValue(_) => "SetFormFieldValue",
         Operation::SetTabOrder { .. } => "SetTabOrder",
         Operation::SetCalculationOrder(_) => "SetCalculationOrder",
+        Operation::AddTextLayer { .. } => "AddTextLayer",
+        Operation::EditXObject { .. } => "EditXObject",
         Operation::SetPageLabels(_) => "SetPageLabels",
         Operation::UpdateArticleThreads(_) => "UpdateArticleThreads",
         Operation::AddUserProperties { .. } => "AddUserProperties",

@@ -107,6 +107,9 @@ async fn main() -> Result<()> {
             EditSubcommands::Geo { input, output, lat, lon, crs, ingest, save } => {
                 edit::handle_geo(input, output, lat, lon, crs, ingest, save)?;
             }
+            EditSubcommands::TextLayer { input, output, page, json, ingest, save } => {
+                edit::handle_text_layer(&input, &output, page, &json, ingest, save)?;
+            }
         },
         Commands::Publish { sub } => match sub {
             PublishSubcommands::Upgrade {

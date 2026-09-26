@@ -341,14 +341,15 @@ pub struct OutputIntent {
     pub icc_profile_bytes: Option<Vec<u8>>,
 }
 
-/// Unit scale measurement for CAD / Geospatial drawings (ISO 32000-2 Section 13.5).
+/// The scale a drawing is measured in (ISO 32000-2 12.9), over the whole of one page.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct MeasurementScale {
     /// Target page index (0-indexed).
     pub page: usize,
-    /// Scale ratio factor.
+    /// How many `unit_label`s one point on the page stands for: a 1:100 drawing measured
+    /// in metres is `0.0254 / 72 * 100`.
     pub scale_ratio: f32,
-    /// Label for unit (e.g. "mm", "m", "in").
+    /// The unit, as a reader abbreviates it: "mm", "m", "ft".
     pub unit_label: String,
 }
 
@@ -374,8 +375,82 @@ pub enum AnnotationKind {
     },
     /// Rubber stamp annotation.
     Stamp {
-        /// Image bytes of the stamp.
+        /// The picture, as a JPEG — carried into the file as it is, under `/DCTDecode`.
         stamp_image_bytes: Vec<u8>,
+    },
+    /// A line under the text in `rect` (12.5.6.10).
+    Underline {
+        /// RGB colour, each from 0 to 1.
+        color_rgb: [f32; 3],
+    },
+    /// A line through the text in `rect` (12.5.6.10).
+    StrikeOut {
+        /// RGB colour, each from 0 to 1.
+        color_rgb: [f32; 3],
+    },
+    /// A wavy line under the text in `rect` (12.5.6.10).
+    Squiggly {
+        /// RGB colour, each from 0 to 1.
+        color_rgb: [f32; 3],
+    },
+    /// Text in a bordered box on the page (12.5.6.6, `/FreeText`).
+    TextBox {
+        /// What it says. A line break starts a new line; nothing is wrapped.
+        contents: String,
+        /// The size it is set at, in points.
+        font_size: f32,
+    },
+    /// Text typed straight onto the page, with no box round it (`/IT
+    /// /FreeTextTypeWriter`).
+    Typewriter {
+        /// What it says. A line break starts a new line; nothing is wrapped.
+        contents: String,
+        /// The size it is set at, in points.
+        font_size: f32,
+    },
+    /// A text box with a line pointing from it at something on the page (`/IT
+    /// /FreeTextCallout`).
+    Callout {
+        /// What it says. A line break starts a new line; nothing is wrapped.
+        contents: String,
+        /// The size it is set at, in points.
+        font_size: f32,
+        /// Where the line points, on the page. It runs from there to the box.
+        points_at: [f32; 2],
+    },
+    /// Freehand strokes (12.5.6.13, `/Ink`).
+    Ink {
+        /// Each stroke, as the points it passes through on the page.
+        strokes: Vec<Vec<[f32; 2]>>,
+        /// RGB colour, each from 0 to 1.
+        color_rgb: [f32; 3],
+        /// The stroke width, in points.
+        width: f32,
+    },
+    /// A rectangle, an ellipse or a line (12.5.6.8, 12.5.6.7).
+    Shape {
+        /// Which.
+        form: ShapeForm,
+        /// RGB colour of the outline, each from 0 to 1.
+        color_rgb: [f32; 3],
+        /// The outline's width, in points.
+        width: f32,
+    },
+}
+
+/// What a shape annotation draws.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub enum ShapeForm {
+    /// The rectangle `rect` (`/Square`).
+    Rectangle,
+    /// The ellipse inside `rect` (`/Circle`).
+    Ellipse,
+    /// A line between two points on the page (`/Line`).
+    Line {
+        /// Where it starts.
+        from: [f32; 2],
+        /// Where it ends.
+        to: [f32; 2],
     },
 }
 

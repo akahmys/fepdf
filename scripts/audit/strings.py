@@ -134,7 +134,11 @@ EXEMPT_PROSE = {
     "/System/Library/Fonts/Hiragino Sans GB.ttc": "a path the platform chose",
     "/System/Library/Fonts/Supplemental/Arial Unicode.ttf": "a path the platform chose",
     "{:.2} pt  ({:.2} mm)": "two unit symbols, the same in every language",
+    "{length:.2} pt  ({:.2} mm)": "two unit symbols, the same in every language",
+    "{area:.2} pt²  ({:.2} mm²)": "two unit symbols, the same in every language",
     "This document": "stands in for an engine phrase, and is read in that voice",
+    "Bad News": "an Apple voice's name, as `say -v` takes it",
+    "Good News": "an Apple voice's name, as `say -v` takes it",
 }
 
 
@@ -142,6 +146,10 @@ EXEMPT_PROSE = {
 # here would mean reproducing its escapes and its line continuations.
 EXEMPT_PREFIX = {
     "GEOGCS[": "well-known text: a coordinate system's identity, not a sentence",
+    "try {{ $s.SelectVoiceByHints(": "a PowerShell statement, run and never shown",
+    "Add-Type -AssemblyName System.Speech": "a PowerShell program, run and never shown",
+    "Start-Process -FilePath": "a PowerShell statement, run and never shown",
+    "fepdf_print_": "the name of the file handed to the spooler, never shown",
 }
 
 # Two runs of two letters or more, once the format placeholders are taken out — or any

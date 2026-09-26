@@ -59,6 +59,8 @@ pub enum WorkerRequest {
     /// which on the larger samples is as much again as opening it; a reader who never
     /// opens the panel should not pay for it.
     Survey,
+    /// A read of the open document, answered with what was read.
+    Read(Read),
     Audit,
     /// 6.3.2.3: a person turning a layer on or off. Not a document edit — the worker
     /// re-renders and the saved bytes are unchanged.
@@ -410,6 +412,30 @@ pub enum WorkerResponse {
     OperationApplied {
         message: String,
     },
+    /// The answer to `Scales`.
+    Scales {
+        /// Which page.
+        page: usize,
+        /// Its rectilinear scales, in viewport order.
+        scales: Vec<fepdf::measure::Scale>,
+    },
+    /// The answer to `Print`: what the spooler said, or why it was not asked.
+    Printed {
+        /// What to tell the reader.
+        notice: crate::app::Notice,
+    },
+    /// The answer to `Read::Compare`: what was found, or why nothing was.
+    Compared {
+        /// How the two documents differ.
+        comparison: Option<Box<fepdf::compare::Comparison>>,
+        /// Why they could not be compared.
+        why: Option<String>,
+    },
+    /// The answer to `Reading`.
+    Reading {
+        /// The passages in the structure's order, and the lexicons it names.
+        reading: Box<fepdf::reading::Reading>,
+    },
     /// The answer to `Survey`.
     Surveyed {
         /// What runs without the reader doing anything, and what the document can do.
@@ -547,6 +573,12 @@ pub fn run_worker(rx: Receiver<WorkerRequest>, tx: Sender<WorkerResponse>, ctx: 
             WorkerRequest::ExtractPages { indices, remove, name } => {
                 let _ = tx.send(WorkerResponse::Busy { key: "busy_exporting" });
                 handle_extract(&mut current_doc, &mut history, (&indices, remove, &name), &tx);
+                let _ = tx.send(WorkerResponse::Idle);
+                ctx.request_repaint();
+            }
+            WorkerRequest::Read(read) => {
+                let _ = tx.send(WorkerResponse::Busy { key: read.busy() });
+                let _ = tx.send(answer(current_doc.as_ref(), read));
                 let _ = tx.send(WorkerResponse::Idle);
                 ctx.request_repaint();
             }
@@ -938,6 +970,11 @@ fn handle_open(
                     mcids: Vec::new(),
                     lang: None,
                     role: None,
+                    actual_text: None,
+                    expansion: None,
+                    phoneme: None,
+                    phonetic_alphabet: "ipa".to_owned(),
+                    order: Vec::new(),
                     children: Vec::new(),
                 });
             }
@@ -1086,6 +1123,90 @@ impl PageCache {
 /// **The signatures are the file's, as it was opened.** `/ByteRange` names offsets into
 /// those bytes, and a `Document` has already normalised them away (ADR-0013); an edit made
 /// here since does not change what was signed, and is not what the answer is about.
+/// Writes `doc` as it stands to a file of its own and hands that to the spooler.
+///
+/// **Written as an export writes it**, so what is printed is what would be saved — the
+/// edits in it — and not the file it was opened from.
+fn print(doc: Option<&PdfDocument>, form: &crate::printing::PrintForm) -> crate::app::Notice {
+    use crate::app::Notice;
+    let (Some(doc), Some(platform)) = (doc, crate::speech::Platform::this()) else {
+        return Notice::failed("print_no_platform");
+    };
+    let file = std::env::temp_dir().join(format!("fepdf_print_{}.pdf", std::process::id()));
+    if let Err(why) = doc.save_as_version(&file, "2.0") {
+        return Notice::failed("print_failed").about(why.to_string());
+    }
+    match crate::printing::print(platform, &file, form) {
+        Ok(job) => Notice::done("print_sent").about(job),
+        Err(crate::printing::PrintFailure::Refused(key)) => Notice::failed(key),
+        Err(crate::printing::PrintFailure::Spooler(said)) => {
+            Notice::failed("print_failed").about(said)
+        }
+    }
+}
+
+/// A read of the open document that changes nothing.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Read {
+    /// The document as it stands, written out and handed to the spooler (W-17).
+    Print(Box<crate::printing::PrintForm>),
+    /// How the open document differs from the one at `path` (ROADMAP W-18).
+    Compare {
+        /// The other document.
+        path: std::path::PathBuf,
+    },
+    /// The document as a synthesiser reads it (`PdfDocument::reading`).
+    Reading,
+    /// The scales a page declares for measuring (12.9).
+    Scales {
+        /// Which page.
+        page: usize,
+    },
+}
+
+impl Read {
+    /// What the window says while it happens.
+    const fn busy(&self) -> &'static str {
+        match self {
+            Self::Print(_) => "busy_printing",
+            Self::Compare { .. } | Self::Reading | Self::Scales { .. } => "busy_reading",
+        }
+    }
+}
+
+/// What `read` finds in `doc`; with no document, what an empty one would answer.
+fn answer(doc: Option<&PdfDocument>, read: Read) -> WorkerResponse {
+    match read {
+        Read::Print(form) => WorkerResponse::Printed { notice: print(doc, &form) },
+        Read::Reading => {
+            let reading = doc.map(PdfDocument::reading).unwrap_or_default();
+            WorkerResponse::Reading { reading: Box::new(reading) }
+        }
+        Read::Compare { path } => {
+            let other = std::fs::read(&path)
+                .map_err(|e| e.to_string())
+                .and_then(|bytes| PdfDocument::open(bytes.into()).map_err(|e| e.to_string()));
+            let compared = match (doc, other) {
+                (Some(doc), Ok(other)) => {
+                    fepdf::compare::compare(doc, &other, 72.0).map_err(|e| e.to_string())
+                }
+                (None, _) => Err(String::new()),
+                (_, Err(why)) => Err(why),
+            };
+            match compared {
+                Ok(comparison) => {
+                    WorkerResponse::Compared { comparison: Some(Box::new(comparison)), why: None }
+                }
+                Err(why) => WorkerResponse::Compared { comparison: None, why: Some(why) },
+            }
+        }
+        Read::Scales { page } => {
+            let scales = doc.map(|doc| doc.scales_on(page)).unwrap_or_default();
+            WorkerResponse::Scales { page, scales }
+        }
+    }
+}
+
 fn handle_survey(doc: Option<&PdfDocument>, bytes: Option<&Bytes>, tx: &Sender<WorkerResponse>) {
     let Some(doc) = doc else { return };
     let actions = fepdf::ActionReport::of(doc.inner()).unwrap_or_default();
@@ -1193,6 +1314,13 @@ fn handle_render(
     pages: &mut PageCache,
 ) {
     let Some(doc) = doc_opt else { return };
+    // **A page the document no longer has is not a page that failed.** The window asks for
+    // the pages it shows, and an edit that makes fewer — combining fourteen onto four —
+    // lands while its requests for the old ones are still queued; each was reported as
+    // "could not draw page 13".
+    if doc.page_count().is_ok_and(|count| index >= count) {
+        return;
+    }
     let r = doc.get_page_box(index).unwrap_or_else(|_| fepdf::Rect::new(0.0, 0.0, 595.0, 842.0));
     let w = (r.x2 - r.x1).abs();
     let h = (r.y2 - r.y1).abs();

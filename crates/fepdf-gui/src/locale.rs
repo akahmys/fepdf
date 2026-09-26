@@ -131,10 +131,22 @@ mod tests {
             check(description, &mut absent);
         }
 
+        for pen in crate::annotate::Pen::ALL {
+            let (name, how) = pen.keys();
+            asked += 2;
+            check(name, &mut absent);
+            check(how, &mut absent);
+        }
+        for (key, _) in crate::annotate::COLOURS {
+            asked += 1;
+            check(key, &mut absent);
+        }
+
         assert!(absent.is_empty(), "named by a control and in no locale: {absent:?}");
         // The count is asserted so that a mapping emptied out cannot pass by asking
-        // nothing: ten drawers, three sub-tabs, and two keys for each of twelve commands.
-        assert_eq!(asked, 10 + 3 + 24);
+        // nothing: fourteen drawers, three sub-tabs, two keys for each of sixteen commands,
+        // two for each of fourteen pens, and five colours.
+        assert_eq!(asked, 14 + 3 + 32 + 28 + 5);
     }
 
     #[test]

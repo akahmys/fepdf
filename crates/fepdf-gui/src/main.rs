@@ -33,19 +33,25 @@
 // `eframe::Error` is large and owned by the framework; `main` must return it as-is.
 #![allow(clippy::result_large_err)]
 
+mod annotate;
 mod app;
 mod cad_canvas;
 mod capture;
 mod command_palette;
+mod comparing;
 mod document_tools;
 mod export_wizard;
 mod finding;
 mod interaction;
 mod locale;
+mod measuring;
+mod printing;
+mod read_aloud;
 mod redaction;
 mod redaction_studio;
 mod sidebar;
 mod snapshot;
+mod speech;
 mod vello_egui;
 mod view;
 mod worker;

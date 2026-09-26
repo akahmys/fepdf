@@ -236,6 +236,11 @@ mod tests {
             mcids: Vec::new(),
             lang: None,
             role: None,
+            actual_text: None,
+            expansion: None,
+            phoneme: None,
+            phonetic_alphabet: "ipa".to_owned(),
+            order: Vec::new(),
             children: Vec::new(),
         };
         let mut root = leaf(0, 10);
@@ -302,6 +307,11 @@ mod tests {
             mcids: Vec::new(),
             lang: None,
             role: None,
+            actual_text: None,
+            expansion: None,
+            phoneme: None,
+            phonetic_alphabet: "ipa".to_owned(),
+            order: Vec::new(),
             children: Vec::new(),
         }
     }

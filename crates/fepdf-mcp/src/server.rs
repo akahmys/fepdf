@@ -11,18 +11,19 @@ use crate::tools::{
     AddAnnotationArgs, AddFormFieldArgs, AddMeshShadingArgs, AddPageDecorationArgs,
     AddPublicKeyRecipientArgs, AddUserPropertiesArgs, ApplyBatesNumberingArgs, ApplyOperationArgs,
     AttachAssociatedFileArgs, AuditArgs, CombinePagesArgs, CreatePortfolioArgs, CropPagesArgs,
-    DeleteRunArgs, DeleteStructElemArgs, EditRunArgs, ExecuteActionArgs, ExtractTextArgs,
-    ListRunsArgs, MergeRunsArgs, MoveRunArgs, MoveStructElemArgs, RedactDocumentArgs,
-    RemovePagesArgs, ReorderPagesArgs, RotatePagesArgs, SetCalculationOrderArgs,
-    SetFormFieldValueArgs, SetGeospatialAnchorArgs, SetMeasurementScaleArgs, SetOutputIntentArgs,
-    SetPageLabelsArgs, SetPronunciationLexiconArgs, SetTabOrderArgs, SetUnencryptedWrapperArgs,
-    SplitPageArgs, SplitRunArgs, UpdateArticleThreadsArgs, UpdateLayersArgs, UpdateOutlinesArgs,
-    UpdateStructElemArgs, VerifySignaturesArgs, add_annotation_impl, add_form_field_impl,
-    add_mesh_shading_impl, add_page_decoration_impl, add_public_key_recipient_impl,
-    add_user_properties_impl, apply_bates_numbering_impl, apply_operation_impl,
-    apply_redaction_impl, attach_associated_file_impl, audit_document_impl, combine_pages_impl,
-    create_portfolio_impl, crop_pages_impl, delete_run_impl, delete_struct_elem_impl,
-    edit_run_impl, execute_action_impl, extract_text_impl, list_runs_impl, merge_runs_impl,
+    DeleteRunArgs, DeleteStructElemArgs, EditObjectArgs, EditRunArgs, ExecuteActionArgs,
+    ExtractTextArgs, ListObjectsArgs, ListRunsArgs, MergeRunsArgs, MoveRunArgs, MoveStructElemArgs,
+    RedactDocumentArgs, RemovePagesArgs, ReorderPagesArgs, RotatePagesArgs,
+    SetCalculationOrderArgs, SetFormFieldValueArgs, SetGeospatialAnchorArgs,
+    SetMeasurementScaleArgs, SetOutputIntentArgs, SetPageLabelsArgs, SetPronunciationLexiconArgs,
+    SetTabOrderArgs, SetUnencryptedWrapperArgs, SplitPageArgs, SplitRunArgs,
+    UpdateArticleThreadsArgs, UpdateLayersArgs, UpdateOutlinesArgs, UpdateStructElemArgs,
+    VerifySignaturesArgs, add_annotation_impl, add_form_field_impl, add_mesh_shading_impl,
+    add_page_decoration_impl, add_public_key_recipient_impl, add_user_properties_impl,
+    apply_bates_numbering_impl, apply_operation_impl, apply_redaction_impl,
+    attach_associated_file_impl, audit_document_impl, combine_pages_impl, create_portfolio_impl,
+    crop_pages_impl, delete_run_impl, delete_struct_elem_impl, edit_object_impl, edit_run_impl,
+    execute_action_impl, extract_text_impl, list_objects_impl, list_runs_impl, merge_runs_impl,
     move_run_impl, move_struct_elem_impl, remove_pages_impl, reorder_pages_impl, rotate_pages_impl,
     set_calculation_order_impl, set_form_field_value_impl, set_geospatial_anchor_impl,
     set_measurement_scale_impl, set_output_intent_impl, set_page_labels_impl,
@@ -151,6 +152,19 @@ impl FepdfServer {
         Parameters(args): Parameters<crate::tools::render::RenderArgs>,
     ) -> Result<String, String> {
         crate::tools::render::render_page_impl(args)
+    }
+
+    /// Hands out a page as a picture for an OCR engine, with what is needed to read its
+    /// answer back onto the page.
+    #[tool(
+        name = "page_for_ocr",
+        description = "Writes a page as a PNG for an OCR engine (300 DPI unless `dpi` says otherwise) and answers its size in pixels, `pixel_to_page` — the six numbers of the transform from the picture's pixels (origin top left) to the page's points — and the text the page already has with where it is. Give `pixel_to_page` back to `add_text_layer` with boxes in pixels."
+    )]
+    pub async fn page_for_ocr(
+        &self,
+        Parameters(args): Parameters<crate::tools::text_layer::PageForOcrArgs>,
+    ) -> Result<String, String> {
+        crate::tools::text_layer::page_for_ocr_impl(args)
     }
 }
 
@@ -485,7 +499,7 @@ impl FepdfServer {
     /// Adds interactive annotations (highlights, underlines, notes, stamps, links) to a page.
     #[tool(
         name = "add_annotation",
-        description = "Adds interactive annotations (highlights, underlines, notes, stamps, links) to a page."
+        description = "Adds an annotation to a page, with the appearance it is drawn by: a note, a highlight, underline, strike-out or squiggly line, a text box, typewriter text or a callout (set in a face that draws every character, so Japanese works), ink strokes, a rectangle, ellipse or line, a stamp from a JPEG file, or a link. A kind it does not know is refused."
     )]
     pub async fn add_annotation(
         &self,
@@ -525,6 +539,54 @@ impl FepdfServer {
         Parameters(args): Parameters<ListRunsArgs>,
     ) -> Result<String, String> {
         list_runs_impl(args)
+    }
+
+    /// Compares two documents page by page.
+    #[tool(
+        name = "compare_documents",
+        description = "Compares two PDF documents page by page, pairing pages by position. For each page that differs: the lines of text only the first has (`removed`) and only the second has (`added`), and the regions where the page looks different, in the first page's points (left, bottom, right, top), found by rendering both at `dpi` (72 unless given). `only_in_one` marks a page one document has and the other does not."
+    )]
+    pub async fn compare_documents(
+        &self,
+        Parameters(args): Parameters<crate::tools::compare::CompareArgs>,
+    ) -> Result<String, String> {
+        crate::tools::compare::compare_documents_impl(args)
+    }
+
+    /// Lays the text an OCR engine read over a page, invisibly.
+    #[tool(
+        name = "add_text_layer",
+        description = "Lays text an OCR engine read over a page, invisibly (text rendering mode 3) in an embedded face with /ToUnicode, so it is found, selected and copied and the page looks exactly as it did. Each item is one line of text and the box it was read from: left, bottom, right, top in page points, or — with the `pixel_to_page` page_for_ocr answered — left, top, right, bottom in its pixels. Each is set to its box's height and stretched to its width."
+    )]
+    pub async fn add_text_layer(
+        &self,
+        Parameters(args): Parameters<crate::tools::text_layer::AddTextLayerArgs>,
+    ) -> Result<String, String> {
+        crate::tools::text_layer::add_text_layer_impl(args)
+    }
+
+    /// Lists the objects a page draws: its images and form XObjects, and where.
+    #[tool(
+        name = "list_objects",
+        description = "Lists the objects a page draws with Do — images and form XObjects — with the resource name each is drawn by and its four corners on the page. The `object` number here is the one `edit_object` takes."
+    )]
+    pub async fn list_objects(
+        &self,
+        Parameters(args): Parameters<ListObjectsArgs>,
+    ) -> Result<String, String> {
+        list_objects_impl(args)
+    }
+
+    /// Moves, scales, turns or replaces one object a page draws.
+    #[tool(
+        name = "edit_object",
+        description = "Moves, scales, turns or replaces one object a page draws, named by the number `list_objects` gives it. Give exactly one of move_to (its lower left corner, in points), scale (about its centre), rotate_degrees (about its centre, anticlockwise) or replace_with (a JPEG file; images only). The edit is written around this one drawing of it, so the same image drawn elsewhere is not changed."
+    )]
+    pub async fn edit_object(
+        &self,
+        Parameters(args): Parameters<EditObjectArgs>,
+    ) -> Result<String, String> {
+        edit_object_impl(args)
     }
 
     /// Cuts one run in two, so that either half can be named afterwards.
@@ -650,7 +712,7 @@ impl FepdfServer {
     /// Configures drawing measurement scale dictionary (/Measure) for CAD and technical drawings.
     #[tool(
         name = "set_measurement_scale",
-        description = "Configures drawing measurement scale dictionary (/Measure) for CAD and technical drawings."
+        description = "Declares the scale a page is measured in (ISO 32000-2 12.9): a viewport over the whole page whose measure says one point is scale_ratio units, with distances in the unit and areas in its square. Replaces any rectilinear scale the page had; a geospatial one is kept."
     )]
     pub async fn set_measurement_scale(
         &self,

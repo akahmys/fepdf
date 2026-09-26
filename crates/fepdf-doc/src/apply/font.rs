@@ -520,7 +520,7 @@ pub fn draw_with(
 }
 
 /// Names `font` in the page's resources, under a name nothing else there uses.
-fn name_font_in_page(
+pub(crate) fn name_font_in_page(
     doc: &Document,
     page_h: Handle<Object>,
     page_dict: &mut BTreeMap<Handle<PdfName>, Object>,

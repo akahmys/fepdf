@@ -168,6 +168,18 @@ pub struct CaliperTool {
     pub current_snap: Option<SnapPoint>,
     pub measured_dist: Option<f32>,
     pub caliper_line: Option<(egui::Pos2, egui::Pos2)>, // PDF space start/end
+    /// A distance or a shape.
+    pub mode: crate::measuring::CaliperMode,
+    /// The shape's corners so far, in PDF space.
+    pub polygon: Vec<egui::Pos2>,
+    /// The page the measurement is on.
+    pub page: Option<usize>,
+    /// The scales each page declares, as the worker read them (12.9).
+    pub scales: BTreeMap<usize, Vec<fepdf::measure::Scale>>,
+    /// The pages whose scales have been asked for and not yet answered.
+    pub asked: std::collections::BTreeSet<usize>,
+    /// The scale the drawer would set.
+    pub form: crate::measuring::ScaleForm,
 }
 
 impl CaliperTool {
@@ -179,7 +191,35 @@ impl CaliperTool {
             current_snap: None,
             measured_dist: None,
             caliper_line: None,
+            mode: crate::measuring::CaliperMode::default(),
+            polygon: Vec::new(),
+            page: None,
+            scales: BTreeMap::new(),
+            asked: std::collections::BTreeSet::new(),
+            form: crate::measuring::ScaleForm::default(),
         }
+    }
+
+    /// The page whose scales should be asked for: the one being measured on, when they
+    /// are neither known nor already asked for.
+    pub fn scales_wanted(&mut self) -> Option<usize> {
+        let page = self.page?;
+        if self.scales.contains_key(&page) || !self.asked.insert(page) {
+            return None;
+        }
+        Some(page)
+    }
+
+    /// Keeps the scales the worker read for `page`.
+    pub fn scales_arrived(&mut self, page: usize, scales: Vec<fepdf::measure::Scale>) {
+        self.asked.remove(&page);
+        self.scales.insert(page, scales);
+    }
+
+    /// Forgets every page's scales, which an edit may have changed.
+    pub fn forget_scales(&mut self) {
+        self.scales.clear();
+        self.asked.clear();
     }
 
     pub fn clear(&mut self) {
@@ -188,6 +228,8 @@ impl CaliperTool {
         self.current_snap = None;
         self.measured_dist = None;
         self.caliper_line = None;
+        self.polygon.clear();
+        self.page = None;
     }
 
     pub fn handle_interaction(
@@ -213,7 +255,7 @@ impl CaliperTool {
             text_spans,
         );
 
-        let response = ui.allocate_rect(page_screen_rect, egui::Sense::drag());
+        let response = ui.allocate_rect(page_screen_rect, egui::Sense::click_and_drag());
         let screen_pos = ui.input(|i| i.pointer.hover_pos());
 
         if let Some(pos) = screen_pos {
@@ -235,7 +277,16 @@ impl CaliperTool {
             );
             self.current_snap = hovered_snap;
 
-            if response.drag_started() {
+            // A shape is taken a corner at a click, on the page its first corner is on.
+            if self.mode == crate::measuring::CaliperMode::Polygon {
+                if response.clicked() {
+                    if self.page != Some(page_index) {
+                        self.polygon.clear();
+                    }
+                    self.page = Some(page_index);
+                    self.polygon.push(hovered_snap.map_or(pdf_pos, |s| s.point));
+                }
+            } else if response.drag_started() {
                 self.clear();
                 if let Some(snap) = hovered_snap {
                     self.start_point = Some(snap);
@@ -246,9 +297,10 @@ impl CaliperTool {
                         description: "snap_cursor",
                     });
                 }
+                self.page = Some(page_index);
             }
 
-            if response.dragged() {
+            if response.dragged() && self.mode == crate::measuring::CaliperMode::Distance {
                 let target_pos = hovered_snap.map_or(pdf_pos, |s| s.point);
                 self.current_point = Some(target_pos);
 
@@ -270,7 +322,7 @@ impl CaliperTool {
         // RR-15 Limit: GUI - Renders CAD snap lines and ticks directly onto the page drawing layout overlay
         &self,
         ui: &mut egui::Ui,
-        page_screen_rect: egui::Rect,
+        (page_index, page_screen_rect): (usize, egui::Rect),
         page_unscaled_h: f32,
         zoom: f32,
         tr: &dyn Fn(&str) -> String,
@@ -344,6 +396,30 @@ impl CaliperTool {
             );
         }
 
+        // What was measured is drawn on the page it was measured on, and no other.
+        if self.page != Some(page_index) {
+            return;
+        }
+
+        // The shape so far, closed back to its first corner once it has three.
+        if self.polygon.len() >= 2 {
+            let to = |p| {
+                crate::interaction::SelectionManager::pdf_to_screen(
+                    page_screen_rect,
+                    zoom,
+                    page_unscaled_h,
+                    p,
+                )
+            };
+            let corners: Vec<egui::Pos2> = self.polygon.iter().map(|p| to(*p)).collect();
+            let stroke = egui::Stroke::new(2.0_f32, colors::rust::ACCENT);
+            if corners.len() >= 3 {
+                painter.add(egui::Shape::closed_line(corners, stroke));
+            } else {
+                painter.line(corners, stroke);
+            }
+        }
+
         // 2. Draw Caliper Measurement Line & Text Overlay
         if let Some((start_pdf, end_pdf)) = self.caliper_line {
             let start_screen = crate::interaction::SelectionManager::pdf_to_screen(
@@ -404,40 +480,5 @@ impl CaliperTool {
                 );
             }
         }
-    }
-
-    pub fn show_panel(
-        &mut self,
-        ui: &mut egui::Ui,
-        locale_mgr: &crate::locale::LocaleManager,
-        active_lang: &str,
-    ) {
-        let tr = |key: &str| locale_mgr.tr(active_lang, key);
-        ui.vertical(|ui| {
-            ui.label(egui::RichText::new(tr("caliper_title")).strong());
-            ui.add_space(crate::app::theme::space::ITEM);
-            ui.label(tr("caliper_help"));
-            ui.add_space(crate::app::theme::space::GROUP);
-            if let Some(dist) = self.measured_dist {
-                ui.horizontal(|ui| {
-                    ui.label(tr("caliper_distance"));
-                    ui.label(
-                        egui::RichText::new(format!(
-                            "{:.2} pt  ({:.2} mm)",
-                            dist,
-                            dist * 25.4 / 72.0
-                        ))
-                        .strong()
-                        .color(colors::rust::ACCENT),
-                    );
-                });
-            } else {
-                ui.label(egui::RichText::new(tr("caliper_none")).weak());
-            }
-            ui.add_space(crate::app::theme::space::GROUP);
-            if ui.button(tr("caliper_clear")).clicked() {
-                self.clear();
-            }
-        });
     }
 }

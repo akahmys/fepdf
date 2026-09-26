@@ -147,6 +147,14 @@ pub struct FepdfApp {
     pub form_panel: crate::sidebar::form::FormPanel,
     /// The snapshot tool: whether it is on, the drag, and the resolution.
     pub snapshot_tool: crate::snapshot::SnapshotTool,
+    /// The annotation tool: its pen, what the pen draws with, and the drag.
+    pub annotate_tool: crate::annotate::AnnotateTool,
+    /// Reading aloud: what is being read, and the synthesiser reading it.
+    pub read_aloud: crate::read_aloud::ReadAloud,
+    /// The compare drawer: the other document, and how the two differ.
+    pub compare: crate::comparing::CompareState,
+    /// The print drawer's form.
+    pub print: crate::printing::PrintForm,
 
     pub ust_registry: USTRegistry,
     pub sidebar_panel: SidebarPanel,
@@ -321,6 +329,10 @@ impl FepdfApp {
             form: fepdf::FormFields::default(),
             form_panel: crate::sidebar::form::FormPanel::default(),
             snapshot_tool: crate::snapshot::SnapshotTool::default(),
+            annotate_tool: crate::annotate::AnnotateTool::default(),
+            read_aloud: crate::read_aloud::ReadAloud::default(),
+            compare: crate::comparing::CompareState::default(),
+            print: crate::printing::PrintForm::default(),
             ust_registry: USTRegistry::new(),
             sidebar_panel: SidebarPanel::new(),
             redaction_manager: RedactionManager::new(),
@@ -424,9 +436,7 @@ impl FepdfApp {
                     // The page must be drawn again: a layer's state decides what the
                     // interpreter paints, and every cached scene predates the toggle.
                     self.layers = layers;
-                    self.scenes.clear();
-                    self.raw_texts.clear();
-                    self.page_spans.clear();
+                    self.forget_the_pages();
                 }
                 WorkerResponse::PagesExtracted { path } => {
                     self.open_in_new_window(&path);
@@ -450,9 +460,7 @@ impl FepdfApp {
                     self.selected_pages.clear();
                     self.last_selected_page = None;
                     self.view.keep_page_inside(self.total_pages);
-                    self.scenes.clear();
-                    self.raw_texts.clear();
-                    self.page_spans.clear();
+                    self.forget_the_pages();
                     self.clear_thumbnails_pending = true;
                     self.compute_layouts();
                     ctx.request_repaint();
@@ -485,9 +493,7 @@ impl FepdfApp {
                         self.name_the_window(ctx);
                     }
                     self.total_pages = num_pages;
-                    self.scenes.clear();
-                    self.raw_texts.clear();
-                    self.page_spans.clear();
+                    self.forget_the_pages();
                     self.clear_thumbnails_pending = true;
                     if let Some(ref dir) = viewer_direction {
                         if dir.eq_ignore_ascii_case("R2L") {
@@ -584,6 +590,15 @@ impl FepdfApp {
                     self.ust_registry.audit_in_protocol = in_protocol;
                     ctx.request_repaint();
                 }
+                WorkerResponse::Reading { reading } => self.reading_arrived(*reading, ctx),
+                WorkerResponse::Compared { comparison, why } => self.compared(comparison, why),
+                WorkerResponse::Printed { notice } => {
+                    self.print.waiting = false;
+                    self.notice = Some(notice);
+                }
+                WorkerResponse::Scales { page, scales } => {
+                    self.caliper_tool.scales_arrived(page, scales);
+                }
                 WorkerResponse::Surveyed { actions, coverage, signatures } => {
                     self.survey.actions = Some(actions);
                     self.survey.coverage = coverage;
@@ -594,9 +609,7 @@ impl FepdfApp {
                     self.notice = Some(Notice::done("notice_attach_failed").about(message));
                     // The pages the operation moved are on screen, and every cached scene
                     // predates it.
-                    self.scenes.clear();
-                    self.raw_texts.clear();
-                    self.page_spans.clear();
+                    self.forget_the_pages();
                     ctx.request_repaint();
                 }
                 WorkerResponse::DocumentSaved { path, notices } => {
@@ -770,7 +783,53 @@ impl FepdfApp {
         // them to forget a tool when a tenth drawer arrives (UI-12).
         self.caliper_tool.is_active = drawer == crate::sidebar::ActiveDrawer::Caliper;
         self.snapshot_tool.is_active = drawer == crate::sidebar::ActiveDrawer::Snapshot;
+        self.annotate_tool.is_active = drawer == crate::sidebar::ActiveDrawer::Annotate;
         self.active_drawer = drawer;
+    }
+
+    /// Forgets everything drawn or read from the pages, which have changed: the scenes,
+    /// their text, and the scales the caliper measures in.
+    fn forget_the_pages(&mut self) {
+        self.scenes.clear();
+        self.caliper_tool.forget_scales();
+        self.raw_texts.clear();
+        self.page_spans.clear();
+    }
+
+    /// Keeps what the worker found comparing, or says why it found nothing.
+    fn compared(
+        &mut self,
+        comparison: Option<Box<fepdf::compare::Comparison>>,
+        why: Option<String>,
+    ) {
+        self.compare.waiting = false;
+        self.compare.result = comparison.map(|c| *c);
+        if let Some(why) = why {
+            self.notice = Some(Notice::failed("compare_failed").about(why));
+        }
+    }
+
+    /// Starts reading what the worker assembled, from the page the reader was on.
+    fn reading_arrived(&mut self, reading: fepdf::reading::Reading, ctx: &egui::Context) {
+        if let Some(from) = self.read_aloud.waiting_from.take()
+            && let Err((key, detail)) = self.read_aloud.start(reading, from)
+        {
+            self.notice = Some(Notice { level: Level::Failed, key, detail });
+        }
+        ctx.request_repaint();
+    }
+
+    /// Moves the reading on when a passage has been read, and keeps looking while it is.
+    fn follow_the_reading(&mut self, ctx: &egui::Context) {
+        if !self.read_aloud.is_reading() {
+            return;
+        }
+        if let Err(why) = self.read_aloud.poll() {
+            self.read_aloud.stop();
+            self.notice = Some(Notice::failed("speech_failed").about(why.to_string()));
+        }
+        // Nothing arrives to say a process ended, so the window looks again shortly.
+        ctx.request_repaint_after(std::time::Duration::from_millis(150));
     }
 
     /// Puts the open document's name on the window.
@@ -828,9 +887,7 @@ impl FepdfApp {
 
     pub(crate) fn begin_rebuild(&mut self, key: &'static str) {
         self.busy = Some(key);
-        self.scenes.clear();
-        self.raw_texts.clear();
-        self.page_spans.clear();
+        self.forget_the_pages();
         self.request_queue.clear();
         self.clear_thumbnails_pending = true;
     }
@@ -943,6 +1000,10 @@ impl FepdfApp {
 }
 
 impl eframe::App for FepdfApp {
+    fn raw_input_hook(&mut self, _ctx: &egui::Context, raw_input: &mut egui::RawInput) {
+        self.feed_capture_input(raw_input);
+    }
+
     fn ui(&mut self, ui: &mut egui::Ui, frame: &mut eframe::Frame) {
         // RR-15 Limit: Dispatcher - Main application UI shell layout routing layout panels and windows
         let ctx = ui.ctx().clone();
@@ -979,6 +1040,14 @@ impl eframe::App for FepdfApp {
         // Over the canvas: the view's own controls, then anything modal over those.
         self.render_view_controls(ui);
         self.render_overlay_windows(&ctx);
+
+        self.follow_the_reading(&ctx);
+        if self.caliper_tool.is_active
+            && let Some(page) = self.caliper_tool.scales_wanted()
+        {
+            let read = crate::worker::Read::Scales { page };
+            let _ = self.tx_worker.send(crate::worker::WorkerRequest::Read(read));
+        }
 
         // Last of all, so a screenshot catches what everything above drew.
         self.drive_capture(&ctx);

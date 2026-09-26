@@ -560,6 +560,8 @@ fn crop_one_page(
 ) -> PdfResult<()> {
     if outside == WhatFallsOutside::Goes {
         crate::apply::text::apply_remove_outside(doc, index, keep)?;
+        crate::apply::image_crop::cut_images_outside(doc, index, keep)?;
+        crate::apply::path_crop::cut_paths_outside(doc, index, keep)?;
     }
     let page_h = doc.get_page(index)?.obj_handle();
     let page_dh = doc.resolve_to_dict(page_h)?;

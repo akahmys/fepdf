@@ -335,3 +335,54 @@ pub fn handle_geo(
     println!("SUCCESS: PDF with GIS anchor saved to {}", output.display());
     Ok(())
 }
+
+/// What `edit text-layer --json` reads.
+#[derive(serde::Deserialize)]
+struct TextLayerFile {
+    items: Vec<ReadText>,
+    pixel_to_page: Option<[f64; 6]>,
+}
+
+/// One line an OCR engine read, and its box.
+#[derive(serde::Deserialize)]
+struct ReadText {
+    text: String,
+    rect: [f64; 4],
+}
+
+/// Lays the text in `json` over page `page` (counting from 1), invisibly.
+pub fn handle_text_layer(
+    input: &std::path::Path,
+    output: &std::path::Path,
+    page: usize,
+    json: &std::path::Path,
+    ingest: IngestArgs,
+    save: SaveArgs,
+) -> Result<()> {
+    let Some(index) = page.checked_sub(1) else {
+        anyhow::bail!("pages count from 1; there is no page 0");
+    };
+    let read: TextLayerFile = serde_json::from_slice(
+        &std::fs::read(json).with_context(|| format!("Failed to read {}", json.display()))?,
+    )
+    .with_context(|| format!("{} is not a text layer", json.display()))?;
+    let items = read
+        .items
+        .into_iter()
+        .map(|r| fepdf::TextLayerItem {
+            rect: read.pixel_to_page.map_or(r.rect, |to| fepdf::pixel_box_on_page(r.rect, to)),
+            text: r.text,
+        })
+        .collect();
+    let data = std::fs::read(input).with_context(|| "Failed to read input PDF")?;
+    let ingest_options: fepdf::IngestionOptions = ingest.into();
+    let mut doc = PdfDocument::open_with_options(data.into(), &ingest_options)
+        .map_err(|e| anyhow::anyhow!("{e:?}"))?;
+    doc.apply(fepdf::Operation::AddTextLayer { page: index, items })
+        .map_err(|e| anyhow::anyhow!("{e}"))?;
+    save.check()?;
+    let save_options: fepdf::SaveOptions = save.into();
+    save_reporting_permissions(&doc, output, &save_options)?;
+    println!("SUCCESS: PDF with a text layer on page {page} saved to {}", output.display());
+    Ok(())
+}

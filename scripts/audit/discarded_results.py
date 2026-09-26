@@ -36,6 +36,29 @@ BENIGN = re.compile(r"\bwrite!|\bwriteln!|\.send\(|\.try_send\(")
 # Sites that discard a real `Result` for a stated reason. Keyed by file and the text of
 # the line, so moving the line does not silently re-approve a different one.
 ACCOUNTED_FOR: dict[tuple[str, str], str] = {
+    ("crates/fepdf-gui/src/speech.rs", "child.kill();"): (
+        "stopping a reading: a synthesiser that has already finished cannot be killed, and "
+        "either way it is not speaking, which is what the reader asked for"
+    ),
+    ("crates/fepdf-gui/src/speech.rs", "child.wait();"): (
+        "reaping the process just killed, so it does not linger; how it ended is not a "
+        "question anyone asked"
+    ),
+    ("crates/fepdf-gui/src/speech.rs", "std::fs::remove_file(&into);"): (
+        "a test clearing the file its fake synthesiser writes, before and after reading "
+        "it; one that was never there changes no result"
+    ),
+    ("crates/fepdf-gui/src/speech.rs", "std::fs::remove_file(&file);"): (
+        "a test deleting the speech `say` wrote, after its size was read"
+    ),
+    (
+        "crates/fepdf/src/lib.rs",
+        "self.render_page(index, &mut backend, kurbo::Affine::IDENTITY);",
+    ): (
+        "a page read aloud as far as it interprets: `render_page` draws up to the "
+        "operator it cannot run and records that failure itself, and the words drawn "
+        "before it are words the page says"
+    ),
     (
         "crates/fepdf-gui/src/worker.rs",
         "std::fs::remove_file(&path);",

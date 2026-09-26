@@ -260,10 +260,74 @@ impl VelloBackend {
 
         if let Some(path) = skrifa_bridge.extract_path(&skrifa_ctx) {
             let t = Self::calculate_glyph_transform(skrifa_bridge, font_data, glyph, ctx);
-            scene.fill(vello::peniko::Fill::NonZero, t, ctx.brush, None, &path);
+            Self::paint_glyph(scene, state, &path, t, ctx);
             (next_advance, true)
         } else {
             (next_advance, false)
+        }
+    }
+
+    /// Records that text is asked to clip, which is not done (9.3.6, modes 4 to 7).
+    fn note_a_clipping_mode(&mut self, glyphs: usize) {
+        let mode = self.state.text_render_mode;
+        if mode >= 4 && glyphs > 0 {
+            self.decisions.push(fepdf_model::interpretation::Decision::violation(
+                "9.3.6",
+                format!("text in rendering mode {mode} adds its glyphs to the clip"),
+                "painted the glyphs as the mode says and did not add them to the clip",
+            ));
+        }
+    }
+
+    /// Records a run that laid out characters and painted none of them.
+    fn note_nothing_painted(&mut self, glyphs: usize, painted: usize) {
+        // A run that laid out characters and painted none of them. **Per run, not per
+        // glyph**: one glyph with an empty outline is ordinary — `samples/volvo_xc90.pdf`
+        // has two, a CID glyph that draws to nothing — while a whole run drawing nothing
+        // means the text is on the page, correctly spaced, and invisible.
+        //
+        // That is precisely what a standard-14 font did before Phase P, on every run of
+        // every page, and nothing above the backend could tell: `show_text` took the
+        // success flag from each glyph and bound it to `_success`.
+        if painted == 0 && glyphs > 0 {
+            self.decisions.push(fepdf_model::interpretation::Decision::violation(
+                "9.6",
+                format!(
+                    "a run of {} glyphs in /{} yielded no outline at all",
+                    glyphs,
+                    self.state.font_name.as_deref().unwrap_or("(unnamed)")
+                ),
+                "advanced the text position and drew nothing; the text is laid out and \
+                 invisible",
+            ));
+        }
+    }
+
+    /// Paints a glyph's outline as the text rendering mode says (9.3.6, Table 106).
+    ///
+    /// **The mode was stored and never read**, so every mode was a fill — and mode 3,
+    /// which neither fills nor strokes, is how a scanned page carries the text an OCR
+    /// engine read: it was drawn over the scan it was read from. Modes 4 to 7 also add the
+    /// glyph to the clip, which is not done here; `show_text` records that.
+    fn paint_glyph(
+        scene: &mut Scene,
+        state: &VelloState,
+        path: &BezPath,
+        t: Affine,
+        ctx: &GlyphRenderContext,
+    ) {
+        let mode = state.text_render_mode;
+        if matches!(mode, 0 | 2 | 4 | 6) {
+            scene.fill(vello::peniko::Fill::NonZero, t, ctx.brush, None, path);
+        }
+        if matches!(mode, 1 | 2 | 5 | 6) {
+            // The line width is the graphics state's, which reaches this backend only with
+            // a path to stroke; a glyph is stroked at the default of one unit (8.4.1),
+            // taken from user space into the glyph's own.
+            let glyph_scale = t.determinant().abs().sqrt();
+            let user_scale = state.transform.determinant().abs().sqrt();
+            let width = if glyph_scale > 0.0 { user_scale / glyph_scale } else { 1.0 };
+            scene.stroke(&Stroke::new(width), t, ctx.stroke_brush, None, path);
         }
     }
 
@@ -299,6 +363,8 @@ struct GlyphRenderContext<'a> {
     advance_offset: f64,
     data_ref: &'a [u8],
     brush: &'a vello::peniko::Brush,
+    /// The stroke colour, for the modes that stroke a glyph's outline.
+    stroke_brush: &'a vello::peniko::Brush,
 }
 
 fn convert_image_pixels(
@@ -446,8 +512,63 @@ fn apply_image_smask(rgba_data: &mut [u8], width: u32, height: u32, mask: &SMask
     }
 }
 
+/// The compositing Vello does for a PDF blend mode (11.3.5). The sixteen are the same
+/// sixteen, by the same names.
+const fn mix_of(mode: BlendMode) -> vello::peniko::Mix {
+    use vello::peniko::Mix;
+    match mode {
+        BlendMode::Normal => Mix::Normal,
+        BlendMode::Multiply => Mix::Multiply,
+        BlendMode::Screen => Mix::Screen,
+        BlendMode::Overlay => Mix::Overlay,
+        BlendMode::Darken => Mix::Darken,
+        BlendMode::Lighten => Mix::Lighten,
+        BlendMode::ColorDodge => Mix::ColorDodge,
+        BlendMode::ColorBurn => Mix::ColorBurn,
+        BlendMode::HardLight => Mix::HardLight,
+        BlendMode::SoftLight => Mix::SoftLight,
+        BlendMode::Difference => Mix::Difference,
+        BlendMode::Exclusion => Mix::Exclusion,
+        BlendMode::Hue => Mix::Hue,
+        BlendMode::Saturation => Mix::Saturation,
+        BlendMode::Color => Mix::Color,
+        BlendMode::Luminosity => Mix::Luminosity,
+    }
+}
+
 fn has_move_to(path: &BezPath) -> bool {
     path.elements().iter().any(|el| matches!(el, kurbo::PathEl::MoveTo(_)))
+}
+
+impl VelloBackend {
+    /// Opens a layer composited in the blend mode in force, when that is not `Normal`,
+    /// and says whether it did.
+    ///
+    /// **The mode was recorded and never used.** `set_blend_mode` stored it and every fill,
+    /// stroke and image went on compositing normally, so a `/BM /Multiply` highlight —
+    /// which is how a highlight lets the text under it show — painted over the text
+    /// (11.3.5). One layer a mark, and only for a mark in a mode that needs one: a page
+    /// that never leaves `Normal` pays nothing.
+    fn begin_blend(&mut self) -> bool {
+        if self.state.blend_mode == BlendMode::Normal {
+            return false;
+        }
+        self.scene.push_layer(
+            vello::peniko::Fill::NonZero,
+            mix_of(self.state.blend_mode),
+            1.0f32,
+            Affine::IDENTITY,
+            &UNBOUNDED,
+        );
+        true
+    }
+
+    /// Closes what [`Self::begin_blend`] opened.
+    fn end_blend(&mut self, opened: bool) {
+        if opened {
+            self.scene.pop_layer();
+        }
+    }
 }
 
 impl RenderBackend for VelloBackend {
@@ -535,7 +656,9 @@ impl RenderBackend for VelloBackend {
         };
         let mut closed_path = path.clone();
         closed_path.close_path();
+        let blended = self.begin_blend();
         self.scene.fill(vello_rule, self.state.transform, &brush, None, &closed_path);
+        self.end_blend(blended);
     }
 
     fn stroke_path(&mut self, path: &BezPath, color: &Color, style: &StrokeStyle) {
@@ -561,7 +684,9 @@ impl RenderBackend for VelloBackend {
             LineJoin::Bevel => Join::Bevel,
         };
         stroke.miter_limit = style.miter_limit;
+        let blended = self.begin_blend();
         self.scene.stroke(&stroke, self.state.transform, &brush, None, path);
+        self.end_blend(blended);
     }
 
     fn push_clip(&mut self, path: &BezPath, rule: WindingRule) {
@@ -699,7 +824,9 @@ impl RenderBackend for VelloBackend {
             * Affine::translate(kurbo::Vec2::new(0.0, 1.0))
             * Affine::scale_non_uniform(1.0 / f64::from(width), -1.0 / f64::from(height));
 
+        let blended = self.begin_blend();
         self.scene.draw_image(&image, m);
+        self.end_blend(blended);
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -792,6 +919,8 @@ impl RenderBackend for VelloBackend {
         let data_arc = self.state.font_data.clone();
         let data_ref = data_arc.as_deref().map_or(&[][..], |v| v.as_slice());
         let brush = to_vello_brush(&self.state.fill_color, self.state.fill_alpha as f32);
+        let stroke_brush = to_vello_brush(&self.state.stroke_color, self.state.stroke_alpha as f32);
+        self.note_a_clipping_mode(glyphs.len());
         let mut advance_offset = 0.0;
         let mut painted = 0_usize;
         for glyph in glyphs {
@@ -805,6 +934,7 @@ impl RenderBackend for VelloBackend {
                 advance_offset,
                 data_ref,
                 brush: &brush,
+                stroke_brush: &stroke_brush,
             };
             let (new_advance, drew) = Self::render_single_glyph(
                 &mut self.scene,
@@ -818,26 +948,7 @@ impl RenderBackend for VelloBackend {
             advance_offset = new_advance;
         }
 
-        // A run that laid out characters and painted none of them. **Per run, not per
-        // glyph**: one glyph with an empty outline is ordinary — `samples/volvo_xc90.pdf`
-        // has two, a CID glyph that draws to nothing — while a whole run drawing nothing
-        // means the text is on the page, correctly spaced, and invisible.
-        //
-        // That is precisely what a standard-14 font did before Phase P, on every run of
-        // every page, and nothing above the backend could tell: `show_text` took the
-        // success flag from each glyph and bound it to `_success`.
-        if painted == 0 && !glyphs.is_empty() {
-            self.decisions.push(fepdf_model::interpretation::Decision::violation(
-                "9.6",
-                format!(
-                    "a run of {} glyphs in /{} yielded no outline at all",
-                    glyphs.len(),
-                    self.state.font_name.as_deref().unwrap_or("(unnamed)")
-                ),
-                "advanced the text position and drew nothing; the text is laid out and \
-                 invisible",
-            ));
-        }
+        self.note_nothing_painted(glyphs.len(), painted);
     }
 }
 

@@ -8,16 +8,21 @@ pub mod appearance;
 pub mod fields;
 /// Putting a font program into a document.
 pub mod font;
+pub(crate) mod image_crop;
+pub(crate) mod markup;
 /// Portfolio, outline, layer, associated file, and metadata operation handlers.
 pub mod metadata;
 /// Page rotation, reordering, removal, and page label operation handlers.
 pub mod page;
+pub(crate) mod path_crop;
 /// Security, unencrypted wrapper, and public-key recipient operation handlers.
 pub mod security;
 /// Structure element and article thread operation handlers.
 pub mod structure;
 /// Changing the text a page already draws.
 pub mod text;
+pub(crate) mod text_layer;
+pub mod xobject;
 
 use crate::operation::Operation;
 use fepdf_model::{Document, PdfResult};
@@ -90,6 +95,12 @@ pub fn apply_operation(doc: &mut Document, op: Operation) -> PdfResult<()> {
         Operation::SetMeasurementScale(s) => annotations::apply_set_measurement_scale(doc, s),
         Operation::SetFormFieldValue(f) => annotations::apply_set_form_field_value(doc, f),
         Operation::SetTabOrder { pages, order } => page::apply_set_tab_order(doc, &pages, order),
+        Operation::AddTextLayer { page, items } => {
+            text_layer::apply_add_text_layer(doc, page, &items)
+        }
+        Operation::EditXObject { page, object, edit } => {
+            xobject::apply_edit_xobject(doc, page, object, &edit)
+        }
         Operation::SetCalculationOrder(order) => fields::apply_set_calculation_order(doc, &order),
         Operation::ExecuteAction(a) => annotations::apply_execute_action(doc, a),
         Operation::SetGeospatialAnchor(a) => annotations::apply_set_geospatial_anchor(doc, a),
