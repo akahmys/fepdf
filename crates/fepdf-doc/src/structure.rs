@@ -159,7 +159,7 @@ impl AuditReport {
     /// the document passing.
     ///
     /// **Named so that a caller cannot write `findings.is_empty()` and mean "conforms".**
-    /// Fourteen failure conditions out of 137 finding nothing is fourteen failure
+    /// Thirty-seven failure conditions out of 137 finding nothing is thirty-seven failure
     /// conditions finding nothing. Read [`AuditReport::scope`] beside this.
     ///
     /// **This was `findings.is_empty()`, and that could not be true.** Once a checked and
@@ -193,7 +193,7 @@ impl AuditReport {
 pub const FROM_CATALOGUE: [&str; 3] = ["01-007", "07-001", "07-002"];
 
 /// The failure conditions decided by reading the interactive form (12.7).
-pub const FROM_FORM: [&str; 1] = ["28-005"];
+pub const FROM_FORM: [&str; 2] = ["11-005", "28-005"];
 
 /// The failure conditions decided by reading the pages' content streams (14.7.4.2).
 ///
@@ -207,8 +207,10 @@ pub const FROM_CONTENT: [&str; 3] = ["01-003", "01-004", "01-005"];
 ///
 /// **A document with no structure tree has none of these examined**, which is not the
 /// same as passing them, and is why the three lists are apart.
-pub const FROM_STRUCTURE_TREE: [&str; 7] =
-    ["11-002", "13-004", "14-002", "14-003", "14-006", "14-007", "17-002"];
+pub const FROM_STRUCTURE_TREE: [&str; 18] = [
+    "02-001", "02-003", "02-004", "09-004", "09-005", "09-006", "09-007", "09-008", "11-002",
+    "13-004", "14-002", "14-003", "14-006", "14-007", "15-003", "17-002", "19-003", "19-004",
+];
 
 /// What a `/StructTreeRoot` that is not there is reported as.
 ///
@@ -218,6 +220,16 @@ pub const FROM_STRUCTURE_TREE: [&str; 7] =
 /// requires the tree in 7.1, and the protocol's own Section notation for that clause is
 /// this, so what a reader looks up is a clause that exists.
 pub const NO_STRUCTURE_TREE: &str = "UA1:7.1";
+
+/// What the walk carries from one element to the next.
+struct Walked {
+    headings: Headings,
+    notes: crate::audit_tree::Notes,
+    /// The tree root's `/RoleMap` (14.8.4.4).
+    roles: std::collections::BTreeMap<String, String>,
+    /// The tree root's `/ClassMap` (14.7.6.2).
+    classes: std::collections::BTreeMap<String, Vec<Object>>,
+}
 
 /// What the numbered headings seen so far come to.
 ///
@@ -279,7 +291,7 @@ fn stated(value: Option<&String>) -> bool {
 }
 
 /// A condition this engine decided the document breaks.
-fn broken(condition: &str, message: impl Into<String>) -> AuditFinding {
+pub(crate) fn broken(condition: &str, message: impl Into<String>) -> AuditFinding {
     AuditFinding {
         checkpoint: condition.to_string(),
         severity: "Error".into(),
@@ -290,7 +302,7 @@ fn broken(condition: &str, message: impl Into<String>) -> AuditFinding {
 }
 
 /// The same, naming the object it was decided about.
-fn broken_at(condition: &str, message: impl Into<String>, at: u32) -> AuditFinding {
+pub(crate) fn broken_at(condition: &str, message: impl Into<String>, at: u32) -> AuditFinding {
     AuditFinding { handle_id: Some(at), ..broken(condition, message) }
 }
 
@@ -299,7 +311,7 @@ fn broken_at(condition: &str, message: impl Into<String>, at: u32) -> AuditFindi
 /// **The evidence is the message, or this is not worth showing.** "28-005 suspected"
 /// tells a reader nothing they can act on; the field's name and what was and was not
 /// resolved about it is what lets them agree or disagree.
-fn for_a_reader(condition: &str, message: impl Into<String>) -> AuditFinding {
+pub(crate) fn for_a_reader(condition: &str, message: impl Into<String>) -> AuditFinding {
     AuditFinding {
         checkpoint: condition.to_string(),
         severity: "Warning".into(),
@@ -340,9 +352,12 @@ impl<'a> MatterhornAuditor<'a> {
     /// **Named one by one rather than counted**, so that adding a check and forgetting to
     /// say so is a thing the tests can notice. The three lists above partition this one,
     /// and a test holds them to it.
-    pub const CHECKED: [&'static str; 14] = [
-        "01-003", "01-004", "01-005", "01-007", "07-001", "07-002", "11-002", "13-004", "14-002",
-        "14-003", "14-006", "14-007", "17-002", "28-005",
+    pub const CHECKED: [&'static str; 37] = [
+        "01-003", "01-004", "01-005", "01-007", "02-001", "02-003", "02-004", "07-001", "07-002",
+        "09-004", "09-005", "09-006", "09-007", "09-008", "11-002", "11-003", "11-004", "11-005",
+        "13-004", "14-002", "14-003", "14-006", "14-007", "15-003", "17-002", "19-003", "19-004",
+        "20-001", "20-002", "20-003", "28-004", "28-005", "28-007", "28-008", "28-009", "28-012",
+        "30-001",
     ];
 
     /// How many failure conditions the Matterhorn Protocol 1.1 has, across 31 checkpoints.
@@ -370,6 +385,13 @@ impl<'a> MatterhornAuditor<'a> {
         self.audit_catalogue(&mut findings, &mut examined);
         self.audit_form(&mut findings, &mut examined);
         self.audit_content(&mut findings, &mut examined);
+        let language = self.document_language();
+        crate::audit_objects::audit_objects(
+            self.doc,
+            language.as_deref(),
+            &mut findings,
+            &mut examined,
+        );
         match self.doc.get_structure_root()? {
             Some(root) => {
                 findings.extend(self.audit(root)?);
@@ -471,10 +493,12 @@ impl<'a> MatterhornAuditor<'a> {
     /// conjunction fails on its first half — so the condition comes out sound for a
     /// document whose fields all carry one, and for a document with no form at all.
     fn audit_form(&self, findings: &mut Vec<AuditFinding>, examined: &mut BTreeSet<&'static str>) {
-        examined.insert("28-005");
+        examined.extend(FROM_FORM);
         let form = fepdf_model::interactive::form_of(self.doc);
+        let language = self.document_language();
         for field in &form.terminal {
             if stated(field.tooltip.as_ref()) {
+                Self::audit_tooltip_language(field, language.as_deref(), findings);
                 continue;
             }
             let name = field
@@ -491,6 +515,27 @@ impl<'a> MatterhornAuditor<'a> {
                 ),
             ));
         }
+    }
+
+    /// 11-005: a field's `/TU` is in the document's language unless its structure element
+    /// says otherwise, which is not followed here — so with no catalogue `/Lang` it is left
+    /// for a reader.
+    fn audit_tooltip_language(
+        field: &fepdf_model::interactive::FormField,
+        language: Option<&str>,
+        findings: &mut Vec<AuditFinding>,
+    ) {
+        if language.is_some() {
+            return;
+        }
+        let name = field.qualified_name.as_deref().or(field.name.as_deref()).unwrap_or("");
+        findings.push(for_a_reader(
+            "11-005",
+            format!(
+                "The form field \"{name}\" has a /TU and the catalogue states no /Lang. \
+                 Whether its structure element states one is not resolved here — look at it"
+            ),
+        ));
     }
 
     /// Checkpoint 01's three, from what each page's content stream marks.
@@ -589,19 +634,26 @@ impl<'a> MatterhornAuditor<'a> {
     /// Fails when an element of the tree cannot be read.
     pub fn audit(&self, root: Handle<Object>) -> PdfResult<Vec<AuditFinding>> {
         let mut findings = Vec::new();
-        let mut headings = Headings::default();
+        let mut walk = Walked {
+            headings: Headings::default(),
+            notes: crate::audit_tree::Notes::default(),
+            roles: crate::audit_tree::role_map(self.arena, root),
+            classes: crate::audit_tree::class_map(self.arena, root),
+        };
+        crate::audit_tree::audit_role_map(&walk.roles, &mut findings);
         let document_language = self.document_language();
         let mut visitor = StructureVisitor::new(self.arena, root);
 
         while let Some(element_handle) = visitor.next_element() {
             self.audit_element(
                 element_handle,
-                &mut headings,
+                &mut walk,
                 document_language.as_deref(),
                 &mut findings,
             )?;
         }
-        headings.conclude(&mut findings);
+        walk.headings.conclude(&mut findings);
+        walk.notes.conclude(&mut findings);
         Ok(findings)
     }
 
@@ -613,7 +665,7 @@ impl<'a> MatterhornAuditor<'a> {
     fn audit_element(
         &self,
         element_handle: Handle<Object>,
-        headings: &mut Headings,
+        walk: &mut Walked,
         document_language: Option<&str>,
         findings: &mut Vec<AuditFinding>,
     ) -> PdfResult<()> {
@@ -629,7 +681,16 @@ impl<'a> MatterhornAuditor<'a> {
         let tag = tag_name.as_str();
         let at = element_handle.index();
 
-        Self::audit_heading(tag, at, headings, findings);
+        Self::audit_heading(tag, at, &mut walk.headings, findings);
+        crate::audit_tree::audit_tag(&walk.roles, tag, at, findings);
+        crate::audit_tree::audit_syntax(self.arena, &walk.roles, element_handle, tag, findings);
+        match tag {
+            "Note" => walk.notes.note(self.arena, element_handle, at, findings),
+            "Table" => {
+                crate::audit_tree::audit_table(self.arena, element_handle, &walk.classes, findings);
+            }
+            _ => {}
+        }
         self.audit_one_heading_per_node(&element, at, findings);
         Self::audit_alternative_text(tag, &element, at, findings);
         self.audit_language(&element, document_language, at, findings);

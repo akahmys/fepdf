@@ -20,6 +20,7 @@
 //! under `00-001`, which is not a number the protocol has either.
 
 use fepdf::{IngestionOptions, PdfDocument};
+use fepdf_doc::audit_objects::FROM_OBJECTS;
 use fepdf_doc::matterhorn::LEFT_TO_A_PERSON;
 use fepdf_doc::{
     AuditFinding, AuditReport, FROM_CATALOGUE, FROM_CONTENT, FROM_FORM, FROM_STRUCTURE_TREE,
@@ -78,6 +79,99 @@ fn breaks_everything() -> Vec<u8> {
         "<< /Type /StructTreeRoot /K [4 0 R 5 0 R 6 0 R 9 0 R 10 0 R 11 0 R] >>".to_string(),
         "<< /FT /Tx /T (Given name) >>".to_string(),
         format!("<< /Length {} >>\nstream\n{content}\nendstream", content.len()),
+    ])
+    .into_iter()
+    .collect()
+}
+
+/// A tagged document that breaks every condition W-21i added, one object per condition.
+///
+/// | | How this document breaks it |
+/// | :--- | :--- |
+/// | 02-001 | a `<Custom>` element with no mapping |
+/// | 02-003 | `/Loop1` mapped to `/Loop2` and back |
+/// | 02-004 | the standard `/P` mapped to `/Span` |
+/// | 11-003 | outline items and no catalogue `/Lang` |
+/// | 11-004 | a note annotation's `/Contents` with no `/Lang` anywhere |
+/// | 11-005 | a field's `/TU` with no `/Lang` anywhere |
+/// | 15-003 | a `<TH>` with no `/Scope` in a table with no `/Headers` |
+/// | 19-003 | a `<Note>` with no `/ID` |
+/// | 19-004 | two `<Note>`s with the `/ID` (n1) |
+/// | 20-001 | a `/Configs` configuration with no `/Name` |
+/// | 20-002 | a `/D` configuration with no `/Name` |
+/// | 20-003 | `/AS` in the `/D` configuration |
+/// | 28-004 | a `/Square` annotation with no `/Contents` |
+/// | 28-007 | a `/TrapNet` annotation |
+/// | 28-008 | page 1 has annotations and no `/Tabs` |
+/// | 28-009 | page 2 has annotations and `/Tabs /R` |
+/// | 28-012 | a `/Link` annotation with no `/Contents` |
+/// | 30-001 | a form XObject carrying `/Ref` |
+fn breaks_the_second_pass() -> Vec<u8> {
+    fepdf_fixtures::assemble(&[
+        "<< /Type /Catalog /Pages 2 0 R /StructTreeRoot 5 0 R /MarkInfo << /Marked true >> \
+           /Outlines 12 0 R /AcroForm << /Fields [14 0 R] >> \
+           /OCProperties << /OCGs [15 0 R] /D << /AS [] >> /Configs [<< /Order [] >>] >> >>"
+            .to_string(),
+        "<< /Type /Pages /Kids [3 0 R 4 0 R] /Count 2 >>".to_string(),
+        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Annots [16 0 R 17 0 R 18 0 R] \
+           /Resources << /XObject << /Fm0 19 0 R >> >> >>"
+            .to_string(),
+        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Tabs /R /Annots [20 0 R] >>"
+            .to_string(),
+        "<< /Type /StructTreeRoot /K [6 0 R 7 0 R 8 0 R 9 0 R 10 0 R] \
+           /RoleMap << /P /Span /Loop1 /Loop2 /Loop2 /Loop1 >> >>"
+            .to_string(),
+        "<< /Type /StructElem /S /Custom /P 5 0 R >>".to_string(),
+        "<< /Type /StructElem /S /Note /P 5 0 R >>".to_string(),
+        "<< /Type /StructElem /S /Note /P 5 0 R /ID (n1) >>".to_string(),
+        "<< /Type /StructElem /S /Note /P 5 0 R /ID (n1) >>".to_string(),
+        "<< /Type /StructElem /S /Table /P 5 0 R /K [11 0 R] >>".to_string(),
+        "<< /Type /StructElem /S /TR /P 10 0 R /K [21 0 R 22 0 R] >>".to_string(),
+        "<< /Type /Outlines /First 13 0 R /Last 13 0 R /Count 1 >>".to_string(),
+        "<< /Title (Chapter one) /Parent 12 0 R >>".to_string(),
+        "<< /FT /Tx /T (Name) /TU (Your name) >>".to_string(),
+        "<< /Type /OCG /Name (Layer) >>".to_string(),
+        "<< /Type /Annot /Subtype /Text /Rect [0 0 10 10] /Contents (A note) >>".to_string(),
+        "<< /Type /Annot /Subtype /Square /Rect [0 0 10 10] >>".to_string(),
+        "<< /Type /Annot /Subtype /TrapNet /Rect [0 0 10 10] /Contents (trap) >>".to_string(),
+        "<< /Type /XObject /Subtype /Form /BBox [0 0 1 1] /Ref << /F (other.pdf) /Page 0 >> \
+           /Length 0 >>\nstream\n\nendstream"
+            .to_string(),
+        "<< /Type /Annot /Subtype /Link /Rect [0 0 10 10] >>".to_string(),
+        "<< /Type /StructElem /S /TH /P 11 0 R >>".to_string(),
+        "<< /Type /StructElem /S /TD /P 11 0 R >>".to_string(),
+    ])
+    .into_iter()
+    .collect()
+}
+
+/// A tagged document that breaks the five conditions W-21h added, each from its table in
+/// ISO 32000-1.
+///
+/// | | How this document breaks it |
+/// | :--- | :--- |
+/// | 09-004 | a `<Table>` holding a `<P>` (Table 337) |
+/// | 09-005 | an `<L>` holding a `<P>` (Table 336) |
+/// | 09-006 | a `<TOC>` holding a `<P>` (Table 333) |
+/// | 09-007 | a `<Ruby>` holding an `<RT>` alone (Tables 338 and 339) |
+/// | 09-008 | a `<Warichu>` holding a `<WT>` alone (Tables 338 and 339) |
+fn breaks_the_syntax() -> Vec<u8> {
+    fepdf_fixtures::assemble(&[
+        "<< /Type /Catalog /Pages 2 0 R /StructTreeRoot 4 0 R /MarkInfo << /Marked true >> >>"
+            .to_string(),
+        "<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_string(),
+        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] >>".to_string(),
+        "<< /Type /StructTreeRoot /K [5 0 R 7 0 R 9 0 R 11 0 R 13 0 R] >>".to_string(),
+        "<< /Type /StructElem /S /Table /P 4 0 R /K [6 0 R] >>".to_string(),
+        "<< /Type /StructElem /S /P /P 5 0 R >>".to_string(),
+        "<< /Type /StructElem /S /L /P 4 0 R /K [8 0 R] >>".to_string(),
+        "<< /Type /StructElem /S /P /P 7 0 R >>".to_string(),
+        "<< /Type /StructElem /S /TOC /P 4 0 R /K [10 0 R] >>".to_string(),
+        "<< /Type /StructElem /S /P /P 9 0 R >>".to_string(),
+        "<< /Type /StructElem /S /Ruby /P 4 0 R /K [12 0 R] >>".to_string(),
+        "<< /Type /StructElem /S /RT /P 11 0 R >>".to_string(),
+        "<< /Type /StructElem /S /Warichu /P 4 0 R /K [14 0 R] >>".to_string(),
+        "<< /Type /StructElem /S /WT /P 13 0 R >>".to_string(),
     ])
     .into_iter()
     .collect()
@@ -167,7 +261,7 @@ fn the_report_says_how_much_of_the_protocol_it_checked() {
     );
     assert_eq!(
         report.scope.checked.len(),
-        14,
+        37,
         "the scope does not name the failure conditions this auditor looks at"
     );
     assert!(
@@ -190,6 +284,7 @@ fn every_checked_condition_is_decided_by_exactly_one_reader() {
     union.extend(FROM_FORM);
     union.extend(FROM_CONTENT);
     union.extend(FROM_STRUCTURE_TREE);
+    union.extend(FROM_OBJECTS);
 
     let distinct: BTreeSet<&str> = union.iter().copied().collect();
     assert_eq!(distinct.len(), union.len(), "a condition is in two of the four lists: {union:?}");
@@ -208,7 +303,14 @@ fn every_checked_condition_is_decided_by_exactly_one_reader() {
 /// clause rather than an index — and the next test holds it to that.
 #[test]
 fn the_scope_names_every_checkpoint_reported() {
-    for fixture in [breaks_everything(), breaks_nothing(), untagged(), display_doc_title_false()] {
+    for fixture in [
+        breaks_everything(),
+        breaks_nothing(),
+        untagged(),
+        display_doc_title_false(),
+        breaks_the_second_pass(),
+        breaks_the_syntax(),
+    ] {
         let doc = opened(fixture);
         let report = doc.audit_ua2_report().expect("it audits");
         assert!(!report.findings.is_empty(), "the audit reported nothing at all");
@@ -267,7 +369,12 @@ fn nothing_is_reported_under_a_number_the_protocol_does_not_have() {
 fn every_condition_the_scope_names_can_be_reported_broken() {
     let mut waiting: BTreeSet<&str> = MatterhornAuditor::CHECKED.iter().copied().collect();
 
-    for fixture in [breaks_everything(), display_doc_title_false()] {
+    for fixture in [
+        breaks_everything(),
+        display_doc_title_false(),
+        breaks_the_second_pass(),
+        breaks_the_syntax(),
+    ] {
         let doc = opened(fixture);
         let report = doc.audit_ua2_report().expect("it audits");
         for finding in &report.findings {
@@ -1023,6 +1130,29 @@ fn every_number_reported_means_in_the_protocol_what_it_is_used_for() {
         ("14-007", "Document uses both <H> and <H#> tags"),
         ("17-002", "<Formula> tag is missing an Alt attribute"),
         ("28-005", "A form field does not have a TU entry and does not"),
+        ("02-001", "One or more non-standard tag"),
+        ("02-003", "A circular mapping exists"),
+        ("02-004", "One or more standard types are remapped"),
+        ("11-003", "Natural language in the Outline entries"),
+        ("11-004", "Natural language in the Contents entry for"),
+        ("11-005", "Natural language in the TU entry for form"),
+        ("15-003", "In a table not organized with Headers"),
+        ("19-003", "ID entry of the <Note> tag is not present"),
+        ("19-004", "ID entry of the <Note> tag is non-unique"),
+        ("20-001", "Name entry is missing or has an empty string"),
+        ("20-002", "Name entry is missing or has an empty string"),
+        ("20-003", "An AS entry appears in an Optional Content"),
+        ("28-004", "An annotation, other than of subtype Widget,"),
+        ("28-007", "An annotation of subtype TrapNet exists"),
+        ("28-008", "A page containing an annotation does not"),
+        ("28-009", "A page containing an annotation has a Tabs"),
+        ("28-012", "A link annotation does not include an"),
+        ("30-001", "A reference XObject is present"),
+        ("09-004", "A table-related structure element is used in a"),
+        ("09-005", "A list-related structure element is used in a way"),
+        ("09-006", "A TOC-related structure element is used in a way"),
+        ("09-007", "A Ruby-related structure element is used in a way"),
+        ("09-008", "A Warichu-related structure element is used in"),
     ];
     assert_eq!(
         says.len(),
@@ -1113,4 +1243,129 @@ fn every_failure_condition_in_the_protocol_is_counted() {
         "the Document History no longer records the condition version 1.1 added, which is \
          the whole of why the tables and the prose differ by one"
     );
+}
+
+/// **Each condition W-21i added comes out sound where the document meets it** — a
+/// mapped custom tag, a table whose header states its scope, notes with distinct IDs,
+/// named configurations, described annotations on a page with `/Tabs /S` — so none of them
+/// fires on the mere presence of what it is about.
+#[test]
+fn the_second_pass_comes_out_sound_where_it_is_met() {
+    let doc = opened(
+        fepdf_fixtures::assemble(&[
+            "<< /Type /Catalog /Pages 2 0 R /StructTreeRoot 4 0 R /Lang (en) \
+               /MarkInfo << /Marked true >> /Outlines 10 0 R /AcroForm << /Fields [12 0 R] >> \
+               /OCProperties << /OCGs [13 0 R] /D << /Name (Default) >> \
+               /Configs [<< /Name (Print) >>] >> >>"
+                .to_string(),
+            "<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_string(),
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Tabs /S \
+               /Annots [14 0 R 15 0 R] /Resources << /Font << /F1 28 0 R >> >> >>"
+                .to_string(),
+            "<< /Type /StructTreeRoot /K [5 0 R 6 0 R 7 0 R 8 0 R 16 0 R 19 0 R 21 0 R 24 0 R] \
+               /RoleMap << /Custom /P >> >>"
+                .to_string(),
+            "<< /Type /StructElem /S /Custom /P 4 0 R >>".to_string(),
+            "<< /Type /StructElem /S /Note /P 4 0 R /ID (n1) >>".to_string(),
+            "<< /Type /StructElem /S /Note /P 4 0 R /ID (n2) >>".to_string(),
+            "<< /Type /StructElem /S /Table /P 4 0 R /K [9 0 R] >>".to_string(),
+            "<< /Type /StructElem /S /TR /P 8 0 R /K [29 0 R] >>".to_string(),
+            "<< /Type /Outlines /First 11 0 R /Last 11 0 R /Count 1 >>".to_string(),
+            "<< /Title (Chapter one) /Parent 10 0 R >>".to_string(),
+            "<< /FT /Tx /T (Name) /TU (Your name) >>".to_string(),
+            "<< /Type /OCG /Name (Layer) >>".to_string(),
+            "<< /Type /Annot /Subtype /Link /Rect [0 0 10 10] /Contents (Go to chapter one) >>"
+                .to_string(),
+            "<< /Type /Annot /Subtype /Text /Rect [0 0 10 10] /Contents (A note) >>".to_string(),
+            // 16: a list, an item, its label and body (Table 336).
+            "<< /Type /StructElem /S /L /P 4 0 R /K [17 0 R] >>".to_string(),
+            "<< /Type /StructElem /S /LI /P 16 0 R /K [18 0 R 30 0 R] >>".to_string(),
+            "<< /Type /StructElem /S /Lbl /P 17 0 R >>".to_string(),
+            // 19: a table of contents and its item (Table 333).
+            "<< /Type /StructElem /S /TOC /P 4 0 R /K [20 0 R] >>".to_string(),
+            "<< /Type /StructElem /S /TOCI /P 19 0 R >>".to_string(),
+            // 21: ruby, base then annotation text (Table 339).
+            "<< /Type /StructElem /S /Ruby /P 4 0 R /K [22 0 R 23 0 R] >>".to_string(),
+            "<< /Type /StructElem /S /RB /P 21 0 R >>".to_string(),
+            "<< /Type /StructElem /S /RT /P 21 0 R >>".to_string(),
+            // 24: warichu, punctuation either side of the text.
+            "<< /Type /StructElem /S /Warichu /P 4 0 R /K [25 0 R 26 0 R 27 0 R] >>".to_string(),
+            "<< /Type /StructElem /S /WP /P 24 0 R >>".to_string(),
+            "<< /Type /StructElem /S /WT /P 24 0 R >>".to_string(),
+            "<< /Type /StructElem /S /WP /P 24 0 R >>".to_string(),
+            // 28: a Type 0 font on a CMap Table 118 lists.
+            "<< /Type /Font /Subtype /Type0 /BaseFont /Listed /Encoding /Identity-H \
+               /DescendantFonts [] >>"
+                .to_string(),
+            "<< /Type /StructElem /S /TH /P 9 0 R /A << /O /Table /Scope /Column >> >>".to_string(),
+            "<< /Type /StructElem /S /LBody /P 17 0 R >>".to_string(),
+        ])
+        .into_iter()
+        .collect(),
+    );
+    let report = doc.audit_ua2_report().expect("it audits");
+    for condition in [
+        "02-001", "02-003", "02-004", "11-003", "11-004", "11-005", "15-003", "19-003", "19-004",
+        "20-001", "20-002", "20-003", "28-004", "28-007", "28-008", "28-009", "28-012", "30-001",
+        "09-004", "09-005", "09-006", "09-007", "09-008",
+    ] {
+        assert_eq!(
+            outcomes(&report, condition),
+            vec![Outcome::Sound],
+            "{condition} did not come out sound on a document that meets it: {:?}",
+            report
+                .findings
+                .iter()
+                .filter(|f| f.checkpoint == condition)
+                .map(|f| &f.message)
+                .collect::<Vec<_>>()
+        );
+    }
+}
+
+/// **31-006 and 31-008 are left out, because ingestion answers them.**
+///
+/// Both are about the CMap a Type 0 font names: one in ISO 32000-1's Table 118 or
+/// embedded (31-006), and an embedded one using no other (31-008). `refine::font` rewrites
+/// every Type 0 font's `/Encoding` to `Identity-H` or `Identity-V` as it reads the file,
+/// so the document this auditor reads names a listed CMap whatever the file said — and
+/// both conditions would come out sound for every file this engine opens. It is checkpoint
+/// 06's position ([ADR-0094](../../../docs/adr/0094-the-auditor-reads-the-ingested-document-so-ingestion-answers-checkpoint-06.md)),
+/// and this test holds the reason to the code: were ingestion to stop rewriting, the
+/// assertion on `/Encoding` fails and the two can be checked.
+#[test]
+fn the_cmap_conditions_are_left_out_because_ingestion_answers_them() {
+    let doc = opened(
+        fepdf_fixtures::assemble(&[
+            "<< /Type /Catalog /Pages 2 0 R >>",
+            "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] \
+               /Resources << /Font << /F1 4 0 R >> >> >>",
+            "<< /Type /Font /Subtype /Type0 /BaseFont /Madeup /Encoding /Made-Up-H \
+               /DescendantFonts [] >>",
+        ])
+        .into_iter()
+        .collect(),
+    );
+    let arena = doc.inner().arena();
+    let font = arena
+        .get_object(fepdf::Handle::new(4))
+        .and_then(|o| o.as_dict_handle())
+        .expect("the font is there");
+    let encoding = arena
+        .dict_entry(font, arena.name("Encoding"))
+        .and_then(|e| e.as_name())
+        .and_then(|n| arena.get_name(n))
+        .map(|n| n.as_str().to_string());
+    assert_eq!(
+        encoding.as_deref(),
+        Some("Identity-H"),
+        "ingestion no longer rewrites a Type 0 font's CMap, so 31-006 and 31-008 can be checked"
+    );
+    for condition in ["31-006", "31-008"] {
+        assert!(
+            !MatterhornAuditor::CHECKED.contains(&condition),
+            "{condition} is checked on a document whose CMaps ingestion has already rewritten"
+        );
+    }
 }

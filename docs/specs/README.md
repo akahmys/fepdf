@@ -16,6 +16,7 @@ at $0.00. The Matterhorn Protocol is a free PDF Association publication under CC
 | :--- | :--- |
 | `ISO_32000-2_sponsored_EC3.pdf` | **PDF 2.0, Errata Collection 3** — the core specification, 1023 pages |
 | `ISO_32000-2_sponsored-ec2.pdf` | The same at Errata Collection 2, kept until the difference has been read |
+| `PDF32000_2008.pdf` | **PDF 1.7, ISO 32000-1:2008**, as Adobe publishes it under agreement with ISO: "the technical material is identical … the page and sections numbers are also preserved". 756 pages. What PDF/UA-1 and Matterhorn cite |
 | `ISO-14289-1-2014-sponsored.pdf` | **PDF/UA-1**, on PDF 1.7. 25 pages |
 | `ISO-14289-2-2024-sponsored.pdf` | **PDF/UA-2**, on PDF 2.0, and not backward compatible with UA-1. 51 pages |
 | `Well-Tagged-PDF-WTPDF-1.0.pdf` | **WTPDF 1.0**, beside UA-2 rather than under it. 57 pages |
@@ -45,15 +46,14 @@ at $0.00. The Matterhorn Protocol is a free PDF Association publication under CC
   Quoting the sentence's 136 is the third thing this list exists to stop being got wrong,
   and it was got wrong here until 2026-09-21.
 
-**ISO 32000-1 is not here, and eight `M` failure conditions want it.** Matterhorn cites
+**ISO 32000-1 is here, and eight `M` failure conditions want it.** Matterhorn cites
 tables of PDF 1.7 rather than of 2.0 — 09-004 (Table 337), 09-005 (Table 336), 09-006
 (Table 333), 09-007 and 09-008 (Table 338), 31-006 and 31-008 (Table 118), and 31-027
 (Annex D); 02-001 and 10-001 cite it in their notes. ISO 32000-2's own Table 371 describes
-the same table structure types in prose and is **not** Table 337, so a check written from
-it and reported under 09-004 would be a finding against a requirement nobody here has
-read ([ADR-0095](../adr/0095-a-condition-citing-a-document-this-copy-lacks-is-not-implemented-from-memory.md)).
-Neither sponsored bundle carries it: the ISO 32000-2 bundle is 2.0, and the PDF/UA bundle
-is 14289. Where a copy comes from is open.
+the same table structure types in prose and is **not** Table 337, so a check reported
+under 09-004 is written from `PDF32000_2008.pdf` and from nothing else
+([ADR-0095](../adr/0095-a-condition-citing-a-document-this-copy-lacks-is-not-implemented-from-memory.md)).
+It is not in either sponsored bundle; Adobe publishes it.
 
 For PDF/UA-2 there is no Matterhorn. veraPDF's
 [validation profiles](https://github.com/veraPDF/veraPDF-validation-profiles) (CC BY 4.0)

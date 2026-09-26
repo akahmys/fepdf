@@ -7,6 +7,10 @@
 
 /// Dispatcher and domain modules for applying operations to documents.
 pub mod apply;
+/// Matterhorn conditions decided by objects outside the structure tree.
+pub mod audit_objects;
+/// Matterhorn conditions about role mapping, notes and table headers.
+pub mod audit_tree;
 /// Object graph cloning.
 pub mod cloning;
 /// Where a page's marked content landed, for the structure tree to read.

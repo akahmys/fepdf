@@ -2224,18 +2224,18 @@ a search over a run model that cannot match a word is a feature built on a defec
 operations the window cannot ask for. These add surface rather than removing doubt, and
 they are ordered among themselves by what the operation vocabulary already carries.
 
-**6 — Accessibility, where the standard is the work.** W-21h can start at any time,
-because its first step is **obtaining ISO 32000-1** and not writing code
-([ADR-0095](docs/adr/0095-a-condition-citing-a-document-this-copy-lacks-is-not-implemented-from-memory.md));
-it is the one entry here whose blocker is outside the repository. W-22 says it waits on
-W-21 and means it. W-19a before W-19b, which is stated in W-19a.
+**6 — Accessibility, where the standard is the work.** W-21h's first step was
+**obtaining ISO 32000-1**, not writing code
+([ADR-0095](docs/adr/0095-a-condition-citing-a-document-this-copy-lacks-is-not-implemented-from-memory.md)),
+and the document is in `docs/specs` as of 2026-09-26. W-22 says it waits on W-21 and
+means it. W-19a before W-19b, which is stated in W-19a.
 
 **7 — Last, or out.** W-16, W-17 (no check can be written for whether ink reached paper),
 W-18, W-O1, and W-T4 — which is held until Phase W closes, deliberately.
 
-**What this order does not do** is finish Phase W. W-21 cannot close while W-21h waits on a
-document nobody here has, and W-22 waits on W-21. That is a real dependency on the outside
-and is better stated than worked around.
+**What this order does not do** is finish Phase W. W-21 closes at 137 less the two with no
+test, and W-22 waits on W-21; the one dependency on the outside — ISO 32000-1 for W-21h —
+is met.
 
 ### The work
 
@@ -3189,13 +3189,13 @@ Independent of all of the above:
       not be made.
 
       **This is the gap ADR-0087 was taken over, in the large.** A document this engine
-      declares PDF/UA-2 conforming is one it has checked fourteen things about — and all
-      fourteen are PDF/UA-1 conditions ([ADR-0092](docs/adr/0092-the-matterhorn-protocol-measures-ua-1-and-this-engine-declares-ua-2.md)). `PdfStandard::UA2`
+      declares PDF/UA-2 conforming is one it has checked thirty-seven things about — and all
+      thirty-seven are PDF/UA-1 conditions ([ADR-0092](docs/adr/0092-the-matterhorn-protocol-measures-ua-1-and-this-engine-declares-ua-2.md)). `PdfStandard::UA2`
       writes that claim into the catalogue, and the claim is a statement about 137 things.
 
       - [x] **W-21a — say how much is checked.** `audit_ua2_report` answers an
         `AuditReport` carrying an `AuditScope` beside the findings, and the window shows
-        "Matterhorn の 2 / 136 件の失格条件を検査" where the findings are — 14 / 137 since W-21c.
+        "Matterhorn の 2 / 136 件の失格条件を検査" where the findings are — 37 / 137 since W-21h.
         `found_nothing()` is
         named so that a caller cannot write `findings.is_empty()` and mean "conforms".
 
@@ -3214,13 +3214,53 @@ Independent of all of the above:
         Fourteen of 137.
             Recorded as [ADR-0095](docs/adr/0095-a-condition-citing-a-document-this-copy-lacks-is-not-implemented-from-memory.md).
 
+      - [x] **W-21i — the conditions outside the tree, and three more inside it.** Eighteen,
+        taking the auditor to **thirty-two of 137**: the role map's three — **02-001** (a
+        non-standard type that maps to no standard one), **02-003** (a circular mapping),
+        **02-004** (a standard type remapped) — with **15-003** (a `<TH>` with no `/Scope`
+        in a table no cell names `/Headers` for) and **19-003**, **19-004** (a `<Note>`
+        with no `/ID`, and two with one); checkpoint 20's three about optional content
+        configurations; **11-003** (outline titles with no catalogue `/Lang`); and from
+        the pages, **28-007** (a `/TrapNet`), **28-008** and **28-009** (a page with
+        annotations and no `/Tabs`, or one other than `/S`), **28-012** (a link with no
+        `/Contents`) and **30-001** (a reference XObject). Three are left for a reader
+        where the structure element an annotation or field belongs to would decide them —
+        **28-004**, **11-004**, **11-005** — because the parent tree is not followed.
+        "Standard type" is PDF 1.7's, derived from this copy of ISO 32000-2 — the types of
+        Tables 364 to 375 with Annex M's differences — rather than from memory.
+        `audit_scope_test.rs` holds each number to the protocol's own words, breaks each
+        in one fixture and meets each in another.
+
       - [ ] **W-21h — the failure conditions that cite ISO 32000-1.** 09-004, 09-005,
         09-006, 09-007, 09-008, 31-006, 31-008 and 31-027, all `M`, all naming a table or
-        annex of PDF 1.7. **The first step is getting the document**: neither sponsored
-        bundle carries it — the ISO 32000-2 bundle is 2.0 and the PDF/UA bundle is 14289 —
-        and ISO 32000-1:2008 is superseded. Until then they are not written from
-        ISO 32000-2's prose about the same types
+        annex of PDF 1.7. **The first step was getting the document**, and it is done:
+        `docs/specs/PDF32000_2008.pdf` is Adobe's copy, "identical" to the ISO text with
+        its page and section numbers, and Tables 118, 333, 336, 337 and 338 and Annex D
+        all extract. They are written from it and not from ISO 32000-2's prose about the
+        same types
         ([ADR-0095](docs/adr/0095-a-condition-citing-a-document-this-copy-lacks-is-not-implemented-from-memory.md)).
+
+        **Five written, taking the auditor to thirty-seven of 137.** Checkpoint 09's
+        machine conditions — **09-004** (Table 337: a table is rows, or a head, bodies and a
+        foot, with a caption first or last; rows hold cells; cells sit in rows),
+        **09-005** (Table 336: a list is an optional caption and items; an item holds
+        labels and bodies), **09-006** (Table 333: a table of contents holds items and
+        contents; an item holds labels, references, `NonStruct`, paragraphs and contents),
+        **09-007** and **09-008** (a ruby is `RB` then `RT`, or `RB`, `RP`, `RT`, `RP`; a
+        warichu is `WP`, `WT`, `WP`) — each on the standard type an element maps to. The
+        ruby and warichu syntax is Table 339's, which Table 338, the one Matterhorn cites,
+        points to. `audit_tree.rs`'s `each_rule_names_its_condition` breaks and keeps every
+        rule once.
+
+        **Two are answered by ingestion, as checkpoint 06 is.** 31-006 and 31-008 ask of a
+        Type 0 font's CMap — listed in Table 118 or embedded, and using no unlisted one —
+        and `refine::font` rewrites every Type 0 font's `/Encoding` to `Identity-H` or
+        `Identity-V` as it reads the file, so the document the auditor reads would pass
+        both for every file
+        ([ADR-0094](docs/adr/0094-the-auditor-reads-the-ingested-document-so-ingestion-answers-checkpoint-06.md)).
+        `the_cmap_conditions_are_left_out_because_ingestion_answers_them` fails the day
+        that stops. **Left: 31-027**, a font with no `/ToUnicode` outside its four
+        exceptions, which wants the glyph names each font's text actually uses.
 
       - [x] **W-21g — a condition checked and not broken is a result.** `AuditFinding`
         carries an `Outcome` — `Broken`, `Sound`, `ForAReader` — and `audit_report` adds
@@ -3249,7 +3289,7 @@ Independent of all of the above:
       against `/Alt`.
 
       **It waits on W-21 and says so.** A conformance claim is worth what the checking
-      behind it is worth, and fourteen failure conditions of 137 is not a foundation to
+      behind it is worth, and thirty-seven failure conditions of 137 is not a foundation to
       put a second claim on. What can be done first is the reading: the structure tree editor this engine
       already has is most of what a well-tagged file is made with, and what it cannot yet
       express is the list this item starts as.
