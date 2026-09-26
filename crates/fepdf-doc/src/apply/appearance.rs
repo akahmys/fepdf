@@ -201,25 +201,43 @@ fn form_xobject(
 /// nothing to build, only `/AS` to set. A state the widget has no appearance for is
 /// reported rather than written, because writing it would leave a widget whose `/AS`
 /// names nothing.
-pub fn set_button_state(doc: &Document, widget_dh: Handle<Dict>, state: &str) -> bool {
+pub fn set_button_state(
+    doc: &Document,
+    widget_dh: Handle<Dict>,
+    state: Handle<fepdf_model::object::PdfName>,
+) -> bool {
     let arena = doc.arena();
     let mut widget = arena.get_dict(widget_dh).unwrap_or_default();
-    let known = widget
-        .get(&arena.name("AP"))
-        .and_then(|ap| ap.resolve(arena).as_dict_handle())
-        .and_then(|dh| arena.get_dict(dh))
-        .and_then(|ap| ap.get(&arena.name("N")).and_then(|n| n.resolve(arena).as_dict_handle()))
-        .and_then(|dh| arena.get_dict(dh))
-        .is_some_and(|normal| normal.contains_key(&arena.name(state)));
-    if !known {
+    if !button_states(doc, widget_dh).contains(&state) {
+        let named = arena.get_name_str(state).unwrap_or_default();
         doc.record(Decision::violation(
             "12.7.5.2.3",
-            format!("a button widget has no appearance for the state /{state}"),
+            format!("a button widget has no appearance for the state /{named}"),
             "left /AS as it was; naming a state with no appearance would draw nothing",
         ));
         return false;
     }
-    widget.insert(arena.name("AS"), Object::Name(arena.name(state)));
+    widget.insert(arena.name("AS"), Object::Name(state));
     arena.set_dict(widget_dh, widget);
     true
+}
+
+/// The states a button widget has a normal appearance for — `/AP /N`'s keys (12.7.5.2.3).
+///
+/// **Held as names, not as text.** The on state of a check box is whatever name its
+/// producer chose — `sample_02c.pdf` names each box after itself, in Shift-JIS bytes — and
+/// a name is compared by its bytes, which is what the handle is.
+pub fn button_states(
+    doc: &Document,
+    widget_dh: Handle<Dict>,
+) -> Vec<Handle<fepdf_model::object::PdfName>> {
+    let arena = doc.arena();
+    arena
+        .dict_entry(widget_dh, arena.name("AP"))
+        .and_then(|ap| ap.resolve(arena).as_dict_handle())
+        .and_then(|ap| arena.dict_entry(ap, arena.name("N")))
+        .and_then(|n| n.resolve(arena).as_dict_handle())
+        .and_then(|normal| arena.get_dict(normal))
+        .map(|normal| normal.into_keys().collect())
+        .unwrap_or_default()
 }

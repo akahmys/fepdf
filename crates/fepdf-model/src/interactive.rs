@@ -750,6 +750,10 @@ fn render_value(arena: &PdfArena, value: &Object) -> String {
         Object::String(_) | Object::Hex(_) => {
             string_of(arena, value).unwrap_or_else(|| "(unreadable)".into())
         }
+        // A text string this engine wrote and has not yet serialised (7.9.2.2). It fell to
+        // the arm below and read as `Text("…")`, so a value set a moment ago came back as
+        // the debug form of itself.
+        Object::Text(text) => text,
         Object::Array(h) => {
             format!("({} values)", arena.get_array(h).map_or(0, |a| a.len()))
         }
@@ -1166,15 +1170,17 @@ pub fn form_of(doc: &crate::Document) -> FormFields {
     read_form(arena, &catalog)
 }
 
-/// A terminal field's `/V`, as text, by name (12.7.4.2).
-///
-/// Matches the fully qualified name first and the field's own `/T` second, because a
-/// calculation order names fields the way the form does and a flat form writes only `/T`.
+/// A field's `/V`, as text, by its fully qualified name (12.7.4.2).
 ///
 /// Added for the script frontend, which cannot reach the arena itself (Rule A). A caller
 /// wanting a value it has just written asks the document, not the thing that wrote it —
 /// which is what makes the Keystroke → Validate → Calculate → Format cascade readable
 /// rather than a chain of guesses about what got applied.
+///
+/// **By the name `form_of` gives, decoded the same way.** This looked only at the root
+/// fields, compared each `/T` as lossy UTF-8, and read `/V` the same way: a nested field
+/// was never found, a UTF-16 name never matched, and a value this engine had just set —
+/// held as a text string until it is written — read as nothing.
 #[must_use]
 pub fn field_value(doc: &crate::Document, name: &str) -> Option<String> {
     let arena = doc.arena();
@@ -1185,23 +1191,26 @@ pub fn field_value(doc: &crate::Document, name: &str) -> Option<String> {
     .ok()
     .flatten()?;
     let fields = form.fields.and_then(|handle| arena.get_array(handle))?;
-    for entry in &fields {
-        let Some(dict) = arena.get_dict(entry.resolve(arena).as_dict_handle()?) else {
-            continue;
+    let (t_key, kids_key, v_key) = (arena.name("T"), arena.name("Kids"), arena.name("V"));
+    let mut pending: Vec<(Object, Option<String>, usize)> =
+        fields.into_iter().rev().map(|field| (field, None, 0)).collect();
+    while let Some((entry, parent, depth)) = pending.pop() {
+        let Some(dict) = dict_of(arena, &entry) else { continue };
+        let own = dict.get(&t_key).and_then(|t| string_of(arena, t));
+        let qualified = match (&parent, &own) {
+            (Some(parent), Some(own)) => Some(format!("{parent}.{own}")),
+            (None, own) => own.clone(),
+            (Some(parent), None) => Some(parent.clone()),
         };
-        let matches = dict
-            .get(&arena.name("T"))
-            .map(|t| t.resolve(arena))
-            .and_then(|t| t.as_string().map(|b| String::from_utf8_lossy(b).into_owned()))
-            .is_some_and(|t| t == name);
-        if !matches {
-            continue;
+        if own.is_some() && qualified.as_deref() == Some(name) {
+            let value = dict.get(&v_key)?.resolve(arena);
+            return string_of(arena, &value).or_else(|| value.as_f64().map(|n| n.to_string()));
         }
-        let value = dict.get(&arena.name("V"))?.resolve(arena);
-        return value
-            .as_string()
-            .map(|b| String::from_utf8_lossy(b).into_owned())
-            .or_else(|| value.as_f64().map(|n| n.to_string()));
+        if depth < 64
+            && let Some(kids) = array_of(arena, dict.get(&kids_key))
+        {
+            pending.extend(kids.into_iter().rev().map(|kid| (kid, qualified.clone(), depth + 1)));
+        }
     }
     None
 }

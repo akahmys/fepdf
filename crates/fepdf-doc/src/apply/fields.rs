@@ -307,45 +307,68 @@ pub fn apply_set_calculation_order(doc: &Document, order: &[String]) -> PdfResul
 
 /// Every field with a calculation action — `/AA` holding `/C` (12.6.3) — by its fully
 /// qualified name.
-///
-/// `/CO` holds indirect references, so a field written direct cannot be in it and is not
-/// collected; the walk stops at a depth no form in either corpus approaches, so a cycle
-/// in `/Kids` ends it rather than the process.
 fn calculating_fields(
     arena: &PdfArena,
     acro: fepdf_model::DictHandle,
 ) -> BTreeMap<String, Handle<Object>> {
-    let mut found = BTreeMap::new();
+    let (aa, c) = (arena.name("AA"), arena.name("C"));
+    named_fields(arena, acro)
+        .into_iter()
+        .filter(|(_, _, dict)| {
+            arena
+                .dict_entry(*dict, aa)
+                .and_then(|actions| actions.resolve(arena).as_dict_handle())
+                .is_some_and(|actions| arena.dict_entry(actions, c).is_some())
+        })
+        .map(|(name, handle, _)| (name, handle))
+        .collect()
+}
+
+/// Every field of the form that has a name of its own, by its fully qualified name
+/// (12.7.4.2), in the order `/Fields` and `/Kids` give them.
+///
+/// **A field, not a widget below it.** A widget with no `/T` is the widget of the field
+/// above it and is not listed; the field is what a value is written to and what `/CO`
+/// names. Names are decoded the way `form_of` decodes them, so a name read there finds
+/// its field here — `sample_02c.pdf` names its fields in UTF-16, and a comparison of the
+/// raw bytes as UTF-8 found none of them.
+///
+/// `/CO` and a value both need the object, so a field written direct is not listed; the
+/// walk stops at the depth `fepdf-model`'s own field walk does, so a cycle in `/Kids`
+/// ends it rather than the process.
+pub(crate) fn named_fields(
+    arena: &PdfArena,
+    acro: fepdf_model::DictHandle,
+) -> Vec<(String, Handle<Object>, fepdf_model::DictHandle)> {
+    let mut found = Vec::new();
     let roots = match arena.dict_entry(acro, arena.name("Fields")).map(|f| f.resolve(arena)) {
         Some(Object::Array(handle)) => arena.get_array(handle).unwrap_or_default(),
         _ => Vec::new(),
     };
     let mut pending: Vec<(Object, Option<String>, usize)> =
-        roots.into_iter().map(|field| (field, None, 0)).collect();
-    let (t, kids, aa, c) = (arena.name("T"), arena.name("Kids"), arena.name("AA"), arena.name("C"));
+        roots.into_iter().rev().map(|field| (field, None, 0)).collect();
+    let (t, kids) = (arena.name("T"), arena.name("Kids"));
     while let Some((field, parent, depth)) = pending.pop() {
         let Some(handle) = field.as_reference() else { continue };
         let Some(dict) = arena.get_object(handle).and_then(|o| o.as_dict_handle()) else {
             continue;
         };
         let own = arena.dict_entry(dict, t).and_then(|name| text_of(arena, &name));
-        let name = match (&parent, own) {
+        let name = match (&parent, &own) {
             (Some(parent), Some(own)) => Some(format!("{parent}.{own}")),
-            (None, own) => own,
+            (None, own) => own.clone(),
             (Some(parent), None) => Some(parent.clone()),
         };
-        let calculates = arena
-            .dict_entry(dict, aa)
-            .and_then(|actions| actions.resolve(arena).as_dict_handle())
-            .is_some_and(|actions| arena.dict_entry(actions, c).is_some());
-        if calculates && let Some(name) = &name {
-            found.insert(name.clone(), handle);
+        if own.is_some()
+            && let Some(name) = &name
+        {
+            found.push((name.clone(), handle, dict));
         }
-        if depth < 32
+        if depth < 64
             && let Some(Object::Array(children)) =
                 arena.dict_entry(dict, kids).map(|k| k.resolve(arena))
         {
-            for child in arena.get_array(children).unwrap_or_default() {
+            for child in arena.get_array(children).unwrap_or_default().into_iter().rev() {
                 pending.push((child, name.clone(), depth + 1));
             }
         }
@@ -355,7 +378,7 @@ fn calculating_fields(
 
 /// A text string, decoded the way the form's reading decodes one, so a name matches the
 /// name `form_of` reports.
-fn text_of(arena: &PdfArena, object: &Object) -> Option<String> {
+pub(crate) fn text_of(arena: &PdfArena, object: &Object) -> Option<String> {
     match object.resolve(arena) {
         Object::String(bytes) | Object::Hex(bytes) => {
             Some(fepdf_model::refine::text::recover_string(&bytes))

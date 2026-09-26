@@ -2875,6 +2875,22 @@ Content editing, under D-1:
       with the `/DA` and `/DR` a variable-text field is drawn by (12.7.4.3) — a form
       declaring fields without them is one whose fields a reader sees nothing of.
 
+- [x] **Filling a field wrote into nothing and said it had.** `SetFormFieldValue`
+      compared the name it was given, as raw UTF-8, with each field's own `/T`: a nested
+      field's qualified name matched no `/T`, and neither did any field of
+      `sample_02c.pdf`, whose names are UTF-16 — so the form drawer, which lists fields by
+      the names `form_of` reads, wrote into none of them, and a name nothing carried or a
+      document with no form answered `Ok`. Found 2026-09-26 while writing W-F2-b. Three
+      more came with it: the value went in as the UTF-8 bytes of the text; a check box
+      was set to `/Yes` whatever its appearance called its on state, which on the sample
+      recorded a violation of 12.7.5.2.3 against the file and left the box drawn empty;
+      and the drawer drew every cleared box ticked, comparing `/Off` with `Off`. Fields
+      are found by qualified name through the walk `/CO` uses, values are text strings, a
+      box's on state is read from its widgets, radio buttons are refused an on/off that
+      does not say which, and `form_filling_test.rs` holds each. `field_value`, which the
+      script frontend reads a field through, had the same shape — root fields only, `/T`
+      as lossy UTF-8 — and now finds a field the way the rest do.
+
 - [x] **W-F2-b — tab order and calculation order.** `Operation::SetTabOrder` writes a
       page's `/Tabs` (Table 31) and `Operation::SetCalculationOrder` the form's `/CO`
       (Table 224), served as `set_tab_order` and `set_calculation_order` and reached from

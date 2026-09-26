@@ -1,6 +1,7 @@
 #![allow(clippy::cast_possible_wrap, clippy::cast_possible_truncation)]
 
 use crate::apply::appearance;
+use crate::apply::fields::text_of;
 use crate::operation::{
     AnnotationKind, AnnotationSpec, DecorationPosition, FormFieldSpec, FormValue, GeoSpatialAnchor,
     MeasurementScale, MeshShadingSpec, MeshShadingType, PageSelection, PdfAction, TransitionSpec,
@@ -679,11 +680,15 @@ fn apply_value_to_field_dict(
     arena: &PdfArena,
     dict: &mut BTreeMap<Handle<PdfName>, Object>,
     new_value: &FormValue,
+    state: Option<Handle<PdfName>>,
 ) {
     let v_key = arena.name("V");
-    let v_obj = match new_value {
-        FormValue::Text(s) | FormValue::Choice(s) => Object::String(Bytes::from(s.clone())),
-        FormValue::Boolean(b) => Object::Name(arena.name(if *b { "Yes" } else { "Off" })),
+    let v_obj = match (new_value, state) {
+        (FormValue::Boolean(_), Some(state)) => Object::Name(state),
+        // A text string, which the writer encodes (7.9.2.2): these bytes were the UTF-8 of
+        // the value, which a reader takes for PDFDocEncoding, so 東京 went in as mojibake.
+        (FormValue::Text(s) | FormValue::Choice(s), _) => Object::Text(s.clone()),
+        (FormValue::Boolean(b), None) => Object::Name(arena.name(if *b { "Yes" } else { "Off" })),
     };
     dict.insert(v_key, v_obj);
 
@@ -701,135 +706,48 @@ fn apply_value_to_field_dict(
     }
 }
 
-/// How deep a `/Kids` field tree is searched before it is taken to be looping.
-///
-/// The same 64 the field-tree walk in `fepdf-model::actions` uses, and a depth rather
-/// than a visited set for the reason [ADR-0060] gives: a tree gets a number.
-///
-/// [ADR-0060]: ../../../../docs/adr/0060-a-reference-chain-is-bounded-by-what-it-has-seen.md
-const MAX_FIELD_DEPTH: usize = 64;
-
-/// Finds the field named `target_name` under `field_dh` and sets it.
-///
-/// **Bounded since 2026-09-05.** A field whose `/Kids` named an ancestor made the search
-/// follow it forever, and a name no field carries is what makes the search visit
-/// everything: `Operation::SetFormFieldValue` aborted the process. RR-15 Rule 6.
-fn update_form_field_value_in_dict(
-    arena: &PdfArena,
-    field_dh: Handle<BTreeMap<Handle<PdfName>, Object>>,
-    target_name: &str,
-    new_value: &FormValue,
-) -> bool {
-    update_form_field_value_at(arena, field_dh, target_name, new_value, 0)
-}
-
-fn update_form_field_value_at(
-    arena: &PdfArena,
-    field_dh: Handle<BTreeMap<Handle<PdfName>, Object>>,
-    target_name: &str,
-    new_value: &FormValue,
-    depth: usize,
-) -> bool {
-    if depth >= MAX_FIELD_DEPTH {
-        return false;
-    }
-    let Some(mut dict) = arena.get_dict(field_dh) else { return false };
-    let t_key = arena.name("T");
-    let name_matches = dict.get(&t_key).and_then(|obj| match obj {
-        Object::String(b) => std::str::from_utf8(b).ok(),
-        Object::Text(s) => Some(s.as_str()),
-        _ => None,
-    }) == Some(target_name);
-
-    if name_matches {
-        apply_value_to_field_dict(arena, &mut dict, new_value);
-        arena.set_dict(field_dh, dict);
-        return true;
-    }
-
-    if let Some(kids_obj) = dict.get(&arena.name("Kids")) {
-        let kids = match kids_obj {
-            Object::Array(ah) => arena.get_array(*ah).unwrap_or_default(),
-            Object::Reference(h) => {
-                if let Some(Object::Array(ah)) = arena.get_object(*h) {
-                    arena.get_array(ah).unwrap_or_default()
-                } else {
-                    Vec::new()
-                }
-            }
-            _ => Vec::new(),
-        };
-        for kid in kids {
-            if let Some(kh) = kid.as_reference()
-                && let Some(Object::Dictionary(kdh)) = arena.get_object(kh)
-                && update_form_field_value_at(arena, kdh, target_name, new_value, depth + 1)
-            {
-                return true;
-            }
-        }
-    }
-    false
-}
-
 fn find_option_index(arena: &PdfArena, opt_obj: &Object, target_val: &str) -> Option<usize> {
     let arr = match opt_obj.resolve(arena) {
         Object::Array(ah) => arena.get_array(ah)?,
         _ => return None,
     };
-    for (idx, item) in arr.iter().enumerate() {
-        match item.resolve(arena) {
-            Object::String(b) | Object::Hex(b) => {
-                if std::str::from_utf8(&b).ok() == Some(target_val) {
-                    return Some(idx);
-                }
-            }
-            Object::Text(s) => {
-                if s == target_val {
-                    return Some(idx);
-                }
-            }
-            Object::Array(pair_h) => {
-                if let Some(pair) = arena.get_array(pair_h)
-                    && let Some(export) = pair.first()
-                {
-                    let matches = match export.resolve(arena) {
-                        Object::String(b) | Object::Hex(b) => {
-                            std::str::from_utf8(&b).ok() == Some(target_val)
-                        }
-                        Object::Text(s) => s == target_val,
-                        _ => false,
-                    };
-                    if matches {
-                        return Some(idx);
-                    }
-                }
-            }
-            _ => {}
-        }
-    }
-    None
+    // An option is a string, or a pair whose first is the export value (Table 231); either
+    // is decoded before it is compared, since a raw comparison missed every UTF-16 one.
+    arr.iter().position(|item| {
+        let export = match item.resolve(arena) {
+            Object::Array(pair) => arena.get_array(pair).and_then(|pair| pair.first().cloned()),
+            other => Some(other),
+        };
+        export.and_then(|export| text_of(arena, &export)).as_deref() == Some(target_val)
+    })
 }
 
-/// Sets the value of an AcroForm field (Clause 12.7.3).
+/// Sets the value of an AcroForm field (Clause 12.7.3), named by its fully qualified
+/// name (12.7.4.2) — the name `form_of` reports.
+///
+/// # Errors
+/// Fails when the document has no form, or no field of that name. **Both used to answer
+/// `Ok` having done nothing**, and the name was compared as raw UTF-8 bytes against each
+/// field's own `/T`: a nested field's qualified name matched nothing, and so did every
+/// field of `sample_02c.pdf`, whose names are UTF-16. The window's form drawer wrote into
+/// none of them and said nothing.
 pub fn apply_set_form_field_value(doc: &Document, field: FormFieldSpec) -> PdfResult<()> {
     let arena = doc.arena();
-    let Some(cah) = doc.catalog_handle() else { return Ok(()) };
-    let cadh = doc.resolve_to_dict(cah)?;
-    let cdict = arena.get_dict(cadh).unwrap_or_default();
-
-    let acro_key = arena.name("AcroForm");
-    let Some(acro_obj) = cdict.get(&acro_key) else {
-        return Ok(());
-    };
-    let Some(acro_dh) = (match acro_obj {
-        Object::Dictionary(dh) => Some(*dh),
-        Object::Reference(h) => match arena.get_object(*h) {
-            Some(Object::Dictionary(dh)) => Some(dh),
-            _ => None,
-        },
-        _ => None,
-    }) else {
-        return Ok(());
+    let catalog = doc.resolve_to_dict(
+        doc.catalog_handle()
+            .ok_or_else(|| PdfError::Other("the document has no catalogue".into()))?,
+    )?;
+    let acro_dh = arena
+        .dict_entry(catalog, arena.name("AcroForm"))
+        .and_then(|a| a.resolve(arena).as_dict_handle())
+        .ok_or_else(|| PdfError::Other("the document has no form to fill".into()))?;
+    let Some((_, _, fdh)) = crate::apply::fields::named_fields(arena, acro_dh)
+        .into_iter()
+        .find(|(name, _, _)| *name == field.name)
+    else {
+        return Err(PdfError::Other(
+            format!("the form has no field named {:?}", field.name).into(),
+        ));
     };
 
     // `/NeedAppearances` is **not** written. 0.3 lists it among the entries PDF 2.0
@@ -840,26 +758,59 @@ pub fn apply_set_form_field_value(doc: &Document, field: FormFieldSpec) -> PdfRe
     let acro_dict = arena.get_dict(acro_dh).unwrap_or_default();
     report_scripts_not_run(doc, &acro_dict, &field.name);
 
-    if let Some(fields_obj) = acro_dict.get(&arena.name("Fields")) {
-        let fields = match fields_obj {
-            Object::Array(ah) => arena.get_array(*ah).unwrap_or_default(),
-            Object::Reference(h) => match arena.get_object(*h) {
-                Some(Object::Array(ah)) => arena.get_array(ah).unwrap_or_default(),
-                _ => Vec::new(),
-            },
-            _ => Vec::new(),
-        };
-        for f in fields {
-            if let Some(fh) = f.as_reference()
-                && let Some(Object::Dictionary(fdh)) = arena.get_object(fh)
-                && update_form_field_value_in_dict(arena, fdh, &field.name, &field.value)
-            {
-                refresh_appearance(doc, fdh, &acro_dict, &field.value)?;
-                break;
-            }
-        }
+    let state = match field.value {
+        FormValue::Boolean(on) => Some(button_state(doc, fdh, on, &field.name)?),
+        FormValue::Text(_) | FormValue::Choice(_) => None,
+    };
+    let mut dict = arena.get_dict(fdh).unwrap_or_default();
+    apply_value_to_field_dict(arena, &mut dict, &field.value, state);
+    arena.set_dict(fdh, dict);
+    refresh_appearance(doc, fdh, &acro_dict, &field.value, state)
+}
+
+/// The state a button is set to: `/Off`, or its on state — which is whatever name its
+/// widgets' appearances use, not `/Yes` (12.7.5.2.3).
+///
+/// **`/Yes` was written whatever the box called its on state.** On `sample_02c.pdf`, whose
+/// boxes are each named after themselves, that set `/V /Yes`, found no appearance for it,
+/// recorded a violation of 12.7.5.2.3 against a file that had done nothing wrong, and left
+/// the box drawn empty.
+///
+/// # Errors
+/// Fails when the widgets have different on states — a set of radio buttons, where
+/// "on" does not say which — or none.
+fn button_state(
+    doc: &Document,
+    field_dh: Handle<BTreeMap<Handle<PdfName>, Object>>,
+    on: bool,
+    name: &str,
+) -> PdfResult<Handle<PdfName>> {
+    let arena = doc.arena();
+    let off = arena.name("Off");
+    if !on {
+        return Ok(off);
     }
-    Ok(())
+    let mut states: Vec<Handle<PdfName>> = widgets_of(arena, field_dh)
+        .into_iter()
+        .flat_map(|widget| appearance::button_states(doc, widget))
+        .filter(|state| *state != off)
+        .collect();
+    states.sort();
+    states.dedup();
+    match states[..] {
+        [state] => Ok(state),
+        [] => Err(PdfError::Other(
+            format!("{name:?} has no appearance for being on, so there is nothing to turn on")
+                .into(),
+        )),
+        _ => Err(PdfError::Other(
+            format!(
+                "{name:?} is {} buttons with different states; turning it on does not say which",
+                states.len()
+            )
+            .into(),
+        )),
+    }
 }
 
 fn resolve_choice_display(
@@ -880,23 +831,10 @@ fn resolve_choice_display(
         if let Object::Array(pair_h) = item.resolve(arena)
             && let Some(pair) = arena.get_array(pair_h)
         {
-            let export_matches = pair.first().is_some_and(|e| match e.resolve(arena) {
-                Object::String(b) | Object::Hex(b) => {
-                    std::str::from_utf8(&b).ok() == Some(value_text)
-                }
-                Object::Text(s) => s == value_text,
-                _ => false,
-            });
-            if export_matches && let Some(disp) = pair.get(1) {
-                match disp.resolve(arena) {
-                    Object::String(b) | Object::Hex(b) => {
-                        if let Ok(s) = std::str::from_utf8(&b) {
-                            return s.to_string();
-                        }
-                    }
-                    Object::Text(s) => return s,
-                    _ => {}
-                }
+            let export_matches =
+                pair.first().and_then(|e| text_of(arena, e)).as_deref() == Some(value_text);
+            if export_matches && let Some(display) = pair.get(1).and_then(|d| text_of(arena, d)) {
+                return display;
             }
         }
     }
@@ -913,6 +851,7 @@ fn refresh_appearance(
     field_dh: Handle<BTreeMap<Handle<PdfName>, Object>>,
     acro: &BTreeMap<Handle<PdfName>, Object>,
     value: &FormValue,
+    state: Option<Handle<PdfName>>,
 ) -> PdfResult<()> {
     let arena = doc.arena();
     let field = arena.get_dict(field_dh).unwrap_or_default();
@@ -933,7 +872,8 @@ fn refresh_appearance(
                 appearance::set_text_appearance(doc, widget, acro, &da, quadding, &display_text)?;
             }
             FormValue::Boolean(on) => {
-                appearance::set_button_state(doc, widget, if *on { "Yes" } else { "Off" });
+                let state = state.unwrap_or_else(|| arena.name(if *on { "Yes" } else { "Off" }));
+                appearance::set_button_state(doc, widget, state);
             }
         }
     }

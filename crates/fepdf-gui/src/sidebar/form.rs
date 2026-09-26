@@ -211,9 +211,17 @@ impl FormPanel {
     /// `/Off` is the name 12.7.5.2.3 gives the state that is not on; anything else is a
     /// state the widget has an appearance for.
     fn ticked(ui: &mut egui::Ui, field: &FormField) -> Option<bool> {
-        let mut on = field.value.as_deref().is_some_and(|value| value != "Off");
+        let mut on = is_on(field.value.as_deref());
         ui.checkbox(&mut on, "").changed().then_some(on)
     }
+}
+
+/// Whether a button's value is a state other than off.
+///
+/// **`form_of` writes a name with its solidus**, `/Off`, and this compared against `Off`:
+/// every box the file had cleared was drawn ticked.
+fn is_on(value: Option<&str>) -> bool {
+    value.is_some_and(|value| !matches!(value, "/Off" | "Off"))
 }
 
 /// The calculation order to start arranging from: the form's own, keeping only fields
@@ -293,5 +301,17 @@ mod calculation_order {
     #[test]
     fn a_form_that_calculates_nothing_has_no_order_to_arrange() {
         assert!(draft_order(&form(&[("a", false)], &[])).is_empty());
+    }
+}
+
+#[cfg(test)]
+mod buttons {
+    use super::is_on;
+
+    #[test]
+    fn a_cleared_box_is_off_as_form_of_writes_it() {
+        assert!(!is_on(Some("/Off")), "a box the file cleared was drawn ticked");
+        assert!(!is_on(None));
+        assert!(is_on(Some("/Yes")));
     }
 }
