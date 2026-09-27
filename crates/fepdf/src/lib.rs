@@ -146,6 +146,7 @@ pub use fepdf_doc::operation::{
 };
 pub use fepdf_doc::{
     Align,
+    AttributeValue,
     AuditFinding,
     ContentScale,
     DecorationPosition,
@@ -164,6 +165,7 @@ pub use fepdf_doc::{
     Placement,
     Quarter,
     RotateMode,
+    StructAttribute,
     StructElemMove,
     StructElemUpdate,
     StructureTreeNode,

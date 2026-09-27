@@ -238,6 +238,7 @@ fn an_alternate_description_is_a_text_string() {
         handle_index: element,
         new_tag: Some("Figure".to_string()),
         new_alt: Some("代替テキスト".to_string()),
+        ..fepdf::StructElemUpdate::default()
     }))
     .expect("the element is updated");
 
@@ -254,6 +255,50 @@ fn an_alternate_description_is_a_text_string() {
     // `String::from_utf8`, so it answered `None` for this too.
     let node = fepdf_doc::StructureTreeVisitor::extract(reopened.inner()).expect("a tree");
     assert_eq!(node.alt_text.as_deref(), Some("代替テキスト"), "read back through the reader");
+}
+
+/// **An element's `/Lang`, `/ActualText` and `/E` are written, and survive** (14.9.2, 14.9.4,
+/// 14.9.5). The update carried a tag and an `/Alt` and nothing else, though WTPDF asks for
+/// all three (8.2.5.23, 8.4); an update leaves the entries it is not given alone.
+#[test]
+fn an_elements_language_replacement_and_expansion_are_text_strings() {
+    let mut doc = PdfDocument::create_empty().expect("a new document opens");
+    let element = struct_element(&doc);
+    doc.apply(fepdf::Operation::UpdateStructElem(fepdf::StructElemUpdate {
+        handle_index: element,
+        new_lang: Some("ja-JP".to_string()),
+        new_actual_text: Some("ﬁ".to_string()),
+        new_expansion: Some("日本産業規格".to_string()),
+        ..fepdf::StructElemUpdate::default()
+    }))
+    .expect("the element is updated");
+    doc.apply(fepdf::Operation::UpdateStructElem(fepdf::StructElemUpdate {
+        handle_index: element,
+        new_alt: Some("図".to_string()),
+        ..fepdf::StructElemUpdate::default()
+    }))
+    .expect("the element is updated again");
+
+    let reopened = round_trip(&doc, "element-strings");
+    let arena = reopened.inner().arena();
+    let root = dict_at(arena, &catalog(&reopened), "StructTreeRoot");
+    assert_eq!(text_at(arena, &root, "Lang"), "ja-JP");
+    assert_eq!(text_at(arena, &root, "ActualText"), "ﬁ");
+    assert_eq!(text_at(arena, &root, "E"), "日本産業規格");
+    assert_eq!(text_at(arena, &root, "Alt"), "図");
+}
+
+/// **An update naming no element is refused**, where it used to answer `Ok(())` for any
+/// handle and change nothing.
+#[test]
+fn an_update_of_an_element_that_is_not_there_is_refused() {
+    let mut doc = PdfDocument::create_empty().expect("a new document opens");
+    let refused = doc.apply(fepdf::Operation::UpdateStructElem(fepdf::StructElemUpdate {
+        handle_index: u32::MAX,
+        new_lang: Some("en".to_string()),
+        ..fepdf::StructElemUpdate::default()
+    }));
+    assert!(refused.is_err(), "an update of nothing was reported as made");
 }
 
 /// A user property's `/N`, its string `/V` and its `/F` survive (Table 380).

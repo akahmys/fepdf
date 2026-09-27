@@ -1556,6 +1556,7 @@ fn handle_update_node(
             handle_index: handle_id,
             new_tag: Some(tag),
             new_alt: alt_text,
+            ..fepdf::StructElemUpdate::default()
         }),
         None,
         tx,

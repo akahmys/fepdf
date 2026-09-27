@@ -2227,15 +2227,17 @@ they are ordered among themselves by what the operation vocabulary already carri
 **6 — Accessibility, where the standard is the work.** W-21h's first step was
 **obtaining ISO 32000-1**, not writing code
 ([ADR-0095](docs/adr/0095-a-condition-citing-a-document-this-copy-lacks-is-not-implemented-from-memory.md)),
-and the document is in `docs/specs` as of 2026-09-26. W-22 says it waits on W-21 and
-means it. W-19a before W-19b, which is stated in W-19a.
+and the document is in `docs/specs` as of 2026-09-26. W-22 waited on W-21, which closed
+on 2026-09-28. W-19a before W-19b, which is stated in W-19a.
 
 **7 — Last, or out.** W-16, W-17 (no check can be written for whether ink reached paper),
 W-18, W-O1, and W-T4 — which is held until Phase W closes, deliberately.
 
-**What this order does not do** is finish Phase W. W-21 closes at 137 less the two with no
-test, and W-22 waits on W-21; the one dependency on the outside — ISO 32000-1 for W-21h —
-is met.
+**What this order does not do** is finish Phase W. W-21 closed at a hundred and twelve
+decided and thirteen for a person
+([ADR-0098](docs/adr/0098-an-h-condition-is-decided-only-where-the-document-answers-it.md)),
+and W-22 is what is left of it; the one dependency on the outside — ISO 32000-1 for
+W-21h — is met.
 
 ### The work
 
@@ -3165,7 +3167,7 @@ Independent of all of the above:
       removed rather than renumbered to whatever was nearest.
       Recorded as [ADR-0092](docs/adr/0092-the-matterhorn-protocol-measures-ua-1-and-this-engine-declares-ua-2.md).
 
-- [ ] **W-21 — the Matterhorn protocol, past the two failure conditions that exist.**
+- [x] **W-21 — the Matterhorn protocol, past the two failure conditions that exist.**
 
       Measured 2026-09-21: `MatterhornAuditor` reported **two of the protocol's failure
       conditions** — 13-004 (a `Figure` with no alternative text) and 14-003 (a numbered
@@ -3184,9 +3186,13 @@ Independent of all of the above:
       **That split is advice, not a ceiling.** The protocol defines its own `How` column
       as "**not determinative** … the realistic best-practice approach **at the present
       time**", so 87 is where the protocol expected software to reach in 2021 and an `H`
-      is not a prohibition. The target is 137 minus the two with no test; what changes
+      is not a prohibition. The target was 137 minus the two with no test; what changes
       with `H` is that a finding must say it was decided by a machine, not that it may
-      not be made.
+      not be made. **It closes at a hundred and twelve decided, thirteen for a person, ten
+      answered by ingestion and two with no test**: an `H` condition is decided only where
+      the document gives the answer, and the thirteen ask what content *is*, which has to
+      be read to be known
+      ([ADR-0098](docs/adr/0098-an-h-condition-is-decided-only-where-the-document-answers-it.md)).
 
       **This is the gap ADR-0087 was taken over, in the large.** A document this engine
       declares PDF/UA-2 conforming is one it has checked a hundred and twelve things about — and all
@@ -3564,9 +3570,11 @@ Independent of all of the above:
       the structure of tables, where `/Lang` has to change, what `/ActualText` is for as
       against `/Alt`.
 
-      **It waits on W-21 and says so.** A conformance claim is worth what the checking
-      behind it is worth, and a hundred and twelve failure conditions of 137 is not a foundation to
-      put a second claim on. What can be done first is the reading: the structure tree editor this engine
+      **It waited on W-21, which closed on 2026-09-28** at a hundred and twelve of 137
+      decided and thirteen for a person
+      ([ADR-0098](docs/adr/0098-an-h-condition-is-decided-only-where-the-document-answers-it.md)).
+      A conformance claim is worth what the checking behind it is worth, which is why the
+      claim (1, below) comes last. What could be done first was the reading: the structure tree editor this engine
       already has is most of what a well-tagged file is made with, and what it cannot yet
       express is the list this item starts as.
 
@@ -3597,6 +3605,34 @@ Independent of all of the above:
       7. **Marking content as an artifact** (8.3), which a TOC's leaders require (8.2.5.8).
       8. **An associated file on a structure element** (8.2.5.29): a formula's MathML with
          `AFRelationship` `Supplement`. `AttachAssociatedFile` attaches to the catalogue.
+
+      - [x] **W-22a — an element's `/Lang`, `/ActualText` and `/E` (5, above).**
+        `StructElemUpdate` carries `new_lang`, `new_actual_text` and `new_expansion` beside
+        the tag and `/Alt`, each written as a text string and each left alone when not
+        given; `update_struct_elem` in `fepdf-mcp` takes them as `lang`, `actual_text` and
+        `expansion`. **An update naming no element is refused**: it answered `Ok(())` for any
+        handle and changed nothing, which told a caller naming the wrong element that it had
+        changed it. `text_string_encoding_test` round-trips the three through a file.
+
+      - [x] **W-22b — any owner's attribute (3, above).** `SetStructAttribute` writes one key
+        in the attribute object an element's `/A` holds for an owner — `Table`'s `Scope` and
+        `Headers`, `List`'s `ListNumbering`, a note's `NoteType`, the `Layout` keys,
+        `ARIA-1.1`'s — or in one it adds for the owner, as a name, number, text string,
+        boolean, or array of names, numbers or byte strings (a cell's `Headers` are element
+        IDs). One object per owner: a second key joins the first. `set_struct_attribute` in
+        `fepdf-mcp` takes exactly one value. Which key an owner has is the caller's to say;
+        this writes what it is given. **An `/A` written in place is kept**: the match
+        `AddUserProperties` appended with read an array or a reference and made anything
+        else an empty list, so an element's direct `/A << /O /Layout … >>` was lost to the
+        first property added. `struct_attribute_test` sets a header cell's `Scope` and
+        watches 15-003 go from broken to sound.
+
+      - [x] **W-22c — `/Ref` (4, above).** `SetStructRefs` writes the elements an element
+        refers to (Table 355) as indirect references, in order — a `TOCI` to its target, a
+        citation to its `FENote` and the note back, a continued list to its previous part
+        (WTPDF 8.8, 8.2.5.8, 8.2.5.14, 8.2.5.25) — and an empty list removes the entry. A
+        target that is not an element is refused before anything is written.
+        `set_struct_refs` in `fepdf-mcp` takes the list. The references survive a file.
 
 - [x] **W-18 — comparing two documents.** `fepdf::compare::compare` pairs pages by
       position and answers, for each that differs, the lines of text only one side has —

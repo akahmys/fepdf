@@ -1,30 +1,44 @@
 use crate::operation::{
-    ArticleThread, StructElemMove, StructElemUpdate, UserProperty, UserPropertyValue,
+    ArticleThread, AttributeValue, StructAttribute, StructElemMove, StructElemUpdate, UserProperty,
+    UserPropertyValue,
 };
 use crate::struct_tree;
 use fepdf_model::arena::PdfArena;
-use fepdf_model::{Document, Handle, Object, PdfResult};
+use fepdf_model::{Document, Handle, Object, PdfError, PdfResult};
 use std::collections::BTreeMap;
 
 /// Updates properties of a structure element.
 pub fn apply_update_struct(doc: &Document, update: StructElemUpdate) -> PdfResult<()> {
     let handle = Handle::<Object>::new(update.handle_index);
     let arena = doc.arena();
-    if let Some(Object::Dictionary(dh)) = arena.get_object(handle)
-        && let Some(mut dict) = arena.get_dict(dh)
-    {
-        if let Some(tag) = update.new_tag {
-            let s_key = arena.name("S");
-            dict.insert(s_key, Object::Name(arena.name(&tag)));
-        }
-        if let Some(alt) = update.new_alt {
-            let alt_key = arena.name("Alt");
-            // A text string (14.9.3): an alternate description is read aloud, so it is the
-            // one entry here that a non-Latin document is certain to need.
-            dict.insert(alt_key, Object::Text(alt));
-        }
-        arena.set_dict(dh, dict);
+    // **An element that is not there is an error, not an update of nothing.** This answered
+    // `Ok(())` for any handle, so a caller naming the wrong element was told it had
+    // changed it.
+    let Some((dh, mut dict)) = arena
+        .get_object(handle)
+        .and_then(|o| o.as_dict_handle())
+        .and_then(|dh| Some((dh, arena.get_dict(dh)?)))
+    else {
+        return Err(PdfError::Other(
+            format!("object {} is not a structure element", update.handle_index).into(),
+        ));
+    };
+    if let Some(tag) = update.new_tag {
+        dict.insert(arena.name("S"), Object::Name(arena.name(&tag)));
     }
+    // Text strings (14.9.3 to 14.9.5): each is read aloud or in place of the content, so
+    // each is one a non-Latin document is certain to need.
+    for (key, value) in [
+        ("Alt", update.new_alt),
+        ("Lang", update.new_lang),
+        ("ActualText", update.new_actual_text),
+        ("E", update.new_expansion),
+    ] {
+        if let Some(value) = value {
+            dict.insert(arena.name(key), Object::Text(value));
+        }
+    }
+    arena.set_dict(dh, dict);
     Ok(())
 }
 
@@ -192,24 +206,122 @@ pub fn apply_add_user_properties(
     let attr_dh = arena.alloc_dict(attr_dict);
     let attr_h = arena.alloc_object(Object::Dictionary(attr_dh));
 
-    let target_h = Handle::new(target_handle);
-    if let Some(Object::Dictionary(dh)) = arena.get_object(target_h)
-        && let Some(mut dict) = arena.get_dict(dh)
-    {
-        let a_key = arena.name("A");
-        let mut a_items = if let Some(existing_a) = dict.get(&a_key) {
-            match existing_a {
-                Object::Array(ah) => arena.get_array(*ah).unwrap_or_default(),
-                Object::Reference(h) => vec![Object::Reference(*h)],
-                _ => Vec::new(),
-            }
-        } else {
-            Vec::new()
-        };
-        a_items.push(Object::Reference(attr_h));
-        let new_a_ah = arena.alloc_array(a_items);
-        dict.insert(a_key, Object::Array(new_a_ah));
-        arena.set_dict(dh, dict);
+    append_attribute(arena, target_handle, Object::Reference(attr_h))
+}
+
+/// The attribute objects an element's `/A` holds (14.7.6): one, direct or by reference, or
+/// an array of them among revision numbers — which are kept, and left where they were.
+fn attributes(arena: &PdfArena, a: Option<&Object>) -> Vec<Object> {
+    match a {
+        Some(Object::Array(array)) => arena.get_array(*array).unwrap_or_default(),
+        Some(single @ (Object::Reference(_) | Object::Dictionary(_))) => vec![single.clone()],
+        Some(_) | None => Vec::new(),
     }
+}
+
+/// Adds `attribute` to the element `element`'s `/A`, keeping what is there.
+///
+/// **A direct `/A` dictionary is kept.** The match that preceded this read an array or a
+/// reference and made anything else an empty list, so an element whose `/A` was written
+/// in place — `/A << /O /Layout /Placement /Block >>` — lost it to the first user property
+/// added.
+fn append_attribute(arena: &PdfArena, element: u32, attribute: Object) -> PdfResult<()> {
+    let Some((dh, mut dict)) = element_dict(arena, element) else {
+        return Err(not_an_element(element));
+    };
+    let a_key = arena.name("A");
+    let mut items = attributes(arena, dict.get(&a_key));
+    items.push(attribute);
+    dict.insert(a_key, Object::Array(arena.alloc_array(items)));
+    arena.set_dict(dh, dict);
     Ok(())
+}
+
+/// An element's dictionary, by object handle index.
+fn element_dict(
+    arena: &PdfArena,
+    element: u32,
+) -> Option<(
+    Handle<BTreeMap<Handle<fepdf_model::PdfName>, Object>>,
+    BTreeMap<Handle<fepdf_model::PdfName>, Object>,
+)> {
+    let dh = arena.get_object(Handle::<Object>::new(element))?.as_dict_handle()?;
+    Some((dh, arena.get_dict(dh)?))
+}
+
+/// The refusal for an index naming no element.
+fn not_an_element(element: u32) -> PdfError {
+    PdfError::Other(format!("object {element} is not a structure element").into())
+}
+
+/// Sets one attribute of a structure element (14.7.6): the key in the attribute object its
+/// `/A` holds for the owner, or in one added for it.
+///
+/// **One object per owner, and the first one found.** An element may carry several
+/// attribute objects, one per owner; a second object for an owner that has one would say
+/// the same thing twice, and a reader takes the first.
+pub fn apply_set_struct_attribute(doc: &Document, attribute: StructAttribute) -> PdfResult<()> {
+    let arena = doc.arena();
+    let Some((_, dict)) = element_dict(arena, attribute.handle_index) else {
+        return Err(not_an_element(attribute.handle_index));
+    };
+    let value = attribute_value(arena, attribute.value);
+    let owned = attributes(arena, dict.get(&arena.name("A"))).into_iter().find_map(|a| {
+        let handle = a.resolve(arena).as_dict_handle()?;
+        let owner = arena.dict_entry(handle, arena.name("O"))?.as_name()?;
+        (arena.get_name(owner)?.as_str() == attribute.owner).then_some(handle)
+    });
+    if let Some(handle) = owned {
+        let mut entries = arena.get_dict(handle).unwrap_or_default();
+        entries.insert(arena.name(&attribute.key), value);
+        arena.set_dict(handle, entries);
+        return Ok(());
+    }
+    let mut entries = BTreeMap::new();
+    entries.insert(arena.name("O"), Object::Name(arena.name(&attribute.owner)));
+    entries.insert(arena.name(&attribute.key), value);
+    let object = arena.alloc_object(Object::Dictionary(arena.alloc_dict(entries)));
+    append_attribute(arena, attribute.handle_index, Object::Reference(object))
+}
+
+/// Sets the elements an element refers to (`/Ref`, Table 355).
+///
+/// Each is an indirect reference to a structure element; an empty list removes the entry. A
+/// target that is not an element is refused, before anything is written.
+pub fn apply_set_struct_refs(doc: &Document, element: u32, targets: &[u32]) -> PdfResult<()> {
+    let arena = doc.arena();
+    let Some((dh, mut dict)) = element_dict(arena, element) else {
+        return Err(not_an_element(element));
+    };
+    if let Some(missing) = targets.iter().find(|t| element_dict(arena, **t).is_none()) {
+        return Err(not_an_element(*missing));
+    }
+    let key = arena.name("Ref");
+    if targets.is_empty() {
+        dict.remove(&key);
+    } else {
+        let refs = targets.iter().map(|t| Object::Reference(Handle::new(*t))).collect();
+        dict.insert(key, Object::Array(arena.alloc_array(refs)));
+    }
+    arena.set_dict(dh, dict);
+    Ok(())
+}
+
+/// An attribute value as the object it is written as.
+fn attribute_value(arena: &PdfArena, value: AttributeValue) -> Object {
+    let array = |items: Vec<Object>| Object::Array(arena.alloc_array(items));
+    match value {
+        AttributeValue::Name(n) => Object::Name(arena.name(&n)),
+        AttributeValue::Number(n) => Object::Real(n),
+        AttributeValue::Text(t) => Object::Text(t),
+        AttributeValue::Boolean(b) => Object::Boolean(b),
+        AttributeValue::Names(ns) => {
+            array(ns.iter().map(|n| Object::Name(arena.name(n))).collect())
+        }
+        AttributeValue::Numbers(ns) => array(ns.into_iter().map(Object::Real).collect()),
+        // An ID is a byte string (14.7.2, Table 355), and so is each of a cell's `Headers`.
+        AttributeValue::Strings(ss) => array(
+            ss.into_iter().map(|s| Object::String(bytes::Bytes::from(s.into_bytes()))).collect(),
+        ),
+    }
 }

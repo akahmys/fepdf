@@ -62,6 +62,8 @@ fn variant_name(op: &Operation) -> &'static str {
         Operation::SetPageLabels(_) => "SetPageLabels",
         Operation::UpdateArticleThreads(_) => "UpdateArticleThreads",
         Operation::AddUserProperties { .. } => "AddUserProperties",
+        Operation::SetStructAttribute(_) => "SetStructAttribute",
+        Operation::SetStructRefs { .. } => "SetStructRefs",
         Operation::ExecuteAction(_) => "ExecuteAction",
         Operation::SetGeospatialAnchor(_) => "SetGeospatialAnchor",
         Operation::AddMeshShading(_) => "AddMeshShading",
@@ -132,4 +134,23 @@ fn an_unknown_operation_name_is_refused_rather_than_ignored() {
     // `Redact`, `CreateLayer` and `AddStamp` were in `ARCHITECTURE.md`'s listing for four
     // phases without ever existing. A caller who believed that document should be told.
     assert!(serde_json::from_str::<Operation>(r#"{"Redact":{"zones":[]}}"#).is_err());
+}
+
+/// `SetStructAttribute` in the shape an MCP caller writes it.
+#[test]
+fn a_struct_attribute_is_written_as_a_caller_would_write_it() {
+    use fepdf_doc::operation::{AttributeValue, StructAttribute};
+    let op: Operation = serde_json::from_str(
+        r#"{"SetStructAttribute":{"handle_index":7,"owner":"List","key":"ListNumbering","value":{"Name":"Decimal"}}}"#,
+    )
+    .expect("parse");
+    assert_eq!(
+        op,
+        Operation::SetStructAttribute(StructAttribute {
+            handle_index: 7,
+            owner: "List".into(),
+            key: "ListNumbering".into(),
+            value: AttributeValue::Name("Decimal".into()),
+        })
+    );
 }

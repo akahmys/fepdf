@@ -65,6 +65,10 @@ pub fn apply_operation(doc: &mut Document, op: Operation) -> PdfResult<()> {
         Operation::AddUserProperties { target_handle, properties } => {
             structure::apply_add_user_properties(doc, target_handle, properties)
         }
+        Operation::SetStructAttribute(a) => structure::apply_set_struct_attribute(doc, a),
+        Operation::SetStructRefs { handle_index, targets } => {
+            structure::apply_set_struct_refs(doc, handle_index, &targets)
+        }
         Operation::CreatePortfolio(p) => metadata::apply_create_portfolio(doc, p),
         Operation::UpdateOutlines(o) => metadata::apply_update_outlines(doc, o),
         Operation::UpdateLayers(l) => metadata::apply_update_layers(doc, l),

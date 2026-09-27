@@ -97,8 +97,13 @@ pub enum PdfStandard {
     ISO32000_2,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 /// Parameters for updating a structural element in the document.
+///
+/// **Every entry is a text string an element states about its content** (ISO 32000-2
+/// Table 355), and `None` leaves it as it is. WTPDF asks for the three after `/Alt`
+/// (8.2.5.23, 8.4): the language, the text a figure or ligature stands for, and an
+/// abbreviation's expansion.
 pub struct StructElemUpdate {
     /// Target object handle index.
     pub handle_index: u32,
@@ -106,6 +111,55 @@ pub struct StructElemUpdate {
     pub new_tag: Option<String>,
     /// New Alt text if updating Alt text.
     pub new_alt: Option<String>,
+    /// New `/Lang` (14.9.2): the language of the element's content. An empty string
+    /// states that it is unknown (14.9.2.2).
+    #[serde(default)]
+    pub new_lang: Option<String>,
+    /// New `/ActualText` (14.9.4): the text the element's content stands for.
+    #[serde(default)]
+    pub new_actual_text: Option<String>,
+    /// New `/E` (14.9.5): the expansion of an abbreviation or acronym.
+    #[serde(default)]
+    pub new_expansion: Option<String>,
+}
+
+/// One attribute of a structure element (ISO 32000-2 14.7.6): the entry `key` of the
+/// attribute object whose owner (`/O`) is `owner`.
+///
+/// **Any owner and any key, written as given.** The standard owners' keys are tables of
+/// their own (14.8.5) — `Scope` and `Headers` for `Table`, `ListNumbering` for `List`,
+/// `NoteType` for a note, the `Layout` keys, and those of `ARIA-1.1` — and WTPDF names the
+/// ones a well-tagged file needs (8.2.6). This writes the entry; which entry is right is
+/// the caller's to say.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct StructAttribute {
+    /// Target object handle index of the element.
+    pub handle_index: u32,
+    /// The attribute owner, as `/O` names it: `Table`, `List`, `Layout`, `ARIA-1.1`, ….
+    pub owner: String,
+    /// The key within the attribute object: `Scope`, `ListNumbering`, `Placement`, ….
+    pub key: String,
+    /// What it is set to.
+    pub value: AttributeValue,
+}
+
+/// An attribute's value, in the PDF types attributes take (14.8.5).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub enum AttributeValue {
+    /// A name: `Column`, `Decimal`, `Block`.
+    Name(String),
+    /// A number.
+    Number(f64),
+    /// A text string.
+    Text(String),
+    /// A boolean.
+    Boolean(bool),
+    /// An array of names.
+    Names(Vec<String>),
+    /// An array of numbers: a `BBox`, a colour.
+    Numbers(Vec<f64>),
+    /// An array of byte strings: a table cell's `Headers`, which are element IDs.
+    Strings(Vec<String>),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -473,6 +527,17 @@ pub enum Operation {
         /// Properties list.
         properties: Vec<UserProperty>,
     },
+    /// Set one attribute of a structure element, in the attribute object of its owner.
+    SetStructAttribute(StructAttribute),
+    /// Set the structure elements an element refers to (`/Ref`, ISO 32000-2 Table 355): a
+    /// table-of-contents item to its target, a citation to its note and back, a continued
+    /// list to its previous part (WTPDF 8.8). An empty list removes the entry.
+    SetStructRefs {
+        /// Target object handle index of the element that refers.
+        handle_index: u32,
+        /// Object handle indices of the elements it refers to, in order.
+        targets: Vec<u32>,
+    },
     /// Execute an action (GoToR, GoToE, Named, Transition).
     ExecuteAction(PdfAction),
 
@@ -550,6 +615,8 @@ impl Operation {
             | Self::SetPageLabels { .. }
             | Self::UpdateArticleThreads { .. }
             | Self::AddUserProperties { .. }
+            | Self::SetStructAttribute(..)
+            | Self::SetStructRefs { .. }
             | Self::ExecuteAction { .. }
             | Self::SetGeospatialAnchor { .. }
             | Self::AddMeshShading { .. }

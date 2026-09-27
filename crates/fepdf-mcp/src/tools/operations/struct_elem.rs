@@ -2,12 +2,13 @@
 
 use super::page::execute_single_op;
 use fepdf::{
-    Operation, Placement, StructElemMove, StructElemUpdate, UserProperty, UserPropertyValue,
+    AttributeValue, Operation, Placement, StructAttribute, StructElemMove, StructElemUpdate,
+    UserProperty, UserPropertyValue,
 };
 use schemars::JsonSchema;
 use serde::Deserialize;
 
-/// Arguments for updating a structural element tag or Alt text.
+/// Arguments for updating a structural element's tag, and the text strings it states.
 #[derive(Deserialize, JsonSchema)]
 pub struct UpdateStructElemArgs {
     /// Path to input PDF file.
@@ -20,6 +21,54 @@ pub struct UpdateStructElemArgs {
     pub new_tag: Option<String>,
     /// Alternate text description for accessibility (Alt).
     pub alt_text: Option<String>,
+    /// The language of the element's content (Lang), e.g. "en-GB"; "" states it unknown.
+    pub lang: Option<String>,
+    /// The text the element's content stands for (ActualText).
+    pub actual_text: Option<String>,
+    /// The expansion of an abbreviation or acronym (E).
+    pub expansion: Option<String>,
+}
+
+/// Arguments for setting one attribute of a structure element.
+#[derive(Deserialize, JsonSchema)]
+pub struct SetStructAttributeArgs {
+    /// Path to input PDF file.
+    pub input_path: String,
+    /// Path to output PDF file.
+    pub output_path: String,
+    /// Handle index of the structural element object.
+    pub handle_index: u32,
+    /// The attribute owner (/O): "Table", "List", "Layout", "ARIA-1.1", ….
+    pub owner: String,
+    /// The key: "Scope", "Headers", "ListNumbering", "Placement", ….
+    pub key: String,
+    /// A name value, such as "Column" or "Decimal".
+    pub value_name: Option<String>,
+    /// A number value.
+    pub value_number: Option<f64>,
+    /// A text string value.
+    pub value_text: Option<String>,
+    /// A boolean value.
+    pub value_bool: Option<bool>,
+    /// An array of names.
+    pub value_names: Option<Vec<String>>,
+    /// An array of numbers, such as a BBox.
+    pub value_numbers: Option<Vec<f64>>,
+    /// An array of byte strings, such as a cell's Headers (element IDs).
+    pub value_strings: Option<Vec<String>>,
+}
+
+/// Arguments for setting the elements a structure element refers to.
+#[derive(Deserialize, JsonSchema)]
+pub struct SetStructRefsArgs {
+    /// Path to input PDF file.
+    pub input_path: String,
+    /// Path to output PDF file.
+    pub output_path: String,
+    /// Handle index of the element that refers (a TOCI, a citation, a continued list).
+    pub handle_index: u32,
+    /// Handle indices of the elements it refers to; empty removes /Ref.
+    pub targets: Vec<u32>,
 }
 
 /// Arguments for deleting a structural element from the tree.
@@ -80,6 +129,9 @@ pub fn update_struct_elem_impl(args: UpdateStructElemArgs) -> Result<String, Str
         handle_index: args.handle_index,
         new_tag: args.new_tag,
         new_alt: args.alt_text,
+        new_lang: args.lang,
+        new_actual_text: args.actual_text,
+        new_expansion: args.expansion,
     };
     let op = Operation::UpdateStructElem(update);
     execute_single_op(
@@ -157,5 +209,48 @@ pub fn add_user_properties_impl(args: AddUserPropertiesArgs) -> Result<String, S
         &args.output_path,
         op,
         &format!("User properties attached to element #{}", args.target_handle),
+    )
+}
+
+/// Implementation of the set_struct_attribute tool.
+pub fn set_struct_attribute_impl(args: SetStructAttributeArgs) -> Result<String, String> {
+    let given: Vec<AttributeValue> = [
+        args.value_name.map(AttributeValue::Name),
+        args.value_number.map(AttributeValue::Number),
+        args.value_text.map(AttributeValue::Text),
+        args.value_bool.map(AttributeValue::Boolean),
+        args.value_names.map(AttributeValue::Names),
+        args.value_numbers.map(AttributeValue::Numbers),
+        args.value_strings.map(AttributeValue::Strings),
+    ]
+    .into_iter()
+    .flatten()
+    .collect();
+    let [value] = <[AttributeValue; 1]>::try_from(given)
+        .map_err(|given| format!("give exactly one value; {} were given", given.len()))?;
+    let (owner, key) = (args.owner.clone(), args.key.clone());
+    let op = Operation::SetStructAttribute(StructAttribute {
+        handle_index: args.handle_index,
+        owner: args.owner,
+        key: args.key,
+        value,
+    });
+    execute_single_op(
+        &args.input_path,
+        &args.output_path,
+        op,
+        &format!("/{owner} /{key} set on structural element #{}", args.handle_index),
+    )
+}
+
+/// Implementation of the set_struct_refs tool.
+pub fn set_struct_refs_impl(args: SetStructRefsArgs) -> Result<String, String> {
+    let count = args.targets.len();
+    let op = Operation::SetStructRefs { handle_index: args.handle_index, targets: args.targets };
+    execute_single_op(
+        &args.input_path,
+        &args.output_path,
+        op,
+        &format!("Structural element #{} refers to {count} elements", args.handle_index),
     )
 }
