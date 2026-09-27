@@ -255,21 +255,28 @@ static WIN_ANSI: &[(u8, &str)] = &[
     (0xff, "\u{00FF}"),
 ];
 
-/// The base encoding a name refers to, or `None` when it names none of them.
+/// The base encoding a name refers to, or `None` when it names none this engine carries.
 ///
-/// **Only `WinAnsiEncoding` is here.** `MacRomanEncoding` and `StandardEncoding` are
-/// equally published and equally absent from this engine, and writing them from memory
-/// against no document that uses one is how a table gets a wrong entry that nothing
-/// catches. Nothing in the corpus names them; a document that does now records a decision
-/// saying so, which is the difference between a gap and a silence.
+/// **`WinAnsiEncoding` as code to text, `MacRomanEncoding` composed from its names.** The
+/// MacRomanEncoding names are D.2's MAC column read out of `docs/specs/PDF32000_2008.pdf`
+/// ([`crate::latin_names::MAC_ROMAN`]), each turned into text through Adobe's list. It is
+/// from the document rather than from memory, which is what kept it out until the
+/// document was here; six files of the external corpus name it, all showing ASCII. `StandardEncoding` is
+/// not one: Table D.1 says a conforming reader shall have no predefined encoding by that
+/// name. `MacExpertEncoding` (D.4) is not carried, and a document naming it records a
+/// decision saying so.
 #[must_use]
 pub fn base_encoding(name: &str) -> Option<CMap> {
-    let table: &[(u8, &str)] = match name {
-        "WinAnsiEncoding" => WIN_ANSI,
+    let mappings: BTreeMap<Vec<u8>, String> = match name {
+        "WinAnsiEncoding" => {
+            WIN_ANSI.iter().map(|(code, text)| (vec![*code], (*text).to_string())).collect()
+        }
+        "MacRomanEncoding" => crate::latin_names::MAC_ROMAN
+            .iter()
+            .filter_map(|(code, glyph)| Some((vec![*code], crate::agl::lookup(glyph)?)))
+            .collect(),
         _ => return None,
     };
-    let mappings: BTreeMap<Vec<u8>, String> =
-        table.iter().map(|(code, text)| (vec![*code], (*text).to_string())).collect();
     Some(CMap { name: name.to_string(), mappings: Arc::new(mappings), ..CMap::default() })
 }
 

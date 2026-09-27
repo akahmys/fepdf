@@ -31,7 +31,7 @@ pub fn unreachable(
             let only = chars.next().filter(|_| chars.next().is_none())?;
             Some(u32::from(only))
         } else {
-            crate::annex_d::mac_os_roman_code(name).map(u32::from)
+            fepdf_font::latin_names::mac_os_roman_code(name).map(u32::from)
         }
     };
     Some(

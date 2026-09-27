@@ -609,8 +609,8 @@ impl Font<'_> {
     fn true_type_names(&self, font: &Object) -> Option<BTreeMap<u8, String>> {
         let annex = |name: &str| -> Option<BTreeMap<u8, String>> {
             let table: &[(u8, &str)] = match name {
-                "WinAnsiEncoding" => &crate::annex_d::WIN_ANSI,
-                "MacRomanEncoding" => &crate::annex_d::MAC_ROMAN,
+                "WinAnsiEncoding" => &fepdf_font::latin_names::WIN_ANSI,
+                "MacRomanEncoding" => &fepdf_font::latin_names::MAC_ROMAN,
                 _ => return None,
             };
             Some(table.iter().map(|(code, name)| (*code, (*name).to_owned())).collect())
@@ -624,7 +624,7 @@ impl Font<'_> {
             None => BTreeMap::new(),
         };
         table.extend(self.differences(&encoding));
-        for (code, name) in crate::annex_d::STANDARD_ENCODING {
+        for (code, name) in fepdf_font::latin_names::STANDARD_ENCODING {
             table.entry(code).or_insert_with(|| name.to_owned());
         }
         Some(table)
@@ -774,14 +774,15 @@ impl Font<'_> {
         findings: &mut Vec<AuditFinding>,
     ) {
         let readable = |name: &str| {
-            fepdf_font::agl::in_glyph_list(name) || crate::annex_d::SYMBOL_NAMES.contains(&name)
+            fepdf_font::agl::in_glyph_list(name)
+                || fepdf_font::latin_names::SYMBOL_NAMES.contains(&name)
         };
         let (mut unnamed, mut unlisted) = (Vec::new(), BTreeSet::new());
         for code in shown.into_iter().flatten() {
             let name = differences.get(code).map(String::as_str).or_else(|| {
                 standard
                     .then(|| {
-                        crate::annex_d::STANDARD_ENCODING
+                        fepdf_font::latin_names::STANDARD_ENCODING
                             .iter()
                             .find(|(c, _)| c == code)
                             .map(|(_, n)| *n)

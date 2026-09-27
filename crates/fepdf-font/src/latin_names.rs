@@ -1,4 +1,5 @@
-//! The Annex D tables of ISO 32000-1:2008 the auditor names glyphs by.
+//! The Annex D tables of ISO 32000-1:2008 that name glyphs: which name each code of a
+//! Latin-text encoding stands for.
 //!
 //! **Read out of `docs/specs/PDF32000_2008.pdf`, not written from memory**
 //! ([ADR-0095](../../../docs/adr/0095-a-condition-citing-a-document-this-copy-lacks-is-not-implemented-from-memory.md)):
@@ -635,8 +636,7 @@ pub fn mac_os_roman_code(name: &str) -> Option<u8> {
     MAC_ROMAN.iter().find(|(_, n)| *n == name).map(|(code, _)| *code)
 }
 
-/// ISO 32000-1:2008, Annex D.5: the Symbol font's named characters, which 31-027 accepts
-/// beside Adobe's list.
+/// ISO 32000-1:2008, Annex D.5: the Symbol font's named characters.
 pub const SYMBOL_NAMES: [&str; 189] = [
     "Alpha",
     "Beta",

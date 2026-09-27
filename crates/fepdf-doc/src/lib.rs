@@ -5,8 +5,6 @@
 //! Also provides Matterhorn structural auditing, logical structure tree extraction,
 //! and automated structural remediation.
 
-/// The Annex D tables of ISO 32000-1 that the auditor names glyphs by.
-pub mod annex_d;
 /// Dispatcher and domain modules for applying operations to documents.
 pub mod apply;
 /// Matterhorn conditions about embedded files, XFA, encryption, media and shared forms.

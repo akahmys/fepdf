@@ -55,9 +55,50 @@ fn ascii_is_carried_too_because_a_font_may_have_no_other_route() {
 #[test]
 fn a_name_this_engine_does_not_carry_is_still_known_to_be_an_encoding() {
     // The difference between a gap and a silence: these have no table here, and saying so
-    // is what a decision is for.
-    assert!(base_encoding("MacRomanEncoding").is_none());
-    assert!(is_base_encoding_name("MacRomanEncoding"));
+    // is what a decision is for. StandardEncoding is not to be predefined (Table D.1).
+    assert!(base_encoding("StandardEncoding").is_none());
+    assert!(base_encoding("MacExpertEncoding").is_none());
+    assert!(is_base_encoding_name("MacExpertEncoding"));
     assert!(is_base_encoding_name("StandardEncoding"));
     assert!(!is_base_encoding_name("Identity-H"));
+}
+
+/// **MacRomanEncoding is carried, from D.2's MAC column.** Its codes above ASCII are not
+/// WinAnsi's: 0x80 is `Adieresis`, 0xDB `currency` (footnote 1 keeps it there), and 0xCA
+/// the second `space` footnote 6 adds.
+#[test]
+fn mac_roman_is_read_from_its_names() {
+    let mac = base_encoding("MacRomanEncoding").expect("carried");
+    for (code, expected) in [(0x41_u8, "A"), (0x80, "\u{00C4}"), (0xDB, "\u{00A4}"), (0xCA, " ")] {
+        assert_eq!(mac.map(&[code]).as_deref(), Some(expected), "code {code:#04x}");
+    }
+}
+
+/// **Every name in the MAC column is one Adobe's list reads**, so composing through it
+/// drops no code the document assigns.
+#[test]
+fn every_mac_roman_name_reads_as_text() {
+    let mac = base_encoding("MacRomanEncoding").expect("carried");
+    for (code, name) in fepdf_font::latin_names::MAC_ROMAN {
+        assert!(mac.map(&[code]).is_some(), "{name} at {code:#04x} did not read");
+    }
+}
+
+/// **The WinAnsi table typed as text agrees with D.2's WIN column read as names.** The
+/// text table came first and from CP1252; this holds it to the document, code by code.
+#[test]
+fn win_ansi_as_typed_is_win_ansi_as_published() {
+    for (code, name) in fepdf_font::latin_names::WIN_ANSI {
+        assert_eq!(
+            says(code),
+            fepdf_font::agl::lookup(name),
+            "{code:#04x}: the text table and D.2's /{name} disagree"
+        );
+    }
+    let typed = (0..=255_u8).filter(|c| says(*c).is_some()).count();
+    assert_eq!(
+        typed,
+        fepdf_font::latin_names::WIN_ANSI.len(),
+        "a code is in one and not the other"
+    );
 }

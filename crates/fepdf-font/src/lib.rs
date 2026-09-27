@@ -16,6 +16,8 @@ pub mod cff_standard;
 pub mod cmap;
 /// What a font program permits, from `OS/2.fsType`.
 pub mod embedding;
+/// The glyph names Annex D's Latin-text encodings give each code.
+pub mod latin_names;
 /// What a font program states about its own metrics.
 pub mod metrics;
 /// Surgical font binary reconstructor and SFNT patcher.

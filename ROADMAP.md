@@ -3357,9 +3357,18 @@ Independent of all of the above:
         `PDF32000_2008.pdf` — the STD column the same 149 entries W-21l read — with
         footnotes 5 and 6's duplicate codes, and Table 115 for Mac OS Roman. **Sixty-seven
         of 137.** Across the 525 files (2026-09-27) it finds one, Isartor's 6-3-5 file
-        whose ArialMT subset has no glyph for `$`. `fepdf-font`'s `base_encoding` still
-        answers only `WinAnsiEncoding` for extraction, for want of a document, and now has
-        one.
+        whose ArialMT subset has no glyph for `$`. `fepdf-font`'s `base_encoding` answered
+        only `WinAnsiEncoding` for extraction, for want of a document; W-21p reads the rest.
+
+      - [x] **W-21p — MacRomanEncoding, read, from the table the audit already had.** The
+        Annex D name tables move from `fepdf-doc` to `fepdf_font::latin_names`, the layer
+        both the auditor and extraction read, and `base_encoding("MacRomanEncoding")`
+        composes D.2's MAC column through Adobe's list: a font naming it read every code
+        above ASCII as nothing, with a decision saying the engine did not carry it. Six
+        files of the external corpus name it, all showing ASCII. **The WinAnsi table typed
+        as text agrees with D.2's WIN column read as names, all 218 codes**, and
+        `annex_d_test` now holds it to that. `mac_roman_test` reads Ä, é and “ from 0x80,
+        0x8E and 0xD2, directly and as a `/BaseEncoding`.
 
       - [x] **W-21g — a condition checked and not broken is a result.** `AuditFinding`
         carries an `Outcome` — `Broken`, `Sound`, `ForAReader` — and `audit_report` adds
