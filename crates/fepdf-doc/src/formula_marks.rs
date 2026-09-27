@@ -16,9 +16,12 @@ const ANCESTORS: usize = 256;
 
 /// What a sequence's content is.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[allow(clippy::struct_excessive_bools)] // four independent facts: none excludes another
 pub(crate) struct Facts {
     /// In a `<Formula>`.
     pub(crate) formula: bool,
+    /// In a `<Figure>` (13-001).
+    pub(crate) figure: bool,
     /// In a language a `/Lang` below the catalogue states, not empty.
     pub(crate) language: bool,
     /// In an `/Artifact`, which is not the document's content.
@@ -60,8 +63,10 @@ impl<'a> Tree<'a> {
         let mut at = element.clone();
         for _ in 0..ANCESTORS {
             let Some(tag) = name_of(self.arena, &at, "S") else { break };
-            if crate::audit_tree::standard_type(&self.roles, &tag).as_deref() == Some("Formula") {
-                facts.formula = true;
+            match crate::audit_tree::standard_type(&self.roles, &tag).as_deref() {
+                Some("Formula") => facts.formula = true,
+                Some("Figure") => facts.figure = true,
+                _ => {}
             }
             if language.is_none() {
                 language = stated(self.arena, entry(self.arena, &at, "Lang"));
@@ -138,6 +143,7 @@ impl Marks {
             Some(mcid) => {
                 let element = self.facts.get(&mcid).copied().unwrap_or_default();
                 facts.formula |= element.formula;
+                facts.figure |= element.figure;
                 facts.language = element.language;
             }
             None if tag == "Span" => facts.language = lang.unwrap_or(facts.language),

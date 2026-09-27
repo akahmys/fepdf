@@ -65,7 +65,7 @@ pub const PDF_1_7_STANDARD: [&str; 44] = [
 const ALSO_PDF_1_7: [&str; 5] = ["Quote", "Note", "Reference", "BibEntry", "Code"];
 
 /// Whether `tag` is a standard type of PDF 1.7.
-fn standard(tag: &str) -> bool {
+pub(crate) fn standard(tag: &str) -> bool {
     PDF_1_7_STANDARD.contains(&tag) || ALSO_PDF_1_7.contains(&tag)
 }
 

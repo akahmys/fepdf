@@ -51,6 +51,10 @@ pub struct PageTagging {
     /// *image* XObject is a different matter and counts above: an image has no marked
     /// content of its own, so nothing inside it can be tagged.
     pub forms_outside: Vec<String>,
+    /// 18-002: `/Artifact` sequences opened on the page.
+    pub artifacts: usize,
+    /// 18-002: form XObjects the page draws, whose own content this walk does not read.
+    pub forms_drawn: usize,
 }
 
 impl PageTagging {
@@ -83,6 +87,7 @@ pub fn tagging_of_page(doc: &Document, page: usize) -> PdfResult<PageTagging> {
         match command {
             Command::BeginMarkedContent { tag, properties: list } => {
                 let here = sequence_of(tag.as_str(), list.as_ref(), &properties);
+                out.artifacts += usize::from(here == Sequence::Artifact);
                 note_nesting(here, &open, &mut out);
                 open.push(here);
             }
@@ -91,7 +96,14 @@ pub fn tagging_of_page(doc: &Document, page: usize) -> PdfResult<PageTagging> {
             Command::EndMarkedContent => {
                 open.pop();
             }
-            other => note_mark(other, &open, &forms, &mut out),
+            other => {
+                if let Command::DrawXObject(name) = other
+                    && forms.get(name).copied().unwrap_or(false)
+                {
+                    out.forms_drawn += 1;
+                }
+                note_mark(other, &open, &forms, &mut out);
+            }
         }
     }
     Ok(out)

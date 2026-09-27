@@ -451,7 +451,7 @@ fn the_report_says_how_much_of_the_protocol_it_checked() {
     );
     assert_eq!(
         report.scope.checked.len(),
-        94,
+        104,
         "the scope does not name the failure conditions this auditor looks at"
     );
     assert!(
@@ -644,28 +644,50 @@ fn an_untagged_document_is_still_asked_the_catalogue_conditions() {
 /// finding, a clean document carried one row per condition in `CHECKED`, so the list was
 /// never empty and the method always answered `false` — which made the assertion above,
 /// that a broken document did not come back silent, pass for every input including a
-/// perfect one. This is the document that makes it answer `true`.
+/// perfect one.
+///
+/// **A document with content always leaves a person something.** Its artefacts ask 18-002,
+/// its graphics 13-001, its text 08-001 and 12-001, its figures 13-005 or 13-008: the
+/// protocol marks each `H`, and the auditor decides one only where the document has none
+/// of what it is about. So the document breaking nothing breaks nothing and leaves for a
+/// reader only conditions the protocol marks `H`; and a tagged document with no content,
+/// which has no such question, is the one `found_nothing` answers `true` for.
 #[test]
 fn a_document_breaking_nothing_checked_is_said_to_have_broken_nothing() {
     let doc = opened(breaks_nothing());
     let report = doc.audit_ua2_report().expect("it audits");
-
+    let marked_h: BTreeSet<&str> = MARKED_H.iter().map(|(c, _)| *c).collect();
+    let not_sound: Vec<(&String, &String, Outcome)> = report
+        .findings
+        .iter()
+        .filter(|f| f.outcome != Outcome::Sound)
+        .map(|f| (&f.checkpoint, &f.message, f.outcome))
+        .collect();
     assert!(
-        report.found_nothing(),
-        "a document breaking no checked condition was reported as breaking one: {:?}",
-        report
-            .findings
+        not_sound
             .iter()
-            .filter(|f| f.outcome != Outcome::Sound)
-            .map(|f| (&f.checkpoint, &f.message))
-            .collect::<Vec<_>>()
+            .all(|(c, _, o)| *o == Outcome::ForAReader && marked_h.contains(c.as_str())),
+        "a document breaking no checked condition was reported as breaking one, or left an M \
+         condition to a reader: {not_sound:?}"
     );
-    // And it is not silent: the sound conditions are still reported, so "nothing to act
-    // on" and "nothing was looked at" stay apart.
-    assert_eq!(
-        report.findings.iter().filter(|f| f.outcome == Outcome::Sound).count(),
-        MatterhornAuditor::CHECKED.len(),
-        "a clean document did not report the conditions it was checked against"
+    // And it is not silent: every condition has its row, so "nothing to act on" and
+    // "nothing was looked at" stay apart.
+    let rows: BTreeSet<&str> = report.findings.iter().map(|f| f.checkpoint.as_str()).collect();
+    assert_eq!(rows.len(), MatterhornAuditor::CHECKED.len(), "a checked condition has no row");
+
+    let empty = opened(fepdf_fixtures::assemble(&[
+        "<< /Type /Catalog /Pages 2 0 R /StructTreeRoot 4 0 R /Lang (en) \
+           /MarkInfo << /Marked true >> /ViewerPreferences << /DisplayDocTitle true >> >>",
+        "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] >>",
+        "<< /Type /StructTreeRoot /K [] >>",
+    ]))
+    .audit_ua2_report()
+    .expect("it audits");
+    assert!(
+        empty.found_nothing(),
+        "a tagged document with nothing in it was left something: {:?}",
+        empty.findings.iter().filter(|f| f.outcome != Outcome::Sound).collect::<Vec<_>>()
     );
 }
 
@@ -1070,7 +1092,7 @@ fn the_nesting_conditions_are_told_apart() {
     let beside =
         opened(page_drawing("/P <</MCID 0>> BDC 0 0 5 5 re f EMC /Artifact BMC 9 9 5 5 re f EMC"));
     let report = beside.audit_ua2_report().expect("it audits");
-    for condition in FROM_CONTENT {
+    for condition in ["01-003", "01-004", "01-005"] {
         assert_eq!(
             outcomes(&report, condition),
             vec![Outcome::Sound],
@@ -1418,6 +1440,16 @@ fn every_number_reported_means_in_the_protocol_what_it_is_used_for() {
         ("28-013", "An IsMap entry is present with a value of true"),
         ("29-001", "A script requires specific timing for individual"),
         ("31-010", "A font program is embedded that is not legally"),
+        ("08-001", "OCR-generated text contains significant errors"),
+        ("08-002", "OCR-generated text is not tagged"),
+        ("12-001", "Stretched characters are not represented"),
+        ("13-001", "Graphics objects other than text objects and"),
+        ("14-004", "Numbered heading tags do not use Arabic"),
+        ("15-001", "A row has a header cell, but that header cell"),
+        ("15-002", "A column has a header cell, but that header"),
+        ("15-004", "Content is tagged as a table for information"),
+        ("15-005", "A given cell"),
+        ("18-002", "Header or footer artifacts are not classified"),
     ];
     assert_eq!(
         says.len(),
@@ -2429,8 +2461,8 @@ const EDITABLE: &str = "0001000000010000000000004f532f32000000000000001c0000004e
 /// A tagged document with one of everything the conditions W-21v decides are about: a
 /// JavaScript action calling `beep`, a `/Hide` action, a link, a screen, a sound annotation,
 /// a URI action with `/IsMap true`, an article thread, a figure with `/ActualText` and one
-/// without, a list with no `ListNumbering` and one numbered `Disc`, and a TrueType font whose
-/// program is `program`.
+/// without, a list with no `ListNumbering` and one numbered `Disc`, a table, an element of a
+/// type outside the standard set, and a TrueType font whose program is `program`.
 fn has_everything(program: &str) -> Vec<u8> {
     let js = "app.beep(0);";
     fepdf_fixtures::assemble(&[
@@ -2446,7 +2478,7 @@ fn has_everything(program: &str) -> Vec<u8> {
            /Next << /S /Hide /T (x) >> >> >>"
             .to_string(),
         format!("<< /Length {} >>\nstream\n{js}\nendstream", js.len()),
-        "<< /Type /StructTreeRoot /K [7 0 R 8 0 R 9 0 R 10 0 R] >>".to_string(),
+        "<< /Type /StructTreeRoot /K [7 0 R 8 0 R 9 0 R 10 0 R 17 0 R 18 0 R] >>".to_string(),
         "<< /Type /StructElem /S /Figure /P 6 0 R /Alt (a) /ActualText (a) >>".to_string(),
         "<< /Type /StructElem /S /Figure /P 6 0 R /Alt (b) >>".to_string(),
         "<< /Type /StructElem /S /L /P 6 0 R >>".to_string(),
@@ -2459,6 +2491,8 @@ fn has_everything(program: &str) -> Vec<u8> {
             .to_string(),
         "<< /Type /FontDescriptor /FontName /T /Flags 32 /FontFile2 16 0 R >>".to_string(),
         hex_stream("", program),
+        "<< /Type /StructElem /S /Table /P 6 0 R >>".to_string(),
+        "<< /Type /StructElem /S /Custom /P 6 0 R >>".to_string(),
     ])
 }
 
@@ -2528,4 +2562,40 @@ fn each_element_asks_its_own_question() {
     assert_eq!(asks(&list("Disc"), "16-002"), reader);
     assert_eq!(asks("/S /L", "16-001"), reader);
     assert_eq!(asks("/S /L", "16-002"), sound);
+}
+
+/// A tagged page drawing `content`, whose MCID 0 belongs to an element of type `tag`.
+fn drawn_in(tag: &str, content: &str) -> AuditReport {
+    let content = format!("{content}\n");
+    opened(fepdf_fixtures::assemble(&[
+        "<< /Type /Catalog /Pages 2 0 R /StructTreeRoot 5 0 R /Lang (en) >>".to_string(),
+        "<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_string(),
+        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Contents 4 0 R \
+           /StructParents 0 >>"
+            .to_string(),
+        format!("<< /Length {} >>\nstream\n{content}endstream", content.len()),
+        "<< /Type /StructTreeRoot /K [6 0 R] /ParentTree << /Nums [0 [6 0 R]] >> >>".to_string(),
+        format!("<< /Type /StructElem /S /{tag} /P 5 0 R /Pg 3 0 R /K 0 /Alt (x) >>"),
+    ]))
+    .audit_ua2_report()
+    .expect("it audits")
+}
+
+/// **13-001 is sound where every graphics object is in a `<Figure>` or an `/Artifact`**, and
+/// left to a person where one is in anything else — a `<P>`, or nothing at all. **18-002 is
+/// sound where the pages mark no `/Artifact`**, and a person's where they do.
+#[test]
+fn graphics_and_artifacts_are_asked_where_they_are() {
+    let rect = "0 0 5 5 re f";
+    for (tag, content, condition, outcome) in [
+        ("Figure", format!("/Figure <</MCID 0>> BDC {rect} EMC"), "13-001", Outcome::Sound),
+        ("P", format!("/P <</MCID 0>> BDC {rect} EMC"), "13-001", Outcome::ForAReader),
+        ("Figure", format!("/Artifact BMC {rect} EMC"), "13-001", Outcome::Sound),
+        ("Figure", rect.to_string(), "13-001", Outcome::ForAReader),
+        ("Figure", format!("/Figure <</MCID 0>> BDC {rect} EMC"), "18-002", Outcome::Sound),
+        ("Figure", format!("/Artifact BMC {rect} EMC"), "18-002", Outcome::ForAReader),
+    ] {
+        let report = drawn_in(tag, &content);
+        assert_eq!(outcomes(&report, condition), vec![outcome], "{condition}: {tag} {content}");
+    }
 }

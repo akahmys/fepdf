@@ -12,10 +12,11 @@ use fepdf_model::{Document, Handle, Object, PdfArena};
 use std::collections::{BTreeMap, BTreeSet};
 
 /// The failure conditions this module decides.
-pub const FROM_FONTS: [&str; 25] = [
-    "10-001", "11-001", "17-003", "31-004", "31-009", "31-011", "31-016", "31-030", "31-012",
-    "31-013", "31-014", "31-015", "31-017", "31-018", "31-019", "31-020", "31-021", "31-022",
-    "31-023", "31-024", "31-025", "31-026", "31-027", "31-028", "31-029",
+pub const FROM_FONTS: [&str; 29] = [
+    "08-001", "08-002", "10-001", "12-001", "13-001", "11-001", "17-003", "31-004", "31-009",
+    "31-011", "31-016", "31-030", "31-012", "31-013", "31-014", "31-015", "31-017", "31-018",
+    "31-019", "31-020", "31-021", "31-022", "31-023", "31-024", "31-025", "31-026", "31-027",
+    "31-028", "31-029",
 ];
 
 /// What the pages do with one font: the codes they show in it, and those of them that are
@@ -63,9 +64,10 @@ pub fn audit_fonts(
         collect_fonts(arena, &Object::Dictionary(resources), 0, &mut fonts);
     }
     // 31-030 is about every font's text, so every font's codes are read.
-    let Scanned { codes, in_formulas, unlanguaged } =
-        if fonts.is_empty() { Scanned::default() } else { shown_codes(doc, &fonts) };
+    let Scanned { codes, in_formulas, unlanguaged, graphics, unread } = shown_codes(doc, &fonts);
     crate::page_languages::report(doc, &unlanguaged, findings);
+    let text = codes.values().any(|u| !u.codes.is_empty());
+    crate::audit_presence::content_questions(text, graphics, unread, findings);
     for font in fonts {
         let reading = Font { doc, arena, handle: font, name: base_font(arena, font) };
         reading.audit(findings);
@@ -393,6 +395,8 @@ fn shown_codes(doc: &Document, fonts: &BTreeSet<Handle<Object>>) -> Scanned {
         shown: BTreeMap::default(),
         in_formulas: BTreeMap::default(),
         unlanguaged: BTreeSet::new(),
+        graphics: 0,
+        unread: 0,
     };
     let Ok(pages) = doc.page_count() else { return Scanned::default() };
     for page in 0..pages {
@@ -408,6 +412,8 @@ fn shown_codes(doc: &Document, fonts: &BTreeSet<Handle<Object>>) -> Scanned {
         codes: used(scan.shown),
         in_formulas: used(scan.in_formulas),
         unlanguaged: scan.unlanguaged,
+        graphics: scan.graphics,
+        unread: scan.unread,
     }
 }
 
@@ -420,6 +426,10 @@ struct Scanned {
     in_formulas: BTreeMap<Handle<Object>, Use>,
     /// The pages, counted from 0, showing text in no stated language.
     unlanguaged: BTreeSet<usize>,
+    /// Graphics objects in neither an `/Artifact` nor a `<Figure>`.
+    graphics: usize,
+    /// Pages whose content would not read.
+    unread: usize,
 }
 
 /// What the scan has seen shown in one font, as bits: one per one-byte code and one per
@@ -483,6 +493,10 @@ struct Scan<'a> {
     shown: BTreeMap<Handle<Object>, Seen>,
     in_formulas: BTreeMap<Handle<Object>, Seen>,
     unlanguaged: BTreeSet<usize>,
+    /// Graphics objects in neither an `/Artifact` nor a `<Figure>`.
+    graphics: usize,
+    /// Pages whose content would not read.
+    unread: usize,
 }
 
 impl Scan<'_> {
@@ -490,21 +504,18 @@ impl Scan<'_> {
     /// reaches none of the fonts, directly or through its forms, is not parsed.
     fn page(&mut self, page: usize, resources: Resources) {
         let arena = self.doc.arena();
-        let mut reached = BTreeSet::new();
-        collect_fonts(arena, &Object::Dictionary(resources), 0, &mut reached);
-        if reached.is_disjoint(self.fonts) {
-            return;
-        }
         let named = names_in(arena, resources, "Font");
         let key = self.doc.get_page_handle(page).and_then(|h| {
             entry_of(arena, &Object::Reference(h), "StructParents").and_then(|k| k.as_integer())
         });
         self.page = page;
         let marks = self.marks(key, resources, crate::formula_marks::Facts::default());
-        if let Ok(Some(commands)) =
-            crate::apply::text::page_commands(self.doc, page, &loaded(self.doc, &named))
-        {
-            self.commands(&commands, resources, &named, (None, true), (0, &marks));
+        match crate::apply::text::page_commands(self.doc, page, &loaded(self.doc, &named)) {
+            Ok(Some(commands)) => {
+                self.commands(&commands, resources, &named, (None, true), (0, &marks));
+            }
+            Ok(None) => {}
+            Err(_) => self.unread += 1,
         }
     }
 
@@ -553,6 +564,10 @@ impl Scan<'_> {
                     current.1 = *mode != TextRenderingMode::Invisible;
                 }
                 Command::DrawXObject(name) => self.form(resources, name, current, (depth, within)),
+                Command::Fill(_)
+                | Command::Stroke(_)
+                | Command::FillStroke(..)
+                | Command::DrawInlineImage { .. } => self.graphic(within),
                 other => {
                     if let (Some(font), visible, Some(bytes)) = (current.0, current.1, shown(other))
                     {
@@ -567,6 +582,13 @@ impl Scan<'_> {
                     }
                 }
             }
+        }
+    }
+
+    /// Counts a graphics object that is in neither an `/Artifact` nor a `<Figure>` (13-001).
+    fn graphic(&mut self, within: crate::formula_marks::Facts) {
+        if !within.artifact && !within.figure {
+            self.graphics += 1;
         }
     }
 
@@ -612,13 +634,12 @@ impl Scan<'_> {
     ) {
         let arena = self.doc.arena();
         let Some(form) = names_in(arena, resources, "XObject").get(name).copied() else { return };
-        let Some(own) = form_resources(arena, form, resources) else { return };
-        if depth >= FORM_DEPTH {
+        let Some(own) = form_resources(arena, form, resources) else {
+            // An image, which is a graphics object in its own right.
+            self.graphic(within);
             return;
-        }
-        let mut reached = BTreeSet::new();
-        collect_fonts(arena, &Object::Dictionary(own), depth + 1, &mut reached);
-        if reached.is_disjoint(self.fonts) {
+        };
+        if depth >= FORM_DEPTH {
             return;
         }
         let named = names_in(arena, own, "Font");

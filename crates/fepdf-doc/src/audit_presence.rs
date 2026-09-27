@@ -15,9 +15,10 @@ use fepdf_model::{Document, Object, PdfArena};
 use std::collections::BTreeSet;
 
 /// The failure conditions this module decides.
-pub const FROM_PRESENCE: [&str; 17] = [
+pub const FROM_PRESENCE: [&str; 22] = [
     "03-001", "03-002", "03-003", "05-001", "05-002", "05-003", "13-002", "13-005", "13-008",
-    "16-001", "16-002", "22-001", "28-001", "28-003", "28-013", "29-001", "31-010",
+    "14-004", "15-001", "15-002", "15-004", "15-005", "16-001", "16-002", "22-001", "28-001",
+    "28-003", "28-013", "29-001", "31-010",
 ];
 
 /// ISO 32000-1 Table 198's action types, read out of `PDF32000_2008.pdf`.
@@ -172,11 +173,36 @@ fn script(doc: &Document, arena: &PdfArena, action: &Object) -> String {
 /// The numberings Table 347 gives an ordered list — the ones 16-002 names.
 const ORDERED: [&str; 5] = ["Decimal", "UpperRoman", "LowerRoman", "UpperAlpha", "LowerAlpha"];
 
-/// 13-005, 13-008, 16-001 and 16-002, from the `<Figure>` and `<L>` elements the structure
-/// tree has — none, in a document with no tree.
+/// What the structure tree has, of the elements the conditions here are about.
+#[derive(Default)]
+struct Elements {
+    described: usize,
+    undescribed: usize,
+    unnumbered: usize,
+    unordered: usize,
+    tables: usize,
+    custom: BTreeSet<String>,
+}
+
+/// 13-005, 13-008, 14-004, checkpoint 15's four and 16-001, 16-002, from the elements the
+/// structure tree has — none, in a document with no tree.
 fn elements(doc: &Document, findings: &mut Vec<AuditFinding>) {
+    let e = count_elements(doc);
+    decide("13-005", e.described, "figures with /ActualText", findings);
+    decide("13-008", e.undescribed, "figures without /ActualText", findings);
+    decide("16-001", e.unnumbered, "lists stating no ListNumbering", findings);
+    decide("16-002", e.unordered, "lists whose ListNumbering names no ordered numbering", findings);
+    for condition in ["15-001", "15-002", "15-004", "15-005"] {
+        decide(condition, e.tables, "tables", findings);
+    }
+    // With only standard types, every numbered heading is `<H1>` to `<H6>`: Arabic numerals.
+    decide("14-004", e.custom.len(), "structure types outside the standard set", findings);
+}
+
+/// The elements [`elements`] asks about, counted.
+fn count_elements(doc: &Document) -> Elements {
     let arena = doc.arena();
-    let (mut described, mut undescribed, mut unnumbered, mut unordered) = (0, 0, 0, 0);
+    let mut e = Elements::default();
     if let Some(root) = doc.get_structure_root().ok().flatten() {
         let roles = crate::audit_tree::role_map(arena, root);
         let classes = crate::audit_tree::class_map(arena, root);
@@ -184,22 +210,25 @@ fn elements(doc: &Document, findings: &mut Vec<AuditFinding>) {
         while let Some(element) = visitor.next_element() {
             let element = Object::Reference(element);
             let Some(tag) = name_of(arena, &element, "S") else { continue };
+            if !crate::audit_tree::standard(&tag) {
+                e.custom.insert(tag.clone());
+            }
             match crate::audit_tree::standard_type(&roles, &tag).as_deref() {
-                Some("Figure") if entry(arena, &element, "ActualText").is_some() => described += 1,
-                Some("Figure") => undescribed += 1,
+                Some("Figure") if entry(arena, &element, "ActualText").is_some() => {
+                    e.described += 1;
+                }
+                Some("Figure") => e.undescribed += 1,
+                Some("Table") => e.tables += 1,
                 Some("L") => match list_numbering(arena, &element, &classes) {
-                    None => unnumbered += 1,
-                    Some(value) if !ORDERED.contains(&value.as_str()) => unordered += 1,
+                    None => e.unnumbered += 1,
+                    Some(value) if !ORDERED.contains(&value.as_str()) => e.unordered += 1,
                     Some(_) => {}
                 },
                 _ => {}
             }
         }
     }
-    decide("13-005", described, "figures with /ActualText", findings);
-    decide("13-008", undescribed, "figures without /ActualText", findings);
-    decide("16-001", unnumbered, "lists stating no ListNumbering", findings);
-    decide("16-002", unordered, "lists whose ListNumbering names no ordered numbering", findings);
+    e
 }
 
 /// An `<L>`'s `ListNumbering` (Table 347), from its `/A` attribute objects owned by `List`
@@ -276,6 +305,56 @@ fn embeddable(doc: &Document, descriptors: &[Object], findings: &mut Vec<AuditFi
             "31-010",
             "Decided by the machine: every embedded program's OS/2 fsType permits embedding it as \
              it is embedded",
+        ));
+    }
+}
+
+/// 08-001, 08-002 and 12-001, which are about text — OCR-generated, or stretched — and a
+/// document showing none has none of either; and 13-001, which every graphics object in an
+/// `/Artifact` or a `<Figure>` meets. Pages whose content would not read leave all four to a
+/// person.
+pub(crate) fn content_questions(
+    text: bool,
+    graphics: usize,
+    unread: usize,
+    findings: &mut Vec<AuditFinding>,
+) {
+    if unread > 0 {
+        for condition in ["08-001", "08-002", "12-001", "13-001"] {
+            findings.push(for_a_reader(
+                condition,
+                format!("The content of {unread} pages would not read, so this is for a person"),
+            ));
+        }
+        return;
+    }
+    for condition in ["08-001", "08-002", "12-001"] {
+        findings.push(if text {
+            for_a_reader(
+                condition,
+                "The document shows text; whether any of it breaks this is for a person",
+            )
+        } else {
+            sound_because(
+                condition,
+                "Decided by the machine: the document shows no text, so none of it is \
+                 OCR-generated or a stretched character",
+            )
+        });
+    }
+    if graphics == 0 {
+        findings.push(sound_because(
+            "13-001",
+            "Decided by the machine: every graphics object the pages draw is in an /Artifact or \
+             a <Figure>",
+        ));
+    } else {
+        findings.push(for_a_reader(
+            "13-001",
+            format!(
+                "{graphics} graphics objects are in neither an /Artifact nor a <Figure>; whether \
+                 each should be a figure is for a person"
+            ),
         ));
     }
 }

@@ -3189,13 +3189,13 @@ Independent of all of the above:
       not be made.
 
       **This is the gap ADR-0087 was taken over, in the large.** A document this engine
-      declares PDF/UA-2 conforming is one it has checked ninety-four things about — and all
-      ninety-four are PDF/UA-1 conditions ([ADR-0092](docs/adr/0092-the-matterhorn-protocol-measures-ua-1-and-this-engine-declares-ua-2.md)). `PdfStandard::UA2`
+      declares PDF/UA-2 conforming is one it has checked a hundred and four things about — and all
+      a hundred and four are PDF/UA-1 conditions ([ADR-0092](docs/adr/0092-the-matterhorn-protocol-measures-ua-1-and-this-engine-declares-ua-2.md)). `PdfStandard::UA2`
       writes that claim into the catalogue, and the claim is a statement about 137 things.
 
       - [x] **W-21a — say how much is checked.** `audit_ua2_report` answers an
         `AuditReport` carrying an `AuditScope` beside the findings, and the window shows
-        "Matterhorn の 2 / 136 件の失格条件を検査" where the findings are — 94 / 137 since W-21v.
+        "Matterhorn の 2 / 136 件の失格条件を検査" where the findings are — 104 / 137 since W-21w.
         `found_nothing()` is
         named so that a caller cannot write `findings.is_empty()` and mean "conforms".
 
@@ -3493,6 +3493,26 @@ Independent of all of the above:
         36 with actions that change more than the view once, 152 whose embedded programs
         are silent on their permission.
 
+      - [x] **W-21w — ten more `H` conditions, and what a document with content is owed.**
+        The same test as W-21v: **08-001**, **08-002** and **12-001** are about text, and a
+        document showing none has none that is OCR-generated or stretched; **15-001**,
+        **15-002**, **15-004** and **15-005** are about tables, and a tree with no `<Table>`
+        has none; **14-004** is about numbered headings, and a tree using only standard
+        types numbers them `<H1>` to `<H6>`; **18-002** is about header and footer artefacts,
+        and pages marking no `/Artifact` and drawing no form have none. **13-001** is
+        decided rather than presumed: the content scan counts each graphics object — fill,
+        stroke, inline image, image XObject — in neither an `/Artifact` nor a `<Figure>`,
+        found through the parent tree as 17-003 finds a `<Formula>`, and none is sound. The
+        scan now reads every page and form, not only those naming a font; a page that will
+        not read leaves the four content questions to a person. **A hundred and four of 137;
+        21 left to a person.**
+
+        **A document with content always leaves a person something**, and the test that
+        said otherwise is rewritten: artefacts ask 18-002, graphics 13-001, text 08-001 and
+        12-001, figures 13-005 or 13-008. `breaks_nothing` now breaks nothing and leaves to
+        a reader only conditions the protocol marks `H`; `found_nothing` answers `true` for a
+        tagged document with no content. The audit of `intel_sdm.pdf` is 3.5 s.
+
       - [x] **W-21g — a condition checked and not broken is a result.** `AuditFinding`
         carries an `Outcome` — `Broken`, `Sound`, `ForAReader` — and `audit_report` adds
         one `Sound` per condition it checked and did not break. **One per condition, not
@@ -3520,7 +3540,7 @@ Independent of all of the above:
       against `/Alt`.
 
       **It waits on W-21 and says so.** A conformance claim is worth what the checking
-      behind it is worth, and ninety-four failure conditions of 137 is not a foundation to
+      behind it is worth, and a hundred and four failure conditions of 137 is not a foundation to
       put a second claim on. What can be done first is the reading: the structure tree editor this engine
       already has is most of what a well-tagged file is made with, and what it cannot yet
       express is the list this item starts as.

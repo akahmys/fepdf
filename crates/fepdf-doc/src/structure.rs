@@ -159,7 +159,7 @@ impl AuditReport {
     /// the document passing.
     ///
     /// **Named so that a caller cannot write `findings.is_empty()` and mean "conforms".**
-    /// Ninety-four failure conditions out of 137 finding nothing is ninety-four failure
+    /// A hundred and four failure conditions out of 137 finding nothing is a hundred and four failure
     /// conditions finding nothing. Read [`AuditReport::scope`] beside this.
     ///
     /// **This was `findings.is_empty()`, and that could not be true.** Once a checked and
@@ -201,7 +201,7 @@ pub const FROM_FORM: [&str; 2] = ["11-005", "28-005"];
 /// page.** PDF/UA-1 7.1 is a requirement about all content, and the three conditions of
 /// checkpoint 01 that this engine can decide are about what a `BDC` encloses — which is
 /// in the content stream and nowhere else. See [`crate::tagging`].
-pub const FROM_CONTENT: [&str; 3] = ["01-003", "01-004", "01-005"];
+pub const FROM_CONTENT: [&str; 4] = ["01-003", "01-004", "01-005", "18-002"];
 
 /// The failure conditions decided by walking the structure tree (14.7).
 ///
@@ -366,18 +366,19 @@ impl<'a> MatterhornAuditor<'a> {
     /// say so is a thing the tests can notice. The seven `FROM_` lists — the four above,
     /// and one each in `audit_objects`, `audit_fonts` and `audit_files` — partition this
     /// one, and a test holds them to it.
-    pub const CHECKED: [&'static str; 94] = [
+    pub const CHECKED: [&'static str; 104] = [
         "01-003", "01-004", "01-005", "01-007", "02-001", "02-003", "02-004", "03-001", "03-002",
-        "03-003", "05-001", "05-002", "05-003", "07-001", "07-002", "09-004", "09-005", "09-006",
-        "09-007", "09-008", "10-001", "11-001", "11-002", "11-003", "11-004", "11-005", "11-006",
-        "13-002", "13-004", "13-005", "13-008", "14-002", "14-003", "14-006", "14-007", "15-003",
-        "16-001", "16-002", "17-002", "17-003", "19-003", "19-004", "20-001", "20-002", "20-003",
-        "21-001", "22-001", "25-001", "26-001", "26-002", "28-001", "28-002", "28-003", "28-004",
-        "28-005", "28-006", "28-007", "28-008", "28-009", "28-010", "28-011", "28-012", "28-013",
-        "28-014", "28-015", "28-016", "28-017", "28-018", "29-001", "30-001", "30-002", "31-004",
-        "31-009", "31-010", "31-011", "31-012", "31-013", "31-014", "31-015", "31-016", "31-017",
-        "31-018", "31-019", "31-020", "31-021", "31-022", "31-023", "31-024", "31-025", "31-026",
-        "31-027", "31-028", "31-029", "31-030",
+        "03-003", "05-001", "05-002", "05-003", "07-001", "07-002", "08-001", "08-002", "09-004",
+        "09-005", "09-006", "09-007", "09-008", "10-001", "11-001", "11-002", "11-003", "11-004",
+        "11-005", "11-006", "12-001", "13-001", "13-002", "13-004", "13-005", "13-008", "14-002",
+        "14-003", "14-004", "14-006", "14-007", "15-001", "15-002", "15-003", "15-004", "15-005",
+        "16-001", "16-002", "17-002", "17-003", "18-002", "19-003", "19-004", "20-001", "20-002",
+        "20-003", "21-001", "22-001", "25-001", "26-001", "26-002", "28-001", "28-002", "28-003",
+        "28-004", "28-005", "28-006", "28-007", "28-008", "28-009", "28-010", "28-011", "28-012",
+        "28-013", "28-014", "28-015", "28-016", "28-017", "28-018", "29-001", "30-001", "30-002",
+        "31-004", "31-009", "31-010", "31-011", "31-012", "31-013", "31-014", "31-015", "31-016",
+        "31-017", "31-018", "31-019", "31-020", "31-021", "31-022", "31-023", "31-024", "31-025",
+        "31-026", "31-027", "31-028", "31-029", "31-030",
     ];
 
     /// How many failure conditions the Matterhorn Protocol 1.1 has, across 31 checkpoints.
@@ -579,13 +580,19 @@ impl<'a> MatterhornAuditor<'a> {
             return;
         };
         let mut unreadable = Vec::new();
+        let (mut artifacts, mut forms) = (0, 0);
         for page in 0..pages {
             match crate::tagging::tagging_of_page(self.doc, page) {
-                Ok(tagging) => Self::note_page_tagging(page, &tagging, findings),
+                Ok(tagging) => {
+                    Self::note_page_tagging(page, &tagging, findings);
+                    artifacts += tagging.artifacts;
+                    forms += tagging.forms_drawn;
+                }
                 Err(_) => unreadable.push((page + 1).to_string()),
             }
         }
         if unreadable.is_empty() {
+            Self::note_artifacts(artifacts, forms, findings);
             examined.extend(FROM_CONTENT);
             return;
         }
@@ -598,6 +605,28 @@ impl<'a> MatterhornAuditor<'a> {
                 unreadable.join(", ")
             ),
         ));
+    }
+
+    /// 18-002 (`H`): with no `/Artifact` on any page and no form drawn whose content could
+    /// hold one, there is no header or footer artifact to classify, and the machine says so;
+    /// otherwise which artifact is a header or footer is for a person.
+    fn note_artifacts(artifacts: usize, forms: usize, findings: &mut Vec<AuditFinding>) {
+        if artifacts == 0 && forms == 0 {
+            findings.push(sound_because(
+                "18-002",
+                "Decided by the machine: no page marks an /Artifact or draws a form that could, \
+                 so there is no header or footer artifact to classify",
+            ));
+        } else {
+            findings.push(for_a_reader(
+                "18-002",
+                format!(
+                    "The pages mark {artifacts} /Artifact sequences and draw {forms} forms; \
+                     whether each header or footer among them is classified Header or Footer \
+                     is for a person"
+                ),
+            ));
+        }
     }
 
     /// What one page's marked content came to, as the report says it.
