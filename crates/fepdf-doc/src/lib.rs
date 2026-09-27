@@ -19,6 +19,12 @@ pub mod audit_subsets;
 pub mod audit_tree;
 /// Object graph cloning.
 pub mod cloning;
+/// Which glyph each character code of a font selects, as ISO 32000-1 says.
+pub mod glyph_map;
+/// What the codes a font's text shows select: 31-011 and 31-030.
+pub mod glyph_select;
+/// A glyph's width in the font dictionary and in the program (31-016).
+pub mod glyph_widths;
 /// Where a page's marked content landed, for the structure tree to read.
 pub mod marked_content;
 /// The Matterhorn Protocol's own text, for the conditions it leaves to a person.

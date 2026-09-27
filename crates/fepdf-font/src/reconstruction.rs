@@ -608,6 +608,47 @@ impl FontReconstructor {
         }
     }
 
+    /// Each glyph's advance width in character space, as the `hsbw` or `sbw` its charstring
+    /// opens with states it; a glyph whose charstring opens otherwise is left out.
+    pub(crate) fn type1_advances(ascii: &[u8], encrypted: &[u8]) -> Option<BTreeMap<String, f64>> {
+        let decrypted = Self::decrypt_type1(encrypted, 55665, 4);
+        let data = Self::parse_type1_data(ascii, &decrypted).ok()?;
+        Some(
+            data.charstrings
+                .iter()
+                .filter_map(|(name, bytes)| {
+                    let plain = Self::decrypt_charstring(bytes, data.len_iv);
+                    Some((name.clone(), f64::from(Self::opening_advance(&plain)?)))
+                })
+                .collect(),
+        )
+    }
+
+    /// The advance a Type 1 charstring's first operator states: `hsbw`'s second operand,
+    /// or `sbw`'s third. Numbers are read with their bounds checked.
+    fn opening_advance(charstring: &[u8]) -> Option<i32> {
+        let mut stack: Vec<i32> = Vec::new();
+        let mut at = 0;
+        while let Some(&byte) = charstring.get(at) {
+            let next = |k: usize| charstring.get(at + k).copied().map(i32::from);
+            let (value, width) = match byte {
+                32..=246 => (i32::from(byte) - 139, 1),
+                247..=250 => ((i32::from(byte) - 247) * 256 + next(1)? + 108, 2),
+                251..=254 => (-(i32::from(byte) - 251) * 256 - next(1)? - 108, 2),
+                255 => {
+                    let b = charstring.get(at + 1..at + 5)?;
+                    (i32::from_be_bytes([b[0], b[1], b[2], b[3]]), 5)
+                }
+                13 => return stack.get(1).copied(),
+                12 if charstring.get(at + 1) == Some(&7) => return stack.get(2).copied(),
+                _ => return None,
+            };
+            stack.push(value);
+            at += width;
+        }
+        None
+    }
+
     /// The names a Type 1 program's `/CharStrings` defines, from its cleartext portion and
     /// its eexec-encrypted portion as bytes.
     pub(crate) fn type1_charstring_names(

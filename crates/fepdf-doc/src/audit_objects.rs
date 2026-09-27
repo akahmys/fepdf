@@ -462,10 +462,10 @@ fn printer_mark_appearance(
 }
 
 /// Whether `commands` paint anything with no `/Artifact` sequence open.
-fn paints_outside_an_artifact(commands: &[fepdf_model::object::sublimation::Command]) -> bool {
+fn paints_outside_an_artifact(content: &crate::apply::text::Content) -> bool {
     use fepdf_model::object::sublimation::Command;
     let mut open: Vec<bool> = Vec::new();
-    for command in commands {
+    for command in content.iter() {
         match command {
             Command::BeginMarkedContent { tag, .. } => open.push(tag.as_str() == "Artifact"),
             Command::EndMarkedContent => {

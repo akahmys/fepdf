@@ -191,10 +191,10 @@ fn true_type_cids(
 
 /// A TrueType CIDFont's `/CIDToGIDMap`: a stream of two bytes a CID, or — `/Identity`, or
 /// absent — each CID to the glyph of the same index (Table 117).
-struct GidMap(Option<Vec<u8>>);
+pub(crate) struct GidMap(Option<Vec<u8>>);
 
 impl GidMap {
-    fn of(doc: &Document, descendant: &Object) -> Self {
+    pub(crate) fn of(doc: &Document, descendant: &Object) -> Self {
         Self(match entry(doc.arena(), descendant, "CIDToGIDMap") {
             Some(stream @ Object::Stream(..)) => {
                 doc.decode_stream(&stream).ok().map(|b| b.to_vec())
@@ -204,7 +204,7 @@ impl GidMap {
     }
 
     /// The glyph `cid` maps to, when the map reaches it.
-    fn glyph(&self, cid: u32) -> Option<u16> {
+    pub(crate) fn glyph(&self, cid: u32) -> Option<u16> {
         match &self.0 {
             None => u16::try_from(cid).ok(),
             Some(bytes) => {

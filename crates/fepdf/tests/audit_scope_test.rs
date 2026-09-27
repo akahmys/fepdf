@@ -448,7 +448,7 @@ fn the_report_says_how_much_of_the_protocol_it_checked() {
     );
     assert_eq!(
         report.scope.checked.len(),
-        71,
+        74,
         "the scope does not name the failure conditions this auditor looks at"
     );
     assert!(
@@ -503,6 +503,8 @@ fn the_scope_names_every_checkpoint_reported() {
         breaks_the_files(),
         encrypted_without_p(),
         subsets(["(/A)", "(/A/B/C)", "00", "64"]),
+        shown_in(&type_1_font("/WinAnsiEncoding"), "(C) Tj <81>"),
+        shown_in(&widths_type_1("[500 650]"), "(AB)"),
     ] {
         let doc = opened(fixture);
         let report = doc.audit_ua2_report().expect("it audits");
@@ -571,6 +573,8 @@ fn every_condition_the_scope_names_can_be_reported_broken() {
         breaks_the_files(),
         encrypted_without_p(),
         subsets(["(/A)", "(/A/B/C)", "00", "64"]),
+        shown_in(&type_1_font("/WinAnsiEncoding"), "(C) Tj <81>"),
+        shown_in(&widths_type_1("[500 650]"), "(AB)"),
     ] {
         let doc = opened(fixture);
         let report = doc.audit_ua2_report().expect("it audits");
@@ -1384,6 +1388,9 @@ fn every_number_reported_means_in_the_protocol_what_it_is_used_for() {
         ("31-013", "font contains a CharSet string, but at least"),
         ("31-014", "font contains a CIDSet string, but at least one"),
         ("31-015", "font contains a CIDSet string, but at least"),
+        ("31-011", "For a font used by text the font program is"),
+        ("31-030", "One or more characters used in text showing"),
+        ("31-016", "For one or more glyphs, the glyph width"),
     ];
     assert_eq!(
         says.len(),
@@ -2044,4 +2051,203 @@ fn a_subsets_claim_is_held_to_its_program() {
         let report = opened(subsets(claims)).audit_ua2_report().expect("it audits");
         assert_eq!(outcomes(&report, condition), vec![Outcome::Broken; times], "{claims:?}");
     }
+}
+
+/// A page showing `text` — the operands of one or more `Tj`, the last without its operator
+/// — in font `/F1`, whose dictionary and the objects it names are `font`, objects 5 on.
+fn shown_in(font: &[String], text: &str) -> Vec<u8> {
+    let content = format!("BT /F1 12 Tf 20 100 Td {text} Tj ET");
+    let mut objects = vec![
+        "<< /Type /Catalog /Pages 2 0 R >>".to_string(),
+        "<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_string(),
+        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Contents 4 0 R \
+           /Resources << /Font << /F1 5 0 R >> >> >>"
+            .to_string(),
+        format!("<< /Length {} >>\nstream\n{content}\nendstream", content.len()),
+    ];
+    objects.extend(font.iter().cloned());
+    fepdf_fixtures::assemble(&objects)
+}
+
+/// A Type 1 font on `encoding` whose `/FontFile` holds `A` and `B`, as objects 5 to 7.
+fn type_1_font(encoding: &str) -> Vec<String> {
+    vec![
+        format!(
+            "<< /Type /Font /Subtype /Type1 /BaseFont /T1 /FontDescriptor 6 0 R /Encoding {encoding} >>"
+        ),
+        "<< /Type /FontDescriptor /FontName /T1 /Flags 32 /FontFile 7 0 R >>".to_string(),
+        hex_stream("/Length1 60 /Length2 142 /Length3 0", TYPE_1_A_B),
+    ]
+}
+
+/// What came of `condition` for `text` shown in `font`.
+fn selecting(font: &[String], text: &str, condition: &str) -> Vec<Outcome> {
+    outcomes(&opened(shown_in(font, text)).audit_ua2_report().expect("it audits"), condition)
+}
+
+/// **31-030 is a code selecting `.notdef`; 31-011 a rendered code selecting a glyph the
+/// program lacks.** In a Type 1 font holding `A` and `B`: `A` selects its glyph; `C` is a
+/// name the program lacks; 0x81 is a code WinAnsiEncoding leaves undefined, so `.notdef`.
+/// Shown in mode 3, `C` is not rendered and 31-011 does not ask about it — and 0x81 is
+/// still `.notdef`.
+#[test]
+fn a_type_1_code_selects_its_glyph_by_name() {
+    let font = type_1_font("/WinAnsiEncoding");
+    for (text, condition, outcome) in [
+        ("(AB)", "31-011", Outcome::Sound),
+        ("(AB)", "31-030", Outcome::Sound),
+        ("(C)", "31-011", Outcome::Broken),
+        ("(C)", "31-030", Outcome::Sound),
+        ("<81>", "31-030", Outcome::Broken),
+        ("3 Tr (C)", "31-011", Outcome::Sound),
+        ("3 Tr <81>", "31-030", Outcome::Broken),
+    ] {
+        assert_eq!(selecting(&font, text, condition), vec![outcome], "{condition} {text}");
+    }
+    // Renamed by `/Differences` to a name the program holds, `C` selects `B`'s glyph.
+    let renamed = type_1_font("<< /BaseEncoding /WinAnsiEncoding /Differences [67 /B] >>");
+    assert_eq!(selecting(&renamed, "(C)", "31-011"), vec![Outcome::Sound]);
+}
+
+/// **The same of a CFF program and of a TrueType CIDFont.** Under an Identity CMap a
+/// two-byte code is its CID: CID 1 reaches glyph 1, CID 5 is past the program's three
+/// glyphs, and CID 0 is `.notdef`.
+#[test]
+fn cff_and_cid_codes_select_their_glyphs() {
+    let cff = vec![
+        "<< /Type /Font /Subtype /Type1 /BaseFont /C1 /FontDescriptor 6 0 R \
+           /Encoding /WinAnsiEncoding >>"
+            .to_string(),
+        "<< /Type /FontDescriptor /FontName /C1 /Flags 32 /FontFile3 7 0 R >>".to_string(),
+        hex_stream("/Subtype /Type1C", CFF_A_B),
+    ];
+    assert_eq!(selecting(&cff, "(AB)", "31-011"), vec![Outcome::Sound]);
+    assert_eq!(selecting(&cff, "(C)", "31-011"), vec![Outcome::Broken]);
+    assert_eq!(selecting(&cff, "<81>", "31-030"), vec![Outcome::Broken]);
+    let cid = vec![
+        "<< /Type /Font /Subtype /Type0 /BaseFont /Cid /Encoding /Identity-H \
+           /DescendantFonts [<< /Type /Font /Subtype /CIDFontType2 /BaseFont /Cid \
+           /CIDSystemInfo << /Registry (Adobe) /Ordering (Identity) /Supplement 0 >> \
+           /FontDescriptor 6 0 R /CIDToGIDMap /Identity >>] >>"
+            .to_string(),
+        "<< /Type /FontDescriptor /FontName /Cid /Flags 4 /FontFile2 7 0 R >>".to_string(),
+        hex_stream("", THREE_SLOTS),
+    ];
+    assert_eq!(selecting(&cid, "<00010002>", "31-011"), vec![Outcome::Sound]);
+    assert_eq!(selecting(&cid, "<00010002>", "31-030"), vec![Outcome::Sound]);
+    assert_eq!(selecting(&cid, "<0005>", "31-011"), vec![Outcome::Broken]);
+    assert_eq!(selecting(&cid, "<0000>", "31-030"), vec![Outcome::Broken]);
+}
+
+/// **A font this cannot map is left for a reader, not called sound**: Helvetica with no
+/// program says nothing about which glyph a code selects.
+#[test]
+fn an_unmapped_font_is_left_for_a_reader() {
+    let helvetica = vec![
+        "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>"
+            .to_string(),
+    ];
+    assert_eq!(selecting(&helvetica, "(A)", "31-030"), vec![Outcome::ForAReader]);
+    // And 31-011 asks nothing of a font with no program to lack a glyph.
+    assert_eq!(selecting(&helvetica, "(A)", "31-011"), vec![Outcome::Sound]);
+}
+
+/// A Type 1 program like [`TYPE_1_A_B`] whose cleartext states its own encoding: every
+/// code `.notdef` but 65, which is `B`. 147 cleartext bytes.
+const TYPE_1_BUILT_IN_65_B: &str = "2521466f6e7454797065312d312e303a20546573740a2f466f6e744e616d65202f54657374206465660a2f456e636f64696e67203235362061727261790a30203120323535207b3120696e6465782065786368202f2e6e6f74646566207075747d20666f720a647570203635202f42207075740a726561646f6e6c79206465660a63757272656e7466696c652065657865630ad9d66f633b846a989b9974b0179fc6cc4452954d3a4fc272596999ba876cc6961876a36a3e0691600d27978f3466dac5e6c0328e74b316219e55bef8b40bfa7097977a0ae48a5588a9eb85fa1944834b491163b221bbd8dcd4f7c18ab788697941010806744caceebc5ad9be2c2b7fab5e09aca140d90d8d8444595afff597d945510082af7873f1a9d72848220a";
+
+/// **With no `/Encoding`, a Type 1 font's codes are named by the program's own**, as its
+/// cleartext states it: 65 is `B`, which the program holds, and 66 is `.notdef`.
+#[test]
+fn a_type_1_programs_own_encoding_names_its_codes() {
+    let font = vec![
+        "<< /Type /Font /Subtype /Type1 /BaseFont /T1 /FontDescriptor 6 0 R >>".to_string(),
+        "<< /Type /FontDescriptor /FontName /T1 /Flags 32 /FontFile 7 0 R >>".to_string(),
+        hex_stream("/Length1 147 /Length2 142 /Length3 0", TYPE_1_BUILT_IN_65_B),
+    ];
+    assert_eq!(selecting(&font, "(A)", "31-030"), vec![Outcome::Sound]);
+    assert_eq!(selecting(&font, "(A)", "31-011"), vec![Outcome::Sound]);
+    assert_eq!(selecting(&font, "(B)", "31-030"), vec![Outcome::Broken]);
+}
+
+/// A TrueType program whose (3,1) cmap maps U+0041 to glyph 1, of three glyphs whose
+/// `hmtx` advances are 500, 600 and 700 on a 1000-unit em.
+const WIDTHS_TRUE_TYPE: &str = "000100000007004000020000636d6170000000000000007c0000002c676c796600000000000000a80000000a6865616400000000000000b4000000366868656100000000000000ec00000024686d747800000000000001100000000c6c6f6361000000000000011c000000086d61787000000000000001240000000600000001000300010000000c00040020000000040004000100000041ffff00000041ffffffc00001000000000000000000000000000000000001000000000000000000005f0f3cf5000003e800000000000000000000000000000000000000000000000000000000000000000000000000010000000000000000000000000000000000000000000000000000000000000000000301f400000258000002bc000000000000000500050000500000030000";
+
+/// A name-keyed CFF program: `.notdef`, then `A` 500 and `B` 600 wide in their charstrings.
+const WIDTHS_CFF: &str = "01000401000101010554657374000101010d1d000000220f1d0000002711000000000000220023000301010205080ef8880ef8ec0e";
+
+/// A Type 1 program whose charstrings' `hsbw`s make `A` 500 and `B` 600 wide; 107 bytes of
+/// cleartext, with `/FontMatrix [0.001 0 0 0.001 0 0]`.
+const WIDTHS_TYPE_1: &str = "2521466f6e7454797065312d312e303a20546573740a2f466f6e744e616d65202f54657374206465660a2f466f6e744d6174726978205b302e3030312030203020302e303031203020305d20726561646f6e6c79206465660a63757272656e7466696c652065657865630ad9d66f633b846a989b9974b0179fc6cc4452954d3a4fc272596999ba876cc6961876a36a3e0691600d27978f3466dac5e6c0328e74b316219e55bef8b40bfa7097977a0ae48a5588a9eb85fa1944834b491163b221bbd8dcd4f7cd779d733f531ff661b8b3f8326645d3283a7d07bce51544bf5ffa32566dab6325f6c254758f6f36bad3af5efdb18d279d7525a77fc9bdebd54e3e251776c71b";
+
+/// A Type 1 font on WinAnsiEncoding whose `/Widths` from 65 are `widths`, over
+/// [`WIDTHS_TYPE_1`].
+fn widths_type_1(widths: &str) -> Vec<String> {
+    vec![
+        format!(
+            "<< /Type /Font /Subtype /Type1 /BaseFont /T1 /FontDescriptor 6 0 R \
+               /Encoding /WinAnsiEncoding /FirstChar 65 /LastChar 66 /Widths {widths} >>"
+        ),
+        "<< /Type /FontDescriptor /FontName /T1 /Flags 32 /FontFile 7 0 R >>".to_string(),
+        hex_stream("/Length1 107 /Length2 154 /Length3 0", WIDTHS_TYPE_1),
+    ]
+}
+
+/// **31-016 compares the dictionary's width for each rendered code with the program's for
+/// the glyph it reaches, to 1/1000 unit**, for each kind of program this reads: a Type 1
+/// `hsbw`, a CFF charstring's width, a TrueType `hmtx` advance, and a TrueType CIDFont's
+/// through `/W` and `/DW`. Text in mode 3 is not rendered and is not asked.
+#[test]
+fn a_rendered_glyphs_width_agrees_with_its_program() {
+    assert_eq!(selecting(&widths_type_1("[500 600]"), "(AB)", "31-016"), vec![Outcome::Sound]);
+    assert_eq!(selecting(&widths_type_1("[500.9 600]"), "(AB)", "31-016"), vec![Outcome::Sound]);
+    assert_eq!(selecting(&widths_type_1("[500 650]"), "(AB)", "31-016"), vec![Outcome::Broken]);
+    assert_eq!(selecting(&widths_type_1("[500 650]"), "(A)", "31-016"), vec![Outcome::Sound]);
+    assert_eq!(selecting(&widths_type_1("[500 650]"), "3 Tr (B)", "31-016"), vec![Outcome::Sound]);
+    let cff = |widths: &str| {
+        vec![
+            format!(
+                "<< /Type /Font /Subtype /Type1 /BaseFont /C1 /FontDescriptor 6 0 R \
+                   /Encoding /WinAnsiEncoding /FirstChar 65 /LastChar 66 /Widths {widths} >>"
+            ),
+            "<< /Type /FontDescriptor /FontName /C1 /Flags 32 /FontFile3 7 0 R >>".to_string(),
+            hex_stream("/Subtype /Type1C", WIDTHS_CFF),
+        ]
+    };
+    assert_eq!(selecting(&cff("[500 600]"), "(AB)", "31-016"), vec![Outcome::Sound]);
+    assert_eq!(selecting(&cff("[500 610]"), "(AB)", "31-016"), vec![Outcome::Broken]);
+    let true_type = |widths: &str| {
+        vec![
+            format!(
+                "<< /Type /Font /Subtype /TrueType /BaseFont /TT /FontDescriptor 6 0 R \
+                   /Encoding /WinAnsiEncoding /FirstChar 65 /LastChar 65 /Widths {widths} >>"
+            ),
+            "<< /Type /FontDescriptor /FontName /TT /Flags 32 /FontFile2 7 0 R >>".to_string(),
+            hex_stream("", WIDTHS_TRUE_TYPE),
+        ]
+    };
+    assert_eq!(selecting(&true_type("[600]"), "(A)", "31-016"), vec![Outcome::Sound]);
+    assert_eq!(selecting(&true_type("[500]"), "(A)", "31-016"), vec![Outcome::Broken]);
+    let cid = |w: &str| {
+        vec![
+            format!(
+                "<< /Type /Font /Subtype /Type0 /BaseFont /Cid /Encoding /Identity-H \
+                   /DescendantFonts [<< /Type /Font /Subtype /CIDFontType2 /BaseFont /Cid \
+                   /CIDSystemInfo << /Registry (Adobe) /Ordering (Identity) /Supplement 0 >> \
+                   /FontDescriptor 6 0 R /CIDToGIDMap /Identity {w} >>] >>"
+            ),
+            "<< /Type /FontDescriptor /FontName /Cid /Flags 4 /FontFile2 7 0 R >>".to_string(),
+            hex_stream("", WIDTHS_TRUE_TYPE),
+        ]
+    };
+    assert_eq!(selecting(&cid("/W [1 [600 700]]"), "<00010002>", "31-016"), vec![Outcome::Sound]);
+    // The range form: CID 1 alone is 600 and CID 2 alone 700, as the program has them.
+    assert_eq!(
+        selecting(&cid("/W [1 1 600 2 2 700]"), "<00010002>", "31-016"),
+        vec![Outcome::Sound]
+    );
+    assert_eq!(selecting(&cid("/W [1 2 600]"), "<00010002>", "31-016"), vec![Outcome::Broken]);
+    // No `/W` and no `/DW`: every CID is 1000 wide in the dictionary.
+    assert_eq!(selecting(&cid(""), "<0001>", "31-016"), vec![Outcome::Broken]);
 }

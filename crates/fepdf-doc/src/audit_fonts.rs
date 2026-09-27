@@ -12,19 +12,36 @@ use fepdf_model::{Document, Handle, Object, PdfArena};
 use std::collections::{BTreeMap, BTreeSet};
 
 /// The failure conditions this module decides.
-pub const FROM_FONTS: [&str; 19] = [
-    "31-004", "31-009", "31-012", "31-013", "31-014", "31-015", "31-017", "31-018", "31-019",
-    "31-020", "31-021", "31-022", "31-023", "31-024", "31-025", "31-026", "31-027", "31-028",
-    "31-029",
+pub const FROM_FONTS: [&str; 22] = [
+    "31-004", "31-009", "31-011", "31-016", "31-030", "31-012", "31-013", "31-014", "31-015",
+    "31-017", "31-018", "31-019", "31-020", "31-021", "31-022", "31-023", "31-024", "31-025",
+    "31-026", "31-027", "31-028", "31-029",
 ];
 
 /// What the pages do with one font: the codes they show in it, and those of them that are
 /// rendered — in a mode other than 3, the one ISO 14289-1 7.21.4.1 NOTE 2 exempts, since
 /// its glyphs are neither stroked, filled nor used to clip.
+///
+/// **Each string read both ways**, as one-byte codes and as two-byte ones, because which a
+/// font's codes are is the font's to say and is decided when the font is.
 #[derive(Default)]
 struct Use {
     codes: BTreeSet<u8>,
     rendered: BTreeSet<u8>,
+    pairs: BTreeSet<u32>,
+    rendered_pairs: BTreeSet<u32>,
+}
+
+impl Use {
+    /// What the pages show in the font, for 31-011 and 31-030.
+    fn as_shown(&self) -> crate::glyph_select::Shown<'_> {
+        crate::glyph_select::Shown {
+            codes: &self.codes,
+            rendered: &self.rendered,
+            pairs: &self.pairs,
+            rendered_pairs: &self.rendered_pairs,
+        }
+    }
 }
 
 /// How deep form XObjects are followed for the fonts they use (Rule 6).
@@ -45,18 +62,8 @@ pub fn audit_fonts(
             fepdf_model::Page::new(arena, handle, doc.get_parent_chain(handle)).resources_handle();
         collect_fonts(arena, &Object::Dictionary(resources), 0, &mut fonts);
     }
-    // Only the fonts 31-027 asks about glyph by glyph cost a pass over the content.
-    let asked: BTreeSet<Handle<Object>> = fonts
-        .iter()
-        .copied()
-        .filter(|font| {
-            let font = Font { doc, arena, handle: *font, name: String::new() };
-            font.names_its_glyphs()
-                || font.lacks_program()
-                || font.non_symbolic_true_type().is_some()
-        })
-        .collect();
-    let codes = if asked.is_empty() { BTreeMap::default() } else { shown_codes(doc, &asked) };
+    // 31-030 is about every font's text, so every font's codes are read.
+    let codes = if fonts.is_empty() { BTreeMap::default() } else { shown_codes(doc, &fonts) };
     for font in fonts {
         let reading = Font { doc, arena, handle: font, name: base_font(arena, font) };
         reading.audit(findings);
@@ -67,6 +74,17 @@ pub fn audit_fonts(
         reading.drawn_without(rendered.is_some(), findings);
         if let Some(rendered) = rendered {
             reading.looked_up(rendered, findings);
+        }
+        if let Some(used) = used {
+            let embedded = !reading.lacks_program();
+            crate::glyph_select::selected(
+                doc,
+                font,
+                &reading.name,
+                embedded,
+                &used.as_shown(),
+                findings,
+            );
         }
     }
     examined.extend(FROM_FONTS);
@@ -330,44 +348,96 @@ type TextState = (Option<Handle<Object>>, bool);
 /// and `TJ` shows.
 fn shown_codes(doc: &Document, fonts: &BTreeSet<Handle<Object>>) -> BTreeMap<Handle<Object>, Use> {
     let mut scan = Scan { doc, fonts, shown: BTreeMap::default() };
-    let Ok(pages) = doc.page_count() else { return scan.shown };
+    let Ok(pages) = doc.page_count() else { return BTreeMap::default() };
     for page in 0..pages {
         let Some(handle) = doc.get_page_handle(page) else { continue };
         let resources = fepdf_model::Page::new(doc.arena(), handle, doc.get_parent_chain(handle))
             .resources_handle();
-        if let Ok(Some(content)) = crate::apply::text::page_content(doc, page) {
-            scan.content(resources, &content, (None, true), 0);
+        scan.page(page, resources);
+    }
+    scan.shown.into_iter().map(|(font, seen)| (font, seen.used())).collect()
+}
+
+/// What the scan has seen shown in one font, as bits: one per one-byte code and one per
+/// two-byte code, each set once for any text and once for rendered text.
+///
+/// **Bits, not sets, while the pages are read.** Every byte of every string lands here, and
+/// on `intel_sdm.pdf` inserting each into four ordered sets was most of the audit's time.
+struct Seen {
+    codes: [u64; 4],
+    rendered: [u64; 4],
+    pairs: Vec<u64>,
+    rendered_pairs: Vec<u64>,
+}
+
+impl Default for Seen {
+    fn default() -> Self {
+        Self {
+            codes: [0; 4],
+            rendered: [0; 4],
+            pairs: vec![0; 1024],
+            rendered_pairs: vec![0; 1024],
         }
     }
-    scan.shown
+}
+
+/// Sets bit `at`.
+fn set(bits: &mut [u64], at: usize) {
+    if let Some(word) = bits.get_mut(at / 64) {
+        *word |= 1 << (at % 64);
+    }
+}
+
+/// The bits set, as numbers.
+fn members(bits: &[u64]) -> impl Iterator<Item = usize> + '_ {
+    bits.iter().enumerate().flat_map(|(i, word)| {
+        (0..64).filter(move |b| word & (1 << b) != 0).map(move |b| i * 64 + b)
+    })
+}
+
+impl Seen {
+    /// The bits as the sets the conditions read.
+    fn used(&self) -> Use {
+        let bytes = |bits: &[u64]| members(bits).filter_map(|c| u8::try_from(c).ok()).collect();
+        let pairs = |bits: &[u64]| members(bits).filter_map(|c| u32::try_from(c).ok()).collect();
+        Use {
+            codes: bytes(&self.codes),
+            rendered: bytes(&self.rendered),
+            pairs: pairs(&self.pairs),
+            rendered_pairs: pairs(&self.rendered_pairs),
+        }
+    }
 }
 
 /// One pass over content for what it does with `fonts`.
 struct Scan<'a> {
     doc: &'a Document,
     fonts: &'a BTreeSet<Handle<Object>>,
-    shown: BTreeMap<Handle<Object>, Use>,
+    shown: BTreeMap<Handle<Object>, Seen>,
 }
 
 impl Scan<'_> {
-    /// Reads one content stream, drawn with `resources` and begun in `state`. Content that
+    /// Reads one page's content, drawn with `resources`. Content that
     /// reaches none of the fonts, directly or through its forms, is not parsed.
-    fn content(&mut self, resources: Resources, content: &[u8], state: TextState, depth: usize) {
+    fn page(&mut self, page: usize, resources: Resources) {
         let arena = self.doc.arena();
         let mut reached = BTreeSet::new();
-        collect_fonts(arena, &Object::Dictionary(resources), depth, &mut reached);
+        collect_fonts(arena, &Object::Dictionary(resources), 0, &mut reached);
         if reached.is_disjoint(self.fonts) {
             return;
         }
         let named = names_in(arena, resources, "Font");
-        let commands = parse(self.doc, &named, content);
-        self.commands(&commands, resources, &named, state, depth);
+        if let Ok(Some(commands)) =
+            crate::apply::text::page_commands(self.doc, page, &loaded(self.doc, &named))
+        {
+            self.commands(&commands, resources, &named, (None, true), 0);
+        }
     }
 
     /// What `commands` shows in each font, and the forms it draws, followed in turn.
     fn commands(
         &mut self,
-        commands: &[Command],
+        content: &crate::apply::text::Content,
         resources: Resources,
         named: &BTreeMap<String, Handle<Object>>,
         mut current: TextState,
@@ -375,7 +445,7 @@ impl Scan<'_> {
     ) {
         use fepdf_model::graphics::TextRenderingMode;
         let mut saved = Vec::new();
-        for command in commands {
+        for command in content.iter() {
             let bytes: Vec<&[u8]> = match command {
                 Command::PushState => {
                     saved.push(current);
@@ -408,19 +478,29 @@ impl Scan<'_> {
                 _ => continue,
             };
             if let (Some(font), visible) = current {
-                self.note(font, visible, bytes.into_iter().flatten().copied());
+                self.note(font, visible, &bytes);
             }
         }
     }
 
     /// Records the codes one text-showing operator shows in `font`, and whether rendered.
-    fn note(&mut self, font: Handle<Object>, visible: bool, codes: impl Iterator<Item = u8>) {
-        let used = self.shown.entry(font).or_default();
-        let codes: Vec<u8> = codes.collect();
-        if visible {
-            used.rendered.extend(&codes);
+    fn note(&mut self, font: Handle<Object>, visible: bool, strings: &[&[u8]]) {
+        let seen = self.shown.entry(font).or_default();
+        for string in strings {
+            for byte in *string {
+                set(&mut seen.codes, usize::from(*byte));
+                if visible {
+                    set(&mut seen.rendered, usize::from(*byte));
+                }
+            }
+            for pair in string.chunks_exact(2) {
+                let code = usize::from(u16::from_be_bytes([pair[0], pair[1]]));
+                set(&mut seen.pairs, code);
+                if visible {
+                    set(&mut seen.rendered_pairs, code);
+                }
+            }
         }
-        used.codes.extend(codes);
     }
 
     /// The form `name` names in `resources`, read in the state that draws it. A form with no
@@ -438,8 +518,8 @@ impl Scan<'_> {
             return;
         }
         let named = names_in(arena, own, "Font");
-        if let Some(commands) = form_commands(self.doc, form, &named) {
-            self.commands(&commands, own, &named, state, depth + 1);
+        if let Some(content) = form_commands(self.doc, form, &named) {
+            self.commands(&content, own, &named, state, depth + 1);
         }
     }
 }
@@ -468,28 +548,19 @@ pub(crate) fn form_commands(
     doc: &Document,
     form: Handle<Object>,
     named: &BTreeMap<String, Handle<Object>>,
-) -> Option<Vec<Command>> {
-    let object = doc.arena().get_object(form)?;
-    if let Object::Stream(_, data) = &object
-        && let fepdf_model::object::SublimatedData::Commands { items } = data.as_ref()
-    {
-        return Some(items.clone());
-    }
-    let content = doc.decode_stream(&object).ok()?;
-    Some(parse(doc, named, &content))
+) -> Option<crate::apply::text::Content> {
+    crate::apply::text::Content::of_stream(doc, &doc.arena().get_object(form)?, &loaded(doc, named))
 }
 
-/// Content bytes parsed into commands, with the fonts `named` loaded to read its text by.
-pub(crate) fn parse(
+/// The fonts `named`, loaded, by resource name.
+pub(crate) fn loaded(
     doc: &Document,
     named: &BTreeMap<String, Handle<Object>>,
-    content: &[u8],
-) -> Vec<Command> {
-    let loaded: BTreeMap<String, _> = named
+) -> BTreeMap<String, std::sync::Arc<fepdf_model::font::FontResource>> {
+    named
         .iter()
         .filter_map(|(name, font)| Some((name.clone(), doc.get_font(*font).ok()?)))
-        .collect();
-    fepdf_model::object::sublimation::parser::Sublimator::new(&loaded).sublimate(content)
+        .collect()
 }
 
 /// The entries of one category of `resources` — `/Font` or `/XObject` — by resource name.
@@ -583,7 +654,7 @@ impl Font<'_> {
     fn looked_up(&self, rendered: &BTreeSet<u8>, findings: &mut Vec<AuditFinding>) {
         let Some(descriptor) = self.non_symbolic_true_type() else { return };
         let (Some(names), Some(program)) = (
-            self.true_type_names(&Object::Reference(self.handle)),
+            crate::glyph_map::true_type_names(self.arena, &Object::Reference(self.handle)),
             descendant_program(self, &descriptor),
         ) else {
             return;
@@ -602,34 +673,6 @@ impl Font<'_> {
                 ),
             ));
         }
-    }
-
-    /// The code-to-name table 9.6.6.4 builds for a non-symbolic TrueType font: a named
-    /// encoding's Annex D names, or a dictionary's base, its `/Differences` over it, and
-    /// StandardEncoding for what is left. An `/Encoding` naming anything else, or none,
-    /// has no table (31-019 and 31-021 say so).
-    fn true_type_names(&self, font: &Object) -> Option<BTreeMap<u8, String>> {
-        let annex = |name: &str| -> Option<BTreeMap<u8, String>> {
-            let table: &[(u8, &str)] = match name {
-                "WinAnsiEncoding" => &fepdf_font::latin_names::WIN_ANSI,
-                "MacRomanEncoding" => &fepdf_font::latin_names::MAC_ROMAN,
-                _ => return None,
-            };
-            Some(table.iter().map(|(code, name)| (*code, (*name).to_owned())).collect())
-        };
-        let encoding = self.entry(font, "Encoding")?;
-        if let Some(name) = encoding.as_name().and_then(|n| self.arena.get_name(n)) {
-            return annex(name.as_str());
-        }
-        let mut table = match self.name_of(&encoding, "BaseEncoding") {
-            Some(base) => annex(&base)?,
-            None => BTreeMap::new(),
-        };
-        table.extend(self.differences(&encoding));
-        for (code, name) in fepdf_font::latin_names::STANDARD_ENCODING {
-            table.entry(code).or_insert_with(|| name.to_owned());
-        }
-        Some(table)
     }
 
     /// 31-009 and 31-017, which are about a font whose text is rendered.
@@ -651,17 +694,6 @@ impl Font<'_> {
         }
     }
 
-    /// Whether 31-027 turns on the names of the glyphs this font's text shows: a Type 1
-    /// or Type 3 font with no `/ToUnicode` and no Latin encoding named.
-    fn names_its_glyphs(&self) -> bool {
-        let font = Object::Reference(self.handle);
-        let simple = matches!(
-            self.name_of(&font, "Subtype").as_deref(),
-            Some("Type1" | "MMType1" | "Type3")
-        );
-        simple && self.entry(&font, "ToUnicode").is_none() && !self.latin_encoding(&font)
-    }
-
     /// Whether the font's `/Encoding`, or its `/BaseEncoding`, is one 31-027 accepts.
     fn latin_encoding(&self, font: &Object) -> bool {
         let named = self.entry(font, "Encoding").and_then(|e| {
@@ -677,24 +709,7 @@ impl Font<'_> {
 
     /// A simple font's `/Differences`, as code to name.
     fn differences(&self, encoding: &Object) -> BTreeMap<u8, String> {
-        let mut names = BTreeMap::new();
-        let Some(Object::Array(array)) = self.entry(encoding, "Differences") else { return names };
-        let mut code: Option<u8> = None;
-        for item in self.arena.get_array(array).unwrap_or_default() {
-            match item.resolve(self.arena) {
-                Object::Integer(start) => code = u8::try_from(start).ok(),
-                other => {
-                    let (Some(at), Some(name)) =
-                        (code, other.as_name().and_then(|n| self.arena.get_name(n)))
-                    else {
-                        continue;
-                    };
-                    names.insert(at, name.as_str().to_string());
-                    code = at.checked_add(1);
-                }
-            }
-        }
-        names
+        crate::glyph_map::differences(self.arena, encoding)
     }
 
     /// 31-027: a font with no `/ToUnicode` is one whose text can be read without it —

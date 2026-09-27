@@ -7,7 +7,7 @@
 //! media clip under any rendition action. So the objects reachable from the catalogue are
 //! walked once, and each condition asks every dictionary it concerns.
 
-use crate::audit_fonts::{FORM_DEPTH, Resources, form_commands, form_resources, names_in, parse};
+use crate::audit_fonts::{FORM_DEPTH, Resources, form_commands, form_resources, names_in};
 use crate::audit_objects::{entry, items, name_of};
 use crate::structure::{AuditFinding, broken};
 use fepdf_model::object::sublimation::Command;
@@ -246,9 +246,7 @@ fn shared_forms(doc: &Document, forms: &[Handle<Object>], findings: &mut Vec<Aud
         let Some(handle) = doc.get_page_handle(page) else { continue };
         let resources = fepdf_model::Page::new(doc.arena(), handle, doc.get_parent_chain(handle))
             .resources_handle();
-        if let Ok(Some(content)) = crate::apply::text::page_content(doc, page) {
-            draws.content(resources, &content, 0);
-        }
+        draws.page(page, resources);
     }
     for (name, count) in draws.counted.values().filter(|(_, count)| *count > 1) {
         findings.push(broken(
@@ -267,8 +265,8 @@ fn carries_mcids(doc: &Document, form: Handle<Object>) -> bool {
         .and_then(|r| r.as_dict_handle())
         .map(|resources| names_in(arena, resources, "Properties"))
         .unwrap_or_default();
-    let commands = form_commands(doc, form, &BTreeMap::new()).unwrap_or_default();
-    commands.iter().any(|command| match command {
+    let Some(content) = form_commands(doc, form, &BTreeMap::new()) else { return false };
+    content.iter().any(|command| match command {
         Command::BeginMarkedContent { properties: Some(IrObject::Dictionary(inline)), .. } => {
             inline.contains_key("MCID")
         }
@@ -288,20 +286,28 @@ struct Draws<'a> {
 }
 
 impl Draws<'_> {
-    /// The forms one content stream draws, drawn with `resources`, and those they draw.
-    fn content(&mut self, resources: Resources, content: &[u8], depth: usize) {
+    /// The forms one page draws, drawn with `resources`, and those they draw.
+    fn page(&mut self, page: usize, resources: Resources) {
         if names_in(self.doc.arena(), resources, "XObject").is_empty() {
             return;
         }
-        let commands = parse(self.doc, &BTreeMap::new(), content);
-        self.commands(&commands, resources, depth);
+        if let Ok(Some(commands)) =
+            crate::apply::text::page_commands(self.doc, page, &BTreeMap::new())
+        {
+            self.commands(&commands, resources, 0);
+        }
     }
 
     /// The forms `commands` draws, counted, and those they draw in turn.
-    fn commands(&mut self, commands: &[Command], resources: Resources, depth: usize) {
+    fn commands(
+        &mut self,
+        content: &crate::apply::text::Content,
+        resources: Resources,
+        depth: usize,
+    ) {
         let arena = self.doc.arena();
         let named = names_in(arena, resources, "XObject");
-        for command in commands {
+        for command in content.iter() {
             let Command::DrawXObject(name) = command else { continue };
             let Some(form) = named.get(name).copied() else { continue };
             let Some(own) = form_resources(arena, form, resources) else { continue };

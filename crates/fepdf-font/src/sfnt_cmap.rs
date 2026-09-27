@@ -31,6 +31,13 @@ impl<'a> CmapSubtable<'a> {
     pub fn glyph(&self, code: u32) -> Option<u16> {
         self.subtable.glyph_index(code).map(|g| g.0).filter(|g| *g != 0)
     }
+
+    /// The glyph `code` selects, `.notdef` (glyph 0) included — and a code the subtable
+    /// does not map selects glyph 0 too, as an SFNT's `cmap` defines.
+    #[must_use]
+    pub fn glyph_or_notdef(&self, code: u32) -> u16 {
+        self.subtable.glyph_index(code).map_or(0, |g| g.0)
+    }
 }
 
 /// The platform ID a `cmap` encoding record states — 3 for Microsoft, 1 for Macintosh, as

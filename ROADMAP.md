@@ -3189,13 +3189,13 @@ Independent of all of the above:
       not be made.
 
       **This is the gap ADR-0087 was taken over, in the large.** A document this engine
-      declares PDF/UA-2 conforming is one it has checked seventy-one things about — and all
-      seventy-one are PDF/UA-1 conditions ([ADR-0092](docs/adr/0092-the-matterhorn-protocol-measures-ua-1-and-this-engine-declares-ua-2.md)). `PdfStandard::UA2`
+      declares PDF/UA-2 conforming is one it has checked seventy-four things about — and all
+      seventy-four are PDF/UA-1 conditions ([ADR-0092](docs/adr/0092-the-matterhorn-protocol-measures-ua-1-and-this-engine-declares-ua-2.md)). `PdfStandard::UA2`
       writes that claim into the catalogue, and the claim is a statement about 137 things.
 
       - [x] **W-21a — say how much is checked.** `audit_ua2_report` answers an
         `AuditReport` carrying an `AuditScope` beside the findings, and the window shows
-        "Matterhorn の 2 / 136 件の失格条件を検査" where the findings are — 71 / 137 since W-21q.
+        "Matterhorn の 2 / 136 件の失格条件を検査" where the findings are — 74 / 137 since W-21s.
         `found_nothing()` is
         named so that a caller cannot write `findings.is_empty()` and mean "conforms".
 
@@ -3390,6 +3390,46 @@ Independent of all of the above:
         A008, a PDF/A-1 *pass* file whose RyoGothic CIDSet omits CIDs 1 to 87, and
         `sample_02c.pdf`'s Meiryo and KozGoPro — and one `/CharSet` leaving out two names.
 
+      - [x] **W-21r — which glyph a code selects, and the audit's time.** **31-030** (a
+        code selecting `.notdef`, rendered or not) and **31-011** (a rendered code selecting
+        a glyph the embedded program lacks) rest on `glyph_map`, which follows ISO 32000-1
+        9.6.6 and nothing further: a TrueType font through 9.6.6.4's cmap lookups, a Type 1
+        font by name in its `/CharStrings` or CFF charset — its own encoding read from the
+        program where the dictionary names none — a Type 3 font in its `/CharProcs`, and a
+        Type 0 font only where the file's CMap was an Identity one, since ingestion rewrites
+        every Type 0 `/Encoding` without touching the content. **A font it cannot follow
+        that way is left for a reader, not called sound**: a program not embedded, a CMap
+        not Identity, a program that reads as holding nothing. **Seventy-three of 137.**
+        Across the 525 files (2026-09-27) they find seven, each read: Isartor's four 6-3-5
+        files, whose subsets lack a glyph their text uses, and three texts showing code 0,
+        `volvo_xc90.pdf`'s among them. 179 rows are left for a reader. Two findings the first run made were wrong and are gone: a
+        `/FontFile` of spaces read as holding no glyphs, and `ttf_parser`'s
+        `glyph_index_by_name` missing a `space` the charset has.
+
+        **The audit's time was mostly the audit re-reading what ingestion had read.**
+        Measured in-process on `intel_sdm.pdf` (debug build, 2026-09-27): opening 6.5 s, the
+        audit **20.8 s**, of which 12.7 s the font scan and 6.4 s checkpoint 01's. Ingestion
+        keeps content as parsed commands; `page_content` serialised them to bytes for the
+        audit to parse again, and every byte shown went into four ordered sets.
+        `apply::text::Content` shares the parsed commands and `Seen` keeps the codes as
+        bits: the audit is **2.7 s**, and `fy05.pdf`'s 2.9 s is 0.4 s, with the same
+        findings. **Timing `fepdf inspect audit` against `fepdf inspect info` says nothing
+        about the audit**: `info` does work of its own that takes as long, which is how the
+        20 s went unseen.
+
+      - [x] **W-21s — a rendered glyph's width, in the dictionary and in the program.**
+        **31-016** (UA1:7.21.5): for each rendered code, the width `/Widths` or `/MissingWidth`
+        — for a Type 0 font, the CIDFont's `/W` or `/DW` — against the width of the glyph
+        `glyph_map` says the code reaches, in units of 1/1000 em, to the 1/1000 unit the
+        clause allows. The program's width is a TrueType `hmtx` advance over `unitsPerEm`,
+        a name-keyed CFF charstring's width through its `FontMatrix`, or a Type 1
+        charstring's opening `hsbw` or `sbw` through the cleartext's `/FontMatrix`. **A
+        CID-keyed CFF program and a Type 3 font are left for a reader**: the one keeps
+        widths per font dictionary, the other in its procedures. **Seventy-four of 137.**
+        Across the 525 files (2026-09-27) it finds four, each a file made to break it —
+        Isartor's three 6-3-6 files and the PDF/UA-2 suite's 8.4.5.6 — and nothing in the
+        samples; 98 rows are left for a reader.
+
       - [x] **W-21g — a condition checked and not broken is a result.** `AuditFinding`
         carries an `Outcome` — `Broken`, `Sound`, `ForAReader` — and `audit_report` adds
         one `Sound` per condition it checked and did not break. **One per condition, not
@@ -3417,7 +3457,7 @@ Independent of all of the above:
       against `/Alt`.
 
       **It waits on W-21 and says so.** A conformance claim is worth what the checking
-      behind it is worth, and seventy-one failure conditions of 137 is not a foundation to
+      behind it is worth, and seventy-four failure conditions of 137 is not a foundation to
       put a second claim on. What can be done first is the reading: the structure tree editor this engine
       already has is most of what a well-tagged file is made with, and what it cannot yet
       express is the list this item starts as.

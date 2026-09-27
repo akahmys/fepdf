@@ -70,18 +70,16 @@ impl PageTagging {
 /// Fails when the page is not there, or its content will not decode.
 pub fn tagging_of_page(doc: &Document, page: usize) -> PdfResult<PageTagging> {
     let mut out = PageTagging::default();
-    let Some(content) = crate::apply::text::page_content(doc, page)? else {
+    let fonts = crate::apply::text::fonts_of_page(doc, page)?;
+    let Some(commands) = crate::apply::text::page_commands(doc, page, &fonts)? else {
         // A page with no `/Contents` draws nothing, so there is nothing under neither.
         return Ok(out);
     };
-    let fonts = crate::apply::text::fonts_of_page(doc, page)?;
-    let commands =
-        fepdf_model::object::sublimation::parser::Sublimator::new(&fonts).sublimate(&content);
     let properties = named_properties(doc, page);
     let forms = form_xobjects(doc, page);
 
     let mut open: Vec<Sequence> = Vec::new();
-    for command in &commands {
+    for command in commands.iter() {
         match command {
             Command::BeginMarkedContent { tag, properties: list } => {
                 let here = sequence_of(tag.as_str(), list.as_ref(), &properties);

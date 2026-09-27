@@ -198,6 +198,101 @@ pub(crate) fn page_content(doc: &Document, page: usize) -> PdfResult<Option<byte
     Ok(Some(crate::remediation::decode_page_contents(doc, &contents)?))
 }
 
+/// Content as commands: shared with the document where ingestion already parsed each
+/// stream, or parsed here where a stream holds bytes.
+///
+/// **Not serialised and parsed again, and not copied.** Ingestion keeps a content stream as
+/// the commands it parsed, and [`page_content`] writes them back out as bytes for a caller
+/// to parse — which the audit did for every page, twice, and for every form each time it
+/// was drawn: most of its time on `intel_sdm.pdf`.
+pub(crate) enum Content {
+    /// The streams' own commands, as the document holds them.
+    Shared(Vec<Arc<fepdf_model::object::SublimatedData>>),
+    /// Commands parsed from bytes.
+    Parsed(Vec<fepdf_model::object::sublimation::Command>),
+}
+
+impl Content {
+    /// The commands, in order.
+    pub(crate) fn iter(
+        &self,
+    ) -> Box<dyn Iterator<Item = &fepdf_model::object::sublimation::Command> + '_> {
+        match self {
+            Self::Shared(streams) => {
+                Box::new(streams.iter().flat_map(|data| match data.as_ref() {
+                    fepdf_model::object::SublimatedData::Commands { items } => items.as_slice(),
+                    // `Shared` holds only streams that are commands; the rest draw nothing.
+                    fepdf_model::object::SublimatedData::Image { .. }
+                    | fepdf_model::object::SublimatedData::Compressed { .. }
+                    | fepdf_model::object::SublimatedData::Raw(_) => &[],
+                }))
+            }
+            Self::Parsed(commands) => Box::new(commands.iter()),
+        }
+    }
+
+    /// One stream's content: its commands, when ingestion parsed it, or its bytes parsed with
+    /// `fonts`.
+    pub(crate) fn of_stream(
+        doc: &Document,
+        stream: &Object,
+        fonts: &BTreeMap<String, Arc<FontResource>>,
+    ) -> Option<Self> {
+        if let Object::Stream(_, data) = stream
+            && matches!(data.as_ref(), fepdf_model::object::SublimatedData::Commands { .. })
+        {
+            return Some(Self::Shared(vec![Arc::clone(data)]));
+        }
+        let bytes = doc.decode_stream(stream).ok()?;
+        Some(Self::Parsed(
+            fepdf_model::object::sublimation::parser::Sublimator::new(fonts).sublimate(&bytes),
+        ))
+    }
+}
+
+/// The page's content as commands, through [`Content`]; nothing when it has no
+/// `/Contents`. Where any stream holds bytes the whole is decoded and parsed with the
+/// page's `fonts`, since an operator's operands may end one stream and it the next.
+pub(crate) fn page_commands(
+    doc: &Document,
+    page: usize,
+    fonts: &BTreeMap<String, Arc<FontResource>>,
+) -> PdfResult<Option<Content>> {
+    let arena = doc.arena();
+    let page_h =
+        doc.get_page_handle(page).ok_or_else(|| PdfError::Other("the page is not there".into()))?;
+    let page_dh = doc.resolve_to_dict(page_h)?;
+    let Some(contents) = arena.dict_entry(page_dh, arena.name("Contents")) else {
+        return Ok(None);
+    };
+    let streams = match contents.resolve(arena) {
+        Object::Array(array) => arena.get_array(array).unwrap_or_default(),
+        single => vec![single],
+    };
+    let mut shared = Vec::new();
+    for stream in &streams {
+        match stream.resolve(arena) {
+            Object::Stream(_, data)
+                if matches!(
+                    data.as_ref(),
+                    fepdf_model::object::SublimatedData::Commands { .. }
+                ) =>
+            {
+                shared.push(data);
+            }
+            _ => {
+                return Ok(page_content(doc, page)?.map(|content| {
+                    Content::Parsed(
+                        fepdf_model::object::sublimation::parser::Sublimator::new(fonts)
+                            .sublimate(&content),
+                    )
+                }));
+            }
+        }
+    }
+    Ok(Some(Content::Shared(shared)))
+}
+
 /// Puts `content` on the page, as its one content stream.
 pub(crate) fn write_page_content(doc: &Document, page: usize, content: Vec<u8>) -> PdfResult<()> {
     let arena = doc.arena();

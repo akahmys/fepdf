@@ -7,6 +7,118 @@
 
 use std::collections::BTreeSet;
 
+/// Each glyph's advance, by glyph index, in units of 1/1000 em: an SFNT program's `hmtx`
+/// advances scaled by its `head` table's `unitsPerEm`, the last advance repeated for the
+/// glyphs past `hhea`'s `numberOfHMetrics`, as the format says.
+#[must_use]
+pub fn sfnt_advances(program: &[u8]) -> Option<Vec<f64>> {
+    let raw = ttf_parser::RawFace::parse(program, 0).ok()?;
+    let table = |tag: &[u8; 4]| raw.table(ttf_parser::Tag::from_bytes(tag));
+    let word =
+        |bytes: &[u8], at: usize| bytes.get(at..at + 2).map(|b| u16::from_be_bytes([b[0], b[1]]));
+    let units = f64::from(word(table(b"head")?, 18)?.max(1));
+    let metrics = usize::from(word(table(b"hhea")?, 34)?);
+    let hmtx = table(b"hmtx")?;
+    let count = usize::from(sfnt_glyph_count(program)?);
+    let advances: Vec<f64> = (0..metrics)
+        .map_while(|g| word(hmtx, g * 4))
+        .map(|a| f64::from(a) * 1000.0 / units)
+        .collect();
+    let last = *advances.last()?;
+    Some((0..count).map(|g| advances.get(g).copied().unwrap_or(last)).collect())
+}
+
+/// Each glyph's advance, by name, in units of 1/1000 em, from a name-keyed CFF program:
+/// its charstring's width, or the Private DICT's, through the program's `FontMatrix`.
+/// Nothing for a CID-keyed program, whose widths are per font dictionary.
+#[must_use]
+pub fn cff_name_advances(program: &[u8]) -> Option<std::collections::BTreeMap<String, f64>> {
+    let table = cff_table(program)?;
+    let scale = f64::from(table.matrix().sx) * 1000.0;
+    let advances: std::collections::BTreeMap<String, f64> = (0..table.number_of_glyphs())
+        .filter_map(|gid| {
+            let glyph = ttf_parser::GlyphId(gid);
+            Some((
+                table.glyph_name(glyph)?.to_owned(),
+                f64::from(table.glyph_width(glyph)?) * scale,
+            ))
+        })
+        .collect();
+    (!advances.is_empty()).then_some(advances)
+}
+
+/// Each glyph's advance, by name, in units of 1/1000 em, from a Type 1 program: its
+/// charstring's `hsbw` or `sbw`, through the `/FontMatrix` its cleartext states, or
+/// `[0.001 0 0 0.001 0 0]` where it states none.
+#[must_use]
+pub fn type1_advances(
+    program: &[u8],
+    cleartext: usize,
+) -> Option<std::collections::BTreeMap<String, f64>> {
+    let (ascii, rest) = program.split_at_checked(cleartext)?;
+    let text = String::from_utf8_lossy(ascii);
+    let scale = text
+        .find("/FontMatrix")
+        .and_then(|at| text[at..].split(['[', ']']).nth(1))
+        .and_then(|inner| inner.split_whitespace().next()?.parse::<f64>().ok())
+        .unwrap_or(0.001)
+        * 1000.0;
+    let advances =
+        crate::reconstruction::FontReconstructor::type1_advances(ascii, &eexec_portion(rest))?;
+    let advances: std::collections::BTreeMap<String, f64> =
+        advances.into_iter().map(|(name, width)| (name, width * scale)).collect();
+    (!advances.is_empty()).then_some(advances)
+}
+
+/// A Type 1 program's eexec-encrypted portion as bytes: as it is, or, written in
+/// hexadecimal, decoded (ISO 32000-1 9.9).
+fn eexec_portion(rest: &[u8]) -> Vec<u8> {
+    if !rest.iter().take(4).all(u8::is_ascii_hexdigit) {
+        return rest.to_vec();
+    }
+    let digits: Vec<u8> = rest.iter().copied().filter(u8::is_ascii_hexdigit).collect();
+    digits
+        .chunks_exact(2)
+        .filter_map(|pair| u8::from_str_radix(std::str::from_utf8(pair).ok()?, 16).ok())
+        .collect()
+}
+
+/// A CFF program's table, as `ttf_parser` reads it.
+pub type CffTable<'a> = ttf_parser::cff::Table<'a>;
+
+/// The CFF table of `program` — a bare CFF, or the `CFF ` table of an SFNT.
+#[must_use]
+pub fn cff_table(program: &[u8]) -> Option<CffTable<'_>> {
+    ttf_parser::cff::Table::parse(crate::cff::body(program))
+}
+
+/// The encoding a Type 1 program's cleartext portion states for itself (ISO 32000-1
+/// 9.6.6.2, a font's built-in encoding): `StandardEncoding` by name, or the codes its
+/// `dup <code> /<name> put` entries assign. **Nothing when it states neither**, rather than
+/// an empty table that would call every code undefined.
+#[must_use]
+pub fn type1_built_in_encoding(cleartext: &[u8]) -> Option<std::collections::BTreeMap<u8, String>> {
+    let text = String::from_utf8_lossy(cleartext);
+    let at = text.find("/Encoding")?;
+    let rest = &text[at + "/Encoding".len()..];
+    if rest.trim_start().starts_with("StandardEncoding") {
+        return Some(
+            crate::latin_names::STANDARD_ENCODING
+                .iter()
+                .map(|(code, name)| (*code, (*name).to_owned()))
+                .collect(),
+        );
+    }
+    let body = rest.split(" def").next().unwrap_or(rest);
+    let words: Vec<&str> = body.split_whitespace().collect();
+    let table: std::collections::BTreeMap<u8, String> = words
+        .windows(4)
+        .filter(|w| w[0] == "dup" && w[3] == "put")
+        .filter_map(|w| Some((w[1].parse().ok()?, w[2].strip_prefix('/')?.to_owned())))
+        .collect();
+    (!table.is_empty()).then_some(table)
+}
+
 /// The glyph names a CFF program (`/FontFile3`, `/Type1C`) defines, `.notdef` left out as
 /// `/CharSet` leaves it out.
 #[must_use]
@@ -25,10 +137,20 @@ pub fn cff_glyph_names(program: &[u8]) -> Option<BTreeSet<String>> {
 /// glyph indices, which a CIDFont with no CID-keyed program uses as CIDs.
 #[must_use]
 pub fn cff_cids(program: &[u8]) -> Option<BTreeSet<u32>> {
+    cff_cid_glyphs(program).map(|glyphs| glyphs.into_keys().collect())
+}
+
+/// Each CID a CFF program holds, and the glyph index it has there.
+#[must_use]
+pub fn cff_cid_glyphs(program: &[u8]) -> Option<std::collections::BTreeMap<u32, u16>> {
     let table = ttf_parser::cff::Table::parse(crate::cff::body(program))?;
     Some(
         (0..table.number_of_glyphs())
-            .map(|gid| table.glyph_cid(ttf_parser::GlyphId(gid)).map_or(u32::from(gid), u32::from))
+            .map(|gid| {
+                let cid =
+                    table.glyph_cid(ttf_parser::GlyphId(gid)).map_or(u32::from(gid), u32::from);
+                (cid, gid)
+            })
             .collect(),
     )
 }
@@ -76,16 +198,7 @@ pub fn sfnt_outlined_glyphs(program: &[u8]) -> Option<BTreeSet<u16>> {
 #[must_use]
 pub fn type1_glyph_names(program: &[u8], cleartext: usize) -> Option<BTreeSet<String>> {
     let (ascii, rest) = program.split_at_checked(cleartext)?;
-    let hex = rest.iter().take(4).all(u8::is_ascii_hexdigit);
-    let encrypted: Vec<u8> = if hex {
-        let digits: Vec<u8> = rest.iter().copied().filter(u8::is_ascii_hexdigit).collect();
-        digits
-            .chunks_exact(2)
-            .filter_map(|pair| u8::from_str_radix(std::str::from_utf8(pair).ok()?, 16).ok())
-            .collect()
-    } else {
-        rest.to_vec()
-    };
+    let encrypted = eexec_portion(rest);
     let mut names =
         crate::reconstruction::FontReconstructor::type1_charstring_names(ascii, &encrypted)?;
     names.remove(".notdef");
