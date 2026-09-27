@@ -448,7 +448,7 @@ fn the_report_says_how_much_of_the_protocol_it_checked() {
     );
     assert_eq!(
         report.scope.checked.len(),
-        74,
+        76,
         "the scope does not name the failure conditions this auditor looks at"
     );
     assert!(
@@ -505,6 +505,7 @@ fn the_scope_names_every_checkpoint_reported() {
         subsets(["(/A)", "(/A/B/C)", "00", "64"]),
         shown_in(&type_1_font("/WinAnsiEncoding"), "(C) Tj <81>"),
         shown_in(&widths_type_1("[500 650]"), "(AB)"),
+        formula(true),
     ] {
         let doc = opened(fixture);
         let report = doc.audit_ua2_report().expect("it audits");
@@ -575,6 +576,7 @@ fn every_condition_the_scope_names_can_be_reported_broken() {
         subsets(["(/A)", "(/A/B/C)", "00", "64"]),
         shown_in(&type_1_font("/WinAnsiEncoding"), "(C) Tj <81>"),
         shown_in(&widths_type_1("[500 650]"), "(AB)"),
+        formula(true),
     ] {
         let doc = opened(fixture);
         let report = doc.audit_ua2_report().expect("it audits");
@@ -1391,6 +1393,8 @@ fn every_number_reported_means_in_the_protocol_what_it_is_used_for() {
         ("31-011", "For a font used by text the font program is"),
         ("31-030", "One or more characters used in text showing"),
         ("31-016", "For one or more glyphs, the glyph width"),
+        ("10-001", "Character code cannot be mapped to Unicode"),
+        ("17-003", "Unicode mapping requirements are not met"),
     ];
     assert_eq!(
         says.len(),
@@ -2250,4 +2254,101 @@ fn a_rendered_glyphs_width_agrees_with_its_program() {
     assert_eq!(selecting(&cid("/W [1 2 600]"), "<00010002>", "31-016"), vec![Outcome::Broken]);
     // No `/W` and no `/DW`: every CID is 1000 wide in the dictionary.
     assert_eq!(selecting(&cid(""), "<0001>", "31-016"), vec![Outcome::Broken]);
+}
+
+/// A tagged page whose one marked sequence, MCID 0, belongs to a `<Formula>` when
+/// `in_formula` and to a `<P>` otherwise, showing code 0x81 — which WinAnsiEncoding leaves
+/// undefined, so no method of 9.10.2 maps it — in a font with no `/ToUnicode`.
+fn formula(in_formula: bool) -> Vec<u8> {
+    let tag = if in_formula { "Formula /Alt (x)" } else { "P" };
+    let content = "/P <</MCID 0>> BDC BT /F1 12 Tf 20 100 Td <81> Tj ET EMC";
+    fepdf_fixtures::assemble(&[
+        "<< /Type /Catalog /Pages 2 0 R /StructTreeRoot 6 0 R /Lang (en) \
+           /MarkInfo << /Marked true >> >>"
+            .to_string(),
+        "<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_string(),
+        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Contents 4 0 R \
+           /StructParents 0 /Resources << /Font << /F1 5 0 R >> >> >>"
+            .to_string(),
+        format!("<< /Length {} >>\nstream\n{content}\nendstream", content.len()),
+        "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>"
+            .to_string(),
+        "<< /Type /StructTreeRoot /K [8 0 R] /ParentTree << /Nums [0 [7 0 R]] >> >>".to_string(),
+        format!("<< /Type /StructElem /S /{tag} /P 8 0 R /Pg 3 0 R /K 0 >>"),
+        "<< /Type /StructElem /S /Sect /P 6 0 R /K [7 0 R] >>".to_string(),
+    ])
+}
+
+/// **10-001 is each code shown, by 9.10.2's methods in turn.** Helvetica on WinAnsi maps
+/// `A` through its name; 0x81, which WinAnsi leaves undefined, has no name and maps to
+/// nothing; a `/Differences` naming `/madeup` takes the font out of the second method
+/// altogether, until a `/ToUnicode` maps the code.
+#[test]
+fn every_code_shown_maps_to_unicode() {
+    let font = |encoding: &str, to_unicode: bool| {
+        let map = "/CIDInit /ProcSet findresource begin 12 dict begin begincmap \
+            1 begincodespacerange <00> <FF> endcodespacerange \
+            1 beginbfchar <41> <0041> endbfchar endcmap end end";
+        let mut objects = vec![format!(
+            "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding {encoding}{} >>",
+            if to_unicode { " /ToUnicode 6 0 R" } else { "" }
+        )];
+        objects.push(format!("<< /Length {} >>\nstream\n{map}\nendstream", map.len()));
+        objects
+    };
+    let madeup = "<< /BaseEncoding /StandardEncoding /Differences [65 /madeup] >>";
+    for (font, text, outcome) in [
+        (font("/WinAnsiEncoding", false), "(A)", Outcome::Sound),
+        (font("/WinAnsiEncoding", false), "<81>", Outcome::Broken),
+        (font(madeup, false), "(A)", Outcome::Broken),
+        (font(madeup, true), "(A)", Outcome::Sound),
+        // `Aogonek` is in Adobe's list but not in D.2's Latin set nor the Symbol font's, so
+        // the second method does not apply to a font whose `/Differences` names it.
+        (font("<< /Differences [65 /Aogonek] >>", false), "(A)", Outcome::Broken),
+        (font("<< /Differences [65 /eacute] >>", false), "(A)", Outcome::Sound),
+    ] {
+        assert_eq!(selecting(&font, text, "10-001"), vec![outcome], "{text}");
+    }
+    // Helvetica with no `/Encoding` is on StandardEncoding, which the second method does
+    // not list and readers map all the same: left for a reader.
+    let built_in = vec!["<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>".to_string()];
+    assert_eq!(selecting(&built_in, "(A)", "10-001"), vec![Outcome::ForAReader]);
+}
+
+/// **A Type 0 font maps through its `/ToUnicode`, or through Adobe's collections.** Under
+/// Identity-H with an Identity collection, CID 1 maps only where the `/ToUnicode` has it;
+/// on Adobe-Japan1 it maps without one.
+#[test]
+fn a_composite_code_maps_by_its_to_unicode_or_its_collection() {
+    let cid = |ordering: &str, to_unicode: bool| {
+        let map = "/CIDInit /ProcSet findresource begin 12 dict begin begincmap \
+            1 begincodespacerange <0000> <FFFF> endcodespacerange \
+            1 beginbfchar <0001> <0041> endbfchar endcmap end end";
+        vec![
+            format!(
+                "<< /Type /Font /Subtype /Type0 /BaseFont /Cid /Encoding /Identity-H{} \
+                   /DescendantFonts [<< /Type /Font /Subtype /CIDFontType2 /BaseFont /Cid \
+                   /CIDSystemInfo << /Registry (Adobe) /Ordering ({ordering}) /Supplement 0 >> \
+                   /CIDToGIDMap /Identity >>] >>",
+                if to_unicode { " /ToUnicode 6 0 R" } else { "" }
+            ),
+            format!("<< /Length {} >>\nstream\n{map}\nendstream", map.len()),
+        ]
+    };
+    assert_eq!(selecting(&cid("Identity", false), "<0001>", "10-001"), vec![Outcome::Broken]);
+    assert_eq!(selecting(&cid("Identity", true), "<0001>", "10-001"), vec![Outcome::Sound]);
+    assert_eq!(selecting(&cid("Identity", true), "<0002>", "10-001"), vec![Outcome::Broken]);
+    assert_eq!(selecting(&cid("Japan1", false), "<0001>", "10-001"), vec![Outcome::Sound]);
+}
+
+/// **17-003 is 10-001 of the text inside a `<Formula>`**, found through the parent tree:
+/// the same unmappable code under a `<P>` breaks 10-001 and not 17-003.
+#[test]
+fn a_formulas_text_is_held_to_the_unicode_mapping() {
+    let inside = opened(formula(true)).audit_ua2_report().expect("it audits");
+    assert_eq!(outcomes(&inside, "17-003"), vec![Outcome::Broken]);
+    assert_eq!(outcomes(&inside, "10-001"), vec![Outcome::Broken]);
+    let outside = opened(formula(false)).audit_ua2_report().expect("it audits");
+    assert_eq!(outcomes(&outside, "17-003"), vec![Outcome::Sound]);
+    assert_eq!(outcomes(&outside, "10-001"), vec![Outcome::Broken]);
 }

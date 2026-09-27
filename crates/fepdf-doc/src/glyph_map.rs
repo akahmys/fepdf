@@ -129,7 +129,7 @@ pub(crate) fn differences(arena: &PdfArena, encoding: &Object) -> BTreeMap<u8, S
 }
 
 /// One of the two Annex D encodings a font dictionary may name, as code to name.
-fn annex(name: &str) -> Option<BTreeMap<u8, String>> {
+pub(crate) fn annex(name: &str) -> Option<BTreeMap<u8, String>> {
     let table: &[(u8, &str)] = match name {
         "WinAnsiEncoding" => &fepdf_font::latin_names::WIN_ANSI,
         "MacRomanEncoding" => &fepdf_font::latin_names::MAC_ROMAN,

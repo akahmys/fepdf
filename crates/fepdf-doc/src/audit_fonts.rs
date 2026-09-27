@@ -12,10 +12,10 @@ use fepdf_model::{Document, Handle, Object, PdfArena};
 use std::collections::{BTreeMap, BTreeSet};
 
 /// The failure conditions this module decides.
-pub const FROM_FONTS: [&str; 22] = [
-    "31-004", "31-009", "31-011", "31-016", "31-030", "31-012", "31-013", "31-014", "31-015",
-    "31-017", "31-018", "31-019", "31-020", "31-021", "31-022", "31-023", "31-024", "31-025",
-    "31-026", "31-027", "31-028", "31-029",
+pub const FROM_FONTS: [&str; 24] = [
+    "10-001", "17-003", "31-004", "31-009", "31-011", "31-016", "31-030", "31-012", "31-013",
+    "31-014", "31-015", "31-017", "31-018", "31-019", "31-020", "31-021", "31-022", "31-023",
+    "31-024", "31-025", "31-026", "31-027", "31-028", "31-029",
 ];
 
 /// What the pages do with one font: the codes they show in it, and those of them that are
@@ -63,7 +63,8 @@ pub fn audit_fonts(
         collect_fonts(arena, &Object::Dictionary(resources), 0, &mut fonts);
     }
     // 31-030 is about every font's text, so every font's codes are read.
-    let codes = if fonts.is_empty() { BTreeMap::default() } else { shown_codes(doc, &fonts) };
+    let (codes, in_formulas) =
+        if fonts.is_empty() { Default::default() } else { shown_codes(doc, &fonts) };
     for font in fonts {
         let reading = Font { doc, arena, handle: font, name: base_font(arena, font) };
         reading.audit(findings);
@@ -76,6 +77,12 @@ pub fn audit_fonts(
             reading.looked_up(rendered, findings);
         }
         if let Some(used) = used {
+            let mapped = crate::unicode_map::mapped(doc, font, &used.codes, &used.pairs);
+            crate::unicode_map::report("10-001", &reading.name, &mapped, findings);
+            if let Some(math) = in_formulas.get(&font) {
+                let mapped = crate::unicode_map::mapped(doc, font, &math.codes, &math.pairs);
+                crate::unicode_map::report("17-003", &reading.name, &mapped, findings);
+            }
             let embedded = !reading.lacks_program();
             crate::glyph_select::selected(
                 doc,
@@ -87,7 +94,10 @@ pub fn audit_fonts(
             );
         }
     }
-    examined.extend(FROM_FONTS);
+    // 17-003 is about the text of `<Formula>` elements, which a document with no structure
+    // tree has none of to be sound about.
+    let tagged = doc.get_structure_root().ok().flatten().is_some();
+    examined.extend(FROM_FONTS.iter().filter(|c| tagged || **c != "17-003"));
 }
 
 /// The fonts a resource dictionary names, and those of the forms it names, by handle.
@@ -335,6 +345,28 @@ impl Font<'_> {
     }
 }
 
+/// A dictionary entry, resolved.
+fn entry_of(arena: &PdfArena, dict: &Object, key: &str) -> Option<Object> {
+    crate::audit_objects::entry(arena, dict, key)
+}
+
+/// The strings a text-showing operator shows: `Tj`, `'`, `"`, and `TJ`'s strings.
+fn shown(command: &Command) -> Option<Vec<&[u8]>> {
+    match command {
+        Command::ShowText(text) => Some(vec![text.as_ref()]),
+        Command::ShowTextArray(items) => Some(
+            items
+                .iter()
+                .filter_map(|item| match item {
+                    TextArrayItem::Text(text) => Some(text.as_ref()),
+                    TextArrayItem::Offset(_) => None,
+                })
+                .collect(),
+        ),
+        _ => None,
+    }
+}
+
 /// A resource dictionary, by handle.
 pub(crate) type Resources = Handle<BTreeMap<Handle<fepdf_model::PdfName>, Object>>;
 
@@ -346,16 +378,31 @@ type TextState = (Option<Handle<Object>>, bool);
 /// the pages and of the forms they draw (to `FORM_DEPTH`): which font each `Tf` selects and
 /// which rendering mode each `Tr`, through `q` and `Q`, and the bytes each `Tj`, `'`, `"`
 /// and `TJ` shows.
-fn shown_codes(doc: &Document, fonts: &BTreeSet<Handle<Object>>) -> BTreeMap<Handle<Object>, Use> {
-    let mut scan = Scan { doc, fonts, shown: BTreeMap::default() };
-    let Ok(pages) = doc.page_count() else { return BTreeMap::default() };
+///
+/// **And those shown inside a `<Formula>`, apart**, for 17-003.
+fn shown_codes(
+    doc: &Document,
+    fonts: &BTreeSet<Handle<Object>>,
+) -> (BTreeMap<Handle<Object>, Use>, BTreeMap<Handle<Object>, Use>) {
+    let formulas = crate::formula_marks::Formulas::of(doc);
+    let mut scan = Scan {
+        doc,
+        fonts,
+        formulas: formulas.as_ref(),
+        shown: BTreeMap::default(),
+        in_formulas: BTreeMap::default(),
+    };
+    let Ok(pages) = doc.page_count() else { return Default::default() };
     for page in 0..pages {
         let Some(handle) = doc.get_page_handle(page) else { continue };
         let resources = fepdf_model::Page::new(doc.arena(), handle, doc.get_parent_chain(handle))
             .resources_handle();
         scan.page(page, resources);
     }
-    scan.shown.into_iter().map(|(font, seen)| (font, seen.used())).collect()
+    let used = |shown: BTreeMap<Handle<Object>, Seen>| -> BTreeMap<Handle<Object>, Use> {
+        shown.into_iter().map(|(font, seen)| (font, seen.used())).collect()
+    };
+    (used(scan.shown), used(scan.in_formulas))
 }
 
 /// What the scan has seen shown in one font, as bits: one per one-byte code and one per
@@ -413,7 +460,9 @@ impl Seen {
 struct Scan<'a> {
     doc: &'a Document,
     fonts: &'a BTreeSet<Handle<Object>>,
+    formulas: Option<&'a crate::formula_marks::Formulas<'a>>,
     shown: BTreeMap<Handle<Object>, Seen>,
+    in_formulas: BTreeMap<Handle<Object>, Seen>,
 }
 
 impl Scan<'_> {
@@ -427,10 +476,31 @@ impl Scan<'_> {
             return;
         }
         let named = names_in(arena, resources, "Font");
+        let key = self.doc.get_page_handle(page).and_then(|h| {
+            entry_of(arena, &Object::Reference(h), "StructParents").and_then(|k| k.as_integer())
+        });
+        let marks = self.marks(key, resources, false);
         if let Ok(Some(commands)) =
             crate::apply::text::page_commands(self.doc, page, &loaded(self.doc, &named))
         {
-            self.commands(&commands, resources, &named, (None, true), 0);
+            self.commands(&commands, resources, &named, (None, true), (0, &marks));
+        }
+    }
+
+    /// What a content stream whose `/StructParents` is `key`, drawn with `resources` from
+    /// inside a `<Formula>` or not as `within` says, needs to say which of its marked
+    /// content is in one.
+    fn marks(
+        &self,
+        key: Option<i64>,
+        resources: Resources,
+        within: bool,
+    ) -> crate::formula_marks::Marks {
+        let Some(formulas) = self.formulas else { return crate::formula_marks::Marks::default() };
+        crate::formula_marks::Marks {
+            mcids: key.map(|k| formulas.mcids(k)).unwrap_or_default(),
+            properties: names_in(self.doc.arena(), resources, "Properties"),
+            within,
         }
     }
 
@@ -441,45 +511,49 @@ impl Scan<'_> {
         resources: Resources,
         named: &BTreeMap<String, Handle<Object>>,
         mut current: TextState,
-        depth: usize,
+        (depth, marks): (usize, &crate::formula_marks::Marks),
     ) {
         use fepdf_model::graphics::TextRenderingMode;
-        let mut saved = Vec::new();
+        let (mut saved, mut open) = (Vec::new(), Vec::new());
         for command in content.iter() {
-            let bytes: Vec<&[u8]> = match command {
-                Command::PushState => {
-                    saved.push(current);
-                    continue;
+            let within = open.last().copied().unwrap_or(marks.within);
+            match command {
+                Command::BeginMarkedContent { properties, .. } => {
+                    open.push(marks.opens(self.doc.arena(), properties.as_ref(), within));
                 }
-                Command::PopState => {
-                    current = saved.pop().unwrap_or(current);
-                    continue;
+                Command::EndMarkedContent => {
+                    open.pop();
                 }
+                Command::PushState => saved.push(current),
+                Command::PopState => current = saved.pop().unwrap_or(current),
                 Command::SetFont { font, .. } => {
                     current.0 = named.get(font).copied().filter(|h| self.fonts.contains(h));
-                    continue;
                 }
                 Command::SetTextRenderMode(mode) => {
                     current.1 = *mode != TextRenderingMode::Invisible;
-                    continue;
                 }
-                Command::DrawXObject(name) => {
-                    self.form(resources, name, current, depth);
-                    continue;
+                Command::DrawXObject(name) => self.form(resources, name, current, (depth, within)),
+                other => {
+                    if let (Some(font), visible, Some(bytes)) = (current.0, current.1, shown(other))
+                    {
+                        self.note(font, visible, &bytes);
+                        if within {
+                            self.note_in_formula(font, &bytes);
+                        }
+                    }
                 }
-                Command::ShowText(text) => vec![text.as_ref()],
-                Command::ShowTextArray(items) => items
-                    .iter()
-                    .filter_map(|item| match item {
-                        TextArrayItem::Text(text) => Some(text.as_ref()),
-                        TextArrayItem::Offset(_) => None,
-                    })
-                    .collect(),
-                _ => continue,
-            };
-            if let (Some(font), visible) = current {
-                self.note(font, visible, &bytes);
             }
+        }
+    }
+
+    /// Records the codes a text-showing operator inside a `<Formula>` shows in `font`.
+    fn note_in_formula(&mut self, font: Handle<Object>, strings: &[&[u8]]) {
+        let seen = self.in_formulas.entry(font).or_default();
+        for byte in strings.iter().copied().flatten() {
+            set(&mut seen.codes, usize::from(*byte));
+        }
+        for pair in strings.iter().flat_map(|s| s.chunks_exact(2)) {
+            set(&mut seen.pairs, usize::from(u16::from_be_bytes([pair[0], pair[1]])));
         }
     }
 
@@ -505,7 +579,13 @@ impl Scan<'_> {
 
     /// The form `name` names in `resources`, read in the state that draws it. A form with no
     /// `/Resources` of its own takes the ones it is drawn with (7.8.3).
-    fn form(&mut self, resources: Resources, name: &str, state: TextState, depth: usize) {
+    fn form(
+        &mut self,
+        resources: Resources,
+        name: &str,
+        state: TextState,
+        (depth, within): (usize, bool),
+    ) {
         let arena = self.doc.arena();
         let Some(form) = names_in(arena, resources, "XObject").get(name).copied() else { return };
         let Some(own) = form_resources(arena, form, resources) else { return };
@@ -518,8 +598,11 @@ impl Scan<'_> {
             return;
         }
         let named = names_in(arena, own, "Font");
+        let key =
+            entry_of(arena, &Object::Reference(form), "StructParents").and_then(|k| k.as_integer());
+        let marks = self.marks(key, own, within);
         if let Some(content) = form_commands(self.doc, form, &named) {
-            self.commands(&content, own, &named, state, depth + 1);
+            self.commands(&content, own, &named, state, (depth + 1, &marks));
         }
     }
 }
@@ -582,7 +665,7 @@ pub(crate) fn names_in(
 }
 
 /// The Latin standard 14 fonts, whose built-in encoding is StandardEncoding (9.6.2.2).
-const STANDARD_LATIN: [&str; 12] = [
+pub(crate) const STANDARD_LATIN: [&str; 12] = [
     "Times-Roman",
     "Times-Bold",
     "Times-Italic",
@@ -764,22 +847,7 @@ impl Font<'_> {
 
     /// Whether a Type 0 font's CIDFont is in one of Adobe's four CJK collections.
     fn adobe_collection(&self, font: &Object) -> bool {
-        let Some(Object::Array(descendants)) = self.entry(font, "DescendantFonts") else {
-            return false;
-        };
-        let Some(descendant) =
-            self.arena.get_array(descendants).unwrap_or_default().into_iter().next()
-        else {
-            return false;
-        };
-        let Some(info) = self.entry(&descendant, "CIDSystemInfo") else { return false };
-        let text = |key: &str| match self.entry(&info, key) {
-            Some(Object::String(b) | Object::Hex(b)) => String::from_utf8_lossy(&b).into_owned(),
-            Some(Object::Text(t)) => t,
-            _ => String::new(),
-        };
-        text("Registry") == "Adobe"
-            && ["GB1", "CNS1", "Japan1", "Korea1"].contains(&text("Ordering").as_str())
+        crate::unicode_map::adobe_collection(self.arena, font)
     }
 
     /// 31-027 for a Type 1 or Type 3 font: the names of the glyphs its text shows.

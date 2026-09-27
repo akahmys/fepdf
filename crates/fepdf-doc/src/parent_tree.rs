@@ -1,10 +1,10 @@
-//! The structure tree root's `/ParentTree` (14.7.5.4), read as the elements its single
-//! entries name.
+//! The structure tree root's `/ParentTree` (14.7.5.4), read as the elements its entries
+//! name.
 //!
-//! **Only the entries that name one element.** A page's entry is an array — one element
-//! per `/MCID` on it — and an annotation's or an XObject's `/StructParent` names the one
-//! element that holds it through an `/OBJR`. The second kind is what lets an annotation be
-//! asked which element it belongs to.
+//! **Two kinds of entry.** A page's or a form's is an array — one element per `/MCID` on
+//! it — and an annotation's or an XObject's `/StructParent` names the one element that
+//! holds it through an `/OBJR`. The first lets content be asked which element it is in,
+//! the second an annotation.
 
 use fepdf_model::{Handle, Object, PdfArena};
 use std::collections::{BTreeMap, BTreeSet};
@@ -16,10 +16,34 @@ const NODES: usize = 100_000;
 #[must_use]
 pub fn single_entries(arena: &PdfArena, root: Handle<Object>) -> BTreeMap<i64, Handle<Object>> {
     let mut entries = BTreeMap::new();
-    let Some(root) = arena.get_object(root).and_then(|o| o.as_dict_handle()) else {
-        return entries;
-    };
-    let Some(tree) = arena.dict_entry(root, arena.name("ParentTree")) else { return entries };
+    walk(arena, root, |key, value| {
+        // An array is a page's entry; a single element is what an annotation names.
+        if let Some(element) = value.as_reference()
+            && arena.get_object(element).and_then(|o| o.as_dict_handle()).is_some()
+        {
+            entries.insert(key, element);
+        }
+    });
+    entries
+}
+
+/// The `/StructParents` keys whose entry is an array — a page's or a form's, one element
+/// per `/MCID` — and that array's items, `null` where an MCID belongs to nothing.
+#[must_use]
+pub fn array_entries(arena: &PdfArena, root: Handle<Object>) -> BTreeMap<i64, Vec<Object>> {
+    let mut entries = BTreeMap::new();
+    walk(arena, root, |key, value| {
+        if let Object::Array(array) = value.resolve(arena) {
+            entries.insert(key, arena.get_array(array).unwrap_or_default());
+        }
+    });
+    entries
+}
+
+/// Every key and value of the number tree, to [`NODES`] nodes.
+fn walk(arena: &PdfArena, root: Handle<Object>, mut found: impl FnMut(i64, &Object)) {
+    let Some(root) = arena.get_object(root).and_then(|o| o.as_dict_handle()) else { return };
+    let Some(tree) = arena.dict_entry(root, arena.name("ParentTree")) else { return };
     let mut waiting = vec![tree];
     let mut seen = BTreeSet::new();
     let mut read = 0;
@@ -41,14 +65,9 @@ pub fn single_entries(arena: &PdfArena, root: Handle<Object>) -> BTreeMap<i64, H
             };
         waiting.extend(listed("Kids"));
         for pair in listed("Nums").chunks_exact(2) {
-            let (Object::Integer(key), Some(element)) = (&pair[0], pair[1].as_reference()) else {
-                continue;
-            };
-            // An array is a page's entry; a single element is what an annotation names.
-            if arena.get_object(element).and_then(|o| o.as_dict_handle()).is_some() {
-                entries.insert(*key, element);
+            if let Object::Integer(key) = &pair[0] {
+                found(*key, &pair[1]);
             }
         }
     }
-    entries
 }

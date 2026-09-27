@@ -19,6 +19,8 @@ pub mod audit_subsets;
 pub mod audit_tree;
 /// Object graph cloning.
 pub mod cloning;
+/// Which marked content lies in a `<Formula>` (17-003).
+pub mod formula_marks;
 /// Which glyph each character code of a font selects, as ISO 32000-1 says.
 pub mod glyph_map;
 /// What the codes a font's text shows select: 31-011 and 31-030.
@@ -49,6 +51,8 @@ pub mod structure;
 pub mod tagging;
 /// Whether a TrueType font's rendered codes reach a glyph through its cmap (31-018).
 pub mod truetype_lookup;
+/// Whether each character code shown maps to Unicode (10-001).
+pub mod unicode_map;
 
 pub use apply::apply_operation;
 pub use matterhorn::{LEFT_TO_A_PERSON, LeftToAPerson};

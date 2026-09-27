@@ -3189,13 +3189,13 @@ Independent of all of the above:
       not be made.
 
       **This is the gap ADR-0087 was taken over, in the large.** A document this engine
-      declares PDF/UA-2 conforming is one it has checked seventy-four things about — and all
-      seventy-four are PDF/UA-1 conditions ([ADR-0092](docs/adr/0092-the-matterhorn-protocol-measures-ua-1-and-this-engine-declares-ua-2.md)). `PdfStandard::UA2`
+      declares PDF/UA-2 conforming is one it has checked seventy-six things about — and all
+      seventy-six are PDF/UA-1 conditions ([ADR-0092](docs/adr/0092-the-matterhorn-protocol-measures-ua-1-and-this-engine-declares-ua-2.md)). `PdfStandard::UA2`
       writes that claim into the catalogue, and the claim is a statement about 137 things.
 
       - [x] **W-21a — say how much is checked.** `audit_ua2_report` answers an
         `AuditReport` carrying an `AuditScope` beside the findings, and the window shows
-        "Matterhorn の 2 / 136 件の失格条件を検査" where the findings are — 74 / 137 since W-21s.
+        "Matterhorn の 2 / 136 件の失格条件を検査" where the findings are — 76 / 137 since W-21t.
         `found_nothing()` is
         named so that a caller cannot write `findings.is_empty()` and mean "conforms".
 
@@ -3430,6 +3430,25 @@ Independent of all of the above:
         Isartor's three 6-3-6 files and the PDF/UA-2 suite's 8.4.5.6 — and nothing in the
         samples; 98 rows are left for a reader.
 
+      - [x] **W-21t — every code shown maps to Unicode, and a formula's too.** **10-001**
+        (UA1:7.2, through ISO 32000-1 14.8.2.4.2): each code by 9.10.2's methods in turn — a
+        `/ToUnicode` that maps it; a simple font on MacRoman-, MacExpert- or
+        WinAnsiEncoding, or whose `/Differences` names only D.2's Latin set and the Symbol
+        font's, through the code's name and Adobe's list; a composite font on a Table 118
+        CMap other than Identity, or on one of Adobe's four CJK collections. Table 118's
+        names are read out of `PDF32000_2008.pdf`. **The text is followed where it does
+        not decide**: a standard 14 font with no `/Encoding` is on a built-in encoding the
+        second method does not list and every reader maps, so it is left for a reader
+        rather than called unmapped, as is a code only a built-in encoding this does not
+        read names. **17-003** (UA1:7.7) is the same of the text inside a `<Formula>`,
+        found as a reader finds it: each marked sequence's `/MCID` through its stream's
+        `/StructParents` to the parent tree's array, and that element or an ancestor
+        standing for a `<Formula>` through the role map; `parent_tree::array_entries` reads
+        the arrays. It is examined only in a tagged document. **Seventy-six of 137.**
+        Across the 525 files (2026-09-27) 10-001 finds 151 in 19 files — 128 of them
+        `fy05.pdf`'s Type 3 fonts, the fonts 31-027 names — and leaves 24 for a reader; no
+        file tags a formula whose text fails. **Left of the machine conditions:** 11-001.
+
       - [x] **W-21g — a condition checked and not broken is a result.** `AuditFinding`
         carries an `Outcome` — `Broken`, `Sound`, `ForAReader` — and `audit_report` adds
         one `Sound` per condition it checked and did not break. **One per condition, not
@@ -3457,7 +3476,7 @@ Independent of all of the above:
       against `/Alt`.
 
       **It waits on W-21 and says so.** A conformance claim is worth what the checking
-      behind it is worth, and seventy-four failure conditions of 137 is not a foundation to
+      behind it is worth, and seventy-six failure conditions of 137 is not a foundation to
       put a second claim on. What can be done first is the reading: the structure tree editor this engine
       already has is most of what a well-tagged file is made with, and what it cannot yet
       express is the list this item starts as.
