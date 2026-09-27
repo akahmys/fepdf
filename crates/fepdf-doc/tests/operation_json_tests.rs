@@ -64,6 +64,8 @@ fn variant_name(op: &Operation) -> &'static str {
         Operation::AddUserProperties { .. } => "AddUserProperties",
         Operation::SetStructAttribute(_) => "SetStructAttribute",
         Operation::SetStructRefs { .. } => "SetStructRefs",
+        Operation::SetStructNamespace { .. } => "SetStructNamespace",
+        Operation::MapStructType { .. } => "MapStructType",
         Operation::ExecuteAction(_) => "ExecuteAction",
         Operation::SetGeospatialAnchor(_) => "SetGeospatialAnchor",
         Operation::AddMeshShading(_) => "AddMeshShading",

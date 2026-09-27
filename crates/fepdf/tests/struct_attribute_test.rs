@@ -180,3 +180,87 @@ fn an_element_refers_to_others_by_ref() {
     doc.apply(Operation::SetStructRefs { handle_index: 8, targets: Vec::new() }).expect("cleared");
     assert!(refs(&doc).is_empty());
 }
+
+/// The structure tree root's `/Namespaces`, each as its `NS` and its `RoleMapNS` keys.
+fn namespaces(doc: &PdfDocument) -> Vec<(String, Vec<String>)> {
+    let arena = doc.inner().arena();
+    let root = doc.inner().get_structure_root().ok().flatten().expect("a tree");
+    let root = arena.get_object(root).and_then(|o| o.as_dict_handle()).expect("a dictionary");
+    let listed = match arena.dict_entry(root, arena.name("Namespaces")).map(|n| n.resolve(arena)) {
+        Some(Object::Array(a)) => arena.get_array(a).unwrap_or_default(),
+        _ => Vec::new(),
+    };
+    listed
+        .iter()
+        .filter_map(|n| {
+            let dict = n.resolve(arena).as_dict_handle()?;
+            let name = match arena.dict_entry(dict, arena.name("NS"))? {
+                Object::Text(t) => t,
+                _ => return None,
+            };
+            let map = arena
+                .dict_entry(dict, arena.name("RoleMapNS"))
+                .and_then(|m| m.resolve(arena).as_dict_handle())
+                .and_then(|m| arena.get_dict(m))
+                .unwrap_or_default();
+            let mut keys: Vec<String> = map
+                .keys()
+                .filter_map(|k| arena.get_name(*k))
+                .map(|k| k.as_str().to_string())
+                .collect();
+            keys.sort();
+            Some((name, keys))
+        })
+        .collect()
+}
+
+/// The namespace an element's `/NS` names, if it names one.
+fn element_namespace(doc: &PdfDocument, element: u32) -> Option<String> {
+    let arena = doc.inner().arena();
+    let dict = arena.get_object(Handle::new(element))?.as_dict_handle()?;
+    let ns = arena.dict_entry(dict, arena.name("NS"))?.resolve(arena).as_dict_handle()?;
+    match arena.dict_entry(ns, arena.name("NS"))? {
+        Object::Text(t) => Some(t),
+        _ => None,
+    }
+}
+
+/// **Elements put in a namespace share its one dictionary** (14.7.4): two elements in PDF
+/// 2.0's standard namespace list it once in `/Namespaces`; an empty name returns an element
+/// to the default; and a type mapped in a custom namespace to one of another namespace adds
+/// that namespace and writes the pair (Table 356).
+#[test]
+fn elements_share_a_namespace_and_a_namespace_maps_its_types() {
+    const PDF2: &str = "http://iso.org/pdf2/ssn";
+    let mut doc = table();
+    for element in [5, 8] {
+        doc.apply(Operation::SetStructNamespace { handle_index: element, namespace: PDF2.into() })
+            .expect("set");
+    }
+    assert_eq!(element_namespace(&doc, 5).as_deref(), Some(PDF2));
+    assert_eq!(element_namespace(&doc, 8).as_deref(), Some(PDF2));
+    assert_eq!(namespaces(&doc), vec![(PDF2.to_string(), Vec::new())]);
+
+    doc.apply(Operation::SetStructNamespace { handle_index: 8, namespace: String::new() })
+        .expect("removed");
+    assert_eq!(element_namespace(&doc, 8), None);
+
+    doc.apply(Operation::MapStructType {
+        namespace: "urn:example:tags".into(),
+        from: "Chapter".into(),
+        to: "Section".into(),
+        to_namespace: Some(PDF2.into()),
+    })
+    .expect("mapped");
+    assert_eq!(
+        namespaces(&doc),
+        vec![
+            (PDF2.to_string(), Vec::new()),
+            ("urn:example:tags".to_string(), vec!["Chapter".to_string()])
+        ]
+    );
+    assert!(
+        doc.apply(Operation::SetStructNamespace { handle_index: 9999, namespace: PDF2.into() })
+            .is_err()
+    );
+}

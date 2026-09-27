@@ -529,6 +529,27 @@ pub enum Operation {
     },
     /// Set one attribute of a structure element, in the attribute object of its owner.
     SetStructAttribute(StructAttribute),
+    /// Put a structure element in a namespace (`/NS`, 14.7.4): the one the structure tree
+    /// root's `/Namespaces` names by `namespace`, added there if it has none. An empty
+    /// string removes `/NS`, which puts the element back in the default namespace.
+    SetStructNamespace {
+        /// Target object handle index of the element.
+        handle_index: u32,
+        /// The namespace name, a URI: `http://iso.org/pdf2/ssn` for PDF 2.0's standard types.
+        namespace: String,
+    },
+    /// Map a structure type of a namespace to another type (`RoleMapNS`, Table 356): to a
+    /// type of the default standard namespace, or of `to_namespace` when given.
+    MapStructType {
+        /// The namespace whose type is mapped, added to `/Namespaces` if absent.
+        namespace: String,
+        /// The type being mapped.
+        from: String,
+        /// The type it is mapped to.
+        to: String,
+        /// The namespace `to` is in; the default standard namespace when absent.
+        to_namespace: Option<String>,
+    },
     /// Set the structure elements an element refers to (`/Ref`, ISO 32000-2 Table 355): a
     /// table-of-contents item to its target, a citation to its note and back, a continued
     /// list to its previous part (WTPDF 8.8). An empty list removes the entry.
@@ -617,6 +638,8 @@ impl Operation {
             | Self::AddUserProperties { .. }
             | Self::SetStructAttribute(..)
             | Self::SetStructRefs { .. }
+            | Self::SetStructNamespace { .. }
+            | Self::MapStructType { .. }
             | Self::ExecuteAction { .. }
             | Self::SetGeospatialAnchor { .. }
             | Self::AddMeshShading { .. }

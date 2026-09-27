@@ -307,6 +307,106 @@ pub fn apply_set_struct_refs(doc: &Document, element: u32, targets: &[u32]) -> P
     Ok(())
 }
 
+/// The namespace dictionary the structure tree root's `/Namespaces` holds for `name`, added
+/// there if it holds none (Table 356).
+fn namespace(doc: &Document, name: &str) -> PdfResult<Handle<Object>> {
+    let arena = doc.arena();
+    let root = doc
+        .get_structure_root()?
+        .ok_or_else(|| PdfError::Other("the document has no structure tree".into()))?;
+    let Some((root_dh, mut root_dict)) = element_dict(arena, root.index()) else {
+        return Err(PdfError::Other("the structure tree root is not a dictionary".into()));
+    };
+    let key = arena.name("Namespaces");
+    let mut listed = attributes_array(arena, root_dict.get(&key));
+    let text = |o: Option<Object>| match o.map(|o| o.resolve(arena)) {
+        Some(Object::Text(t)) => Some(t),
+        Some(Object::String(b) | Object::Hex(b)) => {
+            Some(fepdf_model::refine::text::recover_string(&b))
+        }
+        _ => None,
+    };
+    let found = listed.iter().find_map(|entry| {
+        let handle = entry.as_reference()?;
+        let dict = arena.get_object(handle)?.as_dict_handle()?;
+        (text(arena.dict_entry(dict, arena.name("NS"))).as_deref() == Some(name)).then_some(handle)
+    });
+    if let Some(handle) = found {
+        return Ok(handle);
+    }
+    let mut entries = BTreeMap::new();
+    entries.insert(arena.name("Type"), Object::Name(arena.name("Namespace")));
+    entries.insert(arena.name("NS"), Object::Text(name.to_string()));
+    let handle = arena.alloc_object(Object::Dictionary(arena.alloc_dict(entries)));
+    listed.push(Object::Reference(handle));
+    root_dict.insert(key, Object::Array(arena.alloc_array(listed)));
+    arena.set_dict(root_dh, root_dict);
+    Ok(handle)
+}
+
+/// An array entry's items, or nothing.
+fn attributes_array(arena: &PdfArena, entry: Option<&Object>) -> Vec<Object> {
+    match entry.map(|e| e.resolve(arena)) {
+        Some(Object::Array(array)) => arena.get_array(array).unwrap_or_default(),
+        _ => Vec::new(),
+    }
+}
+
+/// Puts an element in the namespace `name` (`/NS`, 14.7.4), or, for an empty name, back in
+/// the default standard namespace by removing the entry.
+pub fn apply_set_struct_namespace(doc: &Document, element: u32, name: &str) -> PdfResult<()> {
+    let arena = doc.arena();
+    if element_dict(arena, element).is_none() {
+        return Err(not_an_element(element));
+    }
+    let reference = if name.is_empty() { None } else { Some(namespace(doc, name)?) };
+    let Some((dh, mut dict)) = element_dict(arena, element) else {
+        return Err(not_an_element(element));
+    };
+    let key = arena.name("NS");
+    match reference {
+        Some(handle) => dict.insert(key, Object::Reference(handle)),
+        None => dict.remove(&key),
+    };
+    arena.set_dict(dh, dict);
+    Ok(())
+}
+
+/// Maps `from` in the namespace `name` to `to` (`RoleMapNS`, Table 356): a name for a type of
+/// the default standard namespace, or `[to, namespace]` for one of `to_namespace`.
+pub fn apply_map_struct_type(
+    doc: &Document,
+    name: &str,
+    (from, to): (&str, &str),
+    to_namespace: Option<&str>,
+) -> PdfResult<()> {
+    let arena = doc.arena();
+    let handle = namespace(doc, name)?;
+    let target = match to_namespace {
+        Some(other) => Object::Array(arena.alloc_array(vec![
+            Object::Name(arena.name(to)),
+            Object::Reference(namespace(doc, other)?),
+        ])),
+        None => Object::Name(arena.name(to)),
+    };
+    let Some((dh, mut dict)) = element_dict(arena, handle.index()) else {
+        return Err(PdfError::Other("the namespace is not a dictionary".into()));
+    };
+    let key = arena.name("RoleMapNS");
+    let (map_dh, mut map) = match dict.get(&key).and_then(|m| m.resolve(arena).as_dict_handle()) {
+        Some(existing) => (existing, arena.get_dict(existing).unwrap_or_default()),
+        None => {
+            let fresh = arena.alloc_dict(BTreeMap::new());
+            dict.insert(key, Object::Dictionary(fresh));
+            arena.set_dict(dh, dict);
+            (fresh, BTreeMap::new())
+        }
+    };
+    map.insert(arena.name(from), target);
+    arena.set_dict(map_dh, map);
+    Ok(())
+}
+
 /// An attribute value as the object it is written as.
 fn attribute_value(arena: &PdfArena, value: AttributeValue) -> Object {
     let array = |items: Vec<Object>| Object::Array(arena.alloc_array(items));

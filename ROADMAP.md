@@ -3634,6 +3634,18 @@ Independent of all of the above:
         target that is not an element is refused before anything is written.
         `set_struct_refs` in `fepdf-mcp` takes the list. The references survive a file.
 
+      - [x] **W-22d — namespaces (2, above).** `SetStructNamespace` puts an element in a
+        namespace (`/NS`, 14.7.4): the dictionary the structure tree root's `/Namespaces`
+        holds for the name, added there if it holds none, so elements in one namespace
+        share one dictionary; an empty name removes `/NS` and returns the element to the
+        default standard namespace. `MapStructType` writes a namespace's `RoleMapNS` (Table
+        356): a name for a type of the default standard namespace, or `[type, namespace]`
+        for one of another, which it adds if absent. `set_struct_namespace` and
+        `map_struct_type` in `fepdf-mcp`. **The auditor reads `/RoleMap` and not
+        `RoleMapNS`**: the Matterhorn Protocol measures PDF/UA-1, whose PDF 1.7 has no
+        namespaces, so an element in PDF 2.0's is judged by its type alone — a WTPDF check
+        would have to read them.
+
 - [x] **W-18 — comparing two documents.** `fepdf::compare::compare` pairs pages by
       position and answers, for each that differs, the lines of text only one side has —
       a longest common subsequence over extracted lines — and the regions where the page

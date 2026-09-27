@@ -71,6 +71,36 @@ pub struct SetStructRefsArgs {
     pub targets: Vec<u32>,
 }
 
+/// Arguments for putting a structure element in a namespace.
+#[derive(Deserialize, JsonSchema)]
+pub struct SetStructNamespaceArgs {
+    /// Path to input PDF file.
+    pub input_path: String,
+    /// Path to output PDF file.
+    pub output_path: String,
+    /// Handle index of the structural element.
+    pub handle_index: u32,
+    /// The namespace URI, e.g. "http://iso.org/pdf2/ssn"; "" returns it to the default.
+    pub namespace: String,
+}
+
+/// Arguments for mapping a structure type of a namespace (RoleMapNS).
+#[derive(Deserialize, JsonSchema)]
+pub struct MapStructTypeArgs {
+    /// Path to input PDF file.
+    pub input_path: String,
+    /// Path to output PDF file.
+    pub output_path: String,
+    /// The namespace URI whose type is mapped.
+    pub namespace: String,
+    /// The type being mapped.
+    pub from: String,
+    /// The type it maps to.
+    pub to: String,
+    /// The namespace URI of the target type; the default standard namespace if absent.
+    pub to_namespace: Option<String>,
+}
+
 /// Arguments for deleting a structural element from the tree.
 #[derive(Deserialize, JsonSchema)]
 pub struct DeleteStructElemArgs {
@@ -253,4 +283,26 @@ pub fn set_struct_refs_impl(args: SetStructRefsArgs) -> Result<String, String> {
         op,
         &format!("Structural element #{} refers to {count} elements", args.handle_index),
     )
+}
+
+/// Implementation of the set_struct_namespace tool.
+pub fn set_struct_namespace_impl(args: SetStructNamespaceArgs) -> Result<String, String> {
+    let message = format!("Structural element #{} put in {:?}", args.handle_index, args.namespace);
+    let op = Operation::SetStructNamespace {
+        handle_index: args.handle_index,
+        namespace: args.namespace,
+    };
+    execute_single_op(&args.input_path, &args.output_path, op, &message)
+}
+
+/// Implementation of the map_struct_type tool.
+pub fn map_struct_type_impl(args: MapStructTypeArgs) -> Result<String, String> {
+    let message = format!("{} mapped to {} in {}", args.from, args.to, args.namespace);
+    let op = Operation::MapStructType {
+        namespace: args.namespace,
+        from: args.from,
+        to: args.to,
+        to_namespace: args.to_namespace,
+    };
+    execute_single_op(&args.input_path, &args.output_path, op, &message)
 }

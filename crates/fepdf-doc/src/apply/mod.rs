@@ -69,6 +69,12 @@ pub fn apply_operation(doc: &mut Document, op: Operation) -> PdfResult<()> {
         Operation::SetStructRefs { handle_index, targets } => {
             structure::apply_set_struct_refs(doc, handle_index, &targets)
         }
+        Operation::SetStructNamespace { handle_index, namespace } => {
+            structure::apply_set_struct_namespace(doc, handle_index, &namespace)
+        }
+        Operation::MapStructType { namespace, from, to, to_namespace } => {
+            structure::apply_map_struct_type(doc, &namespace, (&from, &to), to_namespace.as_deref())
+        }
         Operation::CreatePortfolio(p) => metadata::apply_create_portfolio(doc, p),
         Operation::UpdateOutlines(o) => metadata::apply_update_outlines(doc, o),
         Operation::UpdateLayers(l) => metadata::apply_update_layers(doc, l),
