@@ -483,7 +483,7 @@ impl FepdfServer {
     /// Embeds an Associated File (/AF) with relationship metadata compliant with PDF 2.0 / PDF/A-3.
     #[tool(
         name = "attach_associated_file",
-        description = "Embeds an Associated File (/AF) with relationship metadata compliant with PDF 2.0 / PDF/A-3."
+        description = "Embeds an Associated File (/AF) with relationship metadata compliant with PDF 2.0 / PDF/A-3, on the document or, given element_handle, on a structure element."
     )]
     pub async fn attach_associated_file(
         &self,

@@ -264,3 +264,44 @@ fn elements_share_a_namespace_and_a_namespace_maps_its_types() {
             .is_err()
     );
 }
+
+/// **A file associated with an element is in its `/AF`, after any it had** (14.13), with
+/// the relationship given — a formula's MathML as a `Supplement` (WTPDF 8.2.5.29) — and a
+/// specification naming it both ways, so 21-001 stays sound.
+#[test]
+fn a_file_is_associated_with_an_element() {
+    let mut doc = table();
+    let mathml = fepdf::AssociatedFile {
+        filename: "formula.mml".into(),
+        relationship: fepdf::AFRelationship::Supplement,
+        mime_type: "application/mathml+xml".into(),
+        data: b"<math><mi>x</mi></math>".to_vec(),
+    };
+    for _ in 0..2 {
+        doc.apply(Operation::AttachStructAssociatedFile { handle_index: 8, file: mathml.clone() })
+            .expect("attached");
+    }
+    let arena = doc.inner().arena();
+    let dict =
+        arena.get_object(Handle::new(8)).and_then(|o| o.as_dict_handle()).expect("an element");
+    let files = match arena.dict_entry(dict, arena.name("AF")).map(|a| a.resolve(arena)) {
+        Some(Object::Array(a)) => arena.get_array(a).unwrap_or_default(),
+        _ => Vec::new(),
+    };
+    assert_eq!(files.len(), 2, "each association is kept");
+    let spec = files[0].resolve(arena).as_dict_handle().expect("a file specification");
+    let relationship = arena
+        .dict_entry(spec, arena.name("AFRelationship"))
+        .and_then(|r| r.as_name())
+        .and_then(|n| arena.get_name(n))
+        .map(|n| n.as_str().to_string());
+    assert_eq!(relationship.as_deref(), Some("Supplement"));
+    let report = doc.audit_ua2_report().expect("it audits");
+    let outcome: Vec<Outcome> =
+        report.findings.iter().filter(|f| f.checkpoint == "21-001").map(|f| f.outcome).collect();
+    assert_eq!(outcome, vec![Outcome::Sound], "the element's file is named both ways");
+    assert!(
+        doc.apply(Operation::AttachStructAssociatedFile { handle_index: 9999, file: mathml })
+            .is_err()
+    );
+}

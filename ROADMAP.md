@@ -3646,6 +3646,13 @@ Independent of all of the above:
         namespaces, so an element in PDF 2.0's is judged by its type alone — a WTPDF check
         would have to read them.
 
+      - [x] **W-22e — a file associated with an element (8, above).**
+        `AttachStructAssociatedFile` adds an embedded file to an element's `/AF` (14.13),
+        after any it has, with the relationship given — a formula's MathML as a
+        `Supplement` (WTPDF 8.2.5.29). The specification is the catalogue's association's,
+        `/F` and `/UF` both, so 21-001 stays sound. `attach_associated_file` in `fepdf-mcp`
+        takes an `element_handle` to associate with an element rather than the document.
+
 - [x] **W-18 — comparing two documents.** `fepdf::compare::compare` pairs pages by
       position and answers, for each that differs, the lines of text only one side has —
       a longest common subsequence over extracted lines — and the regions where the page

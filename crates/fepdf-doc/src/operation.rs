@@ -529,6 +529,15 @@ pub enum Operation {
     },
     /// Set one attribute of a structure element, in the attribute object of its owner.
     SetStructAttribute(StructAttribute),
+    /// Associate a file with a structure element (`/AF`, 14.13): a formula's MathML with
+    /// `AFRelationship` `Supplement`, as WTPDF 8.2.5.29 asks, where `AttachAssociatedFile`
+    /// associates with the catalogue.
+    AttachStructAssociatedFile {
+        /// Target object handle index of the element.
+        handle_index: u32,
+        /// The file, embedded, with its relationship to the element.
+        file: AssociatedFile,
+    },
     /// Put a structure element in a namespace (`/NS`, 14.7.4): the one the structure tree
     /// root's `/Namespaces` names by `namespace`, added there if it has none. An empty
     /// string removes `/NS`, which puts the element back in the default namespace.
@@ -639,6 +648,7 @@ impl Operation {
             | Self::SetStructAttribute(..)
             | Self::SetStructRefs { .. }
             | Self::SetStructNamespace { .. }
+            | Self::AttachStructAssociatedFile { .. }
             | Self::MapStructType { .. }
             | Self::ExecuteAction { .. }
             | Self::SetGeospatialAnchor { .. }

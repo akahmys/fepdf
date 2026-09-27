@@ -70,6 +70,9 @@ pub struct AttachAssociatedFileArgs {
     pub relationship: Option<String>,
     /// MIME type (e.g. "application/pdf", "text/csv").
     pub mime_type: Option<String>,
+    /// Handle index of a structure element to associate the file with — a formula's
+    /// MathML, say — instead of the document.
+    pub element_handle: Option<u32>,
 }
 
 /// Arguments for creating a PDF Portfolio / Collection.
@@ -166,8 +169,14 @@ pub fn attach_associated_file_impl(args: AttachAssociatedFileArgs) -> Result<Str
         data,
     };
 
-    let op = Operation::AttachAssociatedFile(af);
-    execute_single_op(&args.input_path, &args.output_path, op, "Associated file attached (/AF)")
+    let (op, message) = match args.element_handle {
+        Some(handle_index) => (
+            Operation::AttachStructAssociatedFile { handle_index, file: af },
+            format!("Associated file attached to structural element #{handle_index} (/AF)"),
+        ),
+        None => (Operation::AttachAssociatedFile(af), "Associated file attached (/AF)".into()),
+    };
+    execute_single_op(&args.input_path, &args.output_path, op, &message)
 }
 
 /// Implementation of the create_portfolio tool.

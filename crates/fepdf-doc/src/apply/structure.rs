@@ -1,6 +1,6 @@
 use crate::operation::{
-    ArticleThread, AttributeValue, StructAttribute, StructElemMove, StructElemUpdate, UserProperty,
-    UserPropertyValue,
+    ArticleThread, AssociatedFile, AttributeValue, StructAttribute, StructElemMove,
+    StructElemUpdate, UserProperty, UserPropertyValue,
 };
 use crate::struct_tree;
 use fepdf_model::arena::PdfArena;
@@ -404,6 +404,38 @@ pub fn apply_map_struct_type(
     };
     map.insert(arena.name(from), target);
     arena.set_dict(map_dh, map);
+    Ok(())
+}
+
+/// Associates an embedded file with a structure element (`/AF`, 14.13), after any it has.
+///
+/// The file specification is the one the catalogue's association makes — `/F` and `/UF`,
+/// `/AFRelationship`, the stream typed `EmbeddedFile` — so an element's file meets 21-001 as
+/// the catalogue's does.
+pub fn apply_attach_struct_file(
+    doc: &Document,
+    element: u32,
+    file: AssociatedFile,
+) -> PdfResult<()> {
+    let arena = doc.arena();
+    let Some((dh, mut dict)) = element_dict(arena, element) else {
+        return Err(not_an_element(element));
+    };
+    let size = u64::try_from(file.data.len()).unwrap_or(u64::MAX);
+    let spec = crate::apply::metadata::create_embedded_filespec(
+        arena,
+        file.filename,
+        Some(file.mime_type),
+        None,
+        size,
+        file.data,
+        Some(file.relationship),
+    );
+    let key = arena.name("AF");
+    let mut files = attributes_array(arena, dict.get(&key));
+    files.push(Object::Reference(spec));
+    dict.insert(key, Object::Array(arena.alloc_array(files)));
+    arena.set_dict(dh, dict);
     Ok(())
 }
 

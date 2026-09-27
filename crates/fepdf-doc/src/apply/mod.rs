@@ -69,6 +69,9 @@ pub fn apply_operation(doc: &mut Document, op: Operation) -> PdfResult<()> {
         Operation::SetStructRefs { handle_index, targets } => {
             structure::apply_set_struct_refs(doc, handle_index, &targets)
         }
+        Operation::AttachStructAssociatedFile { handle_index, file } => {
+            structure::apply_attach_struct_file(doc, handle_index, file)
+        }
         Operation::SetStructNamespace { handle_index, namespace } => {
             structure::apply_set_struct_namespace(doc, handle_index, &namespace)
         }
