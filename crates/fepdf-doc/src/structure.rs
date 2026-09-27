@@ -159,7 +159,7 @@ impl AuditReport {
     /// the document passing.
     ///
     /// **Named so that a caller cannot write `findings.is_empty()` and mean "conforms".**
-    /// Seventy-seven failure conditions out of 137 finding nothing is seventy-seven failure
+    /// Ninety-four failure conditions out of 137 finding nothing is ninety-four failure
     /// conditions finding nothing. Read [`AuditReport::scope`] beside this.
     ///
     /// **This was `findings.is_empty()`, and that could not be true.** Once a checked and
@@ -321,6 +321,19 @@ pub(crate) fn for_a_reader(condition: &str, message: impl Into<String>) -> Audit
     }
 }
 
+/// A condition decided sound for a reason worth saying: one the protocol leaves to a person
+/// (`H`), which a machine may decide only where the document gives it the answer — it has
+/// none of what the condition is about, or states a fact that settles it — and must say so.
+pub(crate) fn sound_because(condition: &str, message: impl Into<String>) -> AuditFinding {
+    AuditFinding {
+        checkpoint: condition.to_string(),
+        severity: "Pass".into(),
+        outcome: Outcome::Sound,
+        message: message.into(),
+        handle_id: None,
+    }
+}
+
 /// A condition that was examined and came out sound.
 fn sound_row(condition: &str) -> AuditFinding {
     AuditFinding {
@@ -353,16 +366,18 @@ impl<'a> MatterhornAuditor<'a> {
     /// say so is a thing the tests can notice. The seven `FROM_` lists — the four above,
     /// and one each in `audit_objects`, `audit_fonts` and `audit_files` — partition this
     /// one, and a test holds them to it.
-    pub const CHECKED: [&'static str; 77] = [
-        "01-003", "01-004", "01-005", "01-007", "02-001", "02-003", "02-004", "07-001", "07-002",
-        "09-004", "09-005", "09-006", "09-007", "09-008", "10-001", "11-001", "11-002", "11-003",
-        "11-004", "11-005", "11-006", "13-004", "14-002", "14-003", "14-006", "14-007", "15-003",
-        "17-002", "17-003", "19-003", "19-004", "20-001", "20-002", "20-003", "21-001", "25-001",
-        "26-001", "26-002", "28-002", "28-004", "28-005", "28-006", "28-007", "28-008", "28-009",
-        "28-010", "28-011", "28-012", "28-014", "28-015", "28-016", "28-017", "28-018", "30-001",
-        "30-002", "31-004", "31-009", "31-011", "31-012", "31-013", "31-014", "31-015", "31-016",
-        "31-017", "31-018", "31-019", "31-020", "31-021", "31-022", "31-023", "31-024", "31-025",
-        "31-026", "31-027", "31-028", "31-029", "31-030",
+    pub const CHECKED: [&'static str; 94] = [
+        "01-003", "01-004", "01-005", "01-007", "02-001", "02-003", "02-004", "03-001", "03-002",
+        "03-003", "05-001", "05-002", "05-003", "07-001", "07-002", "09-004", "09-005", "09-006",
+        "09-007", "09-008", "10-001", "11-001", "11-002", "11-003", "11-004", "11-005", "11-006",
+        "13-002", "13-004", "13-005", "13-008", "14-002", "14-003", "14-006", "14-007", "15-003",
+        "16-001", "16-002", "17-002", "17-003", "19-003", "19-004", "20-001", "20-002", "20-003",
+        "21-001", "22-001", "25-001", "26-001", "26-002", "28-001", "28-002", "28-003", "28-004",
+        "28-005", "28-006", "28-007", "28-008", "28-009", "28-010", "28-011", "28-012", "28-013",
+        "28-014", "28-015", "28-016", "28-017", "28-018", "29-001", "30-001", "30-002", "31-004",
+        "31-009", "31-010", "31-011", "31-012", "31-013", "31-014", "31-015", "31-016", "31-017",
+        "31-018", "31-019", "31-020", "31-021", "31-022", "31-023", "31-024", "31-025", "31-026",
+        "31-027", "31-028", "31-029", "31-030",
     ];
 
     /// How many failure conditions the Matterhorn Protocol 1.1 has, across 31 checkpoints.
@@ -435,8 +450,8 @@ impl<'a> MatterhornAuditor<'a> {
     pub fn scope() -> AuditScope {
         AuditScope {
             checked: Self::CHECKED.iter().map(|c| (*c).to_string()).collect(),
-            left_to_a_person: crate::matterhorn::LEFT_TO_A_PERSON
-                .iter()
+            left_to_a_person: crate::matterhorn::left_to_a_person()
+                .into_iter()
                 .map(|(condition, wording)| crate::matterhorn::LeftToAPerson {
                     condition: (*condition).to_string(),
                     wording: (*wording).to_string(),

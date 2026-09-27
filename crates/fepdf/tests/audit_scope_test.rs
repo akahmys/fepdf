@@ -23,7 +23,8 @@ use fepdf::{IngestionOptions, PdfDocument};
 use fepdf_doc::audit_files::FROM_FILES;
 use fepdf_doc::audit_fonts::FROM_FONTS;
 use fepdf_doc::audit_objects::FROM_OBJECTS;
-use fepdf_doc::matterhorn::LEFT_TO_A_PERSON;
+use fepdf_doc::audit_presence::FROM_PRESENCE;
+use fepdf_doc::matterhorn::{MARKED_H, left_to_a_person};
 use fepdf_doc::{
     AuditFinding, AuditReport, FROM_CATALOGUE, FROM_CONTENT, FROM_FORM, FROM_STRUCTURE_TREE,
     MatterhornAuditor, NO_STRUCTURE_TREE, Outcome,
@@ -378,8 +379,10 @@ fn display_doc_title_false() -> Vec<u8> {
 
 /// A tagged document that breaks none of the conditions this auditor looks at.
 ///
-/// Headings `<H1>` then `<H2>` and no `<H>` (14-002, 14-003, 14-007), a figure with its
-/// alternative text and a formula with its own (13-004, 17-002), a `/Lang` on the
+/// Headings `<H1>` then `<H2>` and no `<H>` (14-002, 14-003, 14-007), a formula with its
+/// alternative text (17-002), and **no figure**: a figure leaves 13-005 or 13-008 to a
+/// person whichever way its `/ActualText` goes, so a document with one always has something
+/// for a reader (13-004's sound case is its own test). A `/Lang` on the
 /// catalogue for the `<Span>`'s `/ActualText` to be read in (11-002), `/Suspects` absent
 /// (01-007), `/DisplayDocTitle` true (07-001, 07-002), no form at all (28-005), one
 /// `<H>` per node and none of them beside a `<Hn>` (14-006), and a page whose every mark
@@ -394,7 +397,7 @@ fn breaks_nothing() -> Vec<u8> {
         "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Contents 10 0 R >>".to_string(),
         "<< /Type /StructElem /S /H1 /P 9 0 R /Pg 3 0 R >>".to_string(),
         "<< /Type /StructElem /S /H2 /P 9 0 R /Pg 3 0 R >>".to_string(),
-        "<< /Type /StructElem /S /Figure /P 9 0 R /Pg 3 0 R /Alt (a duck) >>".to_string(),
+        "<< /Type /StructElem /S /P /P 9 0 R /Pg 3 0 R >>".to_string(),
         "<< /Type /StructElem /S /Formula /P 9 0 R /Pg 3 0 R /Alt (E equals m c squared) >>"
             .to_string(),
         "<< /Type /StructElem /S /Span /P 9 0 R /Pg 3 0 R /ActualText (ibid.) >>".to_string(),
@@ -448,7 +451,7 @@ fn the_report_says_how_much_of_the_protocol_it_checked() {
     );
     assert_eq!(
         report.scope.checked.len(),
-        77,
+        94,
         "the scope does not name the failure conditions this auditor looks at"
     );
     assert!(
@@ -474,6 +477,7 @@ fn every_checked_condition_is_decided_by_exactly_one_reader() {
     union.extend(FROM_OBJECTS);
     union.extend(FROM_FONTS);
     union.extend(FROM_FILES);
+    union.extend(FROM_PRESENCE);
 
     let distinct: BTreeSet<&str> = union.iter().copied().collect();
     assert_eq!(distinct.len(), union.len(), "a condition is in two of the lists: {union:?}");
@@ -506,6 +510,7 @@ fn the_scope_names_every_checkpoint_reported() {
         shown_in(&type_1_font("/WinAnsiEncoding"), "(C) Tj <81>"),
         shown_in(&widths_type_1("[500 650]"), "(AB)"),
         formula(true),
+        has_everything(RESTRICTED),
     ] {
         let doc = opened(fixture);
         let report = doc.audit_ua2_report().expect("it audits");
@@ -577,6 +582,7 @@ fn every_condition_the_scope_names_can_be_reported_broken() {
         shown_in(&type_1_font("/WinAnsiEncoding"), "(C) Tj <81>"),
         shown_in(&widths_type_1("[500 650]"), "(AB)"),
         formula(true),
+        has_everything(RESTRICTED),
     ] {
         let doc = opened(fixture);
         let report = doc.audit_ua2_report().expect("it audits");
@@ -1158,8 +1164,9 @@ fn the_scope_says_which_conditions_are_left_to_a_person() {
 
     assert_eq!(
         report.scope.left_to_a_person.len(),
-        48,
-        "the protocol marks 48 of its failure conditions H"
+        MARKED_H.len()
+            - MARKED_H.iter().filter(|(c, _)| MatterhornAuditor::CHECKED.contains(c)).count(),
+        "what is left to a person is not the protocol's H conditions less those decided here"
     );
     for entry in &report.scope.left_to_a_person {
         assert_eq!(entry.condition.len(), 6, "{} is not an index number", entry.condition);
@@ -1189,12 +1196,13 @@ fn the_scope_says_which_conditions_are_left_to_a_person() {
 /// already done.
 #[test]
 fn nothing_is_both_checked_here_and_left_to_a_person() {
-    let left: BTreeSet<&str> = LEFT_TO_A_PERSON.iter().map(|(condition, _)| *condition).collect();
+    let left_list = left_to_a_person();
+    let left: BTreeSet<&str> = left_list.iter().map(|(condition, _)| *condition).collect();
     let checked: BTreeSet<&str> = MatterhornAuditor::CHECKED.iter().copied().collect();
     let both: Vec<&&str> = left.intersection(&checked).collect();
     assert!(both.is_empty(), "checked here and still listed for a reader to decide: {both:?}");
 
-    assert_eq!(left.len(), LEFT_TO_A_PERSON.len(), "a condition is listed for a person twice");
+    assert_eq!(left.len(), left_list.len(), "a condition is listed for a person twice");
     assert!(
         checked.len() + left.len() <= MatterhornAuditor::IN_PROTOCOL,
         "the two lists together claim more conditions than the protocol has: {} and {} of {}",
@@ -1251,14 +1259,11 @@ fn every_condition_left_to_a_person_is_one_the_protocol_marks_h() {
         }
     }
 
-    let listed: BTreeSet<&str> = LEFT_TO_A_PERSON.iter().map(|(condition, _)| *condition).collect();
-    assert_eq!(
-        listed, marked_h,
-        "the conditions listed for a person are not the ones the protocol marks H"
-    );
+    let listed: BTreeSet<&str> = MARKED_H.iter().map(|(condition, _)| *condition).collect();
+    assert_eq!(listed, marked_h, "the conditions held as H are not the ones the protocol marks H");
     assert_eq!(marked_h.len(), 48, "the protocol no longer marks 48 of its conditions H");
 
-    for (condition, wording) in LEFT_TO_A_PERSON {
+    for (condition, wording) in MARKED_H {
         let opening = said.get(condition).unwrap_or_else(|| panic!("{condition} has no row"));
         // The stored wording is the row's text with the line breaks taken out, so it
         // begins with exactly what the row's first line says before the columns cut in.
@@ -1396,6 +1401,23 @@ fn every_number_reported_means_in_the_protocol_what_it_is_used_for() {
         ("10-001", "Character code cannot be mapped to Unicode"),
         ("17-003", "Unicode mapping requirements are not met"),
         ("11-001", "Natural language for text in page content cannot"),
+        ("03-001", "One or more Actions lead to flickering"),
+        ("03-002", "One or more multimedia objects contain"),
+        ("03-003", "One or more JavaScript actions lead to"),
+        ("05-001", "Media annotation present, but audio content not"),
+        ("05-002", "Audio annotation present, but content not"),
+        ("05-003", "JavaScript uses beep function but does not"),
+        ("13-002", "A link with a meaningful background does not"),
+        ("13-005", "ActualText used for a <Figure> for which"),
+        ("13-008", "ActualText not present when a <Figure> is"),
+        ("16-001", "List is an ordered list, but no value for the"),
+        ("16-002", "List is an ordered list, but the ListNumbering"),
+        ("22-001", "Article threads do not reflect logical reading"),
+        ("28-001", "An annotation is not in correct reading order"),
+        ("28-003", "An annotation is used for visual formatting but"),
+        ("28-013", "An IsMap entry is present with a value of true"),
+        ("29-001", "A script requires specific timing for individual"),
+        ("31-010", "A font program is embedded that is not legally"),
     ];
     assert_eq!(
         says.len(),
@@ -2396,4 +2418,114 @@ fn the_language_of_page_text_is_found_through_the_hierarchy() {
         let report = languages(content, span, paragraph);
         assert_eq!(outcomes(&report, "11-001"), vec![outcome], "{content} {span} {paragraph}");
     }
+}
+
+/// An SFNT whose one table is an `OS/2` stating `fsType` 2: it must not be embedded.
+const RESTRICTED: &str = "0001000000010000000000004f532f32000000000000001c0000004e000000000000000000020000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000";
+
+/// An SFNT whose one table is an `OS/2` stating `fsType` 8: it may be embedded and edited.
+const EDITABLE: &str = "0001000000010000000000004f532f32000000000000001c0000004e000000000000000000080000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000";
+
+/// A tagged document with one of everything the conditions W-21v decides are about: a
+/// JavaScript action calling `beep`, a `/Hide` action, a link, a screen, a sound annotation,
+/// a URI action with `/IsMap true`, an article thread, a figure with `/ActualText` and one
+/// without, a list with no `ListNumbering` and one numbered `Disc`, and a TrueType font whose
+/// program is `program`.
+fn has_everything(program: &str) -> Vec<u8> {
+    let js = "app.beep(0);";
+    fepdf_fixtures::assemble(&[
+        "<< /Type /Catalog /Pages 2 0 R /StructTreeRoot 6 0 R /Lang (en) /Threads [13 0 R] \
+           /OpenAction << /S /JavaScript /JS 5 0 R >> >>"
+            .to_string(),
+        "<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_string(),
+        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Tabs /S \
+           /Annots [4 0 R 11 0 R 12 0 R] /Resources << /Font << /F1 14 0 R >> >> >>"
+            .to_string(),
+        "<< /Type /Annot /Subtype /Link /Rect [0 0 10 10] /Contents (Go) \
+           /A << /S /URI /URI (http://example.com/map) /IsMap true \
+           /Next << /S /Hide /T (x) >> >> >>"
+            .to_string(),
+        format!("<< /Length {} >>\nstream\n{js}\nendstream", js.len()),
+        "<< /Type /StructTreeRoot /K [7 0 R 8 0 R 9 0 R 10 0 R] >>".to_string(),
+        "<< /Type /StructElem /S /Figure /P 6 0 R /Alt (a) /ActualText (a) >>".to_string(),
+        "<< /Type /StructElem /S /Figure /P 6 0 R /Alt (b) >>".to_string(),
+        "<< /Type /StructElem /S /L /P 6 0 R >>".to_string(),
+        "<< /Type /StructElem /S /L /P 6 0 R /A << /O /List /ListNumbering /Disc >> >>".to_string(),
+        "<< /Type /Annot /Subtype /Screen /Rect [20 20 30 30] /Contents (A screen) >>".to_string(),
+        "<< /Type /Annot /Subtype /Sound /Rect [40 40 50 50] /Contents (A sound) >>".to_string(),
+        "<< /Type /Thread /I << /Title (Story) >> >>".to_string(),
+        "<< /Type /Font /Subtype /TrueType /BaseFont /T /FontDescriptor 15 0 R \
+           /Encoding /WinAnsiEncoding >>"
+            .to_string(),
+        "<< /Type /FontDescriptor /FontName /T /Flags 32 /FontFile2 16 0 R >>".to_string(),
+        hex_stream("", program),
+    ])
+}
+
+/// The seventeen conditions W-21v decides, and how each comes out on `bytes`.
+fn presence(bytes: Vec<u8>) -> Vec<(String, Vec<Outcome>)> {
+    let report = opened(bytes).audit_ua2_report().expect("it audits");
+    FROM_PRESENCE.iter().map(|c| ((*c).to_string(), outcomes(&report, c))).collect()
+}
+
+/// **A document with none of what these conditions are about is sound on all of them, and
+/// the finding says the machine decided it and why**; a document with some leaves each to
+/// a reader — except 31-010, which a program's `OS/2.fsType` settles either way.
+#[test]
+fn the_h_conditions_a_document_answers_are_decided() {
+    let report = opened(untagged()).audit_ua2_report().expect("it audits");
+    for condition in FROM_PRESENCE {
+        let rows: Vec<&AuditFinding> =
+            report.findings.iter().filter(|f| f.checkpoint == condition).collect();
+        assert_eq!(rows.len(), 1, "{condition}");
+        assert_eq!(rows[0].outcome, Outcome::Sound, "{condition}");
+        assert!(
+            rows[0].message.starts_with("Decided by the machine"),
+            "{condition}: {}",
+            rows[0].message
+        );
+    }
+    for (condition, outcome) in presence(has_everything(EDITABLE)) {
+        let expected = if condition == "31-010" { Outcome::Sound } else { Outcome::ForAReader };
+        assert_eq!(outcome, vec![expected], "{condition}");
+    }
+    let restricted = presence(has_everything(RESTRICTED));
+    assert!(restricted.contains(&("31-010".to_string(), vec![Outcome::Broken])), "{restricted:?}");
+    // A program with no `OS/2` table says nothing, and is left to a person.
+    let silent = presence(has_everything(THREE_SLOTS));
+    assert!(silent.contains(&("31-010".to_string(), vec![Outcome::ForAReader])), "{silent:?}");
+}
+
+/// A tagged document whose one structure element is `element`, as `/K` of the root.
+fn one_element(element: &str) -> Vec<(String, Vec<Outcome>)> {
+    presence(fepdf_fixtures::assemble(&[
+        "<< /Type /Catalog /Pages 2 0 R /StructTreeRoot 4 0 R /Lang (en) >>".to_string(),
+        "<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_string(),
+        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] >>".to_string(),
+        "<< /Type /StructTreeRoot /K [5 0 R] >>".to_string(),
+        format!("<< /Type /StructElem /P 4 0 R {element} >>"),
+    ]))
+}
+
+/// **Which figure and which list asks which question.** A figure with `/ActualText` asks
+/// 13-005 and not 13-008, one without the reverse; a list numbered `Decimal` asks neither
+/// 16-001 nor 16-002, one numbered `Disc` asks 16-002, one with no numbering 16-001.
+#[test]
+fn each_element_asks_its_own_question() {
+    let asks = |element: &str, condition: &str| {
+        let outcomes = one_element(element);
+        outcomes.iter().find(|(c, _)| c == condition).map(|(_, o)| o.clone()).unwrap_or_default()
+    };
+    let reader = vec![Outcome::ForAReader];
+    let sound = vec![Outcome::Sound];
+    assert_eq!(asks("/S /Figure /Alt (a) /ActualText (a)", "13-005"), reader);
+    assert_eq!(asks("/S /Figure /Alt (a) /ActualText (a)", "13-008"), sound);
+    assert_eq!(asks("/S /Figure /Alt (a)", "13-005"), sound);
+    assert_eq!(asks("/S /Figure /Alt (a)", "13-008"), reader);
+    let list = |numbering: &str| format!("/S /L /A << /O /List /ListNumbering /{numbering} >>");
+    assert_eq!(asks(&list("Decimal"), "16-001"), sound);
+    assert_eq!(asks(&list("Decimal"), "16-002"), sound);
+    assert_eq!(asks(&list("Disc"), "16-002"), reader);
+    assert_eq!(asks("/S /L", "16-001"), reader);
+    assert_eq!(asks("/S /L", "16-002"), sound);
 }

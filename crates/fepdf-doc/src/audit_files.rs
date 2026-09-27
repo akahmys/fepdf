@@ -23,9 +23,9 @@ const REACH: usize = 1 << 24;
 
 /// What is reachable from the catalogue: every dictionary, and every form XObject.
 #[derive(Default)]
-struct Reached {
-    dicts: Vec<Resources>,
-    forms: Vec<Handle<Object>>,
+pub(crate) struct Reached {
+    pub(crate) dicts: Vec<Resources>,
+    pub(crate) forms: Vec<Handle<Object>>,
 }
 
 /// Asks every condition in [`FROM_FILES`] of `doc`.
@@ -44,6 +44,8 @@ pub fn audit_files(
     dynamic_xfa(doc, &Object::Reference(catalogue), findings);
     shared_forms(doc, &reached.forms, findings);
     examined.extend(FROM_FILES);
+    // The same walk answers the conditions decided by what a document has at all.
+    crate::audit_presence::audit_presence(doc, &dicts, findings, examined);
 }
 
 /// Every dictionary and form reachable from `catalogue`, each once.

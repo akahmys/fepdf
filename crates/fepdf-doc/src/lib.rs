@@ -13,6 +13,8 @@ pub mod audit_files;
 pub mod audit_fonts;
 /// Matterhorn conditions decided by objects outside the structure tree.
 pub mod audit_objects;
+/// Matterhorn conditions marked `H`, decided where the document gives the answer.
+pub mod audit_presence;
 /// Matterhorn conditions about a font descriptor's `/CharSet` and `/CIDSet`.
 pub mod audit_subsets;
 /// Matterhorn conditions about role mapping, notes and table headers.
@@ -57,7 +59,7 @@ pub mod truetype_lookup;
 pub mod unicode_map;
 
 pub use apply::apply_operation;
-pub use matterhorn::{LEFT_TO_A_PERSON, LeftToAPerson};
+pub use matterhorn::{LeftToAPerson, MARKED_H, left_to_a_person};
 pub use operation::*;
 pub use outline_tree::{OutlineReport, read_outlines};
 pub use remediation::apply_physical_redaction_to_page;

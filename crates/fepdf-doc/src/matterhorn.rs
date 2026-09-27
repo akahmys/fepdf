@@ -24,18 +24,22 @@ pub struct LeftToAPerson {
 ///
 /// **48 of the 137, and the `How` column is advice rather than a boundary.** The protocol
 /// defines it as "**not determinative** … the realistic best-practice approach **at the
-/// present time**", so an `H` is not a prohibition on software deciding one — what it
-/// forbids is reporting one *as decided*, because a clean answer to a question a person
-/// was supposed to answer is the same lie as a clean answer from a check that never ran.
+/// present time**", so an `H` is not a prohibition on software deciding one. What must not
+/// happen is a clean answer to a question only a person can answer, which is the same lie
+/// as a clean answer from a check that never ran. **A machine decides one only where the
+/// document gives it the answer** — it has none of what the condition is about, or it
+/// states a fact that settles it — says so in the finding, and leaves the rest of the
+/// question to a reader as a finding about this document.
 ///
 /// **They are scope, not findings.** The same 48 for every document, because what this
 /// list says is a property of the protocol and not of the file: a row per document would
 /// be 48 findings that mean nothing about the document they are attached to.
 ///
-/// A condition this engine comes to decide leaves this list for
-/// [`crate::MatterhornAuditor::CHECKED`], and
-/// `nothing_is_both_checked_here_and_left_to_a_person` holds the two apart.
-pub const LEFT_TO_A_PERSON: [(&str, &str); 48] = [
+/// **The protocol's list, whole; what is left to a person is derived from it.** A
+/// condition this engine comes to decide is in [`crate::MatterhornAuditor::CHECKED`], and
+/// [`left_to_a_person`] is these less those — so the quotation stays the protocol's, and a
+/// report never asks a reader for work the auditor has done.
+pub const MARKED_H: [(&str, &str); 48] = [
     ("01-001", "Artifact is tagged as real content."),
     ("01-002", "Real content is marked as artifact."),
     (
@@ -150,3 +154,14 @@ pub const LEFT_TO_A_PERSON: [(&str, &str); 48] = [
      rendering.",
     ),
 ];
+
+/// The conditions the protocol marks `H` that this auditor does not decide, in the
+/// protocol's words: [`MARKED_H`] less [`crate::MatterhornAuditor::CHECKED`].
+#[must_use]
+pub fn left_to_a_person() -> Vec<(&'static str, &'static str)> {
+    MARKED_H
+        .iter()
+        .copied()
+        .filter(|(condition, _)| !crate::MatterhornAuditor::CHECKED.contains(condition))
+        .collect()
+}

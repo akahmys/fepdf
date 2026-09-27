@@ -3189,13 +3189,13 @@ Independent of all of the above:
       not be made.
 
       **This is the gap ADR-0087 was taken over, in the large.** A document this engine
-      declares PDF/UA-2 conforming is one it has checked seventy-seven things about — and all
-      seventy-seven are PDF/UA-1 conditions ([ADR-0092](docs/adr/0092-the-matterhorn-protocol-measures-ua-1-and-this-engine-declares-ua-2.md)). `PdfStandard::UA2`
+      declares PDF/UA-2 conforming is one it has checked ninety-four things about — and all
+      ninety-four are PDF/UA-1 conditions ([ADR-0092](docs/adr/0092-the-matterhorn-protocol-measures-ua-1-and-this-engine-declares-ua-2.md)). `PdfStandard::UA2`
       writes that claim into the catalogue, and the claim is a statement about 137 things.
 
       - [x] **W-21a — say how much is checked.** `audit_ua2_report` answers an
         `AuditReport` carrying an `AuditScope` beside the findings, and the window shows
-        "Matterhorn の 2 / 136 件の失格条件を検査" where the findings are — 77 / 137 since W-21u.
+        "Matterhorn の 2 / 136 件の失格条件を検査" where the findings are — 94 / 137 since W-21v.
         `found_nothing()` is
         named so that a caller cannot write `findings.is_empty()` and mean "conforms".
 
@@ -3463,9 +3463,35 @@ Independent of all of the above:
         CMaps and `/CIDToGIDMap` it rewrites or fills. Across the 525 files (2026-09-27) it
         finds text in no language in 106 — every sample, each with no catalogue `/Lang`, and
         of the PDF/UA-2 suite only two files made to fail it. The audit of `intel_sdm.pdf`
-        is 2.9 s. **What is left of W-21 is the 48 `H` conditions** — the target this
+        is 2.9 s. **What is left of W-21 is the 48 `H` conditions**, which W-21v begins on — the target this
         item set is 137 less the two with no test, and an `H` is advice about the state of
         the art in 2021, not a prohibition.
+
+      - [x] **W-21v — the `H` conditions a document answers itself.** Seventeen of the 48
+        the protocol leaves to a person are about something a document may not have at all
+        — actions that could flicker (**03-001**), multimedia (**03-002**), JavaScript
+        (**03-003**, **29-001**), scripts calling `beep` (**05-003**), media and sound
+        annotations (**05-001**, **05-002**), links (**13-002**), figures with and without
+        `/ActualText` (**13-005**, **13-008**), lists with no `ListNumbering` or one naming
+        no ordered numbering (**16-001**, **16-002**), article threads (**22-001**),
+        annotations (**28-001**, **28-003**), and URI actions stating `/IsMap true`
+        (**28-013**). A document with none of the thing has no such question: the finding
+        is `Sound` and says **"Decided by the machine"** and why. One with some gets a
+        finding for a reader naming how many, which is a question about *this* document
+        where the scope's list is the same for every file. **31-010** is settled by the
+        program itself: an `OS/2.fsType` that is restricted, bitmap-only, or forbids the
+        subsetting done breaks it; one that permits is sound; a program with no `OS/2`,
+        as a CFF or Type 1 program never has one, is left to a person.
+
+        `matterhorn::MARKED_H` keeps the protocol's 48 whole and quoted, and
+        `left_to_a_person()` is those less `CHECKED`, so the scope no longer lists for a
+        reader a question the auditor has answered. The walk from the catalogue
+        `audit_files` makes is the one these read. **Ninety-four of 137; 31 left to a
+        person.** Across the 525 files (2026-09-27) nothing breaks 31-010 — the corpus
+        embeds no restricted face, as the fsType survey found — and the rest divide into
+        findings for a reader where the document has the thing: 83 files with annotations,
+        36 with actions that change more than the view once, 152 whose embedded programs
+        are silent on their permission.
 
       - [x] **W-21g — a condition checked and not broken is a result.** `AuditFinding`
         carries an `Outcome` — `Broken`, `Sound`, `ForAReader` — and `audit_report` adds
@@ -3494,7 +3520,7 @@ Independent of all of the above:
       against `/Alt`.
 
       **It waits on W-21 and says so.** A conformance claim is worth what the checking
-      behind it is worth, and seventy-seven failure conditions of 137 is not a foundation to
+      behind it is worth, and ninety-four failure conditions of 137 is not a foundation to
       put a second claim on. What can be done first is the reading: the structure tree editor this engine
       already has is most of what a well-tagged file is made with, and what it cannot yet
       express is the list this item starts as.
