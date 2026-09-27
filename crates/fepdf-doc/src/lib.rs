@@ -7,6 +7,8 @@
 
 /// Dispatcher and domain modules for applying operations to documents.
 pub mod apply;
+/// Matterhorn conditions about embedded files, XFA, encryption, media and shared forms.
+pub mod audit_files;
 /// Matterhorn conditions about font dictionaries and embedded programs.
 pub mod audit_fonts;
 /// Matterhorn conditions decided by objects outside the structure tree.

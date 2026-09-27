@@ -3189,13 +3189,13 @@ Independent of all of the above:
       not be made.
 
       **This is the gap ADR-0087 was taken over, in the large.** A document this engine
-      declares PDF/UA-2 conforming is one it has checked fifty-three things about — and all
-      fifty-three are PDF/UA-1 conditions ([ADR-0092](docs/adr/0092-the-matterhorn-protocol-measures-ua-1-and-this-engine-declares-ua-2.md)). `PdfStandard::UA2`
+      declares PDF/UA-2 conforming is one it has checked sixty-six things about — and all
+      sixty-six are PDF/UA-1 conditions ([ADR-0092](docs/adr/0092-the-matterhorn-protocol-measures-ua-1-and-this-engine-declares-ua-2.md)). `PdfStandard::UA2`
       writes that claim into the catalogue, and the claim is a statement about 137 things.
 
       - [x] **W-21a — say how much is checked.** `audit_ua2_report` answers an
         `AuditReport` carrying an `AuditScope` beside the findings, and the window shows
-        "Matterhorn の 2 / 136 件の失格条件を検査" where the findings are — 53 / 137 since W-21l.
+        "Matterhorn の 2 / 136 件の失格条件を検査" where the findings are — 66 / 137 since W-21n.
         `found_nothing()` is
         named so that a caller cannot write `findings.is_empty()` and mean "conforms".
 
@@ -3283,7 +3283,7 @@ Independent of all of the above:
         (3,0)), and **31-028**, **31-029** (a `/ToUnicode` mapping to U+0000, U+FEFF or
         U+FFFE). **Fifty-one of 137.** Across the samples only `volvo_xc90.pdf` breaks
         one: two of its fonts map code `<015A>` to `<0000>`. **Not here:** 31-017 and 31-009
-        want the fonts text is actually drawn with.
+        want the fonts text is actually drawn with, which W-21m reads.
 
       - [x] **W-21l — Adobe's Glyph List, and the two conditions that name it.**
         `fepdf-font/data/glyphlist.txt` is the file Adobe publishes in
@@ -3307,6 +3307,44 @@ Independent of all of the above:
         the same fonts `glyph_loss` finds losing text, and one Type 0 font whose CIDFont
         is Adobe-Identity — and `bokutokitan.pdf`'s TeX fonts are left for a reader.
 
+      - [x] **W-21m — what a document carries besides its pages, and the fonts it draws
+        with.** **31-009** (a font whose text is rendered, with no program embedded) and
+        **31-017** (a non-symbolic TrueType font rendered with, whose program has neither a
+        (3,1) nor a (1,0) cmap) read the rendering mode through `q` and `Q`: ISO 14289-1
+        7.21.4.1 NOTE 2 exempts mode 3 alone, so mode 7, which clips with the glyphs,
+        renders. The content scan now follows `Do` into forms, to `FORM_DEPTH`, in the mode
+        and font the form is drawn in, taking the commands ingestion already parsed a form
+        into. `audit_files` walks what is reachable from the catalogue once and asks
+        **21-001** and **28-016** of embedded files' and file attachments' specifications
+        (`/F` and `/UF`), **28-014** and **28-015** of media clip data (`/CT`, `/Alt`),
+        **25-001** of the `/XFA` packets (`dynamicRender` is `required`), and **30-002** of
+        forms carrying an MCID and drawn more than once. **26-001** and **26-002** read
+        `Document::is_encrypted` and `/P`, because ingestion takes `/Encrypt` away.
+        **Sixty-three of 137.** Across the 515 files of the external corpus (2026-09-27)
+        they find 34, each read and each true: 30 fonts drawn with and not embedded —
+        Isartor's 6-3-4 set, one PDF/UA-2 failing file, and Helvetica in the pdf-differences
+        and PDF 2.0 examples — two embedded files with no `/UF`, one `/P` of −3904, and one
+        ArialMT whose program is all zeros. On the samples, `constitution.pdf` draws with
+        three fonts it does not embed.
+
+      - [x] **W-21n — the annotations 7.18.1 is not about, and three more conditions.**
+        ISO 14289-1 7.18.1 opens by saying its requirements do not apply to an annotation
+        whose Hidden flag is set, whose rectangle is outside the crop box, or which is a
+        `/Popup`, and 28-002 and 28-004 — the two of its conditions the auditor asks — were
+        asked of every annotation. They now pass over those three. With that, **28-006** (an
+        annotation of a subtype ISO 32000-1's Table 169 does not define, breaking 7.18.1),
+        **28-018** (a printer's mark whose appearance paints outside an `/Artifact`), and
+        **11-006**, the language of the document's metadata: sound with a catalogue
+        `/Lang`, and without one left for a reader rather than broken, because ingestion
+        rebuilds the packet and the `xml:lang` alternatives it had are gone — a test holds
+        that to the code, as checkpoint 06's does. **Sixty-six of 137.** Across the 525
+        files of the corpus and the samples (2026-09-27), 28-006 finds four — three
+        `/RichMedia` annotations, a PDF 2.0 subtype, and Isartor's
+        `/SomePrivateCustomAnnotationType` — and no file carries a printer's mark. **Not
+        here:** 10-001 and 17-003 want every glyph's route to Unicode, which is extraction
+        replayed over every page, and 11-001 wants the language in force at each run of
+        text.
+
       - [x] **W-21g — a condition checked and not broken is a result.** `AuditFinding`
         carries an `Outcome` — `Broken`, `Sound`, `ForAReader` — and `audit_report` adds
         one `Sound` per condition it checked and did not break. **One per condition, not
@@ -3321,7 +3359,7 @@ Independent of all of the above:
         `How` column marks `H`, named and quoted in the protocol's own words, in
         `AuditScope::left_to_a_person`. The panel heads them "あなたが判断するもの (48)"
         after the three outcome sections, and the weak closing line now counts what is in
-        *neither* list — 75 of the 137.
+        *neither* list — 75 of the 137 when it landed.
 
 - [ ] **W-22 — Well-Tagged PDF (WTPDF 1.0), which this project does not mention.**
 
@@ -3334,7 +3372,7 @@ Independent of all of the above:
       against `/Alt`.
 
       **It waits on W-21 and says so.** A conformance claim is worth what the checking
-      behind it is worth, and fifty-three failure conditions of 137 is not a foundation to
+      behind it is worth, and sixty-six failure conditions of 137 is not a foundation to
       put a second claim on. What can be done first is the reading: the structure tree editor this engine
       already has is most of what a well-tagged file is made with, and what it cannot yet
       express is the list this item starts as.

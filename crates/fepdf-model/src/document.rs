@@ -563,7 +563,7 @@ impl Document {
             font_cache: Arc::new(RwLock::new(BTreeMap::new())),
             space_cache: Arc::new(RwLock::new(BTreeMap::new())),
             force_fallback: false,
-            security_method: "No Security".to_string(),
+            security_method: crate::decrypt::NO_SECURITY.to_string(),
             permissions: None,
             access: None,
             provenance: Provenance::default(),
@@ -606,7 +606,7 @@ impl Document {
             font_cache: Arc::new(RwLock::new(BTreeMap::new())),
             space_cache: Arc::new(RwLock::new(BTreeMap::new())),
             force_fallback: false,
-            security_method: "No Security".to_string(),
+            security_method: crate::decrypt::NO_SECURITY.to_string(),
             permissions: None,
             access: None,
             provenance: Provenance::default(),
@@ -979,6 +979,13 @@ impl Document {
             .get_object(handle)
             .and_then(|obj| obj.as_dict_handle())
             .ok_or_else(|| PdfError::Other(format!("Object {handle:?} is not a dictionary").into()))
+    }
+
+    /// Whether the file carried an `/Encrypt` dictionary — opened or not. Ingestion takes
+    /// the dictionary away once it has decrypted with it, so this is where it is known.
+    #[must_use]
+    pub fn is_encrypted(&self) -> bool {
+        self.security_method != crate::decrypt::NO_SECURITY
     }
 
     /// Returns the total number of pages in the document.

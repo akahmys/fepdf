@@ -31,9 +31,12 @@ pub struct Security {
     pub access: Option<Access>,
 }
 
+/// What [`Security::method`] says of a document with no `/Encrypt`.
+pub const NO_SECURITY: &str = "No Security";
+
 impl Default for Security {
     fn default() -> Self {
-        Self { method: "No Security".to_string(), permissions: None, access: None }
+        Self { method: NO_SECURITY.to_string(), permissions: None, access: None }
     }
 }
 

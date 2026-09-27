@@ -20,6 +20,7 @@
 //! under `00-001`, which is not a number the protocol has either.
 
 use fepdf::{IngestionOptions, PdfDocument};
+use fepdf_doc::audit_files::FROM_FILES;
 use fepdf_doc::audit_fonts::FROM_FONTS;
 use fepdf_doc::audit_objects::FROM_OBJECTS;
 use fepdf_doc::matterhorn::LEFT_TO_A_PERSON;
@@ -269,6 +270,85 @@ fn breaks_the_fonts() -> Vec<u8> {
     .collect()
 }
 
+/// An `/Encrypt` this engine cannot open, whose `/P` is `permissions` or absent.
+///
+/// **Encrypted in name only**: the strings and streams are plaintext and `/U` matches no
+/// password, so ingestion records the handler, fails to unlock, and reads the objects as
+/// they are — which is all 26-001 and 26-002 ask about.
+fn encrypt_entry(permissions: Option<i32>) -> String {
+    let zeros = "00".repeat(32);
+    let p = permissions.map_or_else(String::new, |p| format!("/P {p}"));
+    format!("/Encrypt << /Filter /Standard /V 1 /R 2 /O <{zeros}> /U <{zeros}> {p} >>")
+}
+
+/// A document carrying what W-21m's conditions are about, each of them broken.
+///
+/// | | How this document breaks it |
+/// | :--- | :--- |
+/// | 21-001 | an `/EmbeddedFiles` entry whose specification has `/F` and no `/UF` |
+/// | 25-001 | an `/XFA` stream whose `dynamicRender` is `required` |
+/// | 26-002 | an `/Encrypt` whose `/P` has bit 10 clear |
+/// | 28-014, 28-015 | an `/OpenAction` rendition whose media clip has neither `/CT` nor `/Alt` |
+/// | 28-016 | a file attachment annotation whose `/FS` is a string |
+/// | 30-002 | a form carrying an MCID, drawn twice |
+/// | 31-009 | text in Helvetica, whose program is not embedded |
+/// | 31-017 | text in a non-symbolic TrueType font whose program has only a (3,0) cmap |
+/// | 28-006 | a `/Foo` annotation with no `/Contents`, in no structure element |
+/// | 28-018 | a `/PrinterMark` whose appearance fills a rectangle under no `/Artifact` |
+/// | 11-006 | no `/Lang` in the catalogue — left for a reader, which is not sound |
+fn breaks_the_files() -> Vec<u8> {
+    let stream = |extra: &str, content: &str| {
+        format!("<< {extra} /Length {} >>\nstream\n{content}\nendstream", content.len())
+    };
+    fepdf_fixtures::Pdf::new()
+        .trailer_entries(&encrypt_entry(Some(-1548)))
+        .assemble(&[
+            "<< /Type /Catalog /Pages 2 0 R /Names << /EmbeddedFiles << /Names [(a.txt) 4 0 R] >> >> \
+               /AcroForm << /Fields [] /XFA 5 0 R >> \
+               /OpenAction << /S /Rendition /R << /S /MR /C 6 0 R >> >> >>"
+                .to_string(),
+            "<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_string(),
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Contents 7 0 R \
+               /Resources << /XObject << /X 8 0 R >> /Font << /T 9 0 R /U 10 0 R >> >> \
+               /Annots [11 0 R 15 0 R 16 0 R] >>"
+                .to_string(),
+            "<< /Type /Filespec /F (a.txt) /EF << /F 12 0 R >> >>".to_string(),
+            stream(
+                "",
+                "<xdp:xdp><config><acrobat><acrobat7><dynamicRender>required</dynamicRender>\
+                 </acrobat7></acrobat></config></xdp:xdp>",
+            ),
+            "<< /Type /MediaClip /S /MCD /D (clip.mp4) >>".to_string(),
+            stream(
+                "",
+                "q /X Do Q q /X Do Q BT /T 12 Tf 20 100 Td (A) Tj ET BT /U 12 Tf 20 80 Td (A) Tj ET",
+            ),
+            stream("/Type /XObject /Subtype /Form /BBox [0 0 10 10]", "/P <</MCID 0>> BDC 0 0 5 5 re f EMC"),
+            "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>".to_string(),
+            "<< /Type /Font /Subtype /TrueType /BaseFont /NoLatinCmap /FontDescriptor 13 0 R \
+               /Encoding /WinAnsiEncoding >>"
+                .to_string(),
+            "<< /Type /Annot /Subtype /FileAttachment /Rect [0 0 10 10] /FS (b.txt) /Contents (b) >>"
+                .to_string(),
+            stream("/Type /EmbeddedFile", "hello"),
+            "<< /Type /FontDescriptor /FontName /NoLatinCmap /Flags 32 /FontFile2 14 0 R >>".to_string(),
+            hex_stream("", "000100000001001000000000636d6170000000000000001c0000001400000001000300000000000c0000000000000000"),
+            "<< /Type /Annot /Subtype /Foo /Rect [0 0 10 10] >>".to_string(),
+            "<< /Type /Annot /Subtype /PrinterMark /Rect [0 0 10 10] /AP << /N 17 0 R >> >>"
+                .to_string(),
+            stream("/Type /XObject /Subtype /Form /BBox [0 0 10 10]", "0 0 5 5 re f"),
+        ])
+}
+
+/// 26-001, which [`breaks_the_files`] cannot also break: its `/Encrypt` has a `/P`.
+fn encrypted_without_p() -> Vec<u8> {
+    fepdf_fixtures::Pdf::new().trailer_entries(&encrypt_entry(None)).assemble(&[
+        "<< /Type /Catalog /Pages 2 0 R >>",
+        "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] >>",
+    ])
+}
+
 /// The one condition [`breaks_everything`] cannot also break: 07-002 wants the entry
 /// present and false, where 07-001 wants it absent.
 fn display_doc_title_false() -> Vec<u8> {
@@ -353,7 +433,7 @@ fn the_report_says_how_much_of_the_protocol_it_checked() {
     );
     assert_eq!(
         report.scope.checked.len(),
-        53,
+        66,
         "the scope does not name the failure conditions this auditor looks at"
     );
     assert!(
@@ -378,13 +458,14 @@ fn every_checked_condition_is_decided_by_exactly_one_reader() {
     union.extend(FROM_STRUCTURE_TREE);
     union.extend(FROM_OBJECTS);
     union.extend(FROM_FONTS);
+    union.extend(FROM_FILES);
 
     let distinct: BTreeSet<&str> = union.iter().copied().collect();
-    assert_eq!(distinct.len(), union.len(), "a condition is in two of the four lists: {union:?}");
+    assert_eq!(distinct.len(), union.len(), "a condition is in two of the lists: {union:?}");
     assert_eq!(
         distinct,
         MatterhornAuditor::CHECKED.iter().copied().collect::<BTreeSet<&str>>(),
-        "the four lists and the scope do not name the same conditions"
+        "the lists and the scope do not name the same conditions"
     );
 }
 
@@ -404,6 +485,8 @@ fn the_scope_names_every_checkpoint_reported() {
         breaks_the_second_pass(),
         breaks_the_syntax(),
         breaks_the_fonts(),
+        breaks_the_files(),
+        encrypted_without_p(),
     ] {
         let doc = opened(fixture);
         let report = doc.audit_ua2_report().expect("it audits");
@@ -469,6 +552,8 @@ fn every_condition_the_scope_names_can_be_reported_broken() {
         breaks_the_second_pass(),
         breaks_the_syntax(),
         breaks_the_fonts(),
+        breaks_the_files(),
+        encrypted_without_p(),
     ] {
         let doc = opened(fixture);
         let report = doc.audit_ua2_report().expect("it audits");
@@ -1264,6 +1349,19 @@ fn every_number_reported_means_in_the_protocol_what_it_is_used_for() {
         ("09-006", "A TOC-related structure element is used in a way"),
         ("09-007", "A Ruby-related structure element is used in a way"),
         ("09-008", "A Warichu-related structure element is used in"),
+        ("21-001", "The file specification dictionary for an"),
+        ("25-001", "File contains the dynamicRender element with"),
+        ("26-001", "The file is encrypted but does not contain a P"),
+        ("26-002", "The file is encrypted and does contain a P entry"),
+        ("28-014", "CT entry is missing from the media clip data"),
+        ("28-015", "Alt entry is missing from the media clip data"),
+        ("28-016", "File attachment annotations do not conform"),
+        ("30-002", "Form XObject contains MCIDs and is referenced"),
+        ("31-009", "For a font used by text intended to be rendered"),
+        ("31-017", "A non-symbolic TrueType font is used for"),
+        ("11-006", "Natural language for document metadata cannot"),
+        ("28-006", "An annotation with subtype undefined in ISO"),
+        ("28-018", "The appearance stream of a PrinterMark"),
     ];
     assert_eq!(
         says.len(),
@@ -1541,4 +1639,242 @@ fn a_type_1_font_is_judged_by_the_glyphs_its_text_shows() {
     };
     assert_eq!(outcomes(&showing("A"), "31-027"), vec![Outcome::Broken]);
     assert_eq!(outcomes(&showing("B"), "31-027"), vec![Outcome::Sound]);
+}
+
+/// **Each condition W-21m added comes out sound where the document meets it**: an
+/// embedded file named both ways, a static XFA form, an encryption that lets assistive
+/// technology in, a described media clip, an attached file named both ways, a marked form
+/// drawn once, and text rendered only in fonts that are embedded — Helvetica is shown too,
+/// in mode 3, which 7.21.4.1 NOTE 2 exempts.
+#[test]
+fn the_files_come_out_sound_where_they_are_met() {
+    let stream = |extra: &str, content: &str| {
+        format!("<< {extra} /Length {} >>\nstream\n{content}\nendstream", content.len())
+    };
+    let doc = opened(
+        fepdf_fixtures::Pdf::new().trailer_entries(&encrypt_entry(Some(-4))).assemble(&[
+            "<< /Type /Catalog /Pages 2 0 R /Names << /EmbeddedFiles << /Names [(a.txt) 4 0 R] >> >> \
+               /AcroForm << /Fields [] /XFA 5 0 R >> \
+               /OpenAction << /S /Rendition /R << /S /MR /C 6 0 R >> >> >>"
+                .to_string(),
+            "<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_string(),
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Contents 7 0 R \
+               /Resources << /XObject << /X 8 0 R >> /Font << /T 9 0 R /U 10 0 R >> >> \
+               /Annots [11 0 R] >>"
+                .to_string(),
+            "<< /Type /Filespec /F (a.txt) /UF (a.txt) /EF << /F 12 0 R >> >>".to_string(),
+            stream(
+                "",
+                "<xdp:xdp><config><acrobat><acrobat7><dynamicRender>interactive</dynamicRender>\
+                 </acrobat7></acrobat></config></xdp:xdp>",
+            ),
+            "<< /Type /MediaClip /S /MCD /D (clip.mp4) /CT (video/mp4) /Alt [() (A clip)] >>"
+                .to_string(),
+            stream("", "/X Do BT 3 Tr /T 12 Tf 20 100 Td (A) Tj ET BT /U 12 Tf 20 80 Td (A) Tj ET"),
+            stream("/Type /XObject /Subtype /Form /BBox [0 0 10 10]", "/P <</MCID 0>> BDC 0 0 5 5 re f EMC"),
+            "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>".to_string(),
+            "<< /Type /Font /Subtype /TrueType /BaseFont /LatinCmap /FontDescriptor 13 0 R \
+               /Encoding /WinAnsiEncoding >>"
+                .to_string(),
+            "<< /Type /Annot /Subtype /FileAttachment /Rect [0 0 10 10] /Contents (b) \
+               /FS << /Type /Filespec /F (b.txt) /UF (b.txt) /EF << /F 12 0 R >> >> >>"
+                .to_string(),
+            stream("/Type /EmbeddedFile", "hello"),
+            "<< /Type /FontDescriptor /FontName /LatinCmap /Flags 32 /FontFile2 14 0 R >>".to_string(),
+            hex_stream("", "000100000001001000000000636d6170000000000000001c0000001400000001000300010000000c0000000000000000"),
+        ]),
+    );
+    let report = doc.audit_ua2_report().expect("it audits");
+    let mut conditions: Vec<&str> = FROM_FILES.to_vec();
+    conditions.extend(["31-009", "31-017"]);
+    for condition in conditions {
+        assert_eq!(
+            outcomes(&report, condition),
+            vec![Outcome::Sound],
+            "{condition} did not come out sound on a document that meets it: {:?}",
+            report
+                .findings
+                .iter()
+                .filter(|f| f.checkpoint == condition)
+                .map(|f| &f.message)
+                .collect::<Vec<_>>()
+        );
+    }
+}
+
+/// A page whose `/X` form draws `form` and whose own content is `content`, both able to
+/// show text in `/F1`, Helvetica, whose program is not embedded.
+fn helvetica_page(content: &str, form: &str) -> AuditReport {
+    let stream = |extra: &str, content: &str| {
+        format!("<< {extra} /Length {} >>\nstream\n{content}\nendstream", content.len())
+    };
+    opened(
+        fepdf_fixtures::assemble(&[
+            "<< /Type /Catalog /Pages 2 0 R >>".to_string(),
+            "<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_string(),
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Contents 4 0 R \
+               /Resources << /Font << /F1 5 0 R >> /XObject << /X 6 0 R >> >> >>"
+                .to_string(),
+            stream("", content),
+            "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>"
+                .to_string(),
+            stream(
+                "/Type /XObject /Subtype /Form /BBox [0 0 10 10] \
+                 /Resources << /Font << /F1 5 0 R >> >>",
+                form,
+            ),
+        ])
+        .into_iter()
+        .collect(),
+    )
+    .audit_ua2_report()
+    .expect("it audits")
+}
+
+/// **A font is used for rendering unless its every glyph is shown in mode 3.** ISO
+/// 14289-1 7.21.4.1 NOTE 2 exempts mode 3 alone, whose glyphs are neither painted nor
+/// clip; mode 7 clips with them, so it renders. A `q`…`Q` restores the mode it saved.
+#[test]
+fn only_invisible_text_needs_no_embedded_program() {
+    let text = "BT /F1 12 Tf 20 100 Td (A) Tj ET";
+    for (content, outcome) in [
+        (text.to_string(), Outcome::Broken),
+        (format!("3 Tr {text}"), Outcome::Sound),
+        (format!("7 Tr {text}"), Outcome::Broken),
+        (format!("3 Tr q 0 Tr Q {text}"), Outcome::Sound),
+        (format!("q 3 Tr Q {text}"), Outcome::Broken),
+    ] {
+        assert_eq!(outcomes(&helvetica_page(&content, ""), "31-009"), vec![outcome], "{content}");
+    }
+}
+
+/// **Text a form draws is text the page draws.** The same Helvetica text, in a form the
+/// page draws, breaks 31-009; in a form the page never draws, it does not — and the mode
+/// the page is in when it draws the form is the one the form's text is shown in.
+#[test]
+fn the_text_a_form_draws_is_read() {
+    let text = "BT /F1 12 Tf 20 100 Td (A) Tj ET";
+    assert_eq!(outcomes(&helvetica_page("/X Do", text), "31-009"), vec![Outcome::Broken]);
+    assert_eq!(outcomes(&helvetica_page("", text), "31-009"), vec![Outcome::Sound]);
+    assert_eq!(outcomes(&helvetica_page("3 Tr /X Do", text), "31-009"), vec![Outcome::Sound]);
+}
+
+/// A page with `annotations` as objects 4 onwards, in no structure element and with no
+/// `/Contents`, on a crop box of 0 0 100 100; and whether each came out broken under
+/// 28-002 and 28-004.
+fn annotation_page(annotations: &[&str]) -> AuditReport {
+    let kids: Vec<String> = (0..annotations.len()).map(|i| format!("{} 0 R", i + 4)).collect();
+    let mut objects = vec![
+        "<< /Type /Catalog /Pages 2 0 R /Lang (en) >>".to_string(),
+        "<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_string(),
+        format!(
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /CropBox [0 0 100 100] \
+               /Tabs /S /Annots [{}] >>",
+            kids.join(" ")
+        ),
+    ];
+    objects.extend(annotations.iter().map(|a| (*a).to_string()));
+    opened(fepdf_fixtures::assemble(&objects)).audit_ua2_report().expect("it audits")
+}
+
+/// **7.18.1 does not apply to a pop-up, a hidden annotation, or one outside the crop box**,
+/// so none of those is asked 28-002 or 28-004 — and the same annotation inside the crop
+/// box, shown, and of another subtype is.
+#[test]
+fn what_7_18_1_does_not_apply_to_is_not_asked_it() {
+    for (annotation, asked) in [
+        ("<< /Type /Annot /Subtype /Text /Rect [10 10 20 20] >>", true),
+        ("<< /Type /Annot /Subtype /Popup /Rect [10 10 20 20] >>", false),
+        ("<< /Type /Annot /Subtype /Text /Rect [10 10 20 20] /F 2 >>", false),
+        ("<< /Type /Annot /Subtype /Text /Rect [10 10 20 20] /F 4 >>", true),
+        ("<< /Type /Annot /Subtype /Text /Rect [150 150 160 160] >>", false),
+        ("<< /Type /Annot /Subtype /Text /Rect [95 95 160 160] >>", true),
+    ] {
+        let report = annotation_page(&[annotation]);
+        let outcome = if asked { Outcome::Broken } else { Outcome::Sound };
+        for condition in ["28-002", "28-004"] {
+            assert_eq!(outcomes(&report, condition), vec![outcome], "{condition}: {annotation}");
+        }
+    }
+}
+
+/// **28-006 is about the subtypes ISO 32000-1 does not define.** A `/Foo` annotation that
+/// breaks 7.18.1 breaks it; a `/Text` one breaking it the same way does not, and neither
+/// does a `/Foo` annotation meeting it.
+#[test]
+fn an_undefined_subtype_is_held_to_7_18_1() {
+    let foo = "<< /Type /Annot /Subtype /Foo /Rect [10 10 20 20] >>";
+    let text = "<< /Type /Annot /Subtype /Text /Rect [10 10 20 20] >>";
+    let hidden_foo = "<< /Type /Annot /Subtype /Foo /Rect [10 10 20 20] /F 2 >>";
+    assert_eq!(outcomes(&annotation_page(&[foo]), "28-006"), vec![Outcome::Broken]);
+    assert_eq!(outcomes(&annotation_page(&[text]), "28-006"), vec![Outcome::Sound]);
+    assert_eq!(outcomes(&annotation_page(&[hidden_foo]), "28-006"), vec![Outcome::Sound]);
+}
+
+/// **A printer's mark whose appearance is all `/Artifact` meets 28-018**, and one that
+/// paints a single rectangle outside it — or inside a sequence that is not one — does not.
+#[test]
+fn a_printer_marks_appearance_is_an_artifact() {
+    let with_appearance = |content: &str| {
+        annotation_page(&[
+            "<< /Type /Annot /Subtype /PrinterMark /Rect [10 10 20 20] /AP << /N 5 0 R >> >>",
+            &format!(
+                "<< /Type /XObject /Subtype /Form /BBox [0 0 10 10] /Length {} >>\nstream\n{content}\nendstream",
+                content.len()
+            ),
+        ])
+    };
+    assert_eq!(
+        outcomes(&with_appearance("/Artifact BMC 0 0 5 5 re f EMC"), "28-018"),
+        vec![Outcome::Sound]
+    );
+    assert_eq!(
+        outcomes(&with_appearance("/Artifact BMC 0 0 5 5 re f EMC 0 0 1 1 re f"), "28-018"),
+        vec![Outcome::Broken]
+    );
+    // Under a sequence that is not an artefact is under none; inside one that is, is.
+    assert_eq!(
+        outcomes(&with_appearance("/Span BMC 0 0 1 1 re f EMC"), "28-018"),
+        vec![Outcome::Broken]
+    );
+    assert_eq!(
+        outcomes(&with_appearance("/Artifact BMC /Span BMC 0 0 1 1 re f EMC EMC"), "28-018"),
+        vec![Outcome::Sound]
+    );
+}
+
+/// **11-006 is left for a reader when the catalogue states no `/Lang`, because ingestion
+/// rewrites the packet that could have said.** The fixture's `dc:title` is in English by
+/// its own `xml:lang`; the packet the ingested document carries has lost that, and the day
+/// it keeps it, this fails and 11-006 can be decided from the packet.
+#[test]
+fn the_metadata_language_is_left_for_a_reader_without_a_lang() {
+    let packet = r#"<?xpacket begin="" id="W5M0MpCehiHzreSzNTczkc9d"?><x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"><rdf:Description rdf:about="" xmlns:dc="http://purl.org/dc/elements/1.1/"><dc:title><rdf:Alt><rdf:li xml:lang="en">A title</rdf:li></rdf:Alt></dc:title></rdf:Description></rdf:RDF></x:xmpmeta><?xpacket end="r"?>"#;
+    let doc = opened(fepdf_fixtures::assemble(&[
+        "<< /Type /Catalog /Pages 2 0 R /Metadata 4 0 R >>".to_string(),
+        "<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_string(),
+        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] >>".to_string(),
+        format!(
+            "<< /Type /Metadata /Subtype /XML /Length {} >>\nstream\n{packet}\nendstream",
+            packet.len()
+        ),
+    ]));
+    let arena = doc.inner().arena();
+    let catalogue = doc
+        .inner()
+        .catalog_handle()
+        .and_then(|c| arena.get_object(c))
+        .and_then(|c| c.as_dict_handle())
+        .expect("a catalogue");
+    let stream = arena.dict_entry(catalogue, arena.name("Metadata")).expect("a packet");
+    let read = doc.inner().decode_stream(&stream.resolve(arena)).expect("it decodes");
+    assert!(
+        !String::from_utf8_lossy(&read).contains(r#"xml:lang="en""#),
+        "ingestion kept the packet's own language, so 11-006 can be decided from it"
+    );
+    assert_eq!(
+        outcomes(&doc.audit_ua2_report().expect("it audits"), "11-006"),
+        vec![Outcome::ForAReader]
+    );
+    assert_eq!(outcomes(&annotation_page(&[]), "11-006"), vec![Outcome::Sound]);
 }

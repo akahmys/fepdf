@@ -12,13 +12,22 @@ use fepdf_model::{Document, Handle, Object, PdfArena};
 use std::collections::{BTreeMap, BTreeSet};
 
 /// The failure conditions this module decides.
-pub const FROM_FONTS: [&str; 12] = [
-    "31-004", "31-019", "31-020", "31-021", "31-022", "31-023", "31-024", "31-025", "31-026",
-    "31-027", "31-028", "31-029",
+pub const FROM_FONTS: [&str; 14] = [
+    "31-004", "31-009", "31-017", "31-019", "31-020", "31-021", "31-022", "31-023", "31-024",
+    "31-025", "31-026", "31-027", "31-028", "31-029",
 ];
 
+/// What the pages do with one font: the codes they show in it, and whether any of that text
+/// is rendered — in a mode other than 3, the one ISO 14289-1 7.21.4.1 NOTE 2 exempts, since
+/// its glyphs are neither stroked, filled nor used to clip.
+#[derive(Default)]
+struct Use {
+    codes: BTreeSet<u8>,
+    rendered: bool,
+}
+
 /// How deep form XObjects are followed for the fonts they use (Rule 6).
-const FORM_DEPTH: usize = 8;
+pub(crate) const FORM_DEPTH: usize = 8;
 
 /// Asks [`FROM_FONTS`] of every font the pages and the forms they draw name.
 pub fn audit_fonts(
@@ -39,13 +48,18 @@ pub fn audit_fonts(
     let asked: BTreeSet<Handle<Object>> = fonts
         .iter()
         .copied()
-        .filter(|font| Font { doc, arena, handle: *font, name: String::new() }.names_its_glyphs())
+        .filter(|font| {
+            let font = Font { doc, arena, handle: *font, name: String::new() };
+            font.names_its_glyphs() || font.lacks_program() || font.lacks_latin_cmap()
+        })
         .collect();
     let codes = if asked.is_empty() { BTreeMap::default() } else { shown_codes(doc, &asked) };
     for font in fonts {
         let reading = Font { doc, arena, handle: font, name: base_font(arena, font) };
         reading.audit(findings);
-        reading.to_unicode_needed(codes.get(&font), findings);
+        let used = codes.get(&font);
+        reading.to_unicode_needed(used.map(|u| &u.codes), findings);
+        reading.drawn_without(used.is_some_and(|u| u.rendered), findings);
     }
     examined.extend(FROM_FONTS);
 }
@@ -295,80 +309,181 @@ impl Font<'_> {
     }
 }
 
-/// The codes each of `fonts` is shown with on the pages, read from their content: which
-/// font each `Tf` selects, through `q` and `Q`, and the bytes each `Tj`, `'`, `"` and `TJ`
-/// shows. A form's content is not descended into.
-fn shown_codes(
-    doc: &Document,
-    fonts: &BTreeSet<Handle<Object>>,
-) -> BTreeMap<Handle<Object>, BTreeSet<u8>> {
-    let mut shown: BTreeMap<Handle<Object>, BTreeSet<u8>> = BTreeMap::default();
-    let Ok(pages) = doc.page_count() else { return shown };
+/// A resource dictionary, by handle.
+pub(crate) type Resources = Handle<BTreeMap<Handle<fepdf_model::PdfName>, Object>>;
+
+/// What the graphics state carries into a form and back out of `q`…`Q`: the font in force,
+/// if it is one being asked about, and whether text is rendered.
+type TextState = (Option<Handle<Object>>, bool);
+
+/// The codes each of `fonts` is shown with, and whether visibly, read from the content of
+/// the pages and of the forms they draw (to `FORM_DEPTH`): which font each `Tf` selects and
+/// which rendering mode each `Tr`, through `q` and `Q`, and the bytes each `Tj`, `'`, `"`
+/// and `TJ` shows.
+fn shown_codes(doc: &Document, fonts: &BTreeSet<Handle<Object>>) -> BTreeMap<Handle<Object>, Use> {
+    let mut scan = Scan { doc, fonts, shown: BTreeMap::default() };
+    let Ok(pages) = doc.page_count() else { return scan.shown };
     for page in 0..pages {
-        let (Ok(Some(content)), Ok(resources)) = (
-            crate::apply::text::page_content(doc, page),
-            crate::apply::text::fonts_of_page(doc, page),
-        ) else {
-            continue;
-        };
-        let named = page_font_names(doc, page);
-        if !named.values().any(|font| fonts.contains(font)) {
-            continue;
+        let Some(handle) = doc.get_page_handle(page) else { continue };
+        let resources = fepdf_model::Page::new(doc.arena(), handle, doc.get_parent_chain(handle))
+            .resources_handle();
+        if let Ok(Some(content)) = crate::apply::text::page_content(doc, page) {
+            scan.content(resources, &content, (None, true), 0);
         }
-        let commands = fepdf_model::object::sublimation::parser::Sublimator::new(&resources)
-            .sublimate(&content);
-        note_codes(&commands, &named, fonts, &mut shown);
     }
-    shown
+    scan.shown
 }
 
-/// The codes `commands` shows in each of `fonts`, added to `shown`.
-fn note_codes(
-    commands: &[Command],
+/// One pass over content for what it does with `fonts`.
+struct Scan<'a> {
+    doc: &'a Document,
+    fonts: &'a BTreeSet<Handle<Object>>,
+    shown: BTreeMap<Handle<Object>, Use>,
+}
+
+impl Scan<'_> {
+    /// Reads one content stream, drawn with `resources` and begun in `state`. Content that
+    /// reaches none of the fonts, directly or through its forms, is not parsed.
+    fn content(&mut self, resources: Resources, content: &[u8], state: TextState, depth: usize) {
+        let arena = self.doc.arena();
+        let mut reached = BTreeSet::new();
+        collect_fonts(arena, &Object::Dictionary(resources), depth, &mut reached);
+        if reached.is_disjoint(self.fonts) {
+            return;
+        }
+        let named = names_in(arena, resources, "Font");
+        let commands = parse(self.doc, &named, content);
+        self.commands(&commands, resources, &named, state, depth);
+    }
+
+    /// What `commands` shows in each font, and the forms it draws, followed in turn.
+    fn commands(
+        &mut self,
+        commands: &[Command],
+        resources: Resources,
+        named: &BTreeMap<String, Handle<Object>>,
+        mut current: TextState,
+        depth: usize,
+    ) {
+        use fepdf_model::graphics::TextRenderingMode;
+        let mut saved = Vec::new();
+        for command in commands {
+            let bytes: Vec<&[u8]> = match command {
+                Command::PushState => {
+                    saved.push(current);
+                    continue;
+                }
+                Command::PopState => {
+                    current = saved.pop().unwrap_or(current);
+                    continue;
+                }
+                Command::SetFont { font, .. } => {
+                    current.0 = named.get(font).copied().filter(|h| self.fonts.contains(h));
+                    continue;
+                }
+                Command::SetTextRenderMode(mode) => {
+                    current.1 = *mode != TextRenderingMode::Invisible;
+                    continue;
+                }
+                Command::DrawXObject(name) => {
+                    self.form(resources, name, current, depth);
+                    continue;
+                }
+                Command::ShowText(text) => vec![text.as_ref()],
+                Command::ShowTextArray(items) => items
+                    .iter()
+                    .filter_map(|item| match item {
+                        TextArrayItem::Text(text) => Some(text.as_ref()),
+                        TextArrayItem::Offset(_) => None,
+                    })
+                    .collect(),
+                _ => continue,
+            };
+            if let (Some(font), visible) = current {
+                let used = self.shown.entry(font).or_default();
+                used.codes.extend(bytes.into_iter().flatten().copied());
+                used.rendered |= visible;
+            }
+        }
+    }
+
+    /// The form `name` names in `resources`, read in the state that draws it. A form with no
+    /// `/Resources` of its own takes the ones it is drawn with (7.8.3).
+    fn form(&mut self, resources: Resources, name: &str, state: TextState, depth: usize) {
+        let arena = self.doc.arena();
+        let Some(form) = names_in(arena, resources, "XObject").get(name).copied() else { return };
+        let Some(own) = form_resources(arena, form, resources) else { return };
+        if depth >= FORM_DEPTH {
+            return;
+        }
+        let mut reached = BTreeSet::new();
+        collect_fonts(arena, &Object::Dictionary(own), depth + 1, &mut reached);
+        if reached.is_disjoint(self.fonts) {
+            return;
+        }
+        let named = names_in(arena, own, "Font");
+        if let Some(commands) = form_commands(self.doc, form, &named) {
+            self.commands(&commands, own, &named, state, depth + 1);
+        }
+    }
+}
+
+/// The resources a form draws with, when `form` is a form XObject: its own, or, when it
+/// has none, the ones it is drawn with (7.8.3).
+pub(crate) fn form_resources(
+    arena: &PdfArena,
+    form: Handle<Object>,
+    drawn_with: Resources,
+) -> Option<Resources> {
+    let Some(Object::Stream(dict, _)) = arena.get_object(form) else { return None };
+    let subtype = arena.dict_entry(dict, arena.name("Subtype")).and_then(|s| s.as_name());
+    if subtype.and_then(|s| arena.get_name(s)).is_none_or(|s| s.as_str() != "Form") {
+        return None;
+    }
+    let own = arena
+        .dict_entry(dict, arena.name("Resources"))
+        .and_then(|r| r.resolve(arena).as_dict_handle());
+    Some(own.unwrap_or(drawn_with))
+}
+
+/// A form's content as commands: the ones ingestion already parsed it into, or its bytes
+/// parsed here with the fonts `named`.
+pub(crate) fn form_commands(
+    doc: &Document,
+    form: Handle<Object>,
     named: &BTreeMap<String, Handle<Object>>,
-    fonts: &BTreeSet<Handle<Object>>,
-    shown: &mut BTreeMap<Handle<Object>, BTreeSet<u8>>,
-) {
-    let (mut current, mut saved): (Option<Handle<Object>>, Vec<Option<Handle<Object>>>) =
-        (None, Vec::new());
-    for command in commands {
-        let bytes: Vec<&[u8]> = match command {
-            Command::PushState => {
-                saved.push(current);
-                continue;
-            }
-            Command::PopState => {
-                current = saved.pop().unwrap_or(current);
-                continue;
-            }
-            Command::SetFont { font, .. } => {
-                current = named.get(font).copied().filter(|h| fonts.contains(h));
-                continue;
-            }
-            Command::ShowText(text) => vec![text.as_ref()],
-            Command::ShowTextArray(items) => items
-                .iter()
-                .filter_map(|item| match item {
-                    TextArrayItem::Text(text) => Some(text.as_ref()),
-                    TextArrayItem::Offset(_) => None,
-                })
-                .collect(),
-            _ => continue,
-        };
-        if let Some(font) = current {
-            shown.entry(font).or_default().extend(bytes.into_iter().flatten().copied());
-        }
+) -> Option<Vec<Command>> {
+    let object = doc.arena().get_object(form)?;
+    if let Object::Stream(_, data) = &object
+        && let fepdf_model::object::SublimatedData::Commands { items } = data.as_ref()
+    {
+        return Some(items.clone());
     }
+    let content = doc.decode_stream(&object).ok()?;
+    Some(parse(doc, named, &content))
 }
 
-/// The page's font resource names, and the fonts they name.
-fn page_font_names(doc: &Document, page: usize) -> BTreeMap<String, Handle<Object>> {
-    let arena = doc.arena();
-    let Some(handle) = doc.get_page_handle(page) else { return BTreeMap::default() };
-    let resources =
-        fepdf_model::Page::new(arena, handle, doc.get_parent_chain(handle)).resources_handle();
+/// Content bytes parsed into commands, with the fonts `named` loaded to read its text by.
+pub(crate) fn parse(
+    doc: &Document,
+    named: &BTreeMap<String, Handle<Object>>,
+    content: &[u8],
+) -> Vec<Command> {
+    let loaded: BTreeMap<String, _> = named
+        .iter()
+        .filter_map(|(name, font)| Some((name.clone(), doc.get_font(*font).ok()?)))
+        .collect();
+    fepdf_model::object::sublimation::parser::Sublimator::new(&loaded).sublimate(content)
+}
+
+/// The entries of one category of `resources` — `/Font` or `/XObject` — by resource name.
+pub(crate) fn names_in(
+    arena: &PdfArena,
+    resources: Resources,
+    category: &str,
+) -> BTreeMap<String, Handle<Object>> {
     arena
-        .dict_entry(resources, arena.name("Font"))
+        .dict_entry(resources, arena.name(category))
         .and_then(|f| f.resolve(arena).as_dict_handle())
         .and_then(|f| arena.get_dict(f))
         .unwrap_or_default()
@@ -396,6 +511,70 @@ const STANDARD_LATIN: [&str; 12] = [
 ];
 
 impl Font<'_> {
+    /// The font descriptor that describes the program: the font's own, or its CIDFont's.
+    fn descriptor(&self) -> Option<Object> {
+        let font = Object::Reference(self.handle);
+        if self.name_of(&font, "Subtype").as_deref() == Some("Type0") {
+            let Some(Object::Array(descendants)) = self.entry(&font, "DescendantFonts") else {
+                return None;
+            };
+            let descendant =
+                self.arena.get_array(descendants).unwrap_or_default().into_iter().next()?;
+            return self.entry(&descendant, "FontDescriptor");
+        }
+        self.entry(&font, "FontDescriptor")
+    }
+
+    /// Whether the font has a program to draw with and none is embedded — Type 3 fonts
+    /// draw with content streams and have none to embed (9.6.5).
+    fn lacks_program(&self) -> bool {
+        let font = Object::Reference(self.handle);
+        if self.name_of(&font, "Subtype").as_deref() == Some("Type3") {
+            return false;
+        }
+        let Some(descriptor) = self.descriptor() else { return true };
+        !["FontFile", "FontFile2", "FontFile3"]
+            .iter()
+            .any(|key| self.entry(&descriptor, key).is_some())
+    }
+
+    /// Whether this is a non-symbolic TrueType font whose embedded program has neither a
+    /// (3,1) nor a (1,0) cmap (ISO 32000-1 9.6.6.4 names the two a non-symbolic font is
+    /// read through).
+    fn lacks_latin_cmap(&self) -> bool {
+        let font = Object::Reference(self.handle);
+        if self.name_of(&font, "Subtype").as_deref() != Some("TrueType") {
+            return false;
+        }
+        let Some(descriptor) = self.entry(&font, "FontDescriptor") else { return false };
+        let flags = self.entry(&descriptor, "Flags").and_then(|f| f.as_f64());
+        #[allow(clippy::cast_possible_truncation)] // a flag word, written as an integer
+        if flags.is_none_or(|f| (f as i64) & 4 != 0) {
+            return false;
+        }
+        Self::embedded_cmaps(descendant_program(self, &descriptor).as_ref())
+            .is_some_and(|tables| !tables.contains(&(3, 1)) && !tables.contains(&(1, 0)))
+    }
+
+    /// 31-009 and 31-017, which are about a font whose text is rendered.
+    fn drawn_without(&self, rendered: bool, findings: &mut Vec<AuditFinding>) {
+        if !rendered {
+            return;
+        }
+        if self.lacks_program() {
+            findings.push(broken(
+                "31-009",
+                format!("/{}: text is drawn in it and its program is not embedded", self.name),
+            ));
+        }
+        if self.lacks_latin_cmap() {
+            findings.push(broken(
+                "31-017",
+                format!("/{}: a non-symbolic TrueType font drawn with, whose program has no (3,1) or (1,0) cmap", self.name),
+            ));
+        }
+    }
+
     /// Whether 31-027 turns on the names of the glyphs this font's text shows: a Type 1
     /// or Type 3 font with no `/ToUnicode` and no Latin encoding named.
     fn names_its_glyphs(&self) -> bool {
