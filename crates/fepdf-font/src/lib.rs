@@ -25,6 +25,8 @@ pub mod rescue;
 /// Adobe Glyph List (AGL) lookups.
 /// Where the engine looks for the data it does not carry.
 pub mod resources;
+/// One `cmap` subtable of an SFNT program, asked for a glyph by code.
+pub mod sfnt_cmap;
 /// Font subsetting utilities.
 pub mod subset;
 

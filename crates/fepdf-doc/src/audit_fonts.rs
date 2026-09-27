@@ -12,18 +12,18 @@ use fepdf_model::{Document, Handle, Object, PdfArena};
 use std::collections::{BTreeMap, BTreeSet};
 
 /// The failure conditions this module decides.
-pub const FROM_FONTS: [&str; 14] = [
-    "31-004", "31-009", "31-017", "31-019", "31-020", "31-021", "31-022", "31-023", "31-024",
-    "31-025", "31-026", "31-027", "31-028", "31-029",
+pub const FROM_FONTS: [&str; 15] = [
+    "31-004", "31-009", "31-017", "31-018", "31-019", "31-020", "31-021", "31-022", "31-023",
+    "31-024", "31-025", "31-026", "31-027", "31-028", "31-029",
 ];
 
-/// What the pages do with one font: the codes they show in it, and whether any of that text
-/// is rendered — in a mode other than 3, the one ISO 14289-1 7.21.4.1 NOTE 2 exempts, since
+/// What the pages do with one font: the codes they show in it, and those of them that are
+/// rendered — in a mode other than 3, the one ISO 14289-1 7.21.4.1 NOTE 2 exempts, since
 /// its glyphs are neither stroked, filled nor used to clip.
 #[derive(Default)]
 struct Use {
     codes: BTreeSet<u8>,
-    rendered: bool,
+    rendered: BTreeSet<u8>,
 }
 
 /// How deep form XObjects are followed for the fonts they use (Rule 6).
@@ -50,7 +50,9 @@ pub fn audit_fonts(
         .copied()
         .filter(|font| {
             let font = Font { doc, arena, handle: *font, name: String::new() };
-            font.names_its_glyphs() || font.lacks_program() || font.lacks_latin_cmap()
+            font.names_its_glyphs()
+                || font.lacks_program()
+                || font.non_symbolic_true_type().is_some()
         })
         .collect();
     let codes = if asked.is_empty() { BTreeMap::default() } else { shown_codes(doc, &asked) };
@@ -59,7 +61,11 @@ pub fn audit_fonts(
         reading.audit(findings);
         let used = codes.get(&font);
         reading.to_unicode_needed(used.map(|u| &u.codes), findings);
-        reading.drawn_without(used.is_some_and(|u| u.rendered), findings);
+        let rendered = used.map(|u| &u.rendered).filter(|r| !r.is_empty());
+        reading.drawn_without(rendered.is_some(), findings);
+        if let Some(rendered) = rendered {
+            reading.looked_up(rendered, findings);
+        }
     }
     examined.extend(FROM_FONTS);
 }
@@ -400,11 +406,19 @@ impl Scan<'_> {
                 _ => continue,
             };
             if let (Some(font), visible) = current {
-                let used = self.shown.entry(font).or_default();
-                used.codes.extend(bytes.into_iter().flatten().copied());
-                used.rendered |= visible;
+                self.note(font, visible, bytes.into_iter().flatten().copied());
             }
         }
+    }
+
+    /// Records the codes one text-showing operator shows in `font`, and whether rendered.
+    fn note(&mut self, font: Handle<Object>, visible: bool, codes: impl Iterator<Item = u8>) {
+        let used = self.shown.entry(font).or_default();
+        let codes: Vec<u8> = codes.collect();
+        if visible {
+            used.rendered.extend(&codes);
+        }
+        used.codes.extend(codes);
     }
 
     /// The form `name` names in `resources`, read in the state that draws it. A form with no
@@ -542,18 +556,78 @@ impl Font<'_> {
     /// (3,1) nor a (1,0) cmap (ISO 32000-1 9.6.6.4 names the two a non-symbolic font is
     /// read through).
     fn lacks_latin_cmap(&self) -> bool {
-        let font = Object::Reference(self.handle);
-        if self.name_of(&font, "Subtype").as_deref() != Some("TrueType") {
-            return false;
-        }
-        let Some(descriptor) = self.entry(&font, "FontDescriptor") else { return false };
-        let flags = self.entry(&descriptor, "Flags").and_then(|f| f.as_f64());
-        #[allow(clippy::cast_possible_truncation)] // a flag word, written as an integer
-        if flags.is_none_or(|f| (f as i64) & 4 != 0) {
-            return false;
-        }
+        let Some(descriptor) = self.non_symbolic_true_type() else { return false };
         Self::embedded_cmaps(descendant_program(self, &descriptor).as_ref())
             .is_some_and(|tables| !tables.contains(&(3, 1)) && !tables.contains(&(1, 0)))
+    }
+
+    /// The font descriptor of a TrueType font whose Symbolic flag is clear.
+    fn non_symbolic_true_type(&self) -> Option<Object> {
+        let font = Object::Reference(self.handle);
+        if self.name_of(&font, "Subtype").as_deref() != Some("TrueType") {
+            return None;
+        }
+        let descriptor = self.entry(&font, "FontDescriptor")?;
+        let flags = self.entry(&descriptor, "Flags").and_then(|f| f.as_f64());
+        #[allow(clippy::cast_possible_truncation)] // a flag word, written as an integer
+        flags.is_some_and(|f| (f as i64) & 4 == 0).then_some(descriptor)
+    }
+
+    /// 31-018: every code a non-symbolic TrueType font renders reaches a glyph through the
+    /// lookup ISO 32000-1 9.6.6.4 describes — its name, then the (3,1) subtable by the
+    /// name's Unicode value, or where there is none the (1,0) subtable by the name's Mac OS
+    /// Roman code. The `post` fallback 9.6.6.4 allows is not a cmap entry, and 7.21.6 asks
+    /// for the cmap entries to carry every lookup.
+    fn looked_up(&self, rendered: &BTreeSet<u8>, findings: &mut Vec<AuditFinding>) {
+        let Some(descriptor) = self.non_symbolic_true_type() else { return };
+        let (Some(names), Some(program)) = (
+            self.true_type_names(&Object::Reference(self.handle)),
+            descendant_program(self, &descriptor),
+        ) else {
+            return;
+        };
+        let Some(lost) = crate::truetype_lookup::unreachable(&program, &names, rendered) else {
+            return;
+        };
+        if let Some(first) = lost.first() {
+            findings.push(broken(
+                "31-018",
+                format!(
+                    "/{}: {} of the codes it renders reach no glyph through its non-symbolic \
+                     cmap, the first 0x{first:02X}",
+                    self.name,
+                    lost.len()
+                ),
+            ));
+        }
+    }
+
+    /// The code-to-name table 9.6.6.4 builds for a non-symbolic TrueType font: a named
+    /// encoding's Annex D names, or a dictionary's base, its `/Differences` over it, and
+    /// StandardEncoding for what is left. An `/Encoding` naming anything else, or none,
+    /// has no table (31-019 and 31-021 say so).
+    fn true_type_names(&self, font: &Object) -> Option<BTreeMap<u8, String>> {
+        let annex = |name: &str| -> Option<BTreeMap<u8, String>> {
+            let table: &[(u8, &str)] = match name {
+                "WinAnsiEncoding" => &crate::annex_d::WIN_ANSI,
+                "MacRomanEncoding" => &crate::annex_d::MAC_ROMAN,
+                _ => return None,
+            };
+            Some(table.iter().map(|(code, name)| (*code, (*name).to_owned())).collect())
+        };
+        let encoding = self.entry(font, "Encoding")?;
+        if let Some(name) = encoding.as_name().and_then(|n| self.arena.get_name(n)) {
+            return annex(name.as_str());
+        }
+        let mut table = match self.name_of(&encoding, "BaseEncoding") {
+            Some(base) => annex(&base)?,
+            None => BTreeMap::new(),
+        };
+        table.extend(self.differences(&encoding));
+        for (code, name) in crate::annex_d::STANDARD_ENCODING {
+            table.entry(code).or_insert_with(|| name.to_owned());
+        }
+        Some(table)
     }
 
     /// 31-009 and 31-017, which are about a font whose text is rendered.
@@ -699,13 +773,19 @@ impl Font<'_> {
         standard: bool,
         findings: &mut Vec<AuditFinding>,
     ) {
-        let readable =
-            |name: &str| fepdf_font::agl::in_glyph_list(name) || SYMBOL_NAMES.contains(&name);
+        let readable = |name: &str| {
+            fepdf_font::agl::in_glyph_list(name) || crate::annex_d::SYMBOL_NAMES.contains(&name)
+        };
         let (mut unnamed, mut unlisted) = (Vec::new(), BTreeSet::new());
         for code in shown.into_iter().flatten() {
             let name = differences.get(code).map(String::as_str).or_else(|| {
                 standard
-                    .then(|| STANDARD_ENCODING.iter().find(|(c, _)| c == code).map(|(_, n)| *n))
+                    .then(|| {
+                        crate::annex_d::STANDARD_ENCODING
+                            .iter()
+                            .find(|(c, _)| c == code)
+                            .map(|(_, n)| *n)
+                    })
                     .flatten()
             });
             match name {
@@ -735,353 +815,3 @@ fn descendant_program(font: &Font<'_>, descriptor: &Object) -> Option<Vec<u8>> {
     let stream = font.entry(descriptor, "FontFile2")?;
     font.doc.decode_stream(&stream).ok().map(|b| b.to_vec())
 }
-
-/// StandardEncoding's codes and names (ISO 32000-1:2008, Annex D, Table D.2).
-///
-/// The 149 of them in the table's STD column, with the footnote marks taken off (`bullet3`
-/// is `bullet`, `space6` is `space`).
-pub const STANDARD_ENCODING: [(u8, &str); 149] = [
-    (32, "space"),
-    (33, "exclam"),
-    (34, "quotedbl"),
-    (35, "numbersign"),
-    (36, "dollar"),
-    (37, "percent"),
-    (38, "ampersand"),
-    (39, "quoteright"),
-    (40, "parenleft"),
-    (41, "parenright"),
-    (42, "asterisk"),
-    (43, "plus"),
-    (44, "comma"),
-    (45, "hyphen"),
-    (46, "period"),
-    (47, "slash"),
-    (48, "zero"),
-    (49, "one"),
-    (50, "two"),
-    (51, "three"),
-    (52, "four"),
-    (53, "five"),
-    (54, "six"),
-    (55, "seven"),
-    (56, "eight"),
-    (57, "nine"),
-    (58, "colon"),
-    (59, "semicolon"),
-    (60, "less"),
-    (61, "equal"),
-    (62, "greater"),
-    (63, "question"),
-    (64, "at"),
-    (65, "A"),
-    (66, "B"),
-    (67, "C"),
-    (68, "D"),
-    (69, "E"),
-    (70, "F"),
-    (71, "G"),
-    (72, "H"),
-    (73, "I"),
-    (74, "J"),
-    (75, "K"),
-    (76, "L"),
-    (77, "M"),
-    (78, "N"),
-    (79, "O"),
-    (80, "P"),
-    (81, "Q"),
-    (82, "R"),
-    (83, "S"),
-    (84, "T"),
-    (85, "U"),
-    (86, "V"),
-    (87, "W"),
-    (88, "X"),
-    (89, "Y"),
-    (90, "Z"),
-    (91, "bracketleft"),
-    (92, "backslash"),
-    (93, "bracketright"),
-    (94, "asciicircum"),
-    (95, "underscore"),
-    (96, "quoteleft"),
-    (97, "a"),
-    (98, "b"),
-    (99, "c"),
-    (100, "d"),
-    (101, "e"),
-    (102, "f"),
-    (103, "g"),
-    (104, "h"),
-    (105, "i"),
-    (106, "j"),
-    (107, "k"),
-    (108, "l"),
-    (109, "m"),
-    (110, "n"),
-    (111, "o"),
-    (112, "p"),
-    (113, "q"),
-    (114, "r"),
-    (115, "s"),
-    (116, "t"),
-    (117, "u"),
-    (118, "v"),
-    (119, "w"),
-    (120, "x"),
-    (121, "y"),
-    (122, "z"),
-    (123, "braceleft"),
-    (124, "bar"),
-    (125, "braceright"),
-    (126, "asciitilde"),
-    (161, "exclamdown"),
-    (162, "cent"),
-    (163, "sterling"),
-    (164, "fraction"),
-    (165, "yen"),
-    (166, "florin"),
-    (167, "section"),
-    (168, "currency"),
-    (169, "quotesingle"),
-    (170, "quotedblleft"),
-    (171, "guillemotleft"),
-    (172, "guilsinglleft"),
-    (173, "guilsinglright"),
-    (174, "fi"),
-    (175, "fl"),
-    (177, "endash"),
-    (178, "dagger"),
-    (179, "daggerdbl"),
-    (180, "periodcentered"),
-    (182, "paragraph"),
-    (183, "bullet"),
-    (184, "quotesinglbase"),
-    (185, "quotedblbase"),
-    (186, "quotedblright"),
-    (187, "guillemotright"),
-    (188, "ellipsis"),
-    (189, "perthousand"),
-    (191, "questiondown"),
-    (193, "grave"),
-    (194, "acute"),
-    (195, "circumflex"),
-    (196, "tilde"),
-    (197, "macron"),
-    (198, "breve"),
-    (199, "dotaccent"),
-    (200, "dieresis"),
-    (202, "ring"),
-    (203, "cedilla"),
-    (205, "hungarumlaut"),
-    (206, "ogonek"),
-    (207, "caron"),
-    (208, "emdash"),
-    (225, "AE"),
-    (227, "ordfeminine"),
-    (232, "Lslash"),
-    (233, "Oslash"),
-    (234, "OE"),
-    (235, "ordmasculine"),
-    (241, "ae"),
-    (245, "dotlessi"),
-    (248, "lslash"),
-    (249, "oslash"),
-    (250, "oe"),
-    (251, "germandbls"),
-];
-
-/// ISO 32000-1:2008, Annex D.5: the Symbol font's named characters, which 31-027 accepts
-/// beside Adobe's list.
-pub const SYMBOL_NAMES: [&str; 189] = [
-    "Alpha",
-    "Beta",
-    "Chi",
-    "Delta",
-    "Epsilon",
-    "Eta",
-    "Euro",
-    "Gamma",
-    "Ifraktur",
-    "Iota",
-    "Kappa",
-    "Lambda",
-    "Mu",
-    "Nu",
-    "Omega",
-    "Omicron",
-    "Phi",
-    "Pi",
-    "Psi",
-    "Rfraktur",
-    "Rho",
-    "Sigma",
-    "Tau",
-    "Theta",
-    "Upsilon",
-    "Upsilon1",
-    "Xi",
-    "Zeta",
-    "aleph",
-    "alpha",
-    "ampersand",
-    "angle",
-    "angleleft",
-    "angleright",
-    "approxequal",
-    "arrowboth",
-    "arrowdblboth",
-    "arrowdbldown",
-    "arrowdblleft",
-    "arrowdblright",
-    "arrowdblup",
-    "arrowdown",
-    "arrowhorizex",
-    "arrowleft",
-    "arrowright",
-    "arrowup",
-    "arrowvertex",
-    "asteriskmath",
-    "bar",
-    "beta",
-    "braceex",
-    "braceleft",
-    "braceleftbt",
-    "braceleftmid",
-    "bracelefttp",
-    "braceright",
-    "bracerightbt",
-    "bracerightmid",
-    "bracerighttp",
-    "bracketleft",
-    "bracketleftbt",
-    "bracketleftex",
-    "bracketlefttp",
-    "bracketright",
-    "bracketrightbt",
-    "bracketrightex",
-    "bracketrighttp",
-    "bullet",
-    "carriagereturn",
-    "chi",
-    "circlemultiply",
-    "circleplus",
-    "club",
-    "colon",
-    "comma",
-    "congruent",
-    "copyrightsans",
-    "copyrightserif",
-    "degree",
-    "delta",
-    "diamond",
-    "divide",
-    "dotmath",
-    "eight",
-    "element",
-    "ellipsis",
-    "emptyset",
-    "epsilon",
-    "equal",
-    "equivalence",
-    "eta",
-    "exclam",
-    "existential",
-    "five",
-    "florin",
-    "four",
-    "fraction",
-    "gamma",
-    "gradient",
-    "greater",
-    "greaterequal",
-    "heart",
-    "infinity",
-    "integral",
-    "integralbt",
-    "integralex",
-    "integraltp",
-    "intersection",
-    "iota",
-    "kappa",
-    "lambda",
-    "less",
-    "lessequal",
-    "logicaland",
-    "logicalnot",
-    "logicalor",
-    "lozenge",
-    "minus",
-    "minute",
-    "mu",
-    "multiply",
-    "nine",
-    "notelement",
-    "notequal",
-    "notsubset",
-    "nu",
-    "numbersign",
-    "omega",
-    "omega1",
-    "omicron",
-    "one",
-    "parenleft",
-    "parenleftbt",
-    "parenleftex",
-    "parenlefttp",
-    "parenright",
-    "parenrightbt",
-    "parenrightex",
-    "parenrighttp",
-    "partialdiff",
-    "percent",
-    "period",
-    "perpendicular",
-    "phi",
-    "phi1",
-    "pi",
-    "plus",
-    "plusminus",
-    "product",
-    "propersubset",
-    "propersuperset",
-    "proportional",
-    "psi",
-    "question",
-    "radical",
-    "radicalex",
-    "reflexsubset",
-    "reflexsuperset",
-    "registersans",
-    "registerserif",
-    "rho",
-    "second",
-    "semicolon",
-    "seven",
-    "sigma",
-    "sigma1",
-    "similar",
-    "six",
-    "slash",
-    "space",
-    "spade",
-    "suchthat",
-    "summation",
-    "tau",
-    "therefore",
-    "theta",
-    "theta1",
-    "three",
-    "trademarksans",
-    "trademarkserif",
-    "two",
-    "underscore",
-    "union",
-    "universal",
-    "upsilon",
-    "weierstrass",
-    "xi",
-    "zero",
-    "zeta",
-];

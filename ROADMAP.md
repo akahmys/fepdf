@@ -3189,13 +3189,13 @@ Independent of all of the above:
       not be made.
 
       **This is the gap ADR-0087 was taken over, in the large.** A document this engine
-      declares PDF/UA-2 conforming is one it has checked sixty-six things about — and all
-      sixty-six are PDF/UA-1 conditions ([ADR-0092](docs/adr/0092-the-matterhorn-protocol-measures-ua-1-and-this-engine-declares-ua-2.md)). `PdfStandard::UA2`
+      declares PDF/UA-2 conforming is one it has checked sixty-seven things about — and all
+      sixty-seven are PDF/UA-1 conditions ([ADR-0092](docs/adr/0092-the-matterhorn-protocol-measures-ua-1-and-this-engine-declares-ua-2.md)). `PdfStandard::UA2`
       writes that claim into the catalogue, and the claim is a statement about 137 things.
 
       - [x] **W-21a — say how much is checked.** `audit_ua2_report` answers an
         `AuditReport` carrying an `AuditScope` beside the findings, and the window shows
-        "Matterhorn の 2 / 136 件の失格条件を検査" where the findings are — 66 / 137 since W-21n.
+        "Matterhorn の 2 / 136 件の失格条件を検査" where the findings are — 67 / 137 since W-21o.
         `found_nothing()` is
         named so that a caller cannot write `findings.is_empty()` and mean "conforms".
 
@@ -3345,6 +3345,22 @@ Independent of all of the above:
         replayed over every page, and 11-001 wants the language in force at each run of
         text.
 
+      - [x] **W-21o — a TrueType code looked up the way 9.6.6.4 says, and no other way.**
+        **31-018**: every code a non-symbolic TrueType font renders reaches a glyph through
+        the lookup ISO 32000-1 9.6.6.4 describes — its glyph name from the encoding's table,
+        then the (3,1) subtable by the name's Unicode value from Adobe's list, or where the
+        program has no (3,1), the (1,0) subtable by the name's Mac OS Roman code. The
+        engine's own glyph resolution scores candidates across every route it knows, which
+        is right for drawing and wrong for a conformance question, so
+        `fepdf_font::sfnt_cmap` asks one subtable and nothing in its place. The names come
+        from `fepdf-doc/src/annex_d.rs`: D.2's STD, MAC and WIN columns read out of
+        `PDF32000_2008.pdf` — the STD column the same 149 entries W-21l read — with
+        footnotes 5 and 6's duplicate codes, and Table 115 for Mac OS Roman. **Sixty-seven
+        of 137.** Across the 525 files (2026-09-27) it finds one, Isartor's 6-3-5 file
+        whose ArialMT subset has no glyph for `$`. `fepdf-font`'s `base_encoding` still
+        answers only `WinAnsiEncoding` for extraction, for want of a document, and now has
+        one.
+
       - [x] **W-21g — a condition checked and not broken is a result.** `AuditFinding`
         carries an `Outcome` — `Broken`, `Sound`, `ForAReader` — and `audit_report` adds
         one `Sound` per condition it checked and did not break. **One per condition, not
@@ -3372,7 +3388,7 @@ Independent of all of the above:
       against `/Alt`.
 
       **It waits on W-21 and says so.** A conformance claim is worth what the checking
-      behind it is worth, and sixty-six failure conditions of 137 is not a foundation to
+      behind it is worth, and sixty-seven failure conditions of 137 is not a foundation to
       put a second claim on. What can be done first is the reading: the structure tree editor this engine
       already has is most of what a well-tagged file is made with, and what it cannot yet
       express is the list this item starts as.

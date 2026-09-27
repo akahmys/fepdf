@@ -293,6 +293,7 @@ fn encrypt_entry(permissions: Option<i32>) -> String {
 /// | 30-002 | a form carrying an MCID, drawn twice |
 /// | 31-009 | text in Helvetica, whose program is not embedded |
 /// | 31-017 | text in a non-symbolic TrueType font whose program has only a (3,0) cmap |
+/// | 31-018 | text `B` in a non-symbolic TrueType font whose (3,1) cmap maps only `A` |
 /// | 28-006 | a `/Foo` annotation with no `/Contents`, in no structure element |
 /// | 28-018 | a `/PrinterMark` whose appearance fills a rectangle under no `/Artifact` |
 /// | 11-006 | no `/Lang` in the catalogue — left for a reader, which is not sound |
@@ -309,8 +310,8 @@ fn breaks_the_files() -> Vec<u8> {
                 .to_string(),
             "<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_string(),
             "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Contents 7 0 R \
-               /Resources << /XObject << /X 8 0 R >> /Font << /T 9 0 R /U 10 0 R >> >> \
-               /Annots [11 0 R 15 0 R 16 0 R] >>"
+               /Resources << /XObject << /X 8 0 R >> \
+               /Font << /T 9 0 R /U 10 0 R /V 18 0 R >> >> /Annots [11 0 R 15 0 R 16 0 R] >>"
                 .to_string(),
             "<< /Type /Filespec /F (a.txt) /EF << /F 12 0 R >> >>".to_string(),
             stream(
@@ -321,7 +322,8 @@ fn breaks_the_files() -> Vec<u8> {
             "<< /Type /MediaClip /S /MCD /D (clip.mp4) >>".to_string(),
             stream(
                 "",
-                "q /X Do Q q /X Do Q BT /T 12 Tf 20 100 Td (A) Tj ET BT /U 12 Tf 20 80 Td (A) Tj ET",
+                "q /X Do Q q /X Do Q BT /T 12 Tf 20 100 Td (A) Tj ET BT /U 12 Tf 20 80 Td (A) Tj ET \
+                 BT /V 12 Tf 20 60 Td (B) Tj ET",
             ),
             stream("/Type /XObject /Subtype /Form /BBox [0 0 10 10]", "/P <</MCID 0>> BDC 0 0 5 5 re f EMC"),
             "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>".to_string(),
@@ -337,8 +339,21 @@ fn breaks_the_files() -> Vec<u8> {
             "<< /Type /Annot /Subtype /PrinterMark /Rect [0 0 10 10] /AP << /N 17 0 R >> >>"
                 .to_string(),
             stream("/Type /XObject /Subtype /Form /BBox [0 0 10 10]", "0 0 5 5 re f"),
+            "<< /Type /Font /Subtype /TrueType /BaseFont /OnlyA /FontDescriptor 19 0 R \
+               /Encoding /WinAnsiEncoding >>"
+                .to_string(),
+            "<< /Type /FontDescriptor /FontName /OnlyA /Flags 32 /FontFile2 20 0 R >>".to_string(),
+            hex_stream("", ONLY_A_BY_UNICODE),
         ])
 }
+
+/// A TrueType program whose one `cmap` subtable is (3,1), format 4, mapping U+0041 to
+/// glyph 1 and nothing else.
+const ONLY_A_BY_UNICODE: &str = "000100000001001000000000636d6170000000000000001c0000002c00000001000300010000000c00040020000000040004000100000041ffff00000041ffffffc0000100000000";
+
+/// A TrueType program whose one `cmap` subtable is (1,0), format 0, mapping code 0x41 to
+/// glyph 1 and code 219 — `Euro` in Mac OS Roman, `currency` in MacRomanEncoding — to 2.
+const A_AND_EURO_BY_MAC_ROMAN: &str = "000100000001001000000000636d6170000000000000001c0000011200000001000100000000000c00000106000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000100000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000002000000000000000000000000000000000000000000000000000000000000000000000000";
 
 /// 26-001, which [`breaks_the_files`] cannot also break: its `/Encrypt` has a `/P`.
 fn encrypted_without_p() -> Vec<u8> {
@@ -433,7 +448,7 @@ fn the_report_says_how_much_of_the_protocol_it_checked() {
     );
     assert_eq!(
         report.scope.checked.len(),
-        66,
+        67,
         "the scope does not name the failure conditions this auditor looks at"
     );
     assert!(
@@ -1362,6 +1377,7 @@ fn every_number_reported_means_in_the_protocol_what_it_is_used_for() {
         ("11-006", "Natural language for document metadata cannot"),
         ("28-006", "An annotation with subtype undefined in ISO"),
         ("28-018", "The appearance stream of a PrinterMark"),
+        ("31-018", "A non-symbolic TrueType font is used for rendering, but"),
     ];
     assert_eq!(
         says.len(),
@@ -1681,12 +1697,12 @@ fn the_files_come_out_sound_where_they_are_met() {
                 .to_string(),
             stream("/Type /EmbeddedFile", "hello"),
             "<< /Type /FontDescriptor /FontName /LatinCmap /Flags 32 /FontFile2 14 0 R >>".to_string(),
-            hex_stream("", "000100000001001000000000636d6170000000000000001c0000001400000001000300010000000c0000000000000000"),
+            hex_stream("", ONLY_A_BY_UNICODE),
         ]),
     );
     let report = doc.audit_ua2_report().expect("it audits");
     let mut conditions: Vec<&str> = FROM_FILES.to_vec();
-    conditions.extend(["31-009", "31-017"]);
+    conditions.extend(["31-009", "31-017", "31-018"]);
     for condition in conditions {
         assert_eq!(
             outcomes(&report, condition),
@@ -1877,4 +1893,62 @@ fn the_metadata_language_is_left_for_a_reader_without_a_lang() {
         vec![Outcome::ForAReader]
     );
     assert_eq!(outcomes(&annotation_page(&[]), "11-006"), vec![Outcome::Sound]);
+}
+
+/// A page showing `text` in a non-symbolic TrueType font whose `/Encoding` is `encoding`
+/// and whose program is `program`, as hexadecimal.
+fn true_type_page(encoding: &str, program: &str, text: &str) -> AuditReport {
+    let content = format!("BT /F1 12 Tf 20 100 Td {text} Tj ET");
+    opened(fepdf_fixtures::assemble(&[
+        "<< /Type /Catalog /Pages 2 0 R >>".to_string(),
+        "<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_string(),
+        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Contents 4 0 R \
+           /Resources << /Font << /F1 5 0 R >> >> >>"
+            .to_string(),
+        format!("<< /Length {} >>\nstream\n{content}\nendstream", content.len()),
+        format!(
+            "<< /Type /Font /Subtype /TrueType /BaseFont /Test /FontDescriptor 6 0 R \
+               /Encoding {encoding} >>"
+        ),
+        "<< /Type /FontDescriptor /FontName /Test /Flags 32 /FontFile2 7 0 R >>".to_string(),
+        hex_stream("", program),
+    ]))
+    .audit_ua2_report()
+    .expect("it audits")
+}
+
+/// **31-018 follows 9.6.6.4 and nothing else.** Through (3,1), a code is its name's
+/// Unicode value: `A` reaches glyph 1 and `B` reaches nothing, and so does `A` renamed by
+/// `/Differences` to a name Adobe's list does not have — while `B` renamed `A` reaches
+/// `A`'s glyph. Text in mode 3 is not rendered and is not asked.
+#[test]
+fn a_true_type_code_is_looked_up_through_the_unicode_cmap_by_name() {
+    let win = "/WinAnsiEncoding";
+    let renamed = "<< /BaseEncoding /WinAnsiEncoding /Differences [65 /madeup] >>";
+    let as_a = "<< /BaseEncoding /WinAnsiEncoding /Differences [66 /A] >>";
+    for (encoding, text, outcome) in [
+        (win, "(A)", Outcome::Sound),
+        (win, "(B)", Outcome::Broken),
+        (renamed, "(A)", Outcome::Broken),
+        (as_a, "(B)", Outcome::Sound),
+        (win, "3 Tr (B)", Outcome::Sound),
+    ] {
+        let report = true_type_page(encoding, ONLY_A_BY_UNICODE, text);
+        assert_eq!(outcomes(&report, "31-018"), vec![outcome], "{encoding} {text}");
+    }
+}
+
+/// **Without a (3,1) subtable, the name goes to (1,0) by its Mac OS Roman code**, which is
+/// MacRomanEncoding with Table 115's differences: WinAnsi's 0x80 is `Euro`, and `Euro` is
+/// 219 there, where MacRomanEncoding's 219 is `currency`, which Mac OS Roman does not have.
+#[test]
+fn a_true_type_code_is_looked_up_through_the_mac_cmap_by_mac_os_roman() {
+    for (encoding, text, outcome) in [
+        ("/WinAnsiEncoding", "(A)", Outcome::Sound),
+        ("/WinAnsiEncoding", "<80>", Outcome::Sound),
+        ("/MacRomanEncoding", "<DB>", Outcome::Broken),
+    ] {
+        let report = true_type_page(encoding, A_AND_EURO_BY_MAC_ROMAN, text);
+        assert_eq!(outcomes(&report, "31-018"), vec![outcome], "{encoding} {text}");
+    }
 }
