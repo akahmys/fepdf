@@ -29,8 +29,12 @@ pub(crate) struct Reached {
 }
 
 /// Asks every condition in [`FROM_FILES`] of `doc`.
+///
+/// `inline_languages` is how many marked sequences in the content state a `/Lang` in an
+/// inline property list, which the walk from the catalogue cannot reach (11-007).
 pub fn audit_files(
     doc: &Document,
+    inline_languages: usize,
     findings: &mut Vec<AuditFinding>,
     examined: &mut BTreeSet<&'static str>,
 ) {
@@ -45,7 +49,7 @@ pub fn audit_files(
     shared_forms(doc, &reached.forms, findings);
     examined.extend(FROM_FILES);
     // The same walk answers the conditions decided by what a document has at all.
-    crate::audit_presence::audit_presence(doc, &dicts, findings, examined);
+    crate::audit_presence::audit_presence(doc, (&dicts, inline_languages), findings, examined);
 }
 
 /// Every dictionary and form reachable from `catalogue`, each once.

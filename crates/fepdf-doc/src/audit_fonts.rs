@@ -7,7 +7,7 @@
 //! maps are read as the file wrote them.
 
 use crate::structure::{AuditFinding, broken, for_a_reader};
-use fepdf_model::object::sublimation::{Command, TextArrayItem};
+use fepdf_model::object::sublimation::{Command, IrObject, TextArrayItem};
 use fepdf_model::{Document, Handle, Object, PdfArena};
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -49,13 +49,16 @@ impl Use {
 pub(crate) const FORM_DEPTH: usize = 8;
 
 /// Asks [`FROM_FONTS`] of every font the pages and the forms they draw name.
+///
+/// Answers how many marked sequences in the content state a `/Lang` in an inline property
+/// list, for 11-007 to count beside the ones the catalogue's walk reaches.
 pub fn audit_fonts(
     doc: &Document,
     findings: &mut Vec<AuditFinding>,
     examined: &mut BTreeSet<&'static str>,
-) {
+) -> usize {
     let arena = doc.arena();
-    let Ok(pages) = doc.page_count() else { return };
+    let Ok(pages) = doc.page_count() else { return 0 };
     let mut fonts = BTreeSet::new();
     for page in 0..pages {
         let Some(handle) = doc.get_page_handle(page) else { continue };
@@ -64,43 +67,48 @@ pub fn audit_fonts(
         collect_fonts(arena, &Object::Dictionary(resources), 0, &mut fonts);
     }
     // 31-030 is about every font's text, so every font's codes are read.
-    let Scanned { codes, in_formulas, unlanguaged, graphics, unread } = shown_codes(doc, &fonts);
+    let Scanned { codes, in_formulas, unlanguaged, graphics, unread, inline_languages } =
+        shown_codes(doc, &fonts);
     crate::page_languages::report(doc, &unlanguaged, findings);
     let text = codes.values().any(|u| !u.codes.is_empty());
     crate::audit_presence::content_questions(text, graphics, unread, findings);
     for font in fonts {
-        let reading = Font { doc, arena, handle: font, name: base_font(arena, font) };
-        reading.audit(findings);
-        crate::audit_subsets::subset_claims(doc, &Object::Reference(font), &reading.name, findings);
-        let used = codes.get(&font);
-        reading.to_unicode_needed(used.map(|u| &u.codes), findings);
-        let rendered = used.map(|u| &u.rendered).filter(|r| !r.is_empty());
-        reading.drawn_without(rendered.is_some(), findings);
-        if let Some(rendered) = rendered {
-            reading.looked_up(rendered, findings);
-        }
-        if let Some(used) = used {
-            let mapped = crate::unicode_map::mapped(doc, font, &used.codes, &used.pairs);
-            crate::unicode_map::report("10-001", &reading.name, &mapped, findings);
-            if let Some(math) = in_formulas.get(&font) {
-                let mapped = crate::unicode_map::mapped(doc, font, &math.codes, &math.pairs);
-                crate::unicode_map::report("17-003", &reading.name, &mapped, findings);
-            }
-            let embedded = !reading.lacks_program();
-            crate::glyph_select::selected(
-                doc,
-                font,
-                &reading.name,
-                embedded,
-                &used.as_shown(),
-                findings,
-            );
-        }
+        one_font(doc, font, (codes.get(&font), in_formulas.get(&font)), findings);
     }
     // 17-003 is about the text of `<Formula>` elements, which a document with no structure
     // tree has none of to be sound about.
     let tagged = doc.get_structure_root().ok().flatten().is_some();
     examined.extend(FROM_FONTS.iter().filter(|c| tagged || **c != "17-003"));
+    inline_languages
+}
+
+/// Every condition asked of one font, whose text shows `used`, `in_formula` of it inside a
+/// `<Formula>`.
+fn one_font(
+    doc: &Document,
+    font: Handle<Object>,
+    (used, in_formula): (Option<&Use>, Option<&Use>),
+    findings: &mut Vec<AuditFinding>,
+) {
+    let arena = doc.arena();
+    let reading = Font { doc, arena, handle: font, name: base_font(arena, font) };
+    reading.audit(findings);
+    crate::audit_subsets::subset_claims(doc, &Object::Reference(font), &reading.name, findings);
+    reading.to_unicode_needed(used.map(|u| &u.codes), findings);
+    let rendered = used.map(|u| &u.rendered).filter(|r| !r.is_empty());
+    reading.drawn_without(rendered.is_some(), findings);
+    if let Some(rendered) = rendered {
+        reading.looked_up(rendered, findings);
+    }
+    let Some(used) = used else { return };
+    let mapped = crate::unicode_map::mapped(doc, font, &used.codes, &used.pairs);
+    crate::unicode_map::report("10-001", &reading.name, &mapped, findings);
+    if let Some(math) = in_formula {
+        let mapped = crate::unicode_map::mapped(doc, font, &math.codes, &math.pairs);
+        crate::unicode_map::report("17-003", &reading.name, &mapped, findings);
+    }
+    let embedded = !reading.lacks_program();
+    crate::glyph_select::selected(doc, font, &reading.name, embedded, &used.as_shown(), findings);
 }
 
 /// The fonts a resource dictionary names, and those of the forms it names, by handle.
@@ -397,6 +405,7 @@ fn shown_codes(doc: &Document, fonts: &BTreeSet<Handle<Object>>) -> Scanned {
         unlanguaged: BTreeSet::new(),
         graphics: 0,
         unread: 0,
+        inline_languages: 0,
     };
     let Ok(pages) = doc.page_count() else { return Scanned::default() };
     for page in 0..pages {
@@ -414,6 +423,7 @@ fn shown_codes(doc: &Document, fonts: &BTreeSet<Handle<Object>>) -> Scanned {
         unlanguaged: scan.unlanguaged,
         graphics: scan.graphics,
         unread: scan.unread,
+        inline_languages: scan.inline_languages,
     }
 }
 
@@ -430,6 +440,8 @@ struct Scanned {
     graphics: usize,
     /// Pages whose content would not read.
     unread: usize,
+    /// Marked sequences stating a `/Lang` in an inline property list.
+    inline_languages: usize,
 }
 
 /// What the scan has seen shown in one font, as bits: one per one-byte code and one per
@@ -497,6 +509,8 @@ struct Scan<'a> {
     graphics: usize,
     /// Pages whose content would not read.
     unread: usize,
+    /// Marked sequences stating a `/Lang` in an inline property list (11-007).
+    inline_languages: usize,
 }
 
 impl Scan<'_> {
@@ -549,8 +563,7 @@ impl Scan<'_> {
             let within = open.last().copied().unwrap_or(marks.within);
             match command {
                 Command::BeginMarkedContent { tag, properties } => {
-                    let arena = self.doc.arena();
-                    open.push(marks.opens(arena, tag.as_str(), properties.as_ref(), within));
+                    open.push(self.opens(marks, tag.as_str(), properties.as_ref(), within));
                 }
                 Command::EndMarkedContent => {
                     open.pop();
@@ -583,6 +596,23 @@ impl Scan<'_> {
                 }
             }
         }
+    }
+
+    /// What a sequence opened with `tag` and `properties` is, and whether it states a
+    /// language inline (11-007).
+    fn opens(
+        &mut self,
+        marks: &crate::formula_marks::Marks,
+        tag: &str,
+        properties: Option<&IrObject>,
+        within: crate::formula_marks::Facts,
+    ) -> crate::formula_marks::Facts {
+        if let Some(IrObject::Dictionary(inline)) = properties
+            && inline.contains_key("Lang")
+        {
+            self.inline_languages += 1;
+        }
+        marks.opens(self.doc.arena(), tag, properties, within)
     }
 
     /// Counts a graphics object that is in neither an `/Artifact` nor a `<Figure>` (13-001).

@@ -15,10 +15,11 @@ use fepdf_model::{Document, Object, PdfArena};
 use std::collections::BTreeSet;
 
 /// The failure conditions this module decides.
-pub const FROM_PRESENCE: [&str; 22] = [
-    "03-001", "03-002", "03-003", "05-001", "05-002", "05-003", "13-002", "13-005", "13-008",
-    "14-004", "15-001", "15-002", "15-004", "15-005", "16-001", "16-002", "22-001", "28-001",
-    "28-003", "28-013", "29-001", "31-010",
+pub const FROM_PRESENCE: [&str; 28] = [
+    "01-006", "02-002", "03-001", "03-002", "03-003", "05-001", "05-002", "05-003", "09-002",
+    "09-003", "11-007", "13-002", "13-005", "13-006", "13-008", "14-004", "15-001", "15-002",
+    "15-004", "15-005", "16-001", "16-002", "22-001", "28-001", "28-003", "28-013", "29-001",
+    "31-010",
 ];
 
 /// ISO 32000-1 Table 198's action types, read out of `PDF32000_2008.pdf`.
@@ -59,17 +60,21 @@ struct Has {
     is_map: usize,
     /// Font descriptors carrying a program.
     descriptors: Vec<Object>,
+    /// Dictionaries stating a `/Lang`: the catalogue, structure elements, property lists.
+    languages: usize,
 }
 
 /// Asks every condition in [`FROM_PRESENCE`] of `doc`, whose reachable dictionaries are
-/// `dicts`.
+/// `dicts` and whose content states a `/Lang` inline `inline_languages` times.
 pub(crate) fn audit_presence(
     doc: &Document,
-    dicts: &[Object],
+    (dicts, inline_languages): (&[Object], usize),
     findings: &mut Vec<AuditFinding>,
     examined: &mut BTreeSet<&'static str>,
 ) {
     let has = survey(doc, dicts);
+    let languages = inline_languages + has.languages;
+    decide("11-007", languages, "language identifiers stated", findings);
     let count = |f: &dyn Fn(&str) -> bool| has.annotations.iter().filter(|s| f(s)).count();
     let actions = |f: &dyn Fn(&str) -> bool| has.actions.iter().filter(|(s, _)| f(s)).count();
     let changing =
@@ -128,6 +133,7 @@ fn survey(doc: &Document, dicts: &[Object]) -> Has {
     let arena = doc.arena();
     let mut has = Has::default();
     for dict in dicts {
+        has.languages += usize::from(entry(arena, dict, "Lang").is_some());
         if let Some(subtype) = name_of(arena, dict, "Subtype")
             && entry(arena, dict, "Rect").is_some()
         {
@@ -182,6 +188,7 @@ struct Elements {
     unordered: usize,
     tables: usize,
     custom: BTreeSet<String>,
+    all: usize,
 }
 
 /// 13-005, 13-008, 14-004, checkpoint 15's four and 16-001, 16-002, from the elements the
@@ -195,8 +202,14 @@ fn elements(doc: &Document, findings: &mut Vec<AuditFinding>) {
     for condition in ["15-001", "15-002", "15-004", "15-005"] {
         decide(condition, e.tables, "tables", findings);
     }
-    // With only standard types, every numbered heading is `<H1>` to `<H6>`: Arabic numerals.
+    // With only standard types, every numbered heading is `<H1>` to `<H6>`: Arabic numerals,
+    // and there is no mapping of a non-standard type to be inappropriate.
     decide("14-004", e.custom.len(), "structure types outside the standard set", findings);
+    decide("02-002", e.custom.len(), "structure types outside the standard set", findings);
+    decide("13-006", e.described + e.undescribed, "figures", findings);
+    for condition in ["01-006", "09-002", "09-003"] {
+        decide(condition, e.all, "structure elements", findings);
+    }
 }
 
 /// The elements [`elements`] asks about, counted.
@@ -210,6 +223,7 @@ fn count_elements(doc: &Document) -> Elements {
         while let Some(element) = visitor.next_element() {
             let element = Object::Reference(element);
             let Some(tag) = name_of(arena, &element, "S") else { continue };
+            e.all += 1;
             if !crate::audit_tree::standard(&tag) {
                 e.custom.insert(tag.clone());
             }

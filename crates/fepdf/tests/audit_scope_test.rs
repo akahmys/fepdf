@@ -451,7 +451,7 @@ fn the_report_says_how_much_of_the_protocol_it_checked() {
     );
     assert_eq!(
         report.scope.checked.len(),
-        104,
+        112,
         "the scope does not name the failure conditions this auditor looks at"
     );
     assert!(
@@ -650,8 +650,8 @@ fn an_untagged_document_is_still_asked_the_catalogue_conditions() {
 /// its graphics 13-001, its text 08-001 and 12-001, its figures 13-005 or 13-008: the
 /// protocol marks each `H`, and the auditor decides one only where the document has none
 /// of what it is about. So the document breaking nothing breaks nothing and leaves for a
-/// reader only conditions the protocol marks `H`; and a tagged document with no content,
-/// which has no such question, is the one `found_nothing` answers `true` for.
+/// reader only conditions the protocol marks `H`; and a tagged document with no content is
+/// left one, the appropriateness of the language it states.
 #[test]
 fn a_document_breaking_nothing_checked_is_said_to_have_broken_nothing() {
     let doc = opened(breaks_nothing());
@@ -684,11 +684,22 @@ fn a_document_breaking_nothing_checked_is_said_to_have_broken_nothing() {
     ]))
     .audit_ua2_report()
     .expect("it audits");
-    assert!(
-        empty.found_nothing(),
-        "a tagged document with nothing in it was left something: {:?}",
-        empty.findings.iter().filter(|f| f.outcome != Outcome::Sound).collect::<Vec<_>>()
-    );
+    // **Nothing in it, and one question still**: a document stating a language asks whether
+    // the language is appropriate (11-007), and one stating none leaves its metadata's to a
+    // person (11-006). No document escapes both, so `found_nothing` is asked of the rows
+    // that are sound — the report it answers for once every question is settled.
+    let left: Vec<&str> = empty
+        .findings
+        .iter()
+        .filter(|f| f.outcome != Outcome::Sound)
+        .map(|f| f.checkpoint.as_str())
+        .collect();
+    assert_eq!(left, ["11-007"], "a tagged document with nothing in it was left more");
+    let settled = AuditReport {
+        findings: empty.findings.iter().filter(|f| f.outcome == Outcome::Sound).cloned().collect(),
+        scope: empty.scope.clone(),
+    };
+    assert!(settled.found_nothing(), "a report of sound rows only was said to find something");
 }
 
 /// **A condition checked and not broken is a result the report carries.**
@@ -1450,6 +1461,14 @@ fn every_number_reported_means_in_the_protocol_what_it_is_used_for() {
         ("15-004", "Content is tagged as a table for information"),
         ("15-005", "A given cell"),
         ("18-002", "Header or footer artifacts are not classified"),
+        ("01-001", "Artifact is tagged as real content"),
+        ("01-002", "Real content is marked as artifact"),
+        ("01-006", "The structure type and attributes of a structure"),
+        ("02-002", "The mapping of one or more non-standard types"),
+        ("09-002", "Structure elements are nested in a"),
+        ("09-003", "The structure type (after applying any"),
+        ("11-007", "Natural language is not appropriate"),
+        ("13-006", "Graphics objects that possess semantic value"),
     ];
     assert_eq!(
         says.len(),
@@ -2450,6 +2469,12 @@ fn the_language_of_page_text_is_found_through_the_hierarchy() {
         let report = languages(content, span, paragraph);
         assert_eq!(outcomes(&report, "11-001"), vec![outcome], "{content} {span} {paragraph}");
     }
+    // 11-007 asks whether a stated language is appropriate: none stated, no question; a
+    // `Span`'s inline `/Lang` is one, though the walk from the catalogue cannot reach it.
+    let none = languages(tagged, "", "");
+    assert_eq!(outcomes(&none, "11-007"), vec![Outcome::Sound]);
+    let inline = languages("/Span <</Lang (es)>> BDC BT /F1 12 Tf (A) Tj ET EMC", "", "");
+    assert_eq!(outcomes(&inline, "11-007"), vec![Outcome::ForAReader]);
 }
 
 /// An SFNT whose one table is an `OS/2` stating `fsType` 2: it must not be embedded.
@@ -2594,6 +2619,10 @@ fn graphics_and_artifacts_are_asked_where_they_are() {
         ("Figure", rect.to_string(), "13-001", Outcome::ForAReader),
         ("Figure", format!("/Figure <</MCID 0>> BDC {rect} EMC"), "18-002", Outcome::Sound),
         ("Figure", format!("/Artifact BMC {rect} EMC"), "18-002", Outcome::ForAReader),
+        ("Figure", format!("/Artifact BMC {rect} EMC"), "01-001", Outcome::Sound),
+        ("Figure", format!("/Artifact BMC {rect} EMC"), "01-002", Outcome::ForAReader),
+        ("Figure", format!("/Figure <</MCID 0>> BDC {rect} EMC"), "01-001", Outcome::ForAReader),
+        ("Figure", format!("/Figure <</MCID 0>> BDC {rect} EMC"), "01-002", Outcome::Sound),
     ] {
         let report = drawn_in(tag, &content);
         assert_eq!(outcomes(&report, condition), vec![outcome], "{condition}: {tag} {content}");

@@ -159,7 +159,7 @@ impl AuditReport {
     /// the document passing.
     ///
     /// **Named so that a caller cannot write `findings.is_empty()` and mean "conforms".**
-    /// A hundred and four failure conditions out of 137 finding nothing is a hundred and four failure
+    /// A hundred and twelve failure conditions out of 137 finding nothing is a hundred and twelve failure
     /// conditions finding nothing. Read [`AuditReport::scope`] beside this.
     ///
     /// **This was `findings.is_empty()`, and that could not be true.** Once a checked and
@@ -168,6 +168,11 @@ impl AuditReport {
     /// answered `false`, and the test asserting `!found_nothing()` on a broken document
     /// could no longer fail. It asks what it is named for — whether anything is `Broken`
     /// or waiting `ForAReader`.
+    ///
+    /// **On a whole document it now answers `false`, and that is the protocol's doing.** A
+    /// document stating a language leaves a person 11-007, whether it is the right one; a
+    /// document stating none leaves them 11-006. A report is clear of work for a reader only
+    /// once those have been answered — which is a person's to do, not this method's.
     #[must_use]
     pub fn found_nothing(&self) -> bool {
         !self.findings.iter().any(|f| matches!(f.outcome, Outcome::Broken | Outcome::ForAReader))
@@ -201,7 +206,7 @@ pub const FROM_FORM: [&str; 2] = ["11-005", "28-005"];
 /// page.** PDF/UA-1 7.1 is a requirement about all content, and the three conditions of
 /// checkpoint 01 that this engine can decide are about what a `BDC` encloses — which is
 /// in the content stream and nowhere else. See [`crate::tagging`].
-pub const FROM_CONTENT: [&str; 4] = ["01-003", "01-004", "01-005", "18-002"];
+pub const FROM_CONTENT: [&str; 6] = ["01-001", "01-002", "01-003", "01-004", "01-005", "18-002"];
 
 /// The failure conditions decided by walking the structure tree (14.7).
 ///
@@ -366,19 +371,20 @@ impl<'a> MatterhornAuditor<'a> {
     /// say so is a thing the tests can notice. The seven `FROM_` lists — the four above,
     /// and one each in `audit_objects`, `audit_fonts` and `audit_files` — partition this
     /// one, and a test holds them to it.
-    pub const CHECKED: [&'static str; 104] = [
-        "01-003", "01-004", "01-005", "01-007", "02-001", "02-003", "02-004", "03-001", "03-002",
-        "03-003", "05-001", "05-002", "05-003", "07-001", "07-002", "08-001", "08-002", "09-004",
-        "09-005", "09-006", "09-007", "09-008", "10-001", "11-001", "11-002", "11-003", "11-004",
-        "11-005", "11-006", "12-001", "13-001", "13-002", "13-004", "13-005", "13-008", "14-002",
-        "14-003", "14-004", "14-006", "14-007", "15-001", "15-002", "15-003", "15-004", "15-005",
-        "16-001", "16-002", "17-002", "17-003", "18-002", "19-003", "19-004", "20-001", "20-002",
-        "20-003", "21-001", "22-001", "25-001", "26-001", "26-002", "28-001", "28-002", "28-003",
-        "28-004", "28-005", "28-006", "28-007", "28-008", "28-009", "28-010", "28-011", "28-012",
-        "28-013", "28-014", "28-015", "28-016", "28-017", "28-018", "29-001", "30-001", "30-002",
-        "31-004", "31-009", "31-010", "31-011", "31-012", "31-013", "31-014", "31-015", "31-016",
-        "31-017", "31-018", "31-019", "31-020", "31-021", "31-022", "31-023", "31-024", "31-025",
-        "31-026", "31-027", "31-028", "31-029", "31-030",
+    pub const CHECKED: [&'static str; 112] = [
+        "01-001", "01-002", "01-003", "01-004", "01-005", "01-006", "01-007", "02-001", "02-002",
+        "02-003", "02-004", "03-001", "03-002", "03-003", "05-001", "05-002", "05-003", "07-001",
+        "07-002", "08-001", "08-002", "09-002", "09-003", "09-004", "09-005", "09-006", "09-007",
+        "09-008", "10-001", "11-001", "11-002", "11-003", "11-004", "11-005", "11-006", "11-007",
+        "12-001", "13-001", "13-002", "13-004", "13-005", "13-006", "13-008", "14-002", "14-003",
+        "14-004", "14-006", "14-007", "15-001", "15-002", "15-003", "15-004", "15-005", "16-001",
+        "16-002", "17-002", "17-003", "18-002", "19-003", "19-004", "20-001", "20-002", "20-003",
+        "21-001", "22-001", "25-001", "26-001", "26-002", "28-001", "28-002", "28-003", "28-004",
+        "28-005", "28-006", "28-007", "28-008", "28-009", "28-010", "28-011", "28-012", "28-013",
+        "28-014", "28-015", "28-016", "28-017", "28-018", "29-001", "30-001", "30-002", "31-004",
+        "31-009", "31-010", "31-011", "31-012", "31-013", "31-014", "31-015", "31-016", "31-017",
+        "31-018", "31-019", "31-020", "31-021", "31-022", "31-023", "31-024", "31-025", "31-026",
+        "31-027", "31-028", "31-029", "31-030",
     ];
 
     /// How many failure conditions the Matterhorn Protocol 1.1 has, across 31 checkpoints.
@@ -413,8 +419,9 @@ impl<'a> MatterhornAuditor<'a> {
             &mut findings,
             &mut examined,
         );
-        crate::audit_fonts::audit_fonts(self.doc, &mut findings, &mut examined);
-        crate::audit_files::audit_files(self.doc, &mut findings, &mut examined);
+        let inline_languages =
+            crate::audit_fonts::audit_fonts(self.doc, &mut findings, &mut examined);
+        crate::audit_files::audit_files(self.doc, inline_languages, &mut findings, &mut examined);
         match self.doc.get_structure_root()? {
             Some(root) => {
                 findings.extend(self.audit(root)?);
@@ -580,19 +587,21 @@ impl<'a> MatterhornAuditor<'a> {
             return;
         };
         let mut unreadable = Vec::new();
-        let (mut artifacts, mut forms) = (0, 0);
+        let (mut artifacts, mut forms, mut tagged) = (0, 0, 0);
         for page in 0..pages {
             match crate::tagging::tagging_of_page(self.doc, page) {
                 Ok(tagging) => {
                     Self::note_page_tagging(page, &tagging, findings);
                     artifacts += tagging.artifacts;
                     forms += tagging.forms_drawn;
+                    tagged += tagging.tagged;
                 }
                 Err(_) => unreadable.push((page + 1).to_string()),
             }
         }
         if unreadable.is_empty() {
             Self::note_artifacts(artifacts, forms, findings);
+            Self::note_real_and_artifact(tagged, artifacts, forms, findings);
             examined.extend(FROM_CONTENT);
             return;
         }
@@ -626,6 +635,39 @@ impl<'a> MatterhornAuditor<'a> {
                      is for a person"
                 ),
             ));
+        }
+    }
+
+    /// 01-001 and 01-002 (`H`): whether an artefact is tagged as content, or content marked
+    /// as an artefact, is a person's call — about content that is tagged, and content that
+    /// is marked an artefact. Pages with none of the one, and no form whose content could
+    /// hold it, have no such question.
+    fn note_real_and_artifact(
+        tagged: usize,
+        artifacts: usize,
+        forms: usize,
+        findings: &mut Vec<AuditFinding>,
+    ) {
+        for (condition, found, what) in
+            [("01-001", tagged, "tagged sequences"), ("01-002", artifacts, "/Artifact sequences")]
+        {
+            findings.push(if found == 0 && forms == 0 {
+                sound_because(
+                    condition,
+                    format!(
+                        "Decided by the machine: no page marks {what} or draws a form that \
+                         could, so the question does not arise"
+                    ),
+                )
+            } else {
+                for_a_reader(
+                    condition,
+                    format!(
+                        "The pages mark {found} {what} and draw {forms} forms; whether any \
+                         breaks {condition} is for a person"
+                    ),
+                )
+            });
         }
     }
 

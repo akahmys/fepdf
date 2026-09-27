@@ -3189,13 +3189,13 @@ Independent of all of the above:
       not be made.
 
       **This is the gap ADR-0087 was taken over, in the large.** A document this engine
-      declares PDF/UA-2 conforming is one it has checked a hundred and four things about — and all
-      a hundred and four are PDF/UA-1 conditions ([ADR-0092](docs/adr/0092-the-matterhorn-protocol-measures-ua-1-and-this-engine-declares-ua-2.md)). `PdfStandard::UA2`
+      declares PDF/UA-2 conforming is one it has checked a hundred and twelve things about — and all
+      a hundred and twelve are PDF/UA-1 conditions ([ADR-0092](docs/adr/0092-the-matterhorn-protocol-measures-ua-1-and-this-engine-declares-ua-2.md)). `PdfStandard::UA2`
       writes that claim into the catalogue, and the claim is a statement about 137 things.
 
       - [x] **W-21a — say how much is checked.** `audit_ua2_report` answers an
         `AuditReport` carrying an `AuditScope` beside the findings, and the window shows
-        "Matterhorn の 2 / 136 件の失格条件を検査" where the findings are — 104 / 137 since W-21w.
+        "Matterhorn の 2 / 136 件の失格条件を検査" where the findings are — 112 / 137 since W-21x.
         `found_nothing()` is
         named so that a caller cannot write `findings.is_empty()` and mean "conforms".
 
@@ -3513,6 +3513,31 @@ Independent of all of the above:
         a reader only conditions the protocol marks `H`; `found_nothing` answers `true` for a
         tagged document with no content. The audit of `intel_sdm.pdf` is 3.5 s.
 
+      - [x] **W-21x — the last `H` conditions a document can answer, and the thirteen it
+        cannot.** Eight more by the same test: **01-001** asks of content that is tagged and
+        **01-002** of content marked an artefact, and pages with none and no form have
+        neither; **01-006**, **09-002** and **09-003** ask of structure elements, **02-002**
+        of types outside the standard set, **13-006** of figures, and **11-007** of stated
+        languages — the catalogue's, an element's, a property list's, and an inline `Span`'s,
+        which the content scan counts because the walk from the catalogue cannot reach it.
+        **A hundred and twelve of 137.**
+
+        **No whole document now reports nothing for a reader**, and that is the protocol's:
+        a document stating a language leaves 11-007, whether it is the right one, and one
+        stating none leaves 11-006. `found_nothing` is asked of a report of sound rows, and a
+        tagged document with nothing in it is left exactly 11-007.
+
+        **The thirteen left to a person are the ones no document answers by what it has**:
+        04-001, 06-004, 09-001, 13-003, 13-007, 14-001, 14-005, 16-003, 17-001, 18-001,
+        19-001, 19-002 and 24-001. Each asks whether *content* is something — a heading, a
+        list, a formula, a caption, a note, a reference, a header, a form, information
+        carried by colour — or is in the right order, and whether it is has to be read to be
+        known; 06-004 asks it of a title ingestion rewrites. They stay in the scope's list
+        for a reader, the same for every document. A heuristic could point at candidates —
+        a large bold line not tagged as a heading — but it could not make a finding sound,
+        so W-21 stands at a hundred and twelve decided, thirteen for a person, ten ingestion
+        answers, and two the protocol gives no test.
+
       - [x] **W-21g — a condition checked and not broken is a result.** `AuditFinding`
         carries an `Outcome` — `Broken`, `Sound`, `ForAReader` — and `audit_report` adds
         one `Sound` per condition it checked and did not break. **One per condition, not
@@ -3540,7 +3565,7 @@ Independent of all of the above:
       against `/Alt`.
 
       **It waits on W-21 and says so.** A conformance claim is worth what the checking
-      behind it is worth, and a hundred and four failure conditions of 137 is not a foundation to
+      behind it is worth, and a hundred and twelve failure conditions of 137 is not a foundation to
       put a second claim on. What can be done first is the reading: the structure tree editor this engine
       already has is most of what a well-tagged file is made with, and what it cannot yet
       express is the list this item starts as.
