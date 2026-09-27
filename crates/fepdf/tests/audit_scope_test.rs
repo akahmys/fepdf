@@ -448,7 +448,7 @@ fn the_report_says_how_much_of_the_protocol_it_checked() {
     );
     assert_eq!(
         report.scope.checked.len(),
-        76,
+        77,
         "the scope does not name the failure conditions this auditor looks at"
     );
     assert!(
@@ -1395,6 +1395,7 @@ fn every_number_reported_means_in_the_protocol_what_it_is_used_for() {
         ("31-016", "For one or more glyphs, the glyph width"),
         ("10-001", "Character code cannot be mapped to Unicode"),
         ("17-003", "Unicode mapping requirements are not met"),
+        ("11-001", "Natural language for text in page content cannot"),
     ];
     assert_eq!(
         says.len(),
@@ -1582,7 +1583,7 @@ fn the_second_pass_comes_out_sound_where_it_is_met() {
         "20-001", "20-002", "20-003", "28-004", "28-007", "28-008", "28-009", "28-012", "30-001",
         "09-004", "09-005", "09-006", "09-007", "09-008", "28-002", "28-010", "28-011", "28-017",
         "31-004", "31-019", "31-020", "31-021", "31-023", "31-024", "31-025", "31-026", "31-028",
-        "31-029", "31-022", "31-027",
+        "31-029", "31-022", "31-027", "11-001",
     ] {
         assert_eq!(
             outcomes(&report, condition),
@@ -2351,4 +2352,48 @@ fn a_formulas_text_is_held_to_the_unicode_mapping() {
     let outside = opened(formula(false)).audit_ua2_report().expect("it audits");
     assert_eq!(outcomes(&outside, "17-003"), vec![Outcome::Sound]);
     assert_eq!(outcomes(&outside, "10-001"), vec![Outcome::Broken]);
+}
+
+/// A tagged page with no `/Lang` in its catalogue, showing text in Helvetica under
+/// `content`'s marks; MCID 0 belongs to a `<Span>` whose own entries are `span` and whose
+/// parent `<P>`'s are `paragraph`.
+fn languages(content: &str, span: &str, paragraph: &str) -> AuditReport {
+    let content = format!("{content}\n");
+    opened(fepdf_fixtures::assemble(&[
+        "<< /Type /Catalog /Pages 2 0 R /StructTreeRoot 6 0 R /MarkInfo << /Marked true >> >>"
+            .to_string(),
+        "<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_string(),
+        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Contents 4 0 R \
+           /StructParents 0 /Resources << /Font << /F1 5 0 R >> >> >>"
+            .to_string(),
+        format!("<< /Length {} >>\nstream\n{content}endstream", content.len()),
+        "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>"
+            .to_string(),
+        "<< /Type /StructTreeRoot /K [8 0 R] /ParentTree << /Nums [0 [7 0 R]] >> >>".to_string(),
+        format!("<< /Type /StructElem /S /Span /P 8 0 R /Pg 3 0 R /K 0 {span} >>"),
+        format!("<< /Type /StructElem /S /P /P 6 0 R /K [7 0 R] {paragraph} >>"),
+    ]))
+    .audit_ua2_report()
+    .expect("it audits")
+}
+
+/// **11-001 follows 14.9.2.3's hierarchy.** With no catalogue `/Lang`, text marked by MCID 0
+/// is in its element's language, or an ancestor's; an empty `/Lang` states that the language
+/// is unknown; a `Span` sequence outside the structure states its own; unmarked text has
+/// none; and an `/Artifact` is not asked about.
+#[test]
+fn the_language_of_page_text_is_found_through_the_hierarchy() {
+    let tagged = "/P <</MCID 0>> BDC BT /F1 12 Tf 20 100 Td (A) Tj ET EMC";
+    for (content, span, paragraph, outcome) in [
+        (tagged, "/Lang (en)", "", Outcome::Sound),
+        (tagged, "", "/Lang (fr)", Outcome::Sound),
+        (tagged, "/Lang ()", "/Lang (fr)", Outcome::Broken),
+        (tagged, "", "", Outcome::Broken),
+        ("BT /F1 12 Tf 20 100 Td (A) Tj ET", "/Lang (en)", "", Outcome::Broken),
+        ("/Span <</Lang (es)>> BDC BT /F1 12 Tf (A) Tj ET EMC", "", "", Outcome::Sound),
+        ("/Artifact BMC BT /F1 12 Tf (A) Tj ET EMC", "", "", Outcome::Sound),
+    ] {
+        let report = languages(content, span, paragraph);
+        assert_eq!(outcomes(&report, "11-001"), vec![outcome], "{content} {span} {paragraph}");
+    }
 }

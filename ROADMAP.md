@@ -3189,13 +3189,13 @@ Independent of all of the above:
       not be made.
 
       **This is the gap ADR-0087 was taken over, in the large.** A document this engine
-      declares PDF/UA-2 conforming is one it has checked seventy-six things about — and all
-      seventy-six are PDF/UA-1 conditions ([ADR-0092](docs/adr/0092-the-matterhorn-protocol-measures-ua-1-and-this-engine-declares-ua-2.md)). `PdfStandard::UA2`
+      declares PDF/UA-2 conforming is one it has checked seventy-seven things about — and all
+      seventy-seven are PDF/UA-1 conditions ([ADR-0092](docs/adr/0092-the-matterhorn-protocol-measures-ua-1-and-this-engine-declares-ua-2.md)). `PdfStandard::UA2`
       writes that claim into the catalogue, and the claim is a statement about 137 things.
 
       - [x] **W-21a — say how much is checked.** `audit_ua2_report` answers an
         `AuditReport` carrying an `AuditScope` beside the findings, and the window shows
-        "Matterhorn の 2 / 136 件の失格条件を検査" where the findings are — 76 / 137 since W-21t.
+        "Matterhorn の 2 / 136 件の失格条件を検査" where the findings are — 77 / 137 since W-21u.
         `found_nothing()` is
         named so that a caller cannot write `findings.is_empty()` and mean "conforms".
 
@@ -3231,7 +3231,7 @@ Independent of all of the above:
         `audit_scope_test.rs` holds each number to the protocol's own words, breaks each
         in one fixture and meets each in another.
 
-      - [ ] **W-21h — the failure conditions that cite ISO 32000-1.** 09-004, 09-005,
+      - [x] **W-21h — the failure conditions that cite ISO 32000-1.** 09-004, 09-005,
         09-006, 09-007, 09-008, 31-006, 31-008 and 31-027, all `M`, all naming a table or
         annex of PDF 1.7. **The first step was getting the document**, and it is done:
         `docs/specs/PDF32000_2008.pdf` is Adobe's copy, "identical" to the ISO text with
@@ -3447,7 +3447,25 @@ Independent of all of the above:
         the arrays. It is examined only in a tagged document. **Seventy-six of 137.**
         Across the 525 files (2026-09-27) 10-001 finds 151 in 19 files — 128 of them
         `fy05.pdf`'s Type 3 fonts, the fonts 31-027 names — and leaves 24 for a reader; no
-        file tags a formula whose text fails. **Left of the machine conditions:** 11-001.
+        file tags a formula whose text fails. **Left of the machine conditions:** 11-001,
+        which W-21u takes.
+
+      - [x] **W-21u — the language of the text on the page, and the last `M`.** **11-001**
+        (UA1:7.2): with a catalogue `/Lang`, every text's language is stated; without one,
+        each text shown is asked the hierarchy ISO 32000-1 14.9.2.3 gives — a sequence with
+        an `/MCID` is in its structure element's language, its own or an ancestor's, and in
+        none where they state none; a `Span` sequence outside the structure in its property
+        list's; an empty `/Lang` states that the language is unknown (14.9.2.2); text in an
+        `/Artifact` is not the document's content. The content scan carries it with the
+        `<Formula>` question 17-003 asks, through the same parent-tree arrays. **Seventy-seven
+        of 137, which is every `M` condition but the ten ingestion answers**: 06-001 to
+        06-003, whose packet it rewrites, and 31-001 to 31-003 and 31-005 to 31-008, whose
+        CMaps and `/CIDToGIDMap` it rewrites or fills. Across the 525 files (2026-09-27) it
+        finds text in no language in 106 — every sample, each with no catalogue `/Lang`, and
+        of the PDF/UA-2 suite only two files made to fail it. The audit of `intel_sdm.pdf`
+        is 2.9 s. **What is left of W-21 is the 48 `H` conditions** — the target this
+        item set is 137 less the two with no test, and an `H` is advice about the state of
+        the art in 2021, not a prohibition.
 
       - [x] **W-21g — a condition checked and not broken is a result.** `AuditFinding`
         carries an `Outcome` — `Broken`, `Sound`, `ForAReader` — and `audit_report` adds
@@ -3476,7 +3494,7 @@ Independent of all of the above:
       against `/Alt`.
 
       **It waits on W-21 and says so.** A conformance claim is worth what the checking
-      behind it is worth, and seventy-six failure conditions of 137 is not a foundation to
+      behind it is worth, and seventy-seven failure conditions of 137 is not a foundation to
       put a second claim on. What can be done first is the reading: the structure tree editor this engine
       already has is most of what a well-tagged file is made with, and what it cannot yet
       express is the list this item starts as.

@@ -37,6 +37,8 @@ pub mod measure;
 pub mod operation;
 /// Reading the bookmark tree back out of a document.
 pub mod outline_tree;
+/// Whether the language of the text in page content can be determined (11-001).
+pub mod page_languages;
 /// The structure tree's parent tree, as the elements annotations belong to.
 pub mod parent_tree;
 /// The text of a tagged document in reading order, for a synthesiser.

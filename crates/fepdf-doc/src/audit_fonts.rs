@@ -12,10 +12,10 @@ use fepdf_model::{Document, Handle, Object, PdfArena};
 use std::collections::{BTreeMap, BTreeSet};
 
 /// The failure conditions this module decides.
-pub const FROM_FONTS: [&str; 24] = [
-    "10-001", "17-003", "31-004", "31-009", "31-011", "31-016", "31-030", "31-012", "31-013",
-    "31-014", "31-015", "31-017", "31-018", "31-019", "31-020", "31-021", "31-022", "31-023",
-    "31-024", "31-025", "31-026", "31-027", "31-028", "31-029",
+pub const FROM_FONTS: [&str; 25] = [
+    "10-001", "11-001", "17-003", "31-004", "31-009", "31-011", "31-016", "31-030", "31-012",
+    "31-013", "31-014", "31-015", "31-017", "31-018", "31-019", "31-020", "31-021", "31-022",
+    "31-023", "31-024", "31-025", "31-026", "31-027", "31-028", "31-029",
 ];
 
 /// What the pages do with one font: the codes they show in it, and those of them that are
@@ -63,8 +63,9 @@ pub fn audit_fonts(
         collect_fonts(arena, &Object::Dictionary(resources), 0, &mut fonts);
     }
     // 31-030 is about every font's text, so every font's codes are read.
-    let (codes, in_formulas) =
-        if fonts.is_empty() { Default::default() } else { shown_codes(doc, &fonts) };
+    let Scanned { codes, in_formulas, unlanguaged } =
+        if fonts.is_empty() { Scanned::default() } else { shown_codes(doc, &fonts) };
+    crate::page_languages::report(doc, &unlanguaged, findings);
     for font in fonts {
         let reading = Font { doc, arena, handle: font, name: base_font(arena, font) };
         reading.audit(findings);
@@ -379,20 +380,21 @@ type TextState = (Option<Handle<Object>>, bool);
 /// which rendering mode each `Tr`, through `q` and `Q`, and the bytes each `Tj`, `'`, `"`
 /// and `TJ` shows.
 ///
-/// **And those shown inside a `<Formula>`, apart**, for 17-003.
-fn shown_codes(
-    doc: &Document,
-    fonts: &BTreeSet<Handle<Object>>,
-) -> (BTreeMap<Handle<Object>, Use>, BTreeMap<Handle<Object>, Use>) {
-    let formulas = crate::formula_marks::Formulas::of(doc);
+/// **And those shown inside a `<Formula>`, apart**, for 17-003; and, where the catalogue
+/// states no language, the pages showing text no `/Lang` reaches, for 11-001.
+fn shown_codes(doc: &Document, fonts: &BTreeSet<Handle<Object>>) -> Scanned {
+    let tree = crate::formula_marks::Tree::of(doc);
     let mut scan = Scan {
         doc,
         fonts,
-        formulas: formulas.as_ref(),
+        tree: tree.as_ref(),
+        ask_language: !crate::page_languages::catalogue_states_one(doc),
+        page: 0,
         shown: BTreeMap::default(),
         in_formulas: BTreeMap::default(),
+        unlanguaged: BTreeSet::new(),
     };
-    let Ok(pages) = doc.page_count() else { return Default::default() };
+    let Ok(pages) = doc.page_count() else { return Scanned::default() };
     for page in 0..pages {
         let Some(handle) = doc.get_page_handle(page) else { continue };
         let resources = fepdf_model::Page::new(doc.arena(), handle, doc.get_parent_chain(handle))
@@ -402,7 +404,22 @@ fn shown_codes(
     let used = |shown: BTreeMap<Handle<Object>, Seen>| -> BTreeMap<Handle<Object>, Use> {
         shown.into_iter().map(|(font, seen)| (font, seen.used())).collect()
     };
-    (used(scan.shown), used(scan.in_formulas))
+    Scanned {
+        codes: used(scan.shown),
+        in_formulas: used(scan.in_formulas),
+        unlanguaged: scan.unlanguaged,
+    }
+}
+
+/// What the pass over the content found.
+#[derive(Default)]
+struct Scanned {
+    /// What each font shows.
+    codes: BTreeMap<Handle<Object>, Use>,
+    /// What each font shows inside a `<Formula>`.
+    in_formulas: BTreeMap<Handle<Object>, Use>,
+    /// The pages, counted from 0, showing text in no stated language.
+    unlanguaged: BTreeSet<usize>,
 }
 
 /// What the scan has seen shown in one font, as bits: one per one-byte code and one per
@@ -460,9 +477,12 @@ impl Seen {
 struct Scan<'a> {
     doc: &'a Document,
     fonts: &'a BTreeSet<Handle<Object>>,
-    formulas: Option<&'a crate::formula_marks::Formulas<'a>>,
+    tree: Option<&'a crate::formula_marks::Tree<'a>>,
+    ask_language: bool,
+    page: usize,
     shown: BTreeMap<Handle<Object>, Seen>,
     in_formulas: BTreeMap<Handle<Object>, Seen>,
+    unlanguaged: BTreeSet<usize>,
 }
 
 impl Scan<'_> {
@@ -479,7 +499,8 @@ impl Scan<'_> {
         let key = self.doc.get_page_handle(page).and_then(|h| {
             entry_of(arena, &Object::Reference(h), "StructParents").and_then(|k| k.as_integer())
         });
-        let marks = self.marks(key, resources, false);
+        self.page = page;
+        let marks = self.marks(key, resources, crate::formula_marks::Facts::default());
         if let Ok(Some(commands)) =
             crate::apply::text::page_commands(self.doc, page, &loaded(self.doc, &named))
         {
@@ -488,17 +509,15 @@ impl Scan<'_> {
     }
 
     /// What a content stream whose `/StructParents` is `key`, drawn with `resources` from
-    /// inside a `<Formula>` or not as `within` says, needs to say which of its marked
-    /// content is in one.
+    /// inside content that is `within`, needs to say what each of its sequences is.
     fn marks(
         &self,
         key: Option<i64>,
         resources: Resources,
-        within: bool,
+        within: crate::formula_marks::Facts,
     ) -> crate::formula_marks::Marks {
-        let Some(formulas) = self.formulas else { return crate::formula_marks::Marks::default() };
         crate::formula_marks::Marks {
-            mcids: key.map(|k| formulas.mcids(k)).unwrap_or_default(),
+            facts: self.tree.zip(key).map(|(tree, k)| tree.facts(k)).unwrap_or_default(),
             properties: names_in(self.doc.arena(), resources, "Properties"),
             within,
         }
@@ -518,8 +537,9 @@ impl Scan<'_> {
         for command in content.iter() {
             let within = open.last().copied().unwrap_or(marks.within);
             match command {
-                Command::BeginMarkedContent { properties, .. } => {
-                    open.push(marks.opens(self.doc.arena(), properties.as_ref(), within));
+                Command::BeginMarkedContent { tag, properties } => {
+                    let arena = self.doc.arena();
+                    open.push(marks.opens(arena, tag.as_str(), properties.as_ref(), within));
                 }
                 Command::EndMarkedContent => {
                     open.pop();
@@ -537,8 +557,12 @@ impl Scan<'_> {
                     if let (Some(font), visible, Some(bytes)) = (current.0, current.1, shown(other))
                     {
                         self.note(font, visible, &bytes);
-                        if within {
+                        if within.formula {
                             self.note_in_formula(font, &bytes);
+                        }
+                        let text = bytes.iter().any(|b| !b.is_empty());
+                        if self.ask_language && text && !within.language && !within.artifact {
+                            self.unlanguaged.insert(self.page);
                         }
                     }
                 }
@@ -584,7 +608,7 @@ impl Scan<'_> {
         resources: Resources,
         name: &str,
         state: TextState,
-        (depth, within): (usize, bool),
+        (depth, within): (usize, crate::formula_marks::Facts),
     ) {
         let arena = self.doc.arena();
         let Some(form) = names_in(arena, resources, "XObject").get(name).copied() else { return };
