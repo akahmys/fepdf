@@ -12,9 +12,10 @@ use fepdf_model::{Document, Handle, Object, PdfArena};
 use std::collections::{BTreeMap, BTreeSet};
 
 /// The failure conditions this module decides.
-pub const FROM_FONTS: [&str; 15] = [
-    "31-004", "31-009", "31-017", "31-018", "31-019", "31-020", "31-021", "31-022", "31-023",
-    "31-024", "31-025", "31-026", "31-027", "31-028", "31-029",
+pub const FROM_FONTS: [&str; 19] = [
+    "31-004", "31-009", "31-012", "31-013", "31-014", "31-015", "31-017", "31-018", "31-019",
+    "31-020", "31-021", "31-022", "31-023", "31-024", "31-025", "31-026", "31-027", "31-028",
+    "31-029",
 ];
 
 /// What the pages do with one font: the codes they show in it, and those of them that are
@@ -59,6 +60,7 @@ pub fn audit_fonts(
     for font in fonts {
         let reading = Font { doc, arena, handle: font, name: base_font(arena, font) };
         reading.audit(findings);
+        crate::audit_subsets::subset_claims(doc, &Object::Reference(font), &reading.name, findings);
         let used = codes.get(&font);
         reading.to_unicode_needed(used.map(|u| &u.codes), findings);
         let rendered = used.map(|u| &u.rendered).filter(|r| !r.is_empty());

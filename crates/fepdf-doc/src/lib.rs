@@ -13,6 +13,8 @@ pub mod audit_files;
 pub mod audit_fonts;
 /// Matterhorn conditions decided by objects outside the structure tree.
 pub mod audit_objects;
+/// Matterhorn conditions about a font descriptor's `/CharSet` and `/CIDSet`.
+pub mod audit_subsets;
 /// Matterhorn conditions about role mapping, notes and table headers.
 pub mod audit_tree;
 /// Object graph cloning.

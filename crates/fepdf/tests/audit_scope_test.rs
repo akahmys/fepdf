@@ -448,7 +448,7 @@ fn the_report_says_how_much_of_the_protocol_it_checked() {
     );
     assert_eq!(
         report.scope.checked.len(),
-        67,
+        71,
         "the scope does not name the failure conditions this auditor looks at"
     );
     assert!(
@@ -502,6 +502,7 @@ fn the_scope_names_every_checkpoint_reported() {
         breaks_the_fonts(),
         breaks_the_files(),
         encrypted_without_p(),
+        subsets(["(/A)", "(/A/B/C)", "00", "64"]),
     ] {
         let doc = opened(fixture);
         let report = doc.audit_ua2_report().expect("it audits");
@@ -569,6 +570,7 @@ fn every_condition_the_scope_names_can_be_reported_broken() {
         breaks_the_fonts(),
         breaks_the_files(),
         encrypted_without_p(),
+        subsets(["(/A)", "(/A/B/C)", "00", "64"]),
     ] {
         let doc = opened(fixture);
         let report = doc.audit_ua2_report().expect("it audits");
@@ -1378,6 +1380,10 @@ fn every_number_reported_means_in_the_protocol_what_it_is_used_for() {
         ("28-006", "An annotation with subtype undefined in ISO"),
         ("28-018", "The appearance stream of a PrinterMark"),
         ("31-018", "A non-symbolic TrueType font is used for rendering, but"),
+        ("31-012", "font contains a CharSet string, but at least"),
+        ("31-013", "font contains a CharSet string, but at least"),
+        ("31-014", "font contains a CIDSet string, but at least one"),
+        ("31-015", "font contains a CIDSet string, but at least"),
     ];
     assert_eq!(
         says.len(),
@@ -1950,5 +1956,92 @@ fn a_true_type_code_is_looked_up_through_the_mac_cmap_by_mac_os_roman() {
     ] {
         let report = true_type_page(encoding, A_AND_EURO_BY_MAC_ROMAN, text);
         assert_eq!(outcomes(&report, "31-018"), vec![outcome], "{encoding} {text}");
+    }
+}
+
+/// A raw Type 1 program: 60 cleartext bytes, then `/CharStrings` for `.notdef`, `A` and
+/// `B` under eexec.
+const TYPE_1_A_B: &str = "2521466f6e7454797065312d312e303a20546573740a2f466f6e744e616d65202f54657374206465660a63757272656e7466696c652065657865630ad9d66f633b846a989b9974b0179fc6cc4452954d3a4fc272596999ba876cc6961876a36a3e0691600d27978f3466dac5e6c0328e74b316219e55bef8b40bfa7097977a0ae48a5588a9eb85fa1944834b491163b221bbd8dcd4f7c18ab788697941010806744caceebc5ad9be2c2b7fab5e09aca140d90d8d8444595afff597d945510082af7873f1a9d72848220a";
+
+/// A name-keyed CFF program: `.notdef`, then `A` and `B` by their standard SIDs.
+const CFF_A_B: &str = "01000401000101010554657374000101010d1d000000220f1d0000002711000000000000220023000301010203040e0e0e";
+
+/// An SFNT program of three glyph slots, of which only glyph 1 has an outline.
+const THREE_SLOTS: &str = "000100000004004000020000676c7966000000000000004c0000000a686561640000000000000058000000366c6f63610000000000000090000000086d6178700000000000000098000000060000000000000000000000000001000000000000000000005f0f3cf5000003e800000000000000000000000000000000000000000000000000000000000000000000000000000000000500050000500000030000";
+
+/// Four embedded fonts, each with the claim `claims` gives it: a Type 1 font and a
+/// `/Type1C` one, each holding `A` and `B`, under a `/CharSet`; a TrueType CIDFont whose
+/// program has glyph 1 only outlined, and a CFF one holding CIDs 1 and 2, under a
+/// `/CIDSet` given as hexadecimal.
+fn subsets(claims: [&str; 4]) -> Vec<u8> {
+    let [type_1, cff, true_type, cid_cff] = claims;
+    let cid_font = |subtype: &str, descriptor: usize| {
+        format!(
+            "<< /Type /Font /Subtype /Type0 /BaseFont /Cid /Encoding /Identity-H \
+               /DescendantFonts [<< /Type /Font /Subtype /{subtype} /BaseFont /Cid \
+               /CIDSystemInfo << /Registry (Adobe) /Ordering (Identity) /Supplement 0 >> \
+               /FontDescriptor {descriptor} 0 R /CIDToGIDMap /Identity >>] >>"
+        )
+    };
+    fepdf_fixtures::assemble(&[
+        "<< /Type /Catalog /Pages 2 0 R >>".to_string(),
+        "<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_string(),
+        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] \
+           /Resources << /Font << /A 4 0 R /B 7 0 R /C 10 0 R /D 14 0 R >> >> >>"
+            .to_string(),
+        // 4: Type 1, `/FontFile`.
+        "<< /Type /Font /Subtype /Type1 /BaseFont /T1 /FontDescriptor 5 0 R >>".to_string(),
+        format!(
+            "<< /Type /FontDescriptor /FontName /T1 /Flags 32 /CharSet {type_1} /FontFile 6 0 R >>"
+        ),
+        hex_stream("/Length1 60 /Length2 142 /Length3 0", TYPE_1_A_B),
+        // 7: Type 1, `/FontFile3 /Type1C`.
+        "<< /Type /Font /Subtype /Type1 /BaseFont /C1 /FontDescriptor 8 0 R >>".to_string(),
+        format!(
+            "<< /Type /FontDescriptor /FontName /C1 /Flags 32 /CharSet {cff} /FontFile3 9 0 R >>"
+        ),
+        hex_stream("/Subtype /Type1C", CFF_A_B),
+        // 10: a TrueType CIDFont.
+        cid_font("CIDFontType2", 11),
+        "<< /Type /FontDescriptor /FontName /Cid /Flags 4 /FontFile2 12 0 R /CIDSet 13 0 R >>"
+            .to_string(),
+        hex_stream("", THREE_SLOTS),
+        hex_stream("", true_type),
+        // 14: a CFF CIDFont.
+        cid_font("CIDFontType0", 15),
+        "<< /Type /FontDescriptor /FontName /Cid /Flags 4 /FontFile3 16 0 R /CIDSet 17 0 R >>"
+            .to_string(),
+        hex_stream("/Subtype /CIDFontType0C", CFF_A_B),
+        hex_stream("", cid_cff),
+    ])
+}
+
+/// **A `/CharSet` or `/CIDSet` that says what its program holds meets 31-012 to 31-015**,
+/// and each claim that says more or less breaks the one condition about that direction.
+/// The TrueType CIDFont's empty glyph 2 may be listed or not: a slot is not evidence
+/// either way.
+#[test]
+fn a_subsets_claim_is_held_to_its_program() {
+    let sound = ["(/A/B)", "(/B/A)", "40", "60"];
+    let also_sound = ["(/A /B)", "(/A/B)", "60", "60"];
+    for claims in [sound, also_sound] {
+        let report = opened(subsets(claims)).audit_ua2_report().expect("it audits");
+        for condition in ["31-012", "31-013", "31-014", "31-015"] {
+            assert_eq!(
+                outcomes(&report, condition),
+                vec![Outcome::Sound],
+                "{condition}: {claims:?}"
+            );
+        }
+    }
+    for (claims, condition, times) in [
+        (["(/A)", "(/A/B)", "40", "60"], "31-012", 1),
+        (["(/A/B)", "(/A)", "40", "60"], "31-012", 1),
+        (["(/A/B/C)", "(/A/B)", "40", "60"], "31-013", 1),
+        (["(/A/B)", "(/A/B)", "00", "20"], "31-014", 2),
+        (["(/A/B)", "(/A/B)", "44", "64"], "31-015", 2),
+    ] {
+        let report = opened(subsets(claims)).audit_ua2_report().expect("it audits");
+        assert_eq!(outcomes(&report, condition), vec![Outcome::Broken; times], "{claims:?}");
     }
 }

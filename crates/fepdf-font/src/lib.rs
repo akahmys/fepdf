@@ -20,6 +20,8 @@ pub mod embedding;
 pub mod latin_names;
 /// What a font program states about its own metrics.
 pub mod metrics;
+/// Which glyphs an embedded program holds, by name or by CID.
+pub mod program_glyphs;
 /// Surgical font binary reconstructor and SFNT patcher.
 pub mod reconstruction;
 /// CMap rescue and recovery heuristics.

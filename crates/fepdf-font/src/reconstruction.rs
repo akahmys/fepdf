@@ -588,7 +588,11 @@ impl FontReconstructor {
                 continue;
             }
 
-            if let Some((data, next_pos)) = Self::extract_rd_data(full_text, name_pos + name.len())
+            // `name_pos` is the slash, so the name ends one byte further on than its length.
+            // Reading from `name_pos + name.len()` took the name's last character for the
+            // charstring's length, failed to parse it, and so read no charstring at all.
+            if let Some((data, next_pos)) =
+                Self::extract_rd_data(full_text, name_pos + 1 + name.len())
             {
                 charstrings.insert(name, data);
                 search_pos = next_pos;
@@ -602,6 +606,17 @@ impl FontReconstructor {
                 break;
             }
         }
+    }
+
+    /// The names a Type 1 program's `/CharStrings` defines, from its cleartext portion and
+    /// its eexec-encrypted portion as bytes.
+    pub(crate) fn type1_charstring_names(
+        ascii: &[u8],
+        encrypted: &[u8],
+    ) -> Option<std::collections::BTreeSet<String>> {
+        let decrypted = Self::decrypt_type1(encrypted, 55665, 4);
+        let data = Self::parse_type1_data(ascii, &decrypted).ok()?;
+        Some(data.charstrings.into_keys().collect())
     }
 
     fn parse_type1_data(ascii: &[u8], binary: &[u8]) -> FontResult<Type1Data> {

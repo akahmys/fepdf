@@ -3189,13 +3189,13 @@ Independent of all of the above:
       not be made.
 
       **This is the gap ADR-0087 was taken over, in the large.** A document this engine
-      declares PDF/UA-2 conforming is one it has checked sixty-seven things about — and all
-      sixty-seven are PDF/UA-1 conditions ([ADR-0092](docs/adr/0092-the-matterhorn-protocol-measures-ua-1-and-this-engine-declares-ua-2.md)). `PdfStandard::UA2`
+      declares PDF/UA-2 conforming is one it has checked seventy-one things about — and all
+      seventy-one are PDF/UA-1 conditions ([ADR-0092](docs/adr/0092-the-matterhorn-protocol-measures-ua-1-and-this-engine-declares-ua-2.md)). `PdfStandard::UA2`
       writes that claim into the catalogue, and the claim is a statement about 137 things.
 
       - [x] **W-21a — say how much is checked.** `audit_ua2_report` answers an
         `AuditReport` carrying an `AuditScope` beside the findings, and the window shows
-        "Matterhorn の 2 / 136 件の失格条件を検査" where the findings are — 67 / 137 since W-21o.
+        "Matterhorn の 2 / 136 件の失格条件を検査" where the findings are — 71 / 137 since W-21q.
         `found_nothing()` is
         named so that a caller cannot write `findings.is_empty()` and mean "conforms".
 
@@ -3370,6 +3370,26 @@ Independent of all of the above:
         `annex_d_test` now holds it to that. `mac_roman_test` reads Ä, é and “ from 0x80,
         0x8E and 0xD2, directly and as a `/BaseEncoding`.
 
+      - [x] **W-21q — a subset's claim held to its program.** **31-012** to **31-015**
+        (UA1:7.21.4.2): a Type 1 font's `/CharSet` against the glyph names its `/FontFile` or
+        `/FontFile3` defines, and a CIDFont's `/CIDSet` against the CIDs its CFF program
+        holds or its TrueType program reaches through `/CIDToGIDMap`, in both directions.
+        `.notdef` and CID 0 are asked in neither. For a TrueType CIDFont, **held means an
+        outline for 31-014 and a slot for 31-015**: a subset keeps slots it has emptied, and
+        a space has no outline and is there all the same, so each direction is asked only
+        what the program can show. `fepdf_font::program_glyphs` reads the programs.
+
+        **Reading a Type 1 program's `/CharStrings` had never worked.** `parse_charstrings`
+        read each charstring's length from `name_pos + name.len()`, one byte short of the
+        name's end, took the name's last character for the length, and read no charstring
+        at all; it was reached only through a PFB, which a PDF's `/FontFile` is not, so
+        nothing noticed. A program built by hand in `program_glyphs`'s tests reads `A` and
+        `B` now and read nothing before. **Seventy-one of 137.** Across the 525 files
+        (2026-09-27) they find six, each read against the program by a second parser and
+        true: five `/CIDSet`s leaving out CIDs their programs hold — among them TWG's
+        A008, a PDF/A-1 *pass* file whose RyoGothic CIDSet omits CIDs 1 to 87, and
+        `sample_02c.pdf`'s Meiryo and KozGoPro — and one `/CharSet` leaving out two names.
+
       - [x] **W-21g — a condition checked and not broken is a result.** `AuditFinding`
         carries an `Outcome` — `Broken`, `Sound`, `ForAReader` — and `audit_report` adds
         one `Sound` per condition it checked and did not break. **One per condition, not
@@ -3397,7 +3417,7 @@ Independent of all of the above:
       against `/Alt`.
 
       **It waits on W-21 and says so.** A conformance claim is worth what the checking
-      behind it is worth, and sixty-seven failure conditions of 137 is not a foundation to
+      behind it is worth, and seventy-one failure conditions of 137 is not a foundation to
       put a second claim on. What can be done first is the reading: the structure tree editor this engine
       already has is most of what a well-tagged file is made with, and what it cannot yet
       express is the list this item starts as.
