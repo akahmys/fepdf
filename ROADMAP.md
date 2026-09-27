@@ -3189,13 +3189,13 @@ Independent of all of the above:
       not be made.
 
       **This is the gap ADR-0087 was taken over, in the large.** A document this engine
-      declares PDF/UA-2 conforming is one it has checked thirty-seven things about — and all
-      thirty-seven are PDF/UA-1 conditions ([ADR-0092](docs/adr/0092-the-matterhorn-protocol-measures-ua-1-and-this-engine-declares-ua-2.md)). `PdfStandard::UA2`
+      declares PDF/UA-2 conforming is one it has checked fifty-three things about — and all
+      fifty-three are PDF/UA-1 conditions ([ADR-0092](docs/adr/0092-the-matterhorn-protocol-measures-ua-1-and-this-engine-declares-ua-2.md)). `PdfStandard::UA2`
       writes that claim into the catalogue, and the claim is a statement about 137 things.
 
       - [x] **W-21a — say how much is checked.** `audit_ua2_report` answers an
         `AuditReport` carrying an `AuditScope` beside the findings, and the window shows
-        "Matterhorn の 2 / 136 件の失格条件を検査" where the findings are — 37 / 137 since W-21h.
+        "Matterhorn の 2 / 136 件の失格条件を検査" where the findings are — 53 / 137 since W-21l.
         `found_nothing()` is
         named so that a caller cannot write `findings.is_empty()` and mean "conforms".
 
@@ -3259,8 +3259,53 @@ Independent of all of the above:
         both for every file
         ([ADR-0094](docs/adr/0094-the-auditor-reads-the-ingested-document-so-ingestion-answers-checkpoint-06.md)).
         `the_cmap_conditions_are_left_out_because_ingestion_answers_them` fails the day
-        that stops. **Left: 31-027**, a font with no `/ToUnicode` outside its four
-        exceptions, which wants the glyph names each font's text actually uses.
+        that stops. The last of the eight, 31-027, also wants the Adobe Glyph List, and is
+        W-21l's.
+
+      - [x] **W-21j — the annotations' structure elements.** A bounded reader of the parent
+        tree (`parent_tree.rs`) finds the element an annotation's `/StructParent` names,
+        which decides four more — **28-002** (an annotation in no `<Annot>`), **28-010** (a
+        widget in no `<Form>`), **28-011** (a link in no `<Link>`), **28-017** (a
+        `/PrinterMark` in the structure) — and turns 28-004 and 11-004 from left for a
+        reader into decided, by the element's `/Alt` and the `/Lang` in force at it.
+        **Forty-one of 137.** On `volvo_xc90.pdf` every one of its 844 links is in no
+        `<Link>`, and that is true: none carries a `/StructParent`.
+
+      - [x] **W-21k — the fonts as the file wrote them.** Ten conditions on font
+        dictionaries and embedded programs, which ingestion leaves alone — it rewrites a
+        Type 0 font's `/Encoding` and fills a missing `/CIDToGIDMap`, and keeps a rebuilt
+        TrueType program beside the font rather than over the file's: **31-004** (a
+        `CIDFontType2`'s `/CIDToGIDMap` neither a stream nor `/Identity`), **31-019** to
+        **31-021** (a non-symbolic TrueType font's `/Encoding` absent, a dictionary with no
+        `/BaseEncoding`, or neither `MacRomanEncoding` nor `WinAnsiEncoding`), **31-023**
+        (`/Differences` with no (3,1) cmap in the program), **31-024** to **31-026** (a
+        symbolic one with `/Encoding`, with a program holding no cmap, or several and no
+        (3,0)), and **31-028**, **31-029** (a `/ToUnicode` mapping to U+0000, U+FEFF or
+        U+FFFE). **Fifty-one of 137.** Across the samples only `volvo_xc90.pdf` breaks
+        one: two of its fonts map code `<015A>` to `<0000>`. **Not here:** 31-017 and 31-009
+        want the fonts text is actually drawn with.
+
+      - [x] **W-21l — Adobe's Glyph List, and the two conditions that name it.**
+        `fepdf-font/data/glyphlist.txt` is the file Adobe publishes in
+        `adobe-type-tools/agl-aglfn`, carried with its BSD licence: 4,281 names, read once.
+        **What stood in for it was 61 names typed out by hand**, three of them wrong —
+        `quoteright` and `quoteleft` as the ASCII `'` and `` ` `` where the list says U+2019
+        and U+2018, and `quotehook`, which the list does not have — and extraction reads a
+        glyph name through it. `glyph_list_test.rs` reads `/eacute`, `/Aogonek` and the two
+        quotes out of a `/Differences` array and fails on the old table. No sample's text
+        changes and `glyph_loss` still counts 1,137 of 16,309,227 across them (2026-09-27):
+        none of their lost glyphs goes through a name.
+
+        With it, **31-022** (a non-symbolic TrueType font's `/Differences` naming a glyph
+        the list does not) and **31-027** (a font with no `/ToUnicode` outside its four
+        exceptions). The Type 1 and Type 3 exception turns on "the glyphs referenced", so
+        the content of each page naming such a font is read for the codes it shows, each
+        named by `/Differences` or by StandardEncoding — Annex D's Table D.2, 149 names —
+        and checked against the list and Annex D.5's 189 Symbol names; a code whose name
+        only the font program knows is left for a reader. **Fifty-three of 137.** On the
+        samples, `fy05.pdf` breaks it 127 times — Type 3 fonts naming their glyphs `c033`,
+        the same fonts `glyph_loss` finds losing text, and one Type 0 font whose CIDFont
+        is Adobe-Identity — and `bokutokitan.pdf`'s TeX fonts are left for a reader.
 
       - [x] **W-21g — a condition checked and not broken is a result.** `AuditFinding`
         carries an `Outcome` — `Broken`, `Sound`, `ForAReader` — and `audit_report` adds
@@ -3289,7 +3334,7 @@ Independent of all of the above:
       against `/Alt`.
 
       **It waits on W-21 and says so.** A conformance claim is worth what the checking
-      behind it is worth, and thirty-seven failure conditions of 137 is not a foundation to
+      behind it is worth, and fifty-three failure conditions of 137 is not a foundation to
       put a second claim on. What can be done first is the reading: the structure tree editor this engine
       already has is most of what a well-tagged file is made with, and what it cannot yet
       express is the list this item starts as.

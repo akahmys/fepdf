@@ -2,18 +2,79 @@
 //!
 //! Optional content configurations, outlines, annotations and the XObjects a page names.
 //!
-//! **None of them needs a tag in the document**, so a file with no structure tree is still
-//! asked them — the reason the catalogue's conditions are asked of one.
+//! **None of them needs a tag in the document to be asked**, so a file with no structure
+//! tree is still asked them — the reason the catalogue's conditions are asked of one. Where
+//! an annotation's structure element decides a condition, it is found through the parent
+//! tree (W-21j), and a file with no tree has annotations that belong to nothing.
 
-use crate::structure::{AuditFinding, broken, for_a_reader};
+use crate::structure::{AuditFinding, broken};
 use fepdf_model::{Document, Object, PdfArena};
 use std::collections::BTreeSet;
 
 /// The failure conditions this module decides.
-pub const FROM_OBJECTS: [&str; 11] = [
-    "11-003", "11-004", "20-001", "20-002", "20-003", "28-004", "28-007", "28-008", "28-009",
-    "28-012", "30-001",
+pub const FROM_OBJECTS: [&str; 15] = [
+    "11-003", "11-004", "20-001", "20-002", "20-003", "28-002", "28-004", "28-007", "28-008",
+    "28-009", "28-010", "28-011", "28-012", "28-017", "30-001",
 ];
+
+/// The structure element an annotation belongs to, through its `/StructParent` and the
+/// parent tree (14.7.5.4), and what that element says.
+struct Belonging<'a> {
+    arena: &'a PdfArena,
+    parents: std::collections::BTreeMap<i64, fepdf_model::Handle<Object>>,
+    roles: std::collections::BTreeMap<String, String>,
+}
+
+/// How far up `/P` an element's language is looked for (Rule 6).
+const ANCESTORS: usize = 256;
+
+impl<'a> Belonging<'a> {
+    fn of(doc: &'a Document) -> Self {
+        let arena = doc.arena();
+        let root = doc.get_structure_root().ok().flatten();
+        Self {
+            arena,
+            parents: root.map(|r| crate::parent_tree::single_entries(arena, r)).unwrap_or_default(),
+            roles: root.map(|r| crate::audit_tree::role_map(arena, r)).unwrap_or_default(),
+        }
+    }
+
+    /// The element `annotation` belongs to, if the parent tree names one.
+    fn element(&self, annotation: &Object) -> Option<fepdf_model::Handle<Object>> {
+        let Some(Object::Integer(key)) = entry(self.arena, annotation, "StructParent") else {
+            return None;
+        };
+        self.parents.get(&key).copied()
+    }
+
+    /// The standard type `element` stands for.
+    fn kind(&self, element: fepdf_model::Handle<Object>) -> Option<String> {
+        let tag = name_of(self.arena, &Object::Reference(element), "S")?;
+        crate::audit_tree::standard_type(&self.roles, &tag)
+    }
+
+    /// The `/Lang` in force at `element`: its own, or the nearest ancestor's.
+    fn language(&self, element: fepdf_model::Handle<Object>) -> Option<String> {
+        let mut at = Some(Object::Reference(element));
+        for _ in 0..ANCESTORS {
+            let here = at?;
+            if says_something(self.arena, &here, "Lang") {
+                return match entry(self.arena, &here, "Lang") {
+                    Some(Object::Text(text)) => Some(text),
+                    Some(Object::String(b) | Object::Hex(b)) => {
+                        Some(fepdf_model::refine::text::recover_string(&b))
+                    }
+                    _ => None,
+                };
+            }
+            at = self.arena.get_object(here.as_reference()?).and_then(|o| {
+                let dict = o.as_dict_handle()?;
+                self.arena.dict_entry(dict, self.arena.name("P"))
+            });
+        }
+        None
+    }
+}
 
 /// A dictionary entry, resolved.
 fn entry(arena: &PdfArena, dict: &Object, key: &str) -> Option<Object> {
@@ -65,13 +126,17 @@ pub fn audit_objects(
     outlines(arena, &catalogue, language, findings);
     examined.extend(["11-003", "20-001", "20-002", "20-003"]);
     let Ok(pages) = doc.page_count() else { return };
+    let belonging = Belonging::of(doc);
     for page in 0..pages {
         let Some(handle) = doc.get_page_handle(page) else { continue };
         let page_object = Object::Reference(handle);
-        annotations(arena, &page_object, page + 1, language, findings);
+        annotations(&belonging, &page_object, page + 1, language, findings);
         reference_xobjects(doc, page, findings);
     }
-    examined.extend(["11-004", "28-004", "28-007", "28-008", "28-009", "28-012", "30-001"]);
+    examined.extend([
+        "11-004", "28-002", "28-004", "28-007", "28-008", "28-009", "28-010", "28-011", "28-012",
+        "28-017", "30-001",
+    ]);
 }
 
 /// Checkpoint 20: every optional content configuration named, and none carrying `/AS`
@@ -127,12 +192,13 @@ fn outlines(
 
 /// Checkpoint 28's conditions about one page's annotations, and 11-004.
 fn annotations(
-    arena: &PdfArena,
+    belonging: &Belonging<'_>,
     page: &Object,
     at: usize,
     language: Option<&str>,
     findings: &mut Vec<AuditFinding>,
 ) {
+    let arena = belonging.arena;
     let annotations = items(arena, page, "Annots");
     if annotations.is_empty() {
         return;
@@ -149,25 +215,26 @@ fn annotations(
         )),
     }
     for annotation in &annotations {
-        one_annotation(arena, annotation, at, language, findings);
+        one_annotation(belonging, annotation, at, language, findings);
+        tagged_as(belonging, annotation, at, findings);
     }
 }
 
-/// The conditions about one annotation.
+/// The conditions about what one annotation says: its `/Contents`, and its language.
 ///
-/// **Left for a reader where the enclosing structure element would decide it**: 28-004
-/// accepts an `/Alt` there in place of `/Contents`, and 11-004 a `/Lang` there, and the
-/// element is reached through the page's `/StructParents` and the parent tree, which is
-/// not followed here.
+/// **Decided through the element the parent tree names**, where 28-004 accepts an `/Alt`
+/// there in place of `/Contents` and 11-004 a `/Lang` there or above it.
 fn one_annotation(
-    arena: &PdfArena,
+    belonging: &Belonging<'_>,
     annotation: &Object,
     at: usize,
     language: Option<&str>,
     findings: &mut Vec<AuditFinding>,
 ) {
+    let arena = belonging.arena;
     let subtype = name_of(arena, annotation, "Subtype").unwrap_or_default();
     let has_contents = says_something(arena, annotation, "Contents");
+    let element = belonging.element(annotation);
     if subtype == "TrapNet" {
         findings.push(broken("28-007", format!("Page {at} carries a /TrapNet annotation")));
     }
@@ -177,23 +244,60 @@ fn one_annotation(
             format!("Page {at}: a link annotation states no /Contents describing it"),
         ));
     }
-    if subtype != "Widget" && !has_contents {
-        findings.push(for_a_reader(
+    let described = element.is_some_and(|e| says_something(arena, &Object::Reference(e), "Alt"));
+    if subtype != "Widget" && !has_contents && !described {
+        findings.push(broken(
             "28-004",
             format!(
-                "Page {at}: a /{subtype} annotation states no /Contents. Whether an /Alt on \
-                 its structure element describes it instead is not resolved here — look at it"
+                "Page {at}: a /{subtype} annotation states no /Contents, and no /Alt on a \
+                 structure element describes it"
             ),
         ));
     }
-    if has_contents && language.is_none() {
-        findings.push(for_a_reader(
+    let spoken = language.is_some() || element.and_then(|e| belonging.language(e)).is_some();
+    if has_contents && !spoken {
+        findings.push(broken(
             "11-004",
             format!(
-                "Page {at}: a /{subtype} annotation's /Contents is in no language the \
-                 catalogue states. Whether its structure element states a /Lang is not \
-                 resolved here — look at it"
+                "Page {at}: a /{subtype} annotation's /Contents is in no language — neither the \
+                 catalogue nor its structure element states a /Lang"
             ),
+        ));
+    }
+}
+
+/// 28-002, 28-010, 28-011 and 28-017: the structure element an annotation belongs to.
+fn tagged_as(
+    belonging: &Belonging<'_>,
+    annotation: &Object,
+    at: usize,
+    findings: &mut Vec<AuditFinding>,
+) {
+    let subtype = name_of(belonging.arena, annotation, "Subtype").unwrap_or_default();
+    let element = belonging.element(annotation);
+    let kind = element.and_then(|e| belonging.kind(e));
+    let (condition, wanted) = match subtype.as_str() {
+        "PrinterMark" => {
+            if element.is_some() {
+                findings.push(broken(
+                    "28-017",
+                    format!("Page {at}: a /PrinterMark annotation is in the logical structure"),
+                ));
+            }
+            return;
+        }
+        "Widget" => ("28-010", "Form"),
+        "Link" => ("28-011", "Link"),
+        _ => ("28-002", "Annot"),
+    };
+    if kind.as_deref() != Some(wanted) {
+        let found = kind.map_or_else(
+            || "belongs to no structure element".to_owned(),
+            |k| format!("belongs to a <{k}>"),
+        );
+        findings.push(broken(
+            condition,
+            format!("Page {at}: a /{subtype} annotation {found}, where it belongs in a <{wanted}>"),
         ));
     }
 }

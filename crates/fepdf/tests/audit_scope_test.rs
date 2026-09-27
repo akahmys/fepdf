@@ -20,6 +20,7 @@
 //! under `00-001`, which is not a number the protocol has either.
 
 use fepdf::{IngestionOptions, PdfDocument};
+use fepdf_doc::audit_fonts::FROM_FONTS;
 use fepdf_doc::audit_objects::FROM_OBJECTS;
 use fepdf_doc::matterhorn::LEFT_TO_A_PERSON;
 use fepdf_doc::{
@@ -105,6 +106,10 @@ fn breaks_everything() -> Vec<u8> {
 /// | 28-008 | page 1 has annotations and no `/Tabs` |
 /// | 28-009 | page 2 has annotations and `/Tabs /R` |
 /// | 28-012 | a `/Link` annotation with no `/Contents` |
+/// | 28-002 | the note, square and trap annotations, in no `<Annot>` |
+/// | 28-010 | a widget in no `<Form>` |
+/// | 28-011 | the links, in no `<Link>` |
+/// | 28-017 | a `/PrinterMark` the parent tree places in the structure |
 /// | 30-001 | a form XObject carrying `/Ref` |
 fn breaks_the_second_pass() -> Vec<u8> {
     fepdf_fixtures::assemble(&[
@@ -116,10 +121,12 @@ fn breaks_the_second_pass() -> Vec<u8> {
         "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Annots [16 0 R 17 0 R 18 0 R] \
            /Resources << /XObject << /Fm0 19 0 R >> >> >>"
             .to_string(),
-        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Tabs /R /Annots [20 0 R] >>"
+        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Tabs /R \
+           /Annots [20 0 R 23 0 R 24 0 R] >>"
             .to_string(),
-        "<< /Type /StructTreeRoot /K [6 0 R 7 0 R 8 0 R 9 0 R 10 0 R] \
-           /RoleMap << /P /Span /Loop1 /Loop2 /Loop2 /Loop1 >> >>"
+        "<< /Type /StructTreeRoot /K [6 0 R 7 0 R 8 0 R 9 0 R 10 0 R 25 0 R] \
+           /RoleMap << /P /Span /Loop1 /Loop2 /Loop2 /Loop1 >> \
+           /ParentTree << /Nums [0 25 0 R] >> >>"
             .to_string(),
         "<< /Type /StructElem /S /Custom /P 5 0 R >>".to_string(),
         "<< /Type /StructElem /S /Note /P 5 0 R >>".to_string(),
@@ -140,6 +147,12 @@ fn breaks_the_second_pass() -> Vec<u8> {
         "<< /Type /Annot /Subtype /Link /Rect [0 0 10 10] >>".to_string(),
         "<< /Type /StructElem /S /TH /P 11 0 R >>".to_string(),
         "<< /Type /StructElem /S /TD /P 11 0 R >>".to_string(),
+        // 23: a widget in no <Form>; 24: a printer's mark in the structure; 25: its element.
+        "<< /Type /Annot /Subtype /Widget /Rect [0 0 10 10] /FT /Btn /T (Box) >>".to_string(),
+        "<< /Type /Annot /Subtype /PrinterMark /Rect [0 0 10 10] /Contents (mark) \
+           /StructParent 0 >>"
+            .to_string(),
+        "<< /Type /StructElem /S /Annot /P 5 0 R >>".to_string(),
     ])
     .into_iter()
     .collect()
@@ -172,6 +185,85 @@ fn breaks_the_syntax() -> Vec<u8> {
         "<< /Type /StructElem /S /RT /P 11 0 R >>".to_string(),
         "<< /Type /StructElem /S /Warichu /P 4 0 R /K [14 0 R] >>".to_string(),
         "<< /Type /StructElem /S /WT /P 13 0 R >>".to_string(),
+    ])
+    .into_iter()
+    .collect()
+}
+
+/// A stream of `bytes` given as hexadecimal, under `extra`.
+fn hex_stream(extra: &str, hex: &str) -> String {
+    format!(
+        "<< {extra} /Filter /ASCIIHexDecode /Length {} >>\nstream\n{hex}>\nendstream",
+        hex.len() + 1
+    )
+}
+
+/// Fonts that break the ten conditions W-21k added, one font per condition or two.
+///
+/// | | How this document breaks it |
+/// | :--- | :--- |
+/// | 31-004 | a `CIDFontType2` whose `/CIDToGIDMap` is `/Foo` |
+/// | 31-019 | a non-symbolic TrueType font with no `/Encoding` |
+/// | 31-020 | a non-symbolic one whose `/Encoding` dictionary has no `/BaseEncoding` |
+/// | 31-021 | a non-symbolic one on `/StandardEncoding` |
+/// | 31-023 | the second, with `/Differences` and a program with no (3,1) cmap |
+/// | 31-024 | a symbolic TrueType font carrying `/Encoding` |
+/// | 31-025 | that font's program, which has no cmap |
+/// | 31-026 | a symbolic font whose program has two cmaps and no (3,0) |
+/// | 31-028 | a `/ToUnicode` mapping a code to U+0000 |
+/// | 31-029 | the same map, mapping another to U+FEFF |
+/// | 31-022 | a non-symbolic TrueType font whose `/Differences` names `/notaname` |
+/// | 31-027 | a Type 1 font with no `/ToUnicode` showing a glyph named `/madeup` |
+fn breaks_the_fonts() -> Vec<u8> {
+    let descriptor = |flags: u8, program: u8| {
+        format!("<< /Type /FontDescriptor /FontName /F /Flags {flags} /FontFile2 {program} 0 R >>")
+    };
+    let to_unicode = "/CIDInit /ProcSet findresource begin 12 dict begin begincmap \
+        1 begincodespacerange <00> <FF> endcodespacerange \
+        2 beginbfchar <01> <0000> <02> <FEFF> endbfchar endcmap end end";
+    fepdf_fixtures::assemble(&[
+        "<< /Type /Catalog /Pages 2 0 R >>".to_string(),
+        "<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_string(),
+        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Contents 20 0 R \
+           /Resources << /Font << /A 4 0 R /B 5 0 R /C 6 0 R /D 7 0 R /E 8 0 R /F 9 0 R \
+           /G 10 0 R /H 21 0 R /I 22 0 R >> >> >>"
+            .to_string(),
+        "<< /Type /Font /Subtype /TrueType /BaseFont /NoEncoding /FontDescriptor 11 0 R >>".to_string(),
+        "<< /Type /Font /Subtype /TrueType /BaseFont /NoBase /FontDescriptor 12 0 R \
+           /Encoding << /Differences [65 /A] >> >>"
+            .to_string(),
+        "<< /Type /Font /Subtype /TrueType /BaseFont /Standard /FontDescriptor 11 0 R \
+           /Encoding /StandardEncoding >>"
+            .to_string(),
+        "<< /Type /Font /Subtype /TrueType /BaseFont /SymbolicEncoded /FontDescriptor 13 0 R \
+           /Encoding /WinAnsiEncoding >>"
+            .to_string(),
+        "<< /Type /Font /Subtype /TrueType /BaseFont /TwoCmaps /FontDescriptor 14 0 R >>".to_string(),
+        "<< /Type /Font /Subtype /Type0 /BaseFont /Cid /Encoding /Identity-H \
+           /DescendantFonts [<< /Type /Font /Subtype /CIDFontType2 /BaseFont /Cid \
+           /CIDToGIDMap /Foo >>] >>"
+            .to_string(),
+        "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /ToUnicode 18 0 R >>".to_string(),
+        descriptor(32, 15),
+        descriptor(32, 16),
+        descriptor(4, 17),
+        descriptor(4, 19),
+        hex_stream("", "000100000001001000000000636d6170000000000000001c0000001400000001000100000000000c0000000000000000"),
+        hex_stream("", "000100000001001000000000636d6170000000000000001c0000001400000001000100000000000c0000000000000000"),
+        hex_stream("", "00010000000100100000000068656164000000000000001c000000080000000000000000"),
+        format!("<< /Length {} >>\nstream\n{to_unicode}\nendstream", to_unicode.len()),
+        hex_stream("", "000100000001001000000000636d6170000000000000001c0000001c00000002000100000000001400030001000000140000000000000000"),
+        // 20: the page's text, in the Type 1 font whose glyph has no listed name.
+        {
+            let content = "BT /H 12 Tf 20 100 Td (A) Tj ET";
+            format!("<< /Length {} >>\nstream\n{content}\nendstream", content.len())
+        },
+        "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica \
+           /Encoding << /Differences [65 /madeup] >> >>"
+            .to_string(),
+        "<< /Type /Font /Subtype /TrueType /BaseFont /Unlisted /FontDescriptor 11 0 R \
+           /Encoding << /BaseEncoding /WinAnsiEncoding /Differences [66 /notaname] >> >>"
+            .to_string(),
     ])
     .into_iter()
     .collect()
@@ -261,7 +353,7 @@ fn the_report_says_how_much_of_the_protocol_it_checked() {
     );
     assert_eq!(
         report.scope.checked.len(),
-        37,
+        53,
         "the scope does not name the failure conditions this auditor looks at"
     );
     assert!(
@@ -285,6 +377,7 @@ fn every_checked_condition_is_decided_by_exactly_one_reader() {
     union.extend(FROM_CONTENT);
     union.extend(FROM_STRUCTURE_TREE);
     union.extend(FROM_OBJECTS);
+    union.extend(FROM_FONTS);
 
     let distinct: BTreeSet<&str> = union.iter().copied().collect();
     assert_eq!(distinct.len(), union.len(), "a condition is in two of the four lists: {union:?}");
@@ -310,6 +403,7 @@ fn the_scope_names_every_checkpoint_reported() {
         display_doc_title_false(),
         breaks_the_second_pass(),
         breaks_the_syntax(),
+        breaks_the_fonts(),
     ] {
         let doc = opened(fixture);
         let report = doc.audit_ua2_report().expect("it audits");
@@ -374,6 +468,7 @@ fn every_condition_the_scope_names_can_be_reported_broken() {
         display_doc_title_false(),
         breaks_the_second_pass(),
         breaks_the_syntax(),
+        breaks_the_fonts(),
     ] {
         let doc = opened(fixture);
         let report = doc.audit_ua2_report().expect("it audits");
@@ -1148,6 +1243,22 @@ fn every_number_reported_means_in_the_protocol_what_it_is_used_for() {
         ("28-009", "A page containing an annotation has a Tabs"),
         ("28-012", "A link annotation does not include an"),
         ("30-001", "A reference XObject is present"),
+        ("31-004", "A Type 2 CID font contains neither a stream nor"),
+        ("31-019", "The font dictionary for a non-symbolic TrueType"),
+        ("31-020", "The font dictionary for a non-symbolic TrueType"),
+        ("31-021", "The value for either the Encoding entry or the"),
+        ("31-022", "The Differences array in the Encoding entry in a"),
+        ("31-023", "The Differences array is present in the Encoding"),
+        ("31-027", "A font dictionary does not contain the ToUnicode"),
+        ("31-024", "The Encoding entry is present in the font"),
+        ("31-025", "The embedded font program for a symbolic"),
+        ("31-026", "The embedded font program for a symbolic"),
+        ("31-028", "One or more Unicode values specified in the"),
+        ("31-029", "One or more Unicode values specified in the"),
+        ("28-002", "An annotation, other than of subtype Widget,"),
+        ("28-010", "A widget annotation is not nested within a"),
+        ("28-011", "A link annotation is not nested within a"),
+        ("28-017", "A PrinterMark annotation is included in the"),
         ("09-004", "A table-related structure element is used in a"),
         ("09-005", "A list-related structure element is used in a way"),
         ("09-006", "A TOC-related structure element is used in a way"),
@@ -1260,10 +1371,12 @@ fn the_second_pass_comes_out_sound_where_it_is_met() {
                 .to_string(),
             "<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_string(),
             "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Tabs /S \
-               /Annots [14 0 R 15 0 R] /Resources << /Font << /F1 28 0 R >> >> >>"
+               /Annots [14 0 R 15 0 R] /Contents 37 0 R \
+               /Resources << /Font << /F1 28 0 R /F2 33 0 R /F3 38 0 R >> >> >>"
                 .to_string(),
-            "<< /Type /StructTreeRoot /K [5 0 R 6 0 R 7 0 R 8 0 R 16 0 R 19 0 R 21 0 R 24 0 R] \
-               /RoleMap << /Custom /P >> >>"
+            "<< /Type /StructTreeRoot /K [5 0 R 6 0 R 7 0 R 8 0 R 16 0 R 19 0 R 21 0 R 24 0 R \
+               31 0 R 32 0 R] /RoleMap << /Custom /P >> \
+               /ParentTree << /Nums [0 31 0 R 1 32 0 R] >> >>"
                 .to_string(),
             "<< /Type /StructElem /S /Custom /P 4 0 R >>".to_string(),
             "<< /Type /StructElem /S /Note /P 4 0 R /ID (n1) >>".to_string(),
@@ -1274,9 +1387,11 @@ fn the_second_pass_comes_out_sound_where_it_is_met() {
             "<< /Title (Chapter one) /Parent 10 0 R >>".to_string(),
             "<< /FT /Tx /T (Name) /TU (Your name) >>".to_string(),
             "<< /Type /OCG /Name (Layer) >>".to_string(),
-            "<< /Type /Annot /Subtype /Link /Rect [0 0 10 10] /Contents (Go to chapter one) >>"
+            "<< /Type /Annot /Subtype /Link /Rect [0 0 10 10] /Contents (Go to chapter one) \
+               /StructParent 0 >>"
                 .to_string(),
-            "<< /Type /Annot /Subtype /Text /Rect [0 0 10 10] /Contents (A note) >>".to_string(),
+            "<< /Type /Annot /Subtype /Text /Rect [0 0 10 10] /Contents (A note) /StructParent 1 >>"
+                .to_string(),
             // 16: a list, an item, its label and body (Table 336).
             "<< /Type /StructElem /S /L /P 4 0 R /K [17 0 R] >>".to_string(),
             "<< /Type /StructElem /S /LI /P 16 0 R /K [18 0 R 30 0 R] >>".to_string(),
@@ -1295,10 +1410,37 @@ fn the_second_pass_comes_out_sound_where_it_is_met() {
             "<< /Type /StructElem /S /WP /P 24 0 R >>".to_string(),
             // 28: a Type 0 font on a CMap Table 118 lists.
             "<< /Type /Font /Subtype /Type0 /BaseFont /Listed /Encoding /Identity-H \
-               /DescendantFonts [] >>"
+               /DescendantFonts [<< /Type /Font /Subtype /CIDFontType2 /BaseFont /Listed \
+               /CIDSystemInfo << /Registry (Adobe) /Ordering (Japan1) /Supplement 6 >> >>] >>"
                 .to_string(),
             "<< /Type /StructElem /S /TH /P 9 0 R /A << /O /Table /Scope /Column >> >>".to_string(),
             "<< /Type /StructElem /S /LBody /P 17 0 R >>".to_string(),
+            // 31, 32: the elements the link and the note belong to.
+            "<< /Type /StructElem /S /Link /P 4 0 R /K [<< /Type /OBJR /Obj 14 0 R >>] >>"
+                .to_string(),
+            "<< /Type /StructElem /S /Annot /P 4 0 R /K [<< /Type /OBJR /Obj 15 0 R >>] >>"
+                .to_string(),
+            // 33: a non-symbolic TrueType font as UA-1 wants one, with a sound /ToUnicode.
+            "<< /Type /Font /Subtype /TrueType /BaseFont /Sound /FontDescriptor 34 0 R \
+               /Encoding << /BaseEncoding /WinAnsiEncoding /Differences [65 /A] >> \
+               /ToUnicode 36 0 R >>"
+                .to_string(),
+            "<< /Type /FontDescriptor /FontName /Sound /Flags 32 /FontFile2 35 0 R >>".to_string(),
+            hex_stream("", "000100000001001000000000636d6170000000000000001c0000001400000001000300010000000c0000000000000000"),
+            {
+                let map = "/CIDInit /ProcSet findresource begin 12 dict begin begincmap \
+                    1 begincodespacerange <00> <FF> endcodespacerange \
+                    1 beginbfchar <41> <0041> endbfchar endcmap end end";
+                format!("<< /Length {} >>\nstream\n{map}\nendstream", map.len())
+            },
+            // 37: text in a Type 1 font whose one renamed glyph is in Adobe's list.
+            {
+                let content = "BT /F3 12 Tf 20 100 Td (AB) Tj ET";
+                format!("<< /Length {} >>\nstream\n{content}\nendstream", content.len())
+            },
+            "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica \
+               /Encoding << /Differences [65 /eacute] >> >>"
+                .to_string(),
         ])
         .into_iter()
         .collect(),
@@ -1307,7 +1449,9 @@ fn the_second_pass_comes_out_sound_where_it_is_met() {
     for condition in [
         "02-001", "02-003", "02-004", "11-003", "11-004", "11-005", "15-003", "19-003", "19-004",
         "20-001", "20-002", "20-003", "28-004", "28-007", "28-008", "28-009", "28-012", "30-001",
-        "09-004", "09-005", "09-006", "09-007", "09-008",
+        "09-004", "09-005", "09-006", "09-007", "09-008", "28-002", "28-010", "28-011", "28-017",
+        "31-004", "31-019", "31-020", "31-021", "31-023", "31-024", "31-025", "31-026", "31-028",
+        "31-029", "31-022", "31-027",
     ] {
         assert_eq!(
             outcomes(&report, condition),
@@ -1368,4 +1512,33 @@ fn the_cmap_conditions_are_left_out_because_ingestion_answers_them() {
             "{condition} is checked on a document whose CMaps ingestion has already rewritten"
         );
     }
+}
+
+/// **A Type 1 font is judged by the glyphs its text shows.** `/madeup` is in neither
+/// Adobe's list nor the Symbol font: a page showing it breaks 31-027, and a page showing
+/// only `B` — StandardEncoding's `B`, which the list has — does not, from the same font.
+#[test]
+fn a_type_1_font_is_judged_by_the_glyphs_its_text_shows() {
+    let showing = |text: &str| {
+        let content = format!("BT /F1 12 Tf 20 100 Td ({text}) Tj ET");
+        opened(
+            fepdf_fixtures::assemble(&[
+                "<< /Type /Catalog /Pages 2 0 R >>".to_string(),
+                "<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_string(),
+                "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Contents 4 0 R \
+                   /Resources << /Font << /F1 5 0 R >> >> >>"
+                    .to_string(),
+                format!("<< /Length {} >>\nstream\n{content}\nendstream", content.len()),
+                "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica \
+                   /Encoding << /Differences [65 /madeup] >> >>"
+                    .to_string(),
+            ])
+            .into_iter()
+            .collect(),
+        )
+        .audit_ua2_report()
+        .expect("it audits")
+    };
+    assert_eq!(outcomes(&showing("A"), "31-027"), vec![Outcome::Broken]);
+    assert_eq!(outcomes(&showing("B"), "31-027"), vec![Outcome::Sound]);
 }

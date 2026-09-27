@@ -159,7 +159,7 @@ impl AuditReport {
     /// the document passing.
     ///
     /// **Named so that a caller cannot write `findings.is_empty()` and mean "conforms".**
-    /// Thirty-seven failure conditions out of 137 finding nothing is thirty-seven failure
+    /// Fifty-three failure conditions out of 137 finding nothing is fifty-three failure
     /// conditions finding nothing. Read [`AuditReport::scope`] beside this.
     ///
     /// **This was `findings.is_empty()`, and that could not be true.** Once a checked and
@@ -352,12 +352,13 @@ impl<'a> MatterhornAuditor<'a> {
     /// **Named one by one rather than counted**, so that adding a check and forgetting to
     /// say so is a thing the tests can notice. The three lists above partition this one,
     /// and a test holds them to it.
-    pub const CHECKED: [&'static str; 37] = [
+    pub const CHECKED: [&'static str; 53] = [
         "01-003", "01-004", "01-005", "01-007", "02-001", "02-003", "02-004", "07-001", "07-002",
         "09-004", "09-005", "09-006", "09-007", "09-008", "11-002", "11-003", "11-004", "11-005",
         "13-004", "14-002", "14-003", "14-006", "14-007", "15-003", "17-002", "19-003", "19-004",
-        "20-001", "20-002", "20-003", "28-004", "28-005", "28-007", "28-008", "28-009", "28-012",
-        "30-001",
+        "20-001", "20-002", "20-003", "28-002", "28-004", "28-005", "28-007", "28-008", "28-009",
+        "28-010", "28-011", "28-012", "28-017", "30-001", "31-004", "31-019", "31-020", "31-021",
+        "31-022", "31-023", "31-024", "31-025", "31-026", "31-027", "31-028", "31-029",
     ];
 
     /// How many failure conditions the Matterhorn Protocol 1.1 has, across 31 checkpoints.
@@ -392,6 +393,7 @@ impl<'a> MatterhornAuditor<'a> {
             &mut findings,
             &mut examined,
         );
+        crate::audit_fonts::audit_fonts(self.doc, &mut findings, &mut examined);
         match self.doc.get_structure_root()? {
             Some(root) => {
                 findings.extend(self.audit(root)?);

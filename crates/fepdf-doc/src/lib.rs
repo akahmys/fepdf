@@ -7,6 +7,8 @@
 
 /// Dispatcher and domain modules for applying operations to documents.
 pub mod apply;
+/// Matterhorn conditions about font dictionaries and embedded programs.
+pub mod audit_fonts;
 /// Matterhorn conditions decided by objects outside the structure tree.
 pub mod audit_objects;
 /// Matterhorn conditions about role mapping, notes and table headers.
@@ -23,6 +25,8 @@ pub mod measure;
 pub mod operation;
 /// Reading the bookmark tree back out of a document.
 pub mod outline_tree;
+/// The structure tree's parent tree, as the elements annotations belong to.
+pub mod parent_tree;
 /// The text of a tagged document in reading order, for a synthesiser.
 pub mod reading;
 /// Structural remediation and redaction.

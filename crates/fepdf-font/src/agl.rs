@@ -1,13 +1,54 @@
-//! Adobe Glyph List (AGL) Mapping.
+//! The Adobe Glyph List, and a glyph name read as the text it stands for (ISO 32000-2
+//! 9.10.2).
 //!
-//! (ISO 32000-2:2020 Clause 9.10.3)
+//! **Adobe's own list, not a transcription.** `data/glyphlist.txt` is the file Adobe
+//! publishes in `adobe-type-tools/agl-aglfn`, carried with its licence: 4,281 names. What
+//! stood here was 61 of them typed out by hand, three of which disagreed with the list —
+//! `quoteright` and `quoteleft` read as the ASCII `'` and `` ` `` where the list says
+//! U+2019 and U+2018, and `quotehook`, which the list does not have — so every other name
+//! a `/Differences` array or a CFF charset used came back as nothing.
 
-/// Maps a glyph name to its corresponding Unicode string.
+use std::collections::BTreeMap;
+use std::sync::OnceLock;
+
+/// Adobe's `glyphlist.txt`, as published: `name;HHHH[ HHHH…]` a line, `#` for a comment.
+const GLYPH_LIST: &str = include_str!("../data/glyphlist.txt");
+
+/// The list, read once: each name and the text it stands for.
+fn list() -> &'static BTreeMap<&'static str, String> {
+    static LIST: OnceLock<BTreeMap<&'static str, String>> = OnceLock::new();
+    LIST.get_or_init(|| {
+        GLYPH_LIST
+            .lines()
+            .filter(|line| !line.starts_with('#'))
+            .filter_map(|line| {
+                let (name, codes) = line.trim().split_once(';')?;
+                let text: Option<String> = codes
+                    .split_whitespace()
+                    .map(|hex| u32::from_str_radix(hex, 16).ok().and_then(char::from_u32))
+                    .collect();
+                Some((name, text?))
+            })
+            .collect()
+    })
+}
+
+/// Whether `name` is one of the Adobe Glyph List's own names.
+///
+/// **Membership, not readability.** `uni0041` reads as `A` by the naming convention and is
+/// not a name the list contains; PDF/UA-1 asks the second question (7.21.6, 7.21.7).
+#[must_use]
+pub fn in_glyph_list(name: &str) -> bool {
+    list().contains_key(name)
+}
+
+/// Maps a glyph name to its corresponding Unicode string: by the `uniXXXX` and `uXXXX[XX]`
+/// conventions, then by the list.
 pub fn lookup(name: &str) -> Option<String> {
     if let Some(s) = lookup_pattern(name) {
         return Some(s);
     }
-    lookup_agl(name)
+    list().get(name).cloned()
 }
 
 fn lookup_pattern(name: &str) -> Option<String> {
@@ -27,88 +68,31 @@ fn lookup_pattern(name: &str) -> Option<String> {
     None
 }
 
-fn lookup_agl(name: &str) -> Option<String> {
-    if let Some(s) = lookup_agl_standard(name) {
-        return Some(s);
-    }
-    lookup_agl_extended(name)
-}
+/// The list as Adobe publishes it, and the names the hand table got wrong.
+#[cfg(test)]
+mod the_list {
+    use super::{in_glyph_list, list, lookup};
 
-fn lookup_agl_standard(name: &str) -> Option<String> {
-    match name {
-        "space" => Some("\u{0020}".to_string()),
-        "exclam" => Some("\u{0021}".to_string()),
-        "quotedbl" => Some("\u{0022}".to_string()),
-        "numbersign" => Some("\u{0023}".to_string()),
-        "dollar" => Some("\u{0024}".to_string()),
-        "percent" => Some("\u{0025}".to_string()),
-        "ampersand" => Some("\u{0026}".to_string()),
-        "quoteright" => Some("\u{0027}".to_string()),
-        "parenleft" => Some("\u{0028}".to_string()),
-        "parenright" => Some("\u{0029}".to_string()),
-        "asterisk" => Some("\u{002A}".to_string()),
-        "plus" => Some("\u{002B}".to_string()),
-        "comma" => Some("\u{002C}".to_string()),
-        "hyphen" => Some("\u{002D}".to_string()),
-        "period" => Some("\u{002E}".to_string()),
-        "slash" => Some("\u{002F}".to_string()),
-        "zero" => Some("\u{0030}".to_string()),
-        "one" => Some("\u{0031}".to_string()),
-        "two" => Some("\u{0032}".to_string()),
-        "three" => Some("\u{0033}".to_string()),
-        "four" => Some("\u{0034}".to_string()),
-        "five" => Some("\u{0035}".to_string()),
-        "six" => Some("\u{0036}".to_string()),
-        "seven" => Some("\u{0037}".to_string()),
-        "eight" => Some("\u{0038}".to_string()),
-        "nine" => Some("\u{0039}".to_string()),
-        "colon" => Some("\u{003A}".to_string()),
-        "semicolon" => Some("\u{003B}".to_string()),
-        "less" => Some("\u{003C}".to_string()),
-        "equal" => Some("\u{003D}".to_string()),
-        "greater" => Some("\u{003E}".to_string()),
-        "question" => Some("\u{003F}".to_string()),
-        "at" => Some("\u{0040}".to_string()),
-        "bracketleft" => Some("\u{005B}".to_string()),
-        "backslash" => Some("\u{005C}".to_string()),
-        "bracketright" => Some("\u{005D}".to_string()),
-        "asciicircum" => Some("\u{005E}".to_string()),
-        "underscore" => Some("\u{005F}".to_string()),
-        "quoteleft" => Some("\u{0060}".to_string()),
-        "braceleft" => Some("\u{007B}".to_string()),
-        "bar" => Some("\u{007C}".to_string()),
-        "braceright" => Some("\u{007D}".to_string()),
-        "asciitilde" => Some("\u{007E}".to_string()),
-        _ => None,
+    /// **All of it**: the published file's 4,281 entries.
+    #[test]
+    fn every_name_is_read() {
+        assert_eq!(list().len(), 4281);
     }
-}
 
-fn lookup_agl_extended(name: &str) -> Option<String> {
-    match name {
-        "bullet" => Some("\u{2022}".to_string()),
-        "dagger" => Some("\u{2020}".to_string()),
-        "daggerdbl" => Some("\u{2021}".to_string()),
-        "ellipsis" => Some("\u{2026}".to_string()),
-        "emdash" => Some("\u{2014}".to_string()),
-        "endash" => Some("\u{2013}".to_string()),
-        "florin" => Some("\u{0192}".to_string()),
-        "fraction" => Some("\u{2044}".to_string()),
-        "guilsinglleft" => Some("\u{2039}".to_string()),
-        "guilsinglright" => Some("\u{203A}".to_string()),
-        "minus" => Some("\u{2212}".to_string()),
-        "quotesinglbase" => Some("\u{201A}".to_string()),
-        "quotedblbase" => Some("\u{201E}".to_string()),
-        "quotedblleft" => Some("\u{201C}".to_string()),
-        "quotedblright" => Some("\u{201D}".to_string()),
-        "quotehook" => Some("\u{02BB}".to_string()),
-        "trademark" => Some("\u{2122}".to_string()),
-        "euro" => Some("\u{20AC}".to_string()),
-        _ => {
-            if name.len() == 1 {
-                Some(name.to_string())
-            } else {
-                None
-            }
-        }
+    /// The three the hand table disagreed with the list about.
+    #[test]
+    fn the_quotes_are_the_lists() {
+        assert_eq!(lookup("quoteright").as_deref(), Some("\u{2019}"));
+        assert_eq!(lookup("quoteleft").as_deref(), Some("\u{2018}"));
+        assert!(!in_glyph_list("quotehook"));
+    }
+
+    /// Names the hand table never had, and a name with several code points.
+    #[test]
+    fn the_rest_of_the_list_is_there() {
+        assert_eq!(lookup("eacute").as_deref(), Some("é"));
+        assert_eq!(lookup("Aogonek").as_deref(), Some("Ą"));
+        assert_eq!(lookup("dalethatafpatah").map(|s| s.chars().count()), Some(2));
+        assert!(in_glyph_list("eacute") && !in_glyph_list("uni00E9"));
     }
 }

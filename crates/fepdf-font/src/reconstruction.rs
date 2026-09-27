@@ -2053,7 +2053,12 @@ pub fn face_count(s: &[u8]) -> u32 {
     u32::from_be_bytes([s[8], s[9], s[10], s[11]])
 }
 
-pub(crate) fn find_table_range(s: &[u8], t: &[u8; 4]) -> Option<(usize, usize)> {
+/// Where the table tagged `t` lies in the sfnt program `s` — its first face, in a
+/// collection — as the start and end byte offsets its directory states.
+///
+/// **The range is the directory's word**, not checked against the program's length, so a
+/// caller slices it with `get` rather than indexing.
+pub fn find_table_range(s: &[u8], t: &[u8; 4]) -> Option<(usize, usize)> {
     find_table_range_at(s, t, sfnt_base(s))
 }
 

@@ -330,7 +330,7 @@ pub fn class_map(arena: &PdfArena, root: Handle<Object>) -> BTreeMap<String, Vec
 pub const FROM_SYNTAX: [&str; 5] = ["09-004", "09-005", "09-006", "09-007", "09-008"];
 
 /// The standard type `tag` stands for: itself when standard, else where its mapping ends.
-fn standard_type(roles: &BTreeMap<String, String>, tag: &str) -> Option<String> {
+pub(crate) fn standard_type(roles: &BTreeMap<String, String>, tag: &str) -> Option<String> {
     if standard(tag) {
         return Some(tag.to_owned());
     }
