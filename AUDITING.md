@@ -66,7 +66,7 @@ Execute the master audit script:
 ./scripts/audit/verify_compliance.sh
 ```
 
-**Thirty steps**, in the order the script runs them. Derive this list rather than
+**Thirty-two steps**, in the order the script runs them. Derive this list rather than
 maintaining it — and derive it from the lines that *are* steps:
 
 ```bash
@@ -95,26 +95,28 @@ brackets hold is not a class this file gets to choose, so it does not try to nam
 | 8 | **No `Result` discarded by `let _ =` without a reason** | **13** |
 | 9 | Test code separation — no standalone test file in `src/` | 14 |
 | 10 | Excessive cloning (warns; does not fail) | 15 |
-| 11 | MSRV stated as one version across `Cargo.toml`, `.rust-toolchain.toml` and `README.md` | — |
-| 12 | `cargo check --workspace` | — |
-| 13 | `cargo clippy --workspace --all-targets -- -D warnings` | 4, 5 |
-| 14 | **No dependency that compiles C** | **9** |
-| 15 | **No unbounded recursion over a document's graph** | **6** |
-| 16 | **Document tense, links, and the ADR index** | **`AGENTS.md` 1, 2** |
-| 17 | **What stands above the facade, what it declares, and what the facade lets in** | **A, D** |
-| 18 | **Every icon codepoint resolves to a glyph that draws, and is written in one file** | **UI-1** |
-| 19 | **Colours are written in the palette; three exemptions, named** | **UI-9** |
-| 20 | **Spacing, type size and corner radius come from the declared scales** | **UI-11** |
-| 21 | **User-facing strings are locale keys: at a sink, and anywhere a literal reads as prose** | **UI-5** |
-| 22 | **Icon controls carry a name a screen reader can read** | **UI-2** |
-| 23 | **Every change to the document takes the one recorded path** | **UI-6** |
-| 24 | **The palette's contrast, against every surface a colour can meet** | **UI-8** |
-| 25 | **One visible door per feature, and no second one** | **UI-4, UI-12** |
-| 26 | **The accent names a selection and nothing else** | **UI-10** |
-| 27 | **Work the reader waits for says that it is happening** | **UI-7** |
-| 28 | `cargo fmt --all --check` | 19 |
-| 29 | `cargo deny check licenses` | 16 |
-| 30 | `betterleaks dir .` | 18 |
+| 11 | `rust-version` is one version in every `Cargo.toml` and `README.md`; `rust-toolchain.toml` pins at or above it, and `rustc` runs what it pins | — |
+| 12 | The stated minimum builds the workspace (`msrv_build.sh`) | — |
+| 13 | `cargo check --workspace` | — |
+| 14 | `cargo clippy --workspace --all-targets -- -D warnings` | 4, 5 |
+| 15 | **No dependency that compiles C** | **9** |
+| 16 | **No unbounded recursion over a document's graph** | **6** |
+| 17 | **Document tense, links, and the ADR index** | **`AGENTS.md` 1, 2** |
+| 18 | **What stands above the facade, what it declares, and what the facade lets in** | **A, D** |
+| 19 | **Every icon codepoint resolves to a glyph that draws, and is written in one file** | **UI-1** |
+| 20 | **Colours are written in the palette; three exemptions, named** | **UI-9** |
+| 21 | **Spacing, type size and corner radius come from the declared scales** | **UI-11** |
+| 22 | **User-facing strings are locale keys: at a sink, and anywhere a literal reads as prose** | **UI-5** |
+| 23 | **Icon controls carry a name a screen reader can read** | **UI-2** |
+| 24 | **Every change to the document takes the one recorded path** | **UI-6** |
+| 25 | **The palette's contrast, against every surface a colour can meet** | **UI-8** |
+| 26 | **One visible door per feature, and no second one** | **UI-4, UI-12** |
+| 27 | **The accent names a selection and nothing else** | **UI-10** |
+| 28 | **Work the reader waits for says that it is happening** | **UI-7** |
+| 29 | **Each act names the view that answers it, in one table** | **UI-14** |
+| 30 | `cargo fmt --all --check` | 19 |
+| 31 | `cargo deny check licenses` | 16 |
+| 32 | `betterleaks dir .` | 18 |
 
 **Rules 3 and 7 are not here and are not unenforced.** `unsafe_code = "forbid"` fails the
 build on an `unsafe` block, and a `static mut` cannot be read without one, so `rustc`

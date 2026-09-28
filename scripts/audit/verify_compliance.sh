@@ -278,7 +278,7 @@ done < <(find $TARGET_DIRS -name "*.rs")
 # `cargo check` was the whole of this, which compiles against the installed toolchain and
 # says nothing about the version three documents claim. `msrv_check.sh` existed for that
 # and was called by nothing.
-echo "[MSRV] Checking the stated minimum is one version..."
+echo "[MSRV] Checking the stated minimum, the pin, and the compiler running..."
 bash scripts/audit/msrv_check.sh || ERROR=1
 # And that the version it states can actually build this. `msrv_check.sh` compares
 # documents and reads the running compiler; it cannot say whether the *minimum* compiles
