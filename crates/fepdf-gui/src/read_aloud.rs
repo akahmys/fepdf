@@ -53,16 +53,12 @@ impl ReadAloud {
         from: usize,
     ) -> Result<(), (&'static str, Option<String>)> {
         let Some(platform) = Platform::this() else { return Err(("speech_no_platform", None)) };
-        let start = reading
-            .passages
-            .iter()
-            .position(|p| p.page.is_some_and(|page| page >= from))
-            .unwrap_or(0);
-        let passages: Vec<Passage> = reading.passages.into_iter().skip(start).collect();
+        let lexicons = reading.lexicons.len();
+        let passages = passages_from(reading, from);
         if passages.is_empty() {
             return Err(("speech_nothing_to_read", None));
         }
-        self.counted = Some((passages.len(), reading.lexicons.len()));
+        self.counted = Some((passages.len(), lexicons));
         let speaker = self.speaker.get_or_insert_with(|| speaker_for(platform, None));
         if let Some(folder) = &self.recording_into {
             *speaker = speaker_for(platform, Some(folder.clone()));
@@ -88,6 +84,22 @@ impl ReadAloud {
         self.now = now.cloned();
         Ok(())
     }
+}
+
+/// The passages of `reading` from the first on page `from` or after it.
+///
+/// **Nothing, when no passage is there**, which is what `speech_nothing_to_read` tells the
+/// reader. This fell back to the first passage of the document, so asking to read from a
+/// last page that carries no text read the whole document from its start. A reading that
+/// names no page at all cannot be placed, and is read from its start.
+fn passages_from(reading: Reading, from: usize) -> Vec<Passage> {
+    let placed = reading.passages.iter().any(|p| p.page.is_some());
+    let start = reading
+        .passages
+        .iter()
+        .position(|p| p.page.is_some_and(|page| page >= from))
+        .unwrap_or(if placed { reading.passages.len() } else { 0 });
+    reading.passages.into_iter().skip(start).collect()
 }
 
 /// A speaker for `platform`, writing each passage into `recording` when a folder is given.
@@ -137,4 +149,49 @@ pub fn show(state: &ReadAloud, ui: &mut egui::Ui, tr: &dyn Fn(&str) -> String) -
         ui.label(format!("<{}> {}", now.tag, head));
     }
     asked
+}
+
+/// Where a reading starts.
+#[cfg(test)]
+mod starting {
+    use super::passages_from;
+    use fepdf::reading::{Passage, Reading, Spoken};
+
+    fn reading(pages: &[Option<usize>]) -> Reading {
+        let passages = pages
+            .iter()
+            .enumerate()
+            .map(|(i, page)| Passage {
+                text: i.to_string(),
+                lang: None,
+                tag: "P".to_owned(),
+                page: *page,
+                spoken: Spoken::Content,
+                phoneme: None,
+            })
+            .collect();
+        Reading { passages, ..Reading::default() }
+    }
+
+    fn texts(passages: &[Passage]) -> Vec<&str> {
+        passages.iter().map(|p| p.text.as_str()).collect()
+    }
+
+    #[test]
+    fn a_reading_starts_at_the_page_asked_for() {
+        assert_eq!(texts(&passages_from(reading(&[Some(0), Some(1), Some(2)]), 1)), ["1", "2"]);
+    }
+
+    /// **Past the last page with text, there is nothing to read** — not the whole document
+    /// from its start, which is what reading from an image-only last page did.
+    #[test]
+    fn past_the_last_passage_nothing_is_read() {
+        assert!(passages_from(reading(&[Some(0), Some(1)]), 5).is_empty());
+    }
+
+    /// A reading that names no page cannot be placed, and is read whole.
+    #[test]
+    fn a_reading_naming_no_page_is_read_from_its_start() {
+        assert_eq!(texts(&passages_from(reading(&[None, None]), 3)), ["0", "1"]);
+    }
 }
