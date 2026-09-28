@@ -19,20 +19,20 @@ use crate::tools::{
     SetPronunciationLexiconArgs, SetStructAttributeArgs, SetStructNamespaceArgs, SetStructRefsArgs,
     SetTabOrderArgs, SetUnencryptedWrapperArgs, SplitPageArgs, SplitRunArgs,
     UpdateArticleThreadsArgs, UpdateLayersArgs, UpdateOutlinesArgs, UpdateStructElemArgs,
-    VerifySignaturesArgs, add_annotation_impl, add_form_field_impl, add_mesh_shading_impl,
-    add_page_decoration_impl, add_public_key_recipient_impl, add_user_properties_impl,
-    apply_bates_numbering_impl, apply_operation_impl, apply_redaction_impl,
-    attach_associated_file_impl, audit_document_impl, combine_pages_impl, create_portfolio_impl,
-    crop_pages_impl, delete_run_impl, delete_struct_elem_impl, edit_object_impl, edit_run_impl,
-    execute_action_impl, extract_text_impl, list_objects_impl, list_runs_impl,
-    map_struct_type_impl, mark_artifact_impl, merge_runs_impl, move_run_impl,
+    VerifySignaturesArgs, WrapStructElemArgs, add_annotation_impl, add_form_field_impl,
+    add_mesh_shading_impl, add_page_decoration_impl, add_public_key_recipient_impl,
+    add_user_properties_impl, apply_bates_numbering_impl, apply_operation_impl,
+    apply_redaction_impl, attach_associated_file_impl, audit_document_impl, combine_pages_impl,
+    create_portfolio_impl, crop_pages_impl, delete_run_impl, delete_struct_elem_impl,
+    edit_object_impl, edit_run_impl, execute_action_impl, extract_text_impl, list_objects_impl,
+    list_runs_impl, map_struct_type_impl, mark_artifact_impl, merge_runs_impl, move_run_impl,
     move_struct_elem_impl, remove_pages_impl, reorder_pages_impl, rotate_pages_impl,
     set_calculation_order_impl, set_form_field_value_impl, set_geospatial_anchor_impl,
     set_measurement_scale_impl, set_output_intent_impl, set_page_labels_impl,
     set_pronunciation_lexicon_impl, set_struct_attribute_impl, set_struct_namespace_impl,
     set_struct_refs_impl, set_tab_order_impl, set_unencrypted_wrapper_impl, split_page_impl,
     split_run_impl, update_article_threads_impl, update_layers_impl, update_outlines_impl,
-    update_struct_elem_impl, verify_signatures_impl,
+    update_struct_elem_impl, verify_signatures_impl, wrap_struct_elem_impl,
 };
 use rmcp::{
     ServiceExt,
@@ -468,6 +468,21 @@ impl FepdfServer {
         Parameters(args): Parameters<MarkArtifactArgs>,
     ) -> Result<String, String> {
         mark_artifact_impl(args)
+    }
+
+    /// Wraps a run of an element's kids in a new structure element.
+    #[tool(
+        name = "wrap_struct_elem",
+        description = "Wraps `count` kids of a structure element (or the structure tree \
+                       root), from `first`, in a new element of the given type — the Caption \
+                       of a Figure, the Lbl and LBody of an LI, the RB, RT and RP of a Ruby — \
+                       which takes their place; the parent tree follows."
+    )]
+    pub async fn wrap_struct_elem(
+        &self,
+        Parameters(args): Parameters<WrapStructElemArgs>,
+    ) -> Result<String, String> {
+        wrap_struct_elem_impl(args)
     }
 
     // --- Metadata & Structure Domain Operations ---

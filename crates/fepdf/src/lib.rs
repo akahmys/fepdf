@@ -168,6 +168,7 @@ pub use fepdf_doc::{
     StructAttribute,
     StructElemMove,
     StructElemUpdate,
+    StructElemWrap,
     StructureTreeNode,
     StructureTreeVisitor,
     StructureVisitor,

@@ -158,11 +158,7 @@ fn drop_kid(arena: &PdfArena, element: Handle<Object>, mcid: i64, page: Handle<O
                 && pg.is_none_or(|p| p == page)
         }),
     };
-    let kids = match dict.get(&key).map(|k| k.resolve(arena)) {
-        Some(Object::Array(a)) => arena.get_array(a).unwrap_or_default(),
-        Some(single) => vec![single],
-        None => return,
-    };
+    let Some(kids) = dict.get(&key).map(|k| super::wrap::kids(arena, k)) else { return };
     let kept: Vec<Object> = kids.into_iter().filter(|k| !names_it(k)).collect();
     dict.insert(key, Object::Array(arena.alloc_array(kept)));
     arena.set_dict(dh, dict);

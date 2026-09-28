@@ -16,7 +16,7 @@ const NODES: usize = 100_000;
 #[must_use]
 pub fn single_entries(arena: &PdfArena, root: Handle<Object>) -> BTreeMap<i64, Handle<Object>> {
     let mut entries = BTreeMap::new();
-    walk(arena, root, |key, value| {
+    walk(arena, root, |key, value, _| {
         // An array is a page's entry; a single element is what an annotation names.
         if let Some(element) = value.as_reference()
             && arena.get_object(element).and_then(|o| o.as_dict_handle()).is_some()
@@ -32,7 +32,7 @@ pub fn single_entries(arena: &PdfArena, root: Handle<Object>) -> BTreeMap<i64, H
 #[must_use]
 pub fn array_entries(arena: &PdfArena, root: Handle<Object>) -> BTreeMap<i64, Vec<Object>> {
     let mut entries = BTreeMap::new();
-    walk(arena, root, |key, value| {
+    walk(arena, root, |key, value, _| {
         if let Object::Array(array) = value.resolve(arena) {
             entries.insert(key, arena.get_array(array).unwrap_or_default());
         }
@@ -45,7 +45,7 @@ pub fn array_entries(arena: &PdfArena, root: Handle<Object>) -> BTreeMap<i64, Ve
 #[must_use]
 pub fn array_for(arena: &PdfArena, root: Handle<Object>, key: i64) -> Option<Handle<Vec<Object>>> {
     let mut found = None;
-    walk(arena, root, |at, value| {
+    walk(arena, root, |at, value, _| {
         if at == key
             && let Object::Array(array) = value.resolve(arena)
         {
@@ -55,8 +55,42 @@ pub fn array_for(arena: &PdfArena, root: Handle<Object>, key: i64) -> Option<Han
     found
 }
 
-/// Every key and value of the number tree, to [`NODES`] nodes.
-fn walk(arena: &PdfArena, root: Handle<Object>, mut found: impl FnMut(i64, &Object)) {
+/// Makes the entry for `key` name `element`: item `mcid` of the array it is — a page's or a
+/// form's — or, with no MCID, the entry itself, an annotation's or an XObject's. Whether
+/// there was such an entry.
+pub fn rename(
+    arena: &PdfArena,
+    root: Handle<Object>,
+    key: i64,
+    mcid: Option<usize>,
+    element: Handle<Object>,
+) -> bool {
+    let mut entry = None;
+    walk(arena, root, |at, value, place| {
+        if at == key {
+            entry = Some((value.resolve(arena), place));
+        }
+    });
+    let Some((value, (nums, at))) = entry else { return false };
+    let (array, index) = match (mcid, value) {
+        (Some(mcid), Object::Array(array)) => (array, mcid),
+        (None, Object::Array(_)) | (Some(_), _) => return false,
+        (None, _) => (nums, at),
+    };
+    let mut items = arena.get_array(array).unwrap_or_default();
+    let Some(slot) = items.get_mut(index) else { return false };
+    *slot = Object::Reference(element);
+    arena.set_array(array, items);
+    true
+}
+
+/// Every key and value of the number tree, to [`NODES`] nodes, with the `/Nums` array the
+/// value is in and its place there.
+fn walk(
+    arena: &PdfArena,
+    root: Handle<Object>,
+    mut found: impl FnMut(i64, &Object, (Handle<Vec<Object>>, usize)),
+) {
     let Some(root) = arena.get_object(root).and_then(|o| o.as_dict_handle()) else { return };
     let Some(tree) = arena.dict_entry(root, arena.name("ParentTree")) else { return };
     let mut waiting = vec![tree];
@@ -73,15 +107,19 @@ fn walk(arena: &PdfArena, root: Handle<Object>, mut found: impl FnMut(i64, &Obje
             continue;
         }
         let Some(dict) = node.resolve(arena).as_dict_handle() else { continue };
-        let listed =
+        let array =
             |key: &str| match arena.dict_entry(dict, arena.name(key)).map(|v| v.resolve(arena)) {
-                Some(Object::Array(array)) => arena.get_array(array).unwrap_or_default(),
-                _ => Vec::new(),
+                Some(Object::Array(array)) => Some(array),
+                _ => None,
             };
-        waiting.extend(listed("Kids"));
-        for pair in listed("Nums").chunks_exact(2) {
-            if let Object::Integer(key) = &pair[0] {
-                found(*key, &pair[1]);
+        let listed = |array: Option<Handle<Vec<Object>>>| {
+            array.and_then(|a| arena.get_array(a)).unwrap_or_default()
+        };
+        waiting.extend(listed(array("Kids")));
+        let nums = array("Nums");
+        for (i, pair) in listed(nums).chunks_exact(2).enumerate() {
+            if let (Object::Integer(key), Some(nums)) = (&pair[0], nums) {
+                found(*key, &pair[1], (nums, 2 * i + 1));
             }
         }
     }

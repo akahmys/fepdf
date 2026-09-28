@@ -3,7 +3,7 @@
 use super::page::execute_single_op;
 use fepdf::{
     AttributeValue, Operation, Placement, StructAttribute, StructElemMove, StructElemUpdate,
-    UserProperty, UserPropertyValue,
+    StructElemWrap, UserProperty, UserPropertyValue,
 };
 use schemars::JsonSchema;
 use serde::Deserialize;
@@ -116,6 +116,23 @@ pub struct MarkArtifactArgs {
     pub kind: Option<String>,
     /// Artifact /Subtype: "Header", "Footer" or "Watermark".
     pub subtype: Option<String>,
+}
+
+/// Arguments for wrapping a run of an element's kids in a new element.
+#[derive(Deserialize, JsonSchema)]
+pub struct WrapStructElemArgs {
+    /// Path to input PDF file.
+    pub input_path: String,
+    /// Path to output PDF file.
+    pub output_path: String,
+    /// Handle index of the element, or the structure tree root, whose kids are wrapped.
+    pub handle_index: u32,
+    /// The first kid wrapped, counted from 0 in its /K.
+    pub first: usize,
+    /// How many kids are wrapped, from `first`.
+    pub count: usize,
+    /// The new element's structure type (e.g. "Caption", "Lbl", "LBody", "RB", "RT", "RP").
+    pub tag: String,
 }
 
 /// Arguments for deleting a structural element from the tree.
@@ -333,5 +350,20 @@ pub fn mark_artifact_impl(args: MarkArtifactArgs) -> Result<String, String> {
         kind: args.kind,
         subtype: args.subtype,
     };
+    execute_single_op(&args.input_path, &args.output_path, op, &message)
+}
+
+/// Implementation of the wrap_struct_elem tool.
+pub fn wrap_struct_elem_impl(args: WrapStructElemArgs) -> Result<String, String> {
+    let message = format!(
+        "{} kids of element {} from {} wrapped in a new {}",
+        args.count, args.handle_index, args.first, args.tag
+    );
+    let op = Operation::WrapStructElem(StructElemWrap {
+        handle_index: args.handle_index,
+        first: args.first,
+        count: args.count,
+        tag: args.tag,
+    });
     execute_single_op(&args.input_path, &args.output_path, op, &message)
 }

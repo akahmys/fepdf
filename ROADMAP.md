@@ -3664,6 +3664,21 @@ Independent of all of the above:
         page is written. `mark_artifact` in `fepdf-mcp`. `mark_artifact_test` fails with
         the release removed and with the nesting check removed.
 
+      - [x] **W-22g — a new element round existing content (6, above).** `WrapStructElem`
+        wraps a run of an element's kids — or the structure tree root's — in a new element
+        of the type given, which takes their place in `/K`: the `Caption` of a `Figure`, the
+        `Lbl` and `LBody` of an `LI`, the `RB`, `RT` and `RP` of a `Ruby` (WTPDF 8.2.5).
+        **What the kids were in, they are now in through it**: a wrapped element's `/P`
+        becomes the new one, the parent tree's entry for wrapped content — an MCID, a
+        marked-content reference, an object reference — names it, and it takes the parent's
+        `/Pg`, so an MCID stays on its page. An empty run, kids that are not there, an object
+        that is not an element, and an MCID with no page are refused before anything is
+        written. `wrap_struct_elem` in `fepdf-mcp`. **A `/K` that is one reference is kept
+        one**: read resolved, it was written back as the element's dictionary inline — in
+        `MarkArtifact` too, which now reads `/K` the same way. `wrap_struct_test` fails with
+        the parent tree left alone, with the kid resolved, with the page check removed, and
+        with the kid's `/P` left alone.
+
 - [x] **W-18 — comparing two documents.** `fepdf::compare::compare` pairs pages by
       position and answers, for each that differs, the lines of text only one side has —
       a longest common subsequence over extracted lines — and the regions where the page

@@ -24,6 +24,8 @@ pub mod structure;
 /// Changing the text a page already draws.
 pub mod text;
 pub(crate) mod text_layer;
+/// A new structure element round existing content (14.7.2).
+pub mod wrap;
 pub mod xobject;
 
 use crate::operation::Operation;
@@ -71,6 +73,7 @@ pub fn apply_operation(doc: &mut Document, op: Operation) -> PdfResult<()> {
         Operation::SetStructRefs { handle_index, targets } => {
             structure::apply_set_struct_refs(doc, handle_index, &targets)
         }
+        Operation::WrapStructElem(w) => wrap::apply_wrap_struct(doc, w),
         Operation::MarkArtifact { page, mcid, kind, subtype } => {
             artifacts::apply_mark_artifact(doc, page, mcid, (kind.as_deref(), subtype.as_deref()))
         }

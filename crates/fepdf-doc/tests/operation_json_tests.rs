@@ -67,6 +67,7 @@ fn variant_name(op: &Operation) -> &'static str {
         Operation::SetStructNamespace { .. } => "SetStructNamespace",
         Operation::AttachStructAssociatedFile { .. } => "AttachStructAssociatedFile",
         Operation::MarkArtifact { .. } => "MarkArtifact",
+        Operation::WrapStructElem(_) => "WrapStructElem",
         Operation::MapStructType { .. } => "MapStructType",
         Operation::ExecuteAction(_) => "ExecuteAction",
         Operation::SetGeospatialAnchor(_) => "SetGeospatialAnchor",

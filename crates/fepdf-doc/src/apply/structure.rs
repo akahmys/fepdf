@@ -238,7 +238,7 @@ fn append_attribute(arena: &PdfArena, element: u32, attribute: Object) -> PdfRes
 }
 
 /// An element's dictionary, by object handle index.
-fn element_dict(
+pub(super) fn element_dict(
     arena: &PdfArena,
     element: u32,
 ) -> Option<(
@@ -250,7 +250,7 @@ fn element_dict(
 }
 
 /// The refusal for an index naming no element.
-fn not_an_element(element: u32) -> PdfError {
+pub(super) fn not_an_element(element: u32) -> PdfError {
     PdfError::Other(format!("object {element} is not a structure element").into())
 }
 

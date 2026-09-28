@@ -174,6 +174,20 @@ pub struct StructElemMove {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+/// A new structure element round a run of an element's kids (14.7.2).
+pub struct StructElemWrap {
+    /// Object handle index of the element, or the structure tree root, whose kids are
+    /// wrapped.
+    pub handle_index: u32,
+    /// The first kid wrapped, counted from 0 in its `/K`.
+    pub first: usize,
+    /// How many kids are wrapped, from `first`.
+    pub count: usize,
+    /// The new element's structure type: `Caption`, `Lbl`, `LBody`, `RB`, `RT`, `RP`, ….
+    pub tag: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 /// Position for page decorations (Header/Footer/Bates).
 pub enum DecorationPosition {
     /// Top left position.
@@ -529,6 +543,10 @@ pub enum Operation {
     },
     /// Set one attribute of a structure element, in the attribute object of its owner.
     SetStructAttribute(StructAttribute),
+    /// Wrap a run of an element's kids in a new element, which takes their place: the
+    /// `Caption` of a `Figure`, the `Lbl` and `LBody` of an `LI`, the `RB`, `RT` and `RP` of
+    /// a `Ruby` (WTPDF 8.2.5).
+    WrapStructElem(StructElemWrap),
     /// Mark a tagged sequence as an artifact (14.8.2.2, WTPDF 8.3): its `BDC` becomes an
     /// `/Artifact` one, and the structure tree stops claiming its MCID — the parent tree's
     /// entry and the element's `/K`. A running header marked as content, say, becomes the
@@ -664,6 +682,7 @@ impl Operation {
             | Self::SetStructNamespace { .. }
             | Self::AttachStructAssociatedFile { .. }
             | Self::MarkArtifact { .. }
+            | Self::WrapStructElem(_)
             | Self::MapStructType { .. }
             | Self::ExecuteAction { .. }
             | Self::SetGeospatialAnchor { .. }
