@@ -26,9 +26,9 @@ The differences are by design:
 - Inherited attributes are resolved onto the pages
   ([ADR-0013](docs/adr/0013-a-document-is-one-normalised-state.md)).
 
-**Every box below is checked**, Phase W last (2026-09-28). The next phase is not yet
-chosen. `./scripts/dev/status.sh` re-derives the figures this file leans on, so a stale
-one reads as a disagreement rather than as current.
+Phase Y is open (2026-09-28): the code the last cleanup never saw.
+`./scripts/dev/status.sh` re-derives the figures this file leans on, so a stale one reads
+as a disagreement rather than as current.
 
 ---
 
@@ -765,6 +765,71 @@ mechanisms meant to close its gaps, which were declared and not built.
 - [x] **W-A3** — a handle names the arena it indexes, at no memory cost.
 - [x] **W-A4** — clone-per-read is four call sites, not 268.
 - [x] **W-A5** — the arena only grows, measured.
+
+### Phase Y — The code the last cleanup never saw
+
+The crate-by-crate cleanup ended at `c4331cf` (2026-09-10). Phases V, W and X added
+54,355 lines after it, across 59 new source files and 81 changed ones, and none of it has
+been read the way that cleanup read the rest. That cleanup found its defects by reading a
+claim beside its implementation, and not by counting `pub`. A duplicate-block scan over
+`src/` on 2026-09-28 found almost nothing, so this phase is structural and not
+deduplication. The duplication that exists is semantic: a dictionary lookup is written
+eight times, and the copies do not agree on whether to resolve.
+
+**The net**
+- [ ] **Y-0** — `scripts/test/golden_outputs.sh` compares, between `HEAD` and the working
+      tree, over `samples/` and `target/external/`: the bytes of a save (plain,
+      linearised, encrypted), `inspect fonts`, `text` and `coverage`, and
+      `doc.decisions()`. *Done when* changing one value in the linearisation hint table
+      fails it.
+
+**Reading what was added**, in the order the last cleanup found defects
+- [ ] **Y-1a** — `fepdf-font`: `cff`, `subset`, `program_glyphs`, `metrics`, `embedding`.
+- [ ] **Y-1b** — `fepdf-gui`: `view`, `view/draw`, `worker`, `capture`, `annotate`,
+      `speech`, `measuring`, `finding`, `printing`, the sidebars.
+- [ ] **Y-1c** — `fepdf-mcp` and `fepdf-cli`: each tool description against what the tool
+      does.
+- [ ] **Y-1d** — `fepdf-doc`: `apply/*`, `audit_*`, `measure`, `reading`, `glyph_map`,
+      `unicode_map`, `struct_tree`, `outline_tree`, `tagging`.
+- [ ] **Y-2** — the tests that were added: `fepdf/tests` (+12,112 lines) and
+      `mcp_server_tests` (+540). Each assertion that cannot fail is replaced. *Done when*
+      each file's central assertion has been shown to fail with the behaviour it
+      guards broken, starting with `audit_scope_test.rs` (2,630 lines).
+
+**Structure**
+- [ ] **Y-3** — one home for reading a dictionary entry in `fepdf-model`, with a version
+      that resolves and one that does not. It replaces `audit_objects::{entry, name_of,
+      items}`, `audit_fonts`' and `outline_tree`'s methods, `decrypt::entry`,
+      `function::entry`, `mesh::entry`, `interactive::name_of` and
+      `catalog::resolve_dict`. Where a site's resolving changes, whether the old
+      difference was meant is decided first. *Done when* the golden comparison agrees
+      and `unbounded_recursion.py` passes.
+- [ ] **Y-4** — `fepdf-doc`'s operations stop importing helpers from its audit modules
+      (`glyph_map`, `glyph_widths`, `unicode_map` and `formula_marks` import from
+      `audit_objects`).
+- [ ] **Y-5** — `merge` and `extract_pages` leave the facade for `fepdf-doc`, beside the
+      cloner. They build a `PdfArena` in `fepdf/src/lib.rs`. `layering.py` fails on a
+      `PdfArena::new` in the facade. *Done when* adding one back fails the audit.
+- [ ] **Y-6** — `PdfError::Other` is removed, and its 199 sites take the variant for
+      their kind
+      ([ADR-0102](docs/adr/0102-an-error-says-whose-it-is.md)).
+- [ ] **Y-7** — no `impl` block in production code runs past 800 lines. On 2026-09-28
+      eight did, the largest `FontResource` (2,457), `PdfWriter` (2,423),
+      `PdfDocument` (1,566), `FontReconstructor` (1,371) and `FepdfApp` in
+      `view_panel.rs` (1,220). `fepdf-gui`'s `view.rs` and `worker.rs` go first, because
+      they grew most in V-X. Each is a move and not a rewrite, and the golden comparison
+      is what shows it.
+- [ ] **Y-8** — `ARCHITECTURE.md` §3 carries no count that moves (ADR-0080). It quotes 30
+      operations, 8 built by `fepdf-cli` and 12 by `fepdf-gui`, where `status.sh` reads
+      54, 9 and 30. It also names `fepdf-script` and `fepdf-fixtures` in the diagram, and
+      says what `fepdf-doc` has come to hold.
+- [ ] **Y-9** — whether `fepdf/tests`' 82 files, each linking the GPU stack as its own
+      binary, become one binary is decided by an A/B of the gate's own command, cold and
+      warm. The threshold is written down before the measurement.
+
+**Open**: `fepdf-doc` is 18,187 lines and holds operations, auditing, measurement and
+reading order. Whether it splits is not decided here. The Y-1d reading will show whether
+there is a reason to.
 
 ---
 

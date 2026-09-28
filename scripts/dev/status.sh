@@ -65,7 +65,7 @@ row "uncommitted files" "$dirty"
 # The *first unfinished* phase, not the first heading. Reading the first heading printed
 # "Phase A" forever, which is the same defect the "Next" block below carries a comment
 # about having fixed there and not here.
-phase_now=$(awk '/^## Phase /{p=$0} /^- \[ \]/{print p; exit}' ROADMAP.md)
+phase_now=$(awk '/^#+ Phase /{p=$0; sub(/^#+ /, "", p)} /^- \[ \]/{print p; exit}' ROADMAP.md)
 row "phase" "${phase_now:-every box checked}"
 
 echo
@@ -587,7 +587,7 @@ echo
 bold "Next"
 # Found, not named. This printed Phase C long after Phase C was complete, because the
 # range was written when Phase C was the next thing and nothing re-derived it.
-next_phase=$(awk '/^## Phase /{p=$0} /^- \[ \]/{print p; exit}' ROADMAP.md)
+next_phase=$(awk '/^#+ Phase /{p=$0; sub(/^#+ /, "", p)} /^- \[ \]/{print p; exit}' ROADMAP.md)
 if [ -n "$next_phase" ]; then
     echo "  $next_phase"
     grep -A3 '^- \[ \]' ROADMAP.md | head -20 | sed 's/^/  /'

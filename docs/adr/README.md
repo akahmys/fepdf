@@ -166,3 +166,4 @@ quietly wrong — which is the failure this log exists to make visible.
 | 0099 | [The XMP packet carries what the engine does not write](0099-the-xmp-packet-carries-what-the-engine-does-not-write.md) | Bounds 0094 |
 | 0100 | [`Upgrade` identifies a standard where the standard says, and refuses one it cannot read](0100-upgrade-identifies-a-standard-where-the-standard-says.md) | Rests on 0099, 0095 |
 | 0101 | [A PDF Declaration is the caller's statement, and W-22 closes](0101-a-declaration-is-the-callers-statement-and-w-22-closes.md) | Rests on 0099 |
+| 0102 | [An error says whose it is, and `PdfError::Other` is removed](0102-an-error-says-whose-it-is.md) | |
