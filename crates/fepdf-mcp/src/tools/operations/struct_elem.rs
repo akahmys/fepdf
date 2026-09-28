@@ -101,6 +101,23 @@ pub struct MapStructTypeArgs {
     pub to_namespace: Option<String>,
 }
 
+/// Arguments for marking a tagged sequence as an artifact.
+#[derive(Deserialize, JsonSchema)]
+pub struct MarkArtifactArgs {
+    /// Path to input PDF file.
+    pub input_path: String,
+    /// Path to output PDF file.
+    pub output_path: String,
+    /// Zero-based page index.
+    pub page: usize,
+    /// The MCID of the marked-content sequence on that page.
+    pub mcid: i64,
+    /// Artifact /Type: "Pagination", "Layout", "Page" or "Background".
+    pub kind: Option<String>,
+    /// Artifact /Subtype: "Header", "Footer" or "Watermark".
+    pub subtype: Option<String>,
+}
+
 /// Arguments for deleting a structural element from the tree.
 #[derive(Deserialize, JsonSchema)]
 pub struct DeleteStructElemArgs {
@@ -303,6 +320,18 @@ pub fn map_struct_type_impl(args: MapStructTypeArgs) -> Result<String, String> {
         from: args.from,
         to: args.to,
         to_namespace: args.to_namespace,
+    };
+    execute_single_op(&args.input_path, &args.output_path, op, &message)
+}
+
+/// Implementation of the mark_artifact tool.
+pub fn mark_artifact_impl(args: MarkArtifactArgs) -> Result<String, String> {
+    let message = format!("MCID {} on page {} marked as an artifact", args.mcid, args.page);
+    let op = Operation::MarkArtifact {
+        page: args.page,
+        mcid: args.mcid,
+        kind: args.kind,
+        subtype: args.subtype,
     };
     execute_single_op(&args.input_path, &args.output_path, op, &message)
 }

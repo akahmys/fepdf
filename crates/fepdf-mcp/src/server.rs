@@ -12,20 +12,21 @@ use crate::tools::{
     AddPublicKeyRecipientArgs, AddUserPropertiesArgs, ApplyBatesNumberingArgs, ApplyOperationArgs,
     AttachAssociatedFileArgs, AuditArgs, CombinePagesArgs, CreatePortfolioArgs, CropPagesArgs,
     DeleteRunArgs, DeleteStructElemArgs, EditObjectArgs, EditRunArgs, ExecuteActionArgs,
-    ExtractTextArgs, ListObjectsArgs, ListRunsArgs, MapStructTypeArgs, MergeRunsArgs, MoveRunArgs,
-    MoveStructElemArgs, RedactDocumentArgs, RemovePagesArgs, ReorderPagesArgs, RotatePagesArgs,
-    SetCalculationOrderArgs, SetFormFieldValueArgs, SetGeospatialAnchorArgs,
-    SetMeasurementScaleArgs, SetOutputIntentArgs, SetPageLabelsArgs, SetPronunciationLexiconArgs,
-    SetStructAttributeArgs, SetStructNamespaceArgs, SetStructRefsArgs, SetTabOrderArgs,
-    SetUnencryptedWrapperArgs, SplitPageArgs, SplitRunArgs, UpdateArticleThreadsArgs,
-    UpdateLayersArgs, UpdateOutlinesArgs, UpdateStructElemArgs, VerifySignaturesArgs,
-    add_annotation_impl, add_form_field_impl, add_mesh_shading_impl, add_page_decoration_impl,
-    add_public_key_recipient_impl, add_user_properties_impl, apply_bates_numbering_impl,
-    apply_operation_impl, apply_redaction_impl, attach_associated_file_impl, audit_document_impl,
-    combine_pages_impl, create_portfolio_impl, crop_pages_impl, delete_run_impl,
-    delete_struct_elem_impl, edit_object_impl, edit_run_impl, execute_action_impl,
-    extract_text_impl, list_objects_impl, list_runs_impl, map_struct_type_impl, merge_runs_impl,
-    move_run_impl, move_struct_elem_impl, remove_pages_impl, reorder_pages_impl, rotate_pages_impl,
+    ExtractTextArgs, ListObjectsArgs, ListRunsArgs, MapStructTypeArgs, MarkArtifactArgs,
+    MergeRunsArgs, MoveRunArgs, MoveStructElemArgs, RedactDocumentArgs, RemovePagesArgs,
+    ReorderPagesArgs, RotatePagesArgs, SetCalculationOrderArgs, SetFormFieldValueArgs,
+    SetGeospatialAnchorArgs, SetMeasurementScaleArgs, SetOutputIntentArgs, SetPageLabelsArgs,
+    SetPronunciationLexiconArgs, SetStructAttributeArgs, SetStructNamespaceArgs, SetStructRefsArgs,
+    SetTabOrderArgs, SetUnencryptedWrapperArgs, SplitPageArgs, SplitRunArgs,
+    UpdateArticleThreadsArgs, UpdateLayersArgs, UpdateOutlinesArgs, UpdateStructElemArgs,
+    VerifySignaturesArgs, add_annotation_impl, add_form_field_impl, add_mesh_shading_impl,
+    add_page_decoration_impl, add_public_key_recipient_impl, add_user_properties_impl,
+    apply_bates_numbering_impl, apply_operation_impl, apply_redaction_impl,
+    attach_associated_file_impl, audit_document_impl, combine_pages_impl, create_portfolio_impl,
+    crop_pages_impl, delete_run_impl, delete_struct_elem_impl, edit_object_impl, edit_run_impl,
+    execute_action_impl, extract_text_impl, list_objects_impl, list_runs_impl,
+    map_struct_type_impl, mark_artifact_impl, merge_runs_impl, move_run_impl,
+    move_struct_elem_impl, remove_pages_impl, reorder_pages_impl, rotate_pages_impl,
     set_calculation_order_impl, set_form_field_value_impl, set_geospatial_anchor_impl,
     set_measurement_scale_impl, set_output_intent_impl, set_page_labels_impl,
     set_pronunciation_lexicon_impl, set_struct_attribute_impl, set_struct_namespace_impl,
@@ -453,6 +454,20 @@ impl FepdfServer {
         Parameters(args): Parameters<MapStructTypeArgs>,
     ) -> Result<String, String> {
         map_struct_type_impl(args)
+    }
+
+    /// Marks a tagged marked-content sequence as an artifact.
+    #[tool(
+        name = "mark_artifact",
+        description = "Marks the tagged marked-content sequence with an MCID on a page as an \
+                       artifact (a running header, a footer, a watermark), and removes the \
+                       MCID from the structure tree."
+    )]
+    pub async fn mark_artifact(
+        &self,
+        Parameters(args): Parameters<MarkArtifactArgs>,
+    ) -> Result<String, String> {
+        mark_artifact_impl(args)
     }
 
     // --- Metadata & Structure Domain Operations ---

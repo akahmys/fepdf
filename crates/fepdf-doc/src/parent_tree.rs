@@ -40,6 +40,21 @@ pub fn array_entries(arena: &PdfArena, root: Handle<Object>) -> BTreeMap<i64, Ve
     entries
 }
 
+/// The array the entry for `key` is — a page's or a form's, one element per `/MCID` — for
+/// a caller to change in place.
+#[must_use]
+pub fn array_for(arena: &PdfArena, root: Handle<Object>, key: i64) -> Option<Handle<Vec<Object>>> {
+    let mut found = None;
+    walk(arena, root, |at, value| {
+        if at == key
+            && let Object::Array(array) = value.resolve(arena)
+        {
+            found = Some(array);
+        }
+    });
+    found
+}
+
 /// Every key and value of the number tree, to [`NODES`] nodes.
 fn walk(arena: &PdfArena, root: Handle<Object>, mut found: impl FnMut(i64, &Object)) {
     let Some(root) = arena.get_object(root).and_then(|o| o.as_dict_handle()) else { return };

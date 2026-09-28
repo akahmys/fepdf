@@ -3653,6 +3653,17 @@ Independent of all of the above:
         `/F` and `/UF` both, so 21-001 stays sound. `attach_associated_file` in `fepdf-mcp`
         takes an `element_handle` to associate with an element rather than the document.
 
+      - [x] **W-22f — marking content as an artifact (7, above).** `MarkArtifact` names a
+        page and an MCID and makes the sequence that carries it an `/Artifact` (14.8.2.2),
+        with a `/Type` and `/Subtype` when given — a running header as `Pagination` /
+        `Header`, a TOC's leaders as `Layout` (WTPDF 8.3, 8.2.5.8) — found whether the MCID
+        is inline or in a named property list. **The structure tree lets it go**: the
+        parent tree's entry for the MCID becomes `null` and the element's `/K` drops it, so
+        no element claims content that is no longer the document's (01-004). A sequence
+        that is not on the page, or that holds a tagged sequence, is refused before the
+        page is written. `mark_artifact` in `fepdf-mcp`. `mark_artifact_test` fails with
+        the release removed and with the nesting check removed.
+
 - [x] **W-18 — comparing two documents.** `fepdf::compare::compare` pairs pages by
       position and answers, for each that differs, the lines of text only one side has —
       a longest common subsequence over extracted lines — and the regions where the page

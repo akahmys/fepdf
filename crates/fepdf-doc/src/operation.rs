@@ -529,6 +529,20 @@ pub enum Operation {
     },
     /// Set one attribute of a structure element, in the attribute object of its owner.
     SetStructAttribute(StructAttribute),
+    /// Mark a tagged sequence as an artifact (14.8.2.2, WTPDF 8.3): its `BDC` becomes an
+    /// `/Artifact` one, and the structure tree stops claiming its MCID — the parent tree's
+    /// entry and the element's `/K`. A running header marked as content, say, becomes the
+    /// `Pagination` / `Header` artifact it is.
+    MarkArtifact {
+        /// The page, counted from 0.
+        page: usize,
+        /// The MCID of the sequence on that page.
+        mcid: i64,
+        /// `/Type`: `Pagination`, `Layout`, `Page` or `Background`.
+        kind: Option<String>,
+        /// `/Subtype`: `Header`, `Footer` or `Watermark`.
+        subtype: Option<String>,
+    },
     /// Associate a file with a structure element (`/AF`, 14.13): a formula's MathML with
     /// `AFRelationship` `Supplement`, as WTPDF 8.2.5.29 asks, where `AttachAssociatedFile`
     /// associates with the catalogue.
@@ -649,6 +663,7 @@ impl Operation {
             | Self::SetStructRefs { .. }
             | Self::SetStructNamespace { .. }
             | Self::AttachStructAssociatedFile { .. }
+            | Self::MarkArtifact { .. }
             | Self::MapStructType { .. }
             | Self::ExecuteAction { .. }
             | Self::SetGeospatialAnchor { .. }

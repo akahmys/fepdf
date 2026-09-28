@@ -4,6 +4,8 @@
 pub mod annotations;
 /// Building a field's appearance from its value (12.7.4.3).
 pub mod appearance;
+/// Marking tagged content as an artifact (14.8.2.2).
+pub mod artifacts;
 /// Creating a form field, not only filling one (ADR-0087).
 pub mod fields;
 /// Putting a font program into a document.
@@ -68,6 +70,9 @@ pub fn apply_operation(doc: &mut Document, op: Operation) -> PdfResult<()> {
         Operation::SetStructAttribute(a) => structure::apply_set_struct_attribute(doc, a),
         Operation::SetStructRefs { handle_index, targets } => {
             structure::apply_set_struct_refs(doc, handle_index, &targets)
+        }
+        Operation::MarkArtifact { page, mcid, kind, subtype } => {
+            artifacts::apply_mark_artifact(doc, page, mcid, (kind.as_deref(), subtype.as_deref()))
         }
         Operation::AttachStructAssociatedFile { handle_index, file } => {
             structure::apply_attach_struct_file(doc, handle_index, file)
