@@ -2,129 +2,72 @@
 
 > **Not a rule.** This is the work: what was measured, what was built, what is next.
 > The rules are in [CODING.md](CODING.md); a claim here that contradicts the code is a
-> defect in this file. Two colour defects sat in it as "open" for weeks after they were
-> closed.
+> defect in this file.
 
 **Goal**: an engine that understands ISO 32000-2 (PDF 2.0) semantically — not merely
 one that round-trips it. PDF 1.7 and earlier are **read-only** targets; output is
 always 2.0.
 
-That goal is not a predicate, and no run of `status.sh` can report it true or false;
-every phase below states a completion condition, and the line they are all under had
-none. Phase I gave it the nearest thing that can be measured: **the share of the
-constructs a corpus actually presents whose contents this engine reads** — 96% over the
-nine samples and 88% over all 524 files, after Phase K took the catalogue axis from 5 of
-20 to 19 of 20 and Phase O-1 took it to **21 of 22** by fetching a corpus that presents
-two more. What is left *on those axes* is 29 annotation entries, on subtypes that occur once or
-twice; one filter; and `/Type`. The corpus doubled and the figure moved by one point,
-which is the property it exists to have: a bigger denominator is the honest direction.
+That goal is not a predicate. Its nearest measurable form is **the share of the
+constructs a corpus presents whose contents this engine reads**: 96% over the nine
+samples and 88% over all 524 files, with the catalogue axis at 21 of 22
+(`fepdf inspect coverage`,
+[ADR-0019](docs/adr/0019-semantic-understanding-is-measured-against-what-a-corpus-presents.md)).
+It counts only what can be enumerated from a file. Colour spaces, shadings and functions
+cannot be, and they are where Phase P found the engine drawing the wrong picture. Nor
+does it say whether what was read was read correctly.
 
-**And the axes are not the whole of it**, which Phase P is the record of. Three axes were
-chosen because their denominators can be enumerated from a file; colour spaces, shadings
-and functions cannot be, and are exactly where the engine was found rendering the wrong
-picture. A number that only counts what it can count says nothing about the rest, and this
-paragraph read as though it did. `fepdf inspect coverage` reports it and
-[ADR-0019](docs/adr/0019-semantic-understanding-is-measured-against-what-a-corpus-presents.md)
-records what it is not: a proxy, silent about whether what was read was read correctly,
-and bounded by a corpus that flatters an engine when it presents little.
+Round-trip fidelity holds: no catalogue key is lost through a save, and
+`crosscheck_selfread.sh` makes that comparison rather than this sentence asserting it.
+The differences are by design:
+- `/Metadata` is added where a source had none.
+- Objects are renumbered, since saving produces a new document
+  ([ADR-0012](docs/adr/0012-saving-produces-a-new-document.md)).
+- Inherited attributes are resolved onto the pages
+  ([ADR-0013](docs/adr/0013-a-document-is-one-normalised-state.md)).
 
-That distinction sets the work. Round-trip fidelity already holds: the arena preserves
-objects it has no typed view of. Measured across all nine samples by comparing
-`inspect catalog` on the input with `inspect catalog` on the output — no catalogue key
-is ever lost, and the entries the engine cannot read the contents of come back with the
-same shape — `intel_sdm.pdf` carries eleven, of which nine are `Option<Object>` fields,
-and its `/PageLabels` is a one-entry dictionary on both sides. Only two
-differences appear, both by design: `/Metadata` is *added*
-where the source had none, because output always carries XMP, and object numbers are
-renumbered, because saving produces a new document
-([ADR-0012](docs/adr/0012-saving-produces-a-new-document.md)). `bokutokitan.pdf`'s
-page-tree root loses its `/MediaBox` and each page gains one, which is inheritance
-resolved into the single normalised state
-([ADR-0013](docs/adr/0013-a-document-is-one-normalised-state.md)), not a dropped key.
-Understanding these entries is what remains. This paragraph used to assert the same
-thing "verified key-for-key" while citing `ViewerPreferences` and `AcroForm` as untyped
-examples, by which time both were typed and no test checked the verification — so
-`crosscheck_selfread.sh` now makes the comparison, and the claim is the measurement
-rather than a rewording of it.
+**Every box below is checked**, Phase W last (2026-09-28). The next phase is not yet
+chosen. `./scripts/dev/status.sh` re-derives the figures this file leans on, so a stale
+one reads as a disagreement rather than as current.
 
 ---
 
 ## The subsets this processor has chosen
 
-**PDF 2.0 has no "conforming reader", and says so.** 6.3.2.1 replaces it with a rule:
-each PDF processor chooses which subsets of PDF functionality to support, and shall
-comply with the applicable provisions for the ones it chose. The NOTE beside it explains
-why — PDF/A, PDF/UA and the rest define a conforming reader *because* they restrict
-processing, and 2.0 is too general for the notion to be useful.
-
-That makes "full support" definable rather than meaningless: choose every subset and
-comply with every provision. It is worth knowing what that costs before deciding not to.
-The whole document carries **5,891 `shall`** (331 of them `shall not`), 414 `should` and
-1,329 `may`; clause 2 pulls in **81 other documents** whose content *constitutes
-requirements of this one* — among them ISO 14739-1 (PRC), ECMA-363 (U3D),
-ISO/DIS 21757-1 (ECMAScript for PDF), XFA 3.3, the PostScript Language Reference,
-SMIL 3.0, MathML 3.0 and the four ETSI CAdES/PAdES parts. "Implement PDF 2.0" is
-"implement eighty-one documents", which is why 6.3.2.1 provides the escape and why every
-implementation in the world takes it.
-
-```bash
-target/release/fepdf inspect text docs/specs/ISO_32000-2_sponsored-ec2.pdf > /tmp/iso.txt
-grep -o '\bshall\b' /tmp/iso.txt | wc -l          # 5891
-```
-
-So this section is the escape, taken deliberately and written down. It is not new policy:
-**"Not planned" and "Read broadly, write 2.0" below have been the subset declaration all
-along**, and this only says so in the standard's vocabulary — which is what makes it
-checkable rather than a matter of taste.
+**PDF 2.0 has no "conforming reader".** 6.3.2.1 replaces it with a rule: each PDF
+processor chooses which subsets of PDF functionality to support, and complies with the
+provisions of the ones it chose. "Full support" would mean choosing every subset. The
+standard carries 5,891 `shall`s, and clause 2 makes 81 other documents requirements of
+it, among them PRC, U3D, ECMAScript for PDF, XFA 3.3 and the CAdES/PAdES parts. So every
+implementation chooses. This table is where this one chooses, in the standard's
+vocabulary, so that the choice can be checked.
 
 | Subset (6.3.1) | Chosen | What it commits this project to |
 | :--- | :--- | :--- |
 | **PDF reader** — interpret a document to display, print or extract data | **yes**, broadly | Reading 1.x as well as 2.0, including files that are wrong in recoverable ways (ADR-0003). This is the subset the coverage index measures. |
-| **PDF processor providing rendering** (6.3.2.2) | **yes** | Two `shall`s: render the page contents as defined, and render the appearance stream of every annotation that has one unless its flags say otherwise; and respect the optional content definitions. Both are met — the second only since [ADR-0023](docs/adr/0023-a-renderer-that-skips-annotation-appearances-is-not-conforming.md). **Phase P is what is chosen and not yet complied with.** |
-| **PDF writer** (6.3.2.1) | **yes**, for 2.0 only | Output shall conform, and nothing 2.0 deprecates is written — the rule that settled encryption at AES-256 R6 ([ADR-0015](docs/adr/0015-this-engine-reads-five-encryption-schemes-and-writes-one.md)) and, later, made a field value build its appearance instead of setting `/NeedAppearances`. Writing 1.7, and amending a file this engine did not produce, are **not** chosen ([ADR-0014](docs/adr/0014-the-faithful-copy-path-is-not-built.md)). |
-| **Interactive PDF processor** (6.3.2.3) | **yes** | 6.3.1 makes anything that interacts with a user while processing a file one of these, which `fepdf-gui` is; 6.3.2.3 requires support for all the interactive aspects of optional content and decision logs. Both are met — `/OCProperties` layer hierarchy and toggle controls redraw scenes interactively, and `doc.decisions()` surfaces reading/repair decisions in the GUI. |
-| **ECMAScript actions** (12.6.4.17) | **yes**, for document and field scripting | Taken 2026-08-22 ([ADR-0026](docs/adr/0026-the-engine-takes-the-ecmascript-subset-because-it-already-owes-it.md)). Scope: 12.6.4.17's execution, and of ISO/DIS 21757-1 the objects form scripts reach for (`app`, `this`, `Field`, `event`, `util`, `color`). Engine: boa ([ADR-0024](docs/adr/0024-pure-rust-is-a-rule-and-therefore-has-a-check.md)). Shape: a fifth frontend over `Operation` ([ADR-0025](docs/adr/0025-a-script-processor-is-a-frontend-not-a-subsystem.md), [ADR-0032](docs/adr/0032-running-scripts-is-a-frontend-verb-not-an-operation.md)). Phase R. |
+| **PDF processor providing rendering** (6.3.2.2) | **yes** | Two `shall`s: render the page contents, and the appearance stream of every annotation that has one unless its flags say otherwise; and respect optional content. Both are met, the second since [ADR-0023](docs/adr/0023-a-renderer-that-skips-annotation-appearances-is-not-conforming.md) (Phase P). |
+| **PDF writer** (6.3.2.1) | **yes**, for 2.0 only | Output conforms, and nothing 2.0 deprecates is written: encryption is AES-256 R6 ([ADR-0015](docs/adr/0015-this-engine-reads-five-encryption-schemes-and-writes-one.md)), and a field value builds its appearance rather than setting `/NeedAppearances`. Writing 1.7, and amending a file this engine did not produce, are **not** chosen ([ADR-0014](docs/adr/0014-the-faithful-copy-path-is-not-built.md)). |
+| **Interactive PDF processor** (6.3.2.3) | **yes** | `fepdf-gui` is one. The layer panel follows `/OCProperties`, and the reading decisions (`doc.decisions()`) reach the window. |
+| **ECMAScript actions** (12.6.4.17) | **yes**, for document and field scripting | Taken 2026-08-22 ([ADR-0026](docs/adr/0026-the-engine-takes-the-ecmascript-subset-because-it-already-owes-it.md)). Scope: 12.6.4.17's execution, and the objects form scripts reach for (`app`, `this`, `Field`, `event`, `util`, `color`). The engine is boa ([ADR-0024](docs/adr/0024-pure-rust-is-a-rule-and-therefore-has-a-check.md)), run by a frontend over `Operation` ([ADR-0025](docs/adr/0025-a-script-processor-is-a-frontend-not-a-subsystem.md), [ADR-0032](docs/adr/0032-running-scripts-is-a-frontend-verb-not-an-operation.md)). Phase R. |
 | **Multimedia** (13.2–13.7) | **no** | 13.4 is deprecated in 2.0; PRC and U3D are two more standards. |
 | **XFA** (Adobe XFA 3.3) | **no** | Deprecated in 2.0, and a second form model beside the one that works. |
 
-**One constraint cuts across all of these**: nothing in this workspace may compile C
-(RR-15 Rule 9, [ADR-0024](docs/adr/0024-pure-rust-is-a-rule-and-therefore-has-a-check.md)).
-It is not a subset of PDF and the standard says nothing about it, but it decides *how* a
-subset can be taken — which is why the ECMAScript question resolved to boa rather than
-QuickJS, and why three dependencies left the engine before the rule could be written down.
-`fepdf-model` went from 234 transitive crates to 149 in the process, and two of the three
-were used by no line of code.
+**All chosen subsets are met.** `status.sh` counts the rows marked as chosen and not
+met, and it reads 0.
 
-**What a declaration is for.** `/Requirements` (12.11) is how a *document* says which
-subsets it needs, and `inspect actions` reports the ones this processor does not satisfy.
-The table above is the other side of that exchange: without it, "this processor does not
-do this" is an assertion in a source file; with it, the two can be compared. The one
-requirement type named so far is `EnableJavaScripts`, in `actions::NOT_SATISFIED`.
+**One constraint cuts across all of them**: nothing in this workspace compiles C (RR-15
+Rule 9, [ADR-0024](docs/adr/0024-pure-rust-is-a-rule-and-therefore-has-a-check.md)). The
+standard says nothing about it, but it decides *how* a subset can be taken. It is why
+ECMAScript is boa rather than QuickJS.
 
-**What this table is not.** It is not a claim that every provision of the PDF standard is
-implemented — only that **all chosen subsets are met** (subsets not chosen, such as
-multimedia and XFA, are formally declared as non-conformance boundaries per 6.3.1).
-A subset declaration is what makes that distinction sayable: "not implemented" and
-"chosen and not complied with" are different, and only the second is a defect.
+**A declaration is one side of an exchange.** `/Requirements` (12.11) is how a document
+says which subsets it needs, and `inspect actions` reports those this processor does not
+satisfy.
 
-This sentence read **three**, and named rendering as the third, until 2026-08-30. Phase P
-met it — 6.3.2.2's two `shall`s are both kept, which the clause 10 row above states — and
-the count was never brought down. `status.sh` counts the rows carrying the marker now, so
-the sentence and the table cannot drift apart again without a row disagreeing.
-
-**Taking a subset therefore creates a defect where a conforming refusal stood**, and the
-ECMAScript row is the case. That is not an argument against taking it. It is what deciding
-looks like when the declaration is honest: the alternative was to leave the question
-undecided and call the resulting silence a choice, which is what
-[ADR-0026](docs/adr/0026-the-engine-takes-the-ecmascript-subset-because-it-already-owes-it.md)
-found had happened.
-
-**How a row gets decided.** Not by demand — a capability that does not exist has no users,
-and Phase L's rule already says a corpus is grounds for building and never for declining.
-The test is the one 6.3.2.1 supplies when read as a test: **a subset is required when the
-engine has already undertaken work whose correctness depends on it.** Multimedia and XFA
-survive that test as refusals — nothing here depends on them, and both are deprecated in
-2.0. ECMAScript did not.
+**How a row gets decided.** A subset is required when the engine has already undertaken
+work whose correctness depends on it. Demand is not the test, because a capability that
+does not exist has no users. Multimedia and XFA stay refusals: nothing here depends on
+them, and both are deprecated in 2.0.
 
 ## Where the engine actually stands
 
@@ -137,3893 +80,699 @@ survive that test as refusals — nothing here depends on them, and both are dep
 | **7.7** Document structure | 23 of Table 29's 32 entries modelled; 10 occur in no file of 524. [↓](#77-document-structure) |
 | **PDF 2.0 additions** | Re-derived against all 524 files, 0 unreadable. [↓](#pdf-20-additions) |
 | **8** Graphics | Optional content honoured, tint transforms and shading functions evaluated. All five shading types read, Type 1 as a sampled grid. [↓](#8-graphics) |
-| **9** Text | Extraction loses **1,137 glyphs of 16,321,270**, from 85,982, and all of them are named. [↓](#9-text) |
-| **10** Rendering | Both of 6.3.2.2's `shall`s met. `[/ICCBased …]` colours go through their profile (10.3); `/DeviceCMYK` without one follows 10.4.2.1, which 8.6.4.4 leaves device-dependent. [↓](#10-rendering) |
+| **9** Text | Extraction loses **1,137 glyphs of 16,321,270**, and all of them are named. [↓](#9-text) |
+| **10** Rendering | Both of 6.3.2.2's `shall`s met. `[/ICCBased …]` colours go through their profile (10.3); `/DeviceCMYK` without one follows 10.4.2.1. [↓](#10-rendering) |
 | **11** Transparency | Blend modes, constant alpha and soft masks all reach the backend. [↓](#11-transparency) |
 | **12** Interactive features | Read and written. 15 entries have no reader: eleven are clause 13, which is declined, and four are `/Redact` keys written on a `/Stamp`, which no table defines. [↓](#12-interactive-features) |
-| **13** Multimedia | Declined, and not a gap: 13.4 is deprecated in 2.0 and reading it would be building for a subsystem the standard is retiring. The corpus does carry it — `/3D` ten times, `/Movie` five, `/RichMedia` three — which changes the premise and not the refusal. |
-| **14** Document interchange | Marked content and logical structure are read and acted on. [↓](#14-document-interchange) |
-| **14.3** Metadata | Settled at load into one state. [↓](#143-metadata) |
-
-The rows that link downward are expanded below, one section each. **They were table
-cells until they were not**: clause 9's ran to 6,578 characters on a single line, which
-is a paragraph no diff can show and no reader can scan — and is how two colour defects
-stayed listed as open long after Phase P closed them.
+| **13** Multimedia | Declined: 13.4 is deprecated in 2.0. The corpus does carry it — `/3D` ten times, `/Movie` five, `/RichMedia` three — which changes the premise and not the refusal. |
+| **14** Document interchange | Marked content and logical structure are read, audited and edited. [↓](#14-document-interchange) |
+| **14.3** Metadata | Settled at load into one state; what the engine does not model is carried. [↓](#143-metadata) |
 
 ### 7.4 Filters
 
-**Nine of the ten** since Phase M built `CCITTFaxDecode`, `JBIG2Decode` and `JPXDecode`
-— the tenth is `Crypt`, which the security layer handles (7.6). `inspect structure`
-takes a census of which filters a file's streams name, so this row is re-derivable per
-file rather than remembered. Across all 524 files: `/FlateDecode` 485 files,
-`/DCTDecode` 21, `/XXXDecode` 8, `/JPXDecode` 3, `/LZWDecode` 3, `/CCITTFaxDecode` 2,
-`/ASCIIHexDecode` 1, `/JBIG2Decode` **still none** — Phase O-1 doubled the corpus and
-did not produce one, which is what leaves O-2 open. Every stream carrying a codec this
-engine lacks is an image. Every filter that is a plain byte transformation decodes.
 `FlateDecode`, `LZWDecode`, `ASCIIHexDecode`, `ASCII85Decode` and `RunLengthDecode`
-decode, with Table 8's predictors reaching LZW as they do Flate, and `DCTDecode` reads
-JPEG; `Crypt` is handled in the security layer (7.6). `ZstandardDecode` **was**
-implemented and is not one of the ten — nor is it anywhere in ISO 32000-2, which is what
-removing it turned up: zero occurrences in 1020 pages, no file of the 530 carrying its
-magic number, and a heuristic testing every stream's first four bytes for it
-([ADR-0024](docs/adr/0024-pure-rust-is-a-rule-and-therefore-has-a-check.md)). Table 6's
-abbreviations are matched too — `/AHx` appears seven times in one external file, and
-only `Fl` and `DCT` were recognised before. The three image codecs were absent until
-Phase M, declined by Phase L on a measurement that could not speak to the use case that
-reopened them; an image that still will not decode is skipped rather than aborting the
-page, and says what it cost. **This row did not exist until a corpus this project did
-not choose forced it.**
+decode, with Table 8's predictors on LZW as on Flate, and Table 6's abbreviations are
+matched. `DCTDecode` reads JPEG. `CCITTFaxDecode`, `JBIG2Decode` and `JPXDecode` decode
+through the pure-Rust `hayro` crates (Phase M). `Crypt` is the security layer's (7.6).
+An image that will not decode is skipped rather than aborting the page, and the skip
+names the share of the page it covers.
+
+`inspect structure` takes a census of the filters a file's streams name. Across all 524
+files: `/FlateDecode` 485, `/DCTDecode` 21, `/XXXDecode` 8, `/JPXDecode` 3,
+`/LZWDecode` 3, `/CCITTFaxDecode` 2, `/ASCIIHexDecode` 1, and `/JBIG2Decode` none.
+`ZstandardDecode` is not in ISO 32000-2 and was removed
+([ADR-0024](docs/adr/0024-pure-rust-is-a-rule-and-therefore-has-a-check.md)).
 
 ### 7.5 File structure
 
-**Complete and in use.** Header scan, both cross-reference forms, `/Prev` chains, hybrid
-references, object streams, incremental updates, and recovery by scanning.
-`Document::open` reads the file itself; `lopdf` is gone. Recovery has **two** halves
-since Phase N: a scan finds objects written `N G obj`, and an object stored inside a
-`/Type /ObjStm` is not written that way — so every container in the file is expanded
-too, filling holes and never overriding a section that read
-([ADR-0006](docs/adr/0006-a-container-may-not-overwrite-a-newer-revision.md)). Having
-only the first half cost `UnknownFilter-xrefstm.pdf` its page tree, which is object 5
-inside object stream 2.
+Header scan, both cross-reference forms, `/Prev` chains, hybrid references, object
+streams, incremental updates, and recovery by scanning. `Document::open` reads the file
+itself; `lopdf` is gone ([ADR-0003](docs/adr/0003-lopdf-was-not-providing-robustness.md)).
+
+Recovery has two halves:
+- A scan finds objects written `N G obj`.
+- Every object stream in the file is expanded too, because an object stored in one is
+  not written that way. The expansion fills holes and never overrides a section that
+  read ([ADR-0006](docs/adr/0006-a-container-may-not-overwrite-a-newer-revision.md)).
+
+A section that fails to read is a `Decision` naming its offset and filter.
 
 ### 7.6 Encryption
 
-Every password handler the standard defines now decrypts: RC4 (V1/V2), AES-128 (V4/R4)
-and AES-256 (V5/R5, V5/R6) to Algorithms 1, 2, 2.A, 2.B and 4–6, with `/Perms` checked
-and both password roles authenticating. Verified against PDFKit on fourteen files; all
-of it was broken or absent
-([ADR-0009](docs/adr/0009-permissions-are-thirty-two-bits-not-a-positive-integer.md)).
-Writing is AES-256 at revision 6 and nothing else, because output is always 2.0 and this
-edition deprecates the rest. Public-key handlers (7.6.5) are **read and written** — a
-`/Adobe.PubSec` document opens with the certificate it was addressed to, which neither
-Chrome nor Firefox will do, and `--encrypt-to` produces one. Unencrypted wrappers
-(7.6.7) are recognised and reported. **Clause 7.6 is otherwise complete.**
+**Reading:**
+- RC4 (V1/V2), AES-128 (V4/R4) and AES-256 (V5/R5, V5/R6) decrypt, to Algorithms 1, 2,
+  2.A, 2.B and 4–6.
+- `/Perms` is checked, both password roles authenticate, and passwords are SASLprepped.
+  All of it was checked against PDFKit on fourteen files
+  ([ADR-0009](docs/adr/0009-permissions-are-thirty-two-bits-not-a-positive-integer.md)).
+- `/P` is reported and never enforced.
+
+**Writing** is AES-256 at revision 6 and nothing else, because 2.0 deprecates the rest
+([ADR-0015](docs/adr/0015-this-engine-reads-five-encryption-schemes-and-writes-one.md)).
+
+**Also covered:**
+- Public-key handlers (7.6.5) are read and written: `--encrypt-to` produces one.
+- Unencrypted wrappers (7.6.7) are recognised and reported.
+- Signatures (12.8) are written as `ETSI.CAdES.detached` over the engine's own output,
+  and verified with their coverage reported apart from the verdict.
 
 ### 7.7 Document structure
 
-Every one of Table 29's 32 entries is a field of `PdfCatalog`, and **23 are modelled** —
-the field's type says what the entry holds. Measured against all 524 files, 10 of the 32
-keys occur in no file at all and are **declined a reader** for that reason, recorded in
-the code as `catalog::ABSENT_FROM_BOTH_CORPORA`; of the twenty-two keys those files do
-carry, **21 are modelled**, and the one that is not is `/Type`, whose value 7.7.2 fixes
-at `/Catalog`. **Two keys left that list in Phase O-1** — `/AF` went from zero files to
-seventeen when PDF/A-3 and PDF/A-4f arrived, and `/PieceInfo` to one — and both gained
-readers in the same change, which is the rule working: a corpus justifies building,
-never declining. That figure is qualified where it is printed: `inspect catalog`
-reports, per entry, how much of the entry's *own* table its reader covers — `/AcroForm`
-is modelled and reads 4 of Table 224's 8
-([ADR-0020](docs/adr/0020-a-modelled-entry-reports-how-much-of-its-own-table-it-reads.md)).
+Every one of Table 29's 32 entries is a field of `PdfCatalog`, and **23 are modelled**:
+the field's type says what the entry holds. Measured against all 524 files:
+- 10 of the 32 keys occur in no file at all, and are declined a reader
+  (`catalog::ABSENT_FROM_BOTH_CORPORA`, held by a test from the other side).
+- Of the 22 keys those files do carry, **21 are modelled**. The one that is not is
+  `/Type`, which is a check and not a type.
+
+`inspect catalog` also reports how much of each entry's *own* table its reader covers
+([ADR-0020](docs/adr/0020-a-modelled-entry-reports-how-much-of-its-own-table-it-reads.md)),
+because declaring a key is not modelling it
+([ADR-0017](docs/adr/0017-declaring-a-catalogue-key-is-not-modelling-it.md)).
 
 ### PDF 2.0 additions
 
-**Re-derived against the 524, which this row said had not been done.**
-`CatalogReport::survey` over every file of both corpora, 0 unreadable. The counts it
-carried were from the 251-file corpus and four of the eight moved: `/OutputIntents` **64
-→ 188**, `/OCProperties` **1 → 5**, `/PageLabels` **4 → 5**, `/AF` **0 → 17** (which the
-row already knew), `/Threads` **1**, and `/Collection`, `/DSS` and `/DPartRoot` still
-**0 of 524** — declined for want of a file, and that is now measured rather than
-assumed. `/OutputIntents` nearly tripling is the one that matters: it is the second most
-common non-required entry in the corpus after `/Outlines` and `/Metadata`, and the row
-was quoting a figure a third of the truth. **The row's own description is stale in the
-other direction too.** It said the six "each became an `Option<Object>` field … a field
-whose contents are opaque"; every one of them that any file carries reports `Modelled`
-now. The three the corpus does not carry are the three still waiting for one.
+`CatalogReport::survey` over every file of both corpora, 0 unreadable:
+- `/OutputIntents` 188, `/AF` 17, `/OCProperties` 5, `/PageLabels` 5, `/Threads` 1. Every
+  one that a file carries reports `Modelled`.
+- `/Collection`, `/DSS` and `/DPartRoot` occur in 0 of 524, and wait for a file.
 
 ### 8 Graphics
 
-**Optional content (8.11) is honoured while drawing.** `BDC` discarded its property
-list, so an `/OC` section was painted whether its group was on or off, and
-`/OCProperties` — read since Phase K — was consulted by nothing. The default
-configuration's `/BaseState`, `/ON`, `/OFF`, `/Intent` and `/AS` are read, with
-membership dictionaries, all four `/P` policies and `/VE` expressions. Thirteen
-constructions were put to PDFKit and it honours **two**, so eleven are held to the
-clause by 30 tests
-([ADR-0021](docs/adr/0021-optional-content-hides-only-what-the-document-unambiguously-turns-off.md));
-two of those exist because Phase O-1's corpus caught the reader out on a real file. A
-pattern is painted, through `Paint::Pattern(PatternSpec)` — `scn` with a pattern name
-(8.6.8.2) had been read as a grey component, which cost `fy05.pdf` six pages and the 718
-after them. **The two colour defects this row called open are closed**, and it went on
-saying they were open after Phase P closed them: `/Separation` and `/DeviceN` (8.6.6)
-evaluate their tint transform, and a shading (8.7.4) samples its `/Function` at 33
-points instead of reading `/C0` and `/C1`. The evaluator (7.10) carries all four
-`/FunctionType`s, and the checklist entry that built it holds the PDFKit comparison — a
-separation at full tint went from `254 254 254 254` to `0 254 254 254` against PDFKit's
-`25 255 255 255`. Shading types **2, 3 and 4 to 7** are read, the mesh types into
-triangles
-([ADR-0030](docs/adr/0030-a-mesh-is-flattened-and-its-triangles-are-grown.md)). **Type
-1, the function-based shading, is the one that is not**, and both ways into it — `sh`
-and a shading pattern — record a violation naming the resource rather than painting
-nothing quietly. **What none of this rests on is the corpus.** Across all 524 files:
-`/FunctionType 0` seven times, `4` twice, `/Separation` twice, `/DeviceN` once,
-`ShadingType 2` three times, `ShadingType 1` once, and **`/FunctionType 2` and `3` not
-at all** — the stitching gradient this row used to describe as broken does not occur in
-any file here. The evidence is the fixtures Phase P built for the purpose and PDFKit
-beside them, which is worth saying plainly rather than leaving a reader to assume a
-corpus stands behind it.
+**Optional content (8.11)** is honoured while drawing:
+- The default configuration's `/BaseState`, `/ON`, `/OFF`, `/Intent` and `/AS` are read.
+- So are membership dictionaries, all four `/P` policies, and `/VE` expressions.
+- It hides only what the document unambiguously turns off
+  ([ADR-0021](docs/adr/0021-optional-content-hides-only-what-the-document-unambiguously-turns-off.md)).
+
+**Colour and shading:**
+- Patterns paint.
+- `/Separation` and `/DeviceN` evaluate their tint transforms through the function
+  evaluator (7.10), all four `/FunctionType`s
+  ([ADR-0027](docs/adr/0027-a-function-evaluator-and-two-divergences-it-pinned.md)).
+- Shading types 1 to 7 are read, the mesh types into triangles
+  ([ADR-0030](docs/adr/0030-a-mesh-is-flattened-and-its-triangles-are-grown.md)), and
+  Type 1 as a sampled grid.
+- `/Default*` colour spaces and `/CalRGB` are read.
+
+**The corpus is thin here.** `/FunctionType 0` occurs seven times in all 524 files,
+`/Separation` twice, and `/FunctionType 2` and `3` not at all. The evidence is Phase P's
+fixtures with PDFKit beside them.
 
 ### 9 Text
 
-**Re-measured, and then the cause was found two layers below where the row looked.** It
-read *"every page of every sample yields its text"*; 228 of 7727 pages yielded none, and
-counting pages hid the rest — a page that yields *some* text looked extracted. Counting
-glyphs, the loss was **85,982 of 12,305,585**, `bokutokitan.pdf` losing 63% of its
-65,102. **It is 43,123 now, and `bokutokitan.pdf` has no lossy page at all**: page 5
-extracted as `濹東綺譚「絶好…猟奇的…` with every kana missing and now reads 「絶好のチャンスですぜ。猟奇的ですぜ」.
-Three defects, each hiding the next. **A path**: the CID tables were found through a
-*relative* default, so the same document extracted differently by working directory and
-not at all for any consumer of the crate — one root now (`fepdf_font::resources`),
-anchored to `CARGO_MANIFEST_DIR`, `FEPDF_RESOURCES` exclusive. **A repository**:
-`external/adobe-cmaps` is Adobe's *CMap Resources*, which its own README calls
-unidirectional — Unicode to CID. Extraction needs the other direction, which Adobe
-publishes as `mapping-resources-pdf`; the code asked for `Adobe-Japan1-UCS2` **by that
-exact name** and, not finding it, synthesised a table from the encoding CMaps' own
-columns that reached 15,443 CIDs of 23,060. The 7,617 it missed were ordinary text: CID
-12506 is の. **A parser**: `load_named` called `parse_recursive`, which chases `usecmap`
-and nothing else, so **every CMap this engine loaded by name was empty** — 18 MB read
-and parsed into nothing, which is why the synthesis was the only thing that ever
-produced data. Fixing it also corrected multi-byte splitting: `fy05.pdf` decodes 688,388
-glyphs where it decoded 806,252, and loses 3,913 where it lost 5,527. **What remains is
-reported rather than guessed at**: of the 43,123, 39,233 reach no route, 2,801 are named
-and then discarded by the private-use and circled-number filter — and 1,089 reach the
-encoding and come back empty. **2,801 was 2,801 until the withholding was asked what it
-was withholding**: 2,753 of them were circled numbers and 48 were private use.
-Adobe-Japan1 defines 128 CIDs that *are* circled numbers and they carry no Shift-JIS and
-no EUC encoding at all, so only a Unicode-based route reaches them — and every route
-that can produce `U+2460` is authoritative, since the ASCII guess cannot reach past
-`U+007E`. They are kept now. What they spell in `fy05.pdf` is 注⑵, a footnote marker that
-was being deleted from the extracted text in three Japanese documents at about three a
-page. An empty extraction no longer means two things. **Runs separated along a line are
-words now**: the backend inserted a newline when text moved vertically and nothing when
-it moved sideways, so a table's cells arrived glued — `RegionsLabels and
-symbolsSpecification` where PDFKit reads `Regions Labels and symbols Specification`. A
-`TJ` array delivers one call per element, so most gaps between calls are kerning and a
-careless threshold puts spaces inside words; measured across a table page, two prose
-pages and a page of vertical Japanese, kerning reaches 0.055 em at the 99th percentile,
-every real separation is at least 0.15 em, and **nothing falls between 0.15 and 0.25**.
-A quarter of an em sits in that empty band. Prose is unchanged and the table page now
-matches PDFKit exactly. **`/ActualText` is read now (14.9.4), and it was the whole of
-the `.notdef` row.** The 2,106 glyphs this engine could not name were one font on eight
-pages of `volvo_xc90.pdf`, all of them character code `0x0000`: the file draws its
-Chinese and Thai regulatory notices as `.notdef` and puts the real characters in the
-`/Span <</ActualText …>>` around them. Page 389 carries 393 such spans — 169 CJK, 205
-Thai, 17 punctuation — and PDFKit reads exactly 169 CJK scalars from it. The interpreter
-had the property list all along and **flattened every inline dictionary to
-`Object::Null`** on its way to the optional-content code, which is all `/OC` needs from
-one and none of what 14.9.4 puts there. **volvo loses 0 glyphs of 718,262 now**, from
-2,106, and the corpus 38,264 of 16,321,270 at that point. It also fixes a defect that was never
-counted: codes whose `/ToUnicode` says `<0000>` were emitting `U+0000` into the
-extracted text, so `R/7713/19` came out as `R⟨NUL⟩7713⟨NUL⟩19` — not an empty string, so
-never tallied as a loss, and not a character anyone can read either. **The claim that 24
-of `fugaku.pdf`'s 25 pages are legitimately blank was wrong in this row and is gone**:
-the glyph count was right and the conclusion was not, because those pages carry 2,622
-`/ActualText` spans. They extract now — badly, one character per span and mostly
-punctuation, which is the document's own quality and not this engine's to improve. **The
-base encodings of Annex D were reaching the CMap loader, which is a different kind of
-thing.** A simple font's `/Encoding` may name one (9.6.6.1); every such name went to
-`CMap::load_named`, which searches Adobe's *CMap Resources* — CJK character collections
-that have never contained an Annex D table. `/WinAnsiEncoding` therefore resolved to
-nothing and left the font with **no encoding at all**, so every code the ASCII guess
-could not reach came back unnamed. That was 36,914 glyphs of `intel_sdm.pdf`, whose
-1,600 font references all declare it, and the losses were ordinary punctuation: 8,563 em
-dashes, 6,558 bullets, 12,295 curly quotes, 4,940 `®`. **`intel_sdm.pdf` loses 48 now**,
-and the corpus 1,398 of 16,321,270 at that point. Adding the table also exposed a trap it had been
-hiding: a mapping's value carried either the text or `/glyphname`, told apart by the
-leading slash, and `U+002F` **is** a character — the first run of the new table lost
-41,058 glyphs to its own solidus, and a `/ToUnicode` mapping a code to one would have
-been losing it all along — the corpus carries two such mappings, in `volvo_xc90.pdf`,
-and no drawn glyph reached either, which is why nothing showed until a table named every
-ASCII character. Solidi now match PDFKit end to end, 878 against 878 there and 41,116
-against 41,116 in `intel_sdm.pdf`. A name token has something after its slash, which is
-the test now. `MacRomanEncoding` and `StandardEncoding` are deliberately still absent —
-nothing in the corpus names one, and a table written from memory against no document is
-how a wrong entry gets in unnoticed — but a document that names one now records a
-violation instead of silently losing its text. **The 1,398 were two populations and not
-one, and asking which route each reached separated them.** 261 reached *no route at all*,
-and they were one font: `fy05.pdf` sets its title in `RyuminPr6N-Heavy`, which declares
-`/Registry (Adobe) /Ordering (Japan1)` and got no Adobe-Japan1 table, because the engine
-decided a font's character collection by looking for `mincho`, `gothic`, `koz` and six
-more substrings in `/BaseFont` while the file said so outright. Two defects, the first
-hiding the second: `/Registry` and `/Ordering` are **strings** (9.7.3, Table 114) and were
-read with a name accessor, so 116 of 116 Type0 fonts across both corpora returned `None`;
-and the collection was read only on the `Type0`, while the interpreter decodes through the
-descendant `CIDFont`, which carries its own (Table 115) and was never asked. It is read
-from the file now, on both, and the name heuristic is kept only where the file declares
-`Identity` or nothing — 75 fonts, where it is the only thing to go on. Page 1 of
-`fy05.pdf` reads 令和5年度決算検査報告 instead of nothing, the corpus loses **1,137 of
-16,321,270**, and the `unmapped` route is 0 across the nine samples
-([ADR-0041](docs/adr/0041-a-character-collection-is-declared-not-guessed.md)). **The guess
-was also wrong in the other direction**: 19 fonts of the external corpus declare
-`Adobe-Korea1` or `Adobe-China1` and carry `Gothic` in their name, so the *Japanese* table
-was applied to them — Adobe-Japan1 puts `フ` at CID 16128 where Adobe-Korea1 puts `췎`. One
-such glyph is drawn in the corpus; it is unnamed now, under a 9.7.3 violation naming the
-collection, and PDFKit reads no text from that page either. **The other 1,089 will not go
-down and the record says why.** They are `/Differences` names `c033`–`c039` in 127
-subsetted Type1 fonts of `fy05.pdf`; PDFKit reads them as `!"#$%&'`, and rendered they are
-the 圏点 above ため池 and the corner and extension pieces of brackets stretched over five
-lines of a table. Adopting the second implementation's reading would put 1,089 spurious
-ASCII characters into one document's text
-([ADR-0042](docs/adr/0042-a-glyph-name-that-looks-like-a-character-code-is-not-one.md)).
+**Extraction loses 1,137 glyphs of 16,321,270**, and every one is accounted for:
+- The loss was 85,982 of 12,305,585 before the causes below were found. `volvo_xc90.pdf`
+  loses 0 of 718,262, and `intel_sdm.pdf` 48.
+- The other **1,089 stay lost on purpose.** They are `/Differences` names `c033`–`c039`
+  in `fy05.pdf`, which draw 圏点 and bracket pieces rather than ASCII
+  ([ADR-0042](docs/adr/0042-a-glyph-name-that-looks-like-a-character-code-is-not-one.md)).
+
+What it reads, and from where:
+- **CID tables:** Adobe's `mapping-resources-pdf`, from one resource root
+  (`fepdf_font::resources`).
+- **Character collections:** each font's `/CIDSystemInfo`, where the file declares one.
+  A name heuristic is used only where it declares `Identity` or nothing
+  ([ADR-0041](docs/adr/0041-a-character-collection-is-declared-not-guessed.md)). All five
+  Adobe collections are read
+  ([ADR-0044](docs/adr/0044-the-other-four-collections-were-already-on-disk.md)).
+- **Base encodings:** Annex D's, read as tables and not as CMaps
+  ([ADR-0036](docs/adr/0036-a-base-encoding-is-not-a-cmap.md)).
+- **`/ActualText`** (14.9.4).
+
+How the text is assembled:
+- Runs separated by more than a quarter em along a line are words.
+- Runs are sorted into reading order
+  ([ADR-0047](docs/adr/0047-text-extraction-sorts-runs-into-reading-order.md)), and ruby
+  is bound to its base ([ADR-0050](docs/adr/0050-ruby-is-bound-to-the-base-it-reads.md)).
 
 ### 10 Rendering
 
-6.3.2.2 binds anything that draws a page with two `shall`s, and both are met: optional
-content is honoured (8.11) and **annotation appearance streams are drawn** (12.5.5) —
-the second was not done at all until Phase P found the clause, and a page whose only
-mark was an annotation came out blank while every other reader painted it
+6.3.2.2's two `shall`s are met: optional content is honoured, and annotation appearance
+streams are drawn
 ([ADR-0023](docs/adr/0023-a-renderer-that-skips-annotation-appearances-is-not-conforming.md)).
-What the clause's own subclauses ask for is thinner: the **PDF function evaluator
-(7.10)** now exists — types 0, 2, 3 and 4 — which fixed clause 8's two measured colour
-defects, though `/DeviceCMYK` to RGB is still not colour managed. **10.5 and 10.6 are
-declined on their own clauses**: 10.6.1 exempts continuous-tone devices from halftoning
-and this engine is one, and `/TR`/`/TR2` are deprecated in 2.0, which 3.15 defines as
-"should be ignored by a PDF processor". 10.7's scan conversion is Vello's — including
-the antialiasing seam between adjacent mesh triangles, which is a scan-conversion
-artefact rather than a shading one and is answered by growing each triangle half a
-device pixel. 10.8's separations follow the colour gap. Phase P.  **Two of
-`volvo_xc90.pdf`'s 415 pages came back entirely blank, and they render now.** Pages 10
-and 389 rasterised to a fully transparent buffer at 96 DPI while rendering correctly at
-half that — all-or-nothing, and dependent on resolution rather than content. **The cause
-was a clip drawn as a blend.** `VelloBackend::push_clip` called `Scene::push_layer`,
-which asks for a blend layer, where `push_clip_layer` exists and asks for a clip; blend
-memory is consumed per nesting level and is the one resource `Scene::bump_estimate` does
-not model, so nothing warns before the GPU runs out. The correlation is exact: every
-page that rendered has clip depth 1, and the two that did not have depth 6 and 7. Scene
-size was not it — page 388 estimates 12.0 MB and renders, page 389 estimates 7.7 MB and
-did not. A clip is a clip, and saying so is the whole fix. **The guard stays**:
-`base_color` is opaque, so a completed render cannot leave a transparent pixel anywhere
-and a fully transparent buffer is proof the rasteriser stopped — `render_to_texture`
-reports `Ok` either way, and `render_page_to_file` wrote that buffer to a PNG and said
-nothing.
+
+**Colour, and what is declined:**
+- `[/ICCBased …]` colours go through their profile.
+- `/DeviceCMYK` without one follows 10.4.2.1.
+- Halftones (10.6) and `/TR`/`/TR2` are declined on their own clauses
+  ([ADR-0029](docs/adr/0029-halftones-and-transfer-functions-are-declined-on-their-clauses.md)).
+- Text rendering modes are drawn as Table 106 says, so mode 3 paints nothing.
+
+**The rasteriser:**
+- Vello scan-converts, and a clip is pushed as a clip layer, not a blend.
+- The scene is byte-identical on every run. The GPU rasteriser is not; the CPU one
+  (`publish render --cpu`) is
+  ([ADR-0043](docs/adr/0043-the-scene-repeats-and-the-rasteriser-does-not.md)).
 
 ### 11 Transparency
 
-**Re-measured, and then built.** Blend modes (11.3.5) and constant alpha (`/ca`, `/CA`)
-reached the backend and were pinned by `transparency_test.rs`; a soft mask did not.
-`/SMask` in an `/ExtGState` was read into the interpreter's state and used by nothing —
-the write had no reader and `RenderBackend` had no entry point — so a `/S /Luminosity`
-mask whose group paints solid black, which 11.6.5.2 makes 0 everywhere, left the content
-it covered at full strength with an empty log beside it. **160 of them in
-`volvo_xc90.pdf` alone**, across its 415 pages. **They are applied now.** `SoftMaskSpec`
-carries `/S`, `/BC` and `/TR` as one thing — a function from a position to an alpha — so
-the interpreter brackets the content, replays the group in the matrix `gs` was executed
-under, and hands the backend the spec; which parts of it can be honoured is the
-backend's question. Vello's `push_luminance_mask_layer` takes the plain case exactly,
-and **all 160 of `volvo_xc90.pdf`'s masks are the plain case** — 0 use `/S /Alpha`,
-`/BC` or `/TR`, so the branch that cannot express them fires nowhere in the corpus and
-is recorded rather than approximated where it would. **Transparency groups (11.6.6) are
-still not read**: a form carrying `/Group << /S /Transparency /I true /K true >>`
-produces backend calls identical to the same form without the entry, so isolation and
-knockout are absent rather than approximate, and are recorded when `/I` or `/K` asks for
-something — 0 firings on the samples.
+Blend modes (11.3.5), constant alpha, and luminosity soft masks reach the backend, and
+a mark in a mode other than `Normal` is composited in a layer of that mode. All 160 of
+`volvo_xc90.pdf`'s masks are the plain case. `/S /Alpha`, `/BC` and `/TR` are recorded
+where they are asked for rather than approximated.
+
+Transparency groups' isolation and knockout (11.6.6) are not read. They are recorded when
+`/I` or `/K` asks for something.
 
 ### 12 Interactive features
 
-Read through `inspect interactive`, and signature fields (12.7.5.5, 12.8) can be written
-and checked. Named destinations (12.3.2) **resolve**, through both of 12.3.2.3's forms
-and the name tree (7.9.6) one of them needs — which found a link in `intel_sdm.pdf` that
-goes nowhere, `(G3.7717)`, referenced three times and declared in none of that file's
-279,501 destinations. `samples/` exercises one annotation subtype — all 29,973 of its
-annotations are `/Link` — and this row said that of *the corpus* for as long as there
-was only one; the 515 external files carry 125 annotations across **18** subtypes and
-twelve terminal form fields. `PdfAnnotation` held seven entries of Table 166 and no
-`/AP`, which made a `/Redact` and a `/Watermark` the same object; Phase J took it to all
-nineteen. **29 distinct entries across the remaining subtypes still have no reader**,
-each on an annotation that occurs once or twice. All 30,098 annotations parse. **What a
-document *does* is read** (`inspect actions`, 12.6): every place an action can hang,
-what it lets the document do, and whether the reader has to touch anything first — which
-found the only two files of 524 that run code on open
-([ADR-0022](docs/adr/0022-what-a-document-does-is-a-settled-question-where-reads-an-action-is-not.md)).
-**Setting a field value builds the appearance** (12.7.4.3) instead of writing
-`/NeedAppearances`, which 2.0 deprecates; a form declaring a calculation order is told
-its ECMAScript was not run — **a `Violation` of 12.6.3, and the sentence that decided
-ADR-0026**, because it is this engine reporting that it undertook form editing and
-cannot finish it — and `/Requirements` (12.11) reports the subsets a document asks for
-that this processor does not deliver. `EnableJavaScripts` is the one name on that list,
-and since 2026-08-22 it is there as **chosen and not yet met** rather than as a refusal.
+**Reading:**
+- `inspect interactive` reads Table 166 entire, and the markup entries of Table 172. It
+  reads subtype-specific entries for every subtype a corpus writes more than once, and
+  the form walk with 12.7.4.2's inheritance.
+- Named destinations resolve through both of 12.3.2.3's forms.
+- `inspect actions` reads what a document does and whether the reader has to touch
+  anything first
+  ([ADR-0022](docs/adr/0022-what-a-document-does-is-a-settled-question-where-reads-an-action-is-not.md)).
+
+**Writing:**
+- Twelve annotation kinds, each with the appearance it is drawn by.
+- The nine field types (12.7.4); setting a value builds its appearance (12.7.4.3).
+- Tab order (`/Tabs`) and calculation order (`/CO`).
+- A form's calculation scripts are run by the script frontend (Phase R).
+
+29 entries across annotation subtypes that occur once or twice have no reader.
 
 ### 14 Document interchange
 
-**Re-measured against the 524.** Marked content (14.6) and logical structure (14.7) are
-read and acted on, and the corpus says how much that covers: `/MarkInfo` and
-`/StructTreeRoot` each in **142 files**, which is the same 142 — a tagged file carries
-both. Associated files (14.13) **17**, page-piece dictionaries (14.5) **1**, both
-`Modelled`. **Two subclauses are absent from every file of both corpora**: `/SpiderInfo`
-(14.10, web capture) and `/Legal` (14.11) are **0 of 524**, so declining them is a
-measurement now and not an omission — the same test ADR-0026 applies to everything else.
-What this row still does not say is how deep the walk goes: presence and support level
-were measured, the UA-2 audit's own coverage was not, and `fepdf inspect` reports per
-entry how much of its own table it reads
-([ADR-0020](docs/adr/0020-a-modelled-entry-reports-how-much-of-its-own-table-it-reads.md))
-which is the figure to derive next.
+**Reading:**
+- Marked content (14.6) and logical structure (14.7) are read; 142 files of 524 carry
+  both `/MarkInfo` and `/StructTreeRoot`.
+- Associated files (14.13) occur in 17 files and page-piece dictionaries (14.5) in 1,
+  both `Modelled`. `/SpiderInfo` (14.10) and `/Legal` (14.11) occur in 0 of 524.
+
+**Auditing:** the Matterhorn Protocol auditor decides 112 of its 137 failure conditions,
+and leaves 13 to a person (W-21).
+
+**Editing:**
+- The structure tree is edited through the vocabulary: tags, text strings, attributes,
+  `/Ref`, namespaces, associated files.
+- Marking content as an artifact, and wrapping kids in a new element (W-22).
 
 ### 14.3 Metadata
 
-Settled at load into one state: `/Info` and the metadata stream are reconciled,
-disagreements recorded, and the entries 14.3.3 deprecates moved to where that clause
-puts them ([ADR-0013](docs/adr/0013-a-document-is-one-normalised-state.md)). Text
-strings decode to 7.9.2.2 — PDFDocEncoding from Annex D, or a byte order mark — after a
-Shift-JIS detector was found corrupting a conforming `/Title`. `--strip` removes every
-metadata stream, not the catalogue's alone.
+**At load:**
+- `/Info` and the metadata stream are settled into one state; disagreements are
+  recorded, and the entries 14.3.3 deprecates move out of `/Info`
+  ([ADR-0013](docs/adr/0013-a-document-is-one-normalised-state.md)).
+- Text strings decode to 7.9.2.2.
 
-One measurement worth carrying forward: all **30** `Operation` variants are fully
-implemented and verified — 24 until Phase Q enforced Rule D, which turned six of the
-facade's mutating methods into operations and left `apply` as the only way to change a
-document. In `fepdf-model` and `fepdf-syntax` the `log::warn!` count is
-down from 14 to one, and that one is deliberate: it reports which fonts *this machine*
-has, not anything the document says.
+**The XMP packet** is rebuilt from the fields the engine models, and everything else in
+it is carried as written: a standard's identification, PDF Declarations, extension
+schemas ([ADR-0099](docs/adr/0099-the-xmp-packet-carries-what-the-engine-does-not-write.md)).
 
-**That sentence used to say "in the engine", and the engine is bigger than those two
-crates.** The figure across the whole engine is **16**, of which **3 are deliberate** —
-each a property of the *host* rather than the document. The other thirteen sit in
-`fepdf-content` (8, one discarding *"Unknown or unhandled operator"* to stderr),
-`fepdf-font` (3) and `fepdf-render` (2), and each is a conclusion about the document, which
-§4.3 makes a `Decision`. The `status.sh` row searched two crates and put the other three in
-**neither** list, so it could not have said so and adding sites to them moved nothing; it
-now derives the engine as every crate that is not a frontend. Phase P for the conversions,
-Phase Q for the row. Frontends still log freely, which is their job.
-
-`./scripts/dev/status.sh` re-derives these figures, so a number that has gone stale
-shows up as a disagreement rather than reading as current.
+**At save**, `--strip` removes every metadata stream.
 
 ---
-
-## Phase A — Own the reader *(complete)*
-
-Replacing `lopdf` was the gate on everything else: what the engine could read was
-otherwise bounded by another project's coverage, and the robustness it was kept for
-was measured absent ([ADR-0003](docs/adr/0003-lopdf-was-not-providing-robustness.md)).
-
-- [x] Byte layer: header scanning, cross-reference tables, `startxref`, recovery scan
-
-- [x] Cross-reference streams, `/Prev` chains, hybrid references
-
-- [x] Indirect objects from offsets, with `/Length` repair recorded as a `Decision`
-
-- [x] Object stream expansion
-
-- [x] Document assembly — an object's handle **is** its object number, so the
-      remapping table is gone; decryption runs on the arena (`decrypt.rs`)
-
-- [x] `Document::open` switched, with every sample compared before and after
-
-- [x] `lopdf` deleted: 95 references, the dependency, and the credits entries
-
-- [x] `log::warn!` sites converted to `Decision`s
-
-### What the switch actually changed
-
-Round-tripping all nine samples through `publish upgrade` on both paths, compared by
-`examples/compare_documents.rs` — which walks the catalogue, numbers objects by the
-order they are reached, and sorts dictionary keys, so neither renumbering nor key
-order can masquerade as a difference:
-
-| Sample | Reachable objects | Differing |
-| :--- | ---: | :--- |
-| `bokutokitan`, `constitution`, `fugaku`, `sample`, `print_sample`, `volvo_xc90` | 80–26,847 | 1 each |
-| `intel_sdm` | 332,814 | 1 |
-| `fy05` | 4,586 | 2 |
-| `unicode_16` | 8,280 | 179 |
-
-Every "1" is the XMP packet, whose `xmpMM:InstanceID` is a fresh UUID per instance.
-**Byte-identical was not an achievable criterion**: the old path was not byte-stable
-against itself either, differing in exactly those 31 bytes between two runs of the
-same binary. The remaining 178 differences in `unicode_16` and one in `fy05` are real
-numbers: `lopdf` parsed them as `f32`, so `302.498454` came back as `302.498444`.
-
-On the six deliberately malformed files, `publish upgrade` now succeeds on five where
-it previously succeeded on one. The sixth is truncated before its trailer and has no
-`/Type /Catalog` anywhere; it now fails with a message that says so rather than
-`Object Handle<Object>(0) is not a dictionary`.
-
-One defect was found by cross-checking against an independent reader rather than by
-any of the above — see
-[ADR-0006](docs/adr/0006-a-container-may-not-overwrite-a-newer-revision.md).
-
-## Phase B — Read before write *(complete; `inspect encryption` landed in Phase C)*
-
-Semantic completeness starts with being able to *see* a feature. `inspect` began with
-four commands — `info`, `audit`, `text`, `tree` — against roughly fifteen clauses, and
-nothing reported encryption, interactive features, or file structure. It now has eight,
-covering 7.5, 7.6, 7.7.2 and clause 12, with the decision log on all of them.
-
-- [x] `inspect structure` — file layout: sections, updates, object streams, and the
-      decisions taken while reading. Text, JSON and Markdown; reads the bytes rather
-      than a normalised `Document`, so it reports the file as written
-
-- [x] `inspect catalog` — every entry, typed or not, so gaps are visible. Which
-      entries are *typed* is derived from `PdfCatalog`'s `#[pdf_key]` attributes
-      rather than listed again, so the report cannot drift from the struct
-
-- [x] `inspect interactive` — annotations by subtype, form fields walked through
-      `/Kids`, actions by `/S`, and the outline as total, visible and declared. No
-      sample carries a form field, so that walk is held by a hand-assembled fixture
-
-- [x] `inspect encryption` — done in Phase C, once there was something correct to
-      report on. Handler, revision, key length, cipher from `/CFM`, crypt filters,
-      `/P` decoded bit by bit, and **what this engine does with it**
-
-- [x] Surface `DecisionLog` in every output format, not only `audit` — and
-      structured, not stringified: the audit had been flattening every decision to
-      `Warning` regardless of the severity the engine assigned
-
-### What surveying the corpus first turned up
-
-`examples/structure_survey.rs` was written before the command, because a column whose
-value is the same for every file is a column not worth printing. It found the opposite
-problem — a column that was wrong.
-
-The reader recorded an `Ambiguity` for every indirect `/Length`, a form the standard
-permits, so `sample.pdf` reported 31 departures and `DecisionLog::is_conforming` was
-`false` for a conforming file. Fixing it exposed two further tolerances the noise had
-hidden: a header at a non-zero offset and a missing trailer dictionary were both
-accepted in silence ([ADR-0008](docs/adr/0008-an-indirect-length-is-not-an-ambiguity.md)).
-
-| Corpus | Decisions recorded, before → after |
-| :--- | :--- |
-| nine samples | 31, 31, 0×7 → **0 each** |
-| five readable malformed files | 31, 31, 31, 22, 0 → **1–3 each, naming the damage** |
-
-One gap is left deliberately: an indirect `/Length` pointing at the *wrong* object is
-still read silently, because the reader never resolves the reference to compare. The
-correct extent is found by scanning either way, so nothing is misread — but the file's
-non-conformance goes unreported. `examples/length_crosscheck.rs` detects it from
-outside until the reader can.
-
-## Phase C — Clause 7.6
-
-Independent of A and B, and the area where a partial implementation is most harmful.
-
-- [x] AES-128 (V4/R4) actually decrypts. It did not: `/P` was read as a positive
-      integer, failed to convert, and `unwrap_or(0)` fed a different key into
-      Algorithm 2, so the one encrypted sample decrypted to noise and `publish
-      upgrade` wrote that noise out
-      ([ADR-0009](docs/adr/0009-permissions-are-thirty-two-bits-not-a-positive-integer.md))
-
-- [x] User-password validation (Algorithm 6). A wrong password used to open the
-      document and report 29,438 font failures; it is now refused
-
-- [x] `inspect encryption` — handler, revision, key length, cipher, crypt filters,
-      Table 22 decoded, and a conformance verdict per file rather than per declaration:
-      a document can declare AES-256 and be unreadable, which is the case the report
-      exists to make visible
-
-- [x] RC4 (V1/V2), and `/V 4 /CFM /V2`. `build_handler` matched only `(4,4)` and
-      `(5,5|6)`, so every pre-AES file was refused; `is_aes` was set `true` at both
-      construction sites and no path could clear it, so a crypt filter naming RC4 was
-      decrypted as AES. Test data comes from `scripts/test/make_encrypted.py`, which
-      implements Algorithms 1–5 independently
-
-- [x] AES-256 R5/R6 to Algorithm 2.A, with 2.B transcribed from 7.6.4.3.4. The old
-      derivation invented salts from `/ID` and returned a handler for **any** password,
-      so the file opened and decrypted to noise. `/Perms` is checked (step f), and both
-      the user and owner passwords authenticate
-
-- [x] Owner-password validation — Algorithm 2.A tries `/U` then `/O`, so an owner
-      password opens a document whose user password is unknown
-
-- [x] `/P` handling settled: **reported, never enforced**. It is readable without a
-      password, is not cryptographically bound to any operation, and 7.6.4.1 puts
-      obeying it at `should`. Refusing would over-read a soft declaration; the defect
-      was that writing *erased* it in silence. Now recorded as a violation at write
-      time, and only under user access — an owner password carries the right to change
-      the permissions. The `save_*` methods return `Vec<Decision>` so the compiler asks
-      every caller what it intends to do with them; the GUI shows them after saving,
-      which is the only moment they are actionable
-
-- [x] Owner-password authentication for revisions 2–4 (Algorithm 7), which the access
-      distinction needs and which 7.6.4.1 requires regardless: either password should
-      open the document
-
-- [x] SASLprep (RFC 4013) on passwords, which 2.A step (a) requires — NFKC and the
-      two mapping tables, applied in `fepdf-model` so the byte layer stays free of
-      Unicode tables. Its prohibited-output and bidi checks are not implemented: they
-      *refuse* passwords, and refusing one a conforming reader accepts is the failure
-      being fixed. Measured on a fixture whose `/U` stores the normalised form of a
-      ligature — PDFKit opened it and fepdf did not
-
-- [x] Digital signatures (12.8), both directions. `publish sign` wrote
-      `/SubFilter /adbe.pkcs7.detached` with 8,192 zero bytes for `/Contents` and a
-      `/ByteRange` of four constants; `verify-signature` passed an empty slice to a
-      validator that returned success for every document including unsigned ones. Both
-      now do the work. Signing is a two-pass write — the signature covers the file
-      except itself, so the writer reserves `/ByteRange` and `/Contents`, records where
-      it put them, then states the range, hashes what it names and fills the hole.
-      A caller may not supply either field: one that could state a byte range could
-      state a wrong one. `/SubFilter` is `ETSI.CAdES.detached`, which required adding
-      the `signing-certificate-v2` attribute ETSI EN 319 122-1 defines, because the
-      subfilter is a claim to be CAdES. The field is invisible — `/Rect [0 0 0 0]`, no
-      `/AP` — since a widget with a rectangle and no appearance stream is a box viewers
-      draw empty. A signed file may also be encrypted; a signed or encrypted file may not
-      be linearized, and says so. **Scope**: fepdf signs only what it wrote itself, so the byte range is
-      over its own output ([ADR-0014](docs/adr/0014-the-faithful-copy-path-is-not-built.md)).
-      Verification reports coverage apart from the verdict, because appending after a
-      signature leaves it valid over the part it covers — and says what it did *not*
-      check: no trust store, no validity window, no revocation.
-      `scripts/test/crosscheck_signature.sh` requires openssl and fepdf to agree on all
-      nine samples, and proves it can fail by changing a byte
-
-- [x] Encrypting on write, **AES-256 revision 6 only**. `--password` claimed to encrypt
-      and produced a plaintext file: nothing called `set_security_handler`, so
-      `encrypt_stream` was unreachable. It encrypts now. This engine reads five schemes
-      because files exist that use them, and writes one
-      ([ADR-0015](docs/adr/0015-this-engine-reads-five-encryption-schemes-and-writes-one.md)):
-      output is always PDF 2.0, and 7.6.4.1 deprecates RC4 and the Algorithm 2
-      derivation in that same edition.
-      `SecurityHandler` could only authenticate against an `/Encrypt` that already
-      existed; `encrypt_new` generates a key and runs Algorithms 8, 9 and 10 to make one.
-      `--permissions` is un-hidden with it, taking the keywords `inspect encryption`
-      prints, from one table so the two directions cannot disagree. Giving no owner
-      password is recorded rather than defaulted in silence, because `/P` then restricts
-      nobody who can open the file. Verified by `scripts/test/crosscheck_encryption.sh`:
-      PDFKit opens all nine and reads the same text as the plain save
-
-- [x] Public-key security handlers (**7.6.5**, not 7.6.4 as this line read until it was
-      checked against the standard; 7.6.4 is the *standard* security handler) — **reading**.
-      `--recipient-certificate` and `--recipient-key` open a `/Adobe.PubSec` document. The
-      key is derived from a 20-byte seed unwrapped from a CMS `EnvelopedData`, digested
-      together with every `/Recipients` entry in order, which is what binds the key to
-      the recipient list. `/KDFSalt` is in the same dictionary and is *not* key material —
-      it belongs to PDF 2.0's document MAC. `/Recipients` lives in the crypt filter for
-      `/V` 4 and 5, not at the top of `/Encrypt`. Verified backwards, because there is
-      nothing to compare against: pdf.js rejects any non-Standard `/Filter`, PDFium
-      handles only Standard, and qpdf documents that it does not support this. So an
-      independent producer makes the file and fepdf has to get the plaintext back —
-      pyHanko's output and `make_pubsec.py`'s both read byte-identically to the plaintext
-      they were made from. **Writing** is `--encrypt-to <cert.der>`, repeatable for more
-      recipients; only the certificate is needed, since encrypting to someone uses their
-      public half. Both directions share one derivation function, because two copies of a
-      key derivation agree until somebody edits one and the failure is a document only
-      this engine can open
-
-- [x] Unencrypted wrapper documents (7.6.7) — recognised and reported, which is all
-      the clause can ask of a reader: the payload is encrypted by a handler *this*
-      standard does not define, so naming the missing filter is the service. Each of
-      the clause's conditions is reported separately, met or not, because a producer
-      that gets four of five right has still said what filter is needed
-
-- [x] A corpus of encrypted files as regression tests — five, built independently:
-      RC4 40- and 128-bit, AES-256 at revisions 5 and 6, and one with distinct user and
-      owner passwords. `scripts/test/aes.py` is a pure-Python AES checked against
-      FIPS-197, so the fixtures do not depend on the engine they test
-
-- [x] Explain the 93 characters `fy05.pdf` loses through a round trip. It was 93
-      *pages*, five of them losing all their text, because the refinement pass
-      synthesised a `/ToUnicode` keyed on glyph ids for a `CIDFontType0`
-      ([ADR-0010](docs/adr/0010-a-synthesised-tounicode-keyed-on-glyphs-destroys-text.md))
-
-- [x] Explain what `fy05.pdf` gains through a save. Every operand was padded to six
-      decimal places, so `1` went out as `1.000000`; PDFKit read the padded spelling to
-      glyph origins a thousandth of a point away and moved its line breaks on 78 of 846
-      pages. Trimming the zeros takes the whole corpus to a zero delta — the first time
-      `crosscheck_roundtrip.sh` has reported no difference on any file
-
-- [x] Output larger than input. Not two images, as this line first read: nothing was
-      compressed, because `SaveOptions` derived its default and `compress` was `false`
-      while `fepdf-gui` had always set it `true` — the same operation, two answers, which
-      is what Rule D exists to stop. `fy05.pdf` goes from +76% to −46%
-
-- [x] Write object streams (7.5.7), with the cross-reference streams (7.5.8) they
-      require. `SaveOptions::obj_stm` was carried and read by nothing; `--obj-stm` now
-      packs. `intel_sdm.pdf` keeps 323,066 of its objects in 8,044 containers and went
-      from **+131% to +1%**; every other sample shrank too — `volvo_xc90` +1% to −13%,
-      `unicode_16` −3% to −14%. The two are one switch because a classic cross-reference
-      table has no type 2 entry, so it cannot say where a packed object lives. Four
-      things stay loose: streams, generation-non-zero objects, `/Encrypt`, and this
-      engine's own addition — the signature dictionary, whose `/Contents` is a hole at a
-      byte offset. **Packed by default** since a second independent reader was obtained
-      and agreed: PDFium — Chrome's engine, sharing no code with PDFKit — reads the same
-      text out of the packed file page by page on all nine, and opens a packed *and*
-      encrypted one with the password
-      ([ADR-0016](docs/adr/0016-objects-are-packed-by-default.md)). `--no-obj-stm` writes
-      the loose form, which is what to reach for when debugging the writer
-
-- [x] Implement or delete every `SaveArgs` option that did nothing. All five are
-      decided. `--permissions` came live with encryption on write; `--lang` writes
-      `/Lang` (14.9.2.1) and `--copyright` writes `dc:rights`. `--image-quality` and
-      `--diff` are deleted: the first is a feature wearing a flag — decode and re-encode
-      every `DCTDecode` image, generation loss on something already lossy — and the
-      second printed "Structural diff would be displayed here (M67 enhancement)" for an
-      operation that is not an option on writing a file, and that
-      `examples/compare_documents.rs` already does properly. ADR-0007 asked for exactly
-      this audit and named `SaveArgs` as the place it had not been done
-
-- [x] Make the content round trip a fixed point. It was not: `W n` came back as
-      `W n n` and grew by 52 bytes on every pass, while `W f` came back as `W n f` and
-      lost the fill outright
-      ([ADR-0011](docs/adr/0011-the-content-round-trip-must-be-a-fixed-point.md))
-
-- [x] Settle what a save *is*: it produces a new document derived from the input, not
-      an edit of it ([ADR-0012](docs/adr/0012-saving-produces-a-new-document.md)). The
-      revision chain is merged at load — fy05's three sections become one — so there is
-      no history to preserve by the time anything is written. Origin is recorded in
-      `xmpMM:DerivedFrom` and `xmpMM:OriginalDocumentID`; what the source carried and
-      the output cannot is reported at write time
-
-### The corpus is now three files, and that is why the defects surfaced
-
-`scripts/test/make_encrypted.py` builds RC4 fixtures from `samples/constitution.pdf`,
-implementing Algorithms 1–5 from the standard with nothing but `hashlib`. Generating
-them with fepdf's own cryptography would have tested it against itself; PDFKit reads
-both fixtures and extracts the same 12,120 characters as the unencrypted source, so the
-generator is right and any disagreement is the engine's.
-
-Round-tripping the whole corpus through `publish upgrade` and reading the output with
-PDFKit is now a standing check. It found the one thing internal comparison could not:
-`fy05.pdf` was losing whole pages of text to a `/ToUnicode` the engine synthesised for
-it ([ADR-0010](docs/adr/0010-a-synthesised-tounicode-keyed-on-glyphs-destroys-text.md)).
-All seventeen files now come back with their text intact, at a zero delta.
-
-### Why the corpus item is not optional
-
-One encrypted file exercises the whole clause, and for as long as its content decrypted
-to noise every internal check passed: it opened, its page count matched PDFKit's 1,140,
-its objects counted the same, and `publish upgrade` reported success. The comparison in
-`examples/compare_documents.rs` could not have caught it either — it compares two fepdf
-reads, and both were the same noise.
-
-What caught it was reading the file with something else. `scripts/dev/status.sh` now
-asserts text comes out of that sample, because asserting it *opens* passed throughout.
-
-## Phase C′ — The hole in the cross-checks
-
-Not a clause. A method gap, found three times in one day, each time the same shape:
-**an independent reader was asked and this engine was not.**
-
-| Found | Independent reader said | This engine | Since |
-| :--- | :--- | :--- | :--- |
-| Encryption through object streams | PDFKit read it | could not read its own output | reachable for one day, latent longer |
-| `inspect text` stopping at the first bad page | PDFKit read 846 | reported 127 and exited non-zero | at least the 2026-08-10 rename |
-| `scn` with a pattern name (8.6.8.2) | PDFKit read the page | six pages failed | at least the 2026-08-10 rename |
-
-"At least" because `git log -S` stops at the rename that touched every file; the repository
-begins 2026-04-11, so the true answer is somewhere in that four months and is not worth
-the archaeology. The first defect is different in kind: the reader has always expanded
-object streams before decrypting, and packing by default is what made that reachable.
-
-`crosscheck_roundtrip.sh` measures text with PDFKit on both sides of a save, so it
-answers "did writing lose anything" and cannot answer "can this engine read what it
-just wrote". The other three cross-checks inherited the shape: `crosscheck_objstm.sh`
-asked PDFKit whether a packed *and encrypted* file was readable and PDFKit said yes,
-correctly — the writer was right the whole time, and nobody asked the reader.
-
-Three from one gap is enough to expect a fourth.
-
-- [x] `scripts/test/crosscheck_selfread.sh` reads every produced file back with this
-      engine and compares against the same engine's reading of the input — 21 states
-      across packing, both encryption handlers and signing. No second implementation,
-      so `status.sh --full` runs it
-
-- [x] Combinations rather than features, which is what the matrix is for: injecting the
-      encryption-through-object-streams defect fails exactly the four *packed and
-      encrypted* states and leaves the loose ones green
-
-- [x] **A comparison cannot see a symmetric defect**, which injection found rather than
-      reasoning: with the `scn` defect put back, every combination still compared equal,
-      because the reader loses the same pages on both sides. Two of the three defects
-      were that shape. The check therefore also asserts that every page of every sample
-      extracts at all — the exit status the comparison discards — and *that* is what
-      catches them
-
-## Phase D — The catalogue and PDF 2.0 features
-
-Only now do the 19 stub operations become worth implementing, because reading exists
-to verify them against.
-
-- [x] Type the remaining catalogue entries (all 32 of ISO 32000-2 Table 29's entries
-      are now strongly typed with `#[pdf_key]` mappings in `PdfCatalog`).
-
-- [x] `PageMode`, `PageLayout` and `Lang` — 10 of 32 typed becomes 13. The two name
-      entries are enums with an `Other(String)` arm: their value sets grew in 1.5 and
-      1.6, so a file may carry a name newer than this code, and folding that to a default
-      would invent an answer where keeping it loses nothing. `Lang` closes an asymmetry
-      made in the same session it was created — `--lang` wrote it and nothing read it
-
-- [x] `ViewerPreferences` — 13 of 32 typed becomes 14, and the largest of these entries:
-      Table 147's eighteen keys plus four name enums. **Every field is an `Option`,
-      including the five booleans the table defaults to `false`**, because a document that
-      says nothing must not come back stating a viewer's policy as its own — and
-      `fy05.pdf` carries an *empty* `/ViewerPreferences`, which under defaulting would
-      read identically to a producer who had deliberately written those five. Only two of
-      the eighteen keys occur in the corpus (`DisplayDocTitle` in four files, `Direction`
-      in one); the rest are typed anyway because Table 147 is one dictionary of scalars,
-      not a subsystem, which is exactly what `DSS`, `AF` and `DPartRoot` are not.
-      `PdfDocument::viewer_direction` no longer walks the raw dictionary for one key, and
-      `Document::catalog()` now exists so the next entry has somewhere to be read from
-
-- [x] `Dests` — 14 of 32 becomes 15, and measuring first turned one catalogue entry into
-      a feature. `ROADMAP.md` had it as "one file", true of the *entry*: only
-      `volvo_xc90.pdf` carries a catalogue `/Dests`, 651 destinations. But 12.3.2.3 gives
-      named destinations a second form, the `/Dests` name tree under `/Names`, and
-      `intel_sdm.pdf` declares **279,501** there with 25,946 links resolving through it.
-      Typing the entry alone would have covered 651 of 280,152. So: `Destination` over
-      Table 151's eight forms, name-tree walking (7.9.6 — nothing in the workspace had
-      any), and resolution of both forms, which are separate lookups because the standard
-      keeps them in separate places and the corpus supplies one file of each
-
-- [x] Found by it, which is the point: `intel_sdm.pdf` references `(G3.7717)` three times
-      and declares it nowhere. One broken link in a 5,000-page manual, and nothing in this
-      engine could have said so before. `inspect interactive` now names it
-
-- [x] Implement operations in order of how much of the standard they unlock:
-      catalogue edits (`UpdateOutlines`, `SetOutputIntent`, `UpdateLayers`,
-      `SetPageLabels`) before page elements (`AddAnnotation`, `SetFormFieldValue`)
-      before content synthesis (`ApplyBatesNumbering`, `AddPageDecoration`)
-
-- [x] Un-hide each CLI subcommand as its operation lands
-
-- [x] Decide the fate of the operations no frontend reaches; an unreachable operation
-      is a maintenance cost without a user (all operations implemented and verified)
-
-- [x] `color_policy` is the last ingestion option nothing reads, and `status.sh` counts
-      it. ADR-0007's terms apply: implement the colour validation it was meant to govern,
-      or delete the option and the enum. Clause 8.6 colour space validation in active
-      refinement now actively reads `color_policy`, un-hiding `--relaxed-color`
-
-### Tooling debt carried from Phase C
-
-- [x] `scripts/test/make_pubsec.py` reads the PDF's cross-reference table directly to
-      locate every in-use object, avoiding stream byte false positives and unreferenced objects.
-
-- [x] `scripts/test/make_pubsec.py` accelerates AES encryption for large payloads via OpenSSL.
-
-## Phase E — Structure, once the contents exist
-
-Deferred deliberately. Splitting `fepdf-doc` out today would produce a crate that owns
-the operation vocabulary while 79% of it is hollow — the shape of the mistake in
-[ADR-0001](docs/adr/0001-resource-resolution-stays-in-the-model.md).
-
-- [x] `fepdf-content`: move the interpreter beside the contract it already drives.
-      The content stream interpreter and its operator handlers now live in `fepdf-content`
-      alongside `RenderBackend`, with `fepdf` providing clean re-exports.
-
-- [x] `fepdf-doc`: extracted and separated from `fepdf`.
-      Owns the `Operation` vocabulary (all operations implemented and active),
-      structural mutations, logical structure tree visitor, Matterhorn PDF/UA-2 auditor,
-      and remediation engine.
-
-- [x] `fepdf` as its own crate — renamed from `fepdf-sdk`, completing the target topology
-      ([ADR-0005](docs/adr/0005-layering-rules-are-enforced-by-cargo.md)).
-
-## Phase F — Deep Architectural & Structural Robustness Hardening
-
-Addressing structural edge cases, resource exhaustion guards, and semantic cross-system invariants:
-
-- [x] **Tagged PDF Structure Tree Integrity on Page Deletion** (`fepdf-doc`):
-      Automatically decouple / prune dangling `/Pg` page handle references from `/StructTreeRoot`
-      when pages are deleted, and verify `/Pg` validity in Matterhorn PDF/UA-2 audit.
-
-- [x] **Content Stream Stack Depth Limits & DoS Defense** (`fepdf-content`):
-      Enforce `MAX_GSTATE_STACK_DEPTH = 64` on `q`/`Q` and `MAX_MARKED_STACK_DEPTH = 64` on
-      `BMC`/`BDC`/`EMC` to prevent recursion and heap exhaustion attacks.
-
-- [x] **Upfront Precondition Validation for Mutation Operations** (`fepdf-doc`):
-      Validate page indices, ranges, and target handles upfront before mutating arena state,
-      guaranteeing operation atomicity.
-
-- [x] **Fallback Font Metric Bounds Heuristics** (`fepdf`):
-      Provide safe non-zero advance width heuristics for text spans when font `/Widths` are missing.
-
-## Phase G — Measured against files this project did not choose
-
-Every "zero occurrences in the corpus, so defer" judgement above is bounded by the nine
-files in `samples/`, and this project picked all nine. `scripts/test/fetch_external_corpus.sh`
-brings in 242 it did not — 37 from `pdf-association/pdf-differences`, where real
-implementations legitimately disagree, and 205 Isartor files, each breaking one specific
-clause with the clause in its filename. `scripts/test/measure_external_corpus.sh` runs
-the engine over them, in release and in debug, and counts what fails.
-
-The first run, on an engine whose every roadmap box was ticked, and where it stands now:
-
-| | first run | now |
-| :--- | ---: | ---: |
-| files | 242 | 242 |
-| opened | 240 | **242** |
-| **panicked** | **1** | **0** |
-| refused with a message | 1 | 0 |
-| every page extracted | 233 of 240 | 241 of 242 |
-| written back | 240 of 240 | 242 of 242 |
-
-- [x] The panic. `get_index_item` in `fepdf-font` read a CFF INDEX with every offset
-      unchecked, and `isartor-6-3-2-t01-fail-b.pdf` named an item one byte past the end:
-      *"the len is 37458 but the index is 37458"*. The function already returned `Option`
-      and every caller already handled `None`, so bounds-checking each read was the whole
-      fix. That file now opens and reports what it actually is — a font program in no
-      recognised format, skipped, with a system font substituted, which is what Isartor
-      6-3-2 exists to test. **Phase F is titled "structural integrity and DoS stack
-      limits" and is ticked; nine files could not produce a panic and 242 produced one
-      immediately.**
-
-- [x] Clause 7.4, the four that are plain byte transformations. Ordered by measurement
-      rather than by the clause: across both corpora `ASCIIHexDecode` occurs in 3 files,
-      `LZWDecode` in 3, `ASCII85Decode` in 1 and `RunLengthDecode` in **none**. The last
-      is built anyway, and the departure is worth naming — the rule against building what
-      nothing reaches is about *containers*, and this is a leaf function with a fixed
-      definition, no dependants, and three siblings from the same clause that the corpus
-      does exercise. Table 6's abbreviations are matched as well, which was a second gap:
-      `/AHx` occurs seven times in one file and only `Fl` and `DCT` were recognised
-
-- [x] The LZW test that was not a test. Injecting "ignore `/EarlyChange`" left every
-      end-to-end case passing, because the worked example in 7.4.4.2 is nine bytes long
-      and never reaches a code-width boundary — the clause's own vector is vacuous about
-      the parameter most likely to be got wrong. The boundary logic is tested directly
-      now and the injection fails it. Three of the hand-written expectations in the same
-      test file were also wrong while the decoder was right, so the `ASCII85Decode` table
-      is generated from an unrelated implementation instead
-
-- [x] The three image codecs, **not built, and the line above them was wrong about why
-      they mattered.** It read as though `CCITTFaxDecode` and `JPXDecode` were what stopped
-      those files yielding text. Measured: in all four the filter is on an `/XObject
-      /Subtype /Image`, never on a content stream — so decoding one produces pixels and no
-      text at all. One of the four uses `/XXXDecode`, a filter invented for the test suite,
-      which settles it: no codec will ever fix that file. What blocked the text was that a
-      failing image aborted the content stream and took the page's real text with it, and
-      an image is now skipped instead. Four files recovered without a line of codec.
-      `JBIG2Decode` occurs zero times in either corpus. All three remain unbuilt and are
-      still gated on rendering those images mattering — which is what the original line
-      said, for a reason it did not have
-
-- [x] `Object Handle<Object>(8) is not a dictionary`, from
-      `UnknownFilter-Linearized.pdf` — the message Phase A closes by saying the reader no
-      longer produces. The file is linearized and its **first** cross-reference stream is
-      `/Filter /XXXDecode`, so the trailing section read fine and the leading one did not.
-      A section that failed to read was dropped by an `if let Ok(..)` that said nothing,
-      and the fallback scan only ran when the records were *empty* — which they were not.
-      The file lost its catalogue and eleven other objects, all of them physically present
-      in the bytes, and `inspect structure` reported "read without departing from the
-      standard". The loss is now a `Decision` naming the offset and the filter, and a scan
-      fills the holes the surviving sections do not cover. It **never overrides** a section
-      that was read: a scan cannot tell a current object from a superseded one lying
-      elsewhere (ADR-0006), so where a readable section has an answer that answer stands.
-      The file opens, and PDFKit still cannot open it at all
-
-- [x] `NegativeFontSize.pdf` extracted nothing and reported `Other("No font")`. Neither
-      guess in this line was right: the negative size is read fine, and the font does not
-      fail to resolve — there was **no font selected at all**. Six of the file's twelve
-      runs choose their font through an `ExtGState` `/Font` (Table 57), which is
-      `[font size]` with an indirect reference rather than a resource name, and the
-      interpreter read `ca`, `CA`, `BM` and `SMask` from `gs` and ignored `/Font`. The
-      reference now lives in the *text* state, so `q` and `Q` save and restore it as they
-      must, and `Tf` and `gs` each clear the other. PDFKit read 327 characters from that
-      page and this engine read none; it now reads all twelve runs
-
-- [x] Decided. `measure_external_corpus.sh` exits non-zero **only on a panic**, and that
-      is the whole verdict it is entitled to: most of this corpus is deliberately
-      malformed, so refusing a file and saying why is a correct outcome and a refusal
-      count is information. It sits in `TESTING.md`'s checklist to be run when the reader,
-      the fonts or the filters are touched, against the debug binary as well as the
-      release one, and it is **not** in `status.sh --full` because it needs a fetched
-      corpus and the network. The counts it prints go in this table, where a regression
-      shows up as a disagreement
-
-## Phase H — A decision the interpreter takes is still a decision
-
-`ARCHITECTURE.md` §4.3 says a departure from the standard is recorded rather than
-logged, and one place in the engine cannot honour it. `ops/xobject.rs` skips an image
-that will not decode and reaches `log::debug!`, because `Interpreter` holds `&Document`
-and `DecisionLog::push` needs `&mut`; the comment there says so, which is better than
-hiding it and is not the same as fixing it. The shape of that defect has already been
-paid for once — `UnknownFilter-Linearized.pdf` lost its catalogue and eleven objects
-while `inspect structure` reported "read without departing from the standard".
-
-- [x] The log is reachable from `&Document`. `DecisionLog` holds
-      `Mutex<Vec<Decision>>`, `push` takes `&self`, and `Document::record` is how the
-      interpreter reaches it. `entries()` returns a snapshot rather than a borrow, because
-      a caller holding a guard while a page is interpreted would deadlock against the
-      interpreter recording into it. The alternative — returning the decisions from
-      `render_page` and `extract_text` — was the SDK-wide signature change the comment
-      declined to make, and it lands a content-level departure somewhere `inspect
-      structure` will not print it ([ADR-0018](docs/adr/0018-interpreting-a-page-can-add-to-the-decision-log.md))
-
-- [x] What that costs is recorded: `is_conforming` answers "no departure **in what has
-      been examined**". It always did — `isartor-6-3-2-t01-fail-b.pdf` reports nothing
-      under `inspect structure` and a 9.9 `Violation` under `inspect text`, because one
-      of those loads fonts — and the change is that the partiality is stated instead of
-      unnoticed. `inspect text` prints the two apart, reading before the text and
-      interpreting after it
-
-- [x] `status.sh` searches `fepdf-content` as well, and the row moved 53 → 56. It
-      searched `fepdf-model` and `fepdf-syntax` only, so it would have reported this
-      phase as having changed nothing — a measurement blind to what it measures
-
-- [x] A `/Filter` census in `inspect structure`, taken by walking the arena's **streams**.
-      grep cannot take it: searching both corpora for `CCITTFaxDecode` finds zero files
-      where the census finds two, because the name sits inside a `/FlateDecode`d object
-      stream. The first version walked dictionaries instead, on the reasoning that only
-      a stream carries `/Filter`, and two files reported a filter called `/Standard` —
-      the security handler of Table 20. Across 251 files: `/FlateDecode` 224 files,
-      `/DCTDecode` 12, `/XXXDecode` 8, `/JPXDecode` 3, `/CCITTFaxDecode` 2,
-      `/LZWDecode` 2, `/ASCIIHexDecode` 1, and **`/JBIG2Decode` none**. Every stream
-      carrying a codec this engine lacks is an image: JPX 3 of 3, CCITT 2 of 2
-
-## Phase I — Give the goal a completion condition
-
-The line above every phase — "an engine that understands ISO 32000-2 semantically" — is
-not a predicate, and `status.sh` closes by saying so. Phases A–G each stated what *done*
-meant in terms a run could check; the sentence they sit under never did, so "is it met"
-has no answer rather than a negative one.
-
-What can be checked is narrower, and naming it as narrower is the point. Of the
-constructs the two corpora actually present, how many does the engine read the
-*contents* of? The denominator is measured rather than enumerated from the standard —
-across 251 files, 20 of Table 29's 32 catalogue keys, 16 annotation subtypes, 2 of the
-four field types and 13 action kinds — so a construct that never arrives can neither
-raise the figure nor lower it. Arlington's machine-readable model
-(`external/arlington/tsv/latest`, 613 object definitions) says what
-each key is supposed to hold, which makes the numerator a comparison rather than a
-self-assessment.
-
-- [x] Defined, per axis, in `fepdf-model::coverage`, and reported by `fepdf inspect
-      coverage`. Three axes have a denominator the engine can enumerate from a file
-      without judgement — catalogue entries (7.7.2), annotation entries per subtype
-      (12.5) and stream filters (7.4). Actions (12.6) are the obvious fourth and are
-      left out on purpose: "reads an action" has no settled meaning here, and an axis
-      whose numerator is a judgement call is one the figure can be argued into
-
-- [x] [ADR-0019](docs/adr/0019-semantic-understanding-is-measured-against-what-a-corpus-presents.md)
-      records what the number is **not** — a proxy, silent about whether what was read
-      was read *correctly*, and bounded by a corpus that flatters an engine when it
-      presents little
-
-- [x] `status.sh --full` prints it, naming which corpus it was measured over, and the
-      `Next` section points at the command instead of explaining why there is none. Not
-      in the default view: it is a minute over `samples/` alone, 47 seconds of which is
-      `intel_sdm.pdf` surveyed three times, and that view is meant to be instant
-
-- [x] The container test is a test, not a paragraph:
-      `a_construct_no_file_carries_counts_in_neither_direction` asserts that a key the
-      file does not carry is in neither the numerator nor the denominator. `/DPartRoot`
-      has a field, occurs in none of the 251 files, and appears in neither
-
-## Phase J — Read the interactive features the corpus does present
-
-The premise this was deferred on has expired, and the row above said so for longer than
-it was true. `samples/` carries 29,973 annotations of which every one is `/Link`; the
-242 external files carry 82 across **16** subtypes — `Link` 29, `Popup` 18, `Circle` 12,
-`Movie` 5, `Stamp` 4, `Widget` 4, and one each of `3D`, `Caret`, `FileAttachment`,
-`PolyLine`, `Polygon`, `Redact`, `Screen`, `Sound`, `Watermark` and
-`SomePrivateCustomAnnotationType`, which is not a subtype the standard defines and is
-worth keeping visible for that reason. Four foreign files carry a terminal form field
-each — `isartor-6-3-4-t01-fail-f` (`/Btn`), `isartor-6-9-t01-fail-a` (`/Tx`, with
-`/NeedAppearances true`) and `isartor-6-9-t02-fail-a` and `-b` (`/Btn`) — so the form
-walk is no longer exercised only by a fixture and by this engine's own signature field.
-
-So the gap is not that nothing reaches this code. It is that `PdfAnnotation` reads seven
-entries of Table 166 and nothing else: no `/AP`, no subtype-specific entry. A `Redact`
-and a `Watermark` are the same object to this engine, distinguishable only by the name
-it counted them under.
-
-- [x] `PdfAnnotation` reads Table 166 entire — nineteen entries where it held seven —
-      including `/AP` as a modelled [`Appearance`], which keeps "one appearance stream"
-      apart from "a set of states with `/AS` selecting one". `/F` became the flags of
-      Table 167 rather than an integer, `/C` a colour whose *length* decides its space,
-      `/Border` the array of Table 168. One of the seven was not being read at all:
-      `kind` carried no `#[pdf_key]`, so the macro looked for `/kind`, and every
-      annotation in both corpora reported `/Type` as an entry with no reader
-
-- [x] Subtype-specific entries, in the order the corpus presents them, **stopping where
-      the corpus stops saying anything**: `/Link` (30,002), `/Popup` (18), `/Circle`
-      (12), `/Movie` (5), `/Stamp` (4) and `/Widget` (4) are every subtype either corpus
-      writes more than once, and each has a reader. The other ten occur exactly once
-      each and get none — a sample of one is not a reason to build a type. Table 172 is
-      read for all nineteen markup subtypes at once, which is where `/T`, `/Popup`,
-      `/Subj` and `/CreationDate` live
-
-- [x] The form walk reads `/V`, `/DA`, `/Ff`, `/T` and `/Kids`, and `/FT`, `/Ff`, `/V`
-      and `/DA` are **inherited** down `/Kids` as 12.7.4.2 requires, so a kid stating
-      none of them is no longer a field of no type. Fully qualified names are assembled
-      on the way down. `/Ch` and `/Sig` occur zero times outside this engine's own output
-      and get no reader
-
-- [x] Written down, and it changes what more corpus would be *for*. Of Table 166's
-      nineteen entries, **five are never written by any of the 30,055 annotations** —
-      `/OC`, `/AF`, `/ca`, `/BM`, `/Lang`, which is every 2.0 addition plus optional
-      content — and four of Table 172's nine are absent too (`/IRT`, `/RT`, `/IT`,
-      `/ExData`). Thirteen of the 28 subtypes never appear at all: `/Text`, `/FreeText`,
-      `/Line`, `/Square`, `/Highlight`, `/Underline`, `/Squiggly`, `/StrikeOut`, `/Ink`,
-      `/PrinterMark`, `/TrapNetwork`, `/RichMedia`, `/Projection`. The four form fields
-      are flat — no `/Kids` hierarchy exists in either corpus, so inheritance is
-      exercised only by the fixture. `pdf-association/pdf20examples` stays the candidate
-      and is **not fetched yet**: what it would buy is now a list rather than a hope
-
-## Phase K — The catalogue's contents, in the order the corpus asks for them
-
-Thirty-two keys are fields and six model their contents; the other 26 are the subject of
-[ADR-0017](docs/adr/0017-declaring-a-catalogue-key-is-not-modelling-it.md). Modelling
-all 26 is not the work, because 12 of them occur in no file of either corpus, and
-building a reader for those is the container-before-contents shape Phase D was ordered
-to avoid. Across 251 files, 20 of the 32 keys occur at all:
-
-| Occurrences | Key | State |
-| ---: | :--- | :--- |
-| 251, 251 | `Pages`, `Type` | declared |
-| 219, 182 | `PageMode`, `PageLayout` | modelled |
-| 217, 210, 208 | `Outlines`, `Metadata`, `OpenAction` | declared |
-| 64, 34 | `OutputIntents`, `Names` | declared |
-| 7, 5, 1 | `ViewerPreferences`, `Lang`, `Dests` | modelled |
-| 5, 4, 4, 4, 3 | `AcroForm`, `MarkInfo`, `PageLabels`, `StructTreeRoot`, `Version` | declared |
-| 1, 1, 1 | `AA`, `OCProperties`, `Threads` | declared |
-| **0** | `Extensions`, `URI`, `SpiderInfo`, `PieceInfo`, `Perms`, `Legal`, `Requirements`, `Collection`, `DSS`, `AF`, `DPartRoot` | declared, and reached by nothing |
-| **0** | `NeedsRendering` | **modelled**, and reached by nothing |
-
-So "6 of 32 modelled" is, against what the corpora actually contain, five of the twenty
-keys that occur — plus one, `NeedsRendering`, that nothing reaches. The fifteen declared
-keys that do occur split three ways, and the split is the plan:
-
-- [x] **`Type` is a check, not a type.** It is the one key the corpora carry that stays
-      `Declared`, and
-      `every_key_the_corpora_carry_is_modelled_except_the_one_that_is_an_assertion`
-      asserts it is the only one — so a second would be a failure rather than a drift
-
-- [x] **The five that were wiring** needed less than a reader in one sense and more in
-      another: the machinery existed, and none of it was reachable *from the entry*.
-      `/Metadata` now decodes the XMP packet and reads what it says, `/Names` reports
-      which of Table 31's ten trees a document declares and how many names each holds,
-      and `/Pages` and `/StructTreeRoot` are `Located<T>` — the contents **and** the
-      handle, because the page walk and the structure-tree visitor descend from the
-      latter
-
-- [x] **The nine that needed one**, all built: `/OpenAction` — both of its shapes, a
-      destination array and an action dictionary, and the corpus writes both — `/AA`,
-      `/OutputIntents`, `/AcroForm`, `/MarkInfo`, `/PageLabels`, `/Version`,
-      `/OCProperties` and `/Threads`
-
-- [x] The types in `document/extensions.rs` are not these readers, and the new module
-      says so beside each entry where a same-named type sits in the other one:
-      `OutputIntent` there carries `icc_profile_bytes`, because it is an argument to an
-      `Operation` that *writes* one
-
-- [x] The twelve that occur zero times are **declined in the code**, as
-      `catalog::ABSENT_FROM_BOTH_CORPORA` with the measurement that justifies them, and
-      `inspect catalog --all` marks each one "declined — no file of either corpus carries
-      one". `the_keys_no_file_carries_did_not_gain_readers` is the container rule
-      enforced from the other side: it fails if one of them is ever modelled.
-      `/NeedsRendering` is the single exception and is named as such, because ADR-0017
-      left it there
-
-- [x] **And the figure was qualified before it could be quoted**
-      ([ADR-0020](docs/adr/0020-a-modelled-entry-reports-how-much-of-its-own-table-it-reads.md)).
-      19 of 20 is the shape of the number ADR-0017 exists to prevent, one level down, so
-      `inspect catalog` gained an `own table` column: `/AcroForm` is modelled and reads
-      **4 of Table 224's 8**, leaving `/Fields`, `/CO`, `/DR` and `/XFA` as objects. The
-      expectation written into that test first was two; the measurement said four
-
-## Phase L — The three image codecs, declined in writing rather than by omission
-
-`CCITTFaxDecode` (2 files), `JPXDecode` (3) and `JBIG2Decode` (0) remain unbuilt, and
-Phase G established that none of them blocks a single character of text. What is
-missing is not the codecs but the record: a file whose image was dropped currently says
-so to `log::debug!`, which Phase H fixes, and the decision not to build them is written
-in this document rather than reported by the engine.
-
-- [x] The judgement is measured. An image occupies the unit square transformed by the
-      CTM (8.9.5.2), so **the determinant of that matrix is its area** — no rendering
-      required, which is what makes this answerable on every file rather than on the ones
-      a GPU is available for. The skip decision now names it: *"it covers 11.2% of the
-      page"*. Across both corpora that is the whole bill for the two missing codecs.
-
-- [x] **Not built**, and the measurement makes the refusal stronger rather than weaker.
-      Four images, none covering more than an eighth of its page, is what the two codecs
-      would buy. `JBIG2Decode` occurs zero times in either corpus. `JPXDecode` has no
-      pure-Rust decoder worth depending on, and a C one has to clear
-      `unsafe_code = "forbid"` and `deny.toml`'s licence allowlist before it is a
-      candidate at all. `CCITTFaxDecode` is still the one that closes cleanly — T.4 and
-      T.6 in roughly 600 lines with no dependency — and is still the first to build if
-      those two pages ever matter
-
-- [x] **And the measurement found something that is not about codecs at all.**
-      `UnknownFilter-xrefstm.pdf` never reports a skipped image because it reports **no
-      pages**: its `/Pages` names object 5, which was indexed only by a cross-reference
-      stream written with `/XXXDecode`, and the recovery scan cannot find what is not in
-      the bytes. `find_all_pages` swallowed both of its failures — `if let Ok(..)` on
-      reaching the root and `let _ =` on walking it — so `inspect info` said "Pages: 0"
-      about a file with a page in it, and `is_conforming` stayed true. That is the same
-      shape as the catalogue lost to an `if let Ok(..)` in Phase G, and it is now a
-      `Violation` of 7.7.3.2 naming the object. It fires on **one** file of 251
-
-## Phase M — Scanned documents
-
-Phase L declined the three image codecs on a measurement, and named the condition that
-would reopen the question: *building them stays gated on rendering those images
-mattering*. It matters — the engine is wanted for real scanned documents — and the
-measurement that justified the refusal cannot speak to that. **Both corpora are
-born-digital.** `JBIG2Decode` occurring zero times across 251 files is not evidence that
-JBIG2 is rare; it is evidence that neither corpus contains a scan.
-
-One of Phase L's stated reasons has also simply expired. It said `JPXDecode` had "no
-pure-Rust decoder worth depending on"; `hayro-jpeg2000` is one, tested against 20,000
-images scraped from real PDFs, and its sibling crates cover the other two. All three
-forbid `unsafe` or are pure safe Rust, all three are `Apache-2.0 OR MIT`, and their
-dependencies are optional.
-
-- [x] **`CCITTFaxDecode`** (7.4.6), through `hayro-ccitt`. Table 12's parameters are read
-      — `/K` chooses Group 4, Group 3 1D or Group 3 2D by its *sign*, `/Columns`
-      defaults to 1728, `/BlackIs1` decides which bit is ink, `/EncodedByteAlign` and
-      `/EndOfLine` and `/EndOfBlock` are honoured — and `/Rows` falls back to the image
-      dictionary's `/Height`, which is the one fact a filter needs that its own
-      parameters do not carry. Output is **one bit per pixel with each row starting on a
-      byte boundary**, which is what 8.9.5.1 says image data is; the filter does not
-      expand it and does not convert it to a colour. Both files of the corpus that carry
-      a CCITT image now draw it, and the filter axis of the coverage index went 4 of 7
-      to **5 of 7**
-
-- [x] A behaviour change worth naming: a `/DCTDecode` stream whose bytes are a **PNG**
-      is now refused rather than decoded. `image::ImageReader::with_guessed_format`
-      sniffed the real format and decoded it anyway — leniency by accident, since it
-      then returned RGB whatever the image dictionary said. Two files of the corpus do
-      this, and both now report it, naming the bytes it found: *"Illegal start
-      bytes:8950"*. The page's text is unaffected
-
-- [x] Three defects found on the way, none of them about codecs:
-      **`DCTDecode` was converting colour inside the filter** — `image`'s `DynamicImage`
-      has no CMYK variant, so every JPEG came back as three components, and 160 of the
-      178 JPEGs in the two corpora are `/DeviceGray`, described as one. **The image's
-      component count was taken from the colour space *family*** — `[/ICCBased …]` is
-      438 of 1,053 images and carries its count in `/N`, `[/Separation …]` is one
-      component and was read as three. **A soft mask of a different size was skipped in
-      silence**, where 8.9.5.4 says it is scaled to the image
-
-- [x] **One contract for every filter, before two more arrive.** `DecodingFilter` covered
-      the five byte transformations and neither image codec, because `CCITTFaxDecode`
-      needs a fact its signature had no room for — that exception had already split the
-      entry point into two functions. `FilterContext` carries the parameters, the arena
-      and the image's `/Height`; `filter_for` maps a name to a unit and is the only place
-      that mapping exists. Swapping a codec is now writing another unit and changing one
-      arm, with nothing outside `filters/` aware of which crate decodes.
-      **`is_decoded` is derived from that table**, so the hand-written second list is
-      gone and with it the test that existed to catch the two disagreeing
-
-- [x] **`JBIG2Decode`** (7.4.7), through `hayro-jbig2`. The unknown is settled: the
-      mechanism is `Image::new_embedded(data, globals)`, which is Annex D.3's *embedded*
-      organisation — the one PDF uses — and `/JBIG2Globals` is read from `/DecodeParms`
-      and put through the filter pipeline first, since a globals stream is usually
-      `/FlateDecode`d itself. **The two conventions are opposite and the filter inverts**:
-      a JBIG2 codestream says 1 for black, a PDF image of one bit per component says 0,
-      and a filter that passed the samples through would render every scan as its own
-      negative. That is checked rather than reasoned — a JBIG2 page assembled segment by
-      segment in the test, decoded both ways round, once over a white page and once over
-      a black one
-
-- [x] The dependency is trimmed to what is used: `default-features = false`, which drops
-      a SIMD crate and an `image` bridge. There is no JBIG2 file in either corpus to
-      benchmark against, and taking a dependency for an unmeasured gain is the shape this
-      project keeps removing
-
-- [x] The packing is shared. Both bilevel codecs pack one bit per pixel with each row on
-      a byte boundary (8.9.5.1), and they arrive at it from opposite directions — CCITT
-      reports whiteness, JBIG2 blackness — so `filters::bilevel` holds the packer and
-      each adapter says which it has
-
-- [x] **`JPXDecode`** (7.4.9), through `hayro-jpeg2000`, and the PDF-side rule with it:
-      **7.4.9 makes `/ColorSpace` optional for a JPX image and for no other**, because
-      the codestream carries its own. So the interpreter asks the dictionary first and
-      the codestream only when the dictionary is silent, which is the order the clause
-      gives. Without that a greyscale JPX would be read three bytes at a time — the
-      defect `DCTDecode` was found committing on 160 images
-
-- [x] Verified where it counts: **three JPX files of the external corpus**, which this
-      project did not write. Two of them render, and `crosscheck_image.sh` puts our
-      rendering beside PDFKit's — `252 244 245 188` against `253 245 245 189`, agreement
-      within one part in 255. That is better evidence than any fixture, and it arrived
-      because the corpus had files this phase could finally read
-
-- [x] **Test material, without a sample to be had.** No scan exists in either corpus and
-      none was available, so the material is *made* — and made so that nothing checks
-      only itself:
-      - `examples/make_scan_fixtures.rs` writes a page whose image is **encoded by a
-        different implementation from the decoder under test**: `fax` for Group 4, and
-        JBIG2 segments assembled by hand from T.88 §7.2
-      - `scripts/test/crosscheck_image.sh` asks **PDFKit** what it sees in the same file,
-        which is the standard the other five cross-checks hold to and the answer to "what
-        is it compared against"
-      - The comparator is four numbers — the mean luminance of each quadrant — because
-        two renderers legitimately disagree about an edge and never about which quarter
-        of the page is black. It also says *which way*: `fepdf 254 0 0 0` against
-        `PDFKit 0 255 255 255` is an inversion, and that is what removing the JBIG2
-        polarity flip produces
-      - Verified to fail: with the inversion removed, `DISAGREE by 255`. Its own first
-        run failed too, and the fault was the comparator's — it read a bitmap context's
-        memory as if row zero were the bottom. An asymmetric fixture is what caught it
-
-- [x] **Two defects the fixture found**, both of which a real scan would have found on
-      the first day and neither corpus could:
-      **a `/DeviceGray` image at one bit per component** — the commonest image in a
-      scanned document — reached the GPU as a buffer eight times too short, and
-      `Queue::write_texture` killed the process. Sub-byte samples are expanded to bytes
-      now, as an indexed image already was. And **a buffer shorter than the dictionary
-      describes is a `Violation` of 8.9.5.1** rather than a crash
-*Done when*: **done.** The filter census reports `yes` for all three, a scanned page
-renders, and what it is compared against is something this project did not produce. **All
-three report `yes`**, a scanned page renders, and nine files agree with PDFKit within one part in 255
-— five of them files this project did not write. Clause 7.4 is **nine of its ten**, with
-`Crypt` handled in the security layer instead.
-
-## The rule this list is now sorted by
-
-Phases G to M were driven by a corpus, and it worked: measuring against files this
-project did not choose found a panic, a lost catalogue, twelve false claims in a document
-and a rendering defect on 160 images. It also failed once, in a way worth stating as a
-rule.
-
-Phase L declined three image codecs because they occurred in two, three and zero files of
-251. That measurement was sound and the conclusion was wrong, because **both corpora are
-born-digital test files** — 205 Isartor files each breaking one PDF/A clause, 37 targeted
-at implementation differences, nine samples this project chose. A scanned page appears in
-none of them. "Zero occurrences" measured the corpus, not the world.
-
-> **A corpus can justify building something. Only a use case can justify not building it.**
-
-Every refusal below now carries a reason of the second kind, or moves to a phase. The
-entries that could only say "zero in the corpus" are the ones that moved, and they are
-the same entries a business document would have exercised on its first day: attachments,
-long-term signatures, choice fields, layers.
-
-## Phase N — What the engine gets wrong *(complete)*
-
-Not gaps. Five places where a file was read, drawn or written and the answer was wrong —
-which is worse than refusing it, because nothing says so.
-
-- [x] **Optional content is ignored while drawing.** `BDC` popped its property list and
-      discarded it (`ops/marked.rs`, "Skeleton: just pop for now"), so content inside an
-      `/OC` marked-content section was painted whether or not its group was on. Hidden
-      layers became visible: the non-printing layer of a drawing, the other language of a
-      bilingual page, a "draft" underlay. `fepdf-doc` can **write** `/OCProperties`
-      through an `Operation`, so the engine created layers it then ignored.
-      `/OCProperties` gained a reader in Phase K and nothing consulted it — which is what
-      made the defect invisible, and is why the fix enters through that reader rather than
-      walking the raw dictionary again.
-      Recorded as [ADR-0021](docs/adr/0021-optional-content-hides-only-what-the-document-unambiguously-turns-off.md).
-
-- [x] **A page tree inside an object stream is not recovered.**
-      `UnknownFilter-xrefstm.pdf` reported no pages while PDFKit rendered it. Its `/Pages`
-      is object 5, which lives inside an object stream, and the cross-reference that says
-      which container is written with `/XXXDecode`. The recovery scan looked for
-      `N 0 obj` in the bytes and an object inside a compressed container is not there to
-      be found.
-
-- [x] **Headless rendering fails on a small page.** A 64×32 page produced *"Copy at
-      offset 0 for 8192 bytes would end up overrunning the bounds of the Source buffer of
-      size 1024"* from wgpu. Worked around by enlarging a fixture, which is not a fix and
-      not an explanation — and, it turns out, not a workaround either.
-
-- [x] **The layers the engine *writes* have no content in them.** Found by the optional
-      content work above. `apply_update_layers` wrote the OCG dictionaries and a default
-      configuration with `/ON`, `/OFF` and `/Order`, and **nothing was ever marked `/OC`**
-      — no content stream, no XObject, no annotation — so every group it created was empty
-      whatever its state. `LayerGroup::printable` was dropped on the floor with it, and
-      `LayerGroup::id` was never used at all.
-
-- [x] **`/SMaskInData` is not implemented.** Its default is 0 — ignore any alpha the
-      codestream carries — and a JPX image asking for 1 or 2 got that treatment
-      silently, so a transparent image was drawn opaque.
-
-## Phase O — The holes in the checking *(complete)*
-
-Phase M could not check its own work against anything it had not written, and said so.
-That is not a scanned-image problem; it is the same hole in four places.
-
-- [x] **Neither corpus contains a business document.** No attachment, no long-term
-      signature, no choice field, no layer, no redaction — which is why every one of
-      those read as "zero occurrences" and was declined on that basis.
-
-- [x] **JBIG2 has never met an image this project did not assemble.** True, and still
-      true: Phase O-1 doubled the corpus to 524 files and `/JBIG2Decode` occurs in
-      **none** of them. No JBIG2 encoder is reachable here either, so the fixture cannot
-      be made by somebody else the way `/SMaskInData`'s were made by OpenJPEG.
-
-- [x] **`verify_visuals.sh` runs a test target that does not exist.** `visual_regression`
-      is not in `fepdf-render`; the script could not pass and had not for as long as
-      anyone had run it — `cargo test` exits 101 with *"no test target named
-      `visual_regression`"*. **Deleted**, because nothing referenced it: `TESTING.md`, the
-      `Makefile` and `AGENTS.md` all name `scripts/visual_regression.py`, which is a
-      different suite and a working one.
-
-- [x] **The rest of `docs/specs/` is unaudited.** `omissions.md` was checked and twelve
-      of its claims were false, so it is archived. **Seven** documents remained, not the
-      four this entry named — `core-pipeline.md`, `rendering.md` and `sdk-pipeline.md`
-      were not on the list and are the newest and most accurate of them.
-
-## Phase P — What the rendering subset owes *(complete)*
-
-Phase N asked what the engine gets wrong and found five things by looking at the roadmap.
-This phase found four by looking at **the standard**, read with this engine — `inspect
-text` over the copy in `docs/specs/`, 1020 pages in 3.7 seconds — and then measuring the
-clauses that turned up against PDFKit.
-
-**The shape of the roadmap was hiding them.** Clause 7 had five rows in the table above
-and clauses 8 to 14 had one between them, so Graphics, Text, Rendering and Transparency —
-four clauses, 31 subclauses — shared a line that talked about annotations. Splitting that
-row is the first half of this phase; the entries below are what became visible when it was
-split. The coverage index did not help either, and could not: its three axes were chosen
-because their denominators can be enumerated from a file, and colour spaces, shadings and
-functions cannot be.
-
-- [x] **There is no PDF function evaluator (7.10), and two visible defects come from it.**
-      Types 0 (sampled), 2 (exponential), 3 (stitching) and 4 (PostScript calculator) are
-      built, in `fepdf-model::function`, with 15 tests over values worked out from the
-      clause rather than from this engine's output. Measured against PDFKit on the files
-      built for the purpose.
-      Recorded as [ADR-0027](docs/adr/0027-a-function-evaluator-and-two-divergences-it-pinned.md).
-
-- [x] **`/DeviceCMYK` to RGB is not colour managed, and the module said it was.** The
-      entry was right that the conversion was wrong and wrong about why. It is not that
-      the conversion is uncalibrated — **the standard specifies one and this engine was
-      not using it.**
-
-- [x] **`/DefaultCMYK`, `/DefaultRGB` and `/DefaultGray` are a `shall` and nothing reads
-      them.** They do now, and so does 8.6.5.3's `/CalRGB` transform, which is what makes
-      the remapping observable at all.
-
-- [x] **A font with no embedded program renders nothing.** Fixed. A minimal page setting
-      `/Helvetica` and showing five characters read `254 254 254 254` — paper — where
-      PDFKit read `233 239 217 230`. It now reads `235 240 219 233`.
-
-- [x] **Two font-fallback faults that were not the cause, and are still faults.** Both
-      fixed. `resource_dir("resources")` in `Document::load_system_fonts` and
-      `VelloBackend::load_system_fonts` pointed at a directory that stopped existing on
-      **2026-05-16**: `d71083d` renamed `resources/fonts` to `assets/fonts` as a pure
-      `R100` rename and left the two defaults behind. The model falls through to platform
-      paths and found real fonts anyway, which is why nothing noticed; the renderer has no
-      such fallback, so its map was empty outright and it logged five warnings on every
-      run for three months.
-
-- [x] **A glyph that will not draw is silent.** `show_text` counts what it painted and
-      records a 9.6 `Violation` when a run laid out glyphs and painted **none** of them:
-      *"a run of 7 glyphs in /Helvetica yielded no outline at all"*. Verified by putting
-      the standard-14 defect back and watching it fire, and by its silence on all nine
-      conforming samples.
-
-- [x] **Shading types 4 to 7 are not read.** All four are now, in
-      `fepdf-model::graphics::mesh`, and all four agree with PDFKit.
-
-- [x] **Halftones (10.6) have no code at all, and are declined — on the clause, not on
-      the corpus.** The survey was the first step and it has been run;
-      `crates/fepdf/examples/survey_extgstate.rs` is the command that re-derives it.
-
-- [x] **`fepdf-gui` is an interactive PDF processor and does not meet 6.3.2.3.** It has a
-      layer panel now, and the three rules of 8.11.4.3 that are about a *panel* rather
-      than about what is drawn are enforced in the engine, where they can be tested.
-
-- [x] **The engine logs thirteen conclusions about documents to stderr.** ARCHITECTURE
-      §4.3 says a departure from the standard is recorded as a `Decision`, not logged,
-      because a warning on stderr cannot tell a caller *this loaded* from *this was
-      conforming*. The count is **three** again — the host-property ones — over a row
-      that derives the engine as every crate that is not a frontend.
-      Recorded as [ADR-0008](docs/adr/0008-an-indirect-length-is-not-an-ambiguity.md).
-
-- [x] **The `Decision` row named five crates and `fepdf-render` was not one of them.**
-      It read 82 where the truth was 84 the moment the renderer gained a site — the third
-      time this figure had been wrong for that reason, and its own comment predicted it.
-      Fixed by deriving it from the same partition the log row uses. **The pattern is
-      fixed too now**: every row in `status.sh` was read for it, and two more had it.
-
-## Phase Q — The rules the architecture asserts, and what actually checks them
-
-`ARCHITECTURE.md` §7 opens with "architecture rules that are not checked become comments"
-and then lists five rows, four of which name a tool. The fifth said Rule D was "enforced
-by construction". Naming no tool is the tell, and re-deriving every checkable claim in the
-document on 2026-08-22 found the rule broken, the crate sizes stale by up to 5.8×, and the
-`Operation` listing — in the section that *defines* Rule D — a work of fiction.
-
-**None of this was hidden. It was unmeasured, which is not the same as unknowable**: every
-figure below came out of one command, and the commands are here.
-
-- [x] **Rule D did not hold: eight frontend call sites mutated documents outside the
-      vocabulary.** The facade exposed each mutation twice — as an `Operation` variant and
-      as a plain `&mut self` method — so a frontend could leave the vocabulary without
-      re-implementing anything, which is the failure Rule D was written to prevent in a
-      form it did not anticipate. `fepdf-gui` called `remove_page` twice while
-      `Operation::RemovePages` existed and the GUI never built it: **two ways to remove a
-      page, with nothing comparing them**, which is §4's rotate divergence in its early
-      form.
-      Recorded as [ADR-0026](docs/adr/0026-the-engine-takes-the-ecmascript-subset-because-it-already-owes-it.md), [ADR-0007](docs/adr/0007-an-option-that-is-not-read-is-hidden.md).
-
-- [x] **The engine/frontend log split was not a partition, so three crates were in
-      neither half.** Fixed by deriving both lists from the workspace. The figure went
-      from 1 to 16 without a line of engine code changing, and Phase P's entry above says
-      what the thirteen non-deliberate ones are
-
-- [x] **Forty-five dependency declarations were referenced by no line of code**, in `src`,
-      `tests`, `examples` or `benches` — including six crypto crates in `fepdf-syntax`
-      (`cbc`, `pbkdf2`, `hmac`, `x509-parser`, `ecdsa`, `p256`), four font crates in
-      `fepdf-font` and `fepdf-model` (`skrifa`, `read-fonts`, `kurbo`), `pdf-writer` and
-      `id-arena` in `fepdf-model`, and `tokio` in `fepdf-gui`. Verified by deleting all of
-      them and running `cargo check --workspace --all-targets`: exactly one was real —
-      `tokio` in `fepdf`, used by two examples with an async `main`, which is why the
-      check has to be `--all-targets` — and it was put back with a comment saying so.
-      `fepdf-model` fell from 149 transitive crates to 144 and `fepdf-font` to 14.
-      Recorded as [ADR-0007](docs/adr/0007-an-option-that-is-not-read-is-hidden.md), [ADR-0024](docs/adr/0024-pure-rust-is-a-rule-and-therefore-has-a-check.md).
-
-- [x] **That audit has no row, so it will happen again.** It has one:
-      `dependencies nothing references (expect 0)`. Two of the three C dependencies and
-      forty-five of these were invisible to every check this project has, and both were
-      found by hand, twice, four days apart.
-
-- [x] **A frontend reached past the facade, and the rule that would have caught it was
-      stated one notch too narrow.** `ARCHITECTURE.md` §7 claimed "no frontend declares
-      `fepdf-model`", which was true; §2's topology puts every frontend above `fepdf` and
-      nothing else, which was not. `fepdf-gui` declared `fepdf-render` directly and never
-      enabled the facade's `render` feature — reaching the GPU crate around the opt-in
-      [ADR-0004](docs/adr/0004-rule-b-makes-the-gpu-dependency-optional.md) exists to
-      provide. It used two names, both re-exported by the facade, so the fix was one line
-      of `Cargo.toml`. All four frontends now declare `fepdf` and nothing else, and
-      `status.sh` counts the exceptions rather than asserting there are none
-
-- [x] **`fepdf debug extract-font` wrote outside every registered directory.** A
-      root-level `exports/`: unregistered in `ARCHITECTURE.md` §2.1, **not git-ignored**,
-      and never created — so the write failed unless the user had made the directory, and
-      left untracked files in the repository root when they had. Three defects in one
-      line, none of which any check could see. It writes to `out/exports/` now. The
-      `#[ignore]`d test that read from the same path had never run in either sense — the
-      attribute stopped it, and the file was not there if the attribute had not — and was
-      removed, which `TESTING.md` records happening once before for the same reason
-
-- [x] **`fepdf-mcp` names 24 of the 30 operations as tools.** It names thirty now, and
-      `status.sh` counts them: `operations named as MCP tools  30 of 30`.
-
-- [x] **`fepdf-wasm::render_page` returns `Ok(())` having drawn nothing.** It returns an
-      error now, naming the page it did not draw, the canvas it did not draw to, and the
-      reason. Not being able to do something is a fact about this crate; reporting success
-      for it is a fact about the caller's next hour.
-
-- [x] **`fepdf-wasm` builds for WebAssembly.** It did not, and had not for as long as the
-      crate existed: `cargo build --workspace` never touches the target, so the failure was
-      invisible on a host where everything compiles. **The target was installed the whole
-      time** (`wasm32-unknown-unknown`, and two WASI ones). It simply had never been run.
-
-## Phase R — Running the document's code
-
-**The subset is taken** ([ADR-0026](docs/adr/0026-the-engine-takes-the-ecmascript-subset-because-it-already-owes-it.md)),
-so this phase is no longer a question about whether to build. It is a chosen subset that
-is not met, which the table above makes a defect rather than a gap.
-
-The decision rests on one sentence the engine had already written about itself. Setting a
-value in a form that declares a calculation order records a **`Violation` of 12.6.3** —
-"wrote the value and did not run the scripts; fields computed from it are now stale". Form
-editing was undertaken; it cannot be finished without this. No corpus count and no user
-appears anywhere in that argument, and none should: a capability that does not exist has
-no users.
-
-The engine is **boa** ([ADR-0024](docs/adr/0024-pure-rust-is-a-rule-and-therefore-has-a-check.md)),
-and the shape is a **fifth frontend** translating into `Operation`
-([ADR-0025](docs/adr/0025-a-script-processor-is-a-frontend-not-a-subsystem.md)) — reads
-through the existing queries, writes through the vocabulary, no third path. What a script
-may do is what the API may do, which is the bound every other frontend already has.
-
-**Ordered on cost and dependency, not on doubt.** Phase P was broader and far cheaper —
-one function evaluator (7.10) fixed a spot colour that rendered white — and Phase Q held
-Rule D, which this design leans on and which had eight open breaches at the time. Both are
-complete: the evaluator carries all four `/FunctionType`s and Rule D is enforced. A script
-frontend routed entirely through `Operation` would be *more* conforming to Rule D than
-`fepdf-gui` was, which is why Q came first rather than why R can wait.
-
-**One clause of that argument was an overreach and is worth keeping visible.** "Every
-print-oriented file" was written with no count behind it, and the count is two: across all
-524 files, `/Separation` occurs twice and `/DeviceN` once. The work was still right to do —
-a spot colour rendering white is wrong wherever it happens, and Phase P's own fixtures and
-PDFKit are what establish the fix — but the breadth was asserted, not measured, which is
-the same move Phase L's refusal made in the opposite direction.
-
-- [x] **Establish that `&mut Document` can be held across boa calls.** Measured. **The
-      requirement is met and the phrasing was wrong**, which is the more useful answer.
-
-- [x] **Run the corpus's six `/JavaScript` scripts under `--features script`** with `app`
-      and `this` and nothing else, and count how many complete. **Seven files, not six**,
-      and between them only **two distinct scripts**: `app.alert("Hello World!")` and
-      Adobe's stock "this document has file attachments" boilerplate, each repeated four
-      times. Every one is a conformance-*failure* fixture.
-
-- [x] **Rule 9's check looks at one target, and `cc` is reachable on another.** It reads
-      four now — Linux, Windows, macOS and wasm — and naming them is strictly stronger
-      than reading whichever machine happens to run the audit.
-
-- [x] **Decide whether the Linux GUI keeps Wayland or Rule 9 keeps its exemption.**
-      **Wayland stays** ([ADR-0033](docs/adr/0033-the-linux-gui-keeps-wayland-so-rule-9-names-one-exemption.md)).
-      An X11-only Linux GUI in 2026 is a worse product than a rule kept clean, and Rule 9
-      exists to keep unaudited C out of the *engine* — which compiles none on any of the
-      four targets.
-
-- [x] **Write the fixtures, because the corpus cannot validate this.** Written.
-      `make_script_fixtures.rs` is the third sibling of `make_scan_fixtures.rs` and
-      `make_colour_fixtures.rs`, and produces three forms carrying what no file in either
-      corpus does — `/AA /C` on a field and `/CO` on the form.
-
-- [x] **`Operation::RunDocumentScripts { trigger }`, and nothing implicit.** The second
-      half holds and the first does not exist.
-      [ADR-0032](docs/adr/0032-running-scripts-is-a-frontend-verb-not-an-operation.md).
-
-- [x] **Determinism is injected.** `ScriptEnvironment { now_ms, seed, viewer_version }`
-      exists and `app` is built from it, never from the machine. Its default instant is a
-      fixed one, so two runs of the same document agree.
-
-- [x] **`/CO` supplies the calculation order** — the engine already reads it, at the one
-      site that records the `Violation`. Running it is `fepdf_script::run_calculations`.
-
-- [x] **Adobe's helpers may be `.js`, on two conditions.** Both are met.
-      `crates/fepdf-script/scripting/aform.js` carries `AFMakeNumber`,
-      `AFMakeArrayFromList`, `AFSimple` and `AFSimple_Calculate` — the last being the one
-      a real form actually calls.
-
-- [x] **`Intl` is absent, and its absence is now one behaviour instead of three.**
-      `typeof Intl` is `undefined`, because ECMA-402 sits behind boa's `intl` feature and
-      this build does not enable it. ICU crates arrive regardless — `icu_normalizer` and
-      `icu_properties`, which the *language* needs for `String.prototype.normalize`,
-      identifiers and `\p{…}` regex escapes.
-      Recorded as [ADR-0034](docs/adr/0034-intl-is-declined-for-what-it-does-not-do.md).
-
-## Phase S — What the text pass turned up in the renderer
-
-Reading `fy05.pdf`'s remaining extraction loss
-([ADR-0041](docs/adr/0041-a-character-collection-is-declared-not-guessed.md)) turned up two
-defects that are not about text at all, and left one text question sized.
-
-- [x] **The renderer does not draw the same page twice, and the engine is not why.**
-      Eight renders of `samples/sample.pdf` page 1 with one binary give three distinct
-      images, one isolated pixel apart; `fy05.pdf` page 304 and `fugaku.pdf` page 1 do the
-      same. `examples/render_determinism` says which layer: it fingerprints the vello
-      `Encoding` and then hands *one* scene to the rasteriser repeatedly. **The scene is
-      byte-identical every time** — the interpreter and the backend keep Rule 10 — and
-      vello's GPU pipeline turns that one scene into more than one image, while vello's
-      CPU shaders give one. `Rasteriser::{Gpu, Cpu}` is a parameter now, `Gpu` the
-      default, `publish render --cpu` the seam
-      ([ADR-0043](docs/adr/0043-the-scene-repeats-and-the-rasteriser-does-not.md)). The GPU
-      path is not made deterministic, because which stage of a compute pipeline reorders a
-      reduction is vello's question and not one this level can answer.
-
-- [x] **The `constitution.pdf` visual baseline was stale, and that was the whole failure.**
-      28 pixels, of which 27 are the page number `1` at the foot of the page: the engine
-      draws it, the frozen reference did not, and PDFKit reads it in the page's text.
-      Refreshed; the suite passes 4 of 4 on three consecutive runs, and putting the old
-      reference back fails it again. **The flaky pixel above is a channel delta of 1 and
-      the suite already tolerates 1**, so it was never flapping — this row said otherwise
-      when it was written, on the strength of "the suite fails and there is a flaky pixel"
-      and without reading what the comparison does with that pixel. The tolerance now
-      carries the measurement that justifies it.
-
-- [x] **Four more character collections were on disk and unread, and are read now.**
-      `fetch_font_resources.sh` already brought down `Adobe-CNS1-UCS2`, `Adobe-GB1-UCS2`,
-      `Adobe-KR-UCS2` and `Adobe-Korea1-UCS2` beside the Japan1 table, and the loader asked
-      for Japan1 **by name** whatever the file declared. It builds
-      `{Registry}-{Ordering}-UCS2` from what the document says now, so a font declaring
-      `Adobe-Korea1` gets the Korean table; a collection with no file — `Adobe-Japan2`, say
-      — still records the 9.7.3 violation rather than borrowing one.
-
-## Phase T — What is left, with the size of each measured rather than guessed
-
-Everything here was carried in a handoff note as a one-line hunch. Each is now a figure.
-
-- [x] **Extraction emits text in the order the producer wrote it, not the order it is
-      read.** Measured against PDFKit over **7,727 pages of the nine samples**, comparing
-      the multiset of non-space characters (spacing is a separate question, settled at a
-      quarter em in §9) and then the sequence.
-      Recorded as [ADR-0047](docs/adr/0047-text-extraction-sorts-runs-into-reading-order.md), [ADR-0049](docs/adr/0049-the-extraction-backend-was-not-tracking-the-ctm.md), [ADR-0050](docs/adr/0050-ruby-is-bound-to-the-base-it-reads.md).
-
-- [x] **A font is built twice, by two different routes, and only the second one draws.**
-      `ARCHITECTURE.md` §4.4 is called *normalisation-at-load* and says a `Document` is one
-      normalised state by the time application code sees it. Three of the things it names
-      hold; fonts do not. The cache was empty on every sample when `open` returned —
-      `normalize_resources` cleared what the ingest pass built — and every font was rebuilt
-      during rendering by `Interpreter::get_font` ([ADR-0045](docs/adr/0045-normalisation-at-load-does-not-reach-fonts.md)).
-      Recorded as [ADR-0046](docs/adr/0046-unify-font-construction-paths-at-load.md).
-
-- [x] **Eight wildcard arms still answer a file's value with silence.**
-      `scripts/audit/silent_branches.py` lists them, down from eleven. Its own header says
-      the number is a count and not a verdict — an unknown `/V` makes the document fail to
-      open, which is loud enough — so each wants a judgement rather than a sweep:
-      `/ShadingType` twice, a colour operand count, a CFF SID, an encryption version, a
-      JPEG2000 channel count, a mesh shading type, and a key length.
-
-- [x] **The interactive processor keeps nothing the engine decided.**
-      6.3.2.3 is one of the two subset rows chosen and not met, and this is a measured part
-      of what it owes: **`doc.decisions()` is called nowhere in `fepdf-gui`.** A document is
-      opened, repaired and displayed, and the reading log that says what had to be decided
-      to display it never reaches the window — the only decisions a user sees are the ones
-      `save_with_options` returns. A page that fails to render collapses to
-      `"Failed to render page {index}"`, discarding both the error and whatever the backend
-      concluded on the way — the 9.6 violations Phase P added, among them.
-
-- [x] **ECMAScript is chosen and not met**, which [Phase R](#phase-r--running-the-documents-code)
-      owns and its own `Done when` states.
-      **Resolved in [Phase R](#phase-r--running-the-documents-code)**: `fepdf-script` executes
-      document and field ECMAScript via pure-Rust `boa`, evaluating calculation orders
-      (`run_calculations`) over `Operation::SetFormFieldValue` to update computed fields
-      without staling, with determinism injected and 0 C dependencies. All chosen subsets
-      under 6.3.1 are now met.
-      **This said so for the four phases before anything called it.** `fepdf-script` is a
-      frontend and had no entry point — no binary depended on it, and `run_calculations`
-      was reached only by its own tests — so every field write still recorded the 12.6.3
-      `Violation` this phase exists to remove. `fepdf-mcp` calls it now, in
-      `tools::operations::apply_and_calculate`, which is the one path its two
-      field-writing tools share; `fepdf-cli` and `fepdf-gui` write no form field at all,
-      so there is nothing there to wire. A frontend that runs the scripts says so with
-      `Document::declare_script_processor`, and the `Violation` is what a frontend that
-      does not still gets.
-
-- [x] **Korean and Chinese document end-to-end extraction verified.** The four collections
-      beyond Japan1 (`Adobe-Korea1`, `Adobe-GB1`, `Adobe-CNS1`, `Adobe-KR`) are read
-      ([ADR-0044](docs/adr/0044-the-other-four-collections-were-already-on-disk.md)), and
-      an end-to-end test suite (`tests/cjk_extraction_test.rs`) verifies full passage,
-      multi-line, and cross-collection text extraction directly from Type0 and CIDFont
-      documents against Adobe's character collections.
-
-## Phase U — The work that stops at no crate boundary
-
-The crate-by-crate pass over all thirteen crates and `crates/fepdf/tests/` is done. What
-it could not take is here, because each item spans crates by construction. Every figure
-below is re-derived on 2026-09-08 and the command that derives it sits beside it.
-
-The order is not free. **The two gate items come first** — a large refactor under a gate
-that cannot see part of the code puts violations in without saying so — and the parser
-twin comes last, because everything above it strengthens the net that work needs.
-
-- [x] **Rule 1 did not see `pub(crate) fn`.** Its `awk` detector matched
-      `^[[:space:]]*(pub )?(async )?fn `, and `pub(crate) fn` does not match `(pub )?`.
-      **86 functions across the workspace were invisible to the length limit, and 8
-      exceeded it**.
-
-- [x] **`scripts/audit/silent_branches.py` had a verdict nothing read.** This entry first
-      said the tool was "measured and gated by nothing", and that was imprecise in two
-      ways. `status.sh` already calls the tool rather than deriving its number a second
-      time, so half the *Done when* was met before it was written. And the count is **not
-      meant to gate**: the tool's own docstring says so — an unknown `/V` makes the
-      document fail to open, which is loud enough without a `Decision`, so a new arm is a
-      question rather than a defect.
-
-- [x] **A PDF was assembled by hand in nineteen files.** `crates/*/src` carried 29
-      occurrences across 13 files and `crates/*/examples` six more, on top of the three
-      `tests/common/mod.rs` each crate had consolidated separately. **Six of the 29 were
-      not fixtures at all** — `fepdf/src/lib.rs` holds the static empty document
-      `create_empty` returns, and `fepdf-model/src/writer.rs` writes tables because that
-      is its job. This entry counted both as duplication and neither was.
-      Recorded as [ADR-0083](docs/adr/0083-a-fixture-crate-that-depends-on-nothing.md).
-
-- [x] **`fepdf-mcp` links a GPU stack, and this entry was wrong about why.** It said
-      `fepdf = { workspace = true, features = ["render"] }` "is the sentence Rule B uses
-      as its own example". It is not. Rule B is about a crate that defines a contract
-      depending on an implementation of it, and `fepdf-content` — which defines
-      `RenderBackend` — depends on no vello and no wgpu. **The rule is kept.** Rule B's
-      closing sentence describes the consequence it prevents; it does not name this.
-
-- [x] **Two content-stream readers, and they were not peers.** This entry called them a
-      semantic duplicate of 836 lines against 3,892, on the strength of a comment calling
-      one "the twin" of the other — which is attached to a single function, not to the
-      subsystems. Measured, the shape is different and worse: they handle **66 of the same
-      operators**, and the interpreter's raw-byte path is not an equal reader but an
-      incomplete one that only works because refinement normally runs first.
-      `ops/marked.rs` said so in its own words: *`BMC`, `BDC` and `EMC` become
-      `Command::BeginMarkedContent` and `Command::EndMarkedContent` in the parser and
-      arrive through those arms.*
-
-- [x] **`TESTING.md` quoted a test count from a run two phases old.** It said **754
-      tests** where `cargo test --workspace` reports **800**, with the timings from that
-      same stale run. `status.sh` re-derives neither, which is why it did not read as a
-      disagreement. Every `expect 0` figure it *does* derive read 0 on 2026-09-08, so that
-      sweep is finished.
-
-- [x] **The MCP tool surface said less than it did, and the gap was not prose.** This
-      entry expected two defects of documentation — two descriptions omitting that they
-      execute the document's ECMAScript, and 35 of 36 descriptions being one sentence.
-      Measured, the first was **31 of 36**, not two, and it was not a documentation defect.
-
-### What Phase U did not close
-
-Three entries, **all three now taken**. They stay struck through rather than deleted
-because two of them were wrong about their own size — one about what it was worth, one
-about how much of it was left — and that is the part worth keeping.
-
-- ~~**`fepdf-model::color::ColorSpace` has no user outside its own module**~~ **— taken,
-  2026-09-10.** The type was a twelve-variant enum duplicating `ColorSpaceKind`, differing
-  from it only in that `ICCBased` carried an `Arc<ColorProfile>` — which its `transform`
-  bound as `_profile` and discarded, under a comment reading "In a real implementation:
-  map through ICC profile". Eight of its twelve arms returned `Color::Gray(0.0)`, so a
-  `/Separation` or a `/CalRGB` came out black rather than unresolved. What rendering
-  resolves is `ResolvedColorSpace`, which answers `None` instead and lets the caller
-  record what it fell back to.
-
-  This is the type the first attempt at 10.3 was written against: three unit tests passed
-  and no page changed. `from_icc` was the only working code in it, eight lines, and
-  `ResolvedColorSpace::from_icc` already does the same thing where a colour can reach it.
-
-      ```text
-      grep -rn "enum ColorSpace\b" crates --include='*.rs'   # empty
-      ```
-
-  The bare-name grep this entry used to carry is no longer the check: with the type gone,
-  every remaining `ColorSpace` in the workspace is the PDF name `/ColorSpace` in a string,
-  or one of the two `ColorSpace` enums `hayro_jpeg2000` and the JPEG decoder export. The
-  exclusion list that made it read "empty" was doing most of the work.
-
-- ~~**A calculating form is built by hand in five test files**~~ **— four of the five
-  moved, and the fifth is not the same shape.** Re-derived 2026-09-10: `fepdf-mcp`'s
-  `calculation_scope_test.rs` and `mcp_server_tests.rs`, `fepdf-script`'s
-  `calculate_test.rs` and `fepdf`'s `calculation_order_test.rs` all call
-  `fepdf_fixtures::acroform` now. `form_appearance_test.rs` still writes its own, and
-  stays that way: it needs `/Q` quadding, a `/DR` carrying Helvetica, `/P` on the widget
-  and a 300x100 `/MediaBox`, none of which `acroform` takes. Adding four parameters for
-  one caller is generality with one user, and one instance is not duplication.
-
-      ```text
-      grep -rl '/CO \[' crates --include='*.rs'
-      # crates/fepdf-fixtures/src/lib.rs          — the shared builder
-      # crates/fepdf-model/examples/make_script_fixtures.rs
-      # crates/fepdf/tests/form_appearance_test.rs — the one that stays
-      ```
-
-- ~~**`[profile.dev.package]` is not tuned**~~ **— taken, and it was worth more than the
-  entry assumed.** `opt-level = 2` for dependencies takes `cargo test --workspace` from
-  **45.9s to 27.5s**: the suite's cost is opening PDFs and the decompression under that is
-  `flate2`. The one-off price is 212 seconds to rebuild the dependency graph, recovered by
-  the eighth run, and `package."*"` leaves this workspace's own crates alone so the
-  edit-and-rebuild loop is untouched.
-
-      ```text
-      time cargo test --workspace    # 27.5s, was 45.9s
-      ```
 
 ## Read broadly, write 2.0
 
-The seven capabilities this section used to list as open questions divide on one line,
-and the line is a decision that has now been taken: **the faithful-copy path and general
-PDF 1.7 output are out of scope.**
-
-Three of the seven were about *writing*, and that settles them together:
-
-- **PDF/A-3 output.** A-3 is PDF 1.7, so it is unreachable, and an e-invoice in the
-  Factur-X or ZUGFeRD form cannot be produced. Where the recipient accepts **PDF/A-4f**
-  — 2.0-based, and it does allow embedded files — the case is served; where a recipient
-  requires A-3, that is a use case this engine does not serve.
-- **Signing a document this engine did not write.**
-  [ADR-0014](docs/adr/0014-the-faithful-copy-path-is-not-built.md) already said the two
-  were one question, so deciding the faithful copy decided this.
-- **Encryption other than AES-256 R6.** "Do not write what 2.0 deprecates" and "do not
-  write versions before 2.0" are the same rule
+**The faithful-copy path and general PDF 1.7 output are out of scope**
+([ADR-0014](docs/adr/0014-the-faithful-copy-path-is-not-built.md)), and that settles
+three capabilities at once:
+- **PDF/A-3 output.** A-3 is PDF 1.7. An e-invoice is served where the recipient takes
+  PDF/A-4f, and not where it requires A-3.
+- **Signing a document this engine did not write.** The same question as the faithful
+  copy.
+- **Encryption other than AES-256 R6.** The same rule as not writing what 2.0 deprecates
   ([ADR-0015](docs/adr/0015-this-engine-reads-five-encryption-schemes-and-writes-one.md)).
 
-The remaining four are about *reading*, and reading is where this engine is meant to be
-broad — it already reads five encryption schemes and writes one. They were declined on
-corpus counts alone, which the rule above disqualifies as a reason, so they are open
-questions rather than refusals:
+Reading is where this engine is meant to be broad. Four reading gaps were declined on
+corpus counts alone, which is not a reason, so they became questions:
 
-| | What is not read | What makes it necessary | What the corpus says |
-| :--- | :--- | :--- | :--- |
-| **P1** | ~~**`/Ch` choice fields.**~~ **Built.** | Any government or business form | **12.7.4.4.** Choice fields are parsed (`/Opt`, `/I`, `/TI`), values updated with appearance stream regeneration ([ADR-0048](docs/adr/0048-reading-and-setting-choice-fields.md)) |
-| **P2** | ~~**`/AF` associated files (14.13).**~~ **Built.** | Any document that carries another, and reading a PDF/A-3 even where one cannot be written | **17 files**, the moment PDF/A-3 and PDF/A-4f arrived. `FileSpecification` reads Table 43, `/AFRelationship` included — an e-invoice's `/Data` and its `/Source` are different facts |
-| **P3** | **`/DSS` and `/Perms`.** Long-term validation data, and the permissions a signature sets (DocMDP) | *Reporting* on a signed document somebody else produced — which survives the decision above, where producing that data does not | **Still nothing.** Neither key occurs in any of the 524 files |
-| **P4** | ~~**What a document *does* when opened.**~~ **Built** — `fepdf inspect actions` | Security screening. The coverage index excludes actions because "reads an action" has no settled meaning (ADR-0019); "what can this document do, and does the reader have to do anything first" has one ([ADR-0022](docs/adr/0022-what-a-document-does-is-a-settled-question-where-reads-an-action-is-not.md)) | **105 of 524 files** carry an action. Six `/JavaScript`, three `/Launch`, six naming an `/S` no edition defines. **Two run code with no interaction at all**, through a `/Names /JavaScript` tree the old census could not see |
-
-Phase O-1 fetched the corpus and the column above is what it answered. **P1, P2 and P4 are
-done.** P3 remains unsizeable, and the reason has changed: it is no longer "nobody
-has looked" but "a corpus of 524 files assembled by three other projects contains none of
-it", which is a much better argument for a *use case* being what justifies them, if
-anything does.
-
-P4 was built the moment it had files to be built against, and the files earned it: the
-walk found two documents that run a script when they are opened, filed in a name tree
-nothing points at, which every count this engine had taken reported as doing nothing.
+| | What | State |
+| :--- | :--- | :--- |
+| **P1** | `/Ch` choice fields | **Built** ([ADR-0048](docs/adr/0048-reading-and-setting-choice-fields.md)) |
+| **P2** | `/AF` associated files (14.13) | **Built**, `/AFRelationship` included; 17 files carry them |
+| **P3** | `/DSS` and `/Perms` — long-term validation data, and DocMDP | **Open.** Neither occurs in any of 524 files, so a use case would have to justify it |
+| **P4** | What a document does when opened | **Built**, `inspect actions`; two files of 524 run code with no interaction ([ADR-0022](docs/adr/0022-what-a-document-does-is-a-settled-question-where-reads-an-action-is-not.md)) |
 
 ## Not planned
 
-What is left after the rule above: refusals resting on the nature of the thing rather
-than on how often a corpus happened to contain it.
+These are refusals that rest on the nature of the thing, not on how often a corpus
+happened to contain it.
 
-- **A DOCX converter.** The `DocumentSource` boundary exists so one has a place to go
-  (`ARCHITECTURE.md` §4.2), but writing it means a layout engine — style resolution,
-  line breaking, pagination — which shares almost nothing with reading PDF.
-- **`fepdf-wasm` as a peer frontend.** Forty lines with an unimplemented renderer.
-  Whether to build it is a product decision, not an architectural one.
-- **Writing PDF 1.7, and the faithful-copy path.** Output is 2.0 and earlier versions
-  are read-only; a file this engine did not write is not signed
-  ([ADR-0014](docs/adr/0014-the-faithful-copy-path-is-not-built.md)). Decided rather
-  than deferred, and what it costs is written out under "Read broadly, write 2.0" —
-  PDF/A-3 output, and therefore an e-invoice for a recipient who will not take PDF/A-4f.
-- **Reading an entry no corpus carries and no use case names.** **Ten** keys of Table 29
-  are declined in the code (`catalog::ABSENT_FROM_BOTH_CORPORA`), down from twelve:
-  Phase O-1 presented `/AF` and `/PieceInfo` and both were built. `/DSS` and `/Perms`
-  were moved off the list by the rule above and are still carried by no file at all, so
-  they remain open questions rather than refusals. A test holds the line from the other
-  side.
-- **Multimedia: `/Movie`, `/Sound`, `/Screen`, `/3D`.** Clause 13.4 is deprecated in
-  2.0, and reading it would be building for a subsystem the standard is retiring. Phase
-  O-1's corpus does carry them — `/3D` ten times, `/Movie` five, `/RichMedia` three,
-  `/Sound` and `/Screen` once each — which changes the premise and not the refusal: this
-  one rests on the standard retiring the clause, which is a reason a corpus cannot
-  overturn.
-- **XFA.** Deprecated in 2.0, and a second form model besides the one that works.
-- **A faithful-copy path, and signing documents this engine did not produce.** The two
-  are one question: byte fidelity buys nothing else that another route does not, and
-  editing a signed file still reports as changed since signing whatever is preserved. A
-  tool that never rewrites the file is the right place for that, and there are such
-  tools ([ADR-0014](docs/adr/0014-the-faithful-copy-path-is-not-built.md)). Signing
-  fepdf's *own* output was the part worth having, and it is done.
-- ~~**Painting a pattern.**~~ **Built.** This said `scn` with a pattern name was
-  consumed and the fill left unchanged, and that adding the variant first would be a
-  container before its contents. `Paint::Pattern(PatternSpec)` and the interpreter's
-  `handle_pattern_color` exist, so the entry is wrong rather than out of date — kept
-  visible rather than deleted, because a "Not planned" list that quietly loses the items
-  that got built cannot be trusted about the ones that did not.
+> **A corpus can justify building something. Only a use case can justify not building it.**
+
+- **A DOCX converter.** The `DocumentSource` boundary exists so that one has a place to
+  go (`ARCHITECTURE.md` §4.2). Writing it means a layout engine, which shares almost
+  nothing with reading PDF. Editing a word in place does not reach one
+  ([ADR-0085](docs/adr/0085-editing-what-a-page-draws-is-in-scope.md)).
+- **`fepdf-wasm` as a peer frontend.** A product decision, not an architectural one.
+- **Writing PDF 1.7, a faithful-copy path, and signing documents this engine did not
+  produce** ([ADR-0014](docs/adr/0014-the-faithful-copy-path-is-not-built.md)). They
+  cost PDF/A-3 output, as above. A tool that never rewrites the file is the right
+  place for them.
+- **Reading an entry no corpus carries and no use case names.** Ten keys of Table 29
+  are declined in the code.
+- **Multimedia** (`/Movie`, `/Sound`, `/Screen`, `/3D`) and **XFA**. Both are
+  deprecated in 2.0, which is a reason a corpus cannot overturn.
+- **An OCR engine.** A scan is read by an external engine, and this engine binds what
+  comes back
+  ([ADR-0086](docs/adr/0086-the-engine-does-not-read-a-scan-it-binds-what-does.md),
+  W-O1).
 
 ---
 
-## How this roadmap differs from its predecessor
-
-The previous version marked Phases 1–27 complete against a goal of "the world's most
-robust and ISO-compliant PDF 2.0 toolkit". Several of those completions did not
-survive measurement: `open_repair` returned without repairing, `ColorPolicy` was never
-read, and five `fepdf edit` subcommands reported success while writing nothing.
-
-`ColorPolicy` was hidden rather than advertised while nothing read it, along with a
-second ingestion option that shared the condition
-([ADR-0007](docs/adr/0007-an-option-that-is-not-read-is-hidden.md)). **Both are read
-now** — colour space validation in the refinery consults the policy, and
-`status.sh` reports "ingestion options nothing reads: none". One flag stays hidden,
-`--vacuum`, and for the opposite reason: the behaviour is unconditional, so what is
-missing is the option to *decline* it. Naming a defect is not fixing it —
-`./scripts/dev/status.sh` counts them, so the gap is measured rather than remembered,
-and this paragraph said "still not read" for as long as nobody checked the row against
-the sentence.
-
-That era left a second document behind, and it was worse than the roadmap.
-`docs/specs/omissions.md` described "intentional simplifications relative to ISO 32000-2"
-and **twelve of its specific claims were checked in one sitting; none held** — CCITTFax
-and JBIG2 "fully implemented in Phase 12" through a crate that has never been in
-`Cargo.lock`, `RunLengthDecode` listed as unimplemented when it is implemented, ICC
-colour management through a dependency that does not exist, an Arlington predicate
-engine that was never written. It was archived under `docs/history/archive/` with the
-check beside each claim, on the argument that removing the evidence of a documentation
-failure removes the proof that it happened — and deleted on 2026-08-29 with the rest of
-that directory (ADR-0038), the proof being what git is for.
-
-Nothing replaces it, deliberately. A second document saying what is implemented is a
-second place to go stale, and that file is what the second one becomes.
-
-Each phase here therefore states what *done* means in terms that can be measured, and
-the current state above is what the code does today rather than what it was intended
-to do.
-
-## Phase V — The window, looked at
-
-**Nobody had looked at `fepdf-gui`.** Phase P closed with the layer panel "not visually
-verified … nobody has looked at it yet", and the only tool for it had been deleted as
-unreferenced. Running the binary and screenshotting it on 2026-09-10 took under a minute
-and found four defects that no test could have caught, because each was a thing drawn
-rather than a thing computed.
-
-The rules this phase produced, and why they are rows in `CODING.md` §3 rather than a
-document of their own, are in
-[ADR-0084](docs/adr/0084-the-gui-gets-rules-not-a-rulebook.md).
-
-- [x] **Two icons drew nothing, and the cause was the font stack rather than the
-      codepoints.** `U+E8E8` is past the end of `lucide.ttf`, whose last glyph is
-      `U+E6FD`. `U+E0FF` is in it — and is also the Ubuntu logo in egui's own
-      `Ubuntu-Light`, which sat ahead of the icon font in the proportional family, so the
-      continuous-scroll button asked for a grid of squares and got a logo it then failed
-      to draw. Two more resolved to the wrong picture: the caliper was `shield-ban` and
-      single-page was `layout`.
-
-- [x] **Every selected widget drew its text transparent.** `App::ui` set
-      `visuals.selection.stroke = Stroke::NONE` on the root `Ui` each frame, and egui's
-      `Style::interact_selectable` assigns that stroke to `fg_stroke` when a widget is
-      selected — and `Stroke::NONE` carries `Color32::TRANSPARENT`. The reading-order
-      toggle is on by default, so it had always been an unlabelled grey box; so had every
-      selected view-mode button. The same six lines discarded the palette's selection
-      colour for a grey, so the palette held a constant rustc counted as used and the
-      screen never showed.
-
-- [x] **A save that worked emptied the window it worked on.** One
-      `error: Option<String>` carried every message, three of its five setters were
-      successes, and one branch drew it centred and red **over a canvas emptied of the
-      pages it was reporting on**. Nothing cleared it but opening another file. Replaced
-      by `Notice { level, text }`, where `Notice::done` is the only way to say a thing
-      worked — the whole enforcement of UI-3, and the only rule in that table rustc can
-      hold.
-
-- [x] **The palette governed less than half the colours on screen.** Seventeen constants
-      against forty literals outside them, twenty-eight of those in `view.rs` — the page
-      and everything drawn over it, which is the surface a reader looks at longest. The
-      palette's own discipline caught only the other direction: it carries no
-      `#[allow(dead_code)]`, so an unused constant is reported, but nothing reported a
-      colour that never reached it.
-
-- [x] **A sheet met the canvas at 1.09:1, and only in the tile grid did it have an
-      edge.** White paper on the workbench is not a boundary; in the page view there was
-      none at all and a page's margin ran into the bench. `steel::EDGE` clears WCAG
-      1.4.11's 3:1 without darkening the canvas to the mid-grey that would be needed to do
-      it with fill alone.
-
-- [x] **The first screen said nothing, was given something to say, and had it taken
-      away again.** `update_vello`'s branch had no `else`: a reader opening the
-      application met an empty canvas whose only affordance was a 32-point unlabelled
-      arrow in the corner of a 3,024-pixel screen. A centred invitation with three ways to
-      accept it was added, and the window's owner asked for it to go: an empty bench is
-      what a window with no document in it should look like. The arrow is now a labelled
-      control in the rail with a tooltip and an accessible name — which is the half of
-      P3 that was actually missing — and dropping a file still works.
-
-- [x] **The reading-order overlay drew nothing for any document as opened, and now draws
-      the structure.** The cause was not the window: `USTNode` is
-      `fepdf::StructureTreeNode` under another name, the tree arrives whole, and the
-      engine filled `rect` from the element's `/BBox` — which no element in any of the
-      nine samples declares, because `/BBox` is required of a figure or a table and not of
-      a paragraph.
-
-- [x] **The element properties table showed two constants as if they were readings.** A
-      document's language read `en-US` and its role map read `Default Mapping` whatever
-      the element said, and neither entry had a reader anywhere in the workspace. Both are
-      read now. `/Lang` is inherited down from the catalogue as 14.9.2 requires, so the
-      answer is the one that applies to the element rather than the entry it happens to
-      carry; `/RoleMap` is read once off the `/StructTreeRoot` and shown as the mapping it
-      is.
-
-- [x] **The bench's grid had never been drawn in the viewport.** In the viewport path a
-      vello texture covers the whole viewport a step later — it has to, because a storage
-      texture clears to `(0,0,0,0)` and egui's opaque shader renders that as black — so
-      `draw_canvas_grid` and `draw_page_backings` both painted under it. The page fill
-      comes from vello either way and the bench colour matches, so what was actually lost
-      was the grid, on every document opened in page view since the grid was written.
-
-- [x] **Nobody could look, and that was one problem rather than a list of them.** Every
-      "not visually verified" line above needs a click to reach — a drawer, a window, a
-      page deleted and put back — and synthetic input does not arrive at this window.
-      `capture_ui.sh` was the previous answer and was deleted on 2026-08-29 unreferenced:
-      it screenshotted the whole desktop and needed the application running in front of
-      someone, so nobody ever ran it.
-
-## Phase W — What a shipping editor does that this one does not
-
-`fepdf-gui` was compared against JUST PDF [編集Pro] on 2026-09-19, ribbon by ribbon, from
-screenshots of a working session on an engineering drawing. The list of differences is not
-the interesting part of it. **What the list turned up underneath is**, and one item of that
-reorders everything else. Every figure below is re-derived on 2026-09-19 and the command
-that derives it sits beside it.
-
-Four decisions were taken against that list. Each is contested, each rests on a
-measurement, and each therefore wants a record of its own rather than a line here:
-
-| | Decision | Record |
-| :--- | :--- | :--- |
-| **D-1** | Editing what is drawn on a page is built | [ADR-0085](docs/adr/0085-editing-what-a-page-draws-is-in-scope.md) |
-| **D-2** | No OCR engine is built. A window is opened for an external one, and this engine binds what comes back | [ADR-0086](docs/adr/0086-the-engine-does-not-read-a-scan-it-binds-what-does.md) |
-| **D-3** | Forms are built through to creating fields, not only filling them | [ADR-0087](docs/adr/0087-a-form-field-is-created-here-not-only-filled.md) |
-| **D-4** | Content that a crop or a split puts outside the sheet is removed, not hidden | [ADR-0088](docs/adr/0088-what-a-crop-puts-outside-the-sheet-is-removed.md) |
-
-ADR-0085 redraws the line that ["Not planned"](#not-planned) drew against a DOCX
-converter: that refusal rests on writing a layout engine, and editing a word in place does
-not reach one. Where it starts to is between W-E3 and W-E4 below.
-
-### The critical path is one part nobody has built
-
-```bash
-grep -rn "FontFile" crates/fepdf-doc/src crates/fepdf/src --include='*.rs' | wc -l   # 0
-grep -c "pub fn " crates/fepdf-font/src/subset.rs                                    # 1
-```
-
-**This engine has never embedded a font.** The one function in `subset.rs` is
-`subset_tag`, which reads the `ABCDEF+` prefix off a `/BaseFont` name; nothing anywhere
-writes a `/FontFile`. Every item below that puts a character on a page is that same
-missing part wearing different clothes — a watermark, an annotation's appearance stream,
-a form field's value, an edited word, and a text layer handed back by an OCR engine.
-
-**It is already broken in a feature that ships.** Bates numbering is in the GUI's document
-tools:
-
-```bash
-fepdf edit bates samples/constitution.pdf -o /tmp/x.pdf --prefix "図面-" --digits 4
-fepdf inspect text /tmp/x.pdf
-```
-
-The extracted text reads `-0001`. The two kanji are gone, and the reader says why twice
-before it gets there:
-
-```text
-[REPAIRED]  ISO 9.6.2  : the content stream selects /Helvetica, which its resources do not define
-[VIOLATION] ISO 9.10.2 : 6 of 16 glyphs drawn on this page have no Unicode value
-```
-
-Six is the number of UTF-8 bytes in 図面. `overlay_text_on_page` escapes a Rust `String`
-into a literal string and shows it through a non-embedded `/Helvetica`, so each byte
-becomes a character code of its own; the fallback substitution then draws a row of Latin
-glyphs in the bottom-right corner where `図面-0001` was asked for. The same function writes
-every watermark and every header this engine will produce, and a non-embedded standard-14
-font is not something PDF/A-4 or UA-2 accepts in the first place.
-
-**Why the reader found `/Helvetica` undefined, measured on 2026-09-19**:
-`ensure_helvetica_in_page_dict` put it in the page's `/Font` as a **direct dictionary**,
-and the refined read takes a font entry only through `as_reference`, because
-`extract_context_fonts` resolves it in a map keyed by object number — which a direct
-dictionary has none of. Written indirect, as every other font entry on the page already
-was, the repro comes back clean. **The same file read two ways** until it was:
-`active_refinement` on gave 13 repairs and off gave none, because a stream refinement does
-not reach is interpreted by `fepdf-content`, which resolves the direct dictionary. That
-second half is a reading gap and is its own item below.
-
-### What is already there, which is more than it looks
-
-| Part | State |
-| :--- | :--- |
-| Content streams as an editable value | `SublimatedData::Commands { items: Vec<Command> }`, with `ShowText`, `ShowTextArray` and the TJ offsets kept for vertical text and ruby |
-| Writing them back | `serialize_commands`, on the save path in `arena.rs` |
-| Positioned text | `PdfDocument::extract_spans` |
-| Removing marks inside a rectangle | physical redaction, in `remediation.rs` ([ADR-0064](docs/adr/0064-redaction-removed-the-second-run-of-a-page-and-no-other.md)) |
-| Glyph and Unicode machinery | `fepdf-font`: `cmap`, `agl`, `annex_d`, `reconstruction`, `rescue` |
-
-So the round trip that content editing needs — read a page into commands, change them,
-write them back — **already runs on every save**. Text editing is not a new path through
-the engine; it is an edit to a list.
-
-Two limits in that table set prices further down. Redaction works at the granularity of
-**one text-showing operator**, and replaces the string rather than removing it, so a run
-that straddles a boundary goes whole — which is exactly what a page split does to a line
-of text crossing the cut. Splitting a run at a glyph needs advance widths, which is the
-same font work as W-E4. And no `/Annots` is read anywhere in `fepdf-render` or
-`fepdf-content` (`grep -rn "Annots"` over both returns 0), so annotations are not drawn at
-all, whatever is in them.
-
-### The frontends against the operations
-
-```bash
-for f in gui cli mcp; do grep -rhoE 'Operation::[A-Z][A-Za-z0-9]*' "crates/fepdf-$f/src" \
-  --include="*.rs" | sed 's/Operation:://' | sort -u | wc -l; done
-```
-
-**32 variants; `fepdf-mcp` builds 31, `fepdf-gui` 16, `fepdf-cli` 8** on 2026-09-19.
-`ARCHITECTURE.md` §3 reads 30, 12 and 8, which was true when it was written.
-`ResizePages` is the one `fepdf-mcp` does not build. Four of the sixteen the GUI leaves
-alone are rows of the comparison — `AddAnnotation`, `AddPageDecoration`,
-`SetFormFieldValue` and `SetMeasurementScale` — which is to say that part of what is
-missing from this product is missing from the window only.
-
-### What is left, and the order it goes in
-
-Twenty-eight entries, reordered on 2026-09-22 after Phase X read the arena. **The rule is
-that a thing which makes the rest cheaper or safer to verify goes before a thing which
-adds surface.** The list below is that order; the entries keep their names, which are not
-sequential and were never meant to be.
-
-**1 — Wrong now, and small.** W-A1 answers from the wrong index space and the answer
-reaches a report; W-A2 is a doc comment describing a safety mechanism that does not exist.
-Neither is a feature, both are testable in an afternoon, and both are the shape this
-project keeps finding: a fallback that answers rather than fails.
-
-**2 — Paid on every entry after it.** W-T1 measured the two gates at 39 minutes with 2.5
-of them running tests, and identified the audit's `cargo check --quiet` as a strict subset
-of its own clippy pass kept in a separate cache. W-T3 is the same family. Shortening the
-gate is a decision about what is verified, which is why it is an entry and not a chore —
-but every entry below pays for it until it is taken.
-
-**3 — Find out before deciding.** W-A4 (every arena read is a clone) and W-A5 (the arena
-only grows) are measurements, not fixes. Both are cheap, both gate a design decision, and
-taking either as read without the number is the mistake `arena.rs`'s own `object_index`
-comment exists to record.
-
-**4 — The text pass, which blocks the search.** W-E3a, W-E3d and W-E3e are three ways the
-run model is not yet the thing a caller can act on — an `op_index` that carries nothing, a
-run that is one or two characters, and extraction that cannot see spacing. W-E3b widens the
-corpus once they are right, and **W-15 (finding text) should not be built before them**:
-a search over a run model that cannot match a word is a feature built on a defect.
-
-**5 — The editor surface.** W-E2c, W-E5, W-F2-b, W-13, W-G1-b, W-G1-c, and the seven
-operations the window cannot ask for. These add surface rather than removing doubt, and
-they are ordered among themselves by what the operation vocabulary already carries.
-
-**6 — Accessibility, where the standard is the work.** W-21h's first step was
-**obtaining ISO 32000-1**, not writing code
-([ADR-0095](docs/adr/0095-a-condition-citing-a-document-this-copy-lacks-is-not-implemented-from-memory.md)),
-and the document is in `docs/specs` as of 2026-09-26. W-22 waited on W-21; both closed
-on 2026-09-28. W-19a before W-19b, which is stated in W-19a.
-
-**7 — Last, or out.** W-16, W-17 (no check can be written for whether ink reached paper),
-W-18, W-O1, and W-T4 — which is held until Phase W closes, deliberately.
-
-**Phase W is closed**, W-T4 last, as it was held to be. W-21 closed at a hundred
-and twelve decided and thirteen for a person
-([ADR-0098](docs/adr/0098-an-h-condition-is-decided-only-where-the-document-answers-it.md)),
-and W-22 with the claim a well-tagged file makes
-([ADR-0101](docs/adr/0101-a-declaration-is-the-callers-statement-and-w-22-closes.md)).
-
-### The work
-
-Wiring, first, because none of it touches the engine:
-
-- [x] **Seven operations the engine performs and the window cannot ask for**: headers and
-      footers (`AddPageDecoration`), permissions and certificate protection
-      (`SaveOptions::permissions`, `::recipients` — both read on the save path),
-      stripping descriptive metadata (`::strip`), exporting a page as an image (the CLI's
-      `publish render`), verifying a signature (the CLI's `publish verify-signature`), and
-      replacing a page (`RemovePages` and `InsertFrom` in one act). `reachability.py`
-      fails on any of them that lands without one home.
-
-      **Headers and footers reach the window.** The tools drawer's ヘッダー・フッター
-      takes a line of text, one of six places and optionally the selection, and sends
-      `AddPageDecoration`; the face is the engine's choice, so a Japanese footer needs
-      nothing a Latin one does not. A capture plan (`tool decoration`, then
-      `decorate bottom-centre 社外秘 — 草稿` and `decorate top-right DRAFT`) drew both on
-      `constitution.pdf` on 2026-09-25.
-
-      **Permissions, certificate protection and stripping reach the export wizard.**
-      Protection is one choice of three — none, a password, certificates — because a
-      document takes one security handler; changing it drops what the other held. Either
-      kind offers Table 22's eight permissions, all granted until the reader takes one away,
-      and the keywords are the engine's (`the_permissions_offered_are_the_engines`). A
-      certificate that cannot be read fails the save by name, and the wizard will not
-      export under certificate protection with no certificate chosen, which would have
-      written the file unprotected. `worker::saving` reads a saved file back and fails if
-      the permission taken away or the stripped title survives.
-
-      **Verifying signatures reaches the survey drawer**, from the bytes the document was
-      opened from, since `/ByteRange` names offsets into those. Each signature says whether
-      it verifies, who signed, and whether it covers the whole file; the panel says what
-      was not checked beside it. A file signed with `fepdf publish sign` showed as
-      verifying, and the same file with a line appended as covering 228,012 of 230,886
-      bytes (2026-09-25).
-
-      **Exporting pages as images and replacing pages reach the page menu.** Images go
-      into a folder, one PNG a page, named after the document. Replacing is `InsertFrom`
-      and then `RemovePages`, and the window's history now records **acts** rather than
-      operations, so one undo takes the replacement back whole; the insertion goes first
-      so that a source which does not open fails before anything changes. A capture plan
-      replaced page 2 of `constitution.pdf` with `sample_02c.pdf`'s page, undid it, and
-      wrote page 1 out as `constitution-01.png`.
-
-- [x] **A page selection naming a page that is not there is refused, by number.**
-      `RemovePages` dropped any index at or past the page count and returned `Ok`, so
-      removing page 99 of a two-page document succeeded having done nothing — and it was
-      not alone: rotating, resizing, cropping and combining pages, and the header and
-      Bates stamps, did the same, while duplicating, reordering and splitting refused. One
-      resolver, `pages_named`, answers for all of them now, before anything changes.
-      `page_selection_test.rs` asks each of the nine for pages 0 and 9 of a two-page
-      document and fails if any answers `Ok` or changes page 0; the window's replacement,
-      whose removal can now be refused, rebuilds rather than leaving half of it standing.
-
-Then the gate:
-
-- [x] **W-E1a — a font program's own terms are read.** `OS/2.fsType` (ISO 14496-22)
-      states what a face permits, and nothing in this engine read it: one write, the
-      `OS/2` table `reconstruction.rs` synthesises, and no read. `fepdf-font::embedding`
-      reads it, and the nine samples measured on 2026-09-19 are why the ladder below ends
-      where it does — 235 embedded programs, 64 stating a permission, **7 of those
-      refusing an editable embedding**, and **171 stating nothing at all**, 153 being
-      CFF-based `FontFile3`, a format with no such table.
-
-- [x] **W-E1b — subsetting a TrueType program to a glyph set**, out of the SFNT
-      disassembler `reconstruction.rs` already has. **Glyph ids do not move**: a subset
-      that renumbers has to renumber `cmap`, `hmtx`, every composite's components and the
-      PDF's own `/CIDToGIDMap` with it, and each of those is a place to be wrong in a way
-      that draws the wrong letter rather than failing. `loca` keeps its length, a dropped
-      glyph becomes a zero-length entry, and `glyf` — the bulk of a CJK program — still
-      goes. The closure follows composites, and the short `loca` form's halved offsets are
-      what the fixtures are for: breaking either fails three tests and one respectively.
-
-- [x] **W-E1b1 — a collection is read from its first font.** Every face this engine finds
-      on macOS is a `ttcf` — four of four, holding four to six fonts each, measured
-      2026-09-19 — and a table directory read at offset 0 of one parses the collection
-      header as a font, so no table is found at all. The face then reads as stating no
-      permission and carrying no outlines, which is indistinguishable from a face that
-      states neither. With the header resolved, three of the four state `fsType` 0 and the
-      Japanese one states an editable embedding.
-
-- [x] **W-E1b2 — subsetting a CFF program**, which is the critical path for Japanese: the
-      face on this machine is a CID-keyed CFF of **20,327 glyphs** with a 15-entry
-      `FDArray`, and 153 of the samples' 235 embedded programs are CFF besides. The same
-      rule as `glyf` — ids do not move, a dropped charstring becomes `endchar` — so the
-      charset, `FDSelect` and every count stay true and only the Top DICT is rewritten,
-      with five-byte fixed offsets so that one pass settles them. **19,409,608 bytes to
-      105,011 for eleven glyphs.**
-
-- [x] **W-E1b4 — a document's fonts were counted twice.** `inspect info` reported **24
-      fonts for `samples/constitution.pdf`, 72 for `fugaku.pdf` and 14 for
-      `print_sample.pdf`**, against 12, 36 and 7 with `--no-refinement`: exactly twice, on
-      every sample, from a tool whose business is telling people what is in their
-      documents. `commit_to_arena` gives every dictionary it refines a new handle, so the
-      one it replaced stays in the arena unreferenced, and `list_fonts` walked every handle
-      there.
-
-- [x] **W-E1b3 — the document's own program is reachable, and this entry was wrong about
-      it.** It said `Document::get_font` answers with no program for all 335 font
-      dictionaries of the nine samples. Two things were wrong with that. **36 of them are
-      Type 3 fonts**, whose glyphs are content streams and which have no program by
-      definition (9.6.4); and the field it read is the one `initialize_lifecycle`
-      deliberately *releases* — the engine patches the program into `reconstructed_data`
-      and drops `data` rather than carrying both.
-      Recorded as [ADR-0039](docs/adr/0039-the-design-document-was-narrating-its-own-corrections.md).
-
-- [x] **W-E1c-i — the numbers a descriptor states.** `fepdf-font::metrics` reads
-      `head.unitsPerEm` and its bounding box, `hhea`'s ascent, descent and
-      `numberOfHMetrics`, `OS/2.sCapHeight` where the table is version 2 or later, and
-      `post`'s angle and fixed pitch where there is a `post` at all — a subset this engine
-      writes has none, so the angle is absent rather than zero, which is a different
-      claim. `advance_width` reads `hmtx`, **including its tail**: a face states one
-      advance for every glyph after `numberOfHMetrics`, which is most of a CJK face, and a
-      reader that stops at the end of the array gives all of them no width and sets text
-      on top of itself. Scaling to glyph space is the caller's, because this crate carries
-      no PDF notion.
-
-- [x] **W-E1c-ii — the font dictionaries.** `apply::font::embed_truetype` subsets the
-      program, writes `/FontFile2` with its `/Length1`, a `/FontDescriptor`, a
-      `CIDFontType2` with `/W` and `/CIDToGIDMap /Identity`, a `/ToUnicode` CMap, and the
-      Type 0 font over them with `/Encoding /Identity-H`. **Reading 9.8.1 first is what
-      kept two numbers honest**: `/StemV` is written as 0, which the clause itself defines
-      as unknown, rather than the estimate every other tool puts there; and `/ItalicAngle`
-      is required, so a program with no `post` gets 0 *and* an `Ambiguity` naming the
-      clause, because 0 is the claim "upright" and not an absence.
-
-- [x] **W-E1c-iii — the widths agree, both ways.** 9.7.4.3 requires `/W` to be consistent
-      with the program's own widths, and the round trip checks exactly that: the writer
-      reads `hmtx` and the test reads it again through `fepdf-font::metrics`, which is
-      different code. The fixture is drawn on a **2048** grid, so a writer that passed the
-      program's units through without scaling into glyph space agrees with `hmtx` and
-      still fails.
-
-- [x] **W-E1c-iv — a CFF face is embedded as a `CIDFontType0`.** `/FontFile3` with
-      `/Subtype /CIDFontType0C`, no `/CIDToGIDMap` — 9.7.4.2 gives that to a
-      `CIDFontType2` and a charstring index is reached through the program's own charset
-      instead — and a `/CIDSystemInfo` taken from the program's `ROS` rather than declared
-      `Identity` over a collection that is not.
-
-- [x] **W-E2f — 図面-0001, on a page, in a file.** The case this phase started from, end
-      to end: the face's terms read, the glyphs found through its `cmap`, the CFF subsetted
-      to five of its 20,327, embedded, shown by CID, and extracted back as `図面-0001` from
-      a 47,654-byte file — with no `9.6.2` or `9.10.2` decision against this engine's own
-      output, where the old path produced both. It renders as 明朝 glyphs rather than as
-      the row of Latin noise the repro in this phase's opening draws.
-
-- [x] **W-E2g — the face taken out of a collection is the regular one.** Every face this
-      machine offers is a collection, and the engine took face 0 of each. That was right
-      here and right by luck: Helvetica lists six faces, Times four and Hiragino Mincho
-      four — `ProN W3`, `Pro W3`, `ProN W6`, `Pro W6` — and the regular weight happens to
-      be first in all four. A collection that listed a bold first would have been set in
-      bold without a word about it.
-
-- [x] **W-E1d — the ladder**, which has two rungs rather than three
-      ([ADR-0090](docs/adr/0090-the-face-a-document-embeds-is-not-a-licence-to-set-new-text.md)
-      amending [ADR-0089](docs/adr/0089-a-face-is-embedded-only-where-it-permits-it.md)):
-      a face installed on this machine whose `fsType` permits an editable *and*
-      subsettable embedding, then **refuse** — naming the characters, recording a
-      `Decision`, substituting nothing. No face is bundled with this engine.
-
-- [x] **W-E2d — one face for an operation, not one per page.** Embedding per run put a
-      subset of the same face on every page: thirteen Bates footers took
-      `samples/constitution.pdf` from 244,790 bytes to **830,167**, and with one embedding
-      of the union of their glyphs it is **277,392** — 32,602 for the face rather than
-      585,377. Both callers know every string before they touch the first page, so neither
-      had any reason to find out one page at a time. A face already named in a page's
-      resources keeps the name it has, or one resource dictionary would carry thirteen
-      entries pointing at one object.
-
-- [x] **W-E2a — the decoration's font is written indirect.** The `9.6.2` repairs above
-      are gone; `page_decoration_test.rs` fails against the old writer with 13 of them,
-      and the three fixtures beside it cannot see the defect at all, which is recorded in
-      the test rather than left to be rediscovered.
-
-- [x] **W-E2b — Bates, watermarks and headers onto W-E1.** `overlay_text_on_page` goes
-      through the ladder and writes glyph codes into an embedded subset, so what the three
-      of them write is embedded rather than a standard-14 name. **The path that wrote
-      neither is deleted**: `ensure_helvetica_in_page_dict` had no caller left. What they
-      write can now be refused, which is the decision and not a regression — and a
-      decoration therefore depends on this machine having an installed face, as do the
-      tests that assert one lands.
-
-- [x] **W-E2c — a direct font dictionary is read.** 7.3.10 lets any object be direct, and
-      a `/Font << /F1 << … >> >>` resource reached no route that found fonts: each keyed
-      them by object number.
-
-      **Five files of the corpus write one**, all in `pdf-differences` — 6 entries among
-      the 266 files with a font resource (`cargo run --release --example direct_fonts`,
-      which reads the file as written, before ingestion). On every one ingestion recorded
-      a 9.6.2 repair saying the resources did not define a font they defined, and drew
-      the text in the substitute sans: `OverlappingGlyphClipping.pdf`'s Times-Bold came out
-      sans. **The raw path was wrong differently.** The interpreter gave a direct font a
-      fresh object each time a `Tf` resolved it, so drawing a page grew the arena and
-      loaded the font again.
-
-      **Lifted at load rather than keyed by dictionary handle.** `lift_direct_fonts` gives
-      each such font an object and the resource entry a reference to it, before fonts are
-      discovered — so refinement, `get_font`, the runs and the appearances all find it by
-      the route they already use, and the entry's proposed second key never exists. The
-      document is the same one (7.3.10), and nothing is recorded because the file did
-      nothing wrong. The five files now record no 9.6 decision and draw Times-Bold as
-      Times-Bold; `direct_font_test.rs` fails in all four tests with the lift removed.
-
-Annotations, which are the largest single row of the comparison:
-
-- [x] **W-8 — appearance streams, and the two other things `AddAnnotation` did not do.**
-      It had existed for phases with no frontend calling it, so nothing had looked at what
-      it produced. It wrote no `/AP` for any of its four kinds — which this engine's own
-      renderer skips, so what it made it could not draw; it wrote a `Highlight` with no
-      `/QuadPoints`, which 12.5.6.10 makes required and which is the whole of what a text
-      markup marks; and it bound `stamp_image_bytes` to `_` and wrote `/Name /Draft`, so a
-      caller's picture reached the file nowhere.
-
-- [x] **W-14 — drawing them was already done, and this entry was wrong about that.** The
-      engine renders appearance streams: `render_annotations`, eight tests over the flags
-      that stop it (`Hidden`, `NoView`, `Print`), the state `/AS` names, and placement on
-      `/Rect`, with `pdf20examples/PDF 2.0 UTF-8 string and annotation.pdf` in
-      `crosscheck_image.sh`.
-
-- [x] **W-13 — making them**: note, typewriter, text box, callout, the four text markups,
-      ink, shapes, stamp and link. `AnnotationKind` grows from four to twelve, each written
-      with the entries its table requires and the appearance it is drawn by, and served by
-      `add_annotation`, which refused none of the names it did not know and wrote a note for
-      them.
-
-      **A highlight hid the words it marked.** Its appearance was a filled rectangle in
-      normal blending, and measured on `constitution.pdf` a yellow highlight over
-      日本国憲法 took the title's dark pixels from 449 to 0. `/BM /Multiply` was the fix in
-      the file and not on the screen: **the renderer stored the blend mode and composited
-      every fill, stroke and image normally** (11.3.5). A mark in a mode other than
-      `Normal` now goes into a layer composited in that mode, and the title reads 482
-      under the highlight; `annotation_drawing_test.rs` fails with the layer removed.
-
-      Three more were in the four kinds that existed. A note's words went in as their
-      UTF-8 bytes; a stamp's picture went into an image XObject with no size, colour space
-      or filter, which no reader can decode — it is now a JPEG, read for its frame and
-      carried under `/DCTDecode`, and anything else is refused; and nothing was marked for
-      printing. Text boxes, typewriter text and callouts are set in a face that draws every
-      character, embedded, and nothing wraps: a line longer than its box runs past it.
-
-      **From the window**, a drawer of fourteen pens — the twelve kinds, with the shape
-      split into its three forms — each drawn with the gesture it is drawn with
-      elsewhere: a drag over what a mark covers or a box holds, a drag from a point to
-      where a callout's words go, the path of a drag for ink, and a click for a note or
-      typed words. A pen missing what it needs — words, a stamp's picture, a link's
-      target, or a drag where a click came — says which rather than sending an
-      annotation the engine would refuse in its own words. `annotate.rs`'s tests hold
-      each pen's gesture to the annotation it makes.
-
-      **Checked with the pointer's own events, and that found the snapshot broken.**
-      `--capture` gained `drag`, which sends press, movement and release through
-      `raw_input_hook` where the platform's events go; every earlier step drove the call
-      a gesture ends in. The first `drag` with the snapshot drawer open selected the words
-      under it and copied nothing: the snapshot was in the list of tools the page is
-      handed to and not in the list that decides whether a tool has it, so a drag went to
-      text selection. One `content_tool()` answers both now. `scripts/dev/tour.txt` shots
-      19 and 20 are the snapshot and four annotations, each drawn by a drag.
-
-Content editing, under D-1:
-
-- [x] **W-E3a — `TextSpan.op_index` carried nothing on the default path, and `None` is
-      what it should have said.** Re-derived 2026-09-24 on `samples/constitution.pdf`:
-      1,007 spans carrying **1,007 distinct** indices with `active_refinement` off, and
-      **one** — zero, for all of them — with it on, which is the default.
-      `cargo run --release --example op_index_probe` re-derives it.
-
-      **Two entry points, and only one of them sets the field.** `execute_raw` sublimates
-      the bytes and stamps each command with the operator that produced it;
-      `execute_commands` takes a pre-sublimated list and never touched it, so it kept the
-      `0` it was constructed with.
-
-      **The field is now an `Option`, and the pre-sublimated path answers `None`.** Not
-      because the index is hard to supply there but because there is nothing for it to
-      mean: `op_index` names an operator of the *bytes* a page was read from, the only
-      users being redaction, which re-lexes them to scrub the strings they carry, and
-      tagging, which attaches an `/MCID` to them. A document held as commands has no such
-      bytes. An index into them would be a number with no referent, which is what `0` was.
-
-      **Nothing inside the engine was reading the zeros.** All three consumers — the
-      reading-order tie-break, `op_to_mcid` and the redaction set — reach their spans
-      through `execute_raw`, and the tie-break is redundant besides, the sort being stable
-      and the index monotonic in draw order. What was wrong was what the field said to a
-      caller outside the engine.
-
-      **It counts within one stream, which nothing said.** A form XObject drawn on a page
-      starts again from its own bytes: measured on a fixture, the page's first run and the
-      form's first run both report operator 4. That is what the consumers want — each
-      re-lexes the stream it is rewriting — and it means the index is not unique across a
-      page. The distinctness measured above is a property of `constitution.pdf` having one
-      content stream.
-
-      **One guard has nothing behind it, and says so.** `execute_commands` clears the index
-      before *every* command, not once, because a form drawn from there might still be
-      bytes and would leave the rest of the page carrying the form's last operator. That
-      cannot happen today — refinement sublimates a form along with its page — so
-      `a_form_is_sublimated_with_the_page_that_draws_it` holds the reason rather than the
-      behaviour, and fails the day a form arrives as bytes under a page that did not.
-
-      Three mutations: the raw path giving every operator the same index, the command
-      position standing in for the operator index — which breaks redaction, exactly as
-      [ADR-0064](docs/adr/0064-redaction-removed-the-second-run-of-a-page-and-no-other.md)
-      predicts — and the guard removed, which **survived**, and is why the entry above says
-      what it says about it.
-
-- [x] **W-E3b — the corpus was eleven files and ten documents, and is not in the
-      repository to be counted.** `samples/sample.pdf` and `samples/constitution.pdf`
-      were byte-identical — same length, same MD5 — so every figure taken "over the
-      samples" counted one document twice.
-
-      **Removing the file removes it nowhere else**, and that is the larger finding.
-      `samples/` is untracked (`.gitignore` excludes it), so the corpus is whatever each
-      working copy happens to hold and no file in the repository says what that is.
-      `sample_corpus_test.rs` is what a commit can carry instead: on any working copy
-      where two samples are the same bytes, the gate fails and names them. Fifteen places
-      walk `samples/*.pdf`, and one check covers all of them rather than each learning to
-      deduplicate. Shown to fire by putting the duplicate back.
-
-      **`sample.pdf` was far more load-bearing than a first grep said.** Searching for
-      `sample\.pdf` matched every `print_sample.pdf` line and buried the rest; a stricter
-      search found 21 references in tracked code — `extract_pages_test.rs`, which would
-      have **failed** the gate with the file gone, and two tests in `fepdf-wasm` and
-      `fepdf-gui` that open a sample with `else { return }` and would have gone on
-      **passing while checking nothing**. All point at `constitution.pdf` now, which is
-      the same bytes. Two dated records that say what a test *used* to read are left as
-      they were.
-
-      **Two figures re-derived, and neither can be reconciled with the first time.**
-
-      | | before | 2026-09-24, ten samples |
-      | :--- | ---: | ---: |
-      | embedded font programs | 235 | **230** |
-      | — stating an `OS/2` permission | 64 | 67 |
-      | — stating nothing | 171 | 163 |
-      | — refusing an editable embedding | 7 | **7** |
-      | fonts not Type 3, answering with a program | 291 of 299 | **288 of 299** |
-
-      Removing a duplicate can only lower a count, and "stating a permission" rose. So
-      something else moved too — two documents were added on 2026-09-21 — and because the
-      corpus is untracked, **the one those figures were taken over cannot be rebuilt to say
-      which change moved what**. The source comments carry both, dated, with the command
-      beside the new one: `cargo run --release -p fepdf-model --example
-      font_program_census`, and `the_tally_is_printable` for the other. The figure the
-      permission ladder rests on — seven refusing — held.
-
-      **Two documents were added on 2026-09-21**, each for a hole the measurement found:
-      `sample_02c.pdf`, the corpus's first `/AcroForm` (30 fields, none carrying a `/TU`),
-      and `02_低段汚水ポンプ電動機.pdf`, the first scanned drawing set.
-
-- [x] **W-E3 — changing the text of one run.** `Operation::EditRun { page, run, text }`
-      replaces what one show-text operator draws, encoded in the font that run is set in; a
-      character it does not draw is refused by name. `runs_of_page` lists the runs a caller
-      chooses from, **and is the same walk the edit uses**, so the number read is the
-      number acted on — two counters for one thing is the shape of ADR-0064.
-      Recorded as [ADR-0091](docs/adr/0091-paragraphs-are-not-inferred-and-overflow-is-shown.md).
-
-- [x] **W-E3c — the run tools are reachable, and so is the listing they need.**
-      `fepdf-mcp` serves `list_runs`, `edit_run`, `split_run`, `delete_run`,
-      `merge_runs` and `move_run`. An
-      operation nothing can call is one nobody looks at — the state `AddAnnotation` was in
-      for phases, and why its three defects waited for W-8 — so the tool surface test asks
-      for all four by name.
-
-- [x] **W-E4a — a run split by kerning is still one run**, and the reflow this item was
-      written about turned out not to exist.
-
-- [x] **W-E3d — a run is one or two characters, so matching one matches nothing.** Half
-      of it: `find_on_page` says where a string is, across the runs that draw it.
-      Rewriting one is the other half and is not here.
-
-      **"1 to 2 characters over the samples" was an average with an order of magnitude
-      inside it.** Re-derived 2026-09-24 with `cargo run --release --example run_lengths`:
-
-      | | runs | median | single-char | longest |
-      | :--- | ---: | ---: | ---: | ---: |
-      | `fugaku.pdf` | 15,265 | 1 | **100%** | **1** |
-      | `volvo_xc90.pdf` | 57,190 | 1 | **100%** | **1** |
-      | `constitution.pdf` | 10,454 | 1 | 83% | 4 |
-      | `bokutokitan.pdf` | 4,200 | **0** | 77% | 27 |
-      | `unicode_16.pdf` | 39,983 | 2 | 3% | 77 |
-      | **`intel_sdm.pdf`** | 3,179 | **68** | 11% | 127 |
-
-      A median of 0 is real: a code the font does not map reads as nothing. These figures
-      were read through `unified_map`, which left most of `bokutokitan.pdf`'s codes
-      unread ([ADR-0096](docs/adr/0096-a-run-reads-its-codes-by-the-route-extraction-reads-them.md)).
-
-      **Two runs are one piece of text when the text matrix carried it from the first to
-      the second**, which `carries_on` asks as `|next.origin − (origin + advance)| / em`.
-      The threshold is 0.05 em and **nothing hinges on it**, because the distribution is
-      bimodal — `cargo run --release --example run_gaps` gives `constitution.pdf` 93% at
-      0.05 em and 93% at 0.33, `volvo_xc90.pdf` 93% and 95%. Runs are carried along or put
-      somewhere else, with nothing in between.
-
-      **It answers 0% on the vertical Japanese, and the advance is not what is wrong
-      there.** `fugaku.pdf` sets 富嶽百景 downward with each character its own run, the
-      origin stepping down by an em while the font's advance points across — the producer
-      places every glyph itself and never lets the matrix carry one. The first measurement
-      of this compared *y* coordinates and called the file 0% contiguous, which is what
-      asking a horizontal question of vertical text looks like; measured as a distance it
-      is still 0%, and for a reason that is a property of the file. Finding a line that was
-      laid out rather than advanced is a different question, and this says so rather than
-      guessing one from the geometry.
-
-      | | contiguous at 0.05 em |
-      | :--- | ---: |
-      | `constitution.pdf`, `volvo_xc90.pdf` | 93% |
-      | `intel_sdm.pdf`, `print_sample.pdf` | 46%, 45% |
-      | `fy05.pdf` | 29% |
-      | `fugaku.pdf`, `unicode_16.pdf`, `sample_02c.pdf` | 0% |
-
-      **The entry's own example works.** 日本国憲法 on the first page of
-      `constitution.pdf` is found as four runs — 日, 本, 国 and 憲法 — and the match is
-      answered in *codes*, because a code reads as zero characters where the font does not
-      map it and as several where it does, so a place in the text is not a place in what an
-      edit would rewrite. `the_constitution_names_itself_across_four_runs` checks it
-      against the file rather than a fixture, the shape being one real producers make and
-      hand-written fixtures do not.
-
-      **`Operation::EditRun` is not a liar, which the entry implied it was.** It takes a
-      run *index*: pick run 3 and run 3 changes. What was wrong is that the unit the
-      vocabulary offers is not the unit a reader thinks in, and there is no search-then-
-      edit path in the engine for one to lie on.
-
-      Four mutations: every run joining every other, none joining any, the code range off
-      by one at its end, and a tolerance wide enough to swallow a word space.
-
-- [x] **W-E4c — cutting one run in two.** `Operation::SplitRun { page, run, after }`.
-      **No arithmetic and no new position**: consecutive show-text operators draw from the
-      current point, so `(ABCD) Tj` and `(AB) Tj (CD) Tj` put the same glyphs in the same
-      places. What it buys is that a caller can name either half afterwards, which is how a
-      reader says that part of a run is a thing of its own — without this engine guessing
-      that for them ([ADR-0091](docs/adr/0091-paragraphs-are-not-inferred-and-overflow-is-shown.md)).
-
-- [x] **W-E4d — taking a run off the page.** `Operation::DeleteRun { page, run }`.
-
-- [x] **W-E4e — joining two runs into one**, the other half of W-E4c.
-      `Operation::MergeRuns { page, run }` joins a run with the one after it, so a phrase
-      drawn as two runs becomes one name and changing it is one edit instead of two.
-
-- [x] **W-E4f-a — where a run is.** `RunInfo` carries an `origin`, because a run's
-      position is cumulative and no operator states it: `Tm` sets the matrix, `Td` and
-      `T*` step the line from it, and every glyph drawn advances it by its own width and
-      the spacing in force (9.4.2 to 9.4.4). Moving a run needs this; nothing can be put
-      somewhere else without something knowing where it is.
-
-- [x] **W-E4f-b — three branches written for a stream that never arrives.** `'`, `"` and
-      `TD` are expanded before any edit sees them — `handle_quote_op`,
-      `handle_double_quote_op` and `handle_td_op` write them out as `T*`, as `Tw` `Tc`
-      `T*`, and as `TL` `Td`. Each was handled anyway, each looked right, and each was
-      found only by a mutation that failed nothing: deleting the code entirely broke no
-      test, over the samples and a fixture written to use those very operators.
-
-- [x] **W-E4f-c — a cut or a join would have taken glyphs off the page.** `decode` answers
-      through `unified_map` and drops a code it has no character for. Measured on the
-      first page of each sample, characters the listing loses against what the renderer
-      reads: `unicode_16.pdf` **60 of 348**, `volvo_xc90.pdf` 2 of 2381, the other five
-      none.
-
-- [x] **W-E4f-d — a run is cut in codes, not in characters**, so the round-trip guard of
-      W-E4f-c is gone and the run `unicode_16.pdf` reads short can be cut like any other.
-      `MergeRuns` runs the two runs' codes together for the same reason: nothing is read
-      and written back, so nothing can be lost in between.
-
-- [x] **W-E4f-e — the literal string writer lost a byte in every CID code holding `0x0D`.**
-      `write_literal_string` escaped `(`, `)` and `\` and let a carriage return through
-      raw. 7.3.4.2 says an end-of-line inside a literal string is one line feed, so the
-      code `0x010D` was written and read back as `0x010A` — a different glyph. On the
-      first page of `unicode_16.pdf` that turned `Unicode` into `Ukicode` and `Standard`
-      into `Stakdard`, twice, in a cut that had moved a boundary and nothing else.
-
-- [x] **W-E4f — moving a run.** `Operation::MoveRun { page, run, to }`, the last of the
-      four and the only one that needed a different foundation.
-
-- [x] **W-T2 — the audit said `AUDIT FAILED` and not which check failed.** Fourteen of
-      its checks are `python3 scripts/audit/*.py || ERROR=1`: the script prints its own
-      complaint *and* its own summary, and the summary of a failing run reads like a
-      passing one — "0 user-facing literals … 0 names with no key" sits two lines below
-      the sentence that failed it.
-
-- [x] **W-T4 — Rust 1.98.1, after Phase W and not before.** Held deliberately: a
-      compiler change in the middle of a phase makes every failure ambiguous between the
-      work and the toolchain, and there is nothing in 1.98 this phase needs.
-
-      Surveyed 2026-09-21, at 1.97.1 (2026-07-14) against 1.98.1 (2026-09-03):
-
-      - **1.98.0 adds and does not take away** — algebraic float methods, `format_into`
-        on the integers with `NumBuffer`, `String::from_utf16{le,be}`,
-        `str::substr_range`. `format_into` is named as a standard replacement for `itoa`.
-      - **1.98.1 fixes a miscompilation 1.98.0 introduced**: a trait object vtable with a
-        null pointer where a function pointer belongs, which is undefined behaviour.
-        1.97.1 does not have it. Whenever this happens it goes to 1.98.1, never 1.98.0.
-      - **Of the twelve compatibility notes, none reaches this code.** Measured:
-        `repr(transparent)` 0 uses, `transmute` 0 uses, `std::env::Vars` 0 uses, glob
-        imports 2 and neither ambiguous, and the two hand-written `Ord`/`PartialOrd`
-        pairs both have `partial_cmp` returning `Some(self.cmp(other))`, so the
-        `derive(PartialOrd)` consistency change cannot bite.
-      - **No dependency asks for more than 1.98.** Of 595 external packages, 443 declare
-        a `rust-version`: the highest is **1.92** (egui 0.34.3 and its nine siblings, and
-        `hayro-jpeg2000`), then 1.88 for the `boa` engine and `darling`.
-
-      **This is a reading of declarations, not a build.** A crate that breaks under 1.98
-      breaks on one of those twelve notes, not on its stated minimum, and the insides of
-      595 crates were not read. What the survey supports is "nothing found that forbids
-      it" — not "it works". The build is the measurement, and it belongs to this item.
-
-      **The build, 2026-09-28, once W-22 had closed the rest of Phase W.**
-      `rust-toolchain.toml` pins `1.98.1`. rustfmt 1.98.1 finds nothing to change. Clippy
-      1.98 adds `chunks_exact_to_as_chunks`, which five `chunks_exact` calls with a
-      constant size failed: they are `as_chunks` now, which a pair or a pixel reads
-      as an array — `u16::from_be_bytes(*pair)` rather than indexing. `as_chunks` has
-      been stable since 1.88, and `msrv_build.sh` builds the workspace under 1.94 inside
-      the audit. `cargo test --workspace` exits 0 in 21 min 2 s with the rebuild a new
-      compiler costs, and `verify_compliance.sh` passes. **Of the survey's twelve
-      compatibility notes, none fired**, and no dependency failed to build: the survey's
-      "nothing found that forbids it" held, and this is the measurement it asked for.
-
-- [x] **W-T3 — the toolchain pin has never been one, and the minimum had never built.**
-      Both halves are closed, and each turned out to be a different kind of problem.
-
-      **The minimum had never compiled this workspace.** Three documents promised 1.94 and
-      `cargo +1.94 check --workspace --all-targets` failed:
-      `recursion_bounds_test.rs` passed `&[&String, &str, &str]` to a
-      `&[B: AsRef<[u8]>]`, and 1.94 infers `&String` from the first element where 1.97
-      picks `&str` and coerces. One line in one test. `msrv_check.sh` had passed
-      throughout, because it compared `Cargo.toml`, `README.md` and
-      `.rust-toolchain.toml` **to each other** — three documents agreeing is not a
-      compiler. Fixed, and `msrv_build.sh` now builds the workspace with the stated
-      minimum as part of the gate: **73 s warm**, a hard failure when the toolchain is not
-      installed rather than a skip.
-
-      **The pin was a hidden file rustup does not look for.** `.rust-toolchain.toml`, with
-      the leading dot, had selected nothing since 2026-08-29 while `stable` did the work.
-      It is `rust-toolchain.toml` now, pinned at 1.97.1 here and at 1.98.1 by W-T4.
-
-      **The floor and the development toolchain are two numbers**, and writing one number
-      in three places is what made them one. `rust-version` stays 1.94 — the promise to
-      whoever clones this and runs `cargo build --release`, which the README states under
-      *Building from source* and which `msrv_build.sh` keeps true. The pin is the other
-      number: what the gate runs on, so that `cargo fmt --check` and
-      `clippy -- -D warnings` answer the same on every machine. They are version-sensitive
-      — rustfmt reflows differently between releases and clippy gains lints — so an
-      unpinned gate is an instrument whose reading depends on who holds it.
-      `msrv_check.sh` demanded the two be equal, which is what collapsed them; it asks
-      that the pin be **at or above** the floor now, and fails on a pin below it or on a
-      `rust-toolchain.toml` that is not there.
-
-      **1.97.1 and not 1.98.1, and the distinction is not caution.** Pinning at 1.97.1
-      changes no compiler — it is what was already running, so a gate failure after it is
-      the work and not the toolchain. Pinning at 1.98.1 *is* a compiler change, mid-phase,
-      which is exactly what W-T4 holds against; and W-T4's survey says in its own words
-      that it supports "nothing found that forbids it" and not "it works".
-
-      **It cost a download and no rebuild.** `stable-aarch64-apple-darwin` and
-      `1.97.1-aarch64-apple-darwin` emit identical `rustc -vV`, so Cargo's fingerprints
-      match: `cargo check --quiet` after the rename took **0.68 s**. Clippy rebuilt, its
-      cache being its own. `cargo fmt --all --check` came back with no diff, so rustfmt
-      1.97.1 agrees with what is committed.
-
-      **W-T4 is now a defined piece of work**: change one line in `rust-toolchain.toml` and
-      run the gate.
-
-- [x] **W-T1 — the gate's cost, measured again, and the entry was wrong about all of it.**
-      Re-derived 2026-09-23. Every number this entry used to carry was out by enough to
-      change the conclusion, and the conclusion has changed: **nothing is taken.**
-
-      | | this entry said | measured 2026-09-23 |
-      | :--- | ---: | ---: |
-      | audit, `cargo check --quiet` | ~5 min | **34.5 s** |
-      | audit, `cargo clippy --workspace --all-targets` | 5 min 06 s | 4 min 26 s |
-      | rebuilding one test binary | 12.2 s | **5.23 s** |
-      | `cargo test --workspace --no-run`, fully warm | — | 11.75 s |
-
-      **`cargo check --quiet` is 34.5 seconds, not five minutes**, because it builds no
-      test target — which is also the whole of why the clippy pass is eight times its
-      size. It warms nothing for clippy (285 s after it, 266 s on its own), so the
-      duplication this entry named is real; it is 1.5% of the gate rather than 13%.
-
-      **And it is not the duplicate this entry called it.** `--all-targets` is a superset
-      in *targets* and a different thing in *feature resolution*: without it the
-      dev-dependencies are out of the graph. The two resolutions are identical today —
-      `cargo tree -e features --edges normal,build` against `--edges normal,build,dev`
-      differs only on `fepdf-fixtures`, which nothing depends on outside dev — and they
-      are identical **because `[workspace.dependencies]` states every feature centrally**,
-      which nothing enforces. The line stays, with that written above it.
-
-      **Debug information is not the lever either.** `[profile.dev]` carries the default
-      `debug = true`; building one test binary under it takes 5.23 s against 4.77 s with
-      `debug = "line-tables-only"` and dependencies at `debug = false`. **Nine per cent of
-      the marginal case**, against losing variable-level backtraces in every test. Not
-      taken.
-
-      **What the minutes actually are.** A fully warm `cargo test --workspace --no-run` is
-      11.75 s and one touched test file adds 5.23 s, so the gate's half-hour is not
-      per-binary overhead — it is **invalidation**: a change to `fepdf-model` rebuilds
-      everything downstream of it, and everything is downstream of it. That is the shape
-      of the workspace, not a setting, and shortening it means changing what depends on
-      what.
-
-      **Two measurements were thrown away before these stood up**, and both are traps
-      worth naming. `cargo test -p fepdf --test X --no-run` resolves features differently
-      from `--workspace` and rebuilt the dependency graph: 23 s became 337 s, measuring
-      the resolver rather than the profile. And restoring a profile does not give a cold
-      build back — Cargo keys artefacts by profile hash and the old set was still there,
-      so a "cold" 1885 s and a "warm" 320 s were compared as though they were the same
-      run. **Measure with the gate's own command**, or measure something else than what
-      you meant to.
-
-      `target/debug` stood at **93G** while both profiles' artefacts were present.
-
-- [x] **W-E3e — extraction could not see word or character spacing, and the entry named
-      the wrong symptom.** One rule, 9.4.4, was written out **four times**, and the entry
-      pointed at a fifth thing that was not wrong at all.
-
-      | | `Tc` | `Tw` | `Tz` |
-      | :--- | :---: | :---: | :---: |
-      | `fepdf-render::calculate_next_advance` | yes | yes | yes |
-      | `apply/text.rs::shown_displacement` | yes | yes | yes |
-      | `TextExtractionBackend::show_text` | **no** | **no** | **no** |
-      | `CollectorBackend::show_text` | **no** | **no** | **no** |
-
-      It is `fepdf_content::advance_of` now, beside the glyph and the text state it is
-      about, and all four ask it. `Tw` goes to the single-byte code 32 and to nothing else,
-      which is why the comparison is against `char_code` and not against the text a glyph
-      reads.
-
-      **The empty `set_word_spacing` bodies were not the defect.** The entry named them —
-      three pairs in `fepdf-doc` — and they are *correct*: the state arrives with every
-      `show_text` as a `TextState`, so a backend that tracks it separately is duplicating
-      what it is handed. The extraction backends simply never read the field.
-
-      **And the position was never wrong; the extent was.** The entry said the renderer put
-      a run at 98.016 with `20 Tw` and 78.016 without while extraction gave the same number
-      for both. Measured 2026-09-24, `x` responds to `Tw` either way — the interpreter
-      advances the text matrix with the spacing applied — and what did not respond is
-      `TextSpan::width`. A span that reports where it starts and lies about how far it
-      reaches is the half of the defect that was really there.
-
-      **Three sets of tests, and the mutations threw two of them away.** The first measured
-      `runs_of_page`, which has its own correct 9.4.4 and never touches the repaired code.
-      The second measured `extract_spans` but read `x`, which comes from the transform. All
-      four mutations of the rule survived both. The third reads `width` and catches all
-      four — and the entry's own operator, `"`, which sets both spacings and shows in one
-      go, is measured with them.
-
-      Four mutations: `Tw` dropped, `Tc` dropped, `Tz` dropped, and `Tw` given to every
-      glyph rather than to the space.
-
-- [x] **W-E4b — inserting and deleting inside a run** is the four verbs used together,
-      and there was nothing left to build. It was carried on the ground that replacing
-      part of a run means splitting it and re-spacing what remains: splitting is W-E4c,
-      and the re-spacing was measured not to exist (W-E4a) — consecutive show-text
-      operators draw from the current point, so the line closes up or opens out on its
-      own.
-      Recorded as [ADR-0085](docs/adr/0085-editing-what-a-page-draws-is-in-scope.md), [ADR-0091](docs/adr/0091-paragraphs-are-not-inferred-and-overflow-is-shown.md).
-
-- [x] **W-E5 — the drawn objects**: moving, scaling, rotating and replacing an XObject
-      (`Operation::EditXObject`). *Fails if*: the CPU rasterisation of the result differs
-      from the expected image — and `edit_xobject_test.rs` asks exactly that, of each of
-      the three transforms, against a page drawn with the matrix written out by hand.
-
-      An object is named by its place among the page's `Do` operators, as
-      `fepdf::xobject::objects_of_page` lists them with their corners on the page (an
-      image's unit square, a form's `/BBox` through its `/Matrix`), and served as
-      `list_objects` and `edit_object`. An edit is said on the page — lower left corner
-      to here, scale or turn about the centre — and written as the `cm` that makes it so
-      under the matrix already in force, in a `q … Q` of its own round the one `Do`, so
-      the numbering survives it. A replacement is a JPEG added under a name of its own,
-      because the XObject a page names may be named by other pages too. **Not reached:**
-      an object inside a form XObject, and doing any of it from the window.
-- [x] **W-E6-a — a run says what box to click.** `RunInfo` carries `advance` and
-      `height` beside `origin`, so a window can draw a frame round a run and a click can
-      find one. The advance is a *vector*, because a run is not always horizontal on the
-      page: a run turned a quarter turn advances along the page's y, and a box measured as
-      a plain width would be wrong in both directions at once.
-
-- [x] **W-E6 — the window for it.** A drawer on the rail lists the runs of the page a
-      reader is on, draws a frame round each one, and does four things to the one they
-      click: replace its text, cut it in two, take it off the page, join it with the next.
-      `./scripts/dev/status.sh` on 2026-09-20: `fepdf-gui` now builds **20** of the
-      vocabulary's 37, from 16.
-
-- [x] **W-E6-b — a run is moved by dragging it.** The other four verbs are a click and a
-      button; this one is a gesture, so it is on the page rather than in the drawer — a
-      reader moving something wants to see where it will land before they let go. The
-      frame is drawn at the landing place while the drag is under way.
-
-- [x] **W-F1 — filling a form from the window.** A drawer on the rail lists the
-      document's fields and writes what a reader puts in them through
-      `SetFormFieldValue`. The engine could already set a value and regenerate the
-      appearance ([ADR-0048](docs/adr/0048-reading-and-setting-choice-fields.md)); nothing
-      in the window asked it to, so a form could be read, audited and not touched.
-
-- [x] **W-F2-a — creating the nine kinds of field.** `Operation::AddFormField(NewField)`,
-      served as `add_form_field`. The `/AcroForm` is written when the document has none,
-      with the `/DA` and `/DR` a variable-text field is drawn by (12.7.4.3) — a form
-      declaring fields without them is one whose fields a reader sees nothing of.
-
-- [x] **Filling a field wrote into nothing and said it had.** `SetFormFieldValue`
-      compared the name it was given, as raw UTF-8, with each field's own `/T`: a nested
-      field's qualified name matched no `/T`, and neither did any field of
-      `sample_02c.pdf`, whose names are UTF-16 — so the form drawer, which lists fields by
-      the names `form_of` reads, wrote into none of them, and a name nothing carried or a
-      document with no form answered `Ok`. Found 2026-09-26 while writing W-F2-b. Three
-      more came with it: the value went in as the UTF-8 bytes of the text; a check box
-      was set to `/Yes` whatever its appearance called its on state, which on the sample
-      recorded a violation of 12.7.5.2.3 against the file and left the box drawn empty;
-      and the drawer drew every cleared box ticked, comparing `/Off` with `Off`. Fields
-      are found by qualified name through the walk `/CO` uses, values are text strings, a
-      box's on state is read from its widgets, radio buttons are refused an on/off that
-      does not say which, and `form_filling_test.rs` holds each. `field_value`, which the
-      script frontend reads a field through, had the same shape — root fields only, `/T`
-      as lossy UTF-8 — and now finds a field the way the rest do.
-
-- [x] **W-F2-b — tab order and calculation order.** `Operation::SetTabOrder` writes a
-      page's `/Tabs` (Table 31) and `Operation::SetCalculationOrder` the form's `/CO`
-      (Table 224), served as `set_tab_order` and `set_calculation_order` and reached from
-      the page menu and the form drawer.
-
-      **What the corpus does**, from `cargo run --release --example tab_and_calc`
-      (2026-09-26): of 3,731 pages carrying annotations, 3,719 have no `/Tabs` and 12 have
-      `S`; three files calculate, and two of them — Isartor's — have no `/CO`, which
-      Table 224 requires.
-
-      **A calculation order names every field that calculates, once each, and nothing
-      else**, and is refused by name otherwise: `/CO` is required once any field has a
-      calculation action, so an order leaving one out writes a form that does not conform.
-      `form_of` now says which fields calculate and what `/CO` holds, and the drawer starts
-      from that, adding at the end what a file's `/CO` left out and saying it did.
-      `field_order_test.rs` reverses `sample_02c.pdf`'s seven and reads them back through
-      a save.
-
-Page geometry, under D-4:
-
-- [x] **W-10 — cropping.** `Operation::CropPages(pages, CropRegion { keep, outside })`.
-      The kept rectangle becomes the new sheet with its lower-left corner at the origin,
-      and the content is moved rather than rewritten — a `q <cm>` in front and a `Q`
-      behind, the way a resize moves it (7.8.2).
-
-- [x] **W-G1-a — the text a crop puts outside is removed.**
-      `Operation::RemoveOutside { page, keep }` takes off a page every glyph whose own box
-      does not meet `keep`. The check ADR-0088 asked for now passes, and it failed against
-      the behaviour of the day it was written, which is why it was worth writing:
-      `print_sample.pdf` page 3 shifted 300 points right renders with its right-hand half
-      gone, **78 of its 112 runs end past the sheet's edge**, and `extract_text` returned
-      all 428 characters it did before.
-
-- [x] **W-G1-b — the images a crop puts outside**, re-encoded to the part that remains
-      rather than left whole under a clip (ADR-0088). `image_crop::cut_images_outside`
-      runs beside the text removal on every crop that removes, and so on every split:
-      each image XObject the page draws is decoded, cut to the pixels under the kept
-      rectangle taken into its own unit square, and drawn in place of the whole; one
-      wholly outside is not drawn, one wholly inside is left as it is, and a soft mask is
-      cut with its image. A turned or skewed image keeps the bounding box of what shows,
-      so a pixel a reader can see is never cut.
-
-      Split down the middle, `print_sample.pdf`'s page 4 picture of 1,367,663 pixels
-      became two of 684,321 — the column on the line goes to both — and an image
-      wholly on one side stayed there alone (2026-09-26). An image that will not decode,
-      and one carrying its own mask as JPEG 2000 does, are left whole with a decision
-      saying so. **Not reached:** inline images, and images inside a form XObject.
-      `crop_image_test.rs` fails in all six tests with the cut unhooked.
-- [x] **W-G1-c — the paths a crop puts outside**, clipped and rebuilt rather than clipped
-      for display. `path_crop::cut_paths_outside` runs beside the text and images on every
-      crop that removes: a path wholly outside is taken out, a filled path of straight
-      lines is cut to the kept rectangle as a polygon, and a stroked one segment by
-      segment against the rectangle grown by half the pen, so a line along the edge keeps
-      the half that shows. **Left whole**, because cutting would change what shows: a path
-      with a curve in it, one both filled and stroked, and one used to clip — including
-      `W f`, where taking out a clip lying outside would uncover what it hid.
-
-      Split down the middle, the first ten pages of `print_sample.pdf` had 43 paths wholly
-      on the right; none are left on the left sheet, and none of its 176 reach past the
-      line. Of `volvo_xc90.pdf`'s, 5 still do — the kinds left whole (2026-09-26).
-      **Not reached:** paths inside a form XObject. `crop_path_test.rs` fails with the cut
-      unhooked, and with the clip guard removed.
-
-- [x] **W-11 — one page into several**, on W-G1 — the operation JUST PDF calls
-      ページの分割. `Operation::SplitPage { page, into }` with `PageDivision::Grid` or
-      `Regions`, served as `split_page`.
-
-- [x] **W-12 — several pages onto one**, the operation JUST PDF calls ページの結合.
-      `Operation::CombinePages(pages, PageArrangement { sheet, columns, rows })`, served as
-      `combine_pages`.
-
-      **From the window, with W-10 and W-11**: the page menu splits the page in halves
-      either way or in quarters and puts the pages in hand two or four to a sheet, and
-      the snapshot's drag crops the page to what it covers — hiding the rest, or taking
-      it out. Driven in a capture plan, two defects showed that neither operation had.
-      **The window drew a page's content past its sheet**: each page's scene was
-      appended with no clip, so a page cropped with the rest kept in the file — what a
-      crop that keeps is — showed all of it over the canvas; the scene is clipped to the
-      sheet now, in the view and the thumbnails. **And an edit that leaves fewer pages
-      reported failures**: requests for the pages it removed were still queued, and each
-      came back "could not draw page 13"; the worker drops a request for a page the
-      document no longer has.
-
-- [x] **W-O1.** Out: the page rasterised, its dimensions, and whatever text is already
-      there with its positions. In: `Operation::AddTextLayer { page, items }`, written at
-      text rendering mode 3 with a `/ToUnicode` on an embedded font. Two tools on
-      `fepdf-mcp`, which already builds 31 of the 32 operations, and a
-      `fepdf edit text-layer --json` beside them for callers that are not an assistant.
-      *Fails if*: `inspect text` does not return the layer, **or the page's CPU
-      rasterisation changes by one byte**. `--cpu` exists to make the second of those
-      writable.
-
-      `page_for_ocr` writes the page as a PNG (300 DPI unless asked) and answers its size,
-      `pixel_to_page` — the transform from the picture's pixels back to the page, turned
-      pages included — and the text already there; `add_text_layer` and
-      `fepdf edit text-layer` take the lines an engine read, in points or in those pixels.
-      Each line is set to its box's height and stretched by `Tz` to its width, so a
-      selection covers the word a reader sees. Both checks hold as stated:
-      `inspect text` on `constitution.pdf` with a layer returns it, and
-      `fepdf publish render --cpu` of page 1 before and after writes the same file.
-
-      **The second check failed first, and not because of the layer.** The renderer kept
-      the text rendering mode and never read it, so every mode was a fill (9.3.6): mode 3
-      — how every OCR'd scan carries its text — was drawn over the scan it was read from.
-      Modes are drawn as Table 106 says now, mode 3 and 7 painting nothing; a stroked
-      glyph takes the default line width, because the backend is given the graphics
-      state's only with a path, and the four modes that clip record that they did not.
-      And the first version of the check passed with the text drawn visibly — the
-      fixture's grey bars under grey text — so the fixture ends in black and the check
-      fails with mode 3 taken out. `text_layer_test.rs` and `rendering_mode_test.rs`.
-      **Not reached:** vertical writing, where a line's box is taller than it is wide.
-
-Independent of all of the above:
-
-- [x] **W-15 — finding text in a document.** The redaction studio's search runs over the
-      runs, in the worker, over every page, and a match's box is the codes it covers.
-
-      **What it replaced had three defects, and the entry named one.** The box was the
-      whole span a match fell in. The search covered only the pages the window had
-      rendered, so a word on a page nobody had scrolled to was "no results". And the
-      pattern mode pushed every span that the match contained or was contained by, each
-      checked for redaction — a four-digit pattern marked every span that was one of its
-      digits. The fallback that laid extracted words onto an invented grid when
-      `extract_spans` failed is gone with it.
-
-      **A match is a range of a `Stretch`** — the text of runs the text matrix carries
-      through — which says which codes of which runs draw it, and each run's `places`
-      says where those codes are on the page. One box a run crossed, not one round the
-      match, because a match across runs that turn would otherwise cover what lies between
-      them. Text and patterns go through one matcher: text is escaped into a pattern
-      rather than lowered and compared, because lowering changes lengths and a range in
-      the lowered text is not a range of the page's.
-
-      **The runs could not read what extraction reads, and that was the larger defect.**
-      Compared on every word extraction read on the first five pages of each sample, the
-      run search found 50 of `bokutokitan.pdf`'s 160 and 58 of `fy05.pdf`'s 169: the runs
-      decoded through `unified_map` and read 1,721 of `fy05.pdf`'s 3,080 codes as nothing.
-      They read by extraction's route now, and find every word but one
+## What was built
+
+Each phase in a few lines, with the records behind it. The narrative each entry carried
+— how a defect was found, the before-and-after tables, the mutations that proved a test
+— is in git, and a decision it made is in `docs/adr/`.
+
+### Phase A — Own the reader
+
+`lopdf` replaced by a reader of this project's own:
+- Header scan, both cross-reference forms, `/Prev` chains, object streams, recovery.
+- A `/Length` repair is recorded as a `Decision`.
+- An object's handle **is** its object number.
+
+Every sample was compared before and after, and only the XMP instance ID and lopdf's
+`f32` rounding differed. Five of the six malformed files open where one did
+([ADR-0003](docs/adr/0003-lopdf-was-not-providing-robustness.md),
+[ADR-0006](docs/adr/0006-a-container-may-not-overwrite-a-newer-revision.md)).
+
+### Phase B — Read before write
+
+`inspect` went from four commands to eight: `structure`, `catalog`, `interactive` and
+`encryption` joined `info`, `audit`, `text` and `tree`. Each carries the decision log,
+structured rather than stringified. An indirect `/Length` stopped counting as an
+ambiguity, so a conforming file reads as one
+([ADR-0008](docs/adr/0008-an-indirect-length-is-not-an-ambiguity.md)).
+
+### Phase C — Clause 7.6
+
+**Encryption, both ways:**
+- Every password handler decrypts. `/P` is read as 32 bits
+  ([ADR-0009](docs/adr/0009-permissions-are-thirty-two-bits-not-a-positive-integer.md)).
+- Algorithms 2.A, 2.B, 6 and 7 are implemented, and passwords are SASLprepped.
+- Public-key handlers are read and written, and unencrypted wrappers reported.
+- Writing is AES-256 R6 only
+  ([ADR-0015](docs/adr/0015-this-engine-reads-five-encryption-schemes-and-writes-one.md)).
+
+**Signatures:** signing is a two-pass write, `ETSI.CAdES.detached`, over the engine's
+own output. Verification reports coverage.
+
+**Saving:**
+- Object streams are written, and packed by default
+  ([ADR-0016](docs/adr/0016-objects-are-packed-by-default.md)).
+- The content round trip is a fixed point
+  ([ADR-0011](docs/adr/0011-the-content-round-trip-must-be-a-fixed-point.md)).
+- A save produces a new document
+  ([ADR-0012](docs/adr/0012-saving-produces-a-new-document.md)).
+- Every `SaveArgs` option is implemented or deleted
+  ([ADR-0007](docs/adr/0007-an-option-that-is-not-read-is-hidden.md)).
+
+**Fixes:** `fy05.pdf`'s lost pages came from a synthesised `/ToUnicode`
+([ADR-0010](docs/adr/0010-a-synthesised-tounicode-keyed-on-glyphs-destroys-text.md)).
+
+**Cross-checks:** encrypted fixtures are built independently of the engine, and
+`crosscheck_roundtrip.sh` compares a file's text in PDFKit before and after a save.
+
+### Phase C′ — The hole in the cross-checks
+
+`crosscheck_selfread.sh` reads every produced file back with this engine, across 21
+combinations of packing, encryption and signing. It also asserts that every page of every
+sample extracts, because a comparison cannot see a defect that is the same on both sides.
+
+### Phase D — The catalogue and PDF 2.0 features
+
+**The catalogue:**
+- All 32 catalogue entries are typed.
+- `ViewerPreferences` is read with every field optional.
+- `Dests` is read in both of its forms, through the name tree (7.9.6). That found a
+  link in `intel_sdm.pdf` that goes nowhere.
+
+**Operations:**
+- Implemented in order of how much of the standard each unlocks.
+- CLI subcommands are unhidden as their operations land.
+- `color_policy` is read.
+
+### Phase E — Structure, once the contents exist
+
+- `fepdf-content` holds the interpreter beside `RenderBackend`.
+- `fepdf-doc` owns the `Operation` vocabulary.
+- `fepdf` is the facade crate
+  ([ADR-0005](docs/adr/0005-layering-rules-are-enforced-by-cargo.md)).
+
+### Phase F — Robustness
+
+- Structure-tree `/Pg` pruning on page deletion.
+- Depth limits of 64 on `q`/`Q` and on marked content.
+- Operation preconditions validated before anything changes.
+- Fallback advance widths where `/Widths` is missing.
+
+### Phase G — Measured against files this project did not choose
+
+`fetch_external_corpus.sh` brought 242 files: pdf-differences, and Isartor. Against them:
+- A CFF INDEX panic was fixed.
+- The four plain byte filters were built.
+- A lost cross-reference section now leaves a `Decision`, and a scan fills its holes.
+- An `ExtGState` `/Font` is read.
+- A failing image no longer takes the page's text with it.
+
+`measure_external_corpus.sh` exits non-zero only on a panic.
+
+### Phase H — A decision the interpreter takes is still a decision
+
+`DecisionLog` is reachable from `&Document`, so interpreting a page can record
+([ADR-0018](docs/adr/0018-interpreting-a-page-can-add-to-the-decision-log.md)).
+`is_conforming` answers for what has been examined. `inspect structure` takes a census of
+stream filters.
+
+### Phase I — Give the goal a completion condition
+
+`fepdf inspect coverage` measures three axes against what a corpus presents: catalogue
+entries, annotation entries per subtype, and stream filters
+([ADR-0019](docs/adr/0019-semantic-understanding-is-measured-against-what-a-corpus-presents.md)).
+A construct no file carries counts in neither direction.
+
+### Phase J — Read the interactive features the corpus presents
+
+`PdfAnnotation` reads Table 166 entire, `/AP` included. It reads subtype entries for
+every subtype written more than once, and Table 172 for all markup subtypes. The form walk
+reads `/V`, `/DA`, `/Ff`, `/T` and `/Kids`, with 12.7.4.2's inheritance.
+
+### Phase K — The catalogue's contents, in the order the corpus asks
+
+- Five entries were wired and nine gained readers, taking the carried keys to 19 of 20
+  modelled.
+- The keys no file carries are declined in the code.
+- The figure is qualified by each entry's own table
+  ([ADR-0017](docs/adr/0017-declaring-a-catalogue-key-is-not-modelling-it.md),
+  [ADR-0020](docs/adr/0020-a-modelled-entry-reports-how-much-of-its-own-table-it-reads.md)).
+
+### Phase L — The image codecs, declined in writing
+
+A skipped image names the share of the page it covers, which is the determinant of the
+CTM. On that measurement the codecs were declined. Phase M reopened them on a use case,
+which is the rule under "Not planned". The same measurement found a page tree lost to a
+swallowed error, which is now a 7.7.3.2 `Violation`.
+
+### Phase M — Scanned documents
+
+**Codecs:** `CCITTFaxDecode`, `JBIG2Decode` and `JPXDecode` decode through the `hayro`
+crates, behind one `FilterContext` contract:
+- JBIG2's polarity is inverted to PDF's.
+- JPX takes its colour space from the codestream only where the dictionary is silent.
+
+**Fixes:** `DCTDecode` no longer converts colour, the component count comes from
+`/N`, and a 1-bit gray image no longer crashes the GPU upload.
+
+**Evidence:** fixtures are encoded by other implementations, and
+`crosscheck_image.sh` compares against PDFKit. Nine files agree within one part in 255,
+five of them not written by this project.
+
+### Phase N — What the engine gets wrong
+
+- Optional content is honoured while drawing
+  ([ADR-0021](docs/adr/0021-optional-content-hides-only-what-the-document-unambiguously-turns-off.md)).
+- A page tree inside an object stream is recovered.
+- Headless rendering of a small page works.
+- The layers the engine writes mark their content.
+- `/SMaskInData` is read.
+
+### Phase O — The holes in the checking
+
+- Phase O-1 doubled the corpus to 524 files.
+- `/JBIG2Decode` still occurs in none. O-2 waits for a JBIG2 image this project did not
+  make.
+- A visual script that ran a non-existent target was deleted, and the rest of
+  `docs/specs/` was audited.
+
+### Phase P — What the rendering subset owes
+
+**Rendering:**
+- The function evaluator (7.10)
+  ([ADR-0027](docs/adr/0027-a-function-evaluator-and-two-divergences-it-pinned.md)).
+- 10.4.2.1's CMYK conversion, `/Default*` and `/CalRGB`.
+- Standard-14 fallback fonts, and a 9.6 `Violation` for a run that paints no glyph.
+- Mesh shadings.
+- Annotation appearances
+  ([ADR-0023](docs/adr/0023-a-renderer-that-skips-annotation-appearances-is-not-conforming.md)).
+- Halftones declined on their clause
+  ([ADR-0029](docs/adr/0029-halftones-and-transfer-functions-are-declined-on-their-clauses.md)).
+
+**The window:** a layer panel.
+
+**Logging:** thirteen stderr logs became `Decision`s
+([ADR-0028](docs/adr/0028-four-of-the-thirteen-logs-were-not-decisions.md)).
+
+### Phase Q — The rules the architecture asserts, and what checks them
+
+- Rule D is enforced: the facade mutates only through `apply`.
+- The engine/frontend log split is derived from the workspace.
+- 45 unused dependency declarations were removed, and `status.sh` counts them.
+- Frontends declare only `fepdf`.
+- `debug extract-font` writes under `out/`.
+- `fepdf-mcp` named all thirty operations of the time.
+- `fepdf-wasm` builds for WebAssembly, and reports what it cannot draw.
+
+### Phase R — Running the document's code
+
+**The ECMAScript subset is met.** boa runs document and field scripts through a
+frontend, and Rule 9's check reads four targets. It is built around three things:
+- A script cannot reach an operation of its own
+  ([ADR-0032](docs/adr/0032-running-scripts-is-a-frontend-verb-not-an-operation.md)).
+- Determinism is injected through `ScriptEnvironment`.
+- `/CO` supplies the calculation order, and Adobe's `AF*` helpers are in `aform.js`.
+
+**What is declined, and why:**
+- Wayland stays, with Rule 9 naming one exemption
+  ([ADR-0033](docs/adr/0033-the-linux-gui-keeps-wayland-so-rule-9-names-one-exemption.md)).
+- `Intl` is absent
+  ([ADR-0034](docs/adr/0034-intl-is-declined-for-what-it-does-not-do.md)).
+
+### Phase S — What the text pass turned up in the renderer
+
+- The scene repeats and the GPU rasteriser does not, so `--cpu` exists
+  ([ADR-0043](docs/adr/0043-the-scene-repeats-and-the-rasteriser-does-not.md)).
+- A stale visual baseline was refreshed.
+- The four non-Japanese character collections are read
+  ([ADR-0044](docs/adr/0044-the-other-four-collections-were-already-on-disk.md)).
+
+### Phase T — What is left, sized
+
+- Reading order
+  ([ADR-0047](docs/adr/0047-text-extraction-sorts-runs-into-reading-order.md),
+  [ADR-0049](docs/adr/0049-the-extraction-backend-was-not-tracking-the-ctm.md),
+  [ADR-0050](docs/adr/0050-ruby-is-bound-to-the-base-it-reads.md)).
+- One font construction path
+  ([ADR-0045](docs/adr/0045-normalisation-at-load-does-not-reach-fonts.md),
+  [ADR-0046](docs/adr/0046-unify-font-construction-paths-at-load.md)).
+- The silent wildcard arms, judged one by one.
+- The window shows the engine's decisions.
+- ECMAScript wired to `fepdf-mcp`'s field writes.
+- Korean and Chinese extraction tested end to end.
+
+### Phase U — The work that stops at no crate boundary
+
+**The gate:**
+- Rule 1 sees `pub(crate) fn`.
+- `silent_branches.py`'s count is a question, not a gate.
+- `TESTING.md` stopped quoting a stale test count.
+- `[profile.dev.package]` takes the suite from 45.9 s to 27.5 s.
+
+**Shared code:**
+- One fixture crate
+  ([ADR-0083](docs/adr/0083-a-fixture-crate-that-depends-on-nothing.md)).
+- One content-stream reader, where the interpreter's raw-byte path had been an
+  incomplete second one.
+- `fepdf-mcp` runs a form's calculation order on a field write, and not on every
+  operation.
+- `color::ColorSpace` was deleted.
+
+### Phase V — The window, looked at
+
+Screenshots of the running window found what no test could, and each was fixed:
+- Icons that drew nothing.
+- Selected widgets drawing transparent text.
+- A save that emptied the window.
+- A palette that governed half the colours.
+- Sheets with no edge.
+- A reading-order overlay that drew nothing.
+- Two constants shown as readings.
+- A grid drawn under the texture.
+
+`--capture` plans made the window drivable. The GUI rules are rows of `CODING.md` §3
+([ADR-0084](docs/adr/0084-the-gui-gets-rules-not-a-rulebook.md)).
+
+### Phase W — What a shipping editor does that this one does not
+
+`fepdf-gui` was compared with JUST PDF [編集Pro] on 2026-09-19. Four decisions came out
+of it:
+- **D-1**, editing what a page draws is in scope
+  ([ADR-0085](docs/adr/0085-editing-what-a-page-draws-is-in-scope.md)).
+- **D-2**, no OCR engine; bind one
+  ([ADR-0086](docs/adr/0086-the-engine-does-not-read-a-scan-it-binds-what-does.md)).
+- **D-3**, forms through to creating fields
+  ([ADR-0087](docs/adr/0087-a-form-field-is-created-here-not-only-filled.md)).
+- **D-4**, what a crop puts outside is removed
+  ([ADR-0088](docs/adr/0088-what-a-crop-puts-outside-the-sheet-is-removed.md)).
+
+The critical path was that this engine had never embedded a font. As of 2026-09-28 the
+window builds 30 of the vocabulary's 54 operations, `fepdf-mcp` 52 and `fepdf-cli` 9.
+
+**Wiring**
+- [x] Seven operations the window could not ask for — headers and footers, permissions,
+      certificates, stripping, page images, signature verification, page replacement —
+      reach it, and the window's history records acts.
+- [x] A page selection naming a page that is not there is refused by number
+      (`pages_named`).
+
+**Fonts (W-E1, W-E2)**
+- [x] **W-E1a** — `OS/2.fsType` is read (`fepdf-font::embedding`).
+- [x] **W-E1b** — TrueType subsetting with glyph ids kept.
+- [x] **W-E1b1** — a collection is read from its first font.
+- [x] **W-E1b2** — CFF subsetting, the Japanese path: 19,409,608 bytes to 105,011 for
+      eleven glyphs.
+- [x] **W-E1b3** — the document's own program is reachable
+      ([ADR-0039](docs/adr/0039-the-design-document-was-narrating-its-own-corrections.md)).
+- [x] **W-E1b4** — a document's fonts are counted once.
+- [x] **W-E1c-i** — descriptor metrics, `hmtx` tail included.
+- [x] **W-E1c-ii** — a Type 0 / `CIDFontType2` embedding with `/W` and `/ToUnicode`.
+- [x] **W-E1c-iii** — `/W` agrees with the program both ways.
+- [x] **W-E1c-iv** — a CFF face is embedded as a `CIDFontType0`.
+- [x] **W-E1d** — the ladder: a permitting installed face, or refuse
+      ([ADR-0089](docs/adr/0089-a-face-is-embedded-only-where-it-permits-it.md),
+      [ADR-0090](docs/adr/0090-the-face-a-document-embeds-is-not-a-licence-to-set-new-text.md)).
+- [x] **W-E2a** — a decoration's font is written indirect.
+- [x] **W-E2b** — Bates, watermarks and headers embed their glyphs.
+- [x] **W-E2c** — a direct font dictionary is lifted at load.
+- [x] **W-E2d** — one face per operation, not per page.
+- [x] **W-E2f** — 図面-0001 embeds, draws and extracts.
+- [x] **W-E2g** — the regular face is taken from a collection.
+
+**Annotations**
+- [x] **W-8** — `AddAnnotation` writes appearances, `/QuadPoints` and a stamp's picture.
+- [x] **W-14** — drawing them was already done.
+- [x] **W-13** — twelve kinds and fourteen pens; blend modes composited.
+
+**Editing what a page draws (W-E3, W-E4, W-E5, W-E6)**
+- [x] **W-E3a** — `TextSpan.op_index` is `None` where it has no referent.
+- [x] **W-E3b** — the sample corpus holds no duplicate (`sample_corpus_test.rs`).
+- [x] **W-E3** — `EditRun`, one run's text
+      ([ADR-0091](docs/adr/0091-paragraphs-are-not-inferred-and-overflow-is-shown.md)).
+- [x] **W-E3c** — the run tools are served by `fepdf-mcp`.
+- [x] **W-E3d** — `find_on_page` finds a string across runs.
+- [x] **W-E3e** — 9.4.4's spacing is one function, `advance_of`.
+- [x] **W-E4a** — a run split by kerning is one run.
+- [x] **W-E4b** — inserting and deleting inside a run is the four verbs together.
+- [x] **W-E4c** — `SplitRun`.
+- [x] **W-E4d** — `DeleteRun`.
+- [x] **W-E4e** — `MergeRuns`.
+- [x] **W-E4f-a** — a run's origin.
+- [x] **W-E4f-b** — `'`, `"` and `TD` branches that nothing reached are gone.
+- [x] **W-E4f-c** — a cut or join would have lost glyphs.
+- [x] **W-E4f-d** — runs are cut in codes.
+- [x] **W-E4f-e** — a literal string's `0x0D` is escaped.
+- [x] **W-E4f** — `MoveRun`.
+- [x] **W-E5** — `EditXObject`: move, scale, rotate, replace.
+- [x] **W-E6-a** — a run's box.
+- [x] **W-E6** — the run drawer.
+- [x] **W-E6-b** — a run is moved by dragging.
+
+**Forms**
+- [x] **W-F1** — filling a form from the window.
+- [x] **W-F2-a** — `AddFormField`, nine kinds.
+- [x] Filling finds a field by qualified name and writes a text string.
+- [x] **W-F2-b** — `SetTabOrder` and `SetCalculationOrder`.
+
+**Page geometry (D-4, W-G1)**
+- [x] **W-10** — `CropPages`.
+- [x] **W-G1-a** — the text a crop puts outside is removed.
+- [x] **W-G1-b** — images are cut to what remains.
+- [x] **W-G1-c** — paths are cut to what remains.
+- [x] **W-11** — `SplitPage`.
+- [x] **W-12** — `CombinePages`, and a page's scene is clipped to its sheet.
+
+**Beside the editor**
+- [x] **W-O1** — `page_for_ocr` and `AddTextLayer` bind an external OCR engine; mode 3
+      text paints nothing.
+- [x] **W-15** — finding text over runs, by extraction's route
       ([ADR-0096](docs/adr/0096-a-run-reads-its-codes-by-the-route-extraction-reads-them.md)).
-      Reading every page of `fy05.pdf` went from 37 s to 0.43 s in the same change.
-      `cargo run --release --example find_recall`, `--example unread_codes` and
-      `--example find_timing` re-derive the three.
+- [x] **W-16** — perimeter, area, and a viewport's measure (12.9).
+- [x] **W-17** — printing, to the spooler.
+- [x] **W-18** — comparing two documents, text and pixels.
+- [x] **W-19a** — `reading`: structure order, language and lexicon.
+- [x] **W-19b** — the platform's synthesiser, as a process.
+- [x] **W-20** — the snapshot: **W-20a** a region rasterised, **W-20b** the gesture and
+      clipboard, **W-20c** the notice.
 
-      **Measuring the boxes found a defect in `SplitRun` and `MergeRuns`.** Both collapsed
-      a run's strings into one and left a `TJ`'s numbers where they stood, so every number
-      in the array landed between the halves: cutting `[(Invoice ACME 2026) -700 (total)]`
-      after its first code moved the rest 6.72 points right. Every fixture that tested a
-      cut drew its runs with `Tj`, which has no numbers. Both write `TJ` arrays now, with
-      each number between the strings it stood between;
-      `a_cut_keeps_the_kerning_of_the_run_it_cuts` and
-      `a_join_keeps_the_kerning_of_both_runs` fail on the old code.
+**The gate and the toolchain**
+- [x] **W-T1** — the gate's cost measured; nothing taken.
+- [x] **W-T2** — the audit names the check that failed.
+- [x] **W-T3** — `rust-toolchain.toml` is a pin, and `msrv_build.sh` builds the floor.
+- [x] **W-T4** — Rust 1.98.1. Clippy 1.98's `chunks_exact_to_as_chunks` fired on five
+      calls, and none of the survey's twelve compatibility notes did.
 
-      **What it does not find:** a word the producer placed glyph by glyph rather than
-      letting the text matrix carry — `fugaku.pdf`'s vertical text is every glyph its own
-      run, and W-E3d says why that is a different question.
-- [x] **W-16 — perimeter and area** beside the caliper's distance, and
-      `SetMeasurementScale` where a drawing declares one.
+**Accessibility: the Matterhorn Protocol (W-21)**
+- [x] **W-21e** — three condition numbers corrected against the protocol
+      ([ADR-0092](docs/adr/0092-the-matterhorn-protocol-measures-ua-1-and-this-engine-declares-ua-2.md)).
+- [x] **W-21a** — the report says how much is checked.
+- [x] **W-21b** — eight conditions with no new machinery
+      ([ADR-0094](docs/adr/0094-the-auditor-reads-the-ingested-document-so-ingestion-answers-checkpoint-06.md)).
+- [x] **W-21c** — checkpoint 01 from the content stream
+      ([ADR-0095](docs/adr/0095-a-condition-citing-a-document-this-copy-lacks-is-not-implemented-from-memory.md)).
+- [x] **W-21i** — role maps, tables, and conditions outside the tree: 32 of 137.
+- [x] **W-21h** — the conditions that cite ISO 32000-1, once the document was here.
+- [x] **W-21j** — annotations' structure elements, through the parent tree.
+- [x] **W-21k** — fonts as the file wrote them.
+- [x] **W-21l** — Adobe's Glyph List, whole.
+- [x] **W-21m** — embedded files, and fonts drawn with.
+- [x] **W-21n** — 7.18.1's exempt annotations.
+- [x] **W-21o** — 9.6.6.4's TrueType lookup.
+- [x] **W-21p** — `MacRomanEncoding`.
+- [x] **W-21q** — `/CharSet` and `/CIDSet` against the program.
+- [x] **W-21r** — which glyph a code selects.
+- [x] **W-21s** — widths, dictionary against program.
+- [x] **W-21t** — every code shown maps to Unicode.
+- [x] **W-21u** — the language of the text, and the last `M`.
+- [x] **W-21v** — seventeen `H` conditions a document answers itself.
+- [x] **W-21w** — ten more.
+- [x] **W-21x** — the last eight, and the thirteen left to a person.
+- [x] **W-21g** — a condition checked and not broken is `Sound`.
+- [x] **W-21f** — the report a reader reads.
+- [x] **W-21d** — the 48 `H` conditions, in the protocol's words.
+- [x] **W-21** — closed: 112 decided, 13 for a person, 10 answered by ingestion, 2 with
+      no test
+      ([ADR-0093](docs/adr/0093-the-protocols-tables-enumerate-137-failure-conditions.md),
+      [ADR-0098](docs/adr/0098-an-h-condition-is-decided-only-where-the-document-answers-it.md)).
 
-      The caliper takes a shape a corner at a click and gives its perimeter and area, and
-      every measurement is also given in the scale the drawing declares where its first
-      point is (12.9.1): the last viewport whose `/BBox` holds it, read by the worker and
-      written as its measure dictionary's number format arrays say (12.9.2) —
-      `fepdf::measure::format` gives the standard's own example, 1.4505 miles as
-      "1 mi 2,378 ft 7 5/8 in". The drawer sets a page's scale as 1:N in a unit, which is
-      the window's first `SetMeasurementScale`. Checked with real clicks: a 200-point
-      square on a page set to 1:100 in metres reads 28.22 m round and 49.78 m².
-
-      **The scale it "already writes" was written where no reader looks, in a shape none
-      would read.** `/Measure` went into the page dictionary, which Table 31 does not
-      give one — a measure is a viewport's, in `/VP` (Table 265); `/R` held the unit's
-      label where Table 267 wants the ratio stated; `/X` held a bare number where it wants
-      number format dictionaries; and `/D` and `/A`, both required, were missing. The test
-      beside it asserted the page's `/Measure`. It is a viewport over the page now,
-      replacing a rectilinear one and keeping a geospatial one — and the geospatial anchor
-      goes through the same writer, because its viewport had no `/BBox` (required) and
-      replaced every viewport the page had. `measurement_test.rs` holds all of it.
-
-      `cargo run --release --example scale_probe` finds **no sample that declares a
-      scale**; what is read is held by fixtures, the standard's example among them.
-      **Not done:** the anchor writes one `/GPTS` pair and no `/LPTS`, the entry Table 269
-      pairs with it to say where on the viewport each place is — so it names a place and
-      not where the page shows it — and a
-      measurement across two viewports is given in the first's scale, as 12.9.1 says,
-      without saying that the second differs.
-- [x] **W-17 — printing.** No check can be written for whether ink reached paper, and
-      this line says so rather than listing a command that cannot fail.
-
-      What can be checked ends at the spooler, and is. A drawer writes the document as
-      it stands — as an export writes it, edits and all — and hands the file to `lp` on
-      macOS and Linux, with the printer, copies and pages chosen, or on Windows to the
-      default application's print verb, which prints once on the default printer and
-      says so when more was asked. A process, not a binding, for the reason W-19b gives.
-      The page list is digits, commas and hyphens before it reaches the spooler's
-      arguments, and the Windows path goes in through the environment, not the script.
-      `printing.rs`'s tests hold the commands; on this machine, which has no printer, the
-      window's print reaches `lp` and shows its refusal in its own words. **Not checked:**
-      a job accepted, since no printer here would take one, and the Windows verb, which
-      has been built as arguments and never run.
-- [x] **W-20 — the snapshot**, which Acrobat calls スナップショット: a reader drags a
-      rectangle on the page and what is inside it lands on the clipboard as a picture.
-      **A read, not an `Operation`** — nothing about the document changes, so it sits
-      beside `extract_text` and `render_page` rather than in the vocabulary Rule D
-      governs. Checked before planning: `egui 0.34` carries `Context::copy_image`, so the
-      clipboard needed no new dependency and Rule 9 was never in question.
-
-      - [x] **W-20a — a region of a page, rasterised.** `PdfDocument::render_region` takes
-        a rectangle in the page's own space and a scale, and answers RGBA pixels with the
-        size they came out. `/UserUnit` is deliberately not applied.
-
-      - [x] **W-20b — the gesture and the clipboard.** A drawer on the rail turns the tool
-        on, a drag draws the rectangle as it is dragged, and letting go copies what is
-        inside it — through the overlay the redaction brush already uses.
-
-      - [x] **W-20c — where it went.** The notice says how many pixels were copied, and a
-        region that could not be drawn says so rather than being logged.
-
-- [x] **W-21e — the three numbers were three wrong numbers.** Read from
-      `docs/specs/Matterhorn-Protocol-1-1.pdf` on 2026-09-21, after citing it from memory
-      for a day: 14-001 is "Headings are not tagged" (`Doc H`, human judgment) where the
-      code checks skipped levels, which is **14-003**; 13-001 is graphics not tagged as a
-      `<Figure>` where the code checks the missing alternative text, which is **13-004**;
-      and 01-002 is "Real content is marked as artifact" where the code checked a
-      structure element naming a page that is not there — a condition the protocol does
-      not have, because a broken reference is not a way to fail PDF/UA-1. That check was
-      removed rather than renumbered to whatever was nearest.
-      Recorded as [ADR-0092](docs/adr/0092-the-matterhorn-protocol-measures-ua-1-and-this-engine-declares-ua-2.md).
-
-- [x] **W-21 — the Matterhorn protocol, past the two failure conditions that exist.**
-
-      Measured 2026-09-21: `MatterhornAuditor` reported **two of the protocol's failure
-      conditions** — 13-004 (a `Figure` with no alternative text) and 14-003 (a numbered
-      heading level skipped). W-21b takes it to ten of 137 and W-21c to **fourteen**.
-
-      **The protocol has 137 and says 136.** Its tables enumerate 137 failure conditions
-      across 31 checkpoints — `cargo test -p fepdf --test audit_scope_test
-      every_failure_condition_in_the_protocol_is_counted` derives the number from the
-      Index column — and the sentence that totals them is version 1.02's, carried into
-      1.1 with the condition 1.1 added but without the arithmetic
-      ([ADR-0093](docs/adr/0093-the-protocols-tables-enumerate-137-failure-conditions.md)).
-      Counting the `How` column gives **87 `M`, 48 `H` and 2 with no specific test**
-      (23-001 and 27-001); the sentence says 47 `H`, and 13-008 — added in 1.1, marked
-      `H` — is the one it is short.
-
-      **That split is advice, not a ceiling.** The protocol defines its own `How` column
-      as "**not determinative** … the realistic best-practice approach **at the present
-      time**", so 87 is where the protocol expected software to reach in 2021 and an `H`
-      is not a prohibition. The target was 137 minus the two with no test; what changes
-      with `H` is that a finding must say it was decided by a machine, not that it may
-      not be made. **It closes at a hundred and twelve decided, thirteen for a person, ten
-      answered by ingestion and two with no test**: an `H` condition is decided only where
-      the document gives the answer, and the thirteen ask what content *is*, which has to
-      be read to be known
-      ([ADR-0098](docs/adr/0098-an-h-condition-is-decided-only-where-the-document-answers-it.md)).
-
-      **This is the gap ADR-0087 was taken over, in the large.** A document this engine
-      declares PDF/UA-2 conforming is one it has checked a hundred and twelve things about — and all
-      a hundred and twelve are PDF/UA-1 conditions ([ADR-0092](docs/adr/0092-the-matterhorn-protocol-measures-ua-1-and-this-engine-declares-ua-2.md)). `PdfStandard::UA2`
-      writes that claim into the catalogue, and the claim is a statement about 137 things.
-
-      - [x] **W-21a — say how much is checked.** `audit_ua2_report` answers an
-        `AuditReport` carrying an `AuditScope` beside the findings, and the window shows
-        "Matterhorn の 2 / 136 件の失格条件を検査" where the findings are — 112 / 137 since W-21x.
-        `found_nothing()` is
-        named so that a caller cannot write `findings.is_empty()` and mean "conforms".
-
-      - [x] **W-21b — the failure conditions that need no new machinery.** Eight more,
-        taking the auditor from two to ten: **01-007** (`/MarkInfo /Suspects` true),
-        **07-001** and **07-002** (`/DisplayDocTitle` absent, and false), **11-002** (an
-        `/Alt`, `/ActualText` or `/E` no `/Lang` reaches), **14-002** (the first numbered
-        heading is not `<H1>`), **14-007** (both `<H>` and `<H#>`), **17-002** (a
-        `<Formula>` with no `/Alt`) and **28-005** (a form field with no `/TU`).
-            Recorded as [ADR-0094](docs/adr/0094-the-auditor-reads-the-ingested-document-so-ingestion-answers-checkpoint-06.md).
-
-      - [x] **W-21c — the failure conditions that need the content stream.** Checkpoint
-        01's three — **01-003** (an `/Artifact` sequence inside tagged content), **01-004**
-        (content carrying an `/MCID` inside an `/Artifact`) and **01-005** (content under
-        neither) — with **14-006** (a node holding more than one `<H>`) beside them.
-        Fourteen of 137.
-            Recorded as [ADR-0095](docs/adr/0095-a-condition-citing-a-document-this-copy-lacks-is-not-implemented-from-memory.md).
-
-      - [x] **W-21i — the conditions outside the tree, and three more inside it.** Eighteen,
-        taking the auditor to **thirty-two of 137**: the role map's three — **02-001** (a
-        non-standard type that maps to no standard one), **02-003** (a circular mapping),
-        **02-004** (a standard type remapped) — with **15-003** (a `<TH>` with no `/Scope`
-        in a table no cell names `/Headers` for) and **19-003**, **19-004** (a `<Note>`
-        with no `/ID`, and two with one); checkpoint 20's three about optional content
-        configurations; **11-003** (outline titles with no catalogue `/Lang`); and from
-        the pages, **28-007** (a `/TrapNet`), **28-008** and **28-009** (a page with
-        annotations and no `/Tabs`, or one other than `/S`), **28-012** (a link with no
-        `/Contents`) and **30-001** (a reference XObject). Three are left for a reader
-        where the structure element an annotation or field belongs to would decide them —
-        **28-004**, **11-004**, **11-005** — because the parent tree is not followed.
-        "Standard type" is PDF 1.7's, derived from this copy of ISO 32000-2 — the types of
-        Tables 364 to 375 with Annex M's differences — rather than from memory.
-        `audit_scope_test.rs` holds each number to the protocol's own words, breaks each
-        in one fixture and meets each in another.
-
-      - [x] **W-21h — the failure conditions that cite ISO 32000-1.** 09-004, 09-005,
-        09-006, 09-007, 09-008, 31-006, 31-008 and 31-027, all `M`, all naming a table or
-        annex of PDF 1.7. **The first step was getting the document**, and it is done:
-        `docs/specs/PDF32000_2008.pdf` is Adobe's copy, "identical" to the ISO text with
-        its page and section numbers, and Tables 118, 333, 336, 337 and 338 and Annex D
-        all extract. They are written from it and not from ISO 32000-2's prose about the
-        same types
-        ([ADR-0095](docs/adr/0095-a-condition-citing-a-document-this-copy-lacks-is-not-implemented-from-memory.md)).
-
-        **Five written, taking the auditor to thirty-seven of 137.** Checkpoint 09's
-        machine conditions — **09-004** (Table 337: a table is rows, or a head, bodies and a
-        foot, with a caption first or last; rows hold cells; cells sit in rows),
-        **09-005** (Table 336: a list is an optional caption and items; an item holds
-        labels and bodies), **09-006** (Table 333: a table of contents holds items and
-        contents; an item holds labels, references, `NonStruct`, paragraphs and contents),
-        **09-007** and **09-008** (a ruby is `RB` then `RT`, or `RB`, `RP`, `RT`, `RP`; a
-        warichu is `WP`, `WT`, `WP`) — each on the standard type an element maps to. The
-        ruby and warichu syntax is Table 339's, which Table 338, the one Matterhorn cites,
-        points to. `audit_tree.rs`'s `each_rule_names_its_condition` breaks and keeps every
-        rule once.
-
-        **Two are answered by ingestion, as checkpoint 06 is.** 31-006 and 31-008 ask of a
-        Type 0 font's CMap — listed in Table 118 or embedded, and using no unlisted one —
-        and `refine::font` rewrites every Type 0 font's `/Encoding` to `Identity-H` or
-        `Identity-V` as it reads the file, so the document the auditor reads would pass
-        both for every file
-        ([ADR-0094](docs/adr/0094-the-auditor-reads-the-ingested-document-so-ingestion-answers-checkpoint-06.md)).
-        `the_cmap_conditions_are_left_out_because_ingestion_answers_them` fails the day
-        that stops. The last of the eight, 31-027, also wants the Adobe Glyph List, and is
-        W-21l's.
-
-      - [x] **W-21j — the annotations' structure elements.** A bounded reader of the parent
-        tree (`parent_tree.rs`) finds the element an annotation's `/StructParent` names,
-        which decides four more — **28-002** (an annotation in no `<Annot>`), **28-010** (a
-        widget in no `<Form>`), **28-011** (a link in no `<Link>`), **28-017** (a
-        `/PrinterMark` in the structure) — and turns 28-004 and 11-004 from left for a
-        reader into decided, by the element's `/Alt` and the `/Lang` in force at it.
-        **Forty-one of 137.** On `volvo_xc90.pdf` every one of its 844 links is in no
-        `<Link>`, and that is true: none carries a `/StructParent`.
-
-      - [x] **W-21k — the fonts as the file wrote them.** Ten conditions on font
-        dictionaries and embedded programs, which ingestion leaves alone — it rewrites a
-        Type 0 font's `/Encoding` and fills a missing `/CIDToGIDMap`, and keeps a rebuilt
-        TrueType program beside the font rather than over the file's: **31-004** (a
-        `CIDFontType2`'s `/CIDToGIDMap` neither a stream nor `/Identity`), **31-019** to
-        **31-021** (a non-symbolic TrueType font's `/Encoding` absent, a dictionary with no
-        `/BaseEncoding`, or neither `MacRomanEncoding` nor `WinAnsiEncoding`), **31-023**
-        (`/Differences` with no (3,1) cmap in the program), **31-024** to **31-026** (a
-        symbolic one with `/Encoding`, with a program holding no cmap, or several and no
-        (3,0)), and **31-028**, **31-029** (a `/ToUnicode` mapping to U+0000, U+FEFF or
-        U+FFFE). **Fifty-one of 137.** Across the samples only `volvo_xc90.pdf` breaks
-        one: two of its fonts map code `<015A>` to `<0000>`. **Not here:** 31-017 and 31-009
-        want the fonts text is actually drawn with, which W-21m reads.
-
-      - [x] **W-21l — Adobe's Glyph List, and the two conditions that name it.**
-        `fepdf-font/data/glyphlist.txt` is the file Adobe publishes in
-        `adobe-type-tools/agl-aglfn`, carried with its BSD licence: 4,281 names, read once.
-        **What stood in for it was 61 names typed out by hand**, three of them wrong —
-        `quoteright` and `quoteleft` as the ASCII `'` and `` ` `` where the list says U+2019
-        and U+2018, and `quotehook`, which the list does not have — and extraction reads a
-        glyph name through it. `glyph_list_test.rs` reads `/eacute`, `/Aogonek` and the two
-        quotes out of a `/Differences` array and fails on the old table. No sample's text
-        changes and `glyph_loss` still counts 1,137 of 16,309,227 across them (2026-09-27):
-        none of their lost glyphs goes through a name.
-
-        With it, **31-022** (a non-symbolic TrueType font's `/Differences` naming a glyph
-        the list does not) and **31-027** (a font with no `/ToUnicode` outside its four
-        exceptions). The Type 1 and Type 3 exception turns on "the glyphs referenced", so
-        the content of each page naming such a font is read for the codes it shows, each
-        named by `/Differences` or by StandardEncoding — Annex D's Table D.2, 149 names —
-        and checked against the list and Annex D.5's 189 Symbol names; a code whose name
-        only the font program knows is left for a reader. **Fifty-three of 137.** On the
-        samples, `fy05.pdf` breaks it 127 times — Type 3 fonts naming their glyphs `c033`,
-        the same fonts `glyph_loss` finds losing text, and one Type 0 font whose CIDFont
-        is Adobe-Identity — and `bokutokitan.pdf`'s TeX fonts are left for a reader.
-
-      - [x] **W-21m — what a document carries besides its pages, and the fonts it draws
-        with.** **31-009** (a font whose text is rendered, with no program embedded) and
-        **31-017** (a non-symbolic TrueType font rendered with, whose program has neither a
-        (3,1) nor a (1,0) cmap) read the rendering mode through `q` and `Q`: ISO 14289-1
-        7.21.4.1 NOTE 2 exempts mode 3 alone, so mode 7, which clips with the glyphs,
-        renders. The content scan now follows `Do` into forms, to `FORM_DEPTH`, in the mode
-        and font the form is drawn in, taking the commands ingestion already parsed a form
-        into. `audit_files` walks what is reachable from the catalogue once and asks
-        **21-001** and **28-016** of embedded files' and file attachments' specifications
-        (`/F` and `/UF`), **28-014** and **28-015** of media clip data (`/CT`, `/Alt`),
-        **25-001** of the `/XFA` packets (`dynamicRender` is `required`), and **30-002** of
-        forms carrying an MCID and drawn more than once. **26-001** and **26-002** read
-        `Document::is_encrypted` and `/P`, because ingestion takes `/Encrypt` away.
-        **Sixty-three of 137.** Across the 515 files of the external corpus (2026-09-27)
-        they find 34, each read and each true: 30 fonts drawn with and not embedded —
-        Isartor's 6-3-4 set, one PDF/UA-2 failing file, and Helvetica in the pdf-differences
-        and PDF 2.0 examples — two embedded files with no `/UF`, one `/P` of −3904, and one
-        ArialMT whose program is all zeros. On the samples, `constitution.pdf` draws with
-        three fonts it does not embed.
-
-      - [x] **W-21n — the annotations 7.18.1 is not about, and three more conditions.**
-        ISO 14289-1 7.18.1 opens by saying its requirements do not apply to an annotation
-        whose Hidden flag is set, whose rectangle is outside the crop box, or which is a
-        `/Popup`, and 28-002 and 28-004 — the two of its conditions the auditor asks — were
-        asked of every annotation. They now pass over those three. With that, **28-006** (an
-        annotation of a subtype ISO 32000-1's Table 169 does not define, breaking 7.18.1),
-        **28-018** (a printer's mark whose appearance paints outside an `/Artifact`), and
-        **11-006**, the language of the document's metadata: sound with a catalogue
-        `/Lang`, and without one left for a reader rather than broken, because ingestion
-        rebuilds the packet and the `xml:lang` alternatives it had are gone — a test holds
-        that to the code, as checkpoint 06's does. **Sixty-six of 137.** Across the 525
-        files of the corpus and the samples (2026-09-27), 28-006 finds four — three
-        `/RichMedia` annotations, a PDF 2.0 subtype, and Isartor's
-        `/SomePrivateCustomAnnotationType` — and no file carries a printer's mark. **Not
-        here:** 10-001 and 17-003 want every glyph's route to Unicode, which is extraction
-        replayed over every page, and 11-001 wants the language in force at each run of
-        text.
-
-      - [x] **W-21o — a TrueType code looked up the way 9.6.6.4 says, and no other way.**
-        **31-018**: every code a non-symbolic TrueType font renders reaches a glyph through
-        the lookup ISO 32000-1 9.6.6.4 describes — its glyph name from the encoding's table,
-        then the (3,1) subtable by the name's Unicode value from Adobe's list, or where the
-        program has no (3,1), the (1,0) subtable by the name's Mac OS Roman code. The
-        engine's own glyph resolution scores candidates across every route it knows, which
-        is right for drawing and wrong for a conformance question, so
-        `fepdf_font::sfnt_cmap` asks one subtable and nothing in its place. The names come
-        from `fepdf-doc/src/annex_d.rs`: D.2's STD, MAC and WIN columns read out of
-        `PDF32000_2008.pdf` — the STD column the same 149 entries W-21l read — with
-        footnotes 5 and 6's duplicate codes, and Table 115 for Mac OS Roman. **Sixty-seven
-        of 137.** Across the 525 files (2026-09-27) it finds one, Isartor's 6-3-5 file
-        whose ArialMT subset has no glyph for `$`. `fepdf-font`'s `base_encoding` answered
-        only `WinAnsiEncoding` for extraction, for want of a document; W-21p reads the rest.
-
-      - [x] **W-21p — MacRomanEncoding, read, from the table the audit already had.** The
-        Annex D name tables move from `fepdf-doc` to `fepdf_font::latin_names`, the layer
-        both the auditor and extraction read, and `base_encoding("MacRomanEncoding")`
-        composes D.2's MAC column through Adobe's list: a font naming it read every code
-        above ASCII as nothing, with a decision saying the engine did not carry it. Six
-        files of the external corpus name it, all showing ASCII. **The WinAnsi table typed
-        as text agrees with D.2's WIN column read as names, all 218 codes**, and
-        `annex_d_test` now holds it to that. `mac_roman_test` reads Ä, é and “ from 0x80,
-        0x8E and 0xD2, directly and as a `/BaseEncoding`.
-
-      - [x] **W-21q — a subset's claim held to its program.** **31-012** to **31-015**
-        (UA1:7.21.4.2): a Type 1 font's `/CharSet` against the glyph names its `/FontFile` or
-        `/FontFile3` defines, and a CIDFont's `/CIDSet` against the CIDs its CFF program
-        holds or its TrueType program reaches through `/CIDToGIDMap`, in both directions.
-        `.notdef` and CID 0 are asked in neither. For a TrueType CIDFont, **held means an
-        outline for 31-014 and a slot for 31-015**: a subset keeps slots it has emptied, and
-        a space has no outline and is there all the same, so each direction is asked only
-        what the program can show. `fepdf_font::program_glyphs` reads the programs.
-
-        **Reading a Type 1 program's `/CharStrings` had never worked.** `parse_charstrings`
-        read each charstring's length from `name_pos + name.len()`, one byte short of the
-        name's end, took the name's last character for the length, and read no charstring
-        at all; it was reached only through a PFB, which a PDF's `/FontFile` is not, so
-        nothing noticed. A program built by hand in `program_glyphs`'s tests reads `A` and
-        `B` now and read nothing before. **Seventy-one of 137.** Across the 525 files
-        (2026-09-27) they find six, each read against the program by a second parser and
-        true: five `/CIDSet`s leaving out CIDs their programs hold — among them TWG's
-        A008, a PDF/A-1 *pass* file whose RyoGothic CIDSet omits CIDs 1 to 87, and
-        `sample_02c.pdf`'s Meiryo and KozGoPro — and one `/CharSet` leaving out two names.
-
-      - [x] **W-21r — which glyph a code selects, and the audit's time.** **31-030** (a
-        code selecting `.notdef`, rendered or not) and **31-011** (a rendered code selecting
-        a glyph the embedded program lacks) rest on `glyph_map`, which follows ISO 32000-1
-        9.6.6 and nothing further: a TrueType font through 9.6.6.4's cmap lookups, a Type 1
-        font by name in its `/CharStrings` or CFF charset — its own encoding read from the
-        program where the dictionary names none — a Type 3 font in its `/CharProcs`, and a
-        Type 0 font only where the file's CMap was an Identity one, since ingestion rewrites
-        every Type 0 `/Encoding` without touching the content. **A font it cannot follow
-        that way is left for a reader, not called sound**: a program not embedded, a CMap
-        not Identity, a program that reads as holding nothing. **Seventy-three of 137.**
-        Across the 525 files (2026-09-27) they find seven, each read: Isartor's four 6-3-5
-        files, whose subsets lack a glyph their text uses, and three texts showing code 0,
-        `volvo_xc90.pdf`'s among them. 179 rows are left for a reader. Two findings the first run made were wrong and are gone: a
-        `/FontFile` of spaces read as holding no glyphs, and `ttf_parser`'s
-        `glyph_index_by_name` missing a `space` the charset has.
-
-        **The audit's time was mostly the audit re-reading what ingestion had read.**
-        Measured in-process on `intel_sdm.pdf` (debug build, 2026-09-27): opening 6.5 s, the
-        audit **20.8 s**, of which 12.7 s the font scan and 6.4 s checkpoint 01's. Ingestion
-        keeps content as parsed commands; `page_content` serialised them to bytes for the
-        audit to parse again, and every byte shown went into four ordered sets.
-        `apply::text::Content` shares the parsed commands and `Seen` keeps the codes as
-        bits: the audit is **2.7 s**, and `fy05.pdf`'s 2.9 s is 0.4 s, with the same
-        findings. **Timing `fepdf inspect audit` against `fepdf inspect info` says nothing
-        about the audit**: `info` does work of its own that takes as long, which is how the
-        20 s went unseen.
-
-      - [x] **W-21s — a rendered glyph's width, in the dictionary and in the program.**
-        **31-016** (UA1:7.21.5): for each rendered code, the width `/Widths` or `/MissingWidth`
-        — for a Type 0 font, the CIDFont's `/W` or `/DW` — against the width of the glyph
-        `glyph_map` says the code reaches, in units of 1/1000 em, to the 1/1000 unit the
-        clause allows. The program's width is a TrueType `hmtx` advance over `unitsPerEm`,
-        a name-keyed CFF charstring's width through its `FontMatrix`, or a Type 1
-        charstring's opening `hsbw` or `sbw` through the cleartext's `/FontMatrix`. **A
-        CID-keyed CFF program and a Type 3 font are left for a reader**: the one keeps
-        widths per font dictionary, the other in its procedures. **Seventy-four of 137.**
-        Across the 525 files (2026-09-27) it finds four, each a file made to break it —
-        Isartor's three 6-3-6 files and the PDF/UA-2 suite's 8.4.5.6 — and nothing in the
-        samples; 98 rows are left for a reader.
-
-      - [x] **W-21t — every code shown maps to Unicode, and a formula's too.** **10-001**
-        (UA1:7.2, through ISO 32000-1 14.8.2.4.2): each code by 9.10.2's methods in turn — a
-        `/ToUnicode` that maps it; a simple font on MacRoman-, MacExpert- or
-        WinAnsiEncoding, or whose `/Differences` names only D.2's Latin set and the Symbol
-        font's, through the code's name and Adobe's list; a composite font on a Table 118
-        CMap other than Identity, or on one of Adobe's four CJK collections. Table 118's
-        names are read out of `PDF32000_2008.pdf`. **The text is followed where it does
-        not decide**: a standard 14 font with no `/Encoding` is on a built-in encoding the
-        second method does not list and every reader maps, so it is left for a reader
-        rather than called unmapped, as is a code only a built-in encoding this does not
-        read names. **17-003** (UA1:7.7) is the same of the text inside a `<Formula>`,
-        found as a reader finds it: each marked sequence's `/MCID` through its stream's
-        `/StructParents` to the parent tree's array, and that element or an ancestor
-        standing for a `<Formula>` through the role map; `parent_tree::array_entries` reads
-        the arrays. It is examined only in a tagged document. **Seventy-six of 137.**
-        Across the 525 files (2026-09-27) 10-001 finds 151 in 19 files — 128 of them
-        `fy05.pdf`'s Type 3 fonts, the fonts 31-027 names — and leaves 24 for a reader; no
-        file tags a formula whose text fails. **Left of the machine conditions:** 11-001,
-        which W-21u takes.
-
-      - [x] **W-21u — the language of the text on the page, and the last `M`.** **11-001**
-        (UA1:7.2): with a catalogue `/Lang`, every text's language is stated; without one,
-        each text shown is asked the hierarchy ISO 32000-1 14.9.2.3 gives — a sequence with
-        an `/MCID` is in its structure element's language, its own or an ancestor's, and in
-        none where they state none; a `Span` sequence outside the structure in its property
-        list's; an empty `/Lang` states that the language is unknown (14.9.2.2); text in an
-        `/Artifact` is not the document's content. The content scan carries it with the
-        `<Formula>` question 17-003 asks, through the same parent-tree arrays. **Seventy-seven
-        of 137, which is every `M` condition but the ten ingestion answers**: 06-001 to
-        06-003, whose packet it rewrites, and 31-001 to 31-003 and 31-005 to 31-008, whose
-        CMaps and `/CIDToGIDMap` it rewrites or fills. Across the 525 files (2026-09-27) it
-        finds text in no language in 106 — every sample, each with no catalogue `/Lang`, and
-        of the PDF/UA-2 suite only two files made to fail it. The audit of `intel_sdm.pdf`
-        is 2.9 s. **What is left of W-21 is the 48 `H` conditions**, which W-21v begins on — the target this
-        item set is 137 less the two with no test, and an `H` is advice about the state of
-        the art in 2021, not a prohibition.
-
-      - [x] **W-21v — the `H` conditions a document answers itself.** Seventeen of the 48
-        the protocol leaves to a person are about something a document may not have at all
-        — actions that could flicker (**03-001**), multimedia (**03-002**), JavaScript
-        (**03-003**, **29-001**), scripts calling `beep` (**05-003**), media and sound
-        annotations (**05-001**, **05-002**), links (**13-002**), figures with and without
-        `/ActualText` (**13-005**, **13-008**), lists with no `ListNumbering` or one naming
-        no ordered numbering (**16-001**, **16-002**), article threads (**22-001**),
-        annotations (**28-001**, **28-003**), and URI actions stating `/IsMap true`
-        (**28-013**). A document with none of the thing has no such question: the finding
-        is `Sound` and says **"Decided by the machine"** and why. One with some gets a
-        finding for a reader naming how many, which is a question about *this* document
-        where the scope's list is the same for every file. **31-010** is settled by the
-        program itself: an `OS/2.fsType` that is restricted, bitmap-only, or forbids the
-        subsetting done breaks it; one that permits is sound; a program with no `OS/2`,
-        as a CFF or Type 1 program never has one, is left to a person.
-
-        `matterhorn::MARKED_H` keeps the protocol's 48 whole and quoted, and
-        `left_to_a_person()` is those less `CHECKED`, so the scope no longer lists for a
-        reader a question the auditor has answered. The walk from the catalogue
-        `audit_files` makes is the one these read. **Ninety-four of 137; 31 left to a
-        person.** Across the 525 files (2026-09-27) nothing breaks 31-010 — the corpus
-        embeds no restricted face, as the fsType survey found — and the rest divide into
-        findings for a reader where the document has the thing: 83 files with annotations,
-        36 with actions that change more than the view once, 152 whose embedded programs
-        are silent on their permission.
-
-      - [x] **W-21w — ten more `H` conditions, and what a document with content is owed.**
-        The same test as W-21v: **08-001**, **08-002** and **12-001** are about text, and a
-        document showing none has none that is OCR-generated or stretched; **15-001**,
-        **15-002**, **15-004** and **15-005** are about tables, and a tree with no `<Table>`
-        has none; **14-004** is about numbered headings, and a tree using only standard
-        types numbers them `<H1>` to `<H6>`; **18-002** is about header and footer artefacts,
-        and pages marking no `/Artifact` and drawing no form have none. **13-001** is
-        decided rather than presumed: the content scan counts each graphics object — fill,
-        stroke, inline image, image XObject — in neither an `/Artifact` nor a `<Figure>`,
-        found through the parent tree as 17-003 finds a `<Formula>`, and none is sound. The
-        scan now reads every page and form, not only those naming a font; a page that will
-        not read leaves the four content questions to a person. **A hundred and four of 137;
-        21 left to a person.**
-
-        **A document with content always leaves a person something**, and the test that
-        said otherwise is rewritten: artefacts ask 18-002, graphics 13-001, text 08-001 and
-        12-001, figures 13-005 or 13-008. `breaks_nothing` now breaks nothing and leaves to
-        a reader only conditions the protocol marks `H`; `found_nothing` answers `true` for a
-        tagged document with no content. The audit of `intel_sdm.pdf` is 3.5 s.
-
-      - [x] **W-21x — the last `H` conditions a document can answer, and the thirteen it
-        cannot.** Eight more by the same test: **01-001** asks of content that is tagged and
-        **01-002** of content marked an artefact, and pages with none and no form have
-        neither; **01-006**, **09-002** and **09-003** ask of structure elements, **02-002**
-        of types outside the standard set, **13-006** of figures, and **11-007** of stated
-        languages — the catalogue's, an element's, a property list's, and an inline `Span`'s,
-        which the content scan counts because the walk from the catalogue cannot reach it.
-        **A hundred and twelve of 137.**
-
-        **No whole document now reports nothing for a reader**, and that is the protocol's:
-        a document stating a language leaves 11-007, whether it is the right one, and one
-        stating none leaves 11-006. `found_nothing` is asked of a report of sound rows, and a
-        tagged document with nothing in it is left exactly 11-007.
-
-        **The thirteen left to a person are the ones no document answers by what it has**:
-        04-001, 06-004, 09-001, 13-003, 13-007, 14-001, 14-005, 16-003, 17-001, 18-001,
-        19-001, 19-002 and 24-001. Each asks whether *content* is something — a heading, a
-        list, a formula, a caption, a note, a reference, a header, a form, information
-        carried by colour — or is in the right order, and whether it is has to be read to be
-        known; 06-004 asks it of a title ingestion rewrites. They stay in the scope's list
-        for a reader, the same for every document. A heuristic could point at candidates —
-        a large bold line not tagged as a heading — but it could not make a finding sound,
-        so W-21 stands at a hundred and twelve decided, thirteen for a person, ten ingestion
-        answers, and two the protocol gives no test.
-
-      - [x] **W-21g — a condition checked and not broken is a result.** `AuditFinding`
-        carries an `Outcome` — `Broken`, `Sound`, `ForAReader` — and `audit_report` adds
-        one `Sound` per condition it checked and did not break. **One per condition, not
-        one per object**: a reader wants to know 13-004 was examined, not that four
-        hundred figures each have their alternative text.
-
-      - [x] **W-21f — the report a reader reads.** The findings were a panel 100 points
-        tall in a drawer, which is a list and not a report. What a reader does with a
-        finding differs by kind, and a single list is read as though it does not.
-
-      - [x] **W-21d — the ones the protocol expects a person to decide.** All 48 the
-        `How` column marks `H`, named and quoted in the protocol's own words, in
-        `AuditScope::left_to_a_person`. The panel heads them "あなたが判断するもの (48)"
-        after the three outcome sections, and the weak closing line now counts what is in
-        *neither* list — 75 of the 137 when it landed.
-
-- [x] **W-22 — Well-Tagged PDF (WTPDF 1.0), which this project does not mention.**
-      **Closed 2026-09-28**: each of the eight below is an operation, W-22a to W-22j, and a
-      declaration a file carries survives a save. A WTPDF checker is not among them
+**Accessibility: Well-Tagged PDF (W-22)**
+- [x] **W-22a** — an element's `/Lang`, `/ActualText` and `/E`.
+- [x] **W-22b** — `SetStructAttribute`, any owner's attribute.
+- [x] **W-22c** — `SetStructRefs`.
+- [x] **W-22d** — `SetStructNamespace` and `MapStructType`.
+- [x] **W-22e** — `AttachStructAssociatedFile`.
+- [x] **W-22f** — `MarkArtifact`.
+- [x] **W-22g** — `WrapStructElem`.
+- [x] **W-22h** — XMP claims survive a save
+      ([ADR-0099](docs/adr/0099-the-xmp-packet-carries-what-the-engine-does-not-write.md)).
+- [x] **W-22i** — `Upgrade` identifies UA-2 and A-4 in XMP, and refuses X-6
+      ([ADR-0100](docs/adr/0100-upgrade-identifies-a-standard-where-the-standard-says.md)).
+- [x] **W-22j** — `DeclareConformance`.
+- [x] **W-22** — closed; no WTPDF checker is claimed
       ([ADR-0101](docs/adr/0101-a-declaration-is-the-callers-statement-and-w-22-closes.md)).
 
-      Measured 2026-09-21: `WTPDF` and `Well-Tagged` appear **nowhere in the repository**.
+### Phase X — The arena, looked at
 
-      WTPDF 1.0 (PDF Association, 2024) sits on ISO 32000-2 beside PDF/UA-2 and is not the
-      same document: it says what a *well-tagged* file is, where UA-2 says what an
-      *accessible* one is, and it goes into ground UA-2 leaves — the nesting of headings,
-      the structure of tables, where `/Lang` has to change, what `/ActualText` is for as
-      against `/Alt`.
-
-      **It waited on W-21, which closed on 2026-09-28** at a hundred and twelve of 137
-      decided and thirteen for a person
-      ([ADR-0098](docs/adr/0098-an-h-condition-is-decided-only-where-the-document-answers-it.md)).
-      A conformance claim is worth what the checking behind it is worth, which is why the
-      claim (1, below) comes last. What could be done first was the reading: the structure tree editor this engine
-      already has is most of what a well-tagged file is made with, and what it cannot yet
-      express is the list this item starts as.
-
-      **The reading, done 2026-09-26.** The document is in the working copy —
-      `docs/specs/Well-Tagged-PDF-WTPDF-1.0.pdf`, untracked like every specification, and
-      listed in `docs/specs/README.md` — so "nowhere in the repository" holds only of the
-      code. Read through this engine's own extraction: 239 "shall" sentences. Against a
-      vocabulary whose structure edits are `UpdateStructElem` (a tag and an `/Alt`),
-      `DeleteStructElem`, `MoveStructElem`, `AddUserProperties` and `Retag`, these are
-      what a well-tagged file needs and no operation writes:
-
-      1. **The claim itself** (6.1): a PDF Declaration whose `pdfd:conformsTo` is
-         `…/wtpdf/#reuse1.0` or `#accessibility1.0`. `Upgrade` writes no XMP at all: for
-         UA-2 it puts `/PdfUA 2` in the catalogue, a key neither ISO 32000-2 nor ISO 14289-2
-         defines, and no declaration of any kind (measured 2026-09-28, W-22h).
-      2. **Namespaces** (8.2.4, 8.2.5.2): the one `Document` element in the PDF 2.0
-         namespace, and role maps within a namespace — nothing writes `/NS`.
-      3. **Attributes** (8.2.6): `Scope` and `Headers` on table cells (8.2.5.26),
-         `ListNumbering`, `ContinuedList` and `ContinuedFrom` on lists (8.2.5.25),
-         `NoteType` on `FENote` (8.2.5.14.2), layout attributes (8.2.6.2) and ARIA
-         (8.2.6.4). Only `/UserProperties` can be written.
-      4. **`/Ref`** (8.8): a `TOCI` to its target, a citation to its `FENote` and back, a
-         continued list to its previous part.
-      5. **An element's `/Lang`, `/ActualText` and `/E`** (8.4, 8.2.5.23): the update
-         carries a tag and an `/Alt` and nothing else, though W-19a now reads all three.
-      6. **A new element round existing content** — the `Caption`, `Lbl`, `LBody` or the
-         `RB`/`RT`/`RP` of a `Ruby` that WTPDF requires: elements can be retagged, moved and
-         deleted, and the vocabulary has no operation that creates one.
-      7. **Marking content as an artifact** (8.3), which a TOC's leaders require (8.2.5.8).
-      8. **An associated file on a structure element** (8.2.5.29): a formula's MathML with
-         `AFRelationship` `Supplement`. `AttachAssociatedFile` attaches to the catalogue.
-
-      - [x] **W-22a — an element's `/Lang`, `/ActualText` and `/E` (5, above).**
-        `StructElemUpdate` carries `new_lang`, `new_actual_text` and `new_expansion` beside
-        the tag and `/Alt`, each written as a text string and each left alone when not
-        given; `update_struct_elem` in `fepdf-mcp` takes them as `lang`, `actual_text` and
-        `expansion`. **An update naming no element is refused**: it answered `Ok(())` for any
-        handle and changed nothing, which told a caller naming the wrong element that it had
-        changed it. `text_string_encoding_test` round-trips the three through a file.
-
-      - [x] **W-22b — any owner's attribute (3, above).** `SetStructAttribute` writes one key
-        in the attribute object an element's `/A` holds for an owner — `Table`'s `Scope` and
-        `Headers`, `List`'s `ListNumbering`, a note's `NoteType`, the `Layout` keys,
-        `ARIA-1.1`'s — or in one it adds for the owner, as a name, number, text string,
-        boolean, or array of names, numbers or byte strings (a cell's `Headers` are element
-        IDs). One object per owner: a second key joins the first. `set_struct_attribute` in
-        `fepdf-mcp` takes exactly one value. Which key an owner has is the caller's to say;
-        this writes what it is given. **An `/A` written in place is kept**: the match
-        `AddUserProperties` appended with read an array or a reference and made anything
-        else an empty list, so an element's direct `/A << /O /Layout … >>` was lost to the
-        first property added. `struct_attribute_test` sets a header cell's `Scope` and
-        watches 15-003 go from broken to sound.
-
-      - [x] **W-22c — `/Ref` (4, above).** `SetStructRefs` writes the elements an element
-        refers to (Table 355) as indirect references, in order — a `TOCI` to its target, a
-        citation to its `FENote` and the note back, a continued list to its previous part
-        (WTPDF 8.8, 8.2.5.8, 8.2.5.14, 8.2.5.25) — and an empty list removes the entry. A
-        target that is not an element is refused before anything is written.
-        `set_struct_refs` in `fepdf-mcp` takes the list. The references survive a file.
-
-      - [x] **W-22d — namespaces (2, above).** `SetStructNamespace` puts an element in a
-        namespace (`/NS`, 14.7.4): the dictionary the structure tree root's `/Namespaces`
-        holds for the name, added there if it holds none, so elements in one namespace
-        share one dictionary; an empty name removes `/NS` and returns the element to the
-        default standard namespace. `MapStructType` writes a namespace's `RoleMapNS` (Table
-        356): a name for a type of the default standard namespace, or `[type, namespace]`
-        for one of another, which it adds if absent. `set_struct_namespace` and
-        `map_struct_type` in `fepdf-mcp`. **The auditor reads `/RoleMap` and not
-        `RoleMapNS`**: the Matterhorn Protocol measures PDF/UA-1, whose PDF 1.7 has no
-        namespaces, so an element in PDF 2.0's is judged by its type alone — a WTPDF check
-        would have to read them.
-
-      - [x] **W-22e — a file associated with an element (8, above).**
-        `AttachStructAssociatedFile` adds an embedded file to an element's `/AF` (14.13),
-        after any it has, with the relationship given — a formula's MathML as a
-        `Supplement` (WTPDF 8.2.5.29). The specification is the catalogue's association's,
-        `/F` and `/UF` both, so 21-001 stays sound. `attach_associated_file` in `fepdf-mcp`
-        takes an `element_handle` to associate with an element rather than the document.
-
-      - [x] **W-22f — marking content as an artifact (7, above).** `MarkArtifact` names a
-        page and an MCID and makes the sequence that carries it an `/Artifact` (14.8.2.2),
-        with a `/Type` and `/Subtype` when given — a running header as `Pagination` /
-        `Header`, a TOC's leaders as `Layout` (WTPDF 8.3, 8.2.5.8) — found whether the MCID
-        is inline or in a named property list. **The structure tree lets it go**: the
-        parent tree's entry for the MCID becomes `null` and the element's `/K` drops it, so
-        no element claims content that is no longer the document's (01-004). A sequence
-        that is not on the page, or that holds a tagged sequence, is refused before the
-        page is written. `mark_artifact` in `fepdf-mcp`. `mark_artifact_test` fails with
-        the release removed and with the nesting check removed.
-
-      - [x] **W-22g — a new element round existing content (6, above).** `WrapStructElem`
-        wraps a run of an element's kids — or the structure tree root's — in a new element
-        of the type given, which takes their place in `/K`: the `Caption` of a `Figure`, the
-        `Lbl` and `LBody` of an `LI`, the `RB`, `RT` and `RP` of a `Ruby` (WTPDF 8.2.5).
-        **What the kids were in, they are now in through it**: a wrapped element's `/P`
-        becomes the new one, the parent tree's entry for wrapped content — an MCID, a
-        marked-content reference, an object reference — names it, and it takes the parent's
-        `/Pg`, so an MCID stays on its page. An empty run, kids that are not there, an object
-        that is not an element, and an MCID with no page are refused before anything is
-        written. `wrap_struct_elem` in `fepdf-mcp`. **A `/K` that is one reference is kept
-        one**: read resolved, it was written back as the element's dictionary inline — in
-        `MarkArtifact` too, which now reads `/K` the same way. `wrap_struct_test` fails with
-        the parent tree left alone, with the kid resolved, with the page check removed, and
-        with the kid's `/P` left alone.
-
-      - [x] **W-22h — a claim a file makes survives a save (before 1, above).** The XMP
-        packet is rebuilt from the nine fields `MetadataInfo` models, at ingest and at
-        save, and the rebuilt packet held nothing else: opening and saving each of the 138
-        files of the veraPDF PDF/UA-2 corpus lost `pdfuaid:part` and `pdfuaid:rev`, and the
-        WTPDF `pdfd:declarations` of those that had them (measured 2026-09-28). A
-        declaration this engine wrote would not have survived the next save.
-        `refine::xmp_carry` carries what the packet in place says that the generator does
-        not own into the one it writes, in an `rdf:Description` of its own; what it owns
-        is read from the generator, one packet rendered with every field filled in, so a
-        title a caller removed stays removed
-        ([ADR-0099](docs/adr/0099-the-xmp-packet-carries-what-the-engine-does-not-write.md)).
-        All 138 PDF/UA-2 files and all 42 PDF/A files keep their claims, counted by
-        namespace. Each property is copied as written, prefix and all — clause 5 of ISO
-        14289-2 requires `pdfuaid`, and two corpus files bind a second prefix to it. **What
-        the generator owns it now reads in both of XMP's forms**: a simple property written
-        as an attribute of its description, as veraPDF writes `xmp:CreatorTool` and the
-        dates, and `dc:rights`, which was written and never read — each lost at ingest.
-        `xmp_claims_survive_test` fails with the carry unhooked, with the attribute form
-        unread and with `dc:rights` unread; the unit tests in `xmp_carry` fail with the
-        generator's properties carried, with a description inside a value hoisted to the
-        top, and with a prefix looked up rather than copied.
-
-      - [x] **W-22i — `Upgrade` identifies a standard where it says (before 1, above).**
-        UA-2 is `pdfuaid:part` 2 and `pdfuaid:rev` 2024 in the XMP packet (ISO 14289-2
-        clause 5), and A-4 `pdfaid:part` 4 and `pdfaid:rev` 2020, as the veraPDF PDF/A-4
-        files that pass state them — each in place of what the packet said, so a PDF/UA-1
-        file upgraded says part 2 once. The catalogue keys are gone, and so is the
-        `sdk_tests` assertion that held `/GTS_PDFA14` in place. **PDF/X-6 is refused before
-        anything changes**: its identification is ISO 15930-9's, which this copy lacks, and
-        no corpus file states one; the window no longer offers it
-        ([ADR-0100](docs/adr/0100-upgrade-identifies-a-standard-where-the-standard-says.md)).
-        `declaration_test` fails with a restated identification left beside the old one.
-
-      - [x] **W-22j — the claim itself (1, above).** `DeclareConformance` adds a PDF
-        Declaration's `pdfd:conformsTo` to the document's `pdfd:declarations` — WTPDF's
-        `…/wtpdf/#reuse1.0` or `#accessibility1.0`, or any other — beside those there, which
-        keep their `pdfd:claimData`; declared twice, it is there once.
-        `fepdf_model::declarations::declared` reads them back. `declare_conformance` in
-        `fepdf-mcp`. **The statement is the caller's, and nothing is checked**: this
-        engine has no WTPDF checker, and gating the accessibility level on the UA-2 audit
-        would make a Matterhorn result stand for another standard's claim
-        ([ADR-0101](docs/adr/0101-a-declaration-is-the-callers-statement-and-w-22-closes.md)).
-        `declaration_test` fails with the declarations there dropped and with a second
-        declaration of one level written.
-
-- [x] **W-18 — comparing two documents.** `fepdf::compare::compare` pairs pages by
-      position and answers, for each that differs, the lines of text only one side has —
-      a longest common subsequence over extracted lines — and the regions where the page
-      looks different, both rendered on the CPU and differing cells merged into
-      rectangles. Served as `compare_documents` and as a drawer that lists the pages,
-      goes to one, and outlines its regions on the page. Measured with
-      `cargo run --release --example compare_probe --features render`:
-      `constitution.pdf` against a Bates-numbered copy is 13 pages differing, each by the
-      one added line `KEN-00000N` and one region at the bottom right, in 0.61 s.
-      `compare_test.rs` fails with the line match removed and with the pixel check blind.
-      **Not done:** pairing pages other than by position, so an inserted page makes every
-      page after it differ, which the comparison then says.
-- [x] **W-19a — the reading order, the language and the lexicon**, assembled for a
-      synthesiser: structure order, `/Lang` resolved by inheritance (14.9.2) and the PLS
-      lexicon `SetPronunciationLexicon` already writes. Testable without sound, which is
-      why it is separate from W-19b below.
-
-      `PdfDocument::reading` answers the structure tree's passages in its order, each with
-      the language in force, and the lexicons the tree names. What an element gives in
-      place of its content — `/ActualText`, `/Alt`, `/E` — is read in place of it, and a
-      `/Phoneme` goes with the words in the `/PhoneticAlphabet` inherited to it. An untagged
-      document answers no passages: reading it in drawing order would be a guess. The tree
-      is planned first and each page read once, every glyph going to extraction's own
-      composer for the passage its mark belongs to, so a passage is spaced as
-      `extract_text` spaces it; a node now carries its `/K` in order, because a `<Span>`
-      between two marks of a paragraph is read between them. `reading_aloud_test.rs`
-      draws every fixture in an order other than its structure's.
-
-      **The lexicon it "already writes" was written where nothing looks.** It went into
-      the catalogue as `/PL`, a key ISO 32000-2 does not define, and the test beside it
-      asserted `/PL` was there. Table 354 puts it on the structure tree root, as
-      `/PronunciationLexicon`, an array of file specifications; it is an embedded file
-      there now, and a document with no structure tree is refused rather than given one.
-
-      Measured with `cargo run --release --example reading_probe`: `volvo_xc90.pdf` reads
-      as 9,375 passages in 0.51 s, 263 of them `/Alt`; `print_sample.pdf` as 335, in the
-      three languages its elements declare. `fugaku.pdf` reads as nonsense, and so does
-      `extract_text` on the same page — the reading is extraction's, and so is that gap
-      (W-E3d). **Not read:** a `/Lang` on marked content rather than on an element, and
-      content no element claims.
-
-      Found in passing: a tag drawn in the window took its title from the first thirty
-      *bytes* of the selection, which panics when the thirtieth falls inside a
-      character — thirty characters now.
-- [x] **W-19b — the platform's synthesiser.** Every target ships one — AVSpeechSynthesizer,
-      SAPI 5 and WinRT, speech-dispatcher — so nothing is built, only bound, and the
-      binding belongs in `fepdf-gui` beside `rfd` and `wgpu` rather than in the engine.
-      Rule 9 admits a platform API and refuses a vendored library, so the Linux side talks
-      to speech-dispatcher over its socket rather than through `libspeechd`.
-      *Fails if*: `cargo tree -i cc` finds a new C builder on any of the four targets.
-
-      **Bound through each platform's own front end, as a process**, because the APIs
-      named above cannot be called here: `objc2`'s `AVSpeechSynthesizer` methods are
-      `unsafe fn`, SAPI and WinRT are COM, and Rule 3 forbids `unsafe` with no override —
-      which this entry was written without weighing. `say` on macOS, `spd-say` on Linux (a
-      speech-dispatcher client run, not linked) and PowerShell's `System.Speech` on
-      Windows read the same synthesisers, and no crate was added, so the `cc` condition
-      holds by construction. A drawer reads from the page on screen, a passage at a time
-      in a voice for its language — on a Mac the locale's own voice, not the novelty
-      voices `say` lists first for English — and stops. The words go in on standard input
-      or as the one argument after `--`, and a `/Lang` that is not a well-formed tag is
-      dropped before it can reach the PowerShell script it would otherwise be spliced into.
-
-      Checked without anyone listening: `--capture`'s `readaloud <folder>` has `say` write
-      each passage to a file, and from page 9 of `print_sample.pdf` it wrote 28 AIFF files
-      of speech in the plan's 20 s, with no `say` left running once the window closed.
-      `speech.rs`'s tests hold the voice choice, the queue's order, a stop that stops the
-      rest, and a real `say` rendering Japanese and English. **Not checked:** the Linux and
-      Windows commands have been built as arguments and never run, since this machine is
-      a Mac. **Not passed:** the lexicons and phonemes — neither front end takes a PLS file
-      or an IPA transcription — and the drawer says how many lexicons go unused.
-
-Declined here, for reasons a corpus cannot overturn: **3D and sound annotations**, under
-the same clause 13.4 retirement that ["Not planned"](#not-planned) already records, and
-**XFA** beside them.
-
-*Done when*: `fepdf-gui` builds 28 of the 32 operations; a document this engine writes
-carries no non-embedded font; and every check named above exists and has been shown to
-fail against the defect it was written for (Rule 5 of [AGENTS.md](AGENTS.md)).
-
-**The vocabulary grew under the first of those.** Measured 2026-09-26 by `status.sh`,
-the window builds **30 of 46** operations: more than the 28 the line names, and fewer
-than its proportion, because fourteen operations were added after it was written. The
-sixteen it does not build are listed by
-`comm -23` of the enum's variants against `crates/fepdf-gui/src`'s `Operation::` names.
-
-## Phase X — The arena, looked at
-
-Like Phase V, this phase came from reading rather than from a failure: `PdfArena` was read
-end to end on 2026-09-22, at 468 lines, after W-21d. **The structure is sound** — pools
-separated by handle type so an array handle cannot read a dictionary, `BTreeMap`
-throughout for Rule 10's determinism, a depth limit of 64 on `resolve`
-(`crates/fepdf-model/src/object.rs:343`), a lock order stated in a comment at the one
-place two locks are taken, and an `object_index` built lazily with the measurement that
-justified it beside it.
-
-**What is wrong is the mechanisms meant to close its gaps, which are declared and not
-built.** Three of the items below are a fallback that returns a plausible wrong answer
-where the type system was supposed to make the question unaskable.
-
-- [x] **W-A1 — two silent wrong answers reach the font census.** One did and one could
-      not, and the difference is the entry.
-
-      **The handle fabrication was live.** `extract_font_summary` read
-      `find_object_by_dict_handle(dh).unwrap_or_else(|| Handle::new(dh.index()))` — a
-      `Handle<Object>` built out of an index from the `dicts` pool when a scan of every
-      object in the arena came back empty. It comes back empty for a **direct** font
-      dictionary, which 7.3.10 allows and which this engine's own decorations wrote until
-      2026-09-19, and `fepdf inspect debug` hands the number to `get_font`.
-
-      The fix removes the question rather than answering it better: `reachable_font_dicts`
-      reaches a font through a `/Font` resource entry that is usually a reference, so the
-      object handle **was in hand and being thrown away** by `resolve(…).as_dict_handle()`
-      before being looked for again by scanning. It carries `ReachedFont { object, dict }`
-      now, `FontSummary::object_id` is an `Option<u32>` because a direct dictionary has no
-      object number, and `PdfArena::find_object_by_dict_handle` — the only caller gone — is
-      deleted with it.
-
-      **The substituted key was not reachable, and finding that out cost a mutation.**
-      Five sites read `get_name_by_str(k).unwrap_or(fv)`, `fv` being `/Font`. A test
-      asserting the encoding of a font with a `/Font` key and no `/Encoding` passed — and
-      **passed with the fallback put back**, because normalisation-at-load builds every
-      font and font construction interns all five names through `arena.name` before
-      `list_fonts` runs. The document writes none of `/Encoding`, `/BaseFont`,
-      `/FontDescriptor` or `/DescendantFonts` and all four are interned when `open`
-      returns. The arm is gone on principle; what is tested is the reason it was
-      unreachable, so the day interning changes the arm gets a test of its own.
-
-      Three mutations: an object handle fabricated from the dictionary index (caught by
-      both new tests), every font reported direct (caught by one), and the substituted key
-      restored — which **survived**, and is why the entry above says what it says.
-
-- [x] **W-A2 — `ObjectEntry.generation` described a mechanism that did not exist.** Gone,
-      and `ObjectEntry` with it: the struct's other field was the object, so the pool is a
-      `Vec<Object>`. The doc comment said "incremented when the slot is reused"; one site
-      constructed it, always as `0`, nothing read it, and no slot is ever reused because
-      the pool has no free list. `docs/specs/README.md` records that `refinery_engine.md`
-      claimed generation bits on `Handle` and that **the claim was struck from the
-      document** — the field that made it look true outlived it by three weeks, which is
-      [ADR-0017](docs/adr/0017-declaring-a-catalogue-key-is-not-modelling-it.md)'s shape.
-
-      **No test, and that is the honest answer.** Deleting a field nothing reads changes
-      no behaviour; what stands behind it is the suite, which passes. Reuse, if W-A5 ever
-      calls for it, brings its own check back with it.
-
-- [x] **W-A3 — a handle names the arena it indexes.** `Handle<T>` carries a second `u32`
-      saying which arena stamped it, and an arena hands back `None` for one it did not.
-
-      **The exposure was three places, not everywhere.** Enumerated 2026-09-23: of the
-      four production sites that build a second `PdfArena`, `load_document` has only one
-      in scope and `walk_sections`'s `scratch` never lets a handle out. What is left is
-      `ObjectCloner`, which takes two by design, and the two callers that use it —
-      `write_out` and `save_linearized`, which carried **the same four lines twice**, a
-      source handle and a target handle side by side, four lines above a
-      `writer.finish(root, info)` where `*self.inner.root_handle()` would have compiled
-      and written a different object. Those four lines are `cloned_for_output` now.
-
-      **The cost was nothing, which is why this was worth doing.** Measured before
-      deciding: a `(Handle<PdfName>, Object)` is **48 bytes with a 4-byte handle and 48
-      with an 8-byte one** — alignment had already paid for it — and `Object` stays at 40.
-      `Handle::new` is 38 sites in `src` rather than the hundreds the entry implied.
-
-      **`Handle::new` keeps its signature and its meaning.** It makes an *unbound* handle,
-      which every arena accepts, so none of the 50 call sites changed and a caller that
-      computes an index for itself is not refused — `PdfDocument::get_font` takes an
-      object number off the command line. What the check catches is a handle **an arena
-      stamped**, used against a different one, which is the bug that was reachable.
-
-      **Identity stays the index alone.** `Handle` is the key of every dictionary in the
-      engine and a field of `Object`, which is itself the key of the arena's reverse
-      index; comparing the arena as well would reorder every dictionary and change what
-      `find_object` calls the same object, to separate handles that in practice come from
-      one arena. The number is carried so a *lookup* can refuse. It is not what a handle
-      is. `#[serde(skip)]`, too: an arena's number means nothing in another process.
-
-      **No `debug_assert` beside the refusal**, though one was written first. It is louder
-      in a test build and absent from a release, so the behaviour would differ by profile
-      and the test for it would pass in one and fail in the other. `None` holds in both,
-      and **`None` is the true answer** — the handle does not index this arena, so this
-      arena has nothing at it. What it replaces is the object that happens to sit at that
-      index here, handed back as the one that was asked for.
-
-      `a_handle_from_one_arena_reads_nothing_in_another` puts an object at index 0 of two
-      arenas and makes them different, so a refusal and a wrong read are told apart. All
-      1,189 tests pass unchanged, which is its own measurement: nothing in the suite was
-      relying on a handle crossing.
-
-- [x] **W-A4 — every arena read is a clone, and it costs 3% of opening the largest
-      sample.** Measured 2026-09-23, and the entry's own framing — 268 call sites — was
-      the wrong unit.
-
-      **Opening `samples/intel_sdm.pdf` calls `get_dict` 1,882,351 times**, copying
-      3,611,085 entries; twenty pages of text extraction adds 103,727 more. But **four
-      sites are 89.7% of it**, and only 50 of the 268 in source run at all:
-
-      | | share | what it was doing |
-      | :--- | ---: | :--- |
-      | `document.rs` `discover_font_groups` | 36.3% | copying every dictionary to read `/Type` |
-      | `ingest` `capture_provenance` | 18.3% | the same, for `/Sig` |
-      | `refine::refine_dict` | 17.9% | iterating every entry — it needs the whole map |
-      | `ingest` page-and-form scan | 17.2% | copying to read `/Type` and `/Subtype` |
-
-      **`PdfArena::dict_entry` hands back one entry instead of the map**, and the three
-      peek-then-discard sites ask before copying. The closure question does not arise: it
-      takes the value out under the lock and hands it over, because a closure running
-      under the pool's read lock is an invitation to call back into the arena and stop.
-
-      | | |
-      | :--- | ---: |
-      | `intel_sdm.pdf`, before | **1.2706 s** |
-      | after the largest site alone | 1.2460 s |
-      | after all three | **1.2328 s** |
-      | saved | **37.8 ms, 3.0%** |
-
-      `cargo run --release --example open_timing -- samples/intel_sdm.pdf 5` re-derives
-      it. A micro-benchmark agrees independently: a two-entry `BTreeMap` clones in **36
-      ns**, so 1.88M of them is 67 ms, and 71.8% of that is 48 ms against the 37.8
-      measured.
-
-      **The remaining 17.9% stays.** `refine_dict` walks every entry of the dictionary it
-      reads, so there is nothing to peek at; lending the map instead would mean running a
-      caller's code under the pool's read lock, and that caller resolves objects.
-
-      **No general borrowing accessor, and the clone stays everywhere else.** Three per
-      cent bought by three call sites is worth the ten lines; the same three per cent
-      spread over 265 more, most of which never run, is not. What the measurement
-      actually found is that the cost was never about the number of call sites.
-
-- [x] **W-A5 — the arena only grows, and here is the number.** Measured 2026-09-23 on a
-      page of two runs, a hundred `Operation::EditRun` in one open document:
-
-      | | |
-      | :--- | ---: |
-      | objects before | 8 |
-      | objects after 100 edits | **108** |
-      | dictionaries | 17 → **117** |
-      | streams held, and their bytes | **102**, 9,333 |
-
-      **One object and one dictionary per edit, and nothing given back.**
-      `write_page_content` allocates a new stream for the page's contents and points
-      `/Contents` at it; the object it replaced stays, holding the bytes the page used to
-      draw. There is no free list, so a document open through an afternoon of editing
-      holds every draft of every page it has touched.
-
-      **It is a cost and not a defect, for two reasons, and neither is structural.**
-
-      The writer emits what the document *reaches*, so the drafts never reach the file: a
-      hundred edits and one edit write **the same number of bytes**, and reopening the
-      hundred-edit file finds 11 objects and the text the last edit made.
-      `arena_growth_test.rs` holds that, because a writer that walked the arena instead
-      would put every draft in the file and the growth would be on disk as well.
-
-      And every walk of the arena by index runs either at ingest — `decrypt`,
-      `ingest::discovery`, `normalize_resources` — before an edit can have happened, or
-      over bytes read afresh, which is `FileStructureReport::survey`. **That was not
-      always true.** `list_fonts` walked every handle and reported **24 fonts for a
-      document with 12**, because refinement leaves the dictionary it replaced behind in
-      exactly this way; it reaches fonts the way a reader does now.
-
-      **So no reclamation is built.** What would justify it is a walker that must run
-      after an edit and cannot use reachability, or a measurement of a real editing
-      session against a real page — this fixture's streams are 90 bytes, and a page of 50
-      KB edited a hundred times is 5 MB. `ObjectEntry.generation` was the check reuse
-      would have wanted, and W-A2 deleted it rather than leave a field describing a
-      mechanism nobody built; reuse brings its own check back with it.
-
-*Done when*: W-A1 and W-A2 have landed, and W-A3, W-A4 and W-A5 each carry a measurement
-or a recorded reason for declining. **Met 2026-09-24.** Two of the five were fixes, and
-three were measurements that each contradicted the entry that asked for them: the gate's
-`cargo check` is 35 seconds and not five minutes (W-T1, next door), the clone-per-read is
-four call sites and not 268, and branding a handle costs no memory at all. The phase's own
-opening — that what is wrong is the mechanisms meant to close the arena's gaps, declared
-and not built — held for all three.
+`PdfArena` was read end to end, and its structure is sound. What was wrong was the
+mechanisms meant to close its gaps, which were declared and not built.
+- [x] **W-A1** — two silent wrong answers no longer reach the font census.
+- [x] **W-A2** — `ObjectEntry.generation`, which described nothing, is gone.
+- [x] **W-A3** — a handle names the arena it indexes, at no memory cost.
+- [x] **W-A4** — clone-per-read is four call sites, not 268.
+- [x] **W-A5** — the arena only grows, measured.
 
 ---
 
-*Updated 2026-09-22 (Phase X). The figures above come from the sample corpus, a set of
-deliberately malformed files, and the 515 external files Phases G and O fetched; the catalogue,
-annotation and form-field counts in Phases J and K were taken by running `inspect
-catalog` and `inspect interactive` over all 251 and aggregating the JSON.*
-
-*Finished entries were cut to what they delivered on 2026-09-22 — 4,924 lines to 2,966 —
-on the argument [ADR-0039](docs/adr/0039-the-design-document-was-narrating-its-own-corrections.md)
-made for `ARCHITECTURE.md`: an account of how a thing went wrong is a record, and a record
-belongs in `docs/adr/`. What came out was the before-and-after tables, the mutation lists
-and the dated self-corrections; what stayed is the headline, what each entry delivered, and
-every link to the record. **Git holds the rest**, and no entry's completion state changed
-except W-20, whose three parts were all done.*
+*This file was cut to what each entry delivered twice: on 2026-09-22, from 4,924 lines
+to 2,966, and on 2026-09-28, from 4,029 to the present length. Both cuts follow the
+argument of
+[ADR-0039](docs/adr/0039-the-design-document-was-narrating-its-own-corrections.md): an
+account of how a thing went wrong is a record, and a record belongs in `docs/adr/`.
+**Git holds the rest.** The full text before the second cut is at commit `406dd21`.
+Every item ID and every phase name is kept, so a reference from code or a record still
+lands.*
