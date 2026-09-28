@@ -41,14 +41,19 @@ use std::collections::BTreeSet;
 /// leave vertical Japanese to fall back on synthesised metrics — the one writing mode this
 /// engine goes out of its way to keep, down to the TJ offsets that hold ruby in place.
 ///
-/// **The exact list 9.9 requires of an embedded program is not checked here against the
-/// standard's text**, which outranks this comment; reading it is the first task of the
-/// item that writes the `/FontFile2` (W-E1c). A variable face's `fvar`, `gvar` and `avar`
-/// are **not** kept and not yet thought about: this list is for the static faces the
-/// corpus presents, and an instance of a variable one is a different question.
-const KEPT_TABLES: [&[u8; 4]; 14] = [
-    b"head", b"hhea", b"maxp", b"loca", b"glyf", b"hmtx", b"cvt ", b"fpgm", b"prep", b"cmap",
-    b"OS/2", b"vhea", b"vmtx", b"VORG",
+/// **ISO 32000-2 9.9 is the list's floor, and its one exclusion.** A TrueType program
+/// keeps `head`, `hhea`, `loca`, `maxp`, `cvt `, `prep`, `glyf`, `hmtx` and `fpgm` where the
+/// original had them. Used with a CIDFont, which is the only way this engine embeds one
+/// (`fepdf-doc`'s `embed_truetype`, a `CIDFontType2`), **`cmap` shall not be present**:
+/// the codes reach glyphs through `/CIDToGIDMap`. It was kept until 2026-09-28, beside a
+/// note that the list had not yet been read against 9.9.
+///
+/// A variable face's `fvar`, `gvar` and `avar` are **not** kept and not yet thought about:
+/// this list is for the static faces the corpus presents, and an instance of a variable
+/// one is a different question.
+const KEPT_TABLES: [&[u8; 4]; 13] = [
+    b"head", b"hhea", b"maxp", b"loca", b"glyf", b"hmtx", b"cvt ", b"fpgm", b"prep", b"OS/2",
+    b"vhea", b"vmtx", b"VORG",
 ];
 
 /// Where each glyph's outline starts and ends, and whether `loca` is in the long form.
@@ -368,6 +373,7 @@ mod subset_truetype_tests {
             (*b"glyf", glyf),
             (*b"vmtx", vec![0x5A; 16]),
             (*b"post", vec![0x77; 12]),
+            (*b"cmap", vec![0x3C; 8]),
         ])
     }
 
@@ -462,6 +468,14 @@ mod subset_truetype_tests {
     fn a_table_the_pdf_model_does_not_consult_is_dropped() {
         let subsetted = subset_truetype(&program(true), &BTreeSet::from([1])).expect("it subsets");
         assert!(super::find_table(&subsetted, b"post").is_none(), "post is still there");
+    }
+
+    /// **9.9: a program used with a CIDFont shall not carry `cmap`**, and every TrueType
+    /// program this engine embeds is a `CIDFontType2`'s.
+    #[test]
+    fn the_cmap_does_not_come_along() {
+        let subsetted = subset_truetype(&program(true), &BTreeSet::from([1])).expect("it subsets");
+        assert!(super::find_table(&subsetted, b"cmap").is_none(), "cmap is still there");
     }
 
     /// A subset is smaller, or it is not doing anything.
