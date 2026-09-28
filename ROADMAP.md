@@ -777,11 +777,13 @@ deduplication. The duplication that exists is semantic: a dictionary lookup is w
 eight times, and the copies do not agree on whether to resolve.
 
 **The net**
-- [ ] **Y-0** — `scripts/test/golden_outputs.sh` compares, between `HEAD` and the working
+- [x] **Y-0** — `scripts/test/golden_outputs.sh` compares, between `HEAD` and the working
       tree, over `samples/` and `target/external/`: the bytes of a save (plain,
       linearised, encrypted), `inspect fonts`, `text` and `coverage`, and
       `doc.decisions()`. *Done when* changing one value in the linearisation hint table
-      fails it.
+      fails it. It did: one page's object count in the hint table's Item 1
+      moved fourteen `linearized.pdf` files and nothing else, and not the one-page
+      sample, which has no page for it to move. A run is 367 s over 16 inputs.
 - [x] **Y-0a** — its first run did not finish: linearising `samples/intel_sdm.pdf`
       (5,057 pages) followed each article bead's `/T`, `/N` and `/V` from every page, so
       each page reached every bead, 24.7 million objects in all. A page now stops at its
