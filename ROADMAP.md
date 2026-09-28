@@ -813,12 +813,22 @@ eight times, and the copies do not agree on whether to resolve.
 - [ ] **Y-F6** — `ModifyDate` and `MetadataDate` are copied from the source. Saving
       produces a new document (ADR-0012) and rewrites the packet, so both are the save's
       moment, which `stamped_at` now supplies.
+- [ ] **Y-F8** — `cargo doc --workspace --no-deps` prints 44 warnings, most of them
+      intra-doc links that resolve to nothing, and nothing gates it. `documents.py`
+      checks relative Markdown links, which is the half AGENTS.md rule 1 names.
 - [ ] **Y-F7** — `compare.rs`'s `to_f64` is used only under the `render` feature and is
       not gated with it, so `cargo build -p fepdf` warns. The workspace build unifies
       features and never sees it.
 
 **Reading what was added**, in the order the last cleanup found defects
-- [ ] **Y-1a** — `fepdf-font`: `cff`, `subset`, `program_glyphs`, `metrics`, `embedding`.
+- [x] **Y-1a** — `fepdf-font`: `cff`, `subset`, `program_glyphs`, `metrics`, `embedding`,
+      and the changes to `agl`, `annex_d`, `reconstruction` and `lib`. Three defects,
+      each with a test that fails with the fix taken out: `fsType` read without its `OS/2`
+      version (`ff025d1`); a CFF subset moving offsets by operator rather than by where
+      they point (`0a1c6f3`); a TrueType subset for a CIDFont keeping the `cmap` 9.9 says
+      shall not be there (`abdea2d`). Three claims corrected: that no sample CFF is
+      CID-keyed (fourteen are), a doc line on the wrong module, and two comments
+      describing a face choice `regular_face` now makes.
 - [ ] **Y-1b** — `fepdf-gui`: `view`, `view/draw`, `worker`, `capture`, `annotate`,
       `speech`, `measuring`, `finding`, `printing`, the sidebars.
 - [ ] **Y-1c** — `fepdf-mcp` and `fepdf-cli`: each tool description against what the tool
