@@ -782,6 +782,38 @@ eight times, and the copies do not agree on whether to resolve.
       linearised, encrypted), `inspect fonts`, `text` and `coverage`, and
       `doc.decisions()`. *Done when* changing one value in the linearisation hint table
       fails it.
+- [x] **Y-0a** — its first run did not finish: linearising `samples/intel_sdm.pdf`
+      (5,057 pages) followed each article bead's `/T`, `/N` and `/V` from every page, so
+      each page reached every bead, 24.7 million objects in all. A page now stops at its
+      own bead (`7af21a0`).
+- [ ] **Y-0b** — the same file linearises to 129 MB against a 25.6 MB plain save: 71 MB
+      of it is the hint stream's reserve, zero-filled. `calculate_worst_case_hint_size`
+      sizes the page table as though every page named every shared object
+      (`num_pages × total_shared`). *Done when* the reserve is sized from the counts the
+      writer already has, and the linearised file is within a few percent of the plain
+      one.
+
+- [x] **Y-0c** — saves were not reproducible: the XMP `InstanceID` was salted with the
+      clock's seconds. `SaveOptions::stamped_at` decides it now, and `fepdf-cli` reads
+      `SOURCE_DATE_EPOCH` (`d2cef3e`).
+
+**Found while building the net**, each to be taken on its own
+- [ ] **Y-F1** — `save_linearized` keeps its own copy of the metadata handling and
+      ignores `password`, `strip`, `lang`, `copyright` and `obj_stm`, beside a comment
+      saying it is consistent with `save_with_options`.
+- [ ] **Y-F2** — `SaveOptions::creation_date` is read by nothing.
+- [ ] **Y-F3** — `fepdf-cli` panics when a certificate named by `--encrypt-to` cannot be
+      read (`args.rs`, `From<SaveArgs>`), where Rule 2 asks for an error.
+- [ ] **Y-F4** — the XMP `DocumentID` is `md5` of the title alone, so every untitled
+      document shares one, and two documents of one title collide.
+- [ ] **Y-F5** — a document with no date is given `2026-05-26T06:00:00Z` as its
+      `CreateDate`, `ModifyDate` and `MetadataDate`, with no `Decision`.
+- [ ] **Y-F6** — `ModifyDate` and `MetadataDate` are copied from the source. Saving
+      produces a new document (ADR-0012) and rewrites the packet, so both are the save's
+      moment, which `stamped_at` now supplies.
+- [ ] **Y-F7** — `compare.rs`'s `to_f64` is used only under the `render` feature and is
+      not gated with it, so `cargo build -p fepdf` warns. The workspace build unifies
+      features and never sees it.
 
 **Reading what was added**, in the order the last cleanup found defects
 - [ ] **Y-1a** — `fepdf-font`: `cff`, `subset`, `program_glyphs`, `metrics`, `embedding`.
@@ -797,8 +829,8 @@ eight times, and the copies do not agree on whether to resolve.
       guards broken, starting with `audit_scope_test.rs` (2,630 lines).
 
 **Structure**
-- [ ] **Y-3** — one home for reading a dictionary entry in `fepdf-model`, with a version
-      that resolves and one that does not. It replaces `audit_objects::{entry, name_of,
+- [ ] **Y-3** — finish the move into `fepdf-model/src/access.rs`, which already exists
+      for this and calls itself "the destination, not the finished move". It replaces `audit_objects::{entry, name_of,
       items}`, `audit_fonts`' and `outline_tree`'s methods, `decrypt::entry`,
       `function::entry`, `mesh::entry`, `interactive::name_of` and
       `catalog::resolve_dict`. Where a site's resolving changes, whether the old
