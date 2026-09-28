@@ -78,7 +78,9 @@ fn eexec_portion(rest: &[u8]) -> Vec<u8> {
     }
     let digits: Vec<u8> = rest.iter().copied().filter(u8::is_ascii_hexdigit).collect();
     digits
-        .chunks_exact(2)
+        .as_chunks::<2>()
+        .0
+        .iter()
         .filter_map(|pair| u8::from_str_radix(std::str::from_utf8(pair).ok()?, 16).ok())
         .collect()
 }

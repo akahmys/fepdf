@@ -13,10 +13,9 @@
 # looks for — so from 2026-08-29 it selected nothing and three documents agreed with each
 # other while `stable` did the work (ROADMAP W-T3).
 #
-# 1.97.1 and not 1.98.1: the move to 1.98 is W-T4, held until Phase W closes so that a
-# failure is not ambiguous between the work and the compiler. Pinning here changes no
-# compiler — 1.97.1 is what was already running — which is the whole reason it can be done
-# mid-phase.
+# 1.98.1 and never 1.98.0, which miscompiles a trait object vtable (ROADMAP W-T4). The
+# move from 1.97.1 waited for Phase W to close, so that a failure was not ambiguous between
+# the work and the compiler.
 [toolchain]
-channel = "1.97.1"
+channel = "1.98.1"
 components = ["rustfmt", "clippy"]

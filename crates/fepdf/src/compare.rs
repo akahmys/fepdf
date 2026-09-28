@@ -197,7 +197,9 @@ pub fn differing_cells(first: &[u8], second: &[u8], width: u32, height: u32) -> 
     let (width, height) = (width as usize, height as usize);
     let (across, down) = (width.div_ceil(CELL), height.div_ceil(CELL));
     let mut cells = vec![vec![false; across]; down];
-    for (index, (p, q)) in first.chunks_exact(4).zip(second.chunks_exact(4)).enumerate() {
+    for (index, (p, q)) in
+        first.as_chunks::<4>().0.iter().zip(second.as_chunks::<4>().0).enumerate()
+    {
         if p.iter().zip(q).any(|(x, y)| x.abs_diff(*y) > TOLERANCE) {
             let (x, y) = (index % width, index / width);
             cells[y / CELL][x / CELL] = true;

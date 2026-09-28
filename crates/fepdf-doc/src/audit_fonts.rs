@@ -628,8 +628,8 @@ impl Scan<'_> {
         for byte in strings.iter().copied().flatten() {
             set(&mut seen.codes, usize::from(*byte));
         }
-        for pair in strings.iter().flat_map(|s| s.chunks_exact(2)) {
-            set(&mut seen.pairs, usize::from(u16::from_be_bytes([pair[0], pair[1]])));
+        for pair in strings.iter().flat_map(|s| s.as_chunks::<2>().0) {
+            set(&mut seen.pairs, usize::from(u16::from_be_bytes(*pair)));
         }
     }
 
@@ -643,8 +643,8 @@ impl Scan<'_> {
                     set(&mut seen.rendered, usize::from(*byte));
                 }
             }
-            for pair in string.chunks_exact(2) {
-                let code = usize::from(u16::from_be_bytes([pair[0], pair[1]]));
+            for pair in string.as_chunks::<2>().0 {
+                let code = usize::from(u16::from_be_bytes(*pair));
                 set(&mut seen.pairs, code);
                 if visible {
                     set(&mut seen.rendered_pairs, code);

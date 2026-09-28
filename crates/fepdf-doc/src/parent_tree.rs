@@ -117,9 +117,9 @@ fn walk(
         };
         waiting.extend(listed(array("Kids")));
         let nums = array("Nums");
-        for (i, pair) in listed(nums).chunks_exact(2).enumerate() {
-            if let (Object::Integer(key), Some(nums)) = (&pair[0], nums) {
-                found(*key, &pair[1], (nums, 2 * i + 1));
+        for (i, [key, value]) in listed(nums).as_chunks::<2>().0.iter().enumerate() {
+            if let (Object::Integer(key), Some(nums)) = (key, nums) {
+                found(*key, value, (nums, 2 * i + 1));
             }
         }
     }

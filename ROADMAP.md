@@ -2233,7 +2233,7 @@ on 2026-09-28. W-19a before W-19b, which is stated in W-19a.
 **7 — Last, or out.** W-16, W-17 (no check can be written for whether ink reached paper),
 W-18, W-O1, and W-T4 — which is held until Phase W closes, deliberately.
 
-**What is left of Phase W is W-T4**, held until the rest closed. W-21 closed at a hundred
+**Phase W is closed**, W-T4 last, as it was held to be. W-21 closed at a hundred
 and twelve decided and thirteen for a person
 ([ADR-0098](docs/adr/0098-an-h-condition-is-decided-only-where-the-document-answers-it.md)),
 and W-22 with the claim a well-tagged file makes
@@ -2717,7 +2717,7 @@ Content editing, under D-1:
       passing one — "0 user-facing literals … 0 names with no key" sits two lines below
       the sentence that failed it.
 
-- [ ] **W-T4 — Rust 1.98.1, after Phase W and not before.** Held deliberately: a
+- [x] **W-T4 — Rust 1.98.1, after Phase W and not before.** Held deliberately: a
       compiler change in the middle of a phase makes every failure ambiguous between the
       work and the toolchain, and there is nothing in 1.98 this phase needs.
 
@@ -2743,6 +2743,17 @@ Content editing, under D-1:
       595 crates were not read. What the survey supports is "nothing found that forbids
       it" — not "it works". The build is the measurement, and it belongs to this item.
 
+      **The build, 2026-09-28, once W-22 had closed the rest of Phase W.**
+      `rust-toolchain.toml` pins `1.98.1`. rustfmt 1.98.1 finds nothing to change. Clippy
+      1.98 adds `chunks_exact_to_as_chunks`, which five `chunks_exact` calls with a
+      constant size failed: they are `as_chunks` now, which a pair or a pixel reads
+      as an array — `u16::from_be_bytes(*pair)` rather than indexing. `as_chunks` has
+      been stable since 1.88, and `msrv_build.sh` builds the workspace under 1.94 inside
+      the audit. `cargo test --workspace` exits 0 in 21 min 2 s with the rebuild a new
+      compiler costs, and `verify_compliance.sh` passes. **Of the survey's twelve
+      compatibility notes, none fired**, and no dependency failed to build: the survey's
+      "nothing found that forbids it" held, and this is the measurement it asked for.
+
 - [x] **W-T3 — the toolchain pin has never been one, and the minimum had never built.**
       Both halves are closed, and each turned out to be a different kind of problem.
 
@@ -2759,7 +2770,7 @@ Content editing, under D-1:
 
       **The pin was a hidden file rustup does not look for.** `.rust-toolchain.toml`, with
       the leading dot, had selected nothing since 2026-08-29 while `stable` did the work.
-      It is `rust-toolchain.toml` now, at **`channel = "1.97.1"`**.
+      It is `rust-toolchain.toml` now, pinned at 1.97.1 here and at 1.98.1 by W-T4.
 
       **The floor and the development toolchain are two numbers**, and writing one number
       in three places is what made them one. `rust-version` stays 1.94 — the promise to
