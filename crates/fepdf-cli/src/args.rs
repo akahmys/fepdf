@@ -590,13 +590,13 @@ pub struct SignArgs {
 
 #[derive(Subcommand, Debug)]
 pub enum PublishSubcommands {
-    /// Upgrade document to PDF 2.0 and modern standards (A-4, X-6, UA-2)
+    /// Upgrade document to PDF 2.0, identified as PDF/A-4 or PDF/UA-2 (X-6 is refused)
     Upgrade {
         /// Input PDF file
         input: PathBuf,
         /// Output PDF file
         output: PathBuf,
-        /// Target standard (a4, x6, ua2)
+        /// Target standard (a4, ua2; x6 is refused, its identification not being known)
         #[arg(long)]
         standard: Option<String>,
         /// Optional ICC color profile path

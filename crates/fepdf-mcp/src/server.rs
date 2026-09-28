@@ -3,9 +3,9 @@
 #![allow(missing_docs)]
 
 use crate::tools::operations::vocabulary::{
-    AddLtvInfoArgs, DuplicatePagesArgs, InsertFromArgs, ReorderBatchArgs, RetagArgs, UpgradeArgs,
-    add_ltv_info_impl, duplicate_pages_impl, insert_from_impl, reorder_batch_impl, retag_impl,
-    upgrade_impl,
+    AddLtvInfoArgs, DeclareConformanceArgs, DuplicatePagesArgs, InsertFromArgs, ReorderBatchArgs,
+    RetagArgs, UpgradeArgs, add_ltv_info_impl, declare_conformance_impl, duplicate_pages_impl,
+    insert_from_impl, reorder_batch_impl, retag_impl, upgrade_impl,
 };
 use crate::tools::{
     AddAnnotationArgs, AddFormFieldArgs, AddMeshShadingArgs, AddPageDecorationArgs,
@@ -314,10 +314,27 @@ impl FepdfServer {
         insert_from_impl(args)
     }
 
+    /// Declares conformity in a PDF Declaration.
+    #[tool(
+        name = "declare_conformance",
+        description = "Declares that the document conforms to a standard, as a PDF Declaration \
+                       (pdfd:conformsTo) in its XMP metadata, beside any it has: WTPDF's \
+                       http://pdfa.org/declarations/wtpdf/#reuse1.0 or #accessibility1.0. \
+                       The caller's statement; nothing is checked."
+    )]
+    pub async fn declare_conformance(
+        &self,
+        Parameters(args): Parameters<DeclareConformanceArgs>,
+    ) -> Result<String, String> {
+        declare_conformance_impl(args)
+    }
+
     /// Declares conformance with a PDF standard.
     #[tool(
         name = "upgrade_standard",
-        description = "Declares conformance with a PDF standard: A4, X6, UA2 or ISO32000-2."
+        description = "Declares conformance with a PDF standard in the XMP metadata: A4, UA2 or \
+                       ISO32000-2. X6 is refused: its identification is ISO 15930-9's, \
+                       which this engine does not have."
     )]
     pub async fn upgrade_standard(
         &self,

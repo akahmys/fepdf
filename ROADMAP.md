@@ -2227,17 +2227,17 @@ they are ordered among themselves by what the operation vocabulary already carri
 **6 — Accessibility, where the standard is the work.** W-21h's first step was
 **obtaining ISO 32000-1**, not writing code
 ([ADR-0095](docs/adr/0095-a-condition-citing-a-document-this-copy-lacks-is-not-implemented-from-memory.md)),
-and the document is in `docs/specs` as of 2026-09-26. W-22 waited on W-21, which closed
+and the document is in `docs/specs` as of 2026-09-26. W-22 waited on W-21; both closed
 on 2026-09-28. W-19a before W-19b, which is stated in W-19a.
 
 **7 — Last, or out.** W-16, W-17 (no check can be written for whether ink reached paper),
 W-18, W-O1, and W-T4 — which is held until Phase W closes, deliberately.
 
-**What this order does not do** is finish Phase W. W-21 closed at a hundred and twelve
-decided and thirteen for a person
+**What is left of Phase W is W-T4**, held until the rest closed. W-21 closed at a hundred
+and twelve decided and thirteen for a person
 ([ADR-0098](docs/adr/0098-an-h-condition-is-decided-only-where-the-document-answers-it.md)),
-and W-22 is what is left of it; the one dependency on the outside — ISO 32000-1 for
-W-21h — is met.
+and W-22 with the claim a well-tagged file makes
+([ADR-0101](docs/adr/0101-a-declaration-is-the-callers-statement-and-w-22-closes.md)).
 
 ### The work
 
@@ -3560,7 +3560,10 @@ Independent of all of the above:
         after the three outcome sections, and the weak closing line now counts what is in
         *neither* list — 75 of the 137 when it landed.
 
-- [ ] **W-22 — Well-Tagged PDF (WTPDF 1.0), which this project does not mention.**
+- [x] **W-22 — Well-Tagged PDF (WTPDF 1.0), which this project does not mention.**
+      **Closed 2026-09-28**: each of the eight below is an operation, W-22a to W-22j, and a
+      declaration a file carries survives a save. A WTPDF checker is not among them
+      ([ADR-0101](docs/adr/0101-a-declaration-is-the-callers-statement-and-w-22-closes.md)).
 
       Measured 2026-09-21: `WTPDF` and `Well-Tagged` appear **nowhere in the repository**.
 
@@ -3587,8 +3590,9 @@ Independent of all of the above:
       what a well-tagged file needs and no operation writes:
 
       1. **The claim itself** (6.1): a PDF Declaration whose `pdfd:conformsTo` is
-         `…/wtpdf/#reuse1.0` or `#accessibility1.0`. `Upgrade` writes `pdfuaid` for UA-2
-         and no declaration of any kind.
+         `…/wtpdf/#reuse1.0` or `#accessibility1.0`. `Upgrade` writes no XMP at all: for
+         UA-2 it puts `/PdfUA 2` in the catalogue, a key neither ISO 32000-2 nor ISO 14289-2
+         defines, and no declaration of any kind (measured 2026-09-28, W-22h).
       2. **Namespaces** (8.2.4, 8.2.5.2): the one `Document` element in the PDF 2.0
          namespace, and role maps within a namespace — nothing writes `/NS`.
       3. **Attributes** (8.2.6): `Scope` and `Headers` on table cells (8.2.5.26),
@@ -3678,6 +3682,51 @@ Independent of all of the above:
         `MarkArtifact` too, which now reads `/K` the same way. `wrap_struct_test` fails with
         the parent tree left alone, with the kid resolved, with the page check removed, and
         with the kid's `/P` left alone.
+
+      - [x] **W-22h — a claim a file makes survives a save (before 1, above).** The XMP
+        packet is rebuilt from the nine fields `MetadataInfo` models, at ingest and at
+        save, and the rebuilt packet held nothing else: opening and saving each of the 138
+        files of the veraPDF PDF/UA-2 corpus lost `pdfuaid:part` and `pdfuaid:rev`, and the
+        WTPDF `pdfd:declarations` of those that had them (measured 2026-09-28). A
+        declaration this engine wrote would not have survived the next save.
+        `refine::xmp_carry` carries what the packet in place says that the generator does
+        not own into the one it writes, in an `rdf:Description` of its own; what it owns
+        is read from the generator, one packet rendered with every field filled in, so a
+        title a caller removed stays removed
+        ([ADR-0099](docs/adr/0099-the-xmp-packet-carries-what-the-engine-does-not-write.md)).
+        All 138 PDF/UA-2 files and all 42 PDF/A files keep their claims, counted by
+        namespace. Each property is copied as written, prefix and all — clause 5 of ISO
+        14289-2 requires `pdfuaid`, and two corpus files bind a second prefix to it. **What
+        the generator owns it now reads in both of XMP's forms**: a simple property written
+        as an attribute of its description, as veraPDF writes `xmp:CreatorTool` and the
+        dates, and `dc:rights`, which was written and never read — each lost at ingest.
+        `xmp_claims_survive_test` fails with the carry unhooked, with the attribute form
+        unread and with `dc:rights` unread; the unit tests in `xmp_carry` fail with the
+        generator's properties carried, with a description inside a value hoisted to the
+        top, and with a prefix looked up rather than copied.
+
+      - [x] **W-22i — `Upgrade` identifies a standard where it says (before 1, above).**
+        UA-2 is `pdfuaid:part` 2 and `pdfuaid:rev` 2024 in the XMP packet (ISO 14289-2
+        clause 5), and A-4 `pdfaid:part` 4 and `pdfaid:rev` 2020, as the veraPDF PDF/A-4
+        files that pass state them — each in place of what the packet said, so a PDF/UA-1
+        file upgraded says part 2 once. The catalogue keys are gone, and so is the
+        `sdk_tests` assertion that held `/GTS_PDFA14` in place. **PDF/X-6 is refused before
+        anything changes**: its identification is ISO 15930-9's, which this copy lacks, and
+        no corpus file states one; the window no longer offers it
+        ([ADR-0100](docs/adr/0100-upgrade-identifies-a-standard-where-the-standard-says.md)).
+        `declaration_test` fails with a restated identification left beside the old one.
+
+      - [x] **W-22j — the claim itself (1, above).** `DeclareConformance` adds a PDF
+        Declaration's `pdfd:conformsTo` to the document's `pdfd:declarations` — WTPDF's
+        `…/wtpdf/#reuse1.0` or `#accessibility1.0`, or any other — beside those there, which
+        keep their `pdfd:claimData`; declared twice, it is there once.
+        `fepdf_model::declarations::declared` reads them back. `declare_conformance` in
+        `fepdf-mcp`. **The statement is the caller's, and nothing is checked**: this
+        engine has no WTPDF checker, and gating the accessibility level on the UA-2 audit
+        would make a Matterhorn result stand for another standard's claim
+        ([ADR-0101](docs/adr/0101-a-declaration-is-the-callers-statement-and-w-22-closes.md)).
+        `declaration_test` fails with the declarations there dropped and with a second
+        declaration of one level written.
 
 - [x] **W-18 — comparing two documents.** `fepdf::compare::compare` pairs pages by
       position and answers, for each that differs, the lines of text only one side has —

@@ -275,7 +275,14 @@ pub enum Operation {
     },
     /// Rebuild the document's logical structure from heuristics (14.7).
     Retag,
-    /// Rewrite the catalogue and version for a target standard.
+    /// Declare conformity with a standard in the XMP metadata, as a PDF Declaration's
+    /// `pdfd:conformsTo` — WTPDF 6.1's `…/wtpdf/#reuse1.0` or `#accessibility1.0`, or any
+    /// other the PDF Association lists. The caller's statement: nothing is checked.
+    DeclareConformance {
+        /// The URI of what the document conforms to.
+        conforms_to: String,
+    },
+    /// Identify the document with a target standard in its XMP metadata, at version 2.0.
     Upgrade {
         /// The standard to declare.
         standard: PdfStandard,
@@ -683,6 +690,7 @@ impl Operation {
             | Self::AttachStructAssociatedFile { .. }
             | Self::MarkArtifact { .. }
             | Self::WrapStructElem(_)
+            | Self::DeclareConformance { .. }
             | Self::MapStructType { .. }
             | Self::ExecuteAction { .. }
             | Self::SetGeospatialAnchor { .. }

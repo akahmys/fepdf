@@ -358,9 +358,10 @@ fn retag_form(app: &mut FepdfApp, ui: &mut egui::Ui) {
 
 /// Records conformance with a standard (6.3.1).
 fn upgrade_form(app: &mut FepdfApp, ui: &mut egui::Ui) {
-    const STANDARDS: [(fepdf::PdfStandard, &str); 4] = [
+    // Not PDF/X-6, which `Upgrade` refuses: its identification is in a standard this
+    // engine does not have.
+    const STANDARDS: [(fepdf::PdfStandard, &str); 3] = [
         (fepdf::PdfStandard::A4, "PDF/A-4"),
-        (fepdf::PdfStandard::X6, "PDF/X-6"),
         (fepdf::PdfStandard::UA2, "PDF/UA-2"),
         (fepdf::PdfStandard::ISO32000_2, "ISO 32000-2"),
     ];

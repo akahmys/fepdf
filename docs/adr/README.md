@@ -163,3 +163,6 @@ quietly wrong — which is the failure this log exists to make visible.
 | 0096 | [A run reads its codes by the route extraction reads them](0096-a-run-reads-its-codes-by-the-route-extraction-reads-them.md) | |
 | 0097 | [`CLAUDE.md` is removed, because the tooling reads `AGENTS.md`](0097-claude-md-is-removed-because-the-tooling-reads-agents-md.md) | Reverses part of 0081 |
 | 0098 | [An `H` condition is decided only where the document answers it, and W-21 closes with thirteen for a person](0098-an-h-condition-is-decided-only-where-the-document-answers-it.md) | Amends W-21's target |
+| 0099 | [The XMP packet carries what the engine does not write](0099-the-xmp-packet-carries-what-the-engine-does-not-write.md) | Bounds 0094 |
+| 0100 | [`Upgrade` identifies a standard where the standard says, and refuses one it cannot read](0100-upgrade-identifies-a-standard-where-the-standard-says.md) | Rests on 0099, 0095 |
+| 0101 | [A PDF Declaration is the caller's statement, and W-22 closes](0101-a-declaration-is-the-callers-statement-and-w-22-closes.md) | Rests on 0099 |

@@ -59,16 +59,15 @@ fn retagging_reaches_the_document() {
     document().apply(Operation::Retag).expect("retagging applies");
 }
 
-/// Each of the four standards the form offers, because a radio button that builds a
-/// variant `apply` refuses is a button that fails in front of someone.
+/// Each of the three standards the form offers, because a radio button that builds a
+/// variant `apply` refuses is a button that fails in front of someone — which is why the
+/// form does not offer PDF/X-6.
 #[test]
 fn every_standard_the_form_offers_applies() {
-    for standard in [
-        fepdf::PdfStandard::A4,
-        fepdf::PdfStandard::X6,
-        fepdf::PdfStandard::UA2,
-        fepdf::PdfStandard::ISO32000_2,
-    ] {
+    assert!(document().apply(Operation::Upgrade { standard: fepdf::PdfStandard::X6 }).is_err());
+    for standard in
+        [fepdf::PdfStandard::A4, fepdf::PdfStandard::UA2, fepdf::PdfStandard::ISO32000_2]
+    {
         document()
             .apply(Operation::Upgrade { standard })
             .unwrap_or_else(|e| panic!("{standard:?} was refused: {e:?}"));

@@ -199,28 +199,42 @@ pub fn apply_insert_from(doc: &mut Document, source: &[u8], at: usize) -> PdfRes
     Ok(inserted)
 }
 
-/// Declares a target standard in the catalogue, and sets the version to 2.0.
+/// Identifies the document with a standard in its XMP metadata, and sets the version to
+/// 2.0.
 ///
 /// Every branch writes 2.0 because output is always 2.0 (ROADMAP, "the subsets this
-/// processor has chosen"); what differs is the key each standard reads.
+/// processor has chosen"). **The identification is where each standard puts it**: ISO
+/// 14289-2 clause 5's `pdfuaid:part` 2 and `pdfuaid:rev` 2024, and PDF/A-4's
+/// `pdfaid:part` 4 and `pdfaid:rev` 2020, as the veraPDF PDF/A-4 files that pass state
+/// them. This wrote `/PdfUA 2` and `/GTS_PDFA14` into the catalogue, keys no standard
+/// defines, and no XMP. **PDF/X-6 is refused**: its identification is ISO 15930-9's, which
+/// this copy of the specifications lacks, and no corpus file states one
+/// ([ADR-0095](../../../../docs/adr/0095-a-condition-citing-a-document-this-copy-lacks-is-not-implemented-from-memory.md)).
+///
+/// # Errors
+/// For PDF/X-6, before anything is changed; and if the catalogue is not a dictionary.
 pub fn apply_upgrade(doc: &mut Document, standard: PdfStandard) -> PdfResult<()> {
-    use fepdf_model::PdfName;
-    let arena = doc.arena();
-    arena.set_version(2.0);
-
-    let (key, value) = match standard {
-        PdfStandard::ISO32000_2 => return Ok(()),
-        PdfStandard::A4 => ("GTS_PDFA14", Object::Name(arena.intern_name(PdfName::new("Yes")))),
-        PdfStandard::UA2 => ("PdfUA", Object::Integer(2)),
-        PdfStandard::X6 => ("GTS_PDFX", Object::Name(arena.intern_name(PdfName::new("PDFX6")))),
+    let identification = match standard {
+        PdfStandard::ISO32000_2 => None,
+        PdfStandard::UA2 => Some(("pdfuaid", "http://www.aiim.org/pdfua/ns/id/", "2", "2024")),
+        PdfStandard::A4 => Some(("pdfaid", "http://www.aiim.org/pdfa/ns/id/", "4", "2020")),
+        PdfStandard::X6 => {
+            return Err(PdfError::Other(
+                "PDF/X-6 is identified as ISO 15930-9 says, and this engine does not have \
+                 ISO 15930-9 to write it from"
+                    .into(),
+            ));
+        }
     };
-
-    if let Some(catalog_handle) = doc.catalog_handle()
-        && let Ok(dh) = doc.resolve_to_dict(catalog_handle)
-    {
-        let mut catalog = arena.get_dict(dh).unwrap_or_default();
-        catalog.insert(arena.intern_name(PdfName::new(key)), value);
-        arena.set_dict(dh, catalog);
+    doc.arena().set_version(2.0);
+    if let Some((prefix, ns, part, rev)) = identification {
+        fepdf_model::metadata::state_in_packet(
+            doc,
+            &format!(
+                "<rdf:Description rdf:about=\"\" xmlns:{prefix}=\"{ns}\" \
+                 {prefix}:part=\"{part}\" {prefix}:rev=\"{rev}\"/>"
+            ),
+        )?;
     }
     Ok(())
 }

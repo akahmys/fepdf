@@ -25,6 +25,8 @@ pub mod color;
 pub mod content;
 /// How much of what a corpus presents the engine reads the contents of.
 pub mod coverage;
+/// PDF Declarations: a document's claims of conformity, in its XMP metadata.
+pub mod declarations;
 /// Unlocking an encrypted document (ISO 7.6).
 pub mod decrypt;
 /// Destinations (12.3.2) and the name tree that holds them (7.9.6).

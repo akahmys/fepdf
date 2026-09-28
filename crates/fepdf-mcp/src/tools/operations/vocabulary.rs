@@ -79,6 +79,26 @@ pub struct RetagArgs {
     pub output_path: String,
 }
 
+/// Arguments for declaring conformity in a PDF Declaration.
+#[derive(Deserialize, JsonSchema)]
+pub struct DeclareConformanceArgs {
+    /// Path to input PDF file.
+    pub input_path: String,
+    /// Path to output PDF file.
+    pub output_path: String,
+    /// What the document conforms to, as a URI: WTPDF's
+    /// "http://pdfa.org/declarations/wtpdf/#reuse1.0" or
+    /// "http://pdfa.org/declarations/wtpdf/#accessibility1.0", or another PDF Declaration.
+    pub conforms_to: String,
+}
+
+/// Implementation of the declare_conformance tool.
+pub fn declare_conformance_impl(args: DeclareConformanceArgs) -> Result<String, String> {
+    let details = format!("Declared conformity with {}", args.conforms_to);
+    let op = Operation::DeclareConformance { conforms_to: args.conforms_to };
+    execute_single_op(&args.input_path, &args.output_path, op, &details)
+}
+
 /// Arguments for declaring conformance with a standard.
 #[derive(Deserialize, JsonSchema)]
 pub struct UpgradeArgs {
@@ -86,7 +106,7 @@ pub struct UpgradeArgs {
     pub input_path: String,
     /// Path to output PDF file.
     pub output_path: String,
-    /// One of "A4", "X6", "UA2" or "ISO32000-2".
+    /// One of "A4", "UA2" or "ISO32000-2"; "X6" is refused.
     pub standard: String,
 }
 

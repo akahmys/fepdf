@@ -58,6 +58,9 @@ pub fn apply_operation(doc: &mut Document, op: Operation) -> PdfResult<()> {
         Operation::AddLtvInfo { certificates } => security::apply_add_ltv_info(doc, certificates),
         Operation::Retag => crate::remediation::retag(doc),
         Operation::Upgrade { standard } => page::apply_upgrade(doc, standard),
+        Operation::DeclareConformance { conforms_to } => {
+            fepdf_model::declarations::declare(doc, &conforms_to)
+        }
         Operation::RemovePages(pages) => page::apply_remove_pages(doc, &pages),
         Operation::SetPageLabels(labels) => page::apply_set_page_labels(doc, labels),
         Operation::UpdateStructElem(u) => structure::apply_update_struct(doc, u),

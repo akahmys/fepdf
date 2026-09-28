@@ -31,6 +31,7 @@ fn variant_name(op: &Operation) -> &'static str {
         Operation::AddLtvInfo { .. } => "AddLtvInfo",
         Operation::Retag => "Retag",
         Operation::Upgrade { .. } => "Upgrade",
+        Operation::DeclareConformance { .. } => "DeclareConformance",
         Operation::UpdateStructElem(_) => "UpdateStructElem",
         Operation::DeleteStructElem { .. } => "DeleteStructElem",
         Operation::MoveStructElem(_) => "MoveStructElem",

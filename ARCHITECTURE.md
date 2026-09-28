@@ -518,6 +518,12 @@ a conforming `/Title` at this point, and the only reason output was ever right w
 the save path happened to overwrite the value from XMP. Changes to reading carry more
 weight than their size suggests.
 
+The catalogue's XMP packet is one place where the model holds only part of what the file
+says. It is rebuilt from the fields `MetadataInfo` models. Everything else in it, such as
+a standard's identification, a PDF Declaration or an extension schema, is carried into the
+rebuilt packet as written
+([ADR-0099](docs/adr/0099-the-xmp-packet-carries-what-the-engine-does-not-write.md)).
+
 ### 4.5 Unified Extension Architecture (Anti-Ad-Hoc Policy)
 
 To prevent drift, ad-hoc struct additions and uncoordinated writer logic, a new backend

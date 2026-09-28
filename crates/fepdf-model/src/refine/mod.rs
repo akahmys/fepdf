@@ -20,6 +20,7 @@ pub mod font;
 pub mod metadata;
 /// Text and string normalisation performed during refinement.
 pub mod text;
+pub mod xmp_carry;
 
 /// A thread-safe intermediate representation of a refined PDF object.
 #[derive(Debug, Clone)]

@@ -124,7 +124,7 @@ pub fn extract_metadata(doc: &Document) -> MetadataInfo {
 }
 
 fn overlay(base: &mut MetadataInfo, top: MetadataInfo) {
-    let fields: [(&mut Option<String>, Option<String>); 8] = [
+    let fields: [(&mut Option<String>, Option<String>); 9] = [
         (&mut base.title, top.title),
         (&mut base.author, top.author),
         (&mut base.subject, top.subject),
@@ -133,6 +133,7 @@ fn overlay(base: &mut MetadataInfo, top: MetadataInfo) {
         (&mut base.producer, top.producer),
         (&mut base.creation_date, top.creation_date),
         (&mut base.mod_date, top.mod_date),
+        (&mut base.rights, top.rights),
     ];
     for (slot, value) in fields {
         if let Some(v) = value {
@@ -184,7 +185,7 @@ pub fn settle(doc: &Document, decisions: &mut crate::interpretation::DecisionLog
     // it, and if the write fails there is nowhere else for the entries to live. `doc`
     // here is the document as ingested, whose provenance is empty, so this packet makes
     // no claim about derivation; the save path writes that.
-    if update_xmp_metadata(doc, &settled).is_ok() {
+    if update_xmp_metadata(doc, &settled, None).is_ok() {
         migrate_deprecated_info(doc);
     }
     settled
@@ -255,7 +256,7 @@ pub fn update_document_metadata(
     update_legacy_info(doc, info)?;
 
     // 2. Update XMP Metadata in Catalog
-    update_xmp_metadata(doc, info)?;
+    update_xmp_metadata(doc, info, None)?;
 
     // 3. The catalogue's own /Lang, which is not metadata about the document but a
     //    statement about its text (14.9.2.1), and so lives outside the XMP packet.
@@ -307,7 +308,23 @@ fn update_legacy_info(doc: &crate::Document, info: &MetadataInfo) -> crate::PdfR
     Ok(())
 }
 
-fn update_xmp_metadata(doc: &crate::Document, info: &MetadataInfo) -> crate::PdfResult<()> {
+/// States `description` — an `rdf:Description` — in the catalogue's packet, in place of
+/// whatever the packet said under the names it holds: a standard's identification, or a
+/// declaration of conformance. What else the packet says is kept.
+///
+/// # Errors
+/// If the catalogue is not a dictionary.
+pub fn state_in_packet(doc: &crate::Document, description: &str) -> crate::PdfResult<()> {
+    update_xmp_metadata(doc, &extract_metadata(doc), Some(description))
+}
+
+/// Writes the catalogue's packet from `info`, with `stated` beside it, carrying what the
+/// packet in place says besides.
+fn update_xmp_metadata(
+    doc: &crate::Document,
+    info: &MetadataInfo,
+    stated: Option<&str>,
+) -> crate::PdfResult<()> {
     let arena = doc.arena();
     let root_handle = *doc.root_handle();
     if let Some(Object::Dictionary(catalog_dh)) = arena.get_object(root_handle) {
@@ -316,7 +333,16 @@ fn update_xmp_metadata(doc: &crate::Document, info: &MetadataInfo) -> crate::Pdf
             .ok_or_else(|| crate::error::PdfError::Other("Invalid Catalog".into()))?;
 
         let refined_map = build_refined_metadata_map(info);
-        let raw_xmp = crate::refine::metadata::info_to_xmp_derived(&refined_map, &doc.provenance);
+        let mut raw_xmp =
+            crate::refine::metadata::info_to_xmp_derived(&refined_map, &doc.provenance);
+        if let (Some(stated), Some(at)) = (stated, raw_xmp.rfind("</rdf:RDF>")) {
+            raw_xmp.insert_str(at, stated);
+        }
+        // What the packet in place says that the generator does not write is kept.
+        let raw_xmp = match current_packet(doc, &catalog_dict) {
+            Some(original) => crate::refine::xmp_carry::carry(&original, raw_xmp),
+            None => raw_xmp,
+        };
 
         // Append 2KB space padding and replace the read-only flag end="r" with writable flag end="w"
         let trimmed = raw_xmp.trim_end();
@@ -343,6 +369,24 @@ fn update_xmp_metadata(doc: &crate::Document, info: &MetadataInfo) -> crate::Pdf
         }
     }
     Ok(())
+}
+
+/// The catalogue's metadata stream, as text.
+fn current_packet(
+    doc: &crate::Document,
+    catalog: &BTreeMap<Handle<crate::object::PdfName>, Object>,
+) -> Option<String> {
+    let arena = doc.arena();
+    let stream = catalog.get(&arena.name("Metadata"))?.resolve(arena);
+    let bytes = doc.decode_stream(&stream).ok()?;
+    String::from_utf8(bytes.to_vec()).ok()
+}
+
+/// The catalogue's metadata stream, as text, if it has one.
+pub(crate) fn catalog_packet(doc: &crate::Document) -> Option<String> {
+    let arena = doc.arena();
+    let Some(Object::Dictionary(dh)) = arena.get_object(*doc.root_handle()) else { return None };
+    current_packet(doc, &arena.get_dict(dh)?)
 }
 
 fn insert_text_if_present(
@@ -407,8 +451,14 @@ const RDF_LI: (&str, &str) = ("http://www.w3.org/1999/02/22-rdf-syntax-ns#", "li
 /// what the property says, even when every character of it is a space —
 /// `samples/fy05.pdf` titles itself with one ideographic space, and dropping it would
 /// make writing then reading the packet lose what it holds.
+///
+/// **A simple property may be an attribute of its `rdf:Description`** (XMP Part 1, 7.9.2.2),
+/// and veraPDF's packets write `xmp:CreatorTool`, `pdf:Producer` and the dates that way.
+/// Read only as elements, they were not read, and the rebuilt packet did not have them.
 fn find_tag_text(doc: &roxmltree::Document, ns: &str, tag: &str) -> Option<String> {
-    let node = doc.descendants().find(|n| n.has_tag_name((ns, tag)))?;
+    let Some(node) = doc.descendants().find(|n| n.has_tag_name((ns, tag))) else {
+        return doc.descendants().find_map(|n| n.attribute((ns, tag))).map(str::to_string);
+    };
     // A container yields its first item; a bare property yields its own text.
     let source = node.descendants().find(|n| n.has_tag_name(RDF_LI)).unwrap_or(node);
     let text: String = source.children().filter(|n| n.is_text()).filter_map(|n| n.text()).collect();
@@ -455,6 +505,10 @@ fn apply_xmp_metadata(doc: &roxmltree::Document, info: &mut MetadataInfo) {
     }
     if let Some(text) = find_tag_text(doc, xmp_ns, "ModifyDate") {
         info.mod_date = Some(text);
+    }
+    // Written from `rights` and never read back, so a file's notice was lost at ingest.
+    if let Some(text) = find_tag_text(doc, dc_ns, "rights") {
+        info.rights = Some(text);
     }
 }
 
@@ -656,9 +710,13 @@ xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\">\
         assert!(packet.contains("dc:rights"), "no dc:rights element: {packet}");
         assert!(packet.contains("(c) 2026 nobody"), "the notice is not in the packet");
 
+        // Written, it is read back: it was not, so the next save lost it.
+        assert_eq!(doc.metadata().rights.as_deref(), Some("(c) 2026 nobody"));
+
+        let fresh = open_fixture(info_and_xmp_disagree());
         let without = crate::refine::metadata::info_to_xmp_derived(
-            &build_refined_metadata_map(&doc.metadata()),
-            &doc.provenance,
+            &build_refined_metadata_map(&fresh.metadata()),
+            &fresh.provenance,
         );
         assert!(!without.contains("dc:rights"), "dc:rights appears without being asked for");
     }

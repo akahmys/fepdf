@@ -73,15 +73,21 @@ fn test_upgrade_to_standard() {
     doc.apply(Operation::Upgrade { standard: PdfStandard::ISO32000_2 }).unwrap();
     assert_eq!(doc.inner().arena().version(), 2.0);
 
-    // Upgrade to PDF/A-4 standard and check GTS tag
+    // PDF/A-4 is identified in the XMP packet, not by a catalogue key: this checked for
+    // `/GTS_PDFA14`, a key no standard defines, which is what `Upgrade` wrote.
     doc.apply(Operation::Upgrade { standard: PdfStandard::A4 }).unwrap();
     assert_eq!(doc.inner().arena().version(), 2.0);
 
+    let arena = doc.inner().arena();
     let cah = doc.inner().catalog_handle().unwrap();
     let cadh = doc.inner().resolve_to_dict(cah).unwrap();
-    let catalog = doc.inner().arena().get_dict(cadh).unwrap();
-    let gts_key = doc.inner().arena().name("GTS_PDFA14");
-    assert!(catalog.contains_key(&gts_key));
+    let catalog = arena.get_dict(cadh).unwrap();
+    assert!(!catalog.contains_key(&arena.name("GTS_PDFA14")));
+    let metadata = catalog.get(&arena.name("Metadata")).expect("a metadata stream");
+    let packet = doc.inner().decode_stream(&metadata.resolve(arena)).unwrap();
+    let packet = String::from_utf8_lossy(&packet);
+    assert!(packet.contains(r#"pdfaid:part="4""#), "{packet}");
+    assert!(packet.contains(r#"pdfaid:rev="2020""#), "{packet}");
 }
 
 #[test]
