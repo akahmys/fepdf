@@ -190,8 +190,15 @@ impl From<SaveArgs> for fepdf::SaveOptions {
             },
             creation_date: None,
             dry_run: args.dry_run,
+            stamped_at: source_date_epoch(),
         }
     }
+}
+
+/// `SOURCE_DATE_EPOCH`, the reproducible-builds convention for "the time this output
+/// should claim": seconds since the Unix epoch. Unset or unparsable is the clock.
+fn source_date_epoch() -> Option<u64> {
+    std::env::var("SOURCE_DATE_EPOCH").ok()?.trim().parse().ok()
 }
 
 #[derive(Parser, Debug)]

@@ -46,7 +46,7 @@ static OWNED: LazyLock<BTreeSet<Name>> = LazyLock::new(|| {
         original_id: Some("uuid:original".into()),
         ..Provenance::default()
     };
-    let packet = super::metadata::info_to_xmp_derived(&info, &provenance);
+    let packet = super::metadata::info_to_xmp_derived(&info, &provenance, 0);
     let Ok(xml) = roxmltree::Document::parse(&packet) else { return BTreeSet::new() };
     descriptions(&xml).flat_map(|d| properties(d).map(|(name, _)| name)).collect()
 });
@@ -180,7 +180,7 @@ mod tests {
     /// A packet the generator renders with no fields: what a caller who removed the title
     /// is left with.
     fn generated() -> String {
-        super::super::metadata::info_to_xmp_derived(&BTreeMap::new(), &Provenance::default())
+        super::super::metadata::info_to_xmp_derived(&BTreeMap::new(), &Provenance::default(), 0)
     }
 
     /// Each property of `packet`'s top-level descriptions, by namespace and name.

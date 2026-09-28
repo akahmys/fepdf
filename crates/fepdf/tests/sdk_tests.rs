@@ -61,6 +61,32 @@ fn a_save_option_reaches_the_file_it_writes() {
     let _ = std::fs::remove_file(&path);
 }
 
+/// A save stamped with a moment is the same bytes each time, and the stamp is what
+/// decides them.
+///
+/// The XMP `InstanceID` was salted with the clock's seconds, so no two runs of the golden
+/// comparison (ROADMAP Y-0) agreed on any saved file. The first assertion alone would pass
+/// against that whenever both saves fell in one second; the second is the one that does
+/// not, because two stamps a day apart can only differ if the stamp is read.
+#[test]
+fn a_stamped_save_is_the_same_bytes_and_the_stamp_decides_them() {
+    let doc = PdfDocument::open(get_minimal_pdf()).expect("the fixture opens");
+    let saved = |stamp: u64, name: &str| {
+        let path = std::env::temp_dir().join(name);
+        let options = SaveOptions { stamped_at: Some(stamp), ..SaveOptions::default() };
+        doc.save_with_options(&path, "2.0", &options).expect("the document is written");
+        let bytes = std::fs::read(&path).expect("the output is there");
+        let _ = std::fs::remove_file(&path);
+        bytes
+    };
+
+    let first = saved(1_790_000_000, "fepdf_stamp_a.pdf");
+    let again = saved(1_790_000_000, "fepdf_stamp_b.pdf");
+    let later = saved(1_790_086_400, "fepdf_stamp_c.pdf");
+    assert_eq!(first, again, "one stamp, one output");
+    assert_ne!(first, later, "the stamp reaches the file");
+}
+
 #[test]
 fn test_upgrade_to_standard() {
     let data = get_minimal_pdf();

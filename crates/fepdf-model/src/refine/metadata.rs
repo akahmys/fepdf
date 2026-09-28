@@ -167,7 +167,11 @@ fn write_basic_fields(info: &BTreeMap<PdfName, RefinedObject>, writer: &mut XmpW
     }
 }
 
-fn generate_and_write_uuids(info: &BTreeMap<PdfName, RefinedObject>, writer: &mut XmpWriter) {
+fn generate_and_write_uuids(
+    info: &BTreeMap<PdfName, RefinedObject>,
+    stamped_at: u64,
+    writer: &mut XmpWriter,
+) {
     // RR-15 Limit: Dispatcher - hashes metadata elements to generate unique Document and Instance UUIDs in XMP format
     let mut doc_hasher = md5::Context::new();
     let title_val = get_info_field(info, "Title").unwrap_or_default();
@@ -179,13 +183,12 @@ fn generate_and_write_uuids(info: &BTreeMap<PdfName, RefinedObject>, writer: &mu
     doc_hasher.consume(b"ferruginous-pdf2.0-stable-document-id-salt");
     let doc_bytes = doc_hasher.finalize().0;
 
+    // The instance is this rendition, so it is salted with the time the rendition is
+    // stamped with. That time is the caller's to give, which is what lets one input
+    // written twice at the same stamp come out byte for byte the same.
     let mut inst_hasher = md5::Context::new();
     inst_hasher.consume(doc_bytes);
-    let salt = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_secs())
-        .unwrap_or(0);
-    inst_hasher.consume(salt.to_be_bytes());
+    inst_hasher.consume(stamped_at.to_be_bytes());
     let inst_bytes = inst_hasher.finalize().0;
 
     let doc_uuid = format!(
@@ -267,15 +270,19 @@ fn parse_and_write_dates(info: &BTreeMap<PdfName, RefinedObject>, writer: &mut X
 /// faithful copy. `xmpMM:DerivedFrom` and `xmpMM:OriginalDocumentID` are how XMP says
 /// exactly that, and they outlive a message on a terminal — a reader of the output can
 /// tell where it came from without having watched it being made.
+///
+/// `stamped_at` is the moment the packet speaks for, in seconds since the Unix epoch;
+/// [`crate::metadata::seconds_now`] when the caller has no reason to fix it.
 pub fn info_to_xmp_derived(
     info: &BTreeMap<PdfName, RefinedObject>,
     provenance: &crate::document::Provenance,
+    stamped_at: u64,
 ) -> String {
     let mut writer = XmpWriter::new();
 
     write_basic_fields(info, &mut writer);
     writer.format("application/pdf");
-    generate_and_write_uuids(info, &mut writer);
+    generate_and_write_uuids(info, stamped_at, &mut writer);
     parse_and_write_dates(info, &mut writer);
 
     if let Some(parent) = &provenance.source_id {
@@ -305,7 +312,7 @@ mod provenance {
     use crate::document::Provenance;
 
     fn packet(provenance: &Provenance) -> String {
-        info_to_xmp_derived(&BTreeMap::new(), provenance)
+        info_to_xmp_derived(&BTreeMap::new(), provenance, 0)
     }
 
     #[test]

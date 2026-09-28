@@ -185,7 +185,7 @@ pub fn settle(doc: &Document, decisions: &mut crate::interpretation::DecisionLog
     // it, and if the write fails there is nowhere else for the entries to live. `doc`
     // here is the document as ingested, whose provenance is empty, so this packet makes
     // no claim about derivation; the save path writes that.
-    if update_xmp_metadata(doc, &settled, None).is_ok() {
+    if update_xmp_metadata(doc, &settled, None, seconds_now()).is_ok() {
         migrate_deprecated_info(doc);
     }
     settled
@@ -245,10 +245,19 @@ fn migrate_deprecated_info(doc: &Document) {
     }
 }
 
-/// Updates the document metadata in the arena.
+/// The clock, in seconds since the Unix epoch, for a packet whose caller did not fix the
+/// moment it speaks for. The one place the metadata path reads the time.
+#[must_use]
+pub fn seconds_now() -> u64 {
+    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs())
+}
+
+/// Updates the document metadata in the arena, stamping the packet with `stamped_at`
+/// (seconds since the Unix epoch).
 pub fn update_document_metadata(
     doc: &crate::Document,
     info: &MetadataInfo,
+    stamped_at: u64,
 ) -> crate::PdfResult<()> {
     let _arena = doc.arena();
 
@@ -256,7 +265,7 @@ pub fn update_document_metadata(
     update_legacy_info(doc, info)?;
 
     // 2. Update XMP Metadata in Catalog
-    update_xmp_metadata(doc, info, None)?;
+    update_xmp_metadata(doc, info, None, stamped_at)?;
 
     // 3. The catalogue's own /Lang, which is not metadata about the document but a
     //    statement about its text (14.9.2.1), and so lives outside the XMP packet.
@@ -315,7 +324,7 @@ fn update_legacy_info(doc: &crate::Document, info: &MetadataInfo) -> crate::PdfR
 /// # Errors
 /// If the catalogue is not a dictionary.
 pub fn state_in_packet(doc: &crate::Document, description: &str) -> crate::PdfResult<()> {
-    update_xmp_metadata(doc, &extract_metadata(doc), Some(description))
+    update_xmp_metadata(doc, &extract_metadata(doc), Some(description), seconds_now())
 }
 
 /// Writes the catalogue's packet from `info`, with `stated` beside it, carrying what the
@@ -324,6 +333,7 @@ fn update_xmp_metadata(
     doc: &crate::Document,
     info: &MetadataInfo,
     stated: Option<&str>,
+    stamped_at: u64,
 ) -> crate::PdfResult<()> {
     let arena = doc.arena();
     let root_handle = *doc.root_handle();
@@ -334,7 +344,7 @@ fn update_xmp_metadata(
 
         let refined_map = build_refined_metadata_map(info);
         let mut raw_xmp =
-            crate::refine::metadata::info_to_xmp_derived(&refined_map, &doc.provenance);
+            crate::refine::metadata::info_to_xmp_derived(&refined_map, &doc.provenance, stamped_at);
         if let (Some(stated), Some(at)) = (stated, raw_xmp.rfind("</rdf:RDF>")) {
             raw_xmp.insert_str(at, stated);
         }
@@ -654,7 +664,7 @@ xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\">\
         let doc = open_fixture(info_and_xmp_disagree());
         let mut info = doc.metadata();
         info.language = Some("ja-JP".to_string());
-        update_document_metadata(&doc, &info).expect("the metadata should update");
+        update_document_metadata(&doc, &info, 0).expect("the metadata should update");
 
         let arena = doc.arena();
         let Some(Object::Dictionary(dh)) = arena.get_object(*doc.root_handle()) else {
@@ -675,9 +685,9 @@ xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\">\
         let doc = open_fixture(info_and_xmp_disagree());
         let mut info = doc.metadata();
         info.language = Some("cy".to_string());
-        update_document_metadata(&doc, &info).expect("a first save");
+        update_document_metadata(&doc, &info, 0).expect("a first save");
 
-        update_document_metadata(&doc, &MetadataInfo::default()).expect("a stripping save");
+        update_document_metadata(&doc, &MetadataInfo::default(), 0).expect("a stripping save");
 
         let arena = doc.arena();
         let Some(Object::Dictionary(dh)) = arena.get_object(*doc.root_handle()) else {
@@ -701,11 +711,12 @@ xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\">\
         let doc = open_fixture(info_and_xmp_disagree());
         let mut info = doc.metadata();
         info.rights = Some("(c) 2026 nobody".to_string());
-        update_document_metadata(&doc, &info).expect("the metadata should update");
+        update_document_metadata(&doc, &info, 0).expect("the metadata should update");
 
         let packet = crate::refine::metadata::info_to_xmp_derived(
             &build_refined_metadata_map(&info),
             &doc.provenance,
+            0,
         );
         assert!(packet.contains("dc:rights"), "no dc:rights element: {packet}");
         assert!(packet.contains("(c) 2026 nobody"), "the notice is not in the packet");
@@ -717,6 +728,7 @@ xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\">\
         let without = crate::refine::metadata::info_to_xmp_derived(
             &build_refined_metadata_map(&fresh.metadata()),
             &fresh.provenance,
+            0,
         );
         assert!(!without.contains("dc:rights"), "dc:rights appears without being asked for");
     }

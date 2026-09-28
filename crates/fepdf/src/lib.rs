@@ -225,6 +225,10 @@ pub struct SaveOptions {
     pub string_encoding: StringEncoding,
     /// Simulate saving and report results without writing to disk.
     pub dry_run: bool,
+    /// The moment this save speaks for, in seconds since the Unix epoch; the clock when
+    /// `None`. The XMP `InstanceID` is derived from it, so one document saved twice with
+    /// the same value is the same bytes, and `SOURCE_DATE_EPOCH` has somewhere to go.
+    pub stamped_at: Option<u64>,
 }
 
 impl Default for SaveOptions {
@@ -256,7 +260,15 @@ impl Default for SaveOptions {
             permissions: None,
             string_encoding: StringEncoding::default(),
             dry_run: false,
+            stamped_at: None,
         }
+    }
+}
+
+impl SaveOptions {
+    /// The moment this save speaks for: `stamped_at`, or the clock.
+    fn stamp(&self) -> u64 {
+        self.stamped_at.unwrap_or_else(fepdf_model::metadata::seconds_now)
     }
 }
 
@@ -849,7 +861,7 @@ impl PdfDocument {
             metadata.producer = Some("fepdf (optimized)".to_string());
         }
 
-        fepdf_model::metadata::update_document_metadata(&self.inner, &metadata)?;
+        fepdf_model::metadata::update_document_metadata(&self.inner, &metadata, options.stamp())?;
 
         let mut stripped = fepdf_model::interpretation::DecisionLog::default();
         if options.strip {
@@ -1016,7 +1028,7 @@ impl PdfDocument {
         }
         metadata.producer = Some("fepdf (linearized)".to_string());
 
-        fepdf_model::metadata::update_document_metadata(&self.inner, &metadata)?;
+        fepdf_model::metadata::update_document_metadata(&self.inner, &metadata, options.stamp())?;
 
         let file = std::fs::File::create(output_path).map_err(PdfError::Io)?;
         let (final_arena, root, info) = self.cloned_for_output()?;
