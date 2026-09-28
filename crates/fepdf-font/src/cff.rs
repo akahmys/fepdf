@@ -18,9 +18,15 @@
 //! `FDArray` with the Private DICT each of its font dictionaries names, through
 //! [`private_dicts`]; and `FDSelect` through [`glyph_to_font_dict`].
 //!
-//! **Only the face installed on a machine exercises the last two.** No CFF program in the
-//! samples is CID-keyed, so the corpus has no `FDArray` and no `FDSelect` to move; the
-//! 20,327-glyph Hiragino face has both, and is where those two mutations fail.
+//! **An offset moves by where it points, not by whose it is.** CFF fixes the order of the
+//! header and the four INDEXes and nothing after them, so a charset may follow the
+//! charstrings and a Private DICT precede them. Every one of the 155 CFF programs in the
+//! samples puts the charset, the encoding and `FDSelect` before the charstrings and the
+//! Private DICTs and `FDArray` after (measured 2026-09-28), and this used to rely on it:
+//! each operator's offset moved by the shift of the block it usually sits in.
+//!
+//! Fourteen of those programs are CID-keyed, so the corpus carries `FDArray` and
+//! `FDSelect` too; the 20,327-glyph Hiragino face is the larger case of both.
 
 use crate::reconstruction::{FontReconstructor, get_index_item, skip_index};
 use crate::{FontError, FontResult};
@@ -280,8 +286,9 @@ fn assemble(cff: &[u8], layout: &Layout, charstrings: &[u8]) -> Vec<u8> {
     let tail_shift = middle_shift + i64::try_from(charstrings.len()).unwrap_or(0)
         - i64::try_from(layout.charstrings.1.saturating_sub(layout.charstrings.0)).unwrap_or(0);
 
+    let moves = Moves { charstrings: layout.charstrings, middle_shift, tail_shift };
     let tail = cff.get(layout.charstrings.1..).unwrap_or_default();
-    let fdarray = rebuilt_fdarray(cff, layout, tail_shift);
+    let fdarray = rebuilt_fdarray(cff, layout, &moves);
     let fdarray_at = layout.header_end
         + (layout.name.1 - layout.name.0)
         + new_top_dict
@@ -298,8 +305,7 @@ fn assemble(cff: &[u8], layout: &Layout, charstrings: &[u8]) -> Vec<u8> {
         &mut out,
         &layout.top_dict,
         new_charstrings_at,
-        middle_shift,
-        tail_shift,
+        &moves,
         fdarray.as_ref().map(|_| fdarray_at),
     );
     out.extend_from_slice(slice(layout.string));
@@ -313,10 +319,10 @@ fn assemble(cff: &[u8], layout: &Layout, charstrings: &[u8]) -> Vec<u8> {
     out
 }
 
-/// `FDArray`, with every font dictionary's Private offset moved by `tail_shift`.
+/// `FDArray`, with every font dictionary's Private offset moved to where it now is.
 ///
 /// `None` where the program has none, which is every CFF that is not CID-keyed.
-fn rebuilt_fdarray(cff: &[u8], layout: &Layout, tail_shift: i64) -> Option<Vec<u8>> {
+fn rebuilt_fdarray(cff: &[u8], layout: &Layout, moves: &Moves) -> Option<Vec<u8>> {
     let at = layout
         .top_dict
         .iter()
@@ -331,10 +337,7 @@ fn rebuilt_fdarray(cff: &[u8], layout: &Layout, tail_shift: i64) -> Option<Vec<u
                 if entry.op == 18 {
                     let mut operands = entry.operands.iter();
                     push_fixed(&mut out, operands.next().copied().unwrap_or(0));
-                    push_fixed(
-                        &mut out,
-                        shifted(operands.next().copied().unwrap_or(0), tail_shift),
-                    );
+                    push_fixed(&mut out, moves.relocate(operands.next().copied().unwrap_or(0)));
                 } else {
                     for operand in &entry.operands {
                         push_fixed(&mut out, *operand);
@@ -349,6 +352,36 @@ fn rebuilt_fdarray(cff: &[u8], layout: &Layout, tail_shift: i64) -> Option<Vec<u
     let mut out = Vec::new();
     push_index(&mut out, &dicts.iter().map(Vec::as_slice).collect::<Vec<_>>());
     Some(out)
+}
+
+/// How the rewrite moves the program's bytes: the block before the charstrings by one
+/// shift, the block after them by another.
+struct Moves {
+    /// Where the charstrings were.
+    charstrings: (usize, usize),
+    middle_shift: i64,
+    tail_shift: i64,
+}
+
+impl Moves {
+    /// Where the thing `offset` pointed at now is, found by which block it was in.
+    ///
+    /// 0, 1 and 2 are the predefined charsets and encodings, not offsets at all, and stay.
+    /// An offset into the old charstrings points at nothing the rewrite keeps, and stays
+    /// too.
+    fn relocate(&self, offset: i32) -> i32 {
+        let Ok(at) = usize::try_from(offset) else { return offset };
+        let shift = if offset <= 2 {
+            0
+        } else if at < self.charstrings.0 {
+            self.middle_shift
+        } else if at >= self.charstrings.1 {
+            self.tail_shift
+        } else {
+            0
+        };
+        i32::try_from(i64::from(offset) + shift).unwrap_or(offset)
+    }
 }
 
 /// `at`, moved by `shift`.
@@ -370,8 +403,7 @@ fn push_top_dict(
     out: &mut Vec<u8>,
     entries: &[DictEntry],
     charstrings_at: usize,
-    middle_shift: i64,
-    tail_shift: i64,
+    moves: &Moves,
     fdarray_at: Option<usize>,
 ) {
     let mut body = Vec::new();
@@ -379,19 +411,19 @@ fn push_top_dict(
         match entry.op {
             // CharStrings: where they now are.
             17 => push_fixed(&mut body, i32::try_from(charstrings_at).unwrap_or(0)),
-            // charset, Encoding, FDSelect: in the part before the charstrings.
+            // charset, Encoding, FDSelect: wherever they are.
             15 | 16 | 0x0C25 => {
                 for operand in &entry.operands {
-                    push_fixed(&mut body, shifted(*operand, middle_shift));
+                    push_fixed(&mut body, moves.relocate(*operand));
                 }
             }
-            // Private [size offset] and FDArray: in the part after them.
+            // Private [size offset]: the size stays, the offset moves.
             18 => {
                 let mut operands = entry.operands.iter();
                 let size = operands.next().copied().unwrap_or(0);
                 let offset = operands.next().copied().unwrap_or(0);
                 push_fixed(&mut body, size);
-                push_fixed(&mut body, shifted(offset, tail_shift));
+                push_fixed(&mut body, moves.relocate(offset));
             }
             // FDArray: rewritten and appended, so it is where it now is rather than
             // where it was moved to.
@@ -408,15 +440,6 @@ fn push_top_dict(
         push_op(&mut body, entry.op);
     }
     push_index(out, &[body.as_slice()]);
-}
-
-/// An offset moved by `shift`, which stays where it is when it points at nothing.
-fn shifted(offset: i32, shift: i64) -> i32 {
-    if offset <= 2 {
-        // 0, 1 and 2 are the predefined charsets and encodings, not offsets at all.
-        return offset;
-    }
-    i32::try_from(i64::from(offset) + shift).unwrap_or(offset)
 }
 
 /// The Private DICT bytes every font dictionary of `program` points at.
@@ -563,4 +586,40 @@ pub fn glyph_to_font_dict(program: &[u8]) -> Option<Vec<u8>> {
 /// A big-endian `uint16` at `at`.
 fn read_u16(data: &[u8], at: usize) -> Option<u16> {
     Some(u16::from_be_bytes([*data.get(at)?, *data.get(at + 1)?]))
+}
+
+/// Programs laid out in orders CFF allows and the corpus does not happen to use.
+#[cfg(test)]
+mod layout {
+    use super::subset_cff;
+    use crate::program_glyphs::cff_glyph_names;
+    use std::collections::BTreeSet;
+
+    fn bytes(hex: &str) -> Vec<u8> {
+        let hex: String = hex.split_whitespace().collect();
+        (0..hex.len())
+            .step_by(2)
+            .map(|i| u8::from_str_radix(&hex[i..i + 2], 16).expect("hex"))
+            .collect()
+    }
+
+    /// A name-keyed program whose charset follows its charstrings: `.notdef`, `A`, and a
+    /// `B` of four bytes, so that dropping `B` moves the tail by less than the Top DICT
+    /// moves the middle.
+    const CHARSET_AFTER: &str = "01000401 000101010554657374 000101010d \
+        1d0000002f0f 1d0000002211 0000 0000 \
+        00030101020307 0e0e8b8b150e \
+        0000220023";
+
+    /// **The charset is found where it went.** Moved by the middle's shift, as every
+    /// charset was, it lands three bytes past its start and the names read back wrong.
+    #[test]
+    fn a_charset_after_the_charstrings_moves_with_them() {
+        let program = bytes(CHARSET_AFTER);
+        let before = cff_glyph_names(&program).expect("the fixture reads");
+        assert_eq!(before.iter().map(String::as_str).collect::<Vec<_>>(), ["A", "B"]);
+
+        let subset = subset_cff(&program, &BTreeSet::from([1])).expect("it subsets");
+        assert_eq!(cff_glyph_names(&subset), Some(before), "the charset still names both");
+    }
 }
