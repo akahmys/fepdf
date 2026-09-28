@@ -2078,8 +2078,10 @@ fn parse_dict_number(d: &[u8]) -> (i32, usize) {
 /// and the face reads as carrying neither — which is indistinguishable from a face that
 /// states no permission and has no outlines.
 ///
-/// Font 0 is the one taken, which is a choice a collection does not make for us: Hiragino
-/// ships several weights in one file. Naming which face is wanted is W-E2c.
+/// Font 0 is the one taken here, which is a choice a collection does not make for us.
+/// Where a face is chosen to embed, [`crate::metrics::regular_face`] chooses it and
+/// [`crate::subset::standalone_face`] takes it out, so that what reaches this is a font of
+/// its own.
 pub(crate) fn sfnt_base(s: &[u8]) -> usize {
     sfnt_base_at(s, 0)
 }
@@ -2087,9 +2089,9 @@ pub(crate) fn sfnt_base(s: &[u8]) -> usize {
 /// Where the table directory of face `index` starts.
 ///
 /// **A collection is several faces and the first is not a choice.** Hiragino ships
-/// `ProN W3`, `Pro W3`, `ProN W6` and `Pro W6` in one file, and Helvetica six weights;
-/// taking face 0 gets the regular weight on this machine by convention rather than by
-/// rule, and a collection that lists a bold first would be set in bold without a word.
+/// `ProN W3`, `Pro W3`, `ProN W6` and `Pro W6` in one file, and Helvetica six weights, so
+/// which one is wanted is decided by what each states ([`crate::metrics::regular_face`]),
+/// not by its position.
 pub(crate) fn sfnt_base_at(s: &[u8], index: u32) -> usize {
     if s.len() < 16 || &s[0..4] != b"ttcf" {
         return 0;
