@@ -28,9 +28,6 @@ pub enum StringEncoding {
 /// depending on which key was used.
 const SIGNATURE_SLACK: usize = 32;
 
-/// The width reserved for the four `/ByteRange` numbers, which are not known until the
-/// file is complete: `0 ` and three ten-digit offsets. Ten digits is every file this
-/// engine could write and several it could not.
 /// How deep a `/Kids` tree is followed before it is taken to be looping.
 ///
 /// The same 64 the reader's page walk and the field-tree walks use. A depth and not a
@@ -40,7 +37,17 @@ const SIGNATURE_SLACK: usize = 32;
 /// [ADR-0060]: ../../../docs/adr/0060-a-reference-chain-is-bounded-by-what-it-has-seen.md
 const MAX_PAGE_TREE_DEPTH: usize = 64;
 
+/// The width reserved for the four `/ByteRange` numbers, which are not known until the
+/// file is complete: `0 ` and three ten-digit offsets. Ten digits is every file this
+/// engine could write and several it could not.
 const BYTE_RANGE_WIDTH: usize = 34;
+
+/// The entries of an article bead (12.4.3) that lead away from its page: its thread, and
+/// the next and previous beads. A linearised file places a bead with the page whose `/B`
+/// names it (Annex F), and following these from every page reached every bead in the
+/// document from each one: `samples/intel_sdm.pdf`, 5,057 pages, reached a median of
+/// 4,979 objects per page and did not finish linearising in 240 s.
+const BEAD_CHAIN_KEYS: [&str; 3] = ["T", "N", "V"];
 
 /// What the writer needs to sign: which object carries the signature, and whose it is.
 struct Signature<'a> {
@@ -1748,9 +1755,13 @@ impl<'a, W: Write> PdfWriter<'a, W> {
         exclude_objects: &BTreeSet<Handle<Object>>,
     ) {
         if let Some(d) = self.arena.get_dict(dh) {
+            let bead = self.is_bead(&d);
             for (k, v) in d {
                 let k_str = self.arena.get_name_str(k).unwrap_or_default();
                 if exclude_keys.contains(&k_str.as_str()) {
+                    continue;
+                }
+                if bead && BEAD_CHAIN_KEYS.contains(&k_str.as_str()) {
                     continue;
                 }
                 self.trace_reachable_inline(
@@ -1763,6 +1774,18 @@ impl<'a, W: Write> PdfWriter<'a, W> {
                 );
             }
         }
+    }
+
+    /// Whether a dictionary is an article bead (12.4.3, Table 160). `/Type` is optional
+    /// there, so a dictionary carrying all four of the entries a bead requires is one too.
+    fn is_bead(&self, d: &BTreeMap<Handle<PdfName>, Object>) -> bool {
+        let has = |key: &str| d.contains_key(&self.arena.name(key));
+        let typed = d
+            .get(&self.arena.name("Type"))
+            .and_then(Object::as_name)
+            .and_then(|n| self.arena.get_name_str(n))
+            .is_some_and(|n| n == "Bead");
+        typed || ["N", "V", "P", "R"].iter().all(|key| has(key))
     }
 
     fn trace_reachable_selective(
@@ -3075,5 +3098,69 @@ mod page_tree {
         writer.collect_pages_recursive(current, &mut found).expect("the walk returns");
 
         assert_eq!(found.len(), 1, "the page at the bottom of a legal tree is reached");
+    }
+}
+
+#[cfg(test)]
+mod beads {
+    use super::PdfWriter;
+    use crate::arena::PdfArena;
+    use crate::handle::Handle;
+    use crate::object::Object;
+    use std::collections::{BTreeMap, BTreeSet};
+
+    /// One article thread through `count` pages, a bead on each, the way 12.4.3 lays it
+    /// out: `/N` and `/V` close the chain into a ring, every bead names the thread in
+    /// `/T` (Table 160 requires it only of the first), and each page names its bead in `/B`.
+    fn threaded(arena: &PdfArena, count: usize) -> (Vec<Handle<Object>>, Vec<Handle<Object>>) {
+        let key = |k: &str| arena.name(k);
+        let pages: Vec<_> = (0..count).map(|_| arena.alloc_object(Object::Null)).collect();
+        let beads: Vec<_> = (0..count).map(|_| arena.alloc_object(Object::Null)).collect();
+        let thread = arena.alloc_object(Object::Null);
+
+        let mut t = BTreeMap::new();
+        t.insert(key("F"), Object::Reference(beads[0]));
+        arena.set_object(thread, Object::Dictionary(arena.alloc_dict(t)));
+        for i in 0..count {
+            let mut b = BTreeMap::new();
+            b.insert(key("T"), Object::Reference(thread));
+            b.insert(key("N"), Object::Reference(beads[(i + 1) % count]));
+            b.insert(key("V"), Object::Reference(beads[(i + count - 1) % count]));
+            b.insert(key("P"), Object::Reference(pages[i]));
+            let rect = vec![
+                Object::Integer(0),
+                Object::Integer(0),
+                Object::Integer(9),
+                Object::Integer(9),
+            ];
+            b.insert(key("R"), Object::Array(arena.alloc_array(rect)));
+            arena.set_object(beads[i], Object::Dictionary(arena.alloc_dict(b)));
+
+            let mut p = BTreeMap::new();
+            p.insert(key("Type"), Object::Name(key("Page")));
+            let list = vec![Object::Reference(beads[i])];
+            p.insert(key("B"), Object::Array(arena.alloc_array(list)));
+            arena.set_object(pages[i], Object::Dictionary(arena.alloc_dict(p)));
+        }
+        (pages, beads)
+    }
+
+    /// A page reaches itself and its own bead, and no other page's.
+    ///
+    /// Verified by removing the `BEAD_CHAIN_KEYS` check: every page then reaches all
+    /// four beads and the thread.
+    #[test]
+    fn a_page_reaches_its_own_bead_and_not_the_chain() {
+        let arena = PdfArena::new();
+        let (pages, beads) = threaded(&arena, 4);
+        let set: BTreeSet<_> = pages.iter().copied().collect();
+
+        let writer = PdfWriter::new(Vec::new(), &arena);
+        let reached = writer.trace_page_reachables(&pages, &set);
+
+        for (i, reach) in reached.iter().enumerate() {
+            let own = BTreeSet::from([pages[i], beads[i]]);
+            assert_eq!(reach, &own, "page {i} reaches itself and its bead");
+        }
     }
 }
