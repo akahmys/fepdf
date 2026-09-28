@@ -26,7 +26,6 @@ pub mod program_glyphs;
 pub mod reconstruction;
 /// CMap rescue and recovery heuristics.
 pub mod rescue;
-/// Adobe Glyph List (AGL) lookups.
 /// Where the engine looks for the data it does not carry.
 pub mod resources;
 /// One `cmap` subtable of an SFNT program, asked for a glyph by code.
