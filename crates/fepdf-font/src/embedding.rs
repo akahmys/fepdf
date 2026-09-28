@@ -10,12 +10,11 @@
 //! why this lives in the font crate and carries no PDF concept. What a *caller* does with
 //! the answer is a PDF question and belongs above.
 
-/// How a font program may be embedded, from the mutually exclusive bits of `fsType`.
+/// How a font program may be embedded, from the usage bits of `fsType`.
 ///
 /// Bits 0 and 4 to 7 are reserved and are not read here. Bits 1, 2 and 3 are the usage
-/// permission and the specification makes them exclusive; a program that sets more than
-/// one is read as the most restrictive it names, because a face that says "restricted"
-/// anywhere has said it.
+/// permission. Which one wins when a program sets more than one depends on its `OS/2`
+/// version, and [`EmbeddingPermission::from_os2`] says how.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Embedding {
     /// `fsType` is 0: the face may be embedded and installed with no restriction.
@@ -44,23 +43,52 @@ pub struct EmbeddingPermission {
 }
 
 impl EmbeddingPermission {
-    /// Reads the permission out of `fs_type`.
+    /// Reads the permission out of `fs_type`, as the `OS/2` table's `version` defines it.
+    ///
+    /// **The version decides two things** (OpenType, `OS/2`, "Version differences"):
+    /// - Versions 0 to 2 did not make the usage bits exclusive, and said that where more
+    ///   than one is set **the least restrictive takes precedence**. Faces of that age set
+    ///   bits 2 and 3 together to mean preview-and-print *and* editable.
+    /// - Versions 0 and 1 assigned only bits 0 to 3, and a reader **must ignore bits 4 to
+    ///   15** of them, so neither the subsetting nor the bitmap bit is read there.
+    ///
+    /// From version 3 the bits are exclusive, so a program setting several is invalid, and
+    /// the specification does not say how to read it. This engine reads it as the most
+    /// restrictive it names: a face that says "restricted" anywhere has said it.
     #[must_use]
-    pub const fn from_fs_type(fs_type: u16) -> Self {
-        let usage = if fs_type & 0x0002 != 0 {
-            Embedding::Restricted
-        } else if fs_type & 0x0004 != 0 {
+    pub const fn from_os2(version: u16, fs_type: u16) -> Self {
+        let bits = if version <= 1 { fs_type & 0x000F } else { fs_type };
+        let usage =
+            if version <= 2 { Self::least_restrictive(bits) } else { Self::most_restrictive(bits) };
+        Self {
+            usage,
+            subsetting_allowed: bits & 0x0100 == 0,
+            bitmap_only: bits & 0x0200 != 0,
+            raw: fs_type,
+        }
+    }
+
+    const fn least_restrictive(bits: u16) -> Embedding {
+        if bits & 0x000E == 0 {
+            Embedding::Installable
+        } else if bits & 0x0008 != 0 {
+            Embedding::Editable
+        } else if bits & 0x0004 != 0 {
             Embedding::PreviewAndPrint
-        } else if fs_type & 0x0008 != 0 {
+        } else {
+            Embedding::Restricted
+        }
+    }
+
+    const fn most_restrictive(bits: u16) -> Embedding {
+        if bits & 0x0002 != 0 {
+            Embedding::Restricted
+        } else if bits & 0x0004 != 0 {
+            Embedding::PreviewAndPrint
+        } else if bits & 0x0008 != 0 {
             Embedding::Editable
         } else {
             Embedding::Installable
-        };
-        Self {
-            usage,
-            subsetting_allowed: fs_type & 0x0100 == 0,
-            bitmap_only: fs_type & 0x0200 != 0,
-            raw: fs_type,
         }
     }
 
@@ -88,23 +116,31 @@ impl EmbeddingPermission {
 #[must_use]
 pub fn embedding_permission(program: &[u8]) -> Option<EmbeddingPermission> {
     let (start, end) = crate::reconstruction::find_table_range(program, b"OS/2")?;
-    // `fsType` is the third `uint16` of the table: version, xAvgCharWidth, usWeightClass,
-    // usWidthClass, fsType — offset 8.
-    let field = program.get(start.checked_add(8)?..start.checked_add(10)?)?;
-    if start + 10 > end {
+    if start.checked_add(10)? > end {
         return None;
     }
-    let [hi, lo] = [*field.first()?, *field.get(1)?];
-    Some(EmbeddingPermission::from_fs_type(u16::from_be_bytes([hi, lo])))
+    // The table opens with version, xAvgCharWidth, usWeightClass, usWidthClass and fsType,
+    // each a `uint16`: the version at offset 0, `fsType` at 8.
+    let word = |at: usize| -> Option<u16> {
+        let field = program.get(start.checked_add(at)?..start.checked_add(at + 2)?)?;
+        Some(u16::from_be_bytes([*field.first()?, *field.get(1)?]))
+    };
+    Some(EmbeddingPermission::from_os2(word(0)?, word(8)?))
 }
 
 #[cfg(test)]
 mod tests {
     use super::{Embedding, EmbeddingPermission, embedding_permission};
 
-    /// An SFNT carrying one `OS/2` table whose `fsType` is `fs_type`.
+    /// An SFNT carrying one version 4 `OS/2` table whose `fsType` is `fs_type`.
     fn sfnt_with_fs_type(fs_type: u16) -> Vec<u8> {
+        sfnt_with_os2(4, fs_type)
+    }
+
+    /// An SFNT carrying one `OS/2` table of `version` whose `fsType` is `fs_type`.
+    fn sfnt_with_os2(version: u16, fs_type: u16) -> Vec<u8> {
         let mut os2 = vec![0u8; 78];
+        os2[0..2].copy_from_slice(&version.to_be_bytes());
         os2[8..10].copy_from_slice(&fs_type.to_be_bytes());
 
         let mut out = Vec::new();
@@ -164,17 +200,38 @@ mod tests {
         assert!(!p.allows_embedding_for_editing());
     }
 
-    /// A face that sets two usage bits is read as the more restrictive of them.
+    /// From version 3 the bits are exclusive, and a face that sets two anyway is read as
+    /// the more restrictive of them.
     #[test]
-    fn restricted_wins_over_editable_when_a_face_sets_both() {
-        let p = EmbeddingPermission::from_fs_type(0x000A);
+    fn restricted_wins_over_editable_when_a_version_3_face_sets_both() {
+        let p = EmbeddingPermission::from_os2(3, 0x000A);
         assert_eq!(p.usage, Embedding::Restricted);
+    }
+
+    /// Versions 0 to 2 say the least restrictive bit set takes precedence, and faces of
+    /// that age set bits 2 and 3 together to mean editable. Read as the most restrictive,
+    /// as every version was until 2026-09-28, this face was refused.
+    #[test]
+    fn a_version_2_face_setting_preview_and_edit_is_editable() {
+        let p = embedding_permission(&sfnt_with_os2(2, 0x000C)).expect("the table is there");
+        assert_eq!(p.usage, Embedding::Editable);
+        assert!(p.allows_embedding_for_editing());
+    }
+
+    /// Versions 0 and 1 assigned bits 0 to 3 only, and a reader must ignore the rest, so
+    /// a set bit 8 there does not forbid subsetting.
+    #[test]
+    fn a_version_1_face_is_not_read_past_bit_3() {
+        let p = embedding_permission(&sfnt_with_os2(1, 0x0308)).expect("the table is there");
+        assert!(p.subsetting_allowed && !p.bitmap_only, "bits 8 and 9 are not version 1's");
+        assert!(p.allows_embedding_for_editing());
+        assert_eq!(p.raw, 0x0308, "the field is still reported as stated");
     }
 
     /// The reserved bits are not read, and are not lost either.
     #[test]
     fn a_reserved_bit_reaches_the_caller() {
-        let p = EmbeddingPermission::from_fs_type(0x8000);
+        let p = EmbeddingPermission::from_os2(4, 0x8000);
         assert_eq!(p.usage, Embedding::Installable);
         assert_eq!(p.raw, 0x8000);
     }
