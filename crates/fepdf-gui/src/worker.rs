@@ -1912,8 +1912,12 @@ mod saving {
         protection: Protection,
         strip: bool,
     ) -> (Vec<WorkerResponse>, std::path::PathBuf) {
-        let path =
-            std::env::temp_dir().join(format!("fepdf_gui_saving_{}.pdf", std::process::id()));
+        // One file per call: the tests run in parallel in one process, and a shared name let
+        // one test find the file another wrote, and fail on "a file was written anyway".
+        static CALLS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+        let call = CALLS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let path = std::env::temp_dir()
+            .join(format!("fepdf_gui_saving_{}_{call}.pdf", std::process::id()));
         let (tx, rx) = std::sync::mpsc::channel();
         handle_save(
             Some(doc),
