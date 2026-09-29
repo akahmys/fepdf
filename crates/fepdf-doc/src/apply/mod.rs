@@ -126,7 +126,7 @@ pub fn apply_operation(doc: &mut Document, op: Operation) -> PdfResult<()> {
             xobject::apply_edit_xobject(doc, page, object, &edit)
         }
         Operation::SetCalculationOrder(order) => fields::apply_set_calculation_order(doc, &order),
-        Operation::ExecuteAction(a) => annotations::apply_execute_action(doc, a),
+        Operation::SetOpenAction(a) => annotations::apply_set_open_action(doc, a),
         Operation::SetGeospatialAnchor(a) => annotations::apply_set_geospatial_anchor(doc, a),
         Operation::AddMeshShading(s) => annotations::apply_add_mesh_shading(doc, s),
         Operation::SetUnencryptedWrapper(w) => security::apply_set_unencrypted_wrapper(doc, w),

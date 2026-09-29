@@ -214,7 +214,7 @@ pub enum Operation {
     SetPageLabels(Vec<PageLabelSpec>),
     UpdateArticleThreads(Vec<ArticleThread>),
     AddUserProperties { target_handle: u32, properties: Vec<UserProperty> },
-    ExecuteAction(PdfAction),
+    SetOpenAction(PdfAction),
 
     // --- Advanced Graphics & GIS ---
     SetGeospatialAnchor(GeoSpatialAnchor),

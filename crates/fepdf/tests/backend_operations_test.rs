@@ -255,8 +255,8 @@ fn test_user_property_operation() {
 fn test_action_execute_operation() {
     let action = PdfAction::GoToRemote { file_path: "appendix.pdf".to_string(), page: 5 };
 
-    let op = Operation::ExecuteAction(action);
-    if let Operation::ExecuteAction(PdfAction::GoToRemote { file_path, page }) = op {
+    let op = Operation::SetOpenAction(action);
+    if let Operation::SetOpenAction(PdfAction::GoToRemote { file_path, page }) = op {
         assert_eq!(file_path, "appendix.pdf");
         assert_eq!(page, 5);
     } else {
@@ -481,9 +481,9 @@ fn test_all_remaining_operations_execution() {
     };
     doc.apply(Operation::UpdateArticleThreads(vec![thread])).expect("UpdateArticleThreads failed");
 
-    // 2. ExecuteAction
-    doc.apply(Operation::ExecuteAction(PdfAction::Named("FirstPage".to_string())))
-        .expect("ExecuteAction failed");
+    // 2. SetOpenAction
+    doc.apply(Operation::SetOpenAction(PdfAction::Named("FirstPage".to_string())))
+        .expect("SetOpenAction failed");
 
     // 3. AddMeshShading
     let shading = MeshShadingSpec {

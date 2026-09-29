@@ -607,8 +607,14 @@ pub enum Operation {
         /// Object handle indices of the elements it refers to, in order.
         targets: Vec<u32>,
     },
-    /// Execute an action (GoToR, GoToE, Named, Transition).
-    ExecuteAction(PdfAction),
+    /// Sets the catalogue's `/OpenAction` (12.6.2): the action a reader runs when it
+    /// opens the document — go to another file (GoToR), to an embedded one (GoToE), a
+    /// named action, or a transition. Any `/OpenAction` the document had is replaced.
+    ///
+    /// **Named for what it writes.** It was `ExecuteAction`, and nothing runs: this
+    /// engine writes the action for a reader to run, the way every other operation writes
+    /// what it names.
+    SetOpenAction(PdfAction),
 
     // --- Phase 6: Advanced Graphics & GIS Operations ---
     /// Set a GIS geographic anchor (/Geo).
@@ -692,7 +698,7 @@ impl Operation {
             | Self::WrapStructElem(_)
             | Self::DeclareConformance { .. }
             | Self::MapStructType { .. }
-            | Self::ExecuteAction { .. }
+            | Self::SetOpenAction { .. }
             | Self::SetGeospatialAnchor { .. }
             | Self::AddMeshShading { .. }
             | Self::SetUnencryptedWrapper { .. }

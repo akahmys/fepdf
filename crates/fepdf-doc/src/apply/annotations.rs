@@ -84,7 +84,7 @@ fn create_action_dict(
 }
 
 /// Sets the document OpenAction in the catalogue (Clause 12.6.2).
-pub fn apply_execute_action(doc: &Document, action: PdfAction) -> PdfResult<()> {
+pub fn apply_set_open_action(doc: &Document, action: PdfAction) -> PdfResult<()> {
     let arena = doc.arena();
     let action_dh = create_action_dict(arena, &action);
     let action_h = arena.alloc_object(Object::Dictionary(action_dh));

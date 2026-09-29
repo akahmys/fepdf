@@ -542,7 +542,7 @@ fn implemented_operations_still_succeed() {
     );
 
     assert!(
-        doc.apply(fepdf::Operation::ExecuteAction(
+        doc.apply(fepdf::Operation::SetOpenAction(
             fepdf::PdfAction::Named("NextPage".to_string(),)
         ))
         .is_ok()

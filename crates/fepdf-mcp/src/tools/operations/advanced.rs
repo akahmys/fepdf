@@ -122,7 +122,7 @@ pub struct AddPublicKeyRecipientArgs {
 
 /// Arguments for executing an action.
 #[derive(Deserialize, JsonSchema)]
-pub struct ExecuteActionArgs {
+pub struct SetOpenActionArgs {
     /// Path to input PDF file.
     pub input_path: String,
     /// Path to output PDF file.
@@ -255,14 +255,14 @@ pub fn add_public_key_recipient_impl(args: AddPublicKeyRecipientArgs) -> Result<
     execute_single_op(&args.input_path, &args.output_path, op, "Public key recipient added")
 }
 
-/// Implementation of the execute_action tool.
-pub fn execute_action_impl(args: ExecuteActionArgs) -> Result<String, String> {
+/// Implementation of the set_open_action tool.
+pub fn set_open_action_impl(args: SetOpenActionArgs) -> Result<String, String> {
     let action = match args.action_type.to_lowercase().as_str() {
         "named" => PdfAction::Named(args.target),
         "gotor" => PdfAction::GoToRemote { file_path: args.target, page: 0 },
         "gotoe" => PdfAction::GoToEmbedded { embedded_name: args.target, page: 0 },
         _ => return Err(format!("Unsupported action type: {}", args.action_type)),
     };
-    let op = Operation::ExecuteAction(action);
+    let op = Operation::SetOpenAction(action);
     execute_single_op(&args.input_path, &args.output_path, op, "Action executed")
 }

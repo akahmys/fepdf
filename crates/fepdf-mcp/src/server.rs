@@ -11,11 +11,11 @@ use crate::tools::{
     AddAnnotationArgs, AddFormFieldArgs, AddMeshShadingArgs, AddPageDecorationArgs,
     AddPublicKeyRecipientArgs, AddUserPropertiesArgs, ApplyBatesNumberingArgs, ApplyOperationArgs,
     AttachAssociatedFileArgs, AuditArgs, CombinePagesArgs, CreatePortfolioArgs, CropPagesArgs,
-    DeleteRunArgs, DeleteStructElemArgs, EditObjectArgs, EditRunArgs, ExecuteActionArgs,
-    ExtractTextArgs, ListObjectsArgs, ListRunsArgs, MapStructTypeArgs, MarkArtifactArgs,
-    MergeRunsArgs, MoveRunArgs, MoveStructElemArgs, RedactDocumentArgs, RemovePagesArgs,
-    ReorderPagesArgs, RotatePagesArgs, SetCalculationOrderArgs, SetFormFieldValueArgs,
-    SetGeospatialAnchorArgs, SetMeasurementScaleArgs, SetOutputIntentArgs, SetPageLabelsArgs,
+    DeleteRunArgs, DeleteStructElemArgs, EditObjectArgs, EditRunArgs, ExtractTextArgs,
+    ListObjectsArgs, ListRunsArgs, MapStructTypeArgs, MarkArtifactArgs, MergeRunsArgs, MoveRunArgs,
+    MoveStructElemArgs, RedactDocumentArgs, RemovePagesArgs, ReorderPagesArgs, RotatePagesArgs,
+    SetCalculationOrderArgs, SetFormFieldValueArgs, SetGeospatialAnchorArgs,
+    SetMeasurementScaleArgs, SetOpenActionArgs, SetOutputIntentArgs, SetPageLabelsArgs,
     SetPronunciationLexiconArgs, SetStructAttributeArgs, SetStructNamespaceArgs, SetStructRefsArgs,
     SetTabOrderArgs, SetUnencryptedWrapperArgs, SplitPageArgs, SplitRunArgs,
     UpdateArticleThreadsArgs, UpdateLayersArgs, UpdateOutlinesArgs, UpdateStructElemArgs,
@@ -24,11 +24,11 @@ use crate::tools::{
     add_user_properties_impl, apply_bates_numbering_impl, apply_operation_impl,
     apply_redaction_impl, attach_associated_file_impl, audit_document_impl, combine_pages_impl,
     create_portfolio_impl, crop_pages_impl, delete_run_impl, delete_struct_elem_impl,
-    edit_object_impl, edit_run_impl, execute_action_impl, extract_text_impl, list_objects_impl,
-    list_runs_impl, map_struct_type_impl, mark_artifact_impl, merge_runs_impl, move_run_impl,
+    edit_object_impl, edit_run_impl, extract_text_impl, list_objects_impl, list_runs_impl,
+    map_struct_type_impl, mark_artifact_impl, merge_runs_impl, move_run_impl,
     move_struct_elem_impl, remove_pages_impl, reorder_pages_impl, rotate_pages_impl,
     set_calculation_order_impl, set_form_field_value_impl, set_geospatial_anchor_impl,
-    set_measurement_scale_impl, set_output_intent_impl, set_page_labels_impl,
+    set_measurement_scale_impl, set_open_action_impl, set_output_intent_impl, set_page_labels_impl,
     set_pronunciation_lexicon_impl, set_struct_attribute_impl, set_struct_namespace_impl,
     set_struct_refs_impl, set_tab_order_impl, set_unencrypted_wrapper_impl, split_page_impl,
     split_run_impl, update_article_threads_impl, update_layers_impl, update_outlines_impl,
@@ -875,16 +875,19 @@ impl FepdfServer {
         update_article_threads_impl(args)
     }
 
-    /// Triggers or embeds PDF Actions (GoToR, GoToE, Named actions).
+    /// Sets the action a reader runs when it opens the document (12.6.2).
     #[tool(
-        name = "execute_action",
-        description = "Triggers or embeds PDF Actions (GoToR, GoToE, Named actions)."
+        name = "set_open_action",
+        description = "Sets the document's /OpenAction, the action a reader runs when it \
+                       opens the file: go to another file (gotor), to an embedded file \
+                       (gotoe), or a named action (named). Nothing is run here, and any \
+                       /OpenAction the document had is replaced."
     )]
-    pub async fn execute_action(
+    pub async fn set_open_action(
         &self,
-        Parameters(args): Parameters<ExecuteActionArgs>,
+        Parameters(args): Parameters<SetOpenActionArgs>,
     ) -> Result<String, String> {
-        execute_action_impl(args)
+        set_open_action_impl(args)
     }
 
     /// Sets geospatial GIS metadata anchor (/Geo) with coordinates (latitude, longitude) and CRS.

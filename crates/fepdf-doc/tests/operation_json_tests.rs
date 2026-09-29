@@ -70,7 +70,7 @@ fn variant_name(op: &Operation) -> &'static str {
         Operation::MarkArtifact { .. } => "MarkArtifact",
         Operation::WrapStructElem(_) => "WrapStructElem",
         Operation::MapStructType { .. } => "MapStructType",
-        Operation::ExecuteAction(_) => "ExecuteAction",
+        Operation::SetOpenAction(_) => "SetOpenAction",
         Operation::SetGeospatialAnchor(_) => "SetGeospatialAnchor",
         Operation::AddMeshShading(_) => "AddMeshShading",
         Operation::SetUnencryptedWrapper(_) => "SetUnencryptedWrapper",
