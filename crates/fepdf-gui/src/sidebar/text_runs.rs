@@ -94,9 +94,16 @@ impl TextRunsPanel {
             // not always the identity, so a cut made on the reading would lose what the
             // reading lost. The bounds are the cut's own — a cut at nought or at the end
             // divides a run into itself and nothing.
-            let last = run.pieces.len().saturating_sub(1).max(1);
-            ui.add(egui::DragValue::new(&mut self.cut_after).range(1..=last));
-            if ui.button(words("runs_split")).clicked() {
+            // A run of one code has no place to cut, so, as for joining the last run, the
+            // door is shut rather than opening onto the engine's refusal.
+            let cuttable = cut_range(run.pieces.len());
+            let last = cuttable.as_ref().map_or(1, |range| *range.end());
+            ui.add_enabled(
+                cuttable.is_some(),
+                egui::DragValue::new(&mut self.cut_after).range(1..=last),
+            );
+            if ui.add_enabled(cuttable.is_some(), egui::Button::new(words("runs_split"))).clicked()
+            {
                 asked = Some(Asked::Cut(self.cut_after));
             }
         });
@@ -119,5 +126,27 @@ impl TextRunsPanel {
     /// Forgets the draft, for when the page has changed under it.
     pub fn forget(&mut self) {
         self.draft = None;
+    }
+}
+
+/// The places a run of `codes` codes can be cut after: from the first to the one before
+/// the last, and none when it has fewer than two.
+fn cut_range(codes: usize) -> Option<std::ops::RangeInclusive<usize>> {
+    (codes >= 2).then(|| 1..=codes - 1)
+}
+
+#[cfg(test)]
+mod cutting {
+    use super::cut_range;
+
+    /// **A cut divides a run in two**, so it falls between two codes: never before the
+    /// first or after the last. A run of one code has nowhere, and the bounds used to
+    /// offer it a cut after its only code, which the engine refuses.
+    #[test]
+    fn a_cut_falls_between_two_codes() {
+        assert_eq!(cut_range(0), None);
+        assert_eq!(cut_range(1), None);
+        assert_eq!(cut_range(2), Some(1..=1));
+        assert_eq!(cut_range(5), Some(1..=4));
     }
 }
