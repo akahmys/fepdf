@@ -816,6 +816,13 @@ eight times, and the copies do not agree on whether to resolve.
 - [ ] **Y-F8** — `cargo doc --workspace --no-deps` prints 44 warnings, most of them
       intra-doc links that resolve to nothing, and nothing gates it. `documents.py`
       checks relative Markdown links, which is the half AGENTS.md rule 1 names.
+- [ ] **Y-F9** — reading aloud on Windows hands PowerShell the words on standard input
+      and reads them with `[Console]::In`, whose encoding is the console's code page, not
+      UTF-8; nothing sets it, so Japanese may arrive garbled (`speech.rs`). Unverified: no
+      Windows here.
+- [ ] **Y-F10** — stopping speech on Linux kills `spd-say`, and the speaking is done by
+      the speech-dispatcher server; whether the passage under way stops is unverified,
+      and `spd-say --cancel` is the call that says so (`speech.rs`).
 - [ ] **Y-F7** — `compare.rs`'s `to_f64` is used only under the `render` feature and is
       not gated with it, so `cargo build -p fepdf` warns. The workspace build unifies
       features and never sees it.
