@@ -30,6 +30,21 @@ impl RedactionManager {
         self.drag_current = None;
     }
 
+    /// The zones an export redacts, and, when the window burns them too, the brush
+    /// emptied for the next document.
+    ///
+    /// **Taken before they are cleared.** The export burned the zones into the window's
+    /// own copy of the text, cleared them, and then sent the save the zones it now held —
+    /// none. With burning on, which is how the wizard opens, the file written kept every
+    /// word the reader had redacted while the window showed them gone.
+    pub fn zones_for_export(&mut self, burn: bool) -> Vec<RedactionZone> {
+        let zones = self.zones.clone();
+        if burn {
+            self.clear();
+        }
+        zones
+    }
+
     /// Handles mouse dragging to draw a redaction rectangle over a page.
     pub fn handle_interaction(
         &mut self,
@@ -180,5 +195,35 @@ impl RedactionManager {
         }
 
         clean_lines.join("\n")
+    }
+}
+
+/// What an export is handed.
+#[cfg(test)]
+mod exporting {
+    use super::{RedactionManager, RedactionZone};
+
+    fn zone() -> RedactionZone {
+        RedactionZone {
+            page_index: 0,
+            rect: egui::Rect::from_min_max(egui::pos2(10.0, 10.0), egui::pos2(90.0, 30.0)),
+        }
+    }
+
+    /// **The save gets the zones whether or not the window burns them.** Burning used to
+    /// clear them first, and the file written kept the redacted words.
+    #[test]
+    fn an_export_that_burns_still_redacts_the_file() {
+        for burn in [true, false] {
+            let mut manager = RedactionManager::new();
+            manager.zones.push(zone());
+            let written = manager.zones_for_export(burn);
+            assert_eq!(written.len(), 1, "burn {burn}: the save was handed no zones");
+            assert_eq!(
+                manager.zones.is_empty(),
+                burn,
+                "burn {burn}: the brush was not left as asked"
+            );
+        }
     }
 }

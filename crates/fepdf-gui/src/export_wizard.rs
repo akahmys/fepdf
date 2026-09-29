@@ -384,8 +384,9 @@ impl ExportWizard {
                         app.raw_texts.insert(page_idx, sanitized);
                     }
                 }
-                app.redaction_manager.clear();
             }
+            let redaction_zones =
+                app.redaction_manager.zones_for_export(app.export_burn_redactions);
 
             let sig_pos =
                 app.signature_position.map(|(idx, r)| (idx, [r.min.x, r.min.y, r.max.x, r.max.y]));
@@ -401,7 +402,7 @@ impl ExportWizard {
                 strip: app.export_strip,
                 linearize: app.export_linearize,
                 upgrade_pdf20: app.export_upgrade_pdf20,
-                redaction_zones: app.redaction_manager.zones.clone(),
+                redaction_zones,
                 cert_path: app.cert_path.clone(),
                 key_path: app.key_path.clone(),
                 signature_position: sig_pos,
