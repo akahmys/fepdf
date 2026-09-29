@@ -855,6 +855,21 @@ impl PdfDocument {
         Ok((target, root, info))
     }
 
+    /// The copy a save writes, as a document of its own, carrying where it came from.
+    ///
+    /// **The copy, so that saving changes nothing it was not asked to.** The metadata a
+    /// save settles — the producer, a title or an author the options give, and the
+    /// stripping `strip` asks for — was written into the open document and the copy taken
+    /// after, so a stripped export left the document still open with no title or author,
+    /// and the next ordinary save wrote none. Nothing recorded it either, so undoing
+    /// anything, which replays the history onto the file, brought them back.
+    fn output_document(&self) -> PdfResult<Document> {
+        let (arena, root, info) = self.cloned_for_output()?;
+        let mut output = Document::new(arena, root, info);
+        output.provenance = self.inner.provenance.clone();
+        Ok(output)
+    }
+
     /// Saves the document with custom options.
     pub fn save_with_options(
         &self,
@@ -865,12 +880,13 @@ impl PdfDocument {
         self.write_out(output_path, version, options, None)
     }
 
-    /// Applies the metadata the options ask for, returning what stripping cost.
+    /// Applies the metadata the options ask for to `output`, the copy being written,
+    /// returning what stripping cost.
     fn settle_metadata(
-        &self,
+        output: &Document,
         options: &SaveOptions,
     ) -> PdfResult<fepdf_model::interpretation::DecisionLog> {
-        let mut metadata = self.inner.metadata();
+        let mut metadata = output.metadata();
 
         if let Some(v) = &options.title {
             metadata.title = Some(v.clone());
@@ -894,13 +910,13 @@ impl PdfDocument {
             metadata.producer = Some("fepdf (optimized)".to_string());
         }
 
-        fepdf_model::metadata::update_document_metadata(&self.inner, &metadata, options.stamp())?;
+        fepdf_model::metadata::update_document_metadata(output, &metadata, options.stamp())?;
 
         let mut stripped = fepdf_model::interpretation::DecisionLog::default();
         if options.strip {
             // Every metadata stream, not only the catalogue's. Runs after the write
             // above, which would otherwise put a fresh packet back.
-            fepdf_model::metadata::strip_metadata_streams(&self.inner, &mut stripped);
+            fepdf_model::metadata::strip_metadata_streams(output, &mut stripped);
         }
         Ok(stripped)
     }
@@ -937,17 +953,18 @@ impl PdfDocument {
         options: &SaveOptions,
         signing: Option<(&fepdf_model::cms::SigningIdentity, &SignOptions)>,
     ) -> PdfResult<Vec<Decision>> {
-        let stripped = self.settle_metadata(options)?;
-
         if options.dry_run {
             // Nothing was written, so nothing was lost.
             return Ok(Vec::new());
         }
 
-        let file = std::fs::File::create(output_path).map_err(PdfError::Io)?;
-        let (final_arena, root, info) = self.cloned_for_output()?;
+        let output = self.output_document()?;
+        let stripped = Self::settle_metadata(&output, options)?;
+        let (final_arena, root, info) =
+            (output.arena(), *output.root_handle(), output.info_handle());
 
-        let mut writer = crate::writer::PdfWriter::new(file, &final_arena);
+        let file = std::fs::File::create(output_path).map_err(PdfError::Io)?;
+        let mut writer = crate::writer::PdfWriter::new(file, final_arena);
         writer.set_string_encoding(options.string_encoding);
         if options.compress {
             writer.set_compression(options.compression_level);
@@ -961,7 +978,7 @@ impl PdfDocument {
             // this engine holds changes because a copy of it was signed.
             let field = Self::signature_field(identity, sign_options);
             let signature =
-                fepdf_model::interactive::add_signature_field(&final_arena, root, &field)?;
+                fepdf_model::interactive::add_signature_field(final_arena, root, &field)?;
             writer.sign_with(signature, identity)?;
         }
         writer.write_header(version)?;
@@ -1051,8 +1068,9 @@ impl PdfDocument {
         // Linearization involves object reordering and hint tables.
         // For M67, we implement the object reordering phase.
 
-        // 1. Update Metadata (consistent with save_with_options)
-        let mut metadata = self.inner.metadata();
+        // 1. Update Metadata, on the copy being written (see `output_document`).
+        let output = self.output_document()?;
+        let mut metadata = output.metadata();
         if let Some(v) = &options.title {
             metadata.title = Some(v.clone());
         }
@@ -1061,12 +1079,13 @@ impl PdfDocument {
         }
         metadata.producer = Some("fepdf (linearized)".to_string());
 
-        fepdf_model::metadata::update_document_metadata(&self.inner, &metadata, options.stamp())?;
+        fepdf_model::metadata::update_document_metadata(&output, &metadata, options.stamp())?;
 
         let file = std::fs::File::create(output_path).map_err(PdfError::Io)?;
-        let (final_arena, root, info) = self.cloned_for_output()?;
+        let (final_arena, root, info) =
+            (output.arena(), *output.root_handle(), output.info_handle());
 
-        let mut writer = crate::writer::PdfWriter::new(file, &final_arena);
+        let mut writer = crate::writer::PdfWriter::new(file, final_arena);
         writer.set_string_encoding(options.string_encoding);
         writer.set_linearize(true);
         if options.compress {

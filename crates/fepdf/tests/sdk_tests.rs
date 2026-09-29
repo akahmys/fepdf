@@ -684,3 +684,31 @@ fn replaying_all_but_the_last_is_the_state_before_it() {
 
     assert_eq!(after[0], widths(&PdfDocument::open(data).unwrap()), "undone to the file itself");
 }
+
+/// **Stripping a copy strips the copy.** A save with `strip` writes a file with no
+/// descriptive metadata; the document still open has its title, and the next save
+/// without `strip` writes it.
+#[test]
+fn a_stripped_save_leaves_the_open_document_its_metadata() {
+    let bodies = [
+        "<< /Type /Pages /Kids [] /Count 0 >>".to_string(),
+        "<< /Type /Catalog /Pages 1 0 R >>".to_string(),
+        "<< /Title (Kept) /Author (Someone) >>".to_string(),
+    ];
+    let bytes = Bytes::from(
+        fepdf_fixtures::Pdf::new()
+            .version("1.7")
+            .root(2)
+            .trailer_entries("/Info 3 0 R")
+            .assemble(&bodies),
+    );
+    let doc = PdfDocument::open(bytes).expect("the fixture opens");
+    assert_eq!(doc.metadata().title.as_deref(), Some("Kept"), "the fixture has a title");
+
+    let stripped = std::env::temp_dir().join("fepdf_strip_copy.pdf");
+    let options = SaveOptions { strip: true, ..SaveOptions::default() };
+    doc.save_with_options(&stripped, "2.0", &options).expect("the stripped copy is written");
+    let _ = std::fs::remove_file(&stripped);
+
+    assert_eq!(doc.metadata().title.as_deref(), Some("Kept"), "the open document lost its title");
+}
