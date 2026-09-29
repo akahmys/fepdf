@@ -1667,9 +1667,37 @@ impl PdfDocument {
         Ok(self.audit_ua2_report()?.findings)
     }
 
+    /// The version the document is, as `M.m`: its header's, or the catalogue's `/Version`
+    /// where that is later (7.7.2).
+    ///
+    /// **Read, not assumed.** The summary said `2.0` of every document — `let pdf_20 =
+    /// true`, commented as an inference — so `inspect info` and the window's document
+    /// panel reported `samples/constitution.pdf`, whose header is 1.2, as a PDF 2.0 file.
+    /// What this engine *writes* is 2.0; what it read is what this answers.
+    #[must_use]
+    pub fn effective_version(&self) -> String {
+        let parsed = self.inner.header_version.as_deref().and_then(|v| {
+            let (major, minor) = v.split_once('.')?;
+            Some((major.trim().parse::<u32>().ok()?, minor.trim().parse::<u32>().ok()?))
+        });
+        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+        let from_header = parsed.unwrap_or_else(|| {
+            let tenths = (self.inner.arena().version() * 10.0).round() as u32;
+            (tenths / 10, tenths % 10)
+        });
+        let declared = self
+            .inner
+            .catalog()
+            .ok()
+            .and_then(|catalog| catalog.version)
+            .and_then(|version| version.numbers())
+            .map(|(major, minor)| (u32::from(major), u32::from(minor)));
+        let (major, minor) = declared.filter(|d| *d > from_header).unwrap_or(from_header);
+        format!("{major}.{minor}")
+    }
+
     /// Returns a comprehensive summary of the document.
     pub fn get_summary(&self) -> PdfResult<DocumentSummary> {
-        let pdf_20 = true; // High-level inference
         let findings = self.audit_ua2()?;
         let mut issues = Vec::new();
         for f in findings {
@@ -1708,7 +1736,7 @@ impl PdfDocument {
         }
 
         Ok(DocumentSummary {
-            version: if pdf_20 { "2.0".into() } else { "1.7".into() },
+            version: self.effective_version(),
             page_count: self.page_count()?,
             metadata: self.inner.metadata(),
             fonts: self.inner.fonts(),

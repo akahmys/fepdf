@@ -494,6 +494,9 @@ pub struct Document {
     runs_scripts: std::sync::atomic::AtomicBool,
     /// What the source document was, for the output to record as its origin.
     pub provenance: Provenance,
+    /// The version the file's `%PDF-M.m` header declared, as read; `None` for a document
+    /// built in memory. The arena's version is what a save writes, which is another thing.
+    pub header_version: Option<String>,
     /// Optional-content groups a *viewer* has turned on or off, over what the
     /// configuration says (8.11.4.3).
     ///
@@ -567,6 +570,7 @@ impl Document {
             permissions: None,
             access: None,
             provenance: Provenance::default(),
+            header_version: None,
             runs_scripts: std::sync::atomic::AtomicBool::new(false),
             layer_overrides: parking_lot::Mutex::new(BTreeMap::new()),
         }
@@ -610,6 +614,7 @@ impl Document {
             permissions: None,
             access: None,
             provenance: Provenance::default(),
+            header_version: None,
             runs_scripts: std::sync::atomic::AtomicBool::new(false),
             layer_overrides: parking_lot::Mutex::new(BTreeMap::new()),
         }
@@ -690,6 +695,7 @@ impl Document {
     /// Opens a PDF document from bytes with specific options.
     pub fn open(data: bytes::Bytes, options: &crate::ingest::IngestionOptions) -> PdfResult<Self> {
         let raw = crate::reader::load_document(&data)?;
+        let header_version = Some(raw.version.clone());
         let ingested = crate::ingest::Ingestor::ingest(raw, options)?;
         let mut doc =
             Self::with_issues(ingested.arena, ingested.root, ingested.info, ingested.issues);
@@ -698,6 +704,7 @@ impl Document {
         doc.permissions = ingested.permissions;
         doc.access = ingested.access;
         doc.provenance = ingested.provenance;
+        doc.header_version = header_version;
 
         // Populate font cache from ingestion
         {

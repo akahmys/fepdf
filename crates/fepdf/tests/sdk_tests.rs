@@ -728,3 +728,22 @@ fn a_save_is_refused_a_version_this_engine_does_not_write() {
     doc.save_with_options(&path, "2.0", &SaveOptions::default()).expect("2.0 is written");
     let _ = std::fs::remove_file(&path);
 }
+
+/// **The version is the file's, not the one this engine writes.** The summary said 2.0 of
+/// every document; the header here is 1.7, and a catalogue `/Version` later than the
+/// header wins (7.7.2).
+#[test]
+fn a_summary_reports_the_version_the_file_is() {
+    let doc = PdfDocument::open(get_minimal_pdf()).expect("the fixture opens");
+    assert_eq!(doc.get_summary().expect("a summary").version, "1.7");
+
+    let bodies = [
+        "<< /Type /Pages /Kids [] /Count 0 >>".to_string(),
+        "<< /Type /Catalog /Pages 1 0 R /Version /2.0 >>".to_string(),
+    ];
+    let declared = PdfDocument::open(Bytes::from(
+        fepdf_fixtures::Pdf::new().version("1.4").root(2).assemble(&bodies),
+    ))
+    .expect("it opens");
+    assert_eq!(declared.effective_version(), "2.0", "the catalogue's later /Version wins");
+}
