@@ -723,7 +723,9 @@ impl crate::app::FepdfApp {
         };
         self.caliper_tool.form =
             crate::measuring::ScaleForm { denominator: f64::from(denominator), unit: index };
-        if let Some(scale) = self.caliper_tool.form.scale(self.view.active_page) {
+        let page = self.view.active_page;
+        let user_unit = self.caliper_tool.user_unit(page);
+        if let Some(scale) = self.caliper_tool.form.scale(page, user_unit) {
             let done = self.tr("caliper_scale_set");
             let _ = self.tx_worker.send(crate::worker::WorkerRequest::Apply {
                 operation: Box::new(fepdf::Operation::SetMeasurementScale(scale)),

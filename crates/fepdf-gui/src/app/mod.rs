@@ -596,8 +596,8 @@ impl FepdfApp {
                     self.print.waiting = false;
                     self.notice = Some(notice);
                 }
-                WorkerResponse::Scales { page, scales } => {
-                    self.caliper_tool.scales_arrived(page, scales);
+                WorkerResponse::Scales { page, scales, user_unit } => {
+                    self.caliper_tool.scales_arrived(page, scales, user_unit);
                 }
                 WorkerResponse::Surveyed { actions, coverage, signatures } => {
                     self.survey.actions = Some(actions);

@@ -5,6 +5,12 @@
 //! sheet; the reader of a 1:100 plan wants metres, and the plan may say so in a viewport
 //! (12.9). What the page declares is read by the worker and kept per page; a measurement
 //! is given in the scale that holds at its first point, as 12.9.1 says.
+//!
+//! **A unit of user space is not always a point.** A page's `/UserUnit` (Table 31) makes it
+//! that many 1/72 inch, and large drawings are where it is used. A declared scale already
+//! converts user space units (`/X`), so it needs nothing; the lengths shown on the sheet,
+//! and a scale the reader sets, are multiplied by it. Both were read as points until
+//! 2026-09-29, so on a page of `/UserUnit 10` they came out a tenth of the truth.
 
 use crate::cad_canvas::CaliperTool;
 use fepdf::MeasurementScale;
@@ -61,12 +67,13 @@ impl Default for ScaleForm {
 }
 
 impl ScaleForm {
-    /// The scale this form describes, for `page`.
+    /// The scale this form describes, for `page`, whose user space unit is `user_unit`
+    /// points: `/X` converts user space units, so the ratio is per one of those.
     #[must_use]
-    pub fn scale(&self, page: usize) -> Option<MeasurementScale> {
+    pub fn scale(&self, page: usize, user_unit: f64) -> Option<MeasurementScale> {
         let (label, metres) = UNITS.get(self.unit)?;
         #[allow(clippy::cast_possible_truncation)] // a ratio, carried as `f32` by the vocabulary
-        let scale_ratio = per_point(self.denominator, *metres) as f32;
+        let scale_ratio = (per_point(self.denominator, *metres) * user_unit) as f32;
         Some(MeasurementScale { page, scale_ratio, unit_label: (*label).to_owned() })
     }
 }
@@ -147,15 +154,17 @@ fn readout(tool: &CaliperTool, ui: &mut egui::Ui, tr: &dyn Fn(&str) -> String) {
     #[allow(clippy::cast_possible_truncation)] // a point on the page, which came in as `f32`
     let scale = scale_for(tool, page, egui::pos2(first.0 as f32, first.1 as f32));
     let mm = 25.4 / 72.0;
+    // Points on the sheet: a unit of this page's user space is `unit` of them.
+    let unit = tool.user_unit(page);
     if tool.mode == CaliperMode::Distance {
-        let length = perimeter(&points) / 2.0;
+        let length = perimeter(&points) / 2.0 * unit;
         row(ui, "caliper_distance", format!("{length:.2} pt  ({:.2} mm)", length * mm));
         if let (Some(scale), [a, b]) = (scale, points.as_slice()) {
             row(ui, "caliper_in_scale", scale.distance(*a, *b));
         }
     } else if points.len() >= 3 {
-        let length = perimeter(&points);
-        let area = fepdf::measure::polygon_area(&points);
+        let length = perimeter(&points) * unit;
+        let area = fepdf::measure::polygon_area(&points) * unit * unit;
         row(ui, "caliper_perimeter", format!("{length:.2} pt  ({:.2} mm)", length * mm));
         row(ui, "caliper_area", format!("{area:.2} pt²  ({:.2} mm²)", area * mm * mm));
         if let Some(scale) = scale {
@@ -189,7 +198,11 @@ fn scale_form(
             ui.selectable_value(&mut tool.form.unit, index, *unit);
         }
     });
-    if ui.button(tr("caliper_set_scale")).clicked() { tool.form.scale(page) } else { None }
+    if ui.button(tr("caliper_set_scale")).clicked() {
+        tool.form.scale(page, tool.user_unit(page))
+    } else {
+        None
+    }
 }
 
 /// The arithmetic the drawer shows.
@@ -201,9 +214,17 @@ mod arithmetic {
     #[test]
     fn a_one_to_a_hundred_inch_is_two_and_a_half_metres() {
         assert!((per_point(100.0, 1.0) * 72.0 - 2.54).abs() < 1e-9);
-        let scale = ScaleForm::default().scale(3).expect("a scale");
+        let scale = ScaleForm::default().scale(3, 1.0).expect("a scale");
         assert_eq!((scale.page, scale.unit_label.as_str()), (3, "m"));
         assert!((f64::from(scale.scale_ratio) * 72.0 - 2.54).abs() < 1e-6);
+    }
+
+    /// **On a page of `/UserUnit 10` a unit of user space is ten points**, and `/X`
+    /// converts user space units, so a 1:100 plan's ratio is ten times a point's.
+    #[test]
+    fn a_user_unit_multiplies_the_ratio_the_form_sets() {
+        let scale = ScaleForm::default().scale(0, 10.0).expect("a scale");
+        assert!((f64::from(scale.scale_ratio) * 72.0 - 25.4).abs() < 1e-5);
     }
 
     /// The way round a square, closed back to where it began.

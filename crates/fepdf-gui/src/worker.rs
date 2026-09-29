@@ -418,6 +418,8 @@ pub enum WorkerResponse {
         page: usize,
         /// Its rectilinear scales, in viewport order.
         scales: Vec<fepdf::measure::Scale>,
+        /// Its `/UserUnit`: how many 1/72 inch a unit of its user space is.
+        user_unit: f64,
     },
     /// The answer to `Print`: what the spooler said, or why it was not asked.
     Printed {
@@ -1202,7 +1204,10 @@ fn answer(doc: Option<&PdfDocument>, read: Read) -> WorkerResponse {
         }
         Read::Scales { page } => {
             let scales = doc.map(|doc| doc.scales_on(page)).unwrap_or_default();
-            WorkerResponse::Scales { page, scales }
+            // A page that states no `/UserUnit`, or states one that cannot be read, is in
+            // units of 1/72 inch (Table 31's default).
+            let user_unit = doc.and_then(|doc| doc.get_page_user_unit(page).ok()).unwrap_or(1.0);
+            WorkerResponse::Scales { page, scales, user_unit }
         }
     }
 }

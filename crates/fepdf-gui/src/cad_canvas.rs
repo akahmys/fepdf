@@ -176,6 +176,9 @@ pub struct CaliperTool {
     pub page: Option<usize>,
     /// The scales each page declares, as the worker read them (12.9).
     pub scales: BTreeMap<usize, Vec<fepdf::measure::Scale>>,
+    /// Each page's `/UserUnit`, which arrives with its scales: a unit of the page's user
+    /// space is that many 1/72 inch on the sheet.
+    pub user_units: BTreeMap<usize, f64>,
     /// The pages whose scales have been asked for and not yet answered.
     pub asked: std::collections::BTreeSet<usize>,
     /// The scale the drawer would set.
@@ -195,6 +198,7 @@ impl CaliperTool {
             polygon: Vec::new(),
             page: None,
             scales: BTreeMap::new(),
+            user_units: BTreeMap::new(),
             asked: std::collections::BTreeSet::new(),
             form: crate::measuring::ScaleForm::default(),
         }
@@ -210,15 +214,27 @@ impl CaliperTool {
         Some(page)
     }
 
-    /// Keeps the scales the worker read for `page`.
-    pub fn scales_arrived(&mut self, page: usize, scales: Vec<fepdf::measure::Scale>) {
+    /// Keeps the scales and the `/UserUnit` the worker read for `page`.
+    pub fn scales_arrived(
+        &mut self,
+        page: usize,
+        scales: Vec<fepdf::measure::Scale>,
+        user_unit: f64,
+    ) {
         self.asked.remove(&page);
         self.scales.insert(page, scales);
+        self.user_units.insert(page, user_unit);
+    }
+
+    /// How many 1/72 inch a unit of `page`'s user space is: 1 until the worker has said.
+    pub fn user_unit(&self, page: usize) -> f64 {
+        self.user_units.get(&page).copied().unwrap_or(1.0)
     }
 
     /// Forgets every page's scales, which an edit may have changed.
     pub fn forget_scales(&mut self) {
         self.scales.clear();
+        self.user_units.clear();
         self.asked.clear();
     }
 
