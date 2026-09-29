@@ -1064,7 +1064,7 @@ fn handle_snapshot(
     tx: &Sender<WorkerResponse>,
 ) {
     let Some(doc) = doc else { return };
-    match doc.render_region(page, keep, scale) {
+    match doc.render_region(page, keep, sheet_scale(doc, page, scale)) {
         Ok((pixels, width, height)) => {
             let _ = tx.send(WorkerResponse::SnapshotTaken { pixels, width, height });
         }
@@ -1075,6 +1075,16 @@ fn handle_snapshot(
             });
         }
     }
+}
+
+/// `scale`, a multiple of 72 DPI on the sheet, as the multiple of `page`'s user space
+/// `render_region` takes.
+///
+/// **`render_region` leaves `/UserUnit` to its caller** (Table 31), and the snapshot is
+/// asked for in DPI, which is a claim about the sheet. On a page of `/UserUnit 10` the
+/// snapshot the drawer calls 96 DPI came out at 9.6 until 2026-09-29.
+fn sheet_scale(doc: &PdfDocument, page: usize, scale: f64) -> f64 {
+    scale * doc.get_page_user_unit(page).unwrap_or(1.0)
 }
 
 /// Hands the drawer the form the document has now.
@@ -2155,5 +2165,29 @@ mod replacing {
             rx.try_iter().any(|r| matches!(r, WorkerResponse::DocumentSaved { .. })),
             "the export did not say where it went"
         );
+    }
+}
+
+/// What a snapshot's resolution is in the page's own units.
+#[cfg(test)]
+mod snapshot_scale {
+    use super::sheet_scale;
+    use fepdf::PdfDocument;
+
+    fn page_with(entries: &str) -> PdfDocument {
+        let bodies = [
+            "<< /Type /Catalog /Pages 2 0 R >>".to_string(),
+            "<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_string(),
+            format!("<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] {entries} >>"),
+        ];
+        PdfDocument::open(fepdf_fixtures::assemble(&bodies).into()).expect("the fixture opens")
+    }
+
+    /// **96 DPI is 96 DPI of the sheet**: on a page whose unit is ten points, the page's
+    /// space is drawn ten times as large for it.
+    #[test]
+    fn a_user_unit_scales_the_snapshot() {
+        assert!((sheet_scale(&page_with("/UserUnit 10"), 0, 4.0 / 3.0) - 40.0 / 3.0).abs() < 1e-9);
+        assert!((sheet_scale(&page_with(""), 0, 4.0 / 3.0) - 4.0 / 3.0).abs() < 1e-9);
     }
 }

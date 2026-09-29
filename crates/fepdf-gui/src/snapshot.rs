@@ -8,7 +8,8 @@
 
 use crate::interaction::SelectionManager;
 
-/// The resolutions a snapshot can be asked for, as multiples of 96 DPI.
+/// The resolutions a snapshot can be asked for: 96, 192 and 384 DPI, written as the
+/// multiples of 72 DPI — a point to a pixel — that the renderer takes.
 ///
 /// **A snapshot taken at whatever the screen happens to be showing is one nobody can ask
 /// for twice**, so the resolution is a choice rather than the zoom. The three are what a
