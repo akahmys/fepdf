@@ -870,8 +870,19 @@ eight times, and the copies do not agree on whether to resolve.
         (`e4b17cc`); a one-code run offered a cut (`9355f5b`).
       Stale claims corrected beside them; Y-F9 to Y-F12 are what could not be settled
       here.
-- [ ] **Y-1c** — `fepdf-mcp` and `fepdf-cli`: each tool description against what the tool
-      does.
+- [x] **Y-1c** — `fepdf-mcp` and `fepdf-cli`: each tool description against what the tool
+      does. What it found reached past the descriptions:
+      - The window's export, with its redactions burned as it opens, wrote the file with
+        none of them (`955391a`).
+      - `apply_redaction` claimed to sanitise what it only replaces the text of, and the
+        export box claimed atomic sanitisation (`a1f9fea`); Y-F13 holds the rest.
+      - A save wrote any version it was handed into the header, and the window offered
+        1.7 over 2.0 content (`df46fe3`); the summary called every file 2.0 (`0380475`).
+      - `ExecuteAction` ran nothing and is `SetOpenAction` (`727a610`);
+        `audit_document` said the cross-reference resolved of files it repaired
+        (`b686b81`).
+      - Two operations wrote what no reader reaches and are removed (ADR-0103); the
+        wrapper document is built to 7.6.7 and chosen for the writer (ADR-0104).
 - [ ] **Y-1d** — `fepdf-doc`: `apply/*`, `audit_*`, `measure`, `reading`, `glyph_map`,
       `unicode_map`, `struct_tree`, `outline_tree`, `tagging`.
 - [ ] **Y-2** — the tests that were added: `fepdf/tests` (+12,112 lines) and
