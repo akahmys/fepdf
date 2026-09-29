@@ -108,11 +108,15 @@ pub fn fill_boxes(
     node: &mut crate::struct_tree::StructureTreeNode,
     boxes: &BTreeMap<usize, BTreeMap<u32, kurbo::Rect>>,
 ) -> Option<kurbo::Rect> {
-    let page = node.page_index.and_then(|index| boxes.get(&index));
+    // The rectangle is on the element's page, so only the marks on that page count: a
+    // mark on another page is another page's space, and its number there names nothing
+    // here (`StructureTreeNode::mark_pages`).
+    let page = node.page_index.and_then(|index| boxes.get(&index).map(|found| (index, found)));
     let mut extent: Option<kurbo::Rect> = None;
-    if let Some(page) = page {
-        for mcid in &node.mcids {
-            if let Some(found) = page.get(mcid) {
+    if let Some((index, page)) = page {
+        for (nth, mcid) in node.mcids.iter().enumerate() {
+            let on = node.mark_pages.get(nth).copied().flatten().unwrap_or(index);
+            if let Some(found) = page.get(mcid).filter(|_| on == index) {
                 extent = Some(extent.map_or(*found, |seen| seen.union(*found)));
             }
         }

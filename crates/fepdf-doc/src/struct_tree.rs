@@ -41,6 +41,17 @@ pub struct StructureTreeNode {
     /// fields beside it get that for nothing; a `Vec` has to ask.
     #[serde(default)]
     pub mcids: Vec<u32>,
+    /// The page each of [`mcids`](StructureTreeNode::mcids) is on, in the same order:
+    /// the page its `/MCR` names, or, for a bare `/MCID` and an `/MCR` naming none, the
+    /// element's own. `None` where neither says.
+    ///
+    /// **A mark is on its own page, not its element's.** 14.7.4.2 lets one element's
+    /// references name different pages, and a paragraph continued over a page break is
+    /// written that way. The element kept the first page named and read every mark there,
+    /// so the second half of such a paragraph was taken from its first page — as whatever
+    /// that page drew under the same number, which belongs to something else.
+    #[serde(default)]
+    pub mark_pages: Vec<Option<usize>>,
     /// The natural language of this element's content (14.9.2).
     ///
     /// **The language in force, not the entry.** 14.9.2 makes `/Lang` inheritable: an
@@ -554,12 +565,10 @@ struct Kids {
     mcids: Vec<u32>,
     /// Both of the above, in the order `/K` holds them.
     order: Vec<Part>,
-    /// The page the first `/MCR` named, for an element that carries no `/Pg` itself.
-    ///
-    /// The first rather than all of them: 14.7.4.2 permits an element whose references
-    /// name different pages, and nothing in the corpus writes one — a node carries one
-    /// page index, and inventing a second field for a shape no file uses would be
-    /// answering a question nobody asked.
+    /// The page each mark's `/MCR` names, beside `mcids`; `None` for a bare `/MCID`.
+    mark_pages: Vec<Option<usize>>,
+    /// The page the first `/MCR` named, for an element that carries no `/Pg` itself: the
+    /// page the element as a whole is placed on. Each mark keeps its own in `mark_pages`.
     page: Option<usize>,
 }
 
@@ -597,6 +606,7 @@ fn take_kid(
     match classify_kid(arena, kid, walk.page_map) {
         Kid::Mark(mcid, page) => {
             out.mcids.push(mcid);
+            out.mark_pages.push(page);
             out.order.push(Part::Mark(mcid));
             out.page = out.page.or(page);
         }
@@ -691,6 +701,8 @@ fn parse_struct_node(
 
     let tag = parse_tag_helper(arena, &dict);
     let page_index = parse_page_index_helper(arena, &dict, walk.page_map).or(inherited.page);
+    // The page a bare `/MCID` is on, and an `/MCR` that names none: the element's own.
+    let own_page = page_index;
     let lang = text_entry(arena, &dict, "Lang").or_else(|| inherited.lang.map(str::to_owned));
     let role = walk.roles.get(&tag).cloned();
     let alphabet = alphabet_of(arena, &dict).or_else(|| inherited.alphabet.map(str::to_owned));
@@ -725,6 +737,7 @@ fn parse_struct_node(
         page_index,
         handle_index: Some(handle.index()),
         mcids: kids.mcids,
+        mark_pages: kids.mark_pages.into_iter().map(|page| page.or(own_page)).collect(),
         lang,
         role,
         actual_text: text_entry(arena, &dict, "ActualText"),

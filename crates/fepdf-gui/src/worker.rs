@@ -966,6 +966,7 @@ fn handle_open(
                     page_index: None,
                     handle_index: None,
                     mcids: Vec::new(),
+                    mark_pages: Vec::new(),
                     lang: None,
                     role: None,
                     actual_text: None,

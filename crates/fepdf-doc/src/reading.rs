@@ -132,8 +132,14 @@ impl Plan {
         let mut out = Vec::new();
         for (index, mut planned) in self.planned.into_iter().enumerate() {
             if !planned.marks.is_empty() {
-                let mut pages: Vec<usize> = planned.marks.iter().map(|(page, _)| *page).collect();
-                pages.dedup();
+                // Each page once, in the order the marks first reach it: a passage whose
+                // marks go back to a page it has left is still read from it once.
+                let mut pages: Vec<usize> = Vec::new();
+                for (page, _) in &planned.marks {
+                    if !pages.contains(page) {
+                        pages.push(*page);
+                    }
+                }
                 let words: Vec<&str> = pages
                     .iter()
                     .filter_map(|page| composed.get(page)?.get(&index).map(String::as_str))
@@ -173,9 +179,13 @@ impl Plan {
             return;
         }
         let mut marks = Vec::new();
+        let mut nth = 0;
         for part in &node.order {
             match part {
-                Part::Mark(mcid) => marks.extend(node.page_index.map(|page| (page, *mcid))),
+                Part::Mark(mcid) => {
+                    marks.extend(mark_page(node, nth).map(|page| (page, *mcid)));
+                    nth += 1;
+                }
                 Part::Child(index) => {
                     self.flush(node, &mut marks);
                     if let Some(child) = node.children.get(*index) {
@@ -214,9 +224,13 @@ fn gather(node: &StructureTreeNode, marks: &mut Vec<(usize, u32)>, depth: usize)
     if depth > DEPTH {
         return;
     }
+    let mut nth = 0;
     for part in &node.order {
         match part {
-            Part::Mark(mcid) => marks.extend(node.page_index.map(|page| (page, *mcid))),
+            Part::Mark(mcid) => {
+                marks.extend(mark_page(node, nth).map(|page| (page, *mcid)));
+                nth += 1;
+            }
             Part::Child(index) => {
                 if let Some(child) = node.children.get(*index) {
                     gather(child, marks, depth + 1);
@@ -224,6 +238,12 @@ fn gather(node: &StructureTreeNode, marks: &mut Vec<(usize, u32)>, depth: usize)
             }
         }
     }
+}
+
+/// The page `node`'s `nth` mark is on: its own, or the element's for a tree read before
+/// marks kept one.
+fn mark_page(node: &StructureTreeNode, nth: usize) -> Option<usize> {
+    node.mark_pages.get(nth).copied().flatten().or(node.page_index)
 }
 
 /// The pronunciation lexicons the structure tree root names, in its order (Table 354).

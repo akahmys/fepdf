@@ -243,3 +243,71 @@ fn a_lexicon_needs_a_structure_tree() {
     assert!(refused.to_string().contains("structure tree"), "{refused}");
     assert!(doc.reading().passages.is_empty(), "an untagged document was read in some order");
 }
+
+/// A two-page tagged document: pages 3 and 4 draw `first` and `second` (objects 5 and 6)
+/// in Helvetica as `/F1` (7); the structure tree root is 8, holding `kids`, and the
+/// elements are from 9 on.
+fn two_pages(first: &str, second: &str, kids: &str, elements: &[&str]) -> PdfDocument {
+    let page = |contents: u32| {
+        format!(
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 400 400] /Contents {contents} 0 R \
+             /Resources << /Font << /F1 7 0 R >> >> >>"
+        )
+    };
+    let stream =
+        |content: &str| format!("<< /Length {} >>\nstream\n{content}\nendstream", content.len());
+    let mut bodies = vec![
+        "<< /Type /Catalog /Pages 2 0 R /StructTreeRoot 8 0 R >>".to_string(),
+        "<< /Type /Pages /Kids [3 0 R 4 0 R] /Count 2 >>".to_string(),
+        page(5),
+        page(6),
+        stream(first),
+        stream(second),
+        "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>"
+            .to_string(),
+        format!("<< /Type /StructTreeRoot /K [{kids}] >>"),
+    ];
+    bodies.extend(elements.iter().map(|e| (*e).to_string()));
+    PdfDocument::open_with_options(
+        fepdf_fixtures::assemble(&bodies).into(),
+        &IngestionOptions::default(),
+    )
+    .expect("the fixture opens")
+}
+
+/// **A mark is read on the page its reference names** (14.7.4.2), not on its element's
+/// first. A paragraph continued over a page break names both pages; its second half was
+/// read from the first page, as the words another element marks there under that number.
+#[test]
+fn a_paragraph_over_a_page_break_reads_each_mark_on_its_own_page() {
+    let first = marked(0, 20, 300, "First half") + &marked(1, 20, 200, "Other");
+    let second = marked(0, 20, 300, "second half");
+    let doc = two_pages(
+        &first,
+        &second,
+        "9 0 R 10 0 R",
+        &[
+            "<< /Type /StructElem /S /P /P 8 0 R /Pg 3 0 R \
+             /K [<< /Type /MCR /Pg 3 0 R /MCID 0 >> << /Type /MCR /Pg 4 0 R /MCID 0 >>] >>",
+            "<< /Type /StructElem /S /P /P 8 0 R /Pg 3 0 R /K 1 >>",
+        ],
+    );
+    assert_eq!(said(&doc.reading().passages), ["First half\nsecond half", "Other"]);
+}
+
+/// **A passage whose marks return to a page reads that page once.** What a page composes
+/// for a passage is all of its marks there, so reading it again on the return repeated
+/// every word on it.
+#[test]
+fn a_passage_that_returns_to_a_page_reads_it_once() {
+    let first = marked(0, 20, 300, "one") + &marked(1, 20, 200, "three");
+    let second = marked(0, 20, 300, "two");
+    let doc = two_pages(
+        &first,
+        &second,
+        "9 0 R",
+        &["<< /Type /StructElem /S /P /P 8 0 R /Pg 3 0 R /K [<< /Type /MCR /Pg 3 0 R /MCID 0 >> \
+           << /Type /MCR /Pg 4 0 R /MCID 0 >> << /Type /MCR /Pg 3 0 R /MCID 1 >>] >>"],
+    );
+    assert_eq!(said(&doc.reading().passages), ["one\nthree\ntwo"]);
+}

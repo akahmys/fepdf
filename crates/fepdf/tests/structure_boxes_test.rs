@@ -173,3 +173,32 @@ fn count(node: &fepdf::StructureTreeNode, with: &mut usize, total: &mut usize) {
         count(child, with, total);
     }
 }
+
+/// **A mark on another page adds nothing to the rectangle**, which is on the element's
+/// page. Its number was looked up on the element's page instead, where it names whatever
+/// else was marked there under it — here, another element's box.
+#[test]
+fn a_mark_on_another_page_is_not_looked_up_on_this_one() {
+    let bodies = [
+        "<< /Type /Catalog /Pages 2 0 R /StructTreeRoot 6 0 R >>".to_string(),
+        "<< /Type /Pages /Kids [3 0 R 4 0 R] /Count 2 >>".to_string(),
+        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Contents 5 0 R >>".to_string(),
+        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Contents 9 0 R >>".to_string(),
+        stream(
+            "",
+            "/P << /MCID 0 >> BDC\n10 20 30 40 re f\nEMC\n/P << /MCID 1 >> BDC\n100 100 50 50 re f\nEMC\n",
+        ),
+        "<< /Type /StructTreeRoot /K [7 0 R 8 0 R] >>".to_string(),
+        "<< /Type /StructElem /S /P /P 6 0 R /Pg 3 0 R \
+         /K [<< /Type /MCR /Pg 3 0 R /MCID 0 >> << /Type /MCR /Pg 4 0 R /MCID 1 >>] >>"
+            .to_string(),
+        "<< /Type /StructElem /S /P /P 6 0 R /Pg 3 0 R /K 1 >>".to_string(),
+        stream("", "/P << /MCID 1 >> BDC\n10 10 5 5 re f\nEMC\n"),
+    ];
+    let doc =
+        PdfDocument::open_with_options(assemble(&bodies).into(), &IngestionOptions::default())
+            .expect("the fixture opens");
+    let root = placed(&doc);
+    assert_eq!(root.children[0].rect, Some([10.0, 20.0, 40.0, 60.0]));
+    assert_eq!(root.children[1].rect, Some([100.0, 100.0, 150.0, 150.0]));
+}
