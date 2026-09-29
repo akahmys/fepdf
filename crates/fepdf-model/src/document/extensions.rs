@@ -348,8 +348,10 @@ pub struct OutputIntent {
 pub struct MeasurementScale {
     /// Target page index (0-indexed).
     pub page: usize,
-    /// How many `unit_label`s one point on the page stands for: a 1:100 drawing measured
-    /// in metres is `0.0254 / 72 * 100`.
+    /// How many `unit_label`s one unit of the page's user space stands for, which is what
+    /// a measure's `/X` converts (Table 267). A unit is a point unless the page sets
+    /// `/UserUnit` (Table 31): a 1:100 drawing measured in metres is `0.0254 / 72 * 100`
+    /// on an ordinary page and ten times that on a page of `/UserUnit 10`.
     pub scale_ratio: f32,
     /// The unit, as a reader abbreviates it: "mm", "m", "ft".
     pub unit_label: String,

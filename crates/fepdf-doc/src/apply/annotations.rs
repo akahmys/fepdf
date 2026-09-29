@@ -385,7 +385,8 @@ pub fn apply_add_annotation(doc: &Document, annot: AnnotationSpec) -> PdfResult<
     Ok(())
 }
 
-/// Declares the page's scale: one point is `scale_ratio` `unit_label`s (12.9).
+/// Declares the page's scale: one unit of its user space is `scale_ratio` `unit_label`s
+/// (12.9).
 ///
 /// **It was written where no reader looks and in a shape none would read.** `/Measure`
 /// went straight into the page dictionary, which Table 31 does not give one — a measure
@@ -406,7 +407,16 @@ pub fn apply_set_measurement_scale(doc: &Document, scale: MeasurementScale) -> P
         return Err(PdfError::Other(format!("there is no page {}", scale.page + 1).into()));
     };
     let media = fepdf_model::Page::new(arena, page_h, doc.get_parent_chain(page_h)).media_box();
-    let measure = crate::measure::write_rectilinear(arena, ratio, &scale.unit_label);
+    // A unit of this page's user space is this many points (Table 31), which is what the
+    // ratio stated per inch of the sheet has to divide out.
+    let user_unit = doc
+        .resolve_to_dict(page_h)
+        .ok()
+        .and_then(|page| arena.dict_entry(page, arena.name("UserUnit")))
+        .and_then(|u| u.resolve(arena).as_f64())
+        .filter(|u| *u > 0.0)
+        .unwrap_or(1.0);
+    let measure = crate::measure::write_rectilinear(arena, ratio, user_unit, &scale.unit_label);
     crate::measure::set_viewport(
         doc,
         scale.page,

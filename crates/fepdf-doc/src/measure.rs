@@ -384,11 +384,18 @@ fn rectangle(arena: &PdfArena, value: &Object) -> Option<[f64; 4]> {
     numbers.try_into().ok()
 }
 
-/// A rectilinear measure dictionary saying one point is `per_point` `unit`s (Table 267).
+/// A rectilinear measure dictionary saying one unit of user space is `per_unit` `unit`s
+/// (Table 267), on a page whose unit is `user_unit` points (Table 31).
 ///
-/// Distances are in `unit`, and areas in its square. `/R` states the ratio per inch, the
-/// way a drawing's title block does.
-pub fn write_rectilinear(arena: &PdfArena, per_point: f64, unit: &str) -> Handle<Object> {
+/// Distances are in `unit`, and areas in its square. `/R` states the ratio per inch of the
+/// sheet, the way a drawing's title block does: an inch is `72 / user_unit` units, so on a
+/// page of `/UserUnit 10` it said ten times the drawing's scale until 2026-09-30.
+pub fn write_rectilinear(
+    arena: &PdfArena,
+    per_unit: f64,
+    user_unit: f64,
+    unit: &str,
+) -> Handle<Object> {
     let format_array = |label: &str, factor: f64| {
         let mut dict = BTreeMap::new();
         dict.insert(arena.name("Type"), Object::Name(arena.name("NumberFormat")));
@@ -399,14 +406,14 @@ pub fn write_rectilinear(arena: &PdfArena, per_point: f64, unit: &str) -> Handle
     let mut measure = BTreeMap::new();
     measure.insert(arena.name("Type"), Object::Name(arena.name("Measure")));
     measure.insert(arena.name("Subtype"), Object::Name(arena.name("RL")));
-    let per_inch = per_point * 72.0;
+    let per_inch = per_unit * 72.0 / user_unit;
     // Written by the number formatting the distances use, to six places: the ratio came
     // in as an `f32`, and its last digits are noise rather than the drawing's scale.
     let mut stated = NumberFormat::plain(unit, 1.0);
     stated.precision = 1_000_000;
     let ratio = format!("1 in = {}", format(per_inch, &[stated]));
     measure.insert(arena.name("R"), Object::Text(ratio));
-    measure.insert(arena.name("X"), format_array(unit, per_point));
+    measure.insert(arena.name("X"), format_array(unit, per_unit));
     measure.insert(arena.name("D"), format_array(unit, 1.0));
     measure.insert(arena.name("A"), format_array(&format!("{unit}²"), 1.0));
     arena.alloc_object(Object::Dictionary(arena.alloc_dict(measure)))

@@ -825,7 +825,7 @@ impl FepdfServer {
     /// Configures drawing measurement scale dictionary (/Measure) for CAD and technical drawings.
     #[tool(
         name = "set_measurement_scale",
-        description = "Declares the scale a page is measured in (ISO 32000-2 12.9): a viewport over the whole page whose measure says one point is scale_ratio units, with distances in the unit and areas in its square. Replaces any rectilinear scale the page had; a geospatial one is kept."
+        description = "Declares the scale a page is measured in (ISO 32000-2 12.9): a viewport over the whole page whose measure says one unit of the page's user space — a point, unless the page sets /UserUnit — is scale_ratio units, with distances in the unit and areas in its square. Replaces any rectilinear scale the page had; a geospatial one is kept."
     )]
     pub async fn set_measurement_scale(
         &self,

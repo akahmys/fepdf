@@ -148,3 +148,18 @@ fn a_geospatial_anchor_keeps_the_scale() {
         );
     }
 }
+
+/// **The ratio a title block states is per inch of the sheet.** On a page of `/UserUnit 10`
+/// a unit is ten points, so a scale of one metre per inch is a tenth of a metre per unit,
+/// and `/R` still says an inch is a metre — it said ten.
+#[test]
+fn the_stated_ratio_is_per_inch_of_the_sheet_on_a_page_with_a_user_unit() {
+    let mut doc = page("/UserUnit 10", &[]);
+    #[allow(clippy::cast_possible_truncation)] // the operation carries an `f32`
+    let per_unit = (10.0 / 72.0) as f32;
+    let scale = MeasurementScale { page: 0, scale_ratio: per_unit, unit_label: "m".into() };
+    doc.apply(Operation::SetMeasurementScale(scale)).expect("the scale is set");
+    let scale = doc.scale_at(0, (200.0, 150.0)).expect("a scale holds on the page");
+    assert_eq!(scale.ratio, "1 in = 1 m");
+    assert_eq!(scale.distance((0.0, 0.0), (7.2, 0.0)), "1 m", "an inch is 7.2 units here");
+}
