@@ -1930,7 +1930,6 @@ mod saving {
             protection,
             (true, strip),
             false,
-            false,
             Vec::new(),
             None,
             None,
