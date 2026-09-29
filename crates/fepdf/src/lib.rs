@@ -272,6 +272,39 @@ impl SaveOptions {
     }
 }
 
+/// Where a page's box lands in a picture of it.
+///
+/// The transform from default user space to the picture, `scale` pixels to a unit, origin
+/// at the picture's top left and y running down; and the picture's width and height in
+/// units, which are the box's, swapped when the page is turned a quarter.
+///
+/// **Turned, not reflected, and from the box's own corner.** `/Rotate` turns the page
+/// clockwise as it is shown (Table 31), so a quarter turn puts the box's bottom left at
+/// the picture's top left and its top left at the top right. This table was written twice,
+/// here and in the window, and both copies drew `90` and `270` as mirror images and took
+/// every box to start at `(0, 0)`, until 2026-09-29. A rotation that is not a multiple of
+/// 90 is not one Table 31 allows, and is drawn upright.
+#[must_use]
+pub fn page_display_transform(
+    r: fepdf_model::graphics::Rect,
+    rotation: i32,
+    scale: f64,
+) -> (kurbo::Affine, f64, f64) {
+    let (x0, y0) = (r.x1.min(r.x2), r.y1.min(r.y2));
+    let (w, h) = ((r.x2 - r.x1).abs(), (r.y2 - r.y1).abs());
+    let s = scale;
+    match rotation.rem_euclid(360) {
+        // x' = s(y - y0), y' = s(x - x0)
+        90 => (kurbo::Affine::new([0.0, s, s, 0.0, -s * y0, -s * x0]), h, w),
+        // x' = s(w - (x - x0)), y' = s(y - y0)
+        180 => (kurbo::Affine::new([-s, 0.0, 0.0, s, s * (w + x0), -s * y0]), w, h),
+        // x' = s(h - (y - y0)), y' = s(w - (x - x0))
+        270 => (kurbo::Affine::new([0.0, -s, -s, 0.0, s * (h + y0), s * (w + x0)]), h, w),
+        // x' = s(x - x0), y' = s(h - (y - y0))
+        _ => (kurbo::Affine::new([s, 0.0, 0.0, -s, -s * x0, s * (h + y0)]), w, h),
+    }
+}
+
 /// `/M`, the time of signing, in the form 7.9.4 defines.
 ///
 /// Local time with its offset, because that is what the clause asks for and what a
@@ -1874,25 +1907,17 @@ impl PdfDocument {
             return Err(PdfError::Other(format!("{dpi} dots per inch is no image").into()));
         }
         let r = self.get_page_box(index)?;
-        let w = (r.x2 - r.x1).abs();
-        let h = (r.y2 - r.y1).abs();
         let rot = self.get_page_rotation(index)?;
-        let (display_w, display_h) = if rot == 90 || rot == 270 { (h, w) } else { (w, h) };
 
         // The DPI, times whatever a user space unit is worth on this page. `/UserUnit` is
         // how a drawing exceeds the 14,400-unit limit a box can express (Table 31): the
         // coordinates stay as written and each one is worth more of an inch, so honouring
         // it is a matter of the scale and nothing else — the content is drawn unchanged.
         let scale = dpi / 72.0 * self.get_page_user_unit(index)?;
+        let (transform, display_w, display_h) = page_display_transform(r, rot, scale);
         #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
         let (width, height) =
             ((display_w * scale).round() as u32, (display_h * scale).round() as u32);
-        let transform = match rot {
-            90 => kurbo::Affine::new([0.0, scale, -scale, 0.0, h * scale, 0.0]),
-            180 => kurbo::Affine::new([-scale, 0.0, 0.0, scale, w * scale, 0.0]),
-            270 => kurbo::Affine::new([0.0, -scale, scale, 0.0, 0.0, w * scale]),
-            _ => kurbo::Affine::new([scale, 0.0, 0.0, -scale, 0.0, h * scale]),
-        };
         Ok((transform, width, height))
     }
 

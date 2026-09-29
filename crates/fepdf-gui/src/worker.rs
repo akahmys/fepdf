@@ -1337,16 +1337,9 @@ fn handle_render(
         return;
     }
     let r = doc.get_page_box(index).unwrap_or_else(|_| fepdf::Rect::new(0.0, 0.0, 595.0, 842.0));
-    let w = (r.x2 - r.x1).abs();
-    let h = (r.y2 - r.y1).abs();
     let rot = doc.get_page_rotation(index).unwrap_or(0);
-
-    let initial_transform = match rot {
-        90 => kurbo::Affine::new([0.0, scale, -scale, 0.0, h * scale, 0.0]),
-        180 => kurbo::Affine::new([-scale, 0.0, 0.0, scale, w * scale, 0.0]),
-        270 => kurbo::Affine::new([0.0, -scale, scale, 0.0, 0.0, w * scale]),
-        _ => kurbo::Affine::new([scale, 0.0, 0.0, -scale, 0.0, h * scale]),
-    };
+    // The engine's table, not a copy of it: the copy drew a turned page mirrored.
+    let (initial_transform, _, _) = fepdf::page_display_transform(r, rot, scale);
     let mut backend = VelloBackend::new(system_fonts);
 
     let text = get_or_extract_text(doc, index, &mut pages.text);

@@ -157,3 +157,39 @@ fn a_pixel_box_is_turned_back_into_points() {
         assert!((got - want).abs() < 1e-9, "{found:?}");
     }
 }
+
+/// **A turned page is turned, not reflected**, and its box is drawn from its own corner.
+///
+/// `a_pixel_box_is_turned_back_into_points` maps a box through the transform and back
+/// through its inverse, which any invertible transform passes — a mirror image included.
+/// This asks where each corner of the page lands, which only the right one answers:
+/// turned a quarter clockwise, the page's bottom left is the picture's top left and its
+/// top left is the picture's top right. `/Rotate 90` and `270` drew the page mirrored
+/// until 2026-09-29, and the box's origin was taken to be `(0, 0)` whatever it was.
+#[test]
+#[allow(clippy::cast_possible_truncation)] // pixels of a 300-point page, rounded
+fn each_corner_of_a_turned_page_lands_where_turning_puts_it() {
+    let page = |entries: &str| {
+        let bodies = [
+            "<< /Type /Catalog /Pages 2 0 R >>".to_string(),
+            "<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_string(),
+            format!("<< /Type /Page /Parent 2 0 R {entries} >>"),
+        ];
+        PdfDocument::open(fepdf_fixtures::assemble(&bodies).into()).expect("it opens")
+    };
+    // 72 DPI, so a point is a pixel. The box is 300 by 200 and starts at (50, 20).
+    let corners = |rotate: u32| {
+        let doc = page(&format!("/MediaBox [50 20 350 220] /Rotate {rotate}"));
+        let (t, w, h) = doc.page_to_pixels(0, 72.0).expect("a transform");
+        let at = |x: f64, y: f64| {
+            let p = t * kurbo::Point::new(x, y);
+            (p.x.round() as i64, p.y.round() as i64)
+        };
+        ((w, h), at(50.0, 20.0), at(50.0, 220.0), at(350.0, 20.0))
+    };
+    // (size, bottom-left, top-left, bottom-right) of the page, in pixels.
+    assert_eq!(corners(0), ((300, 200), (0, 200), (0, 0), (300, 200)));
+    assert_eq!(corners(90), ((200, 300), (0, 0), (200, 0), (0, 300)));
+    assert_eq!(corners(180), ((300, 200), (300, 0), (300, 200), (0, 0)));
+    assert_eq!(corners(270), ((200, 300), (200, 300), (0, 300), (200, 0)));
+}
