@@ -89,7 +89,9 @@ fn a_field_says_what_it_is_and_what_it_is_called() {
 /// what the window will be shown.
 ///
 /// Measured 2026-09-21: 30 fields, 19 text, 7 button, 4 choice — and **not one of them
-/// carries a `/TU`**. That is the Matterhorn failure
+/// carries a `/TU`**. **28, and 5 buttons, since 2026-09-29**: the radio group `相談` is
+/// one field with three widgets, and the walk had counted each widget as a field of its
+/// own (12.7.4.1). This test held the 30 in place. That is the Matterhorn failure
 /// [ADR-0087](../../../docs/adr/0087-a-form-field-is-created-here-not-only-filled.md) was
 /// taken over: a defect this engine could name and not repair. It can name which field
 /// now, rather than how many.
@@ -101,10 +103,10 @@ fn a_real_form_reports_its_fields_and_what_they_are_missing() {
     let form = fepdf::form_of(doc.inner());
 
     assert!(form.declared, "the sample no longer carries the form this was written about");
-    assert_eq!(form.terminal.len(), 30, "the sample no longer has the fields it was measured with");
+    assert_eq!(form.terminal.len(), 28, "the sample no longer has the fields it was measured with");
     assert_eq!(
         form.by_type,
-        vec![("Tx".to_string(), 19), ("Btn".to_string(), 7), ("Ch".to_string(), 4)],
+        vec![("Tx".to_string(), 19), ("Btn".to_string(), 5), ("Ch".to_string(), 4)],
         "the sample's fields are no longer the mix this was measured with"
     );
 
@@ -116,7 +118,7 @@ fn a_real_form_reports_its_fields_and_what_they_are_missing() {
         .collect();
     assert_eq!(
         missing.len(),
-        30,
+        28,
         "the sample's fields have gained a /TU, which changes what this documents"
     );
     assert!(

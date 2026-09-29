@@ -171,11 +171,10 @@ impl DestinationCensus {
 
 /// The interactive form (12.7), if the catalogue declares one.
 ///
-/// Four terminal fields exist across both corpora — three `/Btn` and one `/Tx`, in four
-/// Isartor files — and until Phase J this counted them and read nothing out of them.
-/// Four is not many, and it is four more than the nine samples supply: the walk had been
-/// exercised only by a hand-built fixture and by this engine's own signature field,
-/// which is a producer agreeing with itself.
+/// Until Phase J this counted terminal fields and read nothing out of them. The walk was
+/// then exercised by a hand-built fixture, four Isartor files and this engine's own
+/// signature field; `samples/sample_02c.pdf`, a filled-in Japanese form, has since joined
+/// the samples with 28 terminal fields of its own (measured 2026-09-29).
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct FormFields {
     /// Whether `/AcroForm` is present.
@@ -585,6 +584,15 @@ fn parse_top_index(arena: &PdfArena, d: &Dict) -> Option<usize> {
     }
 }
 
+/// Whether `kid` is a widget annotation and nothing more: `/Subtype /Widget` and no `/T`.
+/// A kid that names itself is a field, whether or not it is also its own widget.
+fn is_widget_only(arena: &PdfArena, kid: &Object) -> bool {
+    dict_of(arena, kid).is_some_and(|d| {
+        name_of_key(arena, &d, "Subtype").as_deref() == Some("Widget")
+            && !d.contains_key(&arena.name("T"))
+    })
+}
+
 fn build_terminal_field(arena: &PdfArena, d: &Dict, here: &Inherited) -> FormField {
     let options = here.options.clone().unwrap_or_default();
     let selected_indices = parse_selected_indices(arena, d, &options, here.value.as_deref());
@@ -641,11 +649,21 @@ fn read_form(arena: &PdfArena, catalog: &Dict) -> FormFields {
         }
         let Some(d) = dict_of(arena, &node) else { continue };
         let here = inherited.and(arena, &d);
-        match array_of(arena, d.get(&arena.name("Kids"))) {
-            Some(kids) if !kids.is_empty() => {
-                queue.extend(kids.into_iter().rev().map(|k| (k, depth + 1, here.clone())));
+        // **A terminal field's `/Kids` are its widgets, not fields** (12.7.4.1). A kid that
+        // is a widget and names no field is where the field is drawn, so a field whose
+        // kids are all of that kind is itself the terminal one. This descended into every
+        // kid, so a radio group of three buttons was three fields, each read from its
+        // widget: named by the group, with the widget's `/TU` — which a widget does not
+        // carry and is not inherited — and so a missing tooltip reported three times over
+        // a group that has one.
+        let kids = array_of(arena, d.get(&arena.name("Kids"))).unwrap_or_default();
+        let fields: Vec<Object> =
+            kids.into_iter().filter(|kid| !is_widget_only(arena, kid)).collect();
+        match fields.is_empty() {
+            false => {
+                queue.extend(fields.into_iter().rev().map(|k| (k, depth + 1, here.clone())));
             }
-            Some(_) | None => {
+            true => {
                 form.fields += 1;
                 *by_type
                     .entry(here.field_type.clone().unwrap_or_else(|| "(none)".into()))
@@ -1253,7 +1271,7 @@ mod tests {
         push("null".into()); // 8
         push("null".into()); // 9
 
-        push("<< /Fields [11 0 R 12 0 R] /NeedAppearances true >>".into()); // 10 AcroForm
+        push("<< /Fields [11 0 R 12 0 R 15 0 R] /NeedAppearances true >>".into()); // 10 AcroForm
         // Every entry `FIELD_ENTRIES_READ` claims, on one field, and it is its own
         // widget — the shape all four fields in the external corpus take.
         push(
@@ -1265,7 +1283,15 @@ mod tests {
         push("<< /T (yes) /V /On >>".into()); // 13
         push("<< /FT /Sig /T (sig) >>".into()); // 14
 
-        for _ in 15..20 {
+        // A radio group with its tooltip on the field and two widgets that name nothing:
+        // one terminal field, not two (12.7.4.1).
+        push(
+            "<< /T (choice) /FT /Btn /Ff 49152 /TU (Pick one) /V /b /Kids [16 0 R 17 0 R] >>"
+                .into(),
+        ); // 15
+        push("<< /Type /Annot /Subtype /Widget /Rect [0 0 9 9] /Parent 15 0 R /AS /Off >>".into()); // 16
+        push("<< /Type /Annot /Subtype /Widget /Rect [9 0 18 9] /Parent 15 0 R /AS /b >>".into()); // 17
+        for _ in 18..20 {
             push("null".into());
         }
         // Two visible items, one of which is closed over a third. A conforming
@@ -1371,14 +1397,39 @@ mod tests {
         assert!(!kid.has_default_appearance, "neither it nor its parent writes /DA");
     }
 
+    /// **A field whose kids are all widgets is one field**, read from itself: the group's
+    /// name, its `/TU`, its value — not two fields read from two widgets.
+    #[test]
+    fn a_radio_groups_widgets_are_not_fields() {
+        let r = InteractiveReport::survey(&interactive_document()).expect("reads");
+        let group: Vec<&FormField> = r
+            .form
+            .terminal
+            .iter()
+            .filter(|f| f.qualified_name.as_deref() == Some("choice"))
+            .collect();
+        assert_eq!(group.len(), 1, "{:?}", r.form.terminal);
+        assert_eq!(
+            group[0].tooltip.as_deref(),
+            Some("Pick one"),
+            "the field's /TU, not a widget's"
+        );
+        assert_eq!(group[0].value.as_deref(), Some("/b"));
+        assert!(!group[0].is_widget, "its widgets are its kids");
+    }
+
     #[test]
     fn the_field_walk_descends_through_kids() {
-        // The corpus cannot exercise this: its only /AcroForm has an empty /Fields.
-        // Three terminal fields, one of them two levels down.
+        // Four terminal fields: one direct, two under /Kids, and a radio group whose kids
+        // are its widgets.
         let r = InteractiveReport::survey(&interactive_document()).expect("reads");
         assert!(r.form.declared);
         assert_eq!(r.form.needs_appearances, Some(true));
-        assert_eq!(r.form.fields, 3, "one direct, two under /Kids: {:?}", r.form.by_type);
+        assert_eq!(
+            r.form.fields, 4,
+            "one direct, two under /Kids, one group: {:?}",
+            r.form.by_type
+        );
         let kinds: Vec<&str> = r.form.by_type.iter().map(|(s, _)| s.as_str()).collect();
         assert!(kinds.contains(&"Tx") && kinds.contains(&"Btn") && kinds.contains(&"Sig"));
         assert_eq!(r.form.too_deep, 0);
