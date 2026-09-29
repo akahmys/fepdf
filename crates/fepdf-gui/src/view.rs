@@ -153,11 +153,12 @@ pub struct PDFView {
     /// Whether the layout the current `pan` was computed against was the tile grid.
     ///
     /// **The two arrangements are different coordinate systems, and `pan` is in one of
-    /// them.** Below [`Self::TILE_ZOOM`] a continuous document is laid out as a grid four
-    /// columns wide; above it, as one column. Page 8 of a letter-size document sits at
-    /// `y = 802` in the grid and at `y = 6,336` in the column, so a zoom that crosses the
-    /// boundary leaves the view pointing at whatever else happens to be at the old `y` —
-    /// which is the page the reader was not looking at.
+    /// them.** Below [`Self::TILE_ZOOM`] a document is laid out as a grid
+    /// [`FepdfApp::TILE_COLUMNS`](crate::app::FepdfApp::TILE_COLUMNS) wide; above it, the
+    /// page view lays every page on the origin and shows one. Page 26 is two rows down in
+    /// the grid and at `y = 0` in the page view, so a zoom that crosses the boundary leaves
+    /// the view pointing at whatever else happens to be at the old `y` — which is the page
+    /// the reader was not looking at.
     arranged_as_tiles: bool,
     /// Where the last zoom was anchored, which a change of arrangement carries across.
     last_anchor: Option<egui::Pos2>,
@@ -717,11 +718,10 @@ impl PDFView {
     /// in hand.
     ///
     /// **The two arrangements are different coordinate systems, and `pan` is in one of
-    /// them.** Below [`Self::TILE_ZOOM`] a continuous document is laid out as a grid
-    /// hanging from the binding edge; above it, as one centred column. Page 8 of a
-    /// letter-size document sits at `y = 802` in the grid and at `y = 6,336` in the
-    /// column, so a zoom across the boundary leaves the view pointing at whatever else
-    /// happens to be at the old `y`.
+    /// them.** Below [`Self::TILE_ZOOM`] a document is laid out as a grid hanging from the
+    /// binding edge; above it, the page view lays every page on the origin. Page 26 is two
+    /// rows down in the grid and at `y = 0` in the page view, so a zoom across the
+    /// boundary leaves the view pointing at whatever else happens to be at the old `y`.
     #[must_use]
     pub fn arrangement_is_changing(&self) -> bool {
         self.is_page_view() == self.arranged_as_tiles
