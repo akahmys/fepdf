@@ -99,7 +99,7 @@ pub fn show_accessibility_audit(
             if registry.audit_findings.is_empty() {
                 ui.label(
                     locale_mgr
-                        .tr(active_lang, "audit_success_100")
+                        .tr(active_lang, "audit_nothing_reported")
                         .replace("{}", &registry.audit_checked.to_string()),
                 );
             }

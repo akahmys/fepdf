@@ -61,7 +61,7 @@
   "audit_section_sound": "検査して問題なし ({})",
   "audit_section_to_judge": "あなたが判断するもの ({})",
   "audit_section_unlooked": "検査もされず一覧にも無い条件が他に {} 件あります。",
-  "audit_success_100": "検査した {} 件の条件から、何も報告されていません。",
+  "audit_nothing_reported": "検査した {} 件の条件から、何も報告されていません。",
   "audit_title": "アクセシビリティ監査",
   "badge_ambiguity": "曖昧性",
   "badge_repaired": "修復済",

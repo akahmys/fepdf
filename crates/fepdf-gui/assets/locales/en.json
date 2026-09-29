@@ -61,7 +61,7 @@
   "audit_section_sound": "Checked and sound ({})",
   "audit_section_to_judge": "Yours to judge ({})",
   "audit_section_unlooked": "{} more conditions were neither looked at nor listed.",
-  "audit_success_100": "Nothing was reported from the {} conditions checked.",
+  "audit_nothing_reported": "Nothing was reported from the {} conditions checked.",
   "audit_title": "Accessibility Audit",
   "badge_ambiguity": "Ambiguity",
   "badge_repaired": "Repaired",
