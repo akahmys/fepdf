@@ -213,6 +213,8 @@
   "form_no_fields": "The form declares no fields.",
   "form_none": "This document declares no form.",
   "form_signature_not_filled": "A signature field is signed, not filled.",
+  "form_radio_not_chosen_here": "A group of radio buttons, set to {}. Which button is chosen cannot be changed here yet.",
+  "form_pushbutton_holds_nothing": "A push button: it runs an action and holds no value.",
   "form_title": "Form",
   "form_unknown_type": "This engine does not know what to draw for this field.",
   "form_unnamed": "(unnamed)",

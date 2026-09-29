@@ -213,6 +213,8 @@
   "form_no_fields": "フォームに項目がありません。",
   "form_none": "この文書はフォームを持っていません。",
   "form_signature_not_filled": "署名欄は入力ではなく署名で埋めます。",
+  "form_radio_not_chosen_here": "ラジオボタンのグループです（現在：{}）。どのボタンを選ぶかは、ここではまだ変えられません。",
+  "form_pushbutton_holds_nothing": "プッシュボタンです。操作を実行するためのもので、値を持ちません。",
   "form_title": "フォーム",
   "form_unknown_type": "この項目に何を描けばよいか、この engine は知りません。",
   "form_unnamed": "(名前なし)",

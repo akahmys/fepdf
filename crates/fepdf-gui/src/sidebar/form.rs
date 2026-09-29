@@ -137,11 +137,22 @@ impl FormPanel {
         match field.field_type.as_deref() {
             Some("Tx") => self.text_field(ui, field, &name, words),
             Some("Ch") => self.choice_field(ui, field, &name, words),
-            // **When the tick changes, not when a click lands.** A checkbox asked on
-            // every release would write the field again on every click anywhere in the
-            // drawer, which is a document changed by looking at it.
-            Some("Btn") => Self::ticked(ui, field)
-                .map(|on| Asked::Value { field: name, value: fepdf::FormValue::Boolean(on) }),
+            Some("Btn") => match ButtonKind::of(field.flags) {
+                // **When the tick changes, not when a click lands.** A checkbox asked on
+                // every release would write the field again on every click anywhere in
+                // the drawer, which is a document changed by looking at it.
+                ButtonKind::CheckBox => Self::ticked(ui, field)
+                    .map(|on| Asked::Value { field: name, value: fepdf::FormValue::Boolean(on) }),
+                ButtonKind::Radio => {
+                    let holds = field.value.clone().unwrap_or_else(|| "/Off".to_owned());
+                    ui.label(words("form_radio_not_chosen_here").replacen("{}", &holds, 1));
+                    None
+                }
+                ButtonKind::Push => {
+                    ui.label(words("form_pushbutton_holds_nothing"));
+                    None
+                }
+            },
             Some("Sig") => {
                 ui.label(words("form_signature_not_filled"));
                 None
@@ -213,6 +224,37 @@ impl FormPanel {
     fn ticked(ui: &mut egui::Ui, field: &FormField) -> Option<bool> {
         let mut on = is_on(field.value.as_deref());
         ui.checkbox(&mut on, "").changed().then_some(on)
+    }
+}
+
+/// Which of the three buttons `/FT /Btn` is, by its field flags (Table 226).
+///
+/// **All three were drawn as a check box.** Ticking one that was a radio group made the
+/// engine refuse, since "on" does not say which button; unticking wrote `/V /Off` into it,
+/// and into a push button, which holds no value at all (12.7.5.2.2) — the wrong shape
+/// written into the file that this drawer's own rule says it will not write.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ButtonKind {
+    CheckBox,
+    /// Bit 16, `Radio`.
+    Radio,
+    /// Bit 17, `Pushbutton`.
+    Push,
+}
+
+impl ButtonKind {
+    const RADIO: i64 = 1 << 15;
+    const PUSHBUTTON: i64 = 1 << 16;
+
+    fn of(flags: Option<i64>) -> Self {
+        let flags = flags.unwrap_or(0);
+        if flags & Self::PUSHBUTTON != 0 {
+            Self::Push
+        } else if flags & Self::RADIO != 0 {
+            Self::Radio
+        } else {
+            Self::CheckBox
+        }
     }
 }
 
@@ -306,7 +348,19 @@ mod calculation_order {
 
 #[cfg(test)]
 mod buttons {
-    use super::is_on;
+    use super::{ButtonKind, is_on};
+
+    /// **A radio group and a push button are not check boxes.** Bit 16 and bit 17 of
+    /// `/Ff` say which (Table 226); `form_of` reports the integer as the file states it,
+    /// inherited, and the interactive tests read 32768 off a radio group.
+    #[test]
+    fn a_button_is_told_apart_by_its_flags() {
+        assert_eq!(ButtonKind::of(None), ButtonKind::CheckBox);
+        assert_eq!(ButtonKind::of(Some(0)), ButtonKind::CheckBox);
+        assert_eq!(ButtonKind::of(Some(32768)), ButtonKind::Radio);
+        assert_eq!(ButtonKind::of(Some(32768 | 16384)), ButtonKind::Radio, "NoToggleToOff too");
+        assert_eq!(ButtonKind::of(Some(65536)), ButtonKind::Push);
+    }
 
     #[test]
     fn a_cleared_box_is_off_as_form_of_writes_it() {
