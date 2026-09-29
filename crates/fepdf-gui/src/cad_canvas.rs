@@ -5,7 +5,6 @@ use std::collections::BTreeMap;
 pub enum SnapType {
     EndPoint,
     MidPoint,
-    Intersection,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -21,9 +20,17 @@ pub struct SnapPoint {
     pub description: &'static str,
 }
 
+/// The points the caliper snaps to on each page.
+///
+/// **Only points the page has**: the corners and centre of each run of text the worker
+/// read. This used to add points the page did not have — a corner and an edge midpoint
+/// 50 points in from each edge of every page, whatever was drawn there, and a "path
+/// junction" ten points off the midpoint of the first two — and offered them to the
+/// reader by name, so a measurement could be snapped to something that was not in the
+/// drawing. Its comment called it a simulation "for demonstration". It also took the
+/// first twelve runs of a page and no more. Reading a drawing's own paths for their end
+/// points is what a CAD snap is, and it is not built.
 pub struct CadSnapEngine {
-    // We cache geometric key points for each page.
-    // In a fully-production environment, this is populated during content stream rendering.
     pub page_snap_points: BTreeMap<usize, Vec<SnapPoint>>,
 }
 
@@ -32,50 +39,12 @@ impl CadSnapEngine {
         Self { page_snap_points: BTreeMap::new() }
     }
 
-    /// Populates simulated snapping points for the page based on text spans and page layout.
-    /// This mimics real vector path extraction for demonstration.
-    fn add_margin_snap_points(&self, points: &mut Vec<SnapPoint>, page_w: f32, page_h: f32) {
-        let margins = [50.0_f32, 50.0_f32];
-        let w_act = margins[0].mul_add(-2.0, page_w);
-        let h_act = margins[1].mul_add(-2.0, page_h);
-
-        let corners = [
-            egui::pos2(margins[0], margins[1]),
-            egui::pos2(margins[0] + w_act, margins[1]),
-            egui::pos2(margins[0], margins[1] + h_act),
-            egui::pos2(margins[0] + w_act, margins[1] + h_act),
-        ];
-
-        for &c in &corners {
-            points.push(SnapPoint {
-                point: c,
-                snap_type: SnapType::EndPoint,
-                description: "snap_corner",
-            });
-        }
-
-        let midpoints = [
-            egui::pos2(margins[0] + w_act / 2.0, margins[1]),
-            egui::pos2(margins[0], margins[1] + h_act / 2.0),
-            egui::pos2(margins[0] + w_act, margins[1] + h_act / 2.0),
-            egui::pos2(margins[0] + w_act / 2.0, margins[1] + h_act),
-        ];
-
-        for &m in &midpoints {
-            points.push(SnapPoint {
-                point: m,
-                snap_type: SnapType::MidPoint,
-                description: "snap_midpoint",
-            });
-        }
-    }
-
     fn add_text_span_snap_points(
         &self,
         points: &mut Vec<SnapPoint>,
         text_spans: &[crate::interaction::TextSpan],
     ) {
-        for span in text_spans.iter().take(12) {
+        for span in text_spans {
             let r = span.rect;
             points.push(SnapPoint {
                 point: egui::pos2(r.min.x, r.min.y),
@@ -98,33 +67,13 @@ impl CadSnapEngine {
     pub fn ensure_snap_points(
         &mut self,
         page_index: usize,
-        page_w: f32,
-        page_h: f32,
         text_spans: &[crate::interaction::TextSpan],
     ) {
         if self.page_snap_points.contains_key(&page_index) {
             return;
         }
-
         let mut points = Vec::new();
-
-        // 1. Add page margins corners and midpoints
-        self.add_margin_snap_points(&mut points, page_w, page_h);
-
-        // 2. Add text span bounding box endpoints and midpoints
         self.add_text_span_snap_points(&mut points, text_spans);
-
-        // 3. Add simulated intersection point
-        if points.len() >= 2 {
-            let p1 = points[0].point;
-            let p2 = points[1].point;
-            points.push(SnapPoint {
-                point: egui::pos2(f32::midpoint(p1.x, p2.x), f32::midpoint(p1.y, p2.y) + 10.0),
-                snap_type: SnapType::Intersection,
-                description: "snap_junction",
-            });
-        }
-
         self.page_snap_points.insert(page_index, points);
     }
 
@@ -264,12 +213,7 @@ impl CaliperTool {
         }
 
         // Ensure page snap points exist
-        snap_engine.ensure_snap_points(
-            page_index,
-            page_screen_rect.width() / zoom,
-            page_screen_rect.height() / zoom,
-            text_spans,
-        );
+        snap_engine.ensure_snap_points(page_index, text_spans);
 
         let response = ui.allocate_rect(page_screen_rect, egui::Sense::click_and_drag());
         let screen_pos = ui.input(|i| i.pointer.hover_pos());
@@ -360,8 +304,7 @@ impl CaliperTool {
             let stroke = egui::Stroke::new(1.5_f32, colors::steel::TEXT);
             let halo = egui::Stroke::new(3.0_f32, colors::paper::WHITE);
             let marker = |width: f32, stroke: egui::Stroke| match snap.snap_type {
-                // A square for an end point, a triangle for a mid point, a cross for an
-                // intersection.
+                // A square for an end point, a triangle for a mid point.
                 SnapType::EndPoint => painter.rect_stroke(
                     egui::Rect::from_center_size(screen_pos, egui::vec2(width * 2.0, width * 2.0)),
                     0.0,
@@ -376,22 +319,6 @@ impl CaliperTool {
                     ],
                     stroke,
                 )),
-                SnapType::Intersection => {
-                    painter.line_segment(
-                        [
-                            screen_pos + egui::vec2(-width, -width),
-                            screen_pos + egui::vec2(width, width),
-                        ],
-                        stroke,
-                    );
-                    painter.line_segment(
-                        [
-                            screen_pos + egui::vec2(width, -width),
-                            screen_pos + egui::vec2(-width, width),
-                        ],
-                        stroke,
-                    )
-                }
             };
             marker(size, halo);
             marker(size, stroke);
@@ -489,6 +416,37 @@ impl CaliperTool {
                     colors::rust::ACCENT,
                 );
             }
+        }
+    }
+}
+
+/// What the caliper offers to snap to.
+#[cfg(test)]
+mod snapping {
+    use super::CadSnapEngine;
+    use crate::interaction::TextSpan;
+
+    fn run(x: f32) -> TextSpan {
+        TextSpan {
+            text: "x".to_owned(),
+            rect: egui::Rect::from_min_size(egui::pos2(x, 700.0), egui::vec2(10.0, 12.0)),
+        }
+    }
+
+    /// **Every snap point is a point of a run the page has**, and every run is offered —
+    /// not the first twelve, and nothing the page does not draw.
+    #[test]
+    fn every_snap_point_belongs_to_a_run() {
+        let runs: Vec<TextSpan> = (0..20).map(|i| run(i as f32 * 20.0)).collect();
+        let mut engine = CadSnapEngine::new();
+        engine.ensure_snap_points(0, &runs);
+        let points = &engine.page_snap_points[&0];
+        assert_eq!(points.len(), 3 * runs.len(), "each run gives its two corners and centre");
+        for snap in points {
+            assert!(
+                runs.iter().any(|r| r.rect.expand(0.01).contains(snap.point)),
+                "{snap:?} is on no run of the page"
+            );
         }
     }
 }
