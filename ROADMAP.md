@@ -846,8 +846,23 @@ eight times, and the copies do not agree on whether to resolve.
       shall not be there (`abdea2d`). Three claims corrected: that no sample CFF is
       CID-keyed (fourteen are), a doc line on the wrong module, and two comments
       describing a face choice `regular_face` now makes.
-- [ ] **Y-1b** — `fepdf-gui`: `view`, `view/draw`, `worker`, `capture`, `annotate`,
-      `speech`, `measuring`, `finding`, `printing`, the sidebars.
+- [x] **Y-1b** — `fepdf-gui`: `view`, `view/draw`, `worker`, `capture`, `annotate`,
+      `speech`, `measuring`, `finding`, `printing`, the sidebars. Eleven defects, each
+      with a test that fails with the fix taken out, and the gesture ones seen in the
+      window through a capture plan:
+      - `/Rotate 90` and `270` drawn mirrored, in the window and by `page_to_pixels`, and
+        every box taken to start at `(0, 0)` (`a6af4dc`); every tool mapping the page as
+        upright and unoffset (`20e9865`). No page of the 18,282 in the corpus is turned;
+        the window's own rotate and crop make them.
+      - A stripped export erasing the open document's title and author (`409e68d`).
+      - A radio group's widgets read as fields (`6db2ac5`), and radio groups and push
+        buttons drawn as check boxes (`f9314de`).
+      - The caliper snapping to invented points (`1f7b1fd`) and ignoring `/UserUnit`
+        (`1a96559`); the snapshot ignoring it too (`6206792`).
+      - Reading aloud from past the last passage reading the whole document
+        (`e4b17cc`); a one-code run offered a cut (`9355f5b`).
+      Stale claims corrected beside them; Y-F9 to Y-F12 are what could not be settled
+      here.
 - [ ] **Y-1c** — `fepdf-mcp` and `fepdf-cli`: each tool description against what the tool
       does.
 - [ ] **Y-1d** — `fepdf-doc`: `apply/*`, `audit_*`, `measure`, `reading`, `glyph_map`,
