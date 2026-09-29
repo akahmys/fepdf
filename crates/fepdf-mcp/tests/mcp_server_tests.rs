@@ -1100,3 +1100,23 @@ fn compare_documents_finds_where_two_differ() {
     let regions = value["differences"][0]["regions"].as_array().map_or(0, Vec::len);
     assert!(regions > 0, "the picture was not found to differ: {answer}");
 }
+
+/// **A file that opened only by being repaired is not reported as read as written.**
+/// The audit said "XRef chain and trailer resolved successfully" of every file it could
+/// open, and a file with a wrong `startxref` opens: the reader scans for its objects.
+#[test]
+fn a_repaired_file_structure_is_reported_as_repaired() {
+    let clean = written("audit_clean", &pages(1));
+    let report = audit_document_impl(AuditArgs { path: clean }).expect("audit runs");
+    assert!(report.contains("nothing was repaired"), "{report}");
+
+    let mut broken = pages(1);
+    let at = broken.windows(9).rposition(|w| w == b"startxref").expect("a startxref");
+    let tail = String::from_utf8_lossy(&broken[at..]).replace(|c: char| c.is_ascii_digit(), "9");
+    broken.truncate(at);
+    broken.extend_from_slice(tail.as_bytes());
+    let path = written("audit_repaired", &broken);
+    let report = audit_document_impl(AuditArgs { path }).expect("audit runs");
+    assert!(!report.contains("nothing was repaired"), "a repair was called none: {report}");
+    assert!(report.contains("\"Warning\"") && report.contains("7.5"), "{report}");
+}

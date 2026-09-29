@@ -63,11 +63,28 @@ fn audit_document_internal(args: AuditArgs) -> McpResult<String> {
         }
     };
 
-    findings.push(Finding {
-        severity: "Info".into(),
-        category: "Structural".into(),
-        message: "XRef chain and trailer resolved successfully.".into(),
-    });
+    // **What the reader had to repair is said; that it opened is not the same claim.**
+    // This reported "XRef chain and trailer resolved successfully" of every file that
+    // opened, and a file opens when its cross-reference is unusable — the reader scans
+    // for its objects instead and records that as a 7.5 decision (ADR-0003).
+    let repairs: Vec<fepdf::Decision> =
+        doc.decisions().into_iter().filter(|d| d.clause.starts_with("7.5")).collect();
+    if repairs.is_empty() {
+        findings.push(Finding {
+            severity: "Info".into(),
+            category: "Structural".into(),
+            message: "The file structure (7.5: header, cross-reference, trailer) was read \
+                      as written; nothing was repaired to open it."
+                .into(),
+        });
+    }
+    for repair in repairs {
+        findings.push(Finding {
+            severity: "Warning".into(),
+            category: "Structural".into(),
+            message: format!("{}: {} — {}", repair.clause, repair.found, repair.action),
+        });
+    }
 
     // 3. Use SDK Summary for Audit
     let summary = doc.get_summary().map_err(|e| McpError::Pdf(e.to_string()))?;

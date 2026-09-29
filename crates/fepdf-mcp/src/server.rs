@@ -181,7 +181,11 @@ impl FepdfServer {
     /// Performs a structural compliance audit of a PDF document.
     #[tool(
         name = "audit_document",
-        description = "Performs a structural compliance audit of a PDF document, checking Catalog, XRef, and Page Tree integrity."
+        description = "Audits a PDF: whether it opens, what the reader had to repair in its \
+                       file structure to open it (7.5: header, cross-reference, trailer — \
+                       each repair a Warning), the PDF/UA-2 accessibility audit's findings, \
+                       and the engine's ISO 32000-2 compliance issues. status is FAILED \
+                       when any finding is an Error."
     )]
     pub async fn audit_document(
         &self,
