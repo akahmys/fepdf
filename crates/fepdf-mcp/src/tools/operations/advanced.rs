@@ -86,9 +86,13 @@ pub struct SetUnencryptedWrapperArgs {
     pub input_path: String,
     /// Path to output PDF file.
     pub output_path: String,
-    /// Path to the encrypted payload binary file.
+    /// Path to the encrypted payload: a PDF file encrypted by a custom security handler.
     pub payload_file_path: String,
-    /// Notice message for legacy PDF readers.
+    /// The cryptographic filter that decrypts it, as a name: Table 28's `/Subtype`.
+    pub crypto_filter: String,
+    /// That filter's version, integers with a period between them: Table 28's `/Version`.
+    pub filter_version: Option<String>,
+    /// What a reader without the filter is told, such as which handler to install.
     pub notice_message: Option<String>,
 }
 
@@ -165,11 +169,18 @@ pub fn set_unencrypted_wrapper_impl(args: SetUnencryptedWrapperArgs) -> Result<S
     let payload = fs::read(&args.payload_file_path)
         .map_err(|e| format!("Failed to read wrapper payload '{}': {e}", args.payload_file_path))?;
 
+    // The payload keeps its own file name, which is what a reader lists it by.
+    let payload_name = std::path::Path::new(&args.payload_file_path)
+        .file_name()
+        .map_or_else(|| "payload.pdf".to_string(), |n| n.to_string_lossy().into_owned());
     let spec = UnencryptedWrapperSpec {
-        notice_message: args
-            .notice_message
-            .unwrap_or_else(|| "This document is protected.".to_string()),
+        notice_message: args.notice_message.unwrap_or_else(|| {
+            format!("This document is encrypted with the {} security handler.", args.crypto_filter)
+        }),
         encrypted_payload_bytes: payload,
+        payload_name,
+        crypto_filter: args.crypto_filter,
+        filter_version: args.filter_version,
     };
     let op = Operation::SetUnencryptedWrapper(spec);
     execute_single_op(&args.input_path, &args.output_path, op, "Unencrypted wrapper payload set")

@@ -905,10 +905,18 @@ impl FepdfServer {
         set_geospatial_anchor_impl(args)
     }
 
-    /// Configures an unencrypted wrapper document payload conforming to ISO 32000-2 Section 7.6.7.
+    /// Makes a document the unencrypted wrapper of an encrypted payload (7.6.7).
     #[tool(
         name = "set_unencrypted_wrapper",
-        description = "Configures an unencrypted wrapper document payload conforming to ISO 32000-2 Section 7.6.7."
+        description = "Makes the document the unencrypted wrapper of an encrypted payload \
+                       (ISO 32000-2 7.6.7): a PDF file encrypted by a security handler the \
+                       standard does not define. The payload is embedded with AFRelationship \
+                       EncryptedPayload and an encrypted payload dictionary naming \
+                       crypto_filter (and filter_version), listed in /AF and as the only \
+                       /EmbeddedFiles entry, and a hidden /Collection opens it first, so a \
+                       reader holding the filter shows the payload and one without it shows \
+                       this document. Refused when the document already embeds a file or is \
+                       a collection, or the payload has no %PDF- header."
     )]
     pub async fn set_unencrypted_wrapper(
         &self,

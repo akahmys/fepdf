@@ -56,6 +56,7 @@ pub fn create_embedded_filespec(
             AFRelationship::Data => "Data",
             AFRelationship::Supplement => "Supplement",
             AFRelationship::Alternative => "Alternative",
+            AFRelationship::EncryptedPayload => "EncryptedPayload",
             AFRelationship::Unspecified => "Unspecified",
         };
         filespec.insert(arena.name("AFRelationship"), Object::Name(arena.name(af_rel)));

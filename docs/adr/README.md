@@ -168,3 +168,4 @@ quietly wrong — which is the failure this log exists to make visible.
 | 0101 | [A PDF Declaration is the caller's statement, and W-22 closes](0101-a-declaration-is-the-callers-statement-and-w-22-closes.md) | Rests on 0099 |
 | 0102 | [An error says whose it is, and `PdfError::Other` is removed](0102-an-error-says-whose-it-is.md) | |
 | 0103 | [Two operations that wrote what no reader reaches are removed](0103-two-operations-that-wrote-what-no-reader-reaches-are-removed.md) | Rests on 0015 |
+| 0104 | [The writer makes unencrypted wrapper documents, to 7.6.7](0104-the-writer-makes-unencrypted-wrapper-documents.md) | Rests on 0103 |

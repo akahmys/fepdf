@@ -310,6 +310,8 @@ pub enum AFRelationship {
     Supplement,
     /// Alternative representation.
     Alternative,
+    /// An encrypted payload document, the one file an unencrypted wrapper carries (7.6.7).
+    EncryptedPayload,
     /// Unspecified relationship.
     #[default]
     Unspecified,
@@ -627,13 +629,23 @@ pub struct GeoSpatialAnchor {
 
 // --- Phase 7: Font Engine & Cryptography Domain Models ---
 
-/// Unencrypted Wrapper Payload specification (ISO 32000-2 Section 7.6.7).
+/// What makes a document the unencrypted wrapper of an encrypted payload (7.6.7).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct UnencryptedWrapperSpec {
-    /// Visible guide message for legacy readers.
+    /// What a reader without the security handler is told about the payload, written as
+    /// its file specification's `/Desc`: 7.6.7 says a wrapper should say which handler
+    /// is needed.
     pub notice_message: String,
-    /// Encrypted payload stream bytes.
+    /// The encrypted payload: a whole PDF file, encrypted by a security handler this
+    /// standard does not specify.
     pub encrypted_payload_bytes: Vec<u8>,
+    /// The name the payload is embedded under: its `/F` and `/UF`, and its key in the
+    /// `/EmbeddedFiles` name tree, which the collection's `/D` names.
+    pub payload_name: String,
+    /// Table 28's `/Subtype`: the cryptographic filter that decrypts the payload.
+    pub crypto_filter: String,
+    /// Table 28's `/Version`: the filter's version, integers with a period between them.
+    pub filter_version: Option<String>,
 }
 
 #[cfg(test)]

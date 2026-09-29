@@ -282,19 +282,104 @@ fn test_geospatial_anchor_operation() {
     }
 }
 
+/// A wrapper for `payload`, filtered by `AcmeCustomCrypto` version 1.0.
+fn wrapper(payload: &[u8]) -> UnencryptedWrapperSpec {
+    UnencryptedWrapperSpec {
+        notice_message: "Install the Acme handler to open this document.".to_string(),
+        encrypted_payload_bytes: payload.to_vec(),
+        payload_name: "Protected.pdf".to_string(),
+        crypto_filter: "AcmeCustomCrypto".to_string(),
+        filter_version: Some("1.0".to_string()),
+    }
+}
+
+/// **Every `shall` of 7.6.7, read back from a saved and reopened file.** The operation
+/// embedded the payload with `/AFRelationship /Unspecified` and nothing else the clause
+/// asks for; each assertion here names one of the things it asks for.
 #[test]
-fn test_unencrypted_wrapper_operation() {
-    let wrapper = UnencryptedWrapperSpec {
-        notice_message: "This PDF is encrypted.".to_string(),
-        encrypted_payload_bytes: vec![10, 20, 30],
+fn an_unencrypted_wrapper_meets_what_7_6_7_asks() {
+    use fepdf::Object;
+    let mut doc = fepdf::PdfDocument::create_empty().expect("a document");
+    doc.apply(Operation::SetUnencryptedWrapper(wrapper(b"%PDF-2.0\nencrypted")))
+        .expect("the wrapper is written");
+    let path = std::env::temp_dir().join(format!("fepdf_wrapper_{}.pdf", std::process::id()));
+    doc.save_with_options(&path, "2.0", &fepdf::SaveOptions::default()).expect("it saves");
+    let reopened =
+        fepdf::PdfDocument::open(std::fs::read(&path).expect("read").into()).expect("it reopens");
+    let _ = std::fs::remove_file(&path);
+
+    let inner = reopened.inner();
+    let arena = inner.arena();
+    let dict = |o: &Object| {
+        arena.get_dict(o.resolve(arena).as_dict_handle().expect("a dictionary")).expect("held")
+    };
+    let catalog = dict(&Object::Reference(*inner.root_handle()));
+    let get = |d: &std::collections::BTreeMap<_, Object>, k: &str| {
+        d.get(&arena.name(k)).cloned().expect(k)
+    };
+    let name = |o: Object| {
+        arena
+            .get_name(o.resolve(arena).as_name().expect("a name"))
+            .expect("held")
+            .as_str()
+            .to_string()
     };
 
-    let op = Operation::SetUnencryptedWrapper(wrapper);
-    if let Operation::SetUnencryptedWrapper(w) = op {
-        assert_eq!(w.notice_message, "This PDF is encrypted.");
-    } else {
-        panic!("Operation variant mismatch");
-    }
+    // A Collection making the payload the initial document, the view hidden.
+    let collection = dict(&get(&catalog, "Collection"));
+    assert_eq!(name(get(&collection, "View")), "H", "the collection view is hidden");
+    assert!(
+        matches!(get(&collection, "D").resolve(arena), Object::String(ref b) if &b[..] == b"Protected.pdf"),
+        "the payload is the initial document"
+    );
+
+    // In /EmbeddedFiles, alone, and in /AF.
+    let names = dict(&get(&catalog, "Names"));
+    let embedded = dict(&get(&names, "EmbeddedFiles"));
+    let pairs = arena
+        .get_array(get(&embedded, "Names").resolve(arena).as_array().expect("an array"))
+        .expect("held");
+    assert_eq!(pairs.len(), 2, "the name tree holds exactly one entry");
+    let af = arena
+        .get_array(get(&catalog, "AF").resolve(arena).as_array().expect("an array"))
+        .expect("held");
+    assert_eq!(af.len(), 1, "the payload is in /AF");
+
+    // AFRelationship EncryptedPayload, and Table 28's dictionary.
+    let spec = dict(&af[0]);
+    assert_eq!(name(get(&spec, "AFRelationship")), "EncryptedPayload");
+    let ep = dict(&get(&spec, "EP"));
+    assert_eq!(name(get(&ep, "Type")), "EncryptedPayload");
+    assert_eq!(name(get(&ep, "Subtype")), "AcmeCustomCrypto");
+    assert_eq!(name(get(&ep, "Version")), "1.0");
+}
+
+/// What 7.6.7 and Table 28 rule out is refused, before anything is written.
+#[test]
+fn an_unencrypted_wrapper_is_refused_what_7_6_7_rules_out() {
+    let mut doc = fepdf::PdfDocument::create_empty().expect("a document");
+    assert!(
+        doc.apply(Operation::SetUnencryptedWrapper(wrapper(b"not a pdf"))).is_err(),
+        "a payload that is no PDF"
+    );
+    let mut bad_filter = wrapper(b"%PDF-2.0");
+    bad_filter.crypto_filter = "Acme Crypto".to_string();
+    assert!(
+        doc.apply(Operation::SetUnencryptedWrapper(bad_filter)).is_err(),
+        "a filter that is no name"
+    );
+    let mut bad_version = wrapper(b"%PDF-2.0");
+    bad_version.filter_version = Some("1.x".to_string());
+    assert!(
+        doc.apply(Operation::SetUnencryptedWrapper(bad_version)).is_err(),
+        "a version that is not integers"
+    );
+
+    doc.apply(Operation::SetUnencryptedWrapper(wrapper(b"%PDF-2.0"))).expect("the first wrapper");
+    assert!(
+        doc.apply(Operation::SetUnencryptedWrapper(wrapper(b"%PDF-2.0"))).is_err(),
+        "a second payload, which would make two /EmbeddedFiles entries"
+    );
 }
 
 #[test]
@@ -453,11 +538,8 @@ fn test_all_remaining_operations_execution() {
         .expect("SetOpenAction failed");
 
     // 4. SetUnencryptedWrapper
-    let wrapper = UnencryptedWrapperSpec {
-        notice_message: "Please use PDF 2.0 compliant viewer".to_string(),
-        encrypted_payload_bytes: b"%PDF-2.0 mock encrypted".to_vec(),
-    };
-    doc.apply(Operation::SetUnencryptedWrapper(wrapper)).expect("SetUnencryptedWrapper failed");
+    doc.apply(Operation::SetUnencryptedWrapper(wrapper(b"%PDF-2.0 mock encrypted")))
+        .expect("SetUnencryptedWrapper failed");
 
     // 6. SetPronunciationLexicon — refused here: the lexicon is an entry of the structure
     // tree root (Table 354) and this document has no structure tree. Where it is written
