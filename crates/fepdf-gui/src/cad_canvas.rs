@@ -134,7 +134,7 @@ impl CadSnapEngine {
         page_index: usize,
         pointer_pdf: egui::Pos2,
         _page_screen_rect: egui::Rect,
-        _page_unscaled_h: f32,
+        _frame: crate::interaction::PageFrame,
         zoom: f32,
         threshold_screen: f32,
     ) -> Option<SnapPoint> {
@@ -254,7 +254,7 @@ impl CaliperTool {
         ui: &mut egui::Ui,
         page_index: usize,
         page_screen_rect: egui::Rect,
-        page_unscaled_h: f32,
+        frame: crate::interaction::PageFrame,
         zoom: f32,
         snap_engine: &mut CadSnapEngine,
         text_spans: &[crate::interaction::TextSpan],
@@ -278,19 +278,13 @@ impl CaliperTool {
             let pdf_pos = crate::interaction::SelectionManager::screen_to_pdf(
                 page_screen_rect,
                 zoom,
-                page_unscaled_h,
+                frame,
                 pos,
             );
 
             // Real-time hover snapping (15px threshold)
-            let hovered_snap = snap_engine.find_snap(
-                page_index,
-                pdf_pos,
-                page_screen_rect,
-                page_unscaled_h,
-                zoom,
-                15.0,
-            );
+            let hovered_snap =
+                snap_engine.find_snap(page_index, pdf_pos, page_screen_rect, frame, zoom, 15.0);
             self.current_snap = hovered_snap;
 
             // A shape is taken a corner at a click, on the page its first corner is on.
@@ -339,7 +333,7 @@ impl CaliperTool {
         &self,
         ui: &mut egui::Ui,
         (page_index, page_screen_rect): (usize, egui::Rect),
-        page_unscaled_h: f32,
+        frame: crate::interaction::PageFrame,
         zoom: f32,
         tr: &dyn Fn(&str) -> String,
     ) {
@@ -354,7 +348,7 @@ impl CaliperTool {
             let screen_pos = crate::interaction::SelectionManager::pdf_to_screen(
                 page_screen_rect,
                 zoom,
-                page_unscaled_h,
+                frame,
                 snap.point,
             );
 
@@ -423,7 +417,7 @@ impl CaliperTool {
                 crate::interaction::SelectionManager::pdf_to_screen(
                     page_screen_rect,
                     zoom,
-                    page_unscaled_h,
+                    frame,
                     p,
                 )
             };
@@ -441,13 +435,13 @@ impl CaliperTool {
             let start_screen = crate::interaction::SelectionManager::pdf_to_screen(
                 page_screen_rect,
                 zoom,
-                page_unscaled_h,
+                frame,
                 start_pdf,
             );
             let end_screen = crate::interaction::SelectionManager::pdf_to_screen(
                 page_screen_rect,
                 zoom,
-                page_unscaled_h,
+                frame,
                 end_pdf,
             );
 

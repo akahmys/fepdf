@@ -258,7 +258,8 @@ impl History {
 pub struct LoadedDocument {
     pub name: Option<String>,
     pub num_pages: usize,
-    pub page_sizes: Vec<(f64, f64)>, // (width, height)
+    /// Each page's box and turn, which the view lays out and maps points through.
+    pub page_frames: Vec<crate::interaction::PageFrame>,
     pub ust_root: Option<crate::sidebar::USTNode>,
     pub file_size: usize,
     pub version: String,
@@ -379,7 +380,7 @@ pub enum WorkerResponse {
     /// many pages as the file it is given holds, which this thread learns by opening it
     /// and the window cannot know at all.
     PagesChanged {
-        page_sizes: Vec<(f64, f64)>,
+        page_frames: Vec<crate::interaction::PageFrame>,
     },
     /// The bookmark tree as the file now holds it, after an operation changed something.
     ///
@@ -947,10 +948,8 @@ fn handle_open(
                 }
             }
             let num_pages = doc.page_count().unwrap_or(0);
-            let mut page_sizes = Vec::with_capacity(num_pages);
-            for i in 0..num_pages {
-                page_sizes.push(doc.get_page_size(i).unwrap_or((595.0, 842.0)));
-            }
+            let page_frames =
+                (0..num_pages).map(|i| crate::interaction::PageFrame::of(&doc, i)).collect();
 
             let mut next_id = 0;
             let mut ust_root = resolve_struct_tree_root(&doc, &mut next_id);
@@ -1005,7 +1004,7 @@ fn handle_open(
             let _ = tx.send(WorkerResponse::DocumentLoaded(Box::new(LoadedDocument {
                 name,
                 num_pages,
-                page_sizes,
+                page_frames,
                 ust_root,
                 file_size,
                 version,
@@ -1426,14 +1425,14 @@ fn handle_apply(
     done: String,
     tx: &Sender<WorkerResponse>,
 ) {
-    let before = page_sizes_of(doc.as_ref());
+    let before = page_frames_of(doc.as_ref());
     let moved = act.iter().any(Operation::moves_content);
     apply_recorded(doc, history, act, Some(done), tx);
-    let after = page_sizes_of(doc.as_ref());
+    let after = page_frames_of(doc.as_ref());
     let resized = after != before;
     send_form(doc.as_ref(), tx);
     if resized {
-        let _ = tx.send(WorkerResponse::PagesChanged { page_sizes: after });
+        let _ = tx.send(WorkerResponse::PagesChanged { page_frames: after });
     }
     // **The structure tree is measured against the pages, so what moved them moved it.**
     // Its rectangles come from where each element's marked content actually drew, and the
@@ -1457,10 +1456,10 @@ fn handle_apply(
 /// resized to A3 went on being drawn at its old size because the window keeps its own
 /// sizes and nothing told it. Comparing the sizes covers both, and covers the next
 /// operation that moves a box without adding a page.
-fn page_sizes_of(doc: Option<&PdfDocument>) -> Vec<(f64, f64)> {
+fn page_frames_of(doc: Option<&PdfDocument>) -> Vec<crate::interaction::PageFrame> {
     let Some(doc) = doc else { return Vec::new() };
     let Ok(count) = doc.page_count() else { return Vec::new() };
-    (0..count).map(|index| doc.get_page_size(index).unwrap_or((595.0, 842.0))).collect()
+    (0..count).map(|index| crate::interaction::PageFrame::of(doc, index)).collect()
 }
 
 /// Extracts `indices` into a document of its own, and takes them out of this one when
@@ -1491,7 +1490,7 @@ fn handle_extract(
     if remove {
         let taken = PageSelection::Indices(indices.to_vec());
         record(doc, history, Operation::RemovePages(taken), None, tx);
-        let _ = tx.send(WorkerResponse::PagesChanged { page_sizes: page_sizes_of(doc.as_ref()) });
+        let _ = tx.send(WorkerResponse::PagesChanged { page_frames: page_frames_of(doc.as_ref()) });
     }
 }
 

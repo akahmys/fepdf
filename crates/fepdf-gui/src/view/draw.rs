@@ -199,7 +199,7 @@ impl PDFView {
                     ui,
                     page_rect,
                     self.zoom,
-                    layout.rect.height(),
+                    layout.frame,
                     root,
                     layout.index,
                     ust_registry.selected_node_id,
@@ -391,10 +391,10 @@ impl PDFView {
         let Some(on_page) = highlights.get(&page_index) else {
             return;
         };
-        let unscaled_h = layout.rect.height();
+        let frame = layout.frame;
         for span in on_page {
             let rect = crate::interaction::SelectionManager::highlight_rect(
-                page_rect, self.zoom, unscaled_h, *span,
+                page_rect, self.zoom, frame, *span,
             );
             ui.painter().rect_filled(rect, radius::FLAT, colors::rust::wash());
         }
@@ -423,7 +423,7 @@ impl PDFView {
         let Some(on_page) = runs.boxes.get(&page_index) else {
             return;
         };
-        let unscaled_h = layout.rect.height();
+        let frame = layout.frame;
         for run in on_page {
             // A run being dragged is drawn where it will land, not where it still is: a
             // reader moving something wants to see the answer before they let go. The
@@ -441,7 +441,7 @@ impl PDFView {
                     crate::interaction::SelectionManager::pdf_to_screen(
                         page_rect,
                         self.zoom,
-                        unscaled_h,
+                        frame,
                         *corner + carried,
                     )
                 })
@@ -589,18 +589,18 @@ impl PDFView {
     fn element_rect(
         page_rect: egui::Rect,
         zoom: f32,
-        unscaled_h: f32,
+        frame: crate::interaction::PageFrame,
         rect: [f32; 4],
     ) -> egui::Rect {
         let corner = |x: f32, y: f32| {
             crate::interaction::SelectionManager::pdf_to_screen(
                 page_rect,
                 zoom,
-                unscaled_h,
+                frame,
                 egui::pos2(x, y),
             )
         };
-        egui::Rect::from_min_max(corner(rect[0], rect[3]), corner(rect[2], rect[1]))
+        egui::Rect::from_two_pos(corner(rect[0], rect[1]), corner(rect[2], rect[3]))
     }
 
     /// **Filtered by page.** A structure tree covers the whole document, and this walks
@@ -611,7 +611,7 @@ impl PDFView {
         ui: &mut egui::Ui,
         page_rect: egui::Rect,
         zoom: f32,
-        unscaled_h: f32,
+        frame: crate::interaction::PageFrame,
         node: &crate::sidebar::USTNode,
         page_index: usize,
         selected_id: Option<usize>,
@@ -620,7 +620,7 @@ impl PDFView {
         if let Some(rect) = node.rect
             && here
         {
-            let element_rect = Self::element_rect(page_rect, zoom, unscaled_h, rect);
+            let element_rect = Self::element_rect(page_rect, zoom, frame, rect);
 
             // **The box says which tag it is, instead of being coloured for it.** Four
             // hues stood here — and again, verbatim, in `collect_nodes_for_reading_order`
@@ -651,15 +651,7 @@ impl PDFView {
         }
 
         for child in &node.children {
-            Self::draw_semantic_borders(
-                ui,
-                page_rect,
-                zoom,
-                unscaled_h,
-                child,
-                page_index,
-                selected_id,
-            );
+            Self::draw_semantic_borders(ui, page_rect, zoom, frame, child, page_index, selected_id);
         }
     }
 

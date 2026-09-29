@@ -95,7 +95,7 @@ impl FepdfApp {
         ui: &mut egui::Ui,
         visible_index: usize,
         page_screen_rect: egui::Rect,
-        unscaled_h: f32,
+        frame: crate::interaction::PageFrame,
         zoom: f32,
     ) {
         let response = ui.allocate_rect(page_screen_rect, egui::Sense::drag());
@@ -104,7 +104,7 @@ impl FepdfApp {
         if response.drag_started()
             && let Some(pos) = screen_pos
         {
-            let pdf_pos = SelectionManager::screen_to_pdf(page_screen_rect, zoom, unscaled_h, pos);
+            let pdf_pos = SelectionManager::screen_to_pdf(page_screen_rect, zoom, frame, pos);
             self.signature_position =
                 Some((visible_index, egui::Rect::from_min_max(pdf_pos, pdf_pos)));
         }
@@ -114,7 +114,7 @@ impl FepdfApp {
             && let Some((sig_idx, sig_rect)) = &mut self.signature_position
             && *sig_idx == visible_index
         {
-            let pdf_pos = SelectionManager::screen_to_pdf(page_screen_rect, zoom, unscaled_h, pos);
+            let pdf_pos = SelectionManager::screen_to_pdf(page_screen_rect, zoom, frame, pos);
             let start_pos = sig_rect.min;
             *sig_rect = egui::Rect::from_two_pos(start_pos, pdf_pos);
         }
@@ -248,7 +248,11 @@ impl FepdfApp {
             ui.separator();
             // Two side by side go on the first page's sheet turned, so each keeps its
             // shape; four go two by two on the sheet as it is.
-            let first = combining.iter().next().and_then(|p| self.doc_page_sizes.get(*p)).copied();
+            let first = combining
+                .iter()
+                .next()
+                .and_then(|p| self.doc_page_frames.get(*p))
+                .map(|frame| frame.size());
             for (key, columns, rows, sheet) in [
                 ("menu_combine_two", 2, 1, first.map(|(w, h)| (h, w))),
                 ("menu_combine_four", 2, 2, None),
@@ -505,7 +509,7 @@ impl FepdfApp {
         response: &egui::Response,
         page_idx: usize,
         page_screen_rect: egui::Rect,
-        unscaled_h: f32,
+        frame: crate::interaction::PageFrame,
         zoom: f32,
     ) {
         if self.active_drawer != crate::sidebar::ActiveDrawer::TextRuns || !response.clicked() {
@@ -515,12 +519,8 @@ impl FepdfApp {
         if !page_screen_rect.contains(at) {
             return;
         }
-        let on_page = crate::interaction::SelectionManager::screen_to_pdf(
-            page_screen_rect,
-            zoom,
-            unscaled_h,
-            at,
-        );
+        let on_page =
+            crate::interaction::SelectionManager::screen_to_pdf(page_screen_rect, zoom, frame, at);
         // The last one that contains the point, so that a run drawn over another is the
         // one that answers — which is the one the reader sees.
         self.selected_run = self
@@ -540,7 +540,7 @@ impl FepdfApp {
         response: &egui::Response,
         page_idx: usize,
         page_screen_rect: egui::Rect,
-        unscaled_h: f32,
+        frame: crate::interaction::PageFrame,
         zoom: f32,
     ) {
         if self.active_drawer != crate::sidebar::ActiveDrawer::TextRuns {
@@ -550,7 +550,7 @@ impl FepdfApp {
             crate::interaction::SelectionManager::screen_to_pdf(
                 page_screen_rect,
                 zoom,
-                unscaled_h,
+                frame,
                 screen,
             )
         };
@@ -627,11 +627,11 @@ impl FepdfApp {
         response: &egui::Response,
         page_idx: usize,
         page_screen_rect: egui::Rect,
-        unscaled_h: f32,
+        frame: crate::interaction::PageFrame,
         zoom: f32,
     ) {
-        self.handle_run_click_on_page(response, page_idx, page_screen_rect, unscaled_h, zoom);
-        self.handle_run_drag_on_page(response, page_idx, page_screen_rect, unscaled_h, zoom);
+        self.handle_run_click_on_page(response, page_idx, page_screen_rect, frame, zoom);
+        self.handle_run_drag_on_page(response, page_idx, page_screen_rect, frame, zoom);
         if self.view.does(Act::SelectText)
             && let Some(spans) = self.page_spans.get(&page_idx)
         {
@@ -640,7 +640,7 @@ impl FepdfApp {
                     ui,
                     page_idx,
                     page_screen_rect,
-                    unscaled_h,
+                    frame,
                     spans,
                     zoom,
                 );
@@ -650,7 +650,7 @@ impl FepdfApp {
                     response,
                     page_idx,
                     page_screen_rect,
-                    unscaled_h,
+                    frame,
                     spans,
                     zoom,
                 );
@@ -663,7 +663,7 @@ impl FepdfApp {
         ui: &mut egui::Ui,
         page_idx: usize,
         page_screen_rect: egui::Rect,
-        unscaled_h: f32,
+        frame: crate::interaction::PageFrame,
         zoom: f32,
         dragged_from: Option<usize>,
     ) -> Option<usize> {
@@ -710,14 +710,7 @@ impl FepdfApp {
             None
         };
 
-        self.handle_text_selection_on_page(
-            ui,
-            &response,
-            page_idx,
-            page_screen_rect,
-            unscaled_h,
-            zoom,
-        );
+        self.handle_text_selection_on_page(ui, &response, page_idx, page_screen_rect, frame, zoom);
 
         target_slot
     }
@@ -727,7 +720,7 @@ impl FepdfApp {
         ui: &mut egui::Ui,
         page_idx: usize,
         page_screen_rect: egui::Rect,
-        unscaled_h: f32,
+        frame: crate::interaction::PageFrame,
         zoom: f32,
     ) {
         if let Some(spans) = self.page_spans.get(&page_idx) {
@@ -735,20 +728,16 @@ impl FepdfApp {
                 ui,
                 page_idx,
                 page_screen_rect,
-                unscaled_h,
+                frame,
                 zoom,
                 &mut self.cad_snap_engine,
                 spans,
             );
             let locale = &self.locale_mgr;
             let lang = &self.active_language;
-            self.caliper_tool.draw_overlay(
-                ui,
-                (page_idx, page_screen_rect),
-                unscaled_h,
-                zoom,
-                &|key| locale.tr(lang, key),
-            );
+            self.caliper_tool.draw_overlay(ui, (page_idx, page_screen_rect), frame, zoom, &|key| {
+                locale.tr(lang, key)
+            });
         }
     }
 
@@ -757,7 +746,7 @@ impl FepdfApp {
         ui: &mut egui::Ui,
         visible_index: usize,
         page_screen_rect: egui::Rect,
-        unscaled_h: f32,
+        frame: crate::interaction::PageFrame,
         zoom: f32,
         dragged_from: Option<usize>,
     ) -> Option<usize> {
@@ -768,14 +757,14 @@ impl FepdfApp {
             // its drags must not become something else on the way past.
             PageInput::Suppressed => None,
             PageInput::Tool => {
-                self.handle_content_tool(ui, visible_index, page_screen_rect, unscaled_h, zoom);
+                self.handle_content_tool(ui, visible_index, page_screen_rect, frame, zoom);
                 None
             }
             PageInput::Normal => self.handle_page_tile_interaction(
                 ui,
                 visible_index,
                 page_screen_rect,
-                unscaled_h,
+                frame,
                 zoom,
                 dragged_from,
             ),
@@ -810,30 +799,28 @@ impl FepdfApp {
         ui: &mut egui::Ui,
         visible_index: usize,
         page_screen_rect: egui::Rect,
-        unscaled_h: f32,
+        frame: crate::interaction::PageFrame,
         zoom: f32,
     ) {
         let Some(tool) = self.content_tool() else { return };
         let (page, rect) = (visible_index, page_screen_rect);
         match tool {
             ContentTool::Signature => {
-                self.handle_signature_placement_interaction(ui, page, rect, unscaled_h, zoom);
+                self.handle_signature_placement_interaction(ui, page, rect, frame, zoom);
             }
             ContentTool::Caliper => {
-                self.handle_caliper_page_interaction(ui, page, rect, unscaled_h, zoom);
+                self.handle_caliper_page_interaction(ui, page, rect, frame, zoom);
             }
             ContentTool::Redaction => {
-                self.redaction_manager.handle_interaction(ui, page, rect, unscaled_h, zoom);
+                self.redaction_manager.handle_interaction(ui, page, rect, frame, zoom);
             }
             ContentTool::Snapshot => {
-                if let Some(taken) =
-                    self.snapshot_tool.interaction(ui, page, rect, unscaled_h, zoom)
-                {
+                if let Some(taken) = self.snapshot_tool.interaction(ui, page, rect, frame, zoom) {
                     self.copy_snapshot(taken);
                 }
             }
             ContentTool::Annotate => {
-                match self.annotate_tool.interaction(ui, page, rect, unscaled_h, zoom) {
+                match self.annotate_tool.interaction(ui, page, rect, frame, zoom) {
                     None => {}
                     Some(Ok(spec)) => {
                         let done = self.tr("annotate_done");
@@ -918,20 +905,18 @@ impl FepdfApp {
         // predates the grid belonging to the zoom: in the tiles the mode is `SinglePage`,
         // so every tile but one was skipped and neither a click nor a right-click reached
         // any of them.
-        let pages: Vec<(usize, egui::Rect, f32)> = self
+        let pages: Vec<(usize, egui::Rect, crate::interaction::PageFrame)> = self
             .view
             .visible_page_rects(viewport_rect, &self.page_layouts)
             .into_iter()
-            .map(|(layout, page_screen_rect)| {
-                (layout.index, page_screen_rect, layout.rect.height())
-            })
+            .map(|(layout, page_screen_rect)| (layout.index, page_screen_rect, layout.frame))
             .collect();
-        for (visible_index, page_screen_rect, unscaled_h) in pages {
+        for (visible_index, page_screen_rect, frame) in pages {
             if let Some(target) = self.handle_single_page_interaction(
                 ui,
                 visible_index,
                 page_screen_rect,
-                unscaled_h,
+                frame,
                 zoom,
                 dragged_from,
             ) {
@@ -960,17 +945,17 @@ impl FepdfApp {
             origin + layout.rect.min.to_vec2() * zoom,
             layout.rect.size() * zoom,
         );
-        let unscaled_h = layout.rect.height();
+        let frame = layout.frame;
         let screen_min = SelectionManager::pdf_to_screen(
             page_screen_rect,
             zoom,
-            unscaled_h,
+            frame,
             egui::pos2(rect[0], rect[3]),
         );
         let screen_max = SelectionManager::pdf_to_screen(
             page_screen_rect,
             zoom,
-            unscaled_h,
+            frame,
             egui::pos2(rect[2], rect[1]),
         );
         Some((page_idx, egui::Rect::from_min_max(screen_min, screen_max)))
@@ -988,17 +973,17 @@ impl FepdfApp {
             origin + layout.rect.min.to_vec2() * zoom,
             layout.rect.size() * zoom,
         );
-        let unscaled_h = layout.rect.height();
+        let frame = layout.frame;
         let screen_min = SelectionManager::pdf_to_screen(
             page_screen_rect,
             zoom,
-            unscaled_h,
+            frame,
             egui::pos2(sig_rect.min.x, sig_rect.max.y),
         );
         let screen_max = SelectionManager::pdf_to_screen(
             page_screen_rect,
             zoom,
-            unscaled_h,
+            frame,
             egui::pos2(sig_rect.max.x, sig_rect.min.y),
         );
         Some((sig_idx, egui::Rect::from_min_max(screen_min, screen_max)))
@@ -1023,12 +1008,12 @@ impl FepdfApp {
                     origin + layout.rect.min.to_vec2() * zoom,
                     layout.rect.size() * zoom,
                 );
-                let unscaled_h = layout.rect.height();
+                let frame = layout.frame;
 
                 let (completed, active_drag) = self.redaction_manager.get_screen_highlights(
                     visible_index,
                     page_screen_rect,
-                    unscaled_h,
+                    frame,
                     zoom,
                 );
                 if !completed.is_empty() {
@@ -1040,8 +1025,7 @@ impl FepdfApp {
                 // The snapshot's rectangle is drawn the same way the redaction brush's
                 // is, and through the same overlay: a reader dragging one is looking at
                 // the same question — what is inside this.
-                if let Some(drag_rect) =
-                    self.snapshot_tool.dragging(page_screen_rect, unscaled_h, zoom)
+                if let Some(drag_rect) = self.snapshot_tool.dragging(page_screen_rect, frame, zoom)
                 {
                     snapshot_drag = Some((visible_index, drag_rect));
                 }
@@ -1052,7 +1036,7 @@ impl FepdfApp {
                     ui,
                     visible_index,
                     page_screen_rect,
-                    unscaled_h,
+                    frame,
                     zoom,
                 );
             }

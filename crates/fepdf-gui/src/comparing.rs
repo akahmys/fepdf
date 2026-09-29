@@ -106,7 +106,7 @@ pub fn outline(
     ui: &egui::Ui,
     page: usize,
     page_rect: egui::Rect,
-    page_unscaled_h: f32,
+    frame: crate::interaction::PageFrame,
     zoom: f32,
 ) {
     let regions = state.regions_on(page);
@@ -119,7 +119,7 @@ pub fn outline(
     let to = |x: f64, y: f64| {
         #[allow(clippy::cast_possible_truncation)] // a point on a page, drawn in f32
         let point = egui::pos2(x as f32, y as f32);
-        crate::interaction::SelectionManager::pdf_to_screen(page_rect, zoom, page_unscaled_h, point)
+        crate::interaction::SelectionManager::pdf_to_screen(page_rect, zoom, frame, point)
     };
     for [x0, y0, x1, y1] in regions {
         let rect = egui::Rect::from_two_pos(to(*x0, *y0), to(*x1, *y1));

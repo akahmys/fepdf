@@ -218,7 +218,7 @@ impl FepdfApp {
                                 &self.doc_version,
                                 &self.doc_security_method,
                                 self.doc_permissions,
-                                &self.doc_page_sizes,
+                                &self.doc_page_frames.iter().map(|f| f.size()).collect::<Vec<_>>(),
                                 &self.doc_fonts,
                                 &self.layers,
                                 &self.doc_decisions,

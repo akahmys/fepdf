@@ -128,7 +128,7 @@ impl FepdfApp {
         self.doc_version = None;
         self.doc_security_method = None;
         self.doc_permissions = None;
-        self.doc_page_sizes.clear();
+        self.doc_page_frames.clear();
         self.doc_fonts.clear();
         // The last document's answers are not this one's.
         self.survey = crate::sidebar::what_it_does::Survey::default();
@@ -148,10 +148,10 @@ impl FepdfApp {
         let insert_idx_in_remaining = target_insert_pos.saturating_sub(selected_before_target);
 
         let mut remaining_sizes =
-            Vec::with_capacity(self.doc_page_sizes.len().saturating_sub(selected_set.len()));
+            Vec::with_capacity(self.doc_page_frames.len().saturating_sub(selected_set.len()));
         let mut moving_sizes = Vec::with_capacity(selected_set.len());
 
-        for (i, size) in self.doc_page_sizes.drain(..).enumerate() {
+        for (i, size) in self.doc_page_frames.drain(..).enumerate() {
             if selected_set.contains(&i) {
                 moving_sizes.push((i, size));
             } else {
@@ -169,7 +169,7 @@ impl FepdfApp {
             new_sizes.push(size);
         }
         new_sizes.extend(remaining_sizes);
-        self.doc_page_sizes = new_sizes;
+        self.doc_page_frames = new_sizes;
 
         self.scenes.clear();
         self.raw_texts.clear();
@@ -194,8 +194,8 @@ impl FepdfApp {
             return;
         }
 
-        let page_size = self.doc_page_sizes.get(index).copied().unwrap_or((595.0, 842.0));
-        self.doc_page_sizes.insert(index + 1, page_size);
+        let frame = self.doc_page_frames.get(index).copied().unwrap_or_default();
+        self.doc_page_frames.insert(index + 1, frame);
         self.total_pages += 1;
 
         self.scenes.clear();
@@ -237,8 +237,8 @@ impl FepdfApp {
         indices.sort_unstable_by(|a, b| b.cmp(a));
 
         for &idx in &indices {
-            if idx < self.doc_page_sizes.len() {
-                self.doc_page_sizes.remove(idx);
+            if idx < self.doc_page_frames.len() {
+                self.doc_page_frames.remove(idx);
             }
         }
 
@@ -494,13 +494,11 @@ impl FepdfApp {
             return;
         }
 
-        let is_90_or_270 = delta.to_degrees() % 180 != 0;
         for &idx in &indices {
-            if idx < self.doc_page_sizes.len() {
-                if is_90_or_270 {
-                    let (w, h) = self.doc_page_sizes[idx];
-                    self.doc_page_sizes[idx] = (h, w);
-                }
+            if idx < self.doc_page_frames.len() {
+                // The turn itself, not only the swapped size: the view maps points
+                // through it, and a page turned in the window is drawn turned.
+                self.doc_page_frames[idx] = self.doc_page_frames[idx].turned_by(delta.to_degrees());
                 self.scenes.remove(&idx);
                 self.raw_texts.remove(&idx);
                 self.page_spans.remove(&idx);

@@ -217,7 +217,7 @@ pub struct FepdfApp {
     pub doc_version: Option<String>,
     pub doc_security_method: Option<String>,
     pub doc_permissions: Option<i32>,
-    pub doc_page_sizes: Vec<(f64, f64)>,
+    pub doc_page_frames: Vec<crate::interaction::PageFrame>,
     pub doc_fonts: Vec<fepdf::FontSummary>,
     /// What to present for optional content (6.3.2.3), refreshed whenever a layer is
     /// toggled so the checkboxes show the state actually in force.
@@ -388,7 +388,7 @@ impl FepdfApp {
             doc_version: None,
             doc_security_method: None,
             doc_permissions: None,
-            doc_page_sizes: Vec::new(),
+            doc_page_frames: Vec::new(),
             doc_fonts: Vec::new(),
             layers: Vec::new(),
             doc_decisions: Vec::new(),
@@ -454,9 +454,9 @@ impl FepdfApp {
                         ctx.send_viewport_cmd(egui::ViewportCommand::Close);
                     }
                 }
-                WorkerResponse::PagesChanged { page_sizes } => {
-                    self.total_pages = page_sizes.len();
-                    self.doc_page_sizes = page_sizes;
+                WorkerResponse::PagesChanged { page_frames } => {
+                    self.total_pages = page_frames.len();
+                    self.doc_page_frames = page_frames;
                     self.selected_pages.clear();
                     self.last_selected_page = None;
                     self.view.keep_page_inside(self.total_pages);
@@ -472,7 +472,7 @@ impl FepdfApp {
                     let crate::worker::LoadedDocument {
                         name,
                         num_pages,
-                        page_sizes,
+                        page_frames,
                         ust_root,
                         file_size,
                         version,
@@ -506,7 +506,7 @@ impl FepdfApp {
                     } else {
                         self.view.binding_direction = crate::view::BindingDirection::LeftToRight;
                     }
-                    self.doc_page_sizes = page_sizes;
+                    self.doc_page_frames = page_frames;
                     // The first page, in the middle — the same landing a double-click on
                     // the bench gives, answered by the first layout that has a window to
                     // centre in.

@@ -36,7 +36,7 @@ impl RedactionManager {
         ui: &mut egui::Ui,
         page_index: usize,
         page_rect: egui::Rect,
-        page_unscaled_h: f32,
+        frame: crate::interaction::PageFrame,
         zoom: f32,
     ) {
         if !self.is_active {
@@ -49,15 +49,13 @@ impl RedactionManager {
         if response.drag_started()
             && let Some(pos) = screen_pos
         {
-            self.drag_start =
-                Some(SelectionManager::screen_to_pdf(page_rect, zoom, page_unscaled_h, pos));
+            self.drag_start = Some(SelectionManager::screen_to_pdf(page_rect, zoom, frame, pos));
         }
 
         if response.dragged()
             && let Some(pos) = screen_pos
         {
-            self.drag_current =
-                Some(SelectionManager::screen_to_pdf(page_rect, zoom, page_unscaled_h, pos));
+            self.drag_current = Some(SelectionManager::screen_to_pdf(page_rect, zoom, frame, pos));
         }
 
         if response.drag_stopped() {
@@ -81,7 +79,7 @@ impl RedactionManager {
         &self,
         page_index: usize,
         page_rect: egui::Rect,
-        page_unscaled_h: f32,
+        frame: crate::interaction::PageFrame,
         zoom: f32,
     ) -> (Vec<egui::Rect>, Option<egui::Rect>) {
         let mut screen_rects = Vec::new();
@@ -92,13 +90,13 @@ impl RedactionManager {
                 let screen_min = SelectionManager::pdf_to_screen(
                     page_rect,
                     zoom,
-                    page_unscaled_h,
+                    frame,
                     egui::pos2(zone.rect.min.x, zone.rect.max.y),
                 );
                 let screen_max = SelectionManager::pdf_to_screen(
                     page_rect,
                     zoom,
-                    page_unscaled_h,
+                    frame,
                     egui::pos2(zone.rect.max.x, zone.rect.min.y),
                 );
                 screen_rects.push(egui::Rect::from_min_max(screen_min, screen_max));
@@ -113,13 +111,13 @@ impl RedactionManager {
                 let screen_min = SelectionManager::pdf_to_screen(
                     page_rect,
                     zoom,
-                    page_unscaled_h,
+                    frame,
                     egui::pos2(drag_rect.min.x, drag_rect.max.y),
                 );
                 let screen_max = SelectionManager::pdf_to_screen(
                     page_rect,
                     zoom,
-                    page_unscaled_h,
+                    frame,
                     egui::pos2(drag_rect.max.x, drag_rect.min.y),
                 );
                 Some(egui::Rect::from_min_max(screen_min, screen_max))

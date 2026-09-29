@@ -16,6 +16,8 @@ use std::collections::BTreeMap;
 pub struct PageLayout {
     pub index: usize,
     pub rect: egui::Rect,
+    /// The page's box and turn, which is how a point of it reaches the screen.
+    pub frame: crate::interaction::PageFrame,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -833,14 +835,11 @@ impl PDFView {
         let pdf_center_x = f32::midpoint(rect[0], rect[2]);
         let pdf_center_y = f32::midpoint(rect[1], rect[3]);
 
-        let unscaled_h = page_layout.rect.height();
-
-        // Convert to egui page-local coordinate system (Y=0 is top)
-        let local_x = pdf_center_x;
-        let local_y = unscaled_h - pdf_center_y;
+        // The page's own point as the page is shown: box origin and turn taken into account.
+        let local = page_layout.frame.shown(egui::pos2(pdf_center_x, pdf_center_y));
 
         // In virtual space (relative to layout center/top):
-        let page_local_pos = page_layout.rect.min + egui::vec2(local_x, local_y);
+        let page_local_pos = page_layout.rect.min + local.to_vec2();
 
         // We want origin + page_local_pos * zoom = viewport_rect.center()
         let origin_no_pan = self.get_origin_no_pan(viewport_rect);
@@ -1454,6 +1453,7 @@ mod arrangement_crossing {
         (0..pages)
             .map(|i| PageLayout {
                 index: i,
+                frame: crate::interaction::PageFrame::default(),
                 rect: egui::Rect::from_min_size(
                     egui::pos2((i % 10) as f32 * 632.0, (i / 10) as f32 * 812.0),
                     egui::vec2(612.0, 792.0),
@@ -1470,6 +1470,7 @@ mod arrangement_crossing {
         (0..pages)
             .map(|i| PageLayout {
                 index: i,
+                frame: crate::interaction::PageFrame::default(),
                 rect: egui::Rect::from_min_size(egui::pos2(-306.0, 0.0), egui::vec2(612.0, 792.0)),
             })
             .collect()
@@ -2080,6 +2081,7 @@ mod overscroll_paging {
         (0..4)
             .map(|i| PageLayout {
                 index: i,
+                frame: crate::interaction::PageFrame::default(),
                 rect: egui::Rect::from_min_max(
                     egui::pos2(-50.0, i as f32 * 120.0),
                     egui::pos2(50.0, (i as f32).mul_add(120.0, 100.0)),
@@ -2244,6 +2246,7 @@ mod overscroll_paging {
         // One page, 100 by 100 in layout units, at four times the size of the window.
         let layouts = vec![PageLayout {
             index: 0,
+            frame: crate::interaction::PageFrame::default(),
             rect: egui::Rect::from_min_max(egui::pos2(-50.0, 0.0), egui::pos2(50.0, 100.0)),
         }];
         let mut view = PDFView::new();
@@ -2748,6 +2751,7 @@ mod visible_pages {
         (0..6)
             .map(|i| PageLayout {
                 index: i,
+                frame: crate::interaction::PageFrame::default(),
                 rect: egui::Rect::from_min_max(
                     egui::pos2(-50.0, i as f32 * 120.0),
                     egui::pos2(50.0, (i as f32).mul_add(120.0, 100.0)),

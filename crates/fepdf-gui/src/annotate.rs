@@ -236,14 +236,14 @@ impl AnnotateTool {
         ui: &mut egui::Ui,
         page: usize,
         page_rect: egui::Rect,
-        page_unscaled_h: f32,
+        frame: crate::interaction::PageFrame,
         zoom: f32,
     ) -> Option<Result<AnnotationSpec, Refusal>> {
         if !self.is_active {
             return None;
         }
         let response = ui.allocate_rect(page_rect, egui::Sense::click_and_drag());
-        let at = |pos| SelectionManager::screen_to_pdf(page_rect, zoom, page_unscaled_h, pos);
+        let at = |pos| SelectionManager::screen_to_pdf(page_rect, zoom, frame, pos);
         let (pointer, origin) = ui.input(|i| (i.pointer.interact_pos(), i.pointer.press_origin()));
         if response.hovered() {
             ui.ctx().set_cursor_icon(egui::CursorIcon::Crosshair);
@@ -257,7 +257,7 @@ impl AnnotateTool {
         {
             self.drag.push(pos);
         }
-        self.paint_drag(ui, page_rect, page_unscaled_h, zoom);
+        self.paint_drag(ui, page_rect, frame, zoom);
         if response.clicked() {
             return pointer.map(|pos| self.placed(page, &[at(pos)]));
         }
@@ -270,9 +270,15 @@ impl AnnotateTool {
 
     /// Draws the drag under way over the page: the path for a stroke or a line, the
     /// rectangle for everything else.
-    fn paint_drag(&self, ui: &egui::Ui, page_rect: egui::Rect, page_h: f32, zoom: f32) {
+    fn paint_drag(
+        &self,
+        ui: &egui::Ui,
+        page_rect: egui::Rect,
+        frame: crate::interaction::PageFrame,
+        zoom: f32,
+    ) {
         let (Some(&start), Some(&end)) = (self.drag.first(), self.drag.last()) else { return };
-        let to = |pos| SelectionManager::pdf_to_screen(page_rect, zoom, page_h, pos);
+        let to = |pos| SelectionManager::pdf_to_screen(page_rect, zoom, frame, pos);
         let layer = egui::LayerId::new(egui::Order::Foreground, egui::Id::new("annotate_drag"));
         let painter = ui.ctx().layer_painter(layer).with_clip_rect(page_rect);
         let stroke = egui::Stroke::new(1.5_f32, crate::app::theme::colors::rust::ACCENT);

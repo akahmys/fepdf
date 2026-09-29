@@ -66,14 +66,14 @@ impl SnapshotTool {
         ui: &mut egui::Ui,
         page_index: usize,
         page_rect: egui::Rect,
-        page_unscaled_h: f32,
+        frame: crate::interaction::PageFrame,
         zoom: f32,
     ) -> Option<Taken> {
         if !self.is_active {
             return None;
         }
         let response = ui.allocate_rect(page_rect, egui::Sense::drag());
-        let at = |pos| SelectionManager::screen_to_pdf(page_rect, zoom, page_unscaled_h, pos);
+        let at = |pos| SelectionManager::screen_to_pdf(page_rect, zoom, frame, pos);
         let pointer = ui.input(|i| i.pointer.hover_pos());
 
         if response.drag_started()
@@ -122,11 +122,11 @@ impl SnapshotTool {
     pub fn dragging(
         &self,
         page_rect: egui::Rect,
-        page_unscaled_h: f32,
+        frame: crate::interaction::PageFrame,
         zoom: f32,
     ) -> Option<egui::Rect> {
         let (start, current) = (self.drag_start?, self.drag_current?);
-        let to = |pos| SelectionManager::pdf_to_screen(page_rect, zoom, page_unscaled_h, pos);
+        let to = |pos| SelectionManager::pdf_to_screen(page_rect, zoom, frame, pos);
         Some(egui::Rect::from_two_pos(to(start), to(current)))
     }
 }

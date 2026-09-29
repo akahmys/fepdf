@@ -1,5 +1,67 @@
 use std::collections::BTreeMap;
 
+/// Where a page's box is and how it is turned: what the page view needs to put a point of
+/// the page on screen and to take one back.
+///
+/// **Not the page's height, which is all the view used to carry.** Every tool took the
+/// box to start at `(0, 0)` and the page to be upright, so on a page turned by `/Rotate`
+/// a dragged annotation, a snapshot, a caliper point and a selection each landed turned
+/// and elsewhere, and on a page whose box starts away from the origin they landed off by
+/// that much. The mapping is [`fepdf::page_display_transform`], the one the page is drawn
+/// with, so the two cannot come apart again.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct PageFrame {
+    /// The box the page is shown by (`/CropBox`, else `/MediaBox`), in default user space.
+    pub rect: fepdf::Rect,
+    /// `/Rotate`: degrees clockwise.
+    pub rotation: i32,
+}
+
+impl Default for PageFrame {
+    /// An upright A4 page, which is what the view assumes of a page it has not heard about.
+    fn default() -> Self {
+        Self { rect: fepdf::Rect::new(0.0, 0.0, 595.0, 842.0), rotation: 0 }
+    }
+}
+
+impl PageFrame {
+    /// The frame of page `index` of `doc`, or the default where the page states none.
+    pub fn of(doc: &fepdf::PdfDocument, index: usize) -> Self {
+        let Ok(rect) = doc.get_page_box(index) else { return Self::default() };
+        Self { rect, rotation: doc.get_page_rotation(index).unwrap_or(0) }
+    }
+
+    /// Width and height as the page is shown: the box's, swapped by a quarter turn.
+    pub fn size(self) -> (f64, f64) {
+        let (_, w, h) = fepdf::page_display_transform(self.rect, self.rotation, 1.0);
+        (w, h)
+    }
+
+    /// The same page, turned a further `degrees` clockwise.
+    pub const fn turned_by(self, degrees: i32) -> Self {
+        Self { rect: self.rect, rotation: (self.rotation + degrees).rem_euclid(360) }
+    }
+
+    fn transform(self) -> kurbo::Affine {
+        fepdf::page_display_transform(self.rect, self.rotation, 1.0).0
+    }
+
+    /// A point of the page, in the page's shown space: unscaled, origin top left.
+    pub fn shown(self, pdf: egui::Pos2) -> egui::Pos2 {
+        let p = self.transform() * kurbo::Point::new(f64::from(pdf.x), f64::from(pdf.y));
+        #[allow(clippy::cast_possible_truncation)] // a point on a page, drawn in f32
+        egui::pos2(p.x as f32, p.y as f32)
+    }
+
+    /// The point of the page shown at `local`, the inverse of [`Self::shown`].
+    pub fn unshown(self, local: egui::Pos2) -> egui::Pos2 {
+        let p =
+            self.transform().inverse() * kurbo::Point::new(f64::from(local.x), f64::from(local.y));
+        #[allow(clippy::cast_possible_truncation)] // a point on a page, drawn in f32
+        egui::pos2(p.x as f32, p.y as f32)
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct TextSpan {
     pub text: String,
@@ -74,28 +136,24 @@ impl SelectionManager {
         }
     }
 
-    /// Maps screen coordinate to PDF space.
+    /// Maps screen coordinate to PDF space, through the page's frame.
     pub fn screen_to_pdf(
         page_rect: egui::Rect,
         zoom: f32,
-        page_h: f32,
+        frame: PageFrame,
         pos: egui::Pos2,
     ) -> egui::Pos2 {
-        let x = (pos.x - page_rect.min.x) / zoom;
-        let y = page_h - (pos.y - page_rect.min.y) / zoom;
-        egui::pos2(x, y)
+        frame.unshown(((pos - page_rect.min) / zoom).to_pos2())
     }
 
-    /// Maps PDF space coordinate to screen space.
+    /// Maps PDF space coordinate to screen space, through the page's frame.
     pub fn pdf_to_screen(
         page_rect: egui::Rect,
         zoom: f32,
-        page_h: f32,
+        frame: PageFrame,
         pos: egui::Pos2,
     ) -> egui::Pos2 {
-        let x = pos.x.mul_add(zoom, page_rect.min.x);
-        let y = (page_h - pos.y).mul_add(zoom, page_rect.min.y);
-        egui::pos2(x, y)
+        page_rect.min + frame.shown(pos).to_vec2() * zoom
     }
 
     /// Handles mouse dragging to select text spans on a page.
@@ -105,7 +163,7 @@ impl SelectionManager {
         response: &egui::Response,
         page_index: usize,
         page_rect: egui::Rect,
-        page_unscaled_h: f32,
+        frame: crate::interaction::PageFrame,
         spans: &[TextSpan],
         zoom: f32,
     ) {
@@ -116,14 +174,14 @@ impl SelectionManager {
         {
             self.clear();
             self.active_page = Some(page_index);
-            self.drag_start = Some(Self::screen_to_pdf(page_rect, zoom, page_unscaled_h, pos));
+            self.drag_start = Some(Self::screen_to_pdf(page_rect, zoom, frame, pos));
         }
 
         if response.dragged()
             && let Some(pos) = screen_pos
             && self.active_page == Some(page_index)
         {
-            self.drag_current = Some(Self::screen_to_pdf(page_rect, zoom, page_unscaled_h, pos));
+            self.drag_current = Some(Self::screen_to_pdf(page_rect, zoom, frame, pos));
             self.recalculate_selection(page_index, spans);
         }
 
@@ -154,22 +212,14 @@ impl SelectionManager {
     pub fn highlight_rect(
         page_rect: egui::Rect,
         zoom: f32,
-        page_unscaled_h: f32,
+        frame: crate::interaction::PageFrame,
         span: egui::Rect,
     ) -> egui::Rect {
-        egui::Rect::from_min_max(
-            Self::pdf_to_screen(
-                page_rect,
-                zoom,
-                page_unscaled_h,
-                egui::pos2(span.min.x, span.max.y),
-            ),
-            Self::pdf_to_screen(
-                page_rect,
-                zoom,
-                page_unscaled_h,
-                egui::pos2(span.max.x, span.min.y),
-            ),
+        // Two opposite corners, whichever way the page is turned: on a turned page the
+        // span's top-left is not the screen's.
+        egui::Rect::from_two_pos(
+            Self::pdf_to_screen(page_rect, zoom, frame, span.min),
+            Self::pdf_to_screen(page_rect, zoom, frame, span.max),
         )
     }
 
@@ -237,7 +287,7 @@ impl SelectionManager {
         ui: &mut egui::Ui,
         page_index: usize,
         page_rect: egui::Rect,
-        page_unscaled_h: f32,
+        frame: crate::interaction::PageFrame,
         spans: &[TextSpan],
         zoom: f32,
     ) {
@@ -252,13 +302,13 @@ impl SelectionManager {
             && let Some(pos) = screen_pos
         {
             self.clear();
-            self.drag_start = Some(Self::screen_to_pdf(page_rect, zoom, page_unscaled_h, pos));
+            self.drag_start = Some(Self::screen_to_pdf(page_rect, zoom, frame, pos));
         }
 
         if response.dragged()
             && let Some(pos) = screen_pos
         {
-            self.drag_current = Some(Self::screen_to_pdf(page_rect, zoom, page_unscaled_h, pos));
+            self.drag_current = Some(Self::screen_to_pdf(page_rect, zoom, frame, pos));
             // The same question as a text drag asks, so the same function answers it.
             // The two had one body each, and one of them stopped being updated.
             self.recalculate_selection(page_index, spans);
@@ -284,6 +334,11 @@ mod tests {
 
     const PAGE_H: f32 = 800.0;
 
+    /// The upright 600 by 800 page `page_rect` shows.
+    fn frame() -> PageFrame {
+        PageFrame { rect: fepdf::Rect::new(0.0, 0.0, 600.0, 800.0), rotation: 0 }
+    }
+
     fn page_rect() -> egui::Rect {
         egui::Rect::from_min_size(egui::pos2(100.0, 50.0), egui::vec2(600.0, PAGE_H))
     }
@@ -293,8 +348,8 @@ mod tests {
         let rect = page_rect();
         for zoom in [0.5_f32, 1.0, 2.5] {
             let original = egui::pos2(123.5, 456.25);
-            let screen = SelectionManager::pdf_to_screen(rect, zoom, PAGE_H, original);
-            let back = SelectionManager::screen_to_pdf(rect, zoom, PAGE_H, screen);
+            let screen = SelectionManager::pdf_to_screen(rect, zoom, frame(), original);
+            let back = SelectionManager::screen_to_pdf(rect, zoom, frame(), screen);
             assert!((back.x - original.x).abs() < 1e-3, "x drifted at zoom {zoom}");
             assert!((back.y - original.y).abs() < 1e-3, "y drifted at zoom {zoom}");
         }
@@ -305,19 +360,51 @@ mod tests {
         // PDF user space grows upwards, screen space downwards. The PDF origin must
         // therefore land on the page's bottom edge, not its top.
         let rect = page_rect();
-        let origin = SelectionManager::pdf_to_screen(rect, 1.0, PAGE_H, egui::pos2(0.0, 0.0));
+        let origin = SelectionManager::pdf_to_screen(rect, 1.0, frame(), egui::pos2(0.0, 0.0));
         assert!((origin.x - rect.min.x).abs() < 1e-3);
         assert!((origin.y - rect.max.y).abs() < 1e-3);
 
-        let top = SelectionManager::pdf_to_screen(rect, 1.0, PAGE_H, egui::pos2(0.0, PAGE_H));
+        let top = SelectionManager::pdf_to_screen(rect, 1.0, frame(), egui::pos2(0.0, PAGE_H));
         assert!((top.y - rect.min.y).abs() < 1e-3);
+    }
+
+    /// **A turned page maps turned**: `/Rotate 90` shows the page's bottom left at the
+    /// top left of its rectangle on screen and its top left at the top right. Every tool
+    /// took the page to be upright until 2026-09-29, so an annotation dragged on a turned
+    /// page landed elsewhere and turned.
+    #[test]
+    fn a_turned_page_puts_its_corners_where_the_turn_does() {
+        let turned = PageFrame { rotation: 90, ..frame() };
+        assert_eq!(turned.size(), (800.0, 600.0));
+        let rect = egui::Rect::from_min_size(egui::pos2(100.0, 50.0), egui::vec2(800.0, 600.0));
+        let at = |x, y| SelectionManager::pdf_to_screen(rect, 1.0, turned, egui::pos2(x, y));
+        assert!((at(0.0, 0.0) - rect.min).length() < 1e-3, "the bottom left is the top left");
+        assert!(
+            (at(0.0, 800.0) - rect.right_top()).length() < 1e-3,
+            "the top left is the top right"
+        );
+        let back = SelectionManager::screen_to_pdf(rect, 1.0, turned, at(123.5, 456.25));
+        assert!((back - egui::pos2(123.5, 456.25)).length() < 1e-3, "and it comes back");
+    }
+
+    /// **A box that starts away from the origin is shown from its own corner.** The page
+    /// is drawn that way, and a tool that took the box to start at `(0, 0)` was off by it.
+    #[test]
+    fn a_box_away_from_the_origin_is_shown_from_its_corner() {
+        let offset = PageFrame { rect: fepdf::Rect::new(50.0, 20.0, 650.0, 820.0), rotation: 0 };
+        let rect = page_rect();
+        let corner = SelectionManager::pdf_to_screen(rect, 1.0, offset, egui::pos2(50.0, 820.0));
+        assert!(
+            (corner - rect.min).length() < 1e-3,
+            "the box's top left is the rect's: {corner:?}"
+        );
     }
 
     #[test]
     fn zoom_scales_distance_from_the_page_origin() {
         let rect = page_rect();
-        let at_1x = SelectionManager::pdf_to_screen(rect, 1.0, PAGE_H, egui::pos2(100.0, 0.0));
-        let at_2x = SelectionManager::pdf_to_screen(rect, 2.0, PAGE_H, egui::pos2(100.0, 0.0));
+        let at_1x = SelectionManager::pdf_to_screen(rect, 1.0, frame(), egui::pos2(100.0, 0.0));
+        let at_2x = SelectionManager::pdf_to_screen(rect, 2.0, frame(), egui::pos2(100.0, 0.0));
         assert!((at_1x.x - rect.min.x - 100.0).abs() < 1e-3);
         assert!((at_2x.x - rect.min.x - 200.0).abs() < 1e-3);
     }
@@ -325,9 +412,14 @@ mod tests {
 
 #[cfg(test)]
 mod drag_coverage {
-    use super::{SelectionManager, TextSpan};
+    use super::{PageFrame, SelectionManager, TextSpan};
 
     const PAGE_H: f32 = 800.0;
+
+    /// The upright 600 by 800 page `page_rect` shows.
+    fn frame() -> PageFrame {
+        PageFrame { rect: fepdf::Rect::new(0.0, 0.0, 600.0, 800.0), rotation: 0 }
+    }
 
     fn page_rect() -> egui::Rect {
         egui::Rect::from_min_size(egui::pos2(100.0, 50.0), egui::vec2(600.0, PAGE_H))
@@ -349,7 +441,7 @@ mod drag_coverage {
         let rect = SelectionManager::highlight_rect(
             page_rect(),
             1.0,
-            PAGE_H,
+            frame(),
             span("x", 10.0, 20.0, 60.0, 40.0).rect,
         );
         assert!(rect.height() > 0.0, "height was {}", rect.height());
@@ -365,8 +457,8 @@ mod drag_coverage {
     #[test]
     fn a_highlight_scales_with_the_zoom() {
         let s = span("x", 10.0, 20.0, 60.0, 40.0);
-        let one = SelectionManager::highlight_rect(page_rect(), 1.0, PAGE_H, s.rect);
-        let two = SelectionManager::highlight_rect(page_rect(), 2.0, PAGE_H, s.rect);
+        let one = SelectionManager::highlight_rect(page_rect(), 1.0, frame(), s.rect);
+        let two = SelectionManager::highlight_rect(page_rect(), 2.0, frame(), s.rect);
         assert!(
             one.height().mul_add(-2.0, two.height()).abs() < 1e-3,
             "{} against {}",
@@ -393,6 +485,14 @@ mod drag_coverage {
 #[cfg(test)]
 mod selecting_real_text {
     use super::{SelectionManager, TextSpan};
+
+    /// An upright US Letter page, which the sample's first page is.
+    fn letter() -> crate::interaction::PageFrame {
+        crate::interaction::PageFrame {
+            rect: fepdf::Rect::new(0.0, 0.0, 612.0, 792.0),
+            rotation: 0,
+        }
+    }
 
     /// The spans a page of the corpus yields, as the worker builds them.
     fn spans(name: &str, index: usize) -> Vec<TextSpan> {
@@ -460,11 +560,11 @@ mod selecting_real_text {
         for zoom in [0.5_f32, 1.0, 2.0] {
             let page_rect =
                 egui::Rect::from_min_size(egui::pos2(100.0, 50.0), egui::vec2(612.0, 792.0) * zoom);
-            let drawn = SelectionManager::highlight_rect(page_rect, zoom, 792.0, span);
+            let drawn = SelectionManager::highlight_rect(page_rect, zoom, letter(), span);
             let text = SelectionManager::pdf_to_screen(
                 page_rect,
                 zoom,
-                792.0,
+                letter(),
                 egui::pos2(span.min.x, span.max.y),
             );
             assert!(
@@ -481,8 +581,8 @@ mod selecting_real_text {
         let spans = spans("constitution.pdf", 0);
         let page_rect =
             egui::Rect::from_min_size(egui::pos2(100.0, 50.0), egui::vec2(612.0, 792.0));
-        let start = SelectionManager::screen_to_pdf(page_rect, 1.0, 792.0, page_rect.min);
-        let end = SelectionManager::screen_to_pdf(page_rect, 1.0, 792.0, page_rect.max);
+        let start = SelectionManager::screen_to_pdf(page_rect, 1.0, letter(), page_rect.min);
+        let end = SelectionManager::screen_to_pdf(page_rect, 1.0, letter(), page_rect.max);
         let dragged = egui::Rect::from_two_pos(start, end);
         let covered = SelectionManager::spans_under(dragged, &spans).count();
         assert_eq!(covered, spans.len(), "the screen-space drag missed some of the page");

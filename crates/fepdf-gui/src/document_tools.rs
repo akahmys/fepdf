@@ -546,10 +546,10 @@ fn resize_form(app: &mut FepdfApp, ui: &mut egui::Ui) {
     // form used and the list did not name drew as an empty string, which is how two of
     // the placement buttons came to have no labels at all.
     let FepdfApp {
-        tools, locale_mgr, active_language, selected_pages, doc_page_sizes, view, ..
+        tools, locale_mgr, active_language, selected_pages, doc_page_frames, view, ..
     } = app;
     let lang = active_language.as_str();
-    let page = doc_page_sizes.get(view.active_page).copied().unwrap_or((595.0, 842.0));
+    let page = doc_page_frames.get(view.active_page).copied().unwrap_or_default().size();
     sheet_picker(tools, ui, locale_mgr, lang);
     ui.add_space(crate::app::theme::space::GROUP);
     scale_picker(tools, ui, locale_mgr, lang);
