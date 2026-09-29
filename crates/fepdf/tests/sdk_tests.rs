@@ -712,3 +712,19 @@ fn a_stripped_save_leaves_the_open_document_its_metadata() {
 
     assert_eq!(doc.metadata().title.as_deref(), Some("Kept"), "the open document lost its title");
 }
+
+/// **A save writes PDF 2.0, and a header for any other version is refused** rather than
+/// written over 2.0 content. The window's export could clear an "Upgrade to PDF 2.0" box,
+/// and what that changed was the first line of the file and nothing after it.
+#[test]
+fn a_save_is_refused_a_version_this_engine_does_not_write() {
+    let doc = PdfDocument::open(get_minimal_pdf()).expect("the fixture opens");
+    let path = std::env::temp_dir().join("fepdf_version_refused.pdf");
+    let _ = std::fs::remove_file(&path);
+    let refused = doc.save_with_options(&path, "1.7", &SaveOptions::default());
+    assert!(refused.is_err(), "a 1.7 header was written over 2.0 content");
+    assert!(!path.exists(), "a refused save left a file behind");
+    assert!(doc.save_linearized(&path, "1.4", &SaveOptions::default()).is_err());
+    doc.save_with_options(&path, "2.0", &SaveOptions::default()).expect("2.0 is written");
+    let _ = std::fs::remove_file(&path);
+}

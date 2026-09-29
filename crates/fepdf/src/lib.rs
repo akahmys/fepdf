@@ -305,6 +305,22 @@ pub fn page_display_transform(
     }
 }
 
+/// Refuses to write a header for any version but 2.0.
+///
+/// **This engine writes PDF 2.0 and chose not to write anything else** (ROADMAP, the
+/// subsets: a PDF writer, for 2.0 only). What it writes is 2.0 whatever the header says —
+/// AES-256 R6, an XMP packet, object streams — and the header was whatever string the
+/// caller passed, so the window's export wrote `%PDF-1.7` over 2.0 content whenever its
+/// "Upgrade to PDF 2.0" box was cleared: a file claiming a version it is not.
+fn written_version(version: &str) -> PdfResult<()> {
+    if version == "2.0" {
+        return Ok(());
+    }
+    Err(PdfError::Other(
+        format!("this engine writes PDF 2.0 only, and {version:?} was asked for").into(),
+    ))
+}
+
 /// `/M`, the time of signing, in the form 7.9.4 defines.
 ///
 /// Local time with its offset, because that is what the clause asks for and what a
@@ -953,6 +969,7 @@ impl PdfDocument {
         options: &SaveOptions,
         signing: Option<(&fepdf_model::cms::SigningIdentity, &SignOptions)>,
     ) -> PdfResult<Vec<Decision>> {
+        written_version(version)?;
         if options.dry_run {
             // Nothing was written, so nothing was lost.
             return Ok(Vec::new());
@@ -1068,6 +1085,7 @@ impl PdfDocument {
         // Linearization involves object reordering and hint tables.
         // For M67, we implement the object reordering phase.
 
+        written_version(version)?;
         // 1. Update Metadata, on the copy being written (see `output_document`).
         let output = self.output_document()?;
         let mut metadata = output.metadata();

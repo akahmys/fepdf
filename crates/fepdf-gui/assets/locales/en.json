@@ -183,7 +183,6 @@
   "export_opt_compress": "Flate-Compress Content Streams",
   "export_opt_linearize": "Hint Table Linearization (Fast Web View)",
   "export_opt_strip": "Remove descriptive metadata (document information and XMP)",
-  "export_opt_upgrade": "Upgrade to PDF 2.0 (ISO 32000-2)",
   "export_options_heading": "Export & Compliance Options",
   "export_perm_accessibility": "Extract for accessibility (deprecated in PDF 2.0)",
   "export_perm_annotate": "Add or change annotations, and fill forms",

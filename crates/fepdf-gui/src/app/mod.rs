@@ -180,7 +180,6 @@ pub struct FepdfApp {
     pub export_strip: bool,
     pub export_compress: bool,
     pub export_linearize: bool,
-    pub export_upgrade_pdf20: bool,
     pub export_burn_redactions: bool,
     pub raw_texts: BTreeMap<usize, String>, // page_index -> raw extracted text
 
@@ -345,7 +344,6 @@ impl FepdfApp {
             export_strip: false,
             export_compress: true,
             export_linearize: true,
-            export_upgrade_pdf20: true,
             export_burn_redactions: true,
             raw_texts: BTreeMap::new(),
 

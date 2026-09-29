@@ -36,7 +36,6 @@ pub enum WorkerRequest {
         /// Take the descriptive metadata out: the Info dictionary and the XMP packet.
         strip: bool,
         linearize: bool,
-        upgrade_pdf20: bool,
         redaction_zones: Vec<crate::redaction::RedactionZone>,
         cert_path: Option<std::path::PathBuf>,
         key_path: Option<std::path::PathBuf>,
@@ -517,7 +516,6 @@ pub fn run_worker(rx: Receiver<WorkerRequest>, tx: Sender<WorkerResponse>, ctx: 
                 compress,
                 strip,
                 linearize,
-                upgrade_pdf20,
                 redaction_zones,
                 cert_path,
                 key_path,
@@ -531,7 +529,6 @@ pub fn run_worker(rx: Receiver<WorkerRequest>, tx: Sender<WorkerResponse>, ctx: 
                     protection,
                     (compress, strip),
                     linearize,
-                    upgrade_pdf20,
                     redaction_zones,
                     cert_path,
                     key_path,
@@ -1584,7 +1581,6 @@ fn handle_save(
     protection: Protection,
     (compress, strip): (bool, bool),
     linearize: bool,
-    upgrade_pdf20: bool,
     redaction_zones: Vec<crate::redaction::RedactionZone>,
     cert_path: Option<std::path::PathBuf>,
     key_path: Option<std::path::PathBuf>,
@@ -1615,7 +1611,9 @@ fn handle_save(
         }
     }
 
-    let version = if upgrade_pdf20 { "2.0" } else { "1.7" };
+    // PDF 2.0, which is the one version this engine writes (see the facade's
+    // `written_version`). An option to write 1.7 put that in the header and nothing else.
+    let version = "2.0";
     // Certificates are read here, beside the save that needs them: one the reader cannot
     // read is said now, as the save failing, rather than written as no recipient at all.
     let mut recipients = Vec::with_capacity(protection.recipients.len());

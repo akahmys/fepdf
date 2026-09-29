@@ -105,10 +105,6 @@ impl ExportWizard {
         ui.add_space(crate::app::theme::space::ITEM);
 
         ui.checkbox(
-            &mut app.export_upgrade_pdf20,
-            app.locale_mgr.tr(&app.active_language, "export_opt_upgrade"),
-        );
-        ui.checkbox(
             &mut app.export_linearize,
             app.locale_mgr.tr(&app.active_language, "export_opt_linearize"),
         );
@@ -401,7 +397,6 @@ impl ExportWizard {
                 compress: app.export_compress,
                 strip: app.export_strip,
                 linearize: app.export_linearize,
-                upgrade_pdf20: app.export_upgrade_pdf20,
                 redaction_zones,
                 cert_path: app.cert_path.clone(),
                 key_path: app.key_path.clone(),

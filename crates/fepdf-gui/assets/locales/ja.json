@@ -183,7 +183,6 @@
   "export_opt_compress": "コンテンツストリームの Flate 圧縮",
   "export_opt_linearize": "ヒントテーブル線形化 (ファストウェブビュー)",
   "export_opt_strip": "説明的なメタデータを削除（文書情報と XMP）",
-  "export_opt_upgrade": "PDF 2.0 にアップグレード (ISO 32000-2)",
   "export_options_heading": "書き出しと適合性オプション",
   "export_perm_accessibility": "アクセシビリティのための抽出（PDF 2.0 では非推奨）",
   "export_perm_annotate": "注釈の追加・変更とフォーム入力",
