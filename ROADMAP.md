@@ -823,6 +823,16 @@ eight times, and the copies do not agree on whether to resolve.
 - [ ] **Y-F10** — stopping speech on Linux kills `spd-say`, and the speaking is done by
       the speech-dispatcher server; whether the passage under way stops is unverified,
       and `spd-say --cancel` is the call that says so (`speech.rs`).
+- [ ] **Y-F11** — writing the bookmark panel's draft replaces the whole tree with what
+      `OutlineNode` carries: a title, a page, children. Every item's `/C`, `/F`, `/SE`
+      and open state goes, which its module says; so does a non-`GoTo` `/A`, which it
+      does not say — a bookmark to a web address is read as page 0 and written back
+      pointing at page 1. One retitled bookmark rewrites the meaning of another.
+- [ ] **Y-F12** — `PdfDocument::apply` states no atomicity, and the window's journal
+      relies on it: a failed act is rebuilt from the history only when its second or
+      later operation failed, so a first operation that changed the document and then
+      failed would leave it differing from what undo replays. No such path was found in
+      the form writer; the contract is what is missing.
 - [ ] **Y-F7** — `compare.rs`'s `to_f64` is used only under the `render` feature and is
       not gated with it, so `cargo build -p fepdf` warns. The workspace build unifies
       features and never sees it.
