@@ -72,9 +72,7 @@ fn variant_name(op: &Operation) -> &'static str {
         Operation::MapStructType { .. } => "MapStructType",
         Operation::SetOpenAction(_) => "SetOpenAction",
         Operation::SetGeospatialAnchor(_) => "SetGeospatialAnchor",
-        Operation::AddMeshShading(_) => "AddMeshShading",
         Operation::SetUnencryptedWrapper(_) => "SetUnencryptedWrapper",
-        Operation::AddPublicKeyRecipient(_) => "AddPublicKeyRecipient",
     }
 }
 

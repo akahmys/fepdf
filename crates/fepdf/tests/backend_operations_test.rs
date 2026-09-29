@@ -4,10 +4,9 @@ use fepdf::{DecorationPosition, Operation, PageSelection};
 use fepdf_model::{
     AFRelationship, AnnotationKind, AnnotationSpec, ArticleBead, ArticleThread, AssociatedFile,
     CollectionViewMode, FormFieldSpec, FormValue, GeoSpatialAnchor, LayerGroup, MeasurementScale,
-    MeshShadingSpec, MeshShadingType, OptionalContentProperties, OutlineNode, OutlineTree,
-    OutputIntent, PageLabelSpec, PageLabelStyle, PdfAction, PortfolioCollection, PortfolioItem,
-    PublicKeyRecipientSpec, UnencryptedWrapperSpec, UserProperty, UserPropertyValue,
-    VisibilityState,
+    OptionalContentProperties, OutlineNode, OutlineTree, OutputIntent, PageLabelSpec,
+    PageLabelStyle, PdfAction, PortfolioCollection, PortfolioItem, UnencryptedWrapperSpec,
+    UserProperty, UserPropertyValue, VisibilityState,
 };
 
 use fepdf_fixtures::assemble;
@@ -284,23 +283,6 @@ fn test_geospatial_anchor_operation() {
 }
 
 #[test]
-fn test_mesh_shading_operation() {
-    let shading = MeshShadingSpec {
-        shading_type: MeshShadingType::CoonsPatchMesh,
-        color_space: "DeviceRGB".to_string(),
-        data_bytes: vec![0, 1, 2, 3],
-    };
-
-    let op = Operation::AddMeshShading(shading);
-    if let Operation::AddMeshShading(s) = op {
-        assert_eq!(s.shading_type, MeshShadingType::CoonsPatchMesh);
-        assert_eq!(s.data_bytes.len(), 4);
-    } else {
-        panic!("Operation variant mismatch");
-    }
-}
-
-#[test]
 fn test_unencrypted_wrapper_operation() {
     let wrapper = UnencryptedWrapperSpec {
         notice_message: "This PDF is encrypted.".to_string(),
@@ -310,21 +292,6 @@ fn test_unencrypted_wrapper_operation() {
     let op = Operation::SetUnencryptedWrapper(wrapper);
     if let Operation::SetUnencryptedWrapper(w) = op {
         assert_eq!(w.notice_message, "This PDF is encrypted.");
-    } else {
-        panic!("Operation variant mismatch");
-    }
-}
-
-#[test]
-fn test_public_key_recipient_operation() {
-    let recipient = PublicKeyRecipientSpec {
-        certificate_der_bytes: vec![1, 2, 3],
-        encrypted_key_bytes: vec![4, 5, 6],
-    };
-
-    let op = Operation::AddPublicKeyRecipient(recipient);
-    if let Operation::AddPublicKeyRecipient(r) = op {
-        assert_eq!(r.certificate_der_bytes.len(), 3);
     } else {
         panic!("Operation variant mismatch");
     }
@@ -485,28 +452,12 @@ fn test_all_remaining_operations_execution() {
     doc.apply(Operation::SetOpenAction(PdfAction::Named("FirstPage".to_string())))
         .expect("SetOpenAction failed");
 
-    // 3. AddMeshShading
-    let shading = MeshShadingSpec {
-        shading_type: MeshShadingType::CoonsPatchMesh,
-        color_space: "DeviceRGB".to_string(),
-        data_bytes: vec![0u8; 32],
-    };
-    doc.apply(Operation::AddMeshShading(shading)).expect("AddMeshShading failed");
-
     // 4. SetUnencryptedWrapper
     let wrapper = UnencryptedWrapperSpec {
         notice_message: "Please use PDF 2.0 compliant viewer".to_string(),
         encrypted_payload_bytes: b"%PDF-2.0 mock encrypted".to_vec(),
     };
     doc.apply(Operation::SetUnencryptedWrapper(wrapper)).expect("SetUnencryptedWrapper failed");
-
-    // 5. AddPublicKeyRecipient
-    let recipient = PublicKeyRecipientSpec {
-        certificate_der_bytes: vec![0x30, 0x82, 0x01, 0x0a],
-        encrypted_key_bytes: vec![0xaa, 0xbb, 0xcc],
-    };
-
-    doc.apply(Operation::AddPublicKeyRecipient(recipient)).expect("AddPublicKeyRecipient failed");
 
     // 6. SetPronunciationLexicon — refused here: the lexicon is an entry of the structure
     // tree root (Table 354) and this document has no structure tree. Where it is written
@@ -527,9 +478,7 @@ fn test_all_remaining_operations_execution() {
 
     assert!(cdict.contains_key(&arena.name("Threads")), "Threads missing");
     assert!(cdict.contains_key(&arena.name("OpenAction")), "OpenAction missing");
-    assert!(cdict.contains_key(&arena.name("Resources")), "Resources missing");
     assert!(cdict.contains_key(&arena.name("AF")), "AF missing");
-    assert!(cdict.contains_key(&arena.name("Encrypt")), "Encrypt missing");
     assert!(!cdict.contains_key(&arena.name("PL")), "a /PL ISO 32000-2 does not define");
 
     // Verify page dictionary entries

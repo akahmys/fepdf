@@ -625,31 +625,6 @@ pub struct GeoSpatialAnchor {
     pub crs_wkt: String,
 }
 
-/// Mesh Shading Type (Type 4 to 7 Shading ISO 32000-2 Section 8.7.4.5).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
-pub enum MeshShadingType {
-    /// Free-form triangle mesh.
-    #[default]
-    FreeFormTriangleMesh = 4,
-    /// Lattice-form triangle mesh.
-    LatticeFormTriangleMesh = 5,
-    /// Coons patch mesh.
-    CoonsPatchMesh = 6,
-    /// Tensor-product patch mesh.
-    TensorProductPatchMesh = 7,
-}
-
-/// Mesh Shading specification.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct MeshShadingSpec {
-    /// Shading type (4 to 7).
-    pub shading_type: MeshShadingType,
-    /// Color space name.
-    pub color_space: String,
-    /// Raw shading stream data bytes.
-    pub data_bytes: Vec<u8>,
-}
-
 // --- Phase 7: Font Engine & Cryptography Domain Models ---
 
 /// Unencrypted Wrapper Payload specification (ISO 32000-2 Section 7.6.7).
@@ -659,15 +634,6 @@ pub struct UnencryptedWrapperSpec {
     pub notice_message: String,
     /// Encrypted payload stream bytes.
     pub encrypted_payload_bytes: Vec<u8>,
-}
-
-/// Public Key Recipient Certificate specification (ISO 32000-2 Section 7.6.4).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct PublicKeyRecipientSpec {
-    /// DER-encoded X.509 certificate of the recipient.
-    pub certificate_der_bytes: Vec<u8>,
-    /// Encrypted file key bytes for this recipient.
-    pub encrypted_key_bytes: Vec<u8>,
 }
 
 #[cfg(test)]

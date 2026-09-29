@@ -2,8 +2,8 @@
 
 use super::page::execute_single_op;
 use fepdf::{
-    ArticleBead, ArticleThread, GeoSpatialAnchor, MeshShadingSpec, MeshShadingType, Operation,
-    PageLabelSpec, PageLabelStyle, PdfAction, PublicKeyRecipientSpec, UnencryptedWrapperSpec,
+    ArticleBead, ArticleThread, GeoSpatialAnchor, Operation, PageLabelSpec, PageLabelStyle,
+    PdfAction, UnencryptedWrapperSpec,
 };
 use schemars::JsonSchema;
 use serde::Deserialize;
@@ -79,21 +79,6 @@ pub struct SetGeospatialAnchorArgs {
     pub crs_wkt: String,
 }
 
-/// Arguments for adding a mesh shading spec.
-#[derive(Deserialize, JsonSchema)]
-pub struct AddMeshShadingArgs {
-    /// Path to input PDF file.
-    pub input_path: String,
-    /// Path to output PDF file.
-    pub output_path: String,
-    /// Type of mesh shading (4, 5, 6, 7).
-    pub shading_type: u8,
-    /// Target color space (defaults to "DeviceRGB").
-    pub color_space: Option<String>,
-    /// Hex-encoded binary data of the mesh shading stream.
-    pub stream_bytes_hex: String,
-}
-
 /// Arguments for setting an unencrypted wrapper document.
 #[derive(Deserialize, JsonSchema)]
 pub struct SetUnencryptedWrapperArgs {
@@ -105,19 +90,6 @@ pub struct SetUnencryptedWrapperArgs {
     pub payload_file_path: String,
     /// Notice message for legacy PDF readers.
     pub notice_message: Option<String>,
-}
-
-/// Arguments for adding a public key recipient certificate.
-#[derive(Deserialize, JsonSchema)]
-pub struct AddPublicKeyRecipientArgs {
-    /// Path to input PDF file.
-    pub input_path: String,
-    /// Path to output PDF file.
-    pub output_path: String,
-    /// Path to the recipient X.509 certificate in DER format.
-    pub cert_der_path: String,
-    /// Hex-encoded encrypted key bytes for this recipient.
-    pub encrypted_key_hex: String,
 }
 
 /// Arguments for executing an action.
@@ -188,36 +160,6 @@ pub fn set_geospatial_anchor_impl(args: SetGeospatialAnchorArgs) -> Result<Strin
     execute_single_op(&args.input_path, &args.output_path, op, "Geospatial anchor (/Geo) set")
 }
 
-/// Implementation of the add_mesh_shading tool.
-pub fn add_mesh_shading_impl(args: AddMeshShadingArgs) -> Result<String, String> {
-    let st = match args.shading_type {
-        4 => MeshShadingType::FreeFormTriangleMesh,
-        5 => MeshShadingType::LatticeFormTriangleMesh,
-        6 => MeshShadingType::CoonsPatchMesh,
-        7 => MeshShadingType::TensorProductPatchMesh,
-        _ => return Err("Invalid shading type: must be 4, 5, 6, or 7".into()),
-    };
-
-    let data_bytes = (0..args.stream_bytes_hex.len())
-        .step_by(2)
-        .map(|i| {
-            u8::from_str_radix(
-                &args.stream_bytes_hex[i..std::cmp::min(i + 2, args.stream_bytes_hex.len())],
-                16,
-            )
-            .unwrap_or(0)
-        })
-        .collect();
-
-    let spec = MeshShadingSpec {
-        shading_type: st,
-        color_space: args.color_space.unwrap_or_else(|| "DeviceRGB".to_string()),
-        data_bytes,
-    };
-    let op = Operation::AddMeshShading(spec);
-    execute_single_op(&args.input_path, &args.output_path, op, "Mesh shading spec added")
-}
-
 /// Implementation of the set_unencrypted_wrapper tool.
 pub fn set_unencrypted_wrapper_impl(args: SetUnencryptedWrapperArgs) -> Result<String, String> {
     let payload = fs::read(&args.payload_file_path)
@@ -231,28 +173,6 @@ pub fn set_unencrypted_wrapper_impl(args: SetUnencryptedWrapperArgs) -> Result<S
     };
     let op = Operation::SetUnencryptedWrapper(spec);
     execute_single_op(&args.input_path, &args.output_path, op, "Unencrypted wrapper payload set")
-}
-
-/// Implementation of the add_public_key_recipient tool.
-pub fn add_public_key_recipient_impl(args: AddPublicKeyRecipientArgs) -> Result<String, String> {
-    let cert_der_bytes = fs::read(&args.cert_der_path)
-        .map_err(|e| format!("Failed to read certificate DER '{}': {e}", args.cert_der_path))?;
-
-    let encrypted_key_bytes = (0..args.encrypted_key_hex.len())
-        .step_by(2)
-        .map(|i| {
-            u8::from_str_radix(
-                &args.encrypted_key_hex[i..std::cmp::min(i + 2, args.encrypted_key_hex.len())],
-                16,
-            )
-            .unwrap_or(0)
-        })
-        .collect();
-
-    let spec =
-        PublicKeyRecipientSpec { certificate_der_bytes: cert_der_bytes, encrypted_key_bytes };
-    let op = Operation::AddPublicKeyRecipient(spec);
-    execute_single_op(&args.input_path, &args.output_path, op, "Public key recipient added")
 }
 
 /// Implementation of the set_open_action tool.

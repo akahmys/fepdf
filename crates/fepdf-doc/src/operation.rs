@@ -6,10 +6,9 @@
 pub use fepdf_model::{
     AFRelationship, Align, AnnotationKind, AnnotationSpec, ArticleThread, AssociatedFile,
     CollectionViewMode, ContentScale, FormFieldSpec, FormValue, GeoSpatialAnchor, MeasurementScale,
-    MeshShadingSpec, MeshShadingType, OptionalContentProperties, OutlineNode, OutlineTree,
-    OutputIntent, PageLabelSpec, PageLabelStyle, PageResize, PdfAction, PortfolioCollection,
-    PublicKeyRecipientSpec, ShapeForm, TransitionSpec, TransitionStyle, UnencryptedWrapperSpec,
-    UserProperty, UserPropertyValue, VisibilityState,
+    OptionalContentProperties, OutlineNode, OutlineTree, OutputIntent, PageLabelSpec,
+    PageLabelStyle, PageResize, PdfAction, PortfolioCollection, ShapeForm, TransitionSpec,
+    TransitionStyle, UnencryptedWrapperSpec, UserProperty, UserPropertyValue, VisibilityState,
 };
 use serde::{Deserialize, Serialize};
 
@@ -619,14 +618,10 @@ pub enum Operation {
     // --- Phase 6: Advanced Graphics & GIS Operations ---
     /// Set a GIS geographic anchor (/Geo).
     SetGeospatialAnchor(GeoSpatialAnchor),
-    /// Add a Type 4-7 mesh shading spec.
-    AddMeshShading(MeshShadingSpec),
 
     // --- Phase 7: Font & Cryptography Operations ---
     /// Set unencrypted wrapper payload (Clause 7.6.7).
     SetUnencryptedWrapper(UnencryptedWrapperSpec),
-    /// Add a public key recipient certificate (Clause 7.6.4).
-    AddPublicKeyRecipient(PublicKeyRecipientSpec),
 }
 
 impl Operation {
@@ -700,9 +695,8 @@ impl Operation {
             | Self::MapStructType { .. }
             | Self::SetOpenAction { .. }
             | Self::SetGeospatialAnchor { .. }
-            | Self::AddMeshShading { .. }
             | Self::SetUnencryptedWrapper { .. }
-            | Self::AddPublicKeyRecipient { .. } => false,
+            => false,
         }
     }
 }

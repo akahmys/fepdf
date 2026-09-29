@@ -218,11 +218,9 @@ pub enum Operation {
 
     // --- Advanced Graphics & GIS ---
     SetGeospatialAnchor(GeoSpatialAnchor),
-    AddMeshShading(MeshShadingSpec),
 
     // --- Font & Cryptography ---
     SetUnencryptedWrapper(UnencryptedWrapperSpec),
-    AddPublicKeyRecipient(PublicKeyRecipientSpec),
 }
 
 pub enum RotateMode {

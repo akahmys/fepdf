@@ -128,8 +128,6 @@ pub fn apply_operation(doc: &mut Document, op: Operation) -> PdfResult<()> {
         Operation::SetCalculationOrder(order) => fields::apply_set_calculation_order(doc, &order),
         Operation::SetOpenAction(a) => annotations::apply_set_open_action(doc, a),
         Operation::SetGeospatialAnchor(a) => annotations::apply_set_geospatial_anchor(doc, a),
-        Operation::AddMeshShading(s) => annotations::apply_add_mesh_shading(doc, s),
         Operation::SetUnencryptedWrapper(w) => security::apply_set_unencrypted_wrapper(doc, w),
-        Operation::AddPublicKeyRecipient(r) => security::apply_add_public_key_recipient(doc, r),
     }
 }

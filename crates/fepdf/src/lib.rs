@@ -57,10 +57,9 @@ pub use fepdf_model::signature::{SignatureCheck, SignatureReport};
 pub use fepdf_model::{
     AFRelationship, AnnotationKind, AnnotationSpec, ArticleBead, ArticleThread, AssociatedFile,
     CollectionViewMode, Document, FormFieldSpec, FormValue, GeoSpatialAnchor, Handle, LayerGroup,
-    MeasurementScale, MeshShadingSpec, MeshShadingType, Object, OptionalContentProperties,
-    OutlineNode, OutlineTree, OutputIntent, Page, PageLabelSpec, PageLabelStyle, PdfAction,
-    PdfArena, PdfError, PdfName, PdfResult, PortfolioCollection, PortfolioItem,
-    PublicKeyRecipientSpec, ShapeForm, SublimatedData, TransitionSpec, TransitionStyle,
+    MeasurementScale, Object, OptionalContentProperties, OutlineNode, OutlineTree, OutputIntent,
+    Page, PageLabelSpec, PageLabelStyle, PdfAction, PdfArena, PdfError, PdfName, PdfResult,
+    PortfolioCollection, PortfolioItem, ShapeForm, SublimatedData, TransitionSpec, TransitionStyle,
     UnencryptedWrapperSpec, UserProperty, UserPropertyValue, VisibilityState,
 };
 pub use fepdf_model::{DocumentSource, PdfSource};

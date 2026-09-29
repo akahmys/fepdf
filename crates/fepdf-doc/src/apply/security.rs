@@ -1,8 +1,6 @@
 use crate::apply::metadata::{attach_to_catalog, create_embedded_filespec};
-use crate::operation::{AFRelationship, PublicKeyRecipientSpec, UnencryptedWrapperSpec};
-use bytes::Bytes;
+use crate::operation::{AFRelationship, UnencryptedWrapperSpec};
 use fepdf_model::{Document, Object, PdfResult};
-use std::collections::BTreeMap;
 
 /// Sets unencrypted wrapper payload (Clause 7.6.7).
 pub fn apply_set_unencrypted_wrapper(
@@ -21,53 +19,6 @@ pub fn apply_set_unencrypted_wrapper(
     );
 
     attach_to_catalog(doc, "EncryptedPayload.pdf".to_string(), filespec_h)
-}
-
-/// Adds a public key recipient to Adobe.PubSec (Clause 7.6.5).
-pub fn apply_add_public_key_recipient(
-    doc: &Document,
-    recipient: PublicKeyRecipientSpec,
-) -> PdfResult<()> {
-    let arena = doc.arena();
-    if let Some(cah) = doc.catalog_handle() {
-        let cadh = doc.resolve_to_dict(cah)?;
-        let mut cdict = arena.get_dict(cadh).unwrap_or_default();
-        let enc_key = arena.name("Encrypt");
-
-        let enc_dh = if let Some(enc_obj) = cdict.get(&enc_key)
-            && let Some(dh) = enc_obj.as_dict_handle()
-        {
-            dh
-        } else {
-            let mut ed = BTreeMap::new();
-            ed.insert(arena.name("Filter"), Object::Name(arena.name("Adobe.PubSec")));
-            ed.insert(arena.name("V"), Object::Integer(4));
-            ed.insert(arena.name("R"), Object::Integer(4));
-            let dh = arena.alloc_dict(ed);
-            let eh = arena.alloc_object(Object::Dictionary(dh));
-            cdict.insert(enc_key, Object::Reference(eh));
-            dh
-        };
-
-        let mut enc_dict = arena.get_dict(enc_dh).unwrap_or_default();
-        let rec_key = arena.name("Recipients");
-        let mut rec_items = if let Some(existing_rec) = enc_dict.get(&rec_key) {
-            match existing_rec {
-                Object::Array(ah) => arena.get_array(*ah).unwrap_or_default(),
-                _ => Vec::new(),
-            }
-        } else {
-            Vec::new()
-        };
-        // **Binary, and a byte string for that reason** — `/Recipients` holds DER-encoded
-        // CMS blobs (7.6.5), not text. Nothing decodes these as characters.
-        rec_items.push(Object::String(Bytes::from(recipient.certificate_der_bytes)));
-        let rec_ah = arena.alloc_array(rec_items);
-        enc_dict.insert(rec_key, Object::Array(rec_ah));
-        arena.set_dict(enc_dh, enc_dict);
-        arena.set_dict(cadh, cdict);
-    }
-    Ok(())
 }
 
 /// Writes a Document Security Store (`/DSS`, 12.8.4.3) into the catalogue.

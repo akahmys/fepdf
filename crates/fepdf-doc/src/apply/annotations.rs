@@ -4,16 +4,14 @@ use crate::apply::appearance;
 use crate::apply::fields::text_of;
 use crate::operation::{
     AnnotationSpec, DecorationPosition, FormFieldSpec, FormValue, GeoSpatialAnchor,
-    MeasurementScale, MeshShadingSpec, MeshShadingType, PageSelection, PdfAction, TransitionSpec,
-    TransitionStyle,
+    MeasurementScale, PageSelection, PdfAction, TransitionSpec, TransitionStyle,
 };
 use bytes::Bytes;
 use fepdf_model::arena::PdfArena;
 use fepdf_model::interpretation::Decision;
-use fepdf_model::object::{PdfName, SublimatedData};
+use fepdf_model::object::PdfName;
 use fepdf_model::{Document, Handle, Object, PdfError, PdfResult};
 use std::collections::BTreeMap;
-use std::sync::Arc;
 
 fn create_transition_dict(
     arena: &PdfArena,
@@ -135,70 +133,6 @@ pub fn apply_set_geospatial_anchor(doc: &Document, anchor: GeoSpatialAnchor) -> 
         "GeoSpatial",
         measure_h,
     )
-}
-
-fn ensure_catalog_shading_dict(
-    arena: &PdfArena,
-    cdict: &mut BTreeMap<Handle<PdfName>, Object>,
-) -> Handle<BTreeMap<Handle<PdfName>, Object>> {
-    let res_key = arena.name("Resources");
-    let shading_key = arena.name("Shading");
-
-    let res_dh = if let Some(res_obj) = cdict.get(&res_key)
-        && let Some(dh) = res_obj.as_dict_handle()
-    {
-        dh
-    } else {
-        let dh = arena.alloc_dict(BTreeMap::new());
-        cdict.insert(res_key, Object::Dictionary(dh));
-        dh
-    };
-
-    let mut res_dict = arena.get_dict(res_dh).unwrap_or_default();
-    let sh_dh = if let Some(sh_obj) = res_dict.get(&shading_key)
-        && let Some(dh) = sh_obj.as_dict_handle()
-    {
-        dh
-    } else {
-        let dh = arena.alloc_dict(BTreeMap::new());
-        res_dict.insert(shading_key, Object::Dictionary(dh));
-        dh
-    };
-    arena.set_dict(res_dh, res_dict);
-    sh_dh
-}
-
-/// Registers mesh shading geometry in the catalogue resources (Clause 8.7.4.5).
-pub fn apply_add_mesh_shading(doc: &Document, shading: MeshShadingSpec) -> PdfResult<()> {
-    let arena = doc.arena();
-    let shading_type_num = match shading.shading_type {
-        MeshShadingType::FreeFormTriangleMesh => 4,
-        MeshShadingType::LatticeFormTriangleMesh => 5,
-        MeshShadingType::CoonsPatchMesh => 6,
-        MeshShadingType::TensorProductPatchMesh => 7,
-    };
-
-    let mut stream_dict = BTreeMap::new();
-    stream_dict.insert(arena.name("Type"), Object::Name(arena.name("Shading")));
-    stream_dict.insert(arena.name("ShadingType"), Object::Integer(shading_type_num));
-    stream_dict.insert(arena.name("ColorSpace"), Object::Name(arena.name(&shading.color_space)));
-
-    let stream_dh = arena.alloc_dict(stream_dict);
-    let stream_obj =
-        Object::Stream(stream_dh, Arc::new(SublimatedData::Raw(Bytes::from(shading.data_bytes))));
-    let shading_h = arena.alloc_object(stream_obj);
-
-    if let Some(cah) = doc.catalog_handle() {
-        let cadh = doc.resolve_to_dict(cah)?;
-        let mut cdict = arena.get_dict(cadh).unwrap_or_default();
-        let sh_dh = ensure_catalog_shading_dict(arena, &mut cdict);
-        let mut sh_dict = arena.get_dict(sh_dh).unwrap_or_default();
-        let sh_name = arena.name("Sh0");
-        sh_dict.insert(sh_name, Object::Reference(shading_h));
-        arena.set_dict(sh_dh, sh_dict);
-        arena.set_dict(cadh, cdict);
-    }
-    Ok(())
 }
 
 fn calculate_decoration_coords(

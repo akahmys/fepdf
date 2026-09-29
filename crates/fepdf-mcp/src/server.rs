@@ -8,31 +8,30 @@ use crate::tools::operations::vocabulary::{
     insert_from_impl, reorder_batch_impl, retag_impl, upgrade_impl,
 };
 use crate::tools::{
-    AddAnnotationArgs, AddFormFieldArgs, AddMeshShadingArgs, AddPageDecorationArgs,
-    AddPublicKeyRecipientArgs, AddUserPropertiesArgs, ApplyBatesNumberingArgs, ApplyOperationArgs,
-    AttachAssociatedFileArgs, AuditArgs, CombinePagesArgs, CreatePortfolioArgs, CropPagesArgs,
-    DeleteRunArgs, DeleteStructElemArgs, EditObjectArgs, EditRunArgs, ExtractTextArgs,
-    ListObjectsArgs, ListRunsArgs, MapStructTypeArgs, MarkArtifactArgs, MergeRunsArgs, MoveRunArgs,
-    MoveStructElemArgs, RedactDocumentArgs, RemovePagesArgs, ReorderPagesArgs, RotatePagesArgs,
-    SetCalculationOrderArgs, SetFormFieldValueArgs, SetGeospatialAnchorArgs,
-    SetMeasurementScaleArgs, SetOpenActionArgs, SetOutputIntentArgs, SetPageLabelsArgs,
-    SetPronunciationLexiconArgs, SetStructAttributeArgs, SetStructNamespaceArgs, SetStructRefsArgs,
-    SetTabOrderArgs, SetUnencryptedWrapperArgs, SplitPageArgs, SplitRunArgs,
-    UpdateArticleThreadsArgs, UpdateLayersArgs, UpdateOutlinesArgs, UpdateStructElemArgs,
-    VerifySignaturesArgs, WrapStructElemArgs, add_annotation_impl, add_form_field_impl,
-    add_mesh_shading_impl, add_page_decoration_impl, add_public_key_recipient_impl,
-    add_user_properties_impl, apply_bates_numbering_impl, apply_operation_impl,
-    apply_redaction_impl, attach_associated_file_impl, audit_document_impl, combine_pages_impl,
-    create_portfolio_impl, crop_pages_impl, delete_run_impl, delete_struct_elem_impl,
-    edit_object_impl, edit_run_impl, extract_text_impl, list_objects_impl, list_runs_impl,
-    map_struct_type_impl, mark_artifact_impl, merge_runs_impl, move_run_impl,
-    move_struct_elem_impl, remove_pages_impl, reorder_pages_impl, rotate_pages_impl,
-    set_calculation_order_impl, set_form_field_value_impl, set_geospatial_anchor_impl,
-    set_measurement_scale_impl, set_open_action_impl, set_output_intent_impl, set_page_labels_impl,
-    set_pronunciation_lexicon_impl, set_struct_attribute_impl, set_struct_namespace_impl,
-    set_struct_refs_impl, set_tab_order_impl, set_unencrypted_wrapper_impl, split_page_impl,
-    split_run_impl, update_article_threads_impl, update_layers_impl, update_outlines_impl,
-    update_struct_elem_impl, verify_signatures_impl, wrap_struct_elem_impl,
+    AddAnnotationArgs, AddFormFieldArgs, AddPageDecorationArgs, AddUserPropertiesArgs,
+    ApplyBatesNumberingArgs, ApplyOperationArgs, AttachAssociatedFileArgs, AuditArgs,
+    CombinePagesArgs, CreatePortfolioArgs, CropPagesArgs, DeleteRunArgs, DeleteStructElemArgs,
+    EditObjectArgs, EditRunArgs, ExtractTextArgs, ListObjectsArgs, ListRunsArgs, MapStructTypeArgs,
+    MarkArtifactArgs, MergeRunsArgs, MoveRunArgs, MoveStructElemArgs, RedactDocumentArgs,
+    RemovePagesArgs, ReorderPagesArgs, RotatePagesArgs, SetCalculationOrderArgs,
+    SetFormFieldValueArgs, SetGeospatialAnchorArgs, SetMeasurementScaleArgs, SetOpenActionArgs,
+    SetOutputIntentArgs, SetPageLabelsArgs, SetPronunciationLexiconArgs, SetStructAttributeArgs,
+    SetStructNamespaceArgs, SetStructRefsArgs, SetTabOrderArgs, SetUnencryptedWrapperArgs,
+    SplitPageArgs, SplitRunArgs, UpdateArticleThreadsArgs, UpdateLayersArgs, UpdateOutlinesArgs,
+    UpdateStructElemArgs, VerifySignaturesArgs, WrapStructElemArgs, add_annotation_impl,
+    add_form_field_impl, add_page_decoration_impl, add_user_properties_impl,
+    apply_bates_numbering_impl, apply_operation_impl, apply_redaction_impl,
+    attach_associated_file_impl, audit_document_impl, combine_pages_impl, create_portfolio_impl,
+    crop_pages_impl, delete_run_impl, delete_struct_elem_impl, edit_object_impl, edit_run_impl,
+    extract_text_impl, list_objects_impl, list_runs_impl, map_struct_type_impl, mark_artifact_impl,
+    merge_runs_impl, move_run_impl, move_struct_elem_impl, remove_pages_impl, reorder_pages_impl,
+    rotate_pages_impl, set_calculation_order_impl, set_form_field_value_impl,
+    set_geospatial_anchor_impl, set_measurement_scale_impl, set_open_action_impl,
+    set_output_intent_impl, set_page_labels_impl, set_pronunciation_lexicon_impl,
+    set_struct_attribute_impl, set_struct_namespace_impl, set_struct_refs_impl, set_tab_order_impl,
+    set_unencrypted_wrapper_impl, split_page_impl, split_run_impl, update_article_threads_impl,
+    update_layers_impl, update_outlines_impl, update_struct_elem_impl, verify_signatures_impl,
+    wrap_struct_elem_impl,
 };
 use rmcp::{
     ServiceExt,
@@ -906,18 +905,6 @@ impl FepdfServer {
         set_geospatial_anchor_impl(args)
     }
 
-    /// Adds Type 4-7 mesh shading gradient specification.
-    #[tool(
-        name = "add_mesh_shading",
-        description = "Adds Type 4-7 mesh shading gradient specification."
-    )]
-    pub async fn add_mesh_shading(
-        &self,
-        Parameters(args): Parameters<AddMeshShadingArgs>,
-    ) -> Result<String, String> {
-        add_mesh_shading_impl(args)
-    }
-
     /// Configures an unencrypted wrapper document payload conforming to ISO 32000-2 Section 7.6.7.
     #[tool(
         name = "set_unencrypted_wrapper",
@@ -928,18 +915,6 @@ impl FepdfServer {
         Parameters(args): Parameters<SetUnencryptedWrapperArgs>,
     ) -> Result<String, String> {
         set_unencrypted_wrapper_impl(args)
-    }
-
-    /// Adds a public key recipient certificate for certificate-based document encryption.
-    #[tool(
-        name = "add_public_key_recipient",
-        description = "Adds a public key recipient certificate for certificate-based document encryption."
-    )]
-    pub async fn add_public_key_recipient(
-        &self,
-        Parameters(args): Parameters<AddPublicKeyRecipientArgs>,
-    ) -> Result<String, String> {
-        add_public_key_recipient_impl(args)
     }
 }
 
