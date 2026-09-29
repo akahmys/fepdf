@@ -584,6 +584,19 @@ fn parse_top_index(arena: &PdfArena, d: &Dict) -> Option<usize> {
     }
 }
 
+/// The kids of field `d` that are fields themselves.
+///
+/// **A terminal field's `/Kids` are its widgets, not fields** (12.7.4.1). A kid that is a
+/// widget and names no field is where the field is drawn, so a field whose kids are all of
+/// that kind is itself the terminal one. The walk descended into every kid, so a radio
+/// group of three buttons was three fields, each read from its widget: named by the group,
+/// with the widget's `/TU` — which a widget does not carry and is not inherited — and so a
+/// missing tooltip reported three times over a group that has one.
+fn child_fields(arena: &PdfArena, d: &Dict) -> Vec<Object> {
+    let kids = array_of(arena, d.get(&arena.name("Kids"))).unwrap_or_default();
+    kids.into_iter().filter(|kid| !is_widget_only(arena, kid)).collect()
+}
+
 /// Whether `kid` is a widget annotation and nothing more: `/Subtype /Widget` and no `/T`.
 /// A kid that names itself is a field, whether or not it is also its own widget.
 fn is_widget_only(arena: &PdfArena, kid: &Object) -> bool {
@@ -649,16 +662,7 @@ fn read_form(arena: &PdfArena, catalog: &Dict) -> FormFields {
         }
         let Some(d) = dict_of(arena, &node) else { continue };
         let here = inherited.and(arena, &d);
-        // **A terminal field's `/Kids` are its widgets, not fields** (12.7.4.1). A kid that
-        // is a widget and names no field is where the field is drawn, so a field whose
-        // kids are all of that kind is itself the terminal one. This descended into every
-        // kid, so a radio group of three buttons was three fields, each read from its
-        // widget: named by the group, with the widget's `/TU` — which a widget does not
-        // carry and is not inherited — and so a missing tooltip reported three times over
-        // a group that has one.
-        let kids = array_of(arena, d.get(&arena.name("Kids"))).unwrap_or_default();
-        let fields: Vec<Object> =
-            kids.into_iter().filter(|kid| !is_widget_only(arena, kid)).collect();
+        let fields = child_fields(arena, &d);
         match fields.is_empty() {
             false => {
                 queue.extend(fields.into_iter().rev().map(|k| (k, depth + 1, here.clone())));

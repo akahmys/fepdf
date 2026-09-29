@@ -39,6 +39,34 @@ pub fn audit_document_impl(args: AuditArgs) -> Result<String, String> {
     audit_document_internal(args).map_err(|e| e.to_string())
 }
 
+/// What the reader had to repair in the file structure to open the document (7.5).
+///
+/// **What was repaired is said; that it opened is not the same claim.** This reported
+/// "XRef chain and trailer resolved successfully" of every file that opened, and a file
+/// opens when its cross-reference is unusable — the reader scans for its objects instead
+/// and records that as a 7.5 decision (ADR-0003).
+fn structure_findings(doc: &PdfDocument) -> Vec<Finding> {
+    let repairs: Vec<fepdf::Decision> =
+        doc.decisions().into_iter().filter(|d| d.clause.starts_with("7.5")).collect();
+    if repairs.is_empty() {
+        return vec![Finding {
+            severity: "Info".into(),
+            category: "Structural".into(),
+            message: "The file structure (7.5: header, cross-reference, trailer) was read \
+                      as written; nothing was repaired to open it."
+                .into(),
+        }];
+    }
+    repairs
+        .into_iter()
+        .map(|repair| Finding {
+            severity: "Warning".into(),
+            category: "Structural".into(),
+            message: format!("{}: {} — {}", repair.clause, repair.found, repair.action),
+        })
+        .collect()
+}
+
 fn audit_document_internal(args: AuditArgs) -> McpResult<String> {
     let mut findings = Vec::new();
 
@@ -63,28 +91,7 @@ fn audit_document_internal(args: AuditArgs) -> McpResult<String> {
         }
     };
 
-    // **What the reader had to repair is said; that it opened is not the same claim.**
-    // This reported "XRef chain and trailer resolved successfully" of every file that
-    // opened, and a file opens when its cross-reference is unusable — the reader scans
-    // for its objects instead and records that as a 7.5 decision (ADR-0003).
-    let repairs: Vec<fepdf::Decision> =
-        doc.decisions().into_iter().filter(|d| d.clause.starts_with("7.5")).collect();
-    if repairs.is_empty() {
-        findings.push(Finding {
-            severity: "Info".into(),
-            category: "Structural".into(),
-            message: "The file structure (7.5: header, cross-reference, trailer) was read \
-                      as written; nothing was repaired to open it."
-                .into(),
-        });
-    }
-    for repair in repairs {
-        findings.push(Finding {
-            severity: "Warning".into(),
-            category: "Structural".into(),
-            message: format!("{}: {} — {}", repair.clause, repair.found, repair.action),
-        });
-    }
+    findings.extend(structure_findings(&doc));
 
     // 3. Use SDK Summary for Audit
     let summary = doc.get_summary().map_err(|e| McpError::Pdf(e.to_string()))?;
