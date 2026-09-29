@@ -833,6 +833,13 @@ eight times, and the copies do not agree on whether to resolve.
       later operation failed, so a first operation that changed the document and then
       failed would leave it differing from what undo replays. No such path was found in
       the form writer; the contract is what is missing.
+- [ ] **Y-F13** — the window calls redaction 黒塗り (blacking out) and draws nothing
+      black: `apply_physical_redaction_to_page` replaces every string of a show-text
+      operator touching a rectangle with `[REDACTED]`, drawn in the page's own font,
+      and leaves the page's images, vector graphics, annotations, form fields and form
+      XObjects' text where they are. Either the drawing covers what it names, or the
+      name says what it does. It also changes the open document outside `apply`, in
+      the window's export and in `fepdf-mcp`, so no history holds it (Rule D).
 - [ ] **Y-F7** — `compare.rs`'s `to_f64` is used only under the `render` feature and is
       not gated with it, so `cargo build -p fepdf` warns. The workspace build unifies
       features and never sees it.

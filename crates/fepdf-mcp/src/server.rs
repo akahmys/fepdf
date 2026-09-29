@@ -217,7 +217,13 @@ impl FepdfServer {
     /// Physically sanitizes and scrubs content streams inside specified bounding rectangles on designated pages.
     #[tool(
         name = "apply_redaction",
-        description = "Physically sanitizes and scrubs content streams inside specified bounding rectangles on designated pages."
+        description = "Removes text from inside rectangles on pages: each show-text operator \
+                       of a page's own content stream whose text touches a rectangle has its \
+                       strings replaced by [REDACTED] — the whole operator, including what \
+                       lies outside the rectangle — and the count answered is how many were \
+                       replaced. Only text is removed: images, vector graphics, annotations, \
+                       form fields and the text of form XObjects inside the rectangles are \
+                       left as they are, so this alone does not make a region safe to share."
     )]
     pub async fn apply_redaction(
         &self,
