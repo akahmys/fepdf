@@ -431,8 +431,14 @@ fn printer_mark_appearance(
         else {
             continue;
         };
-        match value.as_reference().and_then(|h| arena.get_object(h).map(|o| (h, o))) {
-            Some((handle, Object::Stream(..))) => streams.push(handle),
+        // A stream is reached by reference; a states dictionary is as often written in
+        // place, and only the one reached by reference was looked into.
+        let reached = match value.as_reference() {
+            Some(handle) => arena.get_object(handle).map(|o| (Some(handle), o)),
+            None => Some((None, value)),
+        };
+        match reached {
+            Some((Some(handle), Object::Stream(..))) => streams.push(handle),
             Some((_, Object::Dictionary(states))) => streams.extend(
                 arena
                     .get_dict(states)

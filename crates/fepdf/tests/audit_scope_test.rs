@@ -1950,6 +1950,23 @@ fn a_printer_marks_appearance_is_an_artifact() {
     );
 }
 
+/// **A printer's mark's appearance states are read where they are written directly.**
+/// `/AP << /N << /On 5 0 R >> >>` is the usual way to write them, and only a states
+/// dictionary reached by reference was looked into, so this one painted outside any
+/// `/Artifact` unasked.
+#[test]
+fn a_printer_marks_appearance_states_written_directly_are_read() {
+    let content = "0 0 1 1 re f";
+    let report = annotation_page(&[
+        "<< /Type /Annot /Subtype /PrinterMark /Rect [10 10 20 20] /AP << /N << /On 5 0 R >> >> >>",
+        &format!(
+            "<< /Type /XObject /Subtype /Form /BBox [0 0 10 10] /Length {} >>\nstream\n{content}\nendstream",
+            content.len()
+        ),
+    ]);
+    assert_eq!(outcomes(&report, "28-018"), vec![Outcome::Broken]);
+}
+
 /// **11-006 is left for a reader when the catalogue states no `/Lang`, because ingestion
 /// rewrites the packet that could have said.** The fixture's `dc:title` is in English by
 /// its own `xml:lang`; the packet the ingested document carries has lost that, and the day
