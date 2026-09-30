@@ -83,8 +83,10 @@ fn widget_dictionary(
     dict.insert(arena.name("Type"), Object::Name(arena.name("Annot")));
     dict.insert(arena.name("Subtype"), Object::Name(arena.name("Widget")));
     dict.insert(arena.name("FT"), Object::Name(arena.name(field.kind.field_type())));
-    dict.insert(arena.name("T"), Object::String(field.name.clone().into_bytes().into()));
-    dict.insert(arena.name("TU"), Object::String(field.tooltip.clone().into_bytes().into()));
+    // Text strings (7.9.2.2), which the writer encodes: the UTF-8 bytes bare are read as
+    // PDFDocEncoding by every other reader, and a field named 電話 was named in mojibake.
+    dict.insert(arena.name("T"), Object::Text(field.name.clone()));
+    dict.insert(arena.name("TU"), Object::Text(field.tooltip.clone()));
     dict.insert(arena.name("P"), Object::Reference(page));
     let rect = [field.rect.0, field.rect.1, field.rect.2, field.rect.3];
     dict.insert(
@@ -107,7 +109,7 @@ fn widget_dictionary(
 
 /// What the kind of field puts in the dictionary beyond its type and flags.
 fn add_kind(arena: &PdfArena, dict: &mut BTreeMap<Handle<PdfName>, Object>, kind: &FieldKind) {
-    let text = |value: &str| Object::String(value.to_string().into_bytes().into());
+    let text = |value: &str| Object::Text(value.to_string());
     match kind {
         FieldKind::Text { value } | FieldKind::TextArea { value } => {
             dict.insert(arena.name("V"), text(value));

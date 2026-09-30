@@ -185,3 +185,59 @@ fn a_created_field_can_then_be_filled() {
         "the field this engine created did not keep what was put in it"
     );
 }
+
+/// **A field's words are text strings (7.9.2.2)**, so a name in Japanese is written as
+/// one: UTF-16 or UTF-8 behind its byte order mark. They were the UTF-8 bytes bare, which
+/// every other reader takes for PDFDocEncoding, so 電話 was a field named in mojibake
+/// everywhere but here. Read back without refinement, which would repair what it reads.
+#[test]
+fn a_fields_words_are_written_as_text_strings() {
+    let mut doc = blank();
+    let mut combo = field(
+        "電話",
+        FieldKind::ComboBox {
+            options: vec!["東京".to_string(), "大阪".to_string()],
+            value: "東京".to_string(),
+        },
+    );
+    combo.tooltip = "電話番号".to_string();
+    doc.apply(Operation::AddFormField(combo)).expect("the field is created");
+    let mut push = field("押す", FieldKind::PushButton { caption: "送信".to_string() });
+    push.rect = (20.0, 200.0, 220.0, 230.0);
+    doc.apply(Operation::AddFormField(push)).expect("the button is created");
+
+    let path = std::env::temp_dir().join(format!("fepdf_field_text_{}.pdf", std::process::id()));
+    doc.save_with_options(&path, "2.0", &SaveOptions::default()).expect("it writes");
+    let written = std::fs::read(&path).expect("the output is there");
+    let _ = std::fs::remove_file(&path);
+    let raw = IngestionOptions { active_refinement: false, ..IngestionOptions::default() };
+    let back = PdfDocument::open_with_options(written.into(), &raw).expect("it reads back");
+
+    let arena = back.inner().arena();
+    let marked =
+        |bytes: &[u8]| bytes.starts_with(&[0xFE, 0xFF]) || bytes.starts_with(&[0xEF, 0xBB, 0xBF]);
+    let mut strings = Vec::new();
+    let mut push = |key: &str, value: &fepdf_model::Object| {
+        if let fepdf_model::Object::String(b) | fepdf_model::Object::Hex(b) = value {
+            strings.push((key.to_string(), b.to_vec()));
+        }
+    };
+    for dict in arena.all_dict_handles() {
+        for (key, value) in arena.get_dict(dict).unwrap_or_default() {
+            let key = arena.get_name(key).map(|k| k.as_str().to_string()).unwrap_or_default();
+            match (key.as_str(), value.resolve(arena)) {
+                ("Opt", fepdf_model::Object::Array(options)) => {
+                    for option in arena.get_array(options).unwrap_or_default() {
+                        push("Opt", &option);
+                    }
+                }
+                ("T" | "TU" | "V" | "CA", _) => push(&key, &value),
+                _ => {}
+            }
+        }
+    }
+    let bare: Vec<_> =
+        strings.iter().filter(|(_, b)| !b.is_ascii() && !marked(b)).map(|(k, _)| k).collect();
+    assert!(strings.len() >= 6, "the words were not found to check: {strings:?}");
+    assert!(bare.is_empty(), "written as bare bytes: {bare:?}");
+}
