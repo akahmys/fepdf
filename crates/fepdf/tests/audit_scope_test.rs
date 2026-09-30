@@ -1672,18 +1672,17 @@ fn the_second_pass_comes_out_sound_where_it_is_met() {
     }
 }
 
-/// **31-006 and 31-008 are left out, because ingestion answers them.**
+/// **A Type 0 font's CMap reaches the auditor as the file named it**, so 31-006 and 31-008
+/// can be asked of it — and are not yet (ROADMAP Y-F16).
 ///
 /// Both are about the CMap a Type 0 font names: one in ISO 32000-1's Table 118 or
-/// embedded (31-006), and an embedded one using no other (31-008). `refine::font` rewrites
-/// every Type 0 font's `/Encoding` to `Identity-H` or `Identity-V` as it reads the file,
-/// so the document this auditor reads names a listed CMap whatever the file said — and
-/// both conditions would come out sound for every file this engine opens. It is checkpoint
-/// 06's position ([ADR-0094](../../../docs/adr/0094-the-auditor-reads-the-ingested-document-so-ingestion-answers-checkpoint-06.md)),
-/// and this test holds the reason to the code: were ingestion to stop rewriting, the
-/// assertion on `/Encoding` fails and the two can be checked.
+/// embedded (31-006), and an embedded one using no other (31-008). They were left out on
+/// the ground that `refine::font` rewrote every `/Encoding` to `Identity-H`, which it did
+/// only for a font whose descendant would not load — this fixture's
+/// ([ADR-0105](../../../docs/adr/0105-ingestion-never-rewrote-a-real-type-0-cmap.md)).
+/// When Y-F16 builds them, the loop below is the assertion to turn round.
 #[test]
-fn the_cmap_conditions_are_left_out_because_ingestion_answers_them() {
+fn the_cmap_a_type_0_font_names_is_kept_as_written() {
     let doc = opened(
         fepdf_fixtures::assemble(&[
             "<< /Type /Catalog /Pages 2 0 R >>",
@@ -1706,15 +1705,11 @@ fn the_cmap_conditions_are_left_out_because_ingestion_answers_them() {
         .and_then(|e| e.as_name())
         .and_then(|n| arena.get_name(n))
         .map(|n| n.as_str().to_string());
-    assert_eq!(
-        encoding.as_deref(),
-        Some("Identity-H"),
-        "ingestion no longer rewrites a Type 0 font's CMap, so 31-006 and 31-008 can be checked"
-    );
+    assert_eq!(encoding.as_deref(), Some("Made-Up-H"), "ingestion rewrote the font's CMap");
     for condition in ["31-006", "31-008"] {
         assert!(
             !MatterhornAuditor::CHECKED.contains(&condition),
-            "{condition} is checked on a document whose CMaps ingestion has already rewritten"
+            "{condition} is checked now: this test and ROADMAP Y-F16 say it is not"
         );
     }
 }

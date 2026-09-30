@@ -232,8 +232,7 @@ impl ParallelRefinery {
 
         // Font Normalization
         if refined_dict.get(&PdfName::new("Type")).and_then(RefinedObject::as_str) == Some("Font") {
-            let resource = context.fonts.get(&number).map(std::convert::AsRef::as_ref);
-            refined_dict = match font::normalize_font(refined_dict, resource) {
+            refined_dict = match font::normalize_font(refined_dict) {
                 RefinedObject::Dictionary(d) => d,
                 _ => return RefinedObject::Null,
             };

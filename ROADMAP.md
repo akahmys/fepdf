@@ -851,7 +851,13 @@ eight times, and the copies do not agree on whether to resolve.
       (`refine/font.rs`) and records no `Decision`, so the audit cannot see what
       ISO 14289-1 7.21.3.2 fails: 31-004's arm for an absent entry passes, and never runs.
       It also gives a `CIDFontType0` the entry, which Table 115 defines for `CIDFontType2`
-      alone. Either ingestion records what it repaired, or it stops repairing it.
+      alone: measured 2026-09-30, none of the 4 in `sample_02c.pdf` or the 23 in
+      `fy05.pdf` carries one, and every one does once loaded. Either ingestion records
+      what it repaired, or it stops repairing it.
+- [ ] **Y-F16** — 31-005 to 31-008, about a Type 0 font's CMap, are not asked. They were
+      left out because ingestion was said to rewrite every CMap to `Identity-H`, which it
+      never did to a font that loads (ADR-0105). They need ISO 32000-1 Table 118 read out
+      of `docs/specs/PDF32000_2008.pdf`.
 - [ ] **Y-F7** — `compare.rs`'s `to_f64` is used only under the `render` feature and is
       not gated with it, so `cargo build -p fepdf` warns. The workspace build unifies
       features and never sees it.

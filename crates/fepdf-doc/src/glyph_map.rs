@@ -280,9 +280,9 @@ fn type3(arena: &PdfArena, font: &Object) -> Option<GlyphMap> {
 
 /// A Type 0 font whose CMap was an Identity one, so that each two-byte code is its CID.
 ///
-/// **The CMap as the file named it, from the loaded font**: ingestion rewrites every Type 0
-/// `/Encoding` to `Identity-H` or `Identity-V` without touching the content, so the
-/// dictionary cannot say which codes are CIDs.
+/// **The CMap as the loaded font read it**, which is the one the file named: ingestion
+/// keeps a Type 0 font's `/Encoding` as written
+/// ([ADR-0105](../../../docs/adr/0105-ingestion-never-rewrote-a-real-type-0-cmap.md)).
 fn composite(doc: &Document, font: Handle<Object>) -> Option<GlyphMap> {
     let loaded = doc.get_font(font).ok()?;
     if !loaded.encoding.as_ref()?.name().starts_with("Identity") {
