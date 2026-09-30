@@ -105,8 +105,7 @@ fn set_in_box(
         let code = embedded.code_of.get(gid).copied().unwrap_or(*gid);
         let _ = write!(codes, "{code:04X}");
     }
-    let ((a, b), (c, d), (e, f)) = (along, up, origin);
-    Ok(format!(
-        "BT\n3 Tr\n/{font} {size:.3} Tf\n{scaling:.3} Tz\n{a} {b} {c} {d} {e:.3} {f:.3} Tm\n<{codes}> Tj\nET\n"
-    ))
+    let matrix =
+        format!("{} {} {} {} {:.3} {:.3}", along.0, along.1, up.0, up.1, origin.0, origin.1);
+    Ok(format!("BT\n3 Tr\n/{font} {size:.3} Tf\n{scaling:.3} Tz\n{matrix} Tm\n<{codes}> Tj\nET\n"))
 }
