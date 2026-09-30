@@ -256,8 +256,8 @@ pub enum Operation {
     /// <code>[ContentFit::Scale](0.9)</code>. Two would have been two places to get the
     /// boxes right.
     ///
-    /// `size` is the new `/MediaBox`, in points, placed at the origin — which is where
-    /// 14.11.2's boxes are measured from and where every page in this corpus puts its own.
+    /// `size` is the new `/MediaBox`, in points, placed at the origin; the drawing is taken
+    /// from where the old box began, which need not be the origin.
     ResizePages(PageSelection, PageResize),
     /// Add a Document Security Store (`/DSS`, 12.8.4.3) carrying validation certificates.
     ///

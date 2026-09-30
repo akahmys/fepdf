@@ -434,7 +434,14 @@ fn resize_one_page(doc: &Document, index: usize, to: &PageResize) -> PdfResult<(
     let seen = if quarter_turned { (drawn_in.1, drawn_in.0) } else { drawn_in };
     let asked = to.sheet.unwrap_or(seen);
     let size = if quarter_turned { (asked.1, asked.0) } else { asked };
-    let matrix = fit_matrix(drawn_in, size, to);
+    // The new sheet starts at the origin and the old one may not: the content is taken
+    // from where the old box started before it is fitted. Fitted as if the old box began
+    // at the origin, a page whose box is `[100 100 400 400]` had its drawing moved 100
+    // points up and right, off the sheet at its edges.
+    let (x0, y0) = page_origin(doc, index);
+    let fit = fit_matrix(drawn_in, size, to);
+    let matrix =
+        [fit[0], fit[1], fit[2], fit[3], fit[0].mul_add(-x0, fit[4]), fit[3].mul_add(-y0, fit[5])];
 
     let page_dh = doc.resolve_to_dict(page_h)?;
     let arena = doc.arena();
@@ -477,6 +484,20 @@ pub(crate) fn page_turn(doc: &Document, index: usize) -> i64 {
         Some(Object::Integer(angle)) => (angle % 360).rem_euclid(360),
         _ => 0,
     }
+}
+
+/// Where the box a page is on starts: its lower-left corner, from whatever declares it.
+fn page_origin(doc: &Document, index: usize) -> (f64, f64) {
+    let Ok(page) = doc.get_page(index) else { return (0.0, 0.0) };
+    let arena = doc.arena();
+    page.resolve_attribute("MediaBox")
+        .and_then(|entry| entry.as_array())
+        .and_then(|handle| arena.get_array(handle))
+        .filter(|array| array.len() >= 4)
+        .map_or((0.0, 0.0), |array| {
+            let at = |i: usize| array[i].resolve(arena).as_f64().unwrap_or(0.0);
+            (at(0).min(at(2)), at(1).min(at(3)))
+        })
 }
 
 /// The sheet a page is currently on, in points, from whatever declares it.
@@ -648,7 +669,19 @@ pub fn apply_split_page(doc: &mut Document, page: usize, division: &PageDivision
             format!("this document has {count} pages and no page {page}").into(),
         ));
     }
-    let regions = division.regions(doc_page_size(doc, page));
+    // A grid is measured from where the page's box starts, which need not be the origin:
+    // measured from the origin, a page whose box is `[100 100 400 400]` was cut 100 points
+    // down and left of its drawing. Regions named outright are in the box's own space
+    // already.
+    let (x0, y0) = match division {
+        PageDivision::Grid { .. } => page_origin(doc, page),
+        PageDivision::Regions(_) => (0.0, 0.0),
+    };
+    let regions: Vec<(f64, f64, f64, f64)> = division
+        .regions(doc_page_size(doc, page))
+        .into_iter()
+        .map(|(left, bottom, right, top)| (left + x0, bottom + y0, right + x0, top + y0))
+        .collect();
     if regions.is_empty() {
         return Err(PdfError::Other("a split into no regions leaves nothing".into()));
     }
@@ -806,8 +839,13 @@ fn page_as_form(doc: &Document, index: usize) -> PdfResult<Option<fepdf_model::H
     let mut form = BTreeMap::new();
     form.insert(arena.name("Type"), Object::Name(arena.name("XObject")));
     form.insert(arena.name("Subtype"), Object::Name(arena.name("Form")));
-    let box_ = [0.0, 0.0, size.0, size.1];
+    // The page's own box, and a matrix taking its corner to the form's origin (8.10.1):
+    // a box at the origin clipped away the drawing of a page whose box starts elsewhere.
+    let (x0, y0) = page_origin(doc, index);
+    let box_ = [x0, y0, x0 + size.0, y0 + size.1];
     form.insert(arena.name("BBox"), Object::Array(arena.alloc_array(numbers(box_))));
+    let matrix = [1.0, 0.0, 0.0, 1.0, -x0, -y0].map(Object::Real).to_vec();
+    form.insert(arena.name("Matrix"), Object::Array(arena.alloc_array(matrix)));
     let resources = arena.get_dict(page.resources_handle()).unwrap_or_default();
     form.insert(arena.name("Resources"), Object::Dictionary(arena.alloc_dict(resources)));
     let form_dh = arena.alloc_dict(form);

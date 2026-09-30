@@ -195,3 +195,67 @@ fn an_offset_moves_the_content_and_not_the_sheet() {
     // The content is still there — a nudge is not a redraw.
     assert_eq!(doc.extract_text(0).expect("it reads"), text);
 }
+
+/// **A sheet whose box does not start at the origin keeps its drawing where it was on it.**
+/// The new `/MediaBox` is written from the origin, and the content was fitted as if the old
+/// one started there too, so a page whose box is `[100 100 400 400]` had everything moved
+/// 100 points up and right — off the sheet at its edges. What sat 10 points in from the
+/// corner sits 10 points in from the corner.
+#[test]
+fn a_box_that_does_not_start_at_the_origin_keeps_its_drawing_on_the_sheet() {
+    let content = "BT /F1 12 Tf 110 110 Td (corner) Tj ET";
+    let bodies = [
+        "<< /Type /Catalog /Pages 2 0 R >>".to_string(),
+        "<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_string(),
+        "<< /Type /Page /Parent 2 0 R /MediaBox [100 100 400 400] /Contents 4 0 R \
+         /Resources << /Font << /F1 5 0 R >> >> >>"
+            .to_string(),
+        format!("<< /Length {} >>\nstream\n{content}\nendstream", content.len()),
+        "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>".to_string(),
+    ];
+    let open = || PdfDocument::open(fepdf_fixtures::assemble(&bodies).into()).expect("it opens");
+    let drawn_at = |doc: &PdfDocument| {
+        let mut recorder = fepdf_fixtures::recorder::Recorder::new();
+        doc.render_page(0, &mut recorder, kurbo::Affine::IDENTITY).expect("it interprets");
+        recorder.device_text_origins()
+    };
+    // A split cuts the regions out of the box the page is on, not out of one at the origin.
+    let mut split = open();
+    split
+        .apply(Operation::SplitPage {
+            page: 0,
+            into: fepdf::PageDivision::Grid { columns: 2, rows: 1 },
+        })
+        .expect("it splits");
+    let at = drawn_at(&split);
+    assert!(
+        at.first().is_some_and(|p| (p.0 - 10.0).abs() < 0.01 && (p.1 - 10.0).abs() < 0.01),
+        "on the left sheet the word 10 points in from the corner is drawn at {at:?}"
+    );
+    // Nor is a page combined onto a sheet drawn as a box at the origin, which clipped its
+    // drawing away: one page on a one-cell sheet of its own size is where it was.
+    let mut combined = open();
+    combined
+        .apply(Operation::CombinePages(
+            PageSelection::All,
+            fepdf::PageArrangement { sheet: None, columns: 1, rows: 1 },
+        ))
+        .expect("it combines");
+    let at = drawn_at(&combined);
+    assert!(
+        at.first().is_some_and(|p| (p.0 - 10.0).abs() < 0.01 && (p.1 - 10.0).abs() < 0.01),
+        "on the combined sheet the word 10 points in from the corner is drawn at {at:?}"
+    );
+    let mut doc = open();
+    let keep = PageResize { sheet: None, scale: ContentScale::Keep, offset: (0.0, 0.0) };
+    doc.apply(Operation::ResizePages(PageSelection::Single(0), keep)).expect("it resizes");
+    assert!(same(own_box(&doc, 0, "MediaBox").expect("a sheet"), [0.0, 0.0, 300.0, 300.0]));
+    let mut recorder = fepdf_fixtures::recorder::Recorder::new();
+    doc.render_page(0, &mut recorder, kurbo::Affine::IDENTITY).expect("it interprets");
+    let at = recorder.device_text_origins();
+    assert!(
+        (at[0].0 - 10.0).abs() < 0.01 && (at[0].1 - 10.0).abs() < 0.01,
+        "the word 10 points in from the corner is drawn at {:?}",
+        at[0]
+    );
+}
