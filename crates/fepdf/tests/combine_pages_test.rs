@@ -182,3 +182,51 @@ fn a_tall_page_in_a_square_cell_stays_inside_it() {
         "the letter is at {at:?}, outside the top-left cell it belongs in"
     );
 }
+
+/// **A turned page is combined as it is shown** (7.7.3.3): measured and placed on its
+/// sheet the way a reader sees it. It was drawn in the space its box is written in, so a
+/// landscape page from a scan — a portrait box turned by `/Rotate 90` — lay on its side,
+/// and a sheet taken from it was the box's shape rather than the page's.
+#[test]
+fn a_turned_page_is_combined_as_it_is_shown() {
+    // A 200 by 100 box with a word at (10, 10), and where each turn shows it.
+    for (turn, sheet, word) in [
+        (90, (100.0, 200.0), (10.0, 190.0)),
+        (180, (200.0, 100.0), (190.0, 90.0)),
+        (270, (100.0, 200.0), (90.0, 10.0)),
+    ] {
+        let content = "BT /F1 12 Tf 10 10 Td (corner) Tj ET";
+        let bodies = [
+            "<< /Type /Catalog /Pages 2 0 R >>".to_string(),
+            "<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_string(),
+            format!(
+                "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 100] /Rotate {turn} \
+                 /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>"
+            ),
+            format!("<< /Length {} >>\nstream\n{content}\nendstream", content.len()),
+            "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>".to_string(),
+        ];
+        let mut doc = PdfDocument::open_with_options(
+            fepdf_fixtures::assemble(&bodies).into(),
+            &IngestionOptions::default(),
+        )
+        .expect("the fixture opens");
+        doc.apply(Operation::CombinePages(
+            PageSelection::All,
+            PageArrangement { sheet: None, columns: 1, rows: 1 },
+        ))
+        .expect("it combines");
+        let (w, h) = doc.get_page_size(0).expect("the sheet has a size");
+        assert!(
+            (w - sheet.0).abs() < 0.5 && (h - sheet.1).abs() < 0.5,
+            "{turn}: the sheet is {w} by {h}"
+        );
+        let mut recorder = Recorder::new();
+        doc.render_page(0, &mut recorder, Affine::IDENTITY).expect("it interprets");
+        let at = recorder.device_text_origins();
+        assert!(
+            at.first().is_some_and(|p| (p.0 - word.0).abs() < 0.01 && (p.1 - word.1).abs() < 0.01),
+            "{turn}: the word is drawn at {at:?}, where the turn shows it at {word:?}"
+        );
+    }
+}

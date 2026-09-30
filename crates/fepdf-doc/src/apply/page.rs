@@ -486,6 +486,37 @@ pub(crate) fn page_turn(doc: &Document, index: usize) -> i64 {
     }
 }
 
+/// A page's size as it is shown: its box's, turned by its `/Rotate` (7.7.3.3).
+fn shown_size(doc: &Document, index: usize) -> (f64, f64) {
+    let (w, h) = doc_page_size(doc, index);
+    if matches!(page_turn(doc, index), 90 | 270) { (h, w) } else { (w, h) }
+}
+
+/// The matrix that draws page `index`, as a form whose space is its box moved to the
+/// origin, turned as it is shown, at `scale`, with its shown lower left at `at`.
+///
+/// **Turned as it is shown.** The page was drawn in the space its box is written in, so a
+/// landscape page from a scan — a portrait box turned by `/Rotate 90` — lay on its side on
+/// the sheet it was combined onto.
+fn placed(doc: &Document, index: usize, scale: f64, at: (f64, f64)) -> [f64; 6] {
+    let (wide, tall) = doc_page_size(doc, index);
+    // Clockwise, as `/Rotate` turns a page: a quarter turn takes (x, y) to (y, w - x).
+    let turned: [f64; 6] = match page_turn(doc, index) {
+        90 => [0.0, -1.0, 1.0, 0.0, 0.0, wide],
+        180 => [-1.0, 0.0, 0.0, -1.0, wide, tall],
+        270 => [0.0, 1.0, -1.0, 0.0, tall, 0.0],
+        _ => [1.0, 0.0, 0.0, 1.0, 0.0, 0.0],
+    };
+    [
+        scale * turned[0],
+        scale * turned[1],
+        scale * turned[2],
+        scale * turned[3],
+        scale.mul_add(turned[4], at.0),
+        scale.mul_add(turned[5], at.1),
+    ]
+}
+
 /// Where the box a page is on starts: its lower-left corner, from whatever declares it.
 fn page_origin(doc: &Document, index: usize) -> (f64, f64) {
     let Ok(page) = doc.get_page(index) else { return (0.0, 0.0) };
@@ -736,7 +767,7 @@ pub fn apply_combine_pages(
         return Ok(());
     }
 
-    let sheet = onto.sheet.unwrap_or_else(|| doc_page_size(doc, indices[0]));
+    let sheet = onto.sheet.unwrap_or_else(|| shown_size(doc, indices[0]));
     if !(sheet.0.is_finite() && sheet.1.is_finite()) || sheet.0 <= 0.0 || sheet.1 <= 0.0 {
         return Err(PdfError::Other(
             format!("a sheet of {} by {} points has no area", sheet.0, sheet.1).into(),
@@ -787,7 +818,7 @@ fn combined_sheet(
 
     for (cell, index) in group.iter().enumerate() {
         let name = format!("P{cell}");
-        let source = doc_page_size(doc, *index);
+        let source = shown_size(doc, *index);
         let Some(form) = page_as_form(doc, *index)? else { continue };
         xobjects.insert(arena.name(&name), Object::Reference(form));
 
@@ -799,8 +830,9 @@ fn combined_sheet(
         let left = column.mul_add(wide, source.0.mul_add(-scale, wide) / 2.0);
         let bottom = (row + 1.0).mul_add(-tall, sheet.1) + source.1.mul_add(-scale, tall) / 2.0;
         use std::fmt::Write as _;
-        let _ =
-            writeln!(drawing, "q {scale:.6} 0 0 {scale:.6} {left:.4} {bottom:.4} cm /{name} Do Q");
+        let matrix =
+            placed(doc, *index, scale, (left, bottom)).map(|v| format!("{v:.6}")).join(" ");
+        let _ = writeln!(drawing, "q {matrix} cm /{name} Do Q");
     }
 
     let mut resources = BTreeMap::new();
