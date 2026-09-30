@@ -167,3 +167,125 @@ fn a_soft_mask_is_cut_with_its_image() {
     let smask = smask.expect("the cut image still has its soft mask");
     assert_eq!((smask.width, smask.height), (2, 2), "the soft mask was not cut with the image");
 }
+
+/// The images a document written and read back holds, as their widths and heights.
+fn written_images(doc: &PdfDocument) -> Vec<(i64, i64)> {
+    // A path of its own each call: the tests run side by side in one process.
+    static NEXT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+    let nth = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let path =
+        std::env::temp_dir().join(format!("fepdf-crop-image-{}-{nth}.pdf", std::process::id()));
+    doc.save_with_options(&path, "2.0", &fepdf::SaveOptions::default()).expect("it writes");
+    let back = PdfDocument::open(std::fs::read(&path).expect("it is there").into())
+        .expect("it reads back");
+    let _ = std::fs::remove_file(&path);
+    let arena = back.inner().arena();
+    let entry = |dict, key: &str| arena.dict_entry(dict, arena.name(key));
+    (0..arena.object_count())
+        .filter_map(|i| match arena.get_object(arena.handle(i))? {
+            fepdf_model::Object::Stream(dict, _)
+                if entry(dict, "Subtype").and_then(|s| s.as_name())
+                    == Some(arena.name("Image")) =>
+            {
+                Some((entry(dict, "Width")?.as_integer()?, entry(dict, "Height")?.as_integer()?))
+            }
+            _ => None,
+        })
+        .collect()
+}
+
+/// **What a crop cuts off an image is not in the file.** The page drew the cut, and the
+/// whole image stayed in its resources under its old name, so the writer wrote every
+/// pixel of it: the drawing was cut and the file was not. The same for an image the crop
+/// leaves wholly outside, whose `Do` went and whose samples did not, and for a split,
+/// where each sheet drew its half and carried the whole.
+#[test]
+fn what_a_crop_cuts_off_an_image_is_not_written() {
+    let mut half = rgb_page();
+    cut(&mut half, 0, (0.0, 0.0, 100.0, 200.0));
+    assert_eq!(written_images(&half), [(2, 2)], "the whole image is still in the file");
+
+    let mut none = rgb_page();
+    cut(&mut none, 0, (0.0, 0.0, 200.0, 40.0));
+    assert_eq!(written_images(&none), [], "an image wholly outside is still in the file");
+
+    let mut split = rgb_page();
+    split
+        .apply(Operation::SplitPage {
+            page: 0,
+            into: fepdf::PageDivision::Grid { columns: 2, rows: 1 },
+        })
+        .expect("the split applies");
+    assert_eq!(written_images(&split), [(2, 2), (2, 2)], "a split sheet carries the whole");
+}
+
+/// **An image another page still draws stays**, though the page cropped no longer does:
+/// resources inherited from the page tree are one dictionary for both pages, and taking
+/// the image out of it would take it off the page nobody cropped.
+#[test]
+fn an_image_a_page_not_cropped_draws_stays() {
+    let content = "q 200 0 0 100 0 50 cm /Im0 Do Q";
+    let image = pixels();
+    let mut stream = format!(
+        "<< /Type /XObject /Subtype /Image /Width 4 /Height 2 /ColorSpace /DeviceRGB \
+         /BitsPerComponent 8 /Length {} >>\nstream\n",
+        image.len()
+    )
+    .into_bytes();
+    stream.extend_from_slice(&image);
+    stream.extend_from_slice(b"\nendstream");
+    let bodies: Vec<Vec<u8>> = vec![
+        b"<< /Type /Catalog /Pages 2 0 R >>".to_vec(),
+        b"<< /Type /Pages /Kids [3 0 R 6 0 R] /Count 2 /Resources << /XObject << /Im0 5 0 R >> >> >>"
+            .to_vec(),
+        b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Contents 4 0 R >>".to_vec(),
+        format!("<< /Length {} >>\nstream\n{content}\nendstream", content.len()).into_bytes(),
+        stream,
+        b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Contents 4 0 R >>".to_vec(),
+    ];
+    let mut doc = PdfDocument::open_with_options(
+        fepdf_fixtures::assemble(&bodies).into(),
+        &IngestionOptions::default(),
+    )
+    .expect("the fixture opens");
+    cut(&mut doc, 0, (0.0, 0.0, 100.0, 200.0));
+    assert_eq!(drawn(&doc, 1).remove(0).0, 4, "the page not cropped lost its image");
+    let mut written = written_images(&doc);
+    written.sort_unstable();
+    assert_eq!(written, [(2, 2), (4, 2)]);
+}
+
+/// **And so does one a form draws through the page's resources**, having none of its own
+/// (7.8.3): the page never names the image, and the form does.
+#[test]
+fn an_image_a_form_draws_through_the_page_stays() {
+    let form = "q 200 0 0 100 0 50 cm /Im0 Do Q";
+    let form = format!(
+        "<< /Type /XObject /Subtype /Form /BBox [0 0 200 200] /Length {} >>\nstream\n{form}\nendstream",
+        form.len()
+    );
+    let mut doc = page_with_image(
+        &pixels(),
+        "/Width 4 /Height 2 /ColorSpace /DeviceRGB /BitsPerComponent 8",
+        &[form, "<< /Length 7 >>\nstream\n/Fm0 Do\nendstream".to_string()],
+    );
+    // The page draws the form, and names the image nowhere of its own.
+    let arena = doc.inner().arena();
+    let page = doc.inner().get_page_handle(0).and_then(|h| arena.get_object(h));
+    let page = page.and_then(|p| p.as_dict_handle()).expect("the page is there");
+    let mut dict = arena.get_dict(page).expect("it reads");
+    dict.insert(arena.name("Contents"), fepdf_model::Object::Reference(arena.handle(7)));
+    let resources =
+        dict.get(&arena.name("Resources")).and_then(|r| r.resolve(arena).as_dict_handle());
+    arena.set_dict(page, dict);
+    let xobjects = resources
+        .and_then(|r| arena.dict_entry(r, arena.name("XObject")))
+        .and_then(|x| x.resolve(arena).as_dict_handle())
+        .expect("the page names XObjects");
+    let mut names = arena.get_dict(xobjects).expect("it reads");
+    names.insert(arena.name("Fm0"), fepdf_model::Object::Reference(arena.handle(6)));
+    arena.set_dict(xobjects, names);
+
+    cut(&mut doc, 0, (0.0, 0.0, 100.0, 200.0));
+    assert_eq!(written_images(&doc), [(4, 2)], "the image the form draws went");
+}

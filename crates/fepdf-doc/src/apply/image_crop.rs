@@ -79,6 +79,94 @@ pub fn cut_images_outside(
     crate::apply::text::write_page_content(doc, page, out)
 }
 
+/// Takes out of the resources `cropped` pages draw with every image no page drawing with
+/// the same resources draws any more.
+///
+/// **Cut on the page is not cut in the file.** A cut is drawn under a name of its own, and
+/// the whole image stayed in the resources under its old one, so the writer wrote every
+/// pixel the crop was asked to take away. Resources are shared — a page inherits them from
+/// the page tree, and a copy of a page names the same dictionary — so an image goes only
+/// when no page using that dictionary draws it, nor a form with none of its own (7.8.3).
+///
+/// # Errors
+/// Fails when a page's content cannot be read.
+pub fn drop_undrawn_images(doc: &Document, cropped: &[usize]) -> PdfResult<()> {
+    let arena = doc.arena();
+    let resources_of = |page: usize| {
+        let handle = doc.get_page_handle(page)?;
+        Some(fepdf_model::Page::new(arena, handle, doc.get_parent_chain(handle)).resources_handle())
+    };
+    let every: Vec<(usize, DictHandle)> =
+        (0..doc.page_count()?).filter_map(|page| Some((page, resources_of(page)?))).collect();
+    let touched: std::collections::BTreeSet<DictHandle> =
+        cropped.iter().filter_map(|page| resources_of(*page)).collect();
+    for resources in touched {
+        let mut drawn = std::collections::BTreeSet::new();
+        for (page, _) in every.iter().filter(|(_, r)| *r == resources) {
+            if let Some(data) = crate::apply::text::page_content(doc, *page)? {
+                drawn.extend(names_drawn(&data));
+            }
+        }
+        forget_undrawn(doc, resources, &mut drawn);
+    }
+    Ok(())
+}
+
+/// Takes out of `resources` the images `drawn` does not name, after adding the names the
+/// forms there with no resources of their own draw.
+fn forget_undrawn(
+    doc: &Document,
+    resources: DictHandle,
+    drawn: &mut std::collections::BTreeSet<String>,
+) {
+    let arena = doc.arena();
+    let Some(xobjects) = arena
+        .dict_entry(resources, arena.name("XObject"))
+        .and_then(|x| x.resolve(arena).as_dict_handle())
+    else {
+        return;
+    };
+    let mut entries = arena.get_dict(xobjects).unwrap_or_default();
+    let kind = |value: &Object| match value.as_reference().and_then(|h| arena.get_object(h)) {
+        Some(Object::Stream(dict, data)) => {
+            let subtype = arena.dict_entry(dict, arena.name("Subtype")).and_then(|s| s.as_name());
+            let own = arena.dict_entry(dict, arena.name("Resources")).is_some();
+            Some((subtype, own, Object::Stream(dict, data)))
+        }
+        _ => None,
+    };
+    for value in entries.values() {
+        if let Some((subtype, false, stream)) = kind(value)
+            && subtype == Some(arena.name("Form"))
+            && let Ok(data) = doc.decode_stream(&stream)
+        {
+            drawn.extend(names_drawn(&data));
+        }
+    }
+    let before = entries.len();
+    entries.retain(|name, value| {
+        let image = kind(value).is_some_and(|(subtype, _, _)| subtype == Some(arena.name("Image")));
+        !image || arena.get_name(*name).is_some_and(|n| drawn.contains(n.as_str()))
+    });
+    if entries.len() != before {
+        arena.set_dict(xobjects, entries);
+    }
+}
+
+/// The names a content stream draws with `Do`.
+fn names_drawn(data: &[u8]) -> Vec<String> {
+    let tokens = tokens_of(data);
+    tokens
+        .windows(2)
+        .filter_map(|pair| match pair {
+            [Token::Name(name), Token::Keyword(op)] if op == "Do" => {
+                Some(String::from_utf8_lossy(name).to_string())
+            }
+            _ => None,
+        })
+        .collect()
+}
+
 /// The tokens of a content stream, in order.
 fn tokens_of(data: &[u8]) -> Vec<Token> {
     let mut lexer = Lexer::new(bytes::Bytes::copy_from_slice(data));

@@ -527,8 +527,12 @@ pub fn apply_crop_pages(
             format!("a crop to {keep:?} keeps a region with no area").into(),
         ));
     }
-    for index in pages_named(pages, doc.page_count()?)? {
-        crop_one_page(doc, index, keep, outside)?;
+    let indices = pages_named(pages, doc.page_count()?)?;
+    for index in &indices {
+        crop_one_page(doc, *index, keep, outside)?;
+    }
+    if outside == WhatFallsOutside::Goes {
+        crate::apply::image_crop::drop_undrawn_images(doc, &indices)?;
     }
     Ok(())
 }

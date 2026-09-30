@@ -853,6 +853,13 @@ eight times, and the copies do not agree on whether to resolve.
       Fixed by `page_removal.rs`, which both paths end in: what named the page goes
       with it — the user's choice over leaving the references empty — and what still
       points at it is made `null`.
+- [x] **Y-F20** — **what a crop cut off an image was still in the file.** The page drew
+      the cut part under a name of its own, and the whole image stayed in its resources
+      under its old one, so the writer wrote every pixel the crop took away — measured
+      2026-09-30 on `crop_image_test.rs`'s four-by-two image: cropped to its left half,
+      the file held it at four by two and at two by two. Fixed by
+      `image_crop::drop_undrawn_images`, which takes an image out of resources no page
+      using them draws any more.
 - [ ] **Y-F14** — a composite font's codes are taken as two bytes each, whatever its CMap's
       codespace says (9.7.6.2). `FontResource::get_min_len` asks every Type0 font for at
       least two, and `apply/text.rs` cuts its strings into pairs for reading, encoding,
