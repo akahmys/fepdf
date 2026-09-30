@@ -847,6 +847,11 @@ eight times, and the copies do not agree on whether to resolve.
       `90ms-RKSJ-H`, has its one-byte codes read with the byte after them. The CMap
       already carries its ranges (`CMap::decode_next`); nothing between it and these
       callers splits a string by them.
+- [ ] **Y-F15** — ingestion fills a missing `/CIDToGIDMap` with `/Identity`
+      (`refine/font.rs`) and records no `Decision`, so the audit cannot see what
+      ISO 14289-1 7.21.3.2 fails: 31-004's arm for an absent entry passes, and never runs.
+      It also gives a `CIDFontType0` the entry, which Table 115 defines for `CIDFontType2`
+      alone. Either ingestion records what it repaired, or it stops repairing it.
 - [ ] **Y-F7** — `compare.rs`'s `to_f64` is used only under the `render` feature and is
       not gated with it, so `cargo build -p fepdf` warns. The workspace build unifies
       features and never sees it.

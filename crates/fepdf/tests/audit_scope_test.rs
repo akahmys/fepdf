@@ -2628,3 +2628,39 @@ fn graphics_and_artifacts_are_asked_where_they_are() {
         assert_eq!(outcomes(&report, condition), vec![outcome], "{condition}: {tag} {content}");
     }
 }
+
+/// **A role-mapped element is asked what its standard type is asked** (ISO 14289-1 7.1).
+/// The walk matched each condition on the tag as written, so a `<Picture>` mapped to
+/// `Figure` with no alternative text, a `<Footnote>` mapped to `Note` with no `/ID`, a
+/// table of `<HeaderCell>`s mapped to `TH` with no `/Scope`, and a node with two
+/// `<Heading>`s mapped to `H` each broke a condition that was never asked of them.
+#[test]
+fn a_role_mapped_element_is_audited_as_the_type_it_maps_to() {
+    let bytes = fepdf_fixtures::assemble(&[
+        "<< /Type /Catalog /Pages 2 0 R /StructTreeRoot 4 0 R /Lang (en) >>",
+        "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] >>",
+        "<< /Type /StructTreeRoot /K [5 0 R] /RoleMap << /Picture /Figure /Footnote /Note \
+         /DataTable /Table /Row /TR /HeaderCell /TH /Heading /H >> >>",
+        "<< /Type /StructElem /S /Sect /P 4 0 R /K [6 0 R 7 0 R 8 0 R 11 0 R 12 0 R] >>",
+        "<< /Type /StructElem /S /Picture /P 5 0 R >>",
+        "<< /Type /StructElem /S /Footnote /P 5 0 R >>",
+        "<< /Type /StructElem /S /DataTable /P 5 0 R /K [9 0 R] >>",
+        "<< /Type /StructElem /S /Row /P 8 0 R /K [10 0 R] >>",
+        "<< /Type /StructElem /S /HeaderCell /P 9 0 R >>",
+        "<< /Type /StructElem /S /Heading /P 5 0 R >>",
+        "<< /Type /StructElem /S /Heading /P 5 0 R >>",
+    ]);
+    let doc = PdfDocument::open_with_options(bytes.into(), &IngestionOptions::default())
+        .expect("the fixture opens");
+    let report = doc.audit_ua2_report().expect("it audits");
+    let broken: std::collections::BTreeSet<&str> = report
+        .findings
+        .iter()
+        .filter(|f| f.outcome == fepdf::Outcome::Broken)
+        .map(|f| f.checkpoint.as_str())
+        .collect();
+    for condition in ["13-004", "19-003", "15-003", "14-006"] {
+        assert!(broken.contains(condition), "{condition} is not reported: {broken:?}");
+    }
+}

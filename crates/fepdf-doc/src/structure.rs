@@ -5,7 +5,7 @@
 use fepdf_model::document::structure::StructElement;
 use fepdf_model::{Document, FromPdfObject, Handle, Object, PdfArena, PdfError, PdfResult};
 use serde::{Deserialize, Serialize};
-use std::collections::{BTreeSet, VecDeque};
+use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
 /// A visitor for traversing the Logical Structure Tree iteratively (RR-15 compliant).
 pub struct StructureVisitor<'a> {
@@ -773,19 +773,25 @@ impl<'a> MatterhornAuditor<'a> {
             .ok_or_else(|| PdfError::Other("Tag name not found".into()))?;
         let tag = tag_name.as_str();
         let at = element_handle.index();
+        // What the element is asked is what its standard type is asked (ISO 14289-1 7.1):
+        // matching the tag as written let a `<Picture>` mapped to `Figure` skip 13-004.
+        // 02-001 alone takes the tag as written, because it is the question about the map.
+        let kind = crate::audit_tree::standard_type(&walk.roles, tag);
+        let kind = kind.as_deref().unwrap_or(tag);
 
-        Self::audit_heading(tag, at, &mut walk.headings, findings);
+        Self::audit_heading(kind, at, &mut walk.headings, findings);
         crate::audit_tree::audit_tag(&walk.roles, tag, at, findings);
         crate::audit_tree::audit_syntax(self.arena, &walk.roles, element_handle, tag, findings);
-        match tag {
+        match kind {
             "Note" => walk.notes.note(self.arena, element_handle, at, findings),
             "Table" => {
-                crate::audit_tree::audit_table(self.arena, element_handle, &walk.classes, findings);
+                let table = (element_handle, &walk.roles, &walk.classes);
+                crate::audit_tree::audit_table(self.arena, table, findings);
             }
             _ => {}
         }
-        self.audit_one_heading_per_node(&element, at, findings);
-        Self::audit_alternative_text(tag, &element, at, findings);
+        self.audit_one_heading_per_node(&element, &walk.roles, at, findings);
+        Self::audit_alternative_text(kind, &element, at, findings);
         self.audit_language(&element, document_language, at, findings);
         Ok(())
     }
@@ -825,14 +831,16 @@ impl<'a> MatterhornAuditor<'a> {
     fn audit_one_heading_per_node(
         &self,
         element: &StructElement,
+        roles: &BTreeMap<String, String>,
         at: u32,
         findings: &mut Vec<AuditFinding>,
     ) {
-        let headings = self
-            .child_elements(element)
-            .into_iter()
-            .filter(|kid| self.tag_of(*kid) == Some("H".into()))
-            .count();
+        let is_heading = |kid: Handle<Object>| {
+            self.tag_of(kid).is_some_and(|tag| {
+                crate::audit_tree::standard_type(roles, &tag).is_some_and(|kind| kind == "H")
+            })
+        };
+        let headings = self.child_elements(element).into_iter().filter(|k| is_heading(*k)).count();
         if headings > 1 {
             findings.push(broken_at(
                 "14-006",

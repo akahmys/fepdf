@@ -204,13 +204,19 @@ impl Notes {
 
 /// 15-003 for one `<Table>`: when no cell names its headers, every `<TH>` must say what
 /// it heads (UA1:7.5-2).
+///
+/// `table` is the element, the `/RoleMap` a cell's type is found through, and the
+/// `/ClassMap` its attributes may come from.
 pub fn audit_table(
     arena: &PdfArena,
-    table: Handle<Object>,
-    class_map: &BTreeMap<String, Vec<Object>>,
+    (table, roles, class_map): (
+        Handle<Object>,
+        &BTreeMap<String, String>,
+        &BTreeMap<String, Vec<Object>>,
+    ),
     findings: &mut Vec<AuditFinding>,
 ) {
-    let cells = cells_of(arena, table);
+    let cells = cells_of(arena, roles, table);
     let organised =
         cells.iter().any(|(_, cell)| table_attribute(arena, *cell, class_map, "Headers"));
     if organised {
@@ -231,8 +237,12 @@ pub fn audit_table(
 /// cell — with room to spare, and a bound (Rule 6).
 const CELL_DEPTH: usize = 8;
 
-/// The `<TH>` and `<TD>` elements under `table`, with their tags.
-fn cells_of(arena: &PdfArena, table: Handle<Object>) -> Vec<(String, Handle<Object>)> {
+/// The `<TH>` and `<TD>` elements under `table`, with the standard type each stands for.
+fn cells_of(
+    arena: &PdfArena,
+    roles: &BTreeMap<String, String>,
+    table: Handle<Object>,
+) -> Vec<(String, Handle<Object>)> {
     let mut cells = Vec::new();
     let mut waiting = vec![(table, 0_usize)];
     let mut seen = BTreeSet::new();
@@ -243,11 +253,8 @@ fn cells_of(arena: &PdfArena, table: Handle<Object>) -> Vec<(String, Handle<Obje
         let Some(dict) = arena.get_object(element).and_then(|o| o.as_dict_handle()) else {
             continue;
         };
-        let tag = arena
-            .dict_entry(dict, arena.name("S"))
-            .and_then(|s| s.as_name())
-            .and_then(|n| arena.get_name(n))
-            .map(|n| n.as_str().to_string())
+        let tag = tag_of(arena, element)
+            .map(|tag| standard_type(roles, &tag).unwrap_or(tag))
             .unwrap_or_default();
         if tag == "TH" || tag == "TD" {
             cells.push((tag, element));
