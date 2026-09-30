@@ -17,6 +17,8 @@ pub mod metadata;
 /// Page rotation, reordering, removal, and page label operation handlers.
 pub mod page;
 pub(crate) mod path_crop;
+/// Radio buttons: a group's field, and a widget per button.
+pub(crate) mod radio;
 /// Security, unencrypted wrapper, and public-key recipient operation handlers.
 pub mod security;
 /// Structure element and article thread operation handlers.

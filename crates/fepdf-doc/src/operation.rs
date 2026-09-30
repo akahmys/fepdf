@@ -808,6 +808,9 @@ pub enum FieldKind {
         on: bool,
     },
     /// One of a group, of which one at a time is chosen (Table 230, bit 16).
+    ///
+    /// The group is the field; this button is a widget of it, and the field's name is the
+    /// name of the state that choosing it writes into the group's `/V` (12.7.5.2.4).
     RadioButton {
         /// The name of the group it belongs to, which is the field name they share.
         group: String,

@@ -434,7 +434,7 @@ fn apply_value_to_field_dict(
 ) {
     let v_key = arena.name("V");
     let v_obj = match (new_value, state) {
-        (FormValue::Boolean(_), Some(state)) => Object::Name(state),
+        (_, Some(state)) => Object::Name(state),
         // A text string, which the writer encodes (7.9.2.2): these bytes were the UTF-8 of
         // the value, which a reader takes for PDFDocEncoding, so 東京 went in as mojibake.
         (FormValue::Text(s) | FormValue::Choice(s), _) => Object::Text(s.clone()),
@@ -446,7 +446,8 @@ fn apply_value_to_field_dict(
         FormValue::Choice(s) | FormValue::Text(s) => Some(s.as_str()),
         FormValue::Boolean(_) => None,
     };
-    if let Some(opt_obj) = dict.get(&arena.name("Opt"))
+    if state.is_none()
+        && let Some(opt_obj) = dict.get(&arena.name("Opt"))
         && let Some(target_val) = target_val
         && let Some(matched_idx) = find_option_index(arena, opt_obj, target_val)
     {
@@ -508,14 +509,55 @@ pub fn apply_set_form_field_value(doc: &Document, field: FormFieldSpec) -> PdfRe
     let acro_dict = arena.get_dict(acro_dh).unwrap_or_default();
     report_scripts_not_run(doc, &acro_dict, &field.name);
 
-    let state = match field.value {
-        FormValue::Boolean(on) => Some(button_state(doc, fdh, on, &field.name)?),
+    // A button's value is a name, the state it is in (12.7.5.2): a check box turned on or
+    // off, or one of a set of radio buttons chosen by the name of its state. Written as
+    // text, a chosen radio button was a string no reader looks for.
+    let button = inherited(arena, fdh, "FT")
+        .and_then(|t| t.as_name())
+        .is_some_and(|t| t == arena.name("Btn"));
+    let state = match &field.value {
+        FormValue::Boolean(on) => Some(button_state(doc, fdh, *on, &field.name)?),
+        FormValue::Text(chosen) | FormValue::Choice(chosen) if button => {
+            Some(chosen_state(doc, fdh, chosen, &field.name)?)
+        }
         FormValue::Text(_) | FormValue::Choice(_) => None,
     };
     let mut dict = arena.get_dict(fdh).unwrap_or_default();
     apply_value_to_field_dict(arena, &mut dict, &field.value, state);
     arena.set_dict(fdh, dict);
     refresh_appearance(doc, fdh, &acro_dict, &field.value, state)
+}
+
+/// The state a button's widgets have that is named `chosen`, or `/Off`.
+///
+/// # Errors
+/// Fails when no widget has a state of that name, naming the ones they have.
+fn chosen_state(
+    doc: &Document,
+    field_dh: Handle<BTreeMap<Handle<PdfName>, Object>>,
+    chosen: &str,
+    name: &str,
+) -> PdfResult<Handle<PdfName>> {
+    let arena = doc.arena();
+    let off = arena.name("Off");
+    if chosen == "Off" {
+        return Ok(off);
+    }
+    let mut states: Vec<Handle<PdfName>> = widgets_of(arena, field_dh)
+        .into_iter()
+        .flat_map(|widget| appearance::button_states(doc, widget))
+        .filter(|state| *state != off)
+        .collect();
+    states.sort();
+    states.dedup();
+    if let Some(state) = states.iter().find(|s| arena.get_name_str(**s).as_deref() == Some(chosen))
+    {
+        return Ok(*state);
+    }
+    let offered: Vec<String> = states.iter().filter_map(|s| arena.get_name_str(*s)).collect();
+    Err(PdfError::Other(
+        format!("{name:?} has no state {chosen:?}; its buttons are {offered:?}").into(),
+    ))
 }
 
 /// The state a button is set to: `/Off`, or its on state — which is whatever name its
@@ -605,29 +647,58 @@ fn refresh_appearance(
 ) -> PdfResult<()> {
     let arena = doc.arena();
     let field = arena.get_dict(field_dh).unwrap_or_default();
-    // `/DA` and `/Q` are inheritable (12.7.4.2); the form's own are the fallback.
-    let da = text_entry(arena, &field, "DA")
-        .or_else(|| text_entry(arena, acro, "DA"))
+    // `/DA` and `/Q` are inheritable (12.7.4.3): the field's, an ancestor field's, then the
+    // form's. The field's own and the form's were read and an ancestor's was not, so a
+    // field in a group drew in the form's face whatever its group said.
+    let entry =
+        |key: &str| inherited(arena, field_dh, key).or_else(|| acro.get(&arena.name(key)).cloned());
+    let da = entry("DA")
+        .and_then(|da| text_of(arena, &da))
         .unwrap_or_else(|| "/Helv 0 Tf 0 g".to_string());
-    let quadding = field
-        .get(&arena.name("Q"))
-        .or_else(|| acro.get(&arena.name("Q")))
-        .and_then(|q| q.resolve(arena).as_integer())
-        .unwrap_or(0);
+    let quadding = entry("Q").and_then(|q| q.resolve(arena).as_integer()).unwrap_or(0);
 
+    let off = arena.name("Off");
     for widget in widgets_of(arena, field_dh) {
-        match value {
-            FormValue::Text(text) | FormValue::Choice(text) => {
+        match (value, state) {
+            // Each widget shows the state if it is one of its own, and is off if not: of a
+            // set of radio buttons, one is chosen and the rest are not.
+            (_, Some(state)) => {
+                let own = appearance::button_states(doc, widget).contains(&state);
+                appearance::set_button_state(doc, widget, if own { state } else { off });
+            }
+            (FormValue::Text(text) | FormValue::Choice(text), None) => {
                 let display_text = resolve_choice_display(arena, &field, text);
                 appearance::set_text_appearance(doc, widget, acro, &da, quadding, &display_text)?;
             }
-            FormValue::Boolean(on) => {
-                let state = state.unwrap_or_else(|| arena.name(if *on { "Yes" } else { "Off" }));
-                appearance::set_button_state(doc, widget, state);
+            (FormValue::Boolean(on), None) => {
+                appearance::set_button_state(
+                    doc,
+                    widget,
+                    arena.name(if *on { "Yes" } else { "Off" }),
+                );
             }
         }
     }
     Ok(())
+}
+
+/// A field's entry `key`, or its nearest ancestor field's through `/Parent` (12.7.4.1):
+/// `/FT`, `/Ff`, `/DA` and `/Q` are inherited, and a field in a group states none of them.
+fn inherited(
+    arena: &PdfArena,
+    field: Handle<BTreeMap<Handle<PdfName>, Object>>,
+    key: &str,
+) -> Option<Object> {
+    let (key, parent) = (arena.name(key), arena.name("Parent"));
+    let mut at = Some(field);
+    for _ in 0..64 {
+        let here = at?;
+        if let Some(value) = arena.dict_entry(here, key) {
+            return Some(value.resolve(arena));
+        }
+        at = arena.dict_entry(here, parent).and_then(|p| p.resolve(arena).as_dict_handle());
+    }
+    None
 }
 
 /// The widgets a field is shown through: its `/Kids`, or the field itself when the two
@@ -694,21 +765,6 @@ fn report_scripts_not_run(
         ),
         "wrote the value and did not run the scripts; fields computed from it are now stale",
     ));
-}
-
-/// A text string entry, whichever of the two string forms it was written in.
-fn text_entry(
-    arena: &PdfArena,
-    dict: &BTreeMap<Handle<PdfName>, Object>,
-    key: &str,
-) -> Option<String> {
-    match dict.get(&arena.name(key))?.resolve(arena) {
-        Object::Text(text) => Some(text),
-        Object::String(bytes) | Object::Hex(bytes) => {
-            Some(String::from_utf8_lossy(&bytes).into_owned())
-        }
-        _ => None,
-    }
 }
 
 /// Alias for `apply_bates_numbering`.

@@ -59,6 +59,9 @@ pub fn apply_add_form_field(doc: &Document, field: &NewField) -> PdfResult<()> {
     let page_h = doc
         .get_page_handle(field.page)
         .ok_or_else(|| PdfError::Other(format!("page {} is not there", field.page).into()))?;
+    if let FieldKind::RadioButton { group, on } = &field.kind {
+        return crate::apply::radio::add_radio_button(doc, field, page_h, (group, *on));
+    }
 
     let arena = doc.arena();
     let widget = arena.alloc_object(Object::Dictionary(arena.alloc_dict(BTreeMap::new())));
@@ -156,19 +159,7 @@ fn appearance_for(arena: &PdfArena, field: &NewField, size: (f64, f64)) -> Optio
         // to be there: a widget whose `/AS` names an appearance it does not have draws
         // nothing, whichever way it is turned.
         FieldKind::CheckBox { .. } | FieldKind::RadioButton { .. } => {
-            let tick = format!(
-                "{border} q 1 w 2 2 m {:.2} {:.2} l S {:.2} 2 m 2 {:.2} l S Q",
-                size.0 - 2.0,
-                size.1 - 2.0,
-                size.0 - 2.0,
-                size.1 - 2.0
-            );
-            let mut states = BTreeMap::new();
-            states.insert(arena.name("Yes"), Object::Reference(form(arena, size, &tick)));
-            states.insert(arena.name("Off"), Object::Reference(form(arena, size, &border)));
-            let mut ap = BTreeMap::new();
-            ap.insert(arena.name("N"), Object::Dictionary(arena.alloc_dict(states)));
-            Some(Object::Dictionary(arena.alloc_dict(ap)))
+            Some(button_appearance(arena, size, "Yes"))
         }
         // A signature field is signed rather than filled, and an empty one that drew a
         // box would look like a field somebody had already dealt with.
@@ -189,6 +180,24 @@ fn appearance_for(arena: &PdfArena, field: &NewField, size: (f64, f64)) -> Optio
     }
 }
 
+/// A button's appearances: a tick under the state `on`, and an empty box under `/Off`.
+pub(crate) fn button_appearance(arena: &PdfArena, size: (f64, f64), on: &str) -> Object {
+    let border = format!("q 0.5 w 0 0 {:.2} {:.2} re S Q", size.0, size.1);
+    let tick = format!(
+        "{border} q 1 w 2 2 m {:.2} {:.2} l S {:.2} 2 m 2 {:.2} l S Q",
+        size.0 - 2.0,
+        size.1 - 2.0,
+        size.0 - 2.0,
+        size.1 - 2.0
+    );
+    let mut states = BTreeMap::new();
+    states.insert(arena.name(on), Object::Reference(form(arena, size, &tick)));
+    states.insert(arena.name("Off"), Object::Reference(form(arena, size, &border)));
+    let mut ap = BTreeMap::new();
+    ap.insert(arena.name("N"), Object::Dictionary(arena.alloc_dict(states)));
+    Object::Dictionary(arena.alloc_dict(ap))
+}
+
 /// A form XObject of `size` holding `content` (8.10).
 fn form(arena: &PdfArena, size: (f64, f64), content: &str) -> Handle<Object> {
     let box_ = [0.0, 0.0, size.0, size.1];
@@ -205,7 +214,11 @@ fn form(arena: &PdfArena, size: (f64, f64), content: &str) -> Handle<Object> {
 }
 
 /// Puts the widget in the page's `/Annots`, making one if the page has none.
-fn put_on_page(doc: &Document, page: Handle<Object>, widget: Handle<Object>) -> PdfResult<()> {
+pub(crate) fn put_on_page(
+    doc: &Document,
+    page: Handle<Object>,
+    widget: Handle<Object>,
+) -> PdfResult<()> {
     let page_dh = doc.resolve_to_dict(page)?;
     let arena = doc.arena();
     let mut dict = arena.get_dict(page_dh).unwrap_or_default();
@@ -225,7 +238,7 @@ fn put_on_page(doc: &Document, page: Handle<Object>, widget: Handle<Object>) -> 
 /// **A document that had no form gets one that works.** `/DA` and `/DR` are what a
 /// variable-text field is drawn by (12.7.4.3), and a form declaring fields without them
 /// is a form whose fields a reader sees nothing of.
-fn declare_in_form(doc: &Document, widget: Handle<Object>) -> PdfResult<()> {
+pub(crate) fn declare_in_form(doc: &Document, widget: Handle<Object>) -> PdfResult<()> {
     let arena = doc.arena();
     let catalog_h = doc
         .catalog_handle()

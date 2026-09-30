@@ -85,10 +85,15 @@ fn all_nine_kinds_are_created_and_reported() {
 
     assert!(form.declared, "the document this engine wrote declares no form");
     assert_eq!(form.terminal.len(), kinds.len(), "not every field came back");
-    for (field, (name, _, wanted_type)) in form.terminal.iter().zip(kinds.iter()) {
+    for (field, (name, kind, wanted_type)) in form.terminal.iter().zip(kinds.iter()) {
+        // A radio button is a widget of its group's field, which is what is reported.
+        let reported = match kind {
+            FieldKind::RadioButton { group, .. } => group.as_str(),
+            _ => name,
+        };
         assert_eq!(
             field.qualified_name.as_deref(),
-            Some(*name),
+            Some(reported),
             "the fields came back in a different order"
         );
         assert_eq!(
@@ -240,4 +245,125 @@ fn a_fields_words_are_written_as_text_strings() {
         strings.iter().filter(|(_, b)| !b.is_ascii() && !marked(b)).map(|(k, _)| k).collect();
     assert!(strings.len() >= 6, "the words were not found to check: {strings:?}");
     assert!(bare.is_empty(), "written as bare bytes: {bare:?}");
+}
+
+/// The state each widget of the field `name` shows, in the order of its `/Kids`.
+fn shown(doc: &PdfDocument, name: &str) -> Vec<String> {
+    let arena = doc.inner().arena();
+    let form = fepdf::form_of(doc.inner());
+    assert!(form.terminal.iter().any(|f| f.qualified_name.as_deref() == Some(name)));
+    let catalog = doc.inner().catalog_handle().and_then(|c| doc.inner().resolve_to_dict(c).ok());
+    let entry = |dict, key: &str| arena.dict_entry(dict, arena.name(key)).map(|v| v.resolve(arena));
+    let acro = catalog.and_then(|c| entry(c, "AcroForm")).and_then(|a| a.as_dict_handle());
+    let fields = match acro.and_then(|a| entry(a, "Fields")) {
+        Some(fepdf_model::Object::Array(a)) => arena.get_array(a).unwrap_or_default(),
+        _ => Vec::new(),
+    };
+    let group = fields
+        .iter()
+        .filter_map(|f| f.resolve(arena).as_dict_handle())
+        .find(|f| matches!(entry(*f, "T"), Some(t) if text_of(arena, &t).as_deref() == Some(name)))
+        .expect("the group is a field of the form");
+    let kids = match entry(group, "Kids") {
+        Some(fepdf_model::Object::Array(a)) => arena.get_array(a).unwrap_or_default(),
+        _ => Vec::new(),
+    };
+    kids.iter()
+        .filter_map(|k| k.resolve(arena).as_dict_handle())
+        .filter_map(|k| entry(k, "AS")?.as_name().and_then(|n| arena.get_name_str(n)))
+        .collect()
+}
+
+/// A text string entry, as its text.
+fn text_of(arena: &fepdf_model::PdfArena, value: &fepdf_model::Object) -> Option<String> {
+    match value.resolve(arena) {
+        fepdf_model::Object::Text(t) => Some(t),
+        fepdf_model::Object::String(b) | fepdf_model::Object::Hex(b) => {
+            Some(fepdf_model::refine::text::recover_string(&b))
+        }
+        _ => None,
+    }
+}
+
+/// **Radio buttons given one group are one field, and one of them is chosen** (12.7.5.2.4).
+/// Each was a field of its own under its own name with the on state `/Yes` every other
+/// had, so a group was a set of unrelated boxes and choosing one chose nothing else.
+/// Choosing by name then turns the rest off, and a name no button has is refused.
+#[test]
+fn radio_buttons_in_a_group_are_one_field_and_one_is_chosen() {
+    let mut doc = blank();
+    let button = |name: &str, x: f64, on: bool| {
+        let mut made = field(name, FieldKind::RadioButton { group: "size".to_string(), on });
+        made.rect = (x, 300.0, x + 20.0, 320.0);
+        Operation::AddFormField(made)
+    };
+    doc.apply(button("S", 20.0, false)).expect("S is added");
+    doc.apply(button("M", 60.0, true)).expect("M is added");
+    doc.apply(button("L", 100.0, true)).expect("L is added");
+    doc.apply(button("S", 140.0, false)).expect_err("a second S is refused");
+
+    let back = round_trip(&doc, "radio");
+    let form = fepdf::form_of(back.inner());
+    let size = form.terminal.iter().find(|f| f.qualified_name.as_deref() == Some("size"));
+    assert_eq!(
+        size.and_then(|f| f.value.as_deref()),
+        Some("/L"),
+        "the last chosen is not the value"
+    );
+    assert_eq!(shown(&back, "size"), ["Off", "Off", "L"]);
+
+    let mut chosen = back;
+    chosen
+        .apply(Operation::SetFormFieldValue(fepdf::FormFieldSpec {
+            name: "size".to_string(),
+            value: fepdf::FormValue::Choice("S".to_string()),
+        }))
+        .expect("S is chosen");
+    assert_eq!(shown(&chosen, "size"), ["S", "Off", "Off"]);
+    let refused = chosen
+        .apply(Operation::SetFormFieldValue(fepdf::FormFieldSpec {
+            name: "size".to_string(),
+            value: fepdf::FormValue::Choice("XL".to_string()),
+        }))
+        .expect_err("a state no button has is refused");
+    assert!(refused.to_string().contains("XL"), "the refusal does not name it: {refused}");
+}
+
+/// **A field in a group draws in the face its group states** (12.7.4.3): `/DA` is
+/// inherited, and the field's own and the form's were read and its group's was not.
+#[test]
+fn a_field_draws_in_the_appearance_its_group_states() {
+    let mut doc = PdfDocument::open_with_options(
+        fepdf_fixtures::assemble(&[
+            "<< /Type /Catalog /Pages 2 0 R /AcroForm << /Fields [4 0 R] /DA (/Helv 12 Tf 0 g) \
+             /DR << /Font << /Helv 6 0 R >> >> >> >>",
+            "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 400 400] /Annots [5 0 R] >>",
+            "<< /T (group) /FT /Tx /DA (/Helv 7 Tf 0 g) /Kids [5 0 R] >>",
+            "<< /Type /Annot /Subtype /Widget /T (name) /Parent 4 0 R /P 3 0 R \
+             /Rect [20 300 220 330] >>",
+            "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+        ])
+        .into_iter()
+        .collect::<Vec<u8>>()
+        .into(),
+        &IngestionOptions::default(),
+    )
+    .expect("the fixture opens");
+    doc.apply(Operation::SetFormFieldValue(fepdf::FormFieldSpec {
+        name: "group.name".to_string(),
+        value: fepdf::FormValue::Text("typed".to_string()),
+    }))
+    .expect("the value is written");
+    let arena = doc.inner().arena();
+    let widget =
+        arena.get_object(arena.handle(5)).and_then(|o| o.as_dict_handle()).expect("widget");
+    let normal = arena
+        .dict_entry(widget, arena.name("AP"))
+        .and_then(|ap| arena.dict_entry(ap.resolve(arena).as_dict_handle()?, arena.name("N")))
+        .map(|n| n.resolve(arena))
+        .expect("the widget has an appearance");
+    let drawn = doc.inner().decode_stream(&normal).expect("it decodes");
+    let drawn = String::from_utf8_lossy(&drawn);
+    assert!(drawn.contains("/Helv 7 Tf"), "not drawn at the group's size: {drawn}");
 }
