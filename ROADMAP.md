@@ -840,6 +840,13 @@ eight times, and the copies do not agree on whether to resolve.
       XObjects' text where they are. Either the drawing covers what it names, or the
       name says what it does. It also changes the open document outside `apply`, in
       the window's export and in `fepdf-mcp`, so no history holds it (Rule D).
+- [ ] **Y-F14** — a composite font's codes are taken as two bytes each, whatever its CMap's
+      codespace says (9.7.6.2). `FontResource::get_min_len` asks every Type0 font for at
+      least two, and `apply/text.rs` cuts its strings into pairs for reading, encoding,
+      widths and places. A CMap with one-byte ranges beside two-byte ones, such as
+      `90ms-RKSJ-H`, has its one-byte codes read with the byte after them. The CMap
+      already carries its ranges (`CMap::decode_next`); nothing between it and these
+      callers splits a string by them.
 - [ ] **Y-F7** — `compare.rs`'s `to_f64` is used only under the `render` feature and is
       not gated with it, so `cargo build -p fepdf` warns. The workspace build unifies
       features and never sees it.

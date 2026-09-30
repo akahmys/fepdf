@@ -397,3 +397,84 @@ fn a_runs_box_follows_the_angle_it_is_set_at() {
         listed[0].rise
     );
 }
+
+/// **`Q` puts the text state back, not only the transform.** The font, its size and the
+/// spacings are graphics state (9.3.1), so what a `q … Q` sets inside it is gone after
+/// it. The walk saved only the transform, so a run after the `Q` was read in the face set
+/// inside — and an edit to it encoded in that face — and placed with its spacing.
+#[test]
+fn what_a_q_q_pair_sets_ends_at_its_q() {
+    let content = "BT /F1 12 Tf 1 0 0 1 30 700 Tm (A) Tj ET \
+                   q BT /F2 20 Tf 3 Tc 1 0 0 1 30 600 Tm (INSIDE) Tj ET Q \
+                   BT 1 0 0 1 30 500 Tm (AFTER) Tj (NEXT) Tj ET";
+    let bodies = [
+        "<< /Type /Catalog /Pages 2 0 R >>".to_string(),
+        "<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_string(),
+        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R \
+         /Resources << /Font << /F1 5 0 R /F2 6 0 R >> >> >>"
+            .to_string(),
+        format!("<< /Length {} >>\nstream\n{content}\nendstream", content.len()),
+        "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>".to_string(),
+        "<< /Type /Font /Subtype /Type1 /BaseFont /Courier >>".to_string(),
+    ];
+    let doc = PdfDocument::open_with_options(
+        fepdf_fixtures::assemble(&bodies).into(),
+        &IngestionOptions::default(),
+    )
+    .expect("the fixture opens");
+    let listed = runs_of_page(doc.inner(), 0).expect("it lists");
+    let fonts: Vec<&str> = listed.iter().map(|run| run.font.as_str()).collect();
+    assert_eq!(fonts, ["F1", "F2", "F1", "F1"]);
+    let drawn = drawn_at(&doc, 0);
+    assert_eq!(listed.len(), drawn.len());
+    for (run, drawn) in listed.iter().zip(&drawn) {
+        assert!(
+            (run.origin.0 - drawn.0).abs() < 0.01 && (run.origin.1 - drawn.1).abs() < 0.01,
+            "{:?}: the listing says {:?} and the page draws it at {drawn:?}",
+            run.text,
+            run.origin
+        );
+    }
+}
+
+/// **A moved run keeps the spacing inside it.** A `TJ`'s numbers move the pen between its
+/// strings (9.4.3), and the move wrote the run's codes out as one `Tj`, so its second
+/// string drew where the first ended — 6 points early here — while everything after the
+/// run still arrived where it had.
+#[test]
+fn a_moved_run_keeps_the_spacing_between_its_strings() {
+    let content = "BT /F1 12 Tf 1 0 0 1 30 700 Tm [(A) -500 (B)] TJ (C) Tj ET";
+    let bodies = [
+        "<< /Type /Catalog /Pages 2 0 R >>".to_string(),
+        "<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_string(),
+        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R \
+         /Resources << /Font << /F1 5 0 R >> >> >>"
+            .to_string(),
+        format!("<< /Length {} >>\nstream\n{content}\nendstream", content.len()),
+        "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>".to_string(),
+    ];
+    let open = || {
+        PdfDocument::open_with_options(
+            fepdf_fixtures::assemble(&bodies).into(),
+            &IngestionOptions::default(),
+        )
+        .expect("the fixture opens")
+    };
+    let before = drawn_at(&open(), 0);
+    assert_eq!(before.len(), 3, "the fixture draws A, B and C as three strings");
+
+    let mut moved = open();
+    moved.apply(Operation::MoveRun { page: 0, run: 0, to: (100.0, 100.0) }).expect("it moves");
+    let after = drawn_after(&moved, "kerned");
+
+    assert_eq!(after.len(), 3, "the page draws a different number of strings");
+    let gap = |at: &[(f64, f64)]| at[1].0 - at[0].0;
+    assert!(
+        (gap(&after) - gap(&before)).abs() < 0.01,
+        "B drew {} after A, and {} before the move",
+        gap(&after),
+        gap(&before)
+    );
+    assert!((after[0].0 - 100.0).abs() < 0.01 && (after[0].1 - 100.0).abs() < 0.01);
+    assert!((after[2].0 - before[2].0).abs() < 0.01 && (after[2].1 - before[2].1).abs() < 0.01);
+}

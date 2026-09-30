@@ -420,10 +420,12 @@ fn read_runs(data: &[u8], fonts: &BTreeMap<String, Arc<FontResource>>) -> (Vec<T
 struct Walk {
     /// Where the text is and what moves it.
     state: TextState,
-    /// The transform in force, and what `q` saved of it.
+    /// The transform in force.
     ctm: Affine,
-    /// The stack `q` pushes and `Q` pops.
-    saved: Vec<Affine>,
+    /// The stack `q` pushes and `Q` pops: the transform, and the text state and font with
+    /// it, which are graphics state too (9.3.1). Saving the transform alone read a run
+    /// after a `Q` in the face and spacing set inside the pair.
+    saved: Vec<(Affine, TextState, Option<(String, Arc<FontResource>)>)>,
     /// Whether a `BT` is open.
     in_text_object: bool,
     /// The font a `Tf` last selected, when this walk could resolve it.
@@ -445,7 +447,20 @@ impl Walk {
             self.font = font_named(operands, tokens, fonts);
             self.state.size = numbers.last().copied().unwrap_or(self.state.size);
         }
-        place(&mut self.state, &mut self.ctm, &mut self.saved, op, &numbers);
+        match op {
+            "q" => self.saved.push((self.ctm, self.state.clone(), self.font.clone())),
+            "Q" => {
+                if let Some((ctm, state, font)) = self.saved.pop() {
+                    // The two matrices are the text object's, not graphics state, and a
+                    // `q` cannot stand inside a text object: they are left as they are.
+                    let (matrix, line) = (self.state.matrix, self.state.line);
+                    (self.ctm, self.state, self.font) = (ctm, state, font);
+                    (self.state.matrix, self.state.line) = (matrix, line);
+                }
+            }
+            _ => {}
+        }
+        place(&mut self.state, &mut self.ctm, op, &numbers);
         match op {
             "BT" => self.in_text_object = true,
             "ET" => self.in_text_object = false,
@@ -980,25 +995,13 @@ fn numbers(operands: &[usize], tokens: &[Token]) -> Vec<f64> {
 /// **Only the operators that move something are here.** Everything else a content stream
 /// says — colours, clipping, what is drawn that is not text — leaves both matrices where
 /// they were, so it passes through untouched.
-fn place(
-    state: &mut TextState,
-    ctm: &mut Affine,
-    saved: &mut Vec<Affine>,
-    op: &str,
-    numbers: &[f64],
-) {
+fn place(state: &mut TextState, ctm: &mut Affine, op: &str, numbers: &[f64]) {
     let at = |i: usize| numbers.get(i).copied().unwrap_or(0.0);
     let six = || Affine::new([at(0), at(1), at(2), at(3), at(4), at(5)]);
     match op {
         "BT" => state.begin(),
         "Tm" if numbers.len() >= 6 => state.set_matrix(six()),
         "cm" if numbers.len() >= 6 => *ctm *= six(),
-        "q" => saved.push(*ctm),
-        "Q" => {
-            if let Some(restored) = saved.pop() {
-                *ctm = restored;
-            }
-        }
         "Td" => state.next_line(at(0), at(1)),
         // `TD` is not here because it never arrives: `handle_td_op` writes it out as
         // `SetTextLeading` and `MoveText`, which reach this as `TL` and `Td`. A branch for
@@ -1031,7 +1034,7 @@ fn as_f64(n: i64) -> f64 {
 /// therefore drawn in a text object of its own:
 ///
 /// ```text
-/// … ET  BT <new Tm> Tm (its codes) Tj ET  BT <the old Tlm> Tm [ n ] TJ  …
+/// … ET  BT <new Tm> Tm [its strings and numbers] TJ ET  BT <the old Tlm> Tm [ n ] TJ  …
 /// ```
 ///
 /// `BT` and `ET` reset the two matrices and nothing else — the font, the spacings and the
@@ -1077,7 +1080,7 @@ pub fn apply_move_run(doc: &Document, page: usize, run: usize, to: (f64, f64)) -
             continue;
         }
         if index == target.operator {
-            write_moved(&mut out, &target.codes, moved_to, (placed.line, offset));
+            write_moved(&mut out, &elements_of(&tokens, target), moved_to, (placed.line, offset));
         }
     }
     write_page_content(doc, page, out)
@@ -1143,7 +1146,11 @@ fn restoring_offset(placed: &Placement, run: usize) -> PdfResult<f64> {
 /// draws from `to` under its own `Tm`. What follows needs `Tlm` back as it was and `Tm`
 /// advanced by what the run advanced it by — two values one `Tm` cannot set, so the
 /// matrix restores the line and the `TJ` offset steps the text matrix on from it.
-fn write_moved(out: &mut Vec<u8>, codes: &[u8], to: Affine, restore: (Affine, f64)) {
+///
+/// The run is written with its strings and the numbers between them, as it stood: its
+/// codes run together into one `Tj` drew each string after the first where the one
+/// before it ended, closing up whatever spacing the numbers had put there.
+fn write_moved(out: &mut Vec<u8>, elements: &[Token], to: Affine, restore: (Affine, f64)) {
     let (line, offset) = restore;
     let matrix = |m: Affine, out: &mut Vec<u8>| {
         for coefficient in m.as_coeffs() {
@@ -1156,8 +1163,7 @@ fn write_moved(out: &mut Vec<u8>, codes: &[u8], to: Affine, restore: (Affine, f6
     keyword("ET", out);
     keyword("BT", out);
     matrix(to, out);
-    Token::String(bytes::Bytes::copy_from_slice(codes)).write_to(out);
-    keyword("Tj", out);
+    write_shown(out, elements);
     keyword("ET", out);
     keyword("BT", out);
     matrix(line, out);
