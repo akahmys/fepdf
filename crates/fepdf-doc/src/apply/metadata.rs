@@ -110,7 +110,14 @@ pub fn attach_to_catalog(
     add_embedded_files_to_catalog(doc, vec![(filename, filespec_h)])
 }
 
-/// Adds embedded filespec entries to the catalogue Names tree.
+/// Adds embedded filespec entries to the catalogue's `/EmbeddedFiles` name tree (7.11.4).
+///
+/// **What the trees held is kept.** A `/Names` written in place was replaced by a new one
+/// holding the attachment alone, so the named destinations and scripts beside it went; an
+/// `/EmbeddedFiles` tree with `/Kids` was read as having no entries, so the files already
+/// attached went. The tree is read whole, the new entries join it — one of an existing
+/// name replacing it, since a tree's keys are unique — and it is written back as one leaf
+/// in key order, which 7.9.6 asks of a tree's keys.
 pub fn add_embedded_files_to_catalog(
     doc: &Document,
     new_entries: Vec<(String, Handle<Object>)>,
@@ -118,52 +125,72 @@ pub fn add_embedded_files_to_catalog(
     let arena = doc.arena();
     let Some(cah) = doc.catalog_handle() else { return Ok(()) };
     let cadh = doc.resolve_to_dict(cah)?;
-    let mut cdict = arena.get_dict(cadh).unwrap_or_default();
-
     let names_key = arena.name("Names");
+    let names_dh = match arena.dict_entry(cadh, names_key).map(|n| n.resolve(arena)) {
+        Some(Object::Dictionary(existing)) => existing,
+        _ => {
+            let fresh = arena.alloc_dict(BTreeMap::new());
+            let mut cdict = arena.get_dict(cadh).unwrap_or_default();
+            cdict.insert(names_key, Object::Dictionary(fresh));
+            arena.set_dict(cadh, cdict);
+            fresh
+        }
+    };
     let ef_key = arena.name("EmbeddedFiles");
-    let names_dh = if let Some(existing_names) = cdict.get(&names_key)
-        && let Some(nh) = existing_names.as_reference()
-        && let Ok(ndh) = doc.resolve_to_dict(nh)
-    {
-        ndh
-    } else {
-        let nd = BTreeMap::new();
-        let ndh = arena.alloc_dict(nd);
-        let nh = arena.alloc_object(Object::Dictionary(ndh));
-        cdict.insert(names_key, Object::Reference(nh));
-        ndh
-    };
-
-    let mut names_dict = arena.get_dict(names_dh).unwrap_or_default();
-    let mut ef_tree_items = if let Some(existing_ef) = names_dict.get(&ef_key)
-        && let Some(ef_h) = existing_ef.as_reference()
-        && let Ok(ef_dh) = doc.resolve_to_dict(ef_h)
-        && let Some(ef_d) = arena.get_dict(ef_dh)
-        && let Some(Object::Array(ah)) = ef_d.get(&arena.name("Names"))
-    {
-        arena.get_array(*ah).unwrap_or_default()
-    } else {
-        Vec::new()
-    };
-    for (filename, filespec_h) in new_entries {
-        // **A name-tree key is a byte string, not a text string** (7.9.6). It is what a
-        // lookup compares bytes against — `/EmbeddedFiles` is keyed on it, the collection
-        // `/D` below names one, and so does a `GoToE` target's `/N` in `apply::annotations`.
-        // Encoding it as text would put a BOM on one side of every one of those
-        // comparisons and on neither of the others.
-        ef_tree_items.push(Object::String(Bytes::from(filename)));
-        ef_tree_items.push(Object::Reference(filespec_h));
+    let mut entries: BTreeMap<Vec<u8>, Object> = BTreeMap::new();
+    if let Some(tree) = arena.dict_entry(names_dh, ef_key) {
+        name_tree_leaves(arena, &tree, &mut entries);
     }
-    let ef_arr_h = arena.alloc_array(ef_tree_items);
-    let mut ef_tree = BTreeMap::new();
-    ef_tree.insert(arena.name("Names"), Object::Array(ef_arr_h));
-    let ef_tree_dh = arena.alloc_dict(ef_tree);
-    let ef_tree_h = arena.alloc_object(Object::Dictionary(ef_tree_dh));
-    names_dict.insert(ef_key, Object::Reference(ef_tree_h));
+    // **A name-tree key is a byte string, not a text string** (7.9.6). It is what a lookup
+    // compares bytes against — `/EmbeddedFiles` is keyed on it, the collection `/D` below
+    // names one, and so does a `GoToE` target's `/N` in `apply::annotations`. Encoding it
+    // as text would put a BOM on one side of every one of those comparisons.
+    for (filename, filespec_h) in new_entries {
+        entries.insert(filename.into_bytes(), Object::Reference(filespec_h));
+    }
+    let pairs: Vec<Object> = entries
+        .into_iter()
+        .flat_map(|(key, value)| [Object::String(Bytes::from(key)), value])
+        .collect();
+    let mut leaf = BTreeMap::new();
+    leaf.insert(arena.name("Names"), Object::Array(arena.alloc_array(pairs)));
+    let leaf_h = arena.alloc_object(Object::Dictionary(arena.alloc_dict(leaf)));
+    let mut names_dict = arena.get_dict(names_dh).unwrap_or_default();
+    names_dict.insert(ef_key, Object::Reference(leaf_h));
     arena.set_dict(names_dh, names_dict);
-    arena.set_dict(cadh, cdict);
     Ok(())
+}
+
+/// How deep a name tree's `/Kids` are followed (Rule 6): `intel_sdm.pdf`'s 279,501
+/// destinations are three levels deep.
+const NAME_TREE_DEPTH: usize = 32;
+
+/// Every key and value of the name tree `node`, through `/Kids`, to a bounded depth.
+fn name_tree_leaves(arena: &PdfArena, node: &Object, into: &mut BTreeMap<Vec<u8>, Object>) {
+    let mut waiting = vec![(node.clone(), 0)];
+    while let Some((node, depth)) = waiting.pop() {
+        let Some(dict) = node.resolve(arena).as_dict_handle() else { continue };
+        let array = |key: &str| match arena.dict_entry(dict, arena.name(key))?.resolve(arena) {
+            Object::Array(array) => arena.get_array(array),
+            _ => None,
+        };
+        if let Some(kids) = array("Kids") {
+            if depth < NAME_TREE_DEPTH {
+                waiting.extend(kids.into_iter().map(|kid| (kid, depth + 1)));
+            }
+        } else if let Some(pairs) = array("Names") {
+            for pair in pairs.chunks(2) {
+                let key = match pair.first().map(|k| k.resolve(arena)) {
+                    Some(Object::String(key) | Object::Hex(key)) => key.to_vec(),
+                    Some(Object::Text(key)) => key.into_bytes(),
+                    _ => continue,
+                };
+                if let Some(value) = pair.get(1) {
+                    into.insert(key, value.clone());
+                }
+            }
+        }
+    }
 }
 
 /// Creates a portfolio collection (Clause 12.3.5).

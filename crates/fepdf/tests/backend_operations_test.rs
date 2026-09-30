@@ -203,6 +203,74 @@ fn a_thread_with_a_bead_nowhere_or_no_beads_is_refused() {
         .expect("a thread on the page that is there is written");
 }
 
+/// The keys of a name tree's leaves, in the order the tree holds them.
+fn name_tree_keys(
+    arena: &fepdf_model::PdfArena,
+    node: &fepdf_model::Object,
+    depth: usize,
+) -> Vec<String> {
+    let Some(dict) = node.resolve(arena).as_dict_handle() else { return Vec::new() };
+    let array = |key: &str| match arena.dict_entry(dict, arena.name(key)).map(|v| v.resolve(arena))
+    {
+        Some(fepdf_model::Object::Array(a)) => arena.get_array(a).unwrap_or_default(),
+        _ => Vec::new(),
+    };
+    if depth < 8 && !array("Kids").is_empty() {
+        return array("Kids")
+            .iter()
+            .flat_map(|kid| name_tree_keys(arena, kid, depth + 1))
+            .collect();
+    }
+    array("Names")
+        .chunks(2)
+        .filter_map(|pair| match pair.first()?.resolve(arena) {
+            fepdf_model::Object::String(b) | fepdf_model::Object::Hex(b) => {
+                Some(String::from_utf8_lossy(&b).into_owned())
+            }
+            fepdf_model::Object::Text(t) => Some(t),
+            _ => None,
+        })
+        .collect()
+}
+
+/// **Attaching a file keeps what the catalogue's `/Names` held**: a `/Names` written in
+/// place was replaced by a new one holding the attachment alone, so the named destinations
+/// beside it went; an `/EmbeddedFiles` tree with `/Kids` was read as having no entries, so
+/// the files already attached went; and the new one was put last whatever its name, where
+/// 7.9.6 has a tree's keys in order.
+#[test]
+fn attaching_a_file_keeps_what_the_name_trees_held() {
+    let mut doc = fepdf::PdfDocument::open(
+        assemble(&[
+            "<< /Type /Catalog /Pages 2 0 R /Names << /Dests << /Names [(two) [3 0 R /Fit]] >> \
+             /EmbeddedFiles << /Kids [4 0 R] >> >> >>",
+            "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] >>",
+            "<< /Names [(c.txt) 5 0 R] /Limits [(c.txt) (c.txt)] >>",
+            "<< /Type /Filespec /F (c.txt) /UF (c.txt) >>",
+        ])
+        .into(),
+    )
+    .expect("the fixture opens");
+    doc.apply(Operation::AttachAssociatedFile(AssociatedFile {
+        filename: "b.xml".to_string(),
+        relationship: AFRelationship::Data,
+        mime_type: "text/xml".to_string(),
+        data: b"<r/>".to_vec(),
+    }))
+    .expect("the file is attached");
+
+    let arena = doc.inner().arena();
+    let catalog = doc.inner().catalog_handle().and_then(|c| doc.inner().resolve_to_dict(c).ok());
+    let names = catalog
+        .and_then(|c| arena.dict_entry(c, arena.name("Names")))
+        .and_then(|n| n.resolve(arena).as_dict_handle())
+        .expect("the catalogue names things");
+    let entry = |key: &str| arena.dict_entry(names, arena.name(key)).expect("it is there");
+    assert_eq!(name_tree_keys(arena, &entry("Dests"), 0), ["two"], "the destinations went");
+    assert_eq!(name_tree_keys(arena, &entry("EmbeddedFiles"), 0), ["b.xml", "c.txt"]);
+}
+
 #[test]
 fn test_measurement_scale_spec() {
     let scale = MeasurementScale { page: 0, scale_ratio: 0.01, unit_label: "m".to_string() };
