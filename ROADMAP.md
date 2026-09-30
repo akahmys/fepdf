@@ -939,8 +939,29 @@ eight times, and the copies do not agree on whether to resolve.
         (`b686b81`).
       - Two operations wrote what no reader reaches and are removed (ADR-0103); the
         wrapper document is built to 7.6.7 and chosen for the writer (ADR-0104).
-- [ ] **Y-1d** — `fepdf-doc`: `apply/*`, `audit_*`, `measure`, `reading`, `glyph_map`,
-      `unicode_map`, `struct_tree`, `outline_tree`, `tagging`.
+- [x] **Y-1d** — `fepdf-doc`: `apply/*`, `audit_*`, `measure`, `reading`, `glyph_map`,
+      `unicode_map`, `struct_tree`, `outline_tree`, `tagging`. Each fix with a test that
+      fails with it taken out:
+      - What an operation removed was still written: a removed or extracted page
+        (Y-F18, `92828c6`), what a crop cut off an image (Y-F20, `15c67c9`), a replaced
+        image (`9835cad`), a deleted structure element (`ef2f0d3`).
+      - The audit asked tags as written, not as role-mapped (`b855d5a`); missed shadings
+        (`e4faea6`) and appearance states written in place (`e7c9a73`); and stepped over
+        an empty `/Lang` (`ec71b41`).
+      - Text: a mark read on its element's first page (`300d734`, `a2f618d`); a run
+        after `Q` read in the state inside it, and a move losing its `TJ` spacing
+        (`c74df96`); a text layer set across a turned page (`3e13113`); a field's value
+        drawn as its UTF-8 bytes (`74933d2`).
+      - Forms: radio buttons that were no group (`5a9c658`), field words not text
+        strings (`7fc79f9`), `/DA` not inherited.
+      - What 12.3–12.4 cannot express refused or kept: links, bookmarks and beads to
+        pages not there (`4dd4371`, `58b6493`, `7e0969b`), page labels (`970dca0`), the
+        name trees an attachment replaced (`e254498`), the layers content is in
+        (`fda395a`), an output intent's `/N` (`69f763a`).
+      - Pages whose box does not start at the origin (`5aa04e3`) or is turned
+        (`f0e6a00`), and a mark of one number on two pages (`75ddcff`).
+      - A Type 0 CMap rewrite that never ran is removed (ADR-0105). Y-F14 to Y-F17 and
+        Y-F19 are what was found and not settled.
 - [ ] **Y-2** — the tests that were added: `fepdf/tests` (+12,112 lines) and
       `mcp_server_tests` (+540). Each assertion that cannot fail is replaced. *Done when*
       each file's central assertion has been shown to fail with the behaviour it
