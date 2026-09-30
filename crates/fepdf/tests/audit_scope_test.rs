@@ -898,6 +898,53 @@ fn a_language_stated_on_an_ancestor_reaches_the_element() {
     );
 }
 
+/// **An empty `/Lang` stops what is inherited, because it is an answer** — "unknown"
+/// (14.9.2.2). An element inherits from its parent only when it "does not have a Lang
+/// entry" (14.9.2.3), and `/Lang ()` is one. The walk stepped over it to the `<Sect>`'s
+/// `cy` and called the `/ActualText`'s language known.
+#[test]
+fn an_empty_language_is_not_stepped_over_to_an_ancestors() {
+    let doc = opened(
+        fepdf_fixtures::assemble(&[
+            "<< /Type /Catalog /Pages 2 0 R /StructTreeRoot 6 0 R >>",
+            "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] >>",
+            "<< /Type /StructElem /S /Sect /P 6 0 R /Lang (cy) /K [5 0 R] >>",
+            "<< /Type /StructElem /S /Span /P 4 0 R /Pg 3 0 R /Lang () /ActualText (ibid.) >>",
+            "<< /Type /StructTreeRoot /K [4 0 R] >>",
+        ])
+        .into_iter()
+        .collect(),
+    );
+    let report = doc.audit_ua2_report().expect("it audits");
+    assert_eq!(outcomes(&report, "11-002"), vec![Outcome::Broken]);
+}
+
+/// **And the same for an annotation's `/Contents`** (11-004): the element it belongs to
+/// says its language is unknown, and neither the `<Sect>` above stating `en` nor the
+/// catalogue's — which the element's own `/Lang` comes before (14.9.2.3) — reaches past it.
+#[test]
+fn an_annotations_empty_language_is_not_stepped_over() {
+    for catalogue in ["", "/Lang (en)"] {
+        let report = annotation_under_an_empty_language(catalogue);
+        assert_eq!(outcomes(&report, "11-004"), vec![Outcome::Broken], "catalogue: {catalogue}");
+    }
+}
+
+fn annotation_under_an_empty_language(catalogue: &str) -> AuditReport {
+    let catalogue = format!("<< /Type /Catalog /Pages 2 0 R /StructTreeRoot 4 0 R {catalogue} >>");
+    let doc = opened(fepdf_fixtures::assemble(&[
+        catalogue.as_str(),
+        "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Tabs /S /Annots [7 0 R] >>",
+        "<< /Type /StructTreeRoot /K [5 0 R] /ParentTree << /Nums [0 6 0 R] >> >>",
+        "<< /Type /StructElem /S /Sect /P 4 0 R /Lang (en) /K [6 0 R] >>",
+        "<< /Type /StructElem /S /Annot /P 5 0 R /Lang () /K [<< /Type /OBJR /Obj 7 0 R >>] >>",
+        "<< /Type /Annot /Subtype /Text /Rect [0 0 10 10] /Contents (A note) /StructParent 0 >>",
+    ]));
+    doc.audit_ua2_report().expect("it audits")
+}
+
 /// **A `<Figure>` carrying `/ActualText` and no `/Alt` does not break 13-004.**
 ///
 /// The condition is "`<Figure>` tag alternative **or replacement** text missing", and

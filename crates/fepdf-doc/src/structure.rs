@@ -930,7 +930,12 @@ impl<'a> MatterhornAuditor<'a> {
     }
 
     /// The `/Lang` in force for an element: its own, else the nearest ancestor's through
-    /// `/P`, else the catalogue's (14.9.2.2).
+    /// `/P`, else the catalogue's (14.9.2.3) — or none, where the nearest `/Lang` is empty.
+    ///
+    /// **An empty `/Lang` is an answer, and ends the walk.** It says the language is
+    /// unknown (14.9.2.2), and an element inherits only when it "does not have a Lang
+    /// entry": stepping over `()` to an ancestor's called a language known that the file
+    /// says is not.
     ///
     /// Walked with a stack and a visited set rather than by recursion (RR-15 Rule 6), and
     /// the visited set is not only about depth: `/P` in a damaged file can point back into
@@ -940,8 +945,8 @@ impl<'a> MatterhornAuditor<'a> {
         element: &StructElement,
         document_language: Option<&str>,
     ) -> Option<String> {
-        if stated(element.lang.as_ref()) {
-            return element.lang.clone();
+        if let Some(lang) = &element.lang {
+            return stated(Some(lang)).then(|| lang.clone());
         }
         let mut seen = BTreeSet::new();
         let mut at = element.parent;
@@ -954,8 +959,8 @@ impl<'a> MatterhornAuditor<'a> {
             else {
                 break;
             };
-            if stated(ancestor.lang.as_ref()) {
-                return ancestor.lang;
+            if let Some(lang) = ancestor.lang {
+                return stated(Some(&lang)).then_some(lang);
             }
             at = ancestor.parent;
         }

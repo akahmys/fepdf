@@ -85,19 +85,16 @@ impl<'a> Belonging<'a> {
         crate::audit_tree::standard_type(&self.roles, &tag)
     }
 
-    /// The `/Lang` in force at `element`: its own, or the nearest ancestor's.
-    fn language(&self, element: fepdf_model::Handle<Object>) -> Option<String> {
+    /// Whether the nearest `/Lang` at or above `element` states a language: `Some(false)`
+    /// where it is empty, which says the language is unknown (14.9.2.2) and is not stepped
+    /// over, since an element inherits only when it has no `/Lang` (14.9.2.3); `None`
+    /// where no element on the way up has one, and the catalogue's decides.
+    fn language(&self, element: fepdf_model::Handle<Object>) -> Option<bool> {
         let mut at = Some(Object::Reference(element));
         for _ in 0..ANCESTORS {
             let here = at?;
-            if says_something(self.arena, &here, "Lang") {
-                return match entry(self.arena, &here, "Lang") {
-                    Some(Object::Text(text)) => Some(text),
-                    Some(Object::String(b) | Object::Hex(b)) => {
-                        Some(fepdf_model::refine::text::recover_string(&b))
-                    }
-                    _ => None,
-                };
+            if entry(self.arena, &here, "Lang").is_some() {
+                return Some(says_something(self.arena, &here, "Lang"));
             }
             at = self.arena.get_object(here.as_reference()?).and_then(|o| {
                 let dict = o.as_dict_handle()?;
@@ -358,7 +355,8 @@ fn one_annotation(
             ),
         ));
     }
-    let spoken = language.is_some() || element.and_then(|e| belonging.language(e)).is_some();
+    // The element's own `/Lang`, or its ancestors', comes before the catalogue's (14.9.2.3).
+    let spoken = element.and_then(|e| belonging.language(e)).unwrap_or(language.is_some());
     if has_contents && !spoken {
         findings.push(broken(
             "11-004",
