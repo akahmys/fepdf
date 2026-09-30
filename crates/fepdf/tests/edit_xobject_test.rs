@@ -144,3 +144,32 @@ fn what_cannot_be_done_is_refused() {
         assert!(error.to_string().contains(said), "the refusal does not say why: {error}");
     }
 }
+
+/// **A replaced image is not written.** The picture that replaced it was drawn, and the
+/// old one stayed in the page's resources, so the file carried both — a reader replacing
+/// a photograph to take it out of the document had sent it anyway. Here the old image is
+/// the only one without `/DCTDecode`.
+#[test]
+fn a_replaced_image_is_not_in_the_file() {
+    let doc = edited(XObjectEdit::Replace { jpeg: fepdf_fixtures::red_jpeg() });
+    let path = std::env::temp_dir().join(format!("fepdf_replaced_{}.pdf", std::process::id()));
+    doc.save_with_options(&path, "2.0", &fepdf::SaveOptions::default()).expect("it writes");
+    let back = PdfDocument::open(std::fs::read(&path).expect("it is there").into())
+        .expect("it reads back");
+    let _ = std::fs::remove_file(&path);
+    let arena = back.inner().arena();
+    let entry = |dict, key: &str| arena.dict_entry(dict, arena.name(key)).map(|v| v.resolve(arena));
+    let unfiltered = (0..arena.object_count())
+        .filter_map(|i| match arena.get_object(arena.handle(i))? {
+            fepdf_model::Object::Stream(dict, _) => Some(dict),
+            _ => None,
+        })
+        .filter(|dict| {
+            entry(*dict, "Subtype").and_then(|s| s.as_name()) == Some(arena.name("Image"))
+        })
+        .filter(|dict| {
+            entry(*dict, "Filter").and_then(|f| f.as_name()) != Some(arena.name("DCTDecode"))
+        })
+        .count();
+    assert_eq!(unfiltered, 0, "the image that was replaced is still in the file");
+}

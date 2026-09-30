@@ -13,7 +13,8 @@
 //!
 //! **A replacement is a new object, not an edit of the old one.** The XObject a page
 //! names may be named by other pages too, so the picture is added under a name of its own
-//! and only this `Do` is pointed at it.
+//! and only this `Do` is pointed at it; the old one leaves the resources once nothing
+//! drawing with them draws it.
 //!
 //! **Reached: the page's own content.** An object inside a form XObject is not listed.
 
@@ -139,7 +140,14 @@ pub fn apply_edit_xobject(
     let mut replaced = BTreeMap::new();
     replaced.insert(draw.at, (draw.at + 1, written.into_bytes()));
     let out = crate::apply::path_crop::rewritten(&tokens, &replaced);
-    crate::apply::text::write_page_content(doc, page, out)
+    crate::apply::text::write_page_content(doc, page, out)?;
+    if matches!(edit, XObjectEdit::Replace { .. }) {
+        // The picture replaced stays wherever another page, or another `Do` here, draws
+        // it, and goes from the file where nothing does: left in the resources, it was
+        // written, and a replacement meant to take it out had sent it (ROADMAP Y-F20).
+        crate::apply::image_crop::drop_undrawn_images(doc, &[page])?;
+    }
+    Ok(())
 }
 
 /// The page-space move that puts the object's lower left corner at `to`.
