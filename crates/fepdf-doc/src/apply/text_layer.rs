@@ -10,6 +10,12 @@
 //! scaling (`Tz`, 9.3.4) stretches the face's own widths to the box's width, so a
 //! selection lands on the word a reader sees rather than on where this face would have
 //! put it.
+//!
+//! **Along the line as it is shown.** A page under `/Rotate` shows its user space turned
+//! (7.7.3.3), so a line across what a reader sees runs up or down it. The words were set
+//! across user space whatever the turn: on a page turned 90°, a line 14 points high on the
+//! screen was set at 97 points and squeezed into its width, its glyphs running across the
+//! line a reader was selecting along.
 
 use crate::operation::TextLayerItem;
 use fepdf_model::{Document, PdfError, PdfResult};
@@ -48,9 +54,10 @@ pub fn apply_add_text_layer(doc: &Document, page: usize, items: &[TextLayerItem]
     let name = crate::apply::font::name_font_in_page(doc, page_h, &mut page_dict, embedded.font);
     // In a `q … Q` of its own, and with the rendering mode set inside its `BT`, so the
     // content after it — a later layer, a decoration — is drawn as it would have been.
+    let turn = crate::apply::page::page_turn(doc, page);
     let mut drawing = String::from("q\n");
     for item in items {
-        drawing.push_str(&set_in_box(&program, &embedded, &name, item)?);
+        drawing.push_str(&set_in_box((&program, &embedded, &name), item, turn)?);
     }
     drawing.push_str("Q\n");
     crate::apply::font::append_content(doc, page_dh, &mut page_dict, drawing.into_bytes());
@@ -58,12 +65,12 @@ pub fn apply_add_text_layer(doc: &Document, page: usize, items: &[TextLayerItem]
     Ok(())
 }
 
-/// One item: its codes, at its box's height, stretched to its box's width, invisible.
+/// One item: its codes, at its box's height, stretched to its box's width, invisible —
+/// height and width as a reader sees them on a page turned by `turn` degrees.
 fn set_in_box(
-    program: &[u8],
-    embedded: &crate::apply::font::Embedded,
-    font: &str,
+    (program, embedded, font): (&[u8], &crate::apply::font::Embedded, &str),
     item: &TextLayerItem,
+    turn: i64,
 ) -> PdfResult<String> {
     let glyphs = fepdf_font::subset::glyphs_for(program, &item.text)
         .map_err(|c| PdfError::Other(format!("this face draws no {c:?}").into()))?;
@@ -71,10 +78,20 @@ fn set_in_box(
     let per_em = metrics.as_ref().map_or(1000.0, |m| f64::from(m.units_per_em.max(1)));
     let descent = metrics.as_ref().map_or(0.0, |m| f64::from(m.descent).abs()) / per_em;
     let [x0, y0, x1, y1] = item.rect;
+    let turned = turn == 90 || turn == 270;
+    let (length, height) = if turned { (y1 - y0, x1 - x0) } else { (x1 - x0, y1 - y0) };
     // The box holds the descenders as it held them on the scan: the size is what leaves
     // room for them below the baseline, and the baseline sits that far above the foot.
-    let size = (y1 - y0) / (1.0 + descent);
-    let baseline = size.mul_add(descent, y0);
+    let size = height / (1.0 + descent);
+    let lift = size * descent;
+    // The direction the line runs and the direction "up" is, in user space, and where the
+    // line starts: user space turned back by the page's turn (7.7.3.3).
+    let (along, up, origin) = match turn {
+        90 => ((0.0, 1.0), (-1.0, 0.0), (x1 - lift, y0)),
+        180 => ((-1.0, 0.0), (0.0, -1.0), (x1, y1 - lift)),
+        270 => ((0.0, -1.0), (1.0, 0.0), (x0 + lift, y1)),
+        _ => ((1.0, 0.0), (0.0, 1.0), (x0, y0 + lift)),
+    };
     let natural: f64 = glyphs
         .iter()
         .map(|gid| f64::from(fepdf_font::metrics::advance_width(program, *gid).unwrap_or(0)))
@@ -82,13 +99,14 @@ fn set_in_box(
         / per_em
         * size;
     // A face that states no widths is left unstretched rather than divided by nothing.
-    let scaling = if natural > 0.0 { (x1 - x0) / natural * 100.0 } else { 100.0 };
+    let scaling = if natural > 0.0 { length / natural * 100.0 } else { 100.0 };
     let mut codes = String::with_capacity(glyphs.len() * 4);
     for gid in &glyphs {
         let code = embedded.code_of.get(gid).copied().unwrap_or(*gid);
         let _ = write!(codes, "{code:04X}");
     }
+    let ((a, b), (c, d), (e, f)) = (along, up, origin);
     Ok(format!(
-        "BT\n3 Tr\n/{font} {size:.3} Tf\n{scaling:.3} Tz\n1 0 0 1 {x0:.3} {baseline:.3} Tm\n<{codes}> Tj\nET\n"
+        "BT\n3 Tr\n/{font} {size:.3} Tf\n{scaling:.3} Tz\n{a} {b} {c} {d} {e:.3} {f:.3} Tm\n<{codes}> Tj\nET\n"
     ))
 }

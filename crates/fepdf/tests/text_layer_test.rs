@@ -193,3 +193,46 @@ fn each_corner_of_a_turned_page_lands_where_turning_puts_it() {
     assert_eq!(corners(180), ((300, 200), (300, 0), (300, 200), (0, 0)));
     assert_eq!(corners(270), ((200, 300), (200, 300), (0, 300), (200, 0)));
 }
+
+/// **On a page under `/Rotate`, each line runs as it is shown** (7.7.3.3): set at the
+/// height a reader sees and along the line a reader selects. Set across user space
+/// whatever the turn, a line 14 points high on a page turned 90° was set at 97 points and
+/// squeezed into its width. Each turn, with the lines' boxes in user space.
+#[test]
+fn on_a_turned_page_each_line_runs_as_it_is_shown() {
+    for (turn, first, second) in [
+        (90, [150.0, 20.0, 164.0, 140.0], [110.0, 20.0, 124.0, 100.0]),
+        (180, [160.0, 36.0, 280.0, 50.0], [200.0, 76.0, 280.0, 90.0]),
+        (270, [136.0, 60.0, 150.0, 180.0], [176.0, 100.0, 190.0, 180.0]),
+    ] {
+        let bodies = [
+            "<< /Type /Catalog /Pages 2 0 R >>".to_string(),
+            "<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_string(),
+            format!(
+                "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 300 200] /Rotate {turn} \
+                 /Contents 4 0 R >>"
+            ),
+            "<< /Length 0 >>\nstream\n\nendstream".to_string(),
+        ];
+        let mut doc = PdfDocument::open_with_options(
+            fepdf_fixtures::assemble(&bodies).into(),
+            &IngestionOptions::default(),
+        )
+        .expect("the fixture opens");
+        let items = vec![
+            TextLayerItem { text: "Invoice 2026".into(), rect: first },
+            TextLayerItem { text: "Second line".into(), rect: second },
+        ];
+        doc.apply(Operation::AddTextLayer { page: 0, items }).expect("the layer is laid");
+        let text = doc.extract_text(0).expect("it extracts");
+        assert!(text.contains("Invoice 2026") && text.contains("Second line"), "{turn}: {text:?}");
+        for span in doc.extract_spans(0).expect("spans") {
+            assert!(
+                span.font_size < 16.0,
+                "{turn}: {:?} is set at {} points, not the 14 it is shown at",
+                span.text,
+                span.font_size
+            );
+        }
+    }
+}

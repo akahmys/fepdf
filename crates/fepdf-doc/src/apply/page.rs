@@ -419,7 +419,7 @@ fn numbers(rect: [f64; 4]) -> Vec<Object> {
 }
 
 /// What `/Rotate` the page is under, normalised to `0`, `90`, `180` or `270` (7.7.3.3).
-fn page_turn(doc: &Document, index: usize) -> i64 {
+pub(crate) fn page_turn(doc: &Document, index: usize) -> i64 {
     let Ok(page) = doc.get_page(index) else { return 0 };
     match page.resolve_attribute("Rotate") {
         Some(Object::Integer(angle)) => (angle % 360).rem_euclid(360),
