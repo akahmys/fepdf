@@ -137,14 +137,15 @@ fn note_mark(
     }
     match command {
         // **What the operator paints, not what it sets.** A colour, a matrix or a text
-        // matrix leaves no mark; these seven do. `Clip` is not among them: `W n` ends a
-        // path without painting it.
+        // matrix leaves no mark; these do. `Clip` is not among them: `W n` ends a path
+        // without painting it. `sh` is, though the parser passes it through as written.
         Command::ShowText(_)
         | Command::ShowTextArray(_)
         | Command::Fill(_)
         | Command::Stroke(_)
         | Command::FillStroke(_, _)
         | Command::DrawInlineImage { .. } => out.untagged_marks += 1,
+        Command::RawOperator { name, .. } if name == "sh" => out.untagged_marks += 1,
         Command::DrawXObject(name) => match forms.get(name) {
             // A form's own stream may carry the marks; this walk does not descend.
             Some(true) => out.forms_outside.push(name.clone()),

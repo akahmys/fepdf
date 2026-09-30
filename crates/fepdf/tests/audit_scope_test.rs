@@ -1948,6 +1948,8 @@ fn a_printer_marks_appearance_is_an_artifact() {
         outcomes(&with_appearance("/Artifact BMC /Span BMC 0 0 1 1 re f EMC EMC"), "28-018"),
         vec![Outcome::Sound]
     );
+    // A shading painted with `sh` paints as a filled path does.
+    assert_eq!(outcomes(&with_appearance("/Sh0 sh"), "28-018"), vec![Outcome::Broken]);
 }
 
 /// **A printer's mark's appearance states are read where they are written directly.**
@@ -2634,6 +2636,10 @@ fn graphics_and_artifacts_are_asked_where_they_are() {
         ("P", format!("/P <</MCID 0>> BDC {rect} EMC"), "13-001", Outcome::ForAReader),
         ("Figure", format!("/Artifact BMC {rect} EMC"), "13-001", Outcome::Sound),
         ("Figure", rect.to_string(), "13-001", Outcome::ForAReader),
+        // `sh` paints a shading, which is a graphics object (8.7.4.2) like a filled path.
+        ("Figure", "/Sh0 sh".to_string(), "13-001", Outcome::ForAReader),
+        ("Figure", "/Artifact BMC /Sh0 sh EMC".to_string(), "13-001", Outcome::Sound),
+        ("Figure", "/Sh0 sh".to_string(), "01-005", Outcome::Broken),
         ("Figure", format!("/Figure <</MCID 0>> BDC {rect} EMC"), "18-002", Outcome::Sound),
         ("Figure", format!("/Artifact BMC {rect} EMC"), "18-002", Outcome::ForAReader),
         ("Figure", format!("/Artifact BMC {rect} EMC"), "01-001", Outcome::Sound),

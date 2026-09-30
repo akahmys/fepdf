@@ -581,6 +581,10 @@ impl Scan<'_> {
                 | Command::Stroke(_)
                 | Command::FillStroke(..)
                 | Command::DrawInlineImage { .. } => self.graphic(within),
+                // `sh` paints a shading (8.7.4.2), which the parser passes through as it
+                // was written; it was counted as nothing, and 13-001 called sound a page
+                // that paints one outside any `/Artifact` or `<Figure>`.
+                Command::RawOperator { name, .. } if name == "sh" => self.graphic(within),
                 other => {
                     if let (Some(font), visible, Some(bytes)) = (current.0, current.1, shown(other))
                     {

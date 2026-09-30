@@ -488,6 +488,10 @@ fn paints_outside_an_artifact(content: &crate::apply::text::Content) -> bool {
             {
                 return true;
             }
+            // `sh` paints a shading, passed through by the parser as it was written.
+            Command::RawOperator { name, .. } if name == "sh" && !open.contains(&true) => {
+                return true;
+            }
             _ => {}
         }
     }
