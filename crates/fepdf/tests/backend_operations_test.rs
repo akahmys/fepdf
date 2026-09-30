@@ -167,6 +167,24 @@ fn test_annotation_spec() {
     }
 }
 
+/// **A link to a page the document does not have is refused.** It was written with no
+/// `/Dest` and no `/A` and answered `Ok`: a link that goes nowhere, which a caller one page
+/// off was told had worked. Every operation that takes a page refuses one that is not there.
+#[test]
+fn a_link_to_a_page_that_is_not_there_is_refused() {
+    let link = |to: usize| {
+        Operation::AddAnnotation(AnnotationSpec {
+            page: 0,
+            rect: [10.0, 10.0, 100.0, 100.0],
+            kind: AnnotationKind::Link { destination_page: to, url: None },
+        })
+    };
+    let mut doc = fepdf::PdfDocument::create_empty().expect("a document");
+    let refused = doc.apply(link(5)).expect_err("a link to page 5 of one is refused");
+    assert!(refused.to_string().contains('5'), "the refusal does not name the page: {refused}");
+    doc.apply(link(0)).expect("a link to the page that is there is written");
+}
+
 #[test]
 fn test_measurement_scale_spec() {
     let scale = MeasurementScale { page: 0, scale_ratio: 0.01, unit_label: "m".to_string() };

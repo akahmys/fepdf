@@ -59,6 +59,12 @@ fn setting_a_value_in_a_calculating_form_reports_the_scripts_it_did_not_run() {
         "it has to say the value was written and the scripts were not: {}",
         found.action
     );
+    // One sentence, not two joined by the indentation of the line the literal broke on.
+    assert!(
+        found.found.contains("and setting a would have run"),
+        "the finding does not read as a sentence: {:?}",
+        found.found
+    );
 }
 
 /// **A run that will execute the scripts does not report skipping them.**

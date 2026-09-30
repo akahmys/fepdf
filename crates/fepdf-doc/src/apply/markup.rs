@@ -106,7 +106,7 @@ fn kind_entries(
     let arena = doc.arena();
     Ok(match kind {
         AnnotationKind::Link { destination_page, url } => {
-            link_target(doc, dict, *destination_page, url.as_deref())
+            link_target(doc, dict, *destination_page, url.as_deref())?
         }
         AnnotationKind::TextComment { contents } => Some(note(arena, dict, contents, drawn)),
         AnnotationKind::Stamp { stamp_image_bytes } => {
@@ -225,12 +225,16 @@ fn border(arena: &PdfArena, width: f64) -> Object {
 
 /// A link, and where it goes: a URI action, or a page of this document (12.5.6.5). It
 /// has no appearance, so this answers `None`.
+///
+/// # Errors
+/// Fails when it goes to a page the document does not have — a link written with nowhere
+/// to go, as it was, is one a caller one page off is told has worked.
 fn link_target(
     doc: &Document,
     dict: &mut Dict,
     destination_page: usize,
     url: Option<&str>,
-) -> Option<Object> {
+) -> PdfResult<Option<Object>> {
     let arena = doc.arena();
     name(arena, dict, "Subtype", "Link");
     if let Some(uri) = url {
@@ -239,11 +243,17 @@ fn link_target(
         name(arena, &mut action, "S", "URI");
         action.insert(arena.name("URI"), Object::String(Bytes::from(uri.to_string())));
         dict.insert(arena.name("A"), Object::Dictionary(arena.alloc_dict(action)));
-    } else if let Some(target) = doc.get_page_handle(destination_page) {
+    } else {
+        let target = doc.get_page_handle(destination_page).ok_or_else(|| {
+            PdfError::Other(
+                format!("a link to page {destination_page}, which this document does not have")
+                    .into(),
+            )
+        })?;
         let destination = vec![Object::Reference(target), Object::Name(arena.name("Fit"))];
         dict.insert(arena.name("Dest"), Object::Array(arena.alloc_array(destination)));
     }
-    None
+    Ok(None)
 }
 
 /// A form XObject of `area`'s size holding `drawing`, as a normal appearance (12.5.5).

@@ -689,7 +689,8 @@ fn report_scripts_not_run(
     doc.record(Decision::violation(
         "12.6.3",
         format!(
-            "the form declares {calculated} field(s) in its calculation order, and setting              {field_name} would have run their ECMAScript"
+            "the form declares {calculated} field(s) in its calculation order, and setting \
+             {field_name} would have run their ECMAScript"
         ),
         "wrote the value and did not run the scripts; fields computed from it are now stale",
     ));
