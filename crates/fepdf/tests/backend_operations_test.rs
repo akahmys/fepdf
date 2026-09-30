@@ -290,6 +290,44 @@ fn a_bookmark_to_a_page_that_is_not_there_is_refused() {
     doc.apply(outline(0)).expect("a bookmark to the page that is there is written");
 }
 
+/// The 128-byte header of an ICC profile whose data colour space is `space` (ICC.1 7.2).
+fn icc_header(space: &[u8; 4]) -> Vec<u8> {
+    let mut header = vec![0u8; 128];
+    header[..4].copy_from_slice(&128u32.to_be_bytes());
+    header[16..20].copy_from_slice(space);
+    header[36..40].copy_from_slice(b"acsp");
+    header
+}
+
+/// **An output intent's profile says how many components it has** (Table 401, 8.6.5.5):
+/// `/N` was 3 whatever the profile, so the CMYK profile a PDF/X intent names was declared
+/// three-component — and five bytes that were no profile at all were written as one.
+#[test]
+fn an_output_intents_profile_is_declared_as_what_it_is() {
+    let mut doc = fepdf::PdfDocument::create_empty().expect("a document");
+    let intent = |icc: Vec<u8>| {
+        Operation::SetOutputIntent(OutputIntent {
+            subtype: "GTS_PDFX".to_string(),
+            identifier: "FOGRA39".to_string(),
+            info: None,
+            icc_profile_bytes: Some(icc),
+        })
+    };
+    doc.apply(intent(vec![1, 2, 3, 4, 5])).expect_err("five bytes are not a profile");
+    doc.apply(intent(icc_header(b"CMYK"))).expect("a CMYK profile is named");
+    let arena = doc.inner().arena();
+    let catalog = doc.inner().catalog_handle().and_then(|c| doc.inner().resolve_to_dict(c).ok());
+    let entry = |dict, key: &str| arena.dict_entry(dict, arena.name(key)).map(|v| v.resolve(arena));
+    let intents = match catalog.and_then(|c| entry(c, "OutputIntents")) {
+        Some(fepdf_model::Object::Array(a)) => arena.get_array(a).unwrap_or_default(),
+        _ => Vec::new(),
+    };
+    let intent = intents.first().and_then(|i| i.resolve(arena).as_dict_handle()).expect("one");
+    let profile = entry(intent, "DestOutputProfile").and_then(|p| p.as_dict_handle());
+    let n = profile.and_then(|p| entry(p, "N")).and_then(|n| n.as_integer());
+    assert_eq!(n, Some(4), "a CMYK profile is declared with {n:?} components");
+}
+
 #[test]
 fn test_measurement_scale_spec() {
     let scale = MeasurementScale { page: 0, scale_ratio: 0.01, unit_label: "m".to_string() };
@@ -562,7 +600,7 @@ fn test_tier1_operations_execution() {
         subtype: "GTS_PDFA1".to_string(),
         identifier: "sRGB".to_string(),
         info: Some("Standard sRGB profile".to_string()),
-        icc_profile_bytes: Some(vec![1, 2, 3, 4, 5]),
+        icc_profile_bytes: Some(icc_header(b"RGB ")),
     };
     doc.apply(Operation::SetOutputIntent(intent)).expect("SetOutputIntent failed");
 

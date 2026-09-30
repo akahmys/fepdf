@@ -510,8 +510,13 @@ pub fn apply_attach_associated_file(doc: &Document, file: AssociatedFile) -> Pdf
 }
 
 /// Sets PDF/X or PDF/A OutputIntents dictionary (Clause 14.11.5).
+///
+/// # Errors
+/// Fails when the profile given is not an ICC profile, or is one of a colour space an ICC
+/// stream's `/N` cannot state (8.6.5.5).
 pub fn apply_set_output_intent(doc: &Document, intent: OutputIntent) -> PdfResult<()> {
     let arena = doc.arena();
+    let components = intent.icc_profile_bytes.as_deref().map(icc_components).transpose()?;
     let mut oi_dict = BTreeMap::new();
     oi_dict.insert(arena.name("Type"), Object::Name(arena.name("OutputIntent")));
     oi_dict.insert(arena.name("S"), Object::Name(arena.name(&intent.subtype)));
@@ -524,7 +529,7 @@ pub fn apply_set_output_intent(doc: &Document, intent: OutputIntent) -> PdfResul
     }
     if let Some(icc_data) = intent.icc_profile_bytes {
         let mut stream_dict = BTreeMap::new();
-        stream_dict.insert(arena.name("N"), Object::Integer(3));
+        stream_dict.insert(arena.name("N"), Object::Integer(components.unwrap_or(3)));
         let stream_dh = arena.alloc_dict(stream_dict);
         let stream_obj =
             Object::Stream(stream_dh, Arc::new(SublimatedData::Raw(Bytes::from(icc_data))));
@@ -559,6 +564,32 @@ pub fn apply_set_output_intent(doc: &Document, intent: OutputIntent) -> PdfResul
         arena.set_dict(cadh, cdict);
     }
     Ok(())
+}
+
+/// How many components the ICC profile `profile` has, from its header (ICC.1 7.2): what
+/// an ICC stream's `/N` states (Table 66). It was 3 whatever the profile, so the CMYK
+/// profile a PDF/X output intent names was declared three-component.
+///
+/// # Errors
+/// Fails when `profile` carries no ICC header, or names a colour space `/N` cannot state.
+fn icc_components(profile: &[u8]) -> PdfResult<i64> {
+    if profile.get(36..40) != Some(b"acsp".as_slice()) {
+        return Err(PdfError::Other(
+            "the output intent's profile is not an ICC profile: it has no acsp signature".into(),
+        ));
+    }
+    match profile.get(16..20) {
+        Some(b"GRAY") => Ok(1),
+        Some(b"RGB " | b"Lab ") => Ok(3),
+        Some(b"CMYK") => Ok(4),
+        other => Err(PdfError::Other(
+            format!(
+                "the output intent's profile is of the colour space {:?}, which /N cannot state",
+                other.map(String::from_utf8_lossy)
+            )
+            .into(),
+        )),
+    }
 }
 
 /// Names a pronunciation lexicon in the structure tree root (Table 354, 14.9.6).
