@@ -96,3 +96,37 @@ fn what_cannot_become_an_artifact_is_refused() {
     assert!(nested.apply(mark(0)).is_err(), "a sequence holding tagged content was marked");
     assert!(content(&nested).contains("/MCID 0"), "a refused mark changed the page");
 }
+
+/// **A mark on another page with the same number is not the one let go.** An integer in
+/// `/K` is on the element's own page (14.7.4.2), and it was dropped on its number alone:
+/// marking MCID 0 of the second page an artifact took the first page's MCID 0 out of the
+/// element too, and left that page's content claimed by nothing.
+#[test]
+fn a_mark_of_the_same_number_on_another_page_stays() {
+    let content = "/P <</MCID 0>> BDC 0 0 50 50 re f EMC\n";
+    let stream = format!("<< /Length {} >>\nstream\n{content}endstream", content.len());
+    let bytes = fepdf_fixtures::assemble(&[
+        "<< /Type /Catalog /Pages 2 0 R /StructTreeRoot 5 0 R >>".to_string(),
+        "<< /Type /Pages /Kids [3 0 R 7 0 R] /Count 2 >>".to_string(),
+        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Contents 4 0 R \
+           /StructParents 0 >>"
+            .to_string(),
+        stream.clone(),
+        "<< /Type /StructTreeRoot /K [6 0 R] /ParentTree << /Nums [0 [6 0 R] 1 [6 0 R]] >> >>"
+            .to_string(),
+        "<< /Type /StructElem /S /P /P 5 0 R /Pg 3 0 R \
+           /K [0 << /Type /MCR /Pg 7 0 R /MCID 0 >>] >>"
+            .to_string(),
+        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Contents 8 0 R \
+           /StructParents 1 >>"
+            .to_string(),
+        stream,
+    ]);
+    let mut doc = PdfDocument::open_with_options(bytes.into(), &IngestionOptions::default())
+        .expect("it opens");
+    doc.apply(Operation::MarkArtifact { page: 1, mcid: 0, kind: None, subtype: None })
+        .expect("it is marked");
+    let tree = doc.extract_struct_tree().expect("the document is tagged");
+    assert_eq!(tree.children[0].mcids, vec![0], "the first page's mark went with the second's");
+    assert_eq!(tree.children[0].mark_pages, vec![Some(0)], "the mark kept is not the first page's");
+}

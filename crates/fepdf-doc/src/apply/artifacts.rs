@@ -144,18 +144,25 @@ fn release(doc: &Document, page: usize, mcid: i64) {
     }
 }
 
-/// Removes `mcid` on `page` from `element`'s `/K`: an integer, or a marked-content reference
-/// whose `/Pg`, where it states one, is the page.
+/// Removes `mcid` on `page` from `element`'s `/K`: an integer, when the element's own page
+/// is the page, or a marked-content reference whose `/Pg`, or where it states none the
+/// element's, is the page.
+///
+/// **An integer is on the element's page** (14.7.4.2), and it was dropped on its number
+/// alone: an element with MCID 0 on its own page and a reference to MCID 0 on another lost
+/// both when the other page's was marked an artifact.
 fn drop_kid(arena: &PdfArena, element: Handle<Object>, mcid: i64, page: Handle<Object>) {
     let Some(dh) = arena.get_object(element).and_then(|e| e.as_dict_handle()) else { return };
     let mut dict = arena.get_dict(dh).unwrap_or_default();
     let key = arena.name("K");
+    let own = dict.get(&arena.name("Pg")).and_then(Object::as_reference);
+    let on_page = |pg: Option<Handle<Object>>| pg.or(own).is_none_or(|p| p == page);
     let names_it = |kid: &Object| match kid.resolve(arena) {
-        Object::Integer(k) => k == mcid,
+        Object::Integer(k) => k == mcid && on_page(None),
         other => other.as_dict_handle().is_some_and(|d| {
             let pg = arena.dict_entry(d, arena.name("Pg")).and_then(|p| p.as_reference());
             arena.dict_entry(d, arena.name("MCID")).and_then(|m| m.as_integer()) == Some(mcid)
-                && pg.is_none_or(|p| p == page)
+                && on_page(pg)
         }),
     };
     let Some(kids) = dict.get(&key).map(|k| super::wrap::kids(arena, k)) else { return };
