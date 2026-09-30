@@ -174,8 +174,26 @@ fn create_article_thread_dict(
 }
 
 /// Updates article threads in the catalogue (Clause 12.4.3).
+///
+/// # Errors
+/// Fails, before anything is written, when a thread has no beads — Table 160 requires the
+/// `/F` a thread starts from — or a bead is on a page the document does not have, which
+/// was written with no `/P` though Table 162 requires one.
 pub fn apply_update_article_threads(doc: &Document, threads: Vec<ArticleThread>) -> PdfResult<()> {
     let arena = doc.arena();
+    let count = doc.page_count()?;
+    for thread in &threads {
+        if thread.beads.is_empty() {
+            return Err(PdfError::Other(
+                format!("the thread {:?} has no beads to start from", thread.title).into(),
+            ));
+        }
+        if let Some(bead) = thread.beads.iter().find(|bead| bead.page >= count) {
+            return Err(PdfError::Other(
+                format!("this document has {count} pages and no page {}", bead.page).into(),
+            ));
+        }
+    }
     let mut thread_refs = Vec::new();
     for thread in &threads {
         let th = create_article_thread_dict(arena, thread, |idx| doc.get_page_handle(idx));

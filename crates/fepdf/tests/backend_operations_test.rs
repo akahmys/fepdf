@@ -185,6 +185,24 @@ fn a_link_to_a_page_that_is_not_there_is_refused() {
     doc.apply(link(0)).expect("a link to the page that is there is written");
 }
 
+/// **A thread that cannot be written as 12.4.3 has one is refused**: a bead on a page the
+/// document does not have, which was written with no `/P` (Table 162 requires one), and a
+/// thread with no beads, which has no `/F` to start from (Table 160).
+#[test]
+fn a_thread_with_a_bead_nowhere_or_no_beads_is_refused() {
+    let mut doc = fepdf::PdfDocument::create_empty().expect("a document");
+    let thread = |beads: Vec<ArticleBead>| {
+        Operation::UpdateArticleThreads(vec![ArticleThread { title: "t".to_string(), beads }])
+    };
+    let refused = doc
+        .apply(thread(vec![ArticleBead { page: 5, rect: [0.0, 0.0, 10.0, 10.0] }]))
+        .expect_err("a bead on page 5 of one is refused");
+    assert!(refused.to_string().contains('5'), "the refusal does not name the page: {refused}");
+    doc.apply(thread(Vec::new())).expect_err("a thread with no beads is refused");
+    doc.apply(thread(vec![ArticleBead { page: 0, rect: [0.0, 0.0, 10.0, 10.0] }]))
+        .expect("a thread on the page that is there is written");
+}
+
 #[test]
 fn test_measurement_scale_spec() {
     let scale = MeasurementScale { page: 0, scale_ratio: 0.01, unit_label: "m".to_string() };
