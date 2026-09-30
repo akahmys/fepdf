@@ -385,6 +385,53 @@ fn updating_the_layers_keeps_the_groups_content_is_in() {
     assert!(off.contains(&5) && off.contains(&6), "Draft off and Other as it was: {off:?}");
 }
 
+/// **Page labels are written as 12.4.2 has a number tree**: from page 0, in page order,
+/// each range starting on a page the document has, and numbering from 1 or more. They were
+/// written in the order given and none of that was asked, so a document could be handed
+/// labels no reader can apply. Ranges that begin after page 0 are given one there.
+#[test]
+fn page_labels_are_written_as_a_number_tree_from_page_zero() {
+    let mut doc = fepdf::PdfDocument::create_empty().expect("a document");
+    for _ in 0..2 {
+        doc.apply(Operation::DuplicatePages(PageSelection::Single(0))).expect("a page more");
+    }
+    let label = |start_page: usize, start_number: u32| PageLabelSpec {
+        start_page,
+        style: PageLabelStyle::Decimal,
+        prefix: None,
+        start_number,
+    };
+    for (refused, why) in [
+        (vec![label(0, 1), label(5, 1)], "page 5 of 3"),
+        (vec![label(0, 1), label(0, 3)], "two ranges start at page 0"),
+        (vec![label(0, 0)], "numbering from 0"),
+    ] {
+        doc.apply(Operation::SetPageLabels(refused)).expect_err(why);
+    }
+    doc.apply(Operation::SetPageLabels(vec![label(2, 1), label(0, 1)])).expect("it is written");
+    assert_eq!(label_tree_keys(&doc), [0, 2], "the tree's keys are not in page order");
+    doc.apply(Operation::SetPageLabels(vec![label(1, 5)])).expect("it is written");
+    assert_eq!(label_tree_keys(&doc), [0, 1], "the tree does not start at page 0");
+}
+
+/// The keys of the document's `/PageLabels` tree, in the order it holds them.
+fn label_tree_keys(doc: &fepdf::PdfDocument) -> Vec<i64> {
+    let arena = doc.inner().arena();
+    let catalog = doc.inner().catalog_handle().and_then(|c| doc.inner().resolve_to_dict(c).ok());
+    let entry = |dict, key: &str| arena.dict_entry(dict, arena.name(key)).map(|v| v.resolve(arena));
+    let tree = catalog.and_then(|c| entry(c, "PageLabels")).and_then(|t| t.as_dict_handle());
+    match tree.and_then(|t| entry(t, "Nums")) {
+        Some(fepdf_model::Object::Array(a)) => arena
+            .get_array(a)
+            .unwrap_or_default()
+            .iter()
+            .step_by(2)
+            .filter_map(fepdf_model::Object::as_integer)
+            .collect(),
+        _ => Vec::new(),
+    }
+}
+
 #[test]
 fn test_measurement_scale_spec() {
     let scale = MeasurementScale { page: 0, scale_ratio: 0.01, unit_label: "m".to_string() };

@@ -210,9 +210,61 @@ pub fn apply_upgrade(doc: &mut Document, standard: PdfStandard) -> PdfResult<()>
     Ok(())
 }
 
-/// Applies page label ranges (Table 159).
-pub fn apply_set_page_labels(doc: &Document, labels: Vec<PageLabelSpec>) -> PdfResult<()> {
+/// Puts a range at page 0 in front of ranges that begin later, numbering the pages before
+/// them 1, 2, 3 … in decimal, and records that it did (12.4.2).
+fn from_page_zero(doc: &Document, labels: &mut Vec<PageLabelSpec>) {
+    if labels.first().is_some_and(|label| label.start_page != 0) {
+        labels.insert(
+            0,
+            PageLabelSpec {
+                start_page: 0,
+                style: PageLabelStyle::Decimal,
+                prefix: None,
+                start_number: 1,
+            },
+        );
+        doc.record(fepdf_model::interpretation::Decision::ambiguity(
+            "12.4.2",
+            "the page label ranges given begin after page 0, and the tree shall include page 0",
+            "labelled the pages before them 1, 2, 3 …, as a reader shows unlabelled pages",
+        ));
+    }
+}
+
+/// Refuses ranges, sorted by the page each starts at, that 12.4.2's tree cannot hold.
+fn refuse_unwritable_labels(labels: &[PageLabelSpec], count: usize) -> PdfResult<()> {
+    let refuse = |why: String| Err(PdfError::Other(why.into()));
+    if labels.is_empty() {
+        return refuse("no page label ranges were given".to_owned());
+    }
+    if let Some(pair) = labels.windows(2).find(|pair| pair[0].start_page == pair[1].start_page) {
+        return refuse(format!("two ranges start at page {}", pair[0].start_page));
+    }
+    if let Some(label) = labels.iter().find(|label| label.start_page >= count) {
+        return refuse(format!("this document has {count} pages and no page {}", label.start_page));
+    }
+    if labels.iter().any(|label| label.start_number == 0) {
+        return refuse("a range numbers from 1 or more (/St, Table 161)".to_owned());
+    }
+    Ok(())
+}
+
+/// Applies page label ranges (Table 159), written as the number tree 12.4.2 describes.
+///
+/// **The tree starts at page 0**, which it "shall include a value for": ranges that begin
+/// later are given one before them numbering the pages from 1 in decimal — what a reader
+/// shows a page with no label — and the decision is recorded. They were written in the
+/// order given, from wherever the first began.
+///
+/// # Errors
+/// Fails, before anything is written, when no range is given, when two start at one page,
+/// when one starts at a page the document does not have, or when one numbers from 0
+/// (`/St` is at least 1).
+pub fn apply_set_page_labels(doc: &Document, mut labels: Vec<PageLabelSpec>) -> PdfResult<()> {
     let arena = doc.arena();
+    labels.sort_by_key(|label| label.start_page);
+    refuse_unwritable_labels(&labels, doc.page_count()?)?;
+    from_page_zero(doc, &mut labels);
     let mut nums_items = Vec::new();
 
     for spec in labels {
