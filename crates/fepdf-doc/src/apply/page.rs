@@ -61,45 +61,16 @@ pub fn apply_reorder(doc: &mut Document, from: usize, to: usize) -> PdfResult<()
     doc.reorder_page(from, to)
 }
 
-fn prune_struct_tree_pages(doc: &Document, removed: &[fepdf_model::Handle<Object>]) {
-    if removed.is_empty() {
-        return;
-    }
-    let Ok(Some(root_h)) = doc.get_structure_root() else {
-        return;
-    };
-    let removed_set: std::collections::BTreeSet<_> = removed.iter().copied().collect();
-    let mut visitor = crate::structure::StructureVisitor::new(doc.arena(), root_h);
-    let pg_key = doc.arena().name("Pg");
-
-    while let Some(elem_h) = visitor.next_element() {
-        if let Some(dh) = doc.arena().get_object(elem_h).and_then(|o| o.as_dict_handle())
-            && let Some(mut dict) = doc.arena().get_dict(dh)
-            && let Some(Object::Reference(h)) = dict.get(&pg_key)
-            && removed_set.contains(h)
-        {
-            dict.remove(&pg_key);
-            doc.arena().set_dict(dh, dict);
-        }
-    }
-}
-
 /// Removes selected pages from the document.
 pub fn apply_remove_pages(doc: &mut Document, pages: &PageSelection) -> PdfResult<()> {
     let mut indices = pages_named(pages, doc.page_count()?)?;
     indices.sort_unstable();
     indices.dedup();
-    let mut removed_handles = Vec::new();
-    for &idx in &indices {
-        if let Some(h) = doc.get_page_handle(idx) {
-            removed_handles.push(h);
-        }
-    }
     for idx in indices.into_iter().rev() {
         doc.remove_page(idx)?;
     }
-    prune_struct_tree_pages(doc, &removed_handles);
-    Ok(())
+    // What named the pages goes with them, or the writer writes them anyway (Y-F18).
+    crate::page_removal::forget_absent_pages(doc)
 }
 
 /// The pages a selection names, in the order it names them.

@@ -84,6 +84,30 @@ pub fn rename(
     true
 }
 
+/// Takes the entries for `keys` out of the parent tree: a removed page's, and a removed
+/// annotation's (ROADMAP Y-F18).
+pub fn remove_keys(arena: &PdfArena, root: Handle<Object>, keys: &BTreeSet<i64>) {
+    if keys.is_empty() {
+        return;
+    }
+    let mut doomed: BTreeMap<Handle<Vec<Object>>, BTreeSet<usize>> = BTreeMap::new();
+    walk(arena, root, |key, _, (nums, at)| {
+        if keys.contains(&key) {
+            doomed.entry(nums).or_default().insert(at / 2);
+        }
+    });
+    for (nums, pairs) in doomed {
+        let items = arena.get_array(nums).unwrap_or_default();
+        let kept: Vec<Object> = items
+            .chunks(2)
+            .enumerate()
+            .filter(|(pair, _)| !pairs.contains(pair))
+            .flat_map(|(_, pair)| pair.iter().cloned())
+            .collect();
+        arena.set_array(nums, kept);
+    }
+}
+
 /// Every key and value of the number tree, to [`NODES`] nodes, with the `/Nums` array the
 /// value is in and its place there.
 fn walk(

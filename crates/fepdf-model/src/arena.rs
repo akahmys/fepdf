@@ -187,6 +187,12 @@ impl PdfArena {
         (0..count).map(|i| self.handle(i)).collect()
     }
 
+    /// Returns all valid array handles in the arena.
+    pub fn all_array_handles(&self) -> Vec<Handle<Vec<Object>>> {
+        let count = self.inner.arrays.read().len() as u32;
+        (0..count).map(|i| self.handle(i)).collect()
+    }
+
     /// Registers a new object, returning a unique handle.
     pub fn alloc_object(&self, object: Object) -> Handle<Object> {
         let mut objects = self.inner.objects.write();

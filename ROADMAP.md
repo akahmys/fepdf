@@ -840,6 +840,19 @@ eight times, and the copies do not agree on whether to resolve.
       XObjects' text where they are. Either the drawing covers what it names, or the
       name says what it does. It also changes the open document outside `apply`, in
       the window's export and in `fepdf-mcp`, so no history holds it (Rule D).
+- [x] **Y-F18** — **a page taken out of a document is still written into it.** Measured
+      2026-09-30 on a two-page fixture whose first page links to the second and whose
+      one bookmark names it: `RemovePages` of the second, then a save, leaves its
+      content stream in the file — its text extracts from no page and decodes from the
+      stream. `fepdf edit split --pages 1` does the same. The link's and the bookmark's
+      `/Dest` still reference the page object, and the writer writes what is reachable.
+      `prune_struct_tree_pages` clears an element's `/Pg` and nothing else: an `/MCR`'s
+      `/Pg`, a destination, an annotation's `/P`, and the annotations and elements that
+      belonged only to that page all keep it. A reader who removes a page to send the
+      rest has sent it.
+      Fixed by `page_removal.rs`, which both paths end in: what named the page goes
+      with it — the user's choice over leaving the references empty — and what still
+      points at it is made `null`.
 - [ ] **Y-F14** — a composite font's codes are taken as two bytes each, whatever its CMap's
       codespace says (9.7.6.2). `FontResource::get_min_len` asks every Type0 font for at
       least two, and `apply/text.rs` cuts its strings into pairs for reading, encoding,

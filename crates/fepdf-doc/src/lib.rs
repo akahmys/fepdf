@@ -41,6 +41,8 @@ pub mod operation;
 pub mod outline_tree;
 /// Whether the language of the text in page content can be determined (11-001).
 pub mod page_languages;
+/// What a page taken out of a document leaves behind, taken out with it.
+pub mod page_removal;
 /// The structure tree's parent tree, as the elements annotations belong to.
 pub mod parent_tree;
 /// The text of a tagged document in reading order, for a synthesiser.
@@ -49,6 +51,8 @@ pub mod reading;
 pub mod remediation;
 /// Logical structure tree visitor and presentation data.
 pub mod struct_tree;
+/// Structure content on pages taken out, taken out of the tree.
+mod struct_tree_pruning;
 /// PDF logical structure auditor and visitor.
 pub mod structure;
 /// Whether what a page draws is tagged, marked as an artefact, or neither.

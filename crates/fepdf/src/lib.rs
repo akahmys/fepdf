@@ -835,6 +835,9 @@ impl PdfDocument {
         // Without this the document reports no pages at all: the page index is
         // `Document::new`'s empty vector until something walks the tree.
         inner.index_pages();
+        // Cloning a page clones what it names, and a link names the page it goes to: a
+        // page left out came across that way, and would be written (ROADMAP Y-F18).
+        fepdf_doc::page_removal::forget_absent_pages(&inner)?;
         Ok(Self { inner })
     }
 
