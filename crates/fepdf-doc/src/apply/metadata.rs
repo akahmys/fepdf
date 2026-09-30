@@ -296,11 +296,19 @@ fn build_outline_item(
         dict.insert(arena.name("Next"), Object::Reference(siblings[index + 1].1));
     }
 
-    if let Some(page_h) = doc.get_page_handle(node.destination_page) {
-        let dest_items = vec![Object::Reference(page_h), Object::Name(arena.name("Fit"))];
-        let dest_ah = arena.alloc_array(dest_items);
-        dict.insert(arena.name("Dest"), Object::Array(dest_ah));
-    }
+    // A bookmark to a page the document does not have is refused, as a link to one is: it
+    // was written with no destination and answered `Ok`.
+    let page_h = doc.get_page_handle(node.destination_page).ok_or_else(|| {
+        PdfError::Other(
+            format!(
+                "the bookmark {:?} goes to page {}, which this document does not have",
+                node.title, node.destination_page
+            )
+            .into(),
+        )
+    })?;
+    let dest_items = vec![Object::Reference(page_h), Object::Name(arena.name("Fit"))];
+    dict.insert(arena.name("Dest"), Object::Array(arena.alloc_array(dest_items)));
 
     let below = if node.children.is_empty() {
         0

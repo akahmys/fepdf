@@ -271,6 +271,25 @@ fn attaching_a_file_keeps_what_the_name_trees_held() {
     assert_eq!(name_tree_keys(arena, &entry("EmbeddedFiles"), 0), ["b.xml", "c.txt"]);
 }
 
+/// **A bookmark to a page the document does not have is refused**, as a link to one is:
+/// it was written with no destination and answered `Ok`.
+#[test]
+fn a_bookmark_to_a_page_that_is_not_there_is_refused() {
+    let mut doc = fepdf::PdfDocument::create_empty().expect("a document");
+    let outline = |page: usize| {
+        Operation::UpdateOutlines(fepdf_model::document::extensions::OutlineTree {
+            items: vec![fepdf_model::document::extensions::OutlineNode {
+                title: "Chapter".to_string(),
+                destination_page: page,
+                children: Vec::new(),
+            }],
+        })
+    };
+    let refused = doc.apply(outline(5)).expect_err("a bookmark to page 5 of one is refused");
+    assert!(refused.to_string().contains('5'), "the refusal does not name the page: {refused}");
+    doc.apply(outline(0)).expect("a bookmark to the page that is there is written");
+}
+
 #[test]
 fn test_measurement_scale_spec() {
     let scale = MeasurementScale { page: 0, scale_ratio: 0.01, unit_label: "m".to_string() };
