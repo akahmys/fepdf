@@ -328,6 +328,63 @@ fn an_output_intents_profile_is_declared_as_what_it_is() {
     assert_eq!(n, Some(4), "a CMYK profile is declared with {n:?} components");
 }
 
+/// **Updating the layers keeps the groups content is in** (8.11.2): a layer named as one
+/// the document has is that group, not a new one of the same name, and one not named
+/// stays among `/OCGs`, which lists every group in the document (8.11.4.2). Each layer was
+/// made anew, so what the pages had marked `/OC` belonged to groups the document no longer
+/// listed, and turning "Draft" off turned off nothing on the page.
+#[test]
+fn updating_the_layers_keeps_the_groups_content_is_in() {
+    let mut doc = fepdf::PdfDocument::open(
+        assemble(&[
+            "<< /Type /Catalog /Pages 2 0 R /OCProperties << /OCGs [5 0 R 6 0 R] \
+             /D << /ON [5 0 R] /OFF [6 0 R] >> >> >>",
+            "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Contents 4 0 R \
+             /Resources << /Properties << /oc1 5 0 R >> >> >>",
+            "<< /Length 32 >>\nstream\n/OC /oc1 BDC 0 0 9 9 re f EMC\n\nendstream",
+            "<< /Type /OCG /Name (Draft) >>",
+            "<< /Type /OCG /Name (Other) >>",
+        ])
+        .into(),
+    )
+    .expect("the fixture opens");
+    doc.apply(Operation::UpdateLayers(OptionalContentProperties {
+        layers: vec![
+            LayerGroup {
+                name: "Draft".into(),
+                default_state: VisibilityState::Off,
+                printable: false,
+            },
+            LayerGroup { name: "New".into(), default_state: VisibilityState::On, printable: true },
+        ],
+    }))
+    .expect("the layers are updated");
+
+    let arena = doc.inner().arena();
+    let catalog = doc.inner().catalog_handle().and_then(|c| doc.inner().resolve_to_dict(c).ok());
+    let entry = |dict, key: &str| arena.dict_entry(dict, arena.name(key)).map(|v| v.resolve(arena));
+    let refs = |object: Option<fepdf_model::Object>| match object {
+        Some(fepdf_model::Object::Array(a)) => arena
+            .get_array(a)
+            .unwrap_or_default()
+            .iter()
+            .filter_map(|o| o.as_reference().map(|h| h.index()))
+            .collect::<Vec<_>>(),
+        _ => Vec::new(),
+    };
+    let properties =
+        catalog.and_then(|c| entry(c, "OCProperties")).and_then(|p| p.as_dict_handle());
+    let properties = properties.expect("the document has layers");
+    let groups = refs(entry(properties, "OCGs"));
+    assert!(groups.contains(&5), "the group the page is marked with left /OCGs: {groups:?}");
+    assert!(groups.contains(&6), "a group not named left /OCGs: {groups:?}");
+    assert_eq!(groups.len(), 3, "Draft was made again beside the one it is: {groups:?}");
+    let config = entry(properties, "D").and_then(|d| d.as_dict_handle()).expect("a configuration");
+    let off = refs(entry(config, "OFF"));
+    assert!(off.contains(&5) && off.contains(&6), "Draft off and Other as it was: {off:?}");
+}
+
 #[test]
 fn test_measurement_scale_spec() {
     let scale = MeasurementScale { page: 0, scale_ratio: 0.01, unit_label: "m".to_string() };

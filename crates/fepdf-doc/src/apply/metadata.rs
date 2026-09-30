@@ -405,26 +405,36 @@ pub fn apply_update_outlines(doc: &Document, outlines: OutlineTree) -> PdfResult
 /// Putting *content* in one of these groups is `Operation::AddPageDecoration`'s job. The
 /// two used to have no connection: this wrote layers, and nothing anywhere was ever
 /// marked `/OC`, so every group the engine created was empty whatever its state.
+///
+/// **The groups content is in are kept** (8.11.2). A layer named as one the document has
+/// is that group, with its usage brought up to date, not a new one of the same name; and
+/// a group not named stays in `/OCGs` as it was, on or off, since `/OCGs` lists every
+/// group in the document (8.11.4.2). Each layer was made anew, so what the pages had
+/// marked `/OC` belonged to groups the document no longer listed, and turning a layer off
+/// turned off nothing on the page.
 pub fn apply_update_layers(doc: &Document, layers: OptionalContentProperties) -> PdfResult<()> {
     let arena = doc.arena();
-    let mut ocg_refs = Vec::new();
-    let mut on_refs = Vec::new();
-    let mut off_refs = Vec::new();
-
+    let existing = existing_groups(doc);
+    let (mut ocg_refs, mut on_refs, mut off_refs) = (Vec::new(), Vec::new(), Vec::new());
+    let mut claimed = std::collections::BTreeSet::new();
     for layer in layers.layers {
-        let mut ocg_dict = BTreeMap::new();
-        ocg_dict.insert(arena.name("Type"), Object::Name(arena.name("OCG")));
-        // A text string (Table 98): this is the layer name a reader shows in its UI.
-        ocg_dict.insert(arena.name("Name"), Object::Text(layer.name));
-        ocg_dict.insert(arena.name("Usage"), Object::Dictionary(print_usage(doc, layer.printable)));
-        let ocg_dh = arena.alloc_dict(ocg_dict);
-        let ocg_h = arena.alloc_object(Object::Dictionary(ocg_dh));
+        let reused = existing
+            .iter()
+            .find(|(h, name, _)| {
+                !claimed.contains(h) && name.as_deref() == Some(layer.name.as_str())
+            })
+            .map(|(h, _, _)| *h);
+        let ocg_h = write_group(doc, reused, layer.name, layer.printable);
+        claimed.insert(ocg_h);
         ocg_refs.push(Object::Reference(ocg_h));
-
         match layer.default_state {
             VisibilityState::On => on_refs.push(Object::Reference(ocg_h)),
             VisibilityState::Off => off_refs.push(Object::Reference(ocg_h)),
         }
+    }
+    for (handle, _, was_off) in existing.into_iter().filter(|(h, _, _)| !claimed.contains(h)) {
+        ocg_refs.push(Object::Reference(handle));
+        if was_off { &mut off_refs } else { &mut on_refs }.push(Object::Reference(handle));
     }
 
     let ocgs_ah = arena.alloc_array(ocg_refs.clone());
@@ -459,6 +469,70 @@ pub fn apply_update_layers(doc: &Document, layers: OptionalContentProperties) ->
         arena.set_dict(cadh, cdict);
     }
     Ok(())
+}
+
+/// The groups the document's `/OCProperties` lists: each one's handle, its name, and
+/// whether the default configuration turns it off.
+fn existing_groups(doc: &Document) -> Vec<(Handle<Object>, Option<String>, bool)> {
+    let arena = doc.arena();
+    let entry = |dict, key: &str| arena.dict_entry(dict, arena.name(key)).map(|v| v.resolve(arena));
+    let handles = |object: Option<Object>| match object {
+        Some(Object::Array(array)) => arena
+            .get_array(array)
+            .unwrap_or_default()
+            .iter()
+            .filter_map(Object::as_reference)
+            .collect::<Vec<_>>(),
+        _ => Vec::new(),
+    };
+    let Some(properties) = doc
+        .catalog_handle()
+        .and_then(|c| doc.resolve_to_dict(c).ok())
+        .and_then(|c| entry(c, "OCProperties"))
+        .and_then(|p| p.as_dict_handle())
+    else {
+        return Vec::new();
+    };
+    let off =
+        entry(properties, "D").and_then(|d| d.as_dict_handle()).map(|d| handles(entry(d, "OFF")));
+    let off = off.unwrap_or_default();
+    handles(entry(properties, "OCGs"))
+        .into_iter()
+        .map(|group| {
+            let dict = arena.get_object(group).and_then(|o| o.as_dict_handle());
+            let name = dict.and_then(|d| entry(d, "Name")).and_then(|n| match n {
+                Object::Text(text) => Some(text),
+                Object::String(b) | Object::Hex(b) => {
+                    Some(fepdf_model::refine::text::recover_string(&b))
+                }
+                _ => None,
+            });
+            (group, name, off.contains(&group))
+        })
+        .collect()
+}
+
+/// Writes a group named `name`: into `reused`, keeping what else it says, or as a new one.
+fn write_group(
+    doc: &Document,
+    reused: Option<Handle<Object>>,
+    name: String,
+    printable: bool,
+) -> Handle<Object> {
+    let arena = doc.arena();
+    let existing = reused.and_then(|h| arena.get_object(h)?.as_dict_handle());
+    let mut dict = existing.and_then(|d| arena.get_dict(d)).unwrap_or_default();
+    dict.insert(arena.name("Type"), Object::Name(arena.name("OCG")));
+    // A text string (Table 98): this is the layer name a reader shows in its UI.
+    dict.insert(arena.name("Name"), Object::Text(name));
+    dict.insert(arena.name("Usage"), Object::Dictionary(print_usage(doc, printable)));
+    match (reused, existing) {
+        (Some(handle), Some(dh)) => {
+            arena.set_dict(dh, dict);
+            handle
+        }
+        _ => arena.alloc_object(Object::Dictionary(arena.alloc_dict(dict))),
+    }
 }
 
 /// A group's `/Usage`, carrying whether it should be printed (8.11.4.4, Table 103).
