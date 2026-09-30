@@ -141,12 +141,11 @@ pub fn apply_edit_xobject(
     replaced.insert(draw.at, (draw.at + 1, written.into_bytes()));
     let out = crate::apply::path_crop::rewritten(&tokens, &replaced);
     crate::apply::text::write_page_content(doc, page, out)?;
-    if matches!(edit, XObjectEdit::Replace { .. }) {
-        // The picture replaced stays wherever another page, or another `Do` here, draws
-        // it, and goes from the file where nothing does: left in the resources, it was
-        // written, and a replacement meant to take it out had sent it (ROADMAP Y-F20).
-        crate::apply::image_crop::drop_undrawn_images(doc, &[page])?;
-    }
+    // The picture replaced stays wherever another page, or another `Do` here, draws it,
+    // and goes from the file where nothing does: left in the resources, it was written,
+    // and a replacement meant to take it out had sent it (ROADMAP Y-F20).
+    let replacing = matches!(edit, XObjectEdit::Replace { .. });
+    replacing.then(|| crate::apply::image_crop::drop_undrawn_images(doc, &[page])).transpose()?;
     Ok(())
 }
 

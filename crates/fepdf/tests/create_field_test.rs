@@ -87,10 +87,8 @@ fn all_nine_kinds_are_created_and_reported() {
     assert_eq!(form.terminal.len(), kinds.len(), "not every field came back");
     for (field, (name, kind, wanted_type)) in form.terminal.iter().zip(kinds.iter()) {
         // A radio button is a widget of its group's field, which is what is reported.
-        let reported = match kind {
-            FieldKind::RadioButton { group, .. } => group.as_str(),
-            _ => name,
-        };
+        let reported =
+            if let FieldKind::RadioButton { group, .. } = kind { group.as_str() } else { name };
         assert_eq!(
             field.qualified_name.as_deref(),
             Some(reported),
