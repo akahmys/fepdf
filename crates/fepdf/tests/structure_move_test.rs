@@ -147,3 +147,52 @@ fn parent_of(doc: &PdfDocument, handle: u32) -> Option<u32> {
         _ => None,
     }
 }
+
+/// **A deleted element leaves the file** (14.7.5.4): its marks belong to no element, and
+/// the `/IDTree` names it no more. It was taken out of its parent's `/K` alone, so the
+/// parent tree went on saying its marks were its, and the writer wrote it — `/Alt` and
+/// all — for anyone who opened the file. An element the tree does not hold is refused, as
+/// an update of one is.
+#[test]
+fn a_deleted_element_is_not_written_and_its_marks_belong_to_nothing() {
+    let bodies = [
+        "<< /Type /Catalog /Pages 2 0 R /StructTreeRoot 5 0 R >>".to_string(),
+        "<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_string(),
+        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Contents 4 0 R \
+         /StructParents 0 >>"
+            .to_string(),
+        "<< /Length 0 >>\nstream\nendstream".to_string(),
+        "<< /Type /StructTreeRoot /K [6 0 R] /ParentTree << /Nums [0 [7 0 R 8 0 R]] >> \
+         /IDTree << /Names [(one) 7 0 R] >> >>"
+            .to_string(),
+        "<< /Type /StructElem /S /Sect /P 5 0 R /Pg 3 0 R /K [7 0 R 8 0 R] >>".to_string(),
+        "<< /Type /StructElem /S /P /P 6 0 R /Pg 3 0 R /ID (one) /Alt (SECRETFIRST) /K [0] >>"
+            .to_string(),
+        "<< /Type /StructElem /S /P /P 6 0 R /Pg 3 0 R /Alt (second) /K [1] >>".to_string(),
+    ];
+    let mut doc =
+        PdfDocument::open_with_options(assemble(&bodies).into(), &IngestionOptions::default())
+            .expect("the fixture opens");
+    doc.apply(Operation::DeleteStructElem { handle_index: 99 }).expect_err("99 is not in the tree");
+    doc.apply(Operation::DeleteStructElem { handle_index: 7 }).expect("the paragraph is deleted");
+
+    let path = std::env::temp_dir().join(format!("fepdf_deleted_elem_{}.pdf", std::process::id()));
+    doc.save_with_options(&path, "2.0", &fepdf::SaveOptions::default()).expect("it writes");
+    let back = PdfDocument::open(std::fs::read(&path).expect("it is there").into())
+        .expect("it reads back");
+    let _ = std::fs::remove_file(&path);
+    let arena = back.inner().arena();
+    let secret = arena.all_dict_handles().into_iter().any(|d| {
+        arena.get_dict(d).unwrap_or_default().values().any(|v| match v {
+            fepdf_model::Object::Text(t) => t.contains("SECRETFIRST"),
+            fepdf_model::Object::String(b) | fepdf_model::Object::Hex(b) => {
+                String::from_utf8_lossy(b).contains("SECRETFIRST")
+            }
+            _ => false,
+        })
+    });
+    assert!(!secret, "the deleted element is still in the file");
+    let tree = back.extract_struct_tree().expect("the document is tagged");
+    assert_eq!(order(&back), ["second"]);
+    assert_eq!(tree.children[0].children.len(), 1);
+}

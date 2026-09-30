@@ -84,6 +84,36 @@ pub fn rename(
     true
 }
 
+/// Makes the parent tree say nothing of `elements`: a mark one of them held belongs to no
+/// element (`null`, 14.7.5.4), and an annotation's entry naming one goes.
+pub fn forget_elements(
+    arena: &PdfArena,
+    root: Handle<Object>,
+    elements: &BTreeSet<Handle<Object>>,
+) {
+    let named = |value: &Object| value.as_reference().is_some_and(|h| elements.contains(&h));
+    let (mut singles, mut arrays) = (BTreeSet::new(), Vec::new());
+    walk(arena, root, |key, value, _| {
+        if named(value) {
+            singles.insert(key);
+        } else if let Object::Array(array) = value.resolve(arena) {
+            arrays.push(array);
+        }
+    });
+    for array in arrays {
+        let mut items = arena.get_array(array).unwrap_or_default();
+        if items.iter().any(named) {
+            for item in &mut items {
+                if named(item) {
+                    *item = Object::Null;
+                }
+            }
+            arena.set_array(array, items);
+        }
+    }
+    remove_keys(arena, root, &singles);
+}
+
 /// Takes the entries for `keys` out of the parent tree: a removed page's, and a removed
 /// annotation's (ROADMAP Y-F18).
 pub fn remove_keys(arena: &PdfArena, root: Handle<Object>, keys: &BTreeSet<i64>) {

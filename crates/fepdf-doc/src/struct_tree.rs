@@ -381,6 +381,29 @@ fn set_parent(arena: &PdfArena, subject: Handle<Object>, parent: Handle<Object>)
     arena.set_dict(dh, dict);
 }
 
+/// `element` and every element under it, through `/K`, to [`MAX_STRUCTURE_DEPTH`].
+pub(crate) fn subtree(arena: &PdfArena, element: Handle<Object>) -> BTreeSet<Handle<Object>> {
+    let mut found = BTreeSet::new();
+    let mut waiting = vec![(element, 0)];
+    while let Some((at, depth)) = waiting.pop() {
+        if depth >= MAX_STRUCTURE_DEPTH || !found.insert(at) {
+            continue;
+        }
+        let Some(dict) = arena.get_object(at).and_then(|o| o.as_dict_handle()) else { continue };
+        let kids = match arena.dict_entry(dict, arena.name("K")).map(|k| k.resolve(arena)) {
+            Some(Object::Array(array)) => arena.get_array(array).unwrap_or_default(),
+            Some(one) => vec![one],
+            None => Vec::new(),
+        };
+        waiting.extend(
+            kids.iter()
+                .filter_map(|kid| resolve_to_node_handle(arena, kid))
+                .map(|k| (k, depth + 1)),
+        );
+    }
+    found
+}
+
 /// Removes `target_handle` from wherever it hangs under `parent_handle`.
 ///
 /// **Bounded since 2026-09-05.** A structure tree whose `/K` named an ancestor made this

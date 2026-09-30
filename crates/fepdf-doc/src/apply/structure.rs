@@ -42,17 +42,38 @@ pub fn apply_update_struct(doc: &Document, update: StructElemUpdate) -> PdfResul
     Ok(())
 }
 
-/// Deletes a structure element by handle index from the StructTreeRoot.
+/// Deletes a structure element, and everything under it, from the tree (14.7).
+///
+/// **Out of the tree is out of the file.** The element was taken out of its parent's `/K`
+/// alone, so the parent tree went on saying its marks were its and the `/IDTree` went on
+/// naming it: the writer wrote it, `/Alt` and all, and the tree said content belonged to
+/// an element it did not hold (14.7.5.4). Its marks now belong to nothing, which is what
+/// deleting a tag and keeping what it tagged means, and the `/IDTree` forgets it.
+///
+/// # Errors
+/// Fails when the document has no structure tree or the tree does not hold the element —
+/// deleting nothing is not an answer a caller naming the wrong element should be given.
 pub fn apply_delete_struct(doc: &Document, handle_index: u32) -> PdfResult<()> {
     let handle = Handle::<Object>::new(handle_index);
     let arena = doc.arena();
-    if let Some(cah) = doc.catalog_handle()
-        && let Ok(cadh) = doc.resolve_to_dict(cah)
-        && let Some(dict) = arena.get_dict(cadh)
-        && let Some(str_root_obj) = dict.get(&arena.name("StructTreeRoot"))
-        && let Some(str_root_ref) = struct_tree::resolve_to_node_handle(arena, str_root_obj)
-    {
-        struct_tree::delete_struct_node(arena, str_root_ref, handle);
+    let Some(root) = doc.get_structure_root()? else {
+        return Err(PdfError::Other("the document has no structure tree".into()));
+    };
+    let gone = struct_tree::subtree(arena, handle);
+    if !struct_tree::delete_struct_node(arena, root, handle) {
+        return Err(PdfError::Other(
+            format!("object {handle_index} is not an element of the structure tree").into(),
+        ));
+    }
+    crate::parent_tree::forget_elements(arena, root, &gone);
+    let ids = arena
+        .get_object(root)
+        .and_then(|o| o.as_dict_handle())
+        .and_then(|d| arena.dict_entry(d, arena.name("IDTree")));
+    if let Some(ids) = ids {
+        crate::page_removal::retain_in_name_tree(arena, ids, &|value| {
+            !value.as_reference().is_some_and(|element| gone.contains(&element))
+        });
     }
     Ok(())
 }

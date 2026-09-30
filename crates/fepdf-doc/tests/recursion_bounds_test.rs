@@ -38,9 +38,11 @@ fn deleting_a_structure_element_terminates_on_a_cyclic_k() {
     ]);
 
     // The handle named is one no element carries, so the walk has to exhaust the tree
-    // rather than stop at the first match — which is the case that loops.
-    apply_operation(&mut doc, Operation::DeleteStructElem { handle_index: 9999 })
-        .expect("a cyclic structure tree is refused or exhausted, never followed forever");
+    // rather than stop at the first match — which is the case that loops. Having exhausted
+    // it, the deletion is refused: the tree holds no such element.
+    let refused = apply_operation(&mut doc, Operation::DeleteStructElem { handle_index: 9999 })
+        .expect_err("an element the tree does not hold is refused, after a walk that ends");
+    assert!(refused.to_string().contains("9999"), "the refusal does not name it: {refused}");
 }
 
 /// A form field whose `/Kids` leads back to an ancestor does not search forever.
