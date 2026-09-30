@@ -141,3 +141,69 @@ fn a_set_of_radio_buttons_is_not_turned_on_without_saying_which() {
     let error = fill(&mut doc, "相談", FormValue::Boolean(true)).expect_err("refused");
     assert!(error.to_string().contains("which"), "the refusal does not say why: {error}");
 }
+
+/// What a widget's normal appearance shows, read back through the font it is shown in, as
+/// extraction reads it: the last `Tf`, and the hexadecimal `Tj` after it.
+fn appearance_reads(doc: &PdfDocument, widget: u32) -> String {
+    let arena = doc.inner().arena();
+    let entry = |dict, key: &str| arena.dict_entry(dict, arena.name(key)).map(|v| v.resolve(arena));
+    let widget =
+        arena.get_object(arena.handle(widget)).and_then(|o| o.as_dict_handle()).expect("widget");
+    let ap = entry(widget, "AP").and_then(|a| a.as_dict_handle()).expect("an appearance");
+    let normal = entry(ap, "N").expect("a normal appearance");
+    let content = doc.inner().decode_stream(&normal).expect("it decodes");
+    let content = String::from_utf8_lossy(&content).into_owned();
+    let tokens: Vec<&str> = content.split_whitespace().collect();
+    let tf = tokens.iter().rposition(|t| *t == "Tf").expect("a Tf");
+    let font_name = tokens[tf - 2].trim_start_matches('/');
+    let hex = tokens.iter().find(|t| t.starts_with('<') && t.ends_with('>')).expect("codes in hex");
+    let codes: Vec<u8> = (1..hex.len() - 1)
+        .step_by(2)
+        .map(|i| u8::from_str_radix(&hex[i..i + 2], 16).expect("hex"))
+        .collect();
+    let stream = normal.as_dict_handle().expect("a stream");
+    let fonts = entry(stream, "Resources")
+        .and_then(|r| entry(r.as_dict_handle()?, "Font"))
+        .and_then(|f| f.as_dict_handle())
+        .expect("the appearance names fonts");
+    let font = arena
+        .dict_entry(fonts, arena.name(font_name))
+        .and_then(|f| f.as_reference())
+        .expect("the font is named by reference");
+    // Through the loaded font, which is how extraction reads a code.
+    let font = doc.inner().get_font(font).expect("the font loads");
+    let mut read = String::new();
+    let mut rest = codes.as_slice();
+    while !rest.is_empty() {
+        let (used, text) = font.decode_next(rest);
+        read.push_str(&text.unwrap_or_default());
+        rest = &rest[used.max(1)..];
+    }
+    read
+}
+
+/// **A filled field shows what was typed.** The value was written into its appearance as
+/// UTF-8 bytes, which the form's font shows as codes of its own: 東京 in a field set in
+/// Helvetica came out as six Latin letters, and in a Japanese form's font as three
+/// characters nobody typed. A font that cannot show it hands it to a face that can.
+#[test]
+fn a_filled_field_shows_what_was_typed() {
+    let mut doc = PdfDocument::open_with_options(
+        fepdf_fixtures::assemble(&[
+            "<< /Type /Catalog /Pages 2 0 R /AcroForm << /Fields [4 0 R] /DA (/Helv 12 Tf 0 g) \
+             /DR << /Font << /Helv 5 0 R >> >> >> >>",
+            "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 400 400] /Annots [4 0 R] >>",
+            "<< /Type /Annot /Subtype /Widget /FT /Tx /T (city) /P 3 0 R /Rect [20 300 220 330] >>",
+            "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>",
+        ])
+        .into(),
+        &IngestionOptions::default(),
+    )
+    .expect("the fixture opens");
+    fill(&mut doc, "city", FormValue::Text("東京".into())).expect("the value is written");
+    assert_eq!(appearance_reads(&doc, 4), "東京");
+    // What the form's own font can show, it shows — é through WinAnsiEncoding's 0xE9.
+    fill(&mut doc, "city", FormValue::Text("Café".into())).expect("the value is written");
+    assert_eq!(appearance_reads(&doc, 4), "Café");
+}

@@ -68,23 +68,82 @@ fn widget_size(arena: &PdfArena, widget: &Dict) -> Option<(f64, f64)> {
     Some(((x2 - x1).abs(), (y2 - y1).abs()))
 }
 
-/// The width of `text` in the font `/DA` names, in points, when that font can be loaded.
+/// `text` in the font `/DA` names, as hexadecimal codes, and its width in points — when
+/// that font loads, its codes are known, and it has every character.
 ///
-/// `None` where it cannot: the resource is missing, or the font will not load. The caller
-/// then leaves the text left-aligned and says so, rather than guessing a width and
-/// putting the text somewhere the file did not ask for.
-fn text_width(
+/// **Codes, not the text's bytes.** The value was written into a literal string as its
+/// UTF-8, which a font shows as codes of its own: 東京 in a Japanese form's `KozMinPr6N`
+/// came out as three characters nobody typed. A simple font's code is a byte; a Type 0
+/// font's is known only through an `Identity` CMap, where it is the CID — through another,
+/// such as `UniJIS-UTF16-H`, what the font maps a character to is a CID and not the code
+/// that reaches it, so such a font is not written through here.
+fn shown_in(
     doc: &Document,
     resources: &Dict,
     appearance: &DefaultAppearance,
     text: &str,
-) -> Option<f64> {
+) -> Option<(String, f64)> {
+    use std::fmt::Write as _;
     let arena = doc.arena();
     let fonts = resources.get(&arena.name("Font"))?.resolve(arena).as_dict_handle()?;
     let entry = arena.get_dict(fonts)?.get(&arena.name(&appearance.font))?.clone();
     let font = doc.get_font(entry.as_reference()?).ok()?;
-    let sum: f32 = text.bytes().map(|byte| font.glyph_width(&[byte])).sum();
-    Some(f64::from(sum) / 1000.0 * appearance.size)
+    let identity = font.encoding.as_ref().is_some_and(|e| e.name().starts_with("Identity"));
+    if font.is_cid_keyed && !identity {
+        return None;
+    }
+    let (mut codes, mut width) = (String::new(), 0.0_f32);
+    for character in text.chars() {
+        let code = *font.unified_map.get(&character.to_string())?;
+        let bytes = if font.is_cid_keyed {
+            u16::try_from(code).ok()?.to_be_bytes().to_vec()
+        } else {
+            vec![u8::try_from(code).ok()?]
+        };
+        width += font.glyph_width(&bytes);
+        for byte in &bytes {
+            let _ = write!(codes, "{byte:02X}");
+        }
+    }
+    Some((codes, f64::from(width) / 1000.0 * appearance.size))
+}
+
+/// `text` in a face installed here whose terms permit embedding it, embedded: the font,
+/// its codes, and its width in points at `size` — or nothing when no face draws it all.
+///
+/// # Errors
+/// Fails when the face will not embed.
+fn shown_in_a_face(
+    doc: &Document,
+    text: &str,
+    size: f64,
+) -> PdfResult<Option<(Handle<Object>, String, f64)>> {
+    use std::fmt::Write as _;
+    let Ok((base_font, program)) = crate::apply::font::face_for(text) else { return Ok(None) };
+    let embedded = crate::apply::font::embed_for(doc, &program, &base_font, &[text])?;
+    let Ok(glyphs) = fepdf_font::subset::glyphs_for(&program, text) else { return Ok(None) };
+    let metrics = fepdf_font::metrics::read_metrics(&program);
+    let per_em = metrics.map_or(1000.0, |m| f64::from(m.units_per_em.max(1)));
+    let (mut codes, mut width) = (String::new(), 0.0);
+    for glyph in glyphs {
+        let _ = write!(codes, "{:04X}", embedded.code_of.get(&glyph).copied().unwrap_or(glyph));
+        width += f64::from(fepdf_font::metrics::advance_width(&program, glyph).unwrap_or(0));
+    }
+    Ok(Some((embedded.font, codes, width / per_em * size)))
+}
+
+/// `resources` with `font` named `name` among its fonts, the rest as they were.
+fn with_font(arena: &PdfArena, resources: &Dict, name: &str, font: Handle<Object>) -> Dict {
+    let key = arena.name("Font");
+    let mut fonts = resources
+        .get(&key)
+        .and_then(|f| f.resolve(arena).as_dict_handle())
+        .and_then(|f| arena.get_dict(f))
+        .unwrap_or_default();
+    fonts.insert(arena.name(name), Object::Reference(font));
+    let mut out = resources.clone();
+    out.insert(key, Object::Dictionary(arena.alloc_dict(fonts)));
+    out
 }
 
 /// Where the text starts, from the quadding the field asks for (Table 228's `/Q`).
@@ -97,19 +156,17 @@ fn left_edge(quadding: i64, box_width: f64, text_width: Option<f64>) -> f64 {
     }
 }
 
-/// The appearance stream's content, between `/Tx BMC` and `EMC` as the clause shows it.
+/// The appearance stream's content, between `/Tx BMC` and `EMC` as the clause shows it:
+/// `codes`, in hexadecimal, shown in the font named `font`.
 fn appearance_content(
     appearance: &DefaultAppearance,
-    text: &str,
+    (font, codes): (&str, &str),
     size: f64,
-    x: f64,
-    y: f64,
+    (x, y): (f64, f64),
 ) -> String {
-    let escaped = text.replace('\\', "\\\\").replace('(', "\\(").replace(')', "\\)");
     let da = &appearance.verbatim;
     format!(
-        "/Tx BMC\nq\nBT\n{da}\n/{} {size} Tf\n1 0 0 1 {x:.2} {y:.2} Tm\n({escaped}) Tj\nET\nQ\nEMC\n",
-        appearance.font
+        "/Tx BMC\nq\nBT\n{da}\n/{font} {size} Tf\n1 0 0 1 {x:.2} {y:.2} Tm\n<{codes}> Tj\nET\nQ\nEMC\n"
     )
 }
 
@@ -145,30 +202,54 @@ pub fn set_text_appearance(
         .and_then(|dr| dr.resolve(arena).as_dict_handle())
         .and_then(|dh| arena.get_dict(dh))
         .unwrap_or_default();
-    let measured = text_width(doc, &resources, &sized, text);
-    let x = left_edge(quadding, width, measured);
+    let Some((font, codes, measured, resources)) = shown(doc, &sized, resources, text)? else {
+        return Ok(false);
+    };
+    let x = left_edge(quadding, width, Some(measured));
     // The baseline is not specified. Centring the em box puts a single line where a
     // reader expects it, and is what every implementation this was compared against does.
     let y = ((height - size) / 2.0).max(INSET) + size * 0.22;
 
-    let content = appearance_content(&sized, text, size, x, y);
+    let content = appearance_content(&sized, (&font, &codes), size, (x, y));
     let stream = form_xobject(arena, &resources, width, height, &content);
     let mut appearances = BTreeMap::new();
     appearances.insert(arena.name("N"), Object::Reference(stream));
     widget.insert(arena.name("AP"), Object::Dictionary(arena.alloc_dict(appearances)));
     arena.set_dict(widget_dh, widget);
+    Ok(true)
+}
 
-    if quadding != 0 && measured.is_none() {
+/// How `text` is shown: in the `/DA` font where it can be, else in a face embedded for
+/// it — the font's resource name, the codes, the width, and the resources that name it.
+/// Nothing, and a decision saying so, where no face here draws it.
+///
+/// # Errors
+/// Fails when a face found for it will not embed.
+fn shown(
+    doc: &Document,
+    sized: &DefaultAppearance,
+    resources: Dict,
+    text: &str,
+) -> PdfResult<Option<(String, String, f64, Dict)>> {
+    if let Some((codes, width)) = shown_in(doc, &resources, sized, text) {
+        return Ok(Some((sized.font.clone(), codes, width, resources)));
+    }
+    let arena = doc.arena();
+    let Some((font, codes, width)) = shown_in_a_face(doc, text, sized.size)? else {
         doc.record(Decision::violation(
             "12.7.4.3",
-            format!(
-                "/Q asks for quadding {quadding} and the font /{} did not load from /DR",
-                sized.font
-            ),
-            "left the text at the left edge, because placing it needs the width the font gives",
+            format!("neither /{} nor a face installed here draws {text:?}", sized.font),
+            "left the widget's appearance as it was",
         ));
-    }
-    Ok(true)
+        return Ok(None);
+    };
+    doc.record(Decision::ambiguity(
+        "12.7.4.3",
+        format!("the /DA font /{} cannot show {text:?} by codes this engine knows", sized.font),
+        "drew the value in a face embedded for it; a reader regenerating it uses /DA",
+    ));
+    let name = "FepdfF0";
+    Ok(Some((name.to_owned(), codes, width, with_font(arena, &resources, name, font))))
 }
 
 /// A form XObject holding `content`, sized to the widget (12.7.4.3, 8.10).

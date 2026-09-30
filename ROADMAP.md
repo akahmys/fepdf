@@ -873,6 +873,11 @@ eight times, and the copies do not agree on whether to resolve.
       `90ms-RKSJ-H`, has its one-byte codes read with the byte after them. The CMap
       already carries its ranges (`CMap::decode_next`); nothing between it and these
       callers splits a string by them.
+      Writing is wrong the other way round: `FontResource::unified_map` gives a
+      character's CID, which is a code only under an `Identity` CMap. Measured 2026-10-01
+      on `sample_02c.pdf`'s `KozMinPr6N` under `UniJIS-UTF16-H`: 東 maps to 3174, where
+      the code is `6771`. `text.rs`'s `encode` writes those CIDs as codes; a field's
+      appearance no longer does (`appearance::shown_in`).
 - [ ] **Y-F15** — ingestion fills a missing `/CIDToGIDMap` with `/Identity`
       (`refine/font.rs`) and records no `Decision`, so the audit cannot see what
       ISO 14289-1 7.21.3.2 fails: 31-004's arm for an absent entry passes, and never runs.
