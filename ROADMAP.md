@@ -966,8 +966,8 @@ eight times, and the copies do not agree on whether to resolve.
       `mcp_server_tests` (+540). Each assertion that cannot fail is replaced. *Done when*
       each file's central assertion has been shown to fail with the behaviour it
       guards broken, starting with `audit_scope_test.rs` (2,630 lines). Each of the 59
-      files had its central behaviour broken once in the code it guards, by
-      `scratchpad/mutate.py`'s rule — one edit, the file restored byte for byte, no
+      files had its central behaviour broken once in the code it guards, with
+      `scripts/test/mutate_once.py` — one edit, the file restored byte for byte, no
       `git checkout` — or during Y-1d. What that found:
       - Nineteen tests passed with `samples/` absent, which every clone is (`7356517`).
       - Fourteen in `backend_operations_test.rs` asserted that a struct held what had

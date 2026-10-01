@@ -310,5 +310,9 @@ sites do, across `cli_smoke.sh`, `measure_external_corpus.sh`, `crosscheck_pubse
 has broken is a check nobody has tested — several here passed against the defect they
 were written for.
 
+For a test, `scripts/test/mutate_once.py FILE OLD NEW -- <cargo test arguments>` breaks
+one place in the code it guards, runs it, and puts the file back byte for byte: `FIRES`
+is the answer a test owes, and `SURVIVES` says it does not guard what it is about.
+
 [ADR-0006]: docs/adr/0006-a-container-may-not-overwrite-a-newer-revision.md
 [ADR-0010]: docs/adr/0010-a-synthesised-tounicode-keyed-on-glyphs-destroys-text.md
