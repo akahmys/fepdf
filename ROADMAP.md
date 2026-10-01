@@ -1000,9 +1000,12 @@ eight times, and the copies do not agree on whether to resolve.
       resolved value has lost; `catalog::resolve_dict` still refuses a stream. The
       golden comparison differs only in `sample_02c`'s text, the Y-F14 correction, and
       `unbounded_recursion.py` passes.
-- [ ] **Y-4** — `fepdf-doc`'s operations stop importing helpers from its audit modules
+- [x] **Y-4** — `fepdf-doc`'s operations stop importing helpers from its audit modules
       (`glyph_map`, `glyph_widths`, `unicode_map` and `formula_marks` import from
-      `audit_objects`).
+      `audit_objects`). Those four are audits themselves — only the audits reach them —
+      and Y-3 already took their `audit_objects` imports. The one operation that
+      imported from an audit was `apply/artifacts.rs`, through `audit_fonts::names_in`,
+      which is `fepdf_model::access::names_in` now. Nothing checks that it stays so.
 - [ ] **Y-5** — `merge` and `extract_pages` leave the facade for `fepdf-doc`, beside the
       cloner. They build a `PdfArena` in `fepdf/src/lib.rs`. `layering.py` fails on a
       `PdfArena::new` in the facade. *Done when* adding one back fails the audit.

@@ -7,7 +7,8 @@
 //! media clip under any rendition action. So the objects reachable from the catalogue are
 //! walked once, and each condition asks every dictionary it concerns.
 
-use crate::audit_fonts::{FORM_DEPTH, Resources, form_commands, form_resources, names_in};
+use crate::audit_fonts::{FORM_DEPTH, Resources, form_commands, form_resources};
+use fepdf_model::access::names_in;
 use crate::structure::{AuditFinding, broken};
 use fepdf_model::access::{entry, items, name_in};
 use fepdf_model::object::sublimation::Command;

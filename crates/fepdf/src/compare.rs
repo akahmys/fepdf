@@ -185,6 +185,7 @@ fn looks_different(a: &PdfDocument, b: &PdfDocument, page: usize, dpi: f64) -> V
 }
 
 /// A pixel count as a float; a page is nowhere near 2^52 pixels.
+#[cfg(feature = "render")]
 #[allow(clippy::cast_precision_loss)]
 const fn to_f64(value: usize) -> f64 {
     value as f64

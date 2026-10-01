@@ -8,7 +8,7 @@
 //! [ADR-0105](../../../docs/adr/0105-ingestion-never-rewrote-a-real-type-0-cmap.md)).
 
 use crate::structure::{AuditFinding, broken, for_a_reader};
-use fepdf_model::access::{entry, name_in};
+use fepdf_model::access::{entry, name_in, names_in};
 use fepdf_model::object::sublimation::{Command, IrObject, TextArrayItem};
 use fepdf_model::{Document, Handle, Object, PdfArena};
 use std::collections::{BTreeMap, BTreeSet};
@@ -713,24 +713,6 @@ pub(crate) fn loaded(
     named
         .iter()
         .filter_map(|(name, font)| Some((name.clone(), doc.get_font(*font).ok()?)))
-        .collect()
-}
-
-/// The entries of one category of `resources` — `/Font` or `/XObject` — by resource name.
-pub(crate) fn names_in(
-    arena: &PdfArena,
-    resources: Resources,
-    category: &str,
-) -> BTreeMap<String, Handle<Object>> {
-    arena
-        .dict_entry(resources, arena.name(category))
-        .and_then(|f| f.resolve(arena).as_dict_handle())
-        .and_then(|f| arena.get_dict(f))
-        .unwrap_or_default()
-        .into_iter()
-        .filter_map(|(key, value)| {
-            Some((arena.get_name(key)?.as_str().to_string(), value.as_reference()?))
-        })
         .collect()
 }
 

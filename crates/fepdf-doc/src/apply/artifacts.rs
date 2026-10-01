@@ -115,7 +115,7 @@ fn page_properties(doc: &Document, page: usize) -> BTreeMap<String, Handle<Objec
     let Some(handle) = doc.get_page_handle(page) else { return BTreeMap::new() };
     let resources =
         fepdf_model::Page::new(arena, handle, doc.get_parent_chain(handle)).resources_handle();
-    crate::audit_fonts::names_in(arena, resources, "Properties")
+    fepdf_model::access::names_in(arena, resources, "Properties")
 }
 
 /// Stops the structure tree claiming `mcid` on `page`: the parent tree's entry for it

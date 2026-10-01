@@ -74,6 +74,28 @@ pub fn items(arena: &PdfArena, object: &Object, key: &str) -> Vec<Object> {
     }
 }
 
+/// The entries of one category of a resource dictionary — `/Font`, `/XObject`,
+/// `/Properties` — by resource name, each with the object that holds it.
+///
+/// An entry written directly has no object and is left out: loading gives a direct
+/// `/Font` resource an object of its own (ROADMAP W-E2c), and the audits and the
+/// artifact marking that call this compare objects. Moved here from `fepdf-doc`'s font
+/// audit in Y-4, so that an operation does not import from an audit.
+pub fn names_in(
+    arena: &PdfArena,
+    resources: Handle<Dict>,
+    category: &str,
+) -> BTreeMap<String, Handle<Object>> {
+    arena
+        .dict_entry(resources, arena.name(category))
+        .and_then(|f| f.resolve(arena).as_dict_handle())
+        .and_then(|f| arena.get_dict(f))
+        .unwrap_or_default()
+        .into_iter()
+        .filter_map(|(key, value)| Some((arena.get_name_str(key)?, value.as_reference()?)))
+        .collect()
+}
+
 /// The text `object` is or refers to, decoded as 7.9.2.2 defines.
 ///
 /// Four copies of this existed — `actions::text_of`, `signature::text_of`,
