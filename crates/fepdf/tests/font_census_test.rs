@@ -27,10 +27,12 @@ fn samples() -> Vec<std::path::PathBuf> {
     files
 }
 
-fn fonts_in(path: &std::path::Path, refine: bool) -> Option<usize> {
-    let bytes = std::fs::read(path).ok()?;
+/// How many fonts `path` has, read with refinement or without. A sample that will not
+/// open fails here: two reads that both failed would agree, and say nothing.
+fn fonts_in(path: &std::path::Path, refine: bool) -> usize {
+    let bytes = std::fs::read(path).expect("the sample reads");
     let options = IngestionOptions { active_refinement: refine, ..IngestionOptions::default() };
-    Some(PdfDocument::open_with_options(bytes.into(), &options).ok()?.fonts().len())
+    PdfDocument::open_with_options(bytes.into(), &options).expect("the sample opens").fonts().len()
 }
 
 /// **A document has the fonts it has, however it was read.**
@@ -209,5 +211,26 @@ fn the_keys_a_font_summary_reads_are_interned_before_it_reads_them() {
         doc.fonts()[0].encoding,
         "Standard",
         "a font stating no /Encoding was given one from another key"
+    );
+}
+
+/// **A font two pages share is one font.** Every page reaching it reports it, and the census
+/// keeps it once: the count compared above was compared between two reads, and two reads
+/// that each counted it twice agreed.
+#[test]
+fn a_font_two_pages_share_is_counted_once() {
+    let bytes = fepdf_fixtures::assemble(&[
+        "<< /Type /Catalog /Pages 2 0 R >>",
+        "<< /Type /Pages /Kids [3 0 R 4 0 R] /Count 2 >>",
+        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Resources << /Font << /F1 5 0 R >> >> >>",
+        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Resources << /Font << /F1 5 0 R >> >> >>",
+        "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+    ]);
+    let doc = fepdf::PdfDocument::open(bytes.into()).expect("it opens");
+    assert_eq!(
+        doc.fonts().len(),
+        1,
+        "{:?}",
+        doc.fonts().iter().map(|f| &f.name).collect::<Vec<_>>()
     );
 }
