@@ -17,7 +17,9 @@ fn sample(name: &str) -> Option<Vec<u8>> {
 /// A document that does nothing says so, rather than saying nothing.
 #[test]
 fn a_document_with_no_actions_reports_none() {
-    let Some(bytes) = sample("constitution.pdf") else { return };
+    let Some(bytes) = sample("constitution.pdf") else {
+        panic!("samples/ is not in the tree, so this has nothing to test")
+    };
     let doc = PdfDocument::open(bytes.into()).expect("the sample opens");
     let report = ActionReport::of(doc.inner()).expect("the walk completes");
     assert!(
@@ -53,7 +55,9 @@ fn a_script_on_open_is_reported_without_interaction() {
 /// The panel's third section, and the axes it lists.
 #[test]
 fn coverage_reports_the_axes_the_panel_lists() {
-    let Some(bytes) = sample("constitution.pdf") else { return };
+    let Some(bytes) = sample("constitution.pdf") else {
+        panic!("samples/ is not in the tree, so this has nothing to test")
+    };
     let coverage = Coverage::of(&bytes).expect("coverage computes");
     let axes = coverage.axes();
     assert!(!axes.is_empty(), "the panel has rows to draw");

@@ -22,7 +22,9 @@ fn scratch(name: &str) -> std::path::PathBuf {
 
 #[test]
 fn the_extracted_document_has_the_pages_asked_for_and_no_others() {
-    let Some(doc) = sample("fy05.pdf") else { return };
+    let Some(doc) = sample("fy05.pdf") else {
+        panic!("samples/ is not in the tree, so this has nothing to test")
+    };
     let out = doc.extract_pages(vec![2, 4, 6]).expect("three pages come out");
     assert_eq!(out.page_count().expect("it counts"), 3);
 }
@@ -30,7 +32,9 @@ fn the_extracted_document_has_the_pages_asked_for_and_no_others() {
 /// The pages that come out are the pages that went in, not the first three.
 #[test]
 fn the_pages_are_the_ones_named() {
-    let Some(doc) = sample("fy05.pdf") else { return };
+    let Some(doc) = sample("fy05.pdf") else {
+        panic!("samples/ is not in the tree, so this has nothing to test")
+    };
     let wanted = [2usize, 4, 6];
     let out = doc.extract_pages(wanted.to_vec()).expect("it extracts");
     for (place, &source) in wanted.iter().enumerate() {
@@ -43,7 +47,9 @@ fn the_pages_are_the_ones_named() {
 /// It must survive being written and read back — an in-memory arena is not a file.
 #[test]
 fn it_survives_being_written_and_read_back() {
-    let Some(doc) = sample("fy05.pdf") else { return };
+    let Some(doc) = sample("fy05.pdf") else {
+        panic!("samples/ is not in the tree, so this has nothing to test")
+    };
     let out = doc.extract_pages(vec![2, 4, 6]).expect("it extracts");
     let dir = scratch("round-trip");
     let path = dir.join("three.pdf");
@@ -65,14 +71,18 @@ fn it_survives_being_written_and_read_back() {
 /// An empty selection is refused rather than answered with an empty document.
 #[test]
 fn extracting_nothing_is_refused() {
-    let Some(doc) = sample("fy05.pdf") else { return };
+    let Some(doc) = sample("fy05.pdf") else {
+        panic!("samples/ is not in the tree, so this has nothing to test")
+    };
     assert!(doc.extract_pages(Vec::new()).is_err());
 }
 
 /// A page index the document does not have is refused, not skipped.
 #[test]
 fn a_page_that_is_not_there_is_refused() {
-    let Some(doc) = sample("fy05.pdf") else { return };
+    let Some(doc) = sample("fy05.pdf") else {
+        panic!("samples/ is not in the tree, so this has nothing to test")
+    };
     let past_the_end = doc.page_count().expect("it counts");
     assert!(doc.extract_pages(vec![0, past_the_end]).is_err());
 }
@@ -83,8 +93,12 @@ fn a_page_that_is_not_there_is_refused() {
 /// being wrong was invisible for as long as nobody asked the returned document anything.
 #[test]
 fn a_merged_document_knows_how_many_pages_it_has() {
-    let Some(first) = sample("print_sample.pdf") else { return };
-    let Some(second) = sample("constitution.pdf") else { return };
+    let Some(first) = sample("print_sample.pdf") else {
+        panic!("samples/ is not in the tree, so this has nothing to test")
+    };
+    let Some(second) = sample("constitution.pdf") else {
+        panic!("samples/ is not in the tree, so this has nothing to test")
+    };
     let total = first.page_count().expect("it counts") + second.page_count().expect("it counts");
     let merged = PdfDocument::merge(vec![first, second]).expect("they merge");
     assert_eq!(merged.page_count().expect("it counts"), total);
@@ -97,10 +111,14 @@ fn a_merged_document_knows_how_many_pages_it_has() {
 /// — 23 and 13 on 2026-09-14.
 #[test]
 fn inserting_a_document_adds_all_of_its_pages() {
-    let Some(mut doc) = sample("print_sample.pdf") else { return };
+    let Some(mut doc) = sample("print_sample.pdf") else {
+        panic!("samples/ is not in the tree, so this has nothing to test")
+    };
     let source =
         std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../samples/constitution.pdf");
-    let Ok(bytes) = std::fs::read(source) else { return };
+    let Ok(bytes) = std::fs::read(source) else {
+        panic!("samples/ is not in the tree, so this has nothing to test")
+    };
     let before = doc.page_count().expect("it counts");
     let added = PdfDocument::open(bytes.clone().into()).expect("it opens").page_count().unwrap();
 

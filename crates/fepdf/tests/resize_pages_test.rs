@@ -50,7 +50,9 @@ fn own_box(doc: &PdfDocument, index: usize, name: &str) -> Option<[f64; 4]> {
 
 #[test]
 fn the_sheet_becomes_the_size_asked_for() {
-    let Some(mut doc) = sample("fy05.pdf") else { return };
+    let Some(mut doc) = sample("fy05.pdf") else {
+        panic!("samples/ is not in the tree, so this has nothing to test")
+    };
     doc.apply(Operation::ResizePages(PageSelection::Single(0), fitted(A3))).expect("it resizes");
 
     let (w, h) = doc.get_page_size(0).expect("it has a size");
@@ -68,7 +70,9 @@ fn the_sheet_becomes_the_size_asked_for() {
 /// where the content is cut and bled, so they follow the content.
 #[test]
 fn the_crop_becomes_the_sheet_and_the_trim_follows_the_content() {
-    let Some(mut doc) = sample("fy05.pdf") else { return };
+    let Some(mut doc) = sample("fy05.pdf") else {
+        panic!("samples/ is not in the tree, so this has nothing to test")
+    };
     let trim_before = own_box(&doc, 0, "TrimBox").expect("fy05 declares a TrimBox");
 
     // **A square sheet, not A3.** A4 and A3 differ in aspect by a quarter of a percent,
@@ -109,7 +113,9 @@ fn a_blank_page_gains_no_content_stream() {
 /// A sheet with no area, and a scale that draws nothing, are refused rather than written.
 #[test]
 fn a_sheet_or_a_scale_that_draws_nothing_is_refused() {
-    let Some(mut doc) = sample("print_sample.pdf") else { return };
+    let Some(mut doc) = sample("print_sample.pdf") else {
+        panic!("samples/ is not in the tree, so this has nothing to test")
+    };
     let refusals = [
         (0.0, 800.0, ContentScale::Fit),
         (600.0, -1.0, ContentScale::Fit),
@@ -131,7 +137,9 @@ fn a_sheet_or_a_scale_that_draws_nothing_is_refused() {
 /// The resized document survives being written and read back, with its text intact.
 #[test]
 fn it_survives_a_round_trip_with_its_text() {
-    let Some(mut doc) = sample("print_sample.pdf") else { return };
+    let Some(mut doc) = sample("print_sample.pdf") else {
+        panic!("samples/ is not in the tree, so this has nothing to test")
+    };
     let before = doc.extract_text(2).expect("the page has text");
     doc.apply(Operation::ResizePages(PageSelection::All, fitted(A3))).expect("it resizes");
 
@@ -157,7 +165,9 @@ fn it_survives_a_round_trip_with_its_text() {
 /// naming it back — and getting it wrong for a document whose pages are not all one size.
 #[test]
 fn a_resize_that_names_no_sheet_keeps_each_pages_own() {
-    let Some(mut doc) = sample("fy05.pdf") else { return };
+    let Some(mut doc) = sample("fy05.pdf") else {
+        panic!("samples/ is not in the tree, so this has nothing to test")
+    };
     let before: Vec<_> = (0..3).map(|i| doc.get_page_size(i).expect("a size")).collect();
 
     doc.apply(Operation::ResizePages(
@@ -180,7 +190,9 @@ fn a_resize_that_names_no_sheet_keeps_each_pages_own() {
 /// A binding margin is exactly this: centred, then moved off-centre by the gutter.
 #[test]
 fn an_offset_moves_the_content_and_not_the_sheet() {
-    let Some(mut doc) = sample("print_sample.pdf") else { return };
+    let Some(mut doc) = sample("print_sample.pdf") else {
+        panic!("samples/ is not in the tree, so this has nothing to test")
+    };
     let was = doc.get_page_size(0).expect("a size");
     let text = doc.extract_text(0).expect("the page has text");
 
