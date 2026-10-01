@@ -2660,6 +2660,9 @@ impl FontResource {
         if data.is_empty() {
             return (0, None, UnicodeSource::Unmapped);
         }
+        if let Some(len) = self.code_length(data) {
+            return self.decode_by_codespace(data, len);
+        }
         let min_len = self.get_min_len();
 
         if let Some(res) = self.decode_via_to_unicode(data, min_len)
@@ -2674,6 +2677,61 @@ impl FontResource {
         }
         // The third step re-enters `unicode_for`, which reports its own route.
         self.decode_via_heuristics_sourced(data)
+    }
+
+    /// How long the code at the start of `data` is, by the codespace ranges of a Type 0
+    /// font's CMap (9.7.6.2) — for a CMap other than `Identity`, whose codes are all two
+    /// bytes and are read by the route below.
+    ///
+    /// **Every Type 0 font's codes were taken two at a time**, whatever its CMap said:
+    /// `90ms-RKSJ-H` gives ASCII and half-width katakana one byte and kanji two, and
+    /// `ABCあい` read as `≲𠌫`, each Latin letter eaten with the byte after it. A code that
+    /// matches no range is taken at the shortest length a range has, which is the least a
+    /// reader can step over (9.7.6.3).
+    fn code_length(&self, data: &[u8]) -> Option<usize> {
+        if self.subtype.as_str() != "Type0" && !self.is_cid_keyed {
+            return None;
+        }
+        let cmap = self.encoding.as_ref()?;
+        if cmap.name.starts_with("Identity") || cmap.codespace_ranges.is_empty() {
+            return None;
+        }
+        let matches = |(start, end): &(Vec<u8>, Vec<u8>)| {
+            data.get(..start.len()).is_some_and(|code| {
+                code.iter().zip(start.iter().zip(end)).all(|(b, (lo, hi))| (lo..=hi).contains(&b))
+            })
+        };
+        let found = (1..=4).find(|len| {
+            cmap.codespace_ranges.iter().any(|range| range.0.len() == *len && matches(range))
+        });
+        let shortest = cmap.codespace_ranges.iter().map(|(start, _)| start.len()).min()?;
+        Some(found.unwrap_or(shortest).min(data.len()).max(1))
+    }
+
+    /// The code of `len` bytes at the start of `data`, read as 9.10.2 orders it: its
+    /// `/ToUnicode` entry, or the character its CID is in the font's collection — the CID
+    /// the CMap gives the code, not the code's own bytes, which are a CID only under
+    /// `Identity`.
+    fn decode_by_codespace(
+        &self,
+        data: &[u8],
+        len: usize,
+    ) -> (usize, Option<String>, UnicodeSource) {
+        let code = &data[..len];
+        let kept = |text: String| {
+            text.chars().next().filter(|c| is_withheld(*c, true).is_none()).map(|_| text)
+        };
+        if let Some(text) = self.to_unicode.as_ref().and_then(|map| map.map(code)).and_then(kept) {
+            return (len, Some(text), UnicodeSource::ToUnicode);
+        }
+        let cid = self.encoding.as_ref().map_or(0, |cmap| cmap.to_cid(code));
+        let text = u16::try_from(cid)
+            .ok()
+            .and_then(|cid| self.collection_map.as_ref()?.map(&cid.to_be_bytes()).and_then(kept));
+        match text {
+            Some(text) => (len, Some(text), UnicodeSource::CidCollection),
+            None => (len, None, UnicodeSource::Unmapped),
+        }
     }
 
     fn get_min_len(&self) -> Option<usize> {

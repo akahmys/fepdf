@@ -133,3 +133,39 @@ fn test_multiline_chinese_poem_reading_order() {
     assert!(extracted.contains("床前明月光"), "contains Line 1: {extracted}");
     assert!(extracted.contains("疑是地上霜"), "contains Line 2: {extracted}");
 }
+
+/// **A CMap's one-byte codes are one byte** (9.7.6.2). `90ms-RKSJ-H` gives ASCII and
+/// half-width katakana one byte and kanji two, and every Type 0 font's codes were taken
+/// two at a time whatever its CMap said: `ABCあい` read as `≲𠌫`, each Latin letter
+/// eaten with the byte after it. Measured 2026-09-30 on this fixture (ROADMAP Y-F14).
+#[test]
+fn a_shift_jis_string_is_split_by_its_cmaps_codespace() {
+    assert!(
+        fepdf_model::resources::locate(fepdf_model::resources::Resource::Cmaps).is_some(),
+        "the CMap collections are not checked out: git submodule update --init"
+    );
+    let content = b"BT /F1 24 Tf 20 100 Td (ABC\x82\xa0\x82\xa2) Tj ET".to_vec();
+    let mut stream = format!("<< /Length {} >>\nstream\n", content.len()).into_bytes();
+    stream.extend_from_slice(&content);
+    stream.extend_from_slice(b"\nendstream");
+    let bodies: Vec<Vec<u8>> = vec![
+        b"<< /Type /Catalog /Pages 2 0 R >>".to_vec(),
+        b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_vec(),
+        b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 300 200] /Contents 4 0 R \
+          /Resources << /Font << /F1 5 0 R >> >> >>"
+            .to_vec(),
+        stream,
+        b"<< /Type /Font /Subtype /Type0 /BaseFont /Ryumin-Light-90ms-RKSJ-H \
+          /Encoding /90ms-RKSJ-H /DescendantFonts [6 0 R] >>"
+            .to_vec(),
+        b"<< /Type /Font /Subtype /CIDFontType0 /BaseFont /Ryumin-Light \
+          /CIDSystemInfo << /Registry (Adobe) /Ordering (Japan1) /Supplement 2 >> \
+          /FontDescriptor 7 0 R >>"
+            .to_vec(),
+        b"<< /Type /FontDescriptor /FontName /Ryumin-Light /Flags 6 /FontBBox [0 -200 1000 900] \
+          /ItalicAngle 0 /Ascent 900 /Descent -200 /CapHeight 700 /StemV 80 >>"
+            .to_vec(),
+    ];
+    let doc = PdfDocument::open(assemble(&bodies).into()).expect("document opens");
+    assert_eq!(doc.extract_text(0).expect("text extracts").trim(), "ABCあい");
+}
