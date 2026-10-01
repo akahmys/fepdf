@@ -962,10 +962,24 @@ eight times, and the copies do not agree on whether to resolve.
         (`f0e6a00`), and a mark of one number on two pages (`75ddcff`).
       - A Type 0 CMap rewrite that never ran is removed (ADR-0105). Y-F14 to Y-F17 and
         Y-F19 are what was found and not settled.
-- [ ] **Y-2** — the tests that were added: `fepdf/tests` (+12,112 lines) and
+- [x] **Y-2** — the tests that were added: `fepdf/tests` (+12,112 lines) and
       `mcp_server_tests` (+540). Each assertion that cannot fail is replaced. *Done when*
       each file's central assertion has been shown to fail with the behaviour it
-      guards broken, starting with `audit_scope_test.rs` (2,630 lines).
+      guards broken, starting with `audit_scope_test.rs` (2,630 lines). Each of the 59
+      files had its central behaviour broken once in the code it guards, by
+      `scratchpad/mutate.py`'s rule — one edit, the file restored byte for byte, no
+      `git checkout` — or during Y-1d. What that found:
+      - Nineteen tests passed with `samples/` absent, which every clone is (`7356517`).
+      - Fourteen in `backend_operations_test.rs` asserted that a struct held what had
+        just been put in it, and are removed (`9898445`).
+      - The font census's dedup and the summary's reading of the header could be
+        removed failing nothing: both compared two answers that the breakage changed
+        alike (`900480e`, `72247d8`).
+      - `vacuum_test` survives breaking the writer's trace alone because the output
+        copy drops the same object first; its positive control is what shows it can
+        fail, and the redundancy is two mechanisms, not a test that cannot.
+      - `audit_scope_test` holds both directions: five conditions across five modules
+        stopped reporting broken, and two made always broken, each failed it.
 
 **Structure**
 - [ ] **Y-3** — finish the move into `fepdf-model/src/access.rs`, which already exists
