@@ -190,7 +190,7 @@ fn unlock_objects(
 
 /// The `/Encrypt` dictionary and, when it is indirect, the object number to skip.
 fn encryption_dict(arena: &PdfArena, trailer: DictHandle) -> Option<(Dict, Option<u32>)> {
-    let entry = entry(arena, trailer, "Encrypt")?;
+    let entry = as_written(arena, trailer, "Encrypt")?;
     match entry {
         Object::Dictionary(h) => Some((arena.get_dict(h)?, None)),
         Object::Reference(h) => match arena.get_object(h)? {
@@ -510,7 +510,7 @@ fn crypt_filter_method(arena: &PdfArena, encrypt: &Dict) -> Cipher {
 
 /// The first element of the trailer's `/ID`, which keys the encryption.
 fn first_file_id(arena: &PdfArena, trailer: DictHandle) -> Vec<u8> {
-    let Some(Object::Array(h)) = entry(arena, trailer, "ID") else { return Vec::new() };
+    let Some(Object::Array(h)) = as_written(arena, trailer, "ID") else { return Vec::new() };
     let Some(items) = arena.get_array(h) else { return Vec::new() };
     match items.first() {
         Some(Object::String(b) | Object::Hex(b)) => b.to_vec(),
@@ -614,8 +614,10 @@ fn remove_encrypt(arena: &PdfArena, trailer: DictHandle) {
     arena.set_dict(trailer, dict);
 }
 
-/// One entry of a dictionary held in the arena.
-fn entry(arena: &PdfArena, dict: DictHandle, key: &str) -> Option<Object> {
+/// One entry of the trailer, **as written, not resolved** — unlike `access`'s readers, and
+/// on purpose: `/Encrypt` written as a reference names an object the decryption has to
+/// skip, which resolving would hide, and `/ID` is written directly in the trailer.
+fn as_written(arena: &PdfArena, dict: DictHandle, key: &str) -> Option<Object> {
     arena.get_dict(dict)?.get(&arena.name(key)).cloned()
 }
 

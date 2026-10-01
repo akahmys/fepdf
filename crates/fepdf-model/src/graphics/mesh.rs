@@ -22,7 +22,6 @@ use crate::PdfArena;
 use crate::color::ResolvedColorSpace;
 use crate::function::FunctionSet;
 use crate::graphics::Color;
-use crate::object::{Object, PdfName};
 use serde::{Deserialize, Serialize};
 
 use crate::access::Dict;
@@ -169,10 +168,10 @@ struct MeshParams {
 
 impl MeshParams {
     fn parse(dict: &Dict, arena: &PdfArena) -> Option<Self> {
-        let space_obj = entry(dict, arena, "ColorSpace")?;
+        let space_obj = crate::access::entry_at(arena, dict, "ColorSpace")?;
         let space = ResolvedColorSpace::parse(&space_obj, arena)?;
-        let function =
-            entry(dict, arena, "Function").and_then(|obj| FunctionSet::parse(&obj, arena));
+        let function = crate::access::entry_at(arena, dict, "Function")
+            .and_then(|obj| FunctionSet::parse(&obj, arena));
         let inputs = if function.is_some() { 1 } else { space.components };
 
         let bits_coord = u32::try_from(integer(dict, arena, "BitsPerCoordinate")?).ok()?;
@@ -267,13 +266,8 @@ fn ratio(value: u64, max: u64) -> f64 {
     if max == 0.0 { 0.0 } else { to_f64(value) / max }
 }
 
-fn entry(dict: &Dict, arena: &PdfArena, key: &str) -> Option<Object> {
-    let k = arena.intern_name(PdfName::new(key));
-    dict.get(&k).map(|o| o.resolve(arena))
-}
-
 fn integer(dict: &Dict, arena: &PdfArena, key: &str) -> Option<i64> {
-    entry(dict, arena, key)?.as_integer()
+    crate::access::entry_at(arena, dict, key)?.as_integer()
 }
 
 /// Type 4 (8.7.4.5.5): each vertex carries an edge flag saying how it joins the last two.

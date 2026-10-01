@@ -29,7 +29,7 @@
 mod postscript;
 
 use crate::PdfArena;
-use crate::object::{Object, PdfName};
+use crate::object::Object;
 use bytes::Bytes;
 pub use postscript::PostScriptFunction;
 
@@ -89,7 +89,7 @@ impl PdfFunction {
         };
 
         let bounds = Bounds::parse(&dict, arena)?;
-        match entry(&dict, arena, "FunctionType")?.as_integer()? {
+        match crate::access::entry_at(arena, &dict, "FunctionType")?.as_integer()? {
             0 => SampledFunction::parse(&dict, arena, bounds, data?).map(Self::Sampled),
             2 => ExponentialFunction::parse(&dict, arena, bounds).map(Self::Exponential),
             3 => StitchingFunction::parse(&dict, arena, bounds, depth).map(Self::Stitching),
@@ -263,7 +263,7 @@ pub struct StitchingFunction {
 
 impl StitchingFunction {
     fn parse(dict: &Dict, arena: &PdfArena, bounds: Bounds, depth: usize) -> Option<Self> {
-        let Object::Array(ah) = entry(dict, arena, "Functions")? else {
+        let Object::Array(ah) = crate::access::entry_at(arena, dict, "Functions")? else {
             return None;
         };
         let items = arena.get_array(ah)?;
@@ -335,7 +335,9 @@ impl SampledFunction {
         // without it there is no way to know how many outputs a sample row holds.
         let range = bounds.range.clone()?;
         let size = Self::parse_size(dict, arena, bounds.domain.len() / 2)?;
-        let bits = u32::try_from(entry(dict, arena, "BitsPerSample")?.as_integer()?).ok()?;
+        let bits =
+            u32::try_from(crate::access::entry_at(arena, dict, "BitsPerSample")?.as_integer()?)
+                .ok()?;
         if !matches!(bits, 1 | 2 | 4 | 8 | 12 | 16 | 24 | 32) {
             return None;
         }
@@ -351,7 +353,7 @@ impl SampledFunction {
     }
 
     fn parse_size(dict: &Dict, arena: &PdfArena, arity: usize) -> Option<Vec<u32>> {
-        let Object::Array(ah) = entry(dict, arena, "Size")? else {
+        let Object::Array(ah) = crate::access::entry_at(arena, dict, "Size")? else {
             return None;
         };
         let items = arena.get_array(ah)?;
@@ -518,11 +520,6 @@ fn u64_as_f64(v: u64) -> f64 {
     u32::try_from(v).map_or(f64::from(u32::MAX), f64::from)
 }
 
-fn entry(dict: &Dict, arena: &PdfArena, key: &str) -> Option<Object> {
-    let k = arena.intern_name(PdfName::new(key));
-    dict.get(&k).map(|o| o.resolve(arena))
-}
-
 fn number(dict: &Dict, arena: &PdfArena, key: &str) -> Option<f64> {
-    entry(dict, arena, key)?.as_f64()
+    crate::access::entry_at(arena, dict, key)?.as_f64()
 }

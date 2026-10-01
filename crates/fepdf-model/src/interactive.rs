@@ -389,7 +389,7 @@ impl InteractiveReport {
     }
 }
 
-use crate::access::{Dict, text_of as string_of};
+use crate::access::{Dict, array_of, dict_of, name_of, text_of as string_of};
 
 /// What the three walks accumulate as they go.
 ///
@@ -1114,22 +1114,6 @@ fn page_handles(arena: &PdfArena, catalog: &Dict) -> Vec<crate::handle::Handle<O
         }
     }
     out
-}
-
-pub(crate) fn dict_of(arena: &PdfArena, object: &Object) -> Option<Dict> {
-    let handle: DictHandle = object.resolve(arena).as_dict_handle()?;
-    arena.get_dict(handle)
-}
-
-pub(crate) fn array_of(arena: &PdfArena, object: Option<&Object>) -> Option<Vec<Object>> {
-    arena.get_array(object?.resolve(arena).as_array()?)
-}
-
-pub(crate) fn name_of(arena: &PdfArena, object: &Object) -> Option<String> {
-    match object.resolve(arena) {
-        Object::Name(h) => arena.get_name_str(h),
-        _ => None,
-    }
 }
 
 /// The order a form's fields are calculated in (12.6.3, `/CO`), by field name.

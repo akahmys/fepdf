@@ -430,15 +430,13 @@ fn describe_direct(arena: &PdfArena, object: &Object) -> String {
     }
 }
 
+/// The dictionary `object` is or refers to, through any chain of references (7.3.10) —
+/// and not a stream, which `access::dict_of` takes for its dictionary and which is not a
+/// catalogue.
 fn resolve_dict(arena: &PdfArena, object: &Object) -> Option<BTreeMap<Handle<PdfName>, Object>> {
-    match object {
-        Object::Dictionary(h) => arena.get_dict(*h),
-        Object::Reference(h) => match arena.get_object(*h)? {
-            Object::Dictionary(d) => arena.get_dict(d),
-            _ => None,
-        },
-        _ => None,
-    }
+    matches!(object.resolve(arena), Object::Dictionary(_))
+        .then(|| crate::access::dict_of(arena, object))
+        .flatten()
 }
 
 #[cfg(test)]

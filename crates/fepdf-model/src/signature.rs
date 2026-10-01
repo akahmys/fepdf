@@ -20,9 +20,9 @@
 //!
 //! [ADR-0013]: ../../../../docs/adr/0013-a-document-is-one-normalised-state.md
 
+use crate::access::{array_of, dict_of, name_of};
 use crate::arena::PdfArena;
 use crate::error::{PdfError, PdfResult};
-use crate::interactive::{array_of, dict_of, name_of};
 use crate::object::Object;
 use crate::reader;
 use serde::{Deserialize, Serialize};

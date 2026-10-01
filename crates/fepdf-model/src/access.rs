@@ -36,9 +36,9 @@ pub(crate) type Dict = BTreeMap<Handle<PdfName>, Object>;
 
 /// The value at `key`, with any chain of references followed.
 ///
-/// Private: every accessor below is this plus a type test, and no caller has yet wanted
-/// the untyped form. Widen it when one does, rather than before.
-fn entry_at(arena: &PdfArena, dict: &Dict, key: &str) -> Option<Object> {
+/// Every accessor below is this plus a type test. Widened for `function` and `mesh`, which
+/// read an entry before knowing its type and each carried a copy of this.
+pub(crate) fn entry_at(arena: &PdfArena, dict: &Dict, key: &str) -> Option<Object> {
     Some(dict.get(&arena.name(key))?.resolve(arena))
 }
 
@@ -67,6 +67,14 @@ pub(crate) fn text_of(arena: &PdfArena, object: &Object) -> Option<String> {
     }
 }
 
+/// The name `object` is or refers to, without its leading solidus.
+pub(crate) fn name_of(arena: &PdfArena, object: &Object) -> Option<String> {
+    match object.resolve(arena) {
+        Object::Name(h) => arena.get_name_str(h),
+        _ => None,
+    }
+}
+
 /// Every number in the array at `key`, or `None` if any entry is not one.
 ///
 /// All-or-nothing on purpose: the callers are `/Domain`, `/Range`, `/C0`, `/Decode` and
@@ -83,8 +91,8 @@ pub(crate) fn dict_at(arena: &PdfArena, dict: &Dict, key: &str) -> Option<Dict> 
     dict_of(arena, dict.get(&arena.name(key))?)
 }
 
-/// The array `object` is or refers to. Private for the same reason as [`entry_at`].
-fn array_of(arena: &PdfArena, object: Option<&Object>) -> Option<Vec<Object>> {
+/// The array `object` is or refers to.
+pub(crate) fn array_of(arena: &PdfArena, object: Option<&Object>) -> Option<Vec<Object>> {
     arena.get_array(object?.resolve(arena).as_array()?)
 }
 
