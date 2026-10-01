@@ -6,9 +6,9 @@
 //! Which glyph that is comes from [`crate::glyph_map`]; the program's width is read in
 //! units of 1/1000 em, as the dictionary's are.
 
-use crate::audit_objects::{entry, items, name_of};
 use crate::glyph_map::Target;
 use fepdf_font::program_glyphs;
+use fepdf_model::access::{entry, items, name_in};
 use fepdf_model::{Document, Handle, Object, PdfArena};
 use std::collections::BTreeMap;
 
@@ -38,7 +38,7 @@ pub(crate) fn program_widths(doc: &Document, font: Handle<Object>) -> Option<Pro
     let arena = doc.arena();
     let font = Object::Reference(font);
     let decoded = |file: &Object| doc.decode_stream(file).ok();
-    match name_of(arena, &font, "Subtype").as_deref()? {
+    match name_in(arena, &font, "Subtype").as_deref()? {
         "TrueType" => {
             let descriptor = entry(arena, &font, "FontDescriptor")?;
             let program = decoded(&entry(arena, &descriptor, "FontFile2")?)?;
@@ -56,7 +56,7 @@ pub(crate) fn program_widths(doc: &Document, font: Handle<Object>) -> Option<Pro
         }
         "Type0" => {
             let descendant = items(arena, &font, "DescendantFonts").into_iter().next()?;
-            if name_of(arena, &descendant, "Subtype").as_deref() != Some("CIDFontType2") {
+            if name_in(arena, &descendant, "Subtype").as_deref() != Some("CIDFontType2") {
                 return None;
             }
             let descriptor = entry(arena, &descendant, "FontDescriptor")?;
@@ -74,7 +74,7 @@ pub(crate) fn program_widths(doc: &Document, font: Handle<Object>) -> Option<Pro
 pub(crate) fn dictionary_width(arena: &PdfArena, font: Handle<Object>, code: u32) -> Option<f64> {
     let font = Object::Reference(font);
     let number = |o: &Object| o.as_f64();
-    if name_of(arena, &font, "Subtype").as_deref() == Some("Type0") {
+    if name_in(arena, &font, "Subtype").as_deref() == Some("Type0") {
         let descendant = items(arena, &font, "DescendantFonts").into_iter().next()?;
         let default = entry(arena, &descendant, "DW").as_ref().and_then(number).unwrap_or(1000.0);
         return Some(cid_width(arena, &items(arena, &descendant, "W"), code).unwrap_or(default));

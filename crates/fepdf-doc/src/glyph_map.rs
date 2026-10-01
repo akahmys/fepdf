@@ -6,10 +6,10 @@
 //! (31-011). This follows 9.6.6 for simple fonts and an Identity CMap for composite ones,
 //! and a font it cannot follow that way has no map: its codes are left for a reader.
 
-use crate::audit_objects::{entry, name_of};
 use crate::audit_subsets::GidMap;
 use fepdf_font::program_glyphs;
 use fepdf_font::sfnt_cmap::CmapSubtable;
+use fepdf_model::access::{entry, name_in};
 use fepdf_model::{Document, Handle, Object, PdfArena};
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -90,7 +90,7 @@ pub(crate) fn of(doc: &Document, font: Handle<Object>) -> Option<GlyphMap> {
     let arena = doc.arena();
     let font_object = Object::Reference(font);
     let descriptor = entry(arena, &font_object, "FontDescriptor");
-    match name_of(arena, &font_object, "Subtype").as_deref()? {
+    match name_in(arena, &font_object, "Subtype").as_deref()? {
         "TrueType" => true_type(doc, &font_object, &descriptor?),
         "Type1" | "MMType1" => {
             let descriptor = descriptor?;
@@ -147,7 +147,7 @@ pub(crate) fn true_type_names(arena: &PdfArena, font: &Object) -> Option<BTreeMa
     if let Some(name) = encoding.as_name().and_then(|n| arena.get_name(n)) {
         return annex(name.as_str());
     }
-    let mut table = match name_of(arena, &encoding, "BaseEncoding") {
+    let mut table = match name_in(arena, &encoding, "BaseEncoding") {
         Some(base) => annex(&base)?,
         None => BTreeMap::new(),
     };
@@ -171,7 +171,7 @@ fn simple_names(
     if let Some(name) = encoding.as_name().and_then(|n| arena.get_name(n)) {
         return annex(name.as_str());
     }
-    let mut table = match name_of(arena, &encoding, "BaseEncoding") {
+    let mut table = match name_in(arena, &encoding, "BaseEncoding") {
         Some(base) => annex(&base)?,
         None => built_in?,
     };
@@ -296,7 +296,7 @@ fn composite(doc: &Document, font: Handle<Object>) -> Option<GlyphMap> {
     };
     let descendant = arena.get_array(descendants)?.first()?.resolve(arena);
     let descriptor = entry(arena, &descendant, "FontDescriptor")?;
-    match name_of(arena, &descendant, "Subtype").as_deref()? {
+    match name_in(arena, &descendant, "Subtype").as_deref()? {
         "CIDFontType2" => {
             let program = doc.decode_stream(&entry(arena, &descriptor, "FontFile2")?).ok()?;
             let slots = program_glyphs::sfnt_glyph_count(&program)?;

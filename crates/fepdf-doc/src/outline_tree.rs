@@ -17,11 +17,12 @@
 //! known one rather than a surprise.
 
 use fepdf_model::Document;
+use fepdf_model::access::{self, Dict};
 use fepdf_model::arena::PdfArena;
 use fepdf_model::destination::{Lookup, NamedDestinations, Target};
 use fepdf_model::document::extensions::{OutlineNode, OutlineTree};
 use fepdf_model::handle::Handle;
-use fepdf_model::object::{Object, PdfName};
+use fepdf_model::object::Object;
 use std::cell::OnceCell;
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -30,9 +31,6 @@ use std::collections::{BTreeMap, BTreeSet};
 /// The same 64 as the `/K` walk in [`crate::struct_tree`] and the field-tree walk in
 /// `fepdf-model`, and the same bound [`crate::apply`] refuses to *write* past.
 const MAX_OUTLINE_DEPTH: usize = 64;
-
-/// A dictionary as the arena answers one.
-type Dict = BTreeMap<Handle<PdfName>, Object>;
 
 /// A bookmark that named a page this document does not have.
 ///
@@ -176,9 +174,11 @@ impl Reader<'_> {
     }
 
     fn dict_of(&self, handle: Handle<Object>) -> Option<Dict> {
-        self.arena.get_object(handle)?.as_dict_handle().and_then(|dh| self.arena.get_dict(dh))
+        access::dict_of(self.arena, &Object::Reference(handle))
     }
 
+    /// The node at `key`, read from the entry as written: a resolved value has lost the
+    /// reference that names the node.
     fn entry(&self, handle: Handle<Object>, key: &str) -> Option<Handle<Object>> {
         node_handle(self.arena, self.dict_of(handle)?.get(&self.arena.name(key))?)
     }

@@ -7,9 +7,9 @@
 //! leave out (ISO 32000-1 Table 122), and CID 0, its place in a CIDFont, are asked about
 //! in neither direction.
 
-use crate::audit_objects::{entry, name_of};
 use crate::structure::{AuditFinding, broken};
 use fepdf_font::program_glyphs;
+use fepdf_model::access::{entry, name_in};
 use fepdf_model::{Document, Object};
 use std::collections::BTreeSet;
 
@@ -21,7 +21,7 @@ pub(crate) fn subset_claims(
     findings: &mut Vec<AuditFinding>,
 ) {
     let arena = doc.arena();
-    match name_of(arena, font, "Subtype").as_deref() {
+    match name_in(arena, font, "Subtype").as_deref() {
         Some("Type1" | "MMType1") => char_set(doc, font, name, findings),
         Some("Type0") => {
             let Some(Object::Array(descendants)) = entry(arena, font, "DescendantFonts") else {
@@ -120,7 +120,7 @@ fn cid_set(doc: &Document, descendant: &Object, name: &str, findings: &mut Vec<A
         .filter_map(|bit| u32::try_from(bit).ok())
         .filter(|cid| *cid != 0)
         .collect();
-    match name_of(arena, descendant, "Subtype").as_deref() {
+    match name_in(arena, descendant, "Subtype").as_deref() {
         Some("CIDFontType0") => {
             let Some(file) = entry(arena, &descriptor, "FontFile3") else { return };
             let held = doc.decode_stream(&file).ok().and_then(|p| program_glyphs::cff_cids(&p));

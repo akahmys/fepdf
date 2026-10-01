@@ -22,9 +22,9 @@
 //! which is what a producer writing Japanese must do — read back as
 //! `��f�S�S0U0�0_m�N� . p d f`.
 //!
-//! The engine has seven more private copies of `dict_of` and five of `array_of` in other
-//! modules (measured 2026-09-05). They are not migrated here yet; this is the
-//! destination, not the finished move.
+//! **The other crates read through it too.** [`entry`], [`name_in`] and [`items`] take the
+//! object a dictionary is written as — a reference or a dictionary — because that is what
+//! `fepdf-doc`'s audits hold, and they kept a copy of each until ROADMAP Y-3.
 
 use crate::arena::PdfArena;
 use crate::handle::Handle;
@@ -32,7 +32,7 @@ use crate::object::{Object, PdfName};
 use std::collections::BTreeMap;
 
 /// What the arena calls a dictionary.
-pub(crate) type Dict = BTreeMap<Handle<PdfName>, Object>;
+pub type Dict = BTreeMap<Handle<PdfName>, Object>;
 
 /// The value at `key`, with any chain of references followed.
 ///
@@ -46,8 +46,32 @@ pub(crate) fn entry_at(arena: &PdfArena, dict: &Dict, key: &str) -> Option<Objec
 ///
 /// A stream is accepted, because a stream *is* a dictionary with data attached (7.3.8)
 /// and every caller of this wants the dictionary.
-pub(crate) fn dict_of(arena: &PdfArena, object: &Object) -> Option<Dict> {
+pub fn dict_of(arena: &PdfArena, object: &Object) -> Option<Dict> {
     arena.get_dict(object.resolve(arena).as_dict_handle()?)
+}
+
+/// The value at `key` in the dictionary `object` is or refers to, with references followed.
+///
+/// Read through the arena in place: the audits ask this of every font and element in a
+/// file, and [`dict_of`] would copy the whole dictionary to answer one key.
+pub fn entry(arena: &PdfArena, object: &Object, key: &str) -> Option<Object> {
+    let handle = object.resolve(arena).as_dict_handle()?;
+    arena.dict_entry(handle, arena.name(key)).map(|value| value.resolve(arena))
+}
+
+/// The name at `key` in the dictionary `object` is or refers to, without its solidus.
+pub fn name_in(arena: &PdfArena, object: &Object, key: &str) -> Option<String> {
+    name_of(arena, &entry(arena, object, key)?)
+}
+
+/// The items of the array at `key`, each resolved; nothing when it is not an array.
+pub fn items(arena: &PdfArena, object: &Object, key: &str) -> Vec<Object> {
+    match entry(arena, object, key) {
+        Some(Object::Array(array)) => {
+            arena.get_array(array).unwrap_or_default().iter().map(|i| i.resolve(arena)).collect()
+        }
+        _ => Vec::new(),
+    }
 }
 
 /// The text `object` is or refers to, decoded as 7.9.2.2 defines.

@@ -10,7 +10,7 @@ extern crate self as fepdf_model;
 /// Annotations (12.5): Table 166, and the subtypes the corpus carries.
 /// What a document does when opened, and what has to happen first (12.6).
 /// Reading one entry out of a dictionary, once, with references followed.
-mod access;
+pub mod access;
 
 pub mod actions;
 pub mod annotation;

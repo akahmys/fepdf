@@ -8,8 +8,8 @@
 //! walked once, and each condition asks every dictionary it concerns.
 
 use crate::audit_fonts::{FORM_DEPTH, Resources, form_commands, form_resources, names_in};
-use crate::audit_objects::{entry, items, name_of};
 use crate::structure::{AuditFinding, broken};
+use fepdf_model::access::{entry, items, name_in};
 use fepdf_model::object::sublimation::Command;
 use fepdf_model::{Document, Handle, Object, PdfArena};
 use std::collections::{BTreeMap, BTreeSet};
@@ -62,7 +62,7 @@ fn reachable(arena: &PdfArena, catalogue: Handle<Object>) -> Reached {
         match next {
             Object::Reference(handle) if objects.insert(handle) => {
                 if let Some(Object::Stream(dict, _)) = arena.get_object(handle)
-                    && name_of(arena, &Object::Dictionary(dict), "Subtype").as_deref()
+                    && name_in(arena, &Object::Dictionary(dict), "Subtype").as_deref()
                         == Some("Form")
                 {
                     reached.forms.push(handle);
@@ -116,7 +116,7 @@ fn names_both(arena: &PdfArena, spec: &Object) -> bool {
 fn file_specifications(arena: &PdfArena, dicts: &[Object], findings: &mut Vec<AuditFinding>) {
     let mut attached = BTreeSet::new();
     for annotation in dicts {
-        if name_of(arena, annotation, "Subtype").as_deref() != Some("FileAttachment")
+        if name_in(arena, annotation, "Subtype").as_deref() != Some("FileAttachment")
             || entry(arena, annotation, "Rect").is_none()
         {
             continue;
@@ -172,7 +172,7 @@ fn file_name(arena: &PdfArena, spec: &Object) -> String {
 /// the `/D` Table 285 requires — carries `/CT` and `/Alt`.
 fn media_clips(arena: &PdfArena, dicts: &[Object], findings: &mut Vec<AuditFinding>) {
     for clip in dicts {
-        if name_of(arena, clip, "S").as_deref() != Some("MCD") || entry(arena, clip, "D").is_none()
+        if name_in(arena, clip, "S").as_deref() != Some("MCD") || entry(arena, clip, "D").is_none()
         {
             continue;
         }

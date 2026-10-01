@@ -986,13 +986,20 @@ eight times, and the copies do not agree on whether to resolve.
         stopped reporting broken, and two made always broken, each failed it.
 
 **Structure**
-- [ ] **Y-3** — finish the move into `fepdf-model/src/access.rs`, which already exists
+- [x] **Y-3** — finish the move into `fepdf-model/src/access.rs`, which already exists
       for this and calls itself "the destination, not the finished move". It replaces `audit_objects::{entry, name_of,
       items}`, `audit_fonts`' and `outline_tree`'s methods, `decrypt::entry`,
       `function::entry`, `mesh::entry`, `interactive::name_of` and
       `catalog::resolve_dict`. Where a site's resolving changes, whether the old
       difference was meant is decided first. *Done when* the golden comparison agrees
       and `unbounded_recursion.py` passes.
+      `access` is public, and `entry`, `name_in` and `items` take the object a dictionary
+      is written as. Two resolvings stay different on purpose: `decrypt::as_written`
+      needs the reference `/Encrypt` is written as, to skip that object, and
+      `outline_tree`'s `entry` needs the reference that names the next node, which a
+      resolved value has lost; `catalog::resolve_dict` still refuses a stream. The
+      golden comparison differs only in `sample_02c`'s text, the Y-F14 correction, and
+      `unbounded_recursion.py` passes.
 - [ ] **Y-4** — `fepdf-doc`'s operations stop importing helpers from its audit modules
       (`glyph_map`, `glyph_widths`, `unicode_map` and `formula_marks` import from
       `audit_objects`).

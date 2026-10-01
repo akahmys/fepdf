@@ -6,7 +6,7 @@
 //! language it is in (ISO 32000-1 14.9.2.3). A `Span` sequence outside the structure states
 //! its own language in its property list.
 
-use crate::audit_objects::{entry, name_of};
+use fepdf_model::access::{entry, name_in};
 use fepdf_model::object::sublimation::IrObject;
 use fepdf_model::{Document, Handle, Object, PdfArena};
 use std::collections::BTreeMap;
@@ -62,7 +62,7 @@ impl<'a> Tree<'a> {
         let mut language = None;
         let mut at = element.clone();
         for _ in 0..ANCESTORS {
-            let Some(tag) = name_of(self.arena, &at, "S") else { break };
+            let Some(tag) = name_in(self.arena, &at, "S") else { break };
             match crate::audit_tree::standard_type(&self.roles, &tag).as_deref() {
                 Some("Formula") => facts.formula = true,
                 Some("Figure") => facts.figure = true,

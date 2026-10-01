@@ -11,9 +11,9 @@
 //! to nothing. A code this cannot split out of a string, or whose name only a program it
 //! does not read knows, is left for a reader.
 
-use crate::audit_objects::{entry, items, name_of};
 use crate::structure::{AuditFinding, broken, for_a_reader};
 use fepdf_font::cmap::CMap;
+use fepdf_model::access::{entry, items, name_in};
 use fepdf_model::{Document, Handle, Object, PdfArena};
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -61,7 +61,7 @@ pub(crate) fn mapped(
         }
         _ => None,
     };
-    if name_of(arena, &object, "Subtype").as_deref() == Some("Type0") {
+    if name_in(arena, &object, "Subtype").as_deref() == Some("Type0") {
         return composite(doc, font, to_unicode.as_ref(), (codes, pairs));
     }
     let fallback = simple_names(arena, &object);
@@ -199,7 +199,7 @@ fn simple_names(arena: &PdfArena, font: &Object) -> Option<BTreeMap<u8, Option<S
         let table = crate::glyph_map::annex(name.as_str())?;
         return Some(table.into_iter().map(|(c, n)| (c, Some(n))).collect());
     }
-    let base = name_of(arena, &encoding, "BaseEncoding");
+    let base = name_in(arena, &encoding, "BaseEncoding");
     let differences = crate::glyph_map::differences(arena, &encoding);
     let standard = |name: &str| {
         latin_names().contains(name) || fepdf_font::latin_names::SYMBOL_NAMES.contains(&name)
@@ -236,7 +236,7 @@ fn latin_names() -> BTreeSet<&'static str> {
 
 /// A font's `/BaseFont`.
 fn base_font(arena: &PdfArena, font: &Object) -> String {
-    name_of(arena, font, "BaseFont").unwrap_or_default()
+    name_in(arena, font, "BaseFont").unwrap_or_default()
 }
 
 /// 10-001's findings for one font, named `name` — or 17-003's, the same requirement of the

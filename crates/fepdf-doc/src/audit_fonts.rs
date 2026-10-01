@@ -8,6 +8,7 @@
 //! [ADR-0105](../../../docs/adr/0105-ingestion-never-rewrote-a-real-type-0-cmap.md)).
 
 use crate::structure::{AuditFinding, broken, for_a_reader};
+use fepdf_model::access::{entry, name_in};
 use fepdf_model::object::sublimation::{Command, IrObject, TextArrayItem};
 use fepdf_model::{Document, Handle, Object, PdfArena};
 use std::collections::{BTreeMap, BTreeSet};
@@ -162,23 +163,13 @@ struct Font<'a> {
 }
 
 impl Font<'_> {
-    fn entry(&self, of: &Object, key: &str) -> Option<Object> {
-        let dict = of.resolve(self.arena).as_dict_handle()?;
-        self.arena.dict_entry(dict, self.arena.name(key)).map(|v| v.resolve(self.arena))
-    }
-
-    fn name_of(&self, of: &Object, key: &str) -> Option<String> {
-        let name = self.entry(of, key)?.as_name()?;
-        self.arena.get_name(name).map(|n| n.as_str().to_string())
-    }
-
     fn audit(&self, findings: &mut Vec<AuditFinding>) {
         let font = Object::Reference(self.handle);
         self.to_unicode(&font, findings);
-        match self.name_of(&font, "Subtype").as_deref() {
+        match name_in(self.arena, &font, "Subtype").as_deref() {
             Some("TrueType") => self.true_type(&font, findings),
             Some("Type0") => {
-                let descendants = match self.entry(&font, "DescendantFonts") {
+                let descendants = match entry(self.arena, &font, "DescendantFonts") {
                     Some(Object::Array(array)) => self.arena.get_array(array).unwrap_or_default(),
                     _ => Vec::new(),
                 };
@@ -192,10 +183,10 @@ impl Font<'_> {
 
     /// 31-004: a `CIDFontType2`'s `/CIDToGIDMap` is a stream or `/Identity`.
     fn cid_to_gid_map(&self, descendant: &Object, findings: &mut Vec<AuditFinding>) {
-        if self.name_of(descendant, "Subtype").as_deref() != Some("CIDFontType2") {
+        if name_in(self.arena, descendant, "Subtype").as_deref() != Some("CIDFontType2") {
             return;
         }
-        let fine = match self.entry(descendant, "CIDToGIDMap") {
+        let fine = match entry(self.arena, descendant, "CIDToGIDMap") {
             Some(Object::Stream(..)) | None => true,
             Some(other) => other
                 .as_name()
@@ -215,13 +206,15 @@ impl Font<'_> {
 
     /// 31-019 to 31-021 and 31-023 to 31-026, for a simple TrueType font.
     fn true_type(&self, font: &Object, findings: &mut Vec<AuditFinding>) {
-        let Some(descriptor) = self.entry(font, "FontDescriptor") else { return };
-        let Some(flags) = self.entry(&descriptor, "Flags").and_then(|f| f.as_f64()) else { return };
+        let Some(descriptor) = entry(self.arena, font, "FontDescriptor") else { return };
+        let Some(flags) = entry(self.arena, &descriptor, "Flags").and_then(|f| f.as_f64()) else {
+            return;
+        };
         // Bit 3 of /Flags is Symbolic (Table 121).
         #[allow(clippy::cast_possible_truncation)] // a flag word, written as an integer
         let symbolic = (flags as i64) & 4 != 0;
         let tables = Self::embedded_cmaps(descendant_program(self, &descriptor).as_ref());
-        let encoding = self.entry(font, "Encoding");
+        let encoding = entry(self.arena, font, "Encoding");
         let say = |condition, what: String| broken(condition, format!("/{}: {what}", self.name));
         if symbolic {
             if encoding.is_some() {
@@ -269,7 +262,7 @@ impl Font<'_> {
                 }
             }
             Some(dict) => {
-                match self.name_of(&dict, "BaseEncoding") {
+                match name_in(self.arena, &dict, "BaseEncoding") {
                     None => findings.push(say(
                         "31-020",
                         "its /Encoding dictionary has no /BaseEncoding".into(),
@@ -304,7 +297,7 @@ impl Font<'_> {
                 format!("its /Differences names {unlisted:?}, which Adobe's list does not"),
             ));
         }
-        let differences = self.entry(encoding, "Differences").is_some();
+        let differences = entry(self.arena, encoding, "Differences").is_some();
         if differences && tables.is_some_and(|t| !t.contains(&(3, 1))) {
             findings.push(say(
                 "31-023",
@@ -329,7 +322,9 @@ impl Font<'_> {
 
     /// 31-028 and 31-029: what a `/ToUnicode` maps codes to.
     fn to_unicode(&self, font: &Object, findings: &mut Vec<AuditFinding>) {
-        let Some(stream @ Object::Stream(..)) = self.entry(font, "ToUnicode") else { return };
+        let Some(stream @ Object::Stream(..)) = entry(self.arena, font, "ToUnicode") else {
+            return;
+        };
         let Ok(bytes) = self.doc.decode_stream(&stream) else { return };
         let Ok(cmap) = fepdf_font::cmap::CMap::parse(&bytes) else { return };
         let values: Vec<u32> =
@@ -355,11 +350,6 @@ impl Font<'_> {
             ));
         }
     }
-}
-
-/// A dictionary entry, resolved.
-fn entry_of(arena: &PdfArena, dict: &Object, key: &str) -> Option<Object> {
-    crate::audit_objects::entry(arena, dict, key)
 }
 
 /// The strings a text-showing operator shows: `Tj`, `'`, `"`, and `TJ`'s strings.
@@ -521,7 +511,7 @@ impl Scan<'_> {
         let arena = self.doc.arena();
         let named = names_in(arena, resources, "Font");
         let key = self.doc.get_page_handle(page).and_then(|h| {
-            entry_of(arena, &Object::Reference(h), "StructParents").and_then(|k| k.as_integer())
+            entry(arena, &Object::Reference(h), "StructParents").and_then(|k| k.as_integer())
         });
         self.page = page;
         let marks = self.marks(key, resources, crate::formula_marks::Facts::default());
@@ -679,7 +669,7 @@ impl Scan<'_> {
         }
         let named = names_in(arena, own, "Font");
         let key =
-            entry_of(arena, &Object::Reference(form), "StructParents").and_then(|k| k.as_integer());
+            entry(arena, &Object::Reference(form), "StructParents").and_then(|k| k.as_integer());
         let marks = self.marks(key, own, within);
         if let Some(content) = form_commands(self.doc, form, &named) {
             self.commands(&content, own, &named, state, (depth + 1, &marks));
@@ -764,28 +754,29 @@ impl Font<'_> {
     /// The font descriptor that describes the program: the font's own, or its CIDFont's.
     fn descriptor(&self) -> Option<Object> {
         let font = Object::Reference(self.handle);
-        if self.name_of(&font, "Subtype").as_deref() == Some("Type0") {
-            let Some(Object::Array(descendants)) = self.entry(&font, "DescendantFonts") else {
+        if name_in(self.arena, &font, "Subtype").as_deref() == Some("Type0") {
+            let Some(Object::Array(descendants)) = entry(self.arena, &font, "DescendantFonts")
+            else {
                 return None;
             };
             let descendant =
                 self.arena.get_array(descendants).unwrap_or_default().into_iter().next()?;
-            return self.entry(&descendant, "FontDescriptor");
+            return entry(self.arena, &descendant, "FontDescriptor");
         }
-        self.entry(&font, "FontDescriptor")
+        entry(self.arena, &font, "FontDescriptor")
     }
 
     /// Whether the font has a program to draw with and none is embedded — Type 3 fonts
     /// draw with content streams and have none to embed (9.6.5).
     fn lacks_program(&self) -> bool {
         let font = Object::Reference(self.handle);
-        if self.name_of(&font, "Subtype").as_deref() == Some("Type3") {
+        if name_in(self.arena, &font, "Subtype").as_deref() == Some("Type3") {
             return false;
         }
         let Some(descriptor) = self.descriptor() else { return true };
         !["FontFile", "FontFile2", "FontFile3"]
             .iter()
-            .any(|key| self.entry(&descriptor, key).is_some())
+            .any(|key| entry(self.arena, &descriptor, key).is_some())
     }
 
     /// Whether this is a non-symbolic TrueType font whose embedded program has neither a
@@ -800,11 +791,11 @@ impl Font<'_> {
     /// The font descriptor of a TrueType font whose Symbolic flag is clear.
     fn non_symbolic_true_type(&self) -> Option<Object> {
         let font = Object::Reference(self.handle);
-        if self.name_of(&font, "Subtype").as_deref() != Some("TrueType") {
+        if name_in(self.arena, &font, "Subtype").as_deref() != Some("TrueType") {
             return None;
         }
-        let descriptor = self.entry(&font, "FontDescriptor")?;
-        let flags = self.entry(&descriptor, "Flags").and_then(|f| f.as_f64());
+        let descriptor = entry(self.arena, &font, "FontDescriptor")?;
+        let flags = entry(self.arena, &descriptor, "Flags").and_then(|f| f.as_f64());
         #[allow(clippy::cast_possible_truncation)] // a flag word, written as an integer
         flags.is_some_and(|f| (f as i64) & 4 == 0).then_some(descriptor)
     }
@@ -859,11 +850,11 @@ impl Font<'_> {
 
     /// Whether the font's `/Encoding`, or its `/BaseEncoding`, is one 31-027 accepts.
     fn latin_encoding(&self, font: &Object) -> bool {
-        let named = self.entry(font, "Encoding").and_then(|e| {
+        let named = entry(self.arena, font, "Encoding").and_then(|e| {
             e.as_name()
                 .and_then(|n| self.arena.get_name(n))
                 .map(|n| n.as_str().to_string())
-                .or_else(|| self.name_of(&e, "BaseEncoding"))
+                .or_else(|| name_in(self.arena, &e, "BaseEncoding"))
         });
         named.as_deref().is_some_and(|n| {
             ["MacRomanEncoding", "MacExpertEncoding", "WinAnsiEncoding"].contains(&n)
@@ -880,26 +871,25 @@ impl Font<'_> {
     /// by one of Adobe's four CJK collections, or by being a non-symbolic TrueType font.
     fn to_unicode_needed(&self, shown: Option<&BTreeSet<u8>>, findings: &mut Vec<AuditFinding>) {
         let font = Object::Reference(self.handle);
-        if self.entry(&font, "ToUnicode").is_some() {
+        if entry(self.arena, &font, "ToUnicode").is_some() {
             return;
         }
-        let encoding = self.entry(&font, "Encoding");
+        let encoding = entry(self.arena, &font, "Encoding");
         let named = encoding.as_ref().and_then(|e| {
             e.as_name()
                 .and_then(|n| self.arena.get_name(n))
                 .map(|n| n.as_str().to_string())
-                .or_else(|| self.name_of(e, "BaseEncoding"))
+                .or_else(|| name_in(self.arena, e, "BaseEncoding"))
         });
         if self.latin_encoding(&font) {
             return;
         }
         let say =
             |what: String| broken("31-027", format!("/{} has no /ToUnicode and {what}", self.name));
-        match self.name_of(&font, "Subtype").as_deref() {
+        match name_in(self.arena, &font, "Subtype").as_deref() {
             Some("TrueType") => {
-                let flags = self
-                    .entry(&font, "FontDescriptor")
-                    .and_then(|d| self.entry(&d, "Flags"))
+                let flags = entry(self.arena, &font, "FontDescriptor")
+                    .and_then(|d| entry(self.arena, &d, "Flags"))
                     .and_then(|f| f.as_f64());
                 #[allow(clippy::cast_possible_truncation)] // a flag word, written as an integer
                 if flags.is_some_and(|f| (f as i64) & 4 != 0) {
@@ -978,6 +968,6 @@ impl Font<'_> {
 
 /// A TrueType font's embedded program (`/FontFile2`), decoded.
 fn descendant_program(font: &Font<'_>, descriptor: &Object) -> Option<Vec<u8>> {
-    let stream = font.entry(descriptor, "FontFile2")?;
+    let stream = entry(font.arena, descriptor, "FontFile2")?;
     font.doc.decode_stream(&stream).ok().map(|b| b.to_vec())
 }

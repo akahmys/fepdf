@@ -14,7 +14,7 @@ use std::collections::BTreeSet;
 pub(crate) fn catalogue_states_one(doc: &Document) -> bool {
     let arena = doc.arena();
     doc.catalog_handle().is_some_and(|catalogue| {
-        let lang = crate::audit_objects::entry(arena, &Object::Reference(catalogue), "Lang");
+        let lang = fepdf_model::access::entry(arena, &Object::Reference(catalogue), "Lang");
         crate::formula_marks::stated(arena, lang).unwrap_or(false)
     })
 }

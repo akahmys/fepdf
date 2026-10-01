@@ -8,6 +8,7 @@
 //! tree (W-21j), and a file with no tree has annotations that belong to nothing.
 
 use crate::structure::{AuditFinding, broken, for_a_reader};
+use fepdf_model::access::{entry, items, name_in};
 use fepdf_model::{Document, Object, PdfArena};
 use std::collections::BTreeSet;
 
@@ -81,7 +82,7 @@ impl<'a> Belonging<'a> {
 
     /// The standard type `element` stands for.
     fn kind(&self, element: fepdf_model::Handle<Object>) -> Option<String> {
-        let tag = name_of(self.arena, &Object::Reference(element), "S")?;
+        let tag = name_in(self.arena, &Object::Reference(element), "S")?;
         crate::audit_tree::standard_type(&self.roles, &tag)
     }
 
@@ -105,18 +106,6 @@ impl<'a> Belonging<'a> {
     }
 }
 
-/// A dictionary entry, resolved.
-pub(crate) fn entry(arena: &PdfArena, dict: &Object, key: &str) -> Option<Object> {
-    let handle = dict.resolve(arena).as_dict_handle()?;
-    arena.dict_entry(handle, arena.name(key)).map(|value| value.resolve(arena))
-}
-
-/// A name entry, as its text.
-pub(crate) fn name_of(arena: &PdfArena, dict: &Object, key: &str) -> Option<String> {
-    let name = entry(arena, dict, key)?.as_name()?;
-    arena.get_name(name).map(|n| n.as_str().to_string())
-}
-
 /// Whether a text-string entry is there and says something.
 pub(crate) fn says_something(arena: &PdfArena, dict: &Object, key: &str) -> bool {
     match entry(arena, dict, key) {
@@ -125,19 +114,6 @@ pub(crate) fn says_something(arena: &PdfArena, dict: &Object, key: &str) -> bool
             !fepdf_model::refine::text::recover_string(&bytes).trim().is_empty()
         }
         _ => false,
-    }
-}
-
-/// An array entry's items, resolved; nothing when it is not an array.
-pub(crate) fn items(arena: &PdfArena, dict: &Object, key: &str) -> Vec<Object> {
-    match entry(arena, dict, key) {
-        Some(Object::Array(array)) => arena
-            .get_array(array)
-            .unwrap_or_default()
-            .iter()
-            .map(|item| item.resolve(arena))
-            .collect(),
-        _ => Vec::new(),
     }
 }
 
@@ -254,7 +230,7 @@ fn rectangle(arena: &PdfArena, object: Option<Object>) -> Option<[f64; 4]> {
 /// whose Hidden flag is set, or to one whose rectangle lies outside the crop box.
 fn subject_to_7_18_1(belonging: &Belonging<'_>, page: &Object, annotation: &Object) -> bool {
     let arena = belonging.arena;
-    if name_of(arena, annotation, "Subtype").as_deref() == Some("Popup") {
+    if name_in(arena, annotation, "Subtype").as_deref() == Some("Popup") {
         return false;
     }
     #[allow(clippy::cast_possible_truncation)] // a flag word, written as an integer
@@ -289,7 +265,7 @@ fn annotations(
     if annotations.is_empty() {
         return;
     }
-    match name_of(arena, page, "Tabs").as_deref() {
+    match name_in(arena, page, "Tabs").as_deref() {
         None => findings.push(broken(
             "28-008",
             format!("Page {at} has annotations and no /Tabs, so the order Tab takes is unstated"),
@@ -304,7 +280,7 @@ fn annotations(
         let within = subject_to_7_18_1(belonging, page, annotation);
         let broke = one_annotation(belonging, annotation, at, language, within, findings)
             | tagged_as(belonging, annotation, at, within, findings);
-        let subtype = name_of(belonging.arena, annotation, "Subtype").unwrap_or_default();
+        let subtype = name_in(belonging.arena, annotation, "Subtype").unwrap_or_default();
         if broke && !DEFINED_SUBTYPES.contains(&subtype.as_str()) {
             findings.push(broken(
                 "28-006",
@@ -332,7 +308,7 @@ fn one_annotation(
     findings: &mut Vec<AuditFinding>,
 ) -> bool {
     let arena = belonging.arena;
-    let subtype = name_of(arena, annotation, "Subtype").unwrap_or_default();
+    let subtype = name_in(arena, annotation, "Subtype").unwrap_or_default();
     let has_contents = says_something(arena, annotation, "Contents");
     let element = belonging.element(annotation);
     if subtype == "TrapNet" {
@@ -379,7 +355,7 @@ fn tagged_as(
     within: bool,
     findings: &mut Vec<AuditFinding>,
 ) -> bool {
-    let subtype = name_of(belonging.arena, annotation, "Subtype").unwrap_or_default();
+    let subtype = name_in(belonging.arena, annotation, "Subtype").unwrap_or_default();
     let element = belonging.element(annotation);
     let kind = element.and_then(|e| belonging.kind(e));
     let (condition, wanted) = match subtype.as_str() {

@@ -9,8 +9,8 @@
 //! **31-010 is the exception**: a font program's `OS/2.fsType` states whether it may be
 //! embedded, and a program that says it may not has settled the question itself.
 
-use crate::audit_objects::{entry, name_of};
 use crate::structure::{AuditFinding, broken, for_a_reader, sound_because};
+use fepdf_model::access::{entry, name_in};
 use fepdf_model::{Document, Object, PdfArena};
 use std::collections::BTreeSet;
 
@@ -96,7 +96,7 @@ pub(crate) fn audit_presence(
     decide("28-001", annotations, "annotations", findings);
     decide("28-003", annotations, "annotations", findings);
     decide("28-013", has.is_map, "URI actions stating /IsMap true", findings);
-    let threads = crate::audit_objects::items(doc.arena(), &catalogue(doc), "Threads").len();
+    let threads = fepdf_model::access::items(doc.arena(), &catalogue(doc), "Threads").len();
     decide("22-001", threads, "article threads", findings);
     elements(doc, findings);
     embeddable(doc, &has.descriptors, findings);
@@ -134,7 +134,7 @@ fn survey(doc: &Document, dicts: &[Object]) -> Has {
     let mut has = Has::default();
     for dict in dicts {
         has.languages += usize::from(entry(arena, dict, "Lang").is_some());
-        if let Some(subtype) = name_of(arena, dict, "Subtype")
+        if let Some(subtype) = name_in(arena, dict, "Subtype")
             && entry(arena, dict, "Rect").is_some()
         {
             has.annotations.push(subtype);
@@ -145,11 +145,11 @@ fn survey(doc: &Document, dicts: &[Object]) -> Has {
         {
             has.descriptors.push(dict.clone());
         }
-        let Some(kind) = name_of(arena, dict, "S").filter(|s| ACTION_TYPES.contains(&s.as_str()))
+        let Some(kind) = name_in(arena, dict, "S").filter(|s| ACTION_TYPES.contains(&s.as_str()))
         else {
             continue;
         };
-        if name_of(arena, dict, "Type").as_deref() == Some("StructElem") {
+        if name_in(arena, dict, "Type").as_deref() == Some("StructElem") {
             continue;
         }
         if kind == "JavaScript" {
@@ -222,7 +222,7 @@ fn count_elements(doc: &Document) -> Elements {
         let mut visitor = crate::structure::StructureVisitor::new(arena, root);
         while let Some(element) = visitor.next_element() {
             let element = Object::Reference(element);
-            let Some(tag) = name_of(arena, &element, "S") else { continue };
+            let Some(tag) = name_in(arena, &element, "S") else { continue };
             e.all += 1;
             if !crate::audit_tree::standard(&tag) {
                 e.custom.insert(tag.clone());
@@ -253,7 +253,7 @@ fn list_numbering(
     classes: &std::collections::BTreeMap<String, Vec<Object>>,
 ) -> Option<String> {
     let mut attributes = match entry(arena, element, "A") {
-        Some(Object::Array(_)) => crate::audit_objects::items(arena, element, "A"),
+        Some(Object::Array(_)) => fepdf_model::access::items(arena, element, "A"),
         Some(single) => vec![single],
         None => Vec::new(),
     };
@@ -261,7 +261,7 @@ fn list_numbering(
         Some(Object::Name(n)) => {
             arena.get_name(n).map(|n| n.as_str().to_string()).into_iter().collect()
         }
-        Some(Object::Array(_)) => crate::audit_objects::items(arena, element, "C")
+        Some(Object::Array(_)) => fepdf_model::access::items(arena, element, "C")
             .iter()
             .filter_map(|c| c.as_name().and_then(|n| arena.get_name(n)))
             .map(|n| n.as_str().to_string())
@@ -271,8 +271,8 @@ fn list_numbering(
     attributes.extend(named.iter().filter_map(|c| classes.get(c)).flatten().cloned());
     attributes
         .iter()
-        .filter(|a| name_of(arena, a, "O").as_deref() == Some("List"))
-        .find_map(|a| name_of(arena, a, "ListNumbering"))
+        .filter(|a| name_in(arena, a, "O").as_deref() == Some("List"))
+        .find_map(|a| name_in(arena, a, "ListNumbering"))
 }
 
 /// 31-010: each embedded program's `OS/2.fsType` permits embedding it as it is embedded —
@@ -287,7 +287,7 @@ fn embeddable(doc: &Document, descriptors: &[Object], findings: &mut Vec<AuditFi
             .iter()
             .find_map(|key| entry(arena, descriptor, key))
             .and_then(|file| doc.decode_stream(&file).ok());
-        let name = name_of(arena, descriptor, "FontName").unwrap_or_default();
+        let name = name_in(arena, descriptor, "FontName").unwrap_or_default();
         let subset =
             name.get(6..7) == Some("+") && name[..6].bytes().all(|b| b.is_ascii_uppercase());
         match program.as_deref().and_then(embedding_permission) {
