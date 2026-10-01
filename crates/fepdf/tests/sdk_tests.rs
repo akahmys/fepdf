@@ -736,6 +736,13 @@ fn a_save_is_refused_a_version_this_engine_does_not_write() {
 fn a_summary_reports_the_version_the_file_is() {
     let doc = PdfDocument::open(get_minimal_pdf()).expect("the fixture opens");
     assert_eq!(doc.get_summary().expect("a summary").version, "1.7");
+    // What was read, not what will be written: an upgrade sets the version the engine
+    // writes, and the file it read was still 1.7.
+    let mut upgraded = PdfDocument::open(get_minimal_pdf()).expect("the fixture opens");
+    upgraded
+        .apply(fepdf::Operation::Upgrade { standard: fepdf::PdfStandard::ISO32000_2 })
+        .expect("it upgrades");
+    assert_eq!(upgraded.effective_version(), "1.7", "the version written was reported as read");
 
     let bodies = [
         "<< /Type /Pages /Kids [] /Count 0 >>".to_string(),
