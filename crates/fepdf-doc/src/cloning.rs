@@ -38,6 +38,12 @@ impl<'a> ObjectCloner<'a> {
         Self { source, target, handle_map: BTreeMap::new(), stack: Vec::new() }
     }
 
+    /// The arena this clones into.
+    #[must_use]
+    pub const fn target(&self) -> &'a PdfArena {
+        self.target
+    }
+
     /// Clones a specific handle's object and returns the new handle.
     /// This is the primary entry point for iterative cloning.
     pub fn clone_handle(&mut self, source_h: Handle<Object>) -> PdfResult<Handle<Object>> {

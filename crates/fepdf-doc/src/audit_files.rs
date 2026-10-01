@@ -8,8 +8,8 @@
 //! walked once, and each condition asks every dictionary it concerns.
 
 use crate::audit_fonts::{FORM_DEPTH, Resources, form_commands, form_resources};
-use fepdf_model::access::names_in;
 use crate::structure::{AuditFinding, broken};
+use fepdf_model::access::names_in;
 use fepdf_model::access::{entry, items, name_in};
 use fepdf_model::object::sublimation::Command;
 use fepdf_model::{Document, Handle, Object, PdfArena};

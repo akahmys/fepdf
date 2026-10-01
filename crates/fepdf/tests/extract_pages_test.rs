@@ -260,3 +260,92 @@ fn a_page_left_out_of_an_extraction_is_not_written() {
         assert!(!mentions, "{needle} is still in the extracted file");
     }
 }
+
+/// A one-page document whose outline has one item, `title`, going to its page.
+fn outlined(title: &str) -> PdfDocument {
+    let bytes = fepdf_fixtures::assemble(&[
+        "<< /Type /Catalog /Pages 2 0 R /Outlines 4 0 R >>".to_string(),
+        "<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_string(),
+        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] >>".to_string(),
+        "<< /Type /Outlines /First 5 0 R /Last 5 0 R /Count 1 >>".to_string(),
+        format!("<< /Title ({title}) /Parent 4 0 R /Dest [3 0 R /Fit] >>"),
+    ]);
+    PdfDocument::open(bytes.into()).expect("the fixture opens")
+}
+
+/// **Each source's outline comes across under an item of its own, in order.**
+///
+/// The items are linked to each other, so reading the outline back walks `/Next` from the
+/// first to the second; and the second source's bookmark goes to the second page.
+#[test]
+fn a_merged_document_keeps_each_sources_outline_under_its_own_item() {
+    let merged = PdfDocument::merge(vec![outlined("One"), outlined("Two")]).expect("they merge");
+    let (tree, _) = merged.outlines();
+    let shape: Vec<_> = tree
+        .items
+        .iter()
+        .map(|i| {
+            let children: Vec<_> =
+                i.children.iter().map(|c| (c.title.clone(), c.destination_page)).collect();
+            (i.title.clone(), children)
+        })
+        .collect();
+    assert_eq!(
+        shape,
+        [
+            ("Source 1".to_string(), vec![("One".to_string(), 0)]),
+            ("Source 2".to_string(), vec![("Two".to_string(), 1)]),
+        ]
+    );
+}
+
+/// **Every source's form fields are in the merged form.**
+#[test]
+fn a_merged_document_has_every_sources_fields() {
+    use fepdf_fixtures::{FormField, acroform};
+    let open = |bytes: Vec<u8>| PdfDocument::open(bytes.into()).expect("the fixture opens");
+    let first = open(acroform(&[FormField::new("who", "a")], &[]));
+    let second = open(acroform(&[FormField::new("when", "b")], &[]));
+    let merged = PdfDocument::merge(vec![first, second]).expect("they merge");
+    let form = fepdf::form_of(merged.inner());
+    let names: Vec<_> = form.terminal.iter().map(|f| f.name.clone()).collect();
+    assert_eq!(names, [Some("who".to_string()), Some("when".to_string())]);
+}
+
+/// Merging nothing is refused rather than answered with an empty document.
+#[test]
+fn merging_nothing_is_refused() {
+    assert!(PdfDocument::merge(Vec::new()).is_err());
+}
+
+/// **A link between two pages both kept is kept.**
+///
+/// A page was cloned as a dictionary into one object, and the link's destination through
+/// the cloner's map into another no page tree held; removing what names an absent page
+/// then deleted the link, from a selection that left nothing out.
+#[test]
+fn a_link_between_two_kept_pages_is_kept() {
+    let bytes = fepdf_fixtures::assemble(&[
+        "<< /Type /Catalog /Pages 2 0 R >>",
+        "<< /Type /Pages /Kids [3 0 R 4 0 R] /Count 2 >>",
+        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Annots [5 0 R] >>",
+        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] >>",
+        "<< /Type /Annot /Subtype /Link /Rect [0 0 10 10] /Dest [4 0 R /Fit] >>",
+    ]);
+    let doc = PdfDocument::open(bytes.into()).expect("the fixture opens");
+    let out = doc.extract_pages(vec![0, 1]).expect("it extracts");
+    let (arena, inner) = (out.inner().arena(), out.inner());
+    let first = fepdf_model::Object::Reference(inner.get_page_handle(0).expect("page 0"));
+    let second = inner.get_page_handle(1).expect("page 1");
+
+    let annots = fepdf_model::access::items(arena, &first, "Annots");
+    assert_eq!(annots.len(), 1, "the link was dropped");
+    // The destination's page as written: `items` would resolve it into the page itself.
+    let dest = fepdf_model::access::entry(arena, &annots[0], "Dest").and_then(|d| d.as_array());
+    let page = dest.and_then(|d| arena.get_array(d)).and_then(|d| d.first().cloned());
+    assert_eq!(
+        page,
+        Some(fepdf_model::Object::Reference(second)),
+        "the link goes to a page outside the tree"
+    );
+}

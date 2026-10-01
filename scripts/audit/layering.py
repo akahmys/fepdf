@@ -17,7 +17,12 @@ Two counts, both expecting 0:
   not part of the caller's vocabulary. Above the facade they may not appear at all, in a
   frontend or in a library the frontends call.
 
-Rule D adds a third, also expecting 0: **a document is changed by `apply` and nothing
+* **Arenas made in the facade.** The facade holds a document; `fepdf-doc` builds new
+  ones. Merging, extracting and the copy a save writes each called `PdfArena::new` in
+  `crates/fepdf/src/lib.rs` until ROADMAP Y-5 moved them beside the cloner, which is the
+  shape that let them carry their own copies of a page tree.
+
+Rule D adds a fourth, also expecting 0: **a document is changed by `apply` and nothing
 else.** `CODING.md` called that "enforced by construction" for four phases while the facade
 exposed every mutation twice — as an `Operation` variant and as a plain method — and eight
 frontend call sites took the method. The property lives in the facade's own type now: a
@@ -118,6 +123,17 @@ def arena_leaks() -> list[str]:
     return out
 
 
+def facade_arenas() -> list[str]:
+    """`PdfArena::new` anywhere in the facade's own source."""
+    out = []
+    for file in sorted((ROOT / "crates" / FACADE / "src").rglob("*.rs")):
+        for number, line in enumerate(file.read_text(errors="ignore").splitlines(), 1):
+            if "PdfArena::new" in line:
+                where = file.relative_to(ROOT)
+                out.append(f"  {where}:{number} makes an arena in the facade")
+    return out
+
+
 def facade_mutators() -> list[str]:
     """`&mut self` methods on the facade that are neither `apply` nor a save setting.
 
@@ -146,14 +162,20 @@ def main() -> int:
         return 1
 
     strays, leaks, mutators = stray_declarations(), arena_leaks(), facade_mutators()
-    print(f"declarations={len(strays)} leaks={len(leaks)} mutators={len(mutators)}")
-    for line in strays + leaks + mutators:
+    arenas = facade_arenas()
+    print(
+        f"declarations={len(strays)} leaks={len(leaks)} mutators={len(mutators)} "
+        f"arenas={len(arenas)}"
+    )
+    for line in strays + leaks + mutators + arenas:
         print(line)
     if strays or leaks:
         print("Rule A: a frontend declares the facade, and a library that stands above it")
+    if arenas:
+        print("Rule A: the facade holds a document; fepdf-doc makes new ones")
     if mutators:
         print("Rule D: a document is changed by `apply` and nothing else")
-    if strays or leaks or mutators:
+    if strays or leaks or mutators or arenas:
         return 1
     print("  PASS")
     return 0

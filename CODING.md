@@ -208,6 +208,9 @@ A frontend that traverses arenas has taken on domain logic it cannot test and th
 engine cannot protect. When that happens the defect surfaces as "the UI is wrong"
 long after the real cause.
 
+The facade holds documents and does not make the store one lives in: a new document —
+merged, extracted, or copied for a save — is built in `fepdf-doc`, beside the cloner.
+
 ### Rule B — A crate that defines a contract does not depend on its implementations
 
 Traits and their data types live with the code that *calls* them, not with any one
@@ -242,7 +245,7 @@ drift, silently, because nothing compares them. That has already happened here
 
 | | Checked by |
 | :--- | :--- |
-| **Rules A–C** | Cargo, through [`scripts/audit/layering.py`](scripts/audit/layering.py) in the audit. A frontend declares `fepdf` and a library that stands above it ([ADR-0082](docs/adr/0082-the-script-crate-is-a-library-the-frontends-call.md)); no arena type appears above the facade at all. Both expect 0, and the audit fails on either. `status.sh` reports what that script returns. **It reported them and nothing gated on either until 2026-09-07**, when a frontend gained a dependency the row counted and the audit passed regardless. |
+| **Rules A–C** | Cargo, through [`scripts/audit/layering.py`](scripts/audit/layering.py) in the audit. A frontend declares `fepdf` and a library that stands above it ([ADR-0082](docs/adr/0082-the-script-crate-is-a-library-the-frontends-call.md)); no arena type appears above the facade at all; and no `PdfArena::new` appears in the facade. Each expects 0, and the audit fails on any. `status.sh` reports what that script returns. **It reported them and nothing gated on either until 2026-09-07**, when a frontend gained a dependency the row counted and the audit passed regardless. |
 | **Rule D** | [`scripts/audit/layering.py`](scripts/audit/layering.py) in the audit, with Rules A–C. It counts `&mut self` methods on the facade that are neither `apply` nor a save setting, expects 0, and fails on any. **Measured here and gated nowhere until 2026-09-07**, which is the shape that let Rule A read 1 with the audit passing ([ADR-0082](docs/adr/0082-the-script-crate-is-a-library-the-frontends-call.md)). |
 | **RR-15** | [`scripts/audit/verify_compliance.sh`](scripts/audit/verify_compliance.sh) |
 | **Lints** | `cargo clippy --workspace --all-targets -- -D warnings`. `--all-targets` is required, or tests, examples and benches go unlinted. |

@@ -853,6 +853,23 @@ eight times, and the copies do not agree on whether to resolve.
       Fixed by `page_removal.rs`, which both paths end in: what named the page goes
       with it — the user's choice over leaving the references empty — and what still
       points at it is made `null`.
+- [ ] **Y-F21** — **a page was two objects in a merged or extracted document, and a
+      direct dictionary is read as an object it is not.** Measured 2026-10-02 on
+      `extract_pages_test.rs`'s fixtures:
+      - `extract_pages(vec![0, 1])` on a two-page document deleted the link from page 0
+        to page 1. A page was cloned as a dictionary into a new object, and the link's
+        destination through the cloner's map into another one no tree held, so
+        `forget_absent_pages` (Y-F18) took it for a link to a page left out. Fixed: the
+        pages are cloned by handle.
+      - `merge` produced no outline at all, and with that fixed, the second source's
+        bookmark went to page 0. `/Outlines` was written direct, which Table 29 forbids,
+        and the destination named the second copy of the page. Fixed: the root is an
+        object of its own, and the page is the one copy.
+      - Open: `struct_tree::resolve_to_node_handle` answers a direct dictionary with
+        `Handle::new(dh.index())` — a number from the `dicts` pool used as one from the
+        `objects` pool, the shape `font_census_test.rs` records for `object_id`. A file
+        whose `/Outlines` is written direct reads as having no bookmarks, and which
+        object it reads instead is whatever shares the index.
 - [x] **Y-F20** — **what a crop cut off an image was still in the file.** The page drew
       the cut part under a name of its own, and the whole image stayed in its resources
       under its old one, so the writer wrote every pixel the crop took away — measured
@@ -1006,9 +1023,13 @@ eight times, and the copies do not agree on whether to resolve.
       and Y-3 already took their `audit_objects` imports. The one operation that
       imported from an audit was `apply/artifacts.rs`, through `audit_fonts::names_in`,
       which is `fepdf_model::access::names_in` now. Nothing checks that it stays so.
-- [ ] **Y-5** — `merge` and `extract_pages` leave the facade for `fepdf-doc`, beside the
+- [x] **Y-5** — `merge` and `extract_pages` leave the facade for `fepdf-doc`, beside the
       cloner. They build a `PdfArena` in `fepdf/src/lib.rs`. `layering.py` fails on a
       `PdfArena::new` in the facade. *Done when* adding one back fails the audit.
+      `fepdf_doc::assembly` holds both and the copy a save writes, the third arena the
+      facade made; merging and extracting share one page tree. `layering.py` counts
+      `arenas=`, and a `PdfArena::new` appended to `fepdf/src/lib.rs` read `arenas=1`
+      and failed it. `merge` had no test, and the ones written for the move found Y-F21.
 - [ ] **Y-6** — `PdfError::Other` is removed, and its 199 sites take the variant for
       their kind
       ([ADR-0102](docs/adr/0102-an-error-says-whose-it-is.md)).

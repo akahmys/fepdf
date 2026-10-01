@@ -7,6 +7,8 @@
 
 /// Dispatcher and domain modules for applying operations to documents.
 pub mod apply;
+/// New documents built from existing ones: merged, extracted, or copied for a writer.
+pub mod assembly;
 /// Matterhorn conditions about embedded files, XFA, encryption, media and shared forms.
 pub mod audit_files;
 /// Matterhorn conditions about font dictionaries and embedded programs.
