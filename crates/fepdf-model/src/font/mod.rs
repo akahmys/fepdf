@@ -2679,6 +2679,60 @@ impl FontResource {
         self.decode_via_heuristics_sourced(data)
     }
 
+    /// The codes `bytes` is made of, as this font reads them: by its CMap's codespace, or
+    /// two bytes each for a composite font under `Identity` and one for a simple font.
+    #[must_use]
+    pub fn codes<'a>(&self, bytes: &'a [u8]) -> Vec<&'a [u8]> {
+        let fixed = if self.is_cid_keyed { 2 } else { 1 };
+        let mut out = Vec::new();
+        let mut rest = bytes;
+        while !rest.is_empty() {
+            let len = self.code_length(rest).unwrap_or(fixed).clamp(1, rest.len());
+            out.push(&rest[..len]);
+            rest = &rest[len..];
+        }
+        out
+    }
+
+    /// The code this font draws `character` by, when it has one: a simple font's byte, or
+    /// a composite font's CID written as its CMap codes that CID — which under `Identity`
+    /// is the CID itself, and under any other CMap is not.
+    #[must_use]
+    pub fn code_for(&self, character: char) -> Option<Vec<u8>> {
+        let key = character.to_string();
+        let mapped = self
+            .unified_map
+            .get(&key)
+            .copied()
+            .or_else(|| self.collection_unicode_to_cid.as_ref()?.get(&key).copied());
+        if !self.is_cid_keyed {
+            return Some(vec![u8::try_from(mapped?).ok()?]);
+        }
+        match self.encoding.as_ref() {
+            // **A character has several CIDs, and a CMap reaches some of them**: Adobe-Japan1
+            // gives `A` a proportional CID and a half-width one, and `90ms-RKSJ-H` codes
+            // only the second. Each CID the collection gives the character is tried.
+            Some(cmap) if !cmap.name.starts_with("Identity") => mapped
+                .into_iter()
+                .chain(self.collection_cids_of(&key))
+                .find_map(|cid| cmap.code_for_cid(cid)),
+            _ => Some(u16::try_from(mapped?).ok()?.to_be_bytes().to_vec()),
+        }
+    }
+
+    /// Every CID the font's collection gives `text`, in order, read the other way through
+    /// the collection's CID-to-Unicode table.
+    fn collection_cids_of(&self, text: &str) -> Vec<u32> {
+        let Some(table) = self.collection_map.as_ref() else { return Vec::new() };
+        table
+            .mappings
+            .iter()
+            .filter(|(_, value)| value.as_str() == text)
+            .filter_map(|(code, _)| <[u8; 2]>::try_from(code.as_slice()).ok())
+            .map(|code| u32::from(u16::from_be_bytes(code)))
+            .collect()
+    }
+
     /// How long the code at the start of `data` is, by the codespace ranges of a Type 0
     /// font's CMap (9.7.6.2) — for a CMap other than `Identity`, whose codes are all two
     /// bytes and are read by the route below.

@@ -169,3 +169,48 @@ fn a_shift_jis_string_is_split_by_its_cmaps_codespace() {
     let doc = PdfDocument::open(assemble(&bodies).into()).expect("document opens");
     assert_eq!(doc.extract_text(0).expect("text extracts").trim(), "ABCあい");
 }
+
+/// The Shift-JIS fixture above, opened.
+fn shift_jis() -> PdfDocument {
+    let content = b"BT /F1 24 Tf 20 100 Td (ABC\x82\xa0\x82\xa2) Tj ET".to_vec();
+    let mut stream = format!("<< /Length {} >>\nstream\n", content.len()).into_bytes();
+    stream.extend_from_slice(&content);
+    stream.extend_from_slice(b"\nendstream");
+    let bodies: Vec<Vec<u8>> = vec![
+        b"<< /Type /Catalog /Pages 2 0 R >>".to_vec(),
+        b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_vec(),
+        b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 300 200] /Contents 4 0 R \
+          /Resources << /Font << /F1 5 0 R >> >> >>"
+            .to_vec(),
+        stream,
+        b"<< /Type /Font /Subtype /Type0 /BaseFont /Ryumin-Light-90ms-RKSJ-H \
+          /Encoding /90ms-RKSJ-H /DescendantFonts [6 0 R] >>"
+            .to_vec(),
+        b"<< /Type /Font /Subtype /CIDFontType0 /BaseFont /Ryumin-Light \
+          /CIDSystemInfo << /Registry (Adobe) /Ordering (Japan1) /Supplement 2 >> \
+          /FontDescriptor 7 0 R >>"
+            .to_vec(),
+        b"<< /Type /FontDescriptor /FontName /Ryumin-Light /Flags 6 /FontBBox [0 -200 1000 900] \
+          /ItalicAngle 0 /Ascent 900 /Descent -200 /CapHeight 700 /StemV 80 >>"
+            .to_vec(),
+    ];
+    PdfDocument::open(assemble(&bodies).into()).expect("document opens")
+}
+
+/// **A Shift-JIS run is read, cut and rewritten by its codes** (Y-F14's other half). The
+/// run tools cut strings into two-byte codes and wrote a character's CID as its code, so
+/// the run read as three codes, a cut fell inside a letter, and an edit wrote CIDs the
+/// CMap reads as other characters.
+#[test]
+fn a_shift_jis_run_is_read_cut_and_rewritten_by_its_codes() {
+    let mut doc = shift_jis();
+    let runs = fepdf::text::runs_of_page(doc.inner(), 0).expect("it lists");
+    assert_eq!(runs[0].pieces, ["A", "B", "C", "あ", "い"], "the run's codes");
+    doc.apply(fepdf::Operation::SplitRun { page: 0, run: 0, after: 3 }).expect("it splits");
+    let runs = fepdf::text::runs_of_page(doc.inner(), 0).expect("it lists");
+    let texts: Vec<&str> = runs.iter().map(|r| r.text.as_str()).collect();
+    assert_eq!(texts, ["ABC", "あい"], "the cut fell between codes");
+    doc.apply(fepdf::Operation::EditRun { page: 0, run: 1, text: "うA".to_string() })
+        .expect("it is rewritten");
+    assert_eq!(doc.extract_text(0).expect("text extracts").trim(), "ABCうA");
+}

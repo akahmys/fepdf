@@ -529,9 +529,21 @@ fn font_named(
 /// also where the time went: the table was turned round for every string, and reading
 /// every page of `fy05.pdf` took 37 s. `cargo run --release --example unread_codes` and
 /// `--example find_timing` re-derive both.
+///
+/// **Code by code as the font reads them**, which for a composite font is its CMap's
+/// codespace: cut two bytes at a time, a Shift-JIS run read `ABCあい` as three codes.
 fn decode(font: &FontResource, bytes: &[u8]) -> Vec<String> {
-    let width = if font.is_cid_keyed { 2 } else { 1 };
-    bytes.chunks(width).map(|chunk| font.to_unicode(chunk).unwrap_or_default()).collect()
+    // Under a CMap other than `Identity` a code is not its CID, which `to_unicode` takes it
+    // for; `decode_next` reads it through the CMap, as extraction does.
+    let through_cmap = font.is_cid_keyed
+        && font.encoding.as_ref().is_some_and(|cmap| !cmap.name().starts_with("Identity"));
+    font.codes(bytes)
+        .into_iter()
+        .map(|code| {
+            let read = if through_cmap { font.decode_next(code).1 } else { font.to_unicode(code) };
+            read.unwrap_or_default()
+        })
+        .collect()
 }
 
 /// `text`, in the codes this font draws it by.
@@ -539,20 +551,18 @@ fn decode(font: &FontResource, bytes: &[u8]) -> Vec<String> {
 /// **A character the font does not draw is refused.** Substituting one draws a different
 /// letter, and writing the character's own bytes draws whatever glyph happens to sit at
 /// that code — which is how 図面 became six Latin glyphs before this phase.
+///
+/// **The code the font's CMap gives the character**, through [`FontResource::code_for`]:
+/// the CID was written as the code, which is the code only under `Identity`.
 fn encode(font: &FontResource, text: &str) -> PdfResult<bytes::Bytes> {
-    let width = if font.is_cid_keyed { 2 } else { 1 };
-    let mut out = Vec::with_capacity(text.chars().count() * width);
+    let mut out = Vec::with_capacity(text.len() * 2);
     for character in text.chars() {
-        let Some(code) = font.unified_map.get(&character.to_string()) else {
+        let Some(code) = font.code_for(character) else {
             return Err(PdfError::Other(
                 format!("the font this run is set in does not draw {character:?}").into(),
             ));
         };
-        if width == 2 {
-            out.extend_from_slice(&u16::try_from(*code).unwrap_or(0).to_be_bytes());
-        } else {
-            out.push(u8::try_from(*code).unwrap_or(0));
-        }
+        out.extend_from_slice(&code);
     }
     Ok(bytes::Bytes::from(out))
 }
@@ -589,7 +599,6 @@ pub fn apply_split_run(doc: &Document, page: usize, run: usize, after: usize) ->
     // those glyphs off the page as a side effect of moving a boundary. Cutting the bytes
     // asks nothing of the reading, and `RunInfo::pieces` is what turns a place in the text
     // into a place among the codes.
-    let width = if target.font.is_cid_keyed { 2 } else { 1 };
     let (mut head, mut tail) = (Vec::new(), Vec::new());
     let mut placed = 0;
     for element in elements_of(&tokens, target) {
@@ -603,8 +612,11 @@ pub fn apply_split_run(doc: &Document, page: usize, run: usize, after: usize) ->
             }
             continue;
         };
-        let room = (after.saturating_sub(placed) * width).min(bytes.len());
-        placed += room / width;
+        // As many of this string's codes as are still before the cut, in bytes.
+        let codes = target.font.codes(&bytes);
+        let taken = after.saturating_sub(placed).min(codes.len());
+        let room: usize = codes[..taken].iter().map(|code| code.len()).sum();
+        placed += taken;
         if room > 0 {
             head.push(Token::String(bytes.slice(..room)));
         }
@@ -854,14 +866,13 @@ fn code_places(
     operands: &[usize],
     state: &TextState,
 ) -> Vec<(f64, f64)> {
-    let width = if font.is_cid_keyed { 2 } else { 1 };
     let scale = state.scale / 100.0;
     let mut places = Vec::new();
     let mut along = 0.0;
     for index in operands {
         match tokens.get(*index) {
             Some(Token::String(bytes) | Token::Hex(bytes)) => {
-                for chunk in bytes.chunks(width) {
+                for chunk in font.codes(bytes) {
                     let step = shown_displacement(font, chunk, state) * scale;
                     places.push((along, step));
                     along += step;
@@ -912,14 +923,13 @@ fn displacement(
 /// the first on a line 49 points off, because a missing entry fell back to a full em
 /// rather than to the estimate the engine already keeps for exactly this.
 fn shown_displacement(font: &FontResource, bytes: &[u8], state: &TextState) -> f64 {
-    let width = if font.is_cid_keyed { 2 } else { 1 };
-    bytes
-        .chunks(width)
+    font.codes(bytes)
+        .into_iter()
         .map(|chunk| {
             let w0 = f64::from(font.glyph_width(chunk)) / 1000.0;
             // 9.4.4: word spacing applies to a single-byte code 32 and to nothing else,
             // which is why a CID font set in two-byte codes does not get it.
-            let single_space = width == 1 && chunk.first() == Some(&32);
+            let single_space = chunk == [32];
             let word = if single_space { state.word_spacing } else { 0.0 };
             w0 * state.size + state.char_spacing + word
         })
@@ -1270,7 +1280,7 @@ impl Run {
     /// stand for the glyphs that went. A `TJ` offset moves the text matrix without drawing
     /// (9.4.3), which is exactly what a removed glyph has to leave behind.
     fn without_what_falls_outside(&self, keep: (f64, f64, f64, f64)) -> Option<Vec<u8>> {
-        let width = if self.font.is_cid_keyed { 2 } else { 1 };
+        let codes = self.font.codes(&self.codes);
         let kept: Vec<bool> =
             self.places.iter().map(|place| self.code_meets(*place, keep)).collect();
         if kept.iter().all(|inside| *inside) {
@@ -1282,7 +1292,7 @@ impl Run {
         let mut run_of_codes: Vec<u8> = Vec::new();
         let mut skipped = 0.0_f64;
         for (nth, inside) in kept.iter().enumerate() {
-            let Some(codes) = self.codes.get(nth * width..(nth + 1) * width) else { continue };
+            let Some(codes) = codes.get(nth).copied() else { continue };
             let Some(place) = self.places.get(nth) else { continue };
             if *inside {
                 Self::write_offset(&mut out, std::mem::take(&mut skipped), self.placement);

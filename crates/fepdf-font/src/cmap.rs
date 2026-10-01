@@ -118,6 +118,30 @@ impl CMap {
         u32::from(code.first().copied().unwrap_or(0))
     }
 
+    /// The code this CMap gives `cid`, the shortest where several do: the other way round
+    /// from [`Self::to_cid`], through the same `cidchar` and `cidrange` entries.
+    #[must_use]
+    pub fn code_for_cid(&self, cid: u32) -> Option<Vec<u8>> {
+        let mut found: Option<Vec<u8>> = self
+            .mappings_cid
+            .iter()
+            .filter(|(_, mapped)| **mapped == cid)
+            .map(|(code, _)| code.clone())
+            .min_by_key(Vec::len);
+        for range in &self.cid_ranges {
+            let span = range.end.saturating_sub(range.start);
+            if cid < range.base || cid - range.base > span || range.len == 0 || range.len > 4 {
+                continue;
+            }
+            let value = range.start + (cid - range.base);
+            let code = value.to_be_bytes()[4 - range.len..].to_vec();
+            if found.as_ref().is_none_or(|seen| code.len() < seen.len()) {
+                found = Some(code);
+            }
+        }
+        found
+    }
+
     /// Decodes the next code, returning its byte length and the text it maps to.
     pub fn decode_next(&self, data: &[u8]) -> (usize, Option<String>) {
         if data.is_empty() {

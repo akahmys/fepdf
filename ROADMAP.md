@@ -866,7 +866,7 @@ eight times, and the copies do not agree on whether to resolve.
       its media box the text can fall outside what shows; on a page turned by `/Rotate
       90`, which scanned landscape pages commonly are, "top left" lands on a side edge and
       the words run up the sheet. Placing it on what shows means drawing it turned as well.
-- [ ] **Y-F14** — a composite font's codes are taken as two bytes each, whatever its CMap's
+- [x] **Y-F14** — a composite font's codes are taken as two bytes each, whatever its CMap's
       codespace says (9.7.6.2). `FontResource::get_min_len` asks every Type0 font for at
       least two, and `apply/text.rs` cuts its strings into pairs for reading, encoding,
       widths and places. A CMap with one-byte ranges beside two-byte ones, such as
@@ -878,6 +878,10 @@ eight times, and the copies do not agree on whether to resolve.
       on `sample_02c.pdf`'s `KozMinPr6N` under `UniJIS-UTF16-H`: 東 maps to 3174, where
       the code is `6771`. `text.rs`'s `encode` writes those CIDs as codes; a field's
       appearance no longer does (`appearance::shown_in`).
+      Fixed: reading splits a composite font's codes by its CMap's codespace and reads a
+      code through the CID the CMap gives it (`b4c4eb3`), and the run tools cut, measure
+      and write by the same codes, a character written as a code its CMap reaches
+      (`FontResource::codes`, `code_for`).
 - [ ] **Y-F15** — ingestion fills a missing `/CIDToGIDMap` with `/Identity`
       (`refine/font.rs`) and records no `Decision`, so the audit cannot see what
       ISO 14289-1 7.21.3.2 fails: 31-004's arm for an absent entry passes, and never runs.
