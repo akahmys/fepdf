@@ -28,7 +28,7 @@ read and write live together, **D** frontends translate and never decide — are
 ┌─ Frontends ─────────────────────────────────────────────────────────┐
 │   fepdf-cli      fepdf-gui       fepdf-mcp       fepdf-wasm         │
 │                      └──────┬───────┘                               │
-│                      fepdf-script   a library: ECMAScript → Operation │
+│                      fepdf-script   library: ECMAScript → Operation │
 └─────────────────────────┬───────────────────────────────────────────┘
                           │   ◄── Rule A boundary: no Arena / Handle above here
 ┌─────────────────────────▼───────────────────────────────────────────┐
