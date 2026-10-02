@@ -109,33 +109,7 @@ pub fn apply_edit_xobject(
     let (tokens, found) = walk(&data);
     let Some(draw) = found.get(object) else { return Ok(()) };
 
-    let (transform, name) = match edit {
-        XObjectEdit::Move { to } => (move_to(target, *to), draw.name.clone()),
-        XObjectEdit::Scale { by } => {
-            if !(*by > 0.0 && by.is_finite()) {
-                return Err(PdfError::refused(
-                    "EditXObject",
-                    format!("a scale of {by} draws nothing"),
-                ));
-            }
-            (about_centre(target, Affine::scale(*by)), draw.name.clone())
-        }
-        XObjectEdit::Rotate { degrees } => {
-            (about_centre(target, Affine::rotate(degrees.to_radians())), draw.name.clone())
-        }
-        XObjectEdit::Replace { jpeg } => {
-            if !target.image {
-                return Err(PdfError::refused(
-                    "EditXObject",
-                    format!(
-                        "object {object} is a form, and only an image is replaced by a picture"
-                    ),
-                ));
-            }
-            let image = crate::apply::markup::jpeg_image(doc.arena(), jpeg)?;
-            (Affine::IDENTITY, name_in_page(doc, page, image)?)
-        }
-    };
+    let (transform, name) = placement(doc, (page, object), target, &draw.name, edit)?;
     // The page-space `transform` after the matrix in force is `ctm⁻¹ · transform · ctm`
     // in the object's own space, which is what a `cm` there multiplies in.
     let local = draw.ctm.inverse() * transform * draw.ctm;
@@ -151,6 +125,45 @@ pub fn apply_edit_xobject(
     let replacing = matches!(edit, XObjectEdit::Replace { .. });
     replacing.then(|| crate::apply::image_crop::drop_undrawn_images(doc, &[page])).transpose()?;
     Ok(())
+}
+
+/// The page-space transform `edit` asks of `target`, and the name the redrawn `Do` uses:
+/// `name` unless a replacement put a picture in under a name of its own.
+fn placement(
+    doc: &Document,
+    at: (usize, usize),
+    target: &DrawnObject,
+    name: &str,
+    edit: &XObjectEdit,
+) -> PdfResult<(Affine, String)> {
+    let (page, object) = at;
+    Ok(match edit {
+        XObjectEdit::Move { to } => (move_to(target, *to), name.to_owned()),
+        XObjectEdit::Scale { by } => {
+            if !(*by > 0.0 && by.is_finite()) {
+                return Err(PdfError::refused(
+                    "EditXObject",
+                    format!("a scale of {by} draws nothing"),
+                ));
+            }
+            (about_centre(target, Affine::scale(*by)), name.to_owned())
+        }
+        XObjectEdit::Rotate { degrees } => {
+            (about_centre(target, Affine::rotate(degrees.to_radians())), name.to_owned())
+        }
+        XObjectEdit::Replace { jpeg } => {
+            if !target.image {
+                return Err(PdfError::refused(
+                    "EditXObject",
+                    format!(
+                        "object {object} is a form, and only an image is replaced by a picture"
+                    ),
+                ));
+            }
+            let image = crate::apply::markup::jpeg_image(doc.arena(), jpeg)?;
+            (Affine::IDENTITY, name_in_page(doc, page, image)?)
+        }
+    })
 }
 
 /// The page-space move that puts the object's lower left corner at `to`.
