@@ -6,6 +6,7 @@
 //! and `add_text_layer` takes the words the engine found, in either space, and lays them
 //! over the page invisibly.
 
+use crate::McpError;
 use crate::tools::operations::page::execute_single_op;
 use fepdf::{Operation, TextLayerItem};
 use schemars::JsonSchema;
@@ -37,7 +38,7 @@ pub struct AddTextLayerArgs {
 }
 
 /// Implementation of the add_text_layer tool.
-pub fn add_text_layer_impl(args: AddTextLayerArgs) -> Result<String, String> {
+pub fn add_text_layer_impl(args: AddTextLayerArgs) -> Result<String, McpError> {
     let items = args
         .items
         .into_iter()
@@ -92,18 +93,19 @@ struct PageForOcr {
 
 /// Implementation of the page_for_ocr tool. It rasterises, so it needs `render`.
 #[cfg(feature = "render")]
-pub fn page_for_ocr_impl(args: PageForOcrArgs) -> Result<String, String> {
+pub fn page_for_ocr_impl(args: PageForOcrArgs) -> Result<String, McpError> {
     let bytes = std::fs::read(&args.path).map_err(|e| format!("{}: {e}", args.path))?;
-    let doc = fepdf::PdfDocument::open(bytes.into()).map_err(|e| e.to_string())?;
+    let doc =
+        fepdf::PdfDocument::open(bytes.into()).map_err(|e| McpError::pdf("opening the PDF", e))?;
     let dpi = args.dpi.unwrap_or(300.0);
     let (to_pixels, width_px, height_px) =
-        doc.page_to_pixels(args.page, dpi).map_err(|e| e.to_string())?;
+        doc.page_to_pixels(args.page, dpi).map_err(|e| McpError::pdf("measuring the page", e))?;
     let path = std::path::Path::new(&args.image_path);
     doc.render_page_to_file_at(args.page, path, dpi, fepdf::Rasteriser::Cpu)
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| McpError::pdf("rendering the page", e))?;
     let existing_text = doc
         .extract_spans(args.page)
-        .map_err(|e| e.to_string())?
+        .map_err(|e| McpError::pdf("reading the page's text", e))?
         .into_iter()
         .map(|s| Existing { text: s.text, x: s.x, y: s.y, width: s.width, size: s.font_size })
         .collect();
@@ -115,5 +117,5 @@ pub fn page_for_ocr_impl(args: PageForOcrArgs) -> Result<String, String> {
         pixel_to_page: to_pixels.inverse().as_coeffs(),
         existing_text,
     };
-    serde_json::to_string_pretty(&answer).map_err(|e| e.to_string())
+    serde_json::to_string_pretty(&answer).map_err(McpError::from)
 }

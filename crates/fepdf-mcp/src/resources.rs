@@ -1,38 +1,39 @@
+use crate::McpError;
 use bytes::Bytes;
 use fepdf::PdfDocument;
 use std::fs;
 
 /// Reads the PDF/UA-2 logical structure tree of a local PDF document as JSON.
-pub fn read_struct_tree_resource(path: &str) -> Result<String, String> {
+pub fn read_struct_tree_resource(path: &str) -> Result<String, McpError> {
     let data = fs::read(path).map_err(|e| format!("Failed to read file '{path}': {e}"))?;
     let doc = PdfDocument::open(Bytes::from(data))
-        .map_err(|e| format!("Failed to open PDF '{path}': {e:?}"))?;
+        .map_err(|e| McpError::pdf(format!("Failed to open PDF '{path}'"), e))?;
 
     let tree = doc.extract_struct_tree();
 
-    serde_json::to_string_pretty(&tree).map_err(|e| e.to_string())
+    serde_json::to_string_pretty(&tree).map_err(McpError::from)
 }
 
 /// Reads document metadata (XMP and Info) as JSON.
-pub fn read_metadata_resource(path: &str) -> Result<String, String> {
+pub fn read_metadata_resource(path: &str) -> Result<String, McpError> {
     let data = fs::read(path).map_err(|e| format!("Failed to read file '{path}': {e}"))?;
     let doc = PdfDocument::open(Bytes::from(data))
-        .map_err(|e| format!("Failed to open PDF '{path}': {e:?}"))?;
+        .map_err(|e| McpError::pdf(format!("Failed to open PDF '{path}'"), e))?;
 
-    let summary = doc.get_summary().map_err(|e| format!("Failed to inspect document: {e:?}"))?;
+    let summary = doc.get_summary().map_err(|e| McpError::pdf("Failed to inspect document", e))?;
 
-    serde_json::to_string_pretty(&summary.metadata).map_err(|e| e.to_string())
+    serde_json::to_string_pretty(&summary.metadata).map_err(McpError::from)
 }
 
 /// Reads the compliance audit report of a local PDF document as JSON.
-pub fn read_audit_resource(path: &str) -> Result<String, String> {
+pub fn read_audit_resource(path: &str) -> Result<String, McpError> {
     let data = fs::read(path).map_err(|e| format!("Failed to read file '{path}': {e}"))?;
     let doc = PdfDocument::open(Bytes::from(data))
-        .map_err(|e| format!("Failed to open PDF '{path}': {e:?}"))?;
+        .map_err(|e| McpError::pdf(format!("Failed to open PDF '{path}'"), e))?;
 
-    let summary = doc.get_summary().map_err(|e| format!("Failed to inspect document: {e:?}"))?;
+    let summary = doc.get_summary().map_err(|e| McpError::pdf("Failed to inspect document", e))?;
 
-    serde_json::to_string_pretty(&summary.compliance).map_err(|e| e.to_string())
+    serde_json::to_string_pretty(&summary.compliance).map_err(McpError::from)
 }
 
 /// Every resource this server serves names a local file under this prefix.
@@ -93,7 +94,7 @@ pub(crate) fn read(uri: &str) -> Result<String, rmcp::ErrorData> {
             ));
         }
     };
-    body.map_err(|why| rmcp::ErrorData::internal_error(why, None))
+    body.map_err(|why| rmcp::ErrorData::internal_error(why.to_string(), None))
 }
 
 #[cfg(test)]

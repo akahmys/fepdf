@@ -1,5 +1,6 @@
 //! Digital signature verification tool.
 
+use crate::McpError;
 use schemars::JsonSchema;
 use serde::Deserialize;
 use std::fmt::Write as _;
@@ -24,10 +25,10 @@ pub struct VerifySignaturesArgs {
 /// schema. Nothing read it, and nothing could have — `fepdf-syntax`'s `cms` module states
 /// that it builds no chain to a root and checks no revocation list. A client could ask
 /// for it and be told nothing, so the argument is gone and the answer says so instead.
-pub fn verify_signatures_impl(args: VerifySignaturesArgs) -> Result<String, String> {
+pub fn verify_signatures_impl(args: VerifySignaturesArgs) -> Result<String, McpError> {
     let data = std::fs::read(&args.path).map_err(|e| format!("Failed to read file: {e}"))?;
     let report = fepdf::SignatureReport::survey(&data)
-        .map_err(|e| format!("Failed to parse PDF document: {e:?}"))?;
+        .map_err(|e| McpError::pdf("Failed to parse PDF document", e))?;
 
     let mut out = if report.signatures.is_empty() {
         String::from("No digital signatures found in this document.")

@@ -755,7 +755,8 @@ fn merge_runs_joins_two_and_refuses_across_an_operator() {
         page: 0,
         run: 0,
     })
-    .expect_err("it refuses");
+    .expect_err("it refuses")
+    .to_string();
     assert!(said.contains("Td"), "the refusal does not name what is in the way: {said}");
 }
 
@@ -845,7 +846,8 @@ fn set_calculation_order_refuses_an_order_that_leaves_one_out() {
         output_path: dest.clone(),
         fields: vec!["total".into()],
     })
-    .expect_err("an order without subtotal is refused");
+    .expect_err("an order without subtotal is refused")
+    .to_string();
     assert!(refused.contains("subtotal"), "the refusal does not name the field: {refused}");
     assert!(!std::path::Path::new(&dest).exists(), "a refused order wrote a file");
 }
@@ -912,7 +914,8 @@ fn an_unknown_annotation_kind_is_refused() {
         kind: Some("sticker".into()),
         ..annotation_defaults()
     })
-    .expect_err("an unknown kind is refused");
+    .expect_err("an unknown kind is refused")
+    .to_string();
     assert!(refused.contains("sticker"), "the refusal does not name the kind: {refused}");
     assert!(!std::path::Path::new(&dest).exists(), "a refused annotation wrote a file");
 }
@@ -1026,7 +1029,8 @@ fn edit_object_refuses_two_edits_at_once() {
         rotate_degrees: None,
         replace_with: None,
     })
-    .expect_err("refused");
+    .expect_err("refused")
+    .to_string();
     assert!(refused.contains("exactly one"), "{refused}");
 }
 

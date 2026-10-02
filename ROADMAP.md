@@ -1030,7 +1030,7 @@ eight times, and the copies do not agree on whether to resolve.
       facade made; merging and extracting share one page tree. `layering.py` counts
       `arenas=`, and a `PdfArena::new` appended to `fepdf/src/lib.rs` read `arenas=1`
       and failed it. `merge` had no test, and the ones written for the move found Y-F21.
-- [ ] **Y-6** — `PdfError::Other` is removed, and its 199 sites take the variant for
+- [x] **Y-6** — `PdfError::Other` is removed, and its 199 sites take the variant for
       their kind
       ([ADR-0102](docs/adr/0102-an-error-says-whose-it-is.md)).
       **The engine's half is done:** the variant is gone, so a new `PdfError::Other(`
@@ -1042,9 +1042,13 @@ eight times, and the copies do not agree on whether to resolve.
       carries is about a font program's bytes. One reading differs from the ADR's: a
       content-stream operator popping an empty stack is the document's fault — it wrote
       too few operands — so it is `ClauseViolation` 7.8.2, not `Internal`.
-      **Open:** `McpError::Pdf` still carries a string. Carrying the `PdfError` changes
-      the 59 tools' `Result<String, String>`, which is where `Internal` would become a
-      server error.
+      **The server's half:** `McpError::Pdf { during, error }` carries the `PdfError`, and
+      the tools answer `Result<String, McpError>`. `McpError`'s `IntoCallToolResult`
+      returns a refusal, a missing name, a malformed document or an unreadable path as
+      the call's result marked as an error, and `Internal`, `Arena` and the two
+      linearisation faults as the server's — decided by a match naming every variant.
+      `lib.rs`'s test holds both directions, and making one engine fault the call's
+      failed it.
 - [ ] **Y-7** — no `impl` block in production code runs past 800 lines. On 2026-09-28
       eight did, the largest `FontResource` (2,457), `PdfWriter` (2,423),
       `PdfDocument` (1,566), `FontReconstructor` (1,371) and `FepdfApp` in

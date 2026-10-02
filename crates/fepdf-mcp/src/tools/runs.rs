@@ -65,16 +65,16 @@ pub struct ListRunsReport {
 }
 
 /// Implementation of the list_runs tool.
-pub fn list_runs_impl(args: ListRunsArgs) -> Result<String, String> {
-    list_runs_internal(args).map_err(|e| e.to_string())
+pub fn list_runs_impl(args: ListRunsArgs) -> Result<String, McpError> {
+    list_runs_internal(args)
 }
 
 fn list_runs_internal(args: ListRunsArgs) -> McpResult<String> {
     let data = fs::read(&args.path).map_err(McpError::from)?;
-    let doc = PdfDocument::open(Bytes::from(data))
-        .map_err(|e| McpError::Pdf(format!("Failed to open PDF: {e:?}")))?;
+    let doc =
+        PdfDocument::open(Bytes::from(data)).map_err(|e| McpError::pdf("Failed to open PDF", e))?;
     let listed = runs_of_page(doc.inner(), args.page)
-        .map_err(|e| McpError::Pdf(format!("Failed to read the page's runs: {e:?}")))?;
+        .map_err(|e| McpError::pdf("Failed to read the page's runs", e))?;
 
     let report = ListRunsReport {
         path: args.path,
@@ -111,7 +111,7 @@ pub struct EditRunArgs {
 }
 
 /// Implementation of the edit_run tool.
-pub fn edit_run_impl(args: EditRunArgs) -> Result<String, String> {
+pub fn edit_run_impl(args: EditRunArgs) -> Result<String, McpError> {
     let op = Operation::EditRun { page: args.page, run: args.run, text: args.text };
     execute_single_op(&args.input_path, &args.output_path, op, "Run replaced")
 }
@@ -133,7 +133,7 @@ pub struct SplitRunArgs {
 }
 
 /// Implementation of the split_run tool.
-pub fn split_run_impl(args: SplitRunArgs) -> Result<String, String> {
+pub fn split_run_impl(args: SplitRunArgs) -> Result<String, McpError> {
     let op = Operation::SplitRun { page: args.page, run: args.run, after: args.after };
     execute_single_op(&args.input_path, &args.output_path, op, "Run split in two")
 }
@@ -152,7 +152,7 @@ pub struct DeleteRunArgs {
 }
 
 /// Implementation of the delete_run tool.
-pub fn delete_run_impl(args: DeleteRunArgs) -> Result<String, String> {
+pub fn delete_run_impl(args: DeleteRunArgs) -> Result<String, McpError> {
     let op = Operation::DeleteRun { page: args.page, run: args.run };
     execute_single_op(&args.input_path, &args.output_path, op, "Run deleted")
 }
@@ -172,7 +172,7 @@ pub struct MergeRunsArgs {
 }
 
 /// Implementation of the merge_runs tool.
-pub fn merge_runs_impl(args: MergeRunsArgs) -> Result<String, String> {
+pub fn merge_runs_impl(args: MergeRunsArgs) -> Result<String, McpError> {
     let op = Operation::MergeRuns { page: args.page, run: args.run };
     execute_single_op(&args.input_path, &args.output_path, op, "Runs joined into one")
 }
@@ -195,7 +195,7 @@ pub struct MoveRunArgs {
 }
 
 /// Implementation of the move_run tool.
-pub fn move_run_impl(args: MoveRunArgs) -> Result<String, String> {
+pub fn move_run_impl(args: MoveRunArgs) -> Result<String, McpError> {
     let op = Operation::MoveRun { page: args.page, run: args.run, to: (args.x, args.y) };
     execute_single_op(&args.input_path, &args.output_path, op, "Run moved")
 }

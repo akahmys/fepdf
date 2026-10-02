@@ -7,6 +7,7 @@ pub mod page;
 pub mod struct_elem;
 pub mod vocabulary;
 
+use crate::McpError;
 use bytes::Bytes;
 use fepdf::{Operation, PageSelection, PdfDocument};
 use fepdf_script::{DocumentHandle, ScriptEnvironment, run_calculations};
@@ -53,11 +54,11 @@ pub struct ApplyOperationArgs {
 /// and then not running one is worse than never declaring it — the engine stops naming a
 /// staleness that is now real — so the failure is recorded where `apply` would have
 /// recorded it.
-fn apply_and_calculate(doc: PdfDocument, op: Operation) -> Result<DocumentHandle, String> {
+fn apply_and_calculate(doc: PdfDocument, op: Operation) -> Result<DocumentHandle, McpError> {
     let changes_a_field = matches!(op, Operation::SetFormFieldValue { .. });
     doc.inner().declare_script_processor();
     let handle = DocumentHandle::new(doc);
-    handle.with_mut(|d| d.apply(op)).map_err(|e| format!("Operation failed: {e:?}"))?;
+    handle.with_mut(|d| d.apply(op)).map_err(|e| McpError::pdf("Operation failed", e))?;
     if !changes_a_field {
         return Ok(handle);
     }
@@ -75,21 +76,21 @@ fn apply_and_calculate(doc: PdfDocument, op: Operation) -> Result<DocumentHandle
 }
 
 /// Applies a generic raw Operation JSON to mutate a PDF document.
-pub fn apply_operation_impl(args: ApplyOperationArgs) -> Result<String, String> {
+pub fn apply_operation_impl(args: ApplyOperationArgs) -> Result<String, McpError> {
     let op: Operation = serde_json::from_str(&args.operation_json)
         .map_err(|e| format!("Failed to parse Operation JSON: {e}"))?;
 
     let data = fs::read(&args.input_path)
         .map_err(|e| format!("Failed to read input file '{}': {e}", args.input_path))?;
     let doc =
-        PdfDocument::open(Bytes::from(data)).map_err(|e| format!("Failed to open PDF: {e:?}"))?;
+        PdfDocument::open(Bytes::from(data)).map_err(|e| McpError::pdf("Failed to open PDF", e))?;
 
     let handle = apply_and_calculate(doc, op)?;
 
     let out = Path::new(&args.output_path);
-    handle
-        .with(|d| d.save_with_options(out, "2.0", &fepdf::SaveOptions::default()))
-        .map_err(|e| format!("Failed to save output PDF '{}': {e:?}", args.output_path))?;
+    handle.with(|d| d.save_with_options(out, "2.0", &fepdf::SaveOptions::default())).map_err(
+        |e| McpError::pdf(format!("Failed to save output PDF '{}'", args.output_path), e),
+    )?;
 
     Ok(serde_json::json!({
         "status": "SUCCESS",
@@ -123,7 +124,7 @@ pub fn apply_operation_impl(args: ApplyOperationArgs) -> Result<String, String> 
 ///
 /// A fourth site, `apply_bates_numbering`, did not parse its `pages` field at all — it
 /// opened `let pages = PageSelection::All;` and never read the argument.
-pub fn parse_selection(text: Option<&str>) -> Result<PageSelection, String> {
+pub fn parse_selection(text: Option<&str>) -> Result<PageSelection, McpError> {
     let Some(raw) = text.map(str::trim) else { return Ok(PageSelection::All) };
     if raw.eq_ignore_ascii_case("all") {
         return Ok(PageSelection::All);
@@ -132,7 +133,7 @@ pub fn parse_selection(text: Option<&str>) -> Result<PageSelection, String> {
         let first = one_based(first)?;
         let last = one_based(last)?;
         if last < first {
-            return Err(format!("page range \"{raw}\" ends before it begins"));
+            return Err(format!("page range \"{raw}\" ends before it begins").into());
         }
         return Ok(PageSelection::Indices(((first - 1)..last).collect()));
     }
@@ -140,14 +141,15 @@ pub fn parse_selection(text: Option<&str>) -> Result<PageSelection, String> {
 }
 
 /// One page number as the schemas define it: an integer, counting from 1.
-fn one_based(text: &str) -> Result<usize, String> {
+fn one_based(text: &str) -> Result<usize, McpError> {
     match text.trim().parse::<usize>() {
-        Ok(0) => Err("page numbers count from 1, so 0 is not a page".to_string()),
+        Ok(0) => Err("page numbers count from 1, so 0 is not a page".to_string().into()),
         Ok(n) => Ok(n),
         Err(_) => Err(format!(
             "\"{}\" is not a page selection: use \"all\", a page number such as \"2\", \
              or a range such as \"1-3\"",
             text.trim()
-        )),
+        )
+        .into()),
     }
 }

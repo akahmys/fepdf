@@ -35,8 +35,8 @@ pub struct Finding {
 }
 
 /// Implementation of the structural audit logic.
-pub fn audit_document_impl(args: AuditArgs) -> Result<String, String> {
-    audit_document_internal(args).map_err(|e| e.to_string())
+pub fn audit_document_impl(args: AuditArgs) -> Result<String, McpError> {
+    audit_document_internal(args)
 }
 
 /// What the reader had to repair in the file structure to open the document (7.5).
@@ -94,7 +94,7 @@ fn audit_document_internal(args: AuditArgs) -> McpResult<String> {
     findings.extend(structure_findings(&doc));
 
     // 3. Use SDK Summary for Audit
-    let summary = doc.get_summary().map_err(|e| McpError::Pdf(e.to_string()))?;
+    let summary = doc.get_summary().map_err(|e| McpError::pdf("reading the document", e))?;
 
     for issue in summary.compliance.issues {
         findings.push(Finding {

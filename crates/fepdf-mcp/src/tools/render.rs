@@ -18,14 +18,14 @@ pub struct RenderArgs {
 }
 
 /// Implementation of the page rendering logic for the MCP tool.
-pub fn render_page_impl(args: RenderArgs) -> Result<String, String> {
-    render_page_internal(args).map_err(|e| e.to_string())
+pub fn render_page_impl(args: RenderArgs) -> Result<String, McpError> {
+    render_page_internal(args)
 }
 
 fn render_page_internal(args: RenderArgs) -> McpResult<String> {
     let data = fs::read(&args.path).map_err(McpError::from)?;
     let doc = PdfDocument::open(Bytes::from(data))
-        .map_err(|e: fepdf::PdfError| McpError::Pdf(e.to_string()))?;
+        .map_err(|e: fepdf::PdfError| McpError::pdf("reading the document", e))?;
 
     let output_dir = PathBuf::from("out/artifacts/screenshots");
     if !output_dir.exists() {
@@ -40,7 +40,7 @@ fn render_page_internal(args: RenderArgs) -> McpResult<String> {
     let output_path = output_dir.join(filename);
 
     doc.render_page_to_file(args.page_number, &output_path)
-        .map_err(|e: fepdf::PdfError| McpError::Pdf(e.to_string()))?;
+        .map_err(|e: fepdf::PdfError| McpError::pdf("reading the document", e))?;
 
     Ok(output_path.to_string_lossy().to_string())
 }

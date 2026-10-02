@@ -37,16 +37,16 @@ pub struct ListedObject {
 }
 
 /// Implementation of the list_objects tool.
-pub fn list_objects_impl(args: ListObjectsArgs) -> Result<String, String> {
-    list_objects_internal(args).map_err(|e| e.to_string())
+pub fn list_objects_impl(args: ListObjectsArgs) -> Result<String, McpError> {
+    list_objects_internal(args)
 }
 
 fn list_objects_internal(args: ListObjectsArgs) -> McpResult<String> {
     let data = fs::read(&args.path).map_err(McpError::from)?;
-    let doc = PdfDocument::open(Bytes::from(data))
-        .map_err(|e| McpError::Pdf(format!("Failed to open PDF: {e:?}")))?;
+    let doc =
+        PdfDocument::open(Bytes::from(data)).map_err(|e| McpError::pdf("Failed to open PDF", e))?;
     let listed: Vec<ListedObject> = objects_of_page(doc.inner(), args.page)
-        .map_err(|e| McpError::Pdf(format!("Failed to read the page's objects: {e:?}")))?
+        .map_err(|e| McpError::pdf("Failed to read the page's objects", e))?
         .into_iter()
         .map(|o| ListedObject {
             object: o.index,
@@ -81,7 +81,7 @@ pub struct EditObjectArgs {
 }
 
 /// Implementation of the edit_object tool.
-pub fn edit_object_impl(args: EditObjectArgs) -> Result<String, String> {
+pub fn edit_object_impl(args: EditObjectArgs) -> Result<String, McpError> {
     let mut edits = Vec::new();
     if let Some(to) = args.move_to {
         edits.push(XObjectEdit::Move { to });

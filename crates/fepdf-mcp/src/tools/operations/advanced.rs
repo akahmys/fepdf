@@ -1,6 +1,7 @@
 //! Advanced domain operations: GIS, page labels, mesh shading, public key crypto, unencrypted wrappers.
 
 use super::page::execute_single_op;
+use crate::McpError;
 use fepdf::{
     ArticleBead, ArticleThread, GeoSpatialAnchor, Operation, PageLabelSpec, PageLabelStyle,
     PdfAction, UnencryptedWrapperSpec,
@@ -110,7 +111,7 @@ pub struct SetOpenActionArgs {
 }
 
 /// Implementation of the set_page_labels tool.
-pub fn set_page_labels_impl(args: SetPageLabelsArgs) -> Result<String, String> {
+pub fn set_page_labels_impl(args: SetPageLabelsArgs) -> Result<String, McpError> {
     let specs = args
         .labels
         .into_iter()
@@ -136,7 +137,7 @@ pub fn set_page_labels_impl(args: SetPageLabelsArgs) -> Result<String, String> {
 }
 
 /// Implementation of the update_article_threads tool.
-pub fn update_article_threads_impl(args: UpdateArticleThreadsArgs) -> Result<String, String> {
+pub fn update_article_threads_impl(args: UpdateArticleThreadsArgs) -> Result<String, McpError> {
     let threads = args
         .threads
         .into_iter()
@@ -152,7 +153,7 @@ pub fn update_article_threads_impl(args: UpdateArticleThreadsArgs) -> Result<Str
 }
 
 /// Implementation of the set_geospatial_anchor tool.
-pub fn set_geospatial_anchor_impl(args: SetGeospatialAnchorArgs) -> Result<String, String> {
+pub fn set_geospatial_anchor_impl(args: SetGeospatialAnchorArgs) -> Result<String, McpError> {
     let anchor = GeoSpatialAnchor {
         page: args.page,
         latitude: args.latitude,
@@ -165,7 +166,7 @@ pub fn set_geospatial_anchor_impl(args: SetGeospatialAnchorArgs) -> Result<Strin
 }
 
 /// Implementation of the set_unencrypted_wrapper tool.
-pub fn set_unencrypted_wrapper_impl(args: SetUnencryptedWrapperArgs) -> Result<String, String> {
+pub fn set_unencrypted_wrapper_impl(args: SetUnencryptedWrapperArgs) -> Result<String, McpError> {
     let payload = fs::read(&args.payload_file_path)
         .map_err(|e| format!("Failed to read wrapper payload '{}': {e}", args.payload_file_path))?;
 
@@ -187,12 +188,12 @@ pub fn set_unencrypted_wrapper_impl(args: SetUnencryptedWrapperArgs) -> Result<S
 }
 
 /// Implementation of the set_open_action tool.
-pub fn set_open_action_impl(args: SetOpenActionArgs) -> Result<String, String> {
+pub fn set_open_action_impl(args: SetOpenActionArgs) -> Result<String, McpError> {
     let action = match args.action_type.to_lowercase().as_str() {
         "named" => PdfAction::Named(args.target),
         "gotor" => PdfAction::GoToRemote { file_path: args.target, page: 0 },
         "gotoe" => PdfAction::GoToEmbedded { embedded_name: args.target, page: 0 },
-        _ => return Err(format!("Unsupported action type: {}", args.action_type)),
+        _ => return Err(format!("Unsupported action type: {}", args.action_type).into()),
     };
     let op = Operation::SetOpenAction(action);
     execute_single_op(&args.input_path, &args.output_path, op, "Action executed")

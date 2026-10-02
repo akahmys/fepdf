@@ -46,14 +46,14 @@ pub struct RedactionReport {
 }
 
 /// Implementation of the apply_redaction tool.
-pub fn apply_redaction_impl(args: RedactDocumentArgs) -> Result<String, String> {
-    apply_redaction_internal(args).map_err(|e| e.to_string())
+pub fn apply_redaction_impl(args: RedactDocumentArgs) -> Result<String, McpError> {
+    apply_redaction_internal(args)
 }
 
 fn apply_redaction_internal(args: RedactDocumentArgs) -> McpResult<String> {
     let data = fs::read(&args.input_path).map_err(McpError::from)?;
-    let doc = PdfDocument::open(Bytes::from(data))
-        .map_err(|e| McpError::Pdf(format!("Failed to open PDF: {e:?}")))?;
+    let doc =
+        PdfDocument::open(Bytes::from(data)).map_err(|e| McpError::pdf("Failed to open PDF", e))?;
 
     // Group targets by page index
     let mut page_map: std::collections::BTreeMap<usize, Vec<[f32; 4]>> =
@@ -66,7 +66,7 @@ fn apply_redaction_internal(args: RedactDocumentArgs) -> McpResult<String> {
     let mut scrubbed = 0;
     for (page_idx, rects) in &page_map {
         let removed = fepdf::apply_physical_redaction_to_page(doc.inner(), *page_idx, rects)
-            .map_err(|e| McpError::Pdf(format!("Redaction on page {page_idx} failed: {e:?}")))?;
+            .map_err(|e| McpError::pdf(format!("redacting page {page_idx}"), e))?;
         scrubbed += removed;
         if removed > 0 {
             affected_pages.push(*page_idx);
@@ -75,7 +75,7 @@ fn apply_redaction_internal(args: RedactDocumentArgs) -> McpResult<String> {
 
     let out_path = Path::new(&args.output_path);
     doc.save_with_options(out_path, "2.0", &fepdf::SaveOptions::default())
-        .map_err(|e| McpError::Pdf(format!("Failed to save redacted PDF: {e:?}")))?;
+        .map_err(|e| McpError::pdf("Failed to save redacted PDF", e))?;
 
     let report = RedactionReport {
         input_path: args.input_path,

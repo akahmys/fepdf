@@ -1,5 +1,6 @@
 //! Page-level mutation tools (rotate, reorder, remove).
 
+use crate::McpError;
 use bytes::Bytes;
 use fepdf::{Operation, PdfDocument, Quarter, RotateMode};
 use schemars::JsonSchema;
@@ -66,18 +67,18 @@ pub struct PageOperationResult {
     pub details: String,
 }
 
-fn int_to_quarter(angle: i32) -> Result<Quarter, String> {
+fn int_to_quarter(angle: i32) -> Result<Quarter, McpError> {
     match angle.rem_euclid(360) {
         0 => Ok(Quarter::Q0),
         90 => Ok(Quarter::Q90),
         180 => Ok(Quarter::Q180),
         270 => Ok(Quarter::Q270),
-        _ => Err(format!("Angle {angle} is not a multiple of 90 degrees")),
+        _ => Err(format!("Angle {angle} is not a multiple of 90 degrees").into()),
     }
 }
 
 /// Implementation of the rotate_pages tool.
-pub fn rotate_pages_impl(args: RotatePagesArgs) -> Result<String, String> {
+pub fn rotate_pages_impl(args: RotatePagesArgs) -> Result<String, McpError> {
     let quarter = int_to_quarter(args.angle)?;
     let relative = args.relative.unwrap_or(true);
     let mode = if relative { RotateMode::Relative(quarter) } else { RotateMode::Absolute(quarter) };
@@ -88,7 +89,7 @@ pub fn rotate_pages_impl(args: RotatePagesArgs) -> Result<String, String> {
 }
 
 /// Implementation of the reorder_pages tool.
-pub fn reorder_pages_impl(args: ReorderPagesArgs) -> Result<String, String> {
+pub fn reorder_pages_impl(args: ReorderPagesArgs) -> Result<String, McpError> {
     let op = Operation::Reorder { from: args.from, to: args.to };
     execute_single_op(
         &args.input_path,
@@ -99,7 +100,7 @@ pub fn reorder_pages_impl(args: ReorderPagesArgs) -> Result<String, String> {
 }
 
 /// Implementation of the remove_pages tool.
-pub fn remove_pages_impl(args: RemovePagesArgs) -> Result<String, String> {
+pub fn remove_pages_impl(args: RemovePagesArgs) -> Result<String, McpError> {
     let pages = super::parse_selection(Some(&args.pages))?;
     let op = Operation::RemovePages(pages);
     execute_single_op(&args.input_path, &args.output_path, op, "Pages removed successfully")
@@ -110,17 +111,17 @@ pub(crate) fn execute_single_op(
     output_path: &str,
     op: Operation,
     msg: &str,
-) -> Result<String, String> {
+) -> Result<String, McpError> {
     let data = fs::read(input_path).map_err(|e| format!("Failed to read input file: {e}"))?;
     let doc =
-        PdfDocument::open(Bytes::from(data)).map_err(|e| format!("Failed to open PDF: {e:?}"))?;
+        PdfDocument::open(Bytes::from(data)).map_err(|e| McpError::pdf("Failed to open PDF", e))?;
 
     let handle = super::apply_and_calculate(doc, op)?;
 
     let out = Path::new(output_path);
     handle
         .with(|d| d.save_with_options(out, "2.0", &fepdf::SaveOptions::default()))
-        .map_err(|e| format!("Failed to save modified PDF: {e:?}"))?;
+        .map_err(|e| McpError::pdf("Failed to save modified PDF", e))?;
 
     let res = PageOperationResult {
         status: "SUCCESS".into(),
@@ -129,7 +130,7 @@ pub(crate) fn execute_single_op(
         details: msg.to_string(),
     };
 
-    serde_json::to_string_pretty(&res).map_err(|e| e.to_string())
+    serde_json::to_string_pretty(&res).map_err(McpError::from)
 }
 
 /// Arguments for `crop_pages`.
@@ -156,7 +157,7 @@ pub struct CropPagesArgs {
 }
 
 /// Implementation of the crop_pages tool.
-pub fn crop_pages_impl(args: CropPagesArgs) -> Result<String, String> {
+pub fn crop_pages_impl(args: CropPagesArgs) -> Result<String, McpError> {
     let pages = super::parse_selection(args.pages.as_deref())?;
     let outside = if args.remove_outside.unwrap_or(false) {
         fepdf::WhatFallsOutside::Goes
@@ -189,7 +190,7 @@ pub struct SplitPageArgs {
 }
 
 /// Implementation of the split_page tool.
-pub fn split_page_impl(args: SplitPageArgs) -> Result<String, String> {
+pub fn split_page_impl(args: SplitPageArgs) -> Result<String, McpError> {
     let into = match args.regions {
         Some(named) => fepdf::PageDivision::Regions(
             named.into_iter().map(|r| (r[0], r[1], r[2], r[3])).collect(),
@@ -223,7 +224,7 @@ pub struct CombinePagesArgs {
 }
 
 /// Implementation of the combine_pages tool.
-pub fn combine_pages_impl(args: CombinePagesArgs) -> Result<String, String> {
+pub fn combine_pages_impl(args: CombinePagesArgs) -> Result<String, McpError> {
     let pages = super::parse_selection(args.pages.as_deref())?;
     let sheet = match (args.sheet_width, args.sheet_height) {
         (Some(width), Some(height)) => Some((width, height)),
@@ -250,7 +251,7 @@ pub struct SetTabOrderArgs {
 }
 
 /// Implementation of the set_tab_order tool.
-pub fn set_tab_order_impl(args: SetTabOrderArgs) -> Result<String, String> {
+pub fn set_tab_order_impl(args: SetTabOrderArgs) -> Result<String, McpError> {
     let pages = super::parse_selection(args.pages.as_deref())?;
     let order = match args.order.as_str() {
         "row" => fepdf::TabOrder::Row,
@@ -258,7 +259,7 @@ pub fn set_tab_order_impl(args: SetTabOrderArgs) -> Result<String, String> {
         "structure" => fepdf::TabOrder::Structure,
         "annotations" => fepdf::TabOrder::Annotations,
         "widgets" => fepdf::TabOrder::Widgets,
-        other => return Err(format!("no tab order is called {other:?}")),
+        other => return Err(format!("no tab order is called {other:?}").into()),
     };
     let op = Operation::SetTabOrder { pages, order };
     execute_single_op(&args.input_path, &args.output_path, op, "Tab order set")

@@ -2,6 +2,7 @@
 
 #![allow(missing_docs)]
 
+use crate::McpError;
 use crate::tools::operations::vocabulary::{
     AddLtvInfoArgs, DeclareConformanceArgs, DuplicatePagesArgs, InsertFromArgs, ReorderBatchArgs,
     RetagArgs, UpgradeArgs, add_ltv_info_impl, declare_conformance_impl, duplicate_pages_impl,
@@ -152,7 +153,7 @@ impl FepdfServer {
     pub async fn render_page(
         &self,
         Parameters(args): Parameters<crate::tools::render::RenderArgs>,
-    ) -> Result<String, String> {
+    ) -> Result<String, McpError> {
         crate::tools::render::render_page_impl(args)
     }
 
@@ -165,7 +166,7 @@ impl FepdfServer {
     pub async fn page_for_ocr(
         &self,
         Parameters(args): Parameters<crate::tools::text_layer::PageForOcrArgs>,
-    ) -> Result<String, String> {
+    ) -> Result<String, McpError> {
         crate::tools::text_layer::page_for_ocr_impl(args)
     }
 }
@@ -189,7 +190,7 @@ impl FepdfServer {
     pub async fn audit_document(
         &self,
         Parameters(args): Parameters<AuditArgs>,
-    ) -> Result<String, String> {
+    ) -> Result<String, McpError> {
         audit_document_impl(args)
     }
 
@@ -201,7 +202,7 @@ impl FepdfServer {
     pub async fn verify_signatures(
         &self,
         Parameters(args): Parameters<VerifySignaturesArgs>,
-    ) -> Result<String, String> {
+    ) -> Result<String, McpError> {
         verify_signatures_impl(args)
     }
 
@@ -213,7 +214,7 @@ impl FepdfServer {
     pub async fn extract_text(
         &self,
         Parameters(args): Parameters<ExtractTextArgs>,
-    ) -> Result<String, String> {
+    ) -> Result<String, McpError> {
         extract_text_impl(args)
     }
 
@@ -231,7 +232,7 @@ impl FepdfServer {
     pub async fn apply_redaction(
         &self,
         Parameters(args): Parameters<RedactDocumentArgs>,
-    ) -> Result<String, String> {
+    ) -> Result<String, McpError> {
         apply_redaction_impl(args)
     }
 
@@ -246,7 +247,7 @@ impl FepdfServer {
     pub async fn apply_operation(
         &self,
         Parameters(args): Parameters<ApplyOperationArgs>,
-    ) -> Result<String, String> {
+    ) -> Result<String, McpError> {
         apply_operation_impl(args)
     }
 
@@ -259,7 +260,7 @@ impl FepdfServer {
     pub async fn rotate_pages(
         &self,
         Parameters(args): Parameters<RotatePagesArgs>,
-    ) -> Result<String, String> {
+    ) -> Result<String, McpError> {
         rotate_pages_impl(args)
     }
 
@@ -271,7 +272,7 @@ impl FepdfServer {
     pub async fn reorder_pages(
         &self,
         Parameters(args): Parameters<ReorderPagesArgs>,
-    ) -> Result<String, String> {
+    ) -> Result<String, McpError> {
         reorder_pages_impl(args)
     }
 
@@ -283,7 +284,7 @@ impl FepdfServer {
     pub async fn remove_pages(
         &self,
         Parameters(args): Parameters<RemovePagesArgs>,
-    ) -> Result<String, String> {
+    ) -> Result<String, McpError> {
         remove_pages_impl(args)
     }
 
@@ -295,7 +296,7 @@ impl FepdfServer {
     pub async fn reorder_pages_batch(
         &self,
         Parameters(args): Parameters<ReorderBatchArgs>,
-    ) -> Result<String, String> {
+    ) -> Result<String, McpError> {
         reorder_batch_impl(args)
     }
 
@@ -307,7 +308,7 @@ impl FepdfServer {
     pub async fn duplicate_pages(
         &self,
         Parameters(args): Parameters<DuplicatePagesArgs>,
-    ) -> Result<String, String> {
+    ) -> Result<String, McpError> {
         duplicate_pages_impl(args)
     }
 
@@ -319,7 +320,7 @@ impl FepdfServer {
     pub async fn insert_from(
         &self,
         Parameters(args): Parameters<InsertFromArgs>,
-    ) -> Result<String, String> {
+    ) -> Result<String, McpError> {
         insert_from_impl(args)
     }
 
@@ -334,7 +335,7 @@ impl FepdfServer {
     pub async fn declare_conformance(
         &self,
         Parameters(args): Parameters<DeclareConformanceArgs>,
-    ) -> Result<String, String> {
+    ) -> Result<String, McpError> {
         declare_conformance_impl(args)
     }
 
@@ -348,7 +349,7 @@ impl FepdfServer {
     pub async fn upgrade_standard(
         &self,
         Parameters(args): Parameters<UpgradeArgs>,
-    ) -> Result<String, String> {
+    ) -> Result<String, McpError> {
         upgrade_impl(args)
     }
 
@@ -361,7 +362,7 @@ impl FepdfServer {
     pub async fn retag_document(
         &self,
         Parameters(args): Parameters<RetagArgs>,
-    ) -> Result<String, String> {
+    ) -> Result<String, McpError> {
         retag_impl(args)
     }
 
@@ -373,7 +374,7 @@ impl FepdfServer {
     pub async fn add_ltv_info(
         &self,
         Parameters(args): Parameters<AddLtvInfoArgs>,
-    ) -> Result<String, String> {
+    ) -> Result<String, McpError> {
         add_ltv_info_impl(args)
     }
 
@@ -385,7 +386,7 @@ impl FepdfServer {
     pub async fn update_struct_elem(
         &self,
         Parameters(args): Parameters<UpdateStructElemArgs>,
-    ) -> Result<String, String> {
+    ) -> Result<String, McpError> {
         update_struct_elem_impl(args)
     }
 
@@ -397,7 +398,7 @@ impl FepdfServer {
     pub async fn delete_struct_elem(
         &self,
         Parameters(args): Parameters<DeleteStructElemArgs>,
-    ) -> Result<String, String> {
+    ) -> Result<String, McpError> {
         delete_struct_elem_impl(args)
     }
 
@@ -411,7 +412,7 @@ impl FepdfServer {
     pub async fn move_struct_elem(
         &self,
         Parameters(args): Parameters<MoveStructElemArgs>,
-    ) -> Result<String, String> {
+    ) -> Result<String, McpError> {
         move_struct_elem_impl(args)
     }
 
@@ -423,7 +424,7 @@ impl FepdfServer {
     pub async fn add_user_properties(
         &self,
         Parameters(args): Parameters<AddUserPropertiesArgs>,
-    ) -> Result<String, String> {
+    ) -> Result<String, McpError> {
         add_user_properties_impl(args)
     }
 
@@ -437,7 +438,7 @@ impl FepdfServer {
     pub async fn set_struct_attribute(
         &self,
         Parameters(args): Parameters<SetStructAttributeArgs>,
-    ) -> Result<String, String> {
+    ) -> Result<String, McpError> {
         set_struct_attribute_impl(args)
     }
 
@@ -451,7 +452,7 @@ impl FepdfServer {
     pub async fn set_struct_refs(
         &self,
         Parameters(args): Parameters<SetStructRefsArgs>,
-    ) -> Result<String, String> {
+    ) -> Result<String, McpError> {
         set_struct_refs_impl(args)
     }
 
@@ -465,7 +466,7 @@ impl FepdfServer {
     pub async fn set_struct_namespace(
         &self,
         Parameters(args): Parameters<SetStructNamespaceArgs>,
-    ) -> Result<String, String> {
+    ) -> Result<String, McpError> {
         set_struct_namespace_impl(args)
     }
 
@@ -478,7 +479,7 @@ impl FepdfServer {
     pub async fn map_struct_type(
         &self,
         Parameters(args): Parameters<MapStructTypeArgs>,
-    ) -> Result<String, String> {
+    ) -> Result<String, McpError> {
         map_struct_type_impl(args)
     }
 
@@ -492,7 +493,7 @@ impl FepdfServer {
     pub async fn mark_artifact(
         &self,
         Parameters(args): Parameters<MarkArtifactArgs>,
-    ) -> Result<String, String> {
+    ) -> Result<String, McpError> {
         mark_artifact_impl(args)
     }
 
@@ -507,7 +508,7 @@ impl FepdfServer {
     pub async fn wrap_struct_elem(
         &self,
         Parameters(args): Parameters<WrapStructElemArgs>,
-    ) -> Result<String, String> {
+    ) -> Result<String, McpError> {
         wrap_struct_elem_impl(args)
     }
 
@@ -520,7 +521,7 @@ impl FepdfServer {
     pub async fn update_outlines(
         &self,
         Parameters(args): Parameters<UpdateOutlinesArgs>,
-    ) -> Result<String, String> {
+    ) -> Result<String, McpError> {
         update_outlines_impl(args)
     }
 
@@ -532,7 +533,7 @@ impl FepdfServer {
     pub async fn update_layers(
         &self,
         Parameters(args): Parameters<UpdateLayersArgs>,
-    ) -> Result<String, String> {
+    ) -> Result<String, McpError> {
         update_layers_impl(args)
     }
 
@@ -544,7 +545,7 @@ impl FepdfServer {
     pub async fn attach_associated_file(
         &self,
         Parameters(args): Parameters<AttachAssociatedFileArgs>,
-    ) -> Result<String, String> {
+    ) -> Result<String, McpError> {
         attach_associated_file_impl(args)
     }
 
@@ -556,7 +557,7 @@ impl FepdfServer {
     pub async fn create_portfolio(
         &self,
         Parameters(args): Parameters<CreatePortfolioArgs>,
-    ) -> Result<String, String> {
+    ) -> Result<String, McpError> {
         create_portfolio_impl(args)
     }
 
@@ -568,7 +569,7 @@ impl FepdfServer {
     pub async fn set_output_intent(
         &self,
         Parameters(args): Parameters<SetOutputIntentArgs>,
-    ) -> Result<String, String> {
+    ) -> Result<String, McpError> {
         set_output_intent_impl(args)
     }
 
@@ -580,7 +581,7 @@ impl FepdfServer {
     pub async fn set_pronunciation_lexicon(
         &self,
         Parameters(args): Parameters<SetPronunciationLexiconArgs>,
-    ) -> Result<String, String> {
+    ) -> Result<String, McpError> {
         set_pronunciation_lexicon_impl(args)
     }
 
@@ -593,7 +594,7 @@ impl FepdfServer {
     pub async fn add_page_decoration(
         &self,
         Parameters(args): Parameters<AddPageDecorationArgs>,
-    ) -> Result<String, String> {
+    ) -> Result<String, McpError> {
         add_page_decoration_impl(args)
     }
 
@@ -605,7 +606,7 @@ impl FepdfServer {
     pub async fn apply_bates_numbering(
         &self,
         Parameters(args): Parameters<ApplyBatesNumberingArgs>,
-    ) -> Result<String, String> {
+    ) -> Result<String, McpError> {
         apply_bates_numbering_impl(args)
     }
 
@@ -617,7 +618,7 @@ impl FepdfServer {
     pub async fn add_annotation(
         &self,
         Parameters(args): Parameters<AddAnnotationArgs>,
-    ) -> Result<String, String> {
+    ) -> Result<String, McpError> {
         add_annotation_impl(args)
     }
 
@@ -634,7 +635,7 @@ impl FepdfServer {
     pub async fn edit_run(
         &self,
         Parameters(args): Parameters<EditRunArgs>,
-    ) -> Result<String, String> {
+    ) -> Result<String, McpError> {
         edit_run_impl(args)
     }
 
@@ -650,7 +651,7 @@ impl FepdfServer {
     pub async fn list_runs(
         &self,
         Parameters(args): Parameters<ListRunsArgs>,
-    ) -> Result<String, String> {
+    ) -> Result<String, McpError> {
         list_runs_impl(args)
     }
 
@@ -662,7 +663,7 @@ impl FepdfServer {
     pub async fn compare_documents(
         &self,
         Parameters(args): Parameters<crate::tools::compare::CompareArgs>,
-    ) -> Result<String, String> {
+    ) -> Result<String, McpError> {
         crate::tools::compare::compare_documents_impl(args)
     }
 
@@ -674,7 +675,7 @@ impl FepdfServer {
     pub async fn add_text_layer(
         &self,
         Parameters(args): Parameters<crate::tools::text_layer::AddTextLayerArgs>,
-    ) -> Result<String, String> {
+    ) -> Result<String, McpError> {
         crate::tools::text_layer::add_text_layer_impl(args)
     }
 
@@ -686,7 +687,7 @@ impl FepdfServer {
     pub async fn list_objects(
         &self,
         Parameters(args): Parameters<ListObjectsArgs>,
-    ) -> Result<String, String> {
+    ) -> Result<String, McpError> {
         list_objects_impl(args)
     }
 
@@ -698,7 +699,7 @@ impl FepdfServer {
     pub async fn edit_object(
         &self,
         Parameters(args): Parameters<EditObjectArgs>,
-    ) -> Result<String, String> {
+    ) -> Result<String, McpError> {
         edit_object_impl(args)
     }
 
@@ -710,7 +711,7 @@ impl FepdfServer {
     pub async fn split_run(
         &self,
         Parameters(args): Parameters<SplitRunArgs>,
-    ) -> Result<String, String> {
+    ) -> Result<String, McpError> {
         split_run_impl(args)
     }
 
@@ -722,7 +723,7 @@ impl FepdfServer {
     pub async fn delete_run(
         &self,
         Parameters(args): Parameters<DeleteRunArgs>,
-    ) -> Result<String, String> {
+    ) -> Result<String, McpError> {
         delete_run_impl(args)
     }
 
@@ -734,7 +735,7 @@ impl FepdfServer {
     pub async fn merge_runs(
         &self,
         Parameters(args): Parameters<MergeRunsArgs>,
-    ) -> Result<String, String> {
+    ) -> Result<String, McpError> {
         merge_runs_impl(args)
     }
 
@@ -746,7 +747,7 @@ impl FepdfServer {
     pub async fn move_run(
         &self,
         Parameters(args): Parameters<MoveRunArgs>,
-    ) -> Result<String, String> {
+    ) -> Result<String, McpError> {
         move_run_impl(args)
     }
 
@@ -758,7 +759,7 @@ impl FepdfServer {
     pub async fn crop_pages(
         &self,
         Parameters(args): Parameters<CropPagesArgs>,
-    ) -> Result<String, String> {
+    ) -> Result<String, McpError> {
         crop_pages_impl(args)
     }
 
@@ -770,7 +771,7 @@ impl FepdfServer {
     pub async fn split_page(
         &self,
         Parameters(args): Parameters<SplitPageArgs>,
-    ) -> Result<String, String> {
+    ) -> Result<String, McpError> {
         split_page_impl(args)
     }
 
@@ -782,7 +783,7 @@ impl FepdfServer {
     pub async fn combine_pages(
         &self,
         Parameters(args): Parameters<CombinePagesArgs>,
-    ) -> Result<String, String> {
+    ) -> Result<String, McpError> {
         combine_pages_impl(args)
     }
 
@@ -794,7 +795,7 @@ impl FepdfServer {
     pub async fn add_form_field(
         &self,
         Parameters(args): Parameters<AddFormFieldArgs>,
-    ) -> Result<String, String> {
+    ) -> Result<String, McpError> {
         add_form_field_impl(args)
     }
 
@@ -806,7 +807,7 @@ impl FepdfServer {
     pub async fn set_tab_order(
         &self,
         Parameters(args): Parameters<SetTabOrderArgs>,
-    ) -> Result<String, String> {
+    ) -> Result<String, McpError> {
         set_tab_order_impl(args)
     }
 
@@ -818,7 +819,7 @@ impl FepdfServer {
     pub async fn set_calculation_order(
         &self,
         Parameters(args): Parameters<SetCalculationOrderArgs>,
-    ) -> Result<String, String> {
+    ) -> Result<String, McpError> {
         set_calculation_order_impl(args)
     }
 
@@ -830,7 +831,7 @@ impl FepdfServer {
     pub async fn set_measurement_scale(
         &self,
         Parameters(args): Parameters<SetMeasurementScaleArgs>,
-    ) -> Result<String, String> {
+    ) -> Result<String, McpError> {
         set_measurement_scale_impl(args)
     }
 
@@ -849,7 +850,7 @@ impl FepdfServer {
     pub async fn set_form_field_value(
         &self,
         Parameters(args): Parameters<SetFormFieldValueArgs>,
-    ) -> Result<String, String> {
+    ) -> Result<String, McpError> {
         set_form_field_value_impl(args)
     }
 
@@ -862,7 +863,7 @@ impl FepdfServer {
     pub async fn set_page_labels(
         &self,
         Parameters(args): Parameters<SetPageLabelsArgs>,
-    ) -> Result<String, String> {
+    ) -> Result<String, McpError> {
         set_page_labels_impl(args)
     }
 
@@ -874,7 +875,7 @@ impl FepdfServer {
     pub async fn update_article_threads(
         &self,
         Parameters(args): Parameters<UpdateArticleThreadsArgs>,
-    ) -> Result<String, String> {
+    ) -> Result<String, McpError> {
         update_article_threads_impl(args)
     }
 
@@ -889,7 +890,7 @@ impl FepdfServer {
     pub async fn set_open_action(
         &self,
         Parameters(args): Parameters<SetOpenActionArgs>,
-    ) -> Result<String, String> {
+    ) -> Result<String, McpError> {
         set_open_action_impl(args)
     }
 
@@ -901,7 +902,7 @@ impl FepdfServer {
     pub async fn set_geospatial_anchor(
         &self,
         Parameters(args): Parameters<SetGeospatialAnchorArgs>,
-    ) -> Result<String, String> {
+    ) -> Result<String, McpError> {
         set_geospatial_anchor_impl(args)
     }
 
@@ -921,7 +922,7 @@ impl FepdfServer {
     pub async fn set_unencrypted_wrapper(
         &self,
         Parameters(args): Parameters<SetUnencryptedWrapperArgs>,
-    ) -> Result<String, String> {
+    ) -> Result<String, McpError> {
         set_unencrypted_wrapper_impl(args)
     }
 }

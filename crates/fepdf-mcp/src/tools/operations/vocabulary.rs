@@ -17,6 +17,7 @@
 //! these do too, and read them on the caller's behalf.
 
 use super::page::execute_single_op;
+use crate::McpError;
 use fepdf::{Operation, PdfStandard};
 use schemars::JsonSchema;
 use serde::Deserialize;
@@ -93,7 +94,7 @@ pub struct DeclareConformanceArgs {
 }
 
 /// Implementation of the declare_conformance tool.
-pub fn declare_conformance_impl(args: DeclareConformanceArgs) -> Result<String, String> {
+pub fn declare_conformance_impl(args: DeclareConformanceArgs) -> Result<String, McpError> {
     let details = format!("Declared conformity with {}", args.conforms_to);
     let op = Operation::DeclareConformance { conforms_to: args.conforms_to };
     execute_single_op(&args.input_path, &args.output_path, op, &details)
@@ -111,20 +112,20 @@ pub struct UpgradeArgs {
 }
 
 /// Implementation of the reorder_pages_batch tool.
-pub fn reorder_batch_impl(args: ReorderBatchArgs) -> Result<String, String> {
+pub fn reorder_batch_impl(args: ReorderBatchArgs) -> Result<String, McpError> {
     let details = format!("Moved {} pages before index {}", args.sources.len(), args.target);
     let op = Operation::ReorderBatch { sources: args.sources, target: args.target };
     execute_single_op(&args.input_path, &args.output_path, op, &details)
 }
 
 /// Implementation of the duplicate_pages tool.
-pub fn duplicate_pages_impl(args: DuplicatePagesArgs) -> Result<String, String> {
+pub fn duplicate_pages_impl(args: DuplicatePagesArgs) -> Result<String, McpError> {
     let op = Operation::DuplicatePages(super::parse_selection(Some(&args.pages))?);
     execute_single_op(&args.input_path, &args.output_path, op, "Pages duplicated successfully")
 }
 
 /// Implementation of the insert_from tool.
-pub fn insert_from_impl(args: InsertFromArgs) -> Result<String, String> {
+pub fn insert_from_impl(args: InsertFromArgs) -> Result<String, McpError> {
     let source = fs::read(&args.source_path)
         .map_err(|e| format!("Failed to read source PDF {}: {e}", args.source_path))?;
     let details = format!("Inserted {} at index {}", args.source_path, args.at);
@@ -133,7 +134,7 @@ pub fn insert_from_impl(args: InsertFromArgs) -> Result<String, String> {
 }
 
 /// Implementation of the add_ltv_info tool.
-pub fn add_ltv_info_impl(args: AddLtvInfoArgs) -> Result<String, String> {
+pub fn add_ltv_info_impl(args: AddLtvInfoArgs) -> Result<String, McpError> {
     let mut certificates = Vec::with_capacity(args.certificate_paths.len());
     for path in &args.certificate_paths {
         certificates
@@ -145,7 +146,7 @@ pub fn add_ltv_info_impl(args: AddLtvInfoArgs) -> Result<String, String> {
 }
 
 /// Implementation of the retag_document tool.
-pub fn retag_impl(args: RetagArgs) -> Result<String, String> {
+pub fn retag_impl(args: RetagArgs) -> Result<String, McpError> {
     execute_single_op(
         &args.input_path,
         &args.output_path,
@@ -155,7 +156,7 @@ pub fn retag_impl(args: RetagArgs) -> Result<String, String> {
 }
 
 /// Implementation of the upgrade_standard tool.
-pub fn upgrade_impl(args: UpgradeArgs) -> Result<String, String> {
+pub fn upgrade_impl(args: UpgradeArgs) -> Result<String, McpError> {
     // Named rather than matched with a wildcard so a standard added to `PdfStandard`
     // fails here loudly instead of silently becoming ISO 32000-2 (RR-15 Rule 5's point,
     // applied where the input is a string and the lint cannot reach).
@@ -167,7 +168,8 @@ pub fn upgrade_impl(args: UpgradeArgs) -> Result<String, String> {
         other => {
             return Err(format!(
                 "Unknown standard {other:?}; expected one of A4, X6, UA2, ISO32000-2"
-            ));
+            )
+            .into());
         }
     };
     let details = format!("Declared conformance with {standard:?}");

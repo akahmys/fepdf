@@ -1,6 +1,7 @@
 //! Metadata, outlines, layers, and portfolio domain operation tools.
 
 use super::page::execute_single_op;
+use crate::McpError;
 use fepdf::{
     AFRelationship, AssociatedFile, CollectionViewMode, LayerGroup, Operation,
     OptionalContentProperties, OutlineNode, OutlineTree, OutputIntent, PortfolioCollection,
@@ -120,14 +121,14 @@ fn convert_outline_node(node: OutlineNodeArg) -> OutlineNode {
 }
 
 /// Implementation of the update_outlines tool.
-pub fn update_outlines_impl(args: UpdateOutlinesArgs) -> Result<String, String> {
+pub fn update_outlines_impl(args: UpdateOutlinesArgs) -> Result<String, McpError> {
     let tree = OutlineTree { items: args.roots.into_iter().map(convert_outline_node).collect() };
     let op = Operation::UpdateOutlines(tree);
     execute_single_op(&args.input_path, &args.output_path, op, "Outlines/Bookmarks updated")
 }
 
 /// Implementation of the update_layers tool.
-pub fn update_layers_impl(args: UpdateLayersArgs) -> Result<String, String> {
+pub fn update_layers_impl(args: UpdateLayersArgs) -> Result<String, McpError> {
     let layers = args
         .layers
         .into_iter()
@@ -148,7 +149,7 @@ pub fn update_layers_impl(args: UpdateLayersArgs) -> Result<String, String> {
 }
 
 /// Implementation of the attach_associated_file tool.
-pub fn attach_associated_file_impl(args: AttachAssociatedFileArgs) -> Result<String, String> {
+pub fn attach_associated_file_impl(args: AttachAssociatedFileArgs) -> Result<String, McpError> {
     let data = fs::read(&args.file_path)
         .map_err(|e| format!("Failed to read attachment file '{}': {e}", args.file_path))?;
     let filename = args.filename.unwrap_or_else(|| {
@@ -180,7 +181,7 @@ pub fn attach_associated_file_impl(args: AttachAssociatedFileArgs) -> Result<Str
 }
 
 /// Implementation of the create_portfolio tool.
-pub fn create_portfolio_impl(args: CreatePortfolioArgs) -> Result<String, String> {
+pub fn create_portfolio_impl(args: CreatePortfolioArgs) -> Result<String, McpError> {
     let view_mode = match args.view_mode.as_deref() {
         Some("tile") => CollectionViewMode::Tile,
         Some("hidden") => CollectionViewMode::Hidden,
@@ -206,7 +207,7 @@ pub fn create_portfolio_impl(args: CreatePortfolioArgs) -> Result<String, String
 }
 
 /// Implementation of the set_output_intent tool.
-pub fn set_output_intent_impl(args: SetOutputIntentArgs) -> Result<String, String> {
+pub fn set_output_intent_impl(args: SetOutputIntentArgs) -> Result<String, McpError> {
     let intent = OutputIntent {
         subtype: args.subtype.unwrap_or_else(|| "GTS_PDFX".to_string()),
         identifier: args.identifier,
@@ -218,7 +219,9 @@ pub fn set_output_intent_impl(args: SetOutputIntentArgs) -> Result<String, Strin
 }
 
 /// Implementation of the set_pronunciation_lexicon tool.
-pub fn set_pronunciation_lexicon_impl(args: SetPronunciationLexiconArgs) -> Result<String, String> {
+pub fn set_pronunciation_lexicon_impl(
+    args: SetPronunciationLexiconArgs,
+) -> Result<String, McpError> {
     let bytes = fs::read(&args.lexicon_xml_path)
         .map_err(|e| format!("Failed to read lexicon XML '{}': {e}", args.lexicon_xml_path))?;
     let op = Operation::SetPronunciationLexicon { lexicon_xml_bytes: bytes };

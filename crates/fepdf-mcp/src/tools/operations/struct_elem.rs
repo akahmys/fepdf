@@ -1,6 +1,7 @@
 //! Structural elements and Tagged PDF accessibility editing tools.
 
 use super::page::execute_single_op;
+use crate::McpError;
 use fepdf::{
     AttributeValue, Operation, Placement, StructAttribute, StructElemMove, StructElemUpdate,
     StructElemWrap, UserProperty, UserPropertyValue,
@@ -188,7 +189,7 @@ pub struct AddUserPropertiesArgs {
 }
 
 /// Implementation of the update_struct_elem tool.
-pub fn update_struct_elem_impl(args: UpdateStructElemArgs) -> Result<String, String> {
+pub fn update_struct_elem_impl(args: UpdateStructElemArgs) -> Result<String, McpError> {
     let update = StructElemUpdate {
         handle_index: args.handle_index,
         new_tag: args.new_tag,
@@ -207,7 +208,7 @@ pub fn update_struct_elem_impl(args: UpdateStructElemArgs) -> Result<String, Str
 }
 
 /// Implementation of the delete_struct_elem tool.
-pub fn delete_struct_elem_impl(args: DeleteStructElemArgs) -> Result<String, String> {
+pub fn delete_struct_elem_impl(args: DeleteStructElemArgs) -> Result<String, McpError> {
     let op = Operation::DeleteStructElem { handle_index: args.handle_index };
     execute_single_op(
         &args.input_path,
@@ -221,7 +222,7 @@ pub fn delete_struct_elem_impl(args: DeleteStructElemArgs) -> Result<String, Str
 ///
 /// The placement is named rather than numbered: a caller writing `2` for "inside" has to
 /// be told which number means what, and would get a different element either way.
-pub fn move_struct_elem_impl(args: MoveStructElemArgs) -> Result<String, String> {
+pub fn move_struct_elem_impl(args: MoveStructElemArgs) -> Result<String, McpError> {
     let placement = match args.placement.to_ascii_lowercase().as_str() {
         "before" => Placement::Before,
         "after" => Placement::After,
@@ -229,7 +230,8 @@ pub fn move_struct_elem_impl(args: MoveStructElemArgs) -> Result<String, String>
         other => {
             return Err(format!(
                 "placement must be \"before\", \"after\" or \"inside\", not {other:?}"
-            ));
+            )
+            .into());
         }
     };
     let op = Operation::MoveStructElem(StructElemMove {
@@ -249,7 +251,7 @@ pub fn move_struct_elem_impl(args: MoveStructElemArgs) -> Result<String, String>
 }
 
 /// Implementation of the add_user_properties tool.
-pub fn add_user_properties_impl(args: AddUserPropertiesArgs) -> Result<String, String> {
+pub fn add_user_properties_impl(args: AddUserPropertiesArgs) -> Result<String, McpError> {
     let properties = args
         .properties
         .into_iter()
@@ -277,7 +279,7 @@ pub fn add_user_properties_impl(args: AddUserPropertiesArgs) -> Result<String, S
 }
 
 /// Implementation of the set_struct_attribute tool.
-pub fn set_struct_attribute_impl(args: SetStructAttributeArgs) -> Result<String, String> {
+pub fn set_struct_attribute_impl(args: SetStructAttributeArgs) -> Result<String, McpError> {
     let given: Vec<AttributeValue> = [
         args.value_name.map(AttributeValue::Name),
         args.value_number.map(AttributeValue::Number),
@@ -308,7 +310,7 @@ pub fn set_struct_attribute_impl(args: SetStructAttributeArgs) -> Result<String,
 }
 
 /// Implementation of the set_struct_refs tool.
-pub fn set_struct_refs_impl(args: SetStructRefsArgs) -> Result<String, String> {
+pub fn set_struct_refs_impl(args: SetStructRefsArgs) -> Result<String, McpError> {
     let count = args.targets.len();
     let op = Operation::SetStructRefs { handle_index: args.handle_index, targets: args.targets };
     execute_single_op(
@@ -320,7 +322,7 @@ pub fn set_struct_refs_impl(args: SetStructRefsArgs) -> Result<String, String> {
 }
 
 /// Implementation of the set_struct_namespace tool.
-pub fn set_struct_namespace_impl(args: SetStructNamespaceArgs) -> Result<String, String> {
+pub fn set_struct_namespace_impl(args: SetStructNamespaceArgs) -> Result<String, McpError> {
     let message = format!("Structural element #{} put in {:?}", args.handle_index, args.namespace);
     let op = Operation::SetStructNamespace {
         handle_index: args.handle_index,
@@ -330,7 +332,7 @@ pub fn set_struct_namespace_impl(args: SetStructNamespaceArgs) -> Result<String,
 }
 
 /// Implementation of the map_struct_type tool.
-pub fn map_struct_type_impl(args: MapStructTypeArgs) -> Result<String, String> {
+pub fn map_struct_type_impl(args: MapStructTypeArgs) -> Result<String, McpError> {
     let message = format!("{} mapped to {} in {}", args.from, args.to, args.namespace);
     let op = Operation::MapStructType {
         namespace: args.namespace,
@@ -342,7 +344,7 @@ pub fn map_struct_type_impl(args: MapStructTypeArgs) -> Result<String, String> {
 }
 
 /// Implementation of the mark_artifact tool.
-pub fn mark_artifact_impl(args: MarkArtifactArgs) -> Result<String, String> {
+pub fn mark_artifact_impl(args: MarkArtifactArgs) -> Result<String, McpError> {
     let message = format!("MCID {} on page {} marked as an artifact", args.mcid, args.page);
     let op = Operation::MarkArtifact {
         page: args.page,
@@ -354,7 +356,7 @@ pub fn mark_artifact_impl(args: MarkArtifactArgs) -> Result<String, String> {
 }
 
 /// Implementation of the wrap_struct_elem tool.
-pub fn wrap_struct_elem_impl(args: WrapStructElemArgs) -> Result<String, String> {
+pub fn wrap_struct_elem_impl(args: WrapStructElemArgs) -> Result<String, McpError> {
     let message = format!(
         "{} kids of element {} from {} wrapped in a new {}",
         args.count, args.handle_index, args.first, args.tag

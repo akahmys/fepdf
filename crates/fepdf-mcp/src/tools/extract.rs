@@ -45,14 +45,14 @@ pub struct ExtractTextReport {
 }
 
 /// Implementation of the extract_text tool.
-pub fn extract_text_impl(args: ExtractTextArgs) -> Result<String, String> {
-    extract_text_internal(args).map_err(|e| e.to_string())
+pub fn extract_text_impl(args: ExtractTextArgs) -> Result<String, McpError> {
+    extract_text_internal(args)
 }
 
 fn extract_text_internal(args: ExtractTextArgs) -> McpResult<String> {
     let data = fs::read(&args.path).map_err(McpError::from)?;
-    let doc = PdfDocument::open(Bytes::from(data))
-        .map_err(|e| McpError::Pdf(format!("Failed to open PDF: {e:?}")))?;
+    let doc =
+        PdfDocument::open(Bytes::from(data)).map_err(|e| McpError::pdf("Failed to open PDF", e))?;
 
     let total_pages = doc.page_count().unwrap_or(0);
     let target_indices = parse_page_indices(args.page_range.as_deref(), total_pages);

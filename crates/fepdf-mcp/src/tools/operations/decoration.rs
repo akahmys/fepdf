@@ -1,6 +1,7 @@
 //! Page decorations, Bates numbering, annotations, measurement scale, and form fields.
 
 use super::page::execute_single_op;
+use crate::McpError;
 use fepdf::{
     AnnotationKind, AnnotationSpec, DecorationPosition, FormFieldSpec, FormValue, MeasurementScale,
     Operation, ShapeForm,
@@ -129,7 +130,7 @@ fn parse_pos(pos: &str) -> DecorationPosition {
 }
 
 /// Implementation of the add_page_decoration tool.
-pub fn add_page_decoration_impl(args: AddPageDecorationArgs) -> Result<String, String> {
+pub fn add_page_decoration_impl(args: AddPageDecorationArgs) -> Result<String, McpError> {
     let position = parse_pos(&args.position);
     let pages = super::parse_selection(args.pages.as_deref())?;
     let op = Operation::AddPageDecoration { pages, text: args.text, position, layer: args.layer };
@@ -137,7 +138,7 @@ pub fn add_page_decoration_impl(args: AddPageDecorationArgs) -> Result<String, S
 }
 
 /// Implementation of the apply_bates_numbering tool.
-pub fn apply_bates_numbering_impl(args: ApplyBatesNumberingArgs) -> Result<String, String> {
+pub fn apply_bates_numbering_impl(args: ApplyBatesNumberingArgs) -> Result<String, McpError> {
     let position = parse_pos(args.position.as_deref().unwrap_or("bottom_right"));
     let pages = super::parse_selection(args.pages.as_deref())?;
     let op = Operation::ApplyBatesNumbering {
@@ -151,7 +152,7 @@ pub fn apply_bates_numbering_impl(args: ApplyBatesNumberingArgs) -> Result<Strin
 }
 
 /// Implementation of the add_annotation tool.
-pub fn add_annotation_impl(args: AddAnnotationArgs) -> Result<String, String> {
+pub fn add_annotation_impl(args: AddAnnotationArgs) -> Result<String, McpError> {
     let kind = annotation_kind(&args)?;
     let spec = AnnotationSpec { page: args.page, rect: args.rect, kind };
     let op = Operation::AddAnnotation(spec);
@@ -162,7 +163,7 @@ pub fn add_annotation_impl(args: AddAnnotationArgs) -> Result<String, String> {
 ///
 /// **A name this does not know is refused.** It was read as a note, so `"underline"`
 /// wrote a sticky note and answered that it had added an annotation.
-fn annotation_kind(args: &AddAnnotationArgs) -> Result<AnnotationKind, String> {
+fn annotation_kind(args: &AddAnnotationArgs) -> Result<AnnotationKind, McpError> {
     let ink = args.color.unwrap_or([0.0, 0.0, 0.0]);
     let width = args.width.unwrap_or(1.0);
     let size = args.font_size.unwrap_or(12.0);
@@ -206,12 +207,12 @@ fn annotation_kind(args: &AddAnnotationArgs) -> Result<AnnotationKind, String> {
             destination_page: args.destination_page.unwrap_or(args.page),
             url: args.url.clone(),
         },
-        other => return Err(format!("no annotation kind is called {other:?}")),
+        other => return Err(format!("no annotation kind is called {other:?}").into()),
     })
 }
 
 /// Implementation of the set_measurement_scale tool.
-pub fn set_measurement_scale_impl(args: SetMeasurementScaleArgs) -> Result<String, String> {
+pub fn set_measurement_scale_impl(args: SetMeasurementScaleArgs) -> Result<String, McpError> {
     let scale = MeasurementScale {
         page: args.page,
         scale_ratio: args.scale_ratio,
@@ -222,7 +223,7 @@ pub fn set_measurement_scale_impl(args: SetMeasurementScaleArgs) -> Result<Strin
 }
 
 /// Implementation of the set_form_field_value tool.
-pub fn set_form_field_value_impl(args: SetFormFieldValueArgs) -> Result<String, String> {
+pub fn set_form_field_value_impl(args: SetFormFieldValueArgs) -> Result<String, McpError> {
     let val = if let Some(b) = args.value_bool {
         FormValue::Boolean(b)
     } else {
@@ -260,7 +261,7 @@ pub struct AddFormFieldArgs {
 }
 
 /// Implementation of the add_form_field tool.
-pub fn add_form_field_impl(args: AddFormFieldArgs) -> Result<String, String> {
+pub fn add_form_field_impl(args: AddFormFieldArgs) -> Result<String, McpError> {
     let value = args.value.clone().unwrap_or_default();
     let options = args.options.clone().unwrap_or_default();
     let on = value.eq_ignore_ascii_case("true");
@@ -274,7 +275,7 @@ pub fn add_form_field_impl(args: AddFormFieldArgs) -> Result<String, String> {
         "combo_box" => fepdf::FieldKind::ComboBox { options, value },
         "list_box" => fepdf::FieldKind::ListBox { options, value },
         "signature" => fepdf::FieldKind::Signature,
-        other => return Err(format!("no field kind is called {other:?}")),
+        other => return Err(format!("no field kind is called {other:?}").into()),
     };
     let op = Operation::AddFormField(fepdf::NewField {
         page: args.page,
@@ -299,7 +300,7 @@ pub struct SetCalculationOrderArgs {
 }
 
 /// Implementation of the set_calculation_order tool.
-pub fn set_calculation_order_impl(args: SetCalculationOrderArgs) -> Result<String, String> {
+pub fn set_calculation_order_impl(args: SetCalculationOrderArgs) -> Result<String, McpError> {
     let op = Operation::SetCalculationOrder(args.fields);
     execute_single_op(&args.input_path, &args.output_path, op, "Calculation order set")
 }
