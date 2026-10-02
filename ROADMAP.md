@@ -1075,6 +1075,13 @@ eight times, and the copies do not agree on whether to resolve.
 - [ ] **Y-9** — whether `fepdf/tests`' 82 files, each linking the GPU stack as its own
       binary, become one binary is decided by an A/B of the gate's own command, cold and
       warm. The threshold is written down before the measurement.
+      **Written 2026-10-03, before measuring.** Warm only, by the owner's choice: a cold
+      half deletes `target/debug` twice for about three hours. Each half is built once
+      untimed with `cargo test --workspace --no-run`, then `crates/fepdf-model/src/lib.rs`
+      is touched and `cargo test --workspace` is timed by wall clock — the edit-and-gate
+      loop, with every test binary above `fepdf-model` relinked. **One binary is taken
+      if its time is at least 15% below the 82 binaries'**; below that, each file keeping
+      a process of its own is worth more than the time.
 
 **Open**: `fepdf-doc` is 18,187 lines and holds operations, auditing, measurement and
 reading order. Whether it splits is not decided here. The Y-1d reading will show whether
