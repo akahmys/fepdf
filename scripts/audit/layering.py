@@ -60,6 +60,12 @@ SAVE_SETTINGS = {"set_system_fonts"}
 FACADE_SOURCE = ROOT / "crates" / "fepdf" / "src" / "lib.rs"
 
 
+def FACADE_SOURCES() -> list[Path]:  # noqa: N802 — read as the constant it replaced
+    """Every file of the facade's source. `PdfDocument`'s methods are in several since
+    ROADMAP Y-7, and reading `lib.rs` alone would let a mutator in another pass."""
+    return sorted((ROOT / "crates" / FACADE / "src").rglob("*.rs"))
+
+
 def named_crates_exist() -> list[str]:
     """A name here that is not a crate silently drops that crate out of both counts."""
     return [
@@ -139,9 +145,12 @@ def facade_mutators() -> list[str]:
 
     The signature is read to its opening brace rather than off the `fn` line: the first
     version of this check missed `reorder_pages_batch`, whose signature spans two lines.
+    Every file of the facade is read, not `lib.rs` alone: `PdfDocument`'s methods are in
+    several.
     """
     out, name, signature = [], None, ""
-    for line in FACADE_SOURCE.read_text().splitlines():
+    lines = [line for file in FACADE_SOURCES() for line in file.read_text().splitlines()]
+    for line in lines:
         opening = re.match(r"    pub (?:async )?fn ([a-z_]+)", line)
         if opening:
             name, signature = opening.group(1), line
