@@ -74,7 +74,7 @@ ACCOUNTED_FOR: dict[tuple[str, str], str] = {
         "before this line, and a folder left behind changes no result"
     ),
     (
-        "crates/fepdf/src/lib.rs",
+        "crates/fepdf/src/rendering.rs",
         "inner.execute(stream);",
     ): (
         "an annotation appearance that will not execute is one annotation and not the "
@@ -82,11 +82,11 @@ ACCOUNTED_FOR: dict[tuple[str, str], str] = {
         "the failure is reported even though this caller carries on"
     ),
     (
-        "crates/fepdf/src/lib.rs",
+        "crates/fepdf/src/rendering.rs",
         "backend.take_decisions();",
     ): "returns the drained Vec, not a Result — the drain is the point",
     (
-        "crates/fepdf-model/src/document.rs",
+        "crates/fepdf-model/src/document/normalisation.rs",
         "self.push_down_attributes_recursive(root_h, &mut inherited, 0);",
     ): (
         "normalization is best-effort at load: a page tree this cannot walk is reported "
