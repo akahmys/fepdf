@@ -144,7 +144,7 @@ impl PDFView {
     /// rule, and its mirror in [`Self::page_back`], each stood in two places — once for the
     /// vertical axis and once for the horizontal — inside a single function, which is what
     /// its `RR-15 Limit: GUI` was paying for. Two axes deciding the same thing separately
-    /// is the shape [`CODING.md`'s Rule D](../../../CODING.md) names for frontends, arrived
+    /// is the shape [`CODING.md`'s Rule D](../../../../CODING.md) names for frontends, arrived
     /// at inside one.
     pub(super) fn page_forward(&mut self, layouts: &[PageLayout]) -> bool {
         let total_pages = layouts.len();

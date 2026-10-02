@@ -1049,12 +1049,21 @@ eight times, and the copies do not agree on whether to resolve.
       linearisation faults as the server's — decided by a match naming every variant.
       `lib.rs`'s test holds both directions, and making one engine fault the call's
       failed it.
-- [ ] **Y-7** — no `impl` block in production code runs past 800 lines. On 2026-09-28
+- [x] **Y-7** — no `impl` block in production code runs past 800 lines. On 2026-09-28
       eight did, the largest `FontResource` (2,457), `PdfWriter` (2,423),
       `PdfDocument` (1,566), `FontReconstructor` (1,371) and `FepdfApp` in
       `view_panel.rs` (1,220). `fepdf-gui`'s `view.rs` and `worker.rs` go first, because
       they grew most in V-X. Each is a move and not a rewrite, and the golden comparison
       is what shows it.
+      Measured 2026-10-03, the eight were `FontResource` (2,570), `PdfWriter` (2,440),
+      `FontReconstructor` (1,372), `PdfDocument` (1,311), `FepdfApp` in `view_panel.rs`
+      (1,205), `Document` (1,177), `PDFView` (1,135) and `Sublimator` (815). Each is
+      in files of one subject now, the largest block 701 lines (`PDFView`'s drawing,
+      which was already its own file). Each split is a move: the methods that were
+      private are `pub(super)`, and the code lines before and after differ only where
+      rustfmt wrapped a signature that grew by that. The golden comparison agreed after
+      each. `layering.py`'s Rule D read `lib.rs` alone and reads every file of the
+      facade now, since `PdfDocument`'s methods are in four. Nothing gates the 800.
 - [ ] **Y-8** — `ARCHITECTURE.md` §3 carries no count that moves (ADR-0080). It quotes 30
       operations, 8 built by `fepdf-cli` and 12 by `fepdf-gui`, where `status.sh` reads
       54, 9 and 30. It also names `fepdf-script` and `fepdf-fixtures` in the diagram, and
