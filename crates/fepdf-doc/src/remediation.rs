@@ -1164,9 +1164,11 @@ pub fn apply_physical_redaction_to_page(
         // operation whose whole purpose is that something is *gone*, "I could not read
         // it" and "there was nothing there" must not arrive as the same answer.
         if let Err(why) = interpreter.execute_raw(&data) {
-            return Err(PdfError::Other(
-                format!("page {page_index} could not be interpreted, so nothing was redacted from it: {why}")
-                    .into(),
+            return Err(PdfError::refused(
+                "redact",
+                format!(
+                    "page {page_index} could not be interpreted, so nothing was redacted from it: {why}"
+                ),
             ));
         }
 

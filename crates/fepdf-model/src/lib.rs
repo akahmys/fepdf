@@ -85,7 +85,7 @@ pub use handle::{DictHandle, Handle};
 pub use ingest::Ingestor;
 pub use object::{FromPdfObject, Object, PdfName, PdfSchema, Reference, SublimatedData};
 
-pub use error::{PdfError, PdfResult};
+pub use error::{Missing, PdfError, PdfResult};
 pub use interpretation::{Decision, DecisionLog, Severity, Strictness};
 pub use source::{DocumentSource, PdfSource};
 

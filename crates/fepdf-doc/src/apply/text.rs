@@ -33,7 +33,7 @@
 
 use fepdf_model::font::FontResource;
 use fepdf_model::lexer::{Lexer, Token};
-use fepdf_model::{Document, Object, PdfError, PdfResult};
+use fepdf_model::{Document, Missing, Object, PdfError, PdfResult};
 use kurbo::Affine;
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -160,9 +160,7 @@ pub fn apply_edit_run(doc: &Document, page: usize, run: usize, text: &str) -> Pd
     let (mut tokens, runs) = read_runs(&data, &fonts);
 
     let Some(target) = runs.get(run) else {
-        return Err(PdfError::Other(
-            format!("this page has {} runs and no run {run}", runs.len()).into(),
-        ));
+        return Err(PdfError::NotFound(Missing::Run { index: run, count: runs.len() }));
     };
     let encoded = encode(&target.font, text)?;
     let mut written = false;
@@ -188,8 +186,7 @@ pub fn apply_edit_run(doc: &Document, page: usize, run: usize, text: &str) -> Pd
 /// The page's content, decoded and concatenated.
 pub(crate) fn page_content(doc: &Document, page: usize) -> PdfResult<Option<bytes::Bytes>> {
     let arena = doc.arena();
-    let page_h =
-        doc.get_page_handle(page).ok_or_else(|| PdfError::Other("the page is not there".into()))?;
+    let page_h = doc.page_handle(page)?;
     let page_dh = doc.resolve_to_dict(page_h)?;
     let page_dict = arena.get_dict(page_dh).unwrap_or_default();
     let Some(contents) = page_dict.get(&arena.name("Contents")).cloned() else {
@@ -259,8 +256,7 @@ pub(crate) fn page_commands(
     fonts: &BTreeMap<String, Arc<FontResource>>,
 ) -> PdfResult<Option<Content>> {
     let arena = doc.arena();
-    let page_h =
-        doc.get_page_handle(page).ok_or_else(|| PdfError::Other("the page is not there".into()))?;
+    let page_h = doc.page_handle(page)?;
     let page_dh = doc.resolve_to_dict(page_h)?;
     let Some(contents) = arena.dict_entry(page_dh, arena.name("Contents")) else {
         return Ok(None);
@@ -296,8 +292,7 @@ pub(crate) fn page_commands(
 /// Puts `content` on the page, as its one content stream.
 pub(crate) fn write_page_content(doc: &Document, page: usize, content: Vec<u8>) -> PdfResult<()> {
     let arena = doc.arena();
-    let page_h =
-        doc.get_page_handle(page).ok_or_else(|| PdfError::Other("the page is not there".into()))?;
+    let page_h = doc.page_handle(page)?;
     let page_dh = doc.resolve_to_dict(page_h)?;
     let mut page_dict = arena.get_dict(page_dh).unwrap_or_default();
     let stream = arena.alloc_object(Object::Stream(
@@ -315,8 +310,7 @@ pub(crate) fn fonts_of_page(
     page: usize,
 ) -> PdfResult<BTreeMap<String, Arc<FontResource>>> {
     let arena = doc.arena();
-    let page_h =
-        doc.get_page_handle(page).ok_or_else(|| PdfError::Other("the page is not there".into()))?;
+    let page_h = doc.page_handle(page)?;
     let chain = doc.get_parent_chain(page_h);
     let view = fepdf_model::Page::new(arena, page_h, chain);
     let resources = arena.get_dict(view.resources_handle()).unwrap_or_default();
@@ -558,8 +552,9 @@ fn encode(font: &FontResource, text: &str) -> PdfResult<bytes::Bytes> {
     let mut out = Vec::with_capacity(text.len() * 2);
     for character in text.chars() {
         let Some(code) = font.code_for(character) else {
-            return Err(PdfError::Other(
-                format!("the font this run is set in does not draw {character:?}").into(),
+            return Err(PdfError::refused(
+                "EditRun",
+                format!("the font this run is set in does not draw {character:?}"),
             ));
         };
         out.extend_from_slice(&code);
@@ -583,14 +578,13 @@ pub fn apply_split_run(doc: &Document, page: usize, run: usize, after: usize) ->
     let (tokens, runs) = read_runs(&data, &fonts);
 
     let Some(target) = runs.get(run) else {
-        return Err(PdfError::Other(
-            format!("this page has {} runs and no run {run}", runs.len()).into(),
-        ));
+        return Err(PdfError::NotFound(Missing::Run { index: run, count: runs.len() }));
     };
     let glyphs = target.pieces.len();
     if after == 0 || after >= glyphs {
-        return Err(PdfError::Other(
-            format!("run {run} draws {glyphs} glyphs, so it cannot be cut after {after}").into(),
+        return Err(PdfError::refused(
+            "SplitRun",
+            format!("run {run} draws {glyphs} glyphs, so it cannot be cut after {after}"),
         ));
     }
     // **The codes are cut, not the characters.** Reading a run and writing it back is not
@@ -690,9 +684,7 @@ pub fn apply_delete_run(doc: &Document, page: usize, run: usize) -> PdfResult<()
     let (tokens, runs) = read_runs(&data, &fonts);
 
     let Some(target) = runs.get(run) else {
-        return Err(PdfError::Other(
-            format!("this page has {} runs and no run {run}", runs.len()).into(),
-        ));
+        return Err(PdfError::NotFound(Missing::Run { index: run, count: runs.len() }));
     };
 
     let mut out = Vec::with_capacity(data.len());
@@ -731,19 +723,21 @@ pub fn apply_merge_runs(doc: &Document, page: usize, run: usize) -> PdfResult<()
     let (tokens, runs) = read_runs(&data, &fonts);
 
     let Some(first) = runs.get(run) else {
-        return Err(PdfError::Other(
-            format!("this page has {} runs and no run {run}", runs.len()).into(),
-        ));
+        return Err(PdfError::NotFound(Missing::Run { index: run, count: runs.len() }));
     };
     let Some(second) = runs.get(run + 1) else {
-        return Err(PdfError::Other(
-            format!("run {run} is the last on this page, so there is nothing to join it to").into(),
+        return Err(PdfError::refused(
+            "MergeRuns",
+            format!("run {run} is the last on this page, so there is nothing to join it to"),
         ));
     };
     if let Some(between) = between(&tokens, first.operator, second.start) {
-        return Err(PdfError::Other(
-            format!("{between} stands between run {run} and run {}, so joining them would draw the second somewhere it was not", run + 1)
-                .into(),
+        return Err(PdfError::refused(
+            "MergeRuns",
+            format!(
+                "{between} stands between run {run} and run {}, so joining them would draw the second somewhere it was not",
+                run + 1
+            ),
         ));
     }
     // Their codes run together, for the reason the cut works on codes: nothing is read and
@@ -1069,15 +1063,13 @@ pub fn apply_move_run(doc: &Document, page: usize, run: usize, to: (f64, f64)) -
     let (tokens, runs) = read_runs(&data, &fonts);
 
     let Some(target) = runs.get(run) else {
-        return Err(PdfError::Other(
-            format!("this page has {} runs and no run {run}", runs.len()).into(),
-        ));
+        return Err(PdfError::NotFound(Missing::Run { index: run, count: runs.len() }));
     };
     let placed = target.placement;
     if !placed.in_text_object {
-        return Err(PdfError::Other(
-            format!("run {run} is drawn outside a text object, so there is none to move it in")
-                .into(),
+        return Err(PdfError::refused(
+            "MoveRun",
+            format!("run {run} is drawn outside a text object, so there is none to move it in"),
         ));
     }
     let moved_to = matrix_reaching(&placed, to, run)?;
@@ -1102,9 +1094,11 @@ pub fn apply_move_run(doc: &Document, page: usize, run: usize, to: (f64, f64)) -
 /// it keeps, because a move was asked for and nothing else.
 fn matrix_reaching(placed: &Placement, to: (f64, f64), run: usize) -> PdfResult<Affine> {
     if placed.ctm.determinant().abs() < f64::EPSILON {
-        return Err(PdfError::Other(
-            format!("run {run} is drawn under a transform that flattens the page, so no position reaches it")
-                .into(),
+        return Err(PdfError::refused(
+            "MoveRun",
+            format!(
+                "run {run} is drawn under a transform that flattens the page, so no position reaches it"
+            ),
         ));
     }
     let wanted = placed.ctm.inverse() * Affine::translate(to);
@@ -1123,8 +1117,9 @@ fn matrix_reaching(placed: &Placement, to: (f64, f64), run: usize) -> PdfResult<
 fn restoring_offset(placed: &Placement, run: usize) -> PdfResult<f64> {
     let after = placed.matrix * Affine::translate((placed.advance, 0.0));
     if placed.line.determinant().abs() < f64::EPSILON {
-        return Err(PdfError::Other(
-            format!("run {run} is placed by a line matrix nothing can be measured against").into(),
+        return Err(PdfError::refused(
+            "MoveRun",
+            format!("run {run} is placed by a line matrix nothing can be measured against"),
         ));
     }
     let step = (placed.line.inverse() * after).as_coeffs();
@@ -1134,16 +1129,18 @@ fn restoring_offset(placed: &Placement, run: usize) -> PdfResult<f64> {
         && (step[3] - 1.0).abs() < 1e-9
         && step[5].abs() < 1e-9;
     if !is_translation {
-        return Err(PdfError::Other(
-            format!("run {run} sits at {step:?} from the line it is on, which a horizontal offset cannot put back")
-                .into(),
+        return Err(PdfError::refused(
+            "MoveRun",
+            format!(
+                "run {run} sits at {step:?} from the line it is on, which a horizontal offset cannot put back"
+            ),
         ));
     }
     let scaled = placed.size * placed.scale / 100.0;
     if scaled.abs() < f64::EPSILON {
-        return Err(PdfError::Other(
-            format!("run {run} is set at a size of zero, so no offset can be measured in it")
-                .into(),
+        return Err(PdfError::refused(
+            "MoveRun",
+            format!("run {run} is set at a size of zero, so no offset can be measured in it"),
         ));
     }
     Ok(-step[4] * 1000.0 / scaled)

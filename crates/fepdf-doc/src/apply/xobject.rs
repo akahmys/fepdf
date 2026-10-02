@@ -100,9 +100,10 @@ pub fn apply_edit_xobject(
 ) -> PdfResult<()> {
     let listed = objects_of_page(doc, page)?;
     let Some(target) = listed.iter().find(|o| o.index == object) else {
-        return Err(PdfError::Other(
-            format!("this page draws {} objects and no object {object}", listed.len()).into(),
-        ));
+        return Err(PdfError::NotFound(fepdf_model::Missing::DrawnObject {
+            index: object,
+            count: listed.len(),
+        }));
     };
     let Some(data) = crate::apply::text::page_content(doc, page)? else { return Ok(()) };
     let (tokens, found) = walk(&data);
@@ -112,7 +113,10 @@ pub fn apply_edit_xobject(
         XObjectEdit::Move { to } => (move_to(target, *to), draw.name.clone()),
         XObjectEdit::Scale { by } => {
             if !(*by > 0.0 && by.is_finite()) {
-                return Err(PdfError::Other(format!("a scale of {by} draws nothing").into()));
+                return Err(PdfError::refused(
+                    "EditXObject",
+                    format!("a scale of {by} draws nothing"),
+                ));
             }
             (about_centre(target, Affine::scale(*by)), draw.name.clone())
         }
@@ -121,11 +125,11 @@ pub fn apply_edit_xobject(
         }
         XObjectEdit::Replace { jpeg } => {
             if !target.image {
-                return Err(PdfError::Other(
+                return Err(PdfError::refused(
+                    "EditXObject",
                     format!(
                         "object {object} is a form, and only an image is replaced by a picture"
-                    )
-                    .into(),
+                    ),
                 ));
             }
             let image = crate::apply::markup::jpeg_image(doc.arena(), jpeg)?;
@@ -216,8 +220,7 @@ fn named_xobjects(
     page: usize,
 ) -> PdfResult<BTreeMap<String, (Handle<Object>, bool)>> {
     let arena = doc.arena();
-    let page_h =
-        doc.get_page_handle(page).ok_or_else(|| PdfError::Other("the page is not there".into()))?;
+    let page_h = doc.page_handle(page)?;
     let resources =
         fepdf_model::Page::new(arena, page_h, doc.get_parent_chain(page_h)).resources_handle();
     let (subtype, image) = (arena.name("Subtype"), arena.name("Image"));
@@ -270,8 +273,7 @@ fn local_box(doc: &Document, handle: Handle<Object>, image: bool) -> Rect {
 /// Names `image` in the page's resources, under a name nothing there uses.
 fn name_in_page(doc: &Document, page: usize, image: Handle<Object>) -> PdfResult<String> {
     let arena = doc.arena();
-    let page_h =
-        doc.get_page_handle(page).ok_or_else(|| PdfError::Other("the page is not there".into()))?;
+    let page_h = doc.page_handle(page)?;
     let page_dh = doc.resolve_to_dict(page_h)?;
     let mut page_dict = arena.get_dict(page_dh).unwrap_or_default();
     let resources = crate::apply::annotations::ensure_page_resources(doc, page_h, &mut page_dict);

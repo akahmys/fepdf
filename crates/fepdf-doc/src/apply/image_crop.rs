@@ -200,9 +200,7 @@ fn matrix_of(operands: &[Token]) -> Affine {
 /// The image XObjects the page's resources name, by name.
 fn images_of(doc: &Document, page: usize) -> PdfResult<BTreeMap<String, Handle<Object>>> {
     let arena = doc.arena();
-    let page_h = doc
-        .get_page_handle(page)
-        .ok_or_else(|| fepdf_model::PdfError::Other("the page is not there".into()))?;
+    let page_h = doc.page_handle(page)?;
     let resources =
         fepdf_model::Page::new(arena, page_h, doc.get_parent_chain(page_h)).resources_handle();
     let subtype = arena.name("Subtype");
@@ -478,9 +476,7 @@ fn write_bits(bytes: &mut [u8], at: usize, bits: usize, value: u8) {
 /// Names `image` in the page's resources, under a name nothing there uses.
 fn name_in_page(doc: &Document, page: usize, image: Handle<Object>) -> PdfResult<String> {
     let arena = doc.arena();
-    let page_h = doc
-        .get_page_handle(page)
-        .ok_or_else(|| fepdf_model::PdfError::Other("the page is not there".into()))?;
+    let page_h = doc.page_handle(page)?;
     let page_dh = doc.resolve_to_dict(page_h)?;
     let mut page_dict = arena.get_dict(page_dh).unwrap_or_default();
     let resources = crate::apply::annotations::ensure_page_resources(doc, page_h, &mut page_dict);

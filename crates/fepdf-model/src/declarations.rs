@@ -69,7 +69,10 @@ pub fn declared(doc: &Document) -> Vec<String> {
 pub fn declare(doc: &Document, uri: &str) -> PdfResult<()> {
     let uri = uri.trim();
     if uri.is_empty() {
-        return Err(PdfError::Other("a declaration names what it conforms to".into()));
+        return Err(PdfError::refused(
+            "DeclareConformance",
+            "a declaration names what it conforms to",
+        ));
     }
     let Declared { items, mut namespaces } =
         crate::metadata::catalog_packet(doc).map(|p| read(&p)).unwrap_or_else(|| read(""));

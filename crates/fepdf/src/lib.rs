@@ -57,10 +57,10 @@ pub use fepdf_model::signature::{SignatureCheck, SignatureReport};
 pub use fepdf_model::{
     AFRelationship, AnnotationKind, AnnotationSpec, ArticleBead, ArticleThread, AssociatedFile,
     CollectionViewMode, Document, FormFieldSpec, FormValue, GeoSpatialAnchor, Handle, LayerGroup,
-    MeasurementScale, Object, OptionalContentProperties, OutlineNode, OutlineTree, OutputIntent,
-    Page, PageLabelSpec, PageLabelStyle, PdfAction, PdfArena, PdfError, PdfName, PdfResult,
-    PortfolioCollection, PortfolioItem, ShapeForm, SublimatedData, TransitionSpec, TransitionStyle,
-    UnencryptedWrapperSpec, UserProperty, UserPropertyValue, VisibilityState,
+    MeasurementScale, Missing, Object, OptionalContentProperties, OutlineNode, OutlineTree,
+    OutputIntent, Page, PageLabelSpec, PageLabelStyle, PdfAction, PdfArena, PdfError, PdfName,
+    PdfResult, PortfolioCollection, PortfolioItem, ShapeForm, SublimatedData, TransitionSpec,
+    TransitionStyle, UnencryptedWrapperSpec, UserProperty, UserPropertyValue, VisibilityState,
 };
 pub use fepdf_model::{DocumentSource, PdfSource};
 #[cfg(feature = "render")]
@@ -315,8 +315,9 @@ fn written_version(version: &str) -> PdfResult<()> {
     if version == "2.0" {
         return Ok(());
     }
-    Err(PdfError::Other(
-        format!("this engine writes PDF 2.0 only, and {version:?} was asked for").into(),
+    Err(PdfError::refused(
+        "save",
+        format!("this engine writes PDF 2.0 only, and {version:?} was asked for"),
     ))
 }
 
@@ -1605,11 +1606,12 @@ impl PdfDocument {
     ) -> PdfResult<(Vec<u8>, u32, u32)> {
         let (wide, tall) = (keep.2 - keep.0, keep.3 - keep.1);
         if !scale.is_finite() || scale <= 0.0 {
-            return Err(PdfError::Other(format!("a scale of {scale} draws nothing").into()));
+            return Err(PdfError::refused("render", format!("a scale of {scale} draws nothing")));
         }
         if !(wide.is_finite() && tall.is_finite()) || wide <= 0.0 || tall <= 0.0 {
-            return Err(PdfError::Other(
-                format!("a region of {wide} by {tall} points has no area").into(),
+            return Err(PdfError::refused(
+                "render",
+                format!("a region of {wide} by {tall} points has no area"),
             ));
         }
         let (width, height) = pixels_across(wide, tall, scale)?;
@@ -1629,7 +1631,7 @@ impl PdfDocument {
             height,
             rasteriser,
         ))
-        .map_err(|e: Box<dyn std::error::Error>| PdfError::Other(e.to_string().into()))?;
+        .map_err(|e: Box<dyn std::error::Error>| PdfError::internal(e.to_string()))?;
         Ok((pixels, width, height))
     }
 
@@ -1668,7 +1670,7 @@ impl PdfDocument {
     /// Fails when the page is not there or `dpi` is not a positive number.
     pub fn page_to_pixels(&self, index: usize, dpi: f64) -> PdfResult<(kurbo::Affine, u32, u32)> {
         if !(dpi > 0.0 && dpi.is_finite()) {
-            return Err(PdfError::Other(format!("{dpi} dots per inch is no image").into()));
+            return Err(PdfError::refused("render", format!("{dpi} dots per inch is no image")));
         }
         let r = self.get_page_box(index)?;
         let rot = self.get_page_rotation(index)?;
@@ -1710,10 +1712,10 @@ impl PdfDocument {
         {
             Some("png") => image::ImageFormat::Png,
             Some("jpg" | "jpeg") => image::ImageFormat::Jpeg,
-            _ => return Err(PdfError::Other(
+            _ => return Err(PdfError::refused(
+                "render",
                 "Unsupported image format. Only PNG and JPEG (.png, .jpg, .jpeg) are supported."
-                    .to_string()
-                    .into(),
+                    .to_string(),
             )),
         };
 
@@ -1727,7 +1729,9 @@ impl PdfDocument {
             format,
             rasteriser,
         ))
-        .map_err(|e: Box<dyn std::error::Error>| PdfError::Other(e.to_string().into()))?;
+        .map_err(|e: Box<dyn std::error::Error>| {
+            PdfError::Io(std::io::Error::other(e.to_string()))
+        })?;
 
         Ok(())
     }
@@ -1900,9 +1904,11 @@ fn pixels_across(wide: f64, tall: f64, scale: f64) -> PdfResult<(u32, u32)> {
     };
     match (fits(across), fits(down)) {
         (Some(across), Some(down)) => Ok((across, down)),
-        _ => Err(PdfError::Other(
-            format!("a region of {wide} by {tall} points at {scale} is {across} by {down} pixels, which is no image")
-                .into(),
+        _ => Err(PdfError::refused(
+            "render",
+            format!(
+                "a region of {wide} by {tall} points at {scale} is {across} by {down} pixels, which is no image"
+            ),
         )),
     }
 }

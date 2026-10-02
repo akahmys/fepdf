@@ -1033,6 +1033,18 @@ eight times, and the copies do not agree on whether to resolve.
 - [ ] **Y-6** — `PdfError::Other` is removed, and its 199 sites take the variant for
       their kind
       ([ADR-0102](docs/adr/0102-an-error-says-whose-it-is.md)).
+      **The engine's half is done:** the variant is gone, so a new `PdfError::Other(`
+      does not compile, and its 216 sites (counted 2026-10-03; 199 on 2026-09-28) are
+      `NotFound`, `Refused`, `ClauseViolation`, `Internal`, `DepthLimitExceeded` or
+      `Io`. `Missing` has seven kinds; a page past the end is `Missing::Page { index,
+      count }` from `Document::page_handle`, which nine `get_page_handle(..).ok_or_else`
+      sites became. `fepdf-font`'s errors are `ClauseViolation` 9.9: every message it
+      carries is about a font program's bytes. One reading differs from the ADR's: a
+      content-stream operator popping an empty stack is the document's fault — it wrote
+      too few operands — so it is `ClauseViolation` 7.8.2, not `Internal`.
+      **Open:** `McpError::Pdf` still carries a string. Carrying the `PdfError` changes
+      the 59 tools' `Result<String, String>`, which is where `Internal` would become a
+      server error.
 - [ ] **Y-7** — no `impl` block in production code runs past 800 lines. On 2026-09-28
       eight did, the largest `FontResource` (2,457), `PdfWriter` (2,423),
       `PdfDocument` (1,566), `FontReconstructor` (1,371) and `FepdfApp` in

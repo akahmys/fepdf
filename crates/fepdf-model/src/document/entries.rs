@@ -134,7 +134,7 @@ pub fn entry<T: FromPdfObject>(
     key: &str,
 ) -> PdfResult<Option<T>> {
     let dict = dict_of(arena, catalog)
-        .ok_or_else(|| PdfError::Other("the catalogue is not a dictionary (7.7.2)".into()))?;
+        .ok_or_else(|| PdfError::violation("7.7.2", "the catalogue is not a dictionary (7.7.2)"))?;
     match dict.get(&arena.name(key)) {
         Some(value) => T::from_pdf_object(value.clone(), arena).map(Some),
         None => Ok(None),
@@ -199,7 +199,7 @@ impl FromPdfObject for SignatureFlags {
         let bits = obj
             .resolve(arena)
             .as_integer()
-            .ok_or_else(|| PdfError::Other("/SigFlags is a bit field".into()))?;
+            .ok_or_else(|| PdfError::violation("12.7.3", "/SigFlags is a bit field"))?;
         Ok(Self { signatures_exist: bits & 1 != 0, append_only: bits & 2 != 0 })
     }
 }
@@ -425,7 +425,7 @@ pub struct PieceInfo {
 impl FromPdfObject for PieceInfo {
     fn from_pdf_object(obj: Object, arena: &PdfArena) -> PdfResult<Self> {
         let dict = dict_of(arena, &obj)
-            .ok_or_else(|| PdfError::Other("/PieceInfo is not a dictionary (14.5)".into()))?;
+            .ok_or_else(|| PdfError::violation("14.5", "/PieceInfo is not a dictionary (14.5)"))?;
         let mut out = Self::default();
         for (name, value) in dict {
             let Some(name) = arena.get_name(name) else {
@@ -453,7 +453,7 @@ fn read_array<T: FromPdfObject>(
     what: &str,
 ) -> PdfResult<(Vec<T>, usize)> {
     let items = array_of(arena, obj)
-        .ok_or_else(|| PdfError::Other(format!("{what} is not an array").into()))?;
+        .ok_or_else(|| PdfError::violation("7.3.6", format!("{what} is not an array")))?;
     let mut read = Vec::new();
     let mut unreadable = 0;
     for item in items {
@@ -496,7 +496,7 @@ pub struct PageLabelRange {
 impl FromPdfObject for PageLabels {
     fn from_pdf_object(obj: Object, arena: &PdfArena) -> PdfResult<Self> {
         let dict = dict_of(arena, &obj)
-            .ok_or_else(|| PdfError::Other("/PageLabels is not a number tree".into()))?;
+            .ok_or_else(|| PdfError::violation("12.4.2", "/PageLabels is not a number tree"))?;
         let mut out = Self::default();
         let mut pairs = Vec::new();
         walk_number_tree(arena, &dict, &mut pairs, 0);
@@ -603,8 +603,9 @@ impl FromPdfObject for TriggeredAction {
             Object::Dictionary(_) | Object::Stream(..) => {
                 Action::from_pdf_object(obj, arena).map(Self::Action)
             }
-            other => Err(PdfError::Other(
-                format!("/OpenAction is a destination or an action, not {other:?}").into(),
+            other => Err(PdfError::violation(
+                "7.7.2",
+                format!("/OpenAction is a destination or an action, not {other:?}"),
             )),
         }
     }
@@ -730,7 +731,7 @@ const NAME_TREES: &[&str] = &[
 impl FromPdfObject for NameDictionary {
     fn from_pdf_object(obj: Object, arena: &PdfArena) -> PdfResult<Self> {
         let dict = dict_of(arena, &obj)
-            .ok_or_else(|| PdfError::Other("/Names is not a dictionary".into()))?;
+            .ok_or_else(|| PdfError::violation("7.7.4", "/Names is not a dictionary"))?;
         let mut out = Self::default();
         for key in NAME_TREES {
             let Some(root) = dict.get(&arena.name(key)).and_then(|v| dict_of(arena, v)) else {
@@ -765,7 +766,7 @@ impl FromPdfObject for XmpMetadata {
     fn from_pdf_object(obj: Object, arena: &PdfArena) -> PdfResult<Self> {
         let resolved = obj.resolve(arena);
         let Object::Stream(dh, ref data) = resolved else {
-            return Err(PdfError::Other("/Metadata is not a stream (14.3.2)".into()));
+            return Err(PdfError::violation("14.3.2", "/Metadata is not a stream (14.3.2)"));
         };
         let mut out = Self {
             subtype: arena.get_dict(dh).and_then(|d| name_at(arena, &d, "Subtype")).map(|n| n.0),

@@ -27,8 +27,9 @@ pub fn add_radio_button(
 ) -> PdfResult<()> {
     let arena = doc.arena();
     if button.name == "Off" {
-        return Err(PdfError::Other(
-            "a radio button cannot be named Off, which is the state of none being chosen".into(),
+        return Err(PdfError::refused(
+            "AddFormField",
+            "a radio button cannot be named Off, which is the state of none being chosen",
         ));
     }
     let parent = match group_field(doc, group)? {
@@ -39,8 +40,9 @@ pub fn add_radio_button(
     let kids = kids_of(doc, parent_dh);
     let state = arena.name(&button.name);
     if kids.iter().any(|kid| crate::apply::appearance::button_states(doc, *kid).contains(&state)) {
-        return Err(PdfError::Other(
-            format!("the group {group:?} already has a button named {:?}", button.name).into(),
+        return Err(PdfError::refused(
+            "AddFormField",
+            format!("the group {group:?} already has a button named {:?}", button.name),
         ));
     }
     let widget = widget(doc, button, page, parent, if on { state } else { arena.name("Off") });
@@ -78,9 +80,9 @@ fn group_field(doc: &Document, group: &str) -> PdfResult<Option<Handle<Object>>>
     let Some((_, handle, dict)) = found else { return Ok(None) };
     let flags = arena.dict_entry(dict, arena.name("Ff")).and_then(|f| f.as_integer()).unwrap_or(0);
     if flags & RADIO == 0 {
-        return Err(PdfError::Other(
-            format!("the form has a field named {group:?}, and it is not a set of radio buttons")
-                .into(),
+        return Err(PdfError::refused(
+            "AddFormField",
+            format!("the form has a field named {group:?}, and it is not a set of radio buttons"),
         ));
     }
     Ok(Some(handle))

@@ -298,15 +298,7 @@ fn build_outline_item(
 
     // A bookmark to a page the document does not have is refused, as a link to one is: it
     // was written with no destination and answered `Ok`.
-    let page_h = doc.get_page_handle(node.destination_page).ok_or_else(|| {
-        PdfError::Other(
-            format!(
-                "the bookmark {:?} goes to page {}, which this document does not have",
-                node.title, node.destination_page
-            )
-            .into(),
-        )
-    })?;
+    let page_h = doc.page_handle(node.destination_page)?;
     let dest_items = vec![Object::Reference(page_h), Object::Name(arena.name("Fit"))];
     dict.insert(arena.name("Dest"), Object::Array(arena.alloc_array(dest_items)));
 
@@ -333,12 +325,13 @@ fn build_outline_level(
 ) -> PdfResult<(Handle<Object>, Handle<Object>, usize)> {
     let arena = doc.arena();
     if depth >= MAX_OUTLINE_DEPTH {
-        return Err(PdfError::Other(
-            format!("the outline nests deeper than {MAX_OUTLINE_DEPTH} levels").into(),
+        return Err(PdfError::refused(
+            "UpdateOutlines",
+            format!("the outline nests deeper than {MAX_OUTLINE_DEPTH} levels"),
         ));
     }
     if nodes.is_empty() {
-        return Err(PdfError::Other("Empty outline level".into()));
+        return Err(PdfError::refused("UpdateOutlines", "Empty outline level"));
     }
 
     let mut handles = Vec::new();
@@ -648,20 +641,21 @@ pub fn apply_set_output_intent(doc: &Document, intent: OutputIntent) -> PdfResul
 /// Fails when `profile` carries no ICC header, or names a colour space `/N` cannot state.
 fn icc_components(profile: &[u8]) -> PdfResult<i64> {
     if profile.get(36..40) != Some(b"acsp".as_slice()) {
-        return Err(PdfError::Other(
-            "the output intent's profile is not an ICC profile: it has no acsp signature".into(),
+        return Err(PdfError::refused(
+            "SetOutputIntent",
+            "the output intent's profile is not an ICC profile: it has no acsp signature",
         ));
     }
     match profile.get(16..20) {
         Some(b"GRAY") => Ok(1),
         Some(b"RGB " | b"Lab ") => Ok(3),
         Some(b"CMYK") => Ok(4),
-        other => Err(PdfError::Other(
+        other => Err(PdfError::refused(
+            "SetOutputIntent",
             format!(
                 "the output intent's profile is of the colour space {:?}, which /N cannot state",
                 other.map(String::from_utf8_lossy)
-            )
-            .into(),
+            ),
         )),
     }
 }
@@ -681,16 +675,16 @@ pub fn apply_set_pronunciation_lexicon(doc: &Document, bytes: Vec<u8>) -> PdfRes
     let arena = doc.arena();
     let catalog = doc
         .catalog_handle()
-        .ok_or_else(|| PdfError::Other("the document has no catalogue".into()))?;
+        .ok_or_else(|| PdfError::violation("7.7.2", "the document has no catalogue"))?;
     let catalog = doc.resolve_to_dict(catalog)?;
     let Some(root) = arena
         .dict_entry(catalog, arena.name("StructTreeRoot"))
         .and_then(|root| root.resolve(arena).as_dict_handle())
     else {
-        return Err(PdfError::Other(
+        return Err(PdfError::refused(
+            "SetPronunciationLexicon",
             "a pronunciation lexicon is named by the structure tree root (Table 354), and \
-             this document has no structure tree"
-                .into(),
+             this document has no structure tree",
         ));
     };
     let size = bytes.len() as u64;

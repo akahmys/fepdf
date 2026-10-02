@@ -1241,7 +1241,7 @@ impl FontResource {
             ));
         }
 
-        subtype_name.ok_or_else(|| PdfError::Other("Missing font subtype".into()))
+        subtype_name.ok_or_else(|| PdfError::violation("9.5", "Missing font subtype"))
     }
 
     fn extract_base_font(dict: &BTreeMap<Handle<PdfName>, Object>, arena: &PdfArena) -> PdfName {

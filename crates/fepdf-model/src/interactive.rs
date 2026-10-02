@@ -947,22 +947,15 @@ pub fn add_signature_field(
     let catalog_dict_handle = arena
         .get_object(catalog)
         .and_then(|o| o.as_dict_handle())
-        .ok_or_else(|| PdfError::Other("the catalogue is not a dictionary".into()))?;
+        .ok_or_else(|| PdfError::violation("7.7.2", "the catalogue is not a dictionary"))?;
     let mut catalog_dict = arena
         .get_dict(catalog_dict_handle)
-        .ok_or_else(|| PdfError::Other("the catalogue is missing".into()))?;
+        .ok_or_else(|| PdfError::internal("the catalogue is missing"))?;
 
     let pages = page_handles(arena, &catalog_dict);
-    let page = *pages.get(field.page_index).ok_or_else(|| {
-        PdfError::Other(
-            format!(
-                "the signature is for page {} of a document with {}",
-                field.page_index + 1,
-                pages.len()
-            )
-            .into(),
-        )
-    })?;
+    let page = *pages
+        .get(field.page_index)
+        .ok_or_else(|| PdfError::no_page(field.page_index, pages.len()))?;
 
     let signature_handle = signature_dictionary(arena, field);
     let widget_handle = signature_widget(arena, field, signature_handle, page);
@@ -1046,13 +1039,12 @@ fn append_to_array(
     key: &str,
     value: Object,
 ) -> PdfResult<()> {
-    let handle = arena
-        .get_object(owner)
-        .and_then(|o| o.as_dict_handle())
-        .ok_or_else(|| PdfError::Other(format!("cannot add /{key} to a non-dictionary").into()))?;
-    let mut dict = arena.get_dict(handle).ok_or_else(|| {
-        PdfError::Other(format!("cannot add /{key} to a missing dictionary").into())
+    let handle = arena.get_object(owner).and_then(|o| o.as_dict_handle()).ok_or_else(|| {
+        PdfError::violation("7.3.7", format!("cannot add /{key} to a non-dictionary"))
     })?;
+    let mut dict = arena
+        .get_dict(handle)
+        .ok_or_else(|| PdfError::internal(format!("cannot add /{key} to a missing dictionary")))?;
 
     match dict.get(&arena.name(key)).and_then(|o| o.resolve(arena).as_array()) {
         Some(array_handle) => {
@@ -1074,13 +1066,12 @@ fn set_entry(
     key: &str,
     value: Object,
 ) -> PdfResult<()> {
-    let handle = arena
-        .get_object(owner)
-        .and_then(|o| o.as_dict_handle())
-        .ok_or_else(|| PdfError::Other(format!("cannot set /{key} on a non-dictionary").into()))?;
-    let mut dict = arena.get_dict(handle).ok_or_else(|| {
-        PdfError::Other(format!("cannot set /{key} on a missing dictionary").into())
+    let handle = arena.get_object(owner).and_then(|o| o.as_dict_handle()).ok_or_else(|| {
+        PdfError::violation("7.3.7", format!("cannot set /{key} on a non-dictionary"))
     })?;
+    let mut dict = arena
+        .get_dict(handle)
+        .ok_or_else(|| PdfError::internal(format!("cannot set /{key} on a missing dictionary")))?;
     dict.insert(arena.name(key), value);
     arena.set_dict(handle, dict);
     Ok(())

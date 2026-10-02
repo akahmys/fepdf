@@ -35,7 +35,7 @@ impl Interpreter<'_> {
                     .doc
                     .arena()
                     .get_name(sub)
-                    .ok_or_else(|| PdfError::Other("Subtype name not found".into()))?;
+                    .ok_or_else(|| PdfError::internal("Subtype name not found"))?;
                 let sub_str = sub_name.as_str();
                 let sd = if let Object::Stream(_, ref sd) = xobj {
                     sd
@@ -559,7 +559,7 @@ impl Interpreter<'_> {
             .doc
             .arena()
             .get_dict(dh)
-            .ok_or_else(|| PdfError::Other("SMask dictionary not found".into()))?;
+            .ok_or_else(|| PdfError::internal("SMask dictionary not found"))?;
 
         if let fepdf_model::object::SublimatedData::Image { width, height, format, data } =
             sd.as_ref()

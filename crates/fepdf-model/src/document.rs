@@ -737,7 +737,7 @@ impl Document {
 
     /// Loads a PDF document from a file path using default options.
     pub fn load(path: &std::path::Path) -> PdfResult<Self> {
-        let data = std::fs::read(path).map_err(|e| PdfError::Other(e.to_string().into()))?;
+        let data = std::fs::read(path)?;
         Self::open(bytes::Bytes::from(data), &crate::ingest::IngestionOptions::default())
     }
 
@@ -932,12 +932,11 @@ impl Document {
         }
 
         let obj = self.resolve(&handle)?;
-        let dict_h =
-            obj.as_dict_handle().ok_or_else(|| PdfError::Other("Not a dictionary".into()))?;
-        let dict = self
-            .arena
-            .get_dict(dict_h)
-            .ok_or_else(|| PdfError::Other("Missing dictionary".into()))?;
+        let dict_h = obj
+            .as_dict_handle()
+            .ok_or_else(|| PdfError::refused("get_font", "Not a dictionary"))?;
+        let dict =
+            self.arena.get_dict(dict_h).ok_or_else(|| PdfError::internal("Missing dictionary"))?;
 
         let font_res = FontResource::load(&dict, self)?;
         let arc_res = Arc::new(font_res);
@@ -982,10 +981,9 @@ impl Document {
 
     /// Resolves an indirect object handle to its current dictionary pool handle.
     pub fn resolve_to_dict(&self, handle: Handle<Object>) -> PdfResult<DictHandle> {
-        self.arena
-            .get_object(handle)
-            .and_then(|obj| obj.as_dict_handle())
-            .ok_or_else(|| PdfError::Other(format!("Object {handle:?} is not a dictionary").into()))
+        self.arena.get_object(handle).and_then(|obj| obj.as_dict_handle()).ok_or_else(|| {
+            PdfError::violation("7.3.7", format!("Object {handle:?} is not a dictionary"))
+        })
     }
 
     /// Whether the file carried an `/Encrypt` dictionary — opened or not. Ingestion takes
@@ -1002,12 +1000,19 @@ impl Document {
 
     /// Retrieves a specific page by its 0-based index.
     pub fn get_page(&self, index: usize) -> PdfResult<Page<'_>> {
-        let page_handle = self
-            .pages
-            .get(index)
-            .ok_or_else(|| PdfError::Other("Page index out of bounds".into()))?;
-        let parent_chain = self.get_parent_chain(*page_handle);
-        Ok(Page::new(&self.arena, *page_handle, parent_chain))
+        let page_handle = self.page_handle(index)?;
+        let parent_chain = self.get_parent_chain(page_handle);
+        Ok(Page::new(&self.arena, page_handle, parent_chain))
+    }
+
+    /// The page at `index`, or [`Missing::Page`](crate::Missing::Page) saying how many
+    /// there are.
+    ///
+    /// # Errors
+    ///
+    /// `index` is past the last page.
+    pub fn page_handle(&self, index: usize) -> PdfResult<Handle<Object>> {
+        self.pages.get(index).copied().ok_or_else(|| PdfError::no_page(index, self.pages.len()))
     }
 
     /// Returns the handle of a specific page by its 0-based index.
@@ -1030,7 +1035,10 @@ impl Document {
     /// Page reorder operation (moves page from `from` index to `to` index with immediate page tree reconstruction)
     pub fn reorder_page(&mut self, from: usize, to: usize) -> PdfResult<()> {
         if from >= self.pages.len() || to >= self.pages.len() {
-            return Err(PdfError::Other("Index out of bounds".into()));
+            return Err(PdfError::no_page(
+                if from >= self.pages.len() { from } else { to },
+                self.pages.len(),
+            ));
         }
         let page = self.pages.remove(from);
         self.pages.insert(to, page);
@@ -1049,11 +1057,11 @@ impl Document {
         }
         let total = self.pages.len();
         if target_insert_pos > total {
-            return Err(PdfError::Other("Target index out of bounds".into()));
+            return Err(PdfError::no_page(target_insert_pos, total));
         }
         for &idx in source_indices {
             if idx >= total {
-                return Err(PdfError::Other("Source index out of bounds".into()));
+                return Err(PdfError::no_page(idx, total));
             }
         }
 
@@ -1093,7 +1101,7 @@ impl Document {
     /// Page removal operation (O(1) logical removal with immediate B-tree arena synchronization)
     pub fn remove_page(&mut self, index: usize) -> PdfResult<()> {
         if index >= self.pages.len() {
-            return Err(PdfError::Other("Index out of bounds".into()));
+            return Err(PdfError::no_page(index, self.pages.len()));
         }
         self.pages.remove(index);
         self.rebuild_page_tree_in_arena()?;
@@ -1280,7 +1288,7 @@ impl Document {
         seen: &mut std::collections::BTreeSet<Handle<Object>>,
     ) -> PdfResult<()> {
         if depth > 32 {
-            return Err(PdfError::Other("Page tree depth limit exceeded".into()));
+            return Err(PdfError::DepthLimitExceeded(32));
         }
         if !seen.insert(node_h) {
             self.record_second_visit(node_h);
@@ -1291,7 +1299,7 @@ impl Document {
         let dict = self
             .arena
             .get_dict(dict_h)
-            .ok_or_else(|| PdfError::Other("Invalid node in page tree".into()))?;
+            .ok_or_else(|| PdfError::internal("Invalid node in page tree"))?;
 
         let type_key = self.arena.name("Type");
         let node_type = dict
@@ -1347,7 +1355,7 @@ impl Document {
         let ah = kids_obj
             .resolve(&self.arena)
             .as_array()
-            .ok_or_else(|| PdfError::Other("Invalid Kids array".into()))?;
+            .ok_or_else(|| PdfError::violation("7.7.3.2", "Invalid Kids array"))?;
         let Some(kids) = self.arena.get_array(ah) else {
             return Ok(());
         };
@@ -1369,7 +1377,7 @@ impl Document {
         let catalog_obj = self
             .arena
             .get_object(self.root)
-            .ok_or_else(|| PdfError::Other("Missing document catalog".into()))?;
+            .ok_or_else(|| PdfError::violation("7.7.2", "Missing document catalog"))?;
         // The one entry, not the whole catalogue: a document's pages must not become
         // unreachable because some other entry of Table 29 will not parse.
         entries::entry::<entries::Located<entries::PageTreeRoot>>(
@@ -1378,7 +1386,7 @@ impl Document {
             "Pages",
         )?
         .and_then(|p| p.reference)
-        .ok_or_else(|| PdfError::Other("The catalogue names no page tree (7.7.2)".into()))
+        .ok_or_else(|| PdfError::violation("7.7.2", "The catalogue names no page tree (7.7.2)"))
     }
 
     fn get_node_count(&self, dict: &BTreeMap<Handle<PdfName>, Object>) -> usize {
@@ -1406,7 +1414,7 @@ impl Document {
         let catalog_obj = self
             .arena
             .get_object(self.root)
-            .ok_or_else(|| PdfError::Other("Missing document catalog".into()))?;
+            .ok_or_else(|| PdfError::violation("7.7.2", "Missing document catalog"))?;
         Ok(entries::entry::<entries::Located<entries::StructTreeRoot>>(
             &self.arena,
             &catalog_obj,
@@ -1480,15 +1488,15 @@ impl Document {
         let kids_key = self.arena.name("Kids");
         let kids_obj = dict
             .get(&kids_key)
-            .ok_or_else(|| PdfError::Other("Missing Kids in Pages node".into()))?;
+            .ok_or_else(|| PdfError::violation("7.7.3.2", "Missing Kids in Pages node"))?;
         let ah = kids_obj
             .resolve(&self.arena)
             .as_array()
-            .ok_or_else(|| PdfError::Other("Invalid Kids array".into()))?;
+            .ok_or_else(|| PdfError::violation("7.7.3.2", "Invalid Kids array"))?;
         let kids = self
             .arena
             .get_array(ah)
-            .ok_or_else(|| PdfError::Other("Invalid kids array handle".into()))?;
+            .ok_or_else(|| PdfError::internal("Invalid kids array handle"))?;
         for kid in kids {
             if let Some(kh) = kid.as_reference() {
                 self.push_down_attributes_recursive(kh, local_inherited, depth + 1)?;
@@ -1511,12 +1519,11 @@ impl Document {
         depth: usize,
     ) -> PdfResult<()> {
         if depth > 32 {
-            return Err(PdfError::Other("Page tree depth limit exceeded".into()));
+            return Err(PdfError::DepthLimitExceeded(32));
         }
 
         let dict_h = self.resolve_to_dict(node_h)?;
-        let dict =
-            self.arena.get_dict(dict_h).ok_or_else(|| PdfError::Other("Invalid node".into()))?;
+        let dict = self.arena.get_dict(dict_h).ok_or_else(|| PdfError::internal("Invalid node"))?;
 
         let type_key = self.arena.name("Type");
         let node_type = dict
@@ -1546,7 +1553,7 @@ impl Document {
             return self.process_pages_node(dict_h, &dict, &mut local_inherited, depth);
         }
 
-        Err(PdfError::Other("Invalid node type in page tree".into()))
+        Err(PdfError::violation("7.7.3", "Invalid node type in page tree"))
     }
 
     fn discover_font_groups(&self) -> (FontGroupMap, BestToUnicodeMap) {

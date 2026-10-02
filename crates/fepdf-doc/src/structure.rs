@@ -770,7 +770,7 @@ impl<'a> MatterhornAuditor<'a> {
         let tag_name = self
             .arena
             .get_name(subtype_handle)
-            .ok_or_else(|| PdfError::Other("Tag name not found".into()))?;
+            .ok_or_else(|| PdfError::internal("Tag name not found"))?;
         let tag = tag_name.as_str();
         let at = element_handle.index();
         // What the element is asked is what its standard type is asked (ISO 14289-1 7.1):

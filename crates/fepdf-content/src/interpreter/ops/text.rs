@@ -314,7 +314,7 @@ impl Interpreter<'_> {
             .font
             .as_ref()
             .ok_or_else(|| {
-                PdfError::Other("no font is selected: neither Tf nor an ExtGState /Font".into())
+                PdfError::violation("9.3", "no font is selected: neither Tf nor an ExtGState /Font")
             })?
             .clone();
         self.resolve_font_resource(&name).map_err(|e| {
@@ -574,7 +574,7 @@ impl Interpreter<'_> {
                     _ if obj.as_f64().is_some() => {
                         let n = obj
                             .as_f64()
-                            .ok_or_else(|| PdfError::Other("Invalid number in TJ".into()))?;
+                            .ok_or_else(|| PdfError::violation("9.4.3", "Invalid number in TJ"))?;
                         let th = self.state.text_state.horizontal_scaling / 100.0;
                         let displacement = n / 1000.0 * self.state.text_state.font_size;
                         let m = self.text_matrices.get_or_insert_with(TextMatrices::default);

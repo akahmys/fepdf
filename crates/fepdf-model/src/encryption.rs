@@ -164,12 +164,12 @@ pub fn permissions_from_keywords(list: &str) -> PdfResult<i32> {
 
     for keyword in list.split(',').map(str::trim).filter(|k| !k.is_empty()) {
         let found = PERMISSION_BITS.iter().find(|(_, k, _)| *k == keyword).ok_or_else(|| {
-            PdfError::Other(
+            PdfError::refused(
+                "set permissions",
                 format!(
                     "{keyword:?} is not a permission; the ones Table 22 defines are {}",
                     permission_keywords().join(", ")
-                )
-                .into(),
+                ),
             )
         })?;
         bits |= 1 << (found.0 - 1);

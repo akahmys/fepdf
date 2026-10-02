@@ -60,8 +60,9 @@ pub fn apply_set_unencrypted_wrapper(
     collection.insert(arena.name("D"), Object::String(Bytes::from(wrapper.payload_name)));
     let collection_h = arena.alloc_object(Object::Dictionary(arena.alloc_dict(collection)));
     let Some(catalog_h) = doc.catalog_handle() else {
-        return Err(PdfError::Other(
-            "the document has no catalogue to name the collection in".into(),
+        return Err(PdfError::violation(
+            "7.7.2",
+            "the document has no catalogue to name the collection in",
         ));
     };
     let catalog_dh = doc.resolve_to_dict(catalog_h)?;
@@ -73,7 +74,7 @@ pub fn apply_set_unencrypted_wrapper(
 
 /// What 7.6.7 and Table 28 rule out, said before anything is written.
 fn refuse_unwrappable(doc: &Document, wrapper: &UnencryptedWrapperSpec) -> PdfResult<()> {
-    let refuse = |why: String| Err(PdfError::Other(why.into()));
+    let refuse = |why: String| Err(PdfError::refused("SetUnencryptedWrapper", why));
     let head = &wrapper.encrypted_payload_bytes[..wrapper.encrypted_payload_bytes.len().min(1024)];
     if !head.windows(5).any(|w| w == b"%PDF-") {
         return refuse(

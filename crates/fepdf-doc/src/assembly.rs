@@ -42,9 +42,10 @@ impl PageTree {
         let parent_key = target.name("Parent");
         for index in indices {
             let page = cloner.clone_handle(source.get_page(index)?.obj_handle())?;
-            let dh = target.get_object(page).and_then(|o| o.as_dict_handle()).ok_or_else(|| {
-                PdfError::Other(format!("page {index} is not a dictionary").into())
-            })?;
+            let dh = target
+                .get_object(page)
+                .and_then(|o| o.as_dict_handle())
+                .ok_or_else(|| PdfError::internal(format!("page {index} is not a dictionary")))?;
             let mut cloned = target.get_dict(dh).unwrap_or_default();
             cloned.insert(parent_key, Object::Reference(self.root));
             target.set_dict(dh, cloned);
@@ -88,7 +89,7 @@ impl PageTree {
 /// Refuses an empty list, and fails where a page cannot be read or cloned.
 pub fn merge(sources: &[&Document]) -> PdfResult<Document> {
     if sources.is_empty() {
-        return Err(PdfError::Other("No sources to merge".into()));
+        return Err(PdfError::refused("merge", "No sources to merge"));
     }
     let target = PdfArena::new();
     let mut tree = PageTree::new(&target);
@@ -187,7 +188,7 @@ fn linked_outlines(target: &PdfArena, items: &[Handle<Object>]) -> Object {
 /// Refuses an empty list, and fails where a page cannot be read or cloned.
 pub fn extract_pages(source: &Document, indices: &[usize]) -> PdfResult<Document> {
     if indices.is_empty() {
-        return Err(PdfError::Other("No indices to extract".into()));
+        return Err(PdfError::refused("extract_pages", "No indices to extract"));
     }
     let target = PdfArena::new();
     let mut tree = PageTree::new(&target);

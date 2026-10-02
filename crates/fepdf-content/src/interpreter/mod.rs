@@ -180,7 +180,7 @@ impl<'a> Interpreter<'a> {
             .doc
             .arena()
             .get_sublimated_data(stream_h)
-            .ok_or_else(|| PdfError::Other("Not a stream object".into()))?;
+            .ok_or_else(|| PdfError::violation("7.3.8", "Not a stream object"))?;
 
         // Type 3 fonts and complex Japanese CID fonts often contain operators
         // that are sensitive to raw stream ordering. We prefer raw execution
@@ -524,7 +524,7 @@ impl<'a> Interpreter<'a> {
                 // content stream to look, and six pages of `samples/fy05.pdf` failed
                 // with exactly that and nothing else.
                 self.execute_operator(name).map_err(|e| {
-                    PdfError::Other(format!("operator {name} {operands:?}: {e}").into())
+                    PdfError::violation("7.8.2", format!("operator {name} {operands:?}: {e}"))
                 })
             }
         }
@@ -636,15 +636,19 @@ impl<'a> Interpreter<'a> {
 
     pub(crate) fn pop_i64(&mut self) -> PdfResult<i64> {
         match self.stack.pop() {
-            Some(obj) => obj.as_integer().ok_or_else(|| PdfError::Other("Expected integer".into())),
-            None => Err(PdfError::Other("Stack underflow".into())),
+            Some(obj) => {
+                obj.as_integer().ok_or_else(|| PdfError::violation("7.8.2", "Expected integer"))
+            }
+            None => Err(PdfError::violation("7.8.2", "Stack underflow")),
         }
     }
 
     pub(crate) fn pop_f64(&mut self) -> PdfResult<f64> {
         match self.stack.pop() {
-            Some(obj) => obj.as_f64().ok_or_else(|| PdfError::Other("Expected number".into())),
-            None => Err(PdfError::Other("Stack underflow".into())),
+            Some(obj) => {
+                obj.as_f64().ok_or_else(|| PdfError::violation("7.8.2", "Expected number"))
+            }
+            None => Err(PdfError::violation("7.8.2", "Stack underflow")),
         }
     }
 
@@ -653,14 +657,14 @@ impl<'a> Interpreter<'a> {
             Some(Object::String(s)) => Ok(s),
             Some(Object::Hex(s)) => Ok(s),
             Some(Object::Text(s)) => Ok(bytes::Bytes::copy_from_slice(s.as_bytes())),
-            _ => Err(PdfError::Other("Expected string".into())),
+            _ => Err(PdfError::violation("7.8.2", "Expected string")),
         }
     }
 
     pub(crate) fn pop_array(&mut self) -> PdfResult<Handle<Vec<Object>>> {
         match self.stack.pop() {
             Some(Object::Array(a)) => Ok(a),
-            _ => Err(PdfError::Other("Expected array".into())),
+            _ => Err(PdfError::violation("7.8.2", "Expected array")),
         }
     }
 
@@ -670,8 +674,8 @@ impl<'a> Interpreter<'a> {
                 .doc
                 .arena()
                 .get_name(h)
-                .ok_or_else(|| PdfError::Other("Invalid name handle".into())),
-            _ => Err(PdfError::Other("Expected name".into())),
+                .ok_or_else(|| PdfError::internal("Invalid name handle")),
+            _ => Err(PdfError::violation("7.8.2", "Expected name")),
         }
     }
 
@@ -739,7 +743,7 @@ impl<'a> Interpreter<'a> {
                 .doc
                 .arena()
                 .get_dict(res_dh)
-                .ok_or_else(|| PdfError::Other("Invalid resource dict handle".into()))?;
+                .ok_or_else(|| PdfError::internal("Invalid resource dict handle"))?;
 
             if let Some(entry) =
                 dict.get(&res_type_key).and_then(|o| o.resolve(self.doc.arena()).as_dict_handle())
@@ -748,12 +752,15 @@ impl<'a> Interpreter<'a> {
                     .doc
                     .arena()
                     .get_dict(entry)
-                    .ok_or_else(|| PdfError::Other("Invalid resource type dict".into()))?;
+                    .ok_or_else(|| PdfError::internal("Invalid resource type dict"))?;
                 if let Some(res) = res_dict.get(&name_handle) {
                     return Ok(res.clone());
                 }
             }
         }
-        Err(PdfError::Other(format!("Resource not found: {:?} {}", res_type, name.as_str()).into()))
+        Err(PdfError::violation(
+            "7.8.3",
+            format!("Resource not found: {:?} {}", res_type, name.as_str()),
+        ))
     }
 }

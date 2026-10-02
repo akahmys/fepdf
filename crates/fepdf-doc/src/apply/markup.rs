@@ -160,7 +160,7 @@ enum Marking {
 /// # Errors
 /// Fails when what would be drawn is nothing.
 fn extent(given: Area, kind: &AnnotationKind) -> PdfResult<Area> {
-    let refuse = |why: &str| Err(PdfError::Other(why.to_string().into()));
+    let refuse = |why: &str| Err(PdfError::refused("AddAnnotation", why.to_string()));
     let boxed = given.width() > 0.0 && given.height() > 0.0;
     match kind {
         AnnotationKind::Ink { strokes, width, .. } => {
@@ -244,12 +244,7 @@ fn link_target(
         action.insert(arena.name("URI"), Object::String(Bytes::from(uri.to_string())));
         dict.insert(arena.name("A"), Object::Dictionary(arena.alloc_dict(action)));
     } else {
-        let target = doc.get_page_handle(destination_page).ok_or_else(|| {
-            PdfError::Other(
-                format!("a link to page {destination_page}, which this document does not have")
-                    .into(),
-            )
-        })?;
+        let target = doc.page_handle(destination_page)?;
         let destination = vec![Object::Reference(target), Object::Name(arena.name("Fit"))];
         dict.insert(arena.name("Dest"), Object::Array(arena.alloc_array(destination)));
     }
@@ -416,8 +411,9 @@ fn stamp(
 /// Fails when the bytes are not a JPEG this can read the frame of.
 pub fn jpeg_image(arena: &PdfArena, picture: &[u8]) -> PdfResult<Handle<Object>> {
     let Some((width, height, components)) = jpeg_frame(picture) else {
-        return Err(PdfError::Other(
-            "the picture has to be a JPEG, and this is not one this can read the size of".into(),
+        return Err(PdfError::refused(
+            "place a picture",
+            "the picture has to be a JPEG, and this is not one this can read the size of",
         ));
     };
     let space = match components {
@@ -590,8 +586,9 @@ fn free_text(
 ) -> PdfResult<Object> {
     let arena = doc.arena();
     if words.text.trim().is_empty() || words.size <= 0.0 {
-        return Err(PdfError::Other(
-            "a text annotation needs words and a size to set them at".into(),
+        return Err(PdfError::refused(
+            "AddAnnotation",
+            "a text annotation needs words and a size to set them at",
         ));
     }
     name(arena, dict, "Subtype", "FreeText");
@@ -604,8 +601,9 @@ fn free_text(
     dict.insert(arena.name("DA"), Object::String(Bytes::from(format!("/Helv {size:.2} Tf 0 g"))));
 
     let lines: Vec<&str> = words.text.lines().collect();
-    let face = crate::apply::font::face_for(&lines.concat())
-        .map_err(|why| PdfError::Other(format!("{:?} cannot be set: {why}", words.text).into()))?;
+    let face = crate::apply::font::face_for(&lines.concat()).map_err(|why| {
+        PdfError::refused("AddAnnotation", format!("{:?} cannot be set: {why}", words.text))
+    })?;
     let embedded = crate::apply::font::embed_for(doc, &face.1, &face.0, &lines)?;
 
     let mut drawing = frame(place, intent != Some("FreeTextTypeWriter"));
@@ -704,7 +702,7 @@ fn codes_of(
 ) -> PdfResult<String> {
     use std::fmt::Write as _;
     let glyphs = fepdf_font::subset::glyphs_for(program, line)
-        .map_err(|c| PdfError::Other(format!("this face draws no {c:?}").into()))?;
+        .map_err(|c| PdfError::refused("AddAnnotation", format!("this face draws no {c:?}")))?;
     let mut codes = String::with_capacity(glyphs.len() * 4);
     for glyph in glyphs {
         let _ = write!(codes, "{:04X}", embedded.code_of.get(&glyph).copied().unwrap_or(glyph));

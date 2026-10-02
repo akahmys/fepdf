@@ -302,7 +302,7 @@ impl<'a, W: Write> PdfWriter<'a, W> {
     }
 
     fn write_array_obj(&mut self, h: Handle<Vec<Object>>) -> PdfResult<()> {
-        let a = self.arena.get_array(h).ok_or_else(|| PdfError::Other("Array not found".into()))?;
+        let a = self.arena.get_array(h).ok_or_else(|| PdfError::internal("Array not found"))?;
         self.write_all(b"[")?;
         for (i, item) in a.iter().enumerate() {
             if i > 0 {
@@ -317,14 +317,13 @@ impl<'a, W: Write> PdfWriter<'a, W> {
         &mut self,
         h: Handle<BTreeMap<Handle<PdfName>, Object>>,
     ) -> PdfResult<()> {
-        let d =
-            self.arena.get_dict(h).ok_or_else(|| PdfError::Other("Dictionary not found".into()))?;
+        let d = self.arena.get_dict(h).ok_or_else(|| PdfError::internal("Dictionary not found"))?;
         self.write_dict(&d)
     }
 
     fn write_reference_obj(&mut self, h: Handle<Object>) -> PdfResult<()> {
         let id = *self.id_map.get(&h).ok_or_else(|| {
-            PdfError::Other(format!("Object {h:?} not in id_map during writing").into())
+            PdfError::internal(format!("Object {h:?} not in id_map during writing"))
         })?;
         self.write_all(format!("{id} 0 R").as_bytes())
     }
@@ -438,19 +437,14 @@ impl<'a, W: Write> PdfWriter<'a, W> {
         data: &std::sync::Arc<crate::object::SublimatedData>,
     ) -> PdfResult<()> {
         if self.recursion_depth > 1 {
-            return Err(PdfError::Other(
-                format!(
-                    "Attempted to write an inline stream at depth {} in object {} (illegal in PDF)",
-                    self.recursion_depth, self.current_obj_id
-                )
-                .into(),
-            ));
+            return Err(PdfError::internal(format!(
+                "Attempted to write an inline stream at depth {} in object {} (illegal in PDF)",
+                self.recursion_depth, self.current_obj_id
+            )));
         }
 
-        let d = self
-            .arena
-            .get_dict(dh)
-            .ok_or_else(|| PdfError::Other("Dictionary not found".into()))?;
+        let d =
+            self.arena.get_dict(dh).ok_or_else(|| PdfError::internal("Dictionary not found"))?;
 
         let is_sublimated = !matches!(**data, crate::object::SublimatedData::Raw(_));
         let stream_bytes = self.arena.get_stream_bytes(data)?;
@@ -523,8 +517,7 @@ impl<'a, W: Write> PdfWriter<'a, W> {
     }
 
     fn write_name(&mut self, n: &Handle<PdfName>) -> PdfResult<()> {
-        let name =
-            self.arena.get_name(*n).ok_or_else(|| PdfError::Other("Name not found".into()))?;
+        let name = self.arena.get_name(*n).ok_or_else(|| PdfError::internal("Name not found"))?;
         self.write_all(b"/")?;
         for &b in name.as_ref() {
             if b == b'#'
@@ -599,7 +592,7 @@ impl<'a, W: Write> PdfWriter<'a, W> {
         let obj = self
             .arena
             .get_object(handle)
-            .ok_or_else(|| PdfError::Other(format!("Object {id} missing").into()))?;
+            .ok_or_else(|| PdfError::internal(format!("Object {id} missing")))?;
         if self.signature.as_ref().is_some_and(|s| s.handle == handle) {
             self.write_signature_dict(&obj)?;
         } else {
@@ -624,7 +617,10 @@ impl<'a, W: Write> PdfWriter<'a, W> {
             // reservation, refuse: nothing asks for both, `save_signed` and
             // `save_linearized` being separate paths.
             if self.signature.is_some() {
-                return Err(PdfError::Other("a signed file cannot also be linearized".into()));
+                return Err(PdfError::refused(
+                    "linearize",
+                    "a signed file cannot also be linearized",
+                ));
             }
             // The linearized path builds its own trailer, and nothing there writes an
             // `/Encrypt` or names one. Encrypting the objects anyway would produce a
@@ -632,7 +628,10 @@ impl<'a, W: Write> PdfWriter<'a, W> {
             // unopenable in the way that looks like corruption rather than like a
             // password prompt.
             if self.artifacts.is_some() {
-                return Err(PdfError::Other("an encrypted file cannot also be linearized".into()));
+                return Err(PdfError::refused(
+                    "linearize",
+                    "an encrypted file cannot also be linearized",
+                ));
             }
             self.finish_linearized(root_handle, info_handle)?;
         } else {
@@ -653,20 +652,21 @@ impl<'a, W: Write> PdfWriter<'a, W> {
     /// handler cannot reach it.
     fn write_signature_dict(&mut self, obj: &Object) -> PdfResult<()> {
         let Some(dict_handle) = obj.as_dict_handle() else {
-            return Err(PdfError::Other("the signature object is not a dictionary".into()));
+            return Err(PdfError::refused("sign", "the signature object is not a dictionary"));
         };
         let dict = self
             .arena
             .get_dict(dict_handle)
-            .ok_or_else(|| PdfError::Other("the signature dictionary is missing".into()))?;
+            .ok_or_else(|| PdfError::internal("the signature dictionary is missing"))?;
         let reserved = self.signature.as_ref().map_or(0, |s| s.reserved);
 
         self.write_all(b"<<")?;
         for (k, v) in &dict {
             let name = self.arena.get_name_str(*k).unwrap_or_default();
             if name == "ByteRange" || name == "Contents" {
-                return Err(PdfError::Other(
-                    format!("the caller set /{name} on a signature dictionary").into(),
+                return Err(PdfError::refused(
+                    "sign",
+                    format!("the caller set /{name} on a signature dictionary"),
                 ));
             }
             self.write_all(b"\r\n")?;
@@ -696,7 +696,7 @@ impl<'a, W: Write> PdfWriter<'a, W> {
     fn patch_signature(&mut self) -> PdfResult<()> {
         let Some(signature) = self.signature.take() else { return Ok(()) };
         let hole = self.hole.take().ok_or_else(|| {
-            PdfError::Other("the signature object was never written; is it reachable?".into())
+            PdfError::refused("sign", "the signature object was never written; is it reachable?")
         })?;
 
         let gap_start = hole.contents.start - 1;
@@ -704,8 +704,9 @@ impl<'a, W: Write> PdfWriter<'a, W> {
         let stated =
             format!("0 {gap_start} {gap_end} {}", self.buffer.len() - gap_end).into_bytes();
         if stated.len() > hole.byte_range.len() {
-            return Err(PdfError::Other(
-                format!("this file needs a /ByteRange {} bytes wide", stated.len()).into(),
+            return Err(PdfError::refused(
+                "sign",
+                format!("this file needs a /ByteRange {} bytes wide", stated.len()),
             ));
         }
         self.buffer[hole.byte_range.clone()].fill(b' ');
@@ -715,13 +716,13 @@ impl<'a, W: Write> PdfWriter<'a, W> {
         let taken = crate::cms::digest(&[&self.buffer[..gap_start], &self.buffer[gap_end..]]);
         let der = crate::cms::sign_detached(&taken, signature.identity)?;
         if der.len() * 2 > hole.contents.len() {
-            return Err(PdfError::Other(
+            return Err(PdfError::refused(
+                "sign",
                 format!(
                     "the signature is {} bytes and {} were reserved",
                     der.len(),
                     hole.contents.len() / 2
-                )
-                .into(),
+                ),
             ));
         }
 
@@ -1276,7 +1277,7 @@ impl<'a, W: Write> PdfWriter<'a, W> {
         // Resolve Page 1 object offset for the hint table
         let page1_id = self.id_map[&pgs[0]];
         let p1_off =
-            *self.xref.get(&page1_id).ok_or_else(|| PdfError::Other("Page 1 missing".into()))?;
+            *self.xref.get(&page1_id).ok_or_else(|| PdfError::internal("Page 1 missing"))?;
 
         let (first_page_groups, page_shared_refs, _outline_params) = self.build_lin_structures(
             root,
@@ -1476,7 +1477,10 @@ impl<'a, W: Write> PdfWriter<'a, W> {
         }
 
         if original_pages.is_empty() {
-            return Err(PdfError::Other(format!("No pages found (Catalog root: {root:?})").into()));
+            return Err(PdfError::refused(
+                "linearize",
+                format!("No pages found (Catalog root: {root:?})"),
+            ));
         }
 
         let page_objects_set: BTreeSet<Handle<Object>> = original_pages.iter().copied().collect();
@@ -1615,8 +1619,7 @@ impl<'a, W: Write> PdfWriter<'a, W> {
 
     fn write_object_to_bytes(&mut self, h: Handle<Object>) -> PdfResult<Vec<u8>> {
         let start = self.buffer.len();
-        let obj =
-            self.arena.get_object(h).ok_or_else(|| PdfError::Other("Object missing".into()))?;
+        let obj = self.arena.get_object(h).ok_or_else(|| PdfError::internal("Object missing"))?;
         self.write_object(&obj)?;
         let bytes = self.buffer[start..].to_vec();
         self.buffer.truncate(start);
@@ -2292,7 +2295,7 @@ impl<'a, W: Write> PdfWriter<'a, W> {
 
         let dict_id = s.primary_count;
         let hint_stream_id =
-            s.obj_stm_id.ok_or_else(|| PdfError::Other("Hint stream ID missing".into()))?;
+            s.obj_stm_id.ok_or_else(|| PdfError::internal("Hint stream ID missing"))?;
         let page1_id = self.id_map[&s.pages[0]];
 
         // 1. Generate Hint Stream
@@ -2430,15 +2433,12 @@ impl<'a, W: Write> PdfWriter<'a, W> {
         reserve_size: usize,
     ) -> PdfResult<()> {
         if data.len() > reserve_size {
-            return Err(PdfError::Other(
-                format!(
-                    "Linearization header overflow: data len {} exceeds reserved {} at pos {}",
-                    data.len(),
-                    reserve_size,
-                    pos
-                )
-                .into(),
-            ));
+            return Err(PdfError::internal(format!(
+                "Linearization header overflow: data len {} exceeds reserved {} at pos {}",
+                data.len(),
+                reserve_size,
+                pos
+            )));
         } else {
             // Pad with spaces
             data.extend(vec![b' '; reserve_size - data.len()]);
@@ -2466,7 +2466,7 @@ impl<'a, W: Write> PdfWriter<'a, W> {
         outline_offset_override: Option<usize>,
         dummy: bool,
     ) -> PdfResult<(Vec<SharedGroup>, Vec<Vec<usize>>, Option<(u32, usize, u32, usize)>)> {
-        let page1 = *pgs.first().ok_or_else(|| PdfError::Other("Page 1 missing".into()))?;
+        let page1 = *pgs.first().ok_or_else(|| PdfError::internal("Page 1 missing"))?;
 
         // Construct section2_physical matching exactly the physical write order of Part 6 (first-page) objects!
         let mut section2_physical = Vec::new();

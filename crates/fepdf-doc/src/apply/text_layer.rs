@@ -27,7 +27,7 @@ use std::fmt::Write as _;
 /// Fails when the page is not there, when there is nothing to write or a box has no area,
 /// and when no installed face draws every character.
 pub fn apply_add_text_layer(doc: &Document, page: usize, items: &[TextLayerItem]) -> PdfResult<()> {
-    let refuse = |why: String| Err(PdfError::Other(why.into()));
+    let refuse = |why: String| Err(PdfError::refused("AddTextLayer", why));
     if items.is_empty() {
         return refuse("a text layer with nothing in it".to_owned());
     }
@@ -44,8 +44,9 @@ pub fn apply_add_text_layer(doc: &Document, page: usize, items: &[TextLayerItem]
         return refuse(format!("there is no page {}", page + 1));
     };
     let texts: Vec<&str> = items.iter().map(|i| i.text.as_str()).collect();
-    let (base_font, program) = crate::apply::font::face_for(&texts.concat())
-        .map_err(|why| PdfError::Other(format!("the layer cannot be set: {why:?}").into()))?;
+    let (base_font, program) = crate::apply::font::face_for(&texts.concat()).map_err(|why| {
+        PdfError::refused("AddTextLayer", format!("the layer cannot be set: {why:?}"))
+    })?;
     let embedded = crate::apply::font::embed_for(doc, &program, &base_font, &texts)?;
 
     let arena = doc.arena();
@@ -73,7 +74,7 @@ fn set_in_box(
     turn: i64,
 ) -> PdfResult<String> {
     let glyphs = fepdf_font::subset::glyphs_for(program, &item.text)
-        .map_err(|c| PdfError::Other(format!("this face draws no {c:?}").into()))?;
+        .map_err(|c| PdfError::refused("AddTextLayer", format!("this face draws no {c:?}")))?;
     let metrics = fepdf_font::metrics::read_metrics(program);
     let per_em = metrics.as_ref().map_or(1000.0, |m| f64::from(m.units_per_em.max(1)));
     let descent = metrics.as_ref().map_or(0.0, |m| f64::from(m.descent).abs()) / per_em;

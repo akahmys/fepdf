@@ -10,7 +10,7 @@ use bytes::Bytes;
 use fepdf_model::arena::PdfArena;
 use fepdf_model::interpretation::Decision;
 use fepdf_model::object::PdfName;
-use fepdf_model::{Document, Handle, Object, PdfError, PdfResult};
+use fepdf_model::{Document, Handle, Missing, Object, PdfError, PdfResult};
 use std::collections::BTreeMap;
 
 fn create_transition_dict(
@@ -99,9 +99,7 @@ pub fn apply_set_open_action(doc: &Document, action: PdfAction) -> PdfResult<()>
 /// Attaches geospatial coordinate anchoring to a page (Clause 12.5.6.22).
 pub fn apply_set_geospatial_anchor(doc: &Document, anchor: GeoSpatialAnchor) -> PdfResult<()> {
     let arena = doc.arena();
-    let Some(page_h) = doc.get_page_handle(anchor.page) else {
-        return Err(PdfError::Other("Page index out of bounds".into()));
-    };
+    let page_h = doc.page_handle(anchor.page)?;
 
     let mut measure_dict = BTreeMap::new();
     measure_dict.insert(arena.name("Type"), Object::Name(arena.name("Measure")));
@@ -286,20 +284,18 @@ pub fn apply_add_page_decoration(
     layer: Option<&str>,
 ) -> PdfResult<()> {
     let group = match layer {
-        Some(name) => {
-            Some(fepdf_model::optional_content::group_named(doc, name)?.ok_or_else(|| {
-                PdfError::Other(
-                    format!("no optional content group is named {name:?}; add it first").into(),
-                )
-            })?)
-        }
+        Some(name) => Some(
+            fepdf_model::optional_content::group_named(doc, name)?
+                .ok_or_else(|| PdfError::NotFound(Missing::Layer(name.to_string())))?,
+        ),
         None => None,
     };
     let count = doc.page_count()?;
     let indices = crate::apply::page::pages_named(pages, count)?;
     // One face, embedded once, shown on every page it is asked for.
-    let face = crate::apply::font::face_for(text)
-        .map_err(|why| PdfError::Other(format!("{text:?} cannot be set: {why}").into()))?;
+    let face = crate::apply::font::face_for(text).map_err(|why| {
+        PdfError::refused("AddPageDecoration", format!("{text:?} cannot be set: {why}"))
+    })?;
     let embedded = crate::apply::font::embed_for(doc, &face.1, &face.0, &[text])?;
 
     for idx in indices {
@@ -335,8 +331,9 @@ pub fn apply_bates_numbering(
         .collect();
     let every: Vec<&str> = labels.iter().map(String::as_str).collect();
     let together = labels.join("");
-    let face = crate::apply::font::face_for(&together)
-        .map_err(|why| PdfError::Other(format!("{prefix:?} cannot be set: {why}").into()))?;
+    let face = crate::apply::font::face_for(&together).map_err(|why| {
+        PdfError::refused("ApplyBatesNumbering", format!("{prefix:?} cannot be set: {why}"))
+    })?;
     let embedded = crate::apply::font::embed_for(doc, &face.1, &face.0, &every)?;
 
     for (i, idx) in indices.into_iter().enumerate() {
@@ -352,9 +349,7 @@ pub fn apply_bates_numbering(
 /// Appends an annotation to a target page (Clause 12.5).
 pub fn apply_add_annotation(doc: &Document, annot: AnnotationSpec) -> PdfResult<()> {
     let arena = doc.arena();
-    let Some(page_h) = doc.get_page_handle(annot.page) else {
-        return Err(PdfError::Other("Page index out of bounds".into()));
-    };
+    let page_h = doc.page_handle(annot.page)?;
 
     let annot_dh = crate::apply::markup::annotation(doc, &annot, page_h)?;
     let annot_h = arena.alloc_object(Object::Dictionary(annot_dh));
@@ -400,12 +395,13 @@ pub fn apply_add_annotation(doc: &Document, annot: AnnotationSpec) -> PdfResult<
 pub fn apply_set_measurement_scale(doc: &Document, scale: MeasurementScale) -> PdfResult<()> {
     let ratio = f64::from(scale.scale_ratio);
     if !(ratio > 0.0 && ratio.is_finite()) {
-        return Err(PdfError::Other(format!("a scale of {ratio} measures nothing").into()));
+        return Err(PdfError::refused(
+            "SetMeasurementScale",
+            format!("a scale of {ratio} measures nothing"),
+        ));
     }
     let arena = doc.arena();
-    let Some(page_h) = doc.get_page_handle(scale.page) else {
-        return Err(PdfError::Other(format!("there is no page {}", scale.page + 1).into()));
-    };
+    let page_h = doc.page_handle(scale.page)?;
     let media = fepdf_model::Page::new(arena, page_h, doc.get_parent_chain(page_h)).media_box();
     // A unit of this page's user space is this many points (Table 31), which is what the
     // ratio stated per inch of the sheet has to divide out.
@@ -486,19 +482,19 @@ pub fn apply_set_form_field_value(doc: &Document, field: FormFieldSpec) -> PdfRe
     let arena = doc.arena();
     let catalog = doc.resolve_to_dict(
         doc.catalog_handle()
-            .ok_or_else(|| PdfError::Other("the document has no catalogue".into()))?,
+            .ok_or_else(|| PdfError::violation("7.7.2", "the document has no catalogue"))?,
     )?;
     let acro_dh = arena
         .dict_entry(catalog, arena.name("AcroForm"))
         .and_then(|a| a.resolve(arena).as_dict_handle())
-        .ok_or_else(|| PdfError::Other("the document has no form to fill".into()))?;
+        .ok_or_else(|| {
+            PdfError::refused("SetFormFieldValue", "the document has no form to fill")
+        })?;
     let Some((_, _, fdh)) = crate::apply::fields::named_fields(arena, acro_dh)
         .into_iter()
         .find(|(name, _, _)| *name == field.name)
     else {
-        return Err(PdfError::Other(
-            format!("the form has no field named {:?}", field.name).into(),
-        ));
+        return Err(PdfError::NotFound(Missing::Field(field.name)));
     };
 
     // `/NeedAppearances` is **not** written. 0.3 lists it among the entries PDF 2.0
@@ -555,8 +551,9 @@ fn chosen_state(
         return Ok(*state);
     }
     let offered: Vec<String> = states.iter().filter_map(|s| arena.get_name_str(*s)).collect();
-    Err(PdfError::Other(
-        format!("{name:?} has no state {chosen:?}; its buttons are {offered:?}").into(),
+    Err(PdfError::refused(
+        "SetFormFieldValue",
+        format!("{name:?} has no state {chosen:?}; its buttons are {offered:?}"),
     ))
 }
 
@@ -591,16 +588,16 @@ fn button_state(
     states.dedup();
     match states[..] {
         [state] => Ok(state),
-        [] => Err(PdfError::Other(
-            format!("{name:?} has no appearance for being on, so there is nothing to turn on")
-                .into(),
+        [] => Err(PdfError::refused(
+            "SetFormFieldValue",
+            format!("{name:?} has no appearance for being on, so there is nothing to turn on"),
         )),
-        _ => Err(PdfError::Other(
+        _ => Err(PdfError::refused(
+            "SetFormFieldValue",
             format!(
                 "{name:?} is {} buttons with different states; turning it on does not say which",
                 states.len()
-            )
-            .into(),
+            ),
         )),
     }
 }

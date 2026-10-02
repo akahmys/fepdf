@@ -144,14 +144,15 @@ fn byte_range(
     length: usize,
 ) -> PdfResult<[std::ops::Range<usize>; 3]> {
     let numbers = array_of(arena, signature.get(&arena.name("ByteRange")))
-        .ok_or_else(|| PdfError::Other("the signature states no /ByteRange".into()))?;
+        .ok_or_else(|| PdfError::violation("12.8.1", "the signature states no /ByteRange"))?;
     let numbers: Vec<usize> = numbers
         .iter()
         .filter_map(|n| n.resolve(arena).as_integer().and_then(|n| usize::try_from(n).ok()))
         .collect();
     let [a, b, c, d] = numbers[..] else {
-        return Err(PdfError::Other(
-            format!("/ByteRange is not four whole numbers: {numbers:?}").into(),
+        return Err(PdfError::violation(
+            "12.8.1",
+            format!("/ByteRange is not four whole numbers: {numbers:?}"),
         ));
     };
 
@@ -163,8 +164,9 @@ fn byte_range(
         (Some(first_end), Some(second_end)) if first_end <= c => {
             Ok([a..first_end, first_end..c, c..second_end])
         }
-        _ => Err(PdfError::Other(
-            format!("/ByteRange [{a} {b} {c} {d}] does not fit a file of {length} bytes").into(),
+        _ => Err(PdfError::violation(
+            "12.8.1",
+            format!("/ByteRange [{a} {b} {c} {d}] does not fit a file of {length} bytes"),
         )),
     }
 }

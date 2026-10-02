@@ -146,9 +146,8 @@ pub fn process_arena_filters(data: &[u8], dict: &Dict, arena: &PdfArena) -> PdfR
         let filter_obj = filter_obj.resolve(arena);
         match filter_obj {
             Object::Name(h) => {
-                let name = arena
-                    .get_name(h)
-                    .ok_or_else(|| PdfError::Other("Filter name not found".into()))?;
+                let name =
+                    arena.get_name(h).ok_or_else(|| PdfError::internal("Filter name not found"))?;
                 let params = dict.get(&params_key).map(|o| o.resolve(arena));
                 let cx = FilterContext::new(params.as_ref(), arena).in_image(rows);
                 current_data = decode_with(name.as_str(), &current_data, &cx)?;
@@ -174,7 +173,7 @@ fn decode_filter_chain(
 ) -> PdfResult<Bytes> {
     let params_key = arena.intern_name(crate::object::PdfName::new("DecodeParms"));
     let filters =
-        arena.get_array(filters).ok_or_else(|| PdfError::Other("Filter array not found".into()))?;
+        arena.get_array(filters).ok_or_else(|| PdfError::internal("Filter array not found"))?;
     let params_arr = dict.get(&params_key).and_then(|o| {
         if let Object::Array(ah) = o.resolve(arena) { arena.get_array(ah) } else { None }
     });
@@ -182,9 +181,8 @@ fn decode_filter_chain(
     let mut current_data = Bytes::copy_from_slice(data);
     for (i, f_obj) in filters.iter().enumerate() {
         if let Object::Name(fh) = f_obj.resolve(arena) {
-            let name = arena
-                .get_name(fh)
-                .ok_or_else(|| PdfError::Other("Filter name not found".into()))?;
+            let name =
+                arena.get_name(fh).ok_or_else(|| PdfError::internal("Filter name not found"))?;
             let p = params_arr.as_ref().and_then(|a| a.get(i));
             let cx = FilterContext::new(p, arena).in_image(rows);
             current_data = decode_with(name.as_str(), &current_data, &cx)?;

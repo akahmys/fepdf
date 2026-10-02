@@ -88,7 +88,7 @@ impl<'a> ObjectCloner<'a> {
             match task {
                 CloningTask::CloneHandle(source_h, target_h) => {
                     let source_obj = self.source.get_object(source_h).ok_or_else(|| {
-                        fepdf_model::PdfError::Other("Dangling reference in source".into())
+                        fepdf_model::PdfError::internal("Dangling reference in source")
                     })?;
 
                     let target_obj = self.walk(&source_obj, Position::TopLevel);
@@ -103,9 +103,9 @@ impl<'a> ObjectCloner<'a> {
             let source_obj = self.source.get_object(source_h).unwrap_or(Object::Null);
             let target_obj = self.target.get_object(target_h).unwrap_or(Object::Null);
             if matches!(target_obj, Object::Null) && !matches!(source_obj, Object::Null) {
-                return Err(fepdf_model::PdfError::Other(
-                    format!("Cloning failed: Object {target_h:?} remains Null in target").into(),
-                ));
+                return Err(fepdf_model::PdfError::internal(format!(
+                    "Cloning failed: Object {target_h:?} remains Null in target"
+                )));
             }
         }
         Ok(())

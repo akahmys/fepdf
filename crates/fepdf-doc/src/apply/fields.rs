@@ -35,30 +35,31 @@ const DEFAULT_FONT: &str = "Helv";
 /// has no name — a form whose fields cannot be named is a form nothing can fill.
 pub fn apply_add_form_field(doc: &Document, field: &NewField) -> PdfResult<()> {
     if field.name.trim().is_empty() {
-        return Err(PdfError::Other("a form field with no name cannot be filled".into()));
+        return Err(PdfError::refused(
+            "AddFormField",
+            "a form field with no name cannot be filled",
+        ));
     }
     if field.tooltip.trim().is_empty() {
-        return Err(PdfError::Other(
+        return Err(PdfError::refused(
+            "AddFormField",
             format!(
                 "the field {:?} has no /TU, which is the entry a reader is announced it by",
                 field.name
-            )
-            .into(),
+            ),
         ));
     }
     let (width, height) = (field.rect.2 - field.rect.0, field.rect.3 - field.rect.1);
     if width <= 0.0 || height <= 0.0 {
-        return Err(PdfError::Other(
+        return Err(PdfError::refused(
+            "AddFormField",
             format!(
                 "the field {:?} is {width} by {height} points, which draws nothing",
                 field.name
-            )
-            .into(),
+            ),
         ));
     }
-    let page_h = doc
-        .get_page_handle(field.page)
-        .ok_or_else(|| PdfError::Other(format!("page {} is not there", field.page).into()))?;
+    let page_h = doc.page_handle(field.page)?;
     if let FieldKind::RadioButton { group, on } = &field.kind {
         return crate::apply::radio::add_radio_button(doc, field, page_h, (group, *on));
     }
@@ -242,7 +243,7 @@ pub(crate) fn declare_in_form(doc: &Document, widget: Handle<Object>) -> PdfResu
     let arena = doc.arena();
     let catalog_h = doc
         .catalog_handle()
-        .ok_or_else(|| PdfError::Other("the document has no catalogue".into()))?;
+        .ok_or_else(|| PdfError::violation("7.7.2", "the document has no catalogue"))?;
     let catalog_dh = doc.resolve_to_dict(catalog_h)?;
     let mut catalog = arena.get_dict(catalog_dh).unwrap_or_default();
 
@@ -283,29 +284,36 @@ pub fn apply_set_calculation_order(doc: &Document, order: &[String]) -> PdfResul
     let arena = doc.arena();
     let catalog_dh = doc.resolve_to_dict(
         doc.catalog_handle()
-            .ok_or_else(|| PdfError::Other("the document has no catalogue".into()))?,
+            .ok_or_else(|| PdfError::violation("7.7.2", "the document has no catalogue"))?,
     )?;
     let acro_dh = arena
         .dict_entry(catalog_dh, arena.name("AcroForm"))
         .and_then(|a| a.resolve(arena).as_dict_handle())
-        .ok_or_else(|| PdfError::Other("the document has no form to order".into()))?;
+        .ok_or_else(|| {
+            PdfError::refused("SetCalculationOrder", "the document has no form to order")
+        })?;
     let calculating = calculating_fields(arena, acro_dh);
 
     let mut references = Vec::with_capacity(order.len());
     for (nth, name) in order.iter().enumerate() {
         if order[..nth].contains(name) {
-            return Err(PdfError::Other(format!("the order names {name:?} twice").into()));
+            return Err(PdfError::refused(
+                "SetCalculationOrder",
+                format!("the order names {name:?} twice"),
+            ));
         }
         let Some(field) = calculating.get(name) else {
-            return Err(PdfError::Other(
-                format!("no field named {name:?} has a calculation to order").into(),
+            return Err(PdfError::refused(
+                "SetCalculationOrder",
+                format!("no field named {name:?} has a calculation to order"),
             ));
         };
         references.push(Object::Reference(*field));
     }
     if let Some(left_out) = calculating.keys().find(|name| !order.contains(name)) {
-        return Err(PdfError::Other(
-            format!("the order leaves out {left_out:?}, which calculates").into(),
+        return Err(PdfError::refused(
+            "SetCalculationOrder",
+            format!("the order leaves out {left_out:?}, which calculates"),
         ));
     }
 

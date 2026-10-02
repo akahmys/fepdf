@@ -106,10 +106,11 @@ fn embed_truetype_coded(
 ) -> PdfResult<Handle<Object>> {
     let arena = doc.arena();
     let wanted = face.glyphs.keys().copied().collect();
-    let subsetted = fepdf_font::subset::subset_truetype(face.program, &wanted)
-        .map_err(|e| PdfError::Other(format!("the program will not subset: {e}").into()))?;
+    let subsetted = fepdf_font::subset::subset_truetype(face.program, &wanted).map_err(|e| {
+        PdfError::refused("embed a face", format!("the program will not subset: {e}"))
+    })?;
     let metrics = fepdf_font::metrics::read_metrics(face.program)
-        .ok_or_else(|| PdfError::Other("the program states no metrics".into()))?;
+        .ok_or_else(|| PdfError::refused("embed a face", "the program states no metrics"))?;
 
     let name = arena.name(&format!("{}+{}", subset_tag(face), face.base_font));
     let descriptor = write_descriptor(doc, name, &metrics, &subsetted, "FontFile2", None)?;
@@ -147,10 +148,11 @@ fn embed_cff(
 ) -> PdfResult<Handle<Object>> {
     let arena = doc.arena();
     let wanted = face.glyphs.keys().copied().collect();
-    let subsetted = fepdf_font::cff::subset_cff(face.program, &wanted)
-        .map_err(|e| PdfError::Other(format!("the program will not subset: {e}").into()))?;
+    let subsetted = fepdf_font::cff::subset_cff(face.program, &wanted).map_err(|e| {
+        PdfError::refused("embed a face", format!("the program will not subset: {e}"))
+    })?;
     let metrics = fepdf_font::metrics::read_metrics(face.program)
-        .ok_or_else(|| PdfError::Other("the program states no metrics".into()))?;
+        .ok_or_else(|| PdfError::refused("embed a face", "the program states no metrics"))?;
 
     let name = arena.name(&format!("{}+{}", subset_tag(face), face.base_font));
     let descriptor =
@@ -429,8 +431,7 @@ pub struct ShownText<'a> {
 /// program cannot be subsetted; or when the page is not there.
 pub fn show_text(doc: &Document, page: usize, shown: &ShownText<'_>) -> PdfResult<()> {
     let arena = doc.arena();
-    let page_h =
-        doc.get_page_handle(page).ok_or_else(|| PdfError::Other("the page is not there".into()))?;
+    let page_h = doc.page_handle(page)?;
     let page_dh = doc.resolve_to_dict(page_h)?;
     let mut page_dict = arena.get_dict(page_dh).unwrap_or_default();
     let drawing = draw_run(doc, page_h, &mut page_dict, shown)?;
@@ -477,7 +478,7 @@ pub fn embed_for(
     let mut glyphs: BTreeMap<u16, String> = BTreeMap::new();
     for text in texts {
         let ids = fepdf_font::subset::glyphs_for(program, text)
-            .map_err(|c| PdfError::Other(format!("this face draws no {c:?}").into()))?;
+            .map_err(|c| PdfError::refused("embed a face", format!("this face draws no {c:?}")))?;
         // **One glyph stands for one character, and a glyph drawn twice is still one
         // glyph.** Appending instead of inserting made `/ToUnicode` say that the glyph for
         // `0` stood for `000`, so `0001` came back out of the file as `0000000001`.
@@ -500,7 +501,7 @@ pub fn draw_with(
     shown: &ShownText<'_>,
 ) -> PdfResult<String> {
     let glyph_ids = fepdf_font::subset::glyphs_for(shown.program, shown.text)
-        .map_err(|c| PdfError::Other(format!("this face draws no {c:?}").into()))?;
+        .map_err(|c| PdfError::refused("draw with a face", format!("this face draws no {c:?}")))?;
     let name = name_font_in_page(doc, page_h, page_dict, embedded.font);
 
     // **What goes in the string is the code, not the glyph.** On a CID-keyed face they

@@ -11,7 +11,7 @@
 
 use bytes::Bytes;
 use fepdf_model::arena::PdfArena;
-use fepdf_model::{Document, Handle, Object, PdfError, PdfName, PdfResult};
+use fepdf_model::{Document, Handle, Object, PdfName, PdfResult};
 use std::collections::BTreeMap;
 
 type Dict = BTreeMap<Handle<PdfName>, Object>;
@@ -432,9 +432,7 @@ pub fn set_viewport(
     measure: Handle<Object>,
 ) -> PdfResult<()> {
     let arena = doc.arena();
-    let page_h = doc
-        .get_page_handle(page)
-        .ok_or_else(|| PdfError::Other(format!("there is no page {}", page + 1).into()))?;
+    let page_h = doc.page_handle(page)?;
     let subtype_of = |measure: &Object| {
         let dict = arena.get_dict(measure.resolve(arena).as_dict_handle()?)?;
         let subtype = dict.get(&arena.name("Subtype")).and_then(|s| s.resolve(arena).as_name());

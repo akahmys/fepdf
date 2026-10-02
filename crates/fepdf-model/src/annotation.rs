@@ -189,7 +189,9 @@ impl FromPdfObject for AnnotationFlags {
     fn from_pdf_object(obj: Object, arena: &PdfArena) -> PdfResult<Self> {
         match obj.resolve(arena) {
             Object::Integer(n) => Ok(Self::from_bits(n)),
-            other => Err(PdfError::Other(format!("/F is a bit field, not {other:?}").into())),
+            other => {
+                Err(PdfError::violation("12.5.3", format!("/F is a bit field, not {other:?}")))
+            }
         }
     }
 }
@@ -222,7 +224,7 @@ pub enum AppearanceEntry {
 impl FromPdfObject for Appearance {
     fn from_pdf_object(obj: Object, arena: &PdfArena) -> PdfResult<Self> {
         let dict = dict_of(arena, &obj)
-            .ok_or_else(|| PdfError::Other("/AP is not a dictionary".into()))?;
+            .ok_or_else(|| PdfError::violation("12.5.5", "/AP is not a dictionary"))?;
         let read = |key: &str| -> Option<AppearanceEntry> {
             let value = dict.get(&arena.name(key))?;
             match value.resolve(arena) {
@@ -264,10 +266,11 @@ pub struct Border {
 impl FromPdfObject for Border {
     fn from_pdf_object(obj: Object, arena: &PdfArena) -> PdfResult<Self> {
         let items = array_of(arena, &obj)
-            .ok_or_else(|| PdfError::Other("/Border is not an array".into()))?;
+            .ok_or_else(|| PdfError::violation("12.5.2", "/Border is not an array"))?;
         if items.len() < 3 {
-            return Err(PdfError::Other(
-                format!("/Border needs at least three elements, found {}", items.len()).into(),
+            return Err(PdfError::violation(
+                "12.5.2",
+                format!("/Border needs at least three elements, found {}", items.len()),
             ));
         }
         let number = |i: usize| items.get(i).and_then(|o| o.resolve(arena).as_f64()).unwrap_or(0.0);
@@ -300,16 +303,17 @@ pub enum AnnotationColour {
 
 impl FromPdfObject for AnnotationColour {
     fn from_pdf_object(obj: Object, arena: &PdfArena) -> PdfResult<Self> {
-        let items =
-            array_of(arena, &obj).ok_or_else(|| PdfError::Other("/C is not an array".into()))?;
+        let items = array_of(arena, &obj)
+            .ok_or_else(|| PdfError::violation("12.5.2", "/C is not an array"))?;
         let n = |i: usize| items.get(i).and_then(|o| o.resolve(arena).as_f64()).unwrap_or(0.0);
         match items.len() {
             0 => Ok(Self::Transparent),
             1 => Ok(Self::Gray(n(0))),
             3 => Ok(Self::Rgb(n(0), n(1), n(2))),
             4 => Ok(Self::Cmyk(n(0), n(1), n(2), n(3))),
-            other => Err(PdfError::Other(
-                format!("/C has {other} components; 12.5.2 defines 0, 1, 3 and 4").into(),
+            other => Err(PdfError::violation(
+                "12.5.2",
+                format!("/C has {other} components; 12.5.2 defines 0, 1, 3 and 4"),
             )),
         }
     }

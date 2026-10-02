@@ -4,7 +4,7 @@ use crate::operation::{
 };
 use crate::struct_tree;
 use fepdf_model::arena::PdfArena;
-use fepdf_model::{Document, Handle, Object, PdfError, PdfResult};
+use fepdf_model::{Document, Handle, Missing, Object, PdfError, PdfResult};
 use std::collections::BTreeMap;
 
 /// Updates properties of a structure element.
@@ -19,9 +19,7 @@ pub fn apply_update_struct(doc: &Document, update: StructElemUpdate) -> PdfResul
         .and_then(|o| o.as_dict_handle())
         .and_then(|dh| Some((dh, arena.get_dict(dh)?)))
     else {
-        return Err(PdfError::Other(
-            format!("object {} is not a structure element", update.handle_index).into(),
-        ));
+        return Err(PdfError::NotFound(Missing::StructElement(update.handle_index)));
     };
     if let Some(tag) = update.new_tag {
         dict.insert(arena.name("S"), Object::Name(arena.name(&tag)));
@@ -57,13 +55,11 @@ pub fn apply_delete_struct(doc: &Document, handle_index: u32) -> PdfResult<()> {
     let handle = Handle::<Object>::new(handle_index);
     let arena = doc.arena();
     let Some(root) = doc.get_structure_root()? else {
-        return Err(PdfError::Other("the document has no structure tree".into()));
+        return Err(PdfError::refused("DeleteStructElem", "the document has no structure tree"));
     };
     let gone = struct_tree::subtree(arena, handle);
     if !struct_tree::delete_struct_node(arena, root, handle) {
-        return Err(PdfError::Other(
-            format!("object {handle_index} is not an element of the structure tree").into(),
-        ));
+        return Err(PdfError::NotFound(Missing::StructElement(handle_index)));
     }
     crate::parent_tree::forget_elements(arena, root, &gone);
     let ids = arena
@@ -94,8 +90,9 @@ pub fn apply_move_struct(doc: &Document, move_: StructElemMove) -> PdfResult<()>
         .and_then(|dict| dict.get(&arena.name("StructTreeRoot")).cloned())
         .and_then(|entry| struct_tree::resolve_to_node_handle(arena, &entry))
     else {
-        return Err(fepdf_model::PdfError::Other(
-            "the document has no /StructTreeRoot to move an element within".into(),
+        return Err(PdfError::refused(
+            "MoveStructElem",
+            "the document has no /StructTreeRoot to move an element within",
         ));
     };
     let moved = struct_tree::move_struct_node(
@@ -108,12 +105,12 @@ pub fn apply_move_struct(doc: &Document, move_: StructElemMove) -> PdfResult<()>
     if moved {
         Ok(())
     } else {
-        Err(fepdf_model::PdfError::Other(
+        Err(PdfError::refused(
+            "MoveStructElem",
             format!(
                 "element {handle_index} cannot move to {target_index}: \
              one of them is not in the structure tree, or the move would make a cycle"
-            )
-            .into(),
+            ),
         ))
     }
 }
@@ -184,14 +181,13 @@ pub fn apply_update_article_threads(doc: &Document, threads: Vec<ArticleThread>)
     let count = doc.page_count()?;
     for thread in &threads {
         if thread.beads.is_empty() {
-            return Err(PdfError::Other(
-                format!("the thread {:?} has no beads to start from", thread.title).into(),
+            return Err(PdfError::refused(
+                "UpdateArticleThreads",
+                format!("the thread {:?} has no beads to start from", thread.title),
             ));
         }
         if let Some(bead) = thread.beads.iter().find(|bead| bead.page >= count) {
-            return Err(PdfError::Other(
-                format!("this document has {count} pages and no page {}", bead.page).into(),
-            ));
+            return Err(PdfError::no_page(bead.page, count));
         }
     }
     let mut thread_refs = Vec::new();
@@ -290,7 +286,7 @@ pub(super) fn element_dict(
 
 /// The refusal for an index naming no element.
 pub(super) fn not_an_element(element: u32) -> PdfError {
-    PdfError::Other(format!("object {element} is not a structure element").into())
+    PdfError::NotFound(Missing::StructElement(element))
 }
 
 /// Sets one attribute of a structure element (14.7.6): the key in the attribute object its
@@ -350,11 +346,11 @@ pub fn apply_set_struct_refs(doc: &Document, element: u32, targets: &[u32]) -> P
 /// there if it holds none (Table 356).
 fn namespace(doc: &Document, name: &str) -> PdfResult<Handle<Object>> {
     let arena = doc.arena();
-    let root = doc
-        .get_structure_root()?
-        .ok_or_else(|| PdfError::Other("the document has no structure tree".into()))?;
+    let root = doc.get_structure_root()?.ok_or_else(|| {
+        PdfError::refused("SetStructNamespace", "the document has no structure tree")
+    })?;
     let Some((root_dh, mut root_dict)) = element_dict(arena, root.index()) else {
-        return Err(PdfError::Other("the structure tree root is not a dictionary".into()));
+        return Err(PdfError::violation("14.7.2", "the structure tree root is not a dictionary"));
     };
     let key = arena.name("Namespaces");
     let mut listed = attributes_array(arena, root_dict.get(&key));
@@ -429,7 +425,7 @@ pub fn apply_map_struct_type(
         None => Object::Name(arena.name(to)),
     };
     let Some((dh, mut dict)) = element_dict(arena, handle.index()) else {
-        return Err(PdfError::Other("the namespace is not a dictionary".into()));
+        return Err(PdfError::violation("14.7.4", "the namespace is not a dictionary"));
     };
     let key = arena.name("RoleMapNS");
     let (map_dh, mut map) = match dict.get(&key).and_then(|m| m.resolve(arena).as_dict_handle()) {

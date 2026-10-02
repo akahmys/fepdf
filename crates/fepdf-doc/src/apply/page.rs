@@ -54,9 +54,7 @@ pub fn apply_set_tab_order(
 pub fn apply_reorder(doc: &mut Document, from: usize, to: usize) -> PdfResult<()> {
     let count = doc.page_count()?;
     if let Some(missing) = [from, to].into_iter().find(|index| *index >= count) {
-        return Err(PdfError::Other(
-            format!("this document has {count} pages and no page {missing}").into(),
-        ));
+        return Err(PdfError::no_page(missing, count));
     }
     doc.reorder_page(from, to)
 }
@@ -90,9 +88,7 @@ pub(crate) fn pages_named(pages: &PageSelection, count: usize) -> PdfResult<Vec<
         PageSelection::Indices(idx) => idx.clone(),
     };
     if let Some(missing) = indices.iter().find(|index| **index >= count) {
-        return Err(PdfError::Other(
-            format!("this document has {count} pages and no page {missing}").into(),
-        ));
+        return Err(PdfError::no_page(*missing, count));
     }
     Ok(indices)
 }
@@ -190,10 +186,10 @@ pub fn apply_upgrade(doc: &mut Document, standard: PdfStandard) -> PdfResult<()>
         PdfStandard::UA2 => Some(("pdfuaid", "http://www.aiim.org/pdfua/ns/id/", "2", "2024")),
         PdfStandard::A4 => Some(("pdfaid", "http://www.aiim.org/pdfa/ns/id/", "4", "2020")),
         PdfStandard::X6 => {
-            return Err(PdfError::Other(
+            return Err(PdfError::refused(
+                "Upgrade",
                 "PDF/X-6 is identified as ISO 15930-9 says, and this engine does not have \
-                 ISO 15930-9 to write it from"
-                    .into(),
+                 ISO 15930-9 to write it from",
             ));
         }
     };
@@ -233,7 +229,7 @@ fn from_page_zero(doc: &Document, labels: &mut Vec<PageLabelSpec>) {
 
 /// Refuses ranges, sorted by the page each starts at, that 12.4.2's tree cannot hold.
 fn refuse_unwritable_labels(labels: &[PageLabelSpec], count: usize) -> PdfResult<()> {
-    let refuse = |why: String| Err(PdfError::Other(why.into()));
+    let refuse = |why: String| Err(PdfError::refused("SetPageLabels", why));
     if labels.is_empty() {
         return refuse("no page label ranges were given".to_owned());
     }
@@ -397,17 +393,21 @@ pub fn apply_resize_pages(doc: &Document, pages: &PageSelection, to: &PageResize
     if let Some(size) = to.sheet
         && (!(size.0.is_finite() && size.1.is_finite()) || size.0 <= 0.0 || size.1 <= 0.0)
     {
-        return Err(PdfError::Other(
-            format!("a sheet of {} by {} points has no area", size.0, size.1).into(),
+        return Err(PdfError::refused(
+            "ResizePages",
+            format!("a sheet of {} by {} points has no area", size.0, size.1),
         ));
     }
     if let ContentScale::By(by) = to.scale
         && (!by.is_finite() || by <= 0.0)
     {
-        return Err(PdfError::Other(format!("a scale of {by} draws nothing").into()));
+        return Err(PdfError::refused("ResizePages", format!("a scale of {by} draws nothing")));
     }
     if !(to.offset.0.is_finite() && to.offset.1.is_finite()) {
-        return Err(PdfError::Other(format!("an offset of {:?} is nowhere", to.offset).into()));
+        return Err(PdfError::refused(
+            "ResizePages",
+            format!("an offset of {:?} is nowhere", to.offset),
+        ));
     }
     for idx in pages_named(pages, doc.page_count()?)? {
         resize_one_page(doc, idx, to)?;
@@ -627,8 +627,9 @@ pub fn apply_crop_pages(
         || width <= 0.0
         || height <= 0.0
     {
-        return Err(PdfError::Other(
-            format!("a crop to {keep:?} keeps a region with no area").into(),
+        return Err(PdfError::refused(
+            "CropPages",
+            format!("a crop to {keep:?} keeps a region with no area"),
         ));
     }
     let indices = pages_named(pages, doc.page_count()?)?;
@@ -696,9 +697,7 @@ fn crop_one_page(
 pub fn apply_split_page(doc: &mut Document, page: usize, division: &PageDivision) -> PdfResult<()> {
     let count = doc.page_count()?;
     if page >= count {
-        return Err(PdfError::Other(
-            format!("this document has {count} pages and no page {page}").into(),
-        ));
+        return Err(PdfError::no_page(page, count));
     }
     // A grid is measured from where the page's box starts, which need not be the origin:
     // measured from the origin, a page whose box is `[100 100 400 400]` was cut 100 points
@@ -714,7 +713,7 @@ pub fn apply_split_page(doc: &mut Document, page: usize, division: &PageDivision
         .map(|(left, bottom, right, top)| (left + x0, bottom + y0, right + x0, top + y0))
         .collect();
     if regions.is_empty() {
-        return Err(PdfError::Other("a split into no regions leaves nothing".into()));
+        return Err(PdfError::refused("SplitPage", "a split into no regions leaves nothing"));
     }
 
     // One copy per region, all of them in place of the page they came from. Duplicating
@@ -756,8 +755,9 @@ pub fn apply_combine_pages(
     let count = doc.page_count()?;
     let per_sheet = onto.columns.checked_mul(onto.rows).unwrap_or(0);
     if per_sheet == 0 {
-        return Err(PdfError::Other(
-            format!("a grid of {} by {} has no cells", onto.columns, onto.rows).into(),
+        return Err(PdfError::refused(
+            "CombinePages",
+            format!("a grid of {} by {} has no cells", onto.columns, onto.rows),
         ));
     }
     let mut indices = pages_named(pages, count)?;
@@ -769,8 +769,9 @@ pub fn apply_combine_pages(
 
     let sheet = onto.sheet.unwrap_or_else(|| shown_size(doc, indices[0]));
     if !(sheet.0.is_finite() && sheet.1.is_finite()) || sheet.0 <= 0.0 || sheet.1 <= 0.0 {
-        return Err(PdfError::Other(
-            format!("a sheet of {} by {} points has no area", sheet.0, sheet.1).into(),
+        return Err(PdfError::refused(
+            "CombinePages",
+            format!("a sheet of {} by {} points has no area", sheet.0, sheet.1),
         ));
     }
 

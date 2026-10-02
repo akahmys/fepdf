@@ -349,3 +349,33 @@ fn a_link_between_two_kept_pages_is_kept() {
         "the link goes to a page outside the tree"
     );
 }
+
+/// **A page that is not there is one condition, in the type, saying how many there are.**
+///
+/// It had six spellings across the engine (ADR-0102), and only one of them said how many
+/// pages the document had. Three routes that each spelled it differently — reading a page,
+/// extracting it, and setting a measurement scale on it — answer the same variant now.
+#[test]
+fn a_missing_page_says_how_many_pages_there_are() {
+    use fepdf::{Missing, PdfError};
+    let Some(mut doc) = sample("fy05.pdf") else {
+        panic!("samples/ is not in the tree, so this has nothing to test")
+    };
+    let count = doc.page_count().expect("it counts");
+    let missing = |result: Result<(), PdfError>| match result {
+        Err(PdfError::NotFound(Missing::Page { index, count })) => Some((index, count)),
+        _ => None,
+    };
+
+    assert_eq!(missing(doc.inner().get_page(count).map(|_| ())), Some((count, count)));
+    assert_eq!(
+        missing(doc.extract_pages(vec![0, count + 3]).map(|_| ())),
+        Some((count + 3, count))
+    );
+    let scale = fepdf::Operation::SetMeasurementScale(fepdf::MeasurementScale {
+        page: count + 1,
+        scale_ratio: 1.0,
+        unit_label: "mm".into(),
+    });
+    assert_eq!(missing(doc.apply(scale)), Some((count + 1, count)));
+}

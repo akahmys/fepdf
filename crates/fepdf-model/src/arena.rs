@@ -463,7 +463,7 @@ impl PdfArena {
             } else {
                 // Compress large non-content streams (images, fonts) in memory.
                 let compressed = crate::filters::flate::deflate(&data)
-                    .map_err(|e| crate::PdfError::Other(e.to_string().into()))?;
+                    .map_err(|e| crate::PdfError::internal(e.to_string()))?;
                 SublimatedData::Compressed { original_len: data.len(), data: compressed }
             }
         } else {
@@ -485,7 +485,7 @@ impl PdfArena {
             crate::object::SublimatedData::Raw(b) => Ok(b.clone()),
             crate::object::SublimatedData::Compressed { data, .. } => {
                 let decoded = crate::filters::flate::inflate(data)
-                    .map_err(|e| crate::PdfError::Other(e.to_string().into()))?;
+                    .map_err(|e| crate::PdfError::internal(e.to_string()))?;
                 Ok(bytes::Bytes::from(decoded))
             }
             crate::object::SublimatedData::Commands { items: cmds } => Ok(bytes::Bytes::from(

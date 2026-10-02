@@ -283,7 +283,7 @@ pub fn update_document_metadata(
 fn set_document_language(doc: &crate::Document, language: &str) -> crate::PdfResult<()> {
     let arena = doc.arena();
     let Some(Object::Dictionary(dh)) = arena.get_object(*doc.root_handle()) else {
-        return Err(crate::error::PdfError::Other("Invalid Catalog".into()));
+        return Err(crate::error::PdfError::violation("7.7.2", "Invalid Catalog"));
     };
     let mut dict = arena.get_dict(dh).unwrap_or_default();
     dict.insert(arena.name("Lang"), Object::Text(language.to_string()));
@@ -340,7 +340,7 @@ fn update_xmp_metadata(
     if let Some(Object::Dictionary(catalog_dh)) = arena.get_object(root_handle) {
         let mut catalog_dict = arena
             .get_dict(catalog_dh)
-            .ok_or_else(|| crate::error::PdfError::Other("Invalid Catalog".into()))?;
+            .ok_or_else(|| crate::error::PdfError::internal("Invalid Catalog"))?;
 
         let refined_map = build_refined_metadata_map(info);
         let mut raw_xmp =

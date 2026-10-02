@@ -28,8 +28,9 @@ pub fn apply_mark_artifact(
 ) -> PdfResult<()> {
     let arena = doc.arena();
     let properties = page_properties(doc, page);
-    let content = page_commands(doc, page, &BTreeMap::new())?
-        .ok_or_else(|| PdfError::Other(format!("page {} draws nothing", page + 1).into()))?;
+    let content = page_commands(doc, page, &BTreeMap::new())?.ok_or_else(|| {
+        PdfError::refused("MarkArtifact", format!("page {} draws nothing", page + 1))
+    })?;
     let mut commands: Vec<Command> = match content {
         Content::Shared(_) => content.iter().cloned().collect(),
         Content::Parsed(commands) => commands,
@@ -38,15 +39,13 @@ pub fn apply_mark_artifact(
     let at = commands
         .iter()
         .position(|c| matches!(c, Command::BeginMarkedContent { properties, .. } if carried(properties.as_ref()) == Some(mcid)))
-        .ok_or_else(|| {
-            PdfError::Other(format!("page {} marks no sequence with MCID {mcid}", page + 1).into())
-        })?;
+        .ok_or(PdfError::NotFound(fepdf_model::Missing::Mark { page, mcid }))?;
     if nested_mcid(&commands[at + 1..], &carried) {
-        return Err(PdfError::Other(
+        return Err(PdfError::refused(
+            "MarkArtifact",
             format!(
                 "the sequence with MCID {mcid} holds tagged content, which an artifact may not"
-            )
-            .into(),
+            ),
         ));
     }
     let mut entries = BTreeMap::new();

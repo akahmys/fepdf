@@ -39,7 +39,7 @@ pub fn apply_wrap_struct(doc: &Document, wrap: StructElemWrap) -> PdfResult<()> 
     let arena = doc.arena();
     let root = doc
         .get_structure_root()?
-        .ok_or_else(|| PdfError::Other("the document has no structure tree".into()))?;
+        .ok_or_else(|| PdfError::refused("WrapStructElem", "the document has no structure tree"))?;
     let Some((dh, mut dict)) = element_dict(arena, handle_index) else {
         return Err(not_an_element(handle_index));
     };
@@ -49,12 +49,12 @@ pub fn apply_wrap_struct(doc: &Document, wrap: StructElemWrap) -> PdfResult<()> 
     let key = arena.name("K");
     let mut kids = dict.get(&key).map(|k| kids(arena, k)).unwrap_or_default();
     let Some(end) = first.checked_add(count).filter(|&end| count > 0 && end <= kids.len()) else {
-        return Err(PdfError::Other(
+        return Err(PdfError::refused(
+            "WrapStructElem",
             format!(
                 "object {handle_index} has {} kids, and {count} from {first} is not a run of them",
                 kids.len()
-            )
-            .into(),
+            ),
         ));
     };
     let page = dict.get(&arena.name("Pg")).cloned();
@@ -119,7 +119,8 @@ fn what(arena: &PdfArena, kid: &Object, page: Option<&Object>) -> PdfResult<Kid>
     let content = |key: Option<i64>, mcid: Option<usize>| {
         key.map_or(Kid::Unlisted, |key| Kid::Content { key, mcid })
     };
-    let no_page = || PdfError::Other("a marked-content kid has no /Pg to be found on".into());
+    let no_page =
+        || PdfError::violation("14.7.2", "a marked-content kid has no /Pg to be found on");
     let resolved = kid.resolve(arena);
     if let Object::Integer(mcid) = resolved {
         let page = page.cloned().ok_or_else(no_page)?;
