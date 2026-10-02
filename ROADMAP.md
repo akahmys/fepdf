@@ -1064,10 +1064,14 @@ eight times, and the copies do not agree on whether to resolve.
       rustfmt wrapped a signature that grew by that. The golden comparison agreed after
       each. `layering.py`'s Rule D read `lib.rs` alone and reads every file of the
       facade now, since `PdfDocument`'s methods are in four. Nothing gates the 800.
-- [ ] **Y-8** — `ARCHITECTURE.md` §3 carries no count that moves (ADR-0080). It quotes 30
+- [x] **Y-8** — `ARCHITECTURE.md` §3 carries no count that moves (ADR-0080). It quotes 30
       operations, 8 built by `fepdf-cli` and 12 by `fepdf-gui`, where `status.sh` reads
       54, 9 and 30. It also names `fepdf-script` and `fepdf-fixtures` in the diagram, and
       says what `fepdf-doc` has come to hold.
+      §3 states no operation count and no crate count, and no line-count history; the
+      diagram draws `fepdf-script` as the library the frontends call (ADR-0082 — the
+      row still called it "the fifth frontend") and `fepdf-fixtures` beside the stack as
+      the dev-dependency it is; and `fepdf-doc`'s row names what it holds by module.
 - [ ] **Y-9** — whether `fepdf/tests`' 82 files, each linking the GPU stack as its own
       binary, become one binary is decided by an A/B of the gate's own command, cold and
       warm. The threshold is written down before the measurement.
