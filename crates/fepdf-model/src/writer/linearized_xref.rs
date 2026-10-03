@@ -21,8 +21,8 @@ impl<'a, W: Write> PdfWriter<'a, W> {
         _outline_exclusive: &[Handle<Object>],
         page1: Handle<Object>,
         first_page_reachables: &BTreeSet<Handle<Object>>,
-    ) -> (u32, u32, u32, u32) {
-        // (total_count, o_id, hint_stream_id, first_page_shared_count)
+    ) -> (u32, u32, u32, u32, u32) {
+        // (total_count, o_id, hint_stream_id, first_page_shared_count, first_page_shared_start)
         // 1. Partition others into shared and private exactly matching finish_linearized order
         let mut others_shared = Vec::new();
         let mut others_private = Vec::new();
@@ -110,6 +110,7 @@ impl<'a, W: Write> PdfWriter<'a, W> {
         // Now assign IDs to ALL Shared Objects (Section 8: first-page shared and remaining other shared objects)
         // starting immediately after the first-group non-shared objects!
         // This ensures the First Xref Table is 100% contiguous from o_id up to the very last shared object ID!
+        let first_page_shared_start = next_first_group_id;
         let mut fp_shared: Vec<Handle<Object>> = first_page_shared_set.iter().copied().collect();
         fp_shared.sort();
         for h in fp_shared {
@@ -133,7 +134,7 @@ impl<'a, W: Write> PdfWriter<'a, W> {
         let first_page_shared_count = first_page_shared_set.len() as u32;
         let total_count = next_first_group_id;
 
-        (total_count, o_id, hint_stream_id, first_page_shared_count)
+        (total_count, o_id, hint_stream_id, first_page_shared_count, first_page_shared_start)
     }
 
     pub(super) fn reserve_lin_headers(

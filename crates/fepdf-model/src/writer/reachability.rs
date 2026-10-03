@@ -27,7 +27,16 @@ impl<'a, W: Write> PdfWriter<'a, W> {
             let mut p_reachable = BTreeSet::new();
             let mut p_exclude = page_objects_set.clone();
             p_exclude.remove(&ph);
-            self.trace_reachable_no_parent(ph, &mut p_reachable, &BTreeSet::new(), &p_exclude);
+            // A page's thumbnail is part 9's (F.3.10), not the page's: counted with the
+            // page, every page of `02_低段汚水ポンプ電動機.pdf` stated one object more than
+            // qpdf found in it (ROADMAP Y-F31).
+            self.trace_reachable_selective(
+                ph,
+                &mut p_reachable,
+                &BTreeSet::new(),
+                &["Parent", "Pages", "Root", "Catalog", "Info", "Thumb"],
+                &p_exclude,
+            );
             log::debug!("DEBUG: Page {} reachable count: {}", i, p_reachable.len());
             page_reachables.push(p_reachable);
         }
@@ -37,46 +46,58 @@ impl<'a, W: Write> PdfWriter<'a, W> {
     pub(super) fn trace_doc_reachable_selective(
         &self,
         root: Handle<Object>,
-        info: Option<Handle<Object>>,
+        _info: Option<Handle<Object>>,
         page_objects_set: &BTreeSet<Handle<Object>>,
     ) -> BTreeSet<Handle<Object>> {
+        // **Part 4 holds what F.3.5 names and nothing else.** This took everything the
+        // catalogue reaches but `/Pages` — the named destinations, the structure tree, the
+        // field hierarchy — and `intel_sdm.pdf` put 279,508 destinations before its first
+        // page (ROADMAP Y-F30). F.3.5: the values of `/ViewerPreferences`, `/OpenAction`,
+        // `/Threads` with its thread dictionaries but not their information dictionaries or
+        // beads, and `/AcroForm`'s top-level dictionary alone. All else is part 9.
         let mut doc_reachable = BTreeSet::new();
-        if let Some(obj) = self.arena.get_object(root) {
-            if let Some(dh) = obj.as_dict_handle() {
-                if let Some(dict) = self.arena.get_dict(dh) {
-                    for (k, v) in dict {
-                        let k_str = self.arena.get_name_str(k).unwrap_or_default();
-                        if k_str != "Pages" {
-                            let mut stack = Vec::new();
-                            self.trace_reachable_inline(
-                                &v,
-                                &mut doc_reachable,
-                                &BTreeSet::new(),
-                                &mut stack,
-                                &["Parent"],
-                                page_objects_set,
-                            );
-                            while let Some(curr) = stack.pop() {
-                                self.trace_reachable_selective(
-                                    curr,
-                                    &mut doc_reachable,
-                                    &BTreeSet::new(),
-                                    &["Parent"],
-                                    page_objects_set,
-                                );
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        if let Some(ih) = info {
-            self.trace_reachable_no_parent(
-                ih,
+        let Some(dict) = self
+            .arena
+            .get_object(root)
+            .and_then(|o| o.as_dict_handle())
+            .and_then(|d| self.arena.get_dict(d))
+        else {
+            return doc_reachable;
+        };
+        let value = |key: &str| dict.get(&self.arena.name(key)).cloned();
+        for key in ["ViewerPreferences", "OpenAction"] {
+            let Some(v) = value(key) else { continue };
+            let mut stack = Vec::new();
+            self.trace_reachable_inline(
+                &v,
                 &mut doc_reachable,
                 &BTreeSet::new(),
+                &mut stack,
+                &["Parent"],
                 page_objects_set,
             );
+            while let Some(curr) = stack.pop() {
+                self.trace_reachable_selective(
+                    curr,
+                    &mut doc_reachable,
+                    &BTreeSet::new(),
+                    &["Parent"],
+                    page_objects_set,
+                );
+            }
+        }
+        if let Some(Object::Reference(form)) = value("AcroForm") {
+            doc_reachable.insert(form);
+        }
+        if let Some(threads) = value("Threads") {
+            if let Object::Reference(h) = threads {
+                doc_reachable.insert(h);
+            }
+            if let Some(items) =
+                threads.resolve(self.arena).as_array().and_then(|a| self.arena.get_array(a))
+            {
+                doc_reachable.extend(items.iter().filter_map(Object::as_reference));
+            }
         }
         doc_reachable
     }
@@ -284,21 +305,5 @@ impl<'a, W: Write> PdfWriter<'a, W> {
             }
             _ => {}
         }
-    }
-
-    pub(super) fn trace_reachable_no_parent(
-        &self,
-        h: Handle<Object>,
-        reachable: &mut BTreeSet<Handle<Object>>,
-        assigned: &BTreeSet<Handle<Object>>,
-        exclude_objects: &BTreeSet<Handle<Object>>,
-    ) {
-        self.trace_reachable_selective(
-            h,
-            reachable,
-            assigned,
-            &["Parent", "Pages", "Root", "Catalog", "Info"],
-            exclude_objects,
-        );
     }
 }

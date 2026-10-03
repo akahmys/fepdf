@@ -122,8 +122,8 @@ impl<'a, W: Write> PdfWriter<'a, W> {
         } else {
             root
         };
-        let (mut total_size, primary_count, hint_stream_id, first_page_shared_count) = self
-            .assign_lin_ids(
+        let (mut total_size, primary_count, hint_stream_id, first_page_shared_count, fps_start) =
+            self.assign_lin_ids(
                 root,
                 info,
                 &s2,
@@ -195,13 +195,11 @@ impl<'a, W: Write> PdfWriter<'a, W> {
         let (dict_pos, p_xref_pos) = self.reserve_lin_headers(primary_count, total_size);
 
         // 3. Section 2 & 6: Write objects
-        let p0_non_shared_count = counts[0] - first_page_shared_count;
-        let doc_private_len = (page1_id - (primary_count + 1))
-            .saturating_sub(u32::from(info.is_some()))
-            .saturating_sub(1);
-        let non_shared_total =
-            2 + u32::from(info.is_some()) + doc_private_len + p0_non_shared_count;
-        let first_page_shared_start_id = primary_count + 1 + non_shared_total;
+        // Where the first page's shared objects begin is where `assign_lin_ids` began
+        // numbering them. Worked out again from counts, it came one past, and the range
+        // took the first of the other shared objects into the first-page section — which
+        // is what made page 0's length and `/E` too long (ROADMAP Y-F31).
+        let first_page_shared_start_id = fps_start;
 
         let (hint_pos, s2_end, s7_start, s8_start) = self.write_lin_objects_to_stream(
             root,
@@ -402,6 +400,12 @@ impl<'a, W: Write> PdfWriter<'a, W> {
         Ok((hint_pos, s2_end, s7_start, s8_start))
     }
 
+    /// Whether the catalogue's `/PageMode` is `/UseOutlines`.
+    fn page_mode_uses_outlines(&self, root: Handle<Object>) -> bool {
+        crate::access::name_in(self.arena, &Object::Reference(root), "PageMode").as_deref()
+            == Some("UseOutlines")
+    }
+
     pub(super) fn collect_lin_objects(
         // RR-15 Limit: Dispatcher - Sequential PDF linearization generator routing and sorting object tables, hint table, and headers
         &self,
@@ -429,8 +433,8 @@ impl<'a, W: Write> PdfWriter<'a, W> {
             && let Some(dict) = self.arena.get_dict(dh)
             && let Some(Object::Reference(ph)) = dict.get(&self.arena.name("Pages"))
         {
+            // The page tree is part 9's (F.3.10): a reader never consults it.
             self.collect_pages_recursive(*ph, &mut original_pages)?;
-            doc_reachable.insert(*ph);
         }
 
         if original_pages.is_empty() {
@@ -445,6 +449,9 @@ impl<'a, W: Write> PdfWriter<'a, W> {
         let doc_reachable_set = self.trace_doc_reachable_selective(root, info, &page_objects_set);
         doc_reachable.extend(doc_reachable_set);
 
+        // The outline is part 6's only when `/PageMode` is `/UseOutlines` (F.3.5);
+        // otherwise it is part 9's, as one run the outline hint table points at.
+        let outlines_first = self.page_mode_uses_outlines(root);
         let (outline_objs, outlines_root_h) = self.trace_outline_objects(root, &page_objects_set);
         let shared_objs =
             self.identify_shared_objects(root, info, &original_pages, &page_reachables);
@@ -464,11 +471,10 @@ impl<'a, W: Write> PdfWriter<'a, W> {
         if let Some(root_h) = outlines_root_h {
             outline_exclusive.push(root_h);
         }
-        for &h in &doc_reachable {
-            if !shared_objs.contains(&h) && outline_objs.contains(&h) {
-                if Some(h) != outlines_root_h {
-                    outline_exclusive.push(h);
-                }
+        // Read from the outline itself: part 4 no longer reaches it (Y-F30).
+        for &h in &outline_objs {
+            if !shared_objs.contains(&h) && Some(h) != outlines_root_h && h != root {
+                outline_exclusive.push(h);
             }
         }
 
@@ -513,7 +519,9 @@ impl<'a, W: Write> PdfWriter<'a, W> {
         section2_final.extend(doc_private.clone());
         section2_final.push(page1);
         section2_final.extend(p0_exclusive.clone());
-        section2_final.extend(outline_exclusive.clone());
+        if outlines_first {
+            section2_final.extend(outline_exclusive.clone());
+        }
         section2_final.extend(first_page_shared.clone());
 
         let p0_count = section2_final
@@ -542,6 +550,10 @@ impl<'a, W: Write> PdfWriter<'a, W> {
 
         let mut others: Vec<_> = all.into_iter().filter(|h| !assigned.contains(h)).collect();
         others.sort();
+        if !outlines_first {
+            // First in part 9 and contiguous, in the order the outline is read.
+            others.splice(0..0, outline_exclusive.iter().copied());
+        }
 
         let mut registered = BTreeSet::new();
         for &h in &first_page_shared {

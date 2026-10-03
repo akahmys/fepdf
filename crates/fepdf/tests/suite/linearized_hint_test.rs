@@ -58,3 +58,27 @@ fn the_hint_stream_reserves_what_its_pages_name() {
     let back = PdfDocument::open(file.into()).expect("the linearised file opens");
     assert_eq!(back.page_count().expect("it counts"), 40);
 }
+
+/// **The first page comes before the named destinations** (Annex F F.3.5): part 4 holds
+/// the catalogue and what F.3.5 names, and a destination is part 9's. Every object the
+/// catalogue reached went before the first page, and `intel_sdm.pdf`'s 279,508 named
+/// destinations took half the file before it (ROADMAP Y-F30).
+#[test]
+fn the_first_page_comes_before_the_named_destinations() {
+    let bytes = fepdf_fixtures::assemble(&[
+        "<< /Type /Catalog /Pages 2 0 R /Names << /Dests 4 0 R >> >>",
+        "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] >>",
+        "<< /Names [(there) 5 0 R] >>",
+        "<< /D [3 0 R /Fit] >>",
+    ]);
+    let doc = PdfDocument::open(bytes.into()).expect("the fixture opens");
+    let path = std::env::temp_dir().join(format!("fepdf-order-{}.pdf", std::process::id()));
+    let _ = doc.save_linearized(&path, "2.0", &SaveOptions::default()).expect("it linearises");
+    let file = std::fs::read(&path).expect("it was written");
+    let _ = std::fs::remove_file(&path);
+    let at = |needle: &[u8]| file.windows(needle.len()).position(|w| w == needle);
+    let page = at(b"/Type /Page\r").or_else(|| at(b"/Type /Page ")).expect("the page is written");
+    let destination = at(b"/D [").expect("the destination is written");
+    assert!(page < destination, "the destination at {destination} precedes the page at {page}");
+}

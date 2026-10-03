@@ -1078,6 +1078,13 @@ it can be run there.
       between 9.9% and 54.8% of the file and its first page at 53.7% (measured
       2026-10-03): a reader has read half the file before it can show page one. Part 9 is
       what Y-F22 packs, so this goes first.
+      Partly done 2026-10-03: part 4 is the catalogue and what F.3.5 names, the page tree
+      is part 9's, and the outline is part 6's only under `/PageMode /UseOutlines` and
+      otherwise one run at the head of part 9, which the outline hint table points at.
+      `intel_sdm.pdf`'s first page moves from 53.7% of the file to 0.2%, and
+      `linearized_hint_test.rs` holds a page ahead of a destination. **Open**: the
+      information dictionary, which F.3.5 also puts in part 9, is still written beside
+      the catalogue, where the numbering of part 4 expects it.
 - [ ] **Y-F31** — **qpdf finds the hint tables wrong in nine samples of ten.**
       `scripts/test/check_linearization.sh` holds every sample's linearised save against
       `qpdf --check-linearization` (qpdf 12.4.2, 2026-10-03): only `unicode_16.pdf` reads
@@ -1087,6 +1094,13 @@ it can be run there.
       linearised file back without its hint tables, and the golden comparison says only
       that bytes moved, so nothing here saw it. *Done when* the script reports no
       linearization errors for every sample.
+      Eight of ten clean 2026-10-03: the first page's shared objects were taken by an id
+      range worked out again from counts, one past where `assign_lin_ids` began them, so
+      one of the other shared objects went into the first-page section; and a page's
+      thumbnail was counted with the page, where F.3.10 puts it in part 9. **Open**:
+      `intel_sdm.pdf` and `sample_02c.pdf`, whose pages hold objects a catalogue entry
+      reaches as well — article beads through `/Threads`, widgets through `/AcroForm` —
+      which the writer counts as the page's own and qpdf does not.
 - [ ] **Y-F26** — **the documents name the wrong thing as what fepdf is.** The owner's
       definition, 2026-10-03: a translator from any PDF to ISO 32000-2, operations on
       what it translated, and frontends for those operations; reporting what was done
