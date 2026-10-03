@@ -170,3 +170,5 @@ quietly wrong — which is the failure this log exists to make visible.
 | 0103 | [Two operations that wrote what no reader reaches are removed](0103-two-operations-that-wrote-what-no-reader-reaches-are-removed.md) | Rests on 0015 |
 | 0104 | [The writer makes unencrypted wrapper documents, to 7.6.7](0104-the-writer-makes-unencrypted-wrapper-documents.md) | Rests on 0103 |
 | 0105 | [Ingestion never rewrote a real Type 0 font's CMap](0105-ingestion-never-rewrote-a-real-type-0-cmap.md) | Corrects the reason 31-006 and 31-008 were left out |
+| 0106 | [An `impl` block is held to 800 lines](0106-an-impl-block-is-held-to-800-lines.md) | Extends Rule 1 |
+| 0107 | [An operation does not reach into an audit](0107-an-operation-does-not-reach-into-an-audit.md) | Adds layering Rule E |

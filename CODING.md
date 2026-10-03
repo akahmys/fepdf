@@ -15,7 +15,7 @@ Derived from aerospace safety principles, the **RR-15 (Reliable Rust-15)** rules
 
 | Rule | Area | Requirement | Enforcement |
 | :--- | :--- | :--- | :--- |
-| **Rule 1** | Function Length | Max 50 lines for standard functions.<br>Max 200 lines for `// RR-15 Limit: GUI`.<br>Max 500 lines for `// RR-15 Limit: Dispatcher`. | `./scripts/audit/verify_compliance.sh` |
+| **Rule 1** | Function Length | Max 50 lines for standard functions.<br>Max 200 lines for `// RR-15 Limit: GUI`.<br>Max 500 lines for `// RR-15 Limit: Dispatcher`.<br>Max 800 lines for an `impl` block, counted from `impl` to its closing brace ([ADR-0106](docs/adr/0106-an-impl-block-is-held-to-800-lines.md)). | `./scripts/audit/verify_compliance.sh`; the `impl` limit by [`scripts/audit/impl_length.py`](scripts/audit/impl_length.py) in it |
 | **Rule 2** | Panic Prevention | `unwrap()` and `expect()` are forbidden in production code. Use `?` or `unwrap_or()`. | Automated grep check |
 | **Rule 3** | Unsafe Ban | `unsafe` blocks are forbidden. | **rustc** — `unsafe_code = "forbid"`, which cannot be overridden by an `#[allow]` |
 | **Rule 4** | Control Flow | Avoid deep nesting (`if let` / `match`). Prefer early return with `?`. | Code review / Clippy |
@@ -196,7 +196,7 @@ that a rule about structure is architecture; they are here because they are rule
 `ARCHITECTURE.md` says what the design *is*. Its own charter had said it holds no coding
 rules while it held these four.
 
-Four rules decide where code goes. They are what keeps the topology from eroding;
+Five rules decide where code goes. They are what keeps the topology from eroding;
 the layer diagram is a consequence of them, not the other way round.
 
 ### Rule A — Storage abstractions stop at the facade
@@ -239,6 +239,15 @@ Where two frontends each implement "the same" operation, the two implementations
 drift, silently, because nothing compares them. That has already happened here
 ([ADR-0005](docs/adr/0005-layering-rules-are-enforced-by-cargo.md)).
 
+### Rule E — An operation does not reach into an audit
+
+`fepdf-doc/src/apply/` changes documents; the audit modules (`audit_*`, `matterhorn`,
+and the glyph and language readers the font audit uses) judge them. An operation that
+imports a helper from an audit ties what a document may become to what an audit happens
+to read, and a change made for the audit changes the operation with it. What both need
+lives below them, in `fepdf-model`'s `access` or a module neither owns
+([ADR-0107](docs/adr/0107-an-operation-does-not-reach-into-an-audit.md)).
+
 ---
 
 ### What checks them
@@ -247,6 +256,7 @@ drift, silently, because nothing compares them. That has already happened here
 | :--- | :--- |
 | **Rules A–C** | Cargo, through [`scripts/audit/layering.py`](scripts/audit/layering.py) in the audit. A frontend declares `fepdf` and a library that stands above it ([ADR-0082](docs/adr/0082-the-script-crate-is-a-library-the-frontends-call.md)); no arena type appears above the facade at all; and no `PdfArena::new` appears in the facade. Each expects 0, and the audit fails on any. `status.sh` reports what that script returns. **It reported them and nothing gated on either until 2026-09-07**, when a frontend gained a dependency the row counted and the audit passed regardless. |
 | **Rule D** | [`scripts/audit/layering.py`](scripts/audit/layering.py) in the audit, with Rules A–C. It counts `&mut self` methods on the facade that are neither `apply` nor a save setting, expects 0, and fails on any. **Measured here and gated nowhere until 2026-09-07**, which is the shape that let Rule A read 1 with the audit passing ([ADR-0082](docs/adr/0082-the-script-crate-is-a-library-the-frontends-call.md)). |
+| **Rule E** | [`scripts/audit/layering.py`](scripts/audit/layering.py) in the audit, with Rules A–D. It counts the lines of `fepdf-doc/src/apply/` that name an audit module, expects 0, and fails on any. |
 | **RR-15** | [`scripts/audit/verify_compliance.sh`](scripts/audit/verify_compliance.sh) |
 | **Lints** | `cargo clippy --workspace --all-targets -- -D warnings`. `--all-targets` is required, or tests, examples and benches go unlinted. |
 | **Licences** | `cargo deny check licenses` ([`deny.toml`](deny.toml)) |

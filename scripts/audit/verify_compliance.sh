@@ -114,6 +114,10 @@ while read -r file; do
     ' "$file" || ERROR=1
 done < <(find $TARGET_DIRS -name "*.rs" | grep -vE "(tests|examples|src/bin)")
 
+# Rule 1's second limit: no impl block in production code past 800 lines (ADR-0106).
+echo "[Rule 1] Checking impl block length..."
+python3 scripts/audit/impl_length.py || { echo "  FAIL: impl_length.py said so above"; ERROR=1; }
+
 # Rule 2: Panic Exclusion
 echo "[Rule 2] Checking for unwrap/expect in production code..."
 rule2_failed=0

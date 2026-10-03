@@ -1022,7 +1022,8 @@ eight times, and the copies do not agree on whether to resolve.
       `audit_objects`). Those four are audits themselves — only the audits reach them —
       and Y-3 already took their `audit_objects` imports. The one operation that
       imported from an audit was `apply/artifacts.rs`, through `audit_fonts::names_in`,
-      which is `fepdf_model::access::names_in` now. Nothing checks that it stays so.
+      which is `fepdf_model::access::names_in` now. Rule E checks that it stays so
+      ([ADR-0107](docs/adr/0107-an-operation-does-not-reach-into-an-audit.md)).
 - [x] **Y-5** — `merge` and `extract_pages` leave the facade for `fepdf-doc`, beside the
       cloner. They build a `PdfArena` in `fepdf/src/lib.rs`. `layering.py` fails on a
       `PdfArena::new` in the facade. *Done when* adding one back fails the audit.
@@ -1063,7 +1064,8 @@ eight times, and the copies do not agree on whether to resolve.
       private are `pub(super)`, and the code lines before and after differ only where
       rustfmt wrapped a signature that grew by that. The golden comparison agreed after
       each. `layering.py`'s Rule D read `lib.rs` alone and reads every file of the
-      facade now, since `PdfDocument`'s methods are in four. Nothing gates the 800.
+      facade now, since `PdfDocument`'s methods are in four. Rule 1 gates the 800
+      ([ADR-0106](docs/adr/0106-an-impl-block-is-held-to-800-lines.md)).
 - [x] **Y-8** — `ARCHITECTURE.md` §3 carries no count that moves (ADR-0080). It quotes 30
       operations, 8 built by `fepdf-cli` and 12 by `fepdf-gui`, where `status.sh` reads
       54, 9 and 30. It also names `fepdf-script` and `fepdf-fixtures` in the diagram, and
