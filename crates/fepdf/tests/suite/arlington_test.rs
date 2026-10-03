@@ -24,6 +24,8 @@ struct Row {
     /// and the values it may hold when the model lists them without a condition.
     types: Vec<(String, Vec<String>, Vec<String>)>,
     required: bool,
+    /// Whether the key may be stated by an ancestor instead, through `/Parent`.
+    inheritable: bool,
     deprecated: bool,
 }
 
@@ -145,7 +147,12 @@ impl Model {
             let deprecated = cols[3].trim().parse::<f32>().is_ok_and(|v| v <= 2.0);
             rows.insert(
                 cols[0].to_string(),
-                Row { types: typed, required: cols[4].trim() == "TRUE", deprecated },
+                Row {
+                    types: typed,
+                    required: cols[4].trim() == "TRUE",
+                    inheritable: cols[6].trim() == "TRUE",
+                    deprecated,
+                },
             );
         }
         rows
@@ -416,7 +423,13 @@ impl Walk<'_> {
         for (key, row) in rows {
             // A stream's `/Length` is written with its data and is not a dictionary entry
             // the reader keeps.
-            if row.required && key != "*" && !present.contains(key) && !(stream && key == "Length")
+            // An inheritable key — a field's `/FT` and `/DA` — is met by an ancestor.
+            let inherited = row.inheritable && self.ancestor_states(dict, key);
+            if row.required
+                && key != "*"
+                && !present.contains(key)
+                && !(stream && key == "Length")
+                && !inherited
             {
                 self.findings.add("required key absent", format!("{table}: /{key}"));
             }
@@ -436,6 +449,23 @@ impl Walk<'_> {
             }
             self.value(value, row, &format!("{table}/{key}"));
         }
+    }
+
+    /// Whether a `/Parent` of `dict`, or one of theirs, states `key`.
+    fn ancestor_states(
+        &self,
+        dict: &BTreeMap<Handle<fepdf_model::PdfName>, Object>,
+        key: &str,
+    ) -> bool {
+        let mut at = dict.get(&self.arena.name("Parent")).cloned();
+        for _ in 0..64 {
+            let Some(parent) = at.take() else { return false };
+            if fepdf_model::access::entry(self.arena, &parent, key).is_some() {
+                return true;
+            }
+            at = fepdf_model::access::entry(self.arena, &parent, "Parent");
+        }
+        false
     }
 
     fn value(&mut self, value: &Object, row: &Row, at: &str) {
@@ -513,6 +543,7 @@ impl Walk<'_> {
                     ("array".to_string(), arrays, Vec::new()),
                 ],
                 required: false,
+                inheritable: false,
                 deprecated: false,
             };
             for leaf in pairs.iter().skip(1).step_by(2) {

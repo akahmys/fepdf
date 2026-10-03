@@ -1029,7 +1029,8 @@ it can be run there.
       AcroForm resource's `/Encoding`, `intel_sdm.pdf`'s `/Info /Title` — and keys no table
       of the model names: `/Type` in `/MarkInfo` and `/ViewerPreferences`, an image's
       `/ColorTransform`, a CIDFont descriptor's `/Subtype`, a Type 0 font's `/Name`. A
-      widget in `sample_02c.pdf` lacks `/DA` and `/FT` that its field requires. Every one
+      widget in `sample_02c.pdf` seemed to lack `/DA` and `/FT`, which it inherits from its
+      field: the checker read required keys without `/Parent`, and reads them with it now. Every one
       is in the source as read; none is the save's own. A translator to ISO 32000-2 drops
       or repairs them, each with a `Decision`. `arlington_known.tsv` lists them.
 - [x] **Y-F29** — **opening a file writes a packet of its own over the file's.**
