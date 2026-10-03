@@ -26,6 +26,11 @@ pub struct RedactDocumentArgs {
     pub output_path: String,
     /// List of target regions to physically scrub from content streams.
     pub targets: Vec<RedactionTarget>,
+    /// The colour the regions are filled with, as a `/Redact` annotation's `/IC`: `[]`
+    /// for no fill, `[gray]`, `[r, g, b]` or `[c, m, y, k]`, each from 0 to 1. Omitted,
+    /// they are filled black and the document records that the engine chose it.
+    #[serde(default)]
+    pub fill: Option<Vec<f64>>,
 }
 
 /// Summary report after applying physical redactions.
@@ -68,6 +73,7 @@ fn apply_redaction_internal(args: RedactDocumentArgs) -> McpResult<String> {
     for (page_idx, rects) in &page_map {
         let redaction = fepdf::Redaction {
             page: *page_idx,
+            fill: args.fill.clone(),
             regions: rects
                 .iter()
                 .map(|r| (f64::from(r[0]), f64::from(r[1]), f64::from(r[2]), f64::from(r[3])))

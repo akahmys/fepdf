@@ -37,6 +37,8 @@ pub enum WorkerRequest {
         strip: bool,
         linearize: bool,
         redaction_zones: Vec<crate::redaction::RedactionZone>,
+        /// What the zones are filled with: an RGB colour, or `None` for no fill.
+        redaction_fill: Option<[f32; 3]>,
         cert_path: Option<std::path::PathBuf>,
         key_path: Option<std::path::PathBuf>,
         signature_position: Option<(usize, [f32; 4])>,
@@ -517,13 +519,15 @@ pub fn run_worker(rx: Receiver<WorkerRequest>, tx: Sender<WorkerResponse>, ctx: 
                 strip,
                 linearize,
                 redaction_zones,
+                redaction_fill,
                 cert_path,
                 key_path,
                 signature_position,
             } => {
                 pages.clear();
                 let _ = tx.send(WorkerResponse::Busy { key: "busy_saving" });
-                if redact_before_saving(&mut current_doc, &mut history, redaction_zones, &tx) {
+                let redaction = (redaction_zones, redaction_fill);
+                if redact_before_saving(&mut current_doc, &mut history, redaction, &tx) {
                     handle_save(
                         current_doc.as_ref(),
                         path,
@@ -1576,8 +1580,8 @@ fn handle_update_node(
     send_audit(doc, tx);
 }
 
-/// Applies the zones marked for redaction, one `Operation::Redact` a page, as one act in
-/// the history; whether the save may go ahead.
+/// Applies the zones marked for redaction, one `Operation::Redact` a page filled with
+/// `fill`, as one act in the history; whether the save may go ahead.
 ///
 /// **An operation, recorded, rather than a write on the side.** The export scrubbed the
 /// open document through a function of its own, which no history held, so an undo after
@@ -1585,7 +1589,7 @@ fn handle_update_node(
 fn redact_before_saving(
     doc: &mut Option<PdfDocument>,
     history: &mut History,
-    zones: Vec<crate::redaction::RedactionZone>,
+    (zones, fill): (Vec<crate::redaction::RedactionZone>, Option<[f32; 3]>),
     tx: &Sender<WorkerResponse>,
 ) -> bool {
     if zones.is_empty() {
@@ -1602,9 +1606,14 @@ fn redact_before_saving(
             f64::from(r.max.y),
         ));
     }
+    // The reader chose the colour, so it is named rather than left to the engine.
+    let fill: Vec<f64> =
+        fill.map(|rgb| rgb.iter().map(|c| f64::from(*c)).collect()).unwrap_or_default();
     let act: Vec<Operation> = by_page
         .into_iter()
-        .map(|(page, regions)| Operation::Redact(fepdf::Redaction { page, regions }))
+        .map(|(page, regions)| {
+            Operation::Redact(fepdf::Redaction { page, regions, fill: Some(fill.clone()) })
+        })
         .collect();
     let recorded = history.applied.len();
     apply_recorded(doc, history, act, None, tx);

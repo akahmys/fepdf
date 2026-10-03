@@ -275,6 +275,7 @@ fn redaction_removes_the_text_and_reports_what_it_removed() {
         input_path: path.clone(),
         output_path: dest.clone(),
         targets: vec![RedactionTarget { page: 0, rect: [0.0, 0.0, 612.0, 792.0] }],
+        fill: None,
     })
     .expect("the tool runs");
 
@@ -287,6 +288,7 @@ fn redaction_removes_the_text_and_reports_what_it_removed() {
         input_path: path,
         output_path: missed.clone(),
         targets: vec![RedactionTarget { page: 0, rect: [0.0, 0.0, 1.0, 1.0] }],
+        fill: None,
     })
     .expect("the tool runs");
 

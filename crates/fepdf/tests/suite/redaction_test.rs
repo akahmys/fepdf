@@ -13,7 +13,7 @@
 
 use fepdf::{Operation, PdfDocument, Redaction};
 use fepdf_fixtures::assemble;
-use fepdf_fixtures::recorder::Recorder;
+use fepdf_fixtures::recorder::{Event, Recorder};
 use kurbo::Affine;
 
 /// A page drawing `content` with Helvetica as `/F1`.
@@ -41,7 +41,7 @@ fn four_runs() -> PdfDocument {
 }
 
 fn redaction(region: (f64, f64, f64, f64)) -> Redaction {
-    Redaction { page: 0, regions: vec![region] }
+    Redaction { page: 0, regions: vec![region], fill: None }
 }
 
 /// Redacts `region`, and answers what the page still reads and how many glyphs the
@@ -161,6 +161,67 @@ fn the_region_is_filled_and_the_choice_recorded() {
 #[test]
 fn a_redaction_of_nothing_is_refused() {
     let mut doc = four_runs();
-    assert!(doc.apply(Operation::Redact(Redaction { page: 0, regions: vec![] })).is_err());
+    assert!(
+        doc.apply(Operation::Redact(Redaction { page: 0, regions: vec![], fill: None })).is_err()
+    );
     assert!(doc.apply(Operation::Redact(redaction((10.0, 10.0, 10.0, 50.0)))).is_err());
+}
+
+/// The last fill the page draws, in RGB.
+fn last_fill(doc: &PdfDocument) -> Option<(f64, f64, f64)> {
+    let mut marks = Recorder::new();
+    doc.render_page(0, &mut marks, Affine::IDENTITY).expect("it renders");
+    let colour = marks
+        .events
+        .iter()
+        .rev()
+        .find_map(|e| if let Event::Fill { color, .. } = e { Some(*color) } else { None })?;
+    let fepdf_content::Color::Rgb(r, g, b) = colour.to_rgb() else {
+        panic!("a fill came back as {:?}, which `to_rgb` should not produce", colour.to_rgb());
+    };
+    Some((r, g, b))
+}
+
+/// **A fill the caller names is drawn in that colour, and nothing is recorded**: the
+/// caller chose it, so the engine did not.
+#[test]
+fn a_named_fill_is_drawn_in_that_colour() {
+    let mut doc = four_runs();
+    let red = Redaction {
+        page: 0,
+        regions: vec![(60.0, 595.0, 300.0, 620.0)],
+        fill: Some(vec![1.0, 0.0, 0.0]),
+    };
+    doc.apply(Operation::Redact(red)).expect("it redacts");
+    let fill = last_fill(&doc).expect("the region is filled");
+    assert!((fill.0 - 1.0).abs() < 1e-3 && fill.1.abs() < 1e-3 && fill.2.abs() < 1e-3, "{fill:?}");
+    assert!(!doc.decisions().iter().any(|d| d.clause == "12.5.6.23"), "{:?}", doc.decisions());
+}
+
+/// **No components is no fill** (Table 195's `/IC` of none): the text still goes, and
+/// nothing is drawn over it.
+#[test]
+fn an_empty_fill_draws_nothing() {
+    let mut doc = four_runs();
+    let none =
+        Redaction { page: 0, regions: vec![(60.0, 595.0, 300.0, 620.0)], fill: Some(vec![]) };
+    doc.apply(Operation::Redact(none)).expect("it redacts");
+    assert_eq!(last_fill(&doc), None, "a fill was drawn");
+    assert!(!doc.extract_text(0).expect("it reads").contains("BBB"), "the text stayed");
+}
+
+/// A fill that names no colour space, or a component out of range, is refused before
+/// anything is removed.
+#[test]
+fn a_fill_that_names_no_colour_is_refused() {
+    for fill in [vec![0.5, 0.5], vec![2.0]] {
+        let mut doc = four_runs();
+        let bad = Redaction {
+            page: 0,
+            regions: vec![(0.0, 0.0, 612.0, 792.0)],
+            fill: Some(fill.clone()),
+        };
+        assert!(doc.apply(Operation::Redact(bad)).is_err(), "{fill:?} was taken");
+        assert!(doc.extract_text(0).expect("it reads").contains("AAA"), "{fill:?} removed text");
+    }
 }

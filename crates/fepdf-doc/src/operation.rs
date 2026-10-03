@@ -480,9 +480,8 @@ pub enum Operation {
     /// Removes what a page draws inside rectangles, and fills them (12.5.6.23).
     ///
     /// **Removed, not covered.** A glyph whose box meets a region at all goes, and the
-    /// glyphs outside keep their places. The region is filled black, which is this
-    /// engine's choice for a region a caller names without a `/Redact` annotation and is
-    /// recorded as a `Decision`. What is removed can be read before it is applied, with
+    /// glyphs outside keep their places. The regions are then filled as
+    /// [`Redaction::fill`] says. What is removed can be read before it is applied, with
     /// `what_redaction_removes` (ROADMAP Y-10).
     Redact(Redaction),
     /// Takes one run off the page.
@@ -965,6 +964,14 @@ pub struct Redaction {
     pub page: usize,
     /// The regions, in the page's default user space: left, bottom, right, top.
     pub regions: Vec<(f64, f64, f64, f64)>,
+    /// What the regions are filled with, as a `/Redact` annotation's `/IC` says it
+    /// (Table 195): no components for no fill, one for gray, three for RGB, four for
+    /// CMYK, each from 0 to 1.
+    ///
+    /// **Absent, they are filled black**, and that is recorded as a `Decision`: nothing
+    /// the caller said chose it, so this engine did.
+    #[serde(default)]
+    pub fill: Option<Vec<f64>>,
 }
 
 /// What a crop keeps, and what it does with the rest.

@@ -42,11 +42,11 @@ pub fn what_redaction_removes(doc: &Document, redaction: &Redaction) -> PdfResul
     Ok(Removal { glyphs: glyphs.into_iter().filter(|g| inside_any(*g, &regions)).collect() })
 }
 
-/// Removes what `redaction` names and fills its regions black.
+/// Removes what `redaction` names and fills its regions as it says.
 ///
-/// **Black is this engine's choice, and is recorded as one.** A region a `/Redact`
-/// annotation names is filled as Table 195 says, and left transparent when it says
-/// nothing; a region a caller names has no annotation to say, so the fill is decided here.
+/// **With no fill named, black is this engine's choice, and is recorded as one.** A region
+/// a `/Redact` annotation names is filled as Table 195 says, and left transparent when it
+/// says nothing; a caller that names no fill has said nothing either, so it is decided here.
 ///
 /// # Errors
 /// As [`what_redaction_removes`]; also refuses a page with text drawn in a font it does
@@ -55,8 +55,14 @@ pub fn apply_redact(doc: &Document, redaction: &Redaction) -> PdfResult<()> {
     // Read first, so that a page this cannot read is refused before anything is written.
     let _ = what_redaction_removes(doc, redaction)?;
     let regions = regions_of(redaction)?;
+    let colour = colour_operator(redaction.fill.as_deref())?;
     text::remove_glyphs(doc, redaction.page, DESCENT, &|g| inside_any(g, &regions))?;
-    fill(doc, redaction.page, &regions)?;
+    if let Some(colour) = colour {
+        fill(doc, redaction.page, &regions, &colour)?;
+    }
+    if redaction.fill.is_some() {
+        return Ok(());
+    }
     doc.decisions.push(Decision::ambiguity(
         "12.5.6.23",
         format!(
@@ -90,20 +96,43 @@ fn regions_of(redaction: &Redaction) -> PdfResult<Vec<GlyphBox>> {
         .collect()
 }
 
+/// The operator that sets the fill colour `fill` names, or `None` for no fill; black when
+/// it names nothing. Refused when its components are not 0, 1, 3 or 4 numbers from 0 to 1.
+fn colour_operator(fill: Option<&[f64]>) -> PdfResult<Option<String>> {
+    let components = fill.unwrap_or(&[0.0]);
+    if components.iter().any(|c| !(0.0..=1.0).contains(c)) {
+        return Err(PdfError::refused(
+            "redact",
+            format!("the fill {components:?} is not from 0 to 1"),
+        ));
+    }
+    let numbers = components.iter().map(f64::to_string).collect::<Vec<_>>().join(" ");
+    match components.len() {
+        0 => Ok(None),
+        1 => Ok(Some(format!("{numbers} g"))),
+        3 => Ok(Some(format!("{numbers} rg"))),
+        4 => Ok(Some(format!("{numbers} k"))),
+        n => Err(PdfError::refused(
+            "redact",
+            format!("a fill of {n} components names no colour space; Table 195 takes 0, 1, 3 or 4"),
+        )),
+    }
+}
+
 /// Whether `glyph` meets any of `regions`.
 fn inside_any(glyph: GlyphBox, regions: &[GlyphBox]) -> bool {
     regions.iter().any(|region| text::meets(glyph, *region))
 }
 
-/// Puts a black rectangle over each region, drawn after everything else in the page's
-/// default user space: the page's own content is wrapped in `q` and `Q` first, so what it
-/// leaves the transform saying does not move the fill.
-fn fill(doc: &Document, page: usize, regions: &[GlyphBox]) -> PdfResult<()> {
+/// Puts a rectangle over each region in `colour`, drawn after everything else in the
+/// page's default user space: the page's own content is wrapped in `q` and `Q` first, so
+/// what it leaves the transform saying does not move the fill.
+fn fill(doc: &Document, page: usize, regions: &[GlyphBox], colour: &str) -> PdfResult<()> {
     let mut content = b"q\n".to_vec();
     if let Some(data) = text::page_content(doc, page)? {
         content.extend_from_slice(&data);
     }
-    content.extend_from_slice(b"\nQ\nq 0 g\n");
+    content.extend_from_slice(format!("\nQ\nq {colour}\n").as_bytes());
     for (left, bottom, right, top) in regions {
         content.extend_from_slice(
             format!("{left} {bottom} {} {} re\n", right - left, top - bottom).as_bytes(),

@@ -180,6 +180,7 @@
   "export_enc_user_password": "Password to open",
   "export_encryption_heading": "Protection",
   "export_opt_burn_redactions": "After writing, clear the redaction marks from the window too",
+  "export_opt_redaction_fill": "Fill the redacted regions with",
   "export_opt_compress": "Flate-Compress Content Streams",
   "export_opt_linearize": "Hint Table Linearization (Fast Web View)",
   "export_opt_strip": "Remove descriptive metadata (document information and XMP)",

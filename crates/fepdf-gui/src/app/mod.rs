@@ -181,6 +181,9 @@ pub struct FepdfApp {
     pub export_compress: bool,
     pub export_linearize: bool,
     pub export_burn_redactions: bool,
+    /// What the redaction regions are filled with when written: an RGB colour, or `None`
+    /// for no fill. Black until the reader picks another.
+    pub export_redaction_fill: Option<[f32; 3]>,
     pub raw_texts: BTreeMap<usize, String>, // page_index -> raw extracted text
 
     // Digital Signature & Placement
@@ -345,6 +348,7 @@ impl FepdfApp {
             export_compress: true,
             export_linearize: true,
             export_burn_redactions: true,
+            export_redaction_fill: Some([0.0, 0.0, 0.0]),
             raw_texts: BTreeMap::new(),
 
             // Signature Defaults

@@ -116,10 +116,28 @@ impl ExportWizard {
             &mut app.export_burn_redactions,
             app.locale_mgr.tr(&app.active_language, "export_opt_burn_redactions"),
         );
+        Self::render_redaction_fill(app, ui);
         ui.checkbox(
             &mut app.export_strip,
             app.locale_mgr.tr(&app.active_language, "export_opt_strip"),
         );
+    }
+
+    /// What the redaction regions are filled with: a colour the reader picks, or none.
+    ///
+    /// **The reader's choice, not the engine's.** A region with no `/Redact` annotation
+    /// has nothing in the file to say how it is filled (12.5.6.23), so the window asks.
+    fn render_redaction_fill(app: &mut crate::app::FepdfApp, ui: &mut egui::Ui) {
+        let label = app.locale_mgr.tr(&app.active_language, "export_opt_redaction_fill");
+        ui.horizontal(|ui| {
+            let mut filled = app.export_redaction_fill.is_some();
+            if ui.checkbox(&mut filled, label).changed() {
+                app.export_redaction_fill = filled.then_some([0.0, 0.0, 0.0]);
+            }
+            if let Some(rgb) = app.export_redaction_fill.as_mut() {
+                ui.color_edit_button_rgb(rgb);
+            }
+        });
     }
 
     /// What protects the saved document (7.6.4).
@@ -398,6 +416,7 @@ impl ExportWizard {
                 strip: app.export_strip,
                 linearize: app.export_linearize,
                 redaction_zones,
+                redaction_fill: app.export_redaction_fill,
                 cert_path: app.cert_path.clone(),
                 key_path: app.key_path.clone(),
                 signature_position: sig_pos,

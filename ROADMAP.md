@@ -1369,6 +1369,11 @@ it can be run there.
       will go and writes nothing; `fepdf-mcp` reports from it, and the window applies the
       redaction as a recorded act before it saves. `redaction_test.rs` holds it, and
       taking out the descent, the refusal or the fill failed it.
+      **The fill is the caller's to choose, 2026-10-03** (the owner's request):
+      `Redaction::fill` takes what a `/Redact` annotation's `/IC` takes — none for no
+      fill, gray, RGB or CMYK — and only when it is absent is black the engine's choice
+      and recorded. `fepdf-mcp` takes it as `fill`, and the window's export asks for a
+      colour or none.
       *Open*: keeping the glyphs after a removed run in their exact places keeps the
       run's width, and arXiv 2206.02285 recovers redacted words from such widths in
       Acrobat's output. Whether the adjustment is kept, rounded or replaced is not yet

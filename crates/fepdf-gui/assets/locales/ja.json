@@ -180,6 +180,7 @@
   "export_enc_user_password": "開くためのパスワード",
   "export_encryption_heading": "保護",
   "export_opt_burn_redactions": "書き出した後、画面上の黒塗り指定も消去する",
+  "export_opt_redaction_fill": "墨消し範囲を次の色で塗る",
   "export_opt_compress": "コンテンツストリームの Flate 圧縮",
   "export_opt_linearize": "ヒントテーブル線形化 (ファストウェブビュー)",
   "export_opt_strip": "説明的なメタデータを削除（文書情報と XMP）",
