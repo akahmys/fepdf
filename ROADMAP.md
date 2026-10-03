@@ -827,6 +827,11 @@ it can be run there.
       `unicode_16.pdf` to 11.7 MB from 17.0 MB. `linearized_hint_test.rs` holds it, and
       putting the old sizing back failed it. **The second half is not met, and the reason
       is not the reserve**: the rest is Y-F22.
+      **After Y-F22, 2026-10-03: 31.8 MB against 25.6 MB.** What remains is parts 7 and 8
+      written directly — 22,619 link annotations, 7,326 streams and the page objects
+      beside them. F.3.1 lets all but the page objects be packed, with the page and
+      shared-object hint tables naming the object stream instead of the object; the
+      writer's tables name objects.
 
 - [x] **Y-0c** — saves were not reproducible: the XMP `InstanceID` was salted with the
       clock's seconds. `SaveOptions::stamped_at` decides it now, and `fepdf-cli` reads
@@ -926,12 +931,20 @@ it can be run there.
         not; `resolve_to_node_handle` answers a reference or nothing. A direct
         `/Outlines`, direct items, and a direct element in `/K` read; taking the lifting
         out failed each.
-- [ ] **Y-F22** — **a linearised file writes no object streams.** `intel_sdm.pdf`'s
+- [x] **Y-F22** — **a linearised file writes no object streams.** `intel_sdm.pdf`'s
       plain save packs 325,000 of its 332,818 objects into 3,277 compressed object
       streams; the linearised one writes every object directly, 58 MB against 25.6 MB
       (measured 2026-10-03). Annex F allows compressed objects in a linearised file with
       a cross-reference stream, and the hint tables would have to say where each is. The
       same writer path is the one Y-F1 found ignoring `obj_stm`.
+      **Part 9 is packed, 2026-10-03**, when `obj_stm` is on: no hint table names its
+      objects, the outline excepted, which is written directly. What the streams hold
+      is numbered last, as F.3.1 requires and qpdf checks, and the first-page
+      cross-reference reserves the first page's entries rather than every number after
+      them. `intel_sdm.pdf` linearises to 31.8 MB, 284,052 objects in 2,841 streams;
+      `scripts/test/check_linearization.sh` reads all ten samples clean but for
+      ADR-0108's. `linearized_hint_test.rs` holds the numbering and the reserve, and
+      undoing either failed it. Pages after the first are not packed: that is Y-0b.
 - [x] **Y-F20** — **what a crop cut off an image was still in the file.** The page drew
       the cut part under a name of its own, and the whole image stayed in its resources
       under its old one, so the writer wrote every pixel the crop took away — measured

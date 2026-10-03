@@ -18,7 +18,7 @@ impl<'a, W: Write> PdfWriter<'a, W> {
         section6: &[Handle<Object>],
         others: &[Handle<Object>],
         shared_objs: &BTreeSet<Handle<Object>>,
-        _outline_exclusive: &[Handle<Object>],
+        outline_exclusive: &[Handle<Object>],
         page1: Handle<Object>,
         first_page_reachables: &BTreeSet<Handle<Object>>,
     ) -> (u32, u32, u32, u32, u32) {
@@ -49,9 +49,30 @@ impl<'a, W: Write> PdfWriter<'a, W> {
             next_id += 1;
         }
 
-        // Section 9 (other private objects)
-        for &h in &others_private {
+        // Section 9 (other private objects), and the object streams it is packed into,
+        // numbered in this group so that the first-page cross-reference never names them
+        // (ROADMAP Y-F22). **What the streams hold is numbered last of all**, after part
+        // 8: a cross-reference stream may not list an uncompressed object after a
+        // compressed one, which qpdf reads a linearised file by.
+        self.lin_direct = outline_exclusive.iter().copied().collect();
+        self.lin_containers.clear();
+        let (packed, direct): (Vec<Handle<Object>>, Vec<Handle<Object>>) = if self.pack_objects {
+            others_private.iter().partition(|h| self.packs_in_part9(**h))
+        } else {
+            (Vec::new(), others_private.clone())
+        };
+        for &h in &direct {
             self.id_map.insert(h, next_id);
+            next_id += 1;
+        }
+        // The main cross-reference stream is itself uncompressed, so it is numbered here
+        // too rather than last.
+        self.lin_xref_id = (!packed.is_empty()).then(|| {
+            next_id += 1;
+            next_id - 1
+        });
+        for _ in 0..packed.len().div_ceil(super::OBJECTS_PER_STREAM) {
+            self.lin_containers.push(next_id);
             next_id += 1;
         }
 
@@ -131,6 +152,11 @@ impl<'a, W: Write> PdfWriter<'a, W> {
             next_first_group_id += 1;
         }
 
+        for &h in &packed {
+            self.id_map.insert(h, next_first_group_id);
+            next_first_group_id += 1;
+        }
+
         let first_page_shared_count = first_page_shared_set.len() as u32;
         let total_count = next_first_group_id;
 
@@ -140,14 +166,17 @@ impl<'a, W: Write> PdfWriter<'a, W> {
     pub(super) fn reserve_lin_headers(
         &mut self,
         primary_count: u32,
-        total_size: u32,
+        first_page_end: u32,
     ) -> (usize, usize) {
         let dict_pos = self.current_offset();
         self.xref.insert(primary_count, dict_pos); // REGISTER ID primary_count (O)
         self.buffer.extend(vec![b' '; 512]); // Shrink to 512 bytes to strictly comply with 1024-byte limit
         let p_xref_pos = self.current_offset();
-        // Each entry is exactly 20 bytes. Allocate (entries * 20) + 256 safety margin for header/trailer
-        let entries = (total_size as usize).saturating_sub(primary_count as usize) + 2;
+        // Each entry is exactly 20 bytes. Allocate (entries * 20) + 256 safety margin for header/trailer.
+        // **The first page's entries, not every object numbered after it**: what part 9
+        // packs is numbered last (ROADMAP Y-F22), and sized from the total this reserved
+        // 5.7 MB of spaces in `intel_sdm.pdf`.
+        let entries = (first_page_end as usize).saturating_sub(primary_count as usize) + 2;
         let reserve = (entries * 20) + 256;
         self.buffer.extend(vec![b' '; reserve]);
         (dict_pos, p_xref_pos)
@@ -291,7 +320,14 @@ impl<'a, W: Write> PdfWriter<'a, W> {
                 b[5..7].copy_from_slice(&0u16.to_be_bytes());
             } else {
                 b[5..7].copy_from_slice(&0u16.to_be_bytes());
-                if let Some(&offset) = self.xref.get(&id) {
+                if let Some(super::Location::InStream { container, index }) = self.located.get(&id)
+                {
+                    // A type 2 entry: the object stream holding it, and where (7.5.8.3).
+                    b[0] = 2;
+                    b[1..5].copy_from_slice(&container.to_be_bytes());
+                    b[5..7]
+                        .copy_from_slice(&u16::try_from(*index).unwrap_or(u16::MAX).to_be_bytes());
+                } else if let Some(&offset) = self.xref.get(&id) {
                     b[0] = 1;
                     b[1..5].copy_from_slice(&(offset as u32).to_be_bytes());
                 } else {
@@ -354,7 +390,7 @@ impl<'a, W: Write> PdfWriter<'a, W> {
         first_shared_id: u32,
         first_page_shared_count: u32,
     ) -> PdfResult<usize> {
-        let xref_id = total_size - 1;
+        let xref_id = self.lin_xref_id.unwrap_or(total_size - 1);
         let actual_off = self.current_offset();
 
         let stream_data = self.build_xref_stream_data(

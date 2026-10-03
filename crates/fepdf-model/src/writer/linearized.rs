@@ -129,7 +129,9 @@ impl<'a, W: Write> PdfWriter<'a, W> {
                 pgs[0],
                 &page_reachables[0],
             );
-        total_size += 1; // ACCOUNT FOR MAIN XREF STREAM
+        if self.lin_xref_id.is_none() {
+            total_size += 1; // ACCOUNT FOR MAIN XREF STREAM
+        }
 
         // Pre-populate obj_sizes for all objects using the assigned IDs in id_map
         self.pre_populate_obj_sizes();
@@ -187,7 +189,8 @@ impl<'a, W: Write> PdfWriter<'a, W> {
         );
 
         // 2. Section 1: Linearization Dictionary and First Xref (Reserved)
-        let (dict_pos, p_xref_pos) = self.reserve_lin_headers(primary_count, total_size);
+        let first_page_end = fps_start + first_page_shared_count;
+        let (dict_pos, p_xref_pos) = self.reserve_lin_headers(primary_count, first_page_end);
 
         // 3. Section 2 & 6: Write objects
         // Where the first page's shared objects begin is where `assign_lin_ids` began
@@ -250,7 +253,7 @@ impl<'a, W: Write> PdfWriter<'a, W> {
         let state = LinState {
             dict_pos,
             pxref_pos: p_xref_pos,
-            pxref_size: ((total_size as usize).saturating_sub(primary_count as usize) + 2) * 20
+            pxref_size: ((first_page_end as usize).saturating_sub(primary_count as usize) + 2) * 20
                 + 256,
             hint_pos,
             hint_size: exact_hint_size,
@@ -387,12 +390,41 @@ impl<'a, W: Write> PdfWriter<'a, W> {
         let s8_start = self.current_offset(); // This is where the other private objects (Part 9) start!
 
         // 8. Write Part 9: Other Objects
-        for &h in others_private {
+        self.write_part9(others_private)?;
+
+        Ok((hint_pos, s2_end, s7_start, s8_start))
+    }
+
+    /// Whether a part 9 object goes into an object stream: one 7.5.7 allows there, and
+    /// not the outline, whose hint table finds it by offset.
+    pub(super) fn packs_in_part9(&self, handle: Handle<Object>) -> bool {
+        self.may_pack(handle) && !self.lin_direct.contains(&handle)
+    }
+
+    /// Writes part 9: packed into the object streams `assign_lin_ids` numbered when the
+    /// save asked for them, and directly otherwise and for what is not packed.
+    ///
+    /// **Part 9 is what Annex F's hint tables do not index** but for the outline, so its
+    /// objects are free to be compressed: a linearised file wrote every object directly,
+    /// and `intel_sdm.pdf`'s 279,508 named destinations alone were half of a file twice
+    /// the size of its plain save (ROADMAP Y-F22).
+    fn write_part9(&mut self, others: &[Handle<Object>]) -> PdfResult<()> {
+        let containers = self.lin_containers.clone();
+        let (packed, direct): (Vec<_>, Vec<_>) = if containers.is_empty() {
+            (Vec::new(), others.to_vec())
+        } else {
+            others.iter().partition(|h| self.packs_in_part9(**h))
+        };
+        for h in direct {
             let id = self.id_map[&h];
             self.write_indirect_object(id, 0, h)?;
         }
-
-        Ok((hint_pos, s2_end, s7_start, s8_start))
+        for (batch, container) in packed.chunks(super::OBJECTS_PER_STREAM).zip(containers) {
+            let numbered: Vec<(u32, Handle<Object>)> =
+                batch.iter().map(|h| (self.id_map[h], *h)).collect();
+            self.write_object_stream(container, &numbered)?;
+        }
+        Ok(())
     }
 
     /// Whether the catalogue's `/PageMode` is `/UseOutlines`.

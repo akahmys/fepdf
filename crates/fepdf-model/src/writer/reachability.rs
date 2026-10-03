@@ -66,24 +66,8 @@ impl<'a, W: Write> PdfWriter<'a, W> {
         };
         let value = |key: &str| dict.get(&self.arena.name(key)).cloned();
         for key in ["ViewerPreferences", "OpenAction"] {
-            let Some(v) = value(key) else { continue };
-            let mut stack = Vec::new();
-            self.trace_reachable_inline(
-                &v,
-                &mut doc_reachable,
-                &BTreeSet::new(),
-                &mut stack,
-                &["Parent"],
-                page_objects_set,
-            );
-            while let Some(curr) = stack.pop() {
-                self.trace_reachable_selective(
-                    curr,
-                    &mut doc_reachable,
-                    &BTreeSet::new(),
-                    &["Parent"],
-                    page_objects_set,
-                );
+            if let Some(v) = value(key) {
+                self.trace_value_into(&v, &mut doc_reachable, page_objects_set);
             }
         }
         if let Some(Object::Reference(form)) = value("AcroForm") {
@@ -100,6 +84,33 @@ impl<'a, W: Write> PdfWriter<'a, W> {
             }
         }
         doc_reachable
+    }
+
+    /// Everything `value` reaches, but its parents and the pages, into `into`.
+    fn trace_value_into(
+        &self,
+        value: &Object,
+        into: &mut BTreeSet<Handle<Object>>,
+        page_objects_set: &BTreeSet<Handle<Object>>,
+    ) {
+        let mut stack = Vec::new();
+        self.trace_reachable_inline(
+            value,
+            into,
+            &BTreeSet::new(),
+            &mut stack,
+            &["Parent"],
+            page_objects_set,
+        );
+        while let Some(curr) = stack.pop() {
+            self.trace_reachable_selective(
+                curr,
+                into,
+                &BTreeSet::new(),
+                &["Parent"],
+                page_objects_set,
+            );
+        }
     }
 
     pub(super) fn trace_outline_objects(

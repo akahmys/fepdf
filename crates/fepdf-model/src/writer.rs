@@ -114,6 +114,14 @@ pub struct PdfWriter<'a, W: Write> {
     /// The `/Recipients` entries, when the document is encrypted to certificates.
     recipients: Option<Vec<Vec<u8>>>,
     pack_objects: bool,
+    /// The object streams a linearised file's part 9 is packed into, by number, and the
+    /// objects of part 9 written directly whatever the packing — the outline, which the
+    /// outline hint table finds by offset (ROADMAP Y-F22).
+    lin_containers: Vec<u32>,
+    lin_direct: std::collections::BTreeSet<Handle<Object>>,
+    /// The main cross-reference stream's number in a linearised file whose part 9 is
+    /// packed: ahead of what the streams hold (ROADMAP Y-F22).
+    lin_xref_id: Option<u32>,
     /// Where each object went, for the cross-reference stream to record.
     located: BTreeMap<u32, Location>,
     /// Set while serialising into an object stream, where 7.6.2 says strings are not
@@ -144,6 +152,9 @@ impl<'a, W: Write> PdfWriter<'a, W> {
             artifacts: None,
             recipients: None,
             pack_objects: false,
+            lin_containers: Vec::new(),
+            lin_xref_id: None,
+            lin_direct: std::collections::BTreeSet::new(),
             located: BTreeMap::new(),
             inside_object_stream: false,
             current_obj_id: 0,

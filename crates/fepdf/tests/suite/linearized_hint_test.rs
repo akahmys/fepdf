@@ -26,6 +26,12 @@ fn neighbours_share_fonts() -> PdfDocument {
     PdfDocument::open(fepdf_fixtures::assemble(&bodies).into()).expect("the fixture opens")
 }
 
+/// Options that write every object where it can be found by its bytes: the order tests
+/// below are about which part an object is in, and packed, part 9 is out of sight.
+fn written_directly() -> SaveOptions {
+    SaveOptions { obj_stm: false, compress: false, ..SaveOptions::default() }
+}
+
 /// The hint stream's `/Length`: the bytes reserved for it, written into or not.
 ///
 /// Read as bytes: a lossy conversion to text moves every offset after the first binary
@@ -74,7 +80,7 @@ fn the_first_page_comes_before_the_named_destinations() {
     ]);
     let doc = PdfDocument::open(bytes.into()).expect("the fixture opens");
     let path = std::env::temp_dir().join(format!("fepdf-order-{}.pdf", std::process::id()));
-    let _ = doc.save_linearized(&path, "2.0", &SaveOptions::default()).expect("it linearises");
+    let _ = doc.save_linearized(&path, "2.0", &written_directly()).expect("it linearises");
     let file = std::fs::read(&path).expect("it was written");
     let _ = std::fs::remove_file(&path);
     let at = |needle: &[u8]| file.windows(needle.len()).position(|w| w == needle);
@@ -95,11 +101,118 @@ fn the_information_dictionary_comes_after_the_first_page() {
     ]);
     let doc = PdfDocument::open(bytes.into()).expect("the fixture opens");
     let path = std::env::temp_dir().join(format!("fepdf-info-{}.pdf", std::process::id()));
-    let _ = doc.save_linearized(&path, "2.0", &SaveOptions::default()).expect("it linearises");
+    let _ = doc.save_linearized(&path, "2.0", &written_directly()).expect("it linearises");
     let file = std::fs::read(&path).expect("it was written");
     let _ = std::fs::remove_file(&path);
     let text = String::from_utf8_lossy(&file);
     let page = text.find("/Type /Page\r").or_else(|| text.find("/Type /Page ")).expect("a page");
     let info = text.find("/CreationDate").expect("the information dictionary is written");
     assert!(page < info, "the information dictionary at {info} precedes the page at {page}");
+}
+
+/// The object numbers a file writes directly (`N 0 obj`), and those its object streams
+/// hold, read from each stream's header. Needs the streams uncompressed.
+fn direct_and_packed(file: &[u8]) -> (Vec<u32>, Vec<u32>) {
+    let text = String::from_utf8_lossy(file);
+    let direct = text
+        .split("\r\n")
+        .filter_map(|line| line.strip_suffix(" 0 obj"))
+        .filter_map(|n| n.parse().ok())
+        .collect();
+    let mut packed = Vec::new();
+    for (at, _) in text.match_indices("/Type /ObjStm") {
+        let dict = &text[at..at + text[at..].find(">>").expect("the dictionary closes")];
+        let count: usize = number_after(dict, "/N ");
+        let body = at + text[at..].find("stream\r\n").expect("a stream") + 8;
+        let header: Vec<u32> = text[body..]
+            .split_whitespace()
+            .take(2 * count)
+            .filter_map(|n| n.parse().ok())
+            .collect();
+        packed.extend(header.iter().step_by(2));
+    }
+    (direct, packed)
+}
+
+/// The integer after `key` in `dict`.
+fn number_after(dict: &str, key: &str) -> usize {
+    let rest = &dict[dict.find(key).expect("the key is there") + key.len()..];
+    rest.split(|c: char| !c.is_ascii_digit()).next().and_then(|n| n.parse().ok()).expect("a number")
+}
+
+/// **What an object stream holds carries the highest object numbers** (Annex F F.3.1).
+/// Part 9 was packed with numbers below the first page's and the main cross-reference
+/// stream's, and qpdf reported every linearised sample (ROADMAP Y-F22).
+#[test]
+fn packed_objects_carry_the_highest_numbers() {
+    let bytes = fepdf_fixtures::Pdf::new().trailer_entries("/Info 6 0 R").assemble(&[
+        "<< /Type /Catalog /Pages 2 0 R /Names << /Dests 4 0 R >> >>",
+        "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] >>",
+        "<< /Names [(there) 5 0 R] >>",
+        "<< /D [3 0 R /Fit] >>",
+        "<< /CreationDate (D:20200101000000Z) >>",
+    ]);
+    let doc = PdfDocument::open(bytes.into()).expect("the fixture opens");
+    let path = std::env::temp_dir().join(format!("fepdf-packed-{}.pdf", std::process::id()));
+    let options = SaveOptions { compress: false, ..SaveOptions::default() };
+    let _ = doc.save_linearized(&path, "2.0", &options).expect("it linearises");
+    let file = std::fs::read(&path).expect("it was written");
+    let _ = std::fs::remove_file(&path);
+
+    let (direct, packed) = direct_and_packed(&file);
+    assert!(!packed.is_empty(), "nothing was packed: {direct:?}");
+    let highest_direct = direct.iter().max().expect("something is written directly");
+    let lowest_packed = packed.iter().min().expect("something is packed");
+    assert!(
+        lowest_packed > highest_direct,
+        "packed {packed:?} is numbered below what is written directly {direct:?}"
+    );
+    let types = main_xref_types(&file);
+    let first_packed = types.iter().position(|t| *t == 2).expect("the main section lists packed");
+    assert!(
+        types[first_packed..].iter().all(|t| *t == 2),
+        "the main cross-reference stream lists {types:?}: an entry not compressed after one that is"
+    );
+    let back = PdfDocument::open(file.into()).expect("the linearised file opens");
+    assert_eq!(back.page_count().expect("it counts"), 1);
+}
+
+/// The type of each entry the main cross-reference stream lists, in order — the last
+/// `/Type /XRef` in the file, written unfiltered with `/W [1 4 2]`.
+fn main_xref_types(file: &[u8]) -> Vec<u8> {
+    let at = file.windows(11).rposition(|w| w == b"/Type /XRef").expect("a cross-reference stream");
+    let body = at + file[at..].windows(8).position(|w| w == b"stream\r\n").expect("its data") + 8;
+    let length = number_after(
+        String::from_utf8_lossy(&file[..body]).rsplit("<<").next().unwrap_or_default(),
+        "/Length ",
+    );
+    file[body..body + length].chunks(7).map(|entry| entry[0]).collect()
+}
+
+/// **The first-page cross-reference reserves room for the first page's entries**, not
+/// for every object numbered after them. Packed part 9 is numbered last, and sized from
+/// the total, `intel_sdm.pdf` carried 5.7 MB of spaces after the linearisation
+/// dictionary (ROADMAP Y-F22). Here, five hundred destinations reserved 10 KB.
+#[test]
+fn the_first_page_cross_reference_reserves_the_first_pages_entries() {
+    const DESTINATIONS: usize = 500;
+    let names: Vec<String> =
+        (0..DESTINATIONS).map(|i| format!("(d{i:03}) {} 0 R", 5 + i)).collect();
+    let mut bodies = vec![
+        "<< /Type /Catalog /Pages 2 0 R /Names << /Dests 4 0 R >> >>".to_string(),
+        "<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_string(),
+        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] >>".to_string(),
+        format!("<< /Names [{}] >>", names.join(" ")),
+    ];
+    bodies.extend((0..DESTINATIONS).map(|_| "<< /D [3 0 R /Fit] >>".to_string()));
+    let doc = PdfDocument::open(fepdf_fixtures::assemble(&bodies).into()).expect("it opens");
+    let path = std::env::temp_dir().join(format!("fepdf-reserve-{}.pdf", std::process::id()));
+    let _ = doc.save_linearized(&path, "2.0", &SaveOptions::default()).expect("it linearises");
+    let file = std::fs::read(&path).expect("it was written");
+    let _ = std::fs::remove_file(&path);
+
+    let eof = file.windows(5).position(|w| w == b"%%EOF").expect("the first-page trailer ends");
+    let padding = file[eof + 5..].iter().take_while(|b| b.is_ascii_whitespace()).count();
+    assert!(padding < 1024, "{padding} bytes of padding follow the first-page trailer");
 }
