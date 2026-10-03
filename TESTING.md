@@ -312,7 +312,8 @@ were written for.
 
 For a test, `scripts/test/mutate_once.py FILE OLD NEW -- <cargo test arguments>` breaks
 one place in the code it guards, runs it, and puts the file back byte for byte: `FIRES`
-is the answer a test owes, and `SURVIVES` says it does not guard what it is about.
+is the answer a test owes, and names each failed test with its panic; `SURVIVES` says it
+does not guard what it is about, and `ERROR` that cargo failed with no test failing.
 
 **A linearised save is held against qpdf** when a change touches the linearised writer:
 `scripts/test/check_linearization.sh` linearises every sample and runs
