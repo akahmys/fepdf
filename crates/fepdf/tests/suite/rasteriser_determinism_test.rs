@@ -6,7 +6,7 @@
 //! fingerprinting it. Vello's GPU pipeline does not — one scene became three distinct
 //! images in eight runs of `samples/constitution.pdf` page 1, one isolated pixel apart at a
 //! channel delta of 1 — and its CPU shaders do
-//! ([ADR-0043](../../../docs/adr/0043-the-scene-repeats-and-the-rasteriser-does-not.md)).
+//! ([ADR-0043](../../../../docs/adr/0043-the-scene-repeats-and-the-rasteriser-does-not.md)).
 //!
 //! **So this asserts of `Cpu` what cannot be asserted of `Gpu`, and both halves were
 //! measured rather than assumed.** Swapped to `Rasteriser::Gpu` it fails **3 runs in 6**;

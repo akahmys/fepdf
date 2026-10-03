@@ -6,7 +6,7 @@
 //!
 //! **Whether they run is the frontend's to say.** `fepdf-script` executes them and sits
 //! above the facade, so an `Operation` reaches `fepdf-doc` before anything on that side
-//! can know ([ADR-0032](../../../docs/adr/0032-running-scripts-is-a-frontend-verb-not-an-operation.md)).
+//! can know ([ADR-0032](../../../../docs/adr/0032-running-scripts-is-a-frontend-verb-not-an-operation.md)).
 //! A run that will follow with a script run says so through `declare_script_processor`
 //! and this stays quiet; one that does not gets the `Violation` it always got. Both
 //! halves are here, because a flag that is never checked and a flag that suppresses

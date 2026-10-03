@@ -13,7 +13,7 @@
 //! **These read `samples/sample.pdf` until 2026-09-06, and `.gitignore` excludes
 //! `/samples/`** — so on every machine but the one that generated the corpus, all three
 //! returned early and passed without running
-//! ([ADR-0068](../../../docs/adr/0068-a-suite-that-skipped-itself-and-asserted-nothing.md)'s
+//! ([ADR-0068](../../../../docs/adr/0068-a-suite-that-skipped-itself-and-asserted-nothing.md)'s
 //! shape). The sample was only ever "a document with text on page 1", and the subject is
 //! the round trip through this engine's own writer, so the fixture is built here and
 //! nothing skips.

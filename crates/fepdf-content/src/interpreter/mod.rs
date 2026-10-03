@@ -213,7 +213,7 @@ impl<'a> Interpreter<'a> {
     /// bytes are still encoded, and this used to hand them to the lexer: page 1 of
     /// `samples/fugaku.pdf` recorded **3,203 unknown operators** with names like
     /// `x\u{9c}UWK`, which is a zlib header being read as a content stream, and lost 288
-    /// Type 3 glyphs to it. Found by `crates/fepdf/tests/parser_twin_test.rs`.
+    /// Type 3 glyphs to it. Found by `crates/fepdf/tests/suite/parser_twin_test.rs`.
     fn decoded_stream(
         &self,
         stream_h: Handle<Object>,
@@ -241,7 +241,7 @@ impl<'a> Interpreter<'a> {
     /// was not read. Measured on `samples/fugaku.pdf`: 196 backend calls that the refined
     /// path made and this one did not.
     ///
-    /// One reader now. `crates/fepdf/tests/parser_twin_test.rs` is what holds it to the
+    /// One reader now. `crates/fepdf/tests/suite/parser_twin_test.rs` is what holds it to the
     /// other path's conclusions.
     pub fn execute_raw(&mut self, data: &[u8]) -> PdfResult<()> {
         if data.is_empty() {

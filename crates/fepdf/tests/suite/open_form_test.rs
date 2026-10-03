@@ -92,7 +92,7 @@ fn a_field_says_what_it_is_and_what_it_is_called() {
 /// carries a `/TU`**. **28, and 5 buttons, since 2026-09-29**: the radio group `相談` is
 /// one field with three widgets, and the walk had counted each widget as a field of its
 /// own (12.7.4.1). This test held the 30 in place. That is the Matterhorn failure
-/// [ADR-0087](../../../docs/adr/0087-a-form-field-is-created-here-not-only-filled.md) was
+/// [ADR-0087](../../../../docs/adr/0087-a-form-field-is-created-here-not-only-filled.md) was
 /// taken over: a defect this engine could name and not repair. It can name which field
 /// now, rather than how many.
 #[test]

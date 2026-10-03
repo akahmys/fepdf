@@ -3,7 +3,7 @@
 //! **A split always removes what belongs to the other sheets.** Half a drawing, still
 //! searchable, on a page that shows the other half is a leak dressed as a feature: a
 //! reader who cuts an A3 assembly drawing into two A4 sheets to send one of them has sent
-//! both ([ADR-0088](../../../docs/adr/0088-what-a-crop-puts-outside-the-sheet-is-removed.md)).
+//! both ([ADR-0088](../../../../docs/adr/0088-what-a-crop-puts-outside-the-sheet-is-removed.md)).
 //! So there is no option here to hide rather than cut, and the tests are written about
 //! what each new page *holds* rather than only about what it shows.
 

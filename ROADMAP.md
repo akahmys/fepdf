@@ -1072,7 +1072,7 @@ eight times, and the copies do not agree on whether to resolve.
       diagram draws `fepdf-script` as the library the frontends call (ADR-0082 — the
       row still called it "the fifth frontend") and `fepdf-fixtures` beside the stack as
       the dev-dependency it is; and `fepdf-doc`'s row names what it holds by module.
-- [ ] **Y-9** — whether `fepdf/tests`' 82 files, each linking the GPU stack as its own
+- [x] **Y-9** — whether `fepdf/tests`' 82 files, each linking the GPU stack as its own
       binary, become one binary is decided by an A/B of the gate's own command, cold and
       warm. The threshold is written down before the measurement.
       **Written 2026-10-03, before measuring.** Warm only, by the owner's choice: a cold
@@ -1082,6 +1082,13 @@ eight times, and the copies do not agree on whether to resolve.
       loop, with every test binary above `fepdf-model` relinked. **One binary is taken
       if its time is at least 15% below the 82 binaries'**; below that, each file keeping
       a process of its own is worth more than the time.
+      **Measured, the same day: 2,122 s for the 82 binaries, 924 s for one — 56% below,
+      and one is taken.** Compiling went from 3 min 59 s to 2 min 40 s; the rest is the
+      run, since one binary runs every test in one pool where 82 ran one after another.
+      Both halves passed the same 1,459 tests. The files are `crates/fepdf/tests/suite/`,
+      each a module `main.rs` names, and a test there checks that every file is named and
+      that none sets an environment variable or the working directory; adding an unnamed
+      file failed it. `TESTING.md` says how one file is run alone.
 
 **Open**: `fepdf-doc` is 18,187 lines and holds operations, auditing, measurement and
 reading order. Whether it splits is not decided here. The Y-1d reading will show whether

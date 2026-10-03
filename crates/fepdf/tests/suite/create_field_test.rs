@@ -1,7 +1,7 @@
 //! A form field created here, reopened, and reported as what it was given.
 //!
 //! **The check is the round trip, not the screen**
-//! ([ADR-0087](../../../docs/adr/0087-a-form-field-is-created-here-not-only-filled.md)):
+//! ([ADR-0087](../../../../docs/adr/0087-a-form-field-is-created-here-not-only-filled.md)):
 //! a form created here, written out and opened again, reports every field through the
 //! same reader that reports somebody else's document.
 //!

@@ -175,7 +175,7 @@ fn an_indirect_font_dictionary_reports_the_object_that_holds_it() {
 /// `/DescendantFonts`, and all four are interned by the time `open` returns, because
 /// normalisation-at-load builds every font and font construction reads them through
 /// `arena.name` — which interns
-/// ([ADR-0046](../../../docs/adr/0046-unify-font-construction-paths-at-load.md)). A first
+/// ([ADR-0046](../../../../docs/adr/0046-unify-font-construction-paths-at-load.md)). A first
 /// version of this test asserted the encoding instead and **survived a mutation restoring
 /// the fallback**, which is what sent it here.
 ///

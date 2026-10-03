@@ -6,7 +6,7 @@
 //! not structured and many have a visual order unrelated to their sense, so a processor
 //! that joined runs would be guessing at what it was editing — and guessing on the
 //! caller's behalf about their own document
-//! ([ADR-0091](../../../docs/adr/0091-paragraphs-are-not-inferred-and-overflow-is-shown.md)).
+//! ([ADR-0091](../../../../docs/adr/0091-paragraphs-are-not-inferred-and-overflow-is-shown.md)).
 //!
 //! So a caller lists the runs and names one. The cost is plain: a word is several runs in
 //! a real file, and changing it is several edits. What is bought is that nothing is

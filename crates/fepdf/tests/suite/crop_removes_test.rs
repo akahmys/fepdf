@@ -6,7 +6,7 @@
 //! `extract_text` returns all 428 characters it did before. Half a drawing, still
 //! searchable, on a page showing the other half — a reader who cuts an A3 assembly
 //! drawing into two A4 sheets to send one of them has sent both
-//! ([ADR-0088](../../../docs/adr/0088-what-a-crop-puts-outside-the-sheet-is-removed.md)).
+//! ([ADR-0088](../../../../docs/adr/0088-what-a-crop-puts-outside-the-sheet-is-removed.md)).
 //!
 //! The test the roadmap named for this failed against the behaviour of the day it was
 //! written, which is why it was worth writing.
@@ -204,7 +204,7 @@ fn a_glyph_the_boundary_crosses_is_kept() {
 /// `/CropBox` names the region a viewer displays and leaves the rest in the file, which
 /// is a view: any reader can move it back and see what it hid. Taking the content out is
 /// a different act with a different consequence, so the caller says which
-/// ([ADR-0088](../../../docs/adr/0088-what-a-crop-puts-outside-the-sheet-is-removed.md)).
+/// ([ADR-0088](../../../../docs/adr/0088-what-a-crop-puts-outside-the-sheet-is-removed.md)).
 /// Both put the same sheet on the page and draw the same thing on it.
 #[test]
 fn a_crop_that_hides_and_a_crop_that_cuts_show_the_same_and_hold_different_things() {

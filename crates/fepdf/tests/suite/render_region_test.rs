@@ -7,7 +7,7 @@
 //!
 //! The rasteriser is named `Cpu` throughout: the GPU pipeline turns one scene into more
 //! than one image — three distinct images in eight renders of one page, one isolated pixel
-//! apart ([ADR-0043](../../../docs/adr/0043-the-scene-repeats-and-the-rasteriser-does-not.md))
+//! apart ([ADR-0043](../../../../docs/adr/0043-the-scene-repeats-and-the-rasteriser-does-not.md))
 //! — and a test comparing two renders cannot be the thing that decides which of them is
 //! the difference.
 

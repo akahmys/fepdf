@@ -14,7 +14,7 @@
 # `make_layer_fixtures.rs` writes three more, for optional content (8.11): a hidden layer,
 # a `/BaseState /OFF`, and the control with the layer on. **Three and not thirteen** —
 # PDFKit honours only those two constructions and paints the other eleven the engine now
-# hides, so the rest are held by `crates/fepdf/tests/optional_content_test.rs` against the
+# hides, so the rest are held by `crates/fepdf/tests/suite/optional_content_test.rs` against the
 # clause instead. See ADR-0021.
 #
 # **Four numbers, not a pixel diff.** Each fixture is black in one quadrant, and the

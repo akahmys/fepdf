@@ -39,7 +39,7 @@ time cargo test --workspace 2>&1 | grep -oE 'test result: ok\. [0-9]+' \
 ```
 
 **The count is 855 as of 2026-09-13**, re-derived with that command: the seven added are
-`crates/fepdf/tests/text_string_encoding_test.rs`. Every other figure below belongs to the
+`crates/fepdf/tests/suite/text_string_encoding_test.rs`. Every other figure below belongs to the
 2026-09-10 run and is left at what that run measured — the timings are a statement about
 one machine, and re-deriving a number on a different one would not correct them.
 
@@ -313,6 +313,13 @@ were written for.
 For a test, `scripts/test/mutate_once.py FILE OLD NEW -- <cargo test arguments>` breaks
 one place in the code it guards, runs it, and puts the file back byte for byte: `FIRES`
 is the answer a test owes, and `SURVIVES` says it does not guard what it is about.
+
+**The facade's tests are one binary, `suite`**, and each file in `crates/fepdf/tests/suite/`
+is a module of it, listed in `main.rs`. A file is run alone with
+`cargo test -p fepdf --test suite <file>::`, and a new file is not compiled until
+`main.rs` names it. One binary took the edit-and-gate loop from 2,122 to 924 seconds
+(ROADMAP Y-9); the price is that its tests share a process, so a test may not change
+process-wide state — an environment variable, the working directory — that another reads.
 
 [ADR-0006]: docs/adr/0006-a-container-may-not-overwrite-a-newer-revision.md
 [ADR-0010]: docs/adr/0010-a-synthesised-tounicode-keyed-on-glyphs-destroys-text.md

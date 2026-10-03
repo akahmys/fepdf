@@ -1726,7 +1726,7 @@ fn the_second_pass_comes_out_sound_where_it_is_met() {
 /// embedded (31-006), and an embedded one using no other (31-008). They were left out on
 /// the ground that `refine::font` rewrote every `/Encoding` to `Identity-H`, which it did
 /// only for a font whose descendant would not load — this fixture's
-/// ([ADR-0105](../../../docs/adr/0105-ingestion-never-rewrote-a-real-type-0-cmap.md)).
+/// ([ADR-0105](../../../../docs/adr/0105-ingestion-never-rewrote-a-real-type-0-cmap.md)).
 /// When Y-F16 builds them, the loop below is the assertion to turn round.
 #[test]
 fn the_cmap_a_type_0_font_names_is_kept_as_written() {

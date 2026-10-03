@@ -12,7 +12,7 @@
 //!
 //! **The corpus tests here skip when `samples/` is absent, which `.gitignore` makes it on
 //! every machine but the one that generated it** — so on a fresh clone they passed
-//! without running, which is [ADR-0068](../../../docs/adr/0068-a-suite-that-skipped-itself-and-asserted-nothing.md)'s
+//! without running, which is [ADR-0068](../../../../docs/adr/0068-a-suite-that-skipped-itself-and-asserted-nothing.md)'s
 //! shape. They are kept, because 846 real pages is what they measure and a fixture cannot
 //! stand in for that. What was missing is a test of the *defect*, which needs no corpus:
 //! `a_page_that_paints_with_a_pattern_yields_its_text` builds the operand shape that

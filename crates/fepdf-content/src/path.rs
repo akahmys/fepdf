@@ -77,7 +77,7 @@ impl PathBuilder {
     /// **A stream that closes a subpath it never opened is malformed, and used to abort
     /// the process.** `kurbo::BezPath::close_path` debug-asserts on an empty path, so
     /// `h` before any `m` panicked rather than being ignored — found in `samples/fugaku.pdf`
-    /// by `crates/fepdf/tests/parser_twin_test.rs`. A document defect is not a crash.
+    /// by `crates/fepdf/tests/suite/parser_twin_test.rs`. A document defect is not a crash.
     ///
     /// The clause also says where the current point goes: to the start of the subpath
     /// being closed, not where the last segment ended. This tracked neither, and a

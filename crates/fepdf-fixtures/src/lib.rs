@@ -152,7 +152,7 @@ impl Pdf {
     /// The version in the header line, as it is written there — `"1.7"`, `"2.0"`.
     ///
     /// **A fixture that says 1.7 is usually saying nothing**, so set this only where the
-    /// version is the subject: `crates/fepdf/tests/sdk_tests.rs` asserts
+    /// version is the subject: `crates/fepdf/tests/suite/sdk_tests.rs` asserts
     /// `arena().version() == 1.7` and is the reason this exists.
     #[must_use]
     pub fn version(mut self, version: &str) -> Self {

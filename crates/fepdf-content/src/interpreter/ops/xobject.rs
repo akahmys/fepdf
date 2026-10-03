@@ -75,7 +75,7 @@ impl Interpreter<'_> {
     ///
     /// **Which route is taken depends only on whether ingestion refined the stream**, not
     /// on the document, so the same form reaches a different implementation depending on
-    /// `IngestionOptions::active_refinement`. `crates/fepdf/tests/form_xobject_test.rs`
+    /// `IngestionOptions::active_refinement`. `crates/fepdf/tests/suite/form_xobject_test.rs`
     /// holds the two to the same calls.
     fn draw_form(
         &mut self,
