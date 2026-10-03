@@ -19,6 +19,8 @@ pub mod page;
 pub(crate) mod path_crop;
 /// Radio buttons: a group's field, and a widget per button.
 pub(crate) mod radio;
+/// Removing what a region holds, and filling it (12.5.6.23).
+pub mod redact;
 /// Security, unencrypted wrapper, and public-key recipient operation handlers.
 pub mod security;
 /// Structure element and article thread operation handlers.
@@ -120,6 +122,7 @@ fn dispatch(doc: &mut Document, op: Operation) -> PdfResult<()> {
         Operation::MergeRuns { page, run } => text::apply_merge_runs(doc, page, run),
         Operation::MoveRun { page, run, to } => text::apply_move_run(doc, page, run, to),
         Operation::RemoveOutside { page, keep } => text::apply_remove_outside(doc, page, keep),
+        Operation::Redact(redaction) => redact::apply_redact(doc, &redaction),
         Operation::SplitPage { page, into } => page::apply_split_page(doc, page, &into),
         Operation::CombinePages(pages, onto) => page::apply_combine_pages(doc, &pages, &onto),
         Operation::AddFormField(field) => fields::apply_add_form_field(doc, &field),

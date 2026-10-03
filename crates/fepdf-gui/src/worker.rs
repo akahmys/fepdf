@@ -523,18 +523,19 @@ pub fn run_worker(rx: Receiver<WorkerRequest>, tx: Sender<WorkerResponse>, ctx: 
             } => {
                 pages.clear();
                 let _ = tx.send(WorkerResponse::Busy { key: "busy_saving" });
-                handle_save(
-                    current_doc.as_ref(),
-                    path,
-                    protection,
-                    (compress, strip),
-                    linearize,
-                    redaction_zones,
-                    cert_path,
-                    key_path,
-                    signature_position,
-                    &tx,
-                );
+                if redact_before_saving(&mut current_doc, &mut history, redaction_zones, &tx) {
+                    handle_save(
+                        current_doc.as_ref(),
+                        path,
+                        protection,
+                        (compress, strip),
+                        linearize,
+                        cert_path,
+                        key_path,
+                        signature_position,
+                        &tx,
+                    );
+                }
                 let _ = tx.send(WorkerResponse::Idle);
                 ctx.request_repaint();
             }
@@ -1575,6 +1576,41 @@ fn handle_update_node(
     send_audit(doc, tx);
 }
 
+/// Applies the zones marked for redaction, one `Operation::Redact` a page, as one act in
+/// the history; whether the save may go ahead.
+///
+/// **An operation, recorded, rather than a write on the side.** The export scrubbed the
+/// open document through a function of its own, which no history held, so an undo after
+/// a save replayed a document with the redaction gone (Rule D, ROADMAP Y-10).
+fn redact_before_saving(
+    doc: &mut Option<PdfDocument>,
+    history: &mut History,
+    zones: Vec<crate::redaction::RedactionZone>,
+    tx: &Sender<WorkerResponse>,
+) -> bool {
+    if zones.is_empty() {
+        return true;
+    }
+    let mut by_page: std::collections::BTreeMap<usize, Vec<(f64, f64, f64, f64)>> =
+        std::collections::BTreeMap::new();
+    for zone in zones {
+        let r = zone.rect;
+        by_page.entry(zone.page_index).or_default().push((
+            f64::from(r.min.x),
+            f64::from(r.min.y),
+            f64::from(r.max.x),
+            f64::from(r.max.y),
+        ));
+    }
+    let act: Vec<Operation> = by_page
+        .into_iter()
+        .map(|(page, regions)| Operation::Redact(fepdf::Redaction { page, regions }))
+        .collect();
+    let recorded = history.applied.len();
+    apply_recorded(doc, history, act, None, tx);
+    history.applied.len() > recorded
+}
+
 fn handle_save(
     // RR-15 Limit: Dispatcher - Thread pool worker saving request routing dispatcher handling signatures, redactions and compression saving options
     doc_opt: Option<&PdfDocument>,
@@ -1582,7 +1618,6 @@ fn handle_save(
     protection: Protection,
     (compress, strip): (bool, bool),
     linearize: bool,
-    redaction_zones: Vec<crate::redaction::RedactionZone>,
     cert_path: Option<std::path::PathBuf>,
     key_path: Option<std::path::PathBuf>,
     signature_position: Option<(usize, [f32; 4])>,
@@ -1592,25 +1627,6 @@ fn handle_save(
         let _ = tx.send(WorkerResponse::Failed { key: "notice_save_nothing", detail: None });
         return;
     };
-
-    // 1. Group redaction zones by page index
-    let mut page_redactions: std::collections::BTreeMap<usize, Vec<[f32; 4]>> =
-        std::collections::BTreeMap::new();
-    for zone in redaction_zones {
-        let rect_arr = [zone.rect.min.x, zone.rect.min.y, zone.rect.max.x, zone.rect.max.y];
-        page_redactions.entry(zone.page_index).or_default().push(rect_arr);
-    }
-
-    // 2. Apply physical stream sanitization to each page mutably
-    for (page_idx, rects) in page_redactions {
-        if let Err(e) = doc.apply_redaction_to_page(page_idx, &rects) {
-            let _ = tx.send(WorkerResponse::Failed {
-                key: "notice_redact_failed",
-                detail: Some(format!("{page_idx}: {e}")),
-            });
-            return;
-        }
-    }
 
     // PDF 2.0, which is the one version this engine writes (see the facade's
     // `written_version`). An option to write 1.7 put that in the header and nothing else.
@@ -1931,7 +1947,6 @@ mod saving {
             protection,
             (true, strip),
             false,
-            Vec::new(),
             None,
             None,
             None,

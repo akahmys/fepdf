@@ -383,6 +383,15 @@ struct Placement {
 /// **Nothing here groups runs.** A run is one show-text operator, which is what the file
 /// declares; whether two of them are one phrase is not something the stream says.
 fn read_runs(data: &[u8], fonts: &BTreeMap<String, Arc<FontResource>>) -> (Vec<Token>, Vec<Run>) {
+    let (tokens, runs, _) = read_runs_counting(data, fonts);
+    (tokens, runs)
+}
+
+/// [`read_runs`], and how many strings were drawn in a font that could not be resolved.
+fn read_runs_counting(
+    data: &[u8],
+    fonts: &BTreeMap<String, Arc<FontResource>>,
+) -> (Vec<Token>, Vec<Run>, usize) {
     let mut lexer = Lexer::new(bytes::Bytes::copy_from_slice(data));
     let mut tokens: Vec<Token> = Vec::new();
     let mut runs: Vec<Run> = Vec::new();
@@ -406,7 +415,7 @@ fn read_runs(data: &[u8], fonts: &BTreeMap<String, Arc<FontResource>>) -> (Vec<T
         }
         operands.clear();
     }
-    (tokens, runs)
+    (tokens, runs, walk.unplaced)
 }
 
 /// What the walk carries from one operator to the next.
@@ -424,6 +433,9 @@ struct Walk {
     in_text_object: bool,
     /// The font a `Tf` last selected, when this walk could resolve it.
     font: Option<(String, Arc<FontResource>)>,
+    /// How many show-text operators drew a string in a font this walk could not resolve,
+    /// and so could not place.
+    unplaced: usize,
 }
 
 impl Walk {
@@ -463,7 +475,13 @@ impl Walk {
         if !matches!(op, "Tj" | "TJ") {
             return None;
         }
-        let selected = self.font.clone()?;
+        let Some(selected) = self.font.clone() else {
+            let shows = operands.iter().any(|at| {
+                matches!(tokens.get(*at), Some(Token::String(_) | Token::Hex(_) | Token::LeftArray))
+            });
+            self.unplaced += usize::from(shows);
+            return None;
+        };
         let drawn = self.shown(operands, tokens, index, selected);
         // **An operator showing no string is not a run.** `[ -250 ] TJ` moves the text
         // matrix and draws nothing, which is how a move puts back what the run it took
@@ -1238,18 +1256,70 @@ pub fn apply_remove_outside(
     page: usize,
     keep: (f64, f64, f64, f64),
 ) -> PdfResult<()> {
+    remove_glyphs(doc, page, 0.0, &|glyph| !meets(glyph, keep)).map(|_| ())
+}
+
+/// A glyph's box on the page, as left, bottom, right, top.
+pub(crate) type GlyphBox = (f64, f64, f64, f64);
+
+/// Whether two boxes share any area.
+pub(crate) fn meets(a: GlyphBox, b: GlyphBox) -> bool {
+    a.0 < b.2 && a.2 > b.0 && a.1 < b.3 && a.3 > b.1
+}
+
+/// The box of every glyph `page` draws, in drawing order, each reaching `below` em under
+/// its baseline as well as one em above it.
+///
+/// # Errors
+/// Fails when the page is not there or its content cannot be read.
+pub(crate) fn glyph_boxes(doc: &Document, page: usize, below: f64) -> PdfResult<Vec<GlyphBox>> {
     let fonts = fonts_of_page(doc, page)?;
-    let Some(data) = page_content(doc, page)? else { return Ok(()) };
+    let Some(data) = page_content(doc, page)? else { return Ok(Vec::new()) };
+    let (_, runs, unplaced) = read_runs_counting(&data, &fonts);
+    refuse_unplaced(unplaced)?;
+    Ok(runs.iter().flat_map(|run| run.places.iter().map(|p| run.code_box(*p, below))).collect())
+}
+
+/// Refuses a page with text it cannot place: a glyph whose box is not known can be
+/// neither said to meet a region nor said not to, and leaving it is not removing it.
+fn refuse_unplaced(unplaced: usize) -> PdfResult<()> {
+    if unplaced == 0 {
+        return Ok(());
+    }
+    Err(PdfError::refused(
+        "redact",
+        format!(
+            "{unplaced} strings on the page are drawn in a font its resources do not name, \
+             so where their glyphs fall is not known; nothing was redacted"
+        ),
+    ))
+}
+
+/// Takes off `page` every glyph whose box, reaching `below` em under its baseline,
+/// `goes`, leaving the rest where they were; how many went.
+///
+/// # Errors
+/// Fails when the page is not there or its content cannot be read.
+pub(crate) fn remove_glyphs(
+    doc: &Document,
+    page: usize,
+    below: f64,
+    goes: &dyn Fn(GlyphBox) -> bool,
+) -> PdfResult<usize> {
+    let fonts = fonts_of_page(doc, page)?;
+    let Some(data) = page_content(doc, page)? else { return Ok(0) };
     let (tokens, runs) = read_runs(&data, &fonts);
 
     let mut rewritten: BTreeMap<usize, Vec<u8>> = BTreeMap::new();
+    let mut gone = 0;
     for run in &runs {
-        if let Some(bytes) = run.without_what_falls_outside(keep) {
+        if let Some((bytes, count)) = run.without(below, goes) {
             rewritten.insert(run.operator, bytes);
+            gone += count;
         }
     }
     if rewritten.is_empty() {
-        return Ok(());
+        return Ok(0);
     }
 
     let mut out = Vec::with_capacity(data.len());
@@ -1267,20 +1337,23 @@ pub fn apply_remove_outside(
             token.write_to(&mut out);
         }
     }
-    write_page_content(doc, page, out)
+    write_page_content(doc, page, out)?;
+    Ok(gone)
 }
 
 impl Run {
-    /// The run written out with the glyphs outside `keep` gone, or `None` to leave it be.
+    /// The run written out with the glyphs that `goes` gone, and how many, or `None` to
+    /// leave it be.
     ///
     /// The answer is one `TJ`: the strings that remain, and between them the offsets that
     /// stand for the glyphs that went. A `TJ` offset moves the text matrix without drawing
     /// (9.4.3), which is exactly what a removed glyph has to leave behind.
-    fn without_what_falls_outside(&self, keep: (f64, f64, f64, f64)) -> Option<Vec<u8>> {
+    fn without(&self, below: f64, goes: &dyn Fn(GlyphBox) -> bool) -> Option<(Vec<u8>, usize)> {
         let codes = self.font.codes(&self.codes);
         let kept: Vec<bool> =
-            self.places.iter().map(|place| self.code_meets(*place, keep)).collect();
-        if kept.iter().all(|inside| *inside) {
+            self.places.iter().map(|place| !goes(self.code_box(*place, below))).collect();
+        let gone = kept.iter().filter(|inside| !**inside).count();
+        if gone == 0 {
             return None;
         }
 
@@ -1303,27 +1376,31 @@ impl Run {
         Self::write_offset(&mut out, skipped, self.placement);
         Token::RightArray.write_to(&mut out);
         Token::Keyword("TJ".to_string()).write_to(&mut out);
-        Some(out)
+        Some((out, gone))
     }
 
-    /// Whether the code at `place` meets `keep` at all.
+    /// The bounding rectangle of the code at `place`, on the page: from `below` em under
+    /// the baseline to one em above it.
     ///
-    /// Its box is a parallelogram and `keep` is a rectangle, so the two are compared
-    /// through the box's bounding rectangle. That keeps a glyph a turned run leans into
-    /// the margin with, which errs towards leaving ink a reader can see.
-    fn code_meets(&self, place: (f64, f64), keep: (f64, f64, f64, f64)) -> bool {
+    /// Its box is a parallelogram, so this is the rectangle round it. Compared against a
+    /// region, that takes in a glyph a turned run leans towards it with: a crop keeps it,
+    /// which leaves ink a reader can see, and a redaction removes it, which leaves none.
+    fn code_box(&self, place: (f64, f64), below: f64) -> GlyphBox {
         let (along, width) = place;
         let step = |distance: f64| {
             let placed = (self.placement.ctm * self.placement.matrix).as_coeffs();
             (placed[0] * distance, placed[1] * distance)
         };
         let rise = self.box_rise();
+        let drop = (-rise.0 * below, -rise.1 * below);
+        let base = (self.origin.0 + drop.0, self.origin.1 + drop.1);
+        let tall = (rise.0 * (1.0 + below), rise.1 * (1.0 + below));
         let (start, end) = (step(along), step(along + width));
         let corners = [
-            (self.origin.0 + start.0, self.origin.1 + start.1),
-            (self.origin.0 + end.0, self.origin.1 + end.1),
-            (self.origin.0 + end.0 + rise.0, self.origin.1 + end.1 + rise.1),
-            (self.origin.0 + start.0 + rise.0, self.origin.1 + start.1 + rise.1),
+            (base.0 + start.0, base.1 + start.1),
+            (base.0 + end.0, base.1 + end.1),
+            (base.0 + end.0 + tall.0, base.1 + end.1 + tall.1),
+            (base.0 + start.0 + tall.0, base.1 + start.1 + tall.1),
         ];
         let xs: Vec<f64> = corners.iter().map(|corner| corner.0).collect();
         let ys: Vec<f64> = corners.iter().map(|corner| corner.1).collect();
@@ -1335,7 +1412,7 @@ impl Run {
             ys.iter().copied().fold(f64::MAX, f64::min),
             ys.iter().copied().fold(f64::MIN, f64::max),
         );
-        low_x < keep.2 && high_x > keep.0 && low_y < keep.3 && high_y > keep.1
+        (low_x, low_y, high_x, high_y)
     }
 
     /// Writes a string of codes into the array, when there are any.

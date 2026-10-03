@@ -279,7 +279,8 @@ fn redaction_removes_the_text_and_reports_what_it_removed() {
     .expect("the tool runs");
 
     assert!(!text_of(&dest, 0).contains("P0"), "the page's text is gone");
-    assert!(report.contains("\"redacted_count\": 1"), "and the count is what went: {report}");
+    // Glyphs, since redaction removes glyphs: the page draws `P0`, two of them.
+    assert!(report.contains("\"redacted_count\": 2"), "and the count is what went: {report}");
 
     let missed = out("redact_miss");
     let report = apply_redaction_impl(RedactDocumentArgs {

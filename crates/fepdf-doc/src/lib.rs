@@ -68,7 +68,6 @@ pub use apply::apply_operation;
 pub use matterhorn::{LeftToAPerson, MARKED_H, left_to_a_person};
 pub use operation::*;
 pub use outline_tree::{OutlineReport, read_outlines};
-pub use remediation::apply_physical_redaction_to_page;
 pub use struct_tree::{Placement, StructureTreeNode, StructureTreeVisitor};
 pub use structure::{
     AuditFinding, AuditReport, AuditScope, FROM_CATALOGUE, FROM_CONTENT, FROM_FORM,

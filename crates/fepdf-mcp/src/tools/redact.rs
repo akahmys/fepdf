@@ -35,13 +35,14 @@ pub struct RedactionReport {
     pub input_path: String,
     /// Destination path of the sanitized document.
     pub output_path: String,
-    /// Number of text-showing operators whose string was scrubbed.
+    /// Number of glyphs removed.
     ///
     /// **What was removed, not what was asked for.** This read `args.targets.len()` until
     /// 2026-09-06, so a rectangle covering nothing was reported to the caller as a
-    /// redaction that had happened — and the caller is an agent.
+    /// redaction that had happened — and the caller is an agent. It is read before the
+    /// redaction is applied, by the same test that applies it.
     pub redacted_count: usize,
-    /// Pages where something was actually scrubbed.
+    /// Pages where a glyph was removed. Every page named is filled, these or not.
     pub affected_pages: Vec<usize>,
 }
 
@@ -52,7 +53,7 @@ pub fn apply_redaction_impl(args: RedactDocumentArgs) -> Result<String, McpError
 
 fn apply_redaction_internal(args: RedactDocumentArgs) -> McpResult<String> {
     let data = fs::read(&args.input_path).map_err(McpError::from)?;
-    let doc =
+    let mut doc =
         PdfDocument::open(Bytes::from(data)).map_err(|e| McpError::pdf("Failed to open PDF", e))?;
 
     // Group targets by page index
@@ -65,7 +66,19 @@ fn apply_redaction_internal(args: RedactDocumentArgs) -> McpResult<String> {
     let mut affected_pages = Vec::new();
     let mut scrubbed = 0;
     for (page_idx, rects) in &page_map {
-        let removed = fepdf::apply_physical_redaction_to_page(doc.inner(), *page_idx, rects)
+        let redaction = fepdf::Redaction {
+            page: *page_idx,
+            regions: rects
+                .iter()
+                .map(|r| (f64::from(r[0]), f64::from(r[1]), f64::from(r[2]), f64::from(r[3])))
+                .collect(),
+        };
+        let removed = doc
+            .what_redaction_removes(&redaction)
+            .map_err(|e| McpError::pdf(format!("redacting page {page_idx}"), e))?
+            .glyphs
+            .len();
+        doc.apply(fepdf::Operation::Redact(redaction))
             .map_err(|e| McpError::pdf(format!("redacting page {page_idx}"), e))?;
         scrubbed += removed;
         if removed > 0 {

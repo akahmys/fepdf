@@ -477,6 +477,14 @@ pub enum Operation {
         /// What to keep, in the page's default user space: left, bottom, right, top.
         keep: (f64, f64, f64, f64),
     },
+    /// Removes what a page draws inside rectangles, and fills them (12.5.6.23).
+    ///
+    /// **Removed, not covered.** A glyph whose box meets a region at all goes, and the
+    /// glyphs outside keep their places. The region is filled black, which is this
+    /// engine's choice for a region a caller names without a `/Redact` annotation and is
+    /// recorded as a `Decision`. What is removed can be read before it is applied, with
+    /// `what_redaction_removes` (ROADMAP Y-10).
+    Redact(Redaction),
     /// Takes one run off the page.
     ///
     /// **Deleting a run is not editing it to nothing.** An emptied run is still a run: it
@@ -674,6 +682,8 @@ impl Operation {
             | Self::MergeRuns { .. }
             | Self::MoveRun { .. }
             | Self::RemoveOutside { .. }
+            // Taken out where it is, and the rest left where it was.
+            | Self::Redact(_)
             | Self::CropPages { .. }
             | Self::SplitPage { .. }
             | Self::CombinePages { .. }
@@ -946,6 +956,15 @@ pub struct TextLayerItem {
     /// The box it was read from, in default user space: left, bottom, right, top. The text
     /// is set to its height and stretched to its width.
     pub rect: [f64; 4],
+}
+
+/// What a redaction removes: rectangles on one page.
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct Redaction {
+    /// The page, from 0.
+    pub page: usize,
+    /// The regions, in the page's default user space: left, bottom, right, top.
+    pub regions: Vec<(f64, f64, f64, f64)>,
 }
 
 /// What a crop keeps, and what it does with the rest.

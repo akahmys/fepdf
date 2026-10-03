@@ -274,9 +274,9 @@ A caller must now say which it means, and `Quarter` makes 45° unconstructible.
   ([ADR-0109](docs/adr/0109-a-document-changes-only-inside-apply.md)). While unsealed,
   the arena records what each write replaces, and an operation that fails is put back
   whole — the arena, the page list, the decisions it recorded
-  ([ADR-0110](docs/adr/0110-an-operation-that-fails-changes-nothing.md)). The one
-  exception is physical redaction, let through by name until Y-10 makes it an
-  operation. A copy made to be saved is another arena and is never sealed.
+  ([ADR-0110](docs/adr/0110-an-operation-that-fails-changes-nothing.md)). There is no
+  exception: redaction is `Operation::Redact`. A copy made to be saved is another arena
+  and is never sealed.
 - **MCP tool surface.** A tool becomes the serialised form of an `Operation`. New
   operations reach AI assistants without new bridging code.
 - **Testability.** An operation sequence can be applied and asserted without starting

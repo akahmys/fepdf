@@ -148,9 +148,11 @@ pub mod struct_tree {
     pub use fepdf_doc::struct_tree::*;
 }
 pub use fepdf_doc::Outcome;
+/// What a redaction will remove, read before it is applied.
+pub use fepdf_doc::apply::redact::Removal;
 pub use fepdf_doc::operation::{
-    CropRegion, FieldKind, NewField, PageArrangement, PageDivision, TabOrder, TextLayerItem,
-    WhatFallsOutside, XObjectEdit,
+    CropRegion, FieldKind, NewField, PageArrangement, PageDivision, Redaction, TabOrder,
+    TextLayerItem, WhatFallsOutside, XObjectEdit,
 };
 pub use fepdf_doc::{
     Align,
@@ -181,7 +183,6 @@ pub use fepdf_doc::{
     StructureTreeVisitor,
     StructureVisitor,
     apply_operation,
-    apply_physical_redaction_to_page,
 };
 /// The internal writer module for generating PDF files.
 pub mod writer;
@@ -981,13 +982,15 @@ impl PdfDocument {
         self.inner.catalog().ok()?.lang
     }
 
-    /// Scrubs the strings shown inside `rects` on `page_idx`, and answers how many.
+    /// What `redaction` would remove, with nothing written: for a frontend to show before
+    /// the reader commits to it, and for a caller to report what was removed rather than
+    /// what was asked for (ADR-0064). `Operation::Redact` applies it (ROADMAP Y-10).
     ///
-    /// The count is what was removed, not what was asked for: a rectangle over empty
-    /// space answers 0, and a caller that treats "it returned" as "something was
-    /// redacted" is the shape ADR-0064 was written about.
-    pub fn apply_redaction_to_page(&self, page_idx: usize, rects: &[[f32; 4]]) -> PdfResult<usize> {
-        apply_physical_redaction_to_page(&self.inner, page_idx, rects)
+    /// # Errors
+    /// Refuses a redaction naming no region or a region with no area, and fails when the
+    /// page is not there or its content cannot be read.
+    pub fn what_redaction_removes(&self, redaction: &Redaction) -> PdfResult<Removal> {
+        fepdf_doc::apply::redact::what_redaction_removes(&self.inner, redaction)
     }
 
     /// Retrieves a font resource by the object number of its font dictionary.

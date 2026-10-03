@@ -1346,11 +1346,33 @@ it can be run there.
         annotation, and is recorded as one.
       - A `/Redact` annotation applied is removed from the document with what it
         named, as 12.5.6.23 requires.
-      *To decide before code*: vector paths under a region — removed whole, cut to the
-      region, or left with a `Decision` saying they were; whether a glyph partly inside
-      counts as inside; what an element's `/ActualText` becomes when only part of its
-      content goes; and whether Type 3 glyph procedures and tiling pattern cells drawn
-      inside a region are entered, as form XObjects are.
+      *Decided by the owner, 2026-10-03*, after MuPDF's and iText pdfSweep's documented
+      behaviour was read:
+      - A vector path under a region is **cut to it**: what lies inside goes, what lies
+        outside stays. MuPDF removes a path whole, which here would take a full-page
+        background or a table's rules with it.
+      - A glyph whose box **overlaps** a region at all is inside, as MuPDF documents.
+      - An element whose content goes in part has its `/ActualText` and `/Alt`
+        **replaced with a marker**, and so do its ancestors, as pdfSweep 5.0.8 does. An
+        element whose content goes whole is pruned.
+      - Type 3 glyph procedures and tiling pattern cells are **not entered**: a Type 3
+        glyph goes whole as a glyph, and a path a pattern fills is cut like any path.
+      - **What a redaction will remove can be shown before it is applied**: the same
+        computation answers a query that writes nothing, and the window highlights
+        what it returns. The overlap rule takes more than the region at its edges, and
+        this shows it before it is done.
+      **Text, 2026-10-03**: `Operation::Redact` removes every glyph whose box meets a
+      region — the box reaching 0.3 em under the baseline, deeper than a text face's
+      descender — keeps the rest where they were, and fills the regions black with a
+      12.5.6.23 `Decision`. A page with a string in a font its resources do not name is
+      refused, since its glyphs cannot be placed. `what_redaction_removes` answers what
+      will go and writes nothing; `fepdf-mcp` reports from it, and the window applies the
+      redaction as a recorded act before it saves. `redaction_test.rs` holds it, and
+      taking out the descent, the refusal or the fill failed it.
+      *Open*: keeping the glyphs after a removed run in their exact places keeps the
+      run's width, and arXiv 2206.02285 recovers redacted words from such widths in
+      Acrobat's output. Whether the adjustment is kept, rounded or replaced is not yet
+      decided.
       *Done when* a fixture carrying a marker string in text, in a form XObject, in an
       annotation and in `/ActualText`, and an image under the region, saved after one
       redaction, holds the marker in no decoded stream and none of the image's pixels
@@ -1361,7 +1383,7 @@ it can be run there.
       applied, leave a fill of that colour and no fill, and no `/Redact` annotation; and
       taking out each of those parts fails the test.
 
-- [ ] **Y-11** — **a document changes only inside `apply`, and a write anywhere else
+- [x] **Y-11** — **a document changes only inside `apply`, and a write anywhere else
       fails a test** (Rule D). Measured 2026-10-03, with a counter put on the arena's
       seven writers and taken out again: sixteen of the facade's `&self` readers write
       nothing, and `apply_redaction_to_page` writes three times. `layering.py` counts
@@ -1379,8 +1401,9 @@ it can be run there.
       the facade seals what it opens, and the probe in `sealed_document_test.rs` fails
       when the seal is taken out. The suite found 106 writes outside `apply`, from five
       sources and a sixth behind them; four were readers writing into what they read,
-      and each now writes nothing. The two redaction routes are let through by name,
-      `Document::redaction_until_y10`, which is what keeps this open until Y-10.
+      and each now writes nothing. The two redaction routes were let through by name,
+      `Document::redaction_until_y10`, until Y-10's first part made redaction
+      `Operation::Redact` and took both routes and the name out, 2026-10-03.
 
 **Open**: `fepdf-doc` is 18,187 lines and holds operations, auditing, measurement and
 reading order. Whether it splits is not decided here. The Y-1d reading will show whether

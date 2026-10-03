@@ -775,19 +775,6 @@ impl Document {
         result
     }
 
-    /// Runs `write` with the arena unsealed **outside `apply`**, and puts back what it
-    /// wrote if it fails.
-    ///
-    /// **For the physical redaction route alone**, which three frontends call through
-    /// `&Document` and which Y-10 replaces with an `Operation`; this goes with it. Named
-    /// for that, so that a second caller reads as what it is (ROADMAP Y-11).
-    ///
-    /// # Errors
-    /// What `write` returns, after the arena is as it was.
-    pub fn redaction_until_y10<R>(&self, write: impl FnOnce() -> PdfResult<R>) -> PdfResult<R> {
-        self.arena.transaction(write)
-    }
-
     /// Drops what [`Self::resolved_color_space`] remembered.
     ///
     /// The cache is keyed by arena handle, and `PdfArena::set_object` writes a handle in
