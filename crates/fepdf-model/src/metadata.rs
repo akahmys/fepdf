@@ -368,6 +368,35 @@ enum Identity {
     New(u64),
 }
 
+/// The packet `info` renders to, with `stated` beside it and what the packet in place says
+/// besides carried over — with the packet's identity too when `identity` keeps it.
+fn rendered_packet(
+    doc: &crate::Document,
+    catalog: &BTreeMap<Handle<crate::object::PdfName>, Object>,
+    info: &MetadataInfo,
+    stated: Option<&str>,
+    identity: Identity,
+) -> String {
+    let refined_map = build_refined_metadata_map(info);
+    let mut raw_xmp = match identity {
+        Identity::Kept => crate::refine::metadata::info_to_xmp_kept(&refined_map),
+        Identity::New(stamped_at) => {
+            crate::refine::metadata::info_to_xmp_derived(&refined_map, &doc.provenance, stamped_at)
+        }
+    };
+    if let (Some(stated), Some(at)) = (stated, raw_xmp.rfind("</rdf:RDF>")) {
+        raw_xmp.insert_str(at, stated);
+    }
+    // What the packet in place says that the generator does not write is kept.
+    match (current_packet(doc, catalog), identity) {
+        (Some(original), Identity::Kept) => {
+            crate::refine::xmp_carry::carry_identity(&original, raw_xmp)
+        }
+        (Some(original), Identity::New(_)) => crate::refine::xmp_carry::carry(&original, raw_xmp),
+        (None, _) => raw_xmp,
+    }
+}
+
 /// Writes the catalogue's packet from `info`, with `stated` beside it, carrying what the
 /// packet in place says besides.
 fn update_xmp_metadata(
@@ -383,28 +412,7 @@ fn update_xmp_metadata(
             .get_dict(catalog_dh)
             .ok_or_else(|| crate::error::PdfError::internal("Invalid Catalog"))?;
 
-        let refined_map = build_refined_metadata_map(info);
-        let mut raw_xmp = match identity {
-            Identity::Kept => crate::refine::metadata::info_to_xmp_kept(&refined_map),
-            Identity::New(stamped_at) => crate::refine::metadata::info_to_xmp_derived(
-                &refined_map,
-                &doc.provenance,
-                stamped_at,
-            ),
-        };
-        if let (Some(stated), Some(at)) = (stated, raw_xmp.rfind("</rdf:RDF>")) {
-            raw_xmp.insert_str(at, stated);
-        }
-        // What the packet in place says that the generator does not write is kept.
-        let raw_xmp = match (current_packet(doc, &catalog_dict), identity) {
-            (Some(original), Identity::Kept) => {
-                crate::refine::xmp_carry::carry_identity(&original, raw_xmp)
-            }
-            (Some(original), Identity::New(_)) => {
-                crate::refine::xmp_carry::carry(&original, raw_xmp)
-            }
-            (None, _) => raw_xmp,
-        };
+        let raw_xmp = rendered_packet(doc, &catalog_dict, info, stated, identity);
 
         // Append 2KB space padding and replace the read-only flag end="r" with writable flag end="w"
         let trimmed = raw_xmp.trim_end();
