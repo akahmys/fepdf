@@ -314,6 +314,13 @@ For a test, `scripts/test/mutate_once.py FILE OLD NEW -- <cargo test arguments>`
 one place in the code it guards, runs it, and puts the file back byte for byte: `FIRES`
 is the answer a test owes, and `SURVIVES` says it does not guard what it is about.
 
+**A linearised save is held against qpdf** when a change touches the linearised writer:
+`scripts/test/check_linearization.sh` linearises every sample and runs
+`qpdf --check-linearization` on each, and says how many read with errors. qpdf is a
+developer's tool here, not a dependency, and the script stops rather than passes where it
+is not installed. The engine reads a linearised file back without its hint tables, so
+nothing else checks them.
+
 **A save is held against the Arlington PDF Model.** `suite/arlington_test.rs` saves each
 sample, reads the save back, and checks every dictionary it reaches against the model in
 `external/arlington` for each key's type, the keys a dictionary requires, those 2.0

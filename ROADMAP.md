@@ -786,7 +786,7 @@ their places; this is the order they are taken in.
    is for and nothing measures it. Under it, Y-F23, Y-F15 and what is open of Y-F21; the
    save's metadata together, Y-F2, Y-F4, Y-F5 and Y-F6, and Y-F29 with them; Y-F25
    decided; and Y-F28, what the test found the saves keep from their sources.
-2. **One way to save.** Y-F1, Y-F30, Y-F22 and what is open of Y-0b are one defect: a
+2. **One way to save.** Y-F1, Y-F30, Y-F31, Y-F22 and what is open of Y-0b are one defect: a
    linearised save is a second writer path, which ignores the options and packs no object
    streams. Linearising becomes a stage of the save the options already drive.
 3. **An operation is the only way a document changes, and it is whole.** Y-11 before
@@ -1078,6 +1078,15 @@ it can be run there.
       between 9.9% and 54.8% of the file and its first page at 53.7% (measured
       2026-10-03): a reader has read half the file before it can show page one. Part 9 is
       what Y-F22 packs, so this goes first.
+- [ ] **Y-F31** — **qpdf finds the hint tables wrong in nine samples of ten.**
+      `scripts/test/check_linearization.sh` holds every sample's linearised save against
+      `qpdf --check-linearization` (qpdf 12.4.2, 2026-10-03): only `unicode_16.pdf` reads
+      clean. Two kinds of fault. Page 0's length and `/E` overstate the first-page
+      section by 152 to 15,343 bytes in seven samples. A page's object count is off in
+      five — 4,962 of `intel_sdm.pdf`'s pages, mostly by one. The engine reads a
+      linearised file back without its hint tables, and the golden comparison says only
+      that bytes moved, so nothing here saw it. *Done when* the script reports no
+      linearization errors for every sample.
 - [ ] **Y-F26** — **the documents name the wrong thing as what fepdf is.** The owner's
       definition, 2026-10-03: a translator from any PDF to ISO 32000-2, operations on
       what it translated, and frontends for those operations; reporting what was done
