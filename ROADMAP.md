@@ -776,6 +776,32 @@ claim beside its implementation, and not by counting `pub`. A duplicate-block sc
 deduplication. The duplication that exists is semantic: a dictionary lookup is written
 eight times, and the copies do not agree on whether to resolve.
 
+**The order of what is left**, set by the owner 2026-10-03 against what fepdf is — a
+translator from any PDF to ISO 32000-2, operations on what it translated, and frontends
+for those operations, with reporting second (Y-F26). The entries below keep their IDs and
+their places; this is the order they are taken in.
+
+1. **The output conforms, and that is measured.** Y-F24 first: a save read back by a test
+   that fails on a departure, since output conforming to ISO 32000-2 is what the engine
+   is for and nothing measures it. Under it, Y-F23, Y-F15 and what is open of Y-F21; the
+   save's metadata together, Y-F2, Y-F4, Y-F5 and Y-F6; and Y-F25 decided.
+2. **One way to save.** Y-F1, Y-F22 and what is open of Y-0b are one defect: a
+   linearised save is a second writer path, which ignores the options and packs no object
+   streams. Linearising becomes a stage of the save the options already drive.
+3. **An operation is the only way a document changes, and it is whole.** Y-11 before
+   Y-10, with the two redaction routes let through by name until Y-10 replaces them; Y-F12
+   designed with Y-11, since the span the arena is unsealed is the span `apply` must
+   undo on failure. Then Y-10, its four questions put to the owner when it starts. Then
+   Y-F11 and Y-F19.
+4. **The frontends.** Y-F3 and Y-F27.
+5. **The reporting.** Y-F16, Y-F17 and Y-F8.
+6. **The documents.** Y-F26 last, with `ARCHITECTURE.md` §3's "an order of magnitude",
+   which `fepdf-model` at 32,989 lines against `fepdf-gui`'s 22,211 is not; and whether
+   `fepdf-doc` splits, below.
+
+Y-F9 and Y-F10 are held: each is about a platform this machine is not, and is taken when
+it can be run there.
+
 **The net**
 - [x] **Y-0** — `scripts/test/golden_outputs.sh` compares, between `HEAD` and the working
       tree, over `samples/` and `target/external/`: the bytes of a save (plain,
@@ -825,10 +851,11 @@ eight times, and the copies do not agree on whether to resolve.
 - [ ] **Y-F9** — reading aloud on Windows hands PowerShell the words on standard input
       and reads them with `[Console]::In`, whose encoding is the console's code page, not
       UTF-8; nothing sets it, so Japanese may arrive garbled (`speech.rs`). Unverified: no
-      Windows here.
+      Windows here. Held until it can be run on Windows.
 - [ ] **Y-F10** — stopping speech on Linux kills `spd-say`, and the speaking is done by
       the speech-dispatcher server; whether the passage under way stops is unverified,
-      and `spd-say --cancel` is the call that says so (`speech.rs`).
+      and `spd-say --cancel` is the call that says so (`speech.rs`). Held until it can be
+      run on Linux.
 - [ ] **Y-F11** — writing the bookmark panel's draft replaces the whole tree with what
       `OutlineNode` carries: a title, a page, children. Every item's `/C`, `/F`, `/SE`
       and open state goes, which its module says; so does a non-`GoTo` `/A`, which it
@@ -950,6 +977,11 @@ eight times, and the copies do not agree on whether to resolve.
       `fy05.pdf`'s output (measured 2026-10-03), while settling removes the `/Info`
       entries 14.3.3 deprecates. Not a violation, since a processor shall ignore it; the
       asymmetry is what is undecided. Either it goes, or an ADR says why it stays.
+- [ ] **Y-F27** — **two operations have no MCP tool of their own**: `RemoveOutside` and
+      `ResizePages`, of 52 (`status.sh`, 2026-10-03). Each is reachable through the
+      generic `apply_operation` tool, without a schema saying it exists, so a caller has
+      to know it to ask for it. `ARCHITECTURE.md` said every variant had one, which was
+      corrected the same day.
 - [ ] **Y-F26** — **the documents name the wrong thing as what fepdf is.** The owner's
       definition, 2026-10-03: a translator from any PDF to ISO 32000-2, operations on
       what it translated, and frontends for those operations; reporting what was done
