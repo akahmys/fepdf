@@ -6,9 +6,8 @@
 # failing on a bare "No such file or directory" as it did until 2026-09-06:
 #
 #   .arlington-venv      `make setup-arlington`
-#   external/arlington   cloned by hand; `.gitignore` excludes `/external/` and nothing
-#                        fetches this one. `ROADMAP.md` called it "already a submodule"
-#                        until 2026-09-06 — it is not, and that is why nothing fetches it.
+#   external/arlington   a submodule, pinned, since ROADMAP Y-F24 made the tests read it:
+#                        `git submodule update --init`. It was cloned by hand before.
 #                        https://github.com/pdf-association/arlington-pdf-model
 
 set -e
@@ -39,8 +38,7 @@ fi
 
 if [ ! -f "$AUDITOR_SCRIPT" ] || [ ! -d "$TSV_DIR" ]; then
     echo "Error: the Arlington model is not in external/arlington." >&2
-    echo "       Nothing in this repository fetches it; clone it there by hand:" >&2
-    echo "       git clone https://github.com/pdf-association/arlington-pdf-model external/arlington" >&2
+    echo "       It is a submodule: git submodule update --init external/arlington" >&2
     exit 1
 fi
 

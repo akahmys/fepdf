@@ -1,0 +1,42 @@
+# What a save of each sample departs from, held against the Arlington PDF Model,
+# each with the ROADMAP item that takes it (Y-F24). arlington_test.rs fails on a
+# departure not listed here, and on a line here its save no longer departs by.
+# sample	kind	finding	item
+02_低段汚水ポンプ電動機.pdf	key deprecated in 2.0	Resource: /ProcSet	Y-F25
+bokutokitan.pdf	key deprecated in 2.0	FontDescriptorCIDType0: /CIDSet	Y-F28
+bokutokitan.pdf	key deprecated in 2.0	Resource: /ProcSet	Y-F25
+constitution.pdf	key deprecated in 2.0	FontTrueType: /Name	Y-F28
+constitution.pdf	key deprecated in 2.0	Resource: /ProcSet	Y-F25
+fugaku.pdf	key deprecated in 2.0	Resource: /ProcSet	Y-F25
+fugaku.pdf	key the model does not name	FontType3: /CIDToGIDMap	Y-F15
+fugaku.pdf	key the model does not name	MarkInfo: /Type	Y-F28
+fugaku.pdf	key the model does not name	ViewerPreferences: /Type	Y-F28
+fy05.pdf	key deprecated in 2.0	FontDescriptorCIDType0: /CIDSet	Y-F28
+fy05.pdf	key deprecated in 2.0	FontDescriptorType1: /CharSet	Y-F28
+fy05.pdf	key deprecated in 2.0	Resource: /ProcSet	Y-F25
+intel_sdm.pdf	key deprecated in 2.0	DocInfo: /Title	Y-F28
+intel_sdm.pdf	key deprecated in 2.0	FontDescriptorCIDType2: /CIDSet	Y-F28
+intel_sdm.pdf	key deprecated in 2.0	FontDescriptorType1: /CharSet	Y-F28
+intel_sdm.pdf	key deprecated in 2.0	FontType1: /Name	Y-F28
+intel_sdm.pdf	key deprecated in 2.0	Resource: /Encoding	Y-F28
+intel_sdm.pdf	key deprecated in 2.0	Resource: /ProcSet	Y-F25
+intel_sdm.pdf	key the model does not name	Encoding: /PDFDocEncoding	Y-F28
+print_sample.pdf	key deprecated in 2.0	FontTrueType: /Name	Y-F28
+print_sample.pdf	key deprecated in 2.0	Resource: /ProcSet	Y-F25
+sample_02c.pdf	key deprecated in 2.0	FontDescriptorCIDType0: /CIDSet	Y-F28
+sample_02c.pdf	key deprecated in 2.0	FontDescriptorCIDType2: /CIDSet	Y-F28
+sample_02c.pdf	key deprecated in 2.0	FontTrueType: /Name	Y-F28
+sample_02c.pdf	key deprecated in 2.0	FontType1: /Name	Y-F28
+sample_02c.pdf	key deprecated in 2.0	Resource: /Encoding	Y-F28
+sample_02c.pdf	key deprecated in 2.0	Resource: /ProcSet	Y-F25
+sample_02c.pdf	key the model does not name	AddActionWidgetAnnotation: /C	Y-F28
+sample_02c.pdf	key the model does not name	AnnotWidget: /DR	Y-F28
+sample_02c.pdf	key the model does not name	Encoding: /PDFDocEncoding	Y-F28
+sample_02c.pdf	key the model does not name	FontType0: /Name	Y-F28
+sample_02c.pdf	required key absent	AnnotWidget: /DA	Y-F28
+sample_02c.pdf	required key absent	AnnotWidget: /FT	Y-F28
+unicode_16.pdf	key the model does not name	FontDescriptorCIDType0: /Subtype	Y-F28
+volvo_xc90.pdf	key deprecated in 2.0	Resource: /ProcSet	Y-F25
+volvo_xc90.pdf	key the model does not name	MarkInfo: /Type	Y-F28
+volvo_xc90.pdf	key the model does not name	ViewerPreferences: /Type	Y-F28
+volvo_xc90.pdf	key the model does not name	XObjectImage: /ColorTransform	Y-F28

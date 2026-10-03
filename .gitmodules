@@ -13,3 +13,6 @@
 [submodule "external/mapping-resources-pdf"]
 	path = external/mapping-resources-pdf
 	url = https://github.com/adobe-type-tools/mapping-resources-pdf.git
+[submodule "external/arlington"]
+	path = external/arlington
+	url = https://github.com/pdf-association/arlington-pdf-model.git

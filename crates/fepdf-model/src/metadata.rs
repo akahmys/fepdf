@@ -142,6 +142,26 @@ fn overlay(base: &mut MetadataInfo, top: MetadataInfo) {
     }
 }
 
+/// `text`, a date in either spelling, as 7.9.4 writes one: `D:YYYYMMDDHHmmSSOHH'mm`,
+/// stopping where the date stops being stated, or `None` if `text` is no date.
+fn pdf_date(text: &str) -> Option<String> {
+    let date = crate::refine::metadata::parse_date_string(text)?;
+    let mut out = format!("D:{:04}", date.year);
+    for part in [date.month, date.day, date.hour, date.minute, date.second] {
+        let Some(part) = part else { break };
+        out.push_str(&format!("{part:02}"));
+    }
+    match date.timezone {
+        Some(xmp_writer::Timezone::Utc) => out.push('Z'),
+        Some(xmp_writer::Timezone::Local { hour, minute }) => {
+            let sign = if hour < 0 || minute < 0 { '-' } else { '+' };
+            out.push_str(&format!("{sign}{:02}'{:02}", hour.unsigned_abs(), minute.unsigned_abs()));
+        }
+        None => {}
+    }
+    Some(out)
+}
+
 /// The two spellings of a date are the same date.
 ///
 /// `/Info` writes `D:20240620213357Z` and XMP writes `2024-06-20T21:33:57Z` for the
@@ -305,12 +325,24 @@ fn update_legacy_info(doc: &crate::Document, info: &MetadataInfo) -> crate::PdfR
         dict.remove(&arena.name("Creator"));
         dict.remove(&arena.name("Producer"));
 
-        // Format dates as standard ASCII PDF string literals (D:...)
-        if let Some(v) = &info.creation_date {
-            dict.insert(arena.name("CreationDate"), Object::String(bytes::Bytes::from(v.clone())));
-        }
-        if let Some(v) = &info.mod_date {
-            dict.insert(arena.name("ModDate"), Object::String(bytes::Bytes::from(v.clone())));
+        // The settled value is the metadata stream's spelling, `2024-11-08T09:05:36+09:00`,
+        // and `/Info` takes 7.9.4's, `D:20241108090536+09'00`. Written as it was, every
+        // save carried a date no reader of `/Info` parses (ROADMAP Y-F23).
+        for (key, value) in [("CreationDate", &info.creation_date), ("ModDate", &info.mod_date)] {
+            let Some(text) = value else { continue };
+            match pdf_date(text) {
+                Some(date) => {
+                    dict.insert(arena.name(key), Object::String(bytes::Bytes::from(date)));
+                }
+                None => {
+                    dict.remove(&arena.name(key));
+                    doc.record(crate::interpretation::Decision::violation(
+                        "7.9.4",
+                        format!("/Info /{key} is {text:?}, which is no date"),
+                        "left it out of /Info; the metadata stream keeps what it says",
+                    ));
+                }
+            }
         }
         arena.set_dict(dh, dict);
     }
@@ -616,6 +648,12 @@ xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\">\
     #[test]
     fn the_two_spellings_of_one_instant_are_not_a_disagreement() {
         assert!(same_date("D:20240620213357Z", "2024-06-20T21:33:57Z"));
+        // And `/Info` is written in 7.9.4's spelling, whichever it was settled from.
+        assert_eq!(pdf_date("2024-11-08T09:05:36+09:00").as_deref(), Some("D:20241108090536+09'00"));
+        assert_eq!(pdf_date("2024-06-21T09:22:30-07:00").as_deref(), Some("D:20240621092230-07'00"));
+        assert_eq!(pdf_date("2024-06-20T21:33:57Z").as_deref(), Some("D:20240620213357Z"));
+        assert_eq!(pdf_date("D:20031003221948").as_deref(), Some("D:20031003221948"));
+        assert_eq!(pdf_date("yesterday"), None);
         assert!(same_date("D:20241108090536+09'00'", "2024-11-08T09:05:36+09:00"));
         // fy05.pdf: six days apart, and a real disagreement.
         assert!(!same_date("D:20241114200008+09'00'", "2024-11-08T09:08:18+09:00"));

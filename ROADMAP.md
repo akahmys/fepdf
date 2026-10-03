@@ -784,7 +784,8 @@ their places; this is the order they are taken in.
 1. **The output conforms, and that is measured.** Y-F24 first: a save read back by a test
    that fails on a departure, since output conforming to ISO 32000-2 is what the engine
    is for and nothing measures it. Under it, Y-F23, Y-F15 and what is open of Y-F21; the
-   save's metadata together, Y-F2, Y-F4, Y-F5 and Y-F6; and Y-F25 decided.
+   save's metadata together, Y-F2, Y-F4, Y-F5 and Y-F6; Y-F25 decided; and Y-F28, what
+   the test found the saves keep from their sources.
 2. **One way to save.** Y-F1, Y-F22 and what is open of Y-0b are one defect: a
    linearised save is a second writer path, which ignores the options and packs no object
    streams. Linearising becomes a stage of the save the options already drive.
@@ -946,6 +947,8 @@ it can be run there.
       alone: measured 2026-09-30, none of the 4 in `sample_02c.pdf` or the 23 in
       `fy05.pdf` carries one, and every one does once loaded. Either ingestion records
       what it repaired, or it stops repairing it.
+      Y-F24's test finds a Type 3 font in `fugaku.pdf` carrying one too, which no table of
+      the model has (2026-10-03).
 - [ ] **Y-F16** — 31-005 to 31-008, about a Type 0 font's CMap, are not asked. They were
       left out because ingestion was said to rewrite every CMap to `Identity-H`, which it
       never did to a font that loads (ADR-0105). They need ISO 32000-1 Table 118 read out
@@ -960,19 +963,29 @@ it can be run there.
 - [x] **Y-F7** — `compare.rs`'s `to_f64` is used only under the `render` feature and is
       not gated with it, so `cargo build -p fepdf` warns. The workspace build unifies
       features and never sees it. Gated with `render` in Y-4 (`5467c37`).
-- [ ] **Y-F23** — **a save writes `/Info`'s dates in the metadata stream's form.**
+- [x] **Y-F23** — **a save writes `/Info`'s dates in the metadata stream's form.**
       `publish upgrade --no-obj-stm` of `fy05.pdf` writes `/CreationDate
       (2024-11-08T09:05:36+09:00)`, where 7.9.4 asks for `D:20241108090536+09'00'`
       (measured 2026-10-03). `metadata.rs` inserts the settled value as it is, under a
       comment saying it formats it as `D:`. *Done when* the written dates are 7.9.4's form
       and a test fails with the conversion taken out.
-- [ ] **Y-F24** — **nothing checks that what a save writes conforms.** Re-reading the
+      Fixed 2026-10-03: `metadata::pdf_date` writes 7.9.4's form, and a date that does not
+      parse is left out of `/Info` with a `Decision`. The ten samples' twenty dates left
+      `arlington_known.tsv`, and writing the settled value as it was failed the test.
+- [x] **Y-F24** — **nothing checks that what a save writes conforms.** Re-reading the
       Y-F23 output reports `none — nothing in reading this document departed from the
       standard`: the reader does not check a date's syntax, and no test reads a save back.
       `Strictness::Strict` is named in `interpretation.rs` and by no test. Output
       conforming to ISO 32000-2 is what the engine is for, so it is a measured claim or
       none. *Done when* a corpus test reads every sample's save back and fails on a
       departure, and putting Y-F23 back fails it.
+      Done 2026-10-03, against the Arlington PDF Model, a submodule now:
+      `suite/arlington_test.rs` reads each sample's save back and holds every dictionary
+      it reaches against the model, one test a sample. `arlington_known.tsv` lists what a
+      save departs from, each with its item; a departure not listed fails, and so does a
+      listed one no longer made. Held against the sources as well, the only departure a
+      save introduced was Y-F23's dates; the rest the sources carried and the save kept,
+      which is Y-F28. Not checked: a condition the model writes as `fn:`.
 - [ ] **Y-F25** — **a save keeps `/ProcSet`, which 14.2 deprecates**: 1,086 arrays in
       `fy05.pdf`'s output (measured 2026-10-03), while settling removes the `/Info`
       entries 14.3.3 deprecates. Not a violation, since a processor shall ignore it; the
@@ -982,6 +995,15 @@ it can be run there.
       generic `apply_operation` tool, without a schema saying it exists, so a caller has
       to know it to ask for it. `ARCHITECTURE.md` said every variant had one, which was
       corrected the same day.
+- [ ] **Y-F28** — **a save keeps what its source departed by.** Held against the
+      Arlington model (Y-F24, 2026-10-03), the samples' saves keep keys 2.0 deprecates —
+      `/CIDSet` in five font descriptors, `/CharSet` in two, a font's `/Name` in five, an
+      AcroForm resource's `/Encoding`, `intel_sdm.pdf`'s `/Info /Title` — and keys no table
+      of the model names: `/Type` in `/MarkInfo` and `/ViewerPreferences`, an image's
+      `/ColorTransform`, a CIDFont descriptor's `/Subtype`, a Type 0 font's `/Name`. A
+      widget in `sample_02c.pdf` lacks `/DA` and `/FT` that its field requires. Every one
+      is in the source as read; none is the save's own. A translator to ISO 32000-2 drops
+      or repairs them, each with a `Decision`. `arlington_known.tsv` lists them.
 - [ ] **Y-F26** — **the documents name the wrong thing as what fepdf is.** The owner's
       definition, 2026-10-03: a translator from any PDF to ISO 32000-2, operations on
       what it translated, and frontends for those operations; reporting what was done

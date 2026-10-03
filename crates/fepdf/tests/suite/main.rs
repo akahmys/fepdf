@@ -5,6 +5,7 @@ mod actual_text_test;
 mod annotation_appearance_test;
 mod annotation_drawing_test;
 mod arena_growth_test;
+mod arlington_test;
 mod audit_scope_test;
 mod backend_operations_test;
 mod calculation_order_test;

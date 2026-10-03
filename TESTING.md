@@ -314,6 +314,14 @@ For a test, `scripts/test/mutate_once.py FILE OLD NEW -- <cargo test arguments>`
 one place in the code it guards, runs it, and puts the file back byte for byte: `FIRES`
 is the answer a test owes, and `SURVIVES` says it does not guard what it is about.
 
+**A save is held against the Arlington PDF Model.** `suite/arlington_test.rs` saves each
+sample, reads the save back, and checks every dictionary it reaches against the model in
+`external/arlington` for each key's type, the keys a dictionary requires, those 2.0
+deprecates, and 7.9.4's dates. What a save departs from is listed in
+`suite/arlington_known.tsv`, each line with the ROADMAP item that takes it; the test fails
+on a departure not listed, and on a listed one a save no longer makes, so a fix removes its
+line. A condition the model writes as `fn:` is not evaluated.
+
 **The facade's tests are one binary, `suite`**, and each file in `crates/fepdf/tests/suite/`
 is a module of it, listed in `main.rs`. A file is run alone with
 `cargo test -p fepdf --test suite <file>::`, and a new file is not compiled until

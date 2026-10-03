@@ -64,6 +64,10 @@ git submodule update --init            # what a clone should do
 ./scripts/dev/fetch_font_resources.sh  # or this, if it did not
 ```
 
+`external/arlington` is a third submodule, the PDF Association's model of every
+dictionary in ISO 32000-2. Building does not need it; the tests do, since a save is held
+against it (`crates/fepdf/tests/suite/arlington_test.rs`).
+
 The script clones the same two repositories at their tips rather than at the pinned
 commits, so the two mechanisms do not agree about *which* data you get. That is a knot
 worth untying — one resource should have one way in — and it is not untied here.
