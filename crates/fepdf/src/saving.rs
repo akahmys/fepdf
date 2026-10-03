@@ -42,7 +42,7 @@ impl PdfDocument {
         version: &str,
         options: &SaveOptions,
     ) -> PdfResult<Vec<Decision>> {
-        self.write_out(output_path, version, options, None)
+        self.write_out(output_path, version, options, None, false)
     }
 
     /// Applies the metadata the options ask for to `output`, the copy being written,
@@ -132,6 +132,7 @@ impl PdfDocument {
         version: &str,
         options: &SaveOptions,
         signing: Option<(&fepdf_model::cms::SigningIdentity, &SignOptions)>,
+        linearize: bool,
     ) -> PdfResult<Vec<Decision>> {
         written_version(version)?;
         if options.dry_run {
@@ -153,6 +154,7 @@ impl PdfDocument {
             writer.set_compression(options.compression_level);
         }
         writer.set_pack_objects(options.obj_stm);
+        writer.set_linearize(linearize);
         let mut encryption = Vec::new();
         Self::apply_encryption(&mut writer, options, &mut encryption)?;
         if let Some((identity, sign_options)) = signing {
@@ -249,37 +251,13 @@ impl PdfDocument {
         version: &str,
         options: &SaveOptions,
     ) -> PdfResult<Vec<Decision>> {
-        // Linearization involves object reordering and hint tables.
-        // For M67, we implement the object reordering phase.
-
-        written_version(version)?;
-        // 1. Update Metadata, on the copy being written (see `output_document`).
-        let output = self.output_document()?;
-        let mut metadata = output.metadata();
-        if let Some(v) = &options.title {
-            metadata.title = Some(v.clone());
-        }
-        if let Some(v) = &options.author {
-            metadata.author = Some(v.clone());
-        }
-        metadata.producer = Some("fepdf (linearized)".to_string());
-
-        fepdf_model::metadata::update_document_metadata(&output, &metadata, options.stamp())?;
-
-        let file = std::fs::File::create(output_path).map_err(PdfError::Io)?;
-        let (final_arena, root, info) =
-            (output.arena(), *output.root_handle(), output.info_handle());
-
-        let mut writer = crate::writer::PdfWriter::new(file, final_arena);
-        writer.set_string_encoding(options.string_encoding);
-        writer.set_linearize(true);
-        if options.compress {
-            writer.set_compression(options.compression_level);
-        }
-
-        writer.write_header(version)?;
-        writer.finish(root, info)?;
-        Ok(self.write_decisions())
+        // **One way to save** (ROADMAP Y-F1). This kept its own copy of the metadata
+        // handling and read `title` and `author` alone, so `strip`, `lang`, `copyright`,
+        // `creation_date` and the 2.0 translation of what a save writes did nothing here,
+        // and `password` wrote a file unencrypted without a word. It is the save with
+        // linearising on: every option means what it means there, and one the
+        // linearised layout cannot carry — encryption, a signature — is refused.
+        self.write_out(output_path, version, options, None, true)
     }
 
     /// Signs the document and saves it.
@@ -316,7 +294,7 @@ impl PdfDocument {
             .as_deref()
             .ok_or(PdfError::Crypto("signing needs a private key".into()))?;
         let identity = fepdf_model::cms::SigningIdentity::from_der(certificate, key)?;
-        self.write_out(output_path, version, options, Some((&identity, sign_options)))
+        self.write_out(output_path, version, options, Some((&identity, sign_options)), false)
     }
 }
 

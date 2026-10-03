@@ -786,7 +786,7 @@ their places; this is the order they are taken in.
    is for and nothing measures it. Under it, Y-F23, Y-F15 and what is open of Y-F21; the
    save's metadata together, Y-F2, Y-F4, Y-F5 and Y-F6, and Y-F29 with them; Y-F25
    decided; and Y-F28, what the test found the saves keep from their sources.
-2. **One way to save.** Y-F1, Y-F22 and what is open of Y-0b are one defect: a
+2. **One way to save.** Y-F1, Y-F30, Y-F22 and what is open of Y-0b are one defect: a
    linearised save is a second writer path, which ignores the options and packs no object
    streams. Linearising becomes a stage of the save the options already drive.
 3. **An operation is the only way a document changes, and it is whole.** Y-11 before
@@ -833,9 +833,15 @@ it can be run there.
       `SOURCE_DATE_EPOCH` (`d2cef3e`).
 
 **Found while building the net**, each to be taken on its own
-- [ ] **Y-F1** — `save_linearized` keeps its own copy of the metadata handling and
+- [x] **Y-F1** — `save_linearized` keeps its own copy of the metadata handling and
       ignores `password`, `strip`, `lang`, `copyright` and `obj_stm`, beside a comment
       saying it is consistent with `save_with_options`.
+      Fixed 2026-10-03: `save_linearized` is `write_out` with linearising on, so the
+      metadata, the 2.0 translation and every option are the save's. A password, which
+      the linearised layout cannot carry, is refused instead of dropped; `obj_stm` is read
+      and not yet acted on by the linearised writer, which is Y-F22.
+      `linearize_options_test.rs` holds it, and passing the old subset of the options
+      fails it.
 - [x] **Y-F2** — `SaveOptions::creation_date` is read by nothing.
       Fixed 2026-10-03: a creation date the caller gives is written, in the packet and in
       `/Info`, and one that is no date is refused as `PdfError::Refused`.
@@ -1062,6 +1068,16 @@ it can be run there.
       is given none; only a save, which makes a new document, draws a new one. One file
       opened twice holds one ID, and `save_metadata_test.rs` reads a save back as any
       caller does.
+- [ ] **Y-F30** — **a linearised file puts before its first page what Annex F puts after
+      it.** F.3.5 lets part 4 hold the catalogue and the values of its `/ViewerPreferences`,
+      `/PageMode`, `/Threads` (the thread dictionaries alone), `/OpenAction` and `/AcroForm`
+      (the top-level dictionary alone), and says every other object *shall not* be there:
+      named destinations, the structure tree, the field hierarchy, the information
+      dictionary belong in part 9 (F.3.10). `trace_doc_reachable_selective` takes all a
+      catalogue reaches but `/Pages`, so `intel_sdm.pdf`'s 279,508 named destinations sit
+      between 9.9% and 54.8% of the file and its first page at 53.7% (measured
+      2026-10-03): a reader has read half the file before it can show page one. Part 9 is
+      what Y-F22 packs, so this goes first.
 - [ ] **Y-F26** — **the documents name the wrong thing as what fepdf is.** The owner's
       definition, 2026-10-03: a translator from any PDF to ISO 32000-2, operations on
       what it translated, and frontends for those operations; reporting what was done
