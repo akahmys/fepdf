@@ -888,7 +888,7 @@ it can be run there.
       Fixed by `page_removal.rs`, which both paths end in: what named the page goes
       with it — the user's choice over leaving the references empty — and what still
       points at it is made `null`.
-- [ ] **Y-F21** — **a page was two objects in a merged or extracted document, and a
+- [x] **Y-F21** — **a page was two objects in a merged or extracted document, and a
       direct dictionary is read as an object it is not.** Measured 2026-10-02 on
       `extract_pages_test.rs`'s fixtures:
       - `extract_pages(vec![0, 1])` on a two-page document deleted the link from page 0
@@ -905,6 +905,12 @@ it can be run there.
         `objects` pool, the shape `font_census_test.rs` records for `object_id`. A file
         whose `/Outlines` is written direct reads as having no bookmarks, and which
         object it reads instead is whatever shares the index.
+      - Fixed 2026-10-03: loading gives an outline dictionary or a structure element
+        written in place an object of its own (`ingest::indirect`), the outline's with a
+        `Decision`, since Tables 29 and 151 say an indirect reference and Table 355 does
+        not; `resolve_to_node_handle` answers a reference or nothing. A direct
+        `/Outlines`, direct items, and a direct element in `/K` read; taking the lifting
+        out failed each.
 - [ ] **Y-F22** — **a linearised file writes no object streams.** `intel_sdm.pdf`'s
       plain save packs 325,000 of its 332,818 objects into 3,277 compressed object
       streams; the linearised one writes every object directly, 58 MB against 25.6 MB

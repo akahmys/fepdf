@@ -88,7 +88,7 @@ pub fn apply_move_struct(doc: &Document, move_: StructElemMove) -> PdfResult<()>
         .and_then(|cah| doc.resolve_to_dict(cah).ok())
         .and_then(|cadh| arena.get_dict(cadh))
         .and_then(|dict| dict.get(&arena.name("StructTreeRoot")).cloned())
-        .and_then(|entry| struct_tree::resolve_to_node_handle(arena, &entry))
+        .and_then(|entry| struct_tree::resolve_to_node_handle(&entry))
     else {
         return Err(PdfError::refused(
             "MoveStructElem",

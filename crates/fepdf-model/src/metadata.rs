@@ -649,8 +649,14 @@ xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\">\
     fn the_two_spellings_of_one_instant_are_not_a_disagreement() {
         assert!(same_date("D:20240620213357Z", "2024-06-20T21:33:57Z"));
         // And `/Info` is written in 7.9.4's spelling, whichever it was settled from.
-        assert_eq!(pdf_date("2024-11-08T09:05:36+09:00").as_deref(), Some("D:20241108090536+09'00"));
-        assert_eq!(pdf_date("2024-06-21T09:22:30-07:00").as_deref(), Some("D:20240621092230-07'00"));
+        assert_eq!(
+            pdf_date("2024-11-08T09:05:36+09:00").as_deref(),
+            Some("D:20241108090536+09'00")
+        );
+        assert_eq!(
+            pdf_date("2024-06-21T09:22:30-07:00").as_deref(),
+            Some("D:20240621092230-07'00")
+        );
         assert_eq!(pdf_date("2024-06-20T21:33:57Z").as_deref(), Some("D:20240620213357Z"));
         assert_eq!(pdf_date("D:20031003221948").as_deref(), Some("D:20031003221948"));
         assert_eq!(pdf_date("yesterday"), None);

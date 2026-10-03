@@ -83,7 +83,7 @@ pub fn read_outlines(doc: &Document) -> (OutlineTree, OutlineReport) {
     let Some(dict) = arena.get_dict(catalog) else {
         return (OutlineTree::default(), OutlineReport::default());
     };
-    let Some(root) = dict.get(&arena.name("Outlines")).and_then(|o| node_handle(arena, o)) else {
+    let Some(root) = dict.get(&arena.name("Outlines")).and_then(|o| node_handle(o)) else {
         return (OutlineTree::default(), OutlineReport::default());
     };
 
@@ -180,7 +180,7 @@ impl Reader<'_> {
     /// The node at `key`, read from the entry as written: a resolved value has lost the
     /// reference that names the node.
     fn entry(&self, handle: Handle<Object>, key: &str) -> Option<Handle<Object>> {
-        node_handle(self.arena, self.dict_of(handle)?.get(&self.arena.name(key))?)
+        node_handle(self.dict_of(handle)?.get(&self.arena.name(key))?)
     }
 }
 
@@ -215,8 +215,8 @@ fn text_entry(arena: &PdfArena, dict: &Dict, key: &str) -> Option<String> {
 /// dictionary handle of the answer gives `Handle::new(dh.index())` — an index into the
 /// dictionary table read as an index into the object table, which is a different object
 /// or none. The same mistake cost the structure-tree reader every one of its elements.
-fn node_handle(arena: &PdfArena, obj: &Object) -> Option<Handle<Object>> {
-    crate::struct_tree::resolve_to_node_handle(arena, obj)
+fn node_handle(obj: &Object) -> Option<Handle<Object>> {
+    crate::struct_tree::resolve_to_node_handle(obj)
 }
 
 fn page_handles(doc: &Document) -> BTreeMap<Handle<Object>, usize> {

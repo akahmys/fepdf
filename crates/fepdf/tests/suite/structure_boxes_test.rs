@@ -202,3 +202,21 @@ fn a_mark_on_another_page_is_not_looked_up_on_this_one() {
     assert_eq!(root.children[0].rect, Some([10.0, 20.0, 40.0, 60.0]));
     assert_eq!(root.children[1].rect, Some([100.0, 100.0, 150.0, 150.0]));
 }
+
+/// **A structure element written in place in `/K` is an element.** Table 355 lets one be
+/// written there; the walk took its index in the dictionary pool as an object number and
+/// read whatever object shared it (ROADMAP Y-F21).
+#[test]
+fn an_element_written_in_place_is_read() {
+    let bytes = fepdf_fixtures::assemble(&[
+        "<< /Type /Catalog /Pages 2 0 R /StructTreeRoot 4 0 R /MarkInfo << /Marked true >> >>",
+        "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] >>",
+        "<< /Type /StructTreeRoot /K 5 0 R >>",
+        "<< /Type /StructElem /S /Document /P 4 0 R /K [<< /Type /StructElem /S /H1 /P 5 0 R >>] >>",
+    ]);
+    let doc = PdfDocument::open(bytes.into()).expect("the fixture opens");
+    let tree = doc.extract_struct_tree().expect("the document is tagged");
+    let printed = format!("{tree:?}");
+    assert!(printed.contains("H1"), "the element written in place was not read: {printed}");
+}

@@ -136,7 +136,7 @@ impl StructureTreeVisitor {
         let dict = arena.get_dict(cadh)?;
         let str_root_key = arena.name("StructTreeRoot");
         let str_root_obj = dict.get(&str_root_key)?;
-        let str_root_ref = resolve_to_node_handle(arena, str_root_obj)?;
+        let str_root_ref = resolve_to_node_handle(str_root_obj)?;
         let page_map = build_page_handle_map(doc);
         let walk = Walk { page_map: &page_map, roles: read_role_map(arena, str_root_ref) };
         // The document's own language, which every element is in until one says otherwise
@@ -195,18 +195,15 @@ fn text_entry(
     }
 }
 
-pub(crate) fn resolve_to_node_handle(arena: &PdfArena, obj: &Object) -> Option<Handle<Object>> {
+pub(crate) fn resolve_to_node_handle(obj: &Object) -> Option<Handle<Object>> {
+    // **A dictionary written in place is no node.** This answered one with
+    // `Handle::new(dh.index())` — an index in the `dicts` pool taken as one in the
+    // `objects` pool — so a direct `/Outlines` read as whatever object shared its number
+    // (ROADMAP Y-F21). Loading gives a direct outline item or structure element an object
+    // of its own (`ingest::indirect`), so what is left here is a reference or nothing.
     match obj {
         Object::Reference(h) => Some(*h),
-        Object::Dictionary(dh) => Some(Handle::new(dh.index())),
-        _ => {
-            let resolved = obj.resolve(arena);
-            match resolved {
-                Object::Reference(h) => Some(h),
-                Object::Dictionary(dh) => Some(Handle::new(dh.index())),
-                _ => None,
-            }
-        }
+        _ => None,
     }
 }
 
@@ -396,9 +393,7 @@ pub(crate) fn subtree(arena: &PdfArena, element: Handle<Object>) -> BTreeSet<Han
             None => Vec::new(),
         };
         waiting.extend(
-            kids.iter()
-                .filter_map(|kid| resolve_to_node_handle(arena, kid))
-                .map(|k| (k, depth + 1)),
+            kids.iter().filter_map(|kid| resolve_to_node_handle(kid)).map(|k| (k, depth + 1)),
         );
     }
     found
@@ -431,7 +426,7 @@ fn delete_from_kids(
     let mut removed = false;
     let mut kept = Vec::new();
     for kid in kids {
-        let Some(kid_ref) = resolve_to_node_handle(arena, kid) else {
+        let Some(kid_ref) = resolve_to_node_handle(kid) else {
             kept.push(kid.clone());
             continue;
         };
@@ -472,7 +467,7 @@ fn delete_struct_node_at(
     };
 
     let mut removed = false;
-    if let Some(kid_ref) = resolve_to_node_handle(arena, &kids_obj) {
+    if let Some(kid_ref) = resolve_to_node_handle(&kids_obj) {
         if kid_ref == target_handle {
             dict.remove(&k_key);
             removed = true;
@@ -577,7 +572,7 @@ fn classify_kid(arena: &PdfArena, kid: &Object, page_map: &BTreeMap<Handle<Objec
             _ => Kid::Nothing,
         },
         Some("OBJR") => Kid::Nothing,
-        _ => resolve_to_node_handle(arena, kid).map_or(Kid::Nothing, Kid::Element),
+        _ => resolve_to_node_handle(kid).map_or(Kid::Nothing, Kid::Element),
     }
 }
 
@@ -697,7 +692,7 @@ fn parse_page_index_helper(
     page_map: &BTreeMap<Handle<Object>, usize>,
 ) -> Option<usize> {
     let pg_obj = dict.get(&arena.name("Pg"))?;
-    let pg_ref = resolve_to_node_handle(arena, pg_obj)?;
+    let pg_ref = resolve_to_node_handle(pg_obj)?;
     page_map.get(&pg_ref).copied()
 }
 

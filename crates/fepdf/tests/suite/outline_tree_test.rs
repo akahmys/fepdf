@@ -148,3 +148,50 @@ fn the_corpus_reads_the_same_numbers_the_other_reader_reports() {
         assert!(!tree.items.is_empty(), "{name} read no roots");
     }
 }
+
+/// A two-page document whose catalogue's `/Outlines` is `outlines`, with `extra` objects
+/// after the pages (numbered from 5).
+fn outlined(outlines: &str, extra: &[&str]) -> PdfDocument {
+    let mut bodies = vec![
+        format!("<< /Type /Catalog /Pages 2 0 R /Outlines {outlines} >>"),
+        "<< /Type /Pages /Kids [3 0 R 4 0 R] /Count 2 >>".to_string(),
+        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] >>".to_string(),
+        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] >>".to_string(),
+    ];
+    bodies.extend(extra.iter().map(|b| (*b).to_string()));
+    PdfDocument::open(fepdf_fixtures::assemble(&bodies).into()).expect("the fixture opens")
+}
+
+fn titles(doc: &PdfDocument) -> Vec<(String, usize)> {
+    let (tree, _) = read_outlines(doc.inner());
+    tree.items.iter().map(|i| (i.title.clone(), i.destination_page)).collect()
+}
+
+/// **An outline written in place is read, and the repair is said.** Table 29 says
+/// `/Outlines` shall be an indirect reference; the reader took a direct one's index in the
+/// dictionary pool as an object number, and read whatever object shared it — here, no
+/// bookmarks at all (ROADMAP Y-F21).
+#[test]
+fn an_outline_root_written_in_place_is_read() {
+    let doc = outlined(
+        "<< /Type /Outlines /First 5 0 R /Last 5 0 R /Count 1 >>",
+        &["<< /Title (Two) /Dest [4 0 R /Fit] >>"],
+    );
+    assert_eq!(titles(&doc), [("Two".to_string(), 1)]);
+    assert!(
+        doc.decisions().iter().any(|d| d.clause == "7.7.2" && d.found.contains("outline")),
+        "the direct outline was repaired in silence: {:?}",
+        doc.decisions()
+    );
+}
+
+/// The items too: a `/First` and a `/Next` written in place are two bookmarks, in order.
+#[test]
+fn outline_items_written_in_place_are_read_in_order() {
+    let doc = outlined(
+        "5 0 R",
+        &["<< /Type /Outlines /First << /Title (One) /Dest [3 0 R /Fit] \
+             /Next << /Title (Two) /Dest [4 0 R /Fit] >> >> >>"],
+    );
+    assert_eq!(titles(&doc), [("One".to_string(), 0), ("Two".to_string(), 1)]);
+}

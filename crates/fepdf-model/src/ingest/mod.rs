@@ -12,6 +12,8 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 
 pub(crate) mod discovery;
+/// Dictionaries written in place where the reader needs an object, given one at load.
+pub(crate) mod indirect;
 pub use discovery::*;
 
 /// Policy for color validation (ISO 32000-2 Clause 8.6).
@@ -202,6 +204,7 @@ impl Ingestor {
         temp_doc: &Document,
         decisions: &mut crate::interpretation::DecisionLog,
     ) -> (FontCache, StreamContexts) {
+        indirect::lift_direct_nodes(arena, *temp_doc.root_handle(), decisions);
         lift_direct_fonts(arena);
         let (font_indices, page_and_form_indices) = scan_ingested_objects(arena);
         let handle_font_cache = discover_fonts(arena, temp_doc, Some(&font_indices));

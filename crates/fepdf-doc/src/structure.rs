@@ -41,17 +41,13 @@ impl<'a> StructureVisitor<'a> {
             let kids_key = self.arena.name("K");
 
             if let Some(kids) = dict.get(&kids_key) {
-                if let Some(kid_handle) =
-                    crate::struct_tree::resolve_to_node_handle(self.arena, kids)
-                {
+                if let Some(kid_handle) = crate::struct_tree::resolve_to_node_handle(kids) {
                     self.stack.push_back(kid_handle);
                 } else if let Object::Array(h) = kids.resolve(self.arena)
                     && let Some(array) = self.arena.get_array(h)
                 {
                     for kid in array.iter().rev() {
-                        if let Some(kid_handle) =
-                            crate::struct_tree::resolve_to_node_handle(self.arena, kid)
-                        {
+                        if let Some(kid_handle) = crate::struct_tree::resolve_to_node_handle(kid) {
                             self.stack.push_back(kid_handle);
                         }
                     }
@@ -856,7 +852,7 @@ impl<'a> MatterhornAuditor<'a> {
         let Some(kids) = &element.kids else {
             return out;
         };
-        if let Some(one) = crate::struct_tree::resolve_to_node_handle(self.arena, kids) {
+        if let Some(one) = crate::struct_tree::resolve_to_node_handle(kids) {
             out.push(one);
             return out;
         }
@@ -864,9 +860,7 @@ impl<'a> MatterhornAuditor<'a> {
             && let Some(array) = self.arena.get_array(handle)
         {
             out.extend(
-                array
-                    .iter()
-                    .filter_map(|kid| crate::struct_tree::resolve_to_node_handle(self.arena, kid)),
+                array.iter().filter_map(|kid| crate::struct_tree::resolve_to_node_handle(kid)),
             );
         }
         out
