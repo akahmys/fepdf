@@ -207,6 +207,7 @@ impl Ingestor {
         indirect::lift_direct_nodes(arena, *temp_doc.root_handle(), decisions);
         lift_direct_fonts(arena);
         require_cid_to_gid_maps(arena, decisions);
+        drop_procsets(arena, decisions);
         let (font_indices, page_and_form_indices) = scan_ingested_objects(arena);
         let handle_font_cache = discover_fonts(arena, temp_doc, Some(&font_indices));
 

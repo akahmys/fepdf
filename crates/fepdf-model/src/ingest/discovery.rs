@@ -122,6 +122,36 @@ pub fn require_cid_to_gid_maps(
     }
 }
 
+/// Takes every `/ProcSet` out, and says how many went.
+///
+/// **14.2 deprecates procedure sets since PDF 1.4**: they name PostScript procedures a
+/// printer was sent, and nothing in this engine reads one. A save to 2.0 kept them while
+/// it moved the `/Info` entries 14.3.3 deprecates — 1,086 arrays in `fy05.pdf`'s output
+/// — and the Arlington model reads each as a deprecated key (ROADMAP Y-F25). One
+/// `Decision` a document, with the count, rather than one a resource dictionary.
+pub fn drop_procsets(arena: &PdfArena, decisions: &mut crate::interpretation::DecisionLog) {
+    let Some(key) = arena.get_name_by_str("ProcSet") else { return };
+    let mut dropped = 0usize;
+    for holder in arena.all_dict_handles() {
+        if arena.dict_entry(holder, key).is_none() {
+            continue;
+        }
+        let Some(mut dict) = arena.get_dict(holder) else { continue };
+        dict.remove(&key);
+        arena.set_dict(holder, dict);
+        dropped += 1;
+    }
+    if dropped > 0 {
+        decisions.push(crate::interpretation::Decision::repaired(
+            "14.2",
+            format!(
+                "{dropped} resource dictionaries name procedure sets, deprecated since PDF 1.4"
+            ),
+            "dropped each /ProcSet; nothing reads one but a PostScript printer",
+        ));
+    }
+}
+
 /// Finds and loads every font the document's pages reference.
 pub fn discover_fonts(
     arena: &PdfArena,

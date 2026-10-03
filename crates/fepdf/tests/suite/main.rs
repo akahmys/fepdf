@@ -59,6 +59,7 @@ mod page_selection_test;
 mod parser_twin_test;
 mod pattern_color_test;
 #[cfg(feature = "render")]
+mod procset_test;
 mod rasteriser_determinism_test;
 mod reading_aloud_test;
 mod redaction_test;

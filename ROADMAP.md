@@ -1010,10 +1010,14 @@ it can be run there.
       listed one no longer made. Held against the sources as well, the only departure a
       save introduced was Y-F23's dates; the rest the sources carried and the save kept,
       which is Y-F28. Not checked: a condition the model writes as `fn:`.
-- [ ] **Y-F25** — **a save keeps `/ProcSet`, which 14.2 deprecates**: 1,086 arrays in
+- [x] **Y-F25** — **a save keeps `/ProcSet`, which 14.2 deprecates**: 1,086 arrays in
       `fy05.pdf`'s output (measured 2026-10-03), while settling removes the `/Info`
       entries 14.3.3 deprecates. Not a violation, since a processor shall ignore it; the
       asymmetry is what is undecided. Either it goes, or an ADR says why it stays.
+      Decided and done 2026-10-03, by the owner: it goes. `ingest::discovery::drop_procsets`
+      takes every `/ProcSet` out at load and records one repair a document, with the count;
+      nothing in the engine reads one. The nine samples' lines left `arlington_known.tsv`,
+      and taking the drop out fails `procset_test.rs`.
 - [ ] **Y-F27** — **two operations have no MCP tool of their own**: `RemoveOutside` and
       `ResizePages`, of 52 (`status.sh`, 2026-10-03). Each is reachable through the
       generic `apply_operation` tool, without a schema saying it exists, so a caller has
