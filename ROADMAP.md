@@ -1023,7 +1023,7 @@ it can be run there.
       generic `apply_operation` tool, without a schema saying it exists, so a caller has
       to know it to ask for it. `ARCHITECTURE.md` said every variant had one, which was
       corrected the same day.
-- [ ] **Y-F28** — **a save keeps what its source departed by.** Held against the
+- [x] **Y-F28** — **a save keeps what its source departed by.** Held against the
       Arlington model (Y-F24, 2026-10-03), the samples' saves keep keys 2.0 deprecates —
       `/CIDSet` in five font descriptors, `/CharSet` in two, a font's `/Name` in five, an
       AcroForm resource's `/Encoding`, `intel_sdm.pdf`'s `/Info /Title` — and keys no table
@@ -1033,6 +1033,21 @@ it can be run there.
       field: the checker read required keys without `/Parent`, and reads them with it now. Every one
       is in the source as read; none is the save's own. A translator to ISO 32000-2 drops
       or repairs them, each with a `Decision`. `arlington_known.tsv` lists them.
+      Done 2026-10-03, each read against ISO 32000-2 first. `ingest::conform` makes them
+      2.0's at load, one `Decision` a kind with the count: a font's `/Name` (deprecated,
+      Table 109, 9.6.2.1) goes, and a descriptor's `/CIDSet` and `/CharSet` (deprecated)
+      are left out of what a save writes — not at load, since the audit asks 31-012 to
+      31-015 of exactly those claims, which taking them at load had made unanswerable; a
+      key a dictionary of its kind does not have goes — `/Type` in `/MarkInfo` (Table
+      353) and `/ViewerPreferences` (Table 147), a Type 0 font's `/Name`, a descriptor's
+      `/Subtype`, a Type 3 font's `/CIDToGIDMap`; a DCT image's `/ColorTransform` moves to
+      the filter's decode parameters, where Table 13 puts it, keeping its value; a
+      widget's `/DR` joins the form's (Table 224) and the form's PDF 1.0 `/Encoding` goes.
+      A key no table names anywhere is left, as 7.3.7 allows. Two lines were the checker's:
+      the widget's `/DA` and `/FT` are inherited, and a merged field's `/AA` holds a
+      field's `/C`. One line stays: `intel_sdm.pdf`'s `/Title` is a thread's `/I`, which
+      Table 162 does not deprecate and the model reads with the document's table.
+      `conform_test.rs` holds each translation, and taking any out fails it.
 - [x] **Y-F29** — **opening a file writes a packet of its own over the file's.**
       `metadata::settle` runs at load with the document's provenance empty and the stamp
       `seconds_now()`, so the packet the engine holds names a `DocumentID` drawn from the

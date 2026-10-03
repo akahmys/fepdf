@@ -357,7 +357,18 @@ impl Walk<'_> {
         }
         for name in extra {
             for (k, r) in self.model.tables.get(name).into_iter().flatten() {
-                rows.entry(k.clone()).or_insert_with(|| r.clone());
+                // A key both roles define — `/AA` above all — links to what either does:
+                // a merged field's actions hold a field's triggers and an annotation's.
+                let row = rows.entry(k.clone()).or_insert_with(|| r.clone());
+                for (ty, links, _) in &r.types {
+                    if let Some(mine) = row.types.iter_mut().find(|t| &t.0 == ty) {
+                        for link in links {
+                            if !mine.1.contains(link) {
+                                mine.1.push(link.clone());
+                            }
+                        }
+                    }
+                }
             }
         }
         rows

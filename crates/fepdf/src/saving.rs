@@ -141,6 +141,8 @@ impl PdfDocument {
 
         let output = self.output_document()?;
         let stripped = Self::settle_metadata(&output, options)?;
+        let mut claims = fepdf_model::interpretation::DecisionLog::default();
+        fepdf_model::ingest::conform::drop_subset_claims(output.arena(), &mut claims);
         let (final_arena, root, info) =
             (output.arena(), *output.root_handle(), output.info_handle());
 
@@ -166,6 +168,7 @@ impl PdfDocument {
         writer.finish(root, info)?;
         let mut decisions = self.write_decisions();
         decisions.extend(stripped.into_entries());
+        decisions.extend(claims.into_entries());
         decisions.extend(encryption);
         Ok(decisions)
     }

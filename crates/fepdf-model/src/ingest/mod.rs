@@ -11,6 +11,8 @@ use crate::refine::{ParallelRefinery, RefineContext};
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
+/// What a file says that ISO 32000-2 deprecates or puts elsewhere, made 2.0's at load.
+pub mod conform;
 pub(crate) mod discovery;
 /// Dictionaries written in place where the reader needs an object, given one at load.
 pub(crate) mod indirect;
@@ -208,6 +210,7 @@ impl Ingestor {
         lift_direct_fonts(arena);
         require_cid_to_gid_maps(arena, decisions);
         drop_procsets(arena, decisions);
+        conform::conform_to_2_0(arena, decisions);
         let (font_indices, page_and_form_indices) = scan_ingested_objects(arena);
         let handle_font_cache = discover_fonts(arena, temp_doc, Some(&font_indices));
 
