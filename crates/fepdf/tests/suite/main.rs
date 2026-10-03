@@ -41,6 +41,7 @@ mod image_sample_count_test;
 mod japanese_text_test;
 mod layer_content_test;
 mod layer_toggle_test;
+mod linearized_hint_test;
 mod mac_roman_test;
 mod mark_artifact_test;
 mod marked_content_boxes_test;

@@ -794,6 +794,12 @@ eight times, and the copies do not agree on whether to resolve.
       (`num_pages × total_shared`). *Done when* the reserve is sized from the counts the
       writer already has, and the linearised file is within a few percent of the plain
       one.
+      **The reserve is sized from the counts, 2026-10-03:** each page's own shared
+      references and the widths the table is written with. `intel_sdm.pdf` linearises to
+      58 MB from 129 MB, its hint stream 146 KB of which 16 KB is padding;
+      `unicode_16.pdf` to 11.7 MB from 17.0 MB. `linearized_hint_test.rs` holds it, and
+      putting the old sizing back failed it. **The second half is not met, and the reason
+      is not the reserve**: the rest is Y-F22.
 
 - [x] **Y-0c** — saves were not reproducible: the XMP `InstanceID` was salted with the
       clock's seconds. `SaveOptions::stamped_at` decides it now, and `fepdf-cli` reads
@@ -870,6 +876,12 @@ eight times, and the copies do not agree on whether to resolve.
         `objects` pool, the shape `font_census_test.rs` records for `object_id`. A file
         whose `/Outlines` is written direct reads as having no bookmarks, and which
         object it reads instead is whatever shares the index.
+- [ ] **Y-F22** — **a linearised file writes no object streams.** `intel_sdm.pdf`'s
+      plain save packs 325,000 of its 332,818 objects into 3,277 compressed object
+      streams; the linearised one writes every object directly, 58 MB against 25.6 MB
+      (measured 2026-10-03). Annex F allows compressed objects in a linearised file with
+      a cross-reference stream, and the hint tables would have to say where each is. The
+      same writer path is the one Y-F1 found ignoring `obj_stm`.
 - [x] **Y-F20** — **what a crop cut off an image was still in the file.** The page drew
       the cut part under a name of its own, and the whole image stayed in its resources
       under its old one, so the writer wrote every pixel the crop took away — measured
@@ -920,6 +932,29 @@ eight times, and the copies do not agree on whether to resolve.
 - [ ] **Y-F7** — `compare.rs`'s `to_f64` is used only under the `render` feature and is
       not gated with it, so `cargo build -p fepdf` warns. The workspace build unifies
       features and never sees it.
+- [ ] **Y-F23** — **a save writes `/Info`'s dates in the metadata stream's form.**
+      `publish upgrade --no-obj-stm` of `fy05.pdf` writes `/CreationDate
+      (2024-11-08T09:05:36+09:00)`, where 7.9.4 asks for `D:20241108090536+09'00'`
+      (measured 2026-10-03). `metadata.rs` inserts the settled value as it is, under a
+      comment saying it formats it as `D:`. *Done when* the written dates are 7.9.4's form
+      and a test fails with the conversion taken out.
+- [ ] **Y-F24** — **nothing checks that what a save writes conforms.** Re-reading the
+      Y-F23 output reports `none — nothing in reading this document departed from the
+      standard`: the reader does not check a date's syntax, and no test reads a save back.
+      `Strictness::Strict` is named in `interpretation.rs` and by no test. Output
+      conforming to ISO 32000-2 is what the engine is for, so it is a measured claim or
+      none. *Done when* a corpus test reads every sample's save back and fails on a
+      departure, and putting Y-F23 back fails it.
+- [ ] **Y-F25** — **a save keeps `/ProcSet`, which 14.2 deprecates**: 1,086 arrays in
+      `fy05.pdf`'s output (measured 2026-10-03), while settling removes the `/Info`
+      entries 14.3.3 deprecates. Not a violation, since a processor shall ignore it; the
+      asymmetry is what is undecided. Either it goes, or an ADR says why it stays.
+- [ ] **Y-F26** — **the documents name the wrong thing as what fepdf is.** The owner's
+      definition, 2026-10-03: a translator from any PDF to ISO 32000-2, operations on
+      what it translated, and frontends for those operations; reporting what was done
+      is secondary to that. `README.md` opens on the reporting, and `AGENTS.md`
+      principle 2 and `ARCHITECTURE.md` §4.3 carry the same weight. Held until the work
+      under way lands.
 
 **Reading what was added**, in the order the last cleanup found defects
 - [x] **Y-1a** — `fepdf-font`: `cff`, `subset`, `program_glyphs`, `metrics`, `embedding`,

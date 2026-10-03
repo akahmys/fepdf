@@ -44,25 +44,36 @@ impl<'a, W: Write> PdfWriter<'a, W> {
         (others_shared, others_private, shared_ids)
     }
 
+    /// The bytes the hint stream can need, bounded from the counts it will be written
+    /// from (Annex F, Tables F.3 to F.6), so that the reserve is never short.
+    ///
+    /// **From each page's own shared references**, as `generate_hint_tables` writes them.
+    /// This sized Item 4 as though every page named every shared object —
+    /// `pages × shared` entries — and `samples/intel_sdm.pdf` linearised to 129 MB against
+    /// a 25.6 MB plain save, 71 MB of it the reserve, zero-filled (ROADMAP Y-0b). Every
+    /// width here is the one the table uses or wider, and each item is given the byte of
+    /// padding it is aligned with.
     pub(super) fn calculate_worst_case_hint_size(
         &self,
         num_pages: usize,
-        dummy_groups_len: usize,
-        shared_ids_len: usize,
+        page_shared_refs: &[Vec<usize>],
+        total_shared: usize,
+        has_outlines: bool,
     ) -> usize {
-        let total_shared = dummy_groups_len + shared_ids_len;
-        let max_shared_per_page = total_shared;
-        let bits_idx = if max_shared_per_page > 0 {
-            32 - (max_shared_per_page as u32).leading_zeros()
-        } else {
-            0
-        };
-        let worst_page_bits =
-            num_pages * (16 + 32 + 16 + (bits_idx as usize + 16) * max_shared_per_page);
-        let worst_shared_bits = total_shared * (32 + 1 + 16);
-        let worst_header_bits = 13 * 32 + 7 * 32;
-        let worst_bits = worst_header_bits + worst_page_bits + worst_shared_bits;
-        worst_bits.div_ceil(8)
+        let bits_for = |n: usize| (usize::BITS - n.leading_zeros()).max(1) as usize;
+        let refs: usize = page_shared_refs.iter().map(Vec::len).sum();
+        let most_refs = page_shared_refs.iter().map(Vec::len).max().unwrap_or(0);
+        let greatest = page_shared_refs.iter().flatten().copied().max().unwrap_or(0);
+        // Table F.3's header, Items 1 to 7 of Table F.4, and the 32-bit alignment after.
+        let page_table = 13 * 32
+            + num_pages * (16 + 32 + bits_for(most_refs))
+            + refs * bits_for(greatest)
+            + 7 * 8
+            + 32;
+        // Table F.5's header, and per entry the widest length, a flag and a group count.
+        let shared_table = 7 * 32 + total_shared * (32 + 1 + 16) + 4 * 8 + 32;
+        let outline_table = if has_outlines { 32 + 4 * 32 + 32 } else { 0 };
+        (page_table + shared_table + outline_table).div_ceil(8)
     }
 
     pub(super) fn pre_populate_obj_sizes(&mut self) {
@@ -173,8 +184,12 @@ impl<'a, W: Write> PdfWriter<'a, W> {
             0,
         );
 
-        let exact_hint_size =
-            self.calculate_worst_case_hint_size(pgs.len(), dummy_groups.len(), shared_ids.len());
+        let exact_hint_size = self.calculate_worst_case_hint_size(
+            pgs.len(),
+            &dummy_refs,
+            dummy_groups.len() + shared_ids.len(),
+            !outline_exclusive.is_empty(),
+        );
 
         // 2. Section 1: Linearization Dictionary and First Xref (Reserved)
         let (dict_pos, p_xref_pos) = self.reserve_lin_headers(primary_count, total_size);
