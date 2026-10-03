@@ -1068,7 +1068,7 @@ it can be run there.
       is given none; only a save, which makes a new document, draws a new one. One file
       opened twice holds one ID, and `save_metadata_test.rs` reads a save back as any
       caller does.
-- [ ] **Y-F30** — **a linearised file puts before its first page what Annex F puts after
+- [x] **Y-F30** — **a linearised file puts before its first page what Annex F puts after
       it.** F.3.5 lets part 4 hold the catalogue and the values of its `/ViewerPreferences`,
       `/PageMode`, `/Threads` (the thread dictionaries alone), `/OpenAction` and `/AcroForm`
       (the top-level dictionary alone), and says every other object *shall not* be there:
@@ -1082,9 +1082,10 @@ it can be run there.
       is part 9's, and the outline is part 6's only under `/PageMode /UseOutlines` and
       otherwise one run at the head of part 9, which the outline hint table points at.
       `intel_sdm.pdf`'s first page moves from 53.7% of the file to 0.2%, and
-      `linearized_hint_test.rs` holds a page ahead of a destination. **Open**: the
-      information dictionary, which F.3.5 also puts in part 9, is still written beside
-      the catalogue, where the numbering of part 4 expects it.
+      `linearized_hint_test.rs` holds a page ahead of a destination. The information
+      dictionary, which F.3.5 also puts in part 9, is placed and numbered there with the
+      rest; `fy05.pdf`'s moves to 99.8% of the file, qpdf reads all ten clean, and the
+      test holds it after the page.
 - [x] **Y-F31** — **qpdf finds the hint tables wrong in nine samples of ten.**
       `scripts/test/check_linearization.sh` holds every sample's linearised save against
       `qpdf --check-linearization` (qpdf 12.4.2, 2026-10-03): only `unicode_16.pdf` reads

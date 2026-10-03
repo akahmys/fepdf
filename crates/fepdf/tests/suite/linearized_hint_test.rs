@@ -82,3 +82,24 @@ fn the_first_page_comes_before_the_named_destinations() {
     let destination = at(b"/D [").expect("the destination is written");
     assert!(page < destination, "the destination at {destination} precedes the page at {page}");
 }
+
+/// **The information dictionary comes after the first page** (F.3.5 names it among what
+/// part 9 holds); it was written beside the catalogue, before the page.
+#[test]
+fn the_information_dictionary_comes_after_the_first_page() {
+    let bytes = fepdf_fixtures::Pdf::new().trailer_entries("/Info 4 0 R").assemble(&[
+        "<< /Type /Catalog /Pages 2 0 R >>",
+        "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] >>",
+        "<< /CreationDate (D:20200101000000Z) >>",
+    ]);
+    let doc = PdfDocument::open(bytes.into()).expect("the fixture opens");
+    let path = std::env::temp_dir().join(format!("fepdf-info-{}.pdf", std::process::id()));
+    let _ = doc.save_linearized(&path, "2.0", &SaveOptions::default()).expect("it linearises");
+    let file = std::fs::read(&path).expect("it was written");
+    let _ = std::fs::remove_file(&path);
+    let text = String::from_utf8_lossy(&file);
+    let page = text.find("/Type /Page\r").or_else(|| text.find("/Type /Page ")).expect("a page");
+    let info = text.find("/CreationDate").expect("the information dictionary is written");
+    assert!(page < info, "the information dictionary at {info} precedes the page at {page}");
+}

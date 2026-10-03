@@ -115,17 +115,12 @@ impl<'a, W: Write> PdfWriter<'a, W> {
                 doc_private.push(h);
             }
         }
-        let last_doc_level_handle = if let Some(&last_h) = doc_private.last() {
-            last_h
-        } else if let Some(inf) = info {
-            inf
-        } else {
-            root
-        };
+        let last_doc_level_handle = doc_private.last().copied().unwrap_or(root);
         let (mut total_size, primary_count, hint_stream_id, first_page_shared_count, fps_start) =
             self.assign_lin_ids(
                 root,
-                info,
+                // Numbered in part 9 with the rest, not beside the catalogue.
+                None,
                 &s2,
                 &s6,
                 &others,
@@ -461,9 +456,8 @@ impl<'a, W: Write> PdfWriter<'a, W> {
         let mut section6 = Vec::new();
 
         assigned.insert(root);
-        if let Some(ih) = info {
-            assigned.insert(ih);
-        }
+        // The information dictionary is part 9's (F.3.5, F.3.10): left unassigned here,
+        // it is placed and numbered with the other objects there.
         let page1 = original_pages[0];
         assigned.insert(page1);
 
@@ -513,9 +507,6 @@ impl<'a, W: Write> PdfWriter<'a, W> {
         }
 
         let mut section2_final = vec![root];
-        if let Some(ih) = info {
-            section2_final.push(ih);
-        }
         section2_final.extend(doc_private.clone());
         section2_final.push(page1);
         section2_final.extend(p0_exclusive.clone());
@@ -524,11 +515,7 @@ impl<'a, W: Write> PdfWriter<'a, W> {
         }
         section2_final.extend(first_page_shared.clone());
 
-        let p0_count = section2_final
-            .len()
-            .saturating_sub(1)
-            .saturating_sub(usize::from(info.is_some()))
-            .saturating_sub(doc_private.len());
+        let p0_count = section2_final.len().saturating_sub(1).saturating_sub(doc_private.len());
         page_obj_counts.push(p0_count as u32);
 
         for i in 1..original_pages.len() {
