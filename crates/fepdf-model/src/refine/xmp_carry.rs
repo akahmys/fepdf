@@ -118,6 +118,24 @@ fn description(
 /// `generated` itself where there is nothing to carry or `original` is not XML.
 #[must_use]
 pub fn carry(original: &str, generated: String) -> String {
+    carry_with(original, generated, &BTreeSet::new())
+}
+
+/// The `xmpMM:` properties that say which document a packet is and what it came from.
+static IDENTITY: LazyLock<BTreeSet<Name>> = LazyLock::new(|| {
+    ["DocumentID", "InstanceID", "DerivedFrom", "OriginalDocumentID"]
+        .into_iter()
+        .map(|local| ("http://ns.adobe.com/xap/1.0/mm/".to_string(), local.to_string()))
+        .collect()
+});
+
+/// [`carry`], keeping the packet's identity as well: for a packet rewritten outside a
+/// save, which is still the same document (ROADMAP Y-F29).
+pub fn carry_identity(original: &str, generated: String) -> String {
+    carry_with(original, generated, &IDENTITY)
+}
+
+fn carry_with(original: &str, generated: String, also: &BTreeSet<Name>) -> String {
     let Ok(xml) = roxmltree::Document::parse(original) else { return generated };
     // What the new packet states replaces what the old one did: a claim restated.
     let stated: BTreeSet<Name> = roxmltree::Document::parse(&generated)
@@ -130,7 +148,8 @@ pub fn carry(original: &str, generated: String) -> String {
     for description in descriptions(&xml) {
         let mut any = false;
         for (name, written) in properties(description) {
-            if OWNED.contains(&name) || stated.contains(&name) || !seen.insert(name) {
+            let owned = OWNED.contains(&name) && !also.contains(&name);
+            if owned || stated.contains(&name) || !seen.insert(name) {
                 continue;
             }
             any = true;

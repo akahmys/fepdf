@@ -31,12 +31,8 @@ fn saved(doc: &PdfDocument, options: &SaveOptions) -> (String, String) {
         std::thread::current().id()
     ));
     let _ = doc.save_with_options(&path, "2.0", options).expect("it saves");
-    // Read without refinement: opening settles the metadata and writes a packet of its own
-    // in place of the file's (ROADMAP Y-F29), and what is asked here is what the save wrote.
-    let raw =
-        fepdf::IngestionOptions { active_refinement: false, ..fepdf::IngestionOptions::default() };
-    let back = PdfDocument::open_with_options(std::fs::read(&path).expect("written").into(), &raw)
-        .expect("it reads");
+    // Read as any caller would: opening keeps the packet's identity (ROADMAP Y-F29).
+    let back = PdfDocument::open(std::fs::read(&path).expect("written").into()).expect("it reads");
     let _ = std::fs::remove_file(&path);
     let inner = back.inner();
     let arena = inner.arena();
@@ -121,4 +117,44 @@ fn a_creation_date_the_caller_gives_is_written_and_a_bad_one_refused() {
         "a creation date that is no date was written"
     );
     let _ = std::fs::remove_file(&path);
+}
+
+/// The packet an opened document holds, as the engine holds it.
+fn held_packet(doc: &PdfDocument) -> String {
+    let inner = doc.inner();
+    let catalog = Object::Reference(*inner.root_handle());
+    entry(inner.arena(), &catalog, "Metadata")
+        .map(|m| {
+            String::from_utf8_lossy(&inner.decode_stream(&m).expect("it decodes")).into_owned()
+        })
+        .unwrap_or_default()
+}
+
+/// **Opening a file keeps which document it is.** Opening settled the metadata into a
+/// packet drawn from the clock with no derivation, so one file opened twice named two
+/// documents and its `DerivedFrom` was gone (Y-F29).
+#[test]
+fn opening_keeps_the_files_identity() {
+    let saved_once = {
+        let doc = document("<< /Producer (A) >>", "0011");
+        let path = std::env::temp_dir().join(format!("fepdf-identity-{}.pdf", std::process::id()));
+        let _ = doc.save_with_options(&path, "2.0", &stamped()).expect("it saves");
+        let bytes = std::fs::read(&path).expect("written");
+        let _ = std::fs::remove_file(&path);
+        bytes
+    };
+    let first = held_packet(&PdfDocument::open(saved_once.clone().into()).expect("it opens"));
+    let second = held_packet(&PdfDocument::open(saved_once.into()).expect("it opens"));
+    let id = xmp(&first, "xmpMM:DocumentID");
+    assert!(id.is_some(), "the file's DocumentID was dropped: {first}");
+    assert_eq!(id, xmp(&second, "xmpMM:DocumentID"), "one file opened twice named two documents");
+    assert!(first.contains("DerivedFrom"), "the file's derivation was dropped: {first}");
+}
+
+/// A file with no packet is given one holding its fields, and no identity it never had.
+#[test]
+fn opening_a_file_without_a_packet_invents_no_identity() {
+    let doc = document("<< /Producer (A) >>", "0011");
+    let packet = held_packet(&doc);
+    assert_eq!(xmp(&packet, "xmpMM:DocumentID"), None, "an identity was invented: {packet}");
 }

@@ -1028,7 +1028,7 @@ it can be run there.
       widget in `sample_02c.pdf` lacks `/DA` and `/FT` that its field requires. Every one
       is in the source as read; none is the save's own. A translator to ISO 32000-2 drops
       or repairs them, each with a `Decision`. `arlington_known.tsv` lists them.
-- [ ] **Y-F29** — **opening a file writes a packet of its own over the file's.**
+- [x] **Y-F29** — **opening a file writes a packet of its own over the file's.**
       `metadata::settle` runs at load with the document's provenance empty and the stamp
       `seconds_now()`, so the packet the engine holds names a `DocumentID` drawn from the
       clock and no `DerivedFrom`, and a second opening of one file reads another ID
@@ -1036,6 +1036,12 @@ it can be run there.
       without refinement because of it). A save is unaffected: it reads the source's
       identity before settling and writes the packet again. What `inspect` and the audits
       read of `xmpMM:` is the engine's, not the file's.
+      Fixed 2026-10-03: a packet rewritten outside a save — on opening, and when a
+      declaration is stated — keeps the file's `DocumentID`, `InstanceID`, `DerivedFrom`
+      and `OriginalDocumentID` (`xmp_carry::carry_identity`), and a file with no packet
+      is given none; only a save, which makes a new document, draws a new one. One file
+      opened twice holds one ID, and `save_metadata_test.rs` reads a save back as any
+      caller does.
 - [ ] **Y-F26** — **the documents name the wrong thing as what fepdf is.** The owner's
       definition, 2026-10-03: a translator from any PDF to ISO 32000-2, operations on
       what it translated, and frontends for those operations; reporting what was done

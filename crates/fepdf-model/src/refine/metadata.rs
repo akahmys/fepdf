@@ -292,6 +292,21 @@ pub fn info_to_xmp_derived(
     writer.finish(None)
 }
 
+/// Renders the packet's fields and dates and nothing about which document it is.
+///
+/// **For a packet written over one the document already has, outside a save**: on opening,
+/// and when a declaration is stated. The document is still the one the file is, so its
+/// `xmpMM:` identity is the file's, carried over by `xmp_carry::carry_identity`. Rendered
+/// with `info_to_xmp_derived` it was drawn from the clock with no derivation, and a file
+/// read twice named two documents (ROADMAP Y-F29).
+pub fn info_to_xmp_kept(info: &BTreeMap<PdfName, RefinedObject>) -> String {
+    let mut writer = XmpWriter::new();
+    write_basic_fields(info, &mut writer);
+    writer.format("application/pdf");
+    parse_and_write_dates(info, &mut writer);
+    writer.finish(None)
+}
+
 /// Creates a RefinedObject representing the Metadata stream.
 pub fn create_metadata_stream(xmp: String) -> RefinedObject {
     let mut dict = BTreeMap::new();

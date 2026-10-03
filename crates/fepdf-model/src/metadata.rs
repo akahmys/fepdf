@@ -205,7 +205,7 @@ pub fn settle(doc: &Document, decisions: &mut crate::interpretation::DecisionLog
     // it, and if the write fails there is nowhere else for the entries to live. `doc`
     // here is the document as ingested, whose provenance is empty, so this packet makes
     // no claim about derivation; the save path writes that.
-    if update_xmp_metadata(doc, &settled, None, seconds_now()).is_ok() {
+    if update_xmp_metadata(doc, &settled, None, Identity::Kept).is_ok() {
         migrate_deprecated_info(doc);
     }
     settled
@@ -285,7 +285,7 @@ pub fn update_document_metadata(
     update_legacy_info(doc, info)?;
 
     // 2. Update XMP Metadata in Catalog
-    update_xmp_metadata(doc, info, None, stamped_at)?;
+    update_xmp_metadata(doc, info, None, Identity::New(stamped_at))?;
 
     // 3. The catalogue's own /Lang, which is not metadata about the document but a
     //    statement about its text (14.9.2.1), and so lives outside the XMP packet.
@@ -356,7 +356,16 @@ fn update_legacy_info(doc: &crate::Document, info: &MetadataInfo) -> crate::PdfR
 /// # Errors
 /// If the catalogue is not a dictionary.
 pub fn state_in_packet(doc: &crate::Document, description: &str) -> crate::PdfResult<()> {
-    update_xmp_metadata(doc, &extract_metadata(doc), Some(description), seconds_now())
+    update_xmp_metadata(doc, &extract_metadata(doc), Some(description), Identity::Kept)
+}
+
+/// Whose identity a rewritten packet states.
+#[derive(Clone, Copy)]
+enum Identity {
+    /// The packet in place's: the document is still the file it was read from.
+    Kept,
+    /// A new document's, made by a save stamped at this moment (ADR-0012).
+    New(u64),
 }
 
 /// Writes the catalogue's packet from `info`, with `stated` beside it, carrying what the
@@ -365,7 +374,7 @@ fn update_xmp_metadata(
     doc: &crate::Document,
     info: &MetadataInfo,
     stated: Option<&str>,
-    stamped_at: u64,
+    identity: Identity,
 ) -> crate::PdfResult<()> {
     let arena = doc.arena();
     let root_handle = *doc.root_handle();
@@ -375,15 +384,26 @@ fn update_xmp_metadata(
             .ok_or_else(|| crate::error::PdfError::internal("Invalid Catalog"))?;
 
         let refined_map = build_refined_metadata_map(info);
-        let mut raw_xmp =
-            crate::refine::metadata::info_to_xmp_derived(&refined_map, &doc.provenance, stamped_at);
+        let mut raw_xmp = match identity {
+            Identity::Kept => crate::refine::metadata::info_to_xmp_kept(&refined_map),
+            Identity::New(stamped_at) => crate::refine::metadata::info_to_xmp_derived(
+                &refined_map,
+                &doc.provenance,
+                stamped_at,
+            ),
+        };
         if let (Some(stated), Some(at)) = (stated, raw_xmp.rfind("</rdf:RDF>")) {
             raw_xmp.insert_str(at, stated);
         }
         // What the packet in place says that the generator does not write is kept.
-        let raw_xmp = match current_packet(doc, &catalog_dict) {
-            Some(original) => crate::refine::xmp_carry::carry(&original, raw_xmp),
-            None => raw_xmp,
+        let raw_xmp = match (current_packet(doc, &catalog_dict), identity) {
+            (Some(original), Identity::Kept) => {
+                crate::refine::xmp_carry::carry_identity(&original, raw_xmp)
+            }
+            (Some(original), Identity::New(_)) => {
+                crate::refine::xmp_carry::carry(&original, raw_xmp)
+            }
+            (None, _) => raw_xmp,
         };
 
         // Append 2KB space padding and replace the read-only flag end="r" with writable flag end="w"
