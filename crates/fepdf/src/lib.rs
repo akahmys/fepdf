@@ -461,8 +461,23 @@ impl PdfDocument {
         data: Bytes,
         options: &fepdf_model::ingest::IngestionOptions,
     ) -> PdfResult<Self> {
-        let inner = Document::open(data, options)?;
-        Ok(Self { inner })
+        Ok(Self::sealed(Document::open(data, options)?))
+    }
+
+    /// A document built through the model layer, handed to the facade: from here it
+    /// changes only through [`Self::apply`], as one opened here does. What was done to
+    /// it before is the builder's (ROADMAP Y-11).
+    #[must_use]
+    pub fn from_document(inner: Document) -> Self {
+        Self::sealed(inner)
+    }
+
+    /// The facade's document over `inner`, its arena sealed: from here it changes only
+    /// through [`Self::apply`], and a write anywhere else panics in a debug build
+    /// (ROADMAP Y-11).
+    fn sealed(inner: Document) -> Self {
+        inner.arena().seal();
+        Self { inner }
     }
 
     /// Returns the internal document.
@@ -553,19 +568,18 @@ impl PdfDocument {
         data: Bytes,
         options: &fepdf_model::ingest::IngestionOptions,
     ) -> PdfResult<Self> {
-        let inner = Document::open_repair(data, options)?;
-        Ok(Self { inner })
+        Ok(Self::sealed(Document::open_repair(data, options)?))
     }
 
     /// Merges multiple documents into a new one.
     pub fn merge(sources: Vec<PdfDocument>) -> PdfResult<Self> {
         let inners: Vec<&Document> = sources.iter().map(|s| &s.inner).collect();
-        Ok(Self { inner: fepdf_doc::assembly::merge(&inners)? })
+        Ok(Self::sealed(fepdf_doc::assembly::merge(&inners)?))
     }
 
     /// Extracts specific pages into a new document.
     pub fn extract_pages(&self, indices: Vec<usize>) -> PdfResult<Self> {
-        Ok(Self { inner: fepdf_doc::assembly::extract_pages(&self.inner, &indices)? })
+        Ok(Self::sealed(fepdf_doc::assembly::extract_pages(&self.inner, &indices)?))
     }
 
     /// Returns the physical viewport of the page (MediaBox).
@@ -1131,7 +1145,9 @@ fn blank_document() -> Bytes {
     const BODIES: [&str; 3] = [
         "<< /Type /Catalog /Pages 2 0 R >>",
         "<< /Type /Pages /Count 1 /Kids [3 0 R] >>",
-        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] >>",
+        // `/Resources`, empty: Table 31 requires it, and without it opening a new
+        // document recorded a repair (ROADMAP Y-11).
+        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << >> >>",
     ];
 
     let mut out = String::from("%PDF-2.0\n");

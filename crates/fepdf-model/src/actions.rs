@@ -228,14 +228,16 @@ impl ActionReport {
     pub fn of(doc: &Document) -> PdfResult<Self> {
         let arena = doc.arena();
         let mut out = Self::default();
-        let Some(catalog) = doc.catalog_handle().and_then(|h| arena.get_object(h)) else {
+        let Some(catalog_object) = doc.catalog_handle().and_then(|h| arena.get_object(h)) else {
             return Ok(out);
         };
-        let Some(catalog) = dict_of(arena, &catalog) else { return Ok(out) };
+        let Some(catalog) = dict_of(arena, &catalog_object) else { return Ok(out) };
 
+        // Read from the catalogue object itself. A copy of its dictionary was allocated to
+        // read it through, so reporting a document's actions wrote into it (ROADMAP Y-11).
         out.requirements = crate::document::entries::entry::<DocumentRequirements>(
             arena,
-            &Object::Dictionary(arena.alloc_dict(catalog.clone())),
+            &catalog_object,
             "Requirements",
         )
         .ok()

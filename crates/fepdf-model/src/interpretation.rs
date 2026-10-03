@@ -176,6 +176,12 @@ impl DecisionLog {
         self.entries.lock().is_empty()
     }
 
+    /// Forgets every decision after the first `len`: those of a change that was put
+    /// back, which describe a document that no longer exists ([`crate::Document::change`]).
+    pub fn truncate(&self, len: usize) {
+        self.entries.lock().truncate(len);
+    }
+
     /// Decisions at or above `severity`.
     #[must_use]
     pub fn at_least(&self, severity: Severity) -> Vec<Decision> {

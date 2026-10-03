@@ -73,6 +73,7 @@ mod sample_corpus_test;
 mod save_metadata_test;
 mod scanned_resize_test;
 mod sdk_tests;
+mod sealed_document_test;
 mod smask_in_data_test;
 mod spacing_reaches_extraction_test;
 mod split_page_test;

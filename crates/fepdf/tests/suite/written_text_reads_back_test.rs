@@ -11,21 +11,19 @@
 //! for — and it reads it **after a round trip through a file**, so the writer is in the
 //! loop rather than only the arena.
 
-use fepdf::{IngestionOptions, PdfDocument, SaveOptions};
+use fepdf::{Document, IngestionOptions, PdfDocument, SaveOptions};
 use fepdf_doc::apply::font::{ShownText, show_text};
 
-/// A one-page document with nothing on it.
-fn blank_page() -> PdfDocument {
+/// A one-page document with nothing on it, **built in the model layer**: `show_text`
+/// writes, and a facade document changes only through `apply` (ROADMAP Y-11).
+fn blank_page() -> Document {
     let bodies = [
         "<< /Type /Catalog /Pages 2 0 R >>",
         "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
         "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] >>",
     ];
-    PdfDocument::open_with_options(
-        fepdf_fixtures::assemble(&bodies).into(),
-        &IngestionOptions::default(),
-    )
-    .expect("the fixture opens")
+    Document::open(fepdf_fixtures::assemble(&bodies).into(), &IngestionOptions::default())
+        .expect("the fixture opens")
 }
 
 /// The document, written out and opened again.
@@ -33,7 +31,8 @@ fn blank_page() -> PdfDocument {
 /// **`name` is per test, because these run in parallel.** One path shared between two of
 /// them had each reading what the other wrote, and the failure read as a lost character
 /// rather than as a collision.
-fn round_trip(doc: &PdfDocument, name: &str) -> PdfDocument {
+fn round_trip(doc: Document, name: &str) -> PdfDocument {
+    let doc = PdfDocument::from_document(doc);
     let path = std::env::temp_dir().join(format!("fepdf_written_text_{name}.pdf"));
     doc.save_with_options(&path, "2.0", &SaveOptions::default()).expect("it writes");
     let written = std::fs::read(&path).expect("the output is there");
@@ -47,7 +46,7 @@ fn text_written_in_an_embedded_face_survives_a_round_trip() {
     let program = fepdf_fixtures::truetype_program(&[1024, 2048, 1024, 512]);
     let doc = blank_page();
     show_text(
-        doc.inner(),
+        &doc,
         0,
         &ShownText {
             program: &program,
@@ -59,7 +58,7 @@ fn text_written_in_an_embedded_face_survives_a_round_trip() {
     )
     .expect("it draws");
 
-    let reopened = round_trip(&doc, "reads_back");
+    let reopened = round_trip(doc, "reads_back");
     let text = reopened.extract_text(0).expect("the page extracts");
     assert!(text.contains("ABC"), "what was written did not come back: {text:?}");
 }
@@ -71,7 +70,7 @@ fn the_face_the_text_is_set_in_is_in_the_file() {
     let program = fepdf_fixtures::truetype_program(&[1024, 2048, 1024, 512]);
     let doc = blank_page();
     show_text(
-        doc.inner(),
+        &doc,
         0,
         &ShownText {
             program: &program,
@@ -83,7 +82,7 @@ fn the_face_the_text_is_set_in_is_in_the_file() {
     )
     .expect("it draws");
 
-    let reopened = round_trip(&doc, "is_embedded");
+    let reopened = round_trip(doc, "is_embedded");
     let fonts = reopened.fonts();
     assert!(!fonts.is_empty(), "the page names no font at all");
     assert!(
@@ -106,7 +105,7 @@ fn a_character_the_face_does_not_draw_is_refused_by_name() {
     let program = fepdf_fixtures::truetype_program(&[1024, 2048, 1024, 512]);
     let doc = blank_page();
     let refused = show_text(
-        doc.inner(),
+        &doc,
         0,
         &ShownText {
             program: &program,

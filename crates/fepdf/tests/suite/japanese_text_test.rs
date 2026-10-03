@@ -37,7 +37,9 @@ fn japanese_is_written_and_read_back_or_refused_by_name() {
         "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
         "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] >>",
     ];
-    let doc = PdfDocument::open_with_options(
+    // Built in the model layer: `show_text` writes, and a facade document changes only
+    // through `apply` (ROADMAP Y-11).
+    let doc = fepdf::Document::open(
         fepdf_fixtures::assemble(&bodies).into(),
         &IngestionOptions::default(),
     )
@@ -48,7 +50,7 @@ fn japanese_is_written_and_read_back_or_refused_by_name() {
     };
 
     show_text(
-        doc.inner(),
+        &doc,
         0,
         &ShownText {
             program: &program,
@@ -60,6 +62,7 @@ fn japanese_is_written_and_read_back_or_refused_by_name() {
     )
     .unwrap_or_else(|e| panic!("{kind} draws 図 and the engine would not write it: {e}"));
 
+    let doc = PdfDocument::from_document(doc);
     let path = std::env::temp_dir().join("fepdf_japanese_text_test.pdf");
     doc.save_with_options(&path, "2.0", &SaveOptions::default()).expect("it writes");
     let written = std::fs::read(&path).expect("the output is there");
@@ -90,10 +93,10 @@ fn japanese_is_written_and_read_back_or_refused_by_name() {
 }
 
 /// With no face that draws 図, the engine refuses and says which character stopped it.
-fn no_face_refuses_by_name(doc: &PdfDocument) {
+fn no_face_refuses_by_name(doc: &fepdf::Document) {
     let program = fepdf_fixtures::truetype_program(&[1024, 2048, 1024, 512]);
     let refused = show_text(
-        doc.inner(),
+        doc,
         0,
         &ShownText {
             program: &program,

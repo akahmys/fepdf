@@ -173,3 +173,5 @@ quietly wrong — which is the failure this log exists to make visible.
 | 0106 | [An `impl` block is held to 800 lines](0106-an-impl-block-is-held-to-800-lines.md) | Extends Rule 1 |
 | 0107 | [An operation does not reach into an audit](0107-an-operation-does-not-reach-into-an-audit.md) | Adds layering Rule E |
 | 0108 | [A page keeps what Annex F gives it, where qpdf counts otherwise](0108-a-page-keeps-what-annex-f-gives-it-where-qpdf-counts-otherwise.md) | Bounds Y-F31 |
+| 0109 | [A document changes only inside `apply`](0109-a-document-changes-only-inside-apply.md) | Gates Rule D |
+| 0110 | [An operation that fails changes nothing](0110-an-operation-that-fails-changes-nothing.md) | Rests on 0109 |

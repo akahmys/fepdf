@@ -27,7 +27,8 @@ fn page_with_annotation(annot: &str, extra: &[String]) -> Vec<u8> {
     let mut bodies = vec![
         "<< /Type /Catalog /Pages 2 0 R >>".to_string(),
         "<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_string(),
-        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Annots [4 0 R] >>".to_string(),
+        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Resources << >> /Annots [4 0 R] >>"
+            .to_string(),
         format!("<< /Type /Annot /Subtype /Square /Rect [20 40 120 90] {annot} >>"),
         format!(
             "<< /Type /XObject /Subtype /Form /BBox [0 0 10 10] /Resources << >> \

@@ -630,7 +630,7 @@ xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\">\
             "<< /Type /Catalog /Pages 2 0 R /Metadata 4 0 R >>".to_string(),
             "<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_string(),
             // 14.3.2: the page bears one too, and so does nothing else in this file.
-            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Metadata 6 0 R >>".to_string(),
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << >> /Metadata 6 0 R >>".to_string(),
             stream(packet),
             "<< /CreationDate (D:20240101000000Z) >>".to_string(),
             stream(packet),
@@ -710,7 +710,7 @@ xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\">\
         let bodies: [String; 5] = [
             "<< /Type /Catalog /Pages 2 0 R /Metadata 4 0 R >>".to_string(),
             "<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_string(),
-            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] >>".to_string(),
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << >> >>".to_string(),
             format!(
                 "<< /Type /Metadata /Subtype /XML /Length {} >>\nstream\n{xmp}\nendstream",
                 xmp.len()

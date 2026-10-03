@@ -516,6 +516,11 @@ pub struct Document {
     /// `&self` for the same reason [`Document::record`] is — the render path holds a
     /// shared reference and the panel sits above it.
     layer_overrides: parking_lot::Mutex<BTreeMap<Handle<Object>, bool>>,
+    /// An empty resource dictionary, allocated with the document, for a reader to draw
+    /// with where a stream names none. **Allocated before the arena is sealed**: a reader
+    /// that allocated one each time wrote into the document it read (ROADMAP Y-11).
+    /// Nothing references it, so nothing writes it out.
+    no_resources: Handle<BTreeMap<Handle<PdfName>, Object>>,
 }
 
 impl Document {
@@ -566,24 +571,7 @@ impl Document {
 
     /// Creates a new document wrapper.
     pub fn new(arena: PdfArena, root: Handle<Object>, info: Option<Handle<Object>>) -> Self {
-        Self {
-            arena,
-            root,
-            info,
-            pages: Vec::new(),
-            decisions: crate::interpretation::DecisionLog::default(),
-            system_fonts: Arc::new(BTreeMap::new()),
-            font_cache: Arc::new(RwLock::new(BTreeMap::new())),
-            space_cache: Arc::new(RwLock::new(BTreeMap::new())),
-            force_fallback: false,
-            security_method: crate::decrypt::NO_SECURITY.to_string(),
-            permissions: None,
-            access: None,
-            provenance: Provenance::default(),
-            header_version: None,
-            runs_scripts: std::sync::atomic::AtomicBool::new(false),
-            layer_overrides: parking_lot::Mutex::new(BTreeMap::new()),
-        }
+        Self::with_issues(arena, root, info, Vec::new())
     }
 
     /// Walks `/Pages` and records what it finds, which is what makes this document
@@ -610,6 +598,7 @@ impl Document {
         info: Option<Handle<Object>>,
         issues: Vec<crate::interpretation::Decision>,
     ) -> Self {
+        let no_resources = arena.alloc_dict(BTreeMap::new());
         Self {
             arena,
             root,
@@ -627,7 +616,15 @@ impl Document {
             header_version: None,
             runs_scripts: std::sync::atomic::AtomicBool::new(false),
             layer_overrides: parking_lot::Mutex::new(BTreeMap::new()),
+            no_resources,
         }
+    }
+
+    /// An empty resource dictionary to draw with where a stream names none, the same one
+    /// every time; see the field.
+    #[must_use]
+    pub fn no_resources(&self) -> Handle<BTreeMap<Handle<PdfName>, Object>> {
+        self.no_resources
     }
 
     /// What is lost by writing this document out, when its `/P` said not to.
@@ -729,6 +726,7 @@ impl Document {
         doc.normalize_page_tree();
         doc.index_pages();
         doc.rebuild_page_tree_in_arena()?;
+        crate::ingest::require_page_resources(&doc);
         Ok(doc)
     }
 
@@ -754,6 +752,40 @@ impl Document {
     /// Returns a reference to the internal arena.
     pub fn arena(&self) -> &PdfArena {
         &self.arena
+    }
+
+    /// Runs `change` as the one way this document changes once loaded: its arena
+    /// unsealed for it alone (ROADMAP Y-11), and **everything put back if it fails**
+    /// (Y-F12) — the arena's pools, the page list, and the decisions it recorded — with
+    /// the caches keyed by arena handles dropped, since a handle it allocated is gone.
+    ///
+    /// # Errors
+    /// What `change` returns, after the document is as it was.
+    pub fn change<R>(&mut self, change: impl FnOnce(&mut Self) -> PdfResult<R>) -> PdfResult<R> {
+        let arena = self.arena.clone();
+        let pages = self.pages.clone();
+        let decided = self.decisions.len();
+        let result = arena.transaction(|| change(self));
+        if result.is_err() {
+            self.pages = pages;
+            self.decisions.truncate(decided);
+            self.font_cache.write().clear();
+            self.forget_color_spaces();
+        }
+        result
+    }
+
+    /// Runs `write` with the arena unsealed **outside `apply`**, and puts back what it
+    /// wrote if it fails.
+    ///
+    /// **For the physical redaction route alone**, which three frontends call through
+    /// `&Document` and which Y-10 replaces with an `Operation`; this goes with it. Named
+    /// for that, so that a second caller reads as what it is (ROADMAP Y-11).
+    ///
+    /// # Errors
+    /// What `write` returns, after the arena is as it was.
+    pub fn redaction_until_y10<R>(&self, write: impl FnOnce() -> PdfResult<R>) -> PdfResult<R> {
+        self.arena.transaction(write)
     }
 
     /// Drops what [`Self::resolved_color_space`] remembered.

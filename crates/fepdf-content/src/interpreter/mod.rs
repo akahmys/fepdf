@@ -441,12 +441,12 @@ impl<'a> Interpreter<'a> {
                 self.stack.push(Object::Real(*m));
                 self.handle_state_operator("M")
             }
+            // Set here rather than through the operand stack, which needed the array put
+            // into the arena: drawing a page wrote into the document it drew, once a
+            // dashed line (ROADMAP Y-11).
             Command::SetDashPattern(dash, phase) => {
-                let items: Vec<Object> = dash.iter().map(|&d| Object::Real(d)).collect();
-                let arr_h = self.doc.arena().alloc_array(items);
-                self.stack.push(Object::Array(arr_h));
-                self.stack.push(Object::Real(*phase));
-                self.handle_state_operator("d")
+                self.state.stroke_style.dash_pattern = Some((dash.clone(), *phase));
+                Ok(())
             }
 
             // --- XObjects & Images ---

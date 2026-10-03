@@ -882,11 +882,15 @@ it can be run there.
       and open state goes, which its module says; so does a non-`GoTo` `/A`, which it
       does not say — a bookmark to a web address is read as page 0 and written back
       pointing at page 1. One retitled bookmark rewrites the meaning of another.
-- [ ] **Y-F12** — `PdfDocument::apply` states no atomicity, and the window's journal
+- [x] **Y-F12** — `PdfDocument::apply` states no atomicity, and the window's journal
       relies on it: a failed act is rebuilt from the history only when its second or
       later operation failed, so a first operation that changed the document and then
       failed would leave it differing from what undo replays. No such path was found in
       the form writer; the contract is what is missing.
+      **Stated and held, 2026-10-03**: an operation that fails is put back whole, from a
+      journal the arena keeps while `apply` has it unsealed
+      ([ADR-0110](docs/adr/0110-an-operation-that-fails-changes-nothing.md)).
+      `sealed_document_test.rs` holds it, and taking out the rollback failed it.
 - [ ] **Y-F13** — the window calls redaction 黒塗り (blacking out) and draws nothing
       black: `apply_physical_redaction_to_page` replaces every string of a show-text
       operator touching a rectangle with `[REDACTED]`, drawn in the page's own font,
@@ -1371,6 +1375,12 @@ it can be run there.
       *Done when* the two redaction routes are gone from the facade (Y-10 gives them an
       `Operation`), and a probe writing to a sealed arena from a `&self` method fails
       the gate.
+      **Sealed, 2026-10-03** ([ADR-0109](docs/adr/0109-a-document-changes-only-inside-apply.md)):
+      the facade seals what it opens, and the probe in `sealed_document_test.rs` fails
+      when the seal is taken out. The suite found 106 writes outside `apply`, from five
+      sources and a sixth behind them; four were readers writing into what they read,
+      and each now writes nothing. The two redaction routes are let through by name,
+      `Document::redaction_until_y10`, which is what keeps this open until Y-10.
 
 **Open**: `fepdf-doc` is 18,187 lines and holds operations, auditing, measurement and
 reading order. Whether it splits is not decided here. The Y-1d reading will show whether

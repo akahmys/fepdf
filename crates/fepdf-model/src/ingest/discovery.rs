@@ -122,6 +122,41 @@ pub fn require_cid_to_gid_maps(
     }
 }
 
+/// Gives a page an empty `/Resources` where neither it nor any node above it has a
+/// dictionary there, and says how many.
+///
+/// **Table 31 requires the entry, inherited or the page's own.** Where it was missing,
+/// `Page::resources_handle` allocated an empty dictionary on every call, so rendering
+/// such a page or reading its fonts wrote into the document each time — a reader writing,
+/// which the sealed arena turned into a failing test (ROADMAP Y-11).
+///
+/// Run once the pages are indexed, which ingestion's other passes run before.
+pub fn require_page_resources(doc: &Document) {
+    let arena = doc.arena();
+    let key = arena.name("Resources");
+    let mut given = 0;
+    for &page in &doc.pages {
+        let view = crate::Page::new(arena, page, doc.get_parent_chain(page));
+        if view.resolve_attribute("Resources").and_then(|r| r.as_dict_handle()).is_some() {
+            continue;
+        }
+        let Some(holder) = arena.get_object(page).and_then(|o| o.as_dict_handle()) else {
+            continue;
+        };
+        let Some(mut dict) = arena.get_dict(holder) else { continue };
+        dict.insert(key, Object::Dictionary(arena.alloc_dict(BTreeMap::new())));
+        arena.set_dict(holder, dict);
+        given += 1;
+    }
+    if given > 0 {
+        doc.decisions.push(crate::interpretation::Decision::repaired(
+            "7.7.3.3",
+            format!("{given} pages have no /Resources dictionary, which Table 31 requires"),
+            "gave each an empty one, which is what a page with none draws with",
+        ));
+    }
+}
+
 /// Takes every `/ProcSet` out, and says how many went.
 ///
 /// **14.2 deprecates procedure sets since PDF 1.4**: they name PostScript procedures a

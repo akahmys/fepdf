@@ -66,6 +66,23 @@ struct ArenaInner {
     /// Once built it is kept current, so the cost is paid once by whoever asks and never
     /// by anyone who does not.
     object_index: RwLock<Option<BTreeMap<Object, Vec<Handle<Object>>>>>,
+    /// Whether a write is a defect: set once a document is loaded, cleared only inside
+    /// [`PdfArena::transaction`] (ROADMAP Y-11).
+    sealed: std::sync::atomic::AtomicBool,
+    /// What the running transaction has overwritten, to put back if it fails (Y-F12).
+    journal: parking_lot::Mutex<Option<Journal>>,
+}
+
+/// A transaction's record of the arena before it: each pool's length, and the value
+/// each slot that existed then held before its first write.
+struct Journal {
+    objects: usize,
+    dicts: usize,
+    arrays: usize,
+    version: f32,
+    old_objects: Vec<(usize, Object)>,
+    old_dicts: Vec<(usize, BTreeMap<Handle<PdfName>, Object>)>,
+    old_arrays: Vec<(usize, Vec<Object>)>,
 }
 
 impl Default for ArenaInner {
@@ -79,6 +96,8 @@ impl Default for ArenaInner {
             name_map: RwLock::default(),
             version: RwLock::default(),
             object_index: RwLock::default(),
+            sealed: std::sync::atomic::AtomicBool::new(false),
+            journal: parking_lot::Mutex::new(None),
         }
     }
 }
@@ -121,6 +140,85 @@ impl PdfArena {
         handle.belongs_to(self.inner.id)
     }
 
+    /// Refuses every write from here on but those inside [`Self::transaction`]: a
+    /// document once loaded changes only through `apply` (ROADMAP Y-11).
+    ///
+    /// **A write while sealed panics in a debug build**, so a test that reaches round
+    /// `apply` fails, and a release build pays one atomic load a write. A copy made to be
+    /// saved is a different arena and is never sealed.
+    pub fn seal(&self) {
+        self.inner.sealed.store(true, std::sync::atomic::Ordering::Release);
+    }
+
+    /// Whether [`Self::seal`] holds.
+    pub fn is_sealed(&self) -> bool {
+        self.inner.sealed.load(std::sync::atomic::Ordering::Acquire)
+    }
+
+    /// Every writer's first step: a write to a sealed arena is a path round `apply`.
+    fn writing(&self) {
+        debug_assert!(
+            !self.is_sealed(),
+            "a sealed arena was written: a document changes only inside `apply` (ROADMAP Y-11)"
+        );
+    }
+
+    /// Runs `change` with the arena unsealed, **and puts back everything it wrote if it
+    /// fails** (ROADMAP Y-F12): every pool to its length before, every slot that existed
+    /// then to its value, and the version. Names it interned stay, since an interned name
+    /// is the same name whoever asked for it.
+    ///
+    /// Inside a running transaction this runs `change` as part of it, and the outer one
+    /// decides what is kept.
+    ///
+    /// # Errors
+    /// What `change` returns, after the arena is as it was.
+    pub(crate) fn transaction<R>(&self, change: impl FnOnce() -> PdfResult<R>) -> PdfResult<R> {
+        if self.inner.journal.lock().is_some() {
+            return change();
+        }
+        let sealed = self.is_sealed();
+        *self.inner.journal.lock() = Some(Journal {
+            objects: self.inner.objects.read().len(),
+            dicts: self.inner.dicts.read().len(),
+            arrays: self.inner.arrays.read().len(),
+            version: self.version(),
+            old_objects: Vec::new(),
+            old_dicts: Vec::new(),
+            old_arrays: Vec::new(),
+        });
+        self.inner.sealed.store(false, std::sync::atomic::Ordering::Release);
+        let result = change();
+        let journal = self.inner.journal.lock().take();
+        if let (Err(_), Some(journal)) = (&result, journal) {
+            self.roll_back(journal);
+        }
+        self.inner.sealed.store(sealed, std::sync::atomic::Ordering::Release);
+        result
+    }
+
+    /// Puts the arena back as `journal` found it.
+    fn roll_back(&self, journal: Journal) {
+        let mut objects = self.inner.objects.write();
+        objects.truncate(journal.objects);
+        for (index, old) in journal.old_objects.into_iter().rev() {
+            objects[index] = old;
+        }
+        let mut dicts = self.inner.dicts.write();
+        dicts.truncate(journal.dicts);
+        for (index, old) in journal.old_dicts.into_iter().rev() {
+            dicts[index] = old;
+        }
+        let mut arrays = self.inner.arrays.write();
+        arrays.truncate(journal.arrays);
+        for (index, old) in journal.old_arrays.into_iter().rev() {
+            arrays[index] = old;
+        }
+        *self.inner.version.write() = journal.version;
+        // Rebuilt on the next query, from what is there now.
+        *self.inner.object_index.write() = None;
+    }
+
     /// The document version this arena will write.
     pub fn version(&self) -> f32 {
         *self.inner.version.read()
@@ -128,6 +226,7 @@ impl PdfArena {
 
     /// Sets the document version this arena will write.
     pub fn set_version(&self, version: f32) {
+        self.writing();
         *self.inner.version.write() = version;
     }
 
@@ -195,6 +294,7 @@ impl PdfArena {
 
     /// Registers a new object, returning a unique handle.
     pub fn alloc_object(&self, object: Object) -> Handle<Object> {
+        self.writing();
         let mut objects = self.inner.objects.write();
         let h = Handle::bound(objects.len() as u32, self.inner.id);
         objects.push(object.clone());
@@ -210,6 +310,7 @@ impl PdfArena {
         &self,
         dict: BTreeMap<Handle<PdfName>, Object>,
     ) -> Handle<BTreeMap<Handle<PdfName>, Object>> {
+        self.writing();
         let mut dicts = self.inner.dicts.write();
         let index = u32::try_from(dicts.len()).unwrap_or(0);
         dicts.push(dict);
@@ -218,6 +319,7 @@ impl PdfArena {
 
     /// Allocates an array.
     pub fn alloc_array(&self, array: Vec<Object>) -> Handle<Vec<Object>> {
+        self.writing();
         let mut arrays = self.inner.arrays.write();
         let index = u32::try_from(arrays.len()).unwrap_or(0);
         arrays.push(array);
@@ -242,6 +344,12 @@ impl PdfArena {
             let old_val = e.clone();
             if old_val == object {
                 return;
+            }
+            self.writing();
+            if let Some(j) = self.inner.journal.lock().as_mut()
+                && (handle.index() as usize) < j.objects
+            {
+                j.old_objects.push((handle.index() as usize, old_val.clone()));
             }
             *e = object.clone();
 
@@ -304,7 +412,13 @@ impl PdfArena {
         if !self.ours(handle) {
             return;
         }
+        self.writing();
         if let Some(d) = self.inner.dicts.write().get_mut(handle.index() as usize) {
+            if let Some(j) = self.inner.journal.lock().as_mut()
+                && (handle.index() as usize) < j.dicts
+            {
+                j.old_dicts.push((handle.index() as usize, std::mem::take(d)));
+            }
             *d = dict;
         }
     }
@@ -322,7 +436,13 @@ impl PdfArena {
         if !self.ours(handle) {
             return;
         }
+        self.writing();
         if let Some(a) = self.inner.arrays.write().get_mut(handle.index() as usize) {
+            if let Some(j) = self.inner.journal.lock().as_mut()
+                && (handle.index() as usize) < j.arrays
+            {
+                j.old_arrays.push((handle.index() as usize, std::mem::take(a)));
+            }
             *a = array;
         }
     }

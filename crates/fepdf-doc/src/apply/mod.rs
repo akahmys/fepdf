@@ -33,8 +33,16 @@ pub mod xobject;
 use crate::operation::Operation;
 use fepdf_model::{Document, PdfResult};
 
-/// Applies a canonical mutation operation to the document model.
+/// Applies an operation to the document: **all of it, or none of it** (ROADMAP Y-F12).
+///
+/// The document's arena is unsealed for the operation alone, and what it wrote is put
+/// back if it fails ([`Document::change`]).
 pub fn apply_operation(doc: &mut Document, op: Operation) -> PdfResult<()> {
+    doc.change(|doc| dispatch(doc, op))
+}
+
+/// Routes `op` to the module that carries it out.
+fn dispatch(doc: &mut Document, op: Operation) -> PdfResult<()> {
     // RR-15 Limit: Dispatcher - the vocabulary's one routing table, exhaustive by Rule 5
     //
     // Thirty-two arms, each a name and where it goes. It passed fifty when `ResizePages`

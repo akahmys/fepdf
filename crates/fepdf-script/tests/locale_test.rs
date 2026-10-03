@@ -15,7 +15,7 @@ fn document() -> PdfDocument {
         fepdf_fixtures::assemble(&[
             "<< /Type /Catalog /Pages 2 0 R >>".to_string(),
             "<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_string(),
-            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Contents 4 0 R >>".to_string(),
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Resources << >> /Contents 4 0 R >>".to_string(),
             format!("<< /Length {} >>\nstream\n{content}endstream", content.len()),
         ])
         .into(),

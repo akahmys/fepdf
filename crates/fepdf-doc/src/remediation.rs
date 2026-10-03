@@ -1140,6 +1140,12 @@ pub fn apply_physical_redaction_to_page(
     page_index: usize,
     redacted_rects: &[[f32; 4]],
 ) -> PdfResult<usize> {
+    // Let through by name until Y-10 gives redaction an `Operation` (ROADMAP Y-11).
+    doc.redaction_until_y10(|| redact_page(doc, page_index, redacted_rects))
+}
+
+/// [`apply_physical_redaction_to_page`]'s work, inside the unsealing it is let through by.
+fn redact_page(doc: &Document, page_index: usize, redacted_rects: &[[f32; 4]]) -> PdfResult<usize> {
     doc.forget_color_spaces();
     if redacted_rects.is_empty() {
         return Ok(0);

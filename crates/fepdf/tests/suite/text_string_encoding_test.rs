@@ -232,8 +232,7 @@ fn an_article_thread_title_is_a_text_string() {
 /// after the value has been through a file.
 #[test]
 fn an_alternate_description_is_a_text_string() {
-    let mut doc = PdfDocument::create_empty().expect("a new document opens");
-    let element = struct_element(&doc);
+    let (mut doc, element) = with_struct_element();
     doc.apply(fepdf::Operation::UpdateStructElem(fepdf::StructElemUpdate {
         handle_index: element,
         new_tag: Some("Figure".to_string()),
@@ -262,8 +261,7 @@ fn an_alternate_description_is_a_text_string() {
 /// all three (8.2.5.23, 8.4); an update leaves the entries it is not given alone.
 #[test]
 fn an_elements_language_replacement_and_expansion_are_text_strings() {
-    let mut doc = PdfDocument::create_empty().expect("a new document opens");
-    let element = struct_element(&doc);
+    let (mut doc, element) = with_struct_element();
     doc.apply(fepdf::Operation::UpdateStructElem(fepdf::StructElemUpdate {
         handle_index: element,
         new_lang: Some("ja-JP".to_string()),
@@ -304,8 +302,7 @@ fn an_update_of_an_element_that_is_not_there_is_refused() {
 /// A user property's `/N`, its string `/V` and its `/F` survive (Table 380).
 #[test]
 fn a_user_property_name_value_and_format_are_text_strings() {
-    let mut doc = PdfDocument::create_empty().expect("a new document opens");
-    let element = struct_element(&doc);
+    let (mut doc, element) = with_struct_element();
     doc.apply(fepdf::Operation::AddUserProperties {
         target_handle: element,
         properties: vec![fepdf::UserProperty {
@@ -329,13 +326,24 @@ fn a_user_property_name_value_and_format_are_text_strings() {
     assert_eq!(text_at(arena, &property, "F"), "株式会社れい（東京）");
 }
 
-/// A structure element hung off the catalogue as `/StructTreeRoot`, and its handle index.
+/// A blank document with a structure element hung off the catalogue as
+/// `/StructTreeRoot`, and the element's handle index.
 ///
 /// Both operations above address their target by object index and neither creates one.
 /// The catalogue is where it has to hang: an object nothing refers to is not written to
-/// the file, and these assertions are all made on a file.
-fn struct_element(doc: &PdfDocument) -> u32 {
-    let inner = doc.inner();
+/// the file, and these assertions are all made on a file. **Built in the model layer**
+/// and then handed over: a facade document changes only through `apply` (ROADMAP Y-11).
+fn with_struct_element() -> (PdfDocument, u32) {
+    let inner = fepdf::Document::open(
+        fepdf_fixtures::assemble(&[
+            "<< /Type /Catalog /Pages 2 0 R >>",
+            "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << >> >>",
+        ])
+        .into(),
+        &fepdf::IngestionOptions::default(),
+    )
+    .expect("the fixture opens");
     let arena = inner.arena();
     let mut element = BTreeMap::new();
     element.insert(arena.name("Type"), Object::Name(arena.name("StructElem")));
@@ -349,5 +357,5 @@ fn struct_element(doc: &PdfDocument) -> u32 {
     cdict.insert(arena.name("StructTreeRoot"), Object::Reference(handle));
     arena.set_dict(cadh, cdict);
 
-    handle.index()
+    (PdfDocument::from_document(inner), handle.index())
 }

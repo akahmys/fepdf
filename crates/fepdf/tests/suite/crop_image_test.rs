@@ -27,6 +27,17 @@ fn pixels() -> Vec<u8> {
 /// A 200-point square page with the image drawn over x 0–200, y 50–150, and `extra` in
 /// its dictionary.
 fn page_with_image(image: &[u8], dict: &str, extra: &[String]) -> PdfDocument {
+    page_with_image_as(
+        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Contents 4 0 R \
+          /Resources << /XObject << /Im0 5 0 R >> >> >>",
+        image,
+        dict,
+        extra,
+    )
+}
+
+/// [`page_with_image`] with the page dictionary, object 3, given.
+fn page_with_image_as(page: &str, image: &[u8], dict: &str, extra: &[String]) -> PdfDocument {
     let content = "q 200 0 0 100 0 50 cm /Im0 Do Q";
     let mut stream =
         format!("<< /Type /XObject /Subtype /Image {dict} /Length {} >>\nstream\n", image.len())
@@ -36,9 +47,7 @@ fn page_with_image(image: &[u8], dict: &str, extra: &[String]) -> PdfDocument {
     let mut bodies: Vec<Vec<u8>> = vec![
         b"<< /Type /Catalog /Pages 2 0 R >>".to_vec(),
         b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_vec(),
-        b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Contents 4 0 R \
-          /Resources << /XObject << /Im0 5 0 R >> >> >>"
-            .to_vec(),
+        page.as_bytes().to_vec(),
         format!("<< /Length {} >>\nstream\n{content}\nendstream", content.len()).into_bytes(),
         stream,
     ];
@@ -264,27 +273,14 @@ fn an_image_a_form_draws_through_the_page_stays() {
         "<< /Type /XObject /Subtype /Form /BBox [0 0 200 200] /Length {} >>\nstream\n{form}\nendstream",
         form.len()
     );
-    let mut doc = page_with_image(
+    // The page draws the form, and names the image nowhere of its own.
+    let mut doc = page_with_image_as(
+        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Contents 7 0 R \
+          /Resources << /XObject << /Im0 5 0 R /Fm0 6 0 R >> >> >>",
         &pixels(),
         "/Width 4 /Height 2 /ColorSpace /DeviceRGB /BitsPerComponent 8",
         &[form, "<< /Length 7 >>\nstream\n/Fm0 Do\nendstream".to_string()],
     );
-    // The page draws the form, and names the image nowhere of its own.
-    let arena = doc.inner().arena();
-    let page = doc.inner().get_page_handle(0).and_then(|h| arena.get_object(h));
-    let page = page.and_then(|p| p.as_dict_handle()).expect("the page is there");
-    let mut dict = arena.get_dict(page).expect("it reads");
-    dict.insert(arena.name("Contents"), fepdf_model::Object::Reference(arena.handle(7)));
-    let resources =
-        dict.get(&arena.name("Resources")).and_then(|r| r.resolve(arena).as_dict_handle());
-    arena.set_dict(page, dict);
-    let xobjects = resources
-        .and_then(|r| arena.dict_entry(r, arena.name("XObject")))
-        .and_then(|x| x.resolve(arena).as_dict_handle())
-        .expect("the page names XObjects");
-    let mut names = arena.get_dict(xobjects).expect("it reads");
-    names.insert(arena.name("Fm0"), fepdf_model::Object::Reference(arena.handle(6)));
-    arena.set_dict(xobjects, names);
 
     cut(&mut doc, 0, (0.0, 0.0, 100.0, 200.0));
     assert_eq!(written_images(&doc), [(4, 2)], "the image the form draws went");

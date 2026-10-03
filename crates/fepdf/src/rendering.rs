@@ -222,7 +222,7 @@ impl PdfDocument {
         let resources = stream_dict
             .get(&arena.name("Resources"))
             .and_then(|r| r.resolve(arena).as_dict_handle())
-            .unwrap_or_else(|| arena.alloc_dict(std::collections::BTreeMap::new()));
+            .unwrap_or_else(|| self.inner.no_resources());
         Some((stream, placement, resources))
     }
 

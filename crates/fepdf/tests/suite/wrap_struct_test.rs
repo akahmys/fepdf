@@ -11,6 +11,11 @@ use fepdf_model::object::Object;
 /// A list, element 6, whose item, 7, holds MCIDs 0 and 1 on page 3; and a `Figure`, 8,
 /// whose one kid is a paragraph, 9, holding MCID 2.
 fn tagged() -> PdfDocument {
+    tagged_with("/Pg 3 0 R")
+}
+
+/// [`tagged`], with what the list item states of its page given: `""` for none.
+fn tagged_with(item_page: &str) -> PdfDocument {
     let content = "/P <</MCID 0>> BDC 0 0 5 5 re f EMC /P <</MCID 1>> BDC 10 0 5 5 re f EMC \
                    /P <</MCID 2>> BDC 20 0 5 5 re f EMC\n";
     let bytes = fepdf_fixtures::assemble(&[
@@ -26,7 +31,7 @@ fn tagged() -> PdfDocument {
            /ParentTree << /Nums [0 [7 0 R 7 0 R 9 0 R]] >> >>"
             .to_string(),
         "<< /Type /StructElem /S /L /P 5 0 R /K [7 0 R] >>".to_string(),
-        "<< /Type /StructElem /S /LI /P 6 0 R /Pg 3 0 R /K [0 1] >>".to_string(),
+        format!("<< /Type /StructElem /S /LI /P 6 0 R {item_page} /K [0 1] >>"),
         "<< /Type /StructElem /S /Figure /P 5 0 R /Alt (A chart) /K 9 0 R >>".to_string(),
         "<< /Type /StructElem /S /P /P 8 0 R /Pg 3 0 R /K 2 >>".to_string(),
     ]);
@@ -155,12 +160,7 @@ fn what_cannot_be_wrapped_is_refused() {
     assert_eq!((kids(&doc, Handle::new(5)).len(), tag.as_str()), (1, "Div"));
     assert_eq!(entry(&doc, Handle::new(6), "P").and_then(|p| p.as_reference()), Some(div));
 
-    let mut pageless = tagged();
-    let arena = pageless.inner().arena();
-    let item = arena.get_object(Handle::new(7)).and_then(|o| o.as_dict_handle()).expect("item");
-    let mut dict = arena.get_dict(item).expect("a dictionary");
-    dict.remove(&arena.name("Pg"));
-    arena.set_dict(item, dict);
+    let mut pageless = tagged_with("");
     assert!(pageless.apply(wrap(7, 0, 1, "Lbl")).is_err(), "an MCID with no page was wrapped");
     assert_eq!(kids(&pageless, Handle::new(7)).len(), 2, "a refused wrap changed the item");
 }
