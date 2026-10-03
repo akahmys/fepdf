@@ -1374,10 +1374,10 @@ it can be run there.
       fill, gray, RGB or CMYK — and only when it is absent is black the engine's choice
       and recorded. `fepdf-mcp` takes it as `fill`, and the window's export asks for a
       colour or none.
-      *Open*: keeping the glyphs after a removed run in their exact places keeps the
-      run's width, and arXiv 2206.02285 recovers redacted words from such widths in
-      Acrobat's output. Whether the adjustment is kept, rounded or replaced is not yet
-      decided.
+      **The glyphs that remain keep their places**, decided by the owner 2026-10-04
+      with the width of what went left recoverable from them, as it is from Acrobat
+      (arXiv 2206.02285); moving the rest of the line to the region's edge was the
+      other answer ([ADR-0111](docs/adr/0111-a-redaction-keeps-the-remaining-glyphs-where-they-were.md)).
       *Done when* a fixture carrying a marker string in text, in a form XObject, in an
       annotation and in `/ActualText`, and an image under the region, saved after one
       redaction, holds the marker in no decoded stream and none of the image's pixels
