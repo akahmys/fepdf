@@ -846,6 +846,7 @@ eight times, and the copies do not agree on whether to resolve.
       XObjects' text where they are. Either the drawing covers what it names, or the
       name says what it does. It also changes the open document outside `apply`, in
       the window's export and in `fepdf-mcp`, so no history holds it (Rule D).
+      Taken as Y-10.
 - [x] **Y-F18** — **a page taken out of a document is still written into it.** Measured
       2026-09-30 on a two-page fixture whose first page links to the second and whose
       one bookmark names it: `RemovePages` of the second, then a save, leaves its
@@ -929,9 +930,9 @@ eight times, and the copies do not agree on whether to resolve.
       (`audit_objects::Belonging`), and a field's widget is an annotation, so both halves
       of each condition are reachable. What is missing is the way from a `FormField` to
       its widgets: it carries no handle.
-- [ ] **Y-F7** — `compare.rs`'s `to_f64` is used only under the `render` feature and is
+- [x] **Y-F7** — `compare.rs`'s `to_f64` is used only under the `render` feature and is
       not gated with it, so `cargo build -p fepdf` warns. The workspace build unifies
-      features and never sees it.
+      features and never sees it. Gated with `render` in Y-4 (`5467c37`).
 - [ ] **Y-F23** — **a save writes `/Info`'s dates in the metadata stream's form.**
       `publish upgrade --no-obj-stm` of `fy05.pdf` writes `/CreationDate
       (2024-11-08T09:05:36+09:00)`, where 7.9.4 asks for `D:20241108090536+09'00'`
@@ -1126,6 +1127,80 @@ eight times, and the copies do not agree on whether to resolve.
       each a module `main.rs` names, and a test there checks that every file is named and
       that none sets an environment variable or the working directory; adding an unnamed
       file failed it. `TESTING.md` says how one file is run alone.
+
+**Taken from the findings**
+- [ ] **Y-10** — **redaction removes what it covers, and draws over it** (Y-F13, taken by
+      the owner 2026-10-03). Measured the same day: no `Operation` redacts —
+      `annotation.rs` names an `Operation::RedactDocument` that does not exist — and
+      `PdfDocument` and `fepdf-mcp` call `apply_physical_redaction_to_page` directly.
+      That replaces the whole string of each show-text operator touching a rectangle,
+      covered or not, with `[REDACTED]`, and nothing else on the page. `RedactEntries`
+      reads a `/Redact` annotation's `/QuadPoints`, `/IC` and `/RO`, and nothing acts on
+      them.
+      *Goal*: after a redaction and a save, nothing inside a region can be recovered
+      from the file, and the region shows a fill.
+      - An `Operation` redacts, so the window and `fepdf-mcp` go through `apply` and the
+        history holds it (Rule D); applying a document's own `/Redact` annotations is
+        the same operation fed from 12.5.6.23.
+      - Text: the glyphs inside the region go, and the ones outside keep their places
+        (a `TJ` adjustment where a glyph was), so no length stands in for the words.
+        `/ActualText` and `/Alt` on what was removed go with it.
+      - Images: the pixels inside, in image XObjects and inline images, are replaced
+        and re-encoded; the old stream is reached by nothing, so the writer drops it.
+      - Form XObjects are entered; one another page also draws is copied first.
+      - Annotations and widgets whose `/Rect` meets the region are removed, and with each
+        its `/Popup` and the replies naming it by `/IRT`, which carry `/Contents` of
+        their own.
+      - A form field keeps its value in the field tree, not in the widget, so removing
+        the widget leaves `/V` written. A field whose widgets are all inside the region
+        goes from the tree — its parent's `/Kids`, `/Fields` and `/CO`. One with a widget
+        outside keeps its value, which is shown there. An `/XFA` entry, which holds the
+        values again as XML and which a save writes untouched, is removed with a
+        `Decision`.
+      - A structure element left with no content is pruned, with its `/Alt`,
+        `/ActualText`, `/T` and `/E`, as page removal does through `struct_tree_pruning`.
+      - A redacted page's `/Thumb`, an image of the page, is removed. An image's `/SMask`
+        is replaced over the same region, and its `/Alternates` removed.
+      - Content in a hidden optional content group is removed like any other: 12.5.6.23
+        asks for all traces, not the visible ones.
+      - The fill follows 12.5.6.23, Table 195, for a region a `/Redact` annotation
+        names: `/RO` when present, drawn with its origin at the lower left of `/Rect`,
+        and then `/IC`, `/OverlayText`, `/Repeat`, `/DA` and `/Q` are ignored; else
+        `/OverlayText` set by `/DA` and `/Q`, repeated when `/Repeat` is true, over
+        `/IC`; else `/IC` alone; else nothing — **the region is left transparent**.
+        Black is this engine's choice only for a region a caller names with no
+        annotation, and is recorded as one.
+      - A `/Redact` annotation applied is removed from the document with what it
+        named, as 12.5.6.23 requires.
+      *To decide before code*: vector paths under a region — removed whole, cut to the
+      region, or left with a `Decision` saying they were; whether a glyph partly inside
+      counts as inside; what an element's `/ActualText` becomes when only part of its
+      content goes; and whether Type 3 glyph procedures and tiling pattern cells drawn
+      inside a region are entered, as form XObjects are.
+      *Done when* a fixture carrying a marker string in text, in a form XObject, in an
+      annotation and in `/ActualText`, and an image under the region, saved after one
+      redaction, holds the marker in no decoded stream and none of the image's pixels
+      inside the region; a marker in a text field's `/V` (merged with its widget, and as
+      a parent with kids), in a choice field's `/Opt`, in `/XFA`, in a removed
+      annotation's popup and reply, and in a pruned element's `/Alt`, likewise; a page
+      `/Thumb`, gone; a `/Redact` annotation carrying `/IC` and one carrying none,
+      applied, leave a fill of that colour and no fill, and no `/Redact` annotation; and
+      taking out each of those parts fails the test.
+
+- [ ] **Y-11** — **a document changes only inside `apply`, and a write anywhere else
+      fails a test** (Rule D). Measured 2026-10-03, with a counter put on the arena's
+      seven writers and taken out again: sixteen of the facade's `&self` readers write
+      nothing, and `apply_redaction_to_page` writes three times. `layering.py` counts
+      `&mut self` methods, and the arena writes through `&self`, so it saw neither that
+      nor `apply_physical_redaction_to_page`, a function the facade re-exports and
+      `fepdf-mcp` calls through `doc.inner()`. A check on names reaches one call deep.
+      *Goal*: the arena is sealed once a document is loaded, and `apply` alone unseals
+      it; a write while sealed panics in a debug build, so every test that takes a path
+      round `apply` fails, and a release build pays nothing. A save writes into a copy,
+      which is a different arena.
+      *Done when* the two redaction routes are gone from the facade (Y-10 gives them an
+      `Operation`), and a probe writing to a sealed arena from a `&self` method fails
+      the gate.
 
 **Open**: `fepdf-doc` is 18,187 lines and holds operations, auditing, measurement and
 reading order. Whether it splits is not decided here. The Y-1d reading will show whether
