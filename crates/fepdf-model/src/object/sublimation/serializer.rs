@@ -191,7 +191,11 @@ fn serialize_command(cmd: &Command, buf: &mut Vec<u8>) {
             }
             buf.extend_from_slice(format!("] {} d\n", num(*phase)).as_bytes());
         }
-        Command::DrawInlineImage { width, height, format, data } => {
+        Command::DrawInlineImage { source, .. } if !source.is_empty() => {
+            buf.extend_from_slice(source);
+            buf.push(b'\n');
+        }
+        Command::DrawInlineImage { width, height, format, data, .. } => {
             write_inline_image(*width, *height, *format, data, buf);
         }
         Command::RawOperator { name, operands } => {

@@ -935,6 +935,17 @@ it can be run there.
         not; `resolve_to_node_handle` answers a reference or nothing. A direct
         `/Outlines`, direct items, and a direct element in `/K` read; taking the lifting
         out failed each.
+- [x] **Y-F32** — **a save broke every inline image.** The parser kept an inline
+      image's width, height, a placeholder format and the encoded bytes after `ID`, and the
+      serializer wrote them out as `/CS /RGB /BPC 8` with no filter: measured 2026-10-04,
+      an 8 by 2 one-bit gray image saved as RGB with two bytes of its 48. Found reading
+      for Y-10's inline images. Fixed: the command keeps the operator as the stream wrote
+      it, `BI` through `EI`, and that is what is written. `inline_image_test.rs` holds a
+      one-bit gray image and a filtered one, and writing the old way failed both.
+- [ ] **Y-F33** — **an inline image is drawn as RGB whatever it is.** The interpreter
+      hands the backend the bytes after `ID`, still encoded, as eight-bit RGB — the same
+      placeholder format Y-F32 found — so a one-bit, gray, CMYK or filtered inline image
+      draws as noise. Found with Y-F32; not yet measured on the corpus.
 - [x] **Y-F22** — **a linearised file writes no object streams.** `intel_sdm.pdf`'s
       plain save packs 325,000 of its 332,818 objects into 3,277 compressed object
       streams; the linearised one writes every object directly, 58 MB against 25.6 MB

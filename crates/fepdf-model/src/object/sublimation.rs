@@ -127,6 +127,14 @@ pub enum Command {
         format: crate::graphics::PixelFormat,
         /// Uncompressed byte data of the image.
         data: Vec<u8>,
+        /// The operator as the stream wrote it, `BI` through `EI`, which is what is
+        /// written back.
+        ///
+        /// **The fields above are not the image.** `format` is a placeholder and `data`
+        /// is what follows `ID`, still encoded, so writing them out put `/CS /RGB /BPC 8`
+        /// over a one-bit gray image and dropped its filter: a save of any page drawing an
+        /// inline image broke it (ROADMAP Y-F32).
+        source: Vec<u8>,
     },
 
     // --- Compatibility & Extensions ---

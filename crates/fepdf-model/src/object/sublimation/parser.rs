@@ -52,6 +52,7 @@ impl<'a> Sublimator<'a> {
 
     fn parse_inline_image(&self, lexer: &mut Lexer) -> Command {
         // Inline Image Handling (ISO 32000-2:2020 Clause 8.9.7)
+        let after_bi = lexer.pos();
         let mut dict = BTreeMap::new();
         while let Ok(token) = lexer.next_token() {
             if token == Token::Keyword("ID".to_string()) {
@@ -85,6 +86,8 @@ impl<'a> Sublimator<'a> {
             end_pos += 1;
         }
         let img_data = data[start_pos..end_pos].to_vec();
+        let mut source = b"BI".to_vec();
+        source.extend_from_slice(&data[after_bi..(end_pos + 3).min(data.len())]);
         lexer.set_pos(end_pos + 3);
 
         Command::DrawInlineImage {
@@ -92,6 +95,7 @@ impl<'a> Sublimator<'a> {
             height: dict.get("H").and_then(|v| v.as_i64()).unwrap_or(0) as u32,
             format: crate::graphics::PixelFormat::Rgb8, // Placeholder
             data: img_data,
+            source,
         }
     }
 
