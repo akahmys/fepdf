@@ -169,18 +169,28 @@ fn write_basic_fields(info: &BTreeMap<PdfName, RefinedObject>, writer: &mut XmpW
 
 fn generate_and_write_uuids(
     info: &BTreeMap<PdfName, RefinedObject>,
+    source_id: Option<&str>,
     stamped_at: u64,
     writer: &mut XmpWriter,
 ) {
     // RR-15 Limit: Dispatcher - hashes metadata elements to generate unique Document and Instance UUIDs in XMP format
+    //
+    // **The document is this save's** (ADR-0012), so its ID is drawn from what makes it
+    // one: the document it was derived from, everything its metadata says, and the moment
+    // it was stamped. It was the title's hash alone, so every untitled document shared one
+    // ID and two of one title collided (ROADMAP Y-F4). One input stamped at one moment
+    // still writes one ID.
     let mut doc_hasher = md5::Context::new();
-    let title_val = get_info_field(info, "Title").unwrap_or_default();
-    doc_hasher.consume(title_val.as_bytes());
-    // Deliberately keeps the pre-rename spelling. This salt is an input to the XMP
-    // DocumentID, so changing it would give every document a different ID and break
-    // reproducibility against files produced before the rename. It is an identifier
-    // for the hash, not a product name.
+    // The salt keeps the pre-rename spelling: it names the hash, not the product.
     doc_hasher.consume(b"ferruginous-pdf2.0-stable-document-id-salt");
+    doc_hasher.consume(source_id.unwrap_or_default().as_bytes());
+    for key in info.keys() {
+        if let Some(text) = get_info_field(info, key.as_str()) {
+            doc_hasher.consume(key.as_str().as_bytes());
+            doc_hasher.consume(text.as_bytes());
+        }
+    }
+    doc_hasher.consume(stamped_at.to_be_bytes());
     let doc_bytes = doc_hasher.finalize().0;
 
     // The instance is this rendition, so it is salted with the time the rendition is
@@ -235,32 +245,19 @@ fn generate_and_write_uuids(
 }
 
 fn parse_and_write_dates(info: &BTreeMap<PdfName, RefinedObject>, writer: &mut XmpWriter) {
-    let mut create_dt = get_info_field(info, "CreationDate").and_then(|v| parse_date_string(&v));
-    let mut modify_dt = get_info_field(info, "ModDate").and_then(|v| parse_date_string(&v));
-
-    if create_dt.is_none() {
-        create_dt = modify_dt;
+    // **A date nobody stated is not written.** A document with none was given
+    // 2026-05-26T06:00:00Z as all three, and one with only a creation date was given it as
+    // its modification too (ROADMAP Y-F5). The modification is the save's, which the
+    // caller supplies as `ModDate`; `MetadataDate` is the same moment, since the packet is
+    // written then.
+    if let Some(created) = get_info_field(info, "CreationDate").and_then(|v| parse_date_string(&v))
+    {
+        writer.create_date(created);
     }
-    if modify_dt.is_none() {
-        modify_dt = create_dt;
+    if let Some(modified) = get_info_field(info, "ModDate").and_then(|v| parse_date_string(&v)) {
+        writer.modify_date(modified);
+        writer.metadata_date(modified);
     }
-
-    let fallback_dt = xmp_writer::DateTime {
-        year: 2026,
-        month: Some(5),
-        day: Some(26),
-        hour: Some(6),
-        minute: Some(0),
-        second: Some(0),
-        timezone: Some(xmp_writer::Timezone::Utc),
-    };
-
-    let final_create = create_dt.unwrap_or(fallback_dt);
-    let final_modify = modify_dt.unwrap_or(fallback_dt);
-
-    writer.create_date(final_create);
-    writer.modify_date(final_modify);
-    writer.metadata_date(final_modify);
 }
 
 /// Renders the packet, recording what the document was derived from.
@@ -282,7 +279,7 @@ pub fn info_to_xmp_derived(
 
     write_basic_fields(info, &mut writer);
     writer.format("application/pdf");
-    generate_and_write_uuids(info, stamped_at, &mut writer);
+    generate_and_write_uuids(info, provenance.source_id.as_deref(), stamped_at, &mut writer);
     parse_and_write_dates(info, &mut writer);
 
     if let Some(parent) = &provenance.source_id {

@@ -784,8 +784,8 @@ their places; this is the order they are taken in.
 1. **The output conforms, and that is measured.** Y-F24 first: a save read back by a test
    that fails on a departure, since output conforming to ISO 32000-2 is what the engine
    is for and nothing measures it. Under it, Y-F23, Y-F15 and what is open of Y-F21; the
-   save's metadata together, Y-F2, Y-F4, Y-F5 and Y-F6; Y-F25 decided; and Y-F28, what
-   the test found the saves keep from their sources.
+   save's metadata together, Y-F2, Y-F4, Y-F5 and Y-F6, and Y-F29 with them; Y-F25
+   decided; and Y-F28, what the test found the saves keep from their sources.
 2. **One way to save.** Y-F1, Y-F22 and what is open of Y-0b are one defect: a
    linearised save is a second writer path, which ignores the options and packs no object
    streams. Linearising becomes a stage of the save the options already drive.
@@ -836,16 +836,25 @@ it can be run there.
 - [ ] **Y-F1** — `save_linearized` keeps its own copy of the metadata handling and
       ignores `password`, `strip`, `lang`, `copyright` and `obj_stm`, beside a comment
       saying it is consistent with `save_with_options`.
-- [ ] **Y-F2** — `SaveOptions::creation_date` is read by nothing.
+- [x] **Y-F2** — `SaveOptions::creation_date` is read by nothing.
+      Fixed 2026-10-03: a creation date the caller gives is written, in the packet and in
+      `/Info`, and one that is no date is refused as `PdfError::Refused`.
 - [ ] **Y-F3** — `fepdf-cli` panics when a certificate named by `--encrypt-to` cannot be
       read (`args.rs`, `From<SaveArgs>`), where Rule 2 asks for an error.
-- [ ] **Y-F4** — the XMP `DocumentID` is `md5` of the title alone, so every untitled
+- [x] **Y-F4** — the XMP `DocumentID` is `md5` of the title alone, so every untitled
       document shares one, and two documents of one title collide.
-- [ ] **Y-F5** — a document with no date is given `2026-05-26T06:00:00Z` as its
+      Fixed 2026-10-03: the save's document is a new one (ADR-0012), so its ID is drawn
+      from the document it derives from, every metadata field, and the stamp. Two
+      untitled documents with different `/ID`s get two IDs; one stamped alike gets one.
+- [x] **Y-F5** — a document with no date is given `2026-05-26T06:00:00Z` as its
       `CreateDate`, `ModifyDate` and `MetadataDate`, with no `Decision`.
-- [ ] **Y-F6** — `ModifyDate` and `MetadataDate` are copied from the source. Saving
+      Fixed 2026-10-03: a date nobody stated is not written; a creation date no longer
+      stands in for a missing modification, nor the other way round.
+- [x] **Y-F6** — `ModifyDate` and `MetadataDate` are copied from the source. Saving
       produces a new document (ADR-0012) and rewrites the packet, so both are the save's
       moment, which `stamped_at` now supplies.
+      Fixed 2026-10-03: both are the stamp, in UTC so one stamp writes one date on any
+      machine, and `/Info /ModDate` is the same moment in 7.9.4's form.
 - [ ] **Y-F8** — `cargo doc --workspace --no-deps` prints 44 warnings, most of them
       intra-doc links that resolve to nothing, and nothing gates it. `documents.py`
       checks relative Markdown links, which is the half AGENTS.md rule 1 names.
@@ -1019,6 +1028,14 @@ it can be run there.
       widget in `sample_02c.pdf` lacks `/DA` and `/FT` that its field requires. Every one
       is in the source as read; none is the save's own. A translator to ISO 32000-2 drops
       or repairs them, each with a `Decision`. `arlington_known.tsv` lists them.
+- [ ] **Y-F29** — **opening a file writes a packet of its own over the file's.**
+      `metadata::settle` runs at load with the document's provenance empty and the stamp
+      `seconds_now()`, so the packet the engine holds names a `DocumentID` drawn from the
+      clock and no `DerivedFrom`, and a second opening of one file reads another ID
+      (measured 2026-10-03, reading a save back while building Y-F4's test, which reads
+      without refinement because of it). A save is unaffected: it reads the source's
+      identity before settling and writes the packet again. What `inspect` and the audits
+      read of `xmpMM:` is the engine's, not the file's.
 - [ ] **Y-F26** — **the documents name the wrong thing as what fepdf is.** The owner's
       definition, 2026-10-03: a translator from any PDF to ISO 32000-2, operations on
       what it translated, and frontends for those operations; reporting what was done

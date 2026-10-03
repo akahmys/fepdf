@@ -67,6 +67,7 @@ mod rendering_mode_test;
 mod resize_pages_test;
 mod run_position_test;
 mod sample_corpus_test;
+mod save_metadata_test;
 mod scanned_resize_test;
 mod sdk_tests;
 mod smask_in_data_test;

@@ -65,6 +65,21 @@ impl PdfDocument {
         if let Some(v) = &options.copyright {
             metadata.rights = Some(v.clone());
         }
+        // **A creation date the caller states is the document's.** It was read by nothing
+        // (ROADMAP Y-F2). One that is no date is refused rather than written as one.
+        if let Some(v) = &options.creation_date {
+            if fepdf_model::refine::metadata::parse_date_string(v).is_none() {
+                return Err(PdfError::refused(
+                    "save",
+                    format!("the creation date {v:?} is no date in either 7.9.4's or XMP's form"),
+                ));
+            }
+            metadata.creation_date = Some(v.clone());
+        }
+        // **Saving produces a new document** (ADR-0012), so its modification is this save:
+        // the moment it is stamped with, in UTC so that one stamp writes one date on any
+        // machine. It was the source's, copied (ROADMAP Y-F6).
+        metadata.mod_date = Some(utc_date(options.stamp()));
 
         // Automatic Producer stamping
         metadata.producer = Some("fepdf (https://github.com/akahmys/fepdf)".to_string());
@@ -300,4 +315,10 @@ impl PdfDocument {
         let identity = fepdf_model::cms::SigningIdentity::from_der(certificate, key)?;
         self.write_out(output_path, version, options, Some((&identity, sign_options)))
     }
+}
+
+/// `seconds` since the Unix epoch as XMP writes a date, in UTC.
+fn utc_date(seconds: u64) -> String {
+    let at = i64::try_from(seconds).ok().and_then(|s| chrono::DateTime::from_timestamp(s, 0));
+    at.unwrap_or_default().format("%Y-%m-%dT%H:%M:%SZ").to_string()
 }
