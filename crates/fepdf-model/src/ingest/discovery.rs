@@ -78,6 +78,50 @@ pub fn lift_direct_fonts(arena: &PdfArena) {
     }
 }
 
+/// Gives a `CIDFontType2` with an embedded program the `/CIDToGIDMap /Identity` it lacks,
+/// and says so.
+///
+/// **Table 115 requires the entry of exactly that font** — a Type 2 CIDFont whose
+/// descriptor carries `/FontFile2` — and gives it no default, so a file without it is wrong
+/// and `Identity` is the reading every reader takes. This filled it on every `CIDFontType0`
+/// and `CIDFontType2`, embedded or not, and recorded nothing, so a Type 0 CIDFont, whose
+/// table defines no such entry, left with one, and the audit's 31-004 never saw an absent
+/// one (ROADMAP Y-F15). A font this leaves alone still reads its CIDs as glyph indices: the
+/// loader takes an absent map for `Identity`.
+pub fn require_cid_to_gid_maps(
+    arena: &PdfArena,
+    decisions: &mut crate::interpretation::DecisionLog,
+) {
+    let key = arena.name("CIDToGIDMap");
+    for holder in arena.all_dict_handles() {
+        let Some(mut dict) = arena.get_dict(holder) else { continue };
+        let named = |k: &str| {
+            dict.get(&arena.name(k))
+                .and_then(|o| o.resolve(arena).as_name())
+                .and_then(|n| arena.get_name_str(n))
+        };
+        if named("Subtype").as_deref() != Some("CIDFontType2") || dict.contains_key(&key) {
+            continue;
+        }
+        let embedded = dict
+            .get(&arena.name("FontDescriptor"))
+            .is_some_and(|d| crate::access::entry(arena, d, "FontFile2").is_some());
+        if !embedded {
+            continue;
+        }
+        let name = named("BaseFont").unwrap_or_default();
+        dict.insert(key, Object::Name(arena.name("Identity")));
+        arena.set_dict(holder, dict);
+        decisions.push(crate::interpretation::Decision::repaired(
+            "9.7.4.1",
+            format!(
+                "the embedded CIDFontType2 /{name} has no /CIDToGIDMap, which Table 115 requires"
+            ),
+            "gave it /Identity, the mapping a reader takes when it is absent",
+        ));
+    }
+}
+
 /// Finds and loads every font the document's pages reference.
 pub fn discover_fonts(
     arena: &PdfArena,

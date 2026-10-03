@@ -946,7 +946,7 @@ it can be run there.
       code through the CID the CMap gives it (`b4c4eb3`), and the run tools cut, measure
       and write by the same codes, a character written as a code its CMap reaches
       (`FontResource::codes`, `code_for`).
-- [ ] **Y-F15** — ingestion fills a missing `/CIDToGIDMap` with `/Identity`
+- [x] **Y-F15** — ingestion fills a missing `/CIDToGIDMap` with `/Identity`
       (`refine/font.rs`) and records no `Decision`, so the audit cannot see what
       ISO 14289-1 7.21.3.2 fails: 31-004's arm for an absent entry passes, and never runs.
       It also gives a `CIDFontType0` the entry, which Table 115 defines for `CIDFontType2`
@@ -955,6 +955,15 @@ it can be run there.
       what it repaired, or it stops repairing it.
       Y-F24's test finds a Type 3 font in `fugaku.pdf` carrying one too, which no table of
       the model has (2026-10-03).
+      Fixed 2026-10-03, by reading Table 115 in ISO 32000-2: the entry is required of a
+      `CIDFontType2` whose descriptor carries `/FontFile2`, with no default, and of no
+      other font. `refine::font` is gone; `ingest::discovery::require_cid_to_gid_maps`
+      gives that font `/Identity` and records a repair, and leaves every other font as
+      written, which the loader already read as `Identity`. 31-004 calls an absent map
+      broken, as the condition says; `audit_scope_test`'s sound document had relied on the
+      silent fill and states the map now. The saves of `bokutokitan.pdf`, `fy05.pdf` and
+      `sample_02c.pdf` lose the 2, 13 and 3 entries loading had added, and nothing else of
+      the golden outputs moves. The Type 3 font's is the source's, and stays in Y-F28.
 - [ ] **Y-F16** — 31-005 to 31-008, about a Type 0 font's CMap, are not asked. They were
       left out because ingestion was said to rewrite every CMap to `Identity-H`, which it
       never did to a font that loads (ADR-0105). They need ISO 32000-1 Table 118 read out

@@ -1,9 +1,10 @@
 //! Matterhorn failure conditions about font dictionaries and embedded programs (W-21k).
 //!
-//! **What ingestion leaves alone.** It fills a missing `/CIDToGIDMap` (`refine::font`,
-//! ROADMAP Y-F15); a TrueType program it rebuilds for drawing is kept beside the font, not
-//! written over the file's. Every font dictionary but that entry, the file's own programs
-//! and their `/ToUnicode` maps are read as the file wrote them. 31-005 to 31-008, about a
+//! **What ingestion leaves alone.** It gives an embedded `CIDFontType2` the
+//! `/CIDToGIDMap /Identity` Table 115 requires of it, with a `Decision` (ROADMAP Y-F15);
+//! a TrueType program it rebuilds for drawing is kept beside the font, not written over the
+//! file's. Every font dictionary but that entry, the file's own programs and their
+//! `/ToUnicode` maps are read as the file wrote them. 31-005 to 31-008, about a
 //! Type 0 font's CMap, are not asked yet (Y-F16,
 //! [ADR-0105](../../../docs/adr/0105-ingestion-never-rewrote-a-real-type-0-cmap.md)).
 
@@ -182,12 +183,17 @@ impl Font<'_> {
     }
 
     /// 31-004: a `CIDFontType2`'s `/CIDToGIDMap` is a stream or `/Identity`.
+    ///
+    /// **Absent is broken**, as the condition says. Loading filled every one, so this
+    /// passed an absent map on the ground that it could not meet one; it fills only an
+    /// embedded font's now, recording that it did, and an absent one reaches here.
     fn cid_to_gid_map(&self, descendant: &Object, findings: &mut Vec<AuditFinding>) {
         if name_in(self.arena, descendant, "Subtype").as_deref() != Some("CIDFontType2") {
             return;
         }
         let fine = match entry(self.arena, descendant, "CIDToGIDMap") {
-            Some(Object::Stream(..)) | None => true,
+            Some(Object::Stream(..)) => true,
+            None => false,
             Some(other) => other
                 .as_name()
                 .and_then(|n| self.arena.get_name(n))

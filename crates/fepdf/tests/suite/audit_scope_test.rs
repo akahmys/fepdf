@@ -1663,6 +1663,7 @@ fn the_second_pass_comes_out_sound_where_it_is_met() {
             // 28: a Type 0 font on a CMap Table 118 lists.
             "<< /Type /Font /Subtype /Type0 /BaseFont /Listed /Encoding /Identity-H \
                /DescendantFonts [<< /Type /Font /Subtype /CIDFontType2 /BaseFont /Listed \
+               /CIDToGIDMap /Identity \
                /CIDSystemInfo << /Registry (Adobe) /Ordering (Japan1) /Supplement 6 >> >>] >>"
                 .to_string(),
             "<< /Type /StructElem /S /TH /P 9 0 R /A << /O /Table /Scope /Column >> >>".to_string(),

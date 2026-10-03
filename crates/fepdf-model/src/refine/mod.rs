@@ -15,8 +15,6 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 
 pub mod color;
-/// Font normalisation performed during refinement.
-pub mod font;
 pub mod metadata;
 /// Text and string normalisation performed during refinement.
 pub mod text;
@@ -229,14 +227,6 @@ impl ParallelRefinery {
         issues: &mut Vec<crate::interpretation::Decision>,
     ) -> RefinedObject {
         let mut refined_dict = Self::refine_entries(context, number, handle, depth, issues);
-
-        // Font Normalization
-        if refined_dict.get(&PdfName::new("Type")).and_then(RefinedObject::as_str) == Some("Font") {
-            refined_dict = match font::normalize_font(refined_dict) {
-                RefinedObject::Dictionary(d) => d,
-                _ => return RefinedObject::Null,
-            };
-        }
 
         Self::normalize_ui_text_fields(&mut refined_dict);
         RefinedObject::Dictionary(refined_dict)

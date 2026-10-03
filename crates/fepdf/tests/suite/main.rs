@@ -10,6 +10,7 @@ mod audit_scope_test;
 mod backend_operations_test;
 mod calculation_order_test;
 mod choice_field_test;
+mod cid_to_gid_map_test;
 mod cjk_extraction_test;
 mod close_path_test;
 mod colour_space_test;
