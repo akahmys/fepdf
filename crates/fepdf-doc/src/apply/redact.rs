@@ -28,6 +28,9 @@ const DESCENT: f64 = 0.3;
 pub struct Removal {
     /// The box of each glyph that goes, on the page: left, bottom, right, top.
     pub glyphs: Vec<(f64, f64, f64, f64)>,
+    /// Where an image's pixels are blanked, on the page: each region cut to the box of an
+    /// image it meets.
+    pub images: Vec<(f64, f64, f64, f64)>,
 }
 
 /// What `redaction` would remove, with nothing written.
@@ -39,7 +42,10 @@ pub struct Removal {
 pub fn what_redaction_removes(doc: &Document, redaction: &Redaction) -> PdfResult<Removal> {
     let regions = regions_of(redaction)?;
     let glyphs = text::glyph_boxes(doc, redaction.page, DESCENT)?;
-    Ok(Removal { glyphs: glyphs.into_iter().filter(|g| inside_any(*g, &regions)).collect() })
+    Ok(Removal {
+        glyphs: glyphs.into_iter().filter(|g| inside_any(*g, &regions)).collect(),
+        images: super::redact_images::blanked_areas(doc, redaction.page, &regions)?,
+    })
 }
 
 /// Removes what `redaction` names and fills its regions as it says.
@@ -57,6 +63,7 @@ pub fn apply_redact(doc: &Document, redaction: &Redaction) -> PdfResult<()> {
     let regions = regions_of(redaction)?;
     let colour = colour_operator(redaction.fill.as_deref())?;
     text::remove_glyphs(doc, redaction.page, DESCENT, &|g| inside_any(g, &regions))?;
+    super::redact_images::blank_images(doc, redaction.page, &regions)?;
     if let Some(colour) = colour {
         fill(doc, redaction.page, &regions, &colour)?;
     }

@@ -23,8 +23,8 @@ use kurbo::{Affine, Point};
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
-/// Which part of an image a crop keeps, in its own unit square: left, bottom, right, top.
-type Fraction = (f64, f64, f64, f64);
+/// A part of an image, in its own unit square: left, bottom, right, top.
+pub type Fraction = (f64, f64, f64, f64);
 
 /// What happens to one image drawn on the page.
 enum Cut {
@@ -168,7 +168,7 @@ fn names_drawn(data: &[u8]) -> Vec<String> {
 }
 
 /// The tokens of a content stream, in order.
-fn tokens_of(data: &[u8]) -> Vec<Token> {
+pub fn tokens_of(data: &[u8]) -> Vec<Token> {
     let mut lexer = Lexer::new(bytes::Bytes::copy_from_slice(data));
     let mut tokens = Vec::new();
     while let Ok(token) = lexer.next_token() {
@@ -181,7 +181,7 @@ fn tokens_of(data: &[u8]) -> Vec<Token> {
 }
 
 /// The matrix a `cm`'s six operands write.
-fn matrix_of(operands: &[Token]) -> Affine {
+pub fn matrix_of(operands: &[Token]) -> Affine {
     let numbers: Vec<f64> = operands
         .iter()
         .filter_map(|token| match token {
@@ -198,7 +198,7 @@ fn matrix_of(operands: &[Token]) -> Affine {
 }
 
 /// The image XObjects the page's resources name, by name.
-fn images_of(doc: &Document, page: usize) -> PdfResult<BTreeMap<String, Handle<Object>>> {
+pub fn images_of(doc: &Document, page: usize) -> PdfResult<BTreeMap<String, Handle<Object>>> {
     let arena = doc.arena();
     let page_h = doc.page_handle(page)?;
     let resources =
@@ -328,6 +328,90 @@ fn cut_image(
     Some((arena.alloc_object(stream), exact))
 }
 
+/// `image` with the pixels under each of `blocks` blanked, as a new image, and its soft
+/// mask and explicit mask blanked with it; `None` where it cannot be decoded.
+///
+/// **Blanked is what draws nothing**: zero for a sampled image, and the value that leaves
+/// the page unpainted for a stencil — 1, or 0 under `/Decode [1 0]` (8.9.6.2). Its
+/// `/Alternates` go with it, being the same picture again (8.9.5.4). The pixels taken are
+/// every one a block touches, so a region over part of a pixel takes the pixel.
+pub fn blanked(
+    doc: &Document,
+    image: Handle<Object>,
+    blocks: &[Fraction],
+) -> Option<Handle<Object>> {
+    blank_image(doc, image, blocks, 0)
+}
+
+/// [`blanked`], `depth` images deep: a mask's own masks are not followed, as in
+/// [`cut_image`].
+fn blank_image(
+    doc: &Document,
+    image: Handle<Object>,
+    blocks: &[Fraction],
+    depth: usize,
+) -> Option<Handle<Object>> {
+    let arena = doc.arena();
+    let Some(Object::Stream(dict_h, _)) = arena.get_object(image) else { return None };
+    let dict = arena.get_dict(dict_h)?;
+    let decoded = Decoded::of(doc, image)?;
+    let mut samples = decoded.samples.to_vec();
+    let inverted = dict
+        .get(&arena.name("Decode"))
+        .and_then(|d| d.resolve(arena).as_array())
+        .and_then(|a| arena.get_array(a))
+        .and_then(|a| a.first().and_then(Object::as_f64))
+        == Some(1.0);
+    let value = u8::from(decoded.mask && !inverted);
+    for block in blocks {
+        Pixels::of(*block, decoded.width, decoded.height).fill(
+            &mut samples,
+            (decoded.width, decoded.components, decoded.bits),
+            value,
+        );
+    }
+    let mut new_dict = written_dict(doc, &dict, &decoded);
+    for key in ["SMask", "Mask"] {
+        if depth == 0
+            && let Some(mask) = dict.get(&arena.name(key)).and_then(Object::as_reference)
+        {
+            new_dict.insert(arena.name(key), Object::Reference(blank_image(doc, mask, blocks, 1)?));
+        }
+    }
+    let stream = Object::Stream(
+        arena.alloc_dict(new_dict),
+        Arc::new(SublimatedData::Raw(bytes::Bytes::from(samples))),
+    );
+    Some(arena.alloc_object(stream))
+}
+
+/// The dictionary of an image written back unfiltered from `decoded`: what described its
+/// encoding taken out, and its `/Alternates` with it, being the same picture again
+/// (8.9.5.4); the depth and the colour space its samples now have put in.
+fn written_dict(
+    doc: &Document,
+    dict: &BTreeMap<Handle<fepdf_model::PdfName>, Object>,
+    decoded: &Decoded,
+) -> BTreeMap<Handle<fepdf_model::PdfName>, Object> {
+    let arena = doc.arena();
+    let mut new_dict = dict.clone();
+    for key in ["Filter", "DecodeParms", "Length", "SMaskInData", "Alternates"] {
+        new_dict.remove(&arena.name(key));
+    }
+    if !decoded.mask {
+        let integer_of = |n: usize| Object::Integer(i64::try_from(n).unwrap_or(i64::MAX));
+        new_dict.insert(arena.name("BitsPerComponent"), integer_of(decoded.bits));
+        new_dict.entry(arena.name("ColorSpace")).or_insert_with(|| {
+            Object::Name(arena.name(match decoded.components {
+                1 => "DeviceGray",
+                4 => "DeviceCMYK",
+                _ => "DeviceRGB",
+            }))
+        });
+    }
+    new_dict
+}
+
 /// An image's samples, decoded, and what it takes to read them.
 struct Decoded {
     samples: bytes::Bytes,
@@ -420,6 +504,23 @@ impl Pixels {
         )
     }
 
+    /// Sets every sample of these pixels in `samples` to `value`, packed as the image
+    /// packs them: each row starting on a byte (8.9.3), each sample `bits` wide.
+    fn fill(
+        &self,
+        samples: &mut [u8],
+        (width, components, bits): (usize, usize, usize),
+        value: u8,
+    ) {
+        let row = (width * components * bits).div_ceil(8);
+        for line in self.top..self.bottom {
+            let Some(bytes) = samples.get_mut(line * row..(line + 1) * row) else { return };
+            for sample in self.left * components..self.right * components {
+                set_bits(bytes, sample * bits, bits, value);
+            }
+        }
+    }
+
     /// These pixels of `samples`, packed as the image packs them: each row starting on a
     /// byte (8.9.3), each sample `bits` wide.
     fn cut(&self, samples: &[u8], width: usize, components: usize, bits: usize) -> Vec<u8> {
@@ -464,6 +565,18 @@ fn read_bits(bytes: &[u8], at: usize, bits: usize) -> u8 {
     value
 }
 
+/// Writes `value` into the `bits` at `at`, clearing what was there; a sample wider than
+/// eight bits takes `value` in each byte, which for 0 is 0.
+fn set_bits(bytes: &mut [u8], at: usize, bits: usize, value: u8) {
+    for offset in 0..bits {
+        let bit = at + offset;
+        let Some(byte) = bytes.get_mut(bit / 8) else { return };
+        let on = bits <= 8 && value >> (bits - 1 - offset) & 1 == 1;
+        let mask = 1 << (7 - bit % 8);
+        *byte = if on { *byte | mask } else { *byte & !mask };
+    }
+}
+
 fn write_bits(bytes: &mut [u8], at: usize, bits: usize, value: u8) {
     for offset in 0..bits {
         let bit = at + offset;
@@ -474,7 +587,7 @@ fn write_bits(bytes: &mut [u8], at: usize, bits: usize, value: u8) {
 }
 
 /// Names `image` in the page's resources, under a name nothing there uses.
-fn name_in_page(doc: &Document, page: usize, image: Handle<Object>) -> PdfResult<String> {
+pub fn name_in_page(doc: &Document, page: usize, image: Handle<Object>) -> PdfResult<String> {
     let arena = doc.arena();
     let page_h = doc.page_handle(page)?;
     let page_dh = doc.resolve_to_dict(page_h)?;

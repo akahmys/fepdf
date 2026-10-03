@@ -1385,6 +1385,14 @@ it can be run there.
       fill, gray, RGB or CMYK — and only when it is absent is black the engine's choice
       and recorded. `fepdf-mcp` takes it as `fill`, and the window's export asks for a
       colour or none.
+      **Image XObjects, 2026-10-04**: each one the page's content draws and a region
+      meets is replaced, for that drawing, by a copy with every pixel the region touches
+      blanked — zero, or for a stencil what paints nothing — and its `/SMask` and `/Mask`
+      blanked with it and its `/Alternates` dropped; the original, drawn nowhere else
+      from those resources, is not written. An image that cannot be decoded is refused.
+      `what_redaction_removes` names the areas. `redaction_image_test.rs` holds it, and
+      taking out the blanking, the masks, the stencil's value or dropping the original
+      failed it. Inline images and form XObjects are not reached yet.
       **The glyphs that remain keep their places**, decided by the owner 2026-10-04
       with the width of what went left recoverable from them, as it is from Acrobat
       (arXiv 2206.02285); moving the rest of the line to the region's edge was the
