@@ -21,11 +21,21 @@ OUT=out/linearization
 rm -rf "$OUT"; mkdir -p "$OUT"
 cargo run -q --release -p fepdf --example linearize -- "$OUT" "${INPUTS[@]}" || exit 1
 
+KNOWN=scripts/test/linearization_known.tsv
 bad=0
 for f in "$OUT"/*.pdf; do
+    name=$(basename "$f")
     result=$("$QPDF" --check-linearization "$f" 2>&1)
-    warnings=$(printf '%s\n' "$result" | grep -c '^WARNING' || true)
-    if [ "$warnings" -gt 0 ] || ! printf '%s' "$result" | grep -q 'no linearization errors'; then
+    # A warning listed for this file in linearization_known.tsv is one this engine keeps
+    # on purpose (ADR-0108); it is reported, not counted.
+    while IFS=$'\t' read -r file warning reason; do
+        [ "$file" = "$name" ] || continue
+        kept=$(printf '%s\n' "$result" | grep -c "^WARNING.*$warning" || true)
+        [ "$kept" -gt 0 ] && echo "$name: $kept known ($reason)"
+        result=$(printf '%s\n' "$result" | grep -v "^WARNING.*$warning")
+    done < <(grep -v '^#' "$KNOWN")
+    warnings=$(printf '%s\n' "$result" | grep -cE '^(WARNING|ERROR)|^qpdf: .*error' || true)
+    if [ "$warnings" -gt 0 ] || ! printf '%s' "$result" | grep -qE 'no linearization errors|operation succeeded with warnings'; then
         bad=$((bad + 1))
         echo "$(basename "$f"): $warnings warnings"
         printf '%s\n' "$result" | grep '^WARNING' | sed 's/^WARNING: [^:]*: /  /' \

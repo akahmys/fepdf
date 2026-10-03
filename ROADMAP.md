@@ -1085,7 +1085,7 @@ it can be run there.
       `linearized_hint_test.rs` holds a page ahead of a destination. **Open**: the
       information dictionary, which F.3.5 also puts in part 9, is still written beside
       the catalogue, where the numbering of part 4 expects it.
-- [ ] **Y-F31** — **qpdf finds the hint tables wrong in nine samples of ten.**
+- [x] **Y-F31** — **qpdf finds the hint tables wrong in nine samples of ten.**
       `scripts/test/check_linearization.sh` holds every sample's linearised save against
       `qpdf --check-linearization` (qpdf 12.4.2, 2026-10-03): only `unicode_16.pdf` reads
       clean. Two kinds of fault. Page 0's length and `/E` overstate the first-page
@@ -1101,6 +1101,11 @@ it can be run there.
       `intel_sdm.pdf` and `sample_02c.pdf`, whose pages hold objects a catalogue entry
       reaches as well — article beads through `/Threads`, widgets through `/AcroForm` —
       which the writer counts as the page's own and qpdf does not.
+      Closed the same day by the owner's choice: the writer follows Annex F's text, which
+      puts beads with their pages, and the two warnings are listed in
+      `scripts/test/linearization_known.tsv`, which the script reports and does not count
+      ([ADR-0108](docs/adr/0108-a-page-keeps-what-annex-f-gives-it-where-qpdf-counts-otherwise.md)).
+      The script reads all ten clean, and fails with the list removed.
 - [ ] **Y-F26** — **the documents name the wrong thing as what fepdf is.** The owner's
       definition, 2026-10-03: a translator from any PDF to ISO 32000-2, operations on
       what it translated, and frontends for those operations; reporting what was done

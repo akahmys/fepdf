@@ -1,0 +1,5 @@
+# Warnings qpdf --check-linearization gives that this engine keeps on purpose, by file and
+# warning, with the reason (ADR-0108).
+# file	warning (a substring)	reason
+intel_sdm.pdf	object count mismatch for page	article beads are written with their pages, as Annex F F.3.10 says; qpdf counts a bead /Threads also reaches as not the page's own
+sample_02c.pdf	object count mismatch for page	widgets are written with their pages; qpdf counts a widget /AcroForm also reaches as not the page's own

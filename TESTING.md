@@ -319,7 +319,8 @@ is the answer a test owes, and `SURVIVES` says it does not guard what it is abou
 `qpdf --check-linearization` on each, and says how many read with errors. qpdf is a
 developer's tool here, not a dependency, and the script stops rather than passes where it
 is not installed. The engine reads a linearised file back without its hint tables, so
-nothing else checks them.
+nothing else checks them. A warning this engine keeps on purpose is listed, with its reason, in
+`scripts/test/linearization_known.tsv` (ADR-0108), and is reported rather than counted.
 
 **A save is held against the Arlington PDF Model.** `suite/arlington_test.rs` saves each
 sample, reads the save back, and checks every dictionary it reaches against the model in

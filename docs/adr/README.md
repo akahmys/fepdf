@@ -172,3 +172,4 @@ quietly wrong — which is the failure this log exists to make visible.
 | 0105 | [Ingestion never rewrote a real Type 0 font's CMap](0105-ingestion-never-rewrote-a-real-type-0-cmap.md) | Corrects the reason 31-006 and 31-008 were left out |
 | 0106 | [An `impl` block is held to 800 lines](0106-an-impl-block-is-held-to-800-lines.md) | Extends Rule 1 |
 | 0107 | [An operation does not reach into an audit](0107-an-operation-does-not-reach-into-an-audit.md) | Adds layering Rule E |
+| 0108 | [A page keeps what Annex F gives it, where qpdf counts otherwise](0108-a-page-keeps-what-annex-f-gives-it-where-qpdf-counts-otherwise.md) | Bounds Y-F31 |
