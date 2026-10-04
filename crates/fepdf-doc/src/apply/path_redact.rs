@@ -106,6 +106,20 @@ pub fn cut_areas(doc: &Document, target: Target, regions: &[GlyphBox]) -> PdfRes
     Ok(areas)
 }
 
+/// Where each painted path in `tokens` reaches on the page, by the index of the operator
+/// that paints it: its points, and a stroke's pen and mitred corners.
+pub fn painted_extents(tokens: &[Token]) -> Vec<(usize, Rect)> {
+    let mut extents = Vec::new();
+    walk(tokens, &mut |_, end, building, op, pen| {
+        if op == "n" && building.clip.is_none() {
+            return;
+        }
+        let reach = if strokes(op) { corner_reach(pen) } else { 0.0 };
+        extents.push((end, (pen.ctm * building.path.clone()).bounding_box().inflate(reach, reach)));
+    });
+    extents
+}
+
 /// Follows the graphics state through `tokens`, and hands each painted path to `painted`
 /// with where it starts and ends among them.
 fn walk(tokens: &[Token], painted: &mut dyn FnMut(usize, usize, &Building, &str, &Pen)) {

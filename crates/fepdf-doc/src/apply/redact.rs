@@ -11,11 +11,13 @@
 //! rule takes a glyph that only touches a region's edge, and this is where that shows.
 
 use super::redact_forms;
+use super::redact_marks::Fate;
 use super::target::Target;
 use super::text::{self, GlyphBox};
 use crate::operation::Redaction;
 use fepdf_model::interpretation::Decision;
 use fepdf_model::{Document, PdfError, PdfResult};
+use std::collections::BTreeMap;
 
 /// How far under its baseline a glyph's box reaches, in em, for a redaction.
 ///
@@ -23,7 +25,7 @@ use fepdf_model::{Document, PdfError, PdfResult};
 /// Times, 0.157 in Courier and 0.141 in MS Mincho: a region over the lower half of a line
 /// meets the glyphs whose tails it covers. A box too deep takes a glyph the region only
 /// nears, which a preview shows; one too shallow leaves ink inside the region.
-const DESCENT: f64 = 0.3;
+pub const DESCENT: f64 = 0.3;
 
 /// What a redaction will remove, read without removing it.
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -106,12 +108,43 @@ fn too_deep(depth: usize) -> PdfResult<()> {
 /// Removes what `regions` cover from `target`'s content: its inline images lifted first,
 /// since a walk over its tokens reads their samples as tokens; then its text, its images
 /// and its paths.
-fn redact_in(doc: &Document, target: Target, regions: &[GlyphBox], depth: usize) -> PdfResult<()> {
+/// Answers the MCIDs of the marked content the regions met, each with its fate.
+fn redact_in(
+    doc: &Document,
+    target: Target,
+    regions: &[GlyphBox],
+    depth: usize,
+) -> PdfResult<BTreeMap<i64, Fate>> {
     super::inline_images::lift(doc, target)?;
+    // Classed before anything is removed, since what is removed is what decides it.
+    let fates = super::redact_marks::mark(doc, target, regions)?;
     text::remove_glyphs(doc, target, DESCENT, &|g| inside_any(g, regions))?;
     super::redact_images::blank_images(doc, target, regions)?;
     super::path_redact::cut_paths(doc, target, regions)?;
-    redact_forms_in(doc, target, regions, depth)
+    redact_forms_in(doc, target, regions, depth)?;
+    Ok(fates)
+}
+
+/// Tells the structure tree what the redaction did to `page`'s marked content: every
+/// element holding a touched mark, and its ancestors, has its replacement text made the
+/// marker; the marks that went whole go, and the elements left holding nothing.
+fn tell_the_tree(doc: &Document, page: usize, fates: &BTreeMap<i64, Fate>) -> PdfResult<()> {
+    let Some(root) = doc.get_structure_root()? else { return Ok(()) };
+    if fates.is_empty() {
+        return Ok(());
+    }
+    let page = doc.page_handle(page)?;
+    let touched = fates.keys().map(|mcid| (page, *mcid)).collect();
+    crate::struct_tree_marking::mark_alternates(
+        doc.arena(),
+        root,
+        &touched,
+        super::redact_marks::MARKER,
+    );
+    let gone =
+        fates.iter().filter(|(_, f)| **f == Fate::Gone).map(|(mcid, _)| (page, *mcid)).collect();
+    crate::struct_tree_pruning::prune_marks(doc.arena(), root, &gone);
+    Ok(())
 }
 
 /// Enters every form `target` draws that a region meets: a copy of it, redacted with the
@@ -133,7 +166,7 @@ fn redact_forms_in(
         too_deep(depth)?;
         let copy = redact_forms::copied(doc, target, drawn.form)?;
         let own = target.resources(doc)?;
-        redact_in(doc, Target::Form(copy, own), &inside, depth + 1)?;
+        let _ = redact_in(doc, Target::Form(copy, own), &inside, depth + 1)?;
         let name = super::image_crop::name_in(doc, own, copy);
         replaced.insert(drawn.name_at, (drawn.do_at, format!("/{name} Do ").into_bytes()));
     }
@@ -158,7 +191,8 @@ pub fn apply_redact(doc: &Document, redaction: &Redaction) -> PdfResult<()> {
     let _ = what_redaction_removes(doc, redaction)?;
     let regions = regions_of(redaction)?;
     let colour = colour_operator(redaction.fill.as_deref())?;
-    redact_in(doc, Target::Page(redaction.page), &regions, 0)?;
+    let fates = redact_in(doc, Target::Page(redaction.page), &regions, 0)?;
+    tell_the_tree(doc, redaction.page, &fates)?;
     super::redact_annots::remove(doc, redaction.page, &regions)?;
     if let Some(colour) = colour {
         fill(doc, redaction.page, &regions, &colour)?;

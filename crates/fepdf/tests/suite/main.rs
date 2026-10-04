@@ -70,6 +70,7 @@ mod redaction_annot_test;
 mod redaction_form_test;
 mod redaction_image_test;
 mod redaction_path_test;
+mod redaction_structure_test;
 mod redaction_test;
 mod render_region_test;
 mod rendering_mode_test;

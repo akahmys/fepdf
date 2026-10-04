@@ -26,6 +26,7 @@ pub mod redact;
 pub(crate) mod redact_annots;
 pub(crate) mod redact_forms;
 pub(crate) mod redact_images;
+pub(crate) mod redact_marks;
 /// Security, unencrypted wrapper, and public-key recipient operation handlers.
 pub mod security;
 /// Structure element and article thread operation handlers.

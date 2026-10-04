@@ -1290,6 +1290,26 @@ pub(crate) fn glyph_boxes(
     Ok(runs.iter().flat_map(|run| run.places.iter().map(|p| run.code_box(*p, below))).collect())
 }
 
+/// The box of every glyph `target` draws, by the index among its tokens of the operator
+/// that shows it — tokens as [`super::image_crop::tokens_of`] reads them.
+///
+/// # Errors
+/// As [`glyph_boxes`].
+pub(crate) fn glyphs_by_operator(
+    doc: &Document,
+    target: super::target::Target,
+    below: f64,
+) -> PdfResult<Vec<(usize, GlyphBox)>> {
+    let fonts = fonts_in(doc, target.resources_read(doc)?)?;
+    let Some(data) = target.content(doc)? else { return Ok(Vec::new()) };
+    let (_, runs, unplaced) = read_runs_counting(&data, &fonts);
+    refuse_unplaced(unplaced)?;
+    Ok(runs
+        .iter()
+        .flat_map(|run| run.places.iter().map(|p| (run.operator, run.code_box(*p, below))))
+        .collect())
+}
+
 /// Refuses a page with text it cannot place: a glyph whose box is not known can be
 /// neither said to meet a region nor said not to, and leaving it is not removing it.
 fn refuse_unplaced(unplaced: usize) -> PdfResult<()> {

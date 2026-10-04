@@ -53,6 +53,8 @@ pub mod reading;
 pub mod remediation;
 /// Logical structure tree visitor and presentation data.
 pub mod struct_tree;
+/// The replacement text of structure elements a redaction touched, made a marker.
+mod struct_tree_marking;
 /// Structure content on pages taken out, taken out of the tree.
 mod struct_tree_pruning;
 /// PDF logical structure auditor and visitor.

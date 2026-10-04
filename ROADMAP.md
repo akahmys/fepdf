@@ -1432,6 +1432,17 @@ it can be run there.
       `redaction_annot_test.rs` holds it; taking out the popups and replies, the
       structure pruning, the field tree, the climb to an emptied field or the `/XFA`
       failed it.
+      **Marked content and structure, 2026-10-04**: each marked-content sequence is
+      classed before anything is removed — gone where everything in it lies inside a
+      region, touched where a region meets any of it. A touched or gone sequence's
+      `/ActualText`, `/Alt` and `/E`, written in place or in a named property list, become
+      `[REDACTED]`; so do those of every element holding one of its marks, and of its
+      ancestors; a gone mark leaves the tree, and an element left holding nothing is
+      pruned, from the parent tree and the `/IDTree` too. `redaction_structure_test.rs`
+      holds it; taking out the content's marker, the named list's, the elements', the
+      pruning or the gone classing failed it. *Open*: a mark inside a form's stream,
+      which the tree names by an MCR with `/Stm`, has its sequence's text marked but
+      neither its element marked nor pruned.
       **The glyphs that remain keep their places**, decided by the owner 2026-10-04
       with the width of what went left recoverable from them, as it is from Acrobat
       (arXiv 2206.02285); moving the rest of the line to the region's edge was the

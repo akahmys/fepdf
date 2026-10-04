@@ -88,6 +88,21 @@ pub fn blank_images(doc: &Document, target: Target, regions: &[GlyphBox]) -> Pdf
     image_crop::drop_undrawn(doc, target)
 }
 
+/// Where on the page each image `tokens` draw lands, by the index of its `Do`.
+///
+/// # Errors
+/// As [`Target::resources_read`].
+pub fn image_extents(
+    doc: &Document,
+    target: Target,
+    tokens: &[Token],
+) -> PdfResult<Vec<(usize, Rect)>> {
+    Ok(images_drawn(doc, target, tokens, &BTreeSet::new())?
+        .into_iter()
+        .map(|d| (d.do_at, d.ctm.transform_rect_bbox(Rect::new(0.0, 0.0, 1.0, 1.0))))
+        .collect())
+}
+
 /// `content` with each inline image drawn instead by `Do` of a name of its own, and those
 /// names: for reading where they fall, with nothing written.
 fn with_inline_named(

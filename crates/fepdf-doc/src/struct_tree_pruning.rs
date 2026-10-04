@@ -23,11 +23,47 @@ pub fn prune(
     dropped: &BTreeSet<Handle<Object>>,
     keys: &BTreeSet<i64>,
 ) {
-    let mut pruning = Pruning { arena, absent, dropped, seen: BTreeSet::new(), gone: Vec::new() };
+    let marks = BTreeSet::new();
+    let gone = walk(arena, root, (absent, dropped, &marks));
+    crate::parent_tree::remove_keys(arena, root, keys);
+    forget_in_ids(arena, root, &gone);
+}
+
+/// Takes out of the tree under `root` the marks `marks` names — each a page and an MCID —
+/// and the elements that leaves holding nothing; and those elements from the parent tree
+/// and the `/IDTree`, either of which would keep them, and their `/Alt` and `/ActualText`,
+/// in the file (ROADMAP Y-10).
+pub fn prune_marks(
+    arena: &PdfArena,
+    root: Handle<Object>,
+    marks: &BTreeSet<(Handle<Object>, i64)>,
+) {
+    let none = BTreeSet::new();
+    let gone = walk(arena, root, (&none, &none, marks));
+    crate::parent_tree::forget_elements(arena, root, &gone);
+    forget_in_ids(arena, root, &gone);
+}
+
+/// Prunes under `root` what names an absent page, a dropped annotation or a gone mark;
+/// answers the elements taken out.
+fn walk(
+    arena: &PdfArena,
+    root: Handle<Object>,
+    (absent, dropped, marks): (
+        &BTreeSet<Handle<Object>>,
+        &BTreeSet<Handle<Object>>,
+        &BTreeSet<(Handle<Object>, i64)>,
+    ),
+) -> BTreeSet<Handle<Object>> {
+    let mut pruning =
+        Pruning { arena, absent, dropped, marks, seen: BTreeSet::new(), gone: Vec::new() };
     pruning.seen.insert(root);
     pruning.node(root, None, 0);
-    crate::parent_tree::remove_keys(arena, root, keys);
-    let gone: BTreeSet<Handle<Object>> = pruning.gone.into_iter().collect();
+    pruning.gone.into_iter().collect()
+}
+
+/// Takes `gone` out of the `/IDTree` under `root`.
+fn forget_in_ids(arena: &PdfArena, root: Handle<Object>, gone: &BTreeSet<Handle<Object>>) {
     if gone.is_empty() {
         return;
     }
@@ -46,6 +82,8 @@ struct Pruning<'a> {
     arena: &'a PdfArena,
     absent: &'a BTreeSet<Handle<Object>>,
     dropped: &'a BTreeSet<Handle<Object>>,
+    /// Marks gone from the content, each a page and an MCID.
+    marks: &'a BTreeSet<(Handle<Object>, i64)>,
     seen: BTreeSet<Handle<Object>>,
     /// The elements taken out.
     gone: Vec<Handle<Object>>,
@@ -88,8 +126,11 @@ impl Pruning<'_> {
         let arena = self.arena;
         let on_absent =
             |page: Option<Handle<Object>>| page.is_some_and(|p| self.absent.contains(&p));
+        let gone = |page: Option<Handle<Object>>, mcid: Option<i64>| {
+            page.zip(mcid).is_some_and(|mark| self.marks.contains(&mark))
+        };
         let dict = match kid.resolve(arena) {
-            Object::Integer(_) => return !on_absent(page),
+            Object::Integer(mcid) => return !on_absent(page) && !gone(page, Some(mcid)),
             Object::Dictionary(dict) => dict,
             _ => return true,
         };
@@ -97,7 +138,12 @@ impl Pruning<'_> {
         let own_page = entry("Pg").and_then(|p| p.as_reference()).or(page);
         match entry("Type").and_then(|t| t.as_name()).and_then(|n| arena.get_name_str(n)).as_deref()
         {
-            Some("MCR") => !on_absent(own_page),
+            // A mark in a form's stream (`/Stm`) is not the page's mark of that number.
+            Some("MCR") => {
+                let mcid =
+                    entry("MCID").and_then(|m| m.as_integer()).filter(|_| entry("Stm").is_none());
+                !on_absent(own_page) && !gone(own_page, mcid)
+            }
             Some("OBJR") => {
                 let object = entry("Obj").and_then(|o| o.as_reference());
                 !(on_absent(entry("Pg").and_then(|p| p.as_reference()))
