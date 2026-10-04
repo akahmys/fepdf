@@ -138,11 +138,11 @@ impl Pruning<'_> {
         let own_page = entry("Pg").and_then(|p| p.as_reference()).or(page);
         match entry("Type").and_then(|t| t.as_name()).and_then(|n| arena.get_name_str(n)).as_deref()
         {
-            // A mark in a form's stream (`/Stm`) is not the page's mark of that number.
+            // A mark in a form's stream is held by the stream (`/Stm`), not the page.
             Some("MCR") => {
-                let mcid =
-                    entry("MCID").and_then(|m| m.as_integer()).filter(|_| entry("Stm").is_none());
-                !on_absent(own_page) && !gone(own_page, mcid)
+                let mcid = entry("MCID").and_then(|m| m.as_integer());
+                let holder = entry("Stm").and_then(|s| s.as_reference()).or(own_page);
+                !on_absent(own_page) && !gone(holder, mcid)
             }
             Some("OBJR") => {
                 let object = entry("Obj").and_then(|o| o.as_reference());

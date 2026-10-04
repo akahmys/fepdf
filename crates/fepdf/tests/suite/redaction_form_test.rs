@@ -155,3 +155,65 @@ fn a_form_drawing_itself_is_refused() {
     }));
     assert!(refused.is_err(), "a form drawing itself was redacted");
 }
+
+/// A tagged page drawing one form whose text is one paragraph, named by the tree through
+/// an MCR with `/Stm`; the paragraph is object 8 and its `/Alt` MARKERFORMALT.
+fn tagged_form_page() -> PdfDocument {
+    let tagged_form = form(
+        "/P <</MCID 0>> BDC BT /F1 20 Tf 10 100 Td (SECRET) Tj ET EMC",
+        "/StructParents 1 /Resources << /Font << /F1 6 0 R >> >>",
+    );
+    let content = "/Fm0 Do";
+    let bodies = [
+        "<< /Type /Catalog /Pages 2 0 R /StructTreeRoot 7 0 R /MarkInfo << /Marked true >> >>"
+            .to_string(),
+        "<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_string(),
+        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 400 400] /Contents 4 0 R \
+           /Resources << /Font << /F1 6 0 R >> /XObject << /Fm0 5 0 R >> >> >>"
+            .to_string(),
+        format!("<< /Length {} >>\nstream\n{content}\nendstream", content.len()),
+        tagged_form,
+        "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>".to_string(),
+        "<< /Type /StructTreeRoot /K [8 0 R] /ParentTree << /Nums [1 [8 0 R]] >> >>".to_string(),
+        "<< /Type /StructElem /S /P /P 7 0 R /Pg 3 0 R /Alt (MARKERFORMALT) \
+           /K << /Type /MCR /Pg 3 0 R /Stm 5 0 R /MCID 0 >> >>"
+            .to_string(),
+    ];
+    PdfDocument::open(fepdf_fixtures::assemble(&bodies).into()).expect("the fixture opens")
+}
+
+/// How many kids the structure tree's root has.
+fn root_kids(doc: &PdfDocument) -> usize {
+    let arena = doc.inner().arena();
+    let root =
+        arena.get_object(arena.handle(7)).and_then(|o| o.as_dict_handle()).expect("the root");
+    arena
+        .dict_entry(root, arena.name("K"))
+        .and_then(|k| k.as_array())
+        .and_then(|k| arena.get_array(k))
+        .map_or(0, |k| k.len())
+}
+
+/// **A mark inside a form, which the structure tree names by `/Stm`, is followed into the
+/// copy**: the element naming the original would have kept it, and the text it drew, in
+/// the file; and the element whose content went whole is pruned with its `/Alt`.
+#[test]
+fn a_form_mark_the_tree_names_goes_with_its_element() {
+    let mut doc = tagged_form_page();
+    redact(&mut doc, (0.0, 0.0, 400.0, 400.0));
+    let file = saved(&doc, "tagged");
+    assert!(!holds_secret(&file), "the original form is still in the file");
+    assert!(!file.contains("MARKERFORMALT"), "the element's /Alt is still in the file");
+    assert_eq!(root_kids(&doc), 0, "the element whose content went was not pruned");
+}
+
+/// **One touched in part keeps its place, and its `/Alt` becomes the marker.**
+#[test]
+fn a_form_mark_touched_in_part_has_its_element_marked() {
+    let mut doc = tagged_form_page();
+    // Over the S of SECRET only: the form is drawn at the origin.
+    redact(&mut doc, (10.0, 95.0, 15.0, 125.0));
+    let file = saved(&doc, "tagged-part");
+    assert!(!file.contains("MARKERFORMALT"), "the element's /Alt is unchanged");
+    assert_eq!(root_kids(&doc), 1, "the element touched in part was pruned");
+}

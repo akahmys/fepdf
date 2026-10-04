@@ -16,7 +16,7 @@ use super::target::Target;
 use super::text::{self, GlyphBox};
 use crate::operation::Redaction;
 use fepdf_model::interpretation::Decision;
-use fepdf_model::{Document, PdfError, PdfResult};
+use fepdf_model::{Document, Handle, Object, PdfError, PdfResult};
 use std::collections::BTreeMap;
 use std::fmt::Write as _;
 
@@ -79,7 +79,9 @@ fn removal_in(
         if inside.is_empty() {
             continue;
         }
-        too_deep(depth)?;
+        if depth >= redact_forms::DEEPEST {
+            return Err(too_deep());
+        }
         let parent = target.resources_read(doc)?;
         let within = removal_in(doc, Target::Form(drawn.form, parent), &inside, depth + 1)?;
         let placed =
@@ -91,39 +93,45 @@ fn removal_in(
     Ok(removal)
 }
 
-/// Refuses forms drawing forms nested past [`redact_forms::DEEPEST`].
-fn too_deep(depth: usize) -> PdfResult<()> {
-    if depth < redact_forms::DEEPEST {
-        return Ok(());
-    }
-    Err(PdfError::refused(
+/// The refusal of forms drawing forms nested past [`redact_forms::DEEPEST`].
+fn too_deep() -> PdfError {
+    PdfError::refused(
         "redact",
         format!(
             "forms under the region draw forms more than {} deep, which a form drawing itself \
              does for ever; nothing was redacted",
             redact_forms::DEEPEST
         ),
-    ))
+    )
 }
 
-/// Removes what `regions` cover from `target`'s content: its inline images lifted first,
-/// since a walk over its tokens reads their samples as tokens; then its text, its images
-/// and its paths.
-/// Answers the MCIDs of the marked content the regions met, each with its fate.
+/// What a redaction did to marked content, for the structure tree: each mark the regions
+/// met, by what holds it — the page, or a form's stream — and its MCID, with its fate;
+/// and each form replaced by a redacted copy, as the original and the copy.
+#[derive(Default)]
+struct Outcome {
+    marks: BTreeMap<(Handle<Object>, i64), Fate>,
+    copies: Vec<(Handle<Object>, Handle<Object>)>,
+}
+
+/// Removes what `regions` cover from `target`'s content, whose marks `holder` holds: its
+/// inline images lifted first, since a walk over its tokens reads their samples as tokens;
+/// then its text, its images, its paths and its forms.
 fn redact_in(
     doc: &Document,
-    target: Target,
+    (target, holder): (Target, Handle<Object>),
     regions: &[GlyphBox],
     depth: usize,
-) -> PdfResult<BTreeMap<i64, Fate>> {
+) -> PdfResult<Outcome> {
     super::inline_images::lift(doc, target)?;
     // Classed before anything is removed, since what is removed is what decides it.
     let fates = super::redact_marks::mark(doc, target, regions)?;
     text::remove_glyphs(doc, target, DESCENT, &|g| inside_any(g, regions))?;
     super::redact_images::blank_images(doc, target, regions)?;
     super::path_redact::cut_paths(doc, target, regions)?;
-    redact_forms_in(doc, target, regions, depth)?;
-    Ok(fates)
+    let mut outcome = redact_forms_in(doc, target, regions, depth)?;
+    outcome.marks.extend(fates.into_iter().map(|(mcid, fate)| ((holder, mcid), fate)));
+    Ok(outcome)
 }
 
 /// Takes the page's `/Thumb` off it: a picture of the page as it was, the regions'
@@ -138,24 +146,27 @@ fn forget_thumbnail(doc: &Document, page: usize) -> PdfResult<()> {
     Ok(())
 }
 
-/// Tells the structure tree what the redaction did to `page`'s marked content: every
-/// element holding a touched mark, and its ancestors, has its replacement text made the
-/// marker; the marks that went whole go, and the elements left holding nothing.
-fn tell_the_tree(doc: &Document, page: usize, fates: &BTreeMap<i64, Fate>) -> PdfResult<()> {
+/// Tells the structure tree what the redaction did to `page`'s marked content: a mark in
+/// a form now drawn as a copy is pointed at the copy, since naming the original would keep
+/// it in the file; every element holding a touched mark, and its ancestors, has its
+/// replacement text made the marker; the marks that went whole go, and the elements left
+/// holding nothing.
+fn tell_the_tree(doc: &Document, page: usize, outcome: &Outcome) -> PdfResult<()> {
     let Some(root) = doc.get_structure_root()? else { return Ok(()) };
+    let page = doc.page_handle(page)?;
+    crate::struct_tree_marking::retarget_streams(doc.arena(), root, page, &outcome.copies);
+    let fates = &outcome.marks;
     if fates.is_empty() {
         return Ok(());
     }
-    let page = doc.page_handle(page)?;
-    let touched = fates.keys().map(|mcid| (page, *mcid)).collect();
+    let touched = fates.keys().copied().collect();
     crate::struct_tree_marking::mark_alternates(
         doc.arena(),
         root,
         &touched,
         super::redact_marks::MARKER,
     );
-    let gone =
-        fates.iter().filter(|(_, f)| **f == Fate::Gone).map(|(mcid, _)| (page, *mcid)).collect();
+    let gone = fates.iter().filter(|(_, f)| **f == Fate::Gone).map(|(mark, _)| *mark).collect();
     crate::struct_tree_pruning::prune_marks(doc.arena(), root, &gone);
     Ok(())
 }
@@ -167,8 +178,9 @@ fn redact_forms_in(
     target: Target,
     regions: &[GlyphBox],
     depth: usize,
-) -> PdfResult<()> {
-    let Some(data) = target.content(doc)? else { return Ok(()) };
+) -> PdfResult<Outcome> {
+    let mut outcome = Outcome::default();
+    let Some(data) = target.content(doc)? else { return Ok(outcome) };
     let tokens = super::image_crop::tokens_of(&data);
     let mut replaced = std::collections::BTreeMap::new();
     for drawn in redact_forms::forms_drawn(doc, target, &tokens)? {
@@ -176,18 +188,24 @@ fn redact_forms_in(
         if inside.is_empty() {
             continue;
         }
-        too_deep(depth)?;
+        if depth >= redact_forms::DEEPEST {
+            return Err(too_deep());
+        }
         let copy = redact_forms::copied(doc, target, drawn.form)?;
         let own = target.resources(doc)?;
-        let _ = redact_in(doc, Target::Form(copy, own), &inside, depth + 1)?;
+        let within = redact_in(doc, (Target::Form(copy, own), copy), &inside, depth + 1)?;
+        outcome.marks.extend(within.marks);
+        outcome.copies.extend(within.copies);
+        outcome.copies.push((drawn.form, copy));
         let name = super::image_crop::name_in(doc, own, copy);
         replaced.insert(drawn.name_at, (drawn.do_at, format!("/{name} Do ").into_bytes()));
     }
     if replaced.is_empty() {
-        return Ok(());
+        return Ok(outcome);
     }
     target.write(doc, super::path_crop::rewritten(&tokens, &replaced))?;
-    super::image_crop::drop_undrawn(doc, target)
+    super::image_crop::drop_undrawn(doc, target)?;
+    Ok(outcome)
 }
 
 /// Removes what `redaction` names and fills its regions as it says.
@@ -230,8 +248,9 @@ pub fn apply_redact(doc: &Document, redaction: &Redaction) -> PdfResult<()> {
 /// # Errors
 /// As [`apply_redact`].
 pub(crate) fn remove_regions(doc: &Document, page: usize, regions: &[GlyphBox]) -> PdfResult<()> {
-    let fates = redact_in(doc, Target::Page(page), regions, 0)?;
-    tell_the_tree(doc, page, &fates)?;
+    let holder = doc.page_handle(page)?;
+    let outcome = redact_in(doc, (Target::Page(page), holder), regions, 0)?;
+    tell_the_tree(doc, page, &outcome)?;
     forget_thumbnail(doc, page)?;
     super::redact_annots::remove(doc, page, regions)
 }

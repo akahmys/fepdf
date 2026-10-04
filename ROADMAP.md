@@ -891,14 +891,14 @@ it can be run there.
       journal the arena keeps while `apply` has it unsealed
       ([ADR-0110](docs/adr/0110-an-operation-that-fails-changes-nothing.md)).
       `sealed_document_test.rs` holds it, and taking out the rollback failed it.
-- [ ] **Y-F13** — the window calls redaction 黒塗り (blacking out) and draws nothing
+- [x] **Y-F13** — the window calls redaction 黒塗り (blacking out) and draws nothing
       black: `apply_physical_redaction_to_page` replaces every string of a show-text
       operator touching a rectangle with `[REDACTED]`, drawn in the page's own font,
       and leaves the page's images, vector graphics, annotations, form fields and form
       XObjects' text where they are. Either the drawing covers what it names, or the
       name says what it does. It also changes the open document outside `apply`, in
       the window's export and in `fepdf-mcp`, so no history holds it (Rule D).
-      Taken as Y-10.
+      Taken as Y-10, and closed with it 2026-10-04.
 - [x] **Y-F18** — **a page taken out of a document is still written into it.** Measured
       2026-09-30 on a two-page fixture whose first page links to the second and whose
       one bookmark names it: `RemovePages` of the second, then a save, leaves its
@@ -1321,7 +1321,7 @@ it can be run there.
       file failed it. `TESTING.md` says how one file is run alone.
 
 **Taken from the findings**
-- [ ] **Y-10** — **redaction removes what it covers, and draws over it** (Y-F13, taken by
+- [x] **Y-10** — **redaction removes what it covers, and draws over it** (Y-F13, taken by
       the owner 2026-10-03). Measured the same day: no `Operation` redacts —
       `annotation.rs` names an `Operation::RedactDocument` that does not exist — and
       `PdfDocument` and `fepdf-mcp` call `apply_physical_redaction_to_page` directly.
@@ -1440,9 +1440,13 @@ it can be run there.
       ancestors; a gone mark leaves the tree, and an element left holding nothing is
       pruned, from the parent tree and the `/IDTree` too. `redaction_structure_test.rs`
       holds it; taking out the content's marker, the named list's, the elements', the
-      pruning or the gone classing failed it. *Open*: a mark inside a form's stream,
-      which the tree names by an MCR with `/Stm`, has its sequence's text marked but
-      neither its element marked nor pruned.
+      pruning or the gone classing failed it.
+      **Marks in forms, 2026-10-04**: a mark inside a form is held by the form's stream
+      (`/Stm`), not the page, for marking and pruning both; and a marked content reference
+      on the page naming a form that was replaced by a redacted copy is pointed at the
+      copy — named, the original stayed in the file with what was removed from it.
+      `redaction_form_test.rs` holds it; taking out the pointing, or reading the holder
+      as the page in the marking or the pruning, failed it.
       **Thumbnails and `/Redact` annotations, 2026-10-04**: a redacted page's `/Thumb`
       goes. `Operation::ApplyRedactAnnotations` applies a document's own redaction
       annotations: what `/QuadPoints`, else `/Rect`, marks is removed as `Redact`
@@ -1460,7 +1464,7 @@ it can be run there.
       holds one, as text, hexadecimal or UTF-16, and the text outside is kept. Taking out
       the text, the images, the forms, the marked content, the structure, the
       thumbnail, the annotations or the fields each failed it, naming the markers that
-      part keeps out. Left: a mark inside a form's stream (above).
+      part keeps out.
       **The window's preview, 2026-10-04**: drawing a zone asks the worker what the
       page's zones will remove, and every glyph, image area, path area and annotation
       it names is tinted over the zone, so a glyph the zone only touches shows; a page
