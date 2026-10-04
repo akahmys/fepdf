@@ -16,6 +16,8 @@ instead:
   * `SetLayerVisible` — a toggle, and the redraw is the answer;
   * `RemovePages`, `DuplicatePage`, `ReorderPagesBatch`, `RotatePages` — the page grid
     changes under the reader in the same frame.
+  * `PreviewRedaction` — the tint over the zone the reader has just drawn is the answer,
+    and the window asks for it then (ROADMAP Y-10).
 
 Exits non-zero with a line per silent arm. No arguments.
 """
@@ -37,6 +39,7 @@ REPORTS_OTHERWISE = {
     "DuplicatePage",
     "ReorderPagesBatch",
     "RotatePages",
+    "PreviewRedaction",
 }
 
 

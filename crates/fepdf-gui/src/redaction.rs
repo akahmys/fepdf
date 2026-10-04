@@ -11,6 +11,15 @@ pub struct RedactionManager {
     pub drag_start: Option<egui::Pos2>,   // PDF User Space
     pub drag_current: Option<egui::Pos2>, // PDF User Space
     pub is_active: bool,                  // Redaction brush active
+    /// What the engine says each page's zones will remove, in PDF user space: every
+    /// glyph, image area, path area and annotation that goes (ROADMAP Y-10).
+    ///
+    /// **Shown before it is done.** A glyph goes when its box meets a zone at all, so a
+    /// zone over half a word takes the word's edge letters too; this is where the reader
+    /// sees that, and draws the zone again if it is not what was meant.
+    pub going: std::collections::BTreeMap<usize, Vec<egui::Rect>>,
+    /// A page whose zones changed, for the window to ask the engine about.
+    pub asked: Option<usize>,
 }
 
 impl Default for RedactionManager {
@@ -21,13 +30,60 @@ impl Default for RedactionManager {
 
 impl RedactionManager {
     pub fn new() -> Self {
-        Self { zones: Vec::new(), drag_start: None, drag_current: None, is_active: false }
+        Self {
+            zones: Vec::new(),
+            drag_start: None,
+            drag_current: None,
+            is_active: false,
+            going: std::collections::BTreeMap::new(),
+            asked: None,
+        }
     }
 
     pub fn clear(&mut self) {
         self.zones.clear();
         self.drag_start = None;
         self.drag_current = None;
+        self.going.clear();
+        self.asked = None;
+    }
+
+    /// Takes what the engine says `page`'s zones will remove, and has it drawn.
+    pub fn show_going(&mut self, page: usize, going: &[[f32; 4]], ctx: &egui::Context) {
+        let rects = going
+            .iter()
+            .map(|[x0, y0, x1, y1]| {
+                egui::Rect::from_min_max(egui::pos2(*x0, *y0), egui::pos2(*x1, *y1))
+            })
+            .collect();
+        self.going.insert(page, rects);
+        ctx.request_repaint();
+    }
+
+    /// The zones on `page`, as the regions an `Operation::Redact` names: left, bottom,
+    /// right, top, in PDF user space.
+    pub fn regions_on(&self, page: usize) -> Vec<(f64, f64, f64, f64)> {
+        self.zones
+            .iter()
+            .filter(|z| z.page_index == page)
+            .map(|z| {
+                let r = z.rect;
+                (f64::from(r.min.x), f64::from(r.min.y), f64::from(r.max.x), f64::from(r.max.y))
+            })
+            .collect()
+    }
+
+    /// Where on the screen what `page`'s zones will remove lies.
+    pub fn going_on_screen(
+        &self,
+        page: usize,
+        page_rect: egui::Rect,
+        frame: crate::interaction::PageFrame,
+        zoom: f32,
+    ) -> Vec<egui::Rect> {
+        self.going.get(&page).map_or_else(Vec::new, |rects| {
+            rects.iter().map(|r| on_screen(*r, page_rect, frame, zoom)).collect()
+        })
     }
 
     /// The zones an export redacts, and, when the window burns them too, the brush
@@ -78,6 +134,7 @@ impl RedactionManager {
                 let rect = egui::Rect::from_two_pos(start, current);
                 if rect.width() > 1.0 && rect.height() > 1.0 {
                     self.zones.push(RedactionZone { page_index, rect });
+                    self.asked = Some(page_index);
                 }
             }
             self.drag_start = None;
@@ -198,6 +255,21 @@ impl RedactionManager {
     }
 }
 
+/// A rectangle in PDF user space, on the screen: its top edge is the one with the
+/// larger y, since the page's y runs up and the screen's down.
+fn on_screen(
+    rect: egui::Rect,
+    page_rect: egui::Rect,
+    frame: crate::interaction::PageFrame,
+    zoom: f32,
+) -> egui::Rect {
+    let min =
+        SelectionManager::pdf_to_screen(page_rect, zoom, frame, egui::pos2(rect.min.x, rect.max.y));
+    let max =
+        SelectionManager::pdf_to_screen(page_rect, zoom, frame, egui::pos2(rect.max.x, rect.min.y));
+    egui::Rect::from_min_max(min, max)
+}
+
 /// What an export is handed.
 #[cfg(test)]
 mod exporting {
@@ -225,5 +297,27 @@ mod exporting {
                 "burn {burn}: the brush was not left as asked"
             );
         }
+    }
+}
+
+/// What the window asks the engine about, and what it shows.
+#[cfg(test)]
+mod previewing {
+    use super::RedactionManager;
+
+    /// **A zone drawn asks for its page's preview, and the regions are the zones'.**
+    #[test]
+    fn a_zone_drawn_asks_for_its_pages_preview() {
+        let mut manager = RedactionManager::new();
+        manager.zones.push(super::RedactionZone {
+            page_index: 2,
+            rect: egui::Rect::from_min_max(egui::pos2(10.0, 20.0), egui::pos2(30.0, 40.0)),
+        });
+        assert_eq!(manager.regions_on(2), [(10.0, 20.0, 30.0, 40.0)]);
+        assert!(manager.regions_on(0).is_empty());
+        manager.going.insert(2, vec![egui::Rect::NOTHING]);
+        manager.asked = Some(2);
+        manager.clear();
+        assert!(manager.going.is_empty() && manager.asked.is_none(), "clearing kept the preview");
     }
 }

@@ -321,6 +321,7 @@
   "notice_exported_with_notices": "Exported to {}",
   "notice_open_failed": "Could not open it — {}",
   "notice_operation_failed": "That did not happen — {}",
+  "notice_redaction_refused": "The redaction would be refused — {}",
   "notice_render_failed": "Could not draw that page — {}",
   "notice_replay_failed": "Could not replay the edits — {}",
   "notice_save_failed": "Could not write it — {}",

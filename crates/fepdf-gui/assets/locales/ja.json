@@ -321,6 +321,7 @@
   "notice_exported_with_notices": "{} に書き出しました",
   "notice_open_failed": "開けませんでした — {}",
   "notice_operation_failed": "実行できませんでした — {}",
+  "notice_redaction_refused": "この墨消しは実行できません — {}",
   "notice_render_failed": "そのページを描けませんでした — {}",
   "notice_replay_failed": "編集を再生できませんでした — {}",
   "notice_save_failed": "書き出せませんでした — {}",

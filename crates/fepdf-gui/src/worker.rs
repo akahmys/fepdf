@@ -137,6 +137,13 @@ pub enum WorkerRequest {
         /// has since replaced.
         search: u64,
     },
+    /// What redacting `regions` on `page` would remove, with nothing written.
+    PreviewRedaction {
+        /// Which page.
+        page: usize,
+        /// The zones on it, in PDF user space: left, bottom, right, top.
+        regions: Vec<(f64, f64, f64, f64)>,
+    },
     /// Rasterise a rectangle of a page, for the clipboard.
     Snapshot {
         /// Which page.
@@ -296,6 +303,13 @@ pub enum WorkerResponse {
     },
     LoadingProgress {
         message: String,
+    },
+    /// What a page's redaction zones would remove, in PDF user space.
+    RedactionPreview {
+        /// Which page.
+        page: usize,
+        /// Every glyph, image area, path area and annotation that goes.
+        going: Vec<[f32; 4]>,
     },
     /// Where a `Find` found its query, over every page.
     Found {
@@ -512,35 +526,10 @@ pub fn run_worker(rx: Receiver<WorkerRequest>, tx: Sender<WorkerResponse>, ctx: 
                 let _ = tx.send(WorkerResponse::Idle);
                 ctx.request_repaint();
             }
-            WorkerRequest::Save {
-                path,
-                protection,
-                compress,
-                strip,
-                linearize,
-                redaction_zones,
-                redaction_fill,
-                cert_path,
-                key_path,
-                signature_position,
-            } => {
+            save @ WorkerRequest::Save { .. } => {
                 pages.clear();
                 let _ = tx.send(WorkerResponse::Busy { key: "busy_saving" });
-                let redaction = (redaction_zones, redaction_fill);
-                if redact_before_saving(&mut current_doc, &mut history, redaction, &tx) {
-                    handle_save(
-                        current_doc.as_ref(),
-                        path,
-                        protection,
-                        (compress, strip),
-                        linearize,
-                        cert_path,
-                        key_path,
-                        signature_position,
-                        &tx,
-                    );
-                }
-                let _ = tx.send(WorkerResponse::Idle);
+                save_requested(&mut current_doc, &mut history, save, &tx);
                 ctx.request_repaint();
             }
             WorkerRequest::ReplacePages { pages, source, done } => {
@@ -554,6 +543,9 @@ pub fn run_worker(rx: Receiver<WorkerRequest>, tx: Sender<WorkerResponse>, ctx: 
                 handle_export_images(current_doc.as_ref(), &pages, &folder, &stem, &tx);
                 let _ = tx.send(WorkerResponse::Idle);
                 ctx.request_repaint();
+            }
+            WorkerRequest::PreviewRedaction { page, regions } => {
+                handle_redaction_preview(current_doc.as_ref(), page, regions, &tx);
             }
             WorkerRequest::Find { query, search } => {
                 let busy = WorkerResponse::Busy { key: "busy_finding" };
@@ -1241,6 +1233,42 @@ fn handle_survey(doc: Option<&PdfDocument>, bytes: Option<&Bytes>, tx: &Sender<W
 /// `intel_sdm.pdf`'s 5,057 takes 4 s and a search of what has been read takes
 /// milliseconds, so the first search says it is working and the ones typed after it do
 /// not flash.
+/// Answers what redacting `regions` on `page` would remove, or why it would be refused.
+///
+/// **Read, not done.** `what_redaction_removes` runs the test the redaction runs and writes
+/// nothing, so what is shown is what applying will remove — and a page it would refuse,
+/// for text it cannot place, says so now rather than at the save.
+fn handle_redaction_preview(
+    doc: Option<&PdfDocument>,
+    page: usize,
+    regions: Vec<(f64, f64, f64, f64)>,
+    tx: &Sender<WorkerResponse>,
+) {
+    let Some(doc) = doc else { return };
+    if regions.is_empty() {
+        let _ = tx.send(WorkerResponse::RedactionPreview { page, going: Vec::new() });
+        return;
+    }
+    let redaction = fepdf::Redaction { page, regions, fill: None };
+    match doc.what_redaction_removes(&redaction) {
+        Ok(removal) => {
+            #[allow(clippy::cast_possible_truncation)]
+            let going = [removal.glyphs, removal.images, removal.paths, removal.annotations]
+                .concat()
+                .into_iter()
+                .map(|(x0, y0, x1, y1)| [x0 as f32, y0 as f32, x1 as f32, y1 as f32])
+                .collect();
+            let _ = tx.send(WorkerResponse::RedactionPreview { page, going });
+        }
+        Err(e) => {
+            let _ = tx.send(WorkerResponse::Failed {
+                key: "notice_redaction_refused",
+                detail: Some(format!("{page}: {e}")),
+            });
+        }
+    }
+}
+
 fn handle_find(
     doc: Option<&PdfDocument>,
     (query, search): (&crate::finding::Query, u64),
@@ -1578,6 +1606,45 @@ fn handle_update_node(
 
     // The tree changed, so what it was audited against did too.
     send_audit(doc, tx);
+}
+
+/// Saves as a `Save` request asks: its zones redacted first, as a recorded act, and the
+/// save made only where that went through.
+fn save_requested(
+    current_doc: &mut Option<PdfDocument>,
+    history: &mut History,
+    request: WorkerRequest,
+    tx: &Sender<WorkerResponse>,
+) {
+    let WorkerRequest::Save {
+        path,
+        protection,
+        compress,
+        strip,
+        linearize,
+        redaction_zones,
+        redaction_fill,
+        cert_path,
+        key_path,
+        signature_position,
+    } = request
+    else {
+        return;
+    };
+    if redact_before_saving(current_doc, history, (redaction_zones, redaction_fill), tx) {
+        handle_save(
+            current_doc.as_ref(),
+            path,
+            protection,
+            (compress, strip),
+            linearize,
+            cert_path,
+            key_path,
+            signature_position,
+            tx,
+        );
+    }
+    let _ = tx.send(WorkerResponse::Idle);
 }
 
 /// Applies the zones marked for redaction, one `Operation::Redact` a page filled with
@@ -2203,5 +2270,55 @@ mod snapshot_scale {
     fn a_user_unit_scales_the_snapshot() {
         assert!((sheet_scale(&page_with("/UserUnit 10"), 0, 4.0 / 3.0) - 40.0 / 3.0).abs() < 1e-9);
         assert!((sheet_scale(&page_with(""), 0, 4.0 / 3.0) - 4.0 / 3.0).abs() < 1e-9);
+    }
+}
+
+#[cfg(test)]
+mod redaction_preview {
+    //! **What a zone will remove is shown before it is done** (ROADMAP Y-10): the window
+    //! asks, and the worker answers from the test the redaction runs, writing nothing.
+    use super::{WorkerResponse, handle_redaction_preview};
+    use fepdf::PdfDocument;
+
+    /// A page drawing `content` with Helvetica as `/F1`.
+    fn page(content: &str) -> PdfDocument {
+        let bodies = [
+            "<< /Type /Catalog /Pages 2 0 R >>".to_string(),
+            "<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_string(),
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R \
+               /Resources << /Font << /F1 5 0 R >> >> >>"
+                .to_string(),
+            format!("<< /Length {} >>\nstream\n{content}\nendstream", content.len()),
+            "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>".to_string(),
+        ];
+        PdfDocument::open(fepdf_fixtures::assemble(&bodies).into()).expect("the fixture opens")
+    }
+
+    /// **Every glyph the zone meets is named, and nothing is written.**
+    #[test]
+    fn the_preview_names_what_goes() {
+        let doc = page("BT /F1 24 Tf 72 700 Td (AAA) Tj ET BT /F1 24 Tf 72 600 Td (BBB) Tj ET");
+        let (tx, rx) = std::sync::mpsc::channel();
+        handle_redaction_preview(Some(&doc), 0, vec![(60.0, 690.0, 300.0, 730.0)], &tx);
+        let Ok(WorkerResponse::RedactionPreview { page, going }) = rx.try_recv() else {
+            panic!("the worker gave no preview");
+        };
+        assert_eq!((page, going.len()), (0, 3), "{going:?}");
+        assert!(
+            doc.extract_text(0).expect("it reads").contains("AAA"),
+            "the preview removed the text"
+        );
+    }
+
+    /// **A page the redaction would refuse says so now**, rather than at the save.
+    #[test]
+    fn a_page_it_would_refuse_says_so() {
+        let doc = page("BT /F9 24 Tf 72 700 Td (AAA) Tj ET");
+        let (tx, rx) = std::sync::mpsc::channel();
+        handle_redaction_preview(Some(&doc), 0, vec![(60.0, 690.0, 300.0, 730.0)], &tx);
+        let Ok(WorkerResponse::Failed { key, .. }) = rx.try_recv() else {
+            panic!("the refusal was not said");
+        };
+        assert_eq!(key, "notice_redaction_refused");
     }
 }

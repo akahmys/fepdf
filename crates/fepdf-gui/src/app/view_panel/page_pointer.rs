@@ -423,6 +423,13 @@ impl FepdfApp {
             }
             ContentTool::Redaction => {
                 self.redaction_manager.handle_interaction(ui, page, rect, frame, zoom);
+                if let Some(asked) = self.redaction_manager.asked.take() {
+                    let regions = self.redaction_manager.regions_on(asked);
+                    let _ = self.tx_worker.send(crate::worker::WorkerRequest::PreviewRedaction {
+                        page: asked,
+                        regions,
+                    });
+                }
             }
             ContentTool::Snapshot => {
                 if let Some(taken) = self.snapshot_tool.interaction(ui, page, rect, frame, zoom) {

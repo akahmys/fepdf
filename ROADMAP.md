@@ -1460,8 +1460,13 @@ it can be run there.
       holds one, as text, hexadecimal or UTF-16, and the text outside is kept. Taking out
       the text, the images, the forms, the marked content, the structure, the
       thumbnail, the annotations or the fields each failed it, naming the markers that
-      part keeps out. Left: a mark inside a form's stream (above), and the window's
-      preview of what goes.
+      part keeps out. Left: a mark inside a form's stream (above).
+      **The window's preview, 2026-10-04**: drawing a zone asks the worker what the
+      page's zones will remove, and every glyph, image area, path area and annotation
+      it names is tinted over the zone, so a glyph the zone only touches shows; a page
+      the redaction would refuse says so then, not at the save. The worker's answer and
+      the brush's state are held in `worker.rs` and `redaction.rs`; the gesture that asks
+      is not, and wants trying in the window.
       **The glyphs that remain keep their places**, decided by the owner 2026-10-04
       with the width of what went left recoverable from them, as it is from Acrobat
       (arXiv 2206.02285); moving the rest of the line to the region's edge was the

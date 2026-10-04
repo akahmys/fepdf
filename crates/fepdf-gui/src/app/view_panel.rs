@@ -208,7 +208,8 @@ impl FepdfApp {
         pixels: &crate::view::PagePixels<'_>,
     ) {
         let origin = self.view.get_origin(viewport_rect);
-        let mut redaction_highlights = BTreeMap::new();
+        let mut redactions =
+            crate::view::draw::Redactions { zones: BTreeMap::new(), going: BTreeMap::new() };
         let mut active_redaction_drag = None;
         let mut snapshot_drag = None;
 
@@ -227,7 +228,16 @@ impl FepdfApp {
                     zoom,
                 );
                 if !completed.is_empty() {
-                    redaction_highlights.insert(visible_index, completed);
+                    redactions.zones.insert(visible_index, completed);
+                }
+                let going = self.redaction_manager.going_on_screen(
+                    visible_index,
+                    page_screen_rect,
+                    frame,
+                    zoom,
+                );
+                if !going.is_empty() {
+                    redactions.going.insert(visible_index, going);
                 }
                 if let Some(drag_rect) = active_drag {
                     active_redaction_drag = Some((visible_index, drag_rect));
@@ -263,7 +273,7 @@ impl FepdfApp {
             viewport_rect,
             &self.scenes,
             &self.selection_manager.highlights,
-            &redaction_highlights,
+            &redactions,
             &active_redaction_drag.or(snapshot_drag),
             &structural_highlight,
             &signature_highlight,

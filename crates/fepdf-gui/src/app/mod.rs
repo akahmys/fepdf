@@ -440,22 +440,7 @@ impl FepdfApp {
                     self.layers = layers;
                     self.forget_the_pages();
                 }
-                WorkerResponse::PagesExtracted { path } => {
-                    self.open_in_new_window(&path);
-                    // Every page left, so there is no document here to go back to. The
-                    // file on disk is untouched — nothing was applied to it — which is
-                    // why this closes rather than emptying itself out.
-                    if self.close_after_extract {
-                        self.close_after_extract = false;
-                        // **The close warning is answered, not raised.** Extraction reads
-                        // the document as it stands, so every page *and every edit made
-                        // to it* is in the window that just opened; asking "you have
-                        // unsaved changes" about work that is on screen in the other
-                        // window would be a false alarm.
-                        self.close_confirmed = true;
-                        ctx.send_viewport_cmd(egui::ViewportCommand::Close);
-                    }
-                }
+                WorkerResponse::PagesExtracted { path } => self.pages_extracted(&path, ctx),
                 WorkerResponse::PagesChanged { page_frames } => {
                     self.total_pages = page_frames.len();
                     self.doc_page_frames = page_frames;
@@ -563,6 +548,9 @@ impl FepdfApp {
                     }
 
                     ctx.request_repaint();
+                }
+                WorkerResponse::RedactionPreview { page, going } => {
+                    self.redaction_manager.show_going(page, &going, ctx);
                 }
                 WorkerResponse::Found { search, found } => {
                     self.redaction_studio_panel.found(search, found);
@@ -845,6 +833,25 @@ impl FepdfApp {
     /// `Cmd+O` with one open, and the rail's open button each spawned the executable
     /// themselves, and extraction wanted a fourth (UI-12). A window holds one document —
     /// that is this product's shape — so a second document means a second process.
+    /// Opens the pages an extraction wrote in a window of their own, and closes this one
+    /// where they were every page it had.
+    fn pages_extracted(&mut self, path: &std::path::Path, ctx: &egui::Context) {
+        self.open_in_new_window(path);
+        // Every page left, so there is no document here to go back to. The
+        // file on disk is untouched — nothing was applied to it — which is
+        // why this closes rather than emptying itself out.
+        if self.close_after_extract {
+            self.close_after_extract = false;
+            // **The close warning is answered, not raised.** Extraction reads
+            // the document as it stands, so every page *and every edit made
+            // to it* is in the window that just opened; asking "you have
+            // unsaved changes" about work that is on screen in the other
+            // window would be a false alarm.
+            self.close_confirmed = true;
+            ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+        }
+    }
+
     pub(crate) fn open_in_new_window(&mut self, path: &std::path::Path) {
         match std::env::current_exe() {
             Ok(exe) => {

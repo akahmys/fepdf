@@ -19,6 +19,15 @@ use std::collections::BTreeMap;
 /// passed in, with a comment saying why — this type holds a view and not a locale — and
 /// the signature field's was drawn in English beside it. One more positional `&str` would
 /// have made the next one easy to forget in the same way.
+/// What the redaction brush shows: the zones drawn, and what they will remove — a glyph
+/// the zone only touches included, which is the part a reader would not otherwise see.
+pub struct Redactions {
+    /// The zones the reader drew, on the screen, by page.
+    pub zones: BTreeMap<usize, Vec<egui::Rect>>,
+    /// What the engine says those zones will remove, on the screen, by page.
+    pub going: BTreeMap<usize, Vec<egui::Rect>>,
+}
+
 pub struct Words<'a> {
     /// What a page that has not finished rendering says, with `{}` for its number.
     pub placeholder: &'a str,
@@ -36,7 +45,7 @@ impl PDFView {
         viewport_rect: egui::Rect, // Unified viewport rect from app.rs
         scenes: &std::collections::BTreeMap<usize, std::sync::Arc<vello::Scene>>,
         highlights: &BTreeMap<usize, Vec<egui::Rect>>,
-        redaction_highlights: &BTreeMap<usize, Vec<egui::Rect>>,
+        redactions: &Redactions,
         active_redaction_drag: &Option<(usize, egui::Rect)>,
         structural_highlight: &Option<(usize, egui::Rect)>,
         signature_highlight: &Option<(usize, egui::Rect)>,
@@ -188,7 +197,8 @@ impl PDFView {
 
             // Overlays
             self.draw_selection_highlights(ui, layout.index, page_rect, layout, highlights);
-            self.draw_redaction_highlights(ui, layout.index, redaction_highlights);
+            self.draw_redaction_highlights(ui, layout.index, &redactions.zones);
+            self.draw_redaction_going(ui, layout.index, &redactions.going);
             self.draw_active_redaction_drag(ui, layout.index, active_redaction_drag);
             self.draw_structural_highlight(ui, layout.index, structural_highlight);
             self.draw_signature_highlight(ui, layout.index, signature_highlight, words);
@@ -493,6 +503,25 @@ impl PDFView {
                     );
                 }
             }
+        }
+    }
+
+    /// Tints what the zones will remove, over the zones: where it reaches past a zone's
+    /// edge, that is what the reader is being shown.
+    fn draw_redaction_going(
+        &self,
+        ui: &mut egui::Ui,
+        page_index: usize,
+        going: &BTreeMap<usize, Vec<egui::Rect>>,
+    ) {
+        for rect in going.get(&page_index).into_iter().flatten() {
+            ui.painter().rect_filled(*rect, radius::FLAT, colors::tint(colors::rust::ACCENT, 90));
+            ui.painter().rect_stroke(
+                *rect,
+                radius::FLAT,
+                egui::Stroke::new(1.0_f32, colors::rust::ACCENT),
+                egui::StrokeKind::Inside,
+            );
         }
     }
 
