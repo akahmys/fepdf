@@ -877,11 +877,18 @@ it can be run there.
       the speech-dispatcher server; whether the passage under way stops is unverified,
       and `spd-say --cancel` is the call that says so (`speech.rs`). Held until it can be
       run on Linux.
-- [ ] **Y-F11** — writing the bookmark panel's draft replaces the whole tree with what
+- [x] **Y-F11** — writing the bookmark panel's draft replaces the whole tree with what
       `OutlineNode` carries: a title, a page, children. Every item's `/C`, `/F`, `/SE`
       and open state goes, which its module says; so does a non-`GoTo` `/A`, which it
       does not say — a bookmark to a web address is read as page 0 and written back
       pointing at page 1. One retitled bookmark rewrites the meaning of another.
+      **Fixed 2026-10-04**: an `OutlineNode` read from a file names the item it was read
+      from (`source`, an object number, as the structure operations name elements), and
+      writing a tree back copies from that item what the node does not model — `/C`,
+      `/F`, `/SE`, a closed item's negative `/Count`, and an action other than a go-to,
+      which then stands instead of a destination. A node made new names none.
+      `outline_tree_test.rs` holds it; dropping the source, `/SE`, the action or the
+      closed count each failed it.
 - [x] **Y-F12** — `PdfDocument::apply` states no atomicity, and the window's journal
       relies on it: a failed act is rebuilt from the history only when its second or
       later operation failed, so a first operation that changed the document and then

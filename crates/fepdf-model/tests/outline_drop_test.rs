@@ -15,11 +15,19 @@ use fepdf_model::document::extensions::OutlineNode;
 
 /// Builds `depth` levels, each holding the one below it.
 fn nested(depth: usize) -> OutlineNode {
-    let mut node =
-        OutlineNode { title: "leaf".to_string(), destination_page: 0, children: Vec::new() };
+    let mut node = OutlineNode {
+        title: "leaf".to_string(),
+        destination_page: 0,
+        children: Vec::new(),
+        source: None,
+    };
     for _ in 0..depth {
-        node =
-            OutlineNode { title: "level".to_string(), destination_page: 0, children: vec![node] };
+        node = OutlineNode {
+            title: "level".to_string(),
+            destination_page: 0,
+            children: vec![node],
+            source: None,
+        };
     }
     node
 }

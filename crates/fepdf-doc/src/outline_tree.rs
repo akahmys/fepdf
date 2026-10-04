@@ -136,6 +136,7 @@ impl Reader<'_> {
             title,
             destination_page: page.unwrap_or(0),
             children: self.level(handle, depth + 1),
+            source: Some(handle.index()),
         }
     }
 

@@ -9,6 +9,22 @@ use fepdf::PdfDocument;
 use fepdf_doc::{Operation, read_outlines};
 use fepdf_model::document::extensions::{OutlineNode, OutlineTree};
 
+/// `tree` with no item saying which it was read from: what is compared is what the tree
+/// says, and a tree read carries where it came from beside it.
+fn without_sources(tree: OutlineTree) -> OutlineTree {
+    fn clear(nodes: Vec<OutlineNode>) -> Vec<OutlineNode> {
+        nodes
+            .into_iter()
+            .map(|mut node| {
+                node.source = None;
+                node.children = clear(std::mem::take(&mut node.children));
+                node
+            })
+            .collect()
+    }
+    OutlineTree { items: clear(tree.items) }
+}
+
 /// A document with no `/Outlines` answers an empty tree, not an error.
 #[test]
 fn a_document_without_bookmarks_reads_as_empty() {
@@ -32,15 +48,22 @@ fn what_was_written_is_what_is_read() {
                     title: "1.1 まえがき".into(),
                     destination_page: 0,
                     children: Vec::new(),
+                    source: None,
                 }],
+                source: None,
             },
-            OutlineNode { title: "Appendix".into(), destination_page: 0, children: Vec::new() },
+            OutlineNode {
+                title: "Appendix".into(),
+                destination_page: 0,
+                children: Vec::new(),
+                source: None,
+            },
         ],
     };
     doc.apply(Operation::UpdateOutlines(written.clone())).expect("the outline is written");
 
     let (read, report) = read_outlines(doc.inner());
-    assert_eq!(read, written);
+    assert_eq!(without_sources(read), written);
     assert_eq!(report.items, 3, "two roots and one child");
     assert_eq!(report.placeless, 0);
     assert!(!report.looped);
@@ -59,6 +82,7 @@ fn the_tree_survives_a_round_trip_through_a_file() {
             title: "表紙 — Cover".into(),
             destination_page: 0,
             children: Vec::new(),
+            source: None,
         }],
     };
     doc.apply(Operation::UpdateOutlines(written.clone())).expect("the outline is written");
@@ -73,7 +97,7 @@ fn the_tree_survives_a_round_trip_through_a_file() {
     let (read, report) = read_outlines(reopened.inner());
     let _ = std::fs::remove_dir_all(&dir);
 
-    assert_eq!(read, written);
+    assert_eq!(without_sources(read), written);
     // Without this the test cannot tell a bookmark that resolved to page 0 from one that
     // resolved to nothing, since `destination_page` falls back to 0 either way.
     assert_eq!(report.placeless, 0);
@@ -194,4 +218,57 @@ fn outline_items_written_in_place_are_read_in_order() {
              /Next << /Title (Two) /Dest [4 0 R /Fit] >> >> >>"],
     );
     assert_eq!(titles(&doc), [("One".to_string(), 0), ("Two".to_string(), 1)]);
+}
+
+/// **Retitling one bookmark changes nothing else about any** (ROADMAP Y-F11): a bookmark
+/// to a web address keeps its address, its colour and its style, and a closed one with a
+/// structure element stays closed and keeps it. The tree is written back whole, from what
+/// `OutlineNode` carries, and what it does not model is copied from the item it was read
+/// from.
+#[test]
+fn a_retitled_tree_keeps_what_its_items_carried() {
+    let bytes = fepdf_fixtures::assemble(&[
+        "<< /Type /Catalog /Pages 2 0 R /Outlines 4 0 R /StructTreeRoot 8 0 R >>",
+        "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Resources << >> >>",
+        "<< /Type /Outlines /First 5 0 R /Last 6 0 R /Count 2 >>",
+        "<< /Title (Site) /Parent 4 0 R /Next 6 0 R /C [1 0 0] /F 2 \
+           /A << /S /URI /URI (https://example.org/) >> >>",
+        "<< /Title (Chapter) /Parent 4 0 R /Prev 5 0 R /Dest [3 0 R /Fit] /SE 9 0 R \
+           /First 7 0 R /Last 7 0 R /Count -1 >>",
+        "<< /Title (Section) /Parent 6 0 R /Dest [3 0 R /Fit] >>",
+        "<< /Type /StructTreeRoot /K [9 0 R] >>",
+        "<< /Type /StructElem /S /H1 /P 8 0 R >>",
+    ]);
+    let mut doc = PdfDocument::open(bytes.into()).expect("the fixture opens");
+    let (mut tree, _) = doc.outlines();
+    tree.items[1].title = "Chapter One".to_string();
+    doc.apply(Operation::UpdateOutlines(tree)).expect("it writes the outline");
+
+    let arena = doc.inner().arena();
+    let catalog = doc
+        .inner()
+        .catalog_handle()
+        .and_then(|c| doc.inner().resolve_to_dict(c).ok())
+        .expect("a catalogue");
+    let dict = |object: &fepdf_model::Object| {
+        object.resolve(arena).as_dict_handle().expect("a dictionary")
+    };
+    let root = dict(&arena.dict_entry(catalog, arena.name("Outlines")).expect("an outline"));
+    let entry = |d, key: &str| arena.dict_entry(d, arena.name(key));
+    let site = dict(&entry(root, "First").expect("a first item"));
+    let chapter = dict(&entry(site, "Next").expect("a second item"));
+
+    let action = dict(&entry(site, "A").expect("the site keeps an action"));
+    assert_eq!(entry(action, "S").and_then(|s| s.as_name()), Some(arena.name("URI")));
+    assert!(entry(site, "Dest").is_none(), "the site was given a page as well");
+    assert!(
+        entry(site, "C").is_some() && entry(site, "F").is_some(),
+        "the site lost its colour or style"
+    );
+    assert!(
+        entry(chapter, "Count").and_then(|c| c.as_integer()).is_some_and(|c| c < 0),
+        "the chapter opened"
+    );
+    assert!(entry(chapter, "SE").is_some(), "the chapter lost its structure element");
 }

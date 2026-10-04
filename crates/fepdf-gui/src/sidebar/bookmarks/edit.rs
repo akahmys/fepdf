@@ -127,7 +127,7 @@ mod tests {
     }
 
     fn node(title: &str, children: Vec<OutlineNode>) -> OutlineNode {
-        OutlineNode { title: title.into(), destination_page: 0, children }
+        OutlineNode { title: title.into(), destination_page: 0, children, source: None }
     }
 
     /// Titles in the order a reader would read them down the panel.

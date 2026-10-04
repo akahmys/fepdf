@@ -83,11 +83,19 @@ fn an_outline_nested_deeper_than_any_document_is_refused() {
         "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] >>",
     ]);
 
-    let mut node =
-        OutlineNode { title: "leaf".to_string(), destination_page: 0, children: Vec::new() };
+    let mut node = OutlineNode {
+        title: "leaf".to_string(),
+        destination_page: 0,
+        children: Vec::new(),
+        source: None,
+    };
     for _ in 0..200 {
-        node =
-            OutlineNode { title: "level".to_string(), destination_page: 0, children: vec![node] };
+        node = OutlineNode {
+            title: "level".to_string(),
+            destination_page: 0,
+            children: vec![node],
+            source: None,
+        };
     }
 
     let result =
@@ -107,11 +115,19 @@ fn an_outline_nested_within_the_bound_is_built() {
         "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] >>",
     ]);
 
-    let mut node =
-        OutlineNode { title: "leaf".to_string(), destination_page: 0, children: Vec::new() };
+    let mut node = OutlineNode {
+        title: "leaf".to_string(),
+        destination_page: 0,
+        children: Vec::new(),
+        source: None,
+    };
     for _ in 0..60 {
-        node =
-            OutlineNode { title: "level".to_string(), destination_page: 0, children: vec![node] };
+        node = OutlineNode {
+            title: "level".to_string(),
+            destination_page: 0,
+            children: vec![node],
+            source: None,
+        };
     }
 
     apply_operation(&mut doc, Operation::UpdateOutlines(OutlineTree { items: vec![node] }))

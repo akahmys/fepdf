@@ -117,7 +117,12 @@ pub struct SetPronunciationLexiconArgs {
 
 fn convert_outline_node(node: OutlineNodeArg) -> OutlineNode {
     let kids = node.children.unwrap_or_default().into_iter().map(convert_outline_node).collect();
-    OutlineNode { title: node.title, destination_page: node.dest_page.unwrap_or(0), children: kids }
+    OutlineNode {
+        title: node.title,
+        destination_page: node.dest_page.unwrap_or(0),
+        children: kids,
+        source: None,
+    }
 }
 
 /// Implementation of the update_outlines tool.

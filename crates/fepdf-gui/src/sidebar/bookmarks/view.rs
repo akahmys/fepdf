@@ -197,7 +197,12 @@ fn add_row(panel: &mut BookmarkPanel, ui: &mut egui::Ui, tr: &dyn Fn(&str) -> St
         .as_ref()
         .and_then(|p| edit::at(&panel.draft.items, p))
         .map_or(0, |n| n.destination_page);
-    let fresh = OutlineNode { title: tr("marks_new"), destination_page: page, children: vec![] };
+    let fresh = OutlineNode {
+        title: tr("marks_new"),
+        destination_page: page,
+        children: vec![],
+        source: None,
+    };
     let landing = match panel.chosen.as_ref() {
         Some(path) => {
             let mut next = path.clone();

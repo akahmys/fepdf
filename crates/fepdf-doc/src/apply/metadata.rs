@@ -8,7 +8,7 @@ use bytes::Bytes;
 use fepdf_model::DictHandle;
 use fepdf_model::arena::PdfArena;
 use fepdf_model::object::SublimatedData;
-use fepdf_model::{Document, Handle, Object, PdfError, PdfResult};
+use fepdf_model::{Document, Handle, Object, PdfError, PdfName, PdfResult};
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
@@ -271,6 +271,40 @@ const MAX_OUTLINE_DEPTH: usize = 64;
 /// Split out of [`build_outline_level`] to keep that under RR-15 Rule 1's fifty lines
 /// once it took a depth. `where` carries the three handles the siblings decide:
 /// this item's index, its parent, and its own object handle.
+/// The outline item `node` was read from, where it names one and that is still an
+/// outline item — a dictionary with a `/Title`.
+fn source_item(doc: &Document, node: &OutlineNode) -> Option<BTreeMap<Handle<PdfName>, Object>> {
+    let arena = doc.arena();
+    let item = arena.get_object(arena.handle(node.source?))?.as_dict_handle()?;
+    let dict = arena.get_dict(item)?;
+    dict.contains_key(&arena.name("Title")).then_some(dict)
+}
+
+/// Copies onto `dict` what an item read carried that [`OutlineNode`] does not model: its
+/// colour, style and structure element, and an action other than a go-to, which then
+/// stands instead of the destination (ROADMAP Y-F11). A go-to is the page the node names.
+fn carry_unmodelled(
+    arena: &fepdf_model::PdfArena,
+    source: &BTreeMap<Handle<PdfName>, Object>,
+    dict: &mut BTreeMap<Handle<PdfName>, Object>,
+) {
+    for key in ["C", "F", "SE"] {
+        if let Some(value) = source.get(&arena.name(key)) {
+            dict.insert(arena.name(key), value.clone());
+        }
+    }
+    let Some(action) = source.get(&arena.name("A")) else { return };
+    let kind = action
+        .resolve(arena)
+        .as_dict_handle()
+        .and_then(|a| arena.dict_entry(a, arena.name("S")))
+        .and_then(|s| s.as_name());
+    if kind != Some(arena.name("GoTo")) {
+        dict.insert(arena.name("A"), action.clone());
+        dict.remove(&arena.name("Dest"));
+    }
+}
+
 fn build_outline_item(
     doc: &Document,
     node: &OutlineNode,
@@ -301,6 +335,10 @@ fn build_outline_item(
     let page_h = doc.page_handle(node.destination_page)?;
     let dest_items = vec![Object::Reference(page_h), Object::Name(arena.name("Fit"))];
     dict.insert(arena.name("Dest"), Object::Array(arena.alloc_array(dest_items)));
+    let source = source_item(doc, node);
+    if let Some(source) = &source {
+        carry_unmodelled(arena, source, &mut dict);
+    }
 
     let below = if node.children.is_empty() {
         0
@@ -309,7 +347,14 @@ fn build_outline_item(
             build_outline_level(doc, &node.children, self_h, depth + 1)?;
         dict.insert(arena.name("First"), Object::Reference(first_child_h));
         dict.insert(arena.name("Last"), Object::Reference(last_child_h));
-        dict.insert(arena.name("Count"), Object::Integer(child_count as i64));
+        // Negative where the item read was closed (12.3.3, Table 151).
+        let closed = source
+            .as_ref()
+            .and_then(|s| s.get(&arena.name("Count")))
+            .and_then(Object::as_integer)
+            .is_some_and(|count| count < 0);
+        let count = child_count as i64;
+        dict.insert(arena.name("Count"), Object::Integer(if closed { -count } else { count }));
         child_count
     };
 

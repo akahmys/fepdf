@@ -231,6 +231,15 @@ pub struct OutlineNode {
     pub destination_page: usize,
     /// Child bookmarks.
     pub children: Vec<OutlineNode>,
+    /// The outline item this was read from, by object number, when it was read from one.
+    ///
+    /// **What this type does not model is carried by it** (ROADMAP Y-F11): an item's colour
+    /// (`/C`), style (`/F`), structure element (`/SE`), whether it is open, and an action
+    /// other than a go-to — a bookmark to a web address. Writing a tree back copies those
+    /// from the item named here, so editing one bookmark's title does not change what
+    /// another does. `None` for a bookmark made new.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source: Option<u32>,
 }
 
 /// Releases a nested outline with a worklist, not with the stack.

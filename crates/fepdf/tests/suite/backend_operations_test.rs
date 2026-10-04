@@ -140,6 +140,7 @@ fn a_bookmark_to_a_page_that_is_not_there_is_refused() {
                 title: "Chapter".to_string(),
                 destination_page: page,
                 children: Vec::new(),
+                source: None,
             }],
         })
     };
@@ -439,7 +440,9 @@ fn test_tier1_operations_execution() {
                 title: "Section 1.1".to_string(),
                 destination_page: 0,
                 children: vec![],
+                source: None,
             }],
+            source: None,
         }],
     };
     doc.apply(Operation::UpdateOutlines(outlines)).expect("UpdateOutlines failed");
