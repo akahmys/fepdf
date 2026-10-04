@@ -163,21 +163,31 @@ impl SaveArgs {
     }
 }
 
-impl From<SaveArgs> for fepdf::SaveOptions {
-    fn from(args: SaveArgs) -> Self {
-        Self {
+impl TryFrom<SaveArgs> for fepdf::SaveOptions {
+    type Error = anyhow::Error;
+
+    /// The options a save is written with.
+    ///
+    /// **Fallible, because a certificate is a file**: one `--encrypt-to` names that cannot
+    /// be read is said, naming the file, rather than panicking (Rule 2, ROADMAP Y-F3). It
+    /// was a `From` that called `panic!`.
+    fn try_from(args: SaveArgs) -> Result<Self> {
+        let recipients = args
+            .encrypt_to
+            .iter()
+            .map(|p| {
+                std::fs::read(p).map_err(|e| {
+                    anyhow::anyhow!("cannot read the certificate {}: {e}", p.display())
+                })
+            })
+            .collect::<Result<Vec<_>>>()?;
+        Ok(Self {
             compress: !args.no_compress,
             compression_level: 9,
             strip: args.strip,
             password: args.password,
             owner_password: args.owner_password,
-            recipients: args
-                .encrypt_to
-                .iter()
-                .map(|p| {
-                    std::fs::read(p).unwrap_or_else(|e| panic!("cannot read {}: {e}", p.display()))
-                })
-                .collect(),
+            recipients,
             obj_stm: !args.no_obj_stm,
             lang: args.lang,
             title: args.title,
@@ -191,7 +201,7 @@ impl From<SaveArgs> for fepdf::SaveOptions {
             creation_date: None,
             dry_run: args.dry_run,
             stamped_at: source_date_epoch(),
-        }
+        })
     }
 }
 
@@ -735,6 +745,22 @@ mod tests {
     /// clap's duplicate check is a `debug_assert` and verification ran release. Those two
     /// ids are explicit now; this runs the check over every command rather than over the
     /// two that were caught, and it runs in `cargo test`, which is a debug build.
+    /// **A certificate that cannot be read is said, naming it, not a panic** (Rule 2,
+    /// ROADMAP Y-F3). Turning the arguments into save options read each `--encrypt-to`
+    /// file with `panic!` on failure.
+    #[test]
+    fn an_unreadable_certificate_is_an_error_naming_it() {
+        #[derive(Parser)]
+        struct Saving {
+            #[command(flatten)]
+            save: SaveArgs,
+        }
+        let parsed = Saving::try_parse_from(["fepdf", "--encrypt-to", "/no/such/cert.der"])
+            .expect("the save arguments parse");
+        let refused = fepdf::SaveOptions::try_from(parsed.save).expect_err("it was read");
+        assert!(refused.to_string().contains("/no/such/cert.der"), "{refused}");
+    }
+
     #[test]
     fn every_command_survives_claps_own_checks() {
         use clap::CommandFactory;

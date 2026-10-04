@@ -850,8 +850,10 @@ it can be run there.
 - [x] **Y-F2** — `SaveOptions::creation_date` is read by nothing.
       Fixed 2026-10-03: a creation date the caller gives is written, in the packet and in
       `/Info`, and one that is no date is refused as `PdfError::Refused`.
-- [ ] **Y-F3** — `fepdf-cli` panics when a certificate named by `--encrypt-to` cannot be
+- [x] **Y-F3** — `fepdf-cli` panics when a certificate named by `--encrypt-to` cannot be
       read (`args.rs`, `From<SaveArgs>`), where Rule 2 asks for an error.
+      Fixed 2026-10-04: the conversion is `TryFrom`, and an unreadable certificate is an
+      error naming the file. `args.rs`'s test holds it, and dropping the name failed it.
 - [x] **Y-F4** — the XMP `DocumentID` is `md5` of the title alone, so every untitled
       document shares one, and two documents of one title collide.
       Fixed 2026-10-03: the save's document is a new one (ADR-0012), so its ID is drawn
@@ -1072,11 +1074,14 @@ it can be run there.
       takes every `/ProcSet` out at load and records one repair a document, with the count;
       nothing in the engine reads one. The nine samples' lines left `arlington_known.tsv`,
       and taking the drop out fails `procset_test.rs`.
-- [ ] **Y-F27** — **two operations have no MCP tool of their own**: `RemoveOutside` and
+- [x] **Y-F27** — **two operations have no MCP tool of their own**: `RemoveOutside` and
       `ResizePages`, of 52 (`status.sh`, 2026-10-03). Each is reachable through the
       generic `apply_operation` tool, without a schema saying it exists, so a caller has
       to know it to ask for it. `ARCHITECTURE.md` said every variant had one, which was
       corrected the same day.
+      Fixed 2026-10-04, with `ApplyRedactAnnotations`, which Y-10 added: `resize_pages`,
+      `remove_outside` and `apply_redact_annotations` are tools of their own, 54 of 54.
+      `mcp_server_tests.rs` holds each reaching the file.
 - [x] **Y-F28** — **a save keeps what its source departed by.** Held against the
       Arlington model (Y-F24, 2026-10-03), the samples' saves keep keys 2.0 deprecates —
       `/CIDSet` in five font descriptors, `/CharSet` in two, a font's `/Name` in five, an

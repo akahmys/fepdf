@@ -105,3 +105,26 @@ fn apply_redaction_internal(args: RedactDocumentArgs) -> McpResult<String> {
 
     Ok(serde_json::to_string_pretty(&report)?)
 }
+
+/// Arguments for applying a document's own redaction annotations.
+#[derive(Deserialize, JsonSchema)]
+pub struct ApplyRedactAnnotationsArgs {
+    /// Path to the input PDF document.
+    pub input_path: String,
+    /// Path where the redacted PDF document will be saved.
+    pub output_path: String,
+    /// Selection of pages, **counting from 1**: "all", "1", "1-3". Default: "all".
+    pub pages: Option<String>,
+}
+
+/// Implementation of the apply_redact_annotations tool: what each `/Redact` annotation
+/// marks is removed, the annotation goes, and its place is drawn as it says (12.5.6.23).
+pub fn apply_redact_annotations_impl(args: ApplyRedactAnnotationsArgs) -> Result<String, McpError> {
+    let pages = crate::tools::operations::parse_selection(args.pages.as_deref())?;
+    crate::tools::operations::page::execute_single_op(
+        &args.input_path,
+        &args.output_path,
+        fepdf::Operation::ApplyRedactAnnotations(pages),
+        "Redaction annotations applied",
+    )
+}

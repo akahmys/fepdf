@@ -1127,3 +1127,68 @@ fn a_repaired_file_structure_is_reported_as_repaired() {
     assert!(!report.contains("nothing was repaired"), "a repair was called none: {report}");
     assert!(report.contains("\"Warning\"") && report.contains("7.5"), "{report}");
 }
+
+/// **`resize_pages` puts the page on the sheet asked for** (ROADMAP Y-F27): the operation
+/// was reachable only through `apply_operation`, with no schema saying it existed.
+#[test]
+fn resize_pages_puts_the_page_on_the_sheet() {
+    use fepdf_mcp::tools::operations::page::{ResizePagesArgs, resize_pages_impl};
+    let dest = out("resize");
+    resize_pages_impl(ResizePagesArgs {
+        input_path: written("resize", &pages(1)),
+        output_path: dest.clone(),
+        pages: None,
+        sheet_width: Some(300.0),
+        sheet_height: Some(400.0),
+        scale: Some("fit".into()),
+        offset_right: None,
+        offset_up: None,
+    })
+    .expect("the tool runs");
+    let doc =
+        fepdf::PdfDocument::open(std::fs::read(&dest).expect("written").into()).expect("it opens");
+    assert_eq!(doc.get_page_size(0).expect("a size"), (300.0, 400.0));
+}
+
+/// **`remove_outside` takes the text outside the rectangle off the page.**
+#[test]
+fn remove_outside_takes_the_text_outside() {
+    use fepdf_mcp::tools::operations::page::{RemoveOutsideArgs, remove_outside_impl};
+    let dest = out("outside");
+    remove_outside_impl(RemoveOutsideArgs {
+        input_path: written("outside", &pages(1)),
+        output_path: dest.clone(),
+        page: 0,
+        left: 0.0,
+        bottom: 0.0,
+        right: 50.0,
+        top: 50.0,
+    })
+    .expect("the tool runs");
+    assert!(!text_of(&dest, 0).contains("P0"), "the text outside the rectangle stayed");
+}
+
+/// **`apply_redact_annotations` applies the document's own `/Redact` annotations.**
+#[test]
+fn apply_redact_annotations_removes_what_they_mark() {
+    use fepdf_mcp::tools::redact::{ApplyRedactAnnotationsArgs, apply_redact_annotations_impl};
+    let content = "BT /F1 24 Tf 72 700 Td (P0) Tj ET";
+    let bytes = fepdf_fixtures::assemble(&[
+        "<< /Type /Catalog /Pages 2 0 R >>".to_string(),
+        "<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_string(),
+        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R \
+           /Resources << /Font << /F1 5 0 R >> >> /Annots [6 0 R] >>"
+            .to_string(),
+        format!("<< /Length {} >>\nstream\n{content}\nendstream", content.len()),
+        "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>".to_string(),
+        "<< /Type /Annot /Subtype /Redact /Rect [60 690 200 730] /IC [0 0 0] >>".to_string(),
+    ]);
+    let dest = out("redact_annots");
+    apply_redact_annotations_impl(ApplyRedactAnnotationsArgs {
+        input_path: written("redact_annots", &bytes),
+        output_path: dest.clone(),
+        pages: None,
+    })
+    .expect("the tool runs");
+    assert!(!text_of(&dest, 0).contains("P0"), "what the annotation marked stayed");
+}

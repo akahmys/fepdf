@@ -26,7 +26,7 @@ pub fn handle_merge(
 
     let merged = PdfDocument::merge(sources).map_err(|e| anyhow::anyhow!("{e:?}"))?;
     save.check()?;
-    let save_options: fepdf::SaveOptions = save.into();
+    let save_options: fepdf::SaveOptions = save.try_into()?;
     save_reporting_permissions(&merged, &output, &save_options)?;
     println!("SUCCESS: Merged output saved to {}", output.display());
     Ok(())
@@ -52,7 +52,7 @@ pub fn handle_split(
     let extracted = doc.extract_pages(target_indices).map_err(|e| anyhow::anyhow!("{e:?}"))?;
 
     save.check()?;
-    let save_options: fepdf::SaveOptions = save.into();
+    let save_options: fepdf::SaveOptions = save.try_into()?;
     save_reporting_permissions(&extracted, &output, &save_options)?;
     println!("SUCCESS: Extracted output saved to {}", output.display());
     Ok(())
@@ -86,7 +86,7 @@ pub fn handle_rotate(
     .map_err(|e| anyhow::anyhow!("{e:?}"))?;
 
     save.check()?;
-    let save_options: fepdf::SaveOptions = save.into();
+    let save_options: fepdf::SaveOptions = save.try_into()?;
     save_reporting_permissions(&doc, &output, &save_options)?;
     println!("SUCCESS: Rotated output saved to {}", output.display());
     Ok(())
@@ -105,7 +105,7 @@ pub fn handle_repair(
         .map_err(|e| anyhow::anyhow!("{e:?}"))?;
 
     save.check()?;
-    let save_options: fepdf::SaveOptions = save.into();
+    let save_options: fepdf::SaveOptions = save.try_into()?;
     save_reporting_permissions(&doc, &output, &save_options)?;
     println!("SUCCESS: Repaired output saved to {}", output.display());
     Ok(())
@@ -149,7 +149,7 @@ pub fn handle_retag(
     }
 
     save.check()?;
-    let save_options: fepdf::SaveOptions = save.into();
+    let save_options: fepdf::SaveOptions = save.try_into()?;
     save_reporting_permissions(&doc, &output, &save_options)?;
     println!("SUCCESS: Re-tagged document saved to {}", output.display());
     Ok(())
@@ -194,7 +194,7 @@ pub fn handle_portfolio(
         .map_err(|e| anyhow::anyhow!("{e:?}"))?;
 
     save.check()?;
-    let save_options: fepdf::SaveOptions = save.into();
+    let save_options: fepdf::SaveOptions = save.try_into()?;
     save_reporting_permissions(&doc, &output, &save_options)?;
     println!("SUCCESS: Portfolio saved to {}", output.display());
     Ok(())
@@ -225,7 +225,7 @@ pub fn handle_bates(
     doc.apply(op).map_err(|e| anyhow::anyhow!("{e:?}"))?;
 
     save.check()?;
-    let save_options: fepdf::SaveOptions = save.into();
+    let save_options: fepdf::SaveOptions = save.try_into()?;
     save_reporting_permissions(&doc, &output, &save_options)?;
     println!("SUCCESS: Output with Bates numbering saved to {}", output.display());
     Ok(())
@@ -264,7 +264,7 @@ pub fn handle_attach(
     doc.apply(fepdf::Operation::AttachAssociatedFile(af)).map_err(|e| anyhow::anyhow!("{e:?}"))?;
 
     save.check()?;
-    let save_options: fepdf::SaveOptions = save.into();
+    let save_options: fepdf::SaveOptions = save.try_into()?;
     save_reporting_permissions(&doc, &output, &save_options)?;
     println!("SUCCESS: PDF with Associated File saved to {}", output.display());
     Ok(())
@@ -297,7 +297,7 @@ pub fn handle_page_label(
     doc.apply(fepdf::Operation::SetPageLabels(labels)).map_err(|e| anyhow::anyhow!("{e:?}"))?;
 
     save.check()?;
-    let save_options: fepdf::SaveOptions = save.into();
+    let save_options: fepdf::SaveOptions = save.try_into()?;
     save_reporting_permissions(&doc, &output, &save_options)?;
     println!("SUCCESS: PDF with updated page labels saved to {}", output.display());
     Ok(())
@@ -330,7 +330,7 @@ pub fn handle_geo(
         .map_err(|e| anyhow::anyhow!("{e:?}"))?;
 
     save.check()?;
-    let save_options: fepdf::SaveOptions = save.into();
+    let save_options: fepdf::SaveOptions = save.try_into()?;
     save_reporting_permissions(&doc, &output, &save_options)?;
     println!("SUCCESS: PDF with GIS anchor saved to {}", output.display());
     Ok(())
@@ -381,7 +381,7 @@ pub fn handle_text_layer(
     doc.apply(fepdf::Operation::AddTextLayer { page: index, items })
         .map_err(|e| anyhow::anyhow!("{e}"))?;
     save.check()?;
-    let save_options: fepdf::SaveOptions = save.into();
+    let save_options: fepdf::SaveOptions = save.try_into()?;
     save_reporting_permissions(&doc, output, &save_options)?;
     println!("SUCCESS: PDF with a text layer on page {page} saved to {}", output.display());
     Ok(())

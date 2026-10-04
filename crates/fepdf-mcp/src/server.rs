@@ -763,6 +763,42 @@ impl FepdfServer {
         crop_pages_impl(args)
     }
 
+    /// Puts pages on a different sheet, or scales what they draw.
+    #[tool(
+        name = "resize_pages",
+        description = "Puts pages on a different sheet, and says what happens to what is drawn on them: kept at its size, fit so all of it is on the sheet, filling the sheet, or scaled by a factor. Leave the sheet out to scale the drawing inside the sheet it is already on. Sizes and offsets are in points; the offset is from the sheet's middle, right then up."
+    )]
+    pub async fn resize_pages(
+        &self,
+        Parameters(args): Parameters<crate::tools::operations::page::ResizePagesArgs>,
+    ) -> Result<String, McpError> {
+        crate::tools::operations::page::resize_pages_impl(args)
+    }
+
+    /// Takes off one page every glyph outside a rectangle.
+    #[tool(
+        name = "remove_outside",
+        description = "Takes off one page, counting from zero, every glyph that falls outside a rectangle given in points from the bottom-left corner. What stays does not move. This is what a crop that cuts does to the text; crop_pages with remove_outside does it to the text, the images and the drawing together."
+    )]
+    pub async fn remove_outside(
+        &self,
+        Parameters(args): Parameters<crate::tools::operations::page::RemoveOutsideArgs>,
+    ) -> Result<String, McpError> {
+        crate::tools::operations::page::remove_outside_impl(args)
+    }
+
+    /// Applies the document's own redaction annotations.
+    #[tool(
+        name = "apply_redact_annotations",
+        description = "Applies the redaction annotations a document already carries (12.5.6.23): what each marks, by its quadrilaterals or else its rectangle, is removed from the file — text, image pixels, drawing, form content, annotations and the replacement text that read it — the annotation goes, and its place is drawn as it says: its overlay form, else its interior colour and overlay text, else nothing. Pages count from 1: \"all\", \"1\", \"1-3\"."
+    )]
+    pub async fn apply_redact_annotations(
+        &self,
+        Parameters(args): Parameters<crate::tools::redact::ApplyRedactAnnotationsArgs>,
+    ) -> Result<String, McpError> {
+        crate::tools::redact::apply_redact_annotations_impl(args)
+    }
+
     /// Cuts one page into several.
     #[tool(
         name = "split_page",

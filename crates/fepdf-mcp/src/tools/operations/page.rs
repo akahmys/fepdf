@@ -264,3 +264,79 @@ pub fn set_tab_order_impl(args: SetTabOrderArgs) -> Result<String, McpError> {
     let op = Operation::SetTabOrder { pages, order };
     execute_single_op(&args.input_path, &args.output_path, op, "Tab order set")
 }
+
+/// Arguments for `resize_pages`.
+#[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
+pub struct ResizePagesArgs {
+    /// Path to input PDF file.
+    pub input_path: String,
+    /// Path to output PDF file.
+    pub output_path: String,
+    /// Selection of pages, **counting from 1**: "all", "1", "1-3". Default: "all".
+    pub pages: Option<String>,
+    /// The new sheet's width in points. With `sheet_height`; both left out keep the sheet
+    /// each page is already on.
+    pub sheet_width: Option<f64>,
+    /// The new sheet's height in points.
+    pub sheet_height: Option<f64>,
+    /// How what is drawn is resized: "keep", "fit" (all of it on the sheet), "fill" (the
+    /// sheet covered), or a factor such as "0.9". Default: "fit".
+    pub scale: Option<String>,
+    /// How far right of the sheet's middle the drawing sits, in points. Default: 0.
+    pub offset_right: Option<f64>,
+    /// How far up from the sheet's middle the drawing sits, in points. Default: 0.
+    pub offset_up: Option<f64>,
+}
+
+/// Implementation of the resize_pages tool.
+pub fn resize_pages_impl(args: ResizePagesArgs) -> Result<String, McpError> {
+    let pages = super::parse_selection(args.pages.as_deref())?;
+    let sheet = match (args.sheet_width, args.sheet_height) {
+        (Some(w), Some(h)) => Some((w, h)),
+        (None, None) => None,
+        _ => {
+            return Err(McpError::Other(
+                "give sheet_width and sheet_height together, or neither".to_string(),
+            ));
+        }
+    };
+    let scale = match args.scale.as_deref().map_or("fit", str::trim) {
+        "keep" => fepdf::ContentScale::Keep,
+        "fit" => fepdf::ContentScale::Fit,
+        "fill" => fepdf::ContentScale::Fill,
+        factor => fepdf::ContentScale::By(factor.parse().map_err(|_| {
+            McpError::Other(format!("scale is keep, fit, fill or a factor, not {factor:?}"))
+        })?),
+    };
+    let offset = (args.offset_right.unwrap_or(0.0), args.offset_up.unwrap_or(0.0));
+    let op = Operation::ResizePages(pages, fepdf::PageResize { sheet, scale, offset });
+    execute_single_op(&args.input_path, &args.output_path, op, "Pages resized")
+}
+
+/// Arguments for `remove_outside`.
+#[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
+pub struct RemoveOutsideArgs {
+    /// Path to input PDF file.
+    pub input_path: String,
+    /// Path to output PDF file.
+    pub output_path: String,
+    /// Which page, counting from zero.
+    pub page: usize,
+    /// The left edge of what to keep, in points from the page's left edge.
+    pub left: f64,
+    /// The bottom edge of what to keep, in points from the page's foot.
+    pub bottom: f64,
+    /// The right edge of what to keep.
+    pub right: f64,
+    /// The top edge of what to keep.
+    pub top: f64,
+}
+
+/// Implementation of the remove_outside tool.
+pub fn remove_outside_impl(args: RemoveOutsideArgs) -> Result<String, McpError> {
+    let op = Operation::RemoveOutside {
+        page: args.page,
+        keep: (args.left, args.bottom, args.right, args.top),
+    };
+    execute_single_op(&args.input_path, &args.output_path, op, "Text outside removed")
+}

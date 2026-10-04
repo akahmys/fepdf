@@ -39,7 +39,7 @@ pub fn handle_upgrade(
     }
 
     save.check()?;
-    let save_options: fepdf::SaveOptions = save.into();
+    let save_options: fepdf::SaveOptions = save.try_into()?;
 
     // Both branches write, so both owe the notice. An earlier version called
     // `permissions_lost_on_write` directly here and so reported only half of what a
@@ -110,7 +110,7 @@ pub fn handle_sign(sign: SignArgs, ingest: IngestArgs, save: SaveArgs) -> Result
     };
 
     save.check()?;
-    let save_options: fepdf::SaveOptions = save.into();
+    let save_options: fepdf::SaveOptions = save.try_into()?;
     let decisions = doc
         .save_signed(&output, "2.0", &save_options, &sign_options)
         .map_err(|e| anyhow::anyhow!("{e:?}"))?;
