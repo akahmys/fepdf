@@ -66,6 +66,7 @@ mod procset_test;
 mod rasteriser_determinism_test;
 mod reading_aloud_test;
 mod redaction_image_test;
+mod redaction_path_test;
 mod redaction_test;
 mod render_region_test;
 mod rendering_mode_test;

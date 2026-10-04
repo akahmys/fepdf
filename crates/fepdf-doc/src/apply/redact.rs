@@ -31,6 +31,9 @@ pub struct Removal {
     /// Where an image's pixels are blanked, on the page: each region cut to the box of an
     /// image it meets.
     pub images: Vec<(f64, f64, f64, f64)>,
+    /// Where a painted path is cut, on the page: each region cut to the box of a path it
+    /// meets, grown by the pen for a stroke.
+    pub paths: Vec<(f64, f64, f64, f64)>,
 }
 
 /// What `redaction` would remove, with nothing written.
@@ -45,6 +48,7 @@ pub fn what_redaction_removes(doc: &Document, redaction: &Redaction) -> PdfResul
     Ok(Removal {
         glyphs: glyphs.into_iter().filter(|g| inside_any(*g, &regions)).collect(),
         images: super::redact_images::blanked_areas(doc, redaction.page, &regions)?,
+        paths: super::path_redact::cut_areas(doc, redaction.page, &regions)?,
     })
 }
 
@@ -67,6 +71,7 @@ pub fn apply_redact(doc: &Document, redaction: &Redaction) -> PdfResult<()> {
     super::inline_images::lift(doc, redaction.page)?;
     text::remove_glyphs(doc, redaction.page, DESCENT, &|g| inside_any(g, &regions))?;
     super::redact_images::blank_images(doc, redaction.page, &regions)?;
+    super::path_redact::cut_paths(doc, redaction.page, &regions)?;
     if let Some(colour) = colour {
         fill(doc, redaction.page, &regions, &colour)?;
     }

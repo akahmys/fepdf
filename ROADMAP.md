@@ -1398,8 +1398,15 @@ it can be run there.
       92), a space named from the resources taken from them — and drawn with `Do`, so
       they are blanked as image objects are. An unfiltered one's samples are counted
       rather than read to the first ` EI`, which bytes among them can spell; the content
-      parser cut such an image short too, and counts the same way now. Form XObjects are
-      not reached yet.
+      parser cut such an image short too, and counts the same way now.
+      **Paths, 2026-10-04**: a filled path, or one that clips, is clipped to the four
+      strips round each region, which keeps the fill rule's reading; a stroke loses every
+      stretch within half a pen of a region, and a mitred corner whose point could reach
+      one is broken there. Curves are split where they cross, so what is left is the same
+      curve. A dashed stroke's pieces start their dash at the phase the line had reached.
+      `redaction_path_test.rs` holds a background, a circle, a stroke, a dash, a mitred
+      corner and a clip; taking out a strip, the phase, the corner break, the clip or the
+      cutting failed it. Form XObjects are not reached yet.
       **The glyphs that remain keep their places**, decided by the owner 2026-10-04
       with the width of what went left recoverable from them, as it is from Acrobat
       (arXiv 2206.02285); moving the rest of the line to the region's edge was the

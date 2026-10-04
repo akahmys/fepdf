@@ -18,6 +18,7 @@ pub mod metadata;
 /// Page rotation, reordering, removal, and page label operation handlers.
 pub mod page;
 pub(crate) mod path_crop;
+pub(crate) mod path_redact;
 /// Radio buttons: a group's field, and a widget per button.
 pub(crate) mod radio;
 /// Removing what a region holds, and filling it (12.5.6.23).
