@@ -133,6 +133,50 @@ pub fn apply_set_geospatial_anchor(doc: &Document, anchor: GeoSpatialAnchor) -> 
     )
 }
 
+/// The matrix that puts a decoration where `pos` names on the page as a viewer shows it,
+/// reading upright there (ROADMAP Y-F19).
+///
+/// **On what shows, the way it shows.** This placed on the `/MediaBox` and drew level
+/// whatever the page said: inside a smaller `/CropBox` the words could fall outside what
+/// shows, and on a page turned by `/Rotate 90` — a scanned landscape page, often — "top
+/// left" landed on a side edge with the words running up the sheet. The position is
+/// worked out on the visible box turned as `/Rotate` turns it (clockwise, 7.7.3.3), taken
+/// back into the page's space, and the text turned back so it reads level.
+fn placement(
+    arena: &fepdf_model::PdfArena,
+    page: &fepdf_model::Page<'_>,
+    pos: &DecorationPosition,
+) -> [f64; 6] {
+    let media = page.media_box();
+    let crop = page
+        .resolve_attribute("CropBox")
+        .and_then(|c| {
+            <fepdf_model::graphics::Rect as fepdf_model::FromPdfObject>::from_pdf_object(c, arena)
+                .ok()
+        })
+        .unwrap_or(media);
+    let (x0, y0) = (
+        crop.x1.min(crop.x2).max(media.x1.min(media.x2)),
+        crop.y1.min(crop.y2).max(media.y1.min(media.y2)),
+    );
+    let (x1, y1) = (
+        crop.x1.max(crop.x2).min(media.x1.max(media.x2)),
+        crop.y1.max(crop.y2).min(media.y1.max(media.y2)),
+    );
+    let turn =
+        page.resolve_attribute("Rotate").and_then(|r| r.as_integer()).unwrap_or(0).rem_euclid(360);
+    let sideways = turn == 90 || turn == 270;
+    let (wide, tall) = if sideways { (y1 - y0, x1 - x0) } else { (x1 - x0, y1 - y0) };
+    let shown = fepdf_model::graphics::Rect::new(0.0, 0.0, wide, tall);
+    let (u, v) = calculate_decoration_coords(&shown, pos);
+    match turn {
+        90 => [0.0, 1.0, -1.0, 0.0, x1 - v, y0 + u],
+        180 => [-1.0, 0.0, 0.0, -1.0, x1 - u, y1 - v],
+        270 => [0.0, -1.0, 1.0, 0.0, x0 + v, y1 - u],
+        _ => [1.0, 0.0, 0.0, 1.0, x0 + u, y0 + v],
+    }
+}
+
 fn calculate_decoration_coords(
     rect: &fepdf_model::graphics::Rect,
     pos: &DecorationPosition,
@@ -202,17 +246,19 @@ fn overlay_text_on_page(
 
     let parent_chain = doc.get_parent_chain(page_h);
     let page_view = fepdf_model::Page::new(arena, page_h, parent_chain);
-    let mbox = page_view.media_box();
-    let (x, y) = calculate_decoration_coords(&mbox, position);
+    let m = placement(arena, &page_view, position);
 
+    // Drawn at the origin, and put where it goes, turned to read upright, by the matrix.
     let shown = crate::apply::font::ShownText {
         program: &face.1,
         base_font: &face.0,
         text,
-        at: (x, y),
+        at: (0.0, 0.0),
         size: 10.0,
     };
-    let drawing = crate::apply::font::draw_with(doc, page_h, &mut page_dict, embedded, &shown)?;
+    let drawn = crate::apply::font::draw_with(doc, page_h, &mut page_dict, embedded, &shown)?;
+    let drawing =
+        format!("q {} {} {} {} {:.2} {:.2} cm\n{drawn}Q\n", m[0], m[1], m[2], m[3], m[4], m[5]);
 
     let stream_content = match layer {
         Some(group) => {

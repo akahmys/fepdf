@@ -981,12 +981,18 @@ it can be run there.
       the file held it at four by two and at two by two. Fixed by
       `image_crop::drop_undrawn_images`, which takes an image out of resources no page
       using them draws any more.
-- [ ] **Y-F19** — a page decoration and a Bates number are placed on the `/MediaBox`,
+- [x] **Y-F19** — a page decoration and a Bates number are placed on the `/MediaBox`,
       with neither the `/CropBox` nor `/Rotate` taken into account
       (`annotations::calculate_decoration_coords`). On a page whose crop box is inside
       its media box the text can fall outside what shows; on a page turned by `/Rotate
       90`, which scanned landscape pages commonly are, "top left" lands on a side edge and
       the words run up the sheet. Placing it on what shows means drawing it turned as well.
+      **Fixed 2026-10-04**: the position is worked out on the visible box — `/CropBox`
+      within `/MediaBox` — turned as `/Rotate` turns it, taken back into the page's
+      space, and the text drawn turned back so it reads level on the page as shown.
+      `decoration_placement_test.rs` holds a plain page, a cropped one and pages turned a
+      quarter and three quarters; ignoring the crop, the turn or the 270 case each
+      failed it.
 - [x] **Y-F14** — a composite font's codes are taken as two bytes each, whatever its CMap's
       codespace says (9.7.6.2). `FontResource::get_min_len` asks every Type0 font for at
       least two, and `apply/text.rs` cuts its strings into pairs for reading, encoding,

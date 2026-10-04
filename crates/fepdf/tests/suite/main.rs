@@ -24,6 +24,7 @@ mod crop_image_test;
 mod crop_path_test;
 mod crop_removes_test;
 mod declaration_test;
+mod decoration_placement_test;
 mod direct_font_test;
 mod edit_run_test;
 mod edit_xobject_test;
