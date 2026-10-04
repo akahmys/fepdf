@@ -1392,7 +1392,14 @@ it can be run there.
       from those resources, is not written. An image that cannot be decoded is refused.
       `what_redaction_removes` names the areas. `redaction_image_test.rs` holds it, and
       taking out the blanking, the masks, the stencil's value or dropping the original
-      failed it. Inline images and form XObjects are not reached yet.
+      failed it.
+      **Inline images, 2026-10-04**: a redacted page's inline images are lifted into
+      image XObjects first — keys, filters and device spaces spelled out (Tables 91 and
+      92), a space named from the resources taken from them — and drawn with `Do`, so
+      they are blanked as image objects are. An unfiltered one's samples are counted
+      rather than read to the first ` EI`, which bytes among them can spell; the content
+      parser cut such an image short too, and counts the same way now. Form XObjects are
+      not reached yet.
       **The glyphs that remain keep their places**, decided by the owner 2026-10-04
       with the width of what went left recoverable from them, as it is from Acrobat
       (arXiv 2206.02285); moving the rest of the line to the region's edge was the

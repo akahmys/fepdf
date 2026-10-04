@@ -198,3 +198,129 @@ fn a_stencil_is_blanked_to_what_paints_nothing() {
         assert_eq!(written, [vec![blank]], "{decode:?}: the first two pixels");
     }
 }
+
+/// A page drawing `image`, an inline image's operator, over x 0–200, y 50–150, with
+/// `resources` as its resource dictionary.
+fn page_with_inline(image: &[u8], resources: &str) -> PdfDocument {
+    let mut content = b"q 200 0 0 100 0 50 cm ".to_vec();
+    content.extend_from_slice(image);
+    content.extend_from_slice(b" Q");
+    let mut stream = format!("<< /Length {} >>\nstream\n", content.len()).into_bytes();
+    stream.extend_from_slice(&content);
+    stream.extend_from_slice(b"\nendstream");
+    let bytes = fepdf_fixtures::assemble(&[
+        b"<< /Type /Catalog /Pages 2 0 R >>".to_vec(),
+        b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_vec(),
+        format!(
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Contents 4 0 R \
+               /Resources {resources} >>"
+        )
+        .into_bytes(),
+        stream,
+    ]);
+    PdfDocument::open(bytes.into()).expect("the fixture opens")
+}
+
+/// The four-by-two picture as an unfiltered inline image.
+fn inline_rgb() -> Vec<u8> {
+    [b"BI /W 4 /H 2 /CS /RGB /BPC 8 ID ".as_slice(), &pixels(), b" EI"].concat()
+}
+
+/// The left two columns blanked, as `the_pixels_under_the_region_are_blanked_in_the_file`
+/// has them.
+const LEFT_BLANKED: [u8; 24] =
+    [0, 0, 0, 0, 0, 0, 30, 0, 0, 40, 0, 0, 0, 0, 0, 0, 0, 0, 30, 99, 0, 40, 99, 0];
+
+/// **An inline image is blanked like an image object**: it is lifted into one, and the
+/// pixels under the region are not in the file.
+#[test]
+fn an_inline_image_is_blanked_under_the_region() {
+    let mut doc = page_with_inline(&inline_rgb(), "<< >>");
+    let said = doc
+        .what_redaction_removes(&Redaction {
+            page: 0,
+            regions: vec![(0.0, 0.0, 100.0, 200.0)],
+            fill: None,
+        })
+        .expect("it reads");
+    assert_eq!(said.images, [(0.0, 50.0, 100.0, 150.0)], "the area said to be blanked");
+    redact(&mut doc, (0.0, 0.0, 100.0, 200.0));
+    assert_eq!(drawn(&doc), [LEFT_BLANKED.to_vec()]);
+    assert_eq!(written(&doc, "inline"), [LEFT_BLANKED.to_vec()]);
+}
+
+/// **Samples that happen to read ` EI ` do not end the image**: an unfiltered one is as
+/// long as its size says, and is lifted whole.
+#[test]
+fn samples_reading_ei_do_not_end_an_inline_image() {
+    let samples =
+        [32u8, 69, 73, 32, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20];
+    let image = [b"BI /W 4 /H 2 /CS /RGB /BPC 8 ID ".as_slice(), &samples, b" EI"].concat();
+    let mut doc = page_with_inline(&image, "<< >>");
+    redact(&mut doc, (0.0, 160.0, 10.0, 170.0));
+    assert_eq!(drawn(&doc), [samples.to_vec()], "the image was cut at the EI in its samples");
+}
+
+/// A filtered inline image is lifted with its filter spelled out, and blanked.
+#[test]
+fn a_filtered_inline_image_is_blanked() {
+    let hex = hex_of(&pixels());
+    let image = format!("BI /W 4 /H 2 /CS /RGB /BPC 8 /F /AHx ID {hex}> EI").into_bytes();
+    let mut doc = page_with_inline(&image, "<< >>");
+    redact(&mut doc, (0.0, 0.0, 100.0, 200.0));
+    assert_eq!(drawn(&doc), [LEFT_BLANKED.to_vec()]);
+}
+
+/// **A colour space named from the resources is taken from them**: an image object names
+/// a space, not a resource.
+#[test]
+fn an_inline_images_named_space_is_resolved() {
+    let image = [b"BI /W 4 /H 2 /CS /CS0 /BPC 8 ID ".as_slice(), &pixels(), b" EI"].concat();
+    let mut doc = page_with_inline(&image, "<< /ColorSpace << /CS0 /DeviceRGB >> >>");
+    redact(&mut doc, (0.0, 0.0, 100.0, 200.0));
+    assert_eq!(drawn(&doc), [LEFT_BLANKED.to_vec()]);
+}
+
+/// **An inline image the region misses is still lifted, and with whole names**:
+/// abbreviations (Table 92) and a resource's name are an inline image's alone, and an
+/// image object carrying them names a filter and a space no reader knows.
+#[test]
+fn a_lifted_image_carries_whole_names() {
+    let hex = hex_of(&pixels());
+    let image = format!("BI /W 4 /H 2 /CS /CS0 /BPC 8 /F /AHx ID {hex}> EI").into_bytes();
+    let mut doc = page_with_inline(&image, "<< /ColorSpace << /CS0 /DeviceRGB >> >>");
+    redact(&mut doc, (0.0, 160.0, 10.0, 170.0));
+    assert_eq!(drawn(&doc), [pixels()], "the lifted image draws as the inline one did");
+
+    let arena = doc.inner().arena();
+    let name_of = |dict, key: &str| {
+        arena
+            .dict_entry(dict, arena.name(key))
+            .and_then(|v| v.as_name())
+            .and_then(|n| arena.get_name_str(n))
+    };
+    let lifted: Vec<_> = (0..arena.object_count())
+        .filter_map(|i| match arena.get_object(arena.handle(i))? {
+            fepdf_model::Object::Stream(dict, _)
+                if name_of(dict, "Subtype").as_deref() == Some("Image") =>
+            {
+                Some((name_of(dict, "Filter"), name_of(dict, "ColorSpace")))
+            }
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        lifted,
+        [(Some("ASCIIHexDecode".to_string()), Some("DeviceRGB".to_string()))],
+        "the lifted image's filter and space"
+    );
+}
+
+/// `bytes` as hexadecimal digits, as `/ASCIIHexDecode` reads them.
+fn hex_of(bytes: &[u8]) -> String {
+    use std::fmt::Write as _;
+    bytes.iter().fold(String::new(), |mut out, b| {
+        let _ = write!(out, "{b:02X}");
+        out
+    })
+}

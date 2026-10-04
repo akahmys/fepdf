@@ -8,15 +8,16 @@
 //! drawn nowhere else from these resources, is taken out of them, so the writer does not
 //! write it.
 //!
-//! **Reached: image XObjects the page's own content draws.** Inline images and the
-//! contents of form XObjects are later parts of Y-10.
+//! **Reached: image XObjects the page's own content draws, and its inline images**, which
+//! the redaction lifts into XObjects first ([`super::inline_images`]). The contents of
+//! form XObjects are a later part of Y-10.
 
 use super::image_crop::{self, Fraction};
 use super::text::GlyphBox;
 use fepdf_model::lexer::Token;
 use fepdf_model::{Document, Handle, Object, PdfError, PdfResult};
 use kurbo::{Affine, Point, Rect};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 /// One image the page's content draws.
 struct Drawn {
@@ -24,8 +25,8 @@ struct Drawn {
     name_at: usize,
     /// Where the `Do` sits.
     do_at: usize,
-    /// The image.
-    image: Handle<Object>,
+    /// The image, or `None` for an inline image not yet lifted.
+    image: Option<Handle<Object>>,
     /// The transform it is drawn with, which takes its unit square onto the page.
     ctm: Affine,
 }
@@ -41,9 +42,10 @@ pub fn blanked_areas(
     regions: &[GlyphBox],
 ) -> PdfResult<Vec<GlyphBox>> {
     let Some(data) = super::text::page_content(doc, page)? else { return Ok(Vec::new()) };
+    let (data, inline) = with_inline_named(doc, page, &data);
     let tokens = image_crop::tokens_of(&data);
     let mut areas = Vec::new();
-    for drawn in images_drawn(doc, page, &tokens)? {
+    for drawn in images_drawn(doc, page, &tokens, &inline)? {
         let on_page = drawn.ctm.transform_rect_bbox(Rect::new(0.0, 0.0, 1.0, 1.0));
         for region in regions {
             let cut = on_page.intersect(Rect::new(region.0, region.1, region.2, region.3));
@@ -64,12 +66,10 @@ pub fn blank_images(doc: &Document, page: usize, regions: &[GlyphBox]) -> PdfRes
     let Some(data) = super::text::page_content(doc, page)? else { return Ok(()) };
     let tokens = image_crop::tokens_of(&data);
     let mut replaced: BTreeMap<usize, (usize, Vec<u8>)> = BTreeMap::new();
-    for drawn in images_drawn(doc, page, &tokens)? {
+    for drawn in images_drawn(doc, page, &tokens, &BTreeSet::new())? {
         let blocks = fractions(drawn.ctm, regions);
-        if blocks.is_empty() {
-            continue;
-        }
-        let Some(blank) = image_crop::blanked(doc, drawn.image, &blocks) else {
+        let Some(image) = drawn.image.filter(|_| !blocks.is_empty()) else { continue };
+        let Some(blank) = image_crop::blanked(doc, image, &blocks) else {
             return Err(PdfError::refused(
                 "redact",
                 "an image under the region cannot be decoded, so its pixels cannot be blanked; \
@@ -87,8 +87,31 @@ pub fn blank_images(doc: &Document, page: usize, regions: &[GlyphBox]) -> PdfRes
     image_crop::drop_undrawn_images(doc, &[page])
 }
 
-/// Every image XObject `tokens` draw, with the transform each is drawn with.
-fn images_drawn(doc: &Document, page: usize, tokens: &[Token]) -> PdfResult<Vec<Drawn>> {
+/// `content` with each inline image drawn instead by `Do` of a name of its own, and those
+/// names: for reading where they fall, with nothing written.
+fn with_inline_named(doc: &Document, page: usize, content: &[u8]) -> (Vec<u8>, BTreeSet<String>) {
+    let components = |name: &str| super::inline_images::resource_components(doc, page, name);
+    let found = super::inline_images::locate(content, &components);
+    let (mut out, mut names, mut at) = (Vec::with_capacity(content.len()), BTreeSet::new(), 0);
+    for (nth, image) in found.iter().enumerate() {
+        out.extend_from_slice(&content[at..image.whole.start]);
+        let name = format!("fepdfInline{nth}");
+        out.extend_from_slice(format!("/{name} Do").as_bytes());
+        names.insert(name);
+        at = image.whole.end;
+    }
+    out.extend_from_slice(&content[at..]);
+    (out, names)
+}
+
+/// Every image XObject `tokens` draw, and every name in `inline`, with the transform each
+/// is drawn with.
+fn images_drawn(
+    doc: &Document,
+    page: usize,
+    tokens: &[Token],
+    inline: &BTreeSet<String>,
+) -> PdfResult<Vec<Drawn>> {
     let images = image_crop::images_of(doc, page)?;
     let (mut ctm, mut saved, mut drawn) = (Affine::IDENTITY, Vec::new(), Vec::new());
     let mut operands_from = 0;
@@ -102,8 +125,10 @@ fn images_drawn(doc: &Document, page: usize, tokens: &[Token]) -> PdfResult<Vec<
             "cm" => ctm *= image_crop::matrix_of(operands),
             "Do" => {
                 let Some(Token::Name(name)) = operands.last() else { continue };
-                if let Some(image) = images.get(&String::from_utf8_lossy(name).to_string()) {
-                    drawn.push(Drawn { name_at: index - 1, do_at: index, image: *image, ctm });
+                let name = String::from_utf8_lossy(name).to_string();
+                let image = images.get(&name).copied();
+                if image.is_some() || inline.contains(&name) {
+                    drawn.push(Drawn { name_at: index - 1, do_at: index, image, ctm });
                 }
             }
             _ => {}

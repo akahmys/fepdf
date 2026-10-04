@@ -11,6 +11,7 @@ pub mod fields;
 /// Putting a font program into a document.
 pub mod font;
 pub(crate) mod image_crop;
+pub(crate) mod inline_images;
 pub(crate) mod markup;
 /// Portfolio, outline, layer, associated file, and metadata operation handlers.
 pub mod metadata;

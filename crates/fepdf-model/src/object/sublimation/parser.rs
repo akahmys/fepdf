@@ -75,16 +75,7 @@ impl<'a> Sublimator<'a> {
         // EI must be preceded by whitespace and followed by whitespace/EOF.
         let start_pos = lexer.pos();
         let data = lexer.get_data();
-        let mut end_pos = start_pos;
-        while end_pos + 3 <= data.len() {
-            if &data[end_pos..end_pos + 3] == b" EI"
-                || &data[end_pos..end_pos + 3] == b"\nEI"
-                || &data[end_pos..end_pos + 3] == b"\rEI"
-            {
-                break;
-            }
-            end_pos += 1;
-        }
+        let end_pos = last_space_before_ei(data, start_pos, &dict);
         let img_data = data[start_pos..end_pos].to_vec();
         let mut source = b"BI".to_vec();
         source.extend_from_slice(&data[after_bi..(end_pos + 3).min(data.len())]);
@@ -776,4 +767,65 @@ fn token_to_ir_object(token: Token) -> Option<IrObject> {
         Token::Null => Some(IrObject::Null),
         _ => None,
     }
+}
+
+/// How many bytes an unfiltered inline image's samples take, where its dictionary says
+/// enough without the page's resources: a stencil, or a device or indexed colour space.
+fn unfiltered_length(dict: &BTreeMap<String, IrObject>) -> Option<usize> {
+    let get = |short: &str, long: &str| dict.get(short).or_else(|| dict.get(long));
+    if get("F", "Filter").is_some() {
+        return None;
+    }
+    let number = |short, long| get(short, long)?.as_i64().and_then(|n| usize::try_from(n).ok());
+    let (width, height) = (number("W", "Width")?, number("H", "Height")?);
+    let stencil = matches!(get("IM", "ImageMask"), Some(IrObject::Boolean(true)));
+    let (count, bits) = if stencil {
+        (1, 1)
+    } else {
+        let count = match get("CS", "ColorSpace")? {
+            IrObject::Name(n) => match n.as_str() {
+                "G" | "DeviceGray" | "I" | "Indexed" => 1,
+                "RGB" | "DeviceRGB" => 3,
+                "CMYK" | "DeviceCMYK" => 4,
+                _ => return None,
+            },
+            IrObject::Array(items) => match items.first() {
+                Some(IrObject::Name(n)) if n == "I" || n == "Indexed" => 1,
+                _ => return None,
+            },
+            _ => return None,
+        };
+        (count, number("BPC", "BitsPerComponent")?)
+    };
+    Some(height * (width * count * bits).div_ceil(8))
+}
+
+/// Where an inline image's samples end, which start at `start_pos` in `data`: the last
+/// white-space byte before its `EI`.
+fn last_space_before_ei(data: &[u8], start_pos: usize, dict: &BTreeMap<String, IrObject>) -> usize {
+    let mut end_pos = start_pos;
+    // **Counted where it can be**: an unfiltered image's samples are as long as its size
+    // says, and the bytes ` EI` can occur among them. Reading to the first of those cut
+    // such an image short and read the rest of it as operators (ROADMAP Y-10).
+    // Where counted, `end_pos` is the last white-space byte before `EI`, as the search
+    // below leaves it.
+    let counted = unfiltered_length(dict).and_then(|n| {
+        let samples_end = start_pos + 1 + n;
+        let gap = data.get(samples_end..)?.iter().take_while(|b| b.is_ascii_whitespace()).count();
+        let ei = samples_end + gap;
+        (gap > 0 && data.get(ei..ei + 2) == Some(b"EI".as_slice())).then_some(ei - 1)
+    });
+    if let Some(before_ei) = counted {
+        end_pos = before_ei;
+    }
+    while counted.is_none() && end_pos + 3 <= data.len() {
+        if &data[end_pos..end_pos + 3] == b" EI"
+            || &data[end_pos..end_pos + 3] == b"\nEI"
+            || &data[end_pos..end_pos + 3] == b"\rEI"
+        {
+            break;
+        }
+        end_pos += 1;
+    }
+    end_pos
 }

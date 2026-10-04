@@ -62,6 +62,9 @@ pub fn apply_redact(doc: &Document, redaction: &Redaction) -> PdfResult<()> {
     let _ = what_redaction_removes(doc, redaction)?;
     let regions = regions_of(redaction)?;
     let colour = colour_operator(redaction.fill.as_deref())?;
+    // Lifted first: a walk over the page's tokens reads an inline image's samples as
+    // tokens, and the image itself is then where it can be blanked.
+    super::inline_images::lift(doc, redaction.page)?;
     text::remove_glyphs(doc, redaction.page, DESCENT, &|g| inside_any(g, &regions))?;
     super::redact_images::blank_images(doc, redaction.page, &regions)?;
     if let Some(colour) = colour {
