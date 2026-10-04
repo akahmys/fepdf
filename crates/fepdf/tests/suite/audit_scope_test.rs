@@ -803,37 +803,16 @@ fn an_untagged_document_has_no_structure_condition_to_call_sound() {
 
 /// **A condition waiting for a reader is not "nothing found".**
 ///
-/// 28-005 is the first condition with a producer: it reads "a form field does not have a
-/// `TU` entry **and** does not have an alternative description (in the form of an `Alt`
-/// entry in the enclosing structure element)", and the second half is reached through an
-/// `/OBJR`, which nothing here follows. So a field with no `/TU` is handed to a reader
-/// with what was found, and is not counted as nothing to act on.
+/// A report whose one row hands a condition to a reader has something to act on, though
+/// nothing in it was found broken.
 #[test]
 fn a_condition_left_for_a_reader_is_not_nothing_found() {
-    let doc = opened(breaks_everything());
-    let report = doc.audit_ua2_report().expect("it audits");
-
-    assert_eq!(
-        outcomes(&report, "28-005"),
-        vec![Outcome::ForAReader],
-        "a form field with no /TU was not left for a reader"
-    );
-    let row =
-        report.findings.iter().find(|f| f.checkpoint == "28-005").expect("28-005 is in the report");
-    // **A suspicion carries its evidence or it is not shown.** The field's name is what
-    // lets a reader agree or disagree; "28-005 suspected" is not something to act on.
-    assert!(
-        row.message.contains("Given name"),
-        "the row does not say which field it is about: {}",
-        row.message
-    );
-
     let waiting = AuditReport {
         findings: vec![AuditFinding {
-            checkpoint: "28-005".into(),
+            checkpoint: "01-005".into(),
             severity: "Warning".into(),
             outcome: Outcome::ForAReader,
-            message: "the field is yours to judge".into(),
+            message: "the form is yours to judge".into(),
             handle_id: None,
         }],
         scope: MatterhornAuditor::scope(),
@@ -842,6 +821,61 @@ fn a_condition_left_for_a_reader_is_not_nothing_found() {
         !waiting.found_nothing(),
         "a condition handed to a reader to decide was reported as nothing to act on"
     );
+}
+
+/// A form field on page one, with `field` its entries, shown by a widget that belongs to
+/// a `<Form>` with `element` its entries, under a `<Document>` with `document` its
+/// entries, through `/StructParent` and the parent tree.
+fn field_in(catalogue: &str, field: &str, element: &str, document: &str) -> Vec<u8> {
+    fepdf_fixtures::assemble(&[
+        format!(
+            "<< /Type /Catalog /Pages 2 0 R /AcroForm << /Fields [4 0 R] >> \
+               /StructTreeRoot 7 0 R {catalogue} >>"
+        ),
+        "<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_string(),
+        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Annots [4 0 R] >>".to_string(),
+        format!(
+            "<< /Type /Annot /Subtype /Widget /Rect [0 0 10 10] /P 3 0 R /FT /Tx \
+               /T (Given name) /StructParent 0 {field} >>"
+        ),
+        format!(
+            "<< /Type /StructElem /S /Form /P 6 0 R /Pg 3 0 R {element} /K [<< /Type /OBJR /Obj 4 0 R >>] >>"
+        ),
+        format!("<< /Type /StructElem /S /Document /P 7 0 R {document} /K [5 0 R] >>"),
+        "<< /Type /StructTreeRoot /K [6 0 R] /ParentTree << /Nums [0 5 0 R] >> >>".to_string(),
+    ])
+}
+
+/// **An `/Alt` on the element its widget belongs to describes a field with no `/TU`**
+/// (ROADMAP Y-F17). It was left to a reader, because the element was reached through an
+/// `/OBJR` nothing followed; the parent tree reaches it from the widget.
+#[test]
+fn a_form_field_described_by_its_element_settles_the_condition() {
+    let described = opened(field_in("/Lang (en)", "", "/Alt (Your given name)", ""));
+    let report = described.audit_ua2_report().expect("it audits");
+    assert_eq!(outcomes(&report, "28-005"), vec![Outcome::Sound], "the /Alt was not read");
+
+    let undescribed = opened(field_in("/Lang (en)", "", "", ""));
+    let report = undescribed.audit_ua2_report().expect("it audits");
+    assert_eq!(outcomes(&report, "28-005"), vec![Outcome::Broken], "no /Alt was not found");
+    let row = report.findings.iter().find(|f| f.checkpoint == "28-005").expect("it is there");
+    assert!(row.message.contains("Given name"), "the row names no field: {}", row.message);
+}
+
+/// **A `/Lang` on the widget's element, or above it, gives a field's `/TU` its
+/// language** where the catalogue states none (11-005, ROADMAP Y-F17).
+#[test]
+fn a_tooltips_language_is_read_from_its_widgets_element() {
+    let tooltip = "/TU (Your given name)";
+    for (element, document, wanted) in [
+        ("/Lang (cy)", "", Outcome::Sound),
+        ("", "/Lang (cy)", Outcome::Sound),
+        ("", "", Outcome::Broken),
+    ] {
+        let report =
+            opened(field_in("", tooltip, element, document)).audit_ua2_report().expect("it audits");
+        assert_eq!(outcomes(&report, "11-005"), vec![wanted], "{element:?} {document:?}");
+    }
 }
 
 /// **A field that states its `/TU` decides the condition rather than deferring it.**

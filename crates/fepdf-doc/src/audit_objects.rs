@@ -50,7 +50,7 @@ const DEFINED_SUBTYPES: [&str; 26] = [
 
 /// The structure element an annotation belongs to, through its `/StructParent` and the
 /// parent tree (14.7.5.4), and what that element says.
-struct Belonging<'a> {
+pub(crate) struct Belonging<'a> {
     doc: &'a Document,
     arena: &'a PdfArena,
     parents: std::collections::BTreeMap<i64, fepdf_model::Handle<Object>>,
@@ -61,7 +61,7 @@ struct Belonging<'a> {
 const ANCESTORS: usize = 256;
 
 impl<'a> Belonging<'a> {
-    fn of(doc: &'a Document) -> Self {
+    pub(crate) fn of(doc: &'a Document) -> Self {
         let arena = doc.arena();
         let root = doc.get_structure_root().ok().flatten();
         Self {
@@ -73,7 +73,7 @@ impl<'a> Belonging<'a> {
     }
 
     /// The element `annotation` belongs to, if the parent tree names one.
-    fn element(&self, annotation: &Object) -> Option<fepdf_model::Handle<Object>> {
+    pub(crate) fn element(&self, annotation: &Object) -> Option<fepdf_model::Handle<Object>> {
         let Some(Object::Integer(key)) = entry(self.arena, annotation, "StructParent") else {
             return None;
         };
@@ -90,7 +90,7 @@ impl<'a> Belonging<'a> {
     /// where it is empty, which says the language is unknown (14.9.2.2) and is not stepped
     /// over, since an element inherits only when it has no `/Lang` (14.9.2.3); `None`
     /// where no element on the way up has one, and the catalogue's decides.
-    fn language(&self, element: fepdf_model::Handle<Object>) -> Option<bool> {
+    pub(crate) fn language(&self, element: fepdf_model::Handle<Object>) -> Option<bool> {
         let mut at = Some(Object::Reference(element));
         for _ in 0..ANCESTORS {
             let here = at?;

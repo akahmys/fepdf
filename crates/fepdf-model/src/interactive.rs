@@ -357,7 +357,7 @@ impl InteractiveReport {
         record_actions(arena, &catalog, &mut tally);
 
         let annotations = census_annotations(arena, &pages, &mut tally);
-        let form = read_form(arena, &catalog);
+        let form = read_form(arena, &catalog, &mut Vec::new());
         let outline = read_outline(arena, &catalog, &mut tally);
 
         let (actions, destinations) = tally.finish(&named);
@@ -606,6 +606,33 @@ fn is_widget_only(arena: &PdfArena, kid: &Object) -> bool {
     })
 }
 
+/// What `/AcroForm` itself says, before its fields are walked.
+fn form_entries(arena: &PdfArena, acro: &Dict) -> FormFields {
+    FormFields {
+        declared: true,
+        needs_appearances: acro.get(&arena.name("NeedAppearances")).and_then(|v| match v {
+            Object::Boolean(b) => Some(*b),
+            _ => None,
+        }),
+        has_default_appearance: acro.contains_key(&arena.name("DA")),
+        has_default_resources: acro.contains_key(&arena.name("DR")),
+        ..FormFields::default()
+    }
+}
+
+/// The widget annotations terminal field `d`, held as `node`, is shown by.
+fn widgets_of(arena: &PdfArena, node: &Object, d: &Dict) -> Vec<crate::handle::Handle<Object>> {
+    if name_of_key(arena, d, "Subtype").as_deref() == Some("Widget") {
+        return node.as_reference().into_iter().collect();
+    }
+    array_of(arena, d.get(&arena.name("Kids")))
+        .unwrap_or_default()
+        .iter()
+        .filter(|kid| is_widget_only(arena, kid))
+        .filter_map(Object::as_reference)
+        .collect()
+}
+
 fn build_terminal_field(arena: &PdfArena, d: &Dict, here: &Inherited) -> FormField {
     let options = here.options.clone().unwrap_or_default();
     let selected_indices = parse_selected_indices(arena, d, &options, here.value.as_deref());
@@ -630,18 +657,17 @@ fn build_terminal_field(arena: &PdfArena, d: &Dict, here: &Inherited) -> FormFie
 /// `/FT`, `/Ff`, `/V`, `/DA` and `/Opt` are **inheritable** (12.7.4.2): a field that omits one
 /// takes its parent's. The walk therefore carries the inherited state down rather than
 /// reading each dictionary alone, which is also how the qualified name is assembled.
-fn read_form(arena: &PdfArena, catalog: &Dict) -> FormFields {
-    let mut form = FormFields::default();
+///
+/// Each terminal field's widgets go to `widgets`, in the same order.
+fn read_form(
+    arena: &PdfArena,
+    catalog: &Dict,
+    widgets: &mut Vec<Vec<crate::handle::Handle<Object>>>,
+) -> FormFields {
     let Some(acro) = catalog.get(&arena.name("AcroForm")).and_then(|a| dict_of(arena, a)) else {
-        return form;
+        return FormFields::default();
     };
-    form.declared = true;
-    form.needs_appearances = acro.get(&arena.name("NeedAppearances")).and_then(|v| match v {
-        Object::Boolean(b) => Some(*b),
-        _ => None,
-    });
-    form.has_default_appearance = acro.contains_key(&arena.name("DA"));
-    form.has_default_resources = acro.contains_key(&arena.name("DR"));
+    let mut form = form_entries(arena, &acro);
 
     let mut by_type: BTreeMap<String, usize> = BTreeMap::new();
     // **Seeded backwards, because the stack is read from its back.** `/Fields` is an
@@ -673,6 +699,7 @@ fn read_form(arena: &PdfArena, catalog: &Dict) -> FormFields {
                     .entry(here.field_type.clone().unwrap_or_else(|| "(none)".into()))
                     .or_default() += 1;
                 form.terminal.push(build_terminal_field(arena, &d, &here));
+                widgets.push(widgets_of(arena, &node, &d));
             }
         }
     }
@@ -1164,7 +1191,29 @@ pub fn form_of(doc: &crate::Document) -> FormFields {
     else {
         return FormFields::default();
     };
-    read_form(arena, &catalog)
+    read_form(arena, &catalog, &mut Vec::new())
+}
+
+/// Every terminal field of the form, as [`form_of`] gives them, with the widget
+/// annotations each is shown by: itself where it is its own, else its widget kids.
+///
+/// **The way from a field to its structure element** (ROADMAP Y-F17). A field is not in
+/// the structure tree; its widgets are, through `/StructParent` and the parent tree, and
+/// 28-005 and 11-005 are decided by the element a widget belongs to.
+#[must_use]
+pub fn form_widgets(doc: &crate::Document) -> Vec<(FormField, Vec<crate::handle::Handle<Object>>)> {
+    let arena = doc.arena();
+    let Some(catalog) = doc
+        .catalog_handle()
+        .and_then(|handle| arena.get_object(handle))
+        .and_then(|root| root.as_dict_handle())
+        .and_then(|handle| arena.get_dict(handle))
+    else {
+        return Vec::new();
+    };
+    let mut widgets = Vec::new();
+    let form = read_form(arena, &catalog, &mut widgets);
+    form.terminal.into_iter().zip(widgets).collect()
 }
 
 /// A field's `/V`, as text, by its fully qualified name (12.7.4.2).

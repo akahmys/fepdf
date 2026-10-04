@@ -509,59 +509,65 @@ impl<'a> MatterhornAuditor<'a> {
         }
     }
 
-    /// 28-005, from the interactive form (12.7.4).
+    /// 28-005 and 11-005, from the interactive form (12.7.4).
     ///
-    /// **Left for a reader, because half of the condition is not reachable from here.**
-    /// It reads "a form field does not have a `TU` entry **and** does not have an
+    /// **Decided through the structure element each widget belongs to** (ROADMAP Y-F17).
+    /// 28-005 reads "a form field does not have a `TU` entry **and** does not have an
     /// alternative description (in the form of an `Alt` entry in the enclosing structure
-    /// element)", and the enclosing structure element is reached through an `/OBJR`, which
-    /// `struct_tree.rs` resolves to nothing. A field that *has* a `/TU` is decided — the
-    /// conjunction fails on its first half — so the condition comes out sound for a
-    /// document whose fields all carry one, and for a document with no form at all.
+    /// element)"; a field is not in the tree, its widgets are, through `/StructParent` and
+    /// the parent tree. A field is described where every widget's element states an
+    /// `/Alt`, so one with no widget, or a widget in no element, is not.
     fn audit_form(&self, findings: &mut Vec<AuditFinding>, examined: &mut BTreeSet<&'static str>) {
         examined.extend(FROM_FORM);
-        let form = fepdf_model::interactive::form_of(self.doc);
+        let belonging = crate::audit_objects::Belonging::of(self.doc);
+        let arena = self.doc.arena();
         let language = self.document_language();
-        for field in &form.terminal {
-            if stated(field.tooltip.as_ref()) {
-                Self::audit_tooltip_language(field, language.as_deref(), findings);
-                continue;
-            }
+        for (field, widgets) in fepdf_model::interactive::form_widgets(self.doc) {
+            let elements: Vec<_> =
+                widgets.iter().map(|w| belonging.element(&Object::Reference(*w))).collect();
             let name = field
                 .qualified_name
                 .as_deref()
                 .or(field.name.as_deref())
                 .unwrap_or("a field with no /T");
-            findings.push(for_a_reader(
-                "28-005",
-                format!(
-                    "The form field \"{name}\" states no /TU. Whether an /Alt on its \
-                     enclosing structure element describes it instead is not resolved \
-                     here, because /OBJR is not followed — look at the field"
-                ),
-            ));
+            if stated(field.tooltip.as_ref()) {
+                // The element's own `/Lang`, or its ancestors', comes before the
+                // catalogue's (14.9.2.3); a field with no widget has only the catalogue's.
+                let spoken = |e: &Option<_>| {
+                    e.and_then(|e| belonging.language(e)).unwrap_or(language.is_some())
+                };
+                let in_a_language = if elements.is_empty() {
+                    language.is_some()
+                } else {
+                    elements.iter().all(spoken)
+                };
+                if !in_a_language {
+                    findings.push(broken(
+                        "11-005",
+                        format!(
+                            "The form field \"{name}\" has a /TU in no language — neither the \
+                             catalogue nor the structure element of its widget states a /Lang"
+                        ),
+                    ));
+                }
+                continue;
+            }
+            let described = !elements.is_empty()
+                && elements.iter().all(|e| {
+                    e.is_some_and(|e| {
+                        crate::audit_objects::says_something(arena, &Object::Reference(e), "Alt")
+                    })
+                });
+            if !described {
+                findings.push(broken(
+                    "28-005",
+                    format!(
+                        "The form field \"{name}\" states no /TU, and no /Alt on the structure \
+                         element of its widget describes it"
+                    ),
+                ));
+            }
         }
-    }
-
-    /// 11-005: a field's `/TU` is in the document's language unless its structure element
-    /// says otherwise, which is not followed here — so with no catalogue `/Lang` it is left
-    /// for a reader.
-    fn audit_tooltip_language(
-        field: &fepdf_model::interactive::FormField,
-        language: Option<&str>,
-        findings: &mut Vec<AuditFinding>,
-    ) {
-        if language.is_some() {
-            return;
-        }
-        let name = field.qualified_name.as_deref().or(field.name.as_deref()).unwrap_or("");
-        findings.push(for_a_reader(
-            "11-005",
-            format!(
-                "The form field \"{name}\" has a /TU and the catalogue states no /Lang. \
-                 Whether its structure element states one is not resolved here — look at it"
-            ),
-        ));
     }
 
     /// Checkpoint 01's three, from what each page's content stream marks.

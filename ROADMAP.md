@@ -1033,13 +1033,19 @@ it can be run there.
       left out because ingestion was said to rewrite every CMap to `Identity-H`, which it
       never did to a font that loads (ADR-0105). They need ISO 32000-1 Table 118 read out
       of `docs/specs/PDF32000_2008.pdf`.
-- [ ] **Y-F17** — 28-005 and 11-005 are left to a reader because "the enclosing
+- [x] **Y-F17** — 28-005 and 11-005 are left to a reader because "the enclosing
       structure element is reached through an `/OBJR`, which `struct_tree.rs` resolves to
       nothing" (`structure.rs`, `audit_form`). Since W-21j the audit reaches an
       annotation's element through `/StructParent` and the parent tree
       (`audit_objects::Belonging`), and a field's widget is an annotation, so both halves
       of each condition are reachable. What is missing is the way from a `FormField` to
       its widgets: it carries no handle.
+      Fixed 2026-10-04: `form_widgets` gives each terminal field with its widgets, and both
+      conditions are decided through the element each widget belongs to — a field is
+      described where every widget's element states an `/Alt`, and a `/TU` is in the
+      language of that element or its ancestors before the catalogue's. Neither is left
+      to a reader now. `audit_scope_test.rs` holds both, and breaking the `/Alt` read, the
+      element's language or the widget walk failed it.
 - [x] **Y-F7** — `compare.rs`'s `to_f64` is used only under the `render` feature and is
       not gated with it, so `cargo build -p fepdf` warns. The workspace build unifies
       features and never sees it. Gated with `render` in Y-4 (`5467c37`).
