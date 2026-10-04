@@ -6,16 +6,17 @@ use std::sync::Arc;
 
 impl Interpreter<'_> {
     pub(crate) fn resolve_font_resource(&mut self, name: &PdfName) -> PdfResult<Arc<FontResource>> {
-        if name.as_str() == "Fallback-Sans" {
+        // A name no resource in reach defines draws in a fallback face, as the parser
+        // recorded when it read the stream (9.6.2).
+        let Ok(entry) =
+            self.find_resource(&self.doc.arena().intern_name(PdfName::new("Font")), name)
+        else {
             let res = FontResource::load_fallback(
                 fepdf_model::font::FallbackFontType::SansSerif,
                 self.doc,
             )?;
             return Ok(Arc::new(res));
-        }
-
-        let entry =
-            self.find_resource(&self.doc.arena().intern_name(PdfName::new("Font")), name)?;
+        };
         let h =
             entry.as_reference().unwrap_or_else(|| self.doc.arena().alloc_object(entry.clone()));
         self.get_font(h, Some(name))

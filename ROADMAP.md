@@ -942,6 +942,13 @@ it can be run there.
       for Y-10's inline images. Fixed: the command keeps the operator as the stream wrote
       it, `BI` through `EI`, and that is what is written. `inline_image_test.rs` holds a
       one-bit gray image and a filtered one, and writing the old way failed both.
+- [x] **Y-F34** — **a save took the font out of a form that reads the page's.** A
+      form with no resources of its own reads them from what draws it (7.8.3); the
+      content parser read such a form alone, found its `/F1` defined nowhere, and kept
+      `/Fallback-Sans` in its place, which every save wrote out. Found 2026-10-04
+      redacting such a form. Fixed: the name the stream wrote is kept, and the
+      interpreter draws in a fallback face only where no resource in reach defines it.
+      `form_font_name_test.rs` holds it, and writing the stand-in again failed it.
 - [ ] **Y-F33** — **an inline image is drawn as RGB whatever it is.** The interpreter
       hands the backend the bytes after `ID`, still encoded, as eight-bit RGB — the same
       placeholder format Y-F32 found — so a one-bit, gray, CMYK or filtered inline image
@@ -1406,7 +1413,16 @@ it can be run there.
       curve. A dashed stroke's pieces start their dash at the phase the line had reached.
       `redaction_path_test.rs` holds a background, a circle, a stroke, a dash, a mitred
       corner and a clip; taking out a strip, the phase, the corner break, the clip or the
-      cutting failed it. Form XObjects are not reached yet.
+      cutting failed it.
+      **Form XObjects, 2026-10-04**: each form the content draws and a region meets is
+      copied with resources of its own, the drawing pointed at the copy, and the copy
+      redacted as the page is — inline images, text, images, paths and its own forms —
+      with the regions taken into its space through the box round them there, which for a
+      form drawn turned is a little more than the region. The original goes from those
+      resources once nothing there draws it; another drawing keeps it. Forms nested past
+      16 are refused, since one may draw itself. `redaction_form_test.rs` holds it, and
+      taking out the entering, the dropping of the original or the placing of the
+      preview's boxes failed it.
       **The glyphs that remain keep their places**, decided by the owner 2026-10-04
       with the width of what went left recoverable from them, as it is from Acrobat
       (arXiv 2206.02285); moving the rest of the line to the region's edge was the

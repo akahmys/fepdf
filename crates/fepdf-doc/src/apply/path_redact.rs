@@ -20,6 +20,7 @@
 //! **Reached: the page's own content**, after its inline images are lifted. A path a form
 //! XObject draws is a later part of Y-10.
 
+use super::target::Target;
 use super::text::GlyphBox;
 use fepdf_model::lexer::Token;
 use fepdf_model::{Document, PdfResult};
@@ -63,8 +64,8 @@ struct Building {
 ///
 /// # Errors
 /// Fails when the page is not there or its content cannot be read.
-pub fn cut_paths(doc: &Document, page: usize, regions: &[GlyphBox]) -> PdfResult<()> {
-    let Some(data) = super::text::page_content(doc, page)? else { return Ok(()) };
+pub fn cut_paths(doc: &Document, target: Target, regions: &[GlyphBox]) -> PdfResult<()> {
+    let Some(data) = target.content(doc)? else { return Ok(()) };
     let tokens = super::image_crop::tokens_of(&data);
     let regions: Vec<Rect> = regions.iter().map(|r| Rect::new(r.0, r.1, r.2, r.3)).collect();
     let mut replaced: BTreeMap<usize, (usize, Vec<u8>)> = BTreeMap::new();
@@ -77,7 +78,7 @@ pub fn cut_paths(doc: &Document, page: usize, regions: &[GlyphBox]) -> PdfResult
         return Ok(());
     }
     let out = super::path_crop::rewritten(&tokens, &replaced);
-    super::text::write_page_content(doc, page, out)
+    target.write(doc, out)
 }
 
 /// Where on the page a path the regions meet is cut: each region cut to the path's box,
@@ -85,8 +86,8 @@ pub fn cut_paths(doc: &Document, page: usize, regions: &[GlyphBox]) -> PdfResult
 ///
 /// # Errors
 /// Fails when the page is not there or its content cannot be read.
-pub fn cut_areas(doc: &Document, page: usize, regions: &[GlyphBox]) -> PdfResult<Vec<GlyphBox>> {
-    let Some(data) = super::text::page_content(doc, page)? else { return Ok(Vec::new()) };
+pub fn cut_areas(doc: &Document, target: Target, regions: &[GlyphBox]) -> PdfResult<Vec<GlyphBox>> {
+    let Some(data) = target.content(doc)? else { return Ok(Vec::new()) };
     let tokens = super::image_crop::tokens_of(&data);
     let mut areas = Vec::new();
     walk(&tokens, &mut |_, _, building, op, pen| {

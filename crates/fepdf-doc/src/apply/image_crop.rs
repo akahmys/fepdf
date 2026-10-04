@@ -91,6 +91,11 @@ pub fn cut_images_outside(
 /// # Errors
 /// Fails when a page's content cannot be read.
 pub fn drop_undrawn_images(doc: &Document, cropped: &[usize]) -> PdfResult<()> {
+    drop_undrawn_of(doc, cropped, &["Image"])
+}
+
+/// [`drop_undrawn_images`], for every XObject of the `kinds` named.
+fn drop_undrawn_of(doc: &Document, cropped: &[usize], kinds: &[&str]) -> PdfResult<()> {
     let arena = doc.arena();
     let resources_of = |page: usize| {
         let handle = doc.get_page_handle(page)?;
@@ -107,17 +112,43 @@ pub fn drop_undrawn_images(doc: &Document, cropped: &[usize]) -> PdfResult<()> {
                 drawn.extend(names_drawn(&data));
             }
         }
-        forget_undrawn(doc, resources, &mut drawn);
+        forget_undrawn(doc, resources, &mut drawn, kinds);
     }
     Ok(())
 }
 
-/// Takes out of `resources` the images `drawn` does not name, after adding the names the
-/// forms there with no resources of their own draw.
+/// Takes out of `target`'s resources every image and form its content no longer draws:
+/// for a page, as [`drop_undrawn_images`] does; for a form, from its own resources by its
+/// own content.
+///
+/// **Forms too, for a redaction**: one it replaces with a redacted copy would otherwise be
+/// written whole, from the resources that still name it.
+///
+/// # Errors
+/// Fails when a page's content cannot be read.
+pub fn drop_undrawn(doc: &Document, target: super::target::Target) -> PdfResult<()> {
+    let kinds = ["Image", "Form"];
+    match target {
+        super::target::Target::Page(page) => drop_undrawn_of(doc, &[page], &kinds),
+        super::target::Target::Form(..) => {
+            let resources = target.resources(doc)?;
+            let mut drawn: std::collections::BTreeSet<String> = target
+                .content(doc)?
+                .map(|data| names_drawn(&data).into_iter().collect())
+                .unwrap_or_default();
+            forget_undrawn(doc, resources, &mut drawn, &kinds);
+            Ok(())
+        }
+    }
+}
+
+/// Takes out of `resources` the XObjects of the `kinds` named that `drawn` does not name,
+/// after adding the names the forms there with no resources of their own draw.
 fn forget_undrawn(
     doc: &Document,
     resources: DictHandle,
     drawn: &mut std::collections::BTreeSet<String>,
+    kinds: &[&str],
 ) {
     let arena = doc.arena();
     let Some(xobjects) = arena
@@ -145,8 +176,9 @@ fn forget_undrawn(
     }
     let before = entries.len();
     entries.retain(|name, value| {
-        let image = kind(value).is_some_and(|(subtype, _, _)| subtype == Some(arena.name("Image")));
-        !image || arena.get_name(*name).is_some_and(|n| drawn.contains(n.as_str()))
+        let named = kind(value)
+            .is_some_and(|(subtype, _, _)| kinds.iter().any(|k| subtype == Some(arena.name(k))));
+        !named || arena.get_name(*name).is_some_and(|n| drawn.contains(n.as_str()))
     });
     if entries.len() != before {
         arena.set_dict(xobjects, entries);
@@ -154,7 +186,7 @@ fn forget_undrawn(
 }
 
 /// The names a content stream draws with `Do`.
-fn names_drawn(data: &[u8]) -> Vec<String> {
+pub fn names_drawn(data: &[u8]) -> Vec<String> {
     let tokens = tokens_of(data);
     tokens
         .windows(2)
@@ -203,6 +235,12 @@ pub fn images_of(doc: &Document, page: usize) -> PdfResult<BTreeMap<String, Hand
     let page_h = doc.page_handle(page)?;
     let resources =
         fepdf_model::Page::new(arena, page_h, doc.get_parent_chain(page_h)).resources_handle();
+    Ok(images_in(doc, resources))
+}
+
+/// The image XObjects `resources` names, by name.
+pub fn images_in(doc: &Document, resources: DictHandle) -> BTreeMap<String, Handle<Object>> {
+    let arena = doc.arena();
     let subtype = arena.name("Subtype");
     let image = arena.name("Image");
     let mut found = BTreeMap::new();
@@ -210,7 +248,7 @@ pub fn images_of(doc: &Document, page: usize) -> PdfResult<BTreeMap<String, Hand
         .dict_entry(resources, arena.name("XObject"))
         .and_then(|x| x.resolve(arena).as_dict_handle())
     else {
-        return Ok(found);
+        return found;
     };
     for (key, value) in arena.get_dict(xobjects).unwrap_or_default() {
         let Some(handle) = value.as_reference() else { continue };
@@ -221,7 +259,7 @@ pub fn images_of(doc: &Document, page: usize) -> PdfResult<BTreeMap<String, Hand
             found.insert(name.as_str().to_string(), handle);
         }
     }
-    Ok(found)
+    found
 }
 
 /// What `keep` leaves of an image drawn with `ctm`.
@@ -588,12 +626,13 @@ fn write_bits(bytes: &mut [u8], at: usize, bits: usize, value: u8) {
 
 /// Names `image` in the page's resources, under a name nothing there uses.
 pub fn name_in_page(doc: &Document, page: usize, image: Handle<Object>) -> PdfResult<String> {
+    let resources = super::target::Target::Page(page).resources(doc)?;
+    Ok(name_in(doc, resources, image))
+}
+
+/// Names `xobject` in `resources`' `/XObject`, under a name nothing there uses.
+pub fn name_in(doc: &Document, resources: DictHandle, xobject: Handle<Object>) -> String {
     let arena = doc.arena();
-    let page_h = doc.page_handle(page)?;
-    let page_dh = doc.resolve_to_dict(page_h)?;
-    let mut page_dict = arena.get_dict(page_dh).unwrap_or_default();
-    let resources = crate::apply::annotations::ensure_page_resources(doc, page_h, &mut page_dict);
-    arena.set_dict(page_dh, page_dict);
     let key = arena.name("XObject");
     let existing: Option<DictHandle> =
         arena.dict_entry(resources, key).and_then(|x| x.resolve(arena).as_dict_handle());
@@ -604,9 +643,9 @@ pub fn name_in_page(doc: &Document, page: usize, image: Handle<Object>) -> PdfRe
         .map(|n| format!("fepdfCut{n}"))
         .find(|n| !taken(n))
         .unwrap_or_default();
-    xobjects.insert(arena.name(&name), Object::Reference(image));
+    xobjects.insert(arena.name(&name), Object::Reference(xobject));
     let mut dict = arena.get_dict(resources).unwrap_or_default();
     dict.insert(key, Object::Dictionary(arena.alloc_dict(xobjects)));
     arena.set_dict(resources, dict);
-    Ok(name)
+    name
 }

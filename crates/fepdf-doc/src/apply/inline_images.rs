@@ -12,6 +12,7 @@
 //! `H × ⌈W × components × bits ÷ 8⌉` bytes long, and the bytes `EI` can occur inside it.
 //! A filtered one is read to the first `EI` standing alone, as 8.9.7 leaves a reader to.
 
+use super::target::Target;
 use fepdf_model::arena::PdfArena;
 use fepdf_model::lexer::{Lexer, Token};
 use fepdf_model::parser::Parser;
@@ -155,14 +156,14 @@ fn device_components(name: &str) -> Option<usize> {
     }
 }
 
-/// Lifts every inline image on `page` into an image XObject, drawn with `Do` where the
-/// image was.
+/// Lifts every inline image in `target`'s content into an image XObject, drawn with `Do`
+/// where the image was.
 ///
 /// # Errors
-/// Fails when the page is not there or its content cannot be read.
-pub fn lift(doc: &Document, page: usize) -> PdfResult<()> {
-    let Some(content) = super::text::page_content(doc, page)? else { return Ok(()) };
-    let found = locate(&content, &|name| resource_components(doc, page, name));
+/// Fails when the page is not there or the content cannot be read.
+pub fn lift(doc: &Document, target: Target) -> PdfResult<()> {
+    let Some(content) = target.content(doc)? else { return Ok(()) };
+    let found = locate(&content, &|name| resource_components(doc, target, name));
     if found.is_empty() {
         return Ok(());
     }
@@ -171,18 +172,18 @@ pub fn lift(doc: &Document, page: usize) -> PdfResult<()> {
     for image in found {
         out.extend_from_slice(&content[at..image.whole.start]);
         let header = &content[image.header.clone()];
-        let xobject = xobject_of(doc, page, header, &content[image.data.clone()]);
-        let name = super::image_crop::name_in_page(doc, page, xobject)?;
+        let xobject = xobject_of(doc, target, header, &content[image.data.clone()]);
+        let name = super::image_crop::name_in(doc, target.resources(doc)?, xobject);
         out.extend_from_slice(format!("/{name} Do").as_bytes());
         at = image.whole.end;
     }
     out.extend_from_slice(&content[at..]);
-    super::text::write_page_content(doc, page, out)
+    target.write(doc, out)
 }
 
 /// The image XObject an inline image's header and samples make: keys and names spelled
 /// out, a colour space named from the resources taken from them, the samples as written.
-fn xobject_of(doc: &Document, page: usize, header: &[u8], data: &[u8]) -> Handle<Object> {
+fn xobject_of(doc: &Document, target: Target, header: &[u8], data: &[u8]) -> Handle<Object> {
     let arena = doc.arena();
     let mut dict = BTreeMap::new();
     dict.insert(arena.name("Type"), Object::Name(arena.name("XObject")));
@@ -190,7 +191,7 @@ fn xobject_of(doc: &Document, page: usize, header: &[u8], data: &[u8]) -> Handle
     for (key, value) in entries(header, arena) {
         let key = spelled_key(&key);
         let value = match key {
-            "ColorSpace" => colour_space(doc, page, value),
+            "ColorSpace" => colour_space(doc, target, value),
             "Filter" => spelled_names(arena, value, spelled_filter),
             _ => value,
         };
@@ -263,14 +264,14 @@ fn spelled_names(arena: &PdfArena, value: Object, spell: fn(&str) -> &str) -> Ob
 /// The colour space an inline image names: a device space or `Indexed` spelled out, and a
 /// name the page's resources give a space to (8.9.7) replaced by that space, since an
 /// image XObject names a space and not a resource.
-fn colour_space(doc: &Document, page: usize, value: Object) -> Object {
+fn colour_space(doc: &Document, target: Target, value: Object) -> Object {
     let arena = doc.arena();
     if let Some(name) = value.as_name().and_then(|n| arena.get_name_str(n)) {
         let spelled = spelled_space(&name);
         if spelled != name || device_components(&name).is_some() {
             return Object::Name(arena.name(spelled));
         }
-        return named_space(doc, page, &name).unwrap_or(value);
+        return named_space(doc, target, &name).unwrap_or(value);
     }
     let Some(items) = value.as_array().and_then(|a| arena.get_array(a)) else { return value };
     let mut items = items;
@@ -278,26 +279,24 @@ fn colour_space(doc: &Document, page: usize, value: Object) -> Object {
         *first = spelled_names(arena, first.clone(), spelled_space);
     }
     if let Some(base) = items.get_mut(1) {
-        *base = colour_space(doc, page, base.clone());
+        *base = colour_space(doc, target, base.clone());
     }
     Object::Array(arena.alloc_array(items))
 }
 
-/// The colour space the page's resources name `name`.
-fn named_space(doc: &Document, page: usize, name: &str) -> Option<Object> {
+/// The colour space `target`'s resources name `name`.
+fn named_space(doc: &Document, target: Target, name: &str) -> Option<Object> {
     let arena = doc.arena();
-    let page_h = doc.get_page_handle(page)?;
-    let resources =
-        fepdf_model::Page::new(arena, page_h, doc.get_parent_chain(page_h)).resources_handle();
+    let resources = target.resources_read(doc).ok()?;
     let spaces =
         arena.dict_entry(resources, arena.name("ColorSpace"))?.resolve(arena).as_dict_handle()?;
     arena.dict_entry(spaces, arena.name(name))
 }
 
-/// How many components the colour space the page's resources name `name` has.
-pub fn resource_components(doc: &Document, page: usize, name: &str) -> Option<usize> {
+/// How many components the colour space `target`'s resources name `name` has.
+pub fn resource_components(doc: &Document, target: Target, name: &str) -> Option<usize> {
     let arena = doc.arena();
-    let space = named_space(doc, page, name)?.resolve(arena);
+    let space = named_space(doc, target, name)?.resolve(arena);
     if let Some(device) = space.as_name().and_then(|n| arena.get_name_str(n)) {
         return device_components(&device);
     }

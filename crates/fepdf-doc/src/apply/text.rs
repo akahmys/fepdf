@@ -309,11 +309,16 @@ pub(crate) fn fonts_of_page(
     doc: &Document,
     page: usize,
 ) -> PdfResult<BTreeMap<String, Arc<FontResource>>> {
+    fonts_in(doc, super::target::Target::Page(page).resources_read(doc)?)
+}
+
+/// The fonts `resources` names, by the resource name a content stream uses.
+pub(crate) fn fonts_in(
+    doc: &Document,
+    resources: fepdf_model::DictHandle,
+) -> PdfResult<BTreeMap<String, Arc<FontResource>>> {
     let arena = doc.arena();
-    let page_h = doc.page_handle(page)?;
-    let chain = doc.get_parent_chain(page_h);
-    let view = fepdf_model::Page::new(arena, page_h, chain);
-    let resources = arena.get_dict(view.resources_handle()).unwrap_or_default();
+    let resources = arena.get_dict(resources).unwrap_or_default();
 
     let mut out = BTreeMap::new();
     let Some(fonts_dh) =
@@ -1256,7 +1261,8 @@ pub fn apply_remove_outside(
     page: usize,
     keep: (f64, f64, f64, f64),
 ) -> PdfResult<()> {
-    remove_glyphs(doc, page, 0.0, &|glyph| !meets(glyph, keep)).map(|_| ())
+    remove_glyphs(doc, super::target::Target::Page(page), 0.0, &|glyph| !meets(glyph, keep))
+        .map(|_| ())
 }
 
 /// A glyph's box on the page, as left, bottom, right, top.
@@ -1272,9 +1278,13 @@ pub(crate) fn meets(a: GlyphBox, b: GlyphBox) -> bool {
 ///
 /// # Errors
 /// Fails when the page is not there or its content cannot be read.
-pub(crate) fn glyph_boxes(doc: &Document, page: usize, below: f64) -> PdfResult<Vec<GlyphBox>> {
-    let fonts = fonts_of_page(doc, page)?;
-    let Some(data) = page_content(doc, page)? else { return Ok(Vec::new()) };
+pub(crate) fn glyph_boxes(
+    doc: &Document,
+    target: super::target::Target,
+    below: f64,
+) -> PdfResult<Vec<GlyphBox>> {
+    let fonts = fonts_in(doc, target.resources_read(doc)?)?;
+    let Some(data) = target.content(doc)? else { return Ok(Vec::new()) };
     let (_, runs, unplaced) = read_runs_counting(&data, &fonts);
     refuse_unplaced(unplaced)?;
     Ok(runs.iter().flat_map(|run| run.places.iter().map(|p| run.code_box(*p, below))).collect())
@@ -1302,12 +1312,12 @@ fn refuse_unplaced(unplaced: usize) -> PdfResult<()> {
 /// Fails when the page is not there or its content cannot be read.
 pub(crate) fn remove_glyphs(
     doc: &Document,
-    page: usize,
+    target: super::target::Target,
     below: f64,
     goes: &dyn Fn(GlyphBox) -> bool,
 ) -> PdfResult<usize> {
-    let fonts = fonts_of_page(doc, page)?;
-    let Some(data) = page_content(doc, page)? else { return Ok(0) };
+    let fonts = fonts_in(doc, target.resources_read(doc)?)?;
+    let Some(data) = target.content(doc)? else { return Ok(0) };
     let (tokens, runs) = read_runs(&data, &fonts);
 
     let mut rewritten: BTreeMap<usize, Vec<u8>> = BTreeMap::new();
@@ -1337,7 +1347,7 @@ pub(crate) fn remove_glyphs(
             token.write_to(&mut out);
         }
     }
-    write_page_content(doc, page, out)?;
+    target.write(doc, out)?;
     Ok(gone)
 }
 

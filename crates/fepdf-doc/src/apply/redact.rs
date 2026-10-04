@@ -10,6 +10,8 @@
 //! writes nothing, so a frontend can show it before the reader commits to it. The overlap
 //! rule takes a glyph that only touches a region's edge, and this is where that shows.
 
+use super::redact_forms;
+use super::target::Target;
 use super::text::{self, GlyphBox};
 use crate::operation::Redaction;
 use fepdf_model::interpretation::Decision;
@@ -44,12 +46,96 @@ pub struct Removal {
 /// be read.
 pub fn what_redaction_removes(doc: &Document, redaction: &Redaction) -> PdfResult<Removal> {
     let regions = regions_of(redaction)?;
-    let glyphs = text::glyph_boxes(doc, redaction.page, DESCENT)?;
-    Ok(Removal {
-        glyphs: glyphs.into_iter().filter(|g| inside_any(*g, &regions)).collect(),
-        images: super::redact_images::blanked_areas(doc, redaction.page, &regions)?,
-        paths: super::path_redact::cut_areas(doc, redaction.page, &regions)?,
-    })
+    removal_in(doc, Target::Page(redaction.page), &regions, 0)
+}
+
+/// What redacting `regions` would remove from `target`, with nothing written; `regions`
+/// in the space its content is drawn in.
+fn removal_in(
+    doc: &Document,
+    target: Target,
+    regions: &[GlyphBox],
+    depth: usize,
+) -> PdfResult<Removal> {
+    let glyphs = text::glyph_boxes(doc, target, DESCENT)?;
+    let mut removal = Removal {
+        glyphs: glyphs.into_iter().filter(|g| inside_any(*g, regions)).collect(),
+        images: super::redact_images::blanked_areas(doc, target, regions)?,
+        paths: super::path_redact::cut_areas(doc, target, regions)?,
+    };
+    let Some(data) = target.content(doc)? else { return Ok(removal) };
+    let tokens = super::image_crop::tokens_of(&data);
+    for drawn in redact_forms::forms_drawn(doc, target, &tokens)? {
+        let inside = redact_forms::regions_inside(&drawn, regions);
+        if inside.is_empty() {
+            continue;
+        }
+        too_deep(depth)?;
+        let parent = target.resources_read(doc)?;
+        let within = removal_in(doc, Target::Form(drawn.form, parent), &inside, depth + 1)?;
+        let placed =
+            |boxes: Vec<GlyphBox>| boxes.into_iter().map(|b| redact_forms::placed_box(&drawn, b));
+        removal.glyphs.extend(placed(within.glyphs));
+        removal.images.extend(placed(within.images));
+        removal.paths.extend(placed(within.paths));
+    }
+    Ok(removal)
+}
+
+/// Refuses forms drawing forms nested past [`redact_forms::DEEPEST`].
+fn too_deep(depth: usize) -> PdfResult<()> {
+    if depth < redact_forms::DEEPEST {
+        return Ok(());
+    }
+    Err(PdfError::refused(
+        "redact",
+        format!(
+            "forms under the region draw forms more than {} deep, which a form drawing itself \
+             does for ever; nothing was redacted",
+            redact_forms::DEEPEST
+        ),
+    ))
+}
+
+/// Removes what `regions` cover from `target`'s content: its inline images lifted first,
+/// since a walk over its tokens reads their samples as tokens; then its text, its images
+/// and its paths.
+fn redact_in(doc: &Document, target: Target, regions: &[GlyphBox], depth: usize) -> PdfResult<()> {
+    super::inline_images::lift(doc, target)?;
+    text::remove_glyphs(doc, target, DESCENT, &|g| inside_any(g, regions))?;
+    super::redact_images::blank_images(doc, target, regions)?;
+    super::path_redact::cut_paths(doc, target, regions)?;
+    redact_forms_in(doc, target, regions, depth)
+}
+
+/// Enters every form `target` draws that a region meets: a copy of it, redacted with the
+/// regions taken into its space, drawn where it was.
+fn redact_forms_in(
+    doc: &Document,
+    target: Target,
+    regions: &[GlyphBox],
+    depth: usize,
+) -> PdfResult<()> {
+    let Some(data) = target.content(doc)? else { return Ok(()) };
+    let tokens = super::image_crop::tokens_of(&data);
+    let mut replaced = std::collections::BTreeMap::new();
+    for drawn in redact_forms::forms_drawn(doc, target, &tokens)? {
+        let inside = redact_forms::regions_inside(&drawn, regions);
+        if inside.is_empty() {
+            continue;
+        }
+        too_deep(depth)?;
+        let copy = redact_forms::copied(doc, target, drawn.form)?;
+        let own = target.resources(doc)?;
+        redact_in(doc, Target::Form(copy, own), &inside, depth + 1)?;
+        let name = super::image_crop::name_in(doc, own, copy);
+        replaced.insert(drawn.name_at, (drawn.do_at, format!("/{name} Do ").into_bytes()));
+    }
+    if replaced.is_empty() {
+        return Ok(());
+    }
+    target.write(doc, super::path_crop::rewritten(&tokens, &replaced))?;
+    super::image_crop::drop_undrawn(doc, target)
 }
 
 /// Removes what `redaction` names and fills its regions as it says.
@@ -66,12 +152,7 @@ pub fn apply_redact(doc: &Document, redaction: &Redaction) -> PdfResult<()> {
     let _ = what_redaction_removes(doc, redaction)?;
     let regions = regions_of(redaction)?;
     let colour = colour_operator(redaction.fill.as_deref())?;
-    // Lifted first: a walk over the page's tokens reads an inline image's samples as
-    // tokens, and the image itself is then where it can be blanked.
-    super::inline_images::lift(doc, redaction.page)?;
-    text::remove_glyphs(doc, redaction.page, DESCENT, &|g| inside_any(g, &regions))?;
-    super::redact_images::blank_images(doc, redaction.page, &regions)?;
-    super::path_redact::cut_paths(doc, redaction.page, &regions)?;
+    redact_in(doc, Target::Page(redaction.page), &regions, 0)?;
     if let Some(colour) = colour {
         fill(doc, redaction.page, &regions, &colour)?;
     }

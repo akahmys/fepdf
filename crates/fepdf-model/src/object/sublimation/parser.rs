@@ -666,10 +666,13 @@ impl<'a> Sublimator<'a> {
                 format!(
                     "the content stream selects /{name_str}, which its resources do not define"
                 ),
-                "substituted a fallback font so the text still renders",
+                "kept the name, which a form reads through what draws it (7.8.3); where \
+                 nothing defines it, a fallback font draws the text",
             ));
-            // Insert a SetFont command anyway, but mark it for fallback resolution in SDK
-            vec![Command::SetFont { font: "Fallback-Sans".to_string(), size }]
+            // **The name the stream wrote, not a stand-in.** This wrote `/Fallback-Sans`,
+            // which no resource defines, and a save wrote it out: a form reading its
+            // font from the page that draws it lost the font in every save (ROADMAP Y-F34).
+            vec![Command::SetFont { font: name_str.to_string(), size }]
         }
     }
 

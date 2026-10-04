@@ -13,6 +13,7 @@
 //! form XObjects are a later part of Y-10.
 
 use super::image_crop::{self, Fraction};
+use super::target::Target;
 use super::text::GlyphBox;
 use fepdf_model::lexer::Token;
 use fepdf_model::{Document, Handle, Object, PdfError, PdfResult};
@@ -38,14 +39,14 @@ struct Drawn {
 /// Fails when the page is not there or its content cannot be read.
 pub fn blanked_areas(
     doc: &Document,
-    page: usize,
+    target: Target,
     regions: &[GlyphBox],
 ) -> PdfResult<Vec<GlyphBox>> {
-    let Some(data) = super::text::page_content(doc, page)? else { return Ok(Vec::new()) };
-    let (data, inline) = with_inline_named(doc, page, &data);
+    let Some(data) = target.content(doc)? else { return Ok(Vec::new()) };
+    let (data, inline) = with_inline_named(doc, target, &data);
     let tokens = image_crop::tokens_of(&data);
     let mut areas = Vec::new();
-    for drawn in images_drawn(doc, page, &tokens, &inline)? {
+    for drawn in images_drawn(doc, target, &tokens, &inline)? {
         let on_page = drawn.ctm.transform_rect_bbox(Rect::new(0.0, 0.0, 1.0, 1.0));
         for region in regions {
             let cut = on_page.intersect(Rect::new(region.0, region.1, region.2, region.3));
@@ -62,11 +63,11 @@ pub fn blanked_areas(
 /// # Errors
 /// Refuses when an image a region meets cannot be decoded, since its pixels cannot be
 /// blanked; fails when the page is not there or its content cannot be read.
-pub fn blank_images(doc: &Document, page: usize, regions: &[GlyphBox]) -> PdfResult<()> {
-    let Some(data) = super::text::page_content(doc, page)? else { return Ok(()) };
+pub fn blank_images(doc: &Document, target: Target, regions: &[GlyphBox]) -> PdfResult<()> {
+    let Some(data) = target.content(doc)? else { return Ok(()) };
     let tokens = image_crop::tokens_of(&data);
     let mut replaced: BTreeMap<usize, (usize, Vec<u8>)> = BTreeMap::new();
-    for drawn in images_drawn(doc, page, &tokens, &BTreeSet::new())? {
+    for drawn in images_drawn(doc, target, &tokens, &BTreeSet::new())? {
         let blocks = fractions(drawn.ctm, regions);
         let Some(image) = drawn.image.filter(|_| !blocks.is_empty()) else { continue };
         let Some(blank) = image_crop::blanked(doc, image, &blocks) else {
@@ -76,21 +77,25 @@ pub fn blank_images(doc: &Document, page: usize, regions: &[GlyphBox]) -> PdfRes
                  nothing was redacted",
             ));
         };
-        let name = image_crop::name_in_page(doc, page, blank)?;
+        let name = image_crop::name_in(doc, target.resources(doc)?, blank);
         replaced.insert(drawn.name_at, (drawn.do_at, format!("/{name} Do ").into_bytes()));
     }
     if replaced.is_empty() {
         return Ok(());
     }
     let out = super::path_crop::rewritten(&tokens, &replaced);
-    super::text::write_page_content(doc, page, out)?;
-    image_crop::drop_undrawn_images(doc, &[page])
+    target.write(doc, out)?;
+    image_crop::drop_undrawn(doc, target)
 }
 
 /// `content` with each inline image drawn instead by `Do` of a name of its own, and those
 /// names: for reading where they fall, with nothing written.
-fn with_inline_named(doc: &Document, page: usize, content: &[u8]) -> (Vec<u8>, BTreeSet<String>) {
-    let components = |name: &str| super::inline_images::resource_components(doc, page, name);
+fn with_inline_named(
+    doc: &Document,
+    target: Target,
+    content: &[u8],
+) -> (Vec<u8>, BTreeSet<String>) {
+    let components = |name: &str| super::inline_images::resource_components(doc, target, name);
     let found = super::inline_images::locate(content, &components);
     let (mut out, mut names, mut at) = (Vec::with_capacity(content.len()), BTreeSet::new(), 0);
     for (nth, image) in found.iter().enumerate() {
@@ -108,11 +113,11 @@ fn with_inline_named(doc: &Document, page: usize, content: &[u8]) -> (Vec<u8>, B
 /// is drawn with.
 fn images_drawn(
     doc: &Document,
-    page: usize,
+    target: Target,
     tokens: &[Token],
     inline: &BTreeSet<String>,
 ) -> PdfResult<Vec<Drawn>> {
-    let images = image_crop::images_of(doc, page)?;
+    let images = image_crop::images_in(doc, target.resources_read(doc)?);
     let (mut ctm, mut saved, mut drawn) = (Affine::IDENTITY, Vec::new(), Vec::new());
     let mut operands_from = 0;
     for (index, token) in tokens.iter().enumerate() {
