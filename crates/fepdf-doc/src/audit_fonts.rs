@@ -5,7 +5,7 @@
 //! a TrueType program it rebuilds for drawing is kept beside the font, not written over the
 //! file's. Every font dictionary but that entry, the file's own programs and their
 //! `/ToUnicode` maps are read as the file wrote them; a Type 0 font's CMap is asked in
-//! [`crate::audit_cmaps`].
+//! `audit_cmaps`.
 
 use crate::structure::{AuditFinding, broken, for_a_reader};
 use fepdf_model::access::{entry, name_in, names_in};

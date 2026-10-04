@@ -868,9 +868,17 @@ it can be run there.
       moment, which `stamped_at` now supplies.
       Fixed 2026-10-03: both are the stamp, in UTC so one stamp writes one date on any
       machine, and `/Info /ModDate` is the same moment in 7.9.4's form.
-- [ ] **Y-F8** — `cargo doc --workspace --no-deps` prints 44 warnings, most of them
+- [x] **Y-F8** — `cargo doc --workspace --no-deps` prints 44 warnings, most of them
       intra-doc links that resolve to nothing, and nothing gates it. `documents.py`
       checks relative Markdown links, which is the half AGENTS.md rule 1 names.
+      Fixed 2026-10-04, at 52 rustdoc warnings — one Y-F16's own — and one of cargo's.
+      Twenty-seven came from a module carrying `///` lines at its `mod` as well as its
+      own `//!`, which rustdoc joins and resolves from the parent; in `fepdf-model` those lines had slid onto the
+      wrong modules, "Annotations (12.5)" over `access`. They go where they broke a link.
+      The rest are links renamed (`ContentFit` is `ContentScale`), private, or not links,
+      and the CLI's binary no longer documents over the facade's `fepdf`.
+      `verify_compliance.sh` step 17 runs `cargo doc` with warnings denied and fails on
+      any warning, shown to fire by an unresolved link put back.
 - [ ] **Y-F9** — reading aloud on Windows hands PowerShell the words on standard input
       and reads them with `[Console]::In`, whose encoding is the console's code page, not
       UTF-8; nothing sets it, so Japanese may arrive garbled (`speech.rs`). Unverified: no

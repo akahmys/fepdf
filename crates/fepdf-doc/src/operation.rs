@@ -251,12 +251,12 @@ pub enum Operation {
     ///
     /// **One operation for both "change the paper size" and "scale".** They are the same
     /// act asked in two directions: a sheet, and a rule for the drawing on it. A4 content
-    /// on an A3 sheet is `size` A3 with [`ContentFit::Fit`]; the same content at 90% on
-    /// the sheet it is already on is the size it already has with
-    /// <code>[ContentFit::Scale](0.9)</code>. Two would have been two places to get the
+    /// on an A3 sheet is `sheet` A3 with [`ContentScale::Fit`]; the same content at 90% on
+    /// the sheet it is already on is `sheet` `None` with
+    /// <code>[ContentScale::By](0.9)</code>. Two would have been two places to get the
     /// boxes right.
     ///
-    /// `size` is the new `/MediaBox`, in points, placed at the origin; the drawing is taken
+    /// `sheet` is the new `/MediaBox`, in points, placed at the origin; the drawing is taken
     /// from where the old box began, which need not be the origin.
     ResizePages(PageSelection, PageResize),
     /// Add a Document Security Store (`/DSS`, 12.8.4.3) carrying validation certificates.
@@ -330,7 +330,7 @@ pub enum Operation {
         /// Position on the page.
         position: DecorationPosition,
         /// The optional content group to put the decoration in, by its
-        /// [`crate::LayerGroup`] name (8.11.3.1). `None` draws it unconditionally.
+        /// [`fepdf_model::LayerGroup`] name (8.11.3.1). `None` draws it unconditionally.
         ///
         /// This is what makes a layer contain something. `UpdateLayers` writes the
         /// groups and, before this existed, nothing was ever marked `/OC` — so every

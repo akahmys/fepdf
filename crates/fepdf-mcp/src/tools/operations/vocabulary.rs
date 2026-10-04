@@ -88,8 +88,8 @@ pub struct DeclareConformanceArgs {
     /// Path to output PDF file.
     pub output_path: String,
     /// What the document conforms to, as a URI: WTPDF's
-    /// "http://pdfa.org/declarations/wtpdf/#reuse1.0" or
-    /// "http://pdfa.org/declarations/wtpdf/#accessibility1.0", or another PDF Declaration.
+    /// `"http://pdfa.org/declarations/wtpdf/#reuse1.0"` or
+    /// `"http://pdfa.org/declarations/wtpdf/#accessibility1.0"`, or another PDF Declaration.
     pub conforms_to: String,
 }
 

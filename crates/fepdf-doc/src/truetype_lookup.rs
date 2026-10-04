@@ -43,7 +43,7 @@ impl<'a> Lookup<'a> {
 }
 
 /// The codes among `rendered` that reach no glyph in `program` by their names in `names`,
-/// through [`Lookup`].
+/// through `Lookup`.
 ///
 /// **Nothing when the program has neither subtable**, which is 31-017's to say, or will not
 /// read. A code with no name in the table, or a name that is not one character, reaches

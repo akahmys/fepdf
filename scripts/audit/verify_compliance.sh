@@ -422,6 +422,13 @@ rm -f /tmp/fepdf_rule6.$$
 # fn line precisely so that formatting and the audit can both hold at once.
 echo "[Docs] Checking tense, links and the ADR index..."
 python3 scripts/audit/documents.py || { echo "  FAIL: documents.py said so above"; ERROR=1; }
+# `documents.py` reads relative links; an intra-doc link is rustdoc's to resolve, and 52
+# in source resolved to nothing, or named a private item, while nothing ran it (ROADMAP
+# Y-F8). Cargo's own warnings count too: the CLI's binary and the facade both documented
+# as `fepdf`, one over the other.
+doc_out=$(RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps -q 2>&1) \
+    && ! grep -q "warning" <<<"$doc_out" \
+    || { echo "$doc_out"; echo "  FAIL: cargo doc warned"; ERROR=1; }
 
 # `status.sh` measured both of these and nothing gated on either, so a frontend gained a
 # dependency on another crate above the facade and this file said AUDIT PASSED anyway

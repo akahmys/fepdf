@@ -435,7 +435,7 @@ pub fn apply_update_outlines(doc: &Document, outlines: OutlineTree) -> PdfResult
 /// Updates Optional Content Groups (OCG layers, Clause 8.11).
 ///
 /// Writes the groups, the default configuration, and — since Phase N — the `/Usage` that
-/// carries [`crate::LayerGroup::printable`] into the file with the `/AS` entry that
+/// carries [`fepdf_model::LayerGroup::printable`] into the file with the `/AS` entry that
 /// applies it. Without the second, a `/Usage` is a description no viewer acts on
 /// (8.11.4.5), which is how "printable" set by a caller reached the file as nothing at
 /// all.

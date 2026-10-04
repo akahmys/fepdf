@@ -7,9 +7,6 @@
 
 extern crate self as fepdf_model;
 
-/// Annotations (12.5): Table 166, and the subtypes the corpus carries.
-/// What a document does when opened, and what has to happen first (12.6).
-/// Reading one entry out of a dictionary, once, with references followed.
 pub mod access;
 
 pub mod actions;
@@ -46,8 +43,6 @@ pub mod function;
 pub mod graphics;
 pub mod handle;
 pub mod ingest;
-/// Decisions taken when the input departs from the standard.
-/// Interactive features (clause 12): annotations, forms, actions, outlines.
 pub mod interactive;
 pub mod interpretation;
 pub use fepdf_syntax::cms;
@@ -55,7 +50,6 @@ pub use fepdf_syntax::lexer;
 /// Document metadata, from XMP or the `/Info` dictionary.
 pub mod metadata;
 pub mod object;
-/// Optional content: which layers a document turns off (8.11).
 pub mod optional_content;
 pub mod parser;
 /// Building objects from the offsets the syntax layer located.

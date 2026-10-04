@@ -345,7 +345,7 @@ impl FepdfApp {
     /// **It asked the display mode which pages were on screen**, and the answer predates
     /// the grid belonging to the zoom: a reader who zoomed out was in `SinglePage` looking
     /// at twenty-three tiles while this named one, so every other tile was handed no scene
-    /// and span for ever. [`PDFView::visible_page_rects`] is the one answer now.
+    /// and span for ever. `PDFView::visible_page_rects` is the one answer now.
     fn collect_visible_pages_data(
         &self,
         viewport_rect: egui::Rect,

@@ -146,11 +146,11 @@ impl From<Color> for Paint {
 /// PDF Color representation.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub enum Color {
-    /// DeviceGray: a single intensity in [0,1].
+    /// DeviceGray: a single intensity in `[0, 1]`.
     Gray(f64),
-    /// DeviceRGB: red, green and blue, each in [0,1].
+    /// DeviceRGB: red, green and blue, each in `[0, 1]`.
     Rgb(f64, f64, f64),
-    /// DeviceCMYK: cyan, magenta, yellow and black, each in [0,1].
+    /// DeviceCMYK: cyan, magenta, yellow and black, each in `[0, 1]`.
     Cmyk(f64, f64, f64, f64),
     /// Lab color space (Placeholder)
     Lab(f64, f64, f64),

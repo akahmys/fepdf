@@ -11,6 +11,8 @@ description = "Universal CLI tool for PDF 2.0 auditing, rendering, and manipulat
 [[bin]]
 name = "fepdf"
 path = "src/main.rs"
+# The library crate `fepdf` documents under the same name; this one is its command line.
+doc = false
 
 [dependencies]
 # Rasterises pages (debug render subcommand), so the SDK's optional GPU path is required.

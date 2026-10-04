@@ -140,7 +140,7 @@ impl PdfArena {
         handle.belongs_to(self.inner.id)
     }
 
-    /// Refuses every write from here on but those inside [`Self::transaction`]: a
+    /// Refuses every write from here on but those inside `transaction`: a
     /// document once loaded changes only through `apply` (ROADMAP Y-11).
     ///
     /// **A write while sealed panics in a debug build**, so a test that reaches round

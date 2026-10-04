@@ -143,7 +143,7 @@ pub trait RenderBackend {
     ///
     /// Handed over once, when the page is finished, because that is when the answer is
     /// complete — a box accumulates until its `EMC`, and the last `EMC` may be the last
-    /// operator in the stream. The boxes are measured by [`Canvas`] rather than by the
+    /// operator in the stream. The boxes are measured by `Canvas` rather than by the
     /// backend: they are the union of the same five calls the optional-content guard
     /// stands in front of, and a backend that measured them itself would be the sixth
     /// place to forget one.

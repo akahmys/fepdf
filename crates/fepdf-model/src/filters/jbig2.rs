@@ -20,7 +20,7 @@
 //!
 //! **The two conventions are opposite, and inverting is the filter's job.** A JBIG2
 //! codestream says 1 for black; a PDF image of one bit per component says 0 for black.
-//! `hayro-jbig2` reports blackness and [`super::bilevel::Bitmap`] stores whiteness, so
+//! `hayro-jbig2` reports blackness and `bilevel::Bitmap` stores whiteness, so
 //! the inversion happens where the two meet and nothing downstream has to know.
 
 use crate::PdfResult;

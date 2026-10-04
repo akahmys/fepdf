@@ -223,7 +223,7 @@ pub enum Object {
     /// Name objects (Clause 7.3.5)
     Name(Handle<PdfName>),
     /// Array objects (Clause 7.3.6)
-    /// References an entry in the Arena that holds the actual Vec<Object>.
+    /// References an entry in the Arena that holds the actual `Vec<Object>`.
     Array(Handle<Vec<Object>>),
     /// Dictionary objects (Clause 7.3.7)
     /// References an entry in the Arena that holds the BTreeMap.

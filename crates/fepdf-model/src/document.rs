@@ -1,5 +1,3 @@
-/// ISO 32000-2 Extended domain models.
-/// What the catalogue's entries hold (Table 29), read.
 pub mod entries;
 pub mod extensions;
 /// Pages and the page tree.
@@ -490,7 +488,7 @@ pub struct Document {
     pub security_method: String,
     /// Permission flags recovered from the encryption dictionary.
     pub permissions: Option<i32>,
-    /// Which password authenticated. `/P` restricts only [`Access::User`] (7.6.4.1).
+    /// Which password authenticated. `/P` restricts only [`fepdf_syntax::security::Access::User`] (7.6.4.1).
     pub access: Option<fepdf_syntax::security::Access>,
     /// Whether a script processor above this engine runs this document's ECMAScript.
     ///
@@ -647,7 +645,7 @@ impl Document {
     /// this, the engine took a document reading "do not modify, do not reassemble",
     /// rewrote it, and produced one declaring nothing at all — in silence.
     ///
-    /// Only under [`Access::User`]. An owner password carries full access (7.6.4.1),
+    /// Only under [`fepdf_syntax::security::Access::User`]. An owner password carries full access (7.6.4.1),
     /// including the right to change the permissions, so there is nothing to report.
     #[must_use]
     pub fn permissions_lost_on_write(&self) -> Option<crate::interpretation::Decision> {

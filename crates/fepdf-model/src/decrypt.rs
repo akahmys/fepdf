@@ -83,7 +83,7 @@ pub fn unlock(
 
 /// Unlocks a document the reader has just produced.
 ///
-/// Takes the whole [`RawDocument`] rather than its parts so that the deferred object
+/// Takes the whole [`crate::reader::RawDocument`] rather than its parts so that the deferred object
 /// streams cannot be left behind: passing them separately is a thing a caller can
 /// forget, and forgetting it is the defect this exists to prevent — the arena keeps the
 /// nonsense that expanding ciphertext produced, and the document reads as damaged.

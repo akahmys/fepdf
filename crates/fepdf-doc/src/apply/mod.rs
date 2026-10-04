@@ -21,7 +21,6 @@ pub(crate) mod path_crop;
 pub(crate) mod path_redact;
 /// Radio buttons: a group's field, and a widget per button.
 pub(crate) mod radio;
-/// Removing what a region holds, and filling it (12.5.6.23).
 pub mod redact;
 pub(crate) mod redact_annots;
 pub(crate) mod redact_apply;
@@ -33,7 +32,6 @@ pub mod security;
 /// Structure element and article thread operation handlers.
 pub mod structure;
 pub(crate) mod target;
-/// Changing the text a page already draws.
 pub mod text;
 pub(crate) mod text_layer;
 /// A new structure element round existing content (14.7.2).

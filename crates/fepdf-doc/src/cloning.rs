@@ -8,7 +8,7 @@ use std::collections::BTreeMap;
 pub struct ObjectCloner<'a> {
     source: &'a PdfArena,
     target: &'a PdfArena,
-    /// Mapping from source Handle<Object> to target Handle<Object>.
+    /// Mapping from source `Handle<Object>` to target `Handle<Object>`.
     handle_map: BTreeMap<Handle<Object>, Handle<Object>>,
     /// WORK STACK ENTRY: (SourceHandle, TargetHandle, Phase)
     /// Phase 0: Start cloning object

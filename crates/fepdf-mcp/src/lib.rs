@@ -13,7 +13,7 @@ use thiserror::Error;
 /// **An engine error is carried, not printed**
 /// ([ADR-0102](../../../docs/adr/0102-an-error-says-whose-it-is.md)). This was
 /// `Pdf(String)`, so an argument the model got wrong and a defect in the engine reached
-/// the client as the same text; [`IntoCallToolResult`] below answers the first as an
+/// the client as the same text; [`rmcp::handler::server::tool::IntoCallToolResult`] below answers the first as an
 /// error in the call and the second as an error of the server.
 #[derive(Error, Debug)]
 pub enum McpError {

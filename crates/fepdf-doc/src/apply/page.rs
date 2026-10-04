@@ -386,7 +386,7 @@ const CONTENT_BOXES: [&str; 3] = ["BleedBox", "TrimBox", "ArtBox"];
 /// transform everything already there without this having to understand any of it.
 ///
 /// # Errors
-/// Fails when the new sheet has no area, and when a [`ContentFit::Scale`] factor is not a
+/// Fails when the new sheet has no area, and when a [`fepdf_model::ContentScale::By`] factor is not a
 /// positive finite number — either would produce a page nothing can be drawn on, and a
 /// zero in a `cm` matrix is not an error any viewer reports.
 pub fn apply_resize_pages(doc: &Document, pages: &PageSelection, to: &PageResize) -> PdfResult<()> {

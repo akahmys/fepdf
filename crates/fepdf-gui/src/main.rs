@@ -1,7 +1,7 @@
 //! fepdf: the flagship desktop PDF 2.0 editor.
 //!
 //! Builds on `egui` + `eframe` + `wgpu`, rendering page content through the Vello
-//! compute rasteriser in [`fepdf-render`]. Document work runs on a background
+//! compute rasteriser in `fepdf-render`. Document work runs on a background
 //! worker thread ([`worker`]) so the canvas stays responsive.
 //!
 //! # Lint policy

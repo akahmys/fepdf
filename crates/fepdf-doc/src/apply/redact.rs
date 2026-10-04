@@ -4,7 +4,7 @@
 //! of each show-text operator touching a rectangle, covered or not, and drew nothing: the
 //! window called that 黒塗り. Here a glyph goes when its box meets a region at all — the
 //! rule MuPDF documents — and the glyphs outside keep their places, as a crop's do
-//! ([`super::text::remove_glyphs`]). Then the region is filled.
+//! (`text::remove_glyphs`). Then the region is filled.
 //!
 //! **What will go can be read first**: [`what_redaction_removes`] runs the same test and
 //! writes nothing, so a frontend can show it before the reader commits to it. The overlap

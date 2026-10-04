@@ -5,7 +5,7 @@
 //! `BDC`/`EMC` and `q`/`Q` come in pairs, so an interpreter can match them. A soft mask
 //! does not: `gs` sets one, and it lasts until the graphics state that set it is
 //! restored, or until another `gs` sets `/SMask /None`. So the bracket has to be tracked
-//! against the `q` depth, which is what [`MaskScope::depth`] is for.
+//! against the `q` depth, which is what `MaskScope::depth` is for.
 //!
 //! # Why the group is replayed at the end rather than the beginning
 //!

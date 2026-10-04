@@ -49,7 +49,8 @@ costs ([ADR-0081](docs/adr/0081-the-writing-rules-had-nothing-behind-them.md)).
 
 1. **One fact, one home.** If it belongs in two places, one links instead of restating.
    *Checked in part: every relative link in the documents and in source doc comments must
-   resolve — seven in source did not.*
+   resolve — seven in source did not — and every intra-doc link, by `cargo doc` with
+   warnings denied (52 failing on 2026-10-04, before the fix).*
 2. **Present tense here and in `ARCHITECTURE.md`; past tense in `docs/adr/`.** A reversal
    is recorded, not deleted, so the reasoning is not repeated. *Checked: a line carrying
    both a date and a past-tense verb in either document fails the audit.*

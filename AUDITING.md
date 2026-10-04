@@ -101,7 +101,7 @@ brackets hold is not a class this file gets to choose, so it does not try to nam
 | 14 | `cargo clippy --workspace --all-targets -- -D warnings` | 4, 5 |
 | 15 | **No dependency that compiles C** | **9** |
 | 16 | **No unbounded recursion over a document's graph** | **6** |
-| 17 | **Document tense, links, and the ADR index** | **`AGENTS.md` 1, 2** |
+| 17 | **Document tense, links — relative ones, and intra-doc ones by `cargo doc` with warnings denied — and the ADR index** | **`AGENTS.md` 1, 2** |
 | 18 | **What stands above the facade, what it declares, and what the facade lets in** | **A, D** |
 | 19 | **Every icon codepoint resolves to a glyph that draws, and is written in one file** | **UI-1** |
 | 20 | **Colours are written in the palette; three exemptions, named** | **UI-9** |

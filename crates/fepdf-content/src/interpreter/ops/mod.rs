@@ -6,7 +6,6 @@ pub mod marked;
 pub mod paint;
 /// Path construction operators.
 pub mod path;
-/// Soft masks and the bracket that applies one.
 pub mod softmask;
 /// Graphics state operators.
 pub mod state;

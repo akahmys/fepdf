@@ -56,7 +56,7 @@ pub struct RunInfo {
     pub pieces: Vec<String>,
     /// How far it advances the text, on the page, as a vector from [`Self::origin`].
     ///
-    /// **With [`Self::origin`] and [`Self::height`] this is the box a reader clicks.** It
+    /// **With [`Self::origin`] and [`Self::rise`] this is the box a reader clicks.** It
     /// is the advance the run makes, not the extent of its ink: a letter may overhang it
     /// and a space draws nothing inside it, which is what a text editor's box does too.
     ///

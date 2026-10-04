@@ -8,7 +8,6 @@
 pub mod agl;
 /// The simple-font base encodings of Annex D.
 pub mod annex_d;
-/// Subsetting a CFF program.
 pub mod cff;
 /// Standard CFF strings and constants.
 pub mod cff_standard;

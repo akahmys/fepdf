@@ -81,7 +81,7 @@ pub struct SetStructNamespaceArgs {
     pub output_path: String,
     /// Handle index of the structural element.
     pub handle_index: u32,
-    /// The namespace URI, e.g. "http://iso.org/pdf2/ssn"; "" returns it to the default.
+    /// The namespace URI, e.g. `"http://iso.org/pdf2/ssn"`; "" returns it to the default.
     pub namespace: String,
 }
 
