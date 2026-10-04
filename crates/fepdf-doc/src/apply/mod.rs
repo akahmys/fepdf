@@ -23,6 +23,7 @@ pub(crate) mod path_redact;
 pub(crate) mod radio;
 /// Removing what a region holds, and filling it (12.5.6.23).
 pub mod redact;
+pub(crate) mod redact_annots;
 pub(crate) mod redact_forms;
 pub(crate) mod redact_images;
 /// Security, unencrypted wrapper, and public-key recipient operation handlers.

@@ -36,6 +36,9 @@ pub struct Removal {
     /// Where a painted path is cut, on the page: each region cut to the box of a path it
     /// meets, grown by the pen for a stroke.
     pub paths: Vec<(f64, f64, f64, f64)>,
+    /// The `/Rect` of each annotation that goes, on the page; its popup and replies go
+    /// with it.
+    pub annotations: Vec<(f64, f64, f64, f64)>,
 }
 
 /// What `redaction` would remove, with nothing written.
@@ -46,7 +49,9 @@ pub struct Removal {
 /// be read.
 pub fn what_redaction_removes(doc: &Document, redaction: &Redaction) -> PdfResult<Removal> {
     let regions = regions_of(redaction)?;
-    removal_in(doc, Target::Page(redaction.page), &regions, 0)
+    let mut removal = removal_in(doc, Target::Page(redaction.page), &regions, 0)?;
+    removal.annotations = super::redact_annots::meeting(doc, redaction.page, &regions)?;
+    Ok(removal)
 }
 
 /// What redacting `regions` would remove from `target`, with nothing written; `regions`
@@ -62,6 +67,7 @@ fn removal_in(
         glyphs: glyphs.into_iter().filter(|g| inside_any(*g, regions)).collect(),
         images: super::redact_images::blanked_areas(doc, target, regions)?,
         paths: super::path_redact::cut_areas(doc, target, regions)?,
+        annotations: Vec::new(),
     };
     let Some(data) = target.content(doc)? else { return Ok(removal) };
     let tokens = super::image_crop::tokens_of(&data);
@@ -153,6 +159,7 @@ pub fn apply_redact(doc: &Document, redaction: &Redaction) -> PdfResult<()> {
     let regions = regions_of(redaction)?;
     let colour = colour_operator(redaction.fill.as_deref())?;
     redact_in(doc, Target::Page(redaction.page), &regions, 0)?;
+    super::redact_annots::remove(doc, redaction.page, &regions)?;
     if let Some(colour) = colour {
         fill(doc, redaction.page, &regions, &colour)?;
     }

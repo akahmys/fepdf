@@ -1423,6 +1423,15 @@ it can be run there.
       16 are refused, since one may draw itself. `redaction_form_test.rs` holds it, and
       taking out the entering, the dropping of the original or the placing of the
       preview's boxes failed it.
+      **Annotations and fields, 2026-10-04**: an annotation whose `/Rect` meets a region
+      goes from the page with its `/Popup` and every reply naming it by `/IRT`, on any
+      page; a widget leaves the field tree, and a field left with no widget goes from its
+      parent's `/Kids` or `/Fields` and from `/CO`; one with a widget elsewhere keeps its
+      value. The form's `/XFA` goes with a `Decision`, and the structure tree's
+      references to what went are pruned, since either would keep it in the file.
+      `redaction_annot_test.rs` holds it; taking out the popups and replies, the
+      structure pruning, the field tree, the climb to an emptied field or the `/XFA`
+      failed it.
       **The glyphs that remain keep their places**, decided by the owner 2026-10-04
       with the width of what went left recoverable from them, as it is from Acrobat
       (arXiv 2206.02285); moving the rest of the line to the region's edge was the
