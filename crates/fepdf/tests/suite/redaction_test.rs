@@ -225,3 +225,29 @@ fn a_fill_that_names_no_colour_is_refused() {
         assert!(doc.extract_text(0).expect("it reads").contains("AAA"), "{fill:?} removed text");
     }
 }
+
+/// **A redacted page's thumbnail goes**: it is a picture of the page as it was (12.3.4),
+/// what the regions covered included.
+#[test]
+fn a_redacted_pages_thumbnail_goes() {
+    let bytes = fepdf_fixtures::assemble(&[
+        "<< /Type /Catalog /Pages 2 0 R >>".to_string(),
+        "<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_string(),
+        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << >> /Thumb 4 0 R >>"
+            .to_string(),
+        "<< /Width 12 /Height 1 /ColorSpace /DeviceGray /BitsPerComponent 8 /Length 12 >>\nstream\nMARKERTHUMBS\nendstream"
+            .to_string(),
+    ]);
+    let mut doc = PdfDocument::open(bytes::Bytes::from(bytes)).expect("the fixture opens");
+    doc.apply(Operation::Redact(redaction((0.0, 0.0, 10.0, 10.0)))).expect("it redacts");
+    let path = std::env::temp_dir().join(format!("fepdf-redact-thumb-{}.pdf", std::process::id()));
+    let options =
+        fepdf::SaveOptions { compress: false, obj_stm: false, ..fepdf::SaveOptions::default() };
+    doc.save_with_options(&path, "2.0", &options).expect("it writes");
+    let file = std::fs::read(&path).expect("it is there");
+    let _ = std::fs::remove_file(&path);
+    assert!(
+        !String::from_utf8_lossy(&file).contains("MARKERTHUMBS"),
+        "the thumbnail is in the file"
+    );
+}

@@ -24,6 +24,7 @@ pub(crate) mod radio;
 /// Removing what a region holds, and filling it (12.5.6.23).
 pub mod redact;
 pub(crate) mod redact_annots;
+pub(crate) mod redact_apply;
 pub(crate) mod redact_forms;
 pub(crate) mod redact_images;
 pub(crate) mod redact_marks;
@@ -130,6 +131,10 @@ fn dispatch(doc: &mut Document, op: Operation) -> PdfResult<()> {
         Operation::MoveRun { page, run, to } => text::apply_move_run(doc, page, run, to),
         Operation::RemoveOutside { page, keep } => text::apply_remove_outside(doc, page, keep),
         Operation::Redact(redaction) => redact::apply_redact(doc, &redaction),
+        Operation::ApplyRedactAnnotations(pages) => {
+            let pages = page::pages_named(&pages, doc.page_count()?)?;
+            redact_apply::apply_redact_annotations(doc, &pages)
+        }
         Operation::SplitPage { page, into } => page::apply_split_page(doc, page, &into),
         Operation::CombinePages(pages, onto) => page::apply_combine_pages(doc, &pages, &onto),
         Operation::AddFormField(field) => fields::apply_add_form_field(doc, &field),

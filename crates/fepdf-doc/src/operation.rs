@@ -484,6 +484,11 @@ pub enum Operation {
     /// [`Redaction::fill`] says. What is removed can be read before it is applied, with
     /// `what_redaction_removes` (ROADMAP Y-10).
     Redact(Redaction),
+    /// Applies the document's own redaction annotations on the pages selected
+    /// (12.5.6.23): what each marks is removed as `Redact` removes it, the annotation goes,
+    /// and its place is drawn as Table 195 says — `/RO`, else `/IC` and `/OverlayText`,
+    /// else nothing, the region left transparent.
+    ApplyRedactAnnotations(PageSelection),
     /// Takes one run off the page.
     ///
     /// **Deleting a run is not editing it to nothing.** An emptied run is still a run: it
@@ -683,6 +688,7 @@ impl Operation {
             | Self::RemoveOutside { .. }
             // Taken out where it is, and the rest left where it was.
             | Self::Redact(_)
+            | Self::ApplyRedactAnnotations(_)
             | Self::CropPages { .. }
             | Self::SplitPage { .. }
             | Self::CombinePages { .. }

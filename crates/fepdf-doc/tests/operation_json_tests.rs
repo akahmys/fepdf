@@ -51,6 +51,7 @@ fn variant_name(op: &Operation) -> &'static str {
         Operation::MoveRun { .. } => "MoveRun",
         Operation::RemoveOutside { .. } => "RemoveOutside",
         Operation::Redact(_) => "Redact",
+        Operation::ApplyRedactAnnotations(_) => "ApplyRedactAnnotations",
         Operation::CropPages(..) => "CropPages",
         Operation::SplitPage { .. } => "SplitPage",
         Operation::CombinePages(..) => "CombinePages",

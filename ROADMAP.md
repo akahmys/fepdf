@@ -1443,6 +1443,14 @@ it can be run there.
       pruning or the gone classing failed it. *Open*: a mark inside a form's stream,
       which the tree names by an MCR with `/Stm`, has its sequence's text marked but
       neither its element marked nor pruned.
+      **Thumbnails and `/Redact` annotations, 2026-10-04**: a redacted page's `/Thumb`
+      goes. `Operation::ApplyRedactAnnotations` applies a document's own redaction
+      annotations: what `/QuadPoints`, else `/Rect`, marks is removed as `Redact`
+      removes it, the annotation goes with it, and its place is drawn as Table 195
+      says — `/RO` at `/Rect`'s lower-left corner, else `/IC` and then `/OverlayText` in
+      the font `/DA` names from `/DR`, placed by `/Q` or repeated, else nothing.
+      `redaction_apply_test.rs` and `redaction_test.rs` hold it; taking out the
+      thumbnail, the quadrilaterals, `/RO`, `/IC` or the overlay text failed them.
       **The glyphs that remain keep their places**, decided by the owner 2026-10-04
       with the width of what went left recoverable from them, as it is from Acrobat
       (arXiv 2206.02285); moving the rest of the line to the region's edge was the

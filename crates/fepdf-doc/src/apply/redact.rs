@@ -18,6 +18,7 @@ use crate::operation::Redaction;
 use fepdf_model::interpretation::Decision;
 use fepdf_model::{Document, PdfError, PdfResult};
 use std::collections::BTreeMap;
+use std::fmt::Write as _;
 
 /// How far under its baseline a glyph's box reaches, in em, for a redaction.
 ///
@@ -125,6 +126,18 @@ fn redact_in(
     Ok(fates)
 }
 
+/// Takes the page's `/Thumb` off it: a picture of the page as it was, the regions'
+/// content and all (12.3.4).
+fn forget_thumbnail(doc: &Document, page: usize) -> PdfResult<()> {
+    let arena = doc.arena();
+    let page = doc.resolve_to_dict(doc.page_handle(page)?)?;
+    let mut dict = arena.get_dict(page).unwrap_or_default();
+    if dict.remove(&arena.name("Thumb")).is_some() {
+        arena.set_dict(page, dict);
+    }
+    Ok(())
+}
+
 /// Tells the structure tree what the redaction did to `page`'s marked content: every
 /// element holding a touched mark, and its ancestors, has its replacement text made the
 /// marker; the marks that went whole go, and the elements left holding nothing.
@@ -191,11 +204,9 @@ pub fn apply_redact(doc: &Document, redaction: &Redaction) -> PdfResult<()> {
     let _ = what_redaction_removes(doc, redaction)?;
     let regions = regions_of(redaction)?;
     let colour = colour_operator(redaction.fill.as_deref())?;
-    let fates = redact_in(doc, Target::Page(redaction.page), &regions, 0)?;
-    tell_the_tree(doc, redaction.page, &fates)?;
-    super::redact_annots::remove(doc, redaction.page, &regions)?;
+    remove_regions(doc, redaction.page, &regions)?;
     if let Some(colour) = colour {
-        fill(doc, redaction.page, &regions, &colour)?;
+        paint_over(doc, redaction.page, &fill_of(&regions, &colour))?;
     }
     if redaction.fill.is_some() {
         return Ok(());
@@ -210,6 +221,19 @@ pub fn apply_redact(doc: &Document, redaction: &Redaction) -> PdfResult<()> {
         "filled them black, which is this engine's choice",
     ));
     Ok(())
+}
+
+/// Removes what `regions` cover from `page`: its content, forms entered; the replacement
+/// text that read it, and the structure that held it; the annotations they meet; and the
+/// page's thumbnail. Nothing is drawn over them.
+///
+/// # Errors
+/// As [`apply_redact`].
+pub(crate) fn remove_regions(doc: &Document, page: usize, regions: &[GlyphBox]) -> PdfResult<()> {
+    let fates = redact_in(doc, Target::Page(page), regions, 0)?;
+    tell_the_tree(doc, page, &fates)?;
+    forget_thumbnail(doc, page)?;
+    super::redact_annots::remove(doc, page, regions)
 }
 
 /// The regions, each put in order as left, bottom, right, top; refused when there are
@@ -261,20 +285,25 @@ fn inside_any(glyph: GlyphBox, regions: &[GlyphBox]) -> bool {
     regions.iter().any(|region| text::meets(glyph, *region))
 }
 
-/// Puts a rectangle over each region in `colour`, drawn after everything else in the
-/// page's default user space: the page's own content is wrapped in `q` and `Q` first, so
-/// what it leaves the transform saying does not move the fill.
-fn fill(doc: &Document, page: usize, regions: &[GlyphBox], colour: &str) -> PdfResult<()> {
+/// What fills `regions` in `colour`.
+pub(crate) fn fill_of(regions: &[GlyphBox], colour: &str) -> String {
+    let mut ops = format!("q {colour}\n");
+    for (left, bottom, right, top) in regions {
+        let _ = writeln!(ops, "{left} {bottom} {} {} re", right - left, top - bottom);
+    }
+    ops.push_str("f\nQ\n");
+    ops
+}
+
+/// Draws `ops` over everything else on `page`, in its default user space: the page's own
+/// content is wrapped in `q` and `Q` first, so what it leaves the transform saying does
+/// not move what is drawn.
+pub(crate) fn paint_over(doc: &Document, page: usize, ops: &str) -> PdfResult<()> {
     let mut content = b"q\n".to_vec();
     if let Some(data) = text::page_content(doc, page)? {
         content.extend_from_slice(&data);
     }
-    content.extend_from_slice(format!("\nQ\nq {colour}\n").as_bytes());
-    for (left, bottom, right, top) in regions {
-        content.extend_from_slice(
-            format!("{left} {bottom} {} {} re\n", right - left, top - bottom).as_bytes(),
-        );
-    }
-    content.extend_from_slice(b"f\nQ\n");
+    content.extend_from_slice(b"\nQ\n");
+    content.extend_from_slice(ops.as_bytes());
     text::write_page_content(doc, page, content)
 }
