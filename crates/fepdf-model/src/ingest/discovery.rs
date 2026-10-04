@@ -114,12 +114,17 @@ pub fn require_cid_to_gid_maps(
         arena.set_dict(holder, dict);
         decisions.push(crate::interpretation::Decision::repaired(
             "9.7.4.1",
-            format!(
-                "the embedded CIDFontType2 /{name} has no /CIDToGIDMap, which Table 115 requires"
-            ),
+            missing_cid_to_gid_map(&name),
             "gave it /Identity, the mapping a reader takes when it is absent",
         ));
     }
+}
+
+/// What [`require_cid_to_gid_maps`] records it found in the font named `name`: the one
+/// place these words are written, since the audit's 31-005 reads the repair back by them.
+#[must_use]
+pub fn missing_cid_to_gid_map(name: &str) -> String {
+    format!("the embedded CIDFontType2 /{name} has no /CIDToGIDMap, which Table 115 requires")
 }
 
 /// Gives a page an empty `/Resources` where neither it nor any node above it has a

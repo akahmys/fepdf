@@ -4,9 +4,8 @@
 //! `/CIDToGIDMap /Identity` Table 115 requires of it, with a `Decision` (ROADMAP Y-F15);
 //! a TrueType program it rebuilds for drawing is kept beside the font, not written over the
 //! file's. Every font dictionary but that entry, the file's own programs and their
-//! `/ToUnicode` maps are read as the file wrote them. 31-005 to 31-008, about a
-//! Type 0 font's CMap, are not asked yet (Y-F16,
-//! [ADR-0105](../../../docs/adr/0105-ingestion-never-rewrote-a-real-type-0-cmap.md)).
+//! `/ToUnicode` maps are read as the file wrote them; a Type 0 font's CMap is asked in
+//! [`crate::audit_cmaps`].
 
 use crate::structure::{AuditFinding, broken, for_a_reader};
 use fepdf_model::access::{entry, name_in, names_in};
@@ -15,11 +14,11 @@ use fepdf_model::{Document, Handle, Object, PdfArena};
 use std::collections::{BTreeMap, BTreeSet};
 
 /// The failure conditions this module decides.
-pub const FROM_FONTS: [&str; 29] = [
-    "08-001", "08-002", "10-001", "12-001", "13-001", "11-001", "17-003", "31-004", "31-009",
-    "31-011", "31-016", "31-030", "31-012", "31-013", "31-014", "31-015", "31-017", "31-018",
-    "31-019", "31-020", "31-021", "31-022", "31-023", "31-024", "31-025", "31-026", "31-027",
-    "31-028", "31-029",
+pub const FROM_FONTS: [&str; 33] = [
+    "08-001", "08-002", "10-001", "12-001", "13-001", "11-001", "17-003", "31-004", "31-005",
+    "31-006", "31-007", "31-008", "31-009", "31-011", "31-016", "31-030", "31-012", "31-013",
+    "31-014", "31-015", "31-017", "31-018", "31-019", "31-020", "31-021", "31-022", "31-023",
+    "31-024", "31-025", "31-026", "31-027", "31-028", "31-029",
 ];
 
 /// What the pages do with one font: the codes they show in it, and those of them that are
@@ -177,36 +176,48 @@ impl Font<'_> {
                 for descendant in descendants {
                     self.cid_to_gid_map(&descendant, findings);
                 }
+                crate::audit_cmaps::cmap(self.doc, &font, &self.name, findings);
             }
             _ => {}
         }
     }
 
-    /// 31-004: a `CIDFontType2`'s `/CIDToGIDMap` is a stream or `/Identity`.
+    /// 31-005: a `CIDFontType2` has a `/CIDToGIDMap`; 31-004: it is a stream or
+    /// `/Identity`.
     ///
-    /// **Absent is broken**, as the condition says. Loading filled every one, so this
-    /// passed an absent map on the ground that it could not meet one; it fills only an
-    /// embedded font's now, recording that it did, and an absent one reaches here.
+    /// **An absent map is 31-005's**, which says so in as many words (ROADMAP Y-F16); it
+    /// was 31-004's until 31-005 was asked. Loading gives an embedded font `/Identity` and
+    /// records that it did, so the record is read for one, and the entry for the rest.
     fn cid_to_gid_map(&self, descendant: &Object, findings: &mut Vec<AuditFinding>) {
         if name_in(self.arena, descendant, "Subtype").as_deref() != Some("CIDFontType2") {
             return;
         }
-        let fine = match entry(self.arena, descendant, "CIDToGIDMap") {
-            Some(Object::Stream(..)) => true,
-            None => false,
-            Some(other) => other
-                .as_name()
-                .and_then(|n| self.arena.get_name(n))
-                .is_some_and(|n| n.as_str() == "Identity"),
+        let own = name_in(self.arena, descendant, "BaseFont").unwrap_or_default();
+        let found = fepdf_model::ingest::missing_cid_to_gid_map(&own);
+        let filled = self.doc.decisions.entries().iter().any(|d| d.found == found);
+        let identity = match entry(self.arena, descendant, "CIDToGIDMap") {
+            None => None,
+            Some(Object::Stream(..)) => Some(true),
+            Some(other) => Some(
+                other
+                    .as_name()
+                    .and_then(|n| self.arena.get_name(n))
+                    .is_some_and(|n| n.as_str() == "Identity"),
+            ),
         };
-        if !fine {
-            findings.push(broken(
+        match (filled, identity) {
+            (true, _) | (false, None) => findings.push(broken(
+                "31-005",
+                format!("/{}: its CIDFontType2 has no /CIDToGIDMap", self.name),
+            )),
+            (false, Some(false)) => findings.push(broken(
                 "31-004",
                 format!(
                     "/{}: its CIDFontType2's /CIDToGIDMap is neither a stream nor /Identity",
                     self.name
                 ),
-            ));
+            )),
+            (false, Some(true)) => {}
         }
     }
 

@@ -63,22 +63,40 @@ fn a_type_0_cidfont_is_not_given_one() {
     assert_eq!(map_of(&doc), None);
 }
 
-/// **A Type 2 CIDFont with no program is left as written, and 31-004 sees it.** Loading
-/// filled every one, so the audit's arm for an absent map passed without ever running.
+/// What the audit says of `condition` in `doc`.
+fn outcomes(doc: &PdfDocument, condition: &str) -> Vec<fepdf::Outcome> {
+    let report = doc.audit_ua2_report().expect("it audits");
+    report.findings.iter().filter(|f| f.checkpoint == condition).map(|f| f.outcome).collect()
+}
+
+/// **A Type 2 CIDFont with no program is left as written, and 31-005 sees it** — the
+/// condition that says "does not contain a `CIDToGIDMap` entry" (Y-F16). Loading filled
+/// every one, so the audit's arm for an absent map passed without ever running, and that
+/// arm was 31-004's until 31-005 was asked.
 #[test]
-fn an_absent_map_on_a_type_2_cidfont_breaks_31_004() {
+fn an_absent_map_on_a_type_2_cidfont_breaks_31_005() {
     let doc = with_descendant(
         &format!("<< /Type /Font /Subtype /CIDFontType2 /BaseFont /F {CIDS} >>"),
         &[],
     );
     assert_eq!(map_of(&doc), None);
-    let report = doc.audit_ua2_report().expect("it audits");
-    let found: Vec<_> =
-        report.findings.iter().filter(|f| f.checkpoint == "31-004").map(|f| f.outcome).collect();
-    assert_eq!(
-        found,
-        [fepdf::Outcome::Broken],
-        "{:?}",
-        report.findings.iter().filter(|f| f.checkpoint == "31-004").collect::<Vec<_>>()
+    assert_eq!(outcomes(&doc, "31-005"), [fepdf::Outcome::Broken]);
+    assert_eq!(outcomes(&doc, "31-004"), [fepdf::Outcome::Sound], "an absent map is 31-005's");
+}
+
+/// **And the embedded one loading gave `/Identity` breaks it too**: the file had none, and
+/// the record of the repair is what says so.
+#[test]
+fn a_map_loading_filled_in_still_breaks_31_005() {
+    let doc = with_descendant(
+        &format!(
+            "<< /Type /Font /Subtype /CIDFontType2 /BaseFont /F {CIDS} /FontDescriptor 6 0 R >>"
+        ),
+        &[
+            "<< /Type /FontDescriptor /FontName /F /Flags 4 /FontFile2 7 0 R >>",
+            "<< /Length 4 >>\nstream\n\0\x01\0\0\nendstream",
+        ],
     );
+    assert_eq!(map_of(&doc).as_deref(), Some("Identity"));
+    assert_eq!(outcomes(&doc, "31-005"), [fepdf::Outcome::Broken]);
 }

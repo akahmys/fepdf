@@ -262,8 +262,8 @@ Transparency groups' isolation and knockout (11.6.6) are not read. They are reco
 - Associated files (14.13) occur in 17 files and page-piece dictionaries (14.5) in 1,
   both `Modelled`. `/SpiderInfo` (14.10) and `/Legal` (14.11) occur in 0 of 524.
 
-**Auditing:** the Matterhorn Protocol auditor decides 112 of its 137 failure conditions,
-and leaves 13 to a person (W-21).
+**Auditing:** the Matterhorn Protocol auditor decides 116 of its 137 failure conditions
+(2026-10-04), and leaves 13 to a person (W-21, Y-F16).
 
 **Editing:**
 - The structure tree is edited through the vocabulary: tags, text strings, attributes,
@@ -1029,10 +1029,18 @@ it can be run there.
       silent fill and states the map now. The saves of `bokutokitan.pdf`, `fy05.pdf` and
       `sample_02c.pdf` lose the 2, 13 and 3 entries loading had added, and nothing else of
       the golden outputs moves. The Type 3 font's is the source's, and stays in Y-F28.
-- [ ] **Y-F16** — 31-005 to 31-008, about a Type 0 font's CMap, are not asked. They were
+- [x] **Y-F16** — 31-005 to 31-008, about a Type 0 font's CMap, are not asked. They were
       left out because ingestion was said to rewrite every CMap to `Identity-H`, which it
       never did to a font that loads (ADR-0105). They need ISO 32000-1 Table 118 read out
       of `docs/specs/PDF32000_2008.pdf`.
+      Fixed 2026-10-04. 31-005 is not about the CMap: it is a `CIDFontType2` with no
+      `/CIDToGIDMap`, which 31-004 had been reporting; an absent map is 31-005's now, and
+      one loading filled is found by the record of the repair, whose words have one home
+      (`missing_cid_to_gid_map`). `audit_cmaps.rs` asks 31-006 to 31-008 of the font's
+      `/Encoding` against `unicode_map.rs`'s Table 118, already read out: a name it lists
+      or a stream; the stream's `/WMode` against its program's; and what it uses, by
+      `/UseCMap` or `usecmap`. `audit_scope_test.rs` and `cid_to_gid_map_test.rs` hold
+      them, and breaking each of six parts failed one.
 - [x] **Y-F17** — 28-005 and 11-005 are left to a reader because "the enclosing
       structure element is reached through an `/OBJR`, which `struct_tree.rs` resolves to
       nothing" (`structure.rs`, `audit_form`). Since W-21j the audit reaches an

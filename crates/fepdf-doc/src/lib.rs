@@ -9,6 +9,7 @@
 pub mod apply;
 /// New documents built from existing ones: merged, extracted, or copied for a writer.
 pub mod assembly;
+mod audit_cmaps;
 /// Matterhorn conditions about embedded files, XFA, encryption, media and shared forms.
 pub mod audit_files;
 /// Matterhorn conditions about font dictionaries and embedded programs.

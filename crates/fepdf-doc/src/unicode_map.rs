@@ -85,7 +85,7 @@ pub(crate) fn mapped(
 
 /// ISO 32000-1 Table 118's predefined CMaps, less `Identity-H` and `Identity-V`, which
 /// 9.10.2's third method excludes — read out of `PDF32000_2008.pdf`.
-const TABLE_118: [&str; 59] = [
+pub(crate) const TABLE_118: [&str; 59] = [
     "83pv-RKSJ-H",
     "90ms-RKSJ-H",
     "90ms-RKSJ-V",

@@ -205,6 +205,10 @@ fn hex_stream(extra: &str, hex: &str) -> String {
 /// | | How this document breaks it |
 /// | :--- | :--- |
 /// | 31-004 | a `CIDFontType2` whose `/CIDToGIDMap` is `/Foo` |
+/// | 31-005 | a `CIDFontType2` with no `/CIDToGIDMap`, in a Type 0 font on `/Made-Up-H` |
+/// | 31-006 | that font's CMap, which Table 118 does not list |
+/// | 31-007 | a CMap stating `/WMode 1` whose program says 0, using `/Made-Up-H` |
+/// | 31-008 | that CMap |
 /// | 31-019 | a non-symbolic TrueType font with no `/Encoding` |
 /// | 31-020 | a non-symbolic one whose `/Encoding` dictionary has no `/BaseEncoding` |
 /// | 31-021 | a non-symbolic one on `/StandardEncoding` |
@@ -228,7 +232,7 @@ fn breaks_the_fonts() -> Vec<u8> {
         "<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_string(),
         "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Contents 20 0 R \
            /Resources << /Font << /A 4 0 R /B 5 0 R /C 6 0 R /D 7 0 R /E 8 0 R /F 9 0 R \
-           /G 10 0 R /H 21 0 R /I 22 0 R >> >> >>"
+           /G 10 0 R /H 21 0 R /I 22 0 R /J 23 0 R /K 24 0 R >> >> >>"
             .to_string(),
         "<< /Type /Font /Subtype /TrueType /BaseFont /NoEncoding /FontDescriptor 11 0 R >>".to_string(),
         "<< /Type /Font /Subtype /TrueType /BaseFont /NoBase /FontDescriptor 12 0 R \
@@ -266,6 +270,19 @@ fn breaks_the_fonts() -> Vec<u8> {
         "<< /Type /Font /Subtype /TrueType /BaseFont /Unlisted /FontDescriptor 11 0 R \
            /Encoding << /BaseEncoding /WinAnsiEncoding /Differences [66 /notaname] >> >>"
             .to_string(),
+        "<< /Type /Font /Subtype /Type0 /BaseFont /Unmapped /Encoding /Made-Up-H \
+           /DescendantFonts [<< /Type /Font /Subtype /CIDFontType2 /BaseFont /Unmapped >>] >>"
+            .to_string(),
+        "<< /Type /Font /Subtype /Type0 /BaseFont /Modes /Encoding 25 0 R \
+           /DescendantFonts [<< /Type /Font /Subtype /CIDFontType0 /BaseFont /Modes >>] >>"
+            .to_string(),
+        {
+            let program = "/CIDInit /ProcSet findresource begin begincmap /WMode 0 def endcmap end";
+            format!(
+                "<< /Type /CMap /WMode 1 /UseCMap /Made-Up-H /Length {} >>\nstream\n{program}\nendstream",
+                program.len()
+            )
+        },
     ])
     .into_iter()
     .collect()
@@ -451,7 +468,7 @@ fn the_report_says_how_much_of_the_protocol_it_checked() {
     );
     assert_eq!(
         report.scope.checked.len(),
-        112,
+        116,
         "the scope does not name the failure conditions this auditor looks at"
     );
     assert!(
@@ -1471,6 +1488,10 @@ fn every_number_reported_means_in_the_protocol_what_it_is_used_for() {
         ("28-012", "A link annotation does not include an"),
         ("30-001", "A reference XObject is present"),
         ("31-004", "A Type 2 CID font contains neither a stream nor"),
+        ("31-005", "A Type 2 CID font does not contain a CIDToGIDMap"),
+        ("31-006", "A CMap is neither listed as described in"),
+        ("31-007", "The WMode entry in a CMap dictionary is not"),
+        ("31-008", "A CMap references another CMap which is not"),
         ("31-019", "The font dictionary for a non-symbolic TrueType"),
         ("31-020", "The font dictionary for a non-symbolic TrueType"),
         ("31-021", "The value for either the Encoding entry or the"),
@@ -1737,8 +1758,8 @@ fn the_second_pass_comes_out_sound_where_it_is_met() {
         "02-001", "02-003", "02-004", "11-003", "11-004", "11-005", "15-003", "19-003", "19-004",
         "20-001", "20-002", "20-003", "28-004", "28-007", "28-008", "28-009", "28-012", "30-001",
         "09-004", "09-005", "09-006", "09-007", "09-008", "28-002", "28-010", "28-011", "28-017",
-        "31-004", "31-019", "31-020", "31-021", "31-023", "31-024", "31-025", "31-026", "31-028",
-        "31-029", "31-022", "31-027", "11-001",
+        "31-004", "31-005", "31-006", "31-007", "31-008", "31-019", "31-020", "31-021", "31-023",
+        "31-024", "31-025", "31-026", "31-028", "31-029", "31-022", "31-027", "11-001",
     ] {
         assert_eq!(
             outcomes(&report, condition),
@@ -1754,15 +1775,13 @@ fn the_second_pass_comes_out_sound_where_it_is_met() {
     }
 }
 
-/// **A Type 0 font's CMap reaches the auditor as the file named it**, so 31-006 and 31-008
-/// can be asked of it — and are not yet (ROADMAP Y-F16).
+/// **A Type 0 font's CMap reaches the auditor as the file named it**, so 31-006 is asked
+/// of it (ROADMAP Y-F16).
 ///
-/// Both are about the CMap a Type 0 font names: one in ISO 32000-1's Table 118 or
-/// embedded (31-006), and an embedded one using no other (31-008). They were left out on
-/// the ground that `refine::font` rewrote every `/Encoding` to `Identity-H`, which it did
-/// only for a font whose descendant would not load — this fixture's
+/// It was left out on the ground that `refine::font` rewrote every `/Encoding` to
+/// `Identity-H`, which it did only for a font whose descendant would not load — this
+/// fixture's
 /// ([ADR-0105](../../../../docs/adr/0105-ingestion-never-rewrote-a-real-type-0-cmap.md)).
-/// When Y-F16 builds them, the loop below is the assertion to turn round.
 #[test]
 fn the_cmap_a_type_0_font_names_is_kept_as_written() {
     let doc = opened(
@@ -1788,12 +1807,57 @@ fn the_cmap_a_type_0_font_names_is_kept_as_written() {
         .and_then(|n| arena.get_name(n))
         .map(|n| n.as_str().to_string());
     assert_eq!(encoding.as_deref(), Some("Made-Up-H"), "ingestion rewrote the font's CMap");
-    for condition in ["31-006", "31-008"] {
-        assert!(
-            !MatterhornAuditor::CHECKED.contains(&condition),
-            "{condition} is checked now: this test and ROADMAP Y-F16 say it is not"
-        );
+    let report = doc.audit_ua2_report().expect("it audits");
+    assert_eq!(outcomes(&report, "31-006"), vec![Outcome::Broken], "/Made-Up-H was let through");
+}
+
+/// A page showing text in a Type 0 font whose CMap is the stream `dict` holding `program`.
+fn on_cmap(dict: &str, program: &str) -> AuditReport {
+    opened(
+        fepdf_fixtures::assemble(&[
+            "<< /Type /Catalog /Pages 2 0 R >>".to_string(),
+            "<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_string(),
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] \
+               /Resources << /Font << /F1 4 0 R >> >> >>"
+                .to_string(),
+            "<< /Type /Font /Subtype /Type0 /BaseFont /Embedded /Encoding 5 0 R \
+               /DescendantFonts [<< /Type /Font /Subtype /CIDFontType0 /BaseFont /Embedded \
+               /CIDSystemInfo << /Registry (Adobe) /Ordering (Japan1) /Supplement 6 >> >>] >>"
+                .to_string(),
+            format!(
+                "<< /Type /CMap /CMapName /Mine {dict} /Length {} >>\nstream\n{program}\nendstream",
+                program.len()
+            ),
+        ])
+        .into_iter()
+        .collect(),
+    )
+    .audit_ua2_report()
+    .expect("it audits")
+}
+
+/// **An embedded CMap is judged by what its dictionary and its program say** (31-006 to
+/// 31-008, ROADMAP Y-F16): embedded meets 31-006; the two `/WMode`s agree or break 31-007;
+/// another CMap it uses, by `/UseCMap` or `usecmap`, is a Table 118 one or breaks 31-008.
+#[test]
+fn an_embedded_cmap_is_judged_by_its_dictionary_and_program() {
+    let program = |mode: u8, uses: &str| {
+        format!(
+            "/CIDInit /ProcSet findresource begin 12 dict begin begincmap {uses} \
+             /CMapName /Mine def /WMode {mode} def \
+             1 begincodespacerange <0000> <FFFF> endcodespacerange endcmap end end"
+        )
+    };
+    let sound = on_cmap("/WMode 1 /UseCMap /UniJIS-UCS2-H", &program(1, "/H usecmap"));
+    for condition in ["31-006", "31-007", "31-008"] {
+        assert_eq!(outcomes(&sound, condition), vec![Outcome::Sound], "{condition}");
     }
+    let modes = on_cmap("/WMode 1", &program(0, ""));
+    assert_eq!(outcomes(&modes, "31-007"), vec![Outcome::Broken], "two /WModes went unseen");
+    let by_name = on_cmap("/UseCMap /Made-Up-H", &program(0, ""));
+    assert_eq!(outcomes(&by_name, "31-008"), vec![Outcome::Broken], "/UseCMap went unseen");
+    let in_program = on_cmap("", &program(0, "/Made-Up-H usecmap"));
+    assert_eq!(outcomes(&in_program, "31-008"), vec![Outcome::Broken], "usecmap went unseen");
 }
 
 /// **A Type 1 font is judged by the glyphs its text shows.** `/madeup` is in neither
