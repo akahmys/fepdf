@@ -1451,6 +1451,17 @@ it can be run there.
       the font `/DA` names from `/DR`, placed by `/Q` or repeated, else nothing.
       `redaction_apply_test.rs` and `redaction_test.rs` hold it; taking out the
       thumbnail, the quadrilaterals, `/RO`, `/IC` or the overlay text failed them.
+      **The *done when*, held, 2026-10-04**: `redaction_complete_test.rs` plants a marker
+      in the page's text, a form's text, an image's pixels, an annotation with its popup
+      and reply, marked content's `/ActualText` and a named property list's, two
+      elements' `/Alt`, a text field merged with its widget and one held by a parent,
+      a choice field's options, `/XFA`, the thumbnail and an optional content group that
+      is off; after one redaction and a save, no string and no decoded stream in the file
+      holds one, as text, hexadecimal or UTF-16, and the text outside is kept. Taking out
+      the text, the images, the forms, the marked content, the structure, the
+      thumbnail, the annotations or the fields each failed it, naming the markers that
+      part keeps out. Left: a mark inside a form's stream (above), and the window's
+      preview of what goes.
       **The glyphs that remain keep their places**, decided by the owner 2026-10-04
       with the width of what went left recoverable from them, as it is from Acrobat
       (arXiv 2206.02285); moving the rest of the line to the region's edge was the
