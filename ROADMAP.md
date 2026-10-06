@@ -844,7 +844,9 @@ it can be run there.
       and the 517 external files give the same warnings, line for line, as before the
       change. `linearized_hint_test.rs`'s `a_pages_own_objects_are_packed_in_its_section`
       holds it, and packing the page objects, packing nothing, counting what the stream
-      holds, or numbering it with the page each failed the test. Part 8 is Y-F35.
+      holds, or numbering it with the page each failed the test. Part 8 is Y-F35; what
+      remains over the plain save is the page objects, the per-page streams, and the
+      outline, which the outline hint table finds by offset.
 
 - [x] **Y-0c** — saves were not reproducible: the XMP `InstanceID` was salted with the
       clock's seconds. `SaveOptions::stamped_at` decides it now, and `fepdf-cli` reads
@@ -1088,10 +1090,23 @@ it can be run there.
 - [x] **Y-F7** — `compare.rs`'s `to_f64` is used only under the `render` feature and is
       not gated with it, so `cargo build -p fepdf` warns. The workspace build unifies
       features and never sees it. Gated with `render` in Y-4 (`5467c37`).
-- [ ] **Y-F35** — **a linearised file writes part 8 directly.** The shared objects of
+- [x] **Y-F35** — **a linearised file writes part 8 directly.** The shared objects of
       pages after the first, about 0.9 MB of `intel_sdm.pdf`'s 28.9 MB linearised save
       (measured 2026-10-06), may be packed under F.3.1 if Table F.6 then names the object
       stream holding each, not the object. Found with Y-0b.
+      **The 0.9 MB was not part 8**: measured again the same day, it is the outline's
+      3,849 items, which part 9 writes directly because the outline hint table finds them
+      by offset. Part 8 was 35 KB of it.
+      Fixed 2026-10-06 all the same: part 8 is packed into object streams numbered with
+      it, what they hold numbered last; Table F.6 lists each stream as one entry, its
+      length what it took, and a page's shared references name the stream. A page's or
+      part 8's lone packable object is written directly, since a stream holding one costs
+      more: without that, `bokutokitan.pdf` grew by 210 bytes. Every sample's linearised
+      save is smaller than before, by up to 0.6% (`fy05.pdf`, 8.25 MB to 8.19 MB).
+      `linearized_hint_test.rs`'s `later_shared_objects_are_packed_and_named_by_their_stream`
+      holds it, reading Tables F.4 to F.6 back; packing nothing, naming the objects in the
+      table or in a page's references, packing a lone object, or losing the length each
+      failed it.
 - [x] **Y-F23** — **a save writes `/Info`'s dates in the metadata stream's form.**
       `publish upgrade --no-obj-stm` of `fy05.pdf` writes `/CreationDate
       (2024-11-08T09:05:36+09:00)`, where 7.9.4 asks for `D:20241108090536+09'00'`

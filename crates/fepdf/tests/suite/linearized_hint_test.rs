@@ -327,3 +327,104 @@ fn a_pages_own_objects_are_packed_in_its_section() {
     let back = PdfDocument::open(file.into()).expect("the linearised file opens");
     assert_eq!(back.page_count().expect("it counts"), 3);
 }
+
+/// Table F.5's Items 3 and 4: the shared-object hint table's entries for the first page,
+/// and in all. The table starts `/S` bytes into the hint stream's data.
+fn shared_entry_counts(file: &[u8]) -> (u32, u32) {
+    let at = file.windows(4).position(|w| w == b" /S ").expect("a hint stream");
+    let digits: String =
+        file[at + 4..].iter().take_while(|b| b.is_ascii_digit()).map(|b| char::from(*b)).collect();
+    let offset: usize = digits.parse().expect("/S is a number");
+    let body = at + file[at..].windows(8).position(|w| w == b"stream\r\n").expect("its data") + 8;
+    let word = |i: usize| {
+        let from = body + offset + 4 * i;
+        u32::from_be_bytes(file[from..from + 4].try_into().expect("four bytes"))
+    };
+    // Items 1 and 2 are 32 bits each; Items 3 and 4 follow.
+    (word(2), word(3))
+}
+
+/// Table F.6's length of shared-object entry `entry`: Table F.5's Item 6 plus the entry's
+/// difference, at Item 7's width.
+fn shared_entry_length(file: &[u8], entry: usize) -> u32 {
+    let at = file.windows(4).position(|w| w == b" /S ").expect("a hint stream");
+    let digits: String =
+        file[at + 4..].iter().take_while(|b| b.is_ascii_digit()).map(|b| char::from(*b)).collect();
+    let table = at
+        + file[at..].windows(8).position(|w| w == b"stream\r\n").expect("its data")
+        + 8
+        + digits.parse::<usize>().expect("/S is a number");
+    let least = u32::from_be_bytes(file[table + 18..table + 22].try_into().expect("four bytes"));
+    let width = usize::from(u16::from_be_bytes([file[table + 22], file[table + 23]]));
+    let start = (table + 24) * 8 + entry * width;
+    least
+        + (0..width).fold(0, |value, bit| {
+            let at = start + bit;
+            (value << 1) | u32::from(file[at / 8] >> (7 - at % 8) & 1)
+        })
+}
+
+/// Table F.4's Item 3 for every page: how many shared objects each references, read at
+/// the width Table F.3's Item 10 gives, after Items 1 and 2.
+fn shared_references(file: &[u8], pages: usize) -> Vec<u32> {
+    let at = file.windows(4).position(|w| w == b" /S ").expect("a hint stream");
+    let body = at + file[at..].windows(8).position(|w| w == b"stream\r\n").expect("its data") + 8;
+    let width = usize::from(u16::from_be_bytes([file[body + 28], file[body + 29]]));
+    let start = (body + 36 + 2 * pages + 4 * pages) * 8;
+    (0..pages)
+        .map(|i| {
+            (0..width).fold(0, |value, bit| {
+                let at = start + i * width + bit;
+                (value << 1) | u32::from(file[at / 8] >> (7 - at % 8) & 1)
+            })
+        })
+        .collect()
+}
+
+/// **The later pages' shared objects are packed, and Table F.6 names the stream holding
+/// them** (F.3.1, ROADMAP Y-F35). Forty pages share thirty-eight fonts beyond the first
+/// page's two: those two stay with the first page, and the thirty-eight go into one
+/// object stream, which is the table's one entry after the first page's. The last page's
+/// own font is alone, and is written directly: a stream holding one object costs more.
+#[test]
+fn later_shared_objects_are_packed_and_named_by_their_stream() {
+    let doc = neighbours_share_fonts();
+    let path = std::env::temp_dir().join(format!("fepdf-part8-{}.pdf", std::process::id()));
+    let options = SaveOptions { compress: false, ..SaveOptions::default() };
+    let _ = doc.save_linearized(&path, "2.0", &options).expect("it linearises");
+    let file = std::fs::read(&path).expect("it was written");
+    let _ = std::fs::remove_file(&path);
+
+    let objects = direct_offsets(&file);
+    let direct_fonts = objects
+        .iter()
+        .filter(|(_, start)| {
+            let end = start + file[*start..].windows(6).position(|w| w == b"endobj").expect("ends");
+            let object = &file[*start..end];
+            !object.windows(7).any(|w| w == b"/ObjStm")
+                && object.windows(11).any(|w| w == b"/Type /Font")
+        })
+        .count();
+    assert_eq!(direct_fonts, 3, "the first page's fonts and the last page's own are direct");
+    let (first_page, all) = shared_entry_counts(&file);
+    assert_eq!(all - first_page, 1, "Table F.6 lists {all} entries, {first_page} the first page's");
+    // Its length is the bytes the stream takes, up to the object after it (Table F.6).
+    let stream_at = objects
+        .iter()
+        .position(|(_, start)| {
+            let end = start + file[*start..].windows(6).position(|w| w == b"endobj").expect("ends");
+            file[*start..end].windows(7).any(|w| w == b"/ObjStm")
+                && file[*start..end].windows(11).filter(|w| *w == b"/Type /Font").count() > 1
+        })
+        .expect("the fonts' stream is written");
+    let taken = objects[stream_at + 1].1 - objects[stream_at].1;
+    assert_eq!(shared_entry_length(&file, first_page as usize) as usize, taken);
+    // Each later page names its fonts' stream once, Table F.4's Item 3; the second page
+    // also names the font it shares with the first, which is the first page's.
+    let references = shared_references(&file, 40);
+    assert_eq!(references[1], 2, "{references:?}");
+    assert_eq!(references[2..], [1; 38], "a page's references miss the stream");
+
+    let back = PdfDocument::open(file.into()).expect("the linearised file opens");
+    assert_eq!(back.page_count().expect("it counts"), 40);
+}

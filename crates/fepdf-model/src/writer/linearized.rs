@@ -32,10 +32,12 @@ impl<'a, W: Write> PdfWriter<'a, W> {
             }
         }
 
+        // Table F.6's second sequence: part 8 as written, each packed object by its stream.
         let mut shared_ids: Vec<u32> = Vec::new();
         for &h in &others_shared {
             if !first_page_shared_set.contains(&h) {
-                shared_ids.push(self.id_map[&h]);
+                shared_ids
+                    .push(self.lin_shared_home.get(&h).copied().unwrap_or_else(|| self.id_map[&h]));
             }
         }
         shared_ids.sort_unstable();
@@ -334,7 +336,16 @@ impl<'a, W: Write> PdfWriter<'a, W> {
         part8_objects.sort_by_key(|&(id, _)| id);
 
         for &(id, h) in &part8_objects {
-            self.write_indirect_object(id, 0, h)?;
+            if !self.lin_shared_home.contains_key(&h) {
+                self.write_indirect_object(id, 0, h)?;
+            }
+        }
+        // The object streams follow, each one entry of Table F.6; writing one records the
+        // bytes it took, which is its length there.
+        for (container, batch) in self.lin_part8.clone() {
+            let numbered: Vec<(u32, Handle<Object>)> =
+                batch.iter().map(|h| (self.id_map[h], *h)).collect();
+            self.write_object_stream(container, &numbered)?;
         }
         Ok(())
     }

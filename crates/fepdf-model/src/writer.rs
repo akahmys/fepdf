@@ -123,6 +123,11 @@ pub struct PdfWriter<'a, W: Write> {
     /// object first, then the object streams the rest is packed into, each by number with
     /// what it holds (ROADMAP Y-0b).
     lin_part7: Vec<(Vec<Handle<Object>>, Vec<(u32, Vec<Handle<Object>>)>)>,
+    /// The object streams part 8 is packed into, by number with what each holds, and the
+    /// stream each packed shared object is in: Table F.6 and a page's shared references
+    /// name the stream, not the object (ROADMAP Y-F35).
+    lin_part8: Vec<(u32, Vec<Handle<Object>>)>,
+    lin_shared_home: BTreeMap<Handle<Object>, u32>,
     /// The main cross-reference stream's number in a linearised file whose part 9 is
     /// packed: ahead of what the streams hold (ROADMAP Y-F22).
     lin_xref_id: Option<u32>,
@@ -160,6 +165,8 @@ impl<'a, W: Write> PdfWriter<'a, W> {
             lin_xref_id: None,
             lin_direct: std::collections::BTreeSet::new(),
             lin_part7: Vec::new(),
+            lin_part8: Vec::new(),
+            lin_shared_home: BTreeMap::new(),
             located: BTreeMap::new(),
             inside_object_stream: false,
             current_obj_id: 0,

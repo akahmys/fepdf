@@ -52,6 +52,23 @@ impl<'a, W: Write> PdfWriter<'a, W> {
         let mut next_id = 1;
         let part7_packed = self.number_part7(section6, pages, page_counts, &mut next_id);
 
+        // Part 8, the shared objects of the later pages: what may be compressed is packed
+        // in object streams numbered with part 8, and what they hold is numbered last
+        // (F.3.1, ROADMAP Y-F35).
+        let page_set: BTreeSet<Handle<Object>> = pages.iter().copied().collect();
+        let mut remaining_shared: Vec<Handle<Object>> =
+            others_shared.iter().copied().filter(|h| !first_page_shared_set.contains(h)).collect();
+        remaining_shared.sort();
+        let (mut part8_packed, mut part8_direct): (Vec<Handle<Object>>, Vec<Handle<Object>>) =
+            remaining_shared
+                .iter()
+                .partition(|h| self.pack_objects && !page_set.contains(*h) && self.may_pack(**h));
+        // One object alone costs more in a stream than written directly.
+        if part8_packed.len() < 2 {
+            part8_direct.append(&mut part8_packed);
+            part8_direct.sort();
+        }
+
         // Section 9 (other private objects), and the object streams it is packed into,
         // numbered in this group so that the first-page cross-reference never names them
         // (ROADMAP Y-F22). **What the streams hold is numbered last of all**, after part
@@ -70,7 +87,8 @@ impl<'a, W: Write> PdfWriter<'a, W> {
         }
         // The main cross-reference stream is itself uncompressed, so it is numbered here
         // too rather than last.
-        self.lin_xref_id = (!packed.is_empty() || !part7_packed.is_empty()).then(|| {
+        let packs_any = !packed.is_empty() || !part7_packed.is_empty() || !part8_packed.is_empty();
+        self.lin_xref_id = packs_any.then(|| {
             next_id += 1;
             next_id - 1
         });
@@ -142,20 +160,23 @@ impl<'a, W: Write> PdfWriter<'a, W> {
             next_first_group_id += 1;
         }
 
-        // Remaining shared objects (not in first page)
-        let mut remaining_shared = Vec::new();
-        for &h in &others_shared {
-            if !first_page_shared_set.contains(&h) {
-                remaining_shared.push(h);
-            }
-        }
-        remaining_shared.sort();
-        for h in remaining_shared {
+        // Remaining shared objects (not in first page): those written directly, then the
+        // object streams holding the rest.
+        for &h in &part8_direct {
             self.id_map.insert(h, next_first_group_id);
             next_first_group_id += 1;
         }
+        self.lin_part8.clear();
+        self.lin_shared_home.clear();
+        for batch in part8_packed.chunks(super::OBJECTS_PER_STREAM) {
+            self.lin_part8.push((next_first_group_id, batch.to_vec()));
+            for &h in batch {
+                self.lin_shared_home.insert(h, next_first_group_id);
+            }
+            next_first_group_id += 1;
+        }
 
-        for &h in packed.iter().chain(&part7_packed) {
+        for &h in packed.iter().chain(&part7_packed).chain(&part8_packed) {
             self.id_map.insert(h, next_first_group_id);
             next_first_group_id += 1;
         }
@@ -183,9 +204,13 @@ impl<'a, W: Write> PdfWriter<'a, W> {
             let end = (at + count as usize).min(section6.len());
             let objects = &section6[at..end];
             at = end;
-            let (packed, direct): (Vec<Handle<Object>>, Vec<Handle<Object>>) = objects
+            let (mut packed, mut direct): (Vec<Handle<Object>>, Vec<Handle<Object>>) = objects
                 .iter()
                 .partition(|h| self.pack_objects && !page_set.contains(*h) && self.may_pack(**h));
+            // One object alone costs more in a stream than written directly.
+            if packed.len() < 2 {
+                direct.append(&mut packed);
+            }
             for &h in &direct {
                 self.id_map.insert(h, *next_id);
                 *next_id += 1;
@@ -701,7 +726,8 @@ impl<'a, W: Write> PdfWriter<'a, W> {
         for p_reach in page_reachables.iter().take(page_count) {
             let mut refs = Vec::new();
             for &h in p_reach {
-                let id = self.id_map[&h];
+                // A packed shared object is referred to by the stream holding it (F.3.1).
+                let id = self.lin_shared_home.get(&h).copied().unwrap_or(self.id_map[&h]);
                 if let Some(idx) = get_shared_index(id) {
                     refs.push(idx);
                 }
