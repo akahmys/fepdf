@@ -1639,6 +1639,69 @@ above it, and Rule E is held by cargo
 ([ADR-0112](docs/adr/0112-the-audit-is-a-crate-above-the-operations.md)). Reading order,
 measurement and remediation stay.
 
+### Phase Z — What a hostile file does to the translator
+
+A translator from any PDF has to finish on any PDF. `panic = "abort"` in the release
+profile means a panic, a hang or an allocation the machine cannot meet takes the whole
+process with it: the CLI, the MCP server and the window alike. Nothing generates hostile
+input here. The malformed corpus is six files damaging clause 7.5, and the external
+corpus is 515 files somebody else chose to be *valid* or *diagnosably* invalid.
+
+PrintCraft (`storytold/printcraft`, a Rust PDF editor, MIT OR Apache-2.0) runs a nightly
+fuzzer and lists in `vendor/README.md` each input that broke it, with what happened. Its
+renderer and parser are not this engine's, so its findings are leads to measure here, not
+results. What crosses from it, and how, is
+[ADR-0113](docs/adr/0113-another-projects-findings-cross-as-facts-not-code.md).
+
+**The order**, set 2026-10-07: Z-2 first, since it costs one test per lead and its first
+test found a hang; Z-1 once Z-2 has shown where the fuzzer should point; Z-3 measured
+before it is decided; Z-4 when convenient; Z-5 with the next GUI defect.
+
+- [ ] **Z-1** — **a fuzzer**, `cargo-fuzz` in a `fuzz/` directory outside the workspace:
+      it builds on nightly, and the gate's toolchain is pinned to 1.98.1. Targets, in
+      order: the reader on raw bytes (what `read_probe` does), the stream filters with
+      their predictors, font reconstruction (Type 1 and CFF), and open–translate–save.
+      Run by hand or nightly, never in the gate.
+      *Done when* each target runs for 15 minutes without a crash, a hang or an
+      out-of-memory, and the corpus it found is kept where `make_malformed.py`'s output
+      is, under `target/`.
+- [ ] **Z-2** — **PrintCraft's findings, as inputs.** Each item in its `vendor/README.md`
+      names an input and what it did: `/Columns 4294967295` predictor rows, `/W` and
+      `/LW` far past any canvas, CCITT and JBIG2 dimensions, a page tree whose `/Kids`
+      loop through object streams, inline images with `EI` inside their data, Type 3
+      glyphs that show themselves. Each is built inline in the test that needs it, as
+      ADR-0060's cycles are, and not added to the malformed corpus, which is about
+      clause 7.5. *Done when* every lead has a test here, passing.
+      **The first lead found a hang, 2026-10-07.** `reconstruction/type1.rs` caps
+      subroutine depth at 10 and not the number of calls, so a subroutine calling itself
+      k times costs k^10: in a debug build, k = 5 took 2.3 s, 6 took 15.5 s, 7 took 79 s.
+      It is reached from every embedded Type 1 font, through `perform_reconstruction`.
+      `type1_subroutine_fan_out_tests` holds k = 16 to 10 s and fails.
+      *Fix*: a budget on the calls a glyph makes, not only on their depth.
+- [ ] **Z-3** — **Rule 2 held by clippy.** `verify_compliance.sh` greps for `.unwrap(` and
+      `.expect(`, and does not see `panic!`, `unreachable!` or `todo!` (56 in `src/`,
+      tests not yet separated out) or a slice index past the end. `clippy::unwrap_used`,
+      `expect_used`, `panic` and `unreachable` at deny would replace the grep, with
+      `// RR-15 Safe` becoming `#[allow(..., reason = "...")]`.
+      `indexing_slicing` is counted before it is decided; it is likely to be large.
+      *Done when* the counts are in this entry and the owner has chosen.
+- [ ] **Z-4** — **pdf.js's test files in the external corpus.** `mozilla/pdf.js`
+      `test/pdfs` holds files committed to it, and `.link` files naming a URL elsewhere
+      (314 of the first 1,000 entries listed). Only the committed files are fetched,
+      into `target/external/`, never committed here (ADR-0113).
+      *Done when* `fetch_external_corpus.sh` brings them and
+      `measure_external_corpus.sh` reports over them.
+- [ ] **Z-5** — **the window driven from outside.** egui's AccessKit tree names each
+      widget and where it is; a channel taking click, drag, key and screenshot over
+      loopback, with a token only the user can read, lets a GUI defect be reproduced with
+      the real gesture rather than a test's one big step. Taken with the next GUI defect,
+      not before.
+
+**Declined**: PrintCraft's parity manifest, a feature list where each entry must cite a
+test. The list is kept as a reference in
+[docs/reference/acrobat-features/](docs/reference/acrobat-features/README.md); what this
+engine reads is already measured by `fepdf inspect coverage`.
+
 ---
 
 *This file was cut to what each entry delivered twice: on 2026-09-22, from 4,924 lines
