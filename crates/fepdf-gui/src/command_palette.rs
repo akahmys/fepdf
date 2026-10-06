@@ -14,8 +14,6 @@ pub enum Command {
     Load,
     /// Put the view back where it started.
     ResetView,
-    /// The redaction brush.
-    RedactBrush,
     /// The tagging brush.
     TagBrush,
     /// The caliper.
@@ -46,10 +44,9 @@ pub enum Command {
 
 impl Command {
     /// Every command, in the order the palette lists them.
-    pub const ALL: [Self; 16] = [
+    pub const ALL: [Self; 15] = [
         Self::Load,
         Self::ResetView,
-        Self::RedactBrush,
         Self::TagBrush,
         Self::Caliper,
         Self::Export,
@@ -72,7 +69,6 @@ impl Command {
         match self {
             Self::Load => ("cmd_load_pdf", "cmd_load_pdf_desc"),
             Self::ResetView => ("cmd_reset_view", "cmd_reset_view_desc"),
-            Self::RedactBrush => ("cmd_redact_brush", "cmd_redact_brush_desc"),
             Self::TagBrush => ("cmd_tagging_brush", "cmd_tagging_brush_desc"),
             Self::Caliper => ("cmd_caliper_brush", "cmd_caliper_brush_desc"),
             Self::Export => ("cmd_export_pdf", "cmd_export_pdf_desc"),
@@ -98,14 +94,6 @@ impl Command {
                 }
             }
             Self::ResetView => app.reset_view(),
-            Self::RedactBrush => {
-                app.redaction_manager.is_active = !app.redaction_manager.is_active;
-                if app.redaction_manager.is_active {
-                    app.selection_manager.clear();
-                    app.selection_manager.is_tagging_brush_active = false;
-                    app.caliper_tool.is_active = false;
-                }
-            }
             Self::TagBrush => {
                 app.selection_manager.is_tagging_brush_active =
                     !app.selection_manager.is_tagging_brush_active;
@@ -158,12 +146,9 @@ impl Command {
             Self::ReadAloud => Some(ActiveDrawer::ReadAloud),
             Self::Compare => Some(ActiveDrawer::Compare),
             Self::Print => Some(ActiveDrawer::Print),
-            Self::Load
-            | Self::ResetView
-            | Self::RedactBrush
-            | Self::TagBrush
-            | Self::Export
-            | Self::ReadingOrder => None,
+            Self::Load | Self::ResetView | Self::TagBrush | Self::Export | Self::ReadingOrder => {
+                None
+            }
         }
     }
 
@@ -176,8 +161,7 @@ impl Command {
     /// where — not to find the list a word shorter.
     const fn needs(self) -> Option<crate::view::Act> {
         match self {
-            Self::RedactBrush
-            | Self::Caliper
+            Self::Caliper
             | Self::RedactionStudio
             | Self::EditText
             | Self::Snapshot

@@ -915,9 +915,11 @@ it can be run there.
         the impl-block length step was missing from the table.
       - A doc comment pointed at `refine/font.rs`, which Y-F15 removed, and a recorder
         method no test called was removed.
-      Not fixed, for the owner: the palette's redaction brush command is a second door
-      to the brush the drawer now takes up (UI-12), and `fepdf-wasm`'s
-      `wasm32-unknown-unknown` build is unverified here, the target not being installed.
+      Two were put to the owner, and done on 2026-10-07 as decided: the palette's
+      redaction brush command was a second door to the brush the drawer takes up
+      (UI-12), and is gone, the redaction studio command opening the drawer and the
+      brush with it; and `fepdf-wasm` builds for `wasm32-unknown-unknown`, with clippy
+      clean on that target, once the target was installed.
 - [ ] **Y-F9** — reading aloud on Windows hands PowerShell the words on standard input
       and reads them with `[Console]::In`, whose encoding is the console's code page, not
       UTF-8; nothing sets it, so Japanese may arrive garbled (`speech.rs`). Unverified: no

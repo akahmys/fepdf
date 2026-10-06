@@ -144,8 +144,8 @@ pub enum Step {
     /// Show the command palette.
     Palette,
     /// Run one of the palette's commands by its locale key, as choosing it would:
-    /// `command cmd_redact_brush`. A plan had no way to choose one, and the redaction
-    /// brush's only door was the palette until the drawer took it up.
+    /// `command cmd_redaction_studio`. A plan had no way to choose one while the redaction
+    /// brush's only door was the palette.
     Command(String),
     /// Show the export wizard.
     Export,
@@ -761,8 +761,8 @@ mod commands {
     #[test]
     fn a_command_is_named_by_its_key() {
         assert_eq!(
-            parse("command cmd_redact_brush"),
-            Some(Step::Command("cmd_redact_brush".to_owned()))
+            parse("command cmd_redaction_studio"),
+            Some(Step::Command("cmd_redaction_studio".to_owned()))
         );
         assert_eq!(parse("command cmd_no_such_thing"), None);
     }

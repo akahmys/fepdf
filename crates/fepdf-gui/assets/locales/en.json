@@ -126,8 +126,6 @@
   "cmd_read_aloud_desc": "Read the document aloud in its structure's order, each passage in its language",
   "cmd_reading_order": "Reading Order",
   "cmd_reading_order_desc": "Toggle reading order bar overlay",
-  "cmd_redact_brush": "Redact Brush",
-  "cmd_redact_brush_desc": "Toggle Redact Brush tool",
   "cmd_redaction_studio": "Redaction Studio",
   "cmd_redaction_studio_desc": "Find text by pattern and queue it for redaction",
   "cmd_reset_view": "Reset View",
