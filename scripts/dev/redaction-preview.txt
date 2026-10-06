@@ -1,15 +1,16 @@
-# The redaction preview, reached by the real gesture: a zone drawn, the glyphs it takes
-# tinted, and a second zone added to the first.
+# The redaction preview, reached by the real gesture: the drawer opened, which takes up
+# the brush, a zone drawn, the glyphs it takes tinted, and a second zone added to the
+# first. Then the drawer closed, which puts the brush down: the last drag selects text.
 #
 #   ./target/debug/fepdf-gui --capture scripts/dev/redaction-preview.txt --shots /tmp/redaction
 open samples/constitution.pdf
 mode single
 zoom 100
 drawer redaction
-command cmd_redact_brush
 drag 330 470 700 530
-shot 02-after-drag
-shot 03-a-frame-later
+shot 01-first-zone
 drag 520 225 640 300
-shot 04-second-zone
-shot 05-a-frame-later
+shot 02-second-zone
+drawer none
+drag 330 800 700 860
+shot 03-drawer-closed

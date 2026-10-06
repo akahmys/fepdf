@@ -774,6 +774,9 @@ impl FepdfApp {
         self.caliper_tool.is_active = drawer == crate::sidebar::ActiveDrawer::Caliper;
         self.snapshot_tool.is_active = drawer == crate::sidebar::ActiveDrawer::Snapshot;
         self.annotate_tool.is_active = drawer == crate::sidebar::ActiveDrawer::Annotate;
+        // The redaction drawer's brush with it (owner, 2026-10-06): a drag on the page with
+        // the drawer open selected text, and the brush's one door was the palette.
+        self.redaction_manager.is_active = drawer == crate::sidebar::ActiveDrawer::Redaction;
         self.active_drawer = drawer;
     }
 

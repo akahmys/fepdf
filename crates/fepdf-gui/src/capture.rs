@@ -144,8 +144,8 @@ pub enum Step {
     /// Show the command palette.
     Palette,
     /// Run one of the palette's commands by its locale key, as choosing it would:
-    /// `command cmd_redact_brush`. The redaction brush has no other door, so a plan that
-    /// draws a zone starts here.
+    /// `command cmd_redact_brush`. A plan had no way to choose one, and the redaction
+    /// brush's only door was the palette until the drawer took it up.
     Command(String),
     /// Show the export wizard.
     Export,
@@ -756,8 +756,8 @@ mod commands {
     use super::{Step, parse};
 
     /// **A plan runs a palette command by its key, and a key no command has refuses the
-    /// plan.** The redaction brush has no door but the palette, so a plan could not draw
-    /// a zone, and the preview a zone asks for went unseen in the window.
+    /// plan.** The redaction brush's one door was the palette, so a plan could not draw a
+    /// zone, and the preview a zone asks for went unseen in the window.
     #[test]
     fn a_command_is_named_by_its_key() {
         assert_eq!(

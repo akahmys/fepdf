@@ -1567,7 +1567,11 @@ it can be run there.
       touches among it. The first try drew no zone: the brush's one door is the command
       palette, which opening the redaction drawer does not reach, and a plan could not
       press it. `--capture` runs a palette command by its key now (`command
-      cmd_redact_brush`); `capture.rs`'s test holds the parsing.
+      cmd_redact_brush`); `capture.rs`'s test holds the parsing. **The drawer takes the
+      brush up since the same day**, decided by the owner: opening the redaction drawer
+      turns the brush on and leaving it turns it off, as the caliper, snapshot and
+      annotation drawers do with their tools (`show_drawer`). The plan draws its zones
+      with the drawer alone now, and drew none before the change.
       **The glyphs that remain keep their places**, decided by the owner 2026-10-04
       with the width of what went left recoverable from them, as it is from Acrobat
       (arXiv 2206.02285); moving the rest of the line to the region's edge was the
