@@ -1183,12 +1183,20 @@ it can be run there.
       `scripts/test/linearization_known.tsv`, which the script reports and does not count
       ([ADR-0108](docs/adr/0108-a-page-keeps-what-annex-f-gives-it-where-qpdf-counts-otherwise.md)).
       The script reads all ten clean, and fails with the list removed.
-- [ ] **Y-F26** — **the documents name the wrong thing as what fepdf is.** The owner's
+- [x] **Y-F26** — **the documents name the wrong thing as what fepdf is.** The owner's
       definition, 2026-10-03: a translator from any PDF to ISO 32000-2, operations on
       what it translated, and frontends for those operations; reporting what was done
       is secondary to that. `README.md` opens on the reporting, and `AGENTS.md`
       principle 2 and `ARCHITECTURE.md` §4.3 carry the same weight. Held until the work
       under way lands.
+      Fixed 2026-10-06. `README.md` opens on the translator, and its decision log follows
+      as how a translation is checked; its usage reads translate, change, then look. Two
+      of its rows said what the code no longer does — interactive features unwritten,
+      and `render_page` doing nothing — and are corrected, and its crate table names
+      `fepdf-audit` and `fepdf-script`. `AGENTS.md` principle 2 and `ARCHITECTURE.md`'s
+      opening and §4.3 say the record serves the translation. The crates say it too:
+      the audit is `fepdf-audit`, above the operations
+      ([ADR-0112](docs/adr/0112-the-audit-is-a-crate-above-the-operations.md)).
 
 **Reading what was added**, in the order the last cleanup found defects
 - [x] **Y-1a** — `fepdf-font`: `cff`, `subset`, `program_glyphs`, `metrics`, `embedding`,

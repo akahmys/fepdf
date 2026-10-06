@@ -1,10 +1,12 @@
 # fepdf
 
-A PDF engine in Rust that tells you what it did to your file.
+A PDF translator in Rust. It reads any PDF and writes it as ISO 32000-2 (PDF 2.0); it
+changes what it translated through one vocabulary of operations; and it puts those
+operations in front of you as a command line, a desktop window and an MCP server.
 
-Most PDF tools read a document, silently repair whatever was wrong with it, and hand
-you something that looks fine. fepdf records every one of those choices and reports
-them, because the ones it made in silence turned out to be where its worst bugs lived.
+Reading a file written before PDF 2.0 means choosing: older files are often
+non-conforming, and parts of the older specifications are ambiguous. fepdf records each
+choice with the clause it rests on, so a translation can be checked rather than trusted:
 
 ```
 $ fepdf inspect info report.pdf
@@ -18,7 +20,8 @@ $ fepdf inspect info report.pdf
 ```
 
 Every line names the clause of ISO 32000-2 it rests on, what was found, and what was
-done about it — enough to disagree with.
+done about it — enough to disagree with. The record serves the translation; it is not
+the product.
 
 > **This is experimental software.** It is a personal project, not a product. Read
 > [What it cannot do](#what-it-cannot-do) before pointing it at anything you care
@@ -77,30 +80,16 @@ That gives you `target/release/fepdf` (command line) and `target/release/fepdf-g
 
 ## What you can do with it
 
-### Look at a file without changing it
+### Translate a file
 
 ```bash
-fepdf inspect structure report.pdf   # revisions, cross-reference form, object storage
-fepdf inspect catalog report.pdf     # every catalogue entry, and what the engine makes of it
-fepdf inspect encryption report.pdf  # what protects it, and how far the engine conforms
-fepdf inspect interactive report.pdf # annotations, form fields, actions, outline
-fepdf inspect info report.pdf        # metadata and a font summary
-fepdf inspect text report.pdf        # extracted text
-fepdf inspect audit report.pdf       # compliance audit against ISO 32000-2 and UA-2
-fepdf inspect tree report.pdf        # the logical structure tree
-fepdf inspect coverage *.pdf         # how much of what these files contain it reads
+fepdf publish upgrade in.pdf out.pdf              # write it as PDF 2.0
+fepdf publish upgrade in.pdf out.pdf --strip      # …and remove all descriptive metadata
 ```
 
-`structure`, `catalog`, `encryption` and `interactive` report **the file as written** —
-they read the bytes and decrypt, and nothing else. The rest report **the document the
-engine made of it**, which is not the same thing and is not meant to be
-([ADR-0013](docs/adr/0013-a-document-is-one-normalised-state.md)).
-
-### Change one
+### Change what it translated
 
 ```bash
-fepdf publish upgrade in.pdf out.pdf              # rewrite as PDF 2.0
-fepdf publish upgrade in.pdf out.pdf --strip      # …and remove all descriptive metadata
 fepdf publish render in.pdf page.png --page 1     # render a page
 fepdf edit merge a.pdf b.pdf -o out.pdf
 fepdf edit split in.pdf --pages 1-10 -o out.pdf
@@ -126,6 +115,25 @@ The output records where it came from, in `xmpMM:DerivedFrom` and
 `xmpMM:OriginalDocumentID`, so a reader can trace it back without having watched.
 The reasoning is in [ADR-0012](docs/adr/0012-saving-produces-a-new-document.md).
 
+### Look at a file without changing it
+
+```bash
+fepdf inspect structure report.pdf   # revisions, cross-reference form, object storage
+fepdf inspect catalog report.pdf     # every catalogue entry, and what the engine makes of it
+fepdf inspect encryption report.pdf  # what protects it, and how far the engine conforms
+fepdf inspect interactive report.pdf # annotations, form fields, actions, outline
+fepdf inspect info report.pdf        # metadata and a font summary
+fepdf inspect text report.pdf        # extracted text
+fepdf inspect audit report.pdf       # compliance audit against ISO 32000-2 and UA-2
+fepdf inspect tree report.pdf        # the logical structure tree
+fepdf inspect coverage *.pdf         # how much of what these files contain it reads
+```
+
+`structure`, `catalog`, `encryption` and `interactive` report **the file as written** —
+they read the bytes and decrypt, and nothing else. The rest report **the document the
+engine made of it**, which is not the same thing and is not meant to be
+([ADR-0013](docs/adr/0013-a-document-is-one-normalised-state.md)).
+
 ## What it cannot do
 
 | | |
@@ -134,9 +142,8 @@ The reasoning is in [ADR-0012](docs/adr/0012-saving-produces-a-new-document.md).
 | **Sign a file it did not write** | It signs its own output — `publish sign` and `publish verify-signature` — and a signature it made covers the whole file. It cannot add one to someone else's file without rewriting it first, and a signature already in a document does not survive a save. [ADR-0014](docs/adr/0014-the-faithful-copy-path-is-not-built.md) is why. |
 | **Decide whether to trust a certificate** | `verify-signature` says whether the signature covers the bytes and is bound to the certificate it carries. It has no trust store, checks no validity window, and reads no revocation list — and says so in its output. |
 | **Preserve a file byte for byte** | There is no faithful-copy path. See above. |
-| **Edit interactive features** | Annotations, form fields and outlines can be read and reported. The only one it writes is a signature field, and only as part of signing. |
 | **Read a certificate-encrypted file in a browser** | fepdf reads *and writes* 7.6.5 — `--encrypt-to` to seal, `--recipient-certificate` with `--recipient-key` to open. Chrome and Firefox implement neither, so what this produces they cannot read. |
-| **Run usefully in a browser** | `fepdf-wasm` opens a document and counts pages. Its `render_page` does nothing. |
+| **Draw a page in a browser** | `fepdf-wasm` opens a document, counts its pages, extracts their text, and hands over the decisions and the structure tree. Its `render_page` returns an error naming what it did not draw. |
 | **Produce a file you can read in a text editor** | Objects are packed into 7.5.7 object streams by default, which shrinks every sample — `intel_sdm.pdf` goes from +131% to +1% — and puts almost all of them inside a compressed container. `--no-obj-stm` writes the loose form ([ADR-0016](docs/adr/0016-objects-are-packed-by-default.md)). |
 
 All thirty-two of Table 29's catalogue entries have a field and **twenty-three** have a
@@ -166,7 +173,8 @@ disagreement rather than reading as current.
 | Crate | What it is |
 | :--- | :--- |
 | `fepdf` | The public facade and API most callers want (`PdfDocument`, `SaveOptions`, `Operation`) |
-| `fepdf-doc` | Canonical mutation operations vocabulary, PDF/UA-2 audit, structure trees, and remediation |
+| `fepdf-doc` | The operations: their vocabulary and its one interpreter, structure trees, reading order, and remediation |
+| `fepdf-audit` | The PDF/UA audit against the Matterhorn Protocol, which judges a document and changes nothing |
 | `fepdf-model` | The engine: objects, arena, document graph, xref, reader and writer |
 | `fepdf-syntax` | Lexer and cryptographic primitives (RC4, AES-256, CMS signatures) |
 | `fepdf-content` | Content-stream interpreter and backend rendering contract |
@@ -176,6 +184,7 @@ disagreement rather than reading as current.
 | `fepdf-gui` | Desktop application (egui, wgpu, Vello) with visual inspection and redaction |
 | `fepdf-mcp` | Model Context Protocol server for structural diagnostics and tooling |
 | `fepdf-wasm` | WebAssembly bindings |
+| `fepdf-script` | ECMAScript for the scripts a document carries, translated into operations |
 | `fepdf-macros` | Compile-time procedural macros |
 
 ## Contributing

@@ -4,7 +4,9 @@
 > [CODING.md](CODING.md) §2; how it came to be is in [docs/adr/](docs/adr/README.md).
 
 Crate topology, the Sublimation Pipeline, and memory invariants. The layering rules that
-keep this shape are in [CODING.md](CODING.md) §2.
+keep this shape are in [CODING.md](CODING.md) §2. The design serves what
+[README.md](README.md) says fepdf is: a translator from any PDF to ISO 32000-2, operations
+on what it translated, and frontends for those operations.
 
 > **Status.** Realised: every crate in §3 exists, the migration that produced them is
 > complete, and Rule D holds — `status.sh` counts document-mutating methods on the facade
@@ -380,7 +382,8 @@ ambiguous — how to delimit a stream whose `/Length` is wrong, whether a byte s
 inside an inline image terminates it, how to read a text string with no BOM. Reading
 such a file means choosing, and the choice determines the output.
 
-Those choices are therefore **recorded, not logged**. `Document::decisions` carries a
+Those choices are therefore **recorded, not logged**. The record is how a translation
+accounts for itself, and it serves the translation rather than standing beside it. `Document::decisions` carries a
 [`DecisionLog`], and every `inspect` command prints it in every output format — text,
 JSON and Markdown — with `inspect text` writing to stderr so its piped output stays
 clean. A caller must be able to distinguish *this loaded* from *this was conforming*,

@@ -80,7 +80,8 @@ document holds its own: `cargo test --workspace` ([TESTING.md](TESTING.md)) and
 
 1. **Safety over speed.** Memory safety, determinism and ISO conformance come before
    optimisation.
-2. **What the engine finds, it records; what you want to know, you measure.** A finding
+2. **What the translator chooses, it records; what you want to know, you measure.** The
+   record serves the translation ([README.md](README.md) says what fepdf is). A finding
    about a *document* is a `Decision` naming its clause (`ARCHITECTURE.md` §4.3) — not a
    log line, because a warning on stderr cannot tell a caller *this loaded* from *this was
    conforming*. The engine keeps two `log::warn!`/`log::error!` sites — which fonts this
