@@ -786,12 +786,7 @@ fn unfiltered_length(dict: &BTreeMap<String, IrObject>) -> Option<usize> {
         (1, 1)
     } else {
         let count = match get("CS", "ColorSpace")? {
-            IrObject::Name(n) => match n.as_str() {
-                "G" | "DeviceGray" | "I" | "Indexed" => 1,
-                "RGB" | "DeviceRGB" => 3,
-                "CMYK" | "DeviceCMYK" => 4,
-                _ => return None,
-            },
+            IrObject::Name(n) => crate::inline_image::device_components(n)?,
             IrObject::Array(items) => match items.first() {
                 Some(IrObject::Name(n)) if n == "I" || n == "Indexed" => 1,
                 _ => return None,

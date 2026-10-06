@@ -43,6 +43,7 @@ pub mod function;
 pub mod graphics;
 pub mod handle;
 pub mod ingest;
+pub mod inline_image;
 pub mod interactive;
 pub mod interpretation;
 pub use fepdf_syntax::cms;

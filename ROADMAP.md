@@ -967,10 +967,20 @@ it can be run there.
       redacting such a form. Fixed: the name the stream wrote is kept, and the
       interpreter draws in a fallback face only where no resource in reach defines it.
       `form_font_name_test.rs` holds it, and writing the stand-in again failed it.
-- [ ] **Y-F33** — **an inline image is drawn as RGB whatever it is.** The interpreter
+- [x] **Y-F33** — **an inline image is drawn as RGB whatever it is.** The interpreter
       hands the backend the bytes after `ID`, still encoded, as eight-bit RGB — the same
       placeholder format Y-F32 found — so a one-bit, gray, CMYK or filtered inline image
       draws as noise. Found with Y-F32; not yet measured on the corpus.
+      Measured 2026-10-06: 17 inline images in 8 of 525 files, each with a filter or a
+      colour space the resources name, so each drew wrong. Fixed the same day: an inline
+      image is drawn the way an image XObject is. Its dictionary is spelled out by
+      `fepdf_model::inline_image`, which the redaction's lift now shares, in a scratch
+      arena, since the document's is sealed; a colour space the resources name is copied
+      across. The byte after `ID` is the delimiter, not a sample. A key written both
+      abbreviated and in full, which 8.9.7 does not settle, is read abbreviated and
+      recorded as an ambiguity: the PDF Association's `InlineAbbreviations.pdf` drew
+      three of its eight images as nothing and draws all eight.
+      `inline_image_drawing_test.rs` holds it, and breaking each of five parts failed it.
 - [x] **Y-F22** — **a linearised file writes no object streams.** `intel_sdm.pdf`'s
       plain save packs 325,000 of its 332,818 objects into 3,277 compressed object
       streams; the linearised one writes every object directly, 58 MB against 25.6 MB

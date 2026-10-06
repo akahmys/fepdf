@@ -14,10 +14,9 @@
 
 use super::target::Target;
 use fepdf_model::arena::PdfArena;
+use fepdf_model::inline_image::{self, device_components, entries};
 use fepdf_model::lexer::{Lexer, Token};
-use fepdf_model::parser::Parser;
 use fepdf_model::{Document, Handle, Object, PdfResult};
-use std::collections::BTreeMap;
 use std::ops::Range;
 use std::sync::Arc;
 
@@ -104,17 +103,6 @@ fn ends_token(content: &[u8], at: usize) -> bool {
     content.get(at).is_none_or(|b| b.is_ascii_whitespace() || b"()<>[]{}/%".contains(b))
 }
 
-/// The abbreviated dictionary's entries, keys as written.
-fn entries(header: &[u8], arena: &PdfArena) -> Vec<(String, Object)> {
-    let mut parser = Parser::new(bytes::Bytes::copy_from_slice(header), arena);
-    let mut out = Vec::new();
-    while let Ok(Token::Name(key)) = parser.next_token() {
-        let Ok(value) = parser.parse_object() else { break };
-        out.push((String::from_utf8_lossy(&key).to_string(), value));
-    }
-    out
-}
-
 /// How many bytes an unfiltered image's samples take, where the header says enough.
 fn unfiltered_length(header: &[u8], components: &dyn Fn(&str) -> Option<usize>) -> Option<usize> {
     let scratch = PdfArena::new();
@@ -146,16 +134,6 @@ fn unfiltered_length(header: &[u8], components: &dyn Fn(&str) -> Option<usize>) 
     Some(height * (width * count * bits).div_ceil(8))
 }
 
-/// The components of a device colour space, by its name or its inline abbreviation.
-fn device_components(name: &str) -> Option<usize> {
-    match name {
-        "G" | "DeviceGray" | "I" | "Indexed" => Some(1),
-        "RGB" | "DeviceRGB" => Some(3),
-        "CMYK" | "DeviceCMYK" => Some(4),
-        _ => None,
-    }
-}
-
 /// Lifts every inline image in `target`'s content into an image XObject, drawn with `Do`
 /// where the image was.
 ///
@@ -185,103 +163,12 @@ pub fn lift(doc: &Document, target: Target) -> PdfResult<()> {
 /// out, a colour space named from the resources taken from them, the samples as written.
 fn xobject_of(doc: &Document, target: Target, header: &[u8], data: &[u8]) -> Handle<Object> {
     let arena = doc.arena();
-    let mut dict = BTreeMap::new();
-    dict.insert(arena.name("Type"), Object::Name(arena.name("XObject")));
-    dict.insert(arena.name("Subtype"), Object::Name(arena.name("Image")));
-    for (key, value) in entries(header, arena) {
-        let key = spelled_key(&key);
-        let value = match key {
-            "ColorSpace" => colour_space(doc, target, value),
-            "Filter" => spelled_names(arena, value, spelled_filter),
-            _ => value,
-        };
-        dict.insert(arena.name(key), value);
-    }
+    let (dict, _) = inline_image::dictionary(header, arena, &|name| named_space(doc, target, name));
     let stream = Object::Stream(
         arena.alloc_dict(dict),
         Arc::new(fepdf_model::object::SublimatedData::Raw(bytes::Bytes::copy_from_slice(data))),
     );
     arena.alloc_object(stream)
-}
-
-/// An inline image's key spelled out (Table 91); a key already whole stays.
-fn spelled_key(key: &str) -> &str {
-    match key {
-        "BPC" => "BitsPerComponent",
-        "CS" => "ColorSpace",
-        "D" => "Decode",
-        "DP" => "DecodeParms",
-        "F" => "Filter",
-        "H" => "Height",
-        "IM" => "ImageMask",
-        "I" => "Interpolate",
-        "L" => "Length",
-        "W" => "Width",
-        other => other,
-    }
-}
-
-/// A filter's name spelled out (Table 92).
-fn spelled_filter(name: &str) -> &str {
-    match name {
-        "AHx" => "ASCIIHexDecode",
-        "A85" => "ASCII85Decode",
-        "LZW" => "LZWDecode",
-        "Fl" => "FlateDecode",
-        "RL" => "RunLengthDecode",
-        "CCF" => "CCITTFaxDecode",
-        "DCT" => "DCTDecode",
-        other => other,
-    }
-}
-
-/// A colour space's name spelled out (Table 92).
-fn spelled_space(name: &str) -> &str {
-    match name {
-        "G" => "DeviceGray",
-        "RGB" => "DeviceRGB",
-        "CMYK" => "DeviceCMYK",
-        "I" => "Indexed",
-        other => other,
-    }
-}
-
-/// `value`, a name or an array of them, with each name spelled out by `spell`.
-fn spelled_names(arena: &PdfArena, value: Object, spell: fn(&str) -> &str) -> Object {
-    let one = |o: &Object| match o.as_name().and_then(|n| arena.get_name_str(n)) {
-        Some(name) => Object::Name(arena.name(spell(&name))),
-        None => o.clone(),
-    };
-    match value {
-        Object::Array(a) => {
-            let items = arena.get_array(a).unwrap_or_default().iter().map(one).collect();
-            Object::Array(arena.alloc_array(items))
-        }
-        other => one(&other),
-    }
-}
-
-/// The colour space an inline image names: a device space or `Indexed` spelled out, and a
-/// name the page's resources give a space to (8.9.7) replaced by that space, since an
-/// image XObject names a space and not a resource.
-fn colour_space(doc: &Document, target: Target, value: Object) -> Object {
-    let arena = doc.arena();
-    if let Some(name) = value.as_name().and_then(|n| arena.get_name_str(n)) {
-        let spelled = spelled_space(&name);
-        if spelled != name || device_components(&name).is_some() {
-            return Object::Name(arena.name(spelled));
-        }
-        return named_space(doc, target, &name).unwrap_or(value);
-    }
-    let Some(items) = value.as_array().and_then(|a| arena.get_array(a)) else { return value };
-    let mut items = items;
-    if let Some(first) = items.first_mut() {
-        *first = spelled_names(arena, first.clone(), spelled_space);
-    }
-    if let Some(base) = items.get_mut(1) {
-        *base = colour_space(doc, target, base.clone());
-    }
-    Object::Array(arena.alloc_array(items))
 }
 
 /// The colour space `target`'s resources name `name`.

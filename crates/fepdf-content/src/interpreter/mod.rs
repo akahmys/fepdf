@@ -482,8 +482,8 @@ impl<'a> Interpreter<'a> {
                 self.end_marked_content();
                 Ok(())
             }
-            Command::DrawInlineImage { width, height, format, data, .. } => {
-                self.backend.draw_image(data, *width, *height, *format, None);
+            Command::DrawInlineImage { width, height, format, data, source } => {
+                self.draw_inline_image(source, data, (*width, *height, *format));
                 Ok(())
             }
 

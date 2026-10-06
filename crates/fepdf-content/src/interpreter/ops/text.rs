@@ -95,8 +95,8 @@ impl Interpreter<'_> {
             | Command::SetLineJoin(_)
             | Command::SetMiterLimit(_)
             | Command::SetDashPattern(..) => Ok(()),
-            Command::DrawInlineImage { width, height, format, data, .. } => {
-                self.backend.draw_image(data, *width, *height, *format, None);
+            Command::DrawInlineImage { width, height, format, data, source } => {
+                self.draw_inline_image(source, data, (*width, *height, *format));
                 Ok(())
             }
             Command::RawOperator { .. } => Ok(()),

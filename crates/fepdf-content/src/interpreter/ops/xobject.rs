@@ -361,8 +361,12 @@ impl Interpreter<'_> {
     /// Reading a `3` as the default would be this engine's choice presented as the file's
     /// word — the distinction ADR-0008 draws, and the reason this is not just a
     /// `unwrap_or_default`.
-    fn soft_mask_in_data(&self, dict: &BTreeMap<Handle<PdfName>, Object>) -> SoftMaskInData {
-        match fepdf_model::filters::soft_mask_in_data(dict, self.doc.arena()) {
+    fn soft_mask_in_data(
+        &self,
+        arena: &fepdf_model::arena::PdfArena,
+        dict: &BTreeMap<Handle<PdfName>, Object>,
+    ) -> SoftMaskInData {
+        match fepdf_model::filters::soft_mask_in_data(dict, arena) {
             Ok(asked) => asked,
             Err(written) => {
                 self.doc.record(Decision::violation(
@@ -383,6 +387,7 @@ impl Interpreter<'_> {
     /// `/ImageMask` and `/ColorSpace`.
     fn decode_image_samples(
         &self,
+        arena: &fepdf_model::arena::PdfArena,
         dict: &BTreeMap<Handle<PdfName>, Object>,
         sd: &fepdf_model::object::SublimatedData,
         in_data: SoftMaskInData,
@@ -397,50 +402,56 @@ impl Interpreter<'_> {
             });
         }
 
-        let data = self.doc.arena().get_stream_bytes(sd)?;
-        let width = self.dimension(dict, "Width");
-        let height = self.dimension(dict, "Height");
+        let data = arena.get_stream_bytes(sd)?;
+        let width = self.dimension(arena, dict, "Width");
+        let height = self.dimension(arena, dict, "Height");
 
-        let im_key = self.doc.arena().intern_name(PdfName::new("ImageMask"));
-        let is_mask =
-            dict.get(&im_key).and_then(|o| o.resolve(self.doc.arena()).as_bool()).unwrap_or(false);
-        let format =
-            if is_mask { self.stencil_format(dict) } else { self.image_layout(dict, &data) };
+        let im_key = arena.intern_name(PdfName::new("ImageMask"));
+        let is_mask = dict.get(&im_key).and_then(|o| o.resolve(arena).as_bool()).unwrap_or(false);
+        let format = if is_mask {
+            self.stencil_format(arena, dict)
+        } else {
+            self.image_layout(arena, dict, &data)
+        };
 
-        let image = fepdf_model::filters::decode_image(&data, dict, self.doc.arena(), in_data)?;
+        let image = fepdf_model::filters::decode_image(&data, dict, arena, in_data)?;
         let in_data_mask = image.soft_mask;
         let samples = image.samples;
-        let (format, samples) =
-            if let Some(expanded) = expand_indexed_image(self.doc.arena(), dict, &samples) {
-                (fepdf_model::graphics::PixelFormat::Rgb8, bytes::Bytes::from(expanded))
-            } else {
-                (format, samples)
-            };
+        let (format, samples) = if let Some(expanded) = expand_indexed_image(arena, dict, &samples)
+        {
+            (fepdf_model::graphics::PixelFormat::Rgb8, bytes::Bytes::from(expanded))
+        } else {
+            (format, samples)
+        };
         Ok(ImageSamples { width, height, format, samples, in_data_mask })
     }
 
     /// `/Width` or `/Height`, as the backend needs it: 0 when the entry is absent or
     /// negative, which the length check below then reports against the samples.
-    fn dimension(&self, dict: &BTreeMap<Handle<PdfName>, Object>, key: &str) -> u32 {
-        let key = self.doc.arena().intern_name(PdfName::new(key));
-        u32::try_from(
-            dict.get(&key).and_then(|o| o.resolve(self.doc.arena()).as_integer()).unwrap_or(0),
-        )
-        .unwrap_or(0)
+    fn dimension(
+        &self,
+        arena: &fepdf_model::arena::PdfArena,
+        dict: &BTreeMap<Handle<PdfName>, Object>,
+        key: &str,
+    ) -> u32 {
+        let key = arena.intern_name(PdfName::new(key));
+        u32::try_from(dict.get(&key).and_then(|o| o.resolve(arena).as_integer()).unwrap_or(0))
+            .unwrap_or(0)
     }
 
     /// Which way round a stencil mask paints, from `/Decode` (8.9.6.2).
     fn stencil_format(
         &self,
+        arena: &fepdf_model::arena::PdfArena,
         dict: &BTreeMap<Handle<PdfName>, Object>,
     ) -> fepdf_model::graphics::PixelFormat {
-        let decode_key = self.doc.arena().intern_name(PdfName::new("Decode"));
+        let decode_key = arena.intern_name(PdfName::new("Decode"));
         let inverted = if let Some(decode_obj) = dict.get(&decode_key)
-            && let Some(arr_h) = decode_obj.resolve(self.doc.arena()).as_array()
-            && let Some(arr) = self.doc.arena().get_array(arr_h)
+            && let Some(arr_h) = decode_obj.resolve(arena).as_array()
+            && let Some(arr) = arena.get_array(arr_h)
             && arr.len() >= 2
         {
-            arr[0].resolve(self.doc.arena()).as_f64().unwrap_or(0.0) > 0.5
+            arr[0].resolve(arena).as_f64().unwrap_or(0.0) > 0.5
         } else {
             false
         };
@@ -451,27 +462,90 @@ impl Interpreter<'_> {
         }
     }
 
+    /// Draws an inline image the way an image XObject is drawn (8.9.7, ROADMAP Y-F33).
+    ///
+    /// **Its dictionary is built where nothing is written.** The command carries the
+    /// operator as the stream wrote it and the samples still encoded; handing those to the
+    /// backend as eight-bit RGB drew every filtered, grey, CMYK or one-bit image as noise.
+    /// The document's arena is sealed outside `apply`, so the spelled-out dictionary, and
+    /// a colour space the resources name, are made in a scratch arena and drawn from
+    /// there. A command with no source, which only something other than the parser makes,
+    /// is drawn as its fields say.
+    pub(crate) fn draw_inline_image(
+        &mut self,
+        source: &[u8],
+        data: &[u8],
+        (width, height, format): (u32, u32, fepdf_model::graphics::PixelFormat),
+    ) {
+        let Some(header) = inline_header(source) else {
+            self.backend.draw_image(data, width, height, format, None);
+            return;
+        };
+        let scratch = fepdf_model::arena::PdfArena::new();
+        let doc = self.doc;
+        let spaces = doc.arena().intern_name(PdfName::new("ColorSpace"));
+        let (dict, both) = fepdf_model::inline_image::dictionary(header, &scratch, &|name| {
+            let entry = self.find_resource(&spaces, &PdfName::new(name)).ok()?;
+            Some(fepdf_model::inline_image::copy_between(doc.arena(), &scratch, &entry, 0))
+        });
+        for key in both {
+            doc.record(Decision::ambiguity(
+                "8.9.7",
+                format!("an inline image gives /{key} both abbreviated and in full"),
+                "used the abbreviation, the form Table 91 gives an inline image",
+            ));
+        }
+        // `ID` is followed by one white-space byte and the samples start after it (8.9.7);
+        // the parser's `data` begins at that byte.
+        let data = match data.split_first() {
+            Some((first, rest)) if first.is_ascii_whitespace() => rest,
+            _ => data,
+        };
+        let samples = SublimatedData::Raw(bytes::Bytes::copy_from_slice(data));
+        if let Err(error) = self.render_image_in(&scratch, &dict, &samples) {
+            let covered = self.cost_of_losing_it();
+            doc.record(Decision::violation(
+                "8.9.7",
+                format!("an inline image covering {covered} could not be decoded: {error}"),
+                "skipped the image; the rest of the content stream was interpreted",
+            ));
+        }
+    }
+
+    /// Draws an image XObject of the document.
     pub(crate) fn render_image_xobject(
         &mut self,
+        dict: &BTreeMap<Handle<PdfName>, Object>,
+        sd: &fepdf_model::object::SublimatedData,
+    ) -> PdfResult<()> {
+        let doc = self.doc;
+        self.render_image_in(doc.arena(), dict, sd)
+    }
+
+    /// Draws an image whose dictionary is in `arena`: the document's for an image
+    /// XObject, a scratch one for an inline image (ROADMAP Y-F33).
+    pub(crate) fn render_image_in(
+        &mut self,
+        arena: &fepdf_model::arena::PdfArena,
         dict: &BTreeMap<Handle<PdfName>, Object>,
         sd: &fepdf_model::object::SublimatedData,
     ) -> PdfResult<()> {
         // 8.9.5.2: only a `/JPXDecode` image can carry its transparency inside its own
         // data, and only when `/SMaskInData` says so. Read before the decode, because it
         // decides whether the fourth channel is kept or dropped.
-        let in_data = self.soft_mask_in_data(dict);
+        let in_data = self.soft_mask_in_data(arena, dict);
 
         let ImageSamples { width, height, format, samples: decoded, in_data_mask } =
-            self.decode_image_samples(dict, sd, in_data)?;
+            self.decode_image_samples(arena, dict, sd, in_data)?;
 
-        let smask_data = self.soft_mask_for(dict, in_data, in_data_mask, width, height)?;
+        let smask_data = self.soft_mask_for(arena, dict, in_data, in_data_mask, width, height)?;
         // Sub-byte samples become bytes before a backend sees them, the way an indexed
         // image already did. A scanned page is `/DeviceGray` at one bit per component —
         // the commonest image in a scanned document and, until Phase M's own fixture
         // crashed the renderer with it, one neither corpus contained.
         let bits = dict
-            .get(&self.doc.arena().intern_name(PdfName::new("BitsPerComponent")))
-            .and_then(|o| o.resolve(self.doc.arena()).as_integer())
+            .get(&arena.intern_name(PdfName::new("BitsPerComponent")))
+            .and_then(|o| o.resolve(arena).as_integer())
             .unwrap_or(8);
         let decoded = match expand_sub_byte_gray(&decoded, width, height, bits, format) {
             Some(expanded) => bytes::Bytes::from(expanded),
@@ -507,13 +581,14 @@ impl Interpreter<'_> {
     /// `Decision` below for why.
     fn soft_mask_for(
         &self,
+        arena: &fepdf_model::arena::PdfArena,
         dict: &BTreeMap<Handle<PdfName>, Object>,
         in_data: SoftMaskInData,
         in_data_mask: Option<bytes::Bytes>,
         width: u32,
         height: u32,
     ) -> PdfResult<Option<crate::SMaskData>> {
-        let smask_key = self.doc.arena().intern_name(PdfName::new("SMask"));
+        let smask_key = arena.intern_name(PdfName::new("SMask"));
         if in_data.expects_a_mask() && dict.contains_key(&smask_key) {
             // 8.9.5.2 says `/SMask` shall not be present when `/SMaskInData` is non-zero.
             // The one inside the data wins: the file put it there deliberately, and the
@@ -542,7 +617,7 @@ impl Interpreter<'_> {
             ));
             None
         } else if let Some(smask_obj) = dict.get(&smask_key) {
-            self.smask_from_stream(&smask_obj.resolve(self.doc.arena()))?
+            self.smask_from_stream(arena, &smask_obj.resolve(arena))?
         } else {
             None
         };
@@ -553,7 +628,11 @@ impl Interpreter<'_> {
     /// The mask a separate `/SMask` stream carries, decoded (8.9.5.4).
     ///
     /// Its dimensions are its own and need not match the image's: the backend scales it.
-    fn smask_from_stream(&self, stream: &Object) -> PdfResult<Option<crate::SMaskData>> {
+    fn smask_from_stream(
+        &self,
+        arena: &fepdf_model::arena::PdfArena,
+        stream: &Object,
+    ) -> PdfResult<Option<crate::SMaskData>> {
         let Object::Stream(dh, ref sd) = *stream else { return Ok(None) };
         let dict = self
             .doc
@@ -572,12 +651,12 @@ impl Interpreter<'_> {
             }));
         }
 
-        let bytes = self.doc.arena().get_stream_bytes(sd)?;
+        let bytes = arena.get_stream_bytes(sd)?;
         Ok(Some(crate::SMaskData {
-            data: self.doc.arena().process_filters(&bytes, &dict)?.to_vec(),
-            width: self.dimension(&dict, "Width"),
-            height: self.dimension(&dict, "Height"),
-            format: self.detect_pixel_format(&dict),
+            data: arena.process_filters(&bytes, &dict)?.to_vec(),
+            width: self.dimension(arena, &dict, "Width"),
+            height: self.dimension(arena, &dict, "Height"),
+            format: self.detect_pixel_format(arena, &dict),
         }))
     }
 
@@ -601,9 +680,10 @@ impl Interpreter<'_> {
     /// image.
     fn detect_pixel_format(
         &self,
+        arena: &fepdf_model::arena::PdfArena,
         dict: &BTreeMap<Handle<PdfName>, Object>,
     ) -> fepdf_model::graphics::PixelFormat {
-        pixel_format_of(self.doc.arena(), dict)
+        pixel_format_of(arena, dict)
     }
 
     /// The layout of an image, asking the codestream when the dictionary does not say.
@@ -614,10 +694,10 @@ impl Interpreter<'_> {
     /// — which is the order the clause gives, not a preference.
     fn image_layout(
         &self,
+        arena: &fepdf_model::arena::PdfArena,
         dict: &BTreeMap<Handle<PdfName>, Object>,
         encoded: &[u8],
     ) -> fepdf_model::graphics::PixelFormat {
-        let arena = self.doc.arena();
         if dict.contains_key(&arena.intern_name(PdfName::new("ColorSpace"))) {
             return pixel_format_of(arena, dict);
         }
@@ -627,6 +707,23 @@ impl Interpreter<'_> {
             return from_codestream;
         }
         pixel_format_of(arena, dict)
+    }
+}
+
+/// The abbreviated dictionary of an inline image written as `source`, `BI` through `EI`:
+/// what lies between `BI` and `ID`.
+fn inline_header(source: &[u8]) -> Option<&[u8]> {
+    let after_bi = source.strip_prefix(b"BI")?;
+    let mut lexer = fepdf_model::lexer::Lexer::new(bytes::Bytes::copy_from_slice(after_bi));
+    loop {
+        let before = lexer.pos();
+        match lexer.next_token().ok()? {
+            fepdf_model::lexer::Token::Keyword(ref k) if k == "ID" => {
+                return after_bi.get(..before);
+            }
+            fepdf_model::lexer::Token::EOF => return None,
+            _ => {}
+        }
     }
 }
 
