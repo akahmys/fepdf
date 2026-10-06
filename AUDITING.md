@@ -66,7 +66,7 @@ Execute the master audit script:
 ./scripts/audit/verify_compliance.sh
 ```
 
-**Thirty-two steps**, in the order the script runs them. Derive this list rather than
+**Thirty-four steps**, in the order the script runs them. Derive this list rather than
 maintaining it — and derive it from the lines that *are* steps:
 
 ```bash
@@ -86,37 +86,39 @@ brackets hold is not a class this file gets to choose, so it does not try to nam
 | | Step | Rule |
 | ---: | :--- | :--- |
 | 1 | Function line limits | 1 |
-| 2 | No `unwrap`/`expect` in production code | 2 |
-| 3 | No wildcard match arms over domain enums | 5 |
-| 4 | **Wildcard arms over a file's numeric value — counted; a stale exemption fails** | **20** |
-| 5 | No non-deterministic collections in core crates | 10 |
-| 6 | No `String`/`anyhow` errors in a `Result` | 11 |
-| 7 | No `filter_map(Result::ok)` | 13 |
-| 8 | **No `Result` discarded by `let _ =` without a reason** | **13** |
-| 9 | Test code separation — no standalone test file in `src/` | 14 |
-| 10 | Excessive cloning (warns; does not fail) | 15 |
-| 11 | `rust-version` is one version in every `Cargo.toml` and `README.md`; `rust-toolchain.toml` pins at or above it, and `rustc` runs what it pins | — |
-| 12 | The stated minimum builds the workspace (`msrv_build.sh`) | — |
-| 13 | `cargo check --workspace` | — |
-| 14 | `cargo clippy --workspace --all-targets -- -D warnings` | 4, 5 |
-| 15 | **No dependency that compiles C** | **9** |
-| 16 | **No unbounded recursion over a document's graph** | **6** |
-| 17 | **Document tense, links — relative ones, and intra-doc ones by `cargo doc` with warnings denied — and the ADR index** | **`AGENTS.md` 1, 2** |
-| 18 | **What stands above the facade, what it declares, and what the facade lets in** | **A, D** |
-| 19 | **Every icon codepoint resolves to a glyph that draws, and is written in one file** | **UI-1** |
-| 20 | **Colours are written in the palette; three exemptions, named** | **UI-9** |
-| 21 | **Spacing, type size and corner radius come from the declared scales** | **UI-11** |
-| 22 | **User-facing strings are locale keys: at a sink, and anywhere a literal reads as prose** | **UI-5** |
-| 23 | **Icon controls carry a name a screen reader can read** | **UI-2** |
-| 24 | **Every change to the document takes the one recorded path** | **UI-6** |
-| 25 | **The palette's contrast, against every surface a colour can meet** | **UI-8** |
-| 26 | **One visible door per feature, and no second one** | **UI-4, UI-12** |
-| 27 | **The accent names a selection and nothing else** | **UI-10** |
-| 28 | **Work the reader waits for says that it is happening** | **UI-7** |
-| 29 | **Each act names the view that answers it, in one table** | **UI-14** |
-| 30 | `cargo fmt --all --check` | 19 |
-| 31 | `cargo deny check licenses` | 16 |
-| 32 | `betterleaks dir .` | 18 |
+| 2 | Impl block line limits | 1 |
+| 3 | No `unwrap`/`expect` in production code | 2 |
+| 4 | No wildcard match arms over domain enums | 5 |
+| 5 | **Wildcard arms over a file's numeric value — counted; a stale exemption fails** | **20** |
+| 6 | No non-deterministic collections in core crates | 10 |
+| 7 | No `String`/`anyhow` errors in a `Result` | 11 |
+| 8 | No `filter_map(Result::ok)` | 13 |
+| 9 | **No `Result` discarded by `let _ =` without a reason** | **13** |
+| 10 | Test code separation — no standalone test file in `src/` | 14 |
+| 11 | Excessive cloning (warns; does not fail) | 15 |
+| 12 | `rust-version` is one version in every `Cargo.toml` and `README.md`; `rust-toolchain.toml` pins at or above it, and `rustc` runs what it pins | — |
+| 13 | The stated minimum builds the workspace (`msrv_build.sh`) | — |
+| 14 | `cargo check --workspace` | — |
+| 15 | `cargo clippy --workspace --all-targets -- -D warnings` | 4, 5 |
+| 16 | **No dependency that compiles C** | **9** |
+| 17 | **No unbounded recursion over a document's graph** | **6** |
+| 18 | **Document tense, links — relative ones, and intra-doc ones by `cargo doc` with warnings denied — and the ADR index** | **`AGENTS.md` 1, 2** |
+| 19 | **Every row `status.sh` labels "(expect 0)" reads 0** | **`AGENTS.md` 4** |
+| 20 | **What stands above the facade, what it declares, and what the facade lets in** | **A, D** |
+| 21 | **Every icon codepoint resolves to a glyph that draws, and is written in one file** | **UI-1** |
+| 22 | **Colours are written in the palette; three exemptions, named** | **UI-9** |
+| 23 | **Spacing, type size and corner radius come from the declared scales** | **UI-11** |
+| 24 | **User-facing strings are locale keys: at a sink, and anywhere a literal reads as prose** | **UI-5** |
+| 25 | **Icon controls carry a name a screen reader can read** | **UI-2** |
+| 26 | **Every change to the document takes the one recorded path** | **UI-6** |
+| 27 | **The palette's contrast, against every surface a colour can meet** | **UI-8** |
+| 28 | **One visible door per feature, and no second one** | **UI-4, UI-12** |
+| 29 | **The accent names a selection and nothing else** | **UI-10** |
+| 30 | **Work the reader waits for says that it is happening** | **UI-7** |
+| 31 | **Each act names the view that answers it, in one table** | **UI-14** |
+| 32 | `cargo fmt --all --check` | 19 |
+| 33 | `cargo deny check licenses` | 16 |
+| 34 | `betterleaks dir .` | 18 |
 
 **Rules 3 and 7 are not here and are not unenforced.** `unsafe_code = "forbid"` fails the
 build on an `unsafe` block, and a `static mut` cannot be read without one, so `rustc`
@@ -147,7 +149,7 @@ the number is there so a new one is visible.
 non-zero when an exemption names a site that no longer matches a silent arm, which reads
 as a check still being made and is not one. Only `status.sh` ran the tool until then, and
 `status.sh` reports rather than gates, so that exit code had never been read by anything.
-Proved by adding an exemption for a function that does not exist and watching step 4 fail.
+Proved by adding an exemption for a function that does not exist and watching the Rule 20 step fail.
 
 It reads **0**: the count
 went 11 → 8 on 2026-08-30, when three enumerants gained recording callers, and 8 → 0 on

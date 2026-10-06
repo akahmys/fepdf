@@ -3,6 +3,7 @@
 mod actions_test;
 mod actual_text_test;
 mod annotation_appearance_test;
+#[cfg(feature = "render")]
 mod annotation_drawing_test;
 mod arena_growth_test;
 mod arlington_test;
@@ -15,6 +16,7 @@ mod cjk_extraction_test;
 mod close_path_test;
 mod colour_space_test;
 mod combine_pages_test;
+#[cfg(feature = "render")]
 mod compare_test;
 mod compliance_clauses_test;
 mod conform_test;
@@ -27,6 +29,7 @@ mod declaration_test;
 mod decoration_placement_test;
 mod direct_font_test;
 mod edit_run_test;
+#[cfg(feature = "render")]
 mod edit_xobject_test;
 mod encrypted_objstm_test;
 mod extract_pages_test;
@@ -64,8 +67,8 @@ mod page_decoration_test;
 mod page_selection_test;
 mod parser_twin_test;
 mod pattern_color_test;
-#[cfg(feature = "render")]
 mod procset_test;
+#[cfg(feature = "render")]
 mod rasteriser_determinism_test;
 mod reading_aloud_test;
 mod redaction_annot_test;
@@ -76,7 +79,9 @@ mod redaction_image_test;
 mod redaction_path_test;
 mod redaction_structure_test;
 mod redaction_test;
+#[cfg(feature = "render")]
 mod render_region_test;
+#[cfg(feature = "render")]
 mod rendering_mode_test;
 mod resize_pages_test;
 mod run_position_test;
@@ -93,6 +98,7 @@ mod structure_boxes_test;
 mod structure_language_test;
 mod structure_move_test;
 mod structure_tree_test;
+#[cfg(feature = "render")]
 mod text_layer_test;
 mod text_string_encoding_test;
 mod transparency_test;

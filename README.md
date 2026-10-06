@@ -157,10 +157,10 @@ Table 224's 8
 ([ADR-0020](docs/adr/0020-a-modelled-entry-reports-how-much-of-its-own-table-it-reads.md)).
 
 `inspect coverage` puts a number on the whole thing across a corpus — the share of the
-constructs your files actually contain whose *contents* the engine reads. Over the nine
-samples and 515 external files it is 88% — re-derived 2026-08-22, and the same figure it
-was over 251 files, which is worth knowing: doubling the corpus moved the denominator
-(254 constructs to 272) without moving the ratio. It is a proxy and
+constructs your files actually contain whose *contents* the engine reads. Over the ten
+samples and 515 external files it is 92%, 257 of 279 constructs (re-derived 2026-10-06).
+It read 88% on 2026-08-22 over nine samples, and the same over 251 files before that:
+doubling the corpus moved the denominator without moving the ratio. It is a proxy and
 [ADR-0019](docs/adr/0019-semantic-understanding-is-measured-against-what-a-corpus-presents.md)
 says what it is not.
 

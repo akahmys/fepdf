@@ -259,8 +259,8 @@ impl FontResource {
     /// **No caller, deliberately.** The refinement pass used to inject the result into
     /// every `Type0` font that lacked a `/ToUnicode`, and that destroyed text: under
     /// `Identity-H` the content stream's codes are CIDs, and glyph ids equal CIDs only
-    /// for a `CIDFontType2` written with `CIDToGIDMap /Identity`. See
-    /// `refine/font.rs::normalize_type0_font` for the measurement that removed it.
+    /// for a `CIDFontType2` written with `CIDToGIDMap /Identity`. Commit `a7599e8` has
+    /// the measurement that removed it; `refine::font` itself went with ROADMAP Y-F15.
     ///
     /// Kept because that narrow case is real. Calling this again needs a file proving
     /// it, and a check that the descendant is a `CIDFontType2` with an identity map.

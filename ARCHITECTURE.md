@@ -185,11 +185,11 @@ Every document mutation is a value of one type, defined in `fepdf-doc` and re-ex
 through the facade. Frontends construct it; only `fepdf-doc` interprets it.
 
 ```
-   fepdf-cli    argv          ─┐      8 of 31 variants
-   fepdf-gui    button press  ─┤     13 of 31
+   fepdf-cli    argv          ─┐
+   fepdf-gui    button press  ─┤
    fepdf-mcp    tool call     ─┼─►  Operation  ─►  fepdf-doc::apply
    fepdf-wasm   —             ─┘     (a value)      (the only implementation)
-                                     31 variants      and the only way in
+                                                      and the only way in
 ```
 
 ```rust
@@ -249,10 +249,11 @@ pub enum RotateMode {
 ```
 
 **The listing above is derived from the enum, not written beside it**
-([ADR-0080](docs/adr/0080-a-design-document-does-not-carry-a-number-that-moves.md)):
-`./scripts/dev/status.sh` counts the variants and checks the count this section states
-against them, because a list written before the code and never re-read against it named
-nine variants that did not exist.
+([ADR-0080](docs/adr/0080-a-design-document-does-not-carry-a-number-that-moves.md)),
+because a list written before the code and never re-read against it named nine variants
+that did not exist. How many variants there are, and how many each frontend constructs,
+are `./scripts/dev/status.sh`'s `operations …` rows, and this section states none of
+them.
 
 ```bash
 sed -n '/^pub enum Operation {/,/^}/p' crates/fepdf-doc/src/operation.rs | grep -oE '^    [A-Z][A-Za-z]*'
@@ -406,14 +407,9 @@ of the standard, it records why, at the point of decision, with the clause. A si
 acceptance is a defect even when the output is right, because the next reader of the
 code cannot tell a deliberate choice from an oversight.
 
-**Current coverage is 107 sites**, up from one, re-derived 2026-09-07: `reader.rs` 19,
-`refine/color.rs` 12, `font/mod.rs` 10, `interpreter/ops/xobject.rs` 8, `fepdf/lib.rs` 6,
-`interpretation.rs` 6, `document.rs` 6, `decrypt.rs` 6, `interpreter/ops/color.rs` 5,
-`object/sublimation/parser.rs` 4, `interpreter/mod.rs` 4, `optional_content.rs` 3,
-`remediation.rs` 2, `metadata.rs` 2, `locale.rs` 2, `interpreter/ops/marked.rs` 2,
-`ingest/mod.rs` 2, `apply/appearance.rs` 2, and one each in `worker.rs`,
-`fepdf-render/text.rs`, `refine/mod.rs` and `interpreter/ops/text.rs`.
-
+**How many sites there are is `./scripts/dev/status.sh`'s `Decision sites in the engine`
+row**, and this section does not state it
+([ADR-0080](docs/adr/0080-a-design-document-does-not-carry-a-number-that-moves.md)).
 Derive it with:
 
 ```bash
@@ -421,21 +417,15 @@ grep -rn "Decision::violation(\|Decision::ambiguity(\|Decision::repaired(" \
     crates/*/src --include='*.rs' | wc -l
 ```
 
-**The row that counts them named five crates, and `fepdf-render` was not one.** So when
-the renderer learnt to report a glyph whose outline would not build and a font that never
-reached its cache, `status.sh` read 82 where the truth was 84 — the miss the row's own
-comment had predicted, and the third time this figure has been wrong for the same reason.
-It derives from the workspace now, reusing the partition the log row above was given in
-Phase Q, so the two rows are complements and a new crate lands in both by construction.
+The row takes its crates from the workspace, as the log row above does, so the two are
+complements and a new crate is counted by both.
 
 **A site is not a firing, and which sites can fire depends on the command.** Over the
-251 files both corpora then held — 524 now, and this paragraph has not been re-derived
-against the larger set — `inspect structure` reports 11 decisions in total, from five
-clauses and all of them the reader's: 7.5.4 four, 7.5.8 four, and one each of 7.3.8.2,
-7.5.2 and 7.5.7. `inspect info` adds a twelfth on one file — a page tree whose root the
-file does not contain (7.7.3.2), which `find_all_pages` used to drop in silence. The font, decryption and colour sites contribute nothing to that
-figure, because inspecting the structure does not run those paths — not because they
-are dead. `isartor-6-3-2-t01-fail-b.pdf` makes the difference visible: `inspect
+525 files of both corpora, `inspect structure` reports 16 decisions in total (measured
+2026-10-06), from five clauses and all of them the reader's: 7.5.4, 7.5.7 and 7.5.8 four
+each, and 7.3.8.2 and 7.5.2 two each. The font, decryption and colour sites contribute
+nothing to that figure, because inspecting the structure does not run those paths — not
+because they are dead. `isartor-6-3-2-t01-fail-b.pdf` makes the difference visible: `inspect
 structure` reports no decision on it, and `inspect text` on the same file reports a
 `Violation` of 9.9, a font program in no recognised format, skipped for a system font.
 So `is_conforming` answers "no departure **in what has been examined**", and the log is
@@ -444,10 +434,10 @@ rather than an accident of which command was run: the log is behind a lock, a pa
 interpreted can add to it, and `inspect text` prints what reading decided before the
 text and what interpreting decided after it (ADR-0018).
 
-**Three `log::warn!`/`log::error!` sites remain in the engine, and all three are
-deliberate.** They report properties of the *host*: which fonts this machine has
-(`fepdf-model/src/font/mod.rs`), the GPU failing to initialise so the CPU renderer takes
-over, and a system fallback font that would not load from its path.
+**Two `log::warn!`/`log::error!` sites remain in the engine, and both are deliberate.**
+They report properties of the *host*: which fonts this machine has
+(`fepdf-model/src/font/gid_resolution.rs`), and the GPU failing to initialise so the CPU
+renderer takes over. `status.sh` counts them.
 
 **A log site is a `Decision` when it is a conclusion about the document, and only then.**
 Thirteen candidates were measured against the nine conforming samples before any was
@@ -471,8 +461,9 @@ departures and `is_conforming` returned `false` for a clean file
 The same rule governs settling `/Info` against the metadata stream (§4.4). Moving an entry
 14.3.3 deprecates is not non-conformance and loses nothing, so it records nothing; the
 *disagreement* between the two places does lose something, so it records an `Ambiguity`.
-Eight of the nine samples therefore record nothing here and `samples/fy05.pdf` records one.
-`metadata.rs` holds a test asserting exactly that.
+Eight of the ten samples therefore record nothing here, and `samples/fy05.pdf` and
+`samples/02_低段汚水ポンプ電動機.pdf` record one each (measured 2026-10-06). `metadata.rs`
+holds a test of both cases.
 
 When adding a decision point, check it against a conforming file as well as a broken
 one. `./scripts/dev/status.sh` re-derives the site count above, so a figure that has

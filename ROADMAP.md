@@ -892,8 +892,32 @@ it can be run there.
       wrong modules, "Annotations (12.5)" over `access`. They go where they broke a link.
       The rest are links renamed (`ContentFit` is `ContentScale`), private, or not links,
       and the CLI's binary no longer documents over the facade's `fepdf`.
-      `verify_compliance.sh` step 17 runs `cargo doc` with warnings denied and fails on
+      `verify_compliance.sh`'s `[Docs]` step runs `cargo doc` with warnings denied and fails on
       any warning, shown to fire by an unresolved link put back.
+- [x] **Y-F36** — **what the inspection of 2026-10-06 found**, each measured and fixed:
+      - `fepdf-audit` declared three dependencies nothing in it names, copied from
+        `fepdf-doc` when it split out (ADR-0112). `status.sh` read 3 against "expect 0"
+        and no gate read it: **six of its "(expect 0)" rows were in no gate**. The audit
+        reads them all from `status.sh` now and fails on any that is not 0, shown by
+        putting one dependency back.
+      - `cargo test -p fepdf` did not compile without `render`, which its manifest says
+        it does: the `#[cfg]` meant for the rasteriser test sat on `procset_test`, which
+        needs no GPU and so never ran in a package-only run, and six more test modules
+        and an example used the renderer ungated. 623 tests pass without `render` now.
+      - ARCHITECTURE stated figures that had moved: 31 operations against 54, 107
+        decision sites against 113, three engine log sites against two (the one named
+        at a file it left in Y-7), and a corpus paragraph that said itself it had not
+        been re-derived. The counts give way to `status.sh`'s rows (ADR-0080), and the
+        corpus figures are measured again. It also said `status.sh` checks the
+        operation count it states; nothing did.
+      - README's coverage read 88% over nine samples; it is 92%, 257 of 279 constructs.
+      - AUDITING said thirty-two steps while its own derivation counted thirty-three:
+        the impl-block length step was missing from the table.
+      - A doc comment pointed at `refine/font.rs`, which Y-F15 removed, and a recorder
+        method no test called was removed.
+      Not fixed, for the owner: the palette's redaction brush command is a second door
+      to the brush the drawer now takes up (UI-12), and `fepdf-wasm`'s
+      `wasm32-unknown-unknown` build is unverified here, the target not being installed.
 - [ ] **Y-F9** — reading aloud on Windows hands PowerShell the words on standard input
       and reads them with `[Console]::In`, whose encoding is the console's code page, not
       UTF-8; nothing sets it, so Japanese may arrive garbled (`speech.rs`). Unverified: no

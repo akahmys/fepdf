@@ -433,6 +433,23 @@ doc_out=$(RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps -q 2>&1) \
 # `status.sh` measured both of these and nothing gated on either, so a frontend gained a
 # dependency on another crate above the facade and this file said AUDIT PASSED anyway
 # (ADR-0082).
+# `status.sh` labels a row "(expect 0)" when anything else is a defect, and six of those
+# rows were in no gate: on 2026-10-06 "dependencies nothing references" read 3, the three
+# a new crate copied from the one it split from, and the audit passed. The rows are read
+# from `status.sh` itself, so the measurement has one home (AGENTS.md 1 and 4).
+echo "[Status] Checking the rows status.sh expects to read 0..."
+expected=$(./scripts/dev/status.sh 2>/dev/null | sed $'s/\x1b\\[[0-9;]*m//g' | grep "(expect 0)")
+if [ -z "$expected" ]; then
+    echo "  FAIL: status.sh printed no row expecting 0"; ERROR=1
+else
+    off=$(printf '%s\n' "$expected" | awk -F'[(]expect 0[)]' '{split($2, v, " "); if (v[1] != "0" && v[1] != "none") print}')
+    if [ -n "$off" ]; then
+        printf '%s\n' "$off"; echo "  FAIL: a row status.sh expects to read 0 does not"; ERROR=1
+    else
+        echo "  PASS ($(printf '%s\n' "$expected" | wc -l | tr -d ' ') rows)"
+    fi
+fi
+
 echo "[Rules A, D] Checking the facade's boundary in both directions..."
 python3 scripts/audit/layering.py || { echo "  FAIL: layering.py said so above"; ERROR=1; }
 

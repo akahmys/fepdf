@@ -73,6 +73,10 @@ path = "tests/suite/main.rs"
 # `cargo clippy --workspace --all-targets` passed: feature unification turns `render` on
 # when another member asks for it, and the audit only ever runs the workspace form.
 [[example]]
+name = "compare_probe"
+required-features = ["render"]
+
+[[example]]
 name = "page_quadrants"
 required-features = ["render"]
 
