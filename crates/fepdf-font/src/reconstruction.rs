@@ -1241,3 +1241,50 @@ mod charstring_number_tests {
         }
     }
 }
+
+#[cfg(test)]
+mod type1_subroutine_fan_out_tests {
+    use super::FontReconstructor;
+    use std::sync::mpsc;
+    use std::time::Duration;
+
+    /// Encrypts a charstring the way 7.2 of the Type 1 specification does, with `len_iv`
+    /// leading zero bytes, so that `decrypt_charstring` gives `plain` back.
+    fn encrypt_charstring(plain: &[u8], len_iv: usize) -> Vec<u8> {
+        let mut r: u16 = 4330;
+        let mut out = Vec::with_capacity(len_iv + plain.len());
+        for &p in std::iter::repeat_n(&0u8, len_iv).chain(plain) {
+            let c = p ^ (r >> 8) as u8;
+            r = u16::from(c).wrapping_add(r).wrapping_mul(52845).wrapping_add(22719);
+            out.push(c);
+        }
+        out
+    }
+
+    /// A subroutine that calls itself sixteen times finishes converting.
+    ///
+    /// The depth cap of 10 bounds how deep the calls go and not how many there are: a
+    /// subroutine making k calls of its own costs k^10. Measured 2026-10-07 in a debug
+    /// build, k = 5 took 2.3 s, 6 took 15.5 s and 7 took 79 s; at 16 it does not finish.
+    /// It is reached through `perform_reconstruction` by a `/FontFile` holding a PFB
+    /// program, which a hostile file can embed; a conforming PFA-style program fails
+    /// `parse_pfb` before any charstring is converted (ROADMAP Z-2). PrintCraft found the
+    /// same shape in Type 3 glyphs that show themselves.
+    #[test]
+    fn a_subroutine_that_calls_itself_many_times_finishes() {
+        // `0 callsubr` sixteen times: 139 is the operand 0, 10 is callsubr.
+        let subr: Vec<u8> = std::iter::repeat_n([139u8, 10], 16).flatten().collect();
+        let subrs = vec![encrypt_charstring(&subr, 4)];
+        let glyph = encrypt_charstring(&[139, 10, 14], 4);
+
+        let (done, finished) = mpsc::channel();
+        std::thread::spawn(move || {
+            let converted = FontReconstructor::convert_t1_to_t2(&glyph, &subrs, 4);
+            let _ = done.send(converted);
+        });
+        let converted = finished
+            .recv_timeout(Duration::from_secs(10))
+            .expect("a self-calling subroutine is still converting after 10 s");
+        assert_eq!(converted.last(), Some(&14), "the glyph still ends with endchar");
+    }
+}

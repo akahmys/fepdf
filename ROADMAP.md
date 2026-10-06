@@ -1675,9 +1675,22 @@ before it is decided; Z-4 when convenient; Z-5 with the next GUI defect.
       **The first lead found a hang, 2026-10-07.** `reconstruction/type1.rs` caps
       subroutine depth at 10 and not the number of calls, so a subroutine calling itself
       k times costs k^10: in a debug build, k = 5 took 2.3 s, 6 took 15.5 s, 7 took 79 s.
-      It is reached from every embedded Type 1 font, through `perform_reconstruction`.
-      `type1_subroutine_fan_out_tests` holds k = 16 to 10 s and fails.
-      *Fix*: a budget on the calls a glyph makes, not only on their depth.
+      It is reached through `perform_reconstruction` by a `/FontFile` holding a PFB
+      program (`0x80` segment headers), which a hostile file can embed.
+      **Bounded, 2026-10-07**: a glyph may decrypt 1 MiB of subroutines in all
+      (`SUBROUTINE_BUDGET`), and stops converting where it reaches that, as it does past
+      the depth cap. `type1_subroutine_fan_out_tests` holds k = 16 to 10 s; it failed
+      before the budget and passes in milliseconds with it. No output moved
+      (`golden_outputs.sh`), and none could: no sample and no external file reaches the
+      conversion, for the reason below.
+- [ ] **Z-2a** — **a conforming embedded Type 1 program is never converted.** `/FontFile`
+      holds the clear-text and binary portions back to back, as `/Length1` and `/Length2`
+      give them (9.9). `parse_pfb` reads only PFB segments, so a PFA-style program fails
+      "no valid segments found" and `transcode_type1_to_cff` returns before its
+      charstrings. Measured 2026-10-07 on the seven external files with a Type 1
+      `/FontFile`, all Isartor: the format is detected as `Type1Pfa` and no glyph is
+      converted. *Done when* a PFA-style program is split by `/Length1` and `/Length2`
+      and its glyphs convert, and a test holds one.
 - [ ] **Z-3** — **Rule 2 held by clippy.** `verify_compliance.sh` greps for `.unwrap(` and
       `.expect(`, and does not see `panic!`, `unreachable!` or `todo!` (56 in `src/`,
       tests not yet separated out) or a slice index past the end. `clippy::unwrap_used`,

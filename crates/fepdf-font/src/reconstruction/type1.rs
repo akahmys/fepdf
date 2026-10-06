@@ -306,10 +306,22 @@ impl FontReconstructor {
         Ok(Type1Data { charstrings, subrs, len_iv })
     }
 
+    /// How many subroutine bytes one glyph may decrypt and convert, summed over every
+    /// `callsubr` it makes, however deep.
+    ///
+    /// The depth cap in `convert_recursive` bounds how deep calls go and not how many there
+    /// are, so a subroutine calling itself k times cost k^10: at k = 7, 79 s in a debug
+    /// build (ROADMAP Z-2). A real glyph's calls are hint replacement and flex, a few
+    /// hundred bytes in all; 1 MiB is three orders of magnitude above that and converts in
+    /// milliseconds. A glyph that reaches it stops converting where it is, as one past the
+    /// depth cap does.
+    pub(super) const SUBROUTINE_BUDGET: usize = 1 << 20;
+
     pub(super) fn convert_t1_to_t2(t1_bytes: &[u8], subrs: &[Vec<u8>], len_iv: usize) -> Vec<u8> {
         let mut t2_bytes = Vec::new();
         let mut stack = Vec::new();
         let mut width_written = false;
+        let mut budget = Self::SUBROUTINE_BUDGET;
 
         let decrypted = Self::decrypt_charstring(t1_bytes, len_iv);
 
@@ -320,6 +332,7 @@ impl FontReconstructor {
             &mut t2_bytes,
             &mut stack,
             &mut width_written,
+            &mut budget,
             0,
         );
 
@@ -400,13 +413,16 @@ impl FontReconstructor {
         t2_bytes: &mut Vec<u8>,
         stack: &mut Vec<i32>,
         width_written: &mut bool,
+        budget: &mut usize,
         depth: usize,
     ) {
         if let Some(idx) = stack.pop()
             && idx >= 0
-            && (idx as usize) < subrs.len()
+            && let Some(subr) = subrs.get(idx as usize)
+            && let Some(left) = budget.checked_sub(subr.len())
         {
-            let decrypted = Self::decrypt_charstring(&subrs[idx as usize], len_iv);
+            *budget = left;
+            let decrypted = Self::decrypt_charstring(subr, len_iv);
             Self::convert_recursive(
                 &decrypted,
                 subrs,
@@ -414,6 +430,7 @@ impl FontReconstructor {
                 t2_bytes,
                 stack,
                 width_written,
+                budget,
                 depth + 1,
             );
         }
@@ -442,6 +459,7 @@ impl FontReconstructor {
         t2_bytes: &mut Vec<u8>,
         stack: &mut Vec<i32>,
         width_written: &mut bool,
+        budget: &mut usize,
         depth: usize,
         i_ref: &mut usize,
         t1_bytes: &[u8],
@@ -454,7 +472,7 @@ impl FontReconstructor {
                 stack.clear();
             }
             10 => {
-                Self::handle_callsubr(subrs, len_iv, t2_bytes, stack, width_written, depth);
+                Self::handle_callsubr(subrs, len_iv, t2_bytes, stack, width_written, budget, depth);
             }
             11 => {
                 return true;
@@ -479,6 +497,7 @@ impl FontReconstructor {
         false
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub(super) fn convert_recursive(
         t1_bytes: &[u8],
         subrs: &[Vec<u8>],
@@ -486,6 +505,7 @@ impl FontReconstructor {
         t2_bytes: &mut Vec<u8>,
         stack: &mut Vec<i32>,
         width_written: &mut bool,
+        budget: &mut usize,
         depth: usize,
     ) {
         if depth > 10 {
@@ -508,6 +528,7 @@ impl FontReconstructor {
                     t2_bytes,
                     stack,
                     width_written,
+                    budget,
                     depth,
                     &mut i,
                     t1_bytes,
