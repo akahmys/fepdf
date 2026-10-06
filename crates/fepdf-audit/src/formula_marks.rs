@@ -40,7 +40,7 @@ impl<'a> Tree<'a> {
     pub(crate) fn of(doc: &'a Document) -> Option<Self> {
         let arena = doc.arena();
         let root = doc.get_structure_root().ok().flatten()?;
-        let arrays = crate::parent_tree::array_entries(arena, root);
+        let arrays = fepdf_doc::parent_tree::array_entries(arena, root);
         let roles = crate::audit_tree::role_map(arena, root);
         Some(Self { arena, arrays, roles })
     }

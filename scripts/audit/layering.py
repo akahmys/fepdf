@@ -22,10 +22,10 @@ Two counts, both expecting 0:
   `crates/fepdf/src/lib.rs` until ROADMAP Y-5 moved them beside the cloner, which is the
   shape that let them carry their own copies of a page tree.
 
-Rule E is a fifth, also expecting 0: **an operation does not reach into an audit.**
-`fepdf-doc/src/apply/` changes documents and the audit modules judge them; an operation
-that imported a helper from an audit module tied what a document may become to what the
-audit happens to read ([ADR-0107](../../docs/adr/0107-an-operation-does-not-reach-into-an-audit.md)).
+Rule E, **an operation does not reach into an audit**, is not counted here. This counted
+the lines of `fepdf-doc/src/apply/` naming an audit module; the audit is `fepdf-audit` now,
+a crate above `fepdf-doc`, so such a line does not compile and the dependency back is a
+cycle cargo refuses ([ADR-0107](../../docs/adr/0107-an-operation-does-not-reach-into-an-audit.md)).
 
 Rule D adds a fourth, also expecting 0: **a document is changed by `apply` and nothing
 else.** `CODING.md` called that "enforced by construction" for four phases while the facade
@@ -145,26 +145,6 @@ def facade_arenas() -> list[str]:
     return out
 
 
-# The modules of `fepdf-doc` that judge a document rather than change it. A module is
-# named here when it is an audit; one that is not, and that an operation needs, is moved
-# out of this list's reach rather than added to an exception.
-AUDIT_MODULES = re.compile(
-    r"crate::(audit_[a-z_]+|matterhorn|glyph_map|glyph_select|glyph_widths|unicode_map"
-    r"|formula_marks|page_languages)\b"
-)
-OPERATIONS = ROOT / "crates" / "fepdf-doc" / "src" / "apply"
-
-
-def operations_reaching_audits() -> list[str]:
-    """Lines of `fepdf-doc`'s operations that name an audit module."""
-    out = []
-    for file in sorted(OPERATIONS.rglob("*.rs")):
-        for number, line in enumerate(file.read_text(errors="ignore").splitlines(), 1):
-            if AUDIT_MODULES.search(line):
-                out.append(f"  {file.relative_to(ROOT)}:{number} reaches an audit module")
-    return out
-
-
 def facade_mutators() -> list[str]:
     """`&mut self` methods on the facade that are neither `apply` nor a save setting.
 
@@ -196,12 +176,12 @@ def main() -> int:
         return 1
 
     strays, leaks, mutators = stray_declarations(), arena_leaks(), facade_mutators()
-    arenas, audits = facade_arenas(), operations_reaching_audits()
+    arenas = facade_arenas()
     print(
         f"declarations={len(strays)} leaks={len(leaks)} mutators={len(mutators)} "
-        f"arenas={len(arenas)} audits={len(audits)}"
+        f"arenas={len(arenas)}"
     )
-    for line in strays + leaks + mutators + arenas + audits:
+    for line in strays + leaks + mutators + arenas:
         print(line)
     if strays or leaks:
         print("Rule A: a frontend declares the facade, and a library that stands above it")
@@ -209,9 +189,7 @@ def main() -> int:
         print("Rule A: the facade holds a document; fepdf-doc makes new ones")
     if mutators:
         print("Rule D: a document is changed by `apply` and nothing else")
-    if audits:
-        print("Rule E: an operation does not reach into an audit")
-    if strays or leaks or mutators or arenas or audits:
+    if strays or leaks or mutators or arenas:
         return 1
     print("  PASS")
     return 0

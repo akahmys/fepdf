@@ -267,7 +267,7 @@ fn cells_of(
         };
         waiting.extend(
             kids.iter()
-                .filter_map(|kid| crate::struct_tree::resolve_to_node_handle(kid))
+                .filter_map(|kid| fepdf_doc::struct_tree::resolve_to_node_handle(kid))
                 .map(|kid| (kid, depth + 1)),
         );
     }
@@ -374,7 +374,7 @@ fn element_kids(arena: &PdfArena, element: Handle<Object>) -> Vec<Handle<Object>
         None => Vec::new(),
     };
     kids.iter()
-        .filter_map(|kid| crate::struct_tree::resolve_to_node_handle(kid))
+        .filter_map(|kid| fepdf_doc::struct_tree::resolve_to_node_handle(kid))
         .filter(|kid| tag_of(arena, *kid).is_some())
         .collect()
 }

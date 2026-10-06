@@ -32,7 +32,7 @@ pub fn apply_mark_artifact(
         PdfError::refused("MarkArtifact", format!("page {} draws nothing", page + 1))
     })?;
     let mut commands: Vec<Command> = match content {
-        Content::Shared(_) => content.iter().cloned().collect(),
+        Content::Shared(_) => content.commands().cloned().collect(),
         Content::Parsed(commands) => commands,
     };
     let carried = |props: Option<&IrObject>| mcid_of(arena, props, &properties);

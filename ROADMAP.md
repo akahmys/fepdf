@@ -798,7 +798,8 @@ their places; this is the order they are taken in.
 5. **The reporting.** Y-F16, Y-F17 and Y-F8.
 6. **The documents.** Y-F26 last, with `ARCHITECTURE.md` §3's "an order of magnitude",
    which `fepdf-model` at 32,989 lines against `fepdf-gui`'s 22,211 is not; and whether
-   `fepdf-doc` splits, below.
+   `fepdf-doc` splits, below. The claim reads as the sizes are, and the audit is its own
+   crate (2026-10-06).
 
 Y-F9 and Y-F10 are held: each is about a platform this machine is not, and is taken when
 it can be run there.
@@ -1547,9 +1548,10 @@ it can be run there.
       `Document::redaction_until_y10`, until Y-10's first part made redaction
       `Operation::Redact` and took both routes and the name out, 2026-10-03.
 
-**Open**: `fepdf-doc` is 18,187 lines and holds operations, auditing, measurement and
-reading order. Whether it splits is not decided here. The Y-1d reading will show whether
-there is a reason to.
+**Decided 2026-10-06**: the audit splits out of `fepdf-doc` into `fepdf-audit`, a crate
+above it, and Rule E is held by cargo
+([ADR-0112](docs/adr/0112-the-audit-is-a-crate-above-the-operations.md)). Reading order,
+measurement and remediation stay.
 
 ---
 

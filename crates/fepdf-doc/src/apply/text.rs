@@ -199,10 +199,10 @@ pub(crate) fn page_content(doc: &Document, page: usize) -> PdfResult<Option<byte
 /// stream, or parsed here where a stream holds bytes.
 ///
 /// **Not serialised and parsed again, and not copied.** Ingestion keeps a content stream as
-/// the commands it parsed, and [`page_content`] writes them back out as bytes for a caller
+/// the commands it parsed, and `page_content` writes them back out as bytes for a caller
 /// to parse — which the audit did for every page, twice, and for every form each time it
 /// was drawn: most of its time on `intel_sdm.pdf`.
-pub(crate) enum Content {
+pub enum Content {
     /// The streams' own commands, as the document holds them.
     Shared(Vec<Arc<fepdf_model::object::SublimatedData>>),
     /// Commands parsed from bytes.
@@ -211,7 +211,7 @@ pub(crate) enum Content {
 
 impl Content {
     /// The commands, in order.
-    pub(crate) fn iter(
+    pub fn commands(
         &self,
     ) -> Box<dyn Iterator<Item = &fepdf_model::object::sublimation::Command> + '_> {
         match self {
@@ -230,7 +230,7 @@ impl Content {
 
     /// One stream's content: its commands, when ingestion parsed it, or its bytes parsed with
     /// `fonts`.
-    pub(crate) fn of_stream(
+    pub fn of_stream(
         doc: &Document,
         stream: &Object,
         fonts: &BTreeMap<String, Arc<FontResource>>,
@@ -248,9 +248,11 @@ impl Content {
 }
 
 /// The page's content as commands, through [`Content`]; nothing when it has no
-/// `/Contents`. Where any stream holds bytes the whole is decoded and parsed with the
-/// page's `fonts`, since an operator's operands may end one stream and it the next.
-pub(crate) fn page_commands(
+/// `/Contents`.
+///
+/// Where any stream holds bytes the whole is decoded and parsed with the page's `fonts`,
+/// since an operator's operands may end one stream and it the next.
+pub fn page_commands(
     doc: &Document,
     page: usize,
     fonts: &BTreeMap<String, Arc<FontResource>>,

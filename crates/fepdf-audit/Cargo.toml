@@ -1,0 +1,26 @@
+[package]
+name = "fepdf-audit"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+# ARCHITECTURE.md §3: judges a document against the Matterhorn Protocol and changes
+# nothing. It stands above `fepdf-doc`, whose readers it uses, so an operation cannot reach
+# into an audit: cargo refuses the cycle (Rule E, ADR-0107).
+[dependencies]
+fepdf-model.workspace = true
+fepdf-content.workspace = true
+fepdf-font.workspace = true
+fepdf-doc.workspace = true
+kurbo.workspace = true
+serde.workspace = true
+bytes.workspace = true
+
+[lints]
+workspace = true
+
+[dev-dependencies]
+fepdf-fixtures.workspace = true

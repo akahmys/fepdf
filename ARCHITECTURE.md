@@ -35,11 +35,17 @@ read and write live together, **D** frontends translate and never decide — are
 │  fepdf            Public facade: Document, Page, SaveOptions        │
 └─────────────────────────┬───────────────────────────────────────────┘
           ┌───────────────┼───────────────────┐
-          ▼               ▼                   ▼
+          ▼               │                   │
+   ┌────────────┐         │                   │
+   │ fepdf-audit│         │                   │
+   │ Matterhorn │         │                   │
+   │ judges only│         │                   │
+   └─────┬──────┘         │                   │
+         ▼                ▼                   ▼
    ┌────────────┐  ┌──────────────┐   ┌────────────────┐
    │ fepdf-doc  │  │ fepdf-content│   │  fepdf-render  │
    │ operations │  │ interpreter  │   │  Vello / wgpu  │
-   │ conformance│  │ + Backend    │◄──┤  implements    │
+   │ reading    │  │ + Backend    │◄──┤  implements    │
    │ remediation│  │   contract   │   │  Backend       │
    └─────┬──────┘  └──────┬───────┘   └────────────────┘
          │                │                  ▲
@@ -62,7 +68,9 @@ read and write live together, **D** frontends translate and never decide — are
 
 Dependencies flow strictly downward. `fepdf-render` is the one arrow that points *up*
 into `fepdf-content`, because it implements a contract defined there — that is Rule B
-working as intended, not a cycle.
+working as intended, not a cycle. The facade reaches `fepdf-doc` directly as well, for the
+operations; `fepdf-audit` stands between the two only in that it reads what `fepdf-doc`
+reads, and nothing in `fepdf-doc` can name it (Rule E).
 
 ---
 
@@ -135,9 +143,9 @@ for c in crates/*/; do
 done
 ```
 
-The weights worth knowing do not move: `fepdf-model` is the bulk of the engine by an order
-of magnitude and holds the document graph, the reader and the writer; `fepdf-gui` is the
-largest frontend; `fepdf-wasm` and `fepdf-macros` are thin enough to read in a sitting.
+The weights worth knowing do not move: `fepdf-model` is the largest crate and holds the
+document graph, the reader and the writer; `fepdf-doc`, the operations, and `fepdf-gui`,
+the largest frontend, come after it; `fepdf-wasm` and `fepdf-macros` are thin enough to read in a sitting.
 `fepdf-model` and `fepdf-content` are where Phase P landed — the function evaluator (7.10),
 the colour-space resolver (8.6) and the mesh decoder (8.7.4.5.5 to 8.7.4.5.8) in the
 first's `src/function/`, `src/color/space.rs` and `src/graphics/mesh.rs`, and the
@@ -149,7 +157,8 @@ interpreter changes that reach them in the second.
 | **`fepdf-font`** | ✅ (Audited ✅) | Font *programs*: CFF, TrueType, CMap, Adobe Glyph List, subset tags, reconstruction. Hardened against W/W2 out-of-bounds, CMap underflows (`e_val >= s_val`), and CID byte truncations. |
 | **`fepdf-model`** | ✅ | The document graph: `PdfArena`, `Handle<T>`, `Object`, page tree, metadata — and, since Phase A, the reader (7.5) and `writer.rs`. Hardened with pool overflow guards, cyclic `resolve` limits (`64`), and safe `Null` reference fallbacks. |
 | **`fepdf-content`** | ✅ | Content-stream interpreter, and the **`RenderBackend` contract** it drives (`TextGlyph`, `TextState`, `SMaskData`, path geometry). No GPU dependency. |
-| **`fepdf-doc`** | ✅ | Owns the **`Operation` vocabulary** (§4.1) and is its only interpreter (`apply/`). Builds the documents the facade hands back new — merged, extracted, or copied for a save (`assembly`, beside the `cloning` it uses) — and forgets what a removed page leaves named (`page_removal`). Holds the structure tree and its parent tree, the Matterhorn audits (`audit_*`, `matterhorn`, `structure`), remediation, reading order, measurement, and the two GPU-free `RenderBackend`s. |
+| **`fepdf-doc`** | ✅ | Owns the **`Operation` vocabulary** (§4.1) and is its only interpreter (`apply/`). Builds the documents the facade hands back new — merged, extracted, or copied for a save (`assembly`, beside the `cloning` it uses) — and forgets what a removed page leaves named (`page_removal`). Holds the structure tree and its parent tree, remediation, reading order, measurement, and the two GPU-free `RenderBackend`s. |
+| **`fepdf-audit`** | ✅ | Judges a document against the Matterhorn Protocol (ISO 14289) and changes nothing: the conditions it decides (`audit_*`, `structure`), the ones it leaves to a person in the protocol's words (`matterhorn`), and the glyph and language readers the font audit uses. Stands above `fepdf-doc` and reads through it, so an operation cannot reach into an audit (Rule E). |
 | **`fepdf-render`** | ✅ | A `RenderBackend` implementation on **Vello** + **wgpu**. Reached only through the facade's optional `render` feature. |
 | **`fepdf`** | ✅ | The public facade: `PdfDocument`, `SaveOptions`, `Operation`. It is the Rule A boundary in fact — frontends depend on it and on nothing below. It holds documents and makes no arena: a new one is built in `fepdf-doc` (`layering.py` counts `arenas=`). |
 | **`fepdf-cli`** | ✅ | Command-line binary (`fepdf`). |

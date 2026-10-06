@@ -24,7 +24,7 @@
 //!
 //! **The other crates read through it too.** [`entry`], [`name_in`] and [`items`] take the
 //! object a dictionary is written as — a reference or a dictionary — because that is what
-//! `fepdf-doc`'s audits hold, and they kept a copy of each until ROADMAP Y-3.
+//! `fepdf-audit`'s audits hold, and they kept a copy of each until ROADMAP Y-3.
 
 use crate::arena::PdfArena;
 use crate::handle::Handle;

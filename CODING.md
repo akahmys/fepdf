@@ -245,11 +245,11 @@ signature saying so ([ADR-0109](docs/adr/0109-a-document-changes-only-inside-app
 
 ### Rule E — An operation does not reach into an audit
 
-`fepdf-doc/src/apply/` changes documents; the audit modules (`audit_*`, `matterhorn`,
-and the glyph and language readers the font audit uses) judge them. An operation that
-imports a helper from an audit ties what a document may become to what an audit happens
-to read, and a change made for the audit changes the operation with it. What both need
-lives below them, in `fepdf-model`'s `access` or a module neither owns
+`fepdf-doc` changes documents; `fepdf-audit` judges them, with the glyph and language
+readers the font audit uses. An operation that imports a helper from an audit ties what a
+document may become to what an audit happens to read, and a change made for the audit
+changes the operation with it. What both need lives in `fepdf-doc`, which the audit reads
+through, or below it in `fepdf-model`'s `access`
 ([ADR-0107](docs/adr/0107-an-operation-does-not-reach-into-an-audit.md)).
 
 ---
@@ -260,7 +260,7 @@ lives below them, in `fepdf-model`'s `access` or a module neither owns
 | :--- | :--- |
 | **Rules A–C** | Cargo, through [`scripts/audit/layering.py`](scripts/audit/layering.py) in the audit. A frontend declares `fepdf` and a library that stands above it ([ADR-0082](docs/adr/0082-the-script-crate-is-a-library-the-frontends-call.md)); no arena type appears above the facade at all; and no `PdfArena::new` appears in the facade. Each expects 0, and the audit fails on any. `status.sh` reports what that script returns. **It reported them and nothing gated on either until 2026-09-07**, when a frontend gained a dependency the row counted and the audit passed regardless. |
 | **Rule D** | [`scripts/audit/layering.py`](scripts/audit/layering.py) in the audit, with Rules A–C. It counts `&mut self` methods on the facade that are neither `apply` nor a save setting, expects 0, and fails on any. **Measured here and gated nowhere until 2026-09-07**, which is the shape that let Rule A read 1 with the audit passing ([ADR-0082](docs/adr/0082-the-script-crate-is-a-library-the-frontends-call.md)). A write through `&self` is what that count cannot see: the arena's seal panics on it in a debug build, so `cargo test --workspace` fails on any path that takes one, and `sealed_document_test.rs` holds that the seal fires. |
-| **Rule E** | [`scripts/audit/layering.py`](scripts/audit/layering.py) in the audit, with Rules A–D. It counts the lines of `fepdf-doc/src/apply/` that name an audit module, expects 0, and fails on any. |
+| **Rule E** | Cargo. `fepdf-audit` depends on `fepdf-doc`, so a module of `fepdf-doc` naming an audit does not compile, and declaring the dependency back is a cycle cargo refuses — tried 2026-10-06, and `cargo check` stops on it. `layering.py` counted the lines of `apply/` naming an audit module until the audit became its own crate. |
 | **RR-15** | [`scripts/audit/verify_compliance.sh`](scripts/audit/verify_compliance.sh) |
 | **Lints** | `cargo clippy --workspace --all-targets -- -D warnings`. `--all-targets` is required, or tests, examples and benches go unlinted. |
 | **Licences** | `cargo deny check licenses` ([`deny.toml`](deny.toml)) |

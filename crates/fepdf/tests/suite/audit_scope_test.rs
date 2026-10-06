@@ -20,12 +20,12 @@
 //! under `00-001`, which is not a number the protocol has either.
 
 use fepdf::{IngestionOptions, PdfDocument};
-use fepdf_doc::audit_files::FROM_FILES;
-use fepdf_doc::audit_fonts::FROM_FONTS;
-use fepdf_doc::audit_objects::FROM_OBJECTS;
-use fepdf_doc::audit_presence::FROM_PRESENCE;
-use fepdf_doc::matterhorn::{MARKED_H, left_to_a_person};
-use fepdf_doc::{
+use fepdf_audit::audit_files::FROM_FILES;
+use fepdf_audit::audit_fonts::FROM_FONTS;
+use fepdf_audit::audit_objects::FROM_OBJECTS;
+use fepdf_audit::audit_presence::FROM_PRESENCE;
+use fepdf_audit::matterhorn::{MARKED_H, left_to_a_person};
+use fepdf_audit::{
     AuditFinding, AuditReport, FROM_CATALOGUE, FROM_CONTENT, FROM_FORM, FROM_STRUCTURE_TREE,
     MatterhornAuditor, NO_STRUCTURE_TREE, Outcome,
 };

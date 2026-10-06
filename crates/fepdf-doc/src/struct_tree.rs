@@ -195,7 +195,8 @@ fn text_entry(
     }
 }
 
-pub(crate) fn resolve_to_node_handle(obj: &Object) -> Option<Handle<Object>> {
+/// The node a `/K` entry or a tree link names: its handle when it is a reference.
+pub fn resolve_to_node_handle(obj: &Object) -> Option<Handle<Object>> {
     // **A dictionary written in place is no node.** This answered one with
     // `Handle::new(dh.index())` — an index in the `dicts` pool taken as one in the
     // `objects` pool — so a direct `/Outlines` read as whatever object shared its number

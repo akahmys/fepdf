@@ -6,6 +6,7 @@ members = [
     "crates/fepdf-font",
     "crates/fepdf-content",
     "crates/fepdf-doc",
+    "crates/fepdf-audit",
     "crates/fepdf-render",
     "crates/fepdf",
     "crates/fepdf-mcp",
@@ -134,6 +135,7 @@ fepdf-model = { path = "crates/fepdf-model", version = "1.0.0" }
 fepdf-font = { path = "crates/fepdf-font", version = "1.0.0" }
 fepdf-content = { path = "crates/fepdf-content", version = "1.0.0" }
 fepdf-doc = { path = "crates/fepdf-doc", version = "1.0.0" }
+fepdf-audit = { path = "crates/fepdf-audit", version = "1.0.0" }
 fepdf-render = { path = "crates/fepdf-render", version = "1.0.0" }
 fepdf = { path = "crates/fepdf", version = "1.0.0" }
 fepdf-script = { path = "crates/fepdf-script", version = "1.0.0" }

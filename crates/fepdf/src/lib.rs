@@ -139,15 +139,23 @@ pub mod reading {
 pub mod xobject {
     pub use fepdf_doc::apply::xobject::*;
 }
-/// The structure module for UA-2 logical tree handling (owned by `fepdf-doc`).
+/// The structure module for UA-2 logical tree handling (owned by `fepdf-audit`).
 pub mod structure {
-    pub use fepdf_doc::structure::*;
+    pub use fepdf_audit::structure::*;
 }
 /// Logical structure tree visitor and presentation data (owned by `fepdf-doc`).
 pub mod struct_tree {
     pub use fepdf_doc::struct_tree::*;
 }
-pub use fepdf_doc::Outcome;
+pub use fepdf_audit::Outcome;
+pub use fepdf_audit::{
+    AuditFinding,
+    // The protocol's own wording for the conditions it leaves to a person, which the
+    // window shows beside what was checked (W-21d).
+    LeftToAPerson,
+    MatterhornAuditor,
+    StructureVisitor,
+};
 /// What a redaction will remove, read before it is applied.
 pub use fepdf_doc::apply::redact::Removal;
 pub use fepdf_doc::operation::{
@@ -157,13 +165,8 @@ pub use fepdf_doc::operation::{
 pub use fepdf_doc::{
     Align,
     AttributeValue,
-    AuditFinding,
     ContentScale,
     DecorationPosition,
-    // The protocol's own wording for the conditions it leaves to a person, which the
-    // window shows beside what was checked (W-21d).
-    LeftToAPerson,
-    MatterhornAuditor,
     Operation,
     OutlineReport,
     PageResize,
@@ -181,7 +184,6 @@ pub use fepdf_doc::{
     StructElemWrap,
     StructureTreeNode,
     StructureTreeVisitor,
-    StructureVisitor,
     apply_operation,
 };
 /// The internal writer module for generating PDF files.
@@ -818,7 +820,7 @@ impl PdfDocument {
     /// **What it looked at is in the report beside what it found**, because an empty list
     /// of findings from fourteen failure conditions of 137 says almost nothing and used to
     /// be indistinguishable from a document that conforms. Use
-    /// [`fepdf_doc::AuditReport::found_nothing`] and read the scope; do not read
+    /// [`fepdf_audit::AuditReport::found_nothing`] and read the scope; do not read
     /// `findings.is_empty()` as "conforms".
     ///
     /// **The whole decision is the auditor's.** This assembled a report of its own for a
@@ -830,7 +832,7 @@ impl PdfDocument {
     ///
     /// # Errors
     /// Fails when the structure tree cannot be read.
-    pub fn audit_ua2_report(&self) -> PdfResult<fepdf_doc::AuditReport> {
+    pub fn audit_ua2_report(&self) -> PdfResult<fepdf_audit::AuditReport> {
         MatterhornAuditor::new(&self.inner).audit_report()
     }
 
@@ -881,7 +883,7 @@ impl PdfDocument {
             // `ComplianceIssue` of severity `Warning` — the `_` arm below reads "Pass"
             // that way — so a conforming document listed one warning per check that
             // passed. What a summary's issue list answers is what is wrong.
-            if f.outcome == fepdf_doc::Outcome::Sound {
+            if f.outcome == fepdf_audit::Outcome::Sound {
                 continue;
             }
             issues.push(ComplianceIssue {

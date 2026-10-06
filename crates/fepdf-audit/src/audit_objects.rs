@@ -67,7 +67,9 @@ impl<'a> Belonging<'a> {
         Self {
             doc,
             arena,
-            parents: root.map(|r| crate::parent_tree::single_entries(arena, r)).unwrap_or_default(),
+            parents: root
+                .map(|r| fepdf_doc::parent_tree::single_entries(arena, r))
+                .unwrap_or_default(),
             roles: root.map(|r| crate::audit_tree::role_map(arena, r)).unwrap_or_default(),
         }
     }
@@ -442,10 +444,10 @@ fn printer_mark_appearance(
 }
 
 /// Whether `commands` paint anything with no `/Artifact` sequence open.
-fn paints_outside_an_artifact(content: &crate::apply::text::Content) -> bool {
+fn paints_outside_an_artifact(content: &fepdf_doc::apply::text::Content) -> bool {
     use fepdf_model::object::sublimation::Command;
     let mut open: Vec<bool> = Vec::new();
-    for command in content.iter() {
+    for command in content.commands() {
         match command {
             Command::BeginMarkedContent { tag, .. } => open.push(tag.as_str() == "Artifact"),
             Command::EndMarkedContent => {

@@ -85,7 +85,7 @@ pub fn tagging_of_page(doc: &Document, page: usize) -> PdfResult<PageTagging> {
     let forms = form_xobjects(doc, page);
 
     let mut open: Vec<Sequence> = Vec::new();
-    for command in commands.iter() {
+    for command in commands.commands() {
         match command {
             Command::BeginMarkedContent { tag, properties: list } => {
                 let here = sequence_of(tag.as_str(), list.as_ref(), &properties);

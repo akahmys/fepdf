@@ -532,7 +532,7 @@ impl Scan<'_> {
         });
         self.page = page;
         let marks = self.marks(key, resources, crate::formula_marks::Facts::default());
-        match crate::apply::text::page_commands(self.doc, page, &loaded(self.doc, &named)) {
+        match fepdf_doc::apply::text::page_commands(self.doc, page, &loaded(self.doc, &named)) {
             Ok(Some(commands)) => {
                 self.commands(&commands, resources, &named, (None, true), (0, &marks));
             }
@@ -559,7 +559,7 @@ impl Scan<'_> {
     /// What `commands` shows in each font, and the forms it draws, followed in turn.
     fn commands(
         &mut self,
-        content: &crate::apply::text::Content,
+        content: &fepdf_doc::apply::text::Content,
         resources: Resources,
         named: &BTreeMap<String, Handle<Object>>,
         mut current: TextState,
@@ -567,7 +567,7 @@ impl Scan<'_> {
     ) {
         use fepdf_model::graphics::TextRenderingMode;
         let (mut saved, mut open) = (Vec::new(), Vec::new());
-        for command in content.iter() {
+        for command in content.commands() {
             let within = open.last().copied().unwrap_or(marks.within);
             match command {
                 Command::BeginMarkedContent { tag, properties } => {
@@ -718,8 +718,12 @@ pub(crate) fn form_commands(
     doc: &Document,
     form: Handle<Object>,
     named: &BTreeMap<String, Handle<Object>>,
-) -> Option<crate::apply::text::Content> {
-    crate::apply::text::Content::of_stream(doc, &doc.arena().get_object(form)?, &loaded(doc, named))
+) -> Option<fepdf_doc::apply::text::Content> {
+    fepdf_doc::apply::text::Content::of_stream(
+        doc,
+        &doc.arena().get_object(form)?,
+        &loaded(doc, named),
+    )
 }
 
 /// The fonts `named`, loaded, by resource name.

@@ -41,13 +41,15 @@ impl<'a> StructureVisitor<'a> {
             let kids_key = self.arena.name("K");
 
             if let Some(kids) = dict.get(&kids_key) {
-                if let Some(kid_handle) = crate::struct_tree::resolve_to_node_handle(kids) {
+                if let Some(kid_handle) = fepdf_doc::struct_tree::resolve_to_node_handle(kids) {
                     self.stack.push_back(kid_handle);
                 } else if let Object::Array(h) = kids.resolve(self.arena)
                     && let Some(array) = self.arena.get_array(h)
                 {
                     for kid in array.iter().rev() {
-                        if let Some(kid_handle) = crate::struct_tree::resolve_to_node_handle(kid) {
+                        if let Some(kid_handle) =
+                            fepdf_doc::struct_tree::resolve_to_node_handle(kid)
+                        {
                             self.stack.push_back(kid_handle);
                         }
                     }
@@ -201,7 +203,7 @@ pub const FROM_FORM: [&str; 2] = ["11-005", "28-005"];
 /// **A tree says which marks belong to which element; it does not say what is on the
 /// page.** PDF/UA-1 7.1 is a requirement about all content, and the three conditions of
 /// checkpoint 01 that this engine can decide are about what a `BDC` encloses — which is
-/// in the content stream and nowhere else. See [`crate::tagging`].
+/// in the content stream and nowhere else. See [`fepdf_doc::tagging`].
 pub const FROM_CONTENT: [&str; 6] = ["01-001", "01-002", "01-003", "01-004", "01-005", "18-002"];
 
 /// The failure conditions decided by walking the structure tree (14.7).
@@ -591,7 +593,7 @@ impl<'a> MatterhornAuditor<'a> {
         let mut unreadable = Vec::new();
         let (mut artifacts, mut forms, mut tagged) = (0, 0, 0);
         for page in 0..pages {
-            match crate::tagging::tagging_of_page(self.doc, page) {
+            match fepdf_doc::tagging::tagging_of_page(self.doc, page) {
                 Ok(tagging) => {
                     Self::note_page_tagging(page, &tagging, findings);
                     artifacts += tagging.artifacts;
@@ -676,7 +678,7 @@ impl<'a> MatterhornAuditor<'a> {
     /// What one page's marked content came to, as the report says it.
     fn note_page_tagging(
         page: usize,
-        tagging: &crate::tagging::PageTagging,
+        tagging: &fepdf_doc::tagging::PageTagging,
         findings: &mut Vec<AuditFinding>,
     ) {
         let at = page + 1;
@@ -858,7 +860,7 @@ impl<'a> MatterhornAuditor<'a> {
         let Some(kids) = &element.kids else {
             return out;
         };
-        if let Some(one) = crate::struct_tree::resolve_to_node_handle(kids) {
+        if let Some(one) = fepdf_doc::struct_tree::resolve_to_node_handle(kids) {
             out.push(one);
             return out;
         }
@@ -866,7 +868,7 @@ impl<'a> MatterhornAuditor<'a> {
             && let Some(array) = self.arena.get_array(handle)
         {
             out.extend(
-                array.iter().filter_map(|kid| crate::struct_tree::resolve_to_node_handle(kid)),
+                array.iter().filter_map(|kid| fepdf_doc::struct_tree::resolve_to_node_handle(kid)),
             );
         }
         out

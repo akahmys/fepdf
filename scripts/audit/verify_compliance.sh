@@ -217,7 +217,7 @@ fi
 #
 # fepdf owns the facade and writer delegation, so iteration order there reaches
 # the produced PDF just as directly as it does in model/doc.
-RULE10_DIRS="crates/fepdf-syntax crates/fepdf-model crates/fepdf-content crates/fepdf-doc crates/fepdf-render crates/fepdf"
+RULE10_DIRS="crates/fepdf-syntax crates/fepdf-model crates/fepdf-content crates/fepdf-doc crates/fepdf-audit crates/fepdf-render crates/fepdf"
 echo "[Rule 10] Checking for non-deterministic collections..."
 rule10_failed=0
 while read -r file; do

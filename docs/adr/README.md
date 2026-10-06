@@ -176,3 +176,4 @@ quietly wrong — which is the failure this log exists to make visible.
 | 0109 | [A document changes only inside `apply`](0109-a-document-changes-only-inside-apply.md) | Gates Rule D |
 | 0110 | [An operation that fails changes nothing](0110-an-operation-that-fails-changes-nothing.md) | Rests on 0109 |
 | 0111 | [A redaction keeps the remaining glyphs where they were](0111-a-redaction-keeps-the-remaining-glyphs-where-they-were.md) | Bounds Y-10 |
+| 0112 | [The audit is a crate above the operations](0112-the-audit-is-a-crate-above-the-operations.md) | Moves Rule E from 0107 to cargo |

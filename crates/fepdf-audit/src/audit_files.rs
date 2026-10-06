@@ -273,7 +273,7 @@ fn carries_mcids(doc: &Document, form: Handle<Object>) -> bool {
         .map(|resources| names_in(arena, resources, "Properties"))
         .unwrap_or_default();
     let Some(content) = form_commands(doc, form, &BTreeMap::new()) else { return false };
-    content.iter().any(|command| match command {
+    content.commands().any(|command| match command {
         Command::BeginMarkedContent { properties: Some(IrObject::Dictionary(inline)), .. } => {
             inline.contains_key("MCID")
         }
@@ -299,7 +299,7 @@ impl Draws<'_> {
             return;
         }
         if let Ok(Some(commands)) =
-            crate::apply::text::page_commands(self.doc, page, &BTreeMap::new())
+            fepdf_doc::apply::text::page_commands(self.doc, page, &BTreeMap::new())
         {
             self.commands(&commands, resources, 0);
         }
@@ -308,13 +308,13 @@ impl Draws<'_> {
     /// The forms `commands` draws, counted, and those they draw in turn.
     fn commands(
         &mut self,
-        content: &crate::apply::text::Content,
+        content: &fepdf_doc::apply::text::Content,
         resources: Resources,
         depth: usize,
     ) {
         let arena = self.doc.arena();
         let named = names_in(arena, resources, "XObject");
-        for command in content.iter() {
+        for command in content.commands() {
             let Command::DrawXObject(name) = command else { continue };
             let Some(form) = named.get(name).copied() else { continue };
             let Some(own) = form_resources(arena, form, resources) else { continue };

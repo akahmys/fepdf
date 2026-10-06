@@ -669,7 +669,7 @@ pub struct StructTreeRoot {
     pub kind: Option<PdfName>,
     #[pdf_key("K")]
     /// `/K`: the children — one element, or an array of them. Named, not walked: the
-    /// tree is what `fepdf-doc`'s visitor and the UA-2 audit exist for, and reading it
+    /// tree is what `fepdf-doc`'s visitor and `fepdf-audit`'s UA-2 audit exist for, and reading it
     /// here would be a second implementation of the same walk.
     pub children: Option<Object>,
     #[pdf_key("IDTree")]
