@@ -143,6 +143,10 @@ pub enum Step {
     Redo,
     /// Show the command palette.
     Palette,
+    /// Run one of the palette's commands by its locale key, as choosing it would:
+    /// `command cmd_redact_brush`. The redaction brush has no other door, so a plan that
+    /// draws a zone starts here.
+    Command(String),
     /// Show the export wizard.
     Export,
     /// Show the settings window.
@@ -367,6 +371,11 @@ fn parse(line: &str) -> Option<Step> {
         "undo" => Step::Undo,
         "redo" => Step::Redo,
         "palette" => Step::Palette,
+        // A key no command has is an unknown step, which refuses the plan.
+        "command" => crate::command_palette::Command::ALL
+            .into_iter()
+            .any(|c| c.keys().0 == rest)
+            .then(|| Step::Command(rest.to_owned()))?,
         "export" => Step::Export,
         "settings" => Step::Settings,
         "about" => Step::About,
@@ -594,6 +603,13 @@ impl crate::app::FepdfApp {
                 let _ = self.tx_worker.send(crate::worker::WorkerRequest::Redo);
             }
             Step::Palette => self.show_command_palette = true,
+            Step::Command(key) => {
+                let named =
+                    crate::command_palette::Command::ALL.into_iter().find(|c| c.keys().0 == key);
+                if let Some(command) = named {
+                    command.run(self, ctx);
+                }
+            }
             Step::Export => self.open_export_wizard(),
             Step::Settings => self.show_settings_modal = true,
             Step::About => self.show_about_modal = true,
@@ -732,5 +748,22 @@ impl crate::app::FepdfApp {
                 done,
             });
         }
+    }
+}
+
+#[cfg(test)]
+mod commands {
+    use super::{Step, parse};
+
+    /// **A plan runs a palette command by its key, and a key no command has refuses the
+    /// plan.** The redaction brush has no door but the palette, so a plan could not draw
+    /// a zone, and the preview a zone asks for went unseen in the window.
+    #[test]
+    fn a_command_is_named_by_its_key() {
+        assert_eq!(
+            parse("command cmd_redact_brush"),
+            Some(Step::Command("cmd_redact_brush".to_owned()))
+        );
+        assert_eq!(parse("command cmd_no_such_thing"), None);
     }
 }

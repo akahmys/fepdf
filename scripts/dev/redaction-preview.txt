@@ -1,0 +1,15 @@
+# The redaction preview, reached by the real gesture: a zone drawn, the glyphs it takes
+# tinted, and a second zone added to the first.
+#
+#   ./target/debug/fepdf-gui --capture scripts/dev/redaction-preview.txt --shots /tmp/redaction
+open samples/constitution.pdf
+mode single
+zoom 100
+drawer redaction
+command cmd_redact_brush
+drag 330 470 700 530
+shot 02-after-drag
+shot 03-a-frame-later
+drag 520 225 640 300
+shot 04-second-zone
+shot 05-a-frame-later

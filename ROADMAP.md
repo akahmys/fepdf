@@ -1561,6 +1561,13 @@ it can be run there.
       the redaction would refuse says so then, not at the save. The worker's answer and
       the brush's state are held in `worker.rs` and `redaction.rs`; the gesture that asks
       is not, and wants trying in the window.
+      **Tried in the window, 2026-10-06**, by `scripts/dev/redaction-preview.txt`: two
+      zones dragged through the real input path, each asking with every zone on the page
+      (161 boxes, then 238), drawn with what they take tinted, a glyph the zone only
+      touches among it. The first try drew no zone: the brush's one door is the command
+      palette, which opening the redaction drawer does not reach, and a plan could not
+      press it. `--capture` runs a palette command by its key now (`command
+      cmd_redact_brush`); `capture.rs`'s test holds the parsing.
       **The glyphs that remain keep their places**, decided by the owner 2026-10-04
       with the width of what went left recoverable from them, as it is from Acrobat
       (arXiv 2206.02285); moving the rest of the line to the region's edge was the

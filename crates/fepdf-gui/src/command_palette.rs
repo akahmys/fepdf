@@ -90,7 +90,7 @@ impl Command {
     }
 
     /// Does it, which is the only thing this type is for.
-    fn run(self, app: &mut crate::app::FepdfApp, ctx: &egui::Context) {
+    pub(crate) fn run(self, app: &mut crate::app::FepdfApp, ctx: &egui::Context) {
         match self {
             Self::Load => {
                 if let Some(p) = rfd::FileDialog::new().add_filter("PDF", &["pdf"]).pick_file() {
