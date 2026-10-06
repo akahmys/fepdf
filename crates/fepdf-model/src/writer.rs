@@ -119,6 +119,10 @@ pub struct PdfWriter<'a, W: Write> {
     /// outline hint table finds by offset (ROADMAP Y-F22).
     lin_containers: Vec<u32>,
     lin_direct: std::collections::BTreeSet<Handle<Object>>,
+    /// Part 7 page by page, from the second page: the objects written directly, page
+    /// object first, then the object streams the rest is packed into, each by number with
+    /// what it holds (ROADMAP Y-0b).
+    lin_part7: Vec<(Vec<Handle<Object>>, Vec<(u32, Vec<Handle<Object>>)>)>,
     /// The main cross-reference stream's number in a linearised file whose part 9 is
     /// packed: ahead of what the streams hold (ROADMAP Y-F22).
     lin_xref_id: Option<u32>,
@@ -155,6 +159,7 @@ impl<'a, W: Write> PdfWriter<'a, W> {
             lin_containers: Vec::new(),
             lin_xref_id: None,
             lin_direct: std::collections::BTreeSet::new(),
+            lin_part7: Vec::new(),
             located: BTreeMap::new(),
             inside_object_stream: false,
             current_obj_id: 0,

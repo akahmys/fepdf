@@ -21,6 +21,7 @@ impl<'a, W: Write> PdfWriter<'a, W> {
         outline_exclusive: &[Handle<Object>],
         page1: Handle<Object>,
         first_page_reachables: &BTreeSet<Handle<Object>>,
+        (pages, page_counts): (&[Handle<Object>], &[u32]),
     ) -> (u32, u32, u32, u32, u32) {
         // (total_count, o_id, hint_stream_id, first_page_shared_count, first_page_shared_start)
         // 1. Partition others into shared and private exactly matching finish_linearized order
@@ -42,12 +43,14 @@ impl<'a, W: Write> PdfWriter<'a, W> {
             }
         }
 
-        // 2. Assign IDs contiguous starting at 1 for Section 6 (Remaining pages exclusive)
+        // 2. Part 7, page by page from the second (F.3.7): each page's objects numbered
+        // contiguously from 1, the page object first, since a reader finds a page's first
+        // number by adding up the counts before it. Where the save packs, what 7.5.7 and
+        // Annex F let be compressed — not a stream, not a page object — goes into object
+        // streams numbered in the page's range and written in its section; what they hold
+        // is numbered with part 9's, last (ROADMAP Y-0b).
         let mut next_id = 1;
-        for &h in section6 {
-            self.id_map.insert(h, next_id);
-            next_id += 1;
-        }
+        let part7_packed = self.number_part7(section6, pages, page_counts, &mut next_id);
 
         // Section 9 (other private objects), and the object streams it is packed into,
         // numbered in this group so that the first-page cross-reference never names them
@@ -67,7 +70,7 @@ impl<'a, W: Write> PdfWriter<'a, W> {
         }
         // The main cross-reference stream is itself uncompressed, so it is numbered here
         // too rather than last.
-        self.lin_xref_id = (!packed.is_empty()).then(|| {
+        self.lin_xref_id = (!packed.is_empty() || !part7_packed.is_empty()).then(|| {
             next_id += 1;
             next_id - 1
         });
@@ -152,7 +155,7 @@ impl<'a, W: Write> PdfWriter<'a, W> {
             next_first_group_id += 1;
         }
 
-        for &h in &packed {
+        for &h in packed.iter().chain(&part7_packed) {
             self.id_map.insert(h, next_first_group_id);
             next_first_group_id += 1;
         }
@@ -161,6 +164,41 @@ impl<'a, W: Write> PdfWriter<'a, W> {
         let total_count = next_first_group_id;
 
         (total_count, o_id, hint_stream_id, first_page_shared_count, first_page_shared_start)
+    }
+
+    /// Numbers part 7 page by page from `next_id`, as [`Self::assign_lin_ids`] describes,
+    /// and answers what the pages' object streams hold, to be numbered last.
+    fn number_part7(
+        &mut self,
+        section6: &[Handle<Object>],
+        pages: &[Handle<Object>],
+        page_counts: &[u32],
+        next_id: &mut u32,
+    ) -> Vec<Handle<Object>> {
+        let page_set: BTreeSet<Handle<Object>> = pages.iter().copied().collect();
+        self.lin_part7.clear();
+        let mut all_packed = Vec::new();
+        let mut at = 0;
+        for &count in page_counts.iter().skip(1) {
+            let end = (at + count as usize).min(section6.len());
+            let objects = &section6[at..end];
+            at = end;
+            let (packed, direct): (Vec<Handle<Object>>, Vec<Handle<Object>>) = objects
+                .iter()
+                .partition(|h| self.pack_objects && !page_set.contains(*h) && self.may_pack(**h));
+            for &h in &direct {
+                self.id_map.insert(h, *next_id);
+                *next_id += 1;
+            }
+            let mut streams = Vec::new();
+            for batch in packed.chunks(super::OBJECTS_PER_STREAM) {
+                streams.push((*next_id, batch.to_vec()));
+                *next_id += 1;
+            }
+            all_packed.extend(packed);
+            self.lin_part7.push((direct, streams));
+        }
+        all_packed
     }
 
     pub(super) fn reserve_lin_headers(

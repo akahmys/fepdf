@@ -216,3 +216,114 @@ fn the_first_page_cross_reference_reserves_the_first_pages_entries() {
     let padding = file[eof + 5..].iter().take_while(|b| b.is_ascii_whitespace()).count();
     assert!(padding < 1024, "{padding} bytes of padding follow the first-page trailer");
 }
+
+/// Three pages, each with `LINKS` link annotations of its own.
+fn pages_with_links() -> PdfDocument {
+    const LINKS: usize = 3;
+    let mut bodies = vec![
+        "<< /Type /Catalog /Pages 2 0 R >>".to_string(),
+        "<< /Type /Pages /Kids [3 0 R 4 0 R 5 0 R] /Count 3 >>".to_string(),
+    ];
+    for page in 0..3 {
+        let annots: Vec<String> =
+            (0..LINKS).map(|i| format!("{} 0 R", 6 + page * LINKS + i)).collect();
+        bodies.push(format!(
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Annots [{}] >>",
+            annots.join(" ")
+        ));
+    }
+    for _ in 0..3 * LINKS {
+        bodies.push(
+            "<< /Type /Annot /Subtype /Link /Rect [0 0 10 10] /Border [0 0 0] \
+               /A << /S /URI /URI (https://example.org/) >> >>"
+                .to_string(),
+        );
+    }
+    PdfDocument::open(fepdf_fixtures::assemble(&bodies).into()).expect("the fixture opens")
+}
+
+/// Where `N 0 obj` begins, for each object written directly.
+fn direct_offsets(file: &[u8]) -> Vec<(u32, usize)> {
+    let mut out = Vec::new();
+    let mut at = 0;
+    while let Some(found) = file[at..].windows(6).position(|w| w == b" 0 obj") {
+        let end = at + found;
+        let start = file[..end].iter().rposition(|b| !b.is_ascii_digit()).map_or(0, |p| p + 1);
+        if let Ok(number) = String::from_utf8_lossy(&file[start..end]).parse() {
+            out.push((number, start));
+        }
+        at = end + 6;
+    }
+    out
+}
+
+/// Table F.4's Item 1 for every page: how many objects the hint table says it has.
+fn hinted_object_counts(file: &[u8], pages: usize) -> Vec<u32> {
+    let at = file.windows(4).position(|w| w == b" /S ").expect("a hint stream");
+    let body = at + file[at..].windows(8).position(|w| w == b"stream\r\n").expect("its data") + 8;
+    let least = u32::from_be_bytes(file[body..body + 4].try_into().expect("four bytes"));
+    // Table F.3 is 36 bytes; Item 1 then gives each page 16 bits, from Item 3.
+    (0..pages)
+        .map(|i| {
+            let at = body + 36 + 2 * i;
+            least + u32::from(u16::from_be_bytes([file[at], file[at + 1]]))
+        })
+        .collect()
+}
+
+/// **A page's own objects are packed into an object stream in its section, and the hint
+/// table counts the stream and not what it holds** (Annex F F.3.1, ROADMAP Y-0b). Part 7
+/// was written directly, so `intel_sdm.pdf`'s 22,619 link annotations were most of what a
+/// linearised save carried over its plain one. The page objects stay direct, as F.3.1
+/// requires, and each page's count is what lies directly in its section.
+#[test]
+fn a_pages_own_objects_are_packed_in_its_section() {
+    let doc = pages_with_links();
+    let path = std::env::temp_dir().join(format!("fepdf-part7-{}.pdf", std::process::id()));
+    let options = SaveOptions { compress: false, ..SaveOptions::default() };
+    let _ = doc.save_linearized(&path, "2.0", &options).expect("it linearises");
+    let file = std::fs::read(&path).expect("it was written");
+    let _ = std::fs::remove_file(&path);
+
+    // Offsets in bytes: the hint stream is binary, and a lossy conversion moves them.
+    let find_all = |needle: &[u8]| -> Vec<usize> {
+        file.windows(needle.len())
+            .enumerate()
+            .filter(|(_, w)| *w == needle)
+            .map(|(i, _)| i)
+            .collect()
+    };
+    let holds = |range: std::ops::Range<usize>, needle: &[u8]| {
+        file[range].windows(needle.len()).any(|w| w == needle)
+    };
+    let starts = find_all(b"/Type /Page\r");
+    assert_eq!(starts.len(), 3, "{starts:?}");
+    let objects = direct_offsets(&file);
+    let page_start = |at: usize| {
+        objects.iter().rev().find(|(_, start)| *start < at).map(|(_, s)| *s).expect("a page")
+    };
+    for &at in &starts {
+        assert!(
+            !holds(page_start(at)..at, b"stream"),
+            "a page object is inside an object stream, where F.3.1 does not allow it"
+        );
+    }
+    let (second, third) = (page_start(starts[1]), page_start(starts[2]));
+    assert!(holds(second..third, b"/Type /ObjStm"), "page 2's section packs nothing");
+    let direct_here: Vec<usize> =
+        objects.iter().map(|(_, s)| *s).filter(|s| (second..third).contains(s)).collect();
+    for &start in &direct_here {
+        let end = start + file[start..].windows(6).position(|w| w == b"endobj").expect("it ends");
+        assert!(
+            holds(start..end, b"/ObjStm") || !holds(start..end, b"/Subtype /Link"),
+            "a link of page 2 was written directly"
+        );
+    }
+
+    let in_section = direct_here.len();
+    let counts = hinted_object_counts(&file, 3);
+    assert_eq!(counts[1] as usize, in_section, "page 2's hint count {counts:?}");
+
+    let back = PdfDocument::open(file.into()).expect("the linearised file opens");
+    assert_eq!(back.page_count().expect("it counts"), 3);
+}

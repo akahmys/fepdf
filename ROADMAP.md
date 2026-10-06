@@ -816,7 +816,7 @@ it can be run there.
       (5,057 pages) followed each article bead's `/T`, `/N` and `/V` from every page, so
       each page reached every bead, 24.7 million objects in all. A page now stops at its
       own bead (`7af21a0`).
-- [ ] **Y-0b** — the same file linearises to 129 MB against a 25.6 MB plain save: 71 MB
+- [x] **Y-0b** — the same file linearises to 129 MB against a 25.6 MB plain save: 71 MB
       of it is the hint stream's reserve, zero-filled. `calculate_worst_case_hint_size`
       sizes the page table as though every page named every shared object
       (`num_pages × total_shared`). *Done when* the reserve is sized from the counts the
@@ -833,6 +833,18 @@ it can be run there.
       beside them. F.3.1 lets all but the page objects be packed, with the page and
       shared-object hint tables naming the object stream instead of the object; the
       writer's tables name objects.
+      **Closed 2026-10-06 on a new condition**, put to the owner the same day: within a
+      few percent is not reachable under Annex F, which keeps the page objects (1.17 MB
+      here) out of object streams, and a page's own stream is too small to compress as
+      one large one does. The condition is now what F.3.1 allows, held by qpdf. Part 7
+      is packed: each page's own objects but its page object and its streams go into an
+      object stream in its section, numbered in the page's range, what it holds
+      numbered last, and Table F.4 counts the stream. `intel_sdm.pdf` linearises to
+      28.9 MB from 31.8 MB. `check_linearization.sh` reads the ten samples as before,
+      and the 517 external files give the same warnings, line for line, as before the
+      change. `linearized_hint_test.rs`'s `a_pages_own_objects_are_packed_in_its_section`
+      holds it, and packing the page objects, packing nothing, counting what the stream
+      holds, or numbering it with the page each failed the test. Part 8 is Y-F35.
 
 - [x] **Y-0c** — saves were not reproducible: the XMP `InstanceID` was salted with the
       clock's seconds. `SaveOptions::stamped_at` decides it now, and `fepdf-cli` reads
@@ -1076,6 +1088,10 @@ it can be run there.
 - [x] **Y-F7** — `compare.rs`'s `to_f64` is used only under the `render` feature and is
       not gated with it, so `cargo build -p fepdf` warns. The workspace build unifies
       features and never sees it. Gated with `render` in Y-4 (`5467c37`).
+- [ ] **Y-F35** — **a linearised file writes part 8 directly.** The shared objects of
+      pages after the first, about 0.9 MB of `intel_sdm.pdf`'s 28.9 MB linearised save
+      (measured 2026-10-06), may be packed under F.3.1 if Table F.6 then names the object
+      stream holding each, not the object. Found with Y-0b.
 - [x] **Y-F23** — **a save writes `/Info`'s dates in the metadata stream's form.**
       `publish upgrade --no-obj-stm` of `fy05.pdf` writes `/CreationDate
       (2024-11-08T09:05:36+09:00)`, where 7.9.4 asks for `D:20241108090536+09'00'`

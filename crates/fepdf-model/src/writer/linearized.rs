@@ -128,7 +128,14 @@ impl<'a, W: Write> PdfWriter<'a, W> {
                 &outline_exclusive,
                 pgs[0],
                 &page_reachables[0],
+                (&pgs, &counts),
             );
+        // A page of part 7 is counted by what is written directly and the object streams
+        // holding the rest: the hint table names those, not what they hold (Annex F).
+        let mut counts = counts;
+        for (count, (direct, streams)) in counts.iter_mut().skip(1).zip(&self.lin_part7) {
+            *count = (direct.len() + streams.len()) as u32;
+        }
         if self.lin_xref_id.is_none() {
             total_size += 1; // ACCOUNT FOR MAIN XREF STREAM
         }
@@ -203,7 +210,6 @@ impl<'a, W: Write> PdfWriter<'a, W> {
             root,
             info,
             &s2,
-            &s6,
             &others_shared,
             &others_private,
             pgs.len(),
@@ -338,7 +344,6 @@ impl<'a, W: Write> PdfWriter<'a, W> {
         _root: Handle<Object>,
         _info: Option<Handle<Object>>,
         s2: &[Handle<Object>],
-        s6: &[Handle<Object>],
         others_shared: &[Handle<Object>],
         others_private: &[Handle<Object>],
         _page_count: usize,
@@ -375,11 +380,8 @@ impl<'a, W: Write> PdfWriter<'a, W> {
 
         let s2_end = self.current_offset();
 
-        // 6. Write Section 6: Other pages exclusive objects (Pages 2..N / Part 7)
-        for &h in s6 {
-            let id = self.id_map[&h];
-            self.write_indirect_object(id, 0, h)?;
-        }
+        // 6. Part 7: each page's own objects, then the object streams holding the rest.
+        self.write_part7()?;
 
         let s7_start = self.current_offset(); // This is where the shared objects (Part 8) start!
 
@@ -393,6 +395,23 @@ impl<'a, W: Write> PdfWriter<'a, W> {
         self.write_part9(others_private)?;
 
         Ok((hint_pos, s2_end, s7_start, s8_start))
+    }
+
+    /// Writes part 7 page by page: what `assign_lin_ids` numbered directly, then the
+    /// object streams packing the rest of the page's own objects (ROADMAP Y-0b).
+    fn write_part7(&mut self) -> PdfResult<()> {
+        for (direct, streams) in self.lin_part7.clone() {
+            for h in direct {
+                let id = self.id_map[&h];
+                self.write_indirect_object(id, 0, h)?;
+            }
+            for (container, batch) in streams {
+                let numbered: Vec<(u32, Handle<Object>)> =
+                    batch.iter().map(|h| (self.id_map[h], *h)).collect();
+                self.write_object_stream(container, &numbered)?;
+            }
+        }
+        Ok(())
     }
 
     /// Whether a part 9 object goes into an object stream: one 7.5.7 allows there, and
