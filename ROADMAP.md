@@ -1683,7 +1683,7 @@ before it is decided; Z-4 when convenient; Z-5 with the next GUI defect.
       before the budget and passes in milliseconds with it. No output moved
       (`golden_outputs.sh`), and none could: no sample and no external file reaches the
       conversion, for the reason below.
-- [ ] **Z-2a** — **a conforming embedded Type 1 program is never converted.** `/FontFile`
+- [x] **Z-2a** — **a conforming embedded Type 1 program is never converted.** `/FontFile`
       holds the clear-text and binary portions back to back, as `/Length1` and `/Length2`
       give them (9.9). `parse_pfb` reads only PFB segments, so a PFA-style program fails
       "no valid segments found" and `transcode_type1_to_cff` returns before its
@@ -1691,6 +1691,18 @@ before it is decided; Z-4 when convenient; Z-5 with the next GUI defect.
       `/FontFile`, all Isartor: the format is detected as `Type1Pfa` and no glyph is
       converted. *Done when* a PFA-style program is split by `/Length1` and `/Length2`
       and its glyphs convert, and a test holds one.
+      **Behind the split, the converter had never produced a glyph.** Its CharStrings
+      offset was three bytes short, so a reader found an empty INDEX, and it wrote no
+      charset, which is how a glyph is found by name. It also dropped `hsbw`'s
+      sidebearing, put hints mid-path where Type 2 forbids them, and had nothing for
+      flex, `seac` or `div`. Every Type 1 font was drawn with a system font.
+      **Converted, 2026-10-07**: the program splits at `/Length1` (`FontInfo` carries it)
+      or after `eexec`; `reconstruction/type1_charstring.rs` runs each charstring into an
+      outline and writes it as Type 2; the CFF has a charset. A negative `/lenIV` reads
+      as unencrypted. `type1_program_tests` builds a program and checks the names, the
+      sidebearing, `seac` and flex, and breaking each of those, or the split, fails it.
+      Three Isartor pages using ArialMT now draw its glyphs, not the system font's.
+      `/FontMatrix` other than 0.001 is not carried into the CFF.
 - [ ] **Z-3** — **Rule 2 held by clippy.** `verify_compliance.sh` greps for `.unwrap(` and
       `.expect(`, and does not see `panic!`, `unreachable!` or `todo!` (56 in `src/`,
       tests not yet separated out) or a slice index past the end. `clippy::unwrap_used`,

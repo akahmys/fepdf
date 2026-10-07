@@ -1378,6 +1378,9 @@ impl TraceContext {
 }
 
 impl fepdf_font::reconstruction::FontInfo for FontResource {
+    fn type1_cleartext_length(&self) -> Option<usize> {
+        self.length1.and_then(|n| usize::try_from(n).ok())
+    }
     fn base_font(&self) -> &str {
         self.base_font.as_str()
     }

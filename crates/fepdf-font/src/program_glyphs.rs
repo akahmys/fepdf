@@ -72,7 +72,7 @@ pub fn type1_advances(
 
 /// A Type 1 program's eexec-encrypted portion as bytes: as it is, or, written in
 /// hexadecimal, decoded (ISO 32000-1 9.9).
-fn eexec_portion(rest: &[u8]) -> Vec<u8> {
+pub(crate) fn eexec_portion(rest: &[u8]) -> Vec<u8> {
     if !rest.iter().take(4).all(u8::is_ascii_hexdigit) {
         return rest.to_vec();
     }

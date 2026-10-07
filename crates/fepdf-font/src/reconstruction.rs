@@ -4,6 +4,8 @@
 mod sfnt_tables;
 /// A Type 1 program made a CFF one.
 mod type1;
+/// One Type 1 charstring run, and its outline written as Type 2.
+mod type1_charstring;
 
 use crate::cmap::CMap;
 use crate::{FontError, FontResult};
@@ -31,6 +33,10 @@ pub trait FontInfo {
     fn glyph_width_by_gid(&self, gid: u32) -> f32;
     /// Resolves GID for a CID or hint name.
     fn to_gid_hint(&self, cid: u32, hint_name: Option<&str>) -> u32;
+    /// A Type 1 program's clear-text length, `/Length1` of its `/FontFile` (9.9).
+    fn type1_cleartext_length(&self) -> Option<usize> {
+        None
+    }
 }
 
 /// A surgical patcher for SFNT binaries.
@@ -61,7 +67,7 @@ pub struct ReconstructedFont {
 struct Type1Data {
     charstrings: BTreeMap<String, Vec<u8>>,
     subrs: Vec<Vec<u8>>,
-    len_iv: usize,
+    len_iv: Option<usize>,
 }
 
 struct Type1Segments {
@@ -1046,7 +1052,7 @@ mod tests {
         assert_eq!(FontFormat::detect(&[0x12, 0x34]), FontFormat::Unknown);
     }
 
-    struct TestFontInfo;
+    pub(super) struct TestFontInfo;
     impl FontInfo for TestFontInfo {
         fn base_font(&self) -> &str {
             "Test"
@@ -1244,7 +1250,8 @@ mod charstring_number_tests {
 
 #[cfg(test)]
 mod type1_subroutine_fan_out_tests {
-    use super::FontReconstructor;
+    use super::type1_charstring::{Type1Program, convert_glyph};
+    use std::collections::BTreeMap;
     use std::sync::mpsc;
     use std::time::Duration;
 
@@ -1279,12 +1286,181 @@ mod type1_subroutine_fan_out_tests {
 
         let (done, finished) = mpsc::channel();
         std::thread::spawn(move || {
-            let converted = FontReconstructor::convert_t1_to_t2(&glyph, &subrs, 4);
+            let charstrings = BTreeMap::new();
+            let program =
+                Type1Program { charstrings: &charstrings, subrs: &subrs, len_iv: Some(4) };
+            let converted = convert_glyph(&glyph, &program);
             let _ = done.send(converted);
         });
         let converted = finished
             .recv_timeout(Duration::from_secs(10))
             .expect("a self-calling subroutine is still converting after 10 s");
         assert_eq!(converted.last(), Some(&14), "the glyph still ends with endchar");
+    }
+}
+
+#[cfg(test)]
+mod type1_program_tests {
+    use super::FontReconstructor;
+    use super::tests::TestFontInfo;
+
+    /// Type 1 encryption (7.1, 7.2): `r` is 55665 for the eexec portion and 4330 for a
+    /// charstring, and four zero bytes go first, as `lenIV 4` and eexec both expect.
+    fn encrypt(plain: &[u8], mut r: u16) -> Vec<u8> {
+        let mut out = Vec::with_capacity(plain.len() + 4);
+        for &p in [0u8; 4].iter().chain(plain) {
+            let c = p ^ (r >> 8) as u8;
+            r = u16::from(c).wrapping_add(r).wrapping_mul(52845).wrapping_add(22719);
+            out.push(c);
+        }
+        out
+    }
+
+    /// A Type 1 operand in the charstring number encoding (6.2).
+    fn n(v: i32) -> Vec<u8> {
+        match v {
+            -107..=107 => vec![(v + 139) as u8],
+            108..=1131 => vec![((v - 108) / 256 + 247) as u8, ((v - 108) % 256) as u8],
+            -1131..=-108 => vec![((-v - 108) / 256 + 251) as u8, ((-v - 108) % 256) as u8],
+            _ => [vec![255], v.to_be_bytes().to_vec()].concat(),
+        }
+    }
+
+    /// A charstring from operands and operators: a number is an operand, and an operator
+    /// is given as its byte, or as `[12, b]` for an escaped one.
+    fn charstring(parts: &[&[i32]], ops: &[&[u8]]) -> Vec<u8> {
+        parts
+            .iter()
+            .zip(ops)
+            .flat_map(|(args, op)| args.iter().flat_map(|&a| n(a)).chain(op.iter().copied()))
+            .collect()
+    }
+
+    /// A program as `/FontFile` holds one: clear text through `eexec`, then the Private
+    /// dictionary and `/CharStrings` eexec-encrypted, with no PFB segment headers.
+    fn program(glyphs: &[(&str, Vec<u8>)]) -> Vec<u8> {
+        let mut private = b"dup /Private 8 dict dup begin\n/lenIV 4 def\n/Subrs 0 array\nND\n\
+            2 index /CharStrings 8 dict dup begin\n"
+            .to_vec();
+        for (name, cs) in glyphs {
+            let cs = encrypt(cs, 4330);
+            private.extend(format!("/{name} {} RD ", cs.len()).bytes());
+            private.extend(cs);
+            private.extend(b" ND\n");
+        }
+        private.extend(b"end\nend\nmark currentfile closefile\n");
+        let mut data = b"%!FontType1-1.0: Test 001\n/FontName /Test def\n\
+            /Encoding StandardEncoding def\ncurrentfile eexec\n"
+            .to_vec();
+        data.extend(encrypt(&private, 55665));
+        data
+    }
+
+    #[derive(Default)]
+    struct Outline(Vec<(char, Vec<f32>)>);
+    impl ttf_parser::OutlineBuilder for Outline {
+        fn move_to(&mut self, x: f32, y: f32) {
+            self.0.push(('M', vec![x, y]));
+        }
+        fn line_to(&mut self, x: f32, y: f32) {
+            self.0.push(('L', vec![x, y]));
+        }
+        fn quad_to(&mut self, x1: f32, y1: f32, x: f32, y: f32) {
+            self.0.push(('Q', vec![x1, y1, x, y]));
+        }
+        fn curve_to(&mut self, x1: f32, y1: f32, x2: f32, y2: f32, x: f32, y: f32) {
+            self.0.push(('C', vec![x1, y1, x2, y2, x, y]));
+        }
+        fn close(&mut self) {}
+    }
+
+    /// An embedded Type 1 program becomes a CFF program whose glyphs draw.
+    ///
+    /// Every assertion here failed on 2026-10-07 before the converter was rewritten: a
+    /// `/FontFile` with no PFB headers was refused as "no valid segments", and a PFB one
+    /// came out with its CharStrings INDEX three bytes off and no charset, so a reader
+    /// found no glyphs at all (ROADMAP Z-2a). The rest are what Type 1 does that Type 2
+    /// has no operator for: the sidebearing `hsbw` starts the outline at, `seac`, and flex.
+    #[test]
+    fn an_embedded_type1_program_converts_to_glyphs_that_draw() {
+        const RMOVETO: &[u8] = &[21];
+        const RLINETO: &[u8] = &[5];
+        const HSBW: &[u8] = &[13];
+        const ENDCHAR: &[u8] = &[14];
+        const CLOSEPATH: &[u8] = &[9];
+        const OTHERSUBR: &[u8] = &[12, 16];
+        const POP: &[u8] = &[12, 17];
+        const SEAC: &[u8] = &[12, 6];
+        const SETCURRENTPOINT: &[u8] = &[12, 33];
+
+        let a = charstring(
+            &[&[50, 600], &[0, 0], &[500, 0], &[-250, 700], &[], &[]],
+            &[HSBW, RMOVETO, RLINETO, RLINETO, CLOSEPATH, ENDCHAR],
+        );
+        let acute = charstring(
+            &[&[100, 300], &[0, 600], &[100, 100], &[]],
+            &[HSBW, RMOVETO, RLINETO, ENDCHAR],
+        );
+        // `A` (65) with `acute` (194) over it, the accent's origin 150 - 100 to the right.
+        let a_acute = charstring(&[&[50, 600], &[100, 150, 0, 65, 194]], &[HSBW, SEAC]);
+        // A flex: start it, a reference point, six points, end it.
+        let mut flex_parts: Vec<Vec<i32>> = vec![vec![0, 500], vec![0, 0], vec![0, 1]];
+        let mut flex_ops: Vec<&[u8]> = vec![HSBW, RMOVETO, OTHERSUBR];
+        for (dx, dy) in [(100, 0), (0, 50), (50, 50), (50, 0), (50, 0), (50, -50), (0, -50)] {
+            flex_parts.extend([vec![dx, dy], vec![0, 2]]);
+            flex_ops.extend([RMOVETO, OTHERSUBR]);
+        }
+        flex_parts.extend([vec![50, 300, 0, 3, 0], vec![], vec![], vec![], vec![]]);
+        flex_ops.extend([OTHERSUBR, POP, POP, SETCURRENTPOINT, ENDCHAR]);
+        let flex_refs: Vec<&[i32]> = flex_parts.iter().map(Vec::as_slice).collect();
+        let flexed = charstring(&flex_refs, &flex_ops);
+        let notdef = charstring(&[&[0, 500], &[]], &[HSBW, ENDCHAR]);
+
+        let data = program(&[
+            (".notdef", notdef),
+            ("A", a),
+            ("Aacute", a_acute),
+            ("acute", acute),
+            ("flexed", flexed),
+        ]);
+        let font = FontReconstructor::transcode_type1_to_cff(&data, &TestFontInfo)
+            .expect("a /FontFile program without PFB headers converts");
+        let face = ttf_parser::Face::parse(&font.data, 0).expect("the result parses");
+
+        assert_eq!(face.number_of_glyphs(), 5);
+        let names: Vec<&str> =
+            (0..5).filter_map(|g| face.glyph_name(ttf_parser::GlyphId(g))).collect();
+        assert_eq!(names, [".notdef", "A", "Aacute", "acute", "flexed"]);
+
+        let outline = |name: &str| {
+            let gid = (0..5)
+                .map(ttf_parser::GlyphId)
+                .find(|&g| face.glyph_name(g) == Some(name))
+                .expect("named");
+            let mut o = Outline::default();
+            face.outline_glyph(gid, &mut o);
+            o.0
+        };
+        assert_eq!(
+            outline("A"),
+            [('M', vec![50.0, 0.0]), ('L', vec![550.0, 0.0]), ('L', vec![300.0, 700.0])],
+            "the outline starts at hsbw's sidebearing"
+        );
+        let composed = outline("Aacute");
+        assert_eq!(composed[..3], outline("A")[..], "the base is drawn where it is");
+        assert_eq!(
+            composed[3..],
+            [('M', vec![150.0, 600.0]), ('L', vec![250.0, 700.0])],
+            "the accent's origin is adx - asb, and its own sidebearing follows"
+        );
+        assert_eq!(
+            outline("flexed"),
+            [
+                ('M', vec![0.0, 0.0]),
+                ('C', vec![100.0, 50.0, 150.0, 100.0, 200.0, 100.0]),
+                ('C', vec![250.0, 100.0, 300.0, 50.0, 300.0, 0.0]),
+            ],
+            "a flex is two curves, through the six points after the reference point"
+        );
     }
 }

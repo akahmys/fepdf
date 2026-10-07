@@ -1,6 +1,7 @@
 //! A Type 1 program made a CFF one: the PFB segments, the eexec decryption, and each
 //! charstring converted to Type 2.
 
+use super::type1_charstring::{Type1Program, convert_glyph};
 use super::{FontInfo, FontReconstructor, ReconstructedFont, Type1Data, Type1Segments};
 use crate::{FontError, FontResult};
 use std::collections::BTreeMap;
@@ -10,7 +11,11 @@ impl FontReconstructor {
         data: &[u8],
         resource: &impl FontInfo,
     ) -> FontResult<ReconstructedFont> {
-        let segments = Self::parse_pfb(data)?;
+        let segments = if data.first() == Some(&0x80) {
+            Self::parse_pfb(data)?
+        } else {
+            Self::split_cleartext(data, resource.type1_cleartext_length())?
+        };
         log::info!(
             "[RECONSTRUCT] Type 1 segments extracted for {}: ASCII={} bytes, Binary={} bytes, Trailer={} bytes",
             resource.base_font(),
@@ -25,78 +30,120 @@ impl FontReconstructor {
         // 2. Parse Type 1 Data
         let t1_data = Self::parse_type1_data(&segments.ascii, &decrypted_eexec)?;
 
-        // 3. Transcode CharStrings from T1 to T2
-        let mut t2_charstrings = Vec::new();
-        let mut glyph_names = Vec::new();
-        for (name, t1_bytes) in t1_data.charstrings {
-            let t2_bytes = Self::convert_t1_to_t2(&t1_bytes, &t1_data.subrs, t1_data.len_iv);
-            t2_charstrings.push(t2_bytes);
-            glyph_names.push(name);
-        }
+        // 3. Run each charstring, and write its outline as Type 2
+        let program = Type1Program {
+            charstrings: &t1_data.charstrings,
+            subrs: &t1_data.subrs,
+            len_iv: t1_data.len_iv,
+        };
+        let glyphs: Vec<(String, Vec<u8>)> = t1_data
+            .charstrings
+            .iter()
+            .map(|(name, t1_bytes)| (name.clone(), convert_glyph(t1_bytes, &program)))
+            .collect();
 
         // 4. Serialize to CFF
-        let cff_data = Self::serialize_cff(&glyph_names, &t2_charstrings);
+        let font_name = resource.base_font().rsplit('+').next().unwrap_or("Type1");
+        let cff_data = Self::serialize_cff(font_name, &glyphs);
 
         // 5. Wrap in SFNT
         Self::wrap_naked_outline(*b"CFF ", &cff_data, resource)
     }
 
-    pub(super) fn serialize_cff(_names: &[String], charstrings: &[Vec<u8>]) -> Vec<u8> {
-        let mut out = Vec::new();
-        // Header
-        out.extend_from_slice(&[1, 0, 4, 4]); // major, minor, hdrSize, offSize=4
+    /// The glyphs as a CFF program (Adobe Technical Note 5176): `.notdef` first, as 5176
+    /// requires of glyph 0, then the rest in name order, each named in a format 0 charset.
+    ///
+    /// **The charset is what makes the program usable.** A glyph is found by name from
+    /// here on (`inspect_cff` reads `name_to_gid` out of the charset), so a program without
+    /// one gives every glyph the predefined ISOAdobe charset's name for its index.
+    pub(super) fn serialize_cff(font_name: &str, glyphs: &[(String, Vec<u8>)]) -> Vec<u8> {
+        let notdef = [(String::from(".notdef"), vec![14u8])];
+        let has_notdef = glyphs.iter().any(|(name, _)| name == ".notdef");
+        let ordered: Vec<&(String, Vec<u8>)> = glyphs
+            .iter()
+            .filter(|(name, _)| name == ".notdef")
+            .chain(notdef.iter().filter(|_| !has_notdef))
+            .chain(glyphs.iter().filter(|(name, _)| name != ".notdef"))
+            .collect();
+        let (charset, custom) = Self::cff_charset(ordered.iter().skip(1).map(|(name, _)| name));
 
-        // Name INDEX
-        Self::push_cff_index(&mut out, &[b"TranscodedFont"]);
-
-        // Top DICT INDEX (Pre-calculate offsets)
-        // We'll build the rest first to know the offsets.
-        let mut charstrings_buf = Vec::new();
-        let charstring_refs: Vec<&[u8]> = charstrings.iter().map(|v| v.as_slice()).collect();
-        Self::push_cff_index(&mut charstrings_buf, &charstring_refs);
-
+        let mut name_index = Vec::new();
+        Self::push_cff_index(&mut name_index, &[font_name.as_bytes()]);
+        let mut string_index = Vec::new();
+        Self::push_cff_index(&mut string_index, &custom);
+        let mut gsubr_index = Vec::new();
+        Self::push_cff_index(&mut gsubr_index, &[]);
+        let mut charstrings_index = Vec::new();
+        let charstrings: Vec<&[u8]> = ordered.iter().map(|(_, cs)| cs.as_slice()).collect();
+        Self::push_cff_index(&mut charstrings_index, &charstrings);
         let mut private_dict = Vec::new();
         Self::push_cff_dict_entry(&mut private_dict, 20, &[0]); // defaultWidthX
         Self::push_cff_dict_entry(&mut private_dict, 21, &[0]); // nominalWidthX
 
-        // 1st Pass: Build Top DICT with fixed-size placeholders for offsets
-        let mut top_dict = Vec::new();
-        Self::push_cff_dict_number_fixed(&mut top_dict, 0); // Placeholder CharStrings
-        top_dict.push(17);
-        Self::push_cff_dict_number_fixed(&mut top_dict, 0); // Placeholder Private size
-        Self::push_cff_dict_number_fixed(&mut top_dict, 0); // Placeholder Private offset
-        top_dict.push(18);
+        let top_dict = |at: [usize; 3]| Self::cff_top_dict(at, private_dict.len());
+        let mut top_index = Vec::new();
+        Self::push_cff_index(&mut top_index, &[&top_dict([0, 0, 0])]);
 
-        let top_dict_size = top_dict.len();
-        let top_dict_index_header_size = 2 + 1 + 1 + 4; // count(2) + offSize(1) + offset1(1) + offset2(4)
+        let header = [1u8, 0, 4, 4];
+        let charset_at = header.len()
+            + name_index.len()
+            + top_index.len()
+            + string_index.len()
+            + gsubr_index.len();
+        let charstrings_at = charset_at + charset.len();
+        let private_at = charstrings_at + charstrings_index.len();
+        top_index.clear();
+        Self::push_cff_index(
+            &mut top_index,
+            &[&top_dict([charset_at, charstrings_at, private_at])],
+        );
 
-        let mut string_idx = Vec::new();
-        Self::push_cff_index(&mut string_idx, &[]);
-        let mut gsubr_idx = Vec::new();
-        Self::push_cff_index(&mut gsubr_idx, &[]);
+        [
+            &header[..],
+            &name_index,
+            &top_index,
+            &string_index,
+            &gsubr_index,
+            &charset,
+            &charstrings_index,
+            &private_dict,
+        ]
+        .concat()
+    }
 
-        let charstrings_pos = out.len()
-            + top_dict_index_header_size
-            + top_dict_size
-            + string_idx.len()
-            + gsubr_idx.len();
-        let private_pos = charstrings_pos + charstrings_buf.len();
+    /// The Top DICT: `charset`, `CharStrings` and `Private` at the offsets `at` gives in
+    /// that order. Every offset is a five-byte integer, so the DICT is the same length
+    /// whatever they are, and its INDEX can be measured before they are known.
+    fn cff_top_dict(at: [usize; 3], private_len: usize) -> Vec<u8> {
+        let fixed = |dict: &mut Vec<u8>, value: usize| {
+            Self::push_cff_dict_number_fixed(dict, i32::try_from(value).unwrap_or(0));
+        };
+        let mut dict = Vec::new();
+        fixed(&mut dict, at[0]);
+        dict.push(15);
+        fixed(&mut dict, at[1]);
+        dict.push(17);
+        fixed(&mut dict, private_len);
+        fixed(&mut dict, at[2]);
+        dict.push(18);
+        dict
+    }
 
-        // 2nd Pass: Build actual Top DICT using fixed-size numbers to match calculated size
-        top_dict.clear();
-        Self::push_cff_dict_number_fixed(&mut top_dict, charstrings_pos as i32);
-        top_dict.push(17);
-        Self::push_cff_dict_number_fixed(&mut top_dict, private_dict.len() as i32);
-        Self::push_cff_dict_number_fixed(&mut top_dict, private_pos as i32);
-        top_dict.push(18);
-
-        Self::push_cff_index(&mut out, &[&top_dict]);
-        out.extend_from_slice(&string_idx);
-        out.extend_from_slice(&gsubr_idx);
-        out.extend_from_slice(&charstrings_buf);
-        out.extend_from_slice(&private_dict);
-
-        out
+    /// A format 0 charset naming every glyph after `.notdef`, and the String INDEX entries
+    /// it needs: a name among the 391 standard strings is its SID, and any other is
+    /// numbered on from 391 in the order it is first met.
+    fn cff_charset<'a>(names: impl Iterator<Item = &'a String>) -> (Vec<u8>, Vec<&'a [u8]>) {
+        let standard = crate::cff_standard::CFF_STANDARD_STRINGS;
+        let mut custom: Vec<&[u8]> = Vec::new();
+        let mut charset = vec![0u8];
+        for name in names {
+            let sid = standard.iter().position(|s| s == name).unwrap_or_else(|| {
+                custom.push(name.as_bytes());
+                standard.len() + custom.len() - 1
+            });
+            charset.extend_from_slice(&u16::try_from(sid).unwrap_or(u16::MAX).to_be_bytes());
+        }
+        (charset, custom)
     }
 
     pub(crate) fn push_cff_index(out: &mut Vec<u8>, entries: &[&[u8]]) {
@@ -236,7 +283,10 @@ impl FontReconstructor {
             data.charstrings
                 .iter()
                 .filter_map(|(name, bytes)| {
-                    let plain = Self::decrypt_charstring(bytes, data.len_iv);
+                    let plain = match data.len_iv {
+                        Some(n) => Self::decrypt_charstring(bytes, n),
+                        None => bytes.clone(),
+                    };
                     Some((name.clone(), f64::from(Self::opening_advance(&plain)?)))
                 })
                 .collect(),
@@ -282,7 +332,9 @@ impl FontReconstructor {
     pub(super) fn parse_type1_data(ascii: &[u8], binary: &[u8]) -> FontResult<Type1Data> {
         let mut charstrings = BTreeMap::new();
         let mut subrs = Vec::new();
-        let mut len_iv = 4;
+        // `/lenIV` is 4 where the Private dictionary does not say; a negative one means
+        // the charstrings are not encrypted at all.
+        let mut len_iv = Some(4);
 
         let mut full_text = Vec::with_capacity(ascii.len() + binary.len());
         full_text.extend_from_slice(ascii);
@@ -291,7 +343,7 @@ impl FontReconstructor {
         if let Some(pos) = Self::find_subslice(&full_text, b"/lenIV") {
             let chunk = &full_text[pos..std::cmp::min(pos + 20, full_text.len())];
             if let Some(val) = Self::extract_number(chunk) {
-                len_iv = val as usize;
+                len_iv = usize::try_from(val).ok();
             }
         }
 
@@ -304,239 +356,6 @@ impl FontReconstructor {
         }
 
         Ok(Type1Data { charstrings, subrs, len_iv })
-    }
-
-    /// How many subroutine bytes one glyph may decrypt and convert, summed over every
-    /// `callsubr` it makes, however deep.
-    ///
-    /// The depth cap in `convert_recursive` bounds how deep calls go and not how many there
-    /// are, so a subroutine calling itself k times cost k^10: at k = 7, 79 s in a debug
-    /// build (ROADMAP Z-2). A real glyph's calls are hint replacement and flex, a few
-    /// hundred bytes in all; 1 MiB is three orders of magnitude above that and converts in
-    /// milliseconds. A glyph that reaches it stops converting where it is, as one past the
-    /// depth cap does.
-    pub(super) const SUBROUTINE_BUDGET: usize = 1 << 20;
-
-    pub(super) fn convert_t1_to_t2(t1_bytes: &[u8], subrs: &[Vec<u8>], len_iv: usize) -> Vec<u8> {
-        let mut t2_bytes = Vec::new();
-        let mut stack = Vec::new();
-        let mut width_written = false;
-        let mut budget = Self::SUBROUTINE_BUDGET;
-
-        let decrypted = Self::decrypt_charstring(t1_bytes, len_iv);
-
-        Self::convert_recursive(
-            &decrypted,
-            subrs,
-            len_iv,
-            &mut t2_bytes,
-            &mut stack,
-            &mut width_written,
-            &mut budget,
-            0,
-        );
-
-        // Ensure it ends with endchar if not already present
-        if t2_bytes.last() != Some(&14) {
-            t2_bytes.push(14);
-        }
-
-        t2_bytes
-    }
-
-    pub(super) fn parse_t1_number(t1_bytes: &[u8], b: u8, i: usize) -> (i32, usize) {
-        if b <= 246 {
-            (i32::from(b) - 139, i + 1)
-        } else if b <= 250 {
-            ((i32::from(b) - 247) * 256 + i32::from(t1_bytes[i + 1]) + 108, i + 2)
-        } else if b <= 254 {
-            (-(i32::from(b) - 251) * 256 - i32::from(t1_bytes[i + 1]) - 108, i + 2)
-        } else {
-            let v = i32::from_be_bytes([
-                t1_bytes[i + 1],
-                t1_bytes[i + 2],
-                t1_bytes[i + 3],
-                t1_bytes[i + 4],
-            ]);
-            (v, i + 5)
-        }
-    }
-
-    pub(super) fn handle_escape_sequence(
-        b2: u8,
-        t2_bytes: &mut Vec<u8>,
-        stack: &mut Vec<i32>,
-        width_written: &mut bool,
-    ) {
-        match b2 {
-            6 => {
-                if stack.len() >= 5 {
-                    let adx = stack[1];
-                    let ady = stack[2];
-                    let bchar = stack[3];
-                    let achar = stack[4];
-                    Self::push_t2_number(t2_bytes, adx);
-                    Self::push_t2_number(t2_bytes, ady);
-                    Self::push_t2_number(t2_bytes, bchar);
-                    Self::push_t2_number(t2_bytes, achar);
-                    t2_bytes.push(14);
-                }
-                stack.clear();
-            }
-            7 => {
-                if stack.len() >= 4 {
-                    let wx = stack[2];
-                    if !*width_written {
-                        Self::push_t2_number(t2_bytes, wx);
-                        *width_written = true;
-                    }
-                }
-                stack.clear();
-            }
-            _ => {
-                stack.clear();
-            }
-        }
-    }
-
-    pub(super) fn push_operator(t2_bytes: &mut Vec<u8>, stack: &mut Vec<i32>, op: u8) {
-        for &val in stack.iter() {
-            Self::push_t2_number(t2_bytes, val);
-        }
-        t2_bytes.push(op);
-        stack.clear();
-    }
-
-    pub(super) fn handle_callsubr(
-        subrs: &[Vec<u8>],
-        len_iv: usize,
-        t2_bytes: &mut Vec<u8>,
-        stack: &mut Vec<i32>,
-        width_written: &mut bool,
-        budget: &mut usize,
-        depth: usize,
-    ) {
-        if let Some(idx) = stack.pop()
-            && idx >= 0
-            && let Some(subr) = subrs.get(idx as usize)
-            && let Some(left) = budget.checked_sub(subr.len())
-        {
-            *budget = left;
-            let decrypted = Self::decrypt_charstring(subr, len_iv);
-            Self::convert_recursive(
-                &decrypted,
-                subrs,
-                len_iv,
-                t2_bytes,
-                stack,
-                width_written,
-                budget,
-                depth + 1,
-            );
-        }
-    }
-
-    pub(super) fn handle_hsbw(
-        t2_bytes: &mut Vec<u8>,
-        stack: &mut Vec<i32>,
-        width_written: &mut bool,
-    ) {
-        if stack.len() >= 2 {
-            let width = stack[stack.len() - 1];
-            if !*width_written {
-                Self::push_t2_number(t2_bytes, width);
-                *width_written = true;
-            }
-        }
-        stack.clear();
-    }
-
-    #[allow(clippy::too_many_arguments)]
-    pub(super) fn handle_operator(
-        b: u8,
-        subrs: &[Vec<u8>],
-        len_iv: usize,
-        t2_bytes: &mut Vec<u8>,
-        stack: &mut Vec<i32>,
-        width_written: &mut bool,
-        budget: &mut usize,
-        depth: usize,
-        i_ref: &mut usize,
-        t1_bytes: &[u8],
-    ) -> bool {
-        match b {
-            1 | 3 | 4 | 5 | 6 | 7 | 8 | 21 | 22 | 30 | 31 => {
-                Self::push_operator(t2_bytes, stack, b);
-            }
-            9 => {
-                stack.clear();
-            }
-            10 => {
-                Self::handle_callsubr(subrs, len_iv, t2_bytes, stack, width_written, budget, depth);
-            }
-            11 => {
-                return true;
-            }
-            13 => {
-                Self::handle_hsbw(t2_bytes, stack, width_written);
-            }
-            14 => {
-                Self::push_operator(t2_bytes, stack, 14);
-            }
-            12 => {
-                if *i_ref < t1_bytes.len() {
-                    let b2 = t1_bytes[*i_ref];
-                    *i_ref += 1;
-                    Self::handle_escape_sequence(b2, t2_bytes, stack, width_written);
-                }
-            }
-            _ => {
-                stack.clear();
-            }
-        }
-        false
-    }
-
-    #[allow(clippy::too_many_arguments)]
-    pub(super) fn convert_recursive(
-        t1_bytes: &[u8],
-        subrs: &[Vec<u8>],
-        len_iv: usize,
-        t2_bytes: &mut Vec<u8>,
-        stack: &mut Vec<i32>,
-        width_written: &mut bool,
-        budget: &mut usize,
-        depth: usize,
-    ) {
-        if depth > 10 {
-            return;
-        }
-
-        let mut i = 0;
-        while i < t1_bytes.len() {
-            let b = t1_bytes[i];
-            if b >= 32 {
-                let (val, next_i) = Self::parse_t1_number(t1_bytes, b, i);
-                stack.push(val);
-                i = next_i;
-            } else {
-                i += 1;
-                if Self::handle_operator(
-                    b,
-                    subrs,
-                    len_iv,
-                    t2_bytes,
-                    stack,
-                    width_written,
-                    budget,
-                    depth,
-                    &mut i,
-                    t1_bytes,
-                ) {
-                    return;
-                }
-            }
-        }
     }
 
     /// Writes `val` as a Type 2 charstring operand.
@@ -635,6 +454,33 @@ impl FontReconstructor {
             r = u16::from(b).wrapping_add(r).wrapping_mul(c1).wrapping_add(c2);
         }
         output
+    }
+
+    /// A program as `/FontFile` holds it (9.9): the clear text, then the eexec-encrypted
+    /// portion in binary or hexadecimal, then the trailer, with no PFB segment headers.
+    ///
+    /// `/Length1` says where the clear text ends. Where it is missing or past the end,
+    /// the clear text ends after `eexec` and the white space that follows it, which is
+    /// where the Type 1 specification puts the start of the encrypted portion.
+    pub(super) fn split_cleartext(
+        data: &[u8],
+        length1: Option<usize>,
+    ) -> FontResult<Type1Segments> {
+        let after_eexec = || {
+            let at = Self::find_subslice(data, b"eexec")? + b"eexec".len();
+            let skipped = data.get(at..)?.iter().take_while(|b| b.is_ascii_whitespace()).count();
+            Some(at + skipped)
+        };
+        let split = length1
+            .filter(|&n| n > 0 && n < data.len())
+            .or_else(after_eexec)
+            .ok_or_else(|| FontError::Other("Type 1 program has no eexec portion".into()))?;
+        let (ascii, rest) = data.split_at(split);
+        Ok(Type1Segments {
+            ascii: ascii.to_vec(),
+            binary: crate::program_glyphs::eexec_portion(rest),
+            trailer: Vec::new(),
+        })
     }
 
     pub(super) fn parse_pfb(data: &[u8]) -> FontResult<Type1Segments> {
