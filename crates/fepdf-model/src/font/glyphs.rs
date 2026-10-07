@@ -111,10 +111,13 @@ impl FontResource {
 
     /// Returns the width of a glyph in 1/1000 font units, by CID.
     pub fn glyph_width_by_cid(&self, cid: u32) -> f32 {
-        if let Some(w) = self.widths.get(&cid) {
-            return *w;
+        if let Some(w) = self.cid_width(cid) {
+            return w;
         }
-        if self.widths.is_empty() && (self.default_width == 1000.0 || self.default_width == 0.0) {
+        if self.widths.is_empty()
+            && self.width_ranges.is_empty()
+            && (self.default_width == 1000.0 || self.default_width == 0.0)
+        {
             let cat =
                 FontCategory::from_name_and_flags(self.base_font.as_str(), 0, self.is_cid_keyed);
             return cat.estimate_char_width(cid);

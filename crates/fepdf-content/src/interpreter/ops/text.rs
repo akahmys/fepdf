@@ -460,6 +460,9 @@ impl Interpreter<'_> {
     }
 
     fn execute_type3_stream(&mut self, stream_h: Handle<Object>, glyph_name: &str) {
+        if !self.may_nest(&format!("Type 3 glyph {glyph_name}")) {
+            return;
+        }
         self.type3_advance = None;
         self.in_type3_glyph = true;
         let old_stack = std::mem::take(&mut self.state_stack);

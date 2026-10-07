@@ -1665,7 +1665,7 @@ before it is decided; Z-4 when convenient; Z-5 with the next GUI defect.
       *Done when* each target runs for 15 minutes without a crash, a hang or an
       out-of-memory, and the corpus it found is kept where `make_malformed.py`'s output
       is, under `target/`.
-- [ ] **Z-2** — **PrintCraft's findings, as inputs.** Each item in its `vendor/README.md`
+- [x] **Z-2** — **PrintCraft's findings, as inputs.** Each item in its `vendor/README.md`
       names an input and what it did: `/Columns 4294967295` predictor rows, `/W` and
       `/LW` far past any canvas, CCITT and JBIG2 dimensions, a page tree whose `/Kids`
       loop through object streams, inline images with `EI` inside their data, Type 3
@@ -1683,6 +1683,31 @@ before it is decided; Z-4 when convenient; Z-5 with the next GUI defect.
       before the budget and passes in milliseconds with it. No output moved
       (`golden_outputs.sh`), and none could: no sample and no external file reaches the
       conversion, for the reason below.
+      **The rest, 2026-10-08**: `hostile_input_test.rs` takes each lead through open,
+      draw, text and save with a 20 s deadline. Six finish as they were: a huge image
+      mask, JBIG2 dimensions, huge line widths, a `/Kids` loop, inline images with `EI`
+      in their data, and tiling patterns of absurd steps or drawing themselves. The rest
+      did not, and each is fixed:
+      - **a CCITT image of 4294967295 by 4294967295** reserved 2^61 bytes for its
+        bitmap and aborted the process. A bilevel page, CCITT or JBIG2, holds at most
+        128 MiB, a gigapixel (`bilevel::MAX_BITMAP_BYTES`): a declared size past it is
+        refused before decoding, and a codestream writing past it is refused after.
+      - **a self-drawing form aborted the process**, overflowing the stack — the
+        shortest hostile file there is, and not one of PrintCraft's; it was added
+        beside its Type 3 lead. **A Type 3 glyph showing its own font** did the same.
+        Forms and glyphs now share a depth of 64 and 65,536 runs inside other runs a
+        page (`Interpreter::may_nest`); reaching either is recorded once, as an
+        ambiguity under C.2, and what is past it is not drawn. Fan-out eight deep
+        finishes in under 3 s in a debug build.
+      - **`/W [0 4294967295 500]`** expanded four billion CIDs and never finished
+        opening. Ranges are expanded up to 2^20 CIDs a font and kept as ranges past
+        that (`metrics::EXPANDED_CIDS`); 2.0 sets no maximum CID, so none is cut short.
+      - **`/Columns 4294967295`** overflowed the predictor's row width: a panic in a
+        debug build, a wrapped width sizing two buffers in a release one. Parameters
+        must be positive, the width is computed with checks, and a row longer than the
+        data is refused before its buffer is made.
+      PrintCraft's `/Kids` loop ran through object streams; the one here is among
+      plain objects.
 - [x] **Z-2a** — **a conforming embedded Type 1 program is never converted.** `/FontFile`
       holds the clear-text and binary portions back to back, as `/Length1` and `/Length2`
       give them (9.9). `parse_pfb` reads only PFB segments, so a PFA-style program fails

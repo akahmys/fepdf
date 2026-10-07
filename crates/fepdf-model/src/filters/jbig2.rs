@@ -25,7 +25,7 @@
 
 use crate::PdfResult;
 use crate::error::PdfError;
-use crate::filters::bilevel::Bitmap;
+use crate::filters::bilevel::{self, Bitmap};
 use crate::filters::{DecodingFilter, FilterContext};
 use crate::object::Object;
 use bytes::Bytes;
@@ -50,6 +50,10 @@ pub fn decode(input: &[u8], globals: Option<&[u8]>) -> PdfResult<Bytes> {
     let image = hayro_jbig2::Image::new_embedded(input, globals)
         .map_err(|e| refuse(&format!("{e:?}"), globals.is_some()))?;
 
+    if !bilevel::fits(image.width(), image.height()) {
+        let size = format!("{} by {}", image.width(), image.height());
+        return Err(refuse(&format!("{size} pixels is past the bilevel limit"), globals.is_some()));
+    }
     let mut page = Page(Bitmap::new(image.width(), image.height()));
     image.decode(&mut page).map_err(|e| {
         refuse(
@@ -57,6 +61,9 @@ pub fn decode(input: &[u8], globals: Option<&[u8]>) -> PdfResult<Bytes> {
             globals.is_some(),
         )
     })?;
+    if page.0.overflowed {
+        return Err(refuse("the region wrote past the bilevel limit", globals.is_some()));
+    }
     Ok(Bytes::from(page.0.finish()))
 }
 

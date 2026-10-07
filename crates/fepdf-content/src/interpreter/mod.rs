@@ -31,6 +31,14 @@ pub mod font;
 /// Operators handling submodules.
 pub mod ops;
 
+/// How many forms and Type 3 glyphs may enclose one another. Real documents nest a few
+/// deep; this is the bound [`Interpreter::may_nest`] holds.
+pub(crate) const MAX_NESTING: usize = 64;
+
+/// How many forms and glyphs may run inside another one on a page
+/// ([`Interpreter::may_nest`]).
+pub(crate) const MAX_NESTED_RUNS: usize = 1 << 16;
+
 /// A content stream interpreter that translates PDF operators into [RenderBackend] calls.
 pub struct Interpreter<'a> {
     /// The rendering backend used to draw items, behind the gate that withholds marks
@@ -65,6 +73,12 @@ pub struct Interpreter<'a> {
     pub(crate) type3_advance: Option<Type3Advance>,
     /// Whether we are currently executing a Type 3 glyph stream.
     pub(crate) in_type3_glyph: bool,
+    /// How many forms and Type 3 glyphs enclose the content running now.
+    pub(crate) nesting: usize,
+    /// How many forms and glyphs have run inside another one on this page.
+    pub(crate) nested_runs: usize,
+    /// Whether this page has recorded reaching [`MAX_NESTING`] or [`MAX_NESTED_RUNS`].
+    pub(crate) nesting_recorded: bool,
     /// The initial transformation matrix (device transform).
     pub(crate) initial_transform: kurbo::Affine,
     /// Which optional content groups the document turns off (8.11), read on the first
@@ -143,6 +157,9 @@ impl<'a> Interpreter<'a> {
             op_index: None,
             type3_advance: None,
             in_type3_glyph: false,
+            nesting: 0,
+            nested_runs: 0,
+            nesting_recorded: false,
             optional_content: None,
             marked_sections: Vec::new(),
             mask_scopes: Vec::new(),
@@ -693,10 +710,40 @@ impl<'a> Interpreter<'a> {
     ) -> PdfResult<T> {
         let enclosing = std::mem::take(&mut self.marked_sections);
         let hidden = self.backend.hidden_depth();
+        self.nesting += 1;
         let outcome = run(self);
+        self.nesting -= 1;
         self.marked_sections = enclosing;
         self.backend.restore_hidden_depth(hidden);
         outcome
+    }
+
+    /// Whether one more form or Type 3 glyph may run, `what` naming it for the record.
+    ///
+    /// A form that draws itself, or a glyph that shows its own font, recursed until the
+    /// stack overflowed and the process aborted (ROADMAP Z-2, after PrintCraft's
+    /// hayro-interpret). Depth is not enough on its own: a glyph showing eight glyphs of
+    /// its own font costs 8^depth, so the runs inside other runs share a budget too. The
+    /// standard sets neither limit — Annex C, Table C.1, notes only that excessively nested
+    /// constructs may cause issues — so reaching one is recorded once a page, as the
+    /// reading this engine chose, and what is past it is not drawn.
+    pub(crate) fn may_nest(&mut self, what: &str) -> bool {
+        let within = self.nesting > 0;
+        if self.nesting < MAX_NESTING && (!within || self.nested_runs < MAX_NESTED_RUNS) {
+            self.nested_runs += usize::from(within);
+            return true;
+        }
+        if !self.nesting_recorded {
+            self.nesting_recorded = true;
+            self.doc.record(fepdf_model::interpretation::Decision::ambiguity(
+                "C.2",
+                format!(
+                    "{what} is nested past {MAX_NESTING} levels or {MAX_NESTED_RUNS} nested runs"
+                ),
+                "drew nothing past the limit on this page",
+            ));
+        }
+        false
     }
 
     /// The `/Font` entries the current resource scope names, for the sublimator.

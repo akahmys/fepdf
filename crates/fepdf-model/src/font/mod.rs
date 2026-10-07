@@ -97,6 +97,12 @@ pub struct FontResource {
     pub widths: BTreeMap<u32, f32>,
     /// Vertical widths for vertical writing mode.
     pub vertical_widths: BTreeMap<u32, (f32, f32, f32)>, // (w1, v_x, v_y)
+    /// `/W` ranges too wide to expand into `widths`, as `(first, last, width)`
+    /// ([`metrics::EXPANDED_CIDS`]); read through [`Self::cid_width`].
+    pub width_ranges: Vec<(u32, u32, f32)>,
+    /// `/W2` ranges too wide to expand into `vertical_widths`; read through
+    /// [`Self::cid_vertical_width`].
+    pub vertical_width_ranges: Vec<(u32, u32, (f32, f32, f32))>,
     /// `/DW2` as `(position_y, displacement_y)`; 9.7.4.3's `[880 -1000]` when absent.
     pub default_vertical: (f32, f32),
     /// Default width for glyphs not present in the widths map.
@@ -357,6 +363,8 @@ impl FontResource {
             last_char: 255,
             widths: BTreeMap::new(),
             vertical_widths: BTreeMap::new(),
+            width_ranges: Vec::new(),
+            vertical_width_ranges: Vec::new(),
             default_vertical: (880.0, -1000.0),
             default_width: 1000.0,
             wmode: 0,
@@ -677,6 +685,8 @@ impl FontResource {
             last_char: metrics.last,
             widths: metrics.widths,
             vertical_widths: metrics.v_widths,
+            width_ranges: metrics.width_ranges,
+            vertical_width_ranges: metrics.v_width_ranges,
             default_vertical: metrics.default_vertical,
             default_width: metrics.default_width,
             wmode: metrics::detect_wmode(dict, arena) as u8,

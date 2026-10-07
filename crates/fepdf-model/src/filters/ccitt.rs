@@ -19,7 +19,7 @@
 use crate::PdfResult;
 use crate::arena::PdfArena;
 use crate::error::PdfError;
-use crate::filters::bilevel::Bitmap;
+use crate::filters::bilevel::{self, Bitmap};
 use crate::object::Object;
 use bytes::Bytes;
 use hayro_ccitt::{DecodeSettings, Decoder, DecoderContext, EncodingMode};
@@ -99,9 +99,15 @@ pub fn decode(
         invert_black: flag("BlackIs1", false),
     };
 
+    if !bilevel::fits(columns, rows) {
+        return Err(refuse(&format!("{columns} by {rows} samples is past the bilevel limit")));
+    }
     let mut page = Page(Bitmap::new(columns, rows));
     hayro_ccitt::decode(input, &mut page, &mut DecoderContext::new(settings))
         .map_err(|e| refuse(&format!("{e:?} after {} of {rows} rows", page.0.rows_done)))?;
+    if page.0.overflowed {
+        return Err(refuse("the coded data wrote past the bilevel limit"));
+    }
     Ok(Bytes::from(page.0.finish()))
 }
 

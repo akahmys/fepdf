@@ -3,6 +3,31 @@ use crate::handle::Handle;
 use crate::object::{Object, PdfName};
 use std::collections::BTreeMap;
 
+/// How many CIDs the `/W` and `/W2` ranges of one font are expanded into, one entry each,
+/// before a range is kept as a range instead.
+///
+/// `c_first c_last w` covers every CID between; read one CID at a time, `0 4294967295 500`
+/// was four billion insertions, and the document never finished opening (ROADMAP Z-2,
+/// after PrintCraft's hayro). ISO 32000-2 sets no maximum CID — Annex C says only that
+/// earlier versions recommended 65,535 — so a range is not cut short; it is stored whole
+/// instead of expanded. The largest CID collections hold about 65,000, so 2^20 leaves
+/// every real font expanded as it always was.
+pub const EXPANDED_CIDS: u64 = 1 << 20;
+
+/// A CID from a `/W` or `/W2` entry: a non-negative integer that fits in 32 bits.
+fn cid(obj: &Object, arena: &PdfArena) -> Option<u32> {
+    u32::try_from(Object::resolve(obj, arena).as_integer()?).ok()
+}
+
+/// What `/W2` gives, while it is read: the CIDs expanded, the ranges kept whole, and how
+/// many more CIDs may be expanded.
+#[derive(Default)]
+struct VerticalWidths {
+    expanded: BTreeMap<u32, (f32, f32, f32)>,
+    ranges: Vec<(u32, u32, (f32, f32, f32))>,
+    budget: u64,
+}
+
 /// Container for font horizontal and vertical metrics.
 #[derive(Debug, Clone)]
 pub struct FontMetrics {
@@ -14,6 +39,11 @@ pub struct FontMetrics {
     pub widths: BTreeMap<u32, f32>,
     /// CID -> (w1_y, v_x, v_y) for vertical writing.
     pub v_widths: BTreeMap<u32, (f32, f32, f32)>,
+    /// `/W` ranges kept as ranges, `(first, last, width)`, once [`EXPANDED_CIDS`] are in
+    /// `widths`: consulted where `widths` has no entry, the latest first.
+    pub width_ranges: Vec<(u32, u32, f32)>,
+    /// `/W2` ranges kept as ranges, as `width_ranges` is for `/W`.
+    pub v_width_ranges: Vec<(u32, u32, (f32, f32, f32))>,
     /// Width used for codes absent from the table (`/MissingWidth` or `/DW`).
     pub default_width: f32,
     /// `/DW2`, as `(position_y, displacement_y)` — 9.7.4.3's default vertical metrics.
@@ -31,6 +61,8 @@ impl Default for FontMetrics {
             last: 0,
             widths: BTreeMap::new(),
             v_widths: BTreeMap::new(),
+            width_ranges: Vec::new(),
+            v_width_ranges: Vec::new(),
             default_width: 1000.0,
             default_vertical: (880.0, -1000.0),
         }
@@ -74,62 +106,75 @@ impl FontMetrics {
             df_dict.get(&arena.name("W")).map(|o: &Object| Object::resolve(o, arena))
             && let Some(w_arr) = arena.get_array(wah)
         {
-            let mut i: usize = 0;
-            while i < w_arr.len() {
-                let first_cid = Object::resolve(&w_arr[i], arena).as_integer().unwrap_or(0) as u32;
-                if i + 1 >= w_arr.len() {
-                    break;
-                }
-                let next_obj = Object::resolve(&w_arr[i + 1], arena);
-                if let Object::Array(iah) = next_obj {
-                    if let Some(i_arr) = arena.get_array(iah) {
-                        for (idx, w_obj) in i_arr.iter().enumerate() {
-                            let w_val: f32 =
-                                Object::resolve(w_obj, arena).as_f64().unwrap_or(1000.0) as f32;
-                            metrics.widths.insert(first_cid + idx as u32, w_val);
-                        }
-                    }
-                    i += 2;
-                } else {
-                    if i + 2 >= w_arr.len() {
-                        break;
-                    }
-                    let last_cid = next_obj.as_integer().unwrap_or(0) as u32;
-                    let w_val: f32 =
-                        Object::resolve(&w_arr[i + 2], arena).as_f64().unwrap_or(1000.0) as f32;
-                    if first_cid <= last_cid {
-                        for cid in first_cid..=last_cid {
-                            metrics.widths.insert(cid, w_val);
-                        }
-                    }
-                    i += 3;
-                }
-            }
+            metrics.parse_w(&w_arr, arena);
         }
 
-        metrics.v_widths = Self::parse_v2(df_dict, arena, metrics.default_width);
+        let vertical = Self::parse_v2(df_dict, arena, metrics.default_width);
+        metrics.v_widths = vertical.expanded;
+        metrics.v_width_ranges = vertical.ranges;
         metrics
     }
 
-    /// Parses vertical metrics from a CIDFont dictionary (W2 and DW2).
+    /// `/W` (9.7.4.3): `c [w1 w2 …]` entries and `c_first c_last w` ranges, the ranges
+    /// expanded until [`EXPANDED_CIDS`] are and kept as ranges after.
+    fn parse_w(&mut self, w_arr: &[Object], arena: &PdfArena) {
+        let mut budget = EXPANDED_CIDS;
+        let mut i: usize = 0;
+        while i + 1 < w_arr.len() {
+            let first_cid = cid(&w_arr[i], arena);
+            let next_obj = Object::resolve(&w_arr[i + 1], arena);
+            if let Object::Array(iah) = next_obj {
+                if let (Some(first), Some(i_arr)) = (first_cid, arena.get_array(iah)) {
+                    for (idx, w_obj) in i_arr.iter().enumerate() {
+                        let Some(c) = u32::try_from(idx).ok().and_then(|k| first.checked_add(k))
+                        else {
+                            break;
+                        };
+                        let w_val = Object::resolve(w_obj, arena).as_f64().unwrap_or(1000.0);
+                        self.widths.insert(c, w_val as f32);
+                    }
+                }
+                i += 2;
+                continue;
+            }
+            let Some(w_obj) = w_arr.get(i + 2) else { break };
+            let w_val = Object::resolve(w_obj, arena).as_f64().unwrap_or(1000.0) as f32;
+            if let (Some(first), Some(last)) = (first_cid, cid(&next_obj, arena))
+                && first <= last
+            {
+                let count = u64::from(last - first) + 1;
+                if count <= budget {
+                    budget -= count;
+                    for c in first..=last {
+                        self.widths.insert(c, w_val);
+                    }
+                } else {
+                    self.width_ranges.push((first, last, w_val));
+                }
+            }
+            i += 3;
+        }
+    }
+    /// Parses vertical metrics from a CIDFont dictionary (W2 and DW2): the CIDs it
+    /// expands, and the ranges it keeps as ranges past [`EXPANDED_CIDS`].
     fn parse_v2(
         df_dict: &BTreeMap<Handle<PdfName>, Object>,
         arena: &PdfArena,
         default_w: f32,
-    ) -> BTreeMap<u32, (f32, f32, f32)> {
-        let mut v_widths = BTreeMap::new();
+    ) -> VerticalWidths {
+        let mut v = VerticalWidths { budget: EXPANDED_CIDS, ..VerticalWidths::default() };
         let Some(Object::Array(wah)) =
             df_dict.get(&arena.name("W2")).map(|o: &Object| Object::resolve(o, arena))
         else {
-            return v_widths;
+            return v;
         };
-        let Some(w2_arr) = arena.get_array(wah) else { return v_widths };
+        let Some(w2_arr) = arena.get_array(wah) else { return v };
 
         let mut i: usize = 0;
         while i < w2_arr.len() {
-            i = Self::parse_v2_entry(&w2_arr, i, arena, default_w, &mut v_widths);
+            i = Self::parse_v2_entry(&w2_arr, i, arena, default_w, &mut v);
         }
-        v_widths
+        v
     }
 
     fn parse_v2_entry(
@@ -137,42 +182,48 @@ impl FontMetrics {
         i: usize,
         arena: &PdfArena,
         default_w: f32,
-        v_widths: &mut BTreeMap<u32, (f32, f32, f32)>,
+        v: &mut VerticalWidths,
     ) -> usize {
-        let first_cid = Object::resolve(&w2_arr[i], arena).as_integer().unwrap_or(0) as u32;
+        let first_cid = cid(&w2_arr[i], arena);
         if i + 1 >= w2_arr.len() {
             return w2_arr.len();
         }
+        let metric = |w1: &Object, vx: &Object, vy: &Object| {
+            let w1_y = Object::resolve(w1, arena).as_f64().unwrap_or(-1000.0) as f32;
+            let v_x = Object::resolve(vx, arena).as_f64().unwrap_or(f64::from(default_w) / 2.0);
+            let v_y = Object::resolve(vy, arena).as_f64().unwrap_or(880.0) as f32;
+            (w1_y, v_x as f32, v_y)
+        };
         let next_obj = Object::resolve(&w2_arr[i + 1], arena);
         if let Object::Array(iah) = next_obj {
-            if let Some(i_arr) = arena.get_array(iah) {
+            if let (Some(first), Some(i_arr)) = (first_cid, arena.get_array(iah)) {
                 for (idx, chunk) in i_arr.as_chunks::<3>().0.iter().enumerate() {
-                    let w1_y = Object::resolve(&chunk[0], arena).as_f64().unwrap_or(-1000.0) as f32;
-                    let v_x = Object::resolve(&chunk[1], arena)
-                        .as_f64()
-                        .unwrap_or(f64::from(default_w) / 2.0) as f32;
-                    let v_y = Object::resolve(&chunk[2], arena).as_f64().unwrap_or(880.0) as f32;
-                    v_widths.insert(first_cid + idx as u32, (w1_y, v_x, v_y));
+                    let Some(c) = u32::try_from(idx).ok().and_then(|k| first.checked_add(k)) else {
+                        break;
+                    };
+                    v.expanded.insert(c, metric(&chunk[0], &chunk[1], &chunk[2]));
                 }
             }
-            i + 2
-        } else {
-            if i + 4 >= w2_arr.len() {
-                return w2_arr.len();
-            }
-            let last_cid = next_obj.as_integer().unwrap_or(0) as u32;
-            let w1_y = Object::resolve(&w2_arr[i + 2], arena).as_f64().unwrap_or(-1000.0) as f32;
-            let v_x = Object::resolve(&w2_arr[i + 3], arena)
-                .as_f64()
-                .unwrap_or(f64::from(default_w) / 2.0) as f32;
-            let v_y = Object::resolve(&w2_arr[i + 4], arena).as_f64().unwrap_or(880.0) as f32;
-            if first_cid <= last_cid {
-                for cid in first_cid..=last_cid {
-                    v_widths.insert(cid, (w1_y, v_x, v_y));
-                }
-            }
-            i + 5
+            return i + 2;
         }
+        if i + 4 >= w2_arr.len() {
+            return w2_arr.len();
+        }
+        let value = metric(&w2_arr[i + 2], &w2_arr[i + 3], &w2_arr[i + 4]);
+        if let (Some(first), Some(last)) = (first_cid, cid(&next_obj, arena))
+            && first <= last
+        {
+            let count = u64::from(last - first) + 1;
+            if count <= v.budget {
+                v.budget -= count;
+                for c in first..=last {
+                    v.expanded.insert(c, value);
+                }
+            } else {
+                v.ranges.push((first, last, value));
+            }
+        }
+        i + 5
     }
 
     /// Parses standard horizontal metrics (FirstChar, LastChar, Widths).

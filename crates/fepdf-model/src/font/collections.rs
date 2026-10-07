@@ -205,6 +205,29 @@ impl FontResource {
 
     // extract_font_data has been moved to loader::FontLoader::extract_data
 
+    /// The width `/W` gives `cid`: its own entry, or the latest range kept whole that
+    /// covers it ([`EXPANDED_CIDS`](super::metrics::EXPANDED_CIDS)).
+    pub fn cid_width(&self, cid: u32) -> Option<f32> {
+        self.widths.get(&cid).copied().or_else(|| {
+            self.width_ranges
+                .iter()
+                .rev()
+                .find(|(first, last, _)| (*first..=*last).contains(&cid))
+                .map(|&(_, _, w)| w)
+        })
+    }
+
+    /// The vertical metrics `/W2` gives `cid`, as [`Self::cid_width`] reads `/W`.
+    pub fn cid_vertical_width(&self, cid: u32) -> Option<(f32, f32, f32)> {
+        self.vertical_widths.get(&cid).copied().or_else(|| {
+            self.vertical_width_ranges
+                .iter()
+                .rev()
+                .find(|(first, last, _)| (*first..=*last).contains(&cid))
+                .map(|&(_, _, v)| v)
+        })
+    }
+
     /// Advance width for a character code, in text-space units.
     pub fn glyph_width(&self, code: &[u8]) -> f32 {
         if code.is_empty() {
@@ -213,17 +236,20 @@ impl FontResource {
         let cid = self.to_cid(code);
 
         if self.wmode == 1 {
-            if let Some((w1_y, _, _)) = self.vertical_widths.get(&cid) {
-                return *w1_y;
+            if let Some((w1_y, _, _)) = self.cid_vertical_width(cid) {
+                return w1_y;
             }
             return 1000.0; // Default vertical advance
         }
 
-        if let Some(w) = self.widths.get(&cid) {
-            return *w;
+        if let Some(w) = self.cid_width(cid) {
+            return w;
         }
 
-        if self.widths.is_empty() && (self.default_width == 1000.0 || self.default_width == 0.0) {
+        if self.widths.is_empty()
+            && self.width_ranges.is_empty()
+            && (self.default_width == 1000.0 || self.default_width == 0.0)
+        {
             let cat =
                 FontCategory::from_name_and_flags(self.base_font.as_str(), 0, self.is_cid_keyed);
             return cat.estimate_char_width(cid);
@@ -318,10 +344,10 @@ impl FontResource {
     ///
     /// `v_x` is never declared: 9.7.4.3 fixes it at half the glyph's horizontal width.
     pub fn glyph_vertical_metrics(&self, cid: u32) -> (f32, f32, f32) {
-        if let Some(&metrics) = self.vertical_widths.get(&cid) {
+        if let Some(metrics) = self.cid_vertical_width(cid) {
             return metrics;
         }
-        let w0 = *self.widths.get(&cid).unwrap_or(&self.default_width);
+        let w0 = self.cid_width(cid).unwrap_or(self.default_width);
         let (v_y, w1_y) = self.default_vertical;
         (w1_y, w0 / 2.0, v_y)
     }

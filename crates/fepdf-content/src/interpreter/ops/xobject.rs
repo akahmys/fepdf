@@ -63,7 +63,9 @@ impl Interpreter<'_> {
                             self.record_skipped_image(&dict, name.as_str(), &e);
                         }
                     }
-                    "Form" => self.draw_form(&dict, sd)?,
+                    "Form" if self.may_nest(&format!("form XObject /{}", name.as_str())) => {
+                        self.draw_form(&dict, sd)?;
+                    }
                     _ => {}
                 }
             }

@@ -13,6 +13,22 @@
 //! whiteness and JBIG2 reports blackness, which is why each adapter says which it has
 //! rather than sharing a `bool` whose meaning depends on the caller.
 
+/// The most a bilevel page may hold: 128 MiB, a gigapixel at one bit each.
+///
+/// A CCITT or JBIG2 image declares its size, and both codecs can describe a row of one
+/// colour in a few bits, so a few bytes of data may ask for any size at all.
+/// `/Columns 4294967295 /Rows 4294967295` reserved 2^61 bytes up front and aborted the
+/// process (ROADMAP Z-2, after PrintCraft's hayro-syntax and hayro-jbig2). An A0 sheet
+/// scanned at 600 dpi is 0.56 gigapixels; one past this limit is refused, not drawn.
+pub(crate) const MAX_BITMAP_BYTES: usize = 1 << 27;
+
+/// Whether a page `columns` wide and `rows` high fits in [`MAX_BITMAP_BYTES`]. A `rows` of
+/// zero is an unstated height, and only the width is judged.
+pub(crate) fn fits(columns: u32, rows: u32) -> bool {
+    let stride = (columns as usize).div_ceil(8);
+    stride.checked_mul(rows.max(1) as usize).is_some_and(|bytes| bytes <= MAX_BITMAP_BYTES)
+}
+
 /// A bilevel page, packed as PDF lays image samples out.
 pub(crate) struct Bitmap {
     data: Vec<u8>,
@@ -20,6 +36,9 @@ pub(crate) struct Bitmap {
     x: u32,
     /// Completed rows, which is what an error message needs to be diagnosable.
     pub(crate) rows_done: u32,
+    /// Whether the codestream wrote past [`MAX_BITMAP_BYTES`], whatever the image
+    /// declared; what it wrote past that was dropped.
+    pub(crate) overflowed: bool,
 }
 
 impl Bitmap {
@@ -27,13 +46,18 @@ impl Bitmap {
     /// disagrees with the dictionary still writes what it has.
     pub(crate) fn new(columns: u32, rows: u32) -> Self {
         let stride = (columns as usize).div_ceil(8);
-        Self { data: Vec::with_capacity(stride * rows as usize), x: 0, rows_done: 0 }
+        let hint = stride.saturating_mul(rows as usize).min(MAX_BITMAP_BYTES);
+        Self { data: Vec::with_capacity(hint), x: 0, rows_done: 0, overflowed: false }
     }
 
     /// One pixel.
     pub(crate) fn push(&mut self, white: bool) {
         let bit = self.x % 8;
         if bit == 0 {
+            if self.data.len() >= MAX_BITMAP_BYTES {
+                self.overflowed = true;
+                return;
+            }
             self.data.push(0);
         }
         if white && let Some(byte) = self.data.last_mut() {
@@ -46,8 +70,13 @@ impl Bitmap {
     /// off a byte boundary.
     pub(crate) fn push_bytes(&mut self, white: bool, count: u32) {
         debug_assert!(self.x.is_multiple_of(8), "a chunk must start on a byte boundary");
-        self.data.extend(std::iter::repeat_n(if white { 0xFF } else { 0x00 }, count as usize));
-        self.x += count * 8;
+        let room = MAX_BITMAP_BYTES.saturating_sub(self.data.len());
+        if count as usize > room {
+            self.overflowed = true;
+        }
+        let written = (count as usize).min(room);
+        self.data.extend(std::iter::repeat_n(if white { 0xFF } else { 0x00 }, written));
+        self.x = self.x.saturating_add(count.saturating_mul(8));
     }
 
     /// Completes the current row, so the next one starts on a byte boundary.

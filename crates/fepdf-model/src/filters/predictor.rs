@@ -50,15 +50,37 @@ fn decode_png_predictor(
     dict: &BTreeMap<Handle<PdfName>, Object>,
     arena: &PdfArena,
 ) -> PdfResult<Vec<u8>> {
-    let columns = get_int_param(dict, arena, "Columns", 1) as usize;
-    let colors = get_int_param(dict, arena, "Colors", 1) as usize;
-    let bpc = get_int_param(dict, arena, "BitsPerComponent", 8) as usize;
-
-    let bytes_per_pixel = (colors * bpc).div_ceil(8);
-    let row_size = (columns * colors * bpc).div_ceil(8);
+    let invalid = |message: &str| PdfError::Filter {
+        filter: "PNGPredictor".into(),
+        message: message.to_string().into(),
+    };
+    // A parameter is a positive integer, and a row's width in bits is computed without
+    // wrapping. `/Columns 4294967295` overflowed `columns * colors * bpc` in a debug
+    // build, and in a release build wrapped to a width that sized the two row buffers
+    // below (ROADMAP Z-2, after a finding of PrintCraft's).
+    let positive = |key, default| {
+        usize::try_from(get_int_param(dict, arena, key, default)).ok().filter(|&v| v > 0)
+    };
+    let (Some(columns), Some(colors), Some(bpc)) =
+        (positive("Columns", 1), positive("Colors", 1), positive("BitsPerComponent", 8))
+    else {
+        return Err(invalid("Columns, Colors and BitsPerComponent must be positive"));
+    };
+    let bits_per_pixel =
+        colors.checked_mul(bpc).ok_or_else(|| invalid("Colors × BitsPerComponent overflows"))?;
+    let bytes_per_pixel = bits_per_pixel.div_ceil(8);
+    let row_size = columns
+        .checked_mul(bits_per_pixel)
+        .map(|bits| bits.div_ceil(8))
+        .ok_or_else(|| invalid("a row's width overflows"))?;
     let stride = row_size + 1;
 
-    if !data.len().is_multiple_of(stride) {
+    // A row longer than the data cannot be in it, so it is refused before a buffer of its
+    // width is made. Empty data has no rows, and decodes to nothing.
+    if data.is_empty() {
+        return Ok(Vec::new());
+    }
+    if stride > data.len() || !data.len().is_multiple_of(stride) {
         return Err(PdfError::Filter {
             filter: "PNGPredictor".into(),
             message: "Invalid PNG predictor data length".into(),

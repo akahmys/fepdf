@@ -44,6 +44,7 @@ mod function_shading_test;
 mod glyph_list_test;
 mod graphics_state_parameters_test;
 mod gs_font_test;
+mod hostile_input_test;
 mod icc_rendering_test;
 mod image_sample_count_test;
 mod inline_image_drawing_test;
