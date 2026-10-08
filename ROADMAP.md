@@ -1787,11 +1787,25 @@ before it is decided; Z-4 when convenient; Z-5 with the next GUI defect.
       reason (no catalogue, a password, an object that is not a dictionary); no panic,
       no hang; 973 extract every page and 976 write back. The 515 are unchanged: all
       open, 513 extract every page, all write back.
-- [ ] **Z-5** — **the window driven from outside.** egui's AccessKit tree names each
+- [x] **Z-5** — **the window driven from outside.** egui's AccessKit tree names each
       widget and where it is; a channel taking click, drag, key and screenshot over
       loopback, with a token only the user can read, lets a GUI defect be reproduced with
       the real gesture rather than a test's one big step. Taken with the next GUI defect,
       not before.
+      **Built, 2026-10-09, without waiting for one** (the owner asked for it):
+      `fepdf-gui --control <dir>` keeps the window open and takes the capture plan's
+      steps as lines appended to `<dir>/in`, answering in `<dir>/out` (`control.rs`).
+      **No port, so no token**: a directory its owner alone can reach does what a token
+      on loopback would, and nothing listens. Five verbs join the plan's: `clickat`,
+      `clicklabel` (a widget by the name AccessKit gives it, read from the last frame
+      through an egui plugin's output hook), `key`, `type`, and `inspect`. Each input
+      goes in where the platform's does, through `raw_input_hook`.
+      Driven on `constitution.pdf`: `inspect` listed the window's 26 named widgets;
+      `clicklabel 文書情報` opened the document information drawer; `key cmd+K` opened
+      the palette and `type zoom` wrote into its search field. **The first `key cmd+K`
+      opened nothing**: the event carried ⌘ and the frame said nothing was held, and the
+      palette reads the frame's modifiers. A key's frame now holds what the key does
+      (`control::held`), which is what a person's would.
 
 **Declined**: PrintCraft's parity manifest, a feature list where each entry must cite a
 test. The list is kept as a reference in

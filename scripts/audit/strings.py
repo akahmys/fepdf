@@ -139,6 +139,8 @@ EXEMPT_PROSE = {
     "This document": "stands in for an engine phrase, and is read in that voice",
     "Bad News": "an Apple voice's name, as `say -v` takes it",
     "Good News": "an Apple voice's name, as `say -v` takes it",
+    "no widget named: {name}": "an answer in `--control`'s out file, read by a program",
+    "inspected {} of {}": "an answer in `--control`'s out file, read by a program",
 }
 
 

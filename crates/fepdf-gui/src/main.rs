@@ -39,6 +39,7 @@ mod cad_canvas;
 mod capture;
 mod command_palette;
 mod comparing;
+mod control;
 mod document_tools;
 mod export_wizard;
 mod finding;
@@ -113,29 +114,41 @@ fn native_options() -> eframe::NativeOptions {
     }
 }
 
-/// `--capture <plan> --shots <dir>`, and the document to open, in any order.
+/// `--capture <plan> --shots <dir>`, or `--control <dir>`, and the document to open, in
+/// any order.
 ///
-/// **Hand-parsed rather than through a parser crate**, because two flags and a path is
+/// **Hand-parsed rather than through a parser crate**, because three flags and a path is
 /// the whole surface and `fepdf-cli` is where the argument vocabulary lives.
-fn arguments() -> (Option<PathBuf>, Option<PathBuf>, PathBuf) {
-    let mut document = None;
-    let mut plan = None;
-    let mut shots = PathBuf::from(".");
+fn arguments() -> Arguments {
+    let mut found =
+        Arguments { document: None, plan: None, shots: PathBuf::from("."), control: None };
     let mut args = std::env::args().skip(1);
     while let Some(arg) = args.next() {
         match arg.as_str() {
-            "--capture" => plan = args.next().map(PathBuf::from),
-            "--shots" => shots = args.next().map_or_else(|| PathBuf::from("."), PathBuf::from),
-            _ => document = Some(PathBuf::from(arg)),
+            "--capture" => found.plan = args.next().map(PathBuf::from),
+            "--shots" => {
+                found.shots = args.next().map_or_else(|| PathBuf::from("."), PathBuf::from);
+            }
+            "--control" => found.control = args.next().map(PathBuf::from),
+            _ => found.document = Some(PathBuf::from(arg)),
         }
     }
-    (document, plan, shots)
+    found
+}
+
+/// What the command line asked for.
+struct Arguments {
+    document: Option<PathBuf>,
+    plan: Option<PathBuf>,
+    shots: PathBuf,
+    /// `--control <dir>`: steps arrive in `<dir>/in` while the window runs (`control.rs`).
+    control: Option<PathBuf>,
 }
 
 fn main() -> eframe::Result<()> {
     env_logger::init();
 
-    let (pdf_path, plan_path, shots) = arguments();
+    let Arguments { document: pdf_path, plan: plan_path, shots, control } = arguments();
     let plan = plan_path.map(|path| match capture::Plan::read(&path, shots) {
         Ok(plan) => plan,
         Err(e) => {
@@ -145,6 +158,15 @@ fn main() -> eframe::Result<()> {
             std::process::exit(2);
         }
     });
+    let plan = match control.map(|dir| control::Control::open(&dir).map_err(|e| (dir, e))) {
+        Some(Ok(control)) => Some(capture::Plan::live(control)),
+        Some(Err((dir, e))) => {
+            eprintln!("fepdf-gui: {}: {e}", dir.display());
+            std::process::exit(2);
+        }
+        None => plan,
+    };
+    let driven = plan.is_some();
 
     let native_options = native_options();
 
@@ -153,6 +175,12 @@ fn main() -> eframe::Result<()> {
         native_options,
         Box::new(|cc| {
             let mut app = FepdfApp::new(cc);
+            if driven {
+                // The widget names `clicklabel` and `inspect` read are AccessKit's, which
+                // egui builds only when asked.
+                cc.egui_ctx.enable_accesskit();
+                cc.egui_ctx.add_plugin(control::WidgetTree::default());
+            }
             app.capture = plan;
             if let Some(path) = pdf_path {
                 app.open_file(path, &cc.egui_ctx);

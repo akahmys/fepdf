@@ -159,6 +159,19 @@ pub enum Step {
     Clear,
     /// Write what the window is drawing to `<shots>/<name>.ppm`.
     Shot(String),
+    /// Click at a point of the window, in points from its top-left: `clickat <x> <y>`.
+    /// The press and the release go in where the platform's do, as `drag`'s events do.
+    ClickAt(u32, u32),
+    /// Click the middle of the first widget whose name contains the words, ignoring case:
+    /// `clicklabel Zoom in`. The names are the last frame's AccessKit tree (`control.rs`).
+    ClickLabel(String),
+    /// Press a key, with what is held: `key cmd+shift+K`, `key Escape`.
+    Key(String),
+    /// Type the words, as a keyboard would: `type invoice`.
+    Type(String),
+    /// Say which widgets the last frame drew whose names contain the words, and where:
+    /// `inspect zoom`, or `inspect` for every one.
+    Inspect(String),
 }
 
 /// Why a plan could not be read.
@@ -200,6 +213,9 @@ pub struct Plan {
     pending: Option<String>,
     /// Pointer events a `drag` is still to send, one batch a frame.
     input: VecDeque<Vec<egui::Event>>,
+    /// The files steps arrive in and answers go to, when the window is driven from
+    /// outside (`--control`) rather than by a plan read once.
+    control: Option<crate::control::Control>,
 }
 
 /// How long to wait for the worker after an action.
@@ -250,12 +266,48 @@ impl Plan {
             acted: std::time::Instant::now(),
             pending: None,
             input: VecDeque::new(),
+            control: None,
         })
+    }
+
+    /// A plan whose steps arrive in `control`'s `in` while the window runs, and which
+    /// never runs out: the window stays until it is closed.
+    pub fn live(control: crate::control::Control) -> Self {
+        Self {
+            steps: VecDeque::new(),
+            shots: control.dir().to_path_buf(),
+            acted: std::time::Instant::now(),
+            pending: None,
+            input: VecDeque::new(),
+            control: Some(control),
+        }
+    }
+
+    /// Takes the steps that have arrived, and says which lines named none.
+    fn take_arrivals(&mut self) {
+        let Some(control) = self.control.as_mut() else { return };
+        for line in control.arrived() {
+            match parse(&line) {
+                Some(step) => self.steps.push_back(step),
+                None => control.report(&format!("unknown: {line}")),
+            }
+        }
+    }
+
+    /// An answer: into `out` when driven from outside, to standard output under a plan.
+    fn say(&self, line: &str) {
+        match &self.control {
+            Some(control) => control.report(line),
+            None => println!("{line}"),
+        }
     }
 
     /// Whether anything is left to do.
     pub fn finished(&self) -> bool {
-        self.steps.is_empty() && self.pending.is_none() && self.input.is_empty()
+        self.control.is_none()
+            && self.steps.is_empty()
+            && self.pending.is_none()
+            && self.input.is_empty()
     }
 
     /// The pointer events for this frame, if a drag is under way.
@@ -278,7 +330,13 @@ impl Plan {
             return None;
         }
         self.acted = std::time::Instant::now();
-        self.steps.pop_front()
+        let step = self.steps.pop_front();
+        // Driven from outside, each step taken is said: the next one's line is how a caller
+        // knows the last has been done.
+        if let (Some(step), Some(control)) = (&step, &self.control) {
+            control.report(&format!("step {step:?}"));
+        }
+        step
     }
 }
 
@@ -382,6 +440,14 @@ fn parse(line: &str) -> Option<Step> {
         "language" => Step::Language(rest.to_owned()),
         "clear" => Step::Clear,
         "shot" => Step::Shot(rest.to_owned()),
+        "clickat" => {
+            let (x, y) = rest.split_once(' ')?;
+            Step::ClickAt(x.trim().parse().ok()?, y.trim().parse().ok()?)
+        }
+        "clicklabel" if !rest.is_empty() => Step::ClickLabel(rest.to_owned()),
+        "key" if crate::control::key_events(rest).is_some() => Step::Key(rest.to_owned()),
+        "type" if !rest.is_empty() => Step::Type(rest.to_owned()),
+        "inspect" => Step::Inspect(rest.to_owned()),
         _ => return None,
     })
 }
@@ -452,6 +518,7 @@ impl crate::app::FepdfApp {
             && !self.print.waiting
             && !self.read_aloud.is_reading();
         let Some(plan) = self.capture.as_mut() else { return };
+        plan.take_arrivals();
         if plan.pending.is_some() {
             return;
         }
@@ -627,6 +694,16 @@ impl crate::app::FepdfApp {
                 }
                 ctx.send_viewport_cmd(egui::ViewportCommand::Screenshot(egui::UserData::default()));
             }
+            #[allow(clippy::cast_precision_loss)]
+            Step::ClickAt(x, y) => {
+                self.queue_input(crate::control::click_events(egui::pos2(x as f32, y as f32)));
+            }
+            Step::ClickLabel(name) => self.click_label(&name, ctx),
+            Step::Key(chord) => {
+                self.queue_input(crate::control::key_events(&chord).unwrap_or_default());
+            }
+            Step::Type(text) => self.queue_input([vec![egui::Event::Text(text)]].into()),
+            Step::Inspect(query) => self.inspect(&query, ctx),
         }
     }
 
@@ -713,6 +790,44 @@ fn drag_events(from: egui::Pos2, to: egui::Pos2) -> VecDeque<Vec<egui::Event>> {
 }
 
 impl crate::app::FepdfApp {
+    /// Puts events in the plan's input, one batch a frame.
+    fn queue_input(&mut self, events: VecDeque<Vec<egui::Event>>) {
+        if let Some(plan) = self.capture.as_mut() {
+            plan.input = events;
+        }
+    }
+
+    /// The widgets the last frame drew, from its AccessKit tree.
+    fn widgets(ctx: &egui::Context) -> Vec<crate::control::Widget> {
+        ctx.plugin_opt::<crate::control::WidgetTree>()
+            .map(|tree| tree.lock().widgets.clone())
+            .unwrap_or_default()
+    }
+
+    /// Clicks the middle of the first widget named `name`, or says there is none.
+    fn click_label(&mut self, name: &str, ctx: &egui::Context) {
+        let widgets = Self::widgets(ctx);
+        let Some(plan) = self.capture.as_mut() else { return };
+        match crate::control::matching(&widgets, name).first() {
+            Some(widget) => {
+                plan.say(&format!("click\t{}", crate::control::describe(widget)));
+                plan.input = crate::control::click_events(widget.rect.center());
+            }
+            None => plan.say(&format!("no widget named: {name}")),
+        }
+    }
+
+    /// Says which widgets the last frame drew whose names contain `query`.
+    fn inspect(&mut self, query: &str, ctx: &egui::Context) {
+        let widgets = Self::widgets(ctx);
+        let Some(plan) = self.capture.as_ref() else { return };
+        let found = crate::control::matching(&widgets, query);
+        for widget in &found {
+            plan.say(&crate::control::describe(widget));
+        }
+        plan.say(&format!("inspected {} of {}", found.len(), widgets.len()));
+    }
+
     /// Puts a drag in the plan's input, in screen points.
     #[allow(clippy::cast_precision_loss)]
     fn queue_drag(&mut self, [x0, y0, x1, y1]: [u32; 4]) {
@@ -724,9 +839,19 @@ impl crate::app::FepdfApp {
     }
 
     /// Hands egui this frame's share of a plan's drag, where the platform's events go.
+    ///
+    /// **A key brings what is held with it into the frame.** A person pressing ⌘K holds ⌘
+    /// for the whole frame, and egui reports that as the frame's modifiers, which is what
+    /// the palette's shortcut reads (`i.modifiers.command`). The event alone carried the
+    /// modifiers and the frame's said nothing was held, so `key cmd+K` reached the window
+    /// and opened nothing.
     pub(crate) fn feed_capture_input(&mut self, raw_input: &mut egui::RawInput) {
         if let Some(plan) = self.capture.as_mut() {
-            raw_input.events.extend(plan.input_for_this_frame());
+            let events = plan.input_for_this_frame();
+            if let Some(held) = crate::control::held(&events) {
+                raw_input.modifiers = held;
+            }
+            raw_input.events.extend(events);
         }
     }
 }
@@ -765,5 +890,18 @@ mod commands {
             Some(Step::Command("cmd_redaction_studio".to_owned()))
         );
         assert_eq!(parse("command cmd_no_such_thing"), None);
+    }
+
+    /// The verbs a person at the window has: a point, a widget by name, a key, words, and
+    /// a question. A key egui has no name for, and a click with no words, are no steps.
+    #[test]
+    fn the_control_verbs_are_read() {
+        assert_eq!(parse("clickat 10 20"), Some(Step::ClickAt(10, 20)));
+        assert_eq!(parse("clicklabel Zoom in"), Some(Step::ClickLabel("Zoom in".to_owned())));
+        assert_eq!(parse("key cmd+K"), Some(Step::Key("cmd+K".to_owned())));
+        assert_eq!(parse("type invoice"), Some(Step::Type("invoice".to_owned())));
+        assert_eq!(parse("inspect"), Some(Step::Inspect(String::new())));
+        assert_eq!(parse("key cmd+NoSuchKey"), None);
+        assert_eq!(parse("clicklabel"), None);
     }
 }
