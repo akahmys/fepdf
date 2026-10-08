@@ -790,10 +790,14 @@ fn vec_to_u32(v: &[u8]) -> u32 {
     val
 }
 
+/// `val` as a big-endian code of `len` bytes. A code longer than four bytes has zeros
+/// above the value: shifting a `u32` by 32 or more overflowed, and a CMap range with a
+/// five-byte code panicked (ROADMAP Z-1).
 fn u32_to_vec(val: u32, len: usize) -> Vec<u8> {
     let mut v = Vec::with_capacity(len);
     for i in (0..len).rev() {
-        v.push(((val >> (i * 8)) & 0xFF) as u8);
+        let shifted = u32::try_from(i * 8).ok().and_then(|s| val.checked_shr(s)).unwrap_or(0);
+        v.push((shifted & 0xFF) as u8);
     }
     v
 }
@@ -809,6 +813,12 @@ pub fn glyph_name_to_unicode(v: &[u8]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_code_longer_than_four_bytes_is_padded_rather_than_overflowing() {
+        assert_eq!(u32_to_vec(0x0102, 2), [1, 2]);
+        assert_eq!(u32_to_vec(0x0102_0304, 6), [0, 0, 1, 2, 3, 4]);
+    }
 
     #[test]
     fn test_agl_lookup() {

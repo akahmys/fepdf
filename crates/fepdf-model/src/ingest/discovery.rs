@@ -242,6 +242,10 @@ pub(crate) fn accumulate_resources(
 ) -> Vec<BTreeMap<Handle<PdfName>, Object>> {
     let mut current_node = Some(dict.clone());
     let mut resource_nodes = Vec::new();
+    // The page tree nodes already climbed through. A `/Parent` chain that returns to one
+    // of them is a cycle (7.7.3.2 makes the tree a tree, but a file can say otherwise),
+    // and climbing it never ended while the document opened (ROADMAP Z-1).
+    let mut seen = std::collections::BTreeSet::new();
 
     while let Some(node) = current_node {
         if let Some(res_obj) = node.get(resources_key)
@@ -258,7 +262,9 @@ pub(crate) fn accumulate_resources(
         let parent_key = arena.name("Parent");
         if let Some(parent_ref) = node.get(&parent_key) {
             let resolved_parent = parent_ref.resolve(arena);
-            if let Object::Dictionary(parent_dict_h) = resolved_parent {
+            if let Object::Dictionary(parent_dict_h) = resolved_parent
+                && seen.insert(parent_dict_h.index())
+            {
                 current_node = arena.get_dict(parent_dict_h);
             } else {
                 current_node = None;

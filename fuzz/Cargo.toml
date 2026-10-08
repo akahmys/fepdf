@@ -1,0 +1,37 @@
+# The fuzzer (ROADMAP Z-1). **Outside the workspace on purpose** (ADR-0113): it builds on
+# nightly, and the gate's toolchain is pinned to 1.98.1, so it is not a member and nothing
+# that ships depends on it. Run it with `cargo +nightly fuzz run <target>` from the
+# repository root; `fuzz/README.md` says how.
+[package]
+name = "fepdf-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2024"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+fepdf = { path = "../crates/fepdf" }
+fepdf-fixtures = { path = "../crates/fepdf-fixtures", features = ["backend"] }
+fepdf-font = { path = "../crates/fepdf-font" }
+kurbo = "0.13"
+
+# Its own workspace, so cargo does not look for it in the one above.
+[workspace]
+members = ["."]
+
+[[bin]]
+name = "open_draw_save"
+path = "fuzz_targets/open_draw_save.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "type1_program"
+path = "fuzz_targets/type1_program.rs"
+test = false
+doc = false
+bench = false

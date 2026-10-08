@@ -55,7 +55,10 @@ impl<'a> Sublimator<'a> {
         let after_bi = lexer.pos();
         let mut dict = BTreeMap::new();
         while let Ok(token) = lexer.next_token() {
-            if token == Token::Keyword("ID".to_string()) {
+            // `EOF` ends the dictionary as `ID` does. The lexer answers `EOF` for as long
+            // as it is asked once the stream is spent, and a dictionary that never reached
+            // `ID` skipped it as a non-name and asked again, for ever (ROADMAP Z-1).
+            if token == Token::Keyword("ID".to_string()) || token == Token::EOF {
                 break;
             }
             let key = match token {
@@ -503,11 +506,18 @@ impl<'a> Sublimator<'a> {
                 .collect(),
             "BDC" => self.handle_bdc(),
             "EMC" => vec![Command::EndMarkedContent],
+            // `tag MP` and `tag properties DP` (Table 352). Both operands of `DP` are kept,
+            // the tag first: keeping only the top one left the tag behind, the interpreter
+            // found no name where `DP` begins, and the error ended the page there.
             "MP" | "DP" => {
+                let count = if op == "DP" { 2 } else { 1 };
                 let mut operands = Vec::new();
-                if let Some(op1) = self.stack.pop() {
-                    operands.push(op1);
+                for _ in 0..count {
+                    if let Some(operand) = self.stack.pop() {
+                        operands.push(operand);
+                    }
                 }
+                operands.reverse();
                 vec![Command::RawOperator { name: op.to_string(), operands }]
             }
             _ => Vec::new(),

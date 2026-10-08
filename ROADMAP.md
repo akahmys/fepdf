@@ -1665,6 +1665,20 @@ before it is decided; Z-4 when convenient; Z-5 with the next GUI defect.
       *Done when* each target runs for 15 minutes without a crash, a hang or an
       out-of-memory, and the corpus it found is kept where `make_malformed.py`'s output
       is, under `target/`.
+      **Two targets run, 2026-10-08** ([fuzz/README.md](fuzz/README.md)):
+      `open_draw_save` (open, draw, extract, save) and `type1_program` (font
+      reconstruction), seeded from `target/external/` and `target/malformed/`. Four
+      rounds have found nine defects, each fixed and held by a test that fails without
+      the fix; no round has yet run its fifteen minutes through:
+      - a Type 1 glyph name that is not UTF-8 sliced past the program's end;
+      - a CMap code longer than four bytes overflowed a shift;
+      - a CFF INDEX cut off after its count, and one whose offset size is past the four
+        TN 5176 allows, read past the end or overflowed an addition;
+      - a CFF DICT operand cut off by the DICT's end was read past it;
+      - `DP` with an inline property list wrote into the sealed arena while a page was
+        drawn, and behind that, `DP` lost its tag, and the error ended the page;
+      - a `/Parent` chain that loops never finished opening;
+      - an inline image whose dictionary never reaches `ID` never finished opening.
 - [x] **Z-2** — **PrintCraft's findings, as inputs.** Each item in its `vendor/README.md`
       names an input and what it did: `/Columns 4294967295` predictor rows, `/W` and
       `/LW` far past any canvas, CCITT and JBIG2 dimensions, a page tree whose `/Kids`

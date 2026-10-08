@@ -532,9 +532,22 @@ impl<'a> Interpreter<'a> {
                     }
                 }
 
+                // Scalars and names only. An array or a dictionary would have to be
+                // allocated in the document's arena, and drawing a page writes nothing
+                // there (ROADMAP Y-11). Nothing run from here reads one: `d` and `TJ`, the
+                // two operators that take an array, never arrive raw, and `DP`, which
+                // always does, discards its property list. `/Tag << … >> DP` wrote into
+                // the sealed arena until the fuzzer found it (ROADMAP Z-1).
                 for op in operands {
-                    let refined = ir_to_refined(op);
-                    self.stack.push(fepdf_model::commit_to_arena(self.doc.arena(), refined, 0));
+                    use fepdf_model::object::sublimation::IrObject;
+                    let operand = match op {
+                        IrObject::Array(_) | IrObject::Dictionary(_) => fepdf_model::Object::Null,
+                        scalar => {
+                            let refined = ir_to_refined(scalar);
+                            fepdf_model::commit_to_arena(self.doc.arena(), refined, 0)
+                        }
+                    };
+                    self.stack.push(operand);
                 }
                 // Named, because the operand errors cannot see which operator asked for
                 // them. "Expected number" on its own says nothing about where in a

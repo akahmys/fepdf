@@ -193,11 +193,15 @@ impl Document {
     pub fn get_parent_chain(&self, page_h: Handle<Object>) -> Vec<Handle<Object>> {
         let mut chain = Vec::new();
         let mut current = page_h;
+        // A `/Parent` that returns to a node already in the chain is a cycle, and the
+        // chain grew until memory ran out (ROADMAP Z-1, beside the same walk in ingestion).
+        let mut seen = std::collections::BTreeSet::from([page_h.index()]);
         while let Ok(dict_h) = self.resolve_to_dict(current) {
             let Some(dict) = self.arena.get_dict(dict_h) else { break };
             let parent_key = self.arena.name("Parent");
             if let Some(parent_obj) = dict.get(&parent_key)
                 && let Some(parent_h) = parent_obj.resolve(&self.arena).as_reference()
+                && seen.insert(parent_h.index())
             {
                 chain.push(parent_h);
                 current = parent_h;

@@ -249,21 +249,20 @@ impl FontReconstructor {
         let mut search_pos = pos;
         while let Some(name_pos) = Self::find_next_name(full_text, search_pos) {
             let name = Self::extract_name(full_text, name_pos);
+            // Where the name ends in the bytes, which is not `name.len()` on from the slash:
+            // the name is read lossily, and a byte that is not UTF-8 becomes three. Taking
+            // its length as an offset sliced past the end of the program (ROADMAP Z-1).
+            let name_end = Self::name_end(full_text, name_pos);
             if name == "CharStrings" || name == "dict" || name == "begin" || name == "end" {
-                search_pos = name_pos + name.len() + 1;
+                search_pos = name_end;
                 continue;
             }
 
-            // `name_pos` is the slash, so the name ends one byte further on than its length.
-            // Reading from `name_pos + name.len()` took the name's last character for the
-            // charstring's length, failed to parse it, and so read no charstring at all.
-            if let Some((data, next_pos)) =
-                Self::extract_rd_data(full_text, name_pos + 1 + name.len())
-            {
+            if let Some((data, next_pos)) = Self::extract_rd_data(full_text, name_end) {
                 charstrings.insert(name, data);
                 search_pos = next_pos;
             } else {
-                search_pos = name_pos + name.len() + 1;
+                search_pos = name_end;
             }
 
             if search_pos >= full_text.len()
@@ -391,10 +390,16 @@ impl FontReconstructor {
     }
 
     pub(super) fn find_next_name(data: &[u8], start: usize) -> Option<usize> {
-        data[start..].iter().position(|&b| b == b'/').map(|p| start + p)
+        data.get(start..)?.iter().position(|&b| b == b'/').map(|p| start + p)
     }
 
     pub(super) fn extract_name(data: &[u8], pos: usize) -> String {
+        let end = Self::name_end(data, pos);
+        String::from_utf8_lossy(data.get(pos + 1..end).unwrap_or_default()).to_string()
+    }
+
+    /// The byte offset just past the name whose slash is at `pos`.
+    pub(super) fn name_end(data: &[u8], pos: usize) -> usize {
         let mut end = pos + 1;
         while end < data.len()
             && !data[end].is_ascii_whitespace()
@@ -404,11 +409,15 @@ impl FontReconstructor {
         {
             end += 1;
         }
-        String::from_utf8_lossy(&data[pos + 1..end]).to_string()
+        end.min(data.len())
     }
 
     pub(super) fn extract_rd_data(data: &[u8], pos: usize) -> Option<(Vec<u8>, usize)> {
-        // Look for "<number> RD" or "<number> -|"
+        // Look for "<number> RD" or "<number> -|". A position past the end is no entry:
+        // `parse_subrs` measures the index it skips in its lossily read text.
+        if pos > data.len() {
+            return None;
+        }
         let mut i = pos;
         while i < data.len() && data[i].is_ascii_whitespace() {
             i += 1;

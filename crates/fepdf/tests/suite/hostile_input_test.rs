@@ -301,3 +301,41 @@ fn the_nesting_limit_is_recorded_once() {
     assert_eq!(recorded.len(), 1, "{recorded:?}");
     assert!(recorded[0].contains("form XObject /X"), "{recorded:?}");
 }
+
+/// Drawing a page writes nothing into the document (ROADMAP Y-11), even where an operator
+/// reaches the interpreter as a raw one carrying an inline dictionary. `DP` always does,
+/// so this is conforming content: `/Tag << /MCID 0 >> DP` committed its property list
+/// into the sealed arena, which a debug build refuses. The fuzzer found it (Z-1), and
+/// behind it the reason `DP` never worked at all.
+#[test]
+fn a_raw_operator_with_an_inline_dictionary_writes_nothing() {
+    let pdf = page("/Tag << /MCID 0 /Note [(a) (b)] >> DP 0 0 10 10 re f", "<< >>", &[]);
+    let doc = PdfDocument::open(pdf.into()).expect("it opens");
+    let mut recorder = Recorder::new();
+    doc.render_page(0, &mut recorder, Affine::IDENTITY).expect("the page interprets");
+    // And what follows it is drawn. The parser kept only `DP`'s property list, so the
+    // interpreter found no tag, and that error ended the page before the fill.
+    assert_eq!(recorder.fills().len(), 1, "the rectangle after DP is filled");
+}
+
+/// A `/Parent` chain that loops finishes opening. Inherited resources are gathered by
+/// following `/Parent` up from each page, and nothing stopped at a node already seen: a
+/// page tree node naming the page as its own parent never finished opening. The fuzzer
+/// found it (Z-1); the `/Kids` loop above is a different walk, and was bounded already.
+#[test]
+fn a_parent_chain_that_loops_finishes() {
+    let pdf = assemble(&[
+        "<< /Type /Catalog /Pages 2 0 R >>",
+        "<< /Type /Pages /Kids [3 0 R] /Count 1 /Parent 3 0 R >>",
+        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] >>",
+    ]);
+    finishes("parent_loop", pdf);
+}
+
+/// An inline image whose dictionary never reaches `ID` finishes opening. The lexer
+/// answers `EOF` once the stream is spent, and reading the dictionary skipped any token
+/// that was not a name and asked again, for ever. The fuzzer found it (Z-1).
+#[test]
+fn an_inline_image_with_no_id_finishes() {
+    finishes("bi_without_id", page("q BI /W 1 /H 1", "<< >>", &[]));
+}

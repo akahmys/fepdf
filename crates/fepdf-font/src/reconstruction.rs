@@ -878,7 +878,15 @@ pub(crate) fn skip_index(data: &[u8], pos: usize) -> usize {
     if count == 0 {
         return pos + 2;
     }
-    let os = data[pos + 2] as usize;
+    // The offset size is the third byte, and an INDEX cut off after its count has none:
+    // read unchecked, that indexed one past the end (ROADMAP Z-1).
+    let Some(&os) = data.get(pos + 2) else { return pos };
+    // OffSize is 1 to 4 (Technical Note 5176, Table 2). A larger one read an eight-byte
+    // offset whose sum with the position overflowed (ROADMAP Z-1).
+    if !(1..=4).contains(&os) {
+        return pos;
+    }
+    let os = os as usize;
     let is = 2 + 1 + (count + 1) * os;
     if pos + is > data.len() {
         return pos;
@@ -888,7 +896,7 @@ pub(crate) fn skip_index(data: &[u8], pos: usize) -> usize {
     for j in 0..os {
         off = (off << 8) | data[lo + j] as usize;
     }
-    pos + is + off - 1
+    (pos + is + off).checked_sub(1).filter(|&end| end <= data.len()).unwrap_or(pos)
 }
 
 /// One item of a CFF INDEX, by position.
@@ -928,8 +936,12 @@ pub(crate) fn get_index_item(data: &[u8], ip: usize, i: usize) -> Option<Vec<u8>
     if ds <= de && de <= data.len() { Some(data[ds..de].to_vec()) } else { None }
 }
 
+/// One DICT operand (Technical Note 5176, Table 3), and how many bytes it took. An operand
+/// cut off by the end of the DICT reads as 0 and takes the rest: its bytes were read
+/// unchecked, and a DICT ending inside one indexed past it (ROADMAP Z-1).
 fn parse_dict_number(d: &[u8]) -> (i32, usize) {
-    let b0 = d[0];
+    let Some(&b0) = d.first() else { return (0, 0) };
+    let truncated = (0, d.len());
     if b0 == 30 {
         let mut len = 1;
         while len < d.len() {
@@ -941,15 +953,15 @@ fn parse_dict_number(d: &[u8]) -> (i32, usize) {
         }
         (0, len)
     } else if b0 == 28 {
-        (i32::from(u16::from_be_bytes([d[1], d[2]]) as i16), 3)
+        d.get(1..3).map_or(truncated, |v| (i32::from(i16::from_be_bytes([v[0], v[1]])), 3))
     } else if b0 == 29 {
-        (i32::from_be_bytes([d[1], d[2], d[3], d[4]]), 5)
+        d.get(1..5).map_or(truncated, |v| (i32::from_be_bytes([v[0], v[1], v[2], v[3]]), 5))
     } else if (32..=246).contains(&b0) {
         (i32::from(b0) - 139, 1)
     } else if (247..=250).contains(&b0) {
-        ((i32::from(b0) - 247) * 256 + i32::from(d[1]) + 108, 2)
+        d.get(1).map_or(truncated, |&w| ((i32::from(b0) - 247) * 256 + i32::from(w) + 108, 2))
     } else if (251..=254).contains(&b0) {
-        (-(i32::from(b0) - 251) * 256 - i32::from(d[1]) - 108, 2)
+        d.get(1).map_or(truncated, |&w| (-(i32::from(b0) - 251) * 256 - i32::from(w) - 108, 2))
     } else {
         (0, 1)
     }
@@ -1142,7 +1154,30 @@ mod tests {
 
 #[cfg(test)]
 mod index_bounds_tests {
-    use super::get_index_item;
+    use super::{get_index_item, skip_index};
+
+    /// A DICT operand cut off by the end of the DICT reads as 0 and takes the rest.
+    #[test]
+    fn a_dict_operand_cut_off_takes_the_rest() {
+        assert_eq!(super::parse_dict_number(&[28, 1]), (0, 2));
+        assert_eq!(super::parse_dict_number(&[29, 0, 0]), (0, 3));
+        assert_eq!(super::parse_dict_number(&[247]), (0, 1));
+        assert_eq!(super::parse_dict_number(&[28, 0x01, 0x00]), (256, 3));
+    }
+
+    /// An INDEX cut off after its count has no offset size to read, and is not skipped.
+    #[test]
+    fn an_index_cut_off_after_its_count_is_not_skipped() {
+        assert_eq!(skip_index(&[0x00, 0x01], 0), 0);
+        assert_eq!(skip_index(&[0x00, 0x00], 0), 2, "an empty INDEX is its count alone");
+        // An offset size of eight, past the four Technical Note 5176 allows, and offsets
+        // of all ones: the end they name overflowed.
+        let mut huge = vec![0x00, 0x01, 0x08];
+        huge.extend([0xFF; 16]);
+        assert_eq!(skip_index(&huge, 0), 0);
+        // One item of two bytes, offsets one byte each: the INDEX is five bytes and two.
+        assert_eq!(skip_index(&[0x00, 0x01, 0x01, 0x01, 0x03, b'h', b'i'], 0), 7);
+    }
 
     /// A CFF INDEX whose offsets run past the end of the buffer must return `None`.
     ///
@@ -1372,6 +1407,19 @@ mod type1_program_tests {
             self.0.push(('C', vec![x1, y1, x2, y2, x, y]));
         }
         fn close(&mut self) {}
+    }
+
+    /// A glyph name of bytes that are not UTF-8, at the end of the program, is read without
+    /// slicing past it. The name was read lossily, each invalid byte becoming three, and
+    /// its length taken as the offset of what followed it: a slice from past the end, and
+    /// a panic. The fuzzer found it (ROADMAP Z-1).
+    #[test]
+    fn a_glyph_name_that_is_not_utf8_reads_without_panicking() {
+        let tail = b"/CharStrings 1 dict dup begin\n/\xff\xff\xff\xff";
+        let data = FontReconstructor::parse_type1_data(b"", tail).expect("it parses");
+        assert!(data.charstrings.is_empty());
+        let subrs = b"/Subrs 1 array\ndup \xff\xff\xff\xff";
+        assert!(FontReconstructor::parse_type1_data(b"", subrs).is_ok());
     }
 
     /// An embedded Type 1 program becomes a CFF program whose glyphs draw.
