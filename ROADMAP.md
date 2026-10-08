@@ -1657,7 +1657,7 @@ results. What crosses from it, and how, is
 test found a hang; Z-1 once Z-2 has shown where the fuzzer should point; Z-3 measured
 before it is decided; Z-4 when convenient; Z-5 with the next GUI defect.
 
-- [ ] **Z-1** — **a fuzzer**, `cargo-fuzz` in a `fuzz/` directory outside the workspace:
+- [x] **Z-1** — **a fuzzer**, `cargo-fuzz` in a `fuzz/` directory outside the workspace:
       it builds on nightly, and the gate's toolchain is pinned to 1.98.1. Targets, in
       order: the reader on raw bytes (what `read_probe` does), the stream filters with
       their predictors, font reconstruction (Type 1 and CFF), and open–translate–save.
@@ -1667,9 +1667,9 @@ before it is decided; Z-4 when convenient; Z-5 with the next GUI defect.
       is, under `target/`.
       **Two targets run, 2026-10-08** ([fuzz/README.md](fuzz/README.md)):
       `open_draw_save` (open, draw, extract, save) and `type1_program` (font
-      reconstruction), seeded from `target/external/` and `target/malformed/`. Four
-      rounds have found nine defects, each fixed and held by a test that fails without
-      the fix; no round has yet run its fifteen minutes through:
+      reconstruction), seeded from `target/external/` and `target/malformed/`. Seven
+      rounds found eleven defects, each fixed and held by a test that fails without the
+      fix:
       - a Type 1 glyph name that is not UTF-8 sliced past the program's end;
       - a CMap code longer than four bytes overflowed a shift;
       - a CFF INDEX cut off after its count, and one whose offset size is past the four
@@ -1678,7 +1678,20 @@ before it is decided; Z-4 when convenient; Z-5 with the next GUI defect.
       - `DP` with an inline property list wrote into the sealed arena while a page was
         drawn, and behind that, `DP` lost its tag, and the error ended the page;
       - a `/Parent` chain that loops never finished opening;
-      - an inline image whose dictionary never reaches `ID` never finished opening.
+      - an inline image whose dictionary never reaches `ID` never finished opening;
+      - a TrueType collection header of 15 bytes was read to its sixteenth;
+      - a negative CharStrings offset, cast to `usize`, overflowed the addition that
+        bounds it.
+      **Done, 2026-10-08**: `open_draw_save` ran 15 minutes through (19,910 inputs) and
+      `type1_program` too (478,095), neither finding anything. Two things in the harness
+      changed on the way, each in `fuzz/README.md`: the page is drawn into a backend that
+      counts calls, since the fixtures' `Recorder` kept every one and ran out of memory
+      on its own records; and an input may take 60 s, since the instrumented build runs
+      some thirty times slower than a release one.
+      **What is left measured but not bounded**: a 2.7 KB page nesting Type 3 glyphs to
+      `Interpreter::may_nest`'s limit makes about six million backend calls, a second in
+      a release build. The limit holds and is recorded; what `VelloBackend` holds in
+      memory for a scene that size is not measured.
 - [x] **Z-2** — **PrintCraft's findings, as inputs.** Each item in its `vendor/README.md`
       names an input and what it did: `/Columns 4294967295` predictor rows, `/W` and
       `/LW` far past any canvas, CCITT and JBIG2 dimensions, a page tree whose `/Kids`

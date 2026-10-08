@@ -14,7 +14,8 @@ cargo-fuzz = true
 [dependencies]
 libfuzzer-sys = "0.4"
 fepdf = { path = "../crates/fepdf" }
-fepdf-fixtures = { path = "../crates/fepdf-fixtures", features = ["backend"] }
+fepdf-content = { path = "../crates/fepdf-content" }
+fepdf-model = { path = "../crates/fepdf-model" }
 fepdf-font = { path = "../crates/fepdf-font" }
 kurbo = "0.13"
 

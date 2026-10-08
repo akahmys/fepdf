@@ -375,7 +375,9 @@ impl FontReconstructor {
         magic.copy_from_slice(&sfnt[0..4]);
 
         if &magic == b"ttcf" {
-            if sfnt.len() < 12 {
+            // A collection's header runs to 16 bytes, the first font's offset in 12..16.
+            // This checked for 12, and a 15-byte one indexed past its end (ROADMAP Z-1).
+            if sfnt.len() < 16 {
                 return Err(FontError::Internal("TTC header too short".into()));
             }
             let num_fonts = u32::from_be_bytes([sfnt[8], sfnt[9], sfnt[10], sfnt[11]]) as usize;

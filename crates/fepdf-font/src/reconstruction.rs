@@ -571,7 +571,12 @@ impl FontReconstructor {
 
     fn determine_glyph_count(data: &[u8], char_strings_offset: Option<usize>) -> u16 {
         if let Some(o) = char_strings_offset {
-            if o + 2 <= data.len() { u16::from_be_bytes([data[o], data[o + 1]]) } else { 1024 }
+            // The offset comes out of the font. One near `usize::MAX` overflowed the
+            // addition that bounds it (ROADMAP Z-1).
+            match data.get(o..o.saturating_add(2)) {
+                Some(&[hi, lo]) => u16::from_be_bytes([hi, lo]),
+                _ => 1024,
+            }
         } else {
             1024
         }
@@ -783,7 +788,7 @@ impl FontReconstructor {
                         dpos += 1;
                     }
                     match op {
-                        17 => cso = ops.last().copied().map(|v| v as usize),
+                        17 => cso = ops.last().copied().and_then(|v| usize::try_from(v).ok()),
                         18 => {
                             if ops.len() >= 2 {
                                 let size = ops[ops.len() - 2] as usize;
@@ -797,7 +802,7 @@ impl FontReconstructor {
                             let offset = ops.last().copied().unwrap_or(0) as usize;
                             Self::parse_fdarray_subrs(data, offset);
                         }
-                        15 => cso2 = ops.last().copied().map(|v| v as usize),
+                        15 => cso2 = ops.last().copied().and_then(|v| usize::try_from(v).ok()),
                         0x0C1E | 0x0C1F | 0x0C22 | 0x0C23 | 0x0C16 => is_cid = true,
                         _ => {}
                     }
@@ -1099,6 +1104,15 @@ mod tests {
         }
     }
 
+    /// A collection header cut short of its first font's offset is refused, not read past.
+    #[test]
+    fn a_collection_header_cut_short_is_refused() {
+        let mut header = b"ttcf".to_vec();
+        header.extend([0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0]);
+        assert_eq!(header.len(), 15);
+        assert!(FontReconstructor::disassemble_sfnt(&header).is_err());
+    }
+
     #[test]
     fn test_cff2_wrapping() {
         let dummy_cff2 = vec![2, 0, 5, 1, 2, 3, 4, 5];
@@ -1154,7 +1168,15 @@ mod tests {
 
 #[cfg(test)]
 mod index_bounds_tests {
-    use super::{get_index_item, skip_index};
+    use super::{FontReconstructor, get_index_item, skip_index};
+
+    /// A CharStrings offset from past the end of the font is no count: 1,024 is assumed,
+    /// as when there is no offset at all.
+    #[test]
+    fn a_charstrings_offset_past_the_end_counts_no_glyphs() {
+        assert_eq!(FontReconstructor::determine_glyph_count(&[0, 5], Some(usize::MAX)), 1024);
+        assert_eq!(FontReconstructor::determine_glyph_count(&[0, 5], Some(0)), 5);
+    }
 
     /// A DICT operand cut off by the end of the DICT reads as 0 and takes the rest.
     #[test]
