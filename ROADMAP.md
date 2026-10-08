@@ -1762,12 +1762,31 @@ before it is decided; Z-4 when convenient; Z-5 with the next GUI defect.
       `// RR-15 Safe` becoming `#[allow(..., reason = "...")]`.
       `indexing_slicing` is counted before it is decided; it is likely to be large.
       *Done when* the counts are in this entry and the owner has chosen.
-- [ ] **Z-4** — **pdf.js's test files in the external corpus.** `mozilla/pdf.js`
+- [x] **Z-4** — **pdf.js's test files in the external corpus.** `mozilla/pdf.js`
       `test/pdfs` holds files committed to it, and `.link` files naming a URL elsewhere
       (314 of the first 1,000 entries listed). Only the committed files are fetched,
       into `target/external/`, never committed here (ADR-0113).
       *Done when* `fetch_external_corpus.sh` brings them and
       `measure_external_corpus.sh` reports over them.
+      **Fetched apart, 2026-10-09**: 989 files, 121 MB, into `target/pdfjs/` and not
+      `target/external/`, so that the figures quoted over that corpus stay true of it;
+      `CORPUS=target/pdfjs ./scripts/test/measure_external_corpus.sh` measures them. The
+      first run found two defects the 515 had not, and a third the measurement had:
+      - **`inspect info` on `issue6961.pdf` ran for hours.** The UA-2 audit's walks
+        through forms were bounded in depth and not in breadth, and forms sharing one
+        `/Resources` that names them all were read N^8 times. A resource dictionary is
+        now read once, and the walks through content enter at most 65,536 forms
+        (`audit_fonts::FORMS_WALKED`).
+      - **`bug1980958.pdf` and a fuzzed Ghostscript file never opened**: one object
+        numbered 2147483647 made the arena room for two billion. An object numbered
+        past the file's length in bytes is not read, and that is recorded under 7.3.10.
+      - **The measurement had no time limit**, so one file held the run for hours. Each
+        step may take 60 s (`LIMIT`), and one that takes longer is counted as hung and
+        fails the run, as a panic does.
+      After them, in release and debug alike: 977 of 989 open and 12 are refused with a
+      reason (no catalogue, a password, an object that is not a dictionary); no panic,
+      no hang; 973 extract every page and 976 write back. The 515 are unchanged: all
+      open, 513 extract every page, all write back.
 - [ ] **Z-5** — **the window driven from outside.** egui's AccessKit tree names each
       widget and where it is; a channel taking click, drag, key and screenshot over
       loopback, with a token only the user can read, lets a GUI defect be reproduced with

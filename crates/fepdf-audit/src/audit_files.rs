@@ -7,7 +7,7 @@
 //! media clip under any rendition action. So the objects reachable from the catalogue are
 //! walked once, and each condition asks every dictionary it concerns.
 
-use crate::audit_fonts::{FORM_DEPTH, Resources, form_commands, form_resources};
+use crate::audit_fonts::{FORM_DEPTH, FORMS_WALKED, Resources, form_commands, form_resources};
 use crate::structure::{AuditFinding, broken};
 use fepdf_model::access::names_in;
 use fepdf_model::access::{entry, items, name_in};
@@ -247,7 +247,7 @@ fn shared_forms(doc: &Document, forms: &[Handle<Object>], findings: &mut Vec<Aud
     if marked.is_empty() {
         return;
     }
-    let mut draws = Draws { doc, marked: &marked, counted: BTreeMap::new() };
+    let mut draws = Draws { doc, marked: &marked, counted: BTreeMap::new(), walked: 0 };
     let Ok(pages) = doc.page_count() else { return };
     for page in 0..pages {
         let Some(handle) = doc.get_page_handle(page) else { continue };
@@ -290,6 +290,8 @@ struct Draws<'a> {
     doc: &'a Document,
     marked: &'a BTreeSet<Handle<Object>>,
     counted: BTreeMap<Handle<Object>, (String, usize)>,
+    /// Forms entered so far, against [`FORMS_WALKED`].
+    walked: usize,
 }
 
 impl Draws<'_> {
@@ -322,8 +324,10 @@ impl Draws<'_> {
                 self.counted.entry(form).or_insert_with(|| (name.clone(), 0)).1 += 1;
             }
             if depth < FORM_DEPTH
+                && self.walked < FORMS_WALKED
                 && let Some(inner) = form_commands(self.doc, form, &BTreeMap::new())
             {
+                self.walked += 1;
                 self.commands(&inner, own, depth + 1);
             }
         }

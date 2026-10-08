@@ -339,3 +339,54 @@ fn a_parent_chain_that_loops_finishes() {
 fn an_inline_image_with_no_id_finishes() {
     finishes("bi_without_id", page("q BI /W 1 /H 1", "<< >>", &[]));
 }
+
+/// Ten forms sharing one `/Resources` that names all ten, each drawing all ten: the shape
+/// that kept `inspect info` on pdf.js's `issue6961.pdf` running for hours (ROADMAP Z-4).
+/// The audit's walks were bounded in depth, eight, and not in breadth, so a shared
+/// dictionary was read 10^8 times. Once with the draws marked: 30-002 walks content only
+/// when a form carries MCIDs, and its walk had the same shape.
+#[test]
+fn an_audit_of_forms_sharing_their_resources_finishes() {
+    let names: Vec<String> = (0..10).map(|i| format!("/X{i} {} 0 R", 6 + i)).collect();
+    let draws = (0..10).map(|i| format!("/X{i} Do ")).collect::<Vec<_>>().concat();
+    for content in [draws.clone(), format!("/P << /MCID 0 >> BDC {draws}EMC")] {
+        let mut more = vec![format!("<< /XObject << {} >> >>", names.join(" ")).into_bytes()];
+        for _ in 0..10 {
+            more.push(stream(
+                "/Type /XObject /Subtype /Form /BBox [0 0 10 10] /Resources 5 0 R",
+                content.as_bytes(),
+            ));
+        }
+        let pdf = page(&draws, "5 0 R", &more);
+        let (done, finished) = mpsc::channel();
+        std::thread::spawn(move || {
+            let doc = PdfDocument::open(pdf.into()).expect("it opens");
+            let _ = doc.audit_ua2();
+            let _ = done.send(());
+        });
+        finished.recv_timeout(DEADLINE).expect("the audit is still running after the deadline");
+    }
+}
+
+/// An object numbered far past the file's length finishes opening, and is recorded as not
+/// read. The arena makes room for every number up to the highest, so `2147483647 0 obj` in
+/// a file of a few hundred bytes was two billion slots, and pdf.js's `bug1980958.pdf`
+/// never opened (ROADMAP Z-4). No cross-reference table, so the objects are found by scan.
+#[test]
+fn an_object_numbered_past_the_file_finishes_opening() {
+    let pdf = b"%PDF-2.0\n\
+        1 0 obj << /Type /Catalog /Pages 2 0 R >> endobj\n\
+        2 0 obj << /Type /Pages /Kids [3 0 R] /Count 1 >> endobj\n\
+        3 0 obj << /Type /Page /Parent 2 0 R /MediaBox [0 0 10 10] >> endobj\n\
+        2147483647 0 obj << /Root 1 0 R >> endobj\n\
+        trailer << /Root 1 0 R >>\n%%EOF\n"
+        .to_vec();
+    let (done, finished) = mpsc::channel();
+    std::thread::spawn(move || {
+        let recorded = PdfDocument::open(pdf.into())
+            .map(|doc| doc.decisions().into_iter().filter(|d| d.clause == "7.3.10").count());
+        let _ = done.send(recorded);
+    });
+    let recorded = finished.recv_timeout(DEADLINE).expect("it is still opening after the deadline");
+    assert_eq!(recorded.ok(), Some(1), "it opens, and the object not read is recorded once");
+}

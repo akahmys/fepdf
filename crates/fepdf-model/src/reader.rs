@@ -319,6 +319,7 @@ pub fn load_document(bytes: &Bytes) -> PdfResult<RawDocument> {
 
     let arena = PdfArena::new();
     let (records, trailer) = locate_objects(bytes, base, &arena, &mut decisions);
+    let records = within_the_file(records, bytes.len(), &mut decisions);
     let encrypted = trailer
         .is_some_and(|t| arena.get_dict(t).is_some_and(|d| d.contains_key(&arena.name("Encrypt"))));
     populate_arena(bytes, base, &records, &arena, &mut decisions, encrypted);
@@ -572,6 +573,38 @@ fn members_of_container(stream: &Object, arena: &PdfArena) -> PdfResult<Option<V
 }
 
 /// Places every object in the arena at the slot matching its number.
+/// The records whose object numbers a file of `len` bytes can hold, recording the rest.
+///
+/// **The arena stores an object at the index its number names**, so room is made for every
+/// number up to the highest. `2147483647 0 obj` in a 219-byte file made room for two
+/// billion objects, and pdf.js's `bug1980958.pdf` never finished opening; a fuzzed
+/// cross-reference table naming `4294967296` did the same (ROADMAP Z-4). An indirect
+/// object takes at least a byte of the file that holds it, so a number past the file's
+/// length cannot be one of a run of objects the file contains. ISO 32000-2 sets no
+/// maximum object number — 7.5.5's `/Size` bounds them, and a file can state any `/Size`
+/// — so this is this engine's limit, said where it applies, and not the standard's.
+fn within_the_file(
+    records: BTreeMap<u32, XrefRecord>,
+    len: usize,
+    decisions: &mut DecisionLog,
+) -> BTreeMap<u32, XrefRecord> {
+    let limit = u32::try_from(len).unwrap_or(u32::MAX);
+    let (kept, past): (BTreeMap<_, _>, BTreeMap<_, _>) =
+        records.into_iter().partition(|(number, _)| *number <= limit);
+    if let Some(highest) = past.keys().next_back() {
+        decisions.push(Decision::ambiguity(
+            "7.3.10",
+            format!(
+                "{} objects are numbered past the file's {len} bytes, the highest {highest}",
+                past.len()
+            ),
+            "did not read them: objects are stored by number, and no file this long holds \
+             a run of objects that reaches theirs",
+        ));
+    }
+    kept
+}
+
 fn populate_arena(
     bytes: &Bytes,
     base: usize,

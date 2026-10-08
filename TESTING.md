@@ -300,7 +300,8 @@ sites do, across `cli_smoke.sh`, `measure_external_corpus.sh`, `crosscheck_pubse
 
 | | |
 | :--- | :--- |
-| `./scripts/test/fetch_external_corpus.sh` | 515 files this project did not choose. Zero occurrences measures the corpus, not the world |
+| `./scripts/test/fetch_external_corpus.sh` | 515 files this project did not choose. Zero occurrences measures the corpus, not the world. It also fetches pdf.js's 989 test files into `target/pdfjs/`, apart, so figures quoted over the 515 stay true of them |
+| `CORPUS=target/pdfjs ./scripts/test/measure_external_corpus.sh` | The same measurement over pdf.js's files. Each step may take `LIMIT` seconds, 60 by default, and one that takes longer fails the run as a panic does |
 | `fepdf inspect coverage samples/*.pdf target/external/*/*.pdf` | The share of what the files contain whose contents the engine reads |
 | `./scripts/dev/status.sh` | Re-derives every figure the documents quote, so a stale one reads as a disagreement. It exits non-zero when a row stops being *about the code*: `inspect subcommands` once read 0 against a truth of 8 after the CLI was split, because 0 is a legal answer |
 | `cargo run --release -p fepdf --example glyph_loss -- samples/*.pdf` | What extraction loses, and what it was out of. `status.sh --full` runs it. `--codes` adds the font, the character code, the glyph name the encoding gave it, the route that failed and a page to look at, which is the difference between a count and a direction. **The denominator was not derivable before this existed**: the 9.10.2 violation is recorded only on pages that lost something, so summing the messages counts the glyphs on lossy pages and not the ones on the rest |

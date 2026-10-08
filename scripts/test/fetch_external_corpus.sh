@@ -143,3 +143,28 @@ measured here, because this engine does not claim to be a PDF/A validator.
 EOMD
 
 echo "  total: $total PDFs in $DEST"
+
+# **pdf.js's test files, in a directory of their own** (ROADMAP Z-4). Not under
+# `target/external/`: every figure the documents quote over that corpus — 515 files,
+# 88% coverage — would stop being true of it the moment 989 more files arrived, and the
+# documents quote them undated. Measured apart instead, with
+# `scripts/test/measure_external_corpus.sh target/pdfjs`.
+#
+# Only the files committed to the repository. A `.link` names a document elsewhere — a
+# bug report's attachment, on a third party's server — with no licence and no promise it
+# is still there, so none is followed (ADR-0113). The repository is Apache-2.0; what is
+# inside it is not all its own, which is why nothing here is committed or redistributed.
+DEST="target/pdfjs"
+mkdir -p "$DEST"
+fetch_sparse https://github.com/mozilla/pdf.js.git master '/test/pdfs/*.pdf' pdfjs 'test/pdfs'
+cat > "$DEST/README.md" <<EOMD
+# pdf.js test files — not this project's files, not committed
+
+Fetched by \`scripts/test/fetch_external_corpus.sh\` on $(date -u +%Y-%m-%d).
+$(find "$DEST" -name '*.pdf' 2>/dev/null | wc -l | tr -d ' ') PDFs, the ones committed to github.com/mozilla/pdf.js under
+\`test/pdfs/\`; the \`.link\` entries that name documents elsewhere are not followed.
+
+The repository is Apache-2.0. Many of these files are documents attached to bug reports,
+whose own licence the repository does not settle: they exist here to be measured against,
+not to be shipped. \`target/\` is ignored by git.
+EOMD

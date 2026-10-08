@@ -20,17 +20,27 @@
 set -uo pipefail
 cd "$(dirname "$0")/../.." || exit 1
 
-CORPUS="target/external"
+# The corpus is `target/external` unless `CORPUS` names another: pdf.js's test files are
+# measured apart, as `CORPUS=target/pdfjs` (ROADMAP Z-4), so that the figures quoted over
+# this one stay true of it.
+CORPUS="${CORPUS:-target/external}"
 [ -d "$CORPUS" ] || { echo "run scripts/test/fetch_external_corpus.sh first"; exit 1; }
 [ -x target/release/fepdf ] || { echo "build first: cargo build --release"; exit 1; }
 
 WORK="${TMPDIR:-/tmp}/fepdf-external"
 rm -rf "$WORK"; mkdir -p "$WORK"
 BIN="${1:-target/release/fepdf}"
+
+# Each step may take `LIMIT` seconds, and one that takes longer is counted as hung. With no
+# limit, one file of pdf.js's that never finished its audit held the whole run for hours
+# (ROADMAP Z-4). macOS has no `timeout`, so perl's `alarm` stands in: the step is killed by
+# SIGALRM, and its exit status is 142.
+LIMIT="${LIMIT:-60}"
+limited() { perl -e 'alarm shift @ARGV; exec @ARGV or exit 127' "$LIMIT" "$@"; }
 echo "--- $(basename "$(dirname "$BIN")") build: $BIN ---"
 
-total=0; opened=0; panicked=0; refused=0; texted=0; text_failed=0; wrote=0; write_failed=0
-: > "$WORK/panics"; : > "$WORK/refused"; : > "$WORK/text"; : > "$WORK/writes"
+total=0; opened=0; panicked=0; hung=0; refused=0; texted=0; text_failed=0; wrote=0; write_failed=0
+: > "$WORK/panics"; : > "$WORK/hung"; : > "$WORK/refused"; : > "$WORK/text"; : > "$WORK/writes"
 
 for f in "$CORPUS"/*/*.pdf; do
     total=$((total + 1))
@@ -39,8 +49,12 @@ for f in "$CORPUS"/*/*.pdf; do
     # A panic and a refusal are different results and must not be one count. A refusal is
     # the engine declining a file and saying why; a panic is the engine losing control of
     # it, and on deliberately malformed input only the second is a defect on its face.
-    if out=$("$BIN" inspect info "$f" 2>&1); then
+    if out=$(limited "$BIN" inspect info "$f" 2>&1); then
         opened=$((opened + 1))
+    elif [ $? -eq 142 ]; then
+        hung=$((hung + 1))
+        printf '%s\n    %s\n' "$name" "inspect info ran past ${LIMIT} s" >> "$WORK/hung"
+        continue
     elif grep -q "panicked at" <<<"$out"; then
         panicked=$((panicked + 1))
         printf '%s\n    %s\n' "$name" \
@@ -53,16 +67,22 @@ for f in "$CORPUS"/*/*.pdf; do
         continue
     fi
 
-    if out=$("$BIN" inspect text "$f" 2>&1); then
+    if out=$(limited "$BIN" inspect text "$f" 2>&1); then
         texted=$((texted + 1))
+    elif [ $? -eq 142 ]; then
+        hung=$((hung + 1))
+        printf '%s\n    %s\n' "$name" "inspect text ran past ${LIMIT} s" >> "$WORK/hung"
     else
         text_failed=$((text_failed + 1))
         printf '%s\n    %s\n' "$name" \
             "$(printf '%s' "$out" | grep -m1 'no text extracted' | cut -c1-120)" >> "$WORK/text"
     fi
 
-    if "$BIN" publish upgrade "$f" "$WORK/out.pdf" >/dev/null 2>&1; then
+    if limited "$BIN" publish upgrade "$f" "$WORK/out.pdf" >/dev/null 2>&1; then
         wrote=$((wrote + 1))
+    elif [ $? -eq 142 ]; then
+        hung=$((hung + 1))
+        printf '%s\n    %s\n' "$name" "publish upgrade ran past ${LIMIT} s" >> "$WORK/hung"
     else
         write_failed=$((write_failed + 1))
         echo "$name" >> "$WORK/writes"
@@ -73,11 +93,13 @@ printf '  %-28s %s\n' "files" "$total"
 printf '  %-28s %s\n' "opened" "$opened"
 printf '  %-28s %s%s\n' "PANICKED" "$panicked" \
     "$([ "$panicked" -gt 0 ] && echo '  <- the engine lost control of the file')"
+printf '  %-28s %s%s\n' "HUNG" "$hung" \
+    "$([ "$hung" -gt 0 ] && echo "  <- a step ran past ${LIMIT} s")"
 printf '  %-28s %s\n' "refused with a message" "$refused"
 printf '  %-28s %s of %s opened\n' "every page extracted" "$texted" "$opened"
 printf '  %-28s %s of %s opened\n' "written back" "$wrote" "$opened"
 
-for section in panics refused text writes; do
+for section in panics hung refused text writes; do
     [ -s "$WORK/$section" ] || continue
     echo
     echo "  --- $section ---"
@@ -87,8 +109,8 @@ done
 # A panic is the only unconditional failure. Refusing a deliberately malformed file and
 # saying why is a correct outcome, and this corpus is largely made of such files — so a
 # non-zero refusal count is information, not a verdict.
-if [ "$panicked" -gt 0 ]; then
+if [ "$panicked" -gt 0 ] || [ "$hung" -gt 0 ]; then
     echo
-    echo "  FAILED: $panicked file(s) panicked"
+    echo "  FAILED: $panicked file(s) panicked, $hung step(s) hung"
     exit 1
 fi

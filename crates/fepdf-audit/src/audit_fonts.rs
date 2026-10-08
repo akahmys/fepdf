@@ -50,6 +50,12 @@ impl Use {
 /// How deep form XObjects are followed for the fonts they use (Rule 6).
 pub(crate) const FORM_DEPTH: usize = 8;
 
+/// How many forms one audit's walk through content may enter, however they nest. Depth
+/// alone does not bound a walk that follows every `Do`: ten forms each drawing all ten
+/// are 10^8 visits eight deep, and the audit never finished (ROADMAP Z-4). It is the
+/// figure `Interpreter::may_nest` holds a page's drawing to.
+pub(crate) const FORMS_WALKED: usize = 1 << 16;
+
 /// Asks [`FROM_FONTS`] of every font the pages and the forms they draw name.
 ///
 /// Answers how many marked sequences in the content state a `/Lang` in an inline property
@@ -62,11 +68,12 @@ pub fn audit_fonts(
     let arena = doc.arena();
     let Ok(pages) = doc.page_count() else { return 0 };
     let mut fonts = BTreeSet::new();
+    let mut visited = BTreeSet::new();
     for page in 0..pages {
         let Some(handle) = doc.get_page_handle(page) else { continue };
         let resources =
             fepdf_model::Page::new(arena, handle, doc.get_parent_chain(handle)).resources_handle();
-        collect_fonts(arena, &Object::Dictionary(resources), 0, &mut fonts);
+        collect_fonts(arena, &Object::Dictionary(resources), 0, (&mut fonts, &mut visited));
     }
     // 31-030 is about every font's text, so every font's codes are read.
     let Scanned { codes, in_formulas, unlanguaged, graphics, unread, inline_languages } =
@@ -114,13 +121,21 @@ fn one_font(
 }
 
 /// The fonts a resource dictionary names, and those of the forms it names, by handle.
+///
+/// **Each resource dictionary is read once**, whichever page or form reaches it. Forms
+/// commonly share one `/Resources` that names every form, so a walk bounded only by depth
+/// read it N^8 times for N forms, and `inspect info` on pdf.js's `issue6961.pdf` ran for
+/// hours (ROADMAP Z-4). What it collects is a set, so a second visit adds nothing.
 fn collect_fonts(
     arena: &PdfArena,
     resources: &Object,
     depth: usize,
-    fonts: &mut BTreeSet<Handle<Object>>,
+    (fonts, visited): (&mut BTreeSet<Handle<Object>>, &mut BTreeSet<u32>),
 ) {
     let Some(resources) = resources.resolve(arena).as_dict_handle() else { return };
+    if !visited.insert(resources.index()) {
+        return;
+    }
     let entries = |key: &str| {
         arena
             .dict_entry(resources, arena.name(key))
@@ -138,7 +153,7 @@ fn collect_fonts(
             continue;
         };
         if let Some(inner) = arena.dict_entry(dict, arena.name("Resources")) {
-            collect_fonts(arena, &inner, depth + 1, fonts);
+            collect_fonts(arena, &inner, depth + 1, (fonts, visited));
         }
     }
 }
@@ -414,6 +429,7 @@ fn shown_codes(doc: &Document, fonts: &BTreeSet<Handle<Object>>) -> Scanned {
         graphics: 0,
         unread: 0,
         inline_languages: 0,
+        forms_walked: 0,
     };
     let Ok(pages) = doc.page_count() else { return Scanned::default() };
     for page in 0..pages {
@@ -519,6 +535,8 @@ struct Scan<'a> {
     unread: usize,
     /// Marked sequences stating a `/Lang` in an inline property list (11-007).
     inline_languages: usize,
+    /// Forms entered so far, against [`FORMS_WALKED`].
+    forms_walked: usize,
 }
 
 impl Scan<'_> {
@@ -681,9 +699,10 @@ impl Scan<'_> {
             self.graphic(within);
             return;
         };
-        if depth >= FORM_DEPTH {
+        if depth >= FORM_DEPTH || self.forms_walked >= FORMS_WALKED {
             return;
         }
+        self.forms_walked += 1;
         let named = names_in(arena, own, "Font");
         let key =
             entry(arena, &Object::Reference(form), "StructParents").and_then(|k| k.as_integer());
