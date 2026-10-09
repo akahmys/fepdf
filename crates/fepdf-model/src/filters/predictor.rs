@@ -91,9 +91,8 @@ fn decode_png_predictor(
     let mut out = Vec::with_capacity(rows * row_size);
     let mut prev_row: Vec<u8> = vec![0; row_size];
 
-    for i in 0..rows {
-        let row_data = &data[i * stride + 1..(i + 1) * stride];
-        let tag = data[i * stride];
+    for each in data.chunks_exact(stride) {
+        let Some((&tag, row_data)) = each.split_first() else { continue };
         let mut row = vec![0; row_size];
 
         decode_row(tag, row_data, &prev_row, bytes_per_pixel, &mut row)?;
@@ -105,17 +104,20 @@ fn decode_png_predictor(
 }
 
 fn decode_row(tag: u8, input: &[u8], prev: &[u8], bpp: usize, out: &mut [u8]) -> PdfResult<()> {
-    for j in 0..input.len() {
-        let left = if j >= bpp { out[j - bpp] } else { 0 };
-        let up = prev[j];
-        let up_left = if j >= bpp { prev[j - bpp] } else { 0 };
+    // A byte off either row reads as 0, which is what 7.4.4.4 gives the bytes left of
+    // the first pixel and above the first row.
+    let at = |row: &[u8], k: Option<usize>| k.and_then(|k| row.get(k)).copied().unwrap_or(0);
+    for (j, &byte) in input.iter().enumerate() {
+        let left = at(out, j.checked_sub(bpp));
+        let up = at(prev, Some(j));
+        let up_left = at(prev, j.checked_sub(bpp));
 
-        out[j] = match tag {
-            0 => input[j],                    // None
-            1 => input[j].wrapping_add(left), // Sub
-            2 => input[j].wrapping_add(up),   // Up
-            3 => input[j].wrapping_add(u16::midpoint(u16::from(left), u16::from(up)) as u8), // Average
-            4 => input[j].wrapping_add(paeth(left, up, up_left)), // Paeth
+        let value = match tag {
+            0 => byte,                                                                   // None
+            1 => byte.wrapping_add(left),                                                // Sub
+            2 => byte.wrapping_add(up),                                                  // Up
+            3 => byte.wrapping_add(u16::midpoint(u16::from(left), u16::from(up)) as u8), // Average
+            4 => byte.wrapping_add(paeth(left, up, up_left)),                            // Paeth
             _ => {
                 return Err(PdfError::Filter {
                     filter: "PNGPredictor".into(),
@@ -123,6 +125,9 @@ fn decode_row(tag: u8, input: &[u8], prev: &[u8], bpp: usize, out: &mut [u8]) ->
                 });
             }
         };
+        if let Some(slot) = out.get_mut(j) {
+            *slot = value;
+        }
     }
     Ok(())
 }

@@ -928,11 +928,8 @@ impl FontResource {
         if let Some(ref raw_data) = self.data {
             log::debug!("[FONT] Attempting reconstruction for {}", self.base_font.as_str());
             let res = FontReconstructor::reconstruct(self, raw_data)?;
-            let sig = if res.data.len() >= 4 {
-                format!(
-                    "{:02x}{:02x}{:02x}{:02x}",
-                    res.data[0], res.data[1], res.data[2], res.data[3]
-                )
+            let sig = if let Some(&[s0, s1, s2, s3]) = res.data.get(..4) {
+                format!("{s0:02x}{s1:02x}{s2:02x}{s3:02x}")
             } else {
                 "short".to_string()
             };
@@ -984,10 +981,10 @@ impl FontResource {
             && let Some(ref collection) = self.collection_map
         {
             for (code, uni) in collection.mappings.iter() {
-                let cid = if code.len() == 2 {
-                    (u32::from(code[0]) << 8) | u32::from(code[1])
-                } else {
-                    u32::from(code[0])
+                let cid = match code.as_slice() {
+                    &[high, low] => (u32::from(high) << 8) | u32::from(low),
+                    &[one, ..] => u32::from(one),
+                    [] => 0,
                 };
                 map.entry(uni.clone()).or_insert(cid);
             }
@@ -1016,7 +1013,7 @@ impl FontResource {
             || raw.starts_with(b"true")
         {
             EmbeddedFormat::Sfnt
-        } else if raw.len() >= 2 && ((raw[0] == 1 && raw[1] == 0) || raw[0] == 2) {
+        } else if matches!(raw.as_slice(), [1, 0, ..] | [2, _, ..]) {
             EmbeddedFormat::Cff
         } else if raw.starts_with(b"%!") || raw.starts_with(&[0x80, 0x01]) {
             EmbeddedFormat::Type1

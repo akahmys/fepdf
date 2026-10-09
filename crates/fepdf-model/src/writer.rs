@@ -780,16 +780,12 @@ impl<W: std::io::Write> PdfWriter<'_, W> {
         // --- Page Offset Hint Table Entries (Table F.4) - INTERLEAVED ---
         let page_count = page_handles.len();
         let mut lengths = Vec::with_capacity(page_count);
-        for i in 0..page_count {
-            let h = page_handles[i];
-            let start_id = self.id_map[&h];
-            let offset = *self.xref.get(&start_id).unwrap_or(&0);
-            let next_off = if i + 1 < page_count {
-                let next_page_start_id = self.id_map[&page_handles[i + 1]];
-                *self.xref.get(&next_page_start_id).unwrap_or(&s6_start)
-            } else {
-                s6_start
-            };
+        let offset_of = |h: &Handle<Object>| self.id_map.get(h).and_then(|id| self.xref.get(id));
+        for (i, h) in page_handles.iter().enumerate() {
+            let start_id = self.id_map.get(h).copied().unwrap_or(0);
+            let offset = offset_of(h).copied().unwrap_or(0);
+            // The next page's first object, or for the last page where section 6 begins.
+            let next_off = page_handles.get(i + 1).and_then(offset_of).copied().unwrap_or(s6_start);
 
             let length = if i == 0 {
                 (adjust_offset(page1_end) as usize).saturating_sub(adjust_offset(offset) as usize)
@@ -954,7 +950,8 @@ impl<W: std::io::Write> PdfWriter<'_, W> {
         // Outline Hint Table (Table F.9)
         let mut outline_offset = None;
         if !outline_exclusive.is_empty() {
-            let first_id = self.id_map[&outline_exclusive[0]];
+            let first_id =
+                outline_exclusive.first().and_then(|k| self.id_map.get(k)).copied().unwrap_or(0);
             let first_off = *self.xref.get(&first_id).unwrap_or(&0);
             let last_id =
                 outline_exclusive.last().and_then(|k| self.id_map.get(k)).copied().unwrap_or(0);

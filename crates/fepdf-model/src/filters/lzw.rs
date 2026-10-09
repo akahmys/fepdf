@@ -110,7 +110,7 @@ fn decode_lzw(input: &[u8], early_change: u16) -> PdfResult<Vec<u8>> {
             None if code == table.len() => match &previous {
                 Some(prev) => {
                     let mut e = prev.clone();
-                    e.push(prev[0]);
+                    e.extend(prev.first());
                     e
                 }
                 None => return Err(bad_code(code)),
@@ -130,7 +130,7 @@ fn decode_lzw(input: &[u8], early_change: u16) -> PdfResult<Vec<u8>> {
             && table.len() < 4096
         {
             let mut new_entry = prev;
-            new_entry.push(entry[0]);
+            new_entry.extend(entry.first());
             table.entries.push(new_entry);
         }
     }

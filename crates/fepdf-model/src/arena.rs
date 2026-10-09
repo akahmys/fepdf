@@ -202,17 +202,23 @@ impl PdfArena {
         let mut objects = self.inner.objects.write();
         objects.truncate(journal.objects);
         for (index, old) in journal.old_objects.into_iter().rev() {
-            objects[index] = old;
+            if let Some(slot) = objects.get_mut(index) {
+                *slot = old;
+            }
         }
         let mut dicts = self.inner.dicts.write();
         dicts.truncate(journal.dicts);
         for (index, old) in journal.old_dicts.into_iter().rev() {
-            dicts[index] = old;
+            if let Some(slot) = dicts.get_mut(index) {
+                *slot = old;
+            }
         }
         let mut arrays = self.inner.arrays.write();
         arrays.truncate(journal.arrays);
         for (index, old) in journal.old_arrays.into_iter().rev() {
-            arrays[index] = old;
+            if let Some(slot) = arrays.get_mut(index) {
+                *slot = old;
+            }
         }
         *self.inner.version.write() = journal.version;
         // Rebuilt on the next query, from what is there now.

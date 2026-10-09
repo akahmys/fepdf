@@ -31,7 +31,7 @@ impl DecodingFilter for RunLengthFilter {
                 // 0..=127: the next length + 1 bytes are literal.
                 let count = length as usize + 1;
                 let end = (i + count).min(input.len());
-                out.extend_from_slice(&input[i..end]);
+                out.extend_from_slice(input.get(i..end).unwrap_or_default());
                 i = end;
             } else {
                 // 129..=255: the next byte, repeated 257 - length times.

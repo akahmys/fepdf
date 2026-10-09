@@ -169,8 +169,8 @@ impl FontResource {
         };
         let mut reverse = BTreeMap::new();
         for (cid_bytes, uni) in cmap.mappings.iter() {
-            if cid_bytes.len() == 2 {
-                let cid = (u32::from(cid_bytes[0]) << 8) | u32::from(cid_bytes[1]);
+            if let &[high, low] = cid_bytes.as_slice() {
+                let cid = (u32::from(high) << 8) | u32::from(low);
                 reverse.insert(uni.clone(), cid);
             }
         }

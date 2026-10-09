@@ -165,7 +165,7 @@ impl Destination {
             _ => return None,
         };
         let target = target_of(array.first()?)?;
-        let view = view_of(&array[1..], arena)?;
+        let view = view_of(array.get(1..)?, arena)?;
         Some(Self { target, view })
     }
 }
@@ -187,7 +187,7 @@ fn view_of(rest: &[Object], arena: &PdfArena) -> Option<View> {
         Object::Name(handle) => arena.get_name_str(handle)?,
         _ => return None,
     };
-    let args = &rest[1..];
+    let args = rest.get(1..).unwrap_or_default();
     let n = |i: usize| args.get(i).and_then(|o| number(o, arena));
     Some(match name.as_str() {
         "XYZ" => View::Xyz { left: n(0), top: n(1), zoom: n(2) },

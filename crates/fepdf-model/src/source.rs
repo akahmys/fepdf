@@ -62,7 +62,7 @@ impl DocumentSource for PdfSource {
     const FORMAT: &'static str = "PDF";
 
     fn sniff(bytes: &[u8]) -> bool {
-        let window = &bytes[..bytes.len().min(HEADER_SEARCH_WINDOW + 5)];
+        let window = bytes.get(..HEADER_SEARCH_WINDOW + 5).unwrap_or(bytes);
         window.windows(5).any(|w| w == b"%PDF-")
     }
 

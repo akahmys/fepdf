@@ -79,9 +79,11 @@ impl<'a> Sublimator<'a> {
         let start_pos = lexer.pos();
         let data = lexer.get_data();
         let end_pos = last_space_before_ei(data, start_pos, &dict);
-        let img_data = data[start_pos..end_pos].to_vec();
+        let img_data = data.get(start_pos..end_pos).unwrap_or_default().to_vec();
         let mut source = b"BI".to_vec();
-        source.extend_from_slice(&data[after_bi..(end_pos + 3).min(data.len())]);
+        source.extend_from_slice(
+            data.get(after_bi..(end_pos + 3).min(data.len())).unwrap_or_default(),
+        );
         lexer.set_pos(end_pos + 3);
 
         Command::DrawInlineImage {
@@ -827,10 +829,8 @@ fn last_space_before_ei(data: &[u8], start_pos: usize, dict: &BTreeMap<String, I
         end_pos = before_ei;
     }
     while counted.is_none() && end_pos + 3 <= data.len() {
-        if &data[end_pos..end_pos + 3] == b" EI"
-            || &data[end_pos..end_pos + 3] == b"\nEI"
-            || &data[end_pos..end_pos + 3] == b"\rEI"
-        {
+        let window = data.get(end_pos..end_pos + 3);
+        if [b" EI", b"\nEI", b"\rEI"].iter().any(|ei| window == Some(ei.as_slice())) {
             break;
         }
         end_pos += 1;

@@ -52,8 +52,9 @@ impl FontResource {
         let mut rest = bytes;
         while !rest.is_empty() {
             let len = self.code_length(rest).unwrap_or(fixed).clamp(1, rest.len());
-            out.push(&rest[..len]);
-            rest = &rest[len..];
+            let Some((code, after)) = rest.split_at_checked(len) else { break };
+            out.push(code);
+            rest = after;
         }
         out
     }
@@ -135,7 +136,7 @@ impl FontResource {
         data: &[u8],
         len: usize,
     ) -> (usize, Option<String>, UnicodeSource) {
-        let code = &data[..len];
+        let code = data.get(..len).unwrap_or(data);
         let kept = |text: String| {
             text.chars().next().filter(|c| is_withheld(*c, true).is_none()).map(|_| text)
         };
@@ -205,7 +206,7 @@ impl FontResource {
         if data.len() < consumed {
             return None;
         }
-        let u = aj1.map(&data[..consumed])?;
+        let u = aj1.map(data.get(..consumed)?)?;
         let c = u.chars().next()?;
         if is_withheld(c, true).is_some() {
             return None;
@@ -224,10 +225,9 @@ impl FontResource {
             self.encoding.as_ref().map(|e| e.name.contains("Identity")).unwrap_or(false);
 
         let consumed = if is_multibyte || is_identity { 2 } else { 1 };
-        if data.len() < consumed {
+        let Some(code_bytes) = data.get(..consumed) else {
             return (data.len(), None, UnicodeSource::Unmapped);
-        }
-        let code_bytes = &data[..consumed];
+        };
 
         // 1. Try Adobe-Japan1 (AJ1) mapping for Japanese CIDFonts
         if (is_multibyte || is_identity)
@@ -236,15 +236,17 @@ impl FontResource {
             return found;
         }
 
-        if !is_multibyte && !is_identity && !self.is_legacy_distiller && !data.is_empty() {
-            let code = data[0];
-            if (32..127).contains(&code) {
-                return (
-                    1,
-                    Some(String::from_utf8_lossy(&[code]).to_string()),
-                    UnicodeSource::AsciiGuess,
-                );
-            }
+        if !is_multibyte
+            && !is_identity
+            && !self.is_legacy_distiller
+            && let Some(&code) = data.first()
+            && (32..127).contains(&code)
+        {
+            return (
+                1,
+                Some(String::from_utf8_lossy(&[code]).to_string()),
+                UnicodeSource::AsciiGuess,
+            );
         }
 
         let is_simple = subtype == "Type1" || subtype == "TrueType" || subtype == "Type3";
@@ -253,14 +255,10 @@ impl FontResource {
         if is_simple
             && !self.is_legacy_distiller
             && !has_reliable_map
-            && consumed == 1
-            && (0x20..=0x7E).contains(&code_bytes[0])
+            && let &[code] = code_bytes
+            && (0x20..=0x7E).contains(&code)
         {
-            return (
-                consumed,
-                Some((code_bytes[0] as char).to_string()),
-                UnicodeSource::AsciiGuess,
-            );
+            return (consumed, Some((code as char).to_string()), UnicodeSource::AsciiGuess);
         }
 
         let (text, source) = self.unicode_for(code_bytes);

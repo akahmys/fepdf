@@ -118,15 +118,19 @@ fn check(arena: &PdfArena, bytes: &[u8], field: &Dict, signature: &Dict) -> Sign
     check.covered = (first.len() + second.len(), bytes.len());
     check.covers_whole_file = first.start == 0 && second.end == bytes.len();
 
-    let der = match hex_string(&bytes[gap.clone()]) {
+    let der = match bytes.get(gap).and_then(hex_string) {
         Some(der) => der,
         None => {
             check.refused = Some("the bytes /ByteRange skips are not a hex string".to_string());
             return check;
         }
     };
+    let (Some(first), Some(second)) = (bytes.get(first), bytes.get(second)) else {
+        check.refused = Some("/ByteRange names bytes past the end of the file".to_string());
+        return check;
+    };
 
-    let taken = crate::cms::digest(&[&bytes[first], &bytes[second]]);
+    let taken = crate::cms::digest(&[first, second]);
     match crate::cms::verify_detached(&der, &taken) {
         Ok(verified) => {
             check.signer = verified.signer;

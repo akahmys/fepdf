@@ -12,7 +12,7 @@ impl<'a, W: Write> PdfWriter<'a, W> {
         let start = self.buffer.len();
         let obj = self.arena.get_object(h).ok_or_else(|| PdfError::internal("Object missing"))?;
         self.write_object(&obj)?;
-        let bytes = self.buffer[start..].to_vec();
+        let bytes = self.buffer.get(start..).unwrap_or_default().to_vec();
         self.buffer.truncate(start);
         Ok(bytes)
     }

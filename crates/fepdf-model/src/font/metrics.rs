@@ -120,9 +120,9 @@ impl FontMetrics {
     fn parse_w(&mut self, w_arr: &[Object], arena: &PdfArena) {
         let mut budget = EXPANDED_CIDS;
         let mut i: usize = 0;
-        while i + 1 < w_arr.len() {
-            let first_cid = cid(&w_arr[i], arena);
-            let next_obj = Object::resolve(&w_arr[i + 1], arena);
+        while let (Some(first_obj), Some(next_obj)) = (w_arr.get(i), w_arr.get(i + 1)) {
+            let first_cid = cid(first_obj, arena);
+            let next_obj = Object::resolve(next_obj, arena);
             if let Object::Array(iah) = next_obj {
                 if let (Some(first), Some(i_arr)) = (first_cid, arena.get_array(iah)) {
                     for (idx, w_obj) in i_arr.iter().enumerate() {
@@ -184,32 +184,33 @@ impl FontMetrics {
         default_w: f32,
         v: &mut VerticalWidths,
     ) -> usize {
-        let first_cid = cid(&w2_arr[i], arena);
-        if i + 1 >= w2_arr.len() {
+        let (Some(first_obj), Some(next_obj)) = (w2_arr.get(i), w2_arr.get(i + 1)) else {
             return w2_arr.len();
-        }
+        };
+        let first_cid = cid(first_obj, arena);
         let metric = |w1: &Object, vx: &Object, vy: &Object| {
             let w1_y = Object::resolve(w1, arena).as_f64().unwrap_or(-1000.0) as f32;
             let v_x = Object::resolve(vx, arena).as_f64().unwrap_or(f64::from(default_w) / 2.0);
             let v_y = Object::resolve(vy, arena).as_f64().unwrap_or(880.0) as f32;
             (w1_y, v_x as f32, v_y)
         };
-        let next_obj = Object::resolve(&w2_arr[i + 1], arena);
+        let next_obj = Object::resolve(next_obj, arena);
         if let Object::Array(iah) = next_obj {
             if let (Some(first), Some(i_arr)) = (first_cid, arena.get_array(iah)) {
                 for (idx, chunk) in i_arr.as_chunks::<3>().0.iter().enumerate() {
                     let Some(c) = u32::try_from(idx).ok().and_then(|k| first.checked_add(k)) else {
                         break;
                     };
-                    v.expanded.insert(c, metric(&chunk[0], &chunk[1], &chunk[2]));
+                    let [w1, vx, vy] = chunk;
+                    v.expanded.insert(c, metric(w1, vx, vy));
                 }
             }
             return i + 2;
         }
-        if i + 4 >= w2_arr.len() {
+        let Some([w1, vx, vy]) = w2_arr.get(i + 2..i + 5) else {
             return w2_arr.len();
-        }
-        let value = metric(&w2_arr[i + 2], &w2_arr[i + 3], &w2_arr[i + 4]);
+        };
+        let value = metric(w1, vx, vy);
         if let (Some(first), Some(last)) = (first_cid, cid(&next_obj, arena))
             && first <= last
         {

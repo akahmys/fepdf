@@ -743,8 +743,8 @@ impl FromPdfObject for Matrix {
             });
         }
         let mut coeffs = [0.0; 6];
-        for (i, item) in arr.iter().enumerate() {
-            coeffs[i] = item.resolve(arena).as_f64().ok_or_else(|| PdfError::Parse {
+        for (slot, item) in coeffs.iter_mut().zip(arr.iter()) {
+            *slot = item.resolve(arena).as_f64().ok_or_else(|| PdfError::Parse {
                 pos: 0,
                 message: "Matrix element must be a number".into(),
             })?;
@@ -769,8 +769,8 @@ impl FromPdfObject for Rect {
             });
         }
         let mut coords = [0.0; 4];
-        for (i, item) in arr.iter().enumerate() {
-            coords[i] = item.resolve(arena).as_f64().ok_or_else(|| PdfError::Parse {
+        for (slot, item) in coords.iter_mut().zip(arr.iter()) {
+            *slot = item.resolve(arena).as_f64().ok_or_else(|| PdfError::Parse {
                 pos: 0,
                 message: "Rect element must be a number".into(),
             })?;

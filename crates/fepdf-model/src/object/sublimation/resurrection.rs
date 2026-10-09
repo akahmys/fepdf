@@ -59,8 +59,8 @@ fn parse_affine(input: &str) -> IResult<&str, Affine> {
     let (input, _) = tag("Affine([")(input)?;
     let (input, coeffs) = separated_list0(tuple((char(','), multispace0)), parse_f64)(input)?;
     let (input, _) = tag("])")(input)?;
-    if coeffs.len() == 6 {
-        Ok((input, Affine::new([coeffs[0], coeffs[1], coeffs[2], coeffs[3], coeffs[4], coeffs[5]])))
+    if let [m0, m1, m2, m3, m4, m5] = coeffs[..] {
+        Ok((input, Affine::new([m0, m1, m2, m3, m4, m5])))
     } else {
         Err(nom::Err::Error(nom::error::Error::new(input, nom::error::ErrorKind::Verify)))
     }

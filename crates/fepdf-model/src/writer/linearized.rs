@@ -9,6 +9,16 @@ use std::collections::BTreeSet;
 use std::io::Write;
 
 impl<'a, W: Write> PdfWriter<'a, W> {
+    /// The object number `h` was written under. Every object a linearized file holds is
+    /// numbered before any is written, so one without a number is this writer's mistake,
+    /// said rather than panicked on.
+    pub(super) fn id_of(&self, h: Handle<Object>) -> PdfResult<u32> {
+        self.id_map
+            .get(&h)
+            .copied()
+            .ok_or_else(|| PdfError::internal("an object to be written was given no number"))
+    }
+
     pub(super) fn partition_and_collect_shared(
         &self,
         others: &[Handle<Object>],
@@ -36,8 +46,8 @@ impl<'a, W: Write> PdfWriter<'a, W> {
         let mut shared_ids: Vec<u32> = Vec::new();
         for &h in &others_shared {
             if !first_page_shared_set.contains(&h) {
-                shared_ids
-                    .push(self.lin_shared_home.get(&h).copied().unwrap_or_else(|| self.id_map[&h]));
+                let home = self.lin_shared_home.get(&h).or_else(|| self.id_map.get(&h));
+                shared_ids.push(home.copied().unwrap_or(0));
             }
         }
         shared_ids.sort_unstable();
@@ -107,7 +117,9 @@ impl<'a, W: Write> PdfWriter<'a, W> {
             self.collect_lin_objects(root, info)?;
         log::debug!("DEBUG: Total pages collected: {}", pgs.len());
         log::debug!("DEBUG: Section 2 objects: {}", s2.len());
-        let page1 = pgs[0];
+        let no_page = || PdfError::internal("a document with no page cannot be linearized");
+        let page1 = *pgs.first().ok_or_else(no_page)?;
+        let page1_reachable = page_reachables.first().ok_or_else(no_page)?;
         let mut doc_private = Vec::new();
         for &h in &s2 {
             if h == page1 {
@@ -128,8 +140,8 @@ impl<'a, W: Write> PdfWriter<'a, W> {
                 &others,
                 &shared_objs,
                 &outline_exclusive,
-                pgs[0],
-                &page_reachables[0],
+                page1,
+                page1_reachable,
                 (&pgs, &counts),
             );
         // A page of part 7 is counted by what is written directly and the object streams
@@ -147,7 +159,7 @@ impl<'a, W: Write> PdfWriter<'a, W> {
 
         // Partition others into shared and private, collect shared IDs
         let (others_shared, others_private, shared_ids) =
-            self.partition_and_collect_shared(&others, &shared_objs, &page_reachables[0]);
+            self.partition_and_collect_shared(&others, &shared_objs, page1_reachable);
 
         // Build dummy structures to determine exact hint table size
         let _outline_count = outline_exclusive.len() as u32;
@@ -170,7 +182,7 @@ impl<'a, W: Write> PdfWriter<'a, W> {
             true,
         )?;
 
-        let page1_id = self.id_map[&pgs[0]];
+        let page1_id = self.id_of(page1)?;
         let dummy_first_shared_id = shared_ids.first().copied().unwrap_or(page1_id);
         let (_, _, _) = self.generate_hint_tables(
             &pgs,
@@ -236,7 +248,7 @@ impl<'a, W: Write> PdfWriter<'a, W> {
         )?;
 
         // Resolve Page 1 object offset for the hint table
-        let page1_id = self.id_map[&pgs[0]];
+        let page1_id = self.id_of(page1)?;
         let p1_off =
             *self.xref.get(&page1_id).ok_or_else(|| PdfError::internal("Page 1 missing"))?;
 
@@ -304,7 +316,7 @@ impl<'a, W: Write> PdfWriter<'a, W> {
         let first_page_shared_end_id = first_page_shared_start_id + first_page_shared_count;
 
         for &h in others_shared {
-            let id = self.id_map[&h];
+            let id = self.id_of(h)?;
             if id >= first_page_shared_start_id && id < first_page_shared_end_id {
                 first_page_shared.push((id, h));
             }
@@ -327,7 +339,7 @@ impl<'a, W: Write> PdfWriter<'a, W> {
         let mut part8_objects: Vec<(u32, Handle<Object>)> = Vec::new();
         for &h in others_shared {
             if !s2_set.contains(&h) {
-                let id = self.id_map[&h];
+                let id = self.id_of(h)?;
                 if id >= first_page_shared_end_id {
                     part8_objects.push((id, h));
                 }
@@ -344,7 +356,7 @@ impl<'a, W: Write> PdfWriter<'a, W> {
         // bytes it took, which is its length there.
         for (container, batch) in self.lin_part8.clone() {
             let numbered: Vec<(u32, Handle<Object>)> =
-                batch.iter().map(|h| (self.id_map[h], *h)).collect();
+                batch.iter().map(|&h| Ok((self.id_of(h)?, h))).collect::<PdfResult<_>>()?;
             self.write_object_stream(container, &numbered)?;
         }
         Ok(())
@@ -370,7 +382,7 @@ impl<'a, W: Write> PdfWriter<'a, W> {
         let mut hint_inserted = false;
 
         for &h in s2 {
-            let id = self.id_map[&h];
+            let id = self.id_of(h)?;
             self.write_indirect_object(id, 0, h)?;
 
             // Insert Primary Hint Stream physically after Part 4 document-level objects (Catalog, Info, and doc_private)
@@ -413,12 +425,12 @@ impl<'a, W: Write> PdfWriter<'a, W> {
     fn write_part7(&mut self) -> PdfResult<()> {
         for (direct, streams) in self.lin_part7.clone() {
             for h in direct {
-                let id = self.id_map[&h];
+                let id = self.id_of(h)?;
                 self.write_indirect_object(id, 0, h)?;
             }
             for (container, batch) in streams {
                 let numbered: Vec<(u32, Handle<Object>)> =
-                    batch.iter().map(|h| (self.id_map[h], *h)).collect();
+                    batch.iter().map(|&h| Ok((self.id_of(h)?, h))).collect::<PdfResult<_>>()?;
                 self.write_object_stream(container, &numbered)?;
             }
         }
@@ -446,12 +458,12 @@ impl<'a, W: Write> PdfWriter<'a, W> {
             others.iter().partition(|h| self.packs_in_part9(**h))
         };
         for h in direct {
-            let id = self.id_map[&h];
+            let id = self.id_of(h)?;
             self.write_indirect_object(id, 0, h)?;
         }
         for (batch, container) in packed.chunks(super::OBJECTS_PER_STREAM).zip(containers) {
             let numbered: Vec<(u32, Handle<Object>)> =
-                batch.iter().map(|h| (self.id_map[h], *h)).collect();
+                batch.iter().map(|&h| Ok((self.id_of(h)?, h))).collect::<PdfResult<_>>()?;
             self.write_object_stream(container, &numbered)?;
         }
         Ok(())
@@ -520,7 +532,9 @@ impl<'a, W: Write> PdfWriter<'a, W> {
         assigned.insert(root);
         // The information dictionary is part 9's (F.3.5, F.3.10): left unassigned here,
         // it is placed and numbered with the other objects there.
-        let page1 = original_pages[0];
+        let no_page = || PdfError::internal("a document with no page cannot be linearized");
+        let page1 = *original_pages.first().ok_or_else(no_page)?;
+        let page1_reachable = page_reachables.first().ok_or_else(no_page)?;
         assigned.insert(page1);
 
         let mut outline_exclusive = Vec::new();
@@ -535,7 +549,7 @@ impl<'a, W: Write> PdfWriter<'a, W> {
         }
 
         let mut p0_exclusive = Vec::new();
-        for &h in &page_reachables[0] {
+        for &h in page1_reachable {
             if !shared_objs.contains(&h) {
                 if assigned.insert(h) {
                     p0_exclusive.push(h);
@@ -545,7 +559,7 @@ impl<'a, W: Write> PdfWriter<'a, W> {
         p0_exclusive.sort();
 
         let mut first_page_shared = Vec::new();
-        for &h in &page_reachables[0] {
+        for &h in page1_reachable {
             if shared_objs.contains(&h) {
                 if assigned.insert(h) {
                     first_page_shared.push(h);
@@ -580,13 +594,12 @@ impl<'a, W: Write> PdfWriter<'a, W> {
         let p0_count = section2_final.len().saturating_sub(1).saturating_sub(doc_private.len());
         page_obj_counts.push(p0_count as u32);
 
-        for i in 1..original_pages.len() {
-            let ph = original_pages[i];
+        for (&ph, reachable) in original_pages.iter().zip(page_reachables.iter()).skip(1) {
             let mut page_exclusive = Vec::new();
             if assigned.insert(ph) {
                 page_exclusive.push(ph);
             }
-            for &h in &page_reachables[i] {
+            for &h in reachable {
                 if !shared_objs.contains(&h) {
                     if assigned.insert(h) {
                         page_exclusive.push(h);

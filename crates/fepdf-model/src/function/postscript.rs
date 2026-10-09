@@ -86,7 +86,7 @@ impl PostScriptFunction {
         }
         let start = stack.len() - self.outputs;
         let mut out = Vec::with_capacity(self.outputs);
-        for value in &stack[start..] {
+        for value in stack.get(start..).unwrap_or_default() {
             match value {
                 PsValue::Num(n) => out.push(*n),
                 // A program that leaves a boolean where a colour component belongs has

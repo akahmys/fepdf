@@ -190,8 +190,10 @@ impl Bounds {
             return None;
         }
         Some(
-            (0..arity)
-                .map(|i| clip(inputs[i], self.domain[2 * i], self.domain[2 * i + 1]))
+            inputs
+                .iter()
+                .zip(self.domain.as_chunks::<2>().0)
+                .map(|(&x, &[low, high])| clip(x, low, high))
                 .collect(),
         )
     }
@@ -303,14 +305,16 @@ impl StitchingFunction {
     fn subdomain(&self, x: f64) -> (f64, f64, usize) {
         let last = self.parts.len() - 1;
         let mut index = 0;
-        while index < self.splits.len() && x >= self.splits[index] {
+        while self.splits.get(index).is_some_and(|&split| x >= split) {
             index += 1;
         }
-        let low = if index == 0 { self.bounds.domain[0] } else { self.splits[index - 1] };
+        let domain = |k: usize| self.bounds.domain.get(k).copied().unwrap_or(0.0);
+        let low = index.checked_sub(1).and_then(|k| self.splits.get(k)).copied();
+        let low = low.unwrap_or_else(|| domain(0));
         let high = if index == last {
-            self.bounds.domain[1]
+            domain(1)
         } else {
-            self.splits.get(index).copied().unwrap_or(self.bounds.domain[1])
+            self.splits.get(index).copied().unwrap_or_else(|| domain(1))
         };
         (low, high, index)
     }
@@ -399,9 +403,9 @@ impl SampledFunction {
         let mut coords = Vec::with_capacity(self.size.len());
         for (i, size) in self.size.iter().enumerate() {
             let e = interpolate(
-                clipped[i],
-                self.bounds.domain[2 * i],
-                self.bounds.domain[2 * i + 1],
+                *clipped.get(i)?,
+                *self.bounds.domain.get(2 * i)?,
+                *self.bounds.domain.get(2 * i + 1)?,
                 *self.encode.get(2 * i)?,
                 *self.encode.get(2 * i + 1)?,
             );
@@ -421,8 +425,10 @@ impl SampledFunction {
                 let base = floor_to_index(*c);
                 let frac = c - f64::from(base);
                 let high = (mask >> i) & 1 == 1;
-                let limit = self.size[i].saturating_sub(1);
-                corner[i] = if high { base.saturating_add(1).min(limit) } else { base };
+                let limit = self.size.get(i).copied().unwrap_or(1).saturating_sub(1);
+                if let Some(slot) = corner.get_mut(i) {
+                    *slot = if high { base.saturating_add(1).min(limit) } else { base };
+                }
                 weight *= if high { frac } else { 1.0_f64 - frac };
             }
             if weight == 0.0_f64 {

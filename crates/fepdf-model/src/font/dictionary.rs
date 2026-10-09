@@ -80,8 +80,8 @@ impl FontResource {
             && arr.len() == 6
         {
             let mut matrix = [0.0; 6];
-            for (i, item) in arr.iter().enumerate() {
-                matrix[i] = item.as_f64().unwrap_or(0.0) as f32;
+            for (slot, item) in matrix.iter_mut().zip(arr.iter()) {
+                *slot = item.as_f64().unwrap_or(0.0) as f32;
             }
             Some(matrix)
         } else {
@@ -141,9 +141,7 @@ impl FontResource {
     pub(super) fn detect_legacy_distiller(to_unicode: &Option<cmap::CMap>) -> bool {
         let Some(tu) = to_unicode else { return false };
         tu.mappings.iter().any(|(code_vec, uni_str)| {
-            code_vec.len() == 1
-                && code_vec[0] >= 0x20
-                && code_vec[0] <= 0x7E
+            matches!(code_vec.as_slice(), [code] if (0x20..=0x7E).contains(code))
                 && uni_str.chars().any(|c| (c as u32) > 0xFF)
         })
     }

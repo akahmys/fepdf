@@ -202,7 +202,7 @@ impl<'a, W: Write> PdfWriter<'a, W> {
         let mut at = 0;
         for &count in page_counts.iter().skip(1) {
             let end = (at + count as usize).min(section6.len());
-            let objects = &section6[at..end];
+            let objects = section6.get(at..end).unwrap_or_default();
             at = end;
             let (mut packed, mut direct): (Vec<Handle<Object>>, Vec<Handle<Object>>) = objects
                 .iter()
@@ -285,7 +285,7 @@ impl<'a, W: Write> PdfWriter<'a, W> {
         first_shared_id: u32,
         first_page_shared_count: u32,
     ) -> PdfResult<usize> {
-        let info_id = info.map(|ih| self.id_map[&ih]);
+        let info_id = info.map(|ih| self.id_of(ih)).transpose()?;
         if obj_stm_id.is_some() {
             self.write_lin_main_xref_stream(
                 root,
@@ -496,7 +496,8 @@ impl<'a, W: Write> PdfWriter<'a, W> {
         let dict_id = s.primary_count;
         let hint_stream_id =
             s.obj_stm_id.ok_or_else(|| PdfError::internal("Hint stream ID missing"))?;
-        let page1_id = self.id_map[&s.pages[0]];
+        let page1 = s.pages.first().copied().ok_or_else(|| PdfError::internal("no first page"))?;
+        let page1_id = self.id_of(page1)?;
 
         // 1. Generate Hint Stream
         // Table F.5 Item 1: First object ID of all shared objects.
@@ -612,7 +613,7 @@ impl<'a, W: Write> PdfWriter<'a, W> {
         // ISO 32000-2: The first-page trailer MUST contain a /Prev entry pointing to the main Xref.
         let root_id = self.id_map.get(&s.root).copied().unwrap_or(2);
         let info_str = if let Some(ih) = s.info_handle {
-            let inf_id = self.id_map[&ih];
+            let inf_id = self.id_of(ih)?;
             format!(" /Info {inf_id} 0 R")
         } else {
             String::new()
@@ -643,7 +644,10 @@ impl<'a, W: Write> PdfWriter<'a, W> {
             // Pad with spaces
             data.extend(vec![b' '; reserve_size - data.len()]);
         }
-        self.buffer[pos..pos + reserve_size].copy_from_slice(&data);
+        self.buffer
+            .get_mut(pos..pos + reserve_size)
+            .ok_or_else(|| PdfError::internal("a reserved header is outside the file"))?
+            .copy_from_slice(&data);
         Ok(())
     }
 
@@ -681,18 +685,18 @@ impl<'a, W: Write> PdfWriter<'a, W> {
         }
 
         let mut first_page_shared_objs = BTreeSet::new();
-        for &h in &page_reachables[0] {
+        for &h in page_reachables.first().into_iter().flatten() {
             if _shared_objs.contains(&h) {
                 first_page_shared_objs.insert(h);
             }
         }
         let mut first_page_shared_objs: Vec<_> = first_page_shared_objs.into_iter().collect();
-        first_page_shared_objs.sort_by_key(|&h| self.id_map[&h]);
+        first_page_shared_objs.sort_by_key(|h| self.id_map.get(h).copied().unwrap_or(u32::MAX));
         let _first_page_shared_count = first_page_shared_objs.len();
 
         let mut first_page_groups = Vec::new();
         for &h in &section2_physical {
-            let id = self.id_map[&h];
+            let id = self.id_of(h)?;
             let len = if dummy { 0 } else { *self.obj_sizes.get(&id).unwrap_or(&0) };
             let is_shared = _shared_objs.contains(&h);
             first_page_groups.push(SharedGroup {
@@ -706,9 +710,10 @@ impl<'a, W: Write> PdfWriter<'a, W> {
 
         // Map shared first-page object ID to index in Shared Object Hint Table
         let get_shared_index = |id: u32| -> Option<usize> {
-            if let Some(pos) = section2_physical.iter().position(|&x| self.id_map[&x] == id) {
-                let x = section2_physical[pos];
-                if _shared_objs.contains(&x) {
+            if let Some((pos, x)) =
+                section2_physical.iter().enumerate().find(|(_, x)| self.id_map.get(*x) == Some(&id))
+            {
+                if _shared_objs.contains(x) {
                     return Some(pos);
                 } else {
                     return None;
@@ -725,7 +730,8 @@ impl<'a, W: Write> PdfWriter<'a, W> {
             let mut refs = Vec::new();
             for &h in p_reach {
                 // A packed shared object is referred to by the stream holding it (F.3.1).
-                let id = self.lin_shared_home.get(&h).copied().unwrap_or(self.id_map[&h]);
+                let home = self.lin_shared_home.get(&h).or_else(|| self.id_map.get(&h));
+                let id = home.copied().unwrap_or(0);
                 if let Some(idx) = get_shared_index(id) {
                     refs.push(idx);
                 }
@@ -735,9 +741,8 @@ impl<'a, W: Write> PdfWriter<'a, W> {
             page_shared_refs.push(refs);
         }
 
-        let outline_params = if !outline_exclusive.is_empty() {
-            let first_outline_h = outline_exclusive[0];
-            let first_outline_id = self.id_map[&first_outline_h];
+        let outline_params = if let Some(&first_outline_h) = outline_exclusive.first() {
+            let first_outline_id = self.id_of(first_outline_h)?;
             let outline_offset = if dummy {
                 0
             } else {

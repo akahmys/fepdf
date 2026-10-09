@@ -90,8 +90,10 @@ pub fn decode_keeping_alpha(
     let mut samples = Vec::with_capacity(interleaved.len() / stride * colours);
     let mut alpha = Vec::with_capacity(interleaved.len() / stride);
     for pixel in interleaved.chunks_exact(stride) {
-        let opacity = pixel[colours];
-        for channel in &pixel[..colours] {
+        let (Some(channels), Some(&opacity)) = (pixel.get(..colours), pixel.get(colours)) else {
+            continue;
+        };
+        for channel in channels {
             samples.push(if premultiplied { unmultiply(*channel, opacity) } else { *channel });
         }
         alpha.push(opacity);

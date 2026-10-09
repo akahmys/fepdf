@@ -59,6 +59,16 @@ impl<'a, W: Write> PdfWriter<'a, W> {
     /// it has to be final before anything is hashed; the digest then covers the file
     /// either side of `/Contents`, and the signature goes where the digest was taken
     /// around.
+    /// The object number the catalogue was written under. Every reachable object is
+    /// numbered before a trailer is written, so a catalogue without one is this writer's
+    /// own mistake, said rather than panicked on.
+    fn root_number(&self, root_handle: Handle<Object>) -> PdfResult<u32> {
+        self.id_map
+            .get(&root_handle)
+            .copied()
+            .ok_or_else(|| PdfError::internal("the catalogue was given no object number"))
+    }
+
     pub(super) fn patch_signature(&mut self) -> PdfResult<()> {
         let Some(signature) = self.signature.take() else { return Ok(()) };
         let hole = self.hole.take().ok_or_else(|| {
@@ -75,11 +85,14 @@ impl<'a, W: Write> PdfWriter<'a, W> {
                 format!("this file needs a /ByteRange {} bytes wide", stated.len()),
             ));
         }
-        self.buffer[hole.byte_range.clone()].fill(b' ');
-        self.buffer[hole.byte_range.start..hole.byte_range.start + stated.len()]
-            .copy_from_slice(&stated);
+        let outside = || PdfError::internal("the signature's placeholder is outside the file");
+        let field = self.buffer.get_mut(hole.byte_range.clone()).ok_or_else(outside)?;
+        field.fill(b' ');
+        field.get_mut(..stated.len()).ok_or_else(outside)?.copy_from_slice(&stated);
 
-        let taken = crate::cms::digest(&[&self.buffer[..gap_start], &self.buffer[gap_end..]]);
+        let before = self.buffer.get(..gap_start).ok_or_else(outside)?;
+        let after = self.buffer.get(gap_end..).ok_or_else(outside)?;
+        let taken = crate::cms::digest(&[before, after]);
         let der = crate::cms::sign_detached(&taken, signature.identity)?;
         if der.len() * 2 > hole.contents.len() {
             return Err(PdfError::refused(
@@ -94,10 +107,9 @@ impl<'a, W: Write> PdfWriter<'a, W> {
 
         // Hex, in place: the field keeps its width, and what the signature does not
         // fill stays the zero padding a reader stops at once the DER is complete.
-        for (i, byte) in der.iter().enumerate() {
-            let digits = format!("{byte:02X}");
-            self.buffer[hole.contents.start + i * 2..hole.contents.start + i * 2 + 2]
-                .copy_from_slice(digits.as_bytes());
+        let contents = self.buffer.get_mut(hole.contents.clone()).ok_or_else(outside)?;
+        for (pair, byte) in contents.as_chunks_mut::<2>().0.iter_mut().zip(&der) {
+            pair.copy_from_slice(format!("{byte:02X}").as_bytes());
         }
         Ok(())
     }
@@ -269,7 +281,7 @@ impl<'a, W: Write> PdfWriter<'a, W> {
         let id_hex = hex::encode(self.generate_file_id(info_handle)).to_uppercase();
         let mut dictionary = format!(
             "<<\r\n/Type /XRef\r\n/Size {size}\r\n/W [1 4 2]\r\n/Root {} 0 R\r\n",
-            self.id_map[&root_handle]
+            self.root_number(root_handle)?
         );
         if let Some(id) = info_handle.and_then(|h| self.id_map.get(&h)) {
             dictionary.push_str(&format!("/Info {id} 0 R\r\n"));
@@ -339,7 +351,7 @@ impl<'a, W: Write> PdfWriter<'a, W> {
         let id_hex = hex::encode(&id_bytes).to_uppercase();
         self.write_all(b"trailer\r\n<<\r\n")?;
         self.write_all(format!("/Size {total_size}\r\n").as_bytes())?;
-        self.write_all(format!("/Root {} 0 R\r\n", self.id_map[&root_handle]).as_bytes())?;
+        self.write_all(format!("/Root {} 0 R\r\n", self.root_number(root_handle)?).as_bytes())?;
         if let Some(ih) = info_handle {
             if let Some(&id) = self.id_map.get(&ih) {
                 self.write_all(format!("/Info {id} 0 R\r\n").as_bytes())?;

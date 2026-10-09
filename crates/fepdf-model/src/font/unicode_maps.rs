@@ -28,7 +28,7 @@ impl FontResource {
                 "did not read glyphs from it; this engine ingests SFNT and CFF only",
             ));
         } else if let Some(signature) =
-            self.data.as_ref().map(|d| d[..std::cmp::min(4, d.len())].to_vec())
+            self.data.as_ref().map(|d| d.get(..4).unwrap_or(d.as_slice()).to_vec())
         {
             taken.push(crate::interpretation::Decision::violation(
                 "9.9",
@@ -186,11 +186,8 @@ impl FontResource {
         let font_name = self.base_font.as_str().to_string();
 
         if let Some(arc_data) = font_data {
-            let sig = if arc_data.len() >= 4 {
-                format!(
-                    "{:02x}{:02x}{:02x}{:02x}",
-                    arc_data[0], arc_data[1], arc_data[2], arc_data[3]
-                )
+            let sig = if let Some(&[s0, s1, s2, s3]) = arc_data.get(..4) {
+                format!("{s0:02x}{s1:02x}{s2:02x}{s3:02x}")
             } else {
                 "short".to_string()
             };

@@ -158,7 +158,7 @@ fn validate_colorspace_array(
         }
     }
 
-    let family = items[0].as_name().map(|n| n.as_str()).unwrap_or("");
+    let family = items.first().and_then(|i| i.as_name()).map(|n| n.as_str()).unwrap_or("");
     if let Some(repaired) = validate_cie_or_icc(family, items.len(), policy, issues) {
         return Some(repaired);
     }

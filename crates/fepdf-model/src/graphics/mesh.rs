@@ -114,9 +114,9 @@ fn split(points: [(f64, f64); 3], colors: [Color; 3], depth: u32, out: &mut Vec<
 }
 
 fn corners_agree(colors: &[Color; 3]) -> bool {
-    let [a, b, c] = [rgb_parts(colors[0]), rgb_parts(colors[1]), rgb_parts(colors[2])];
-    (0..3).all(|i| {
-        let (lo, hi) = (a[i].min(b[i]).min(c[i]), a[i].max(b[i]).max(c[i]));
+    let [a, b, c] = colors.map(rgb_parts);
+    a.iter().zip(&b).zip(&c).all(|((x, y), z)| {
+        let (lo, hi) = (x.min(*y).min(*z), x.max(*y).max(*z));
         hi - lo <= FLAT_TOLERANCE
     })
 }
@@ -148,9 +148,8 @@ fn blend(a: Color, b: Color, t: f64) -> Color {
 }
 
 fn mean_color(colors: &[Color; 3]) -> Color {
-    let parts: Vec<[f64; 3]> = colors.iter().map(|c| rgb_parts(*c)).collect();
-    let mean = |i: usize| (parts[0][i] + parts[1][i] + parts[2][i]) / 3.0;
-    Color::Rgb(mean(0), mean(1), mean(2))
+    let [a, b, c] = colors.map(rgb_parts);
+    Color::Rgb((a[0] + b[0] + c[0]) / 3.0, (a[1] + b[1] + c[1]) / 3.0, (a[2] + b[2] + c[2]) / 3.0)
 }
 
 /// Everything the vertex format needs, read once from the shading dictionary.
@@ -197,7 +196,8 @@ impl MeshParams {
     /// `/Decode` does (8.9.5.2).
     fn decode_at(&self, pair: usize, raw: u64, bits: u32) -> f64 {
         let max = if bits >= 63 { u64::MAX } else { (1_u64 << bits) - 1 };
-        let (lo, hi) = (self.decode[2 * pair], self.decode[2 * pair + 1]);
+        let bound = |k: usize, default| self.decode.get(k).copied().unwrap_or(default);
+        let (lo, hi) = (bound(2 * pair, 0.0), bound(2 * pair + 1, 1.0));
         let fraction = ratio(raw, max);
         lo + fraction * (hi - lo)
     }
@@ -337,8 +337,11 @@ fn lattice(reader: &mut MeshReader, params: &MeshParams, per_row: i64) -> Vec<Me
 
     let mut triangles = Vec::new();
     for pair in rows.windows(2) {
-        for i in 0..per_row - 1 {
-            let (a, b, c, d) = (pair[0][i], pair[0][i + 1], pair[1][i], pair[1][i + 1]);
+        let [upper, lower] = pair else { continue };
+        let pairs = |row: &[_]| {
+            row.iter().zip(row.iter().skip(1)).map(|(x, y)| (*x, *y)).collect::<Vec<_>>()
+        };
+        for ((a, b), (c, d)) in pairs(upper).into_iter().zip(pairs(lower)).take(per_row - 1) {
             triangles.push(to_triangle(&[a, b, c]));
             triangles.push(to_triangle(&[b, d, c]));
         }
@@ -438,13 +441,14 @@ fn read_patch(
     let inherit = previous.filter(|_| (1..=3).contains(&edge));
     let first = match inherit {
         Some(prev) => {
-            for (slot, source) in INHERITED[edge - 1].iter().enumerate() {
-                let (di, dj) = STREAM_ORDER[slot];
-                let (si, sj) = STREAM_ORDER[source - 1];
-                patch.points[di][dj] = prev.points[si][sj];
+            let inherited = INHERITED.get(edge - 1).map(|row| row.as_slice()).unwrap_or_default();
+            for (&(di, dj), source) in STREAM_ORDER.iter().zip(inherited) {
+                if let Some(&(si, sj)) = STREAM_ORDER.get(source - 1) {
+                    put(&mut patch.points, di, dj, at(&prev.points, si, sj));
+                }
             }
-            patch.colors[0] = prev.colors[edge % 4];
-            patch.colors[1] = prev.colors[(edge + 1) % 4];
+            let shared = |k: usize| prev.colors.get(k % 4).copied().unwrap_or(Color::Gray(0.0));
+            patch.colors = [shared(edge), shared(edge + 1), patch.colors[2], patch.colors[3]];
             4
         }
         None => 0,
@@ -453,7 +457,7 @@ fn read_patch(
     for &(i, j) in STREAM_ORDER.iter().take(total).skip(first) {
         let x = params.decode_at(0, reader.read(params.bits_coord)?, params.bits_coord);
         let y = params.decode_at(1, reader.read(params.bits_coord)?, params.bits_coord);
-        patch.points[i][j] = (x, y);
+        put(&mut patch.points, i, j, (x, y));
     }
     for slot in patch.colors.iter_mut().skip(if first == 4 { 2 } else { 0 }) {
         *slot = params.read_color(reader)?;
@@ -520,17 +524,30 @@ const INTERIOR_AT: [(usize, usize); 4] = [(1, 1), (1, 2), (2, 1), (2, 2)];
 /// Fills in the four interior points a Coons patch implies rather than carries, turning
 /// it into the tensor-product patch 8.7.4.5.8 says it is a special case of.
 fn fill_interior(p: &mut [[(f64, f64); 4]; 4]) {
-    let mut computed = [(0.0_f64, 0.0_f64); 4];
-    for (slot, terms) in INTERIOR.iter().enumerate() {
+    let computed = INTERIOR.map(|terms| {
         let mut acc = (0.0_f64, 0.0_f64);
-        for &(weight, i, j) in terms {
-            acc.0 += weight * p[i][j].0;
-            acc.1 += weight * p[i][j].1;
+        for (weight, i, j) in terms {
+            let (x, y) = at(p, i, j);
+            acc.0 += weight * x;
+            acc.1 += weight * y;
         }
-        computed[slot] = (acc.0 / 9.0, acc.1 / 9.0);
+        (acc.0 / 9.0, acc.1 / 9.0)
+    });
+    for ((i, j), value) in INTERIOR_AT.into_iter().zip(computed) {
+        put(p, i, j, value);
     }
-    for (slot, (i, j)) in INTERIOR_AT.into_iter().enumerate() {
-        p[i][j] = computed[slot];
+}
+
+/// The control point at row `i`, column `j` of a patch's net; one off the 4×4 net is the
+/// origin, which no index here reaches.
+fn at(net: &[[(f64, f64); 4]; 4], i: usize, j: usize) -> (f64, f64) {
+    net.get(i).and_then(|row| row.get(j)).copied().unwrap_or_default()
+}
+
+/// Sets the control point at row `i`, column `j`, if the net has one there.
+fn put(net: &mut [[(f64, f64); 4]; 4], i: usize, j: usize, value: (f64, f64)) {
+    if let Some(slot) = net.get_mut(i).and_then(|row| row.get_mut(j)) {
+        *slot = value;
     }
 }
 
@@ -557,8 +574,9 @@ fn surface(p: &[[(f64, f64); 4]; 4], u: f64, v: f64) -> (f64, f64) {
     for (i, bui) in bu.iter().enumerate() {
         for (j, bvj) in bv.iter().enumerate() {
             let weight = bui * bvj;
-            point.0 += p[i][j].0 * weight;
-            point.1 += p[i][j].1 * weight;
+            let (x, y) = at(p, i, j);
+            point.0 += x * weight;
+            point.1 += y * weight;
         }
     }
     point

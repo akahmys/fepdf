@@ -20,8 +20,9 @@ const PDF_DOC_HIGH: [char; 33] = [
 
 fn pdf_doc_char(byte: u8) -> char {
     match byte {
-        0x18..=0x1F => PDF_DOC_ACCENTS[(byte - 0x18) as usize],
-        0x80..=0xA0 => PDF_DOC_HIGH[(byte - 0x80) as usize],
+        // Each table is exactly as long as its range, so the default is never taken.
+        0x18..=0x1F => PDF_DOC_ACCENTS.get(usize::from(byte - 0x18)).copied().unwrap_or('\u{FFFD}'),
+        0x80..=0xA0 => PDF_DOC_HIGH.get(usize::from(byte - 0x80)).copied().unwrap_or('\u{FFFD}'),
         // ASCII below, and from 0xA1 up PDFDocEncoding agrees with Latin-1, whose code
         // points are their own Unicode scalar values.
         _ => byte as char,

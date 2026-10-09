@@ -93,14 +93,14 @@ pub fn parse_indirect_at(
 /// accepted because producers emit it and the intent is unambiguous.
 fn stream_start(bytes: &[u8], after_body: usize) -> Option<usize> {
     let mut i = after_body;
-    while i < bytes.len() && bytes[i].is_ascii_whitespace() {
+    while bytes.get(i).is_some_and(u8::is_ascii_whitespace) {
         i += 1;
     }
-    if !bytes[i..].starts_with(b"stream") {
+    if !bytes.get(i..)?.starts_with(b"stream") {
         return None;
     }
     i += 6;
-    if bytes[i..].starts_with(b"\r\n") {
+    if bytes.get(i..).is_some_and(|rest| rest.starts_with(b"\r\n")) {
         i += 2;
     } else if bytes.get(i) == Some(&b'\n') || bytes.get(i) == Some(&b'\r') {
         i += 1;
@@ -142,7 +142,7 @@ fn attach_stream(
         record_length(arena, dict_h, length);
     }
 
-    let data = Bytes::copy_from_slice(&bytes[data_at..end.min(bytes.len())]);
+    let data = Bytes::copy_from_slice(bytes.get(data_at..end.min(bytes.len())).unwrap_or_default());
     Ok(Object::Stream(dict_h, std::sync::Arc::new(SublimatedData::Raw(data))))
 }
 
@@ -234,7 +234,7 @@ fn resolve_stream_extent(
 
 /// Offset of the `endstream` keyword after `from`, excluding the whitespace before it.
 fn find_endstream(bytes: &[u8], from: usize) -> Option<usize> {
-    Some(from + bytes[from..].windows(9).position(|w| w == b"endstream")?)
+    Some(from + bytes.get(from..)?.windows(9).position(|w| w == b"endstream")?)
 }
 
 /// Backs off the EOL introduced before `endstream`, which is not data (7.3.8.1).
@@ -243,10 +243,11 @@ fn find_endstream(bytes: &[u8], from: usize) -> Option<usize> {
 /// CR from a CRLF marker, and guesses that the marker is longer.
 fn trim_eol(bytes: &[u8], from: usize, keyword: usize) -> usize {
     let mut end = keyword;
-    if end > from && bytes[end - 1] == b'\n' {
+    let before = |end: usize| end.checked_sub(1).and_then(|k| bytes.get(k)).copied();
+    if end > from && before(end) == Some(b'\n') {
         end -= 1;
     }
-    if end > from && bytes[end - 1] == b'\r' {
+    if end > from && before(end) == Some(b'\r') {
         end -= 1;
     }
     end
@@ -254,7 +255,7 @@ fn trim_eol(bytes: &[u8], from: usize, keyword: usize) -> usize {
 
 /// Whether only whitespace sits between the declared end of the data and `endstream`.
 fn separated_by_space(bytes: &[u8], data_end: usize, keyword: usize) -> bool {
-    data_end <= keyword && bytes[data_end..keyword].iter().all(u8::is_ascii_whitespace)
+    bytes.get(data_end..keyword).is_some_and(|gap| gap.iter().all(u8::is_ascii_whitespace))
 }
 
 /// A document as read from bytes, before ingestion normalises it.
@@ -536,7 +537,7 @@ fn object_stream_candidates(bytes: &[u8], scanned: &BTreeMap<u32, u64>) -> BTree
     let by_offset: BTreeMap<u64, u32> = scanned.iter().map(|(n, o)| (*o, *n)).collect();
     let mut found = BTreeSet::new();
     let mut from = 0_usize;
-    while let Some(p) = bytes[from..].windows(7).position(|w| w == b"/ObjStm") {
+    while let Some(p) = bytes.get(from..).and_then(|r| r.windows(7).position(|w| w == b"/ObjStm")) {
         let at = from.saturating_add(p);
         from = at.saturating_add(7);
         if let Some((_, &number)) = by_offset.range(..=at as u64).next_back() {
@@ -807,10 +808,8 @@ fn stream_layout(
     arena: &PdfArena,
 ) -> Option<fepdf_syntax::xref::XrefStreamLayout> {
     let widths: Vec<usize> = integer_array(dict.get(&arena.name("W"))?, arena)?;
-    if widths.len() != 3 {
-        return None;
-    }
-    let widths = [widths[0], widths[1], widths[2]];
+    let &[w0, w1, w2] = widths.as_slice() else { return None };
+    let widths = [w0, w1, w2];
 
     // 7.5.8.2: /Index defaults to one subsection covering 0..Size.
     let index = match dict.get(&arena.name("Index")).and_then(|o| integer_array(o, arena)) {
@@ -850,7 +849,8 @@ fn parse_trailer_dict(
     arena: &PdfArena,
 ) -> Option<crate::handle::Handle<BTreeMap<crate::handle::Handle<crate::object::PdfName>, Object>>>
 {
-    let mut parser = Parser::new(Bytes::copy_from_slice(&bytes[at.min(bytes.len())..]), arena);
+    let mut parser =
+        Parser::new(Bytes::copy_from_slice(bytes.get(at..).unwrap_or_default()), arena);
     match parser.parse_object().ok()? {
         Object::Dictionary(h) => Some(h),
         _ => None,
@@ -917,7 +917,8 @@ fn build_stream_objects(
             ));
             continue;
         }
-        let mut parser = Parser::new(Bytes::copy_from_slice(&decoded[start..]), arena);
+        let mut parser =
+            Parser::new(Bytes::copy_from_slice(decoded.get(start..).unwrap_or_default()), arena);
         match parser.parse_object() {
             // 7.5.7: an object inside an object stream always has generation 0.
             Ok(object) => objects.push(IndirectObject { number, generation: 0, object }),
@@ -933,7 +934,7 @@ fn build_stream_objects(
 
 /// Reads the `number offset` pairs preceding `first`.
 fn read_pairs(decoded: &[u8], first: usize) -> Vec<(u32, usize)> {
-    let head = &decoded[..first.min(decoded.len())];
+    let head = decoded.get(..first).unwrap_or(decoded);
     let numbers: Vec<u64> = String::from_utf8_lossy(head)
         .split_ascii_whitespace()
         .filter_map(|t| t.parse().ok())

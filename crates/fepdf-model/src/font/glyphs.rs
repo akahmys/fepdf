@@ -157,8 +157,8 @@ impl FontResource {
             return enc.to_cid(code);
         }
         // Fallback for simple fonts
-        if code.len() == 2 {
-            return (u32::from(code[0]) << 8) | u32::from(code[1]);
+        if let &[high, low] = code {
+            return (u32::from(high) << 8) | u32::from(low);
         }
         u32::from(code.first().copied().unwrap_or(0))
     }
@@ -175,12 +175,10 @@ impl FontResource {
         // 2. For simple fonts, the character code itself is often treated as the "CID"
         // for internal mapping tables (like sid_to_gid or code_to_gid) unless
         // a complex Encoding dictionary is present.
-        if code.len() == 2 {
-            (u32::from(code[0]) << 8) | u32::from(code[1])
-        } else if code.len() == 1 {
-            u32::from(code[0])
-        } else {
-            0
+        match *code {
+            [high, low] => (u32::from(high) << 8) | u32::from(low),
+            [one] => u32::from(one),
+            _ => 0,
         }
     }
 

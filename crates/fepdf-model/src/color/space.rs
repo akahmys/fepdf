@@ -310,14 +310,8 @@ impl ResolvedColorSpace {
         let Some(tint) = &self.tint else {
             return components_to_color(components);
         };
-        if components.len() < self.components {
-            return None;
-        }
-        let out = tint.function.eval(&components[..self.components])?;
-        if out.len() < tint.alternate_components {
-            return None;
-        }
-        components_to_color(&out[..tint.alternate_components])
+        let out = tint.function.eval(components.get(..self.components)?)?;
+        components_to_color(out.get(..tint.alternate_components)?)
     }
 
     /// A colour from components whose space is not known, taken from how many there are.

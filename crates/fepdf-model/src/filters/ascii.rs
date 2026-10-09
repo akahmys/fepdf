@@ -68,10 +68,7 @@ impl DecodingFilter for Ascii85Filter {
         // A leading `<~` is not in 7.4.3 — it belongs to Adobe's standalone encoding —
         // but producers emit it, and refusing the whole stream over two bytes that carry
         // no data would be reading the clause more strictly than the files behave.
-        let mut data = input;
-        if data.starts_with(b"<~") {
-            data = &data[2..];
-        }
+        let data = input.strip_prefix(b"<~").unwrap_or(input);
 
         for &byte in data {
             if byte == b'~' {
@@ -85,7 +82,9 @@ impl DecodingFilter for Ascii85Filter {
                 out.extend_from_slice(&[0, 0, 0, 0]);
                 continue;
             }
-            group[n] = digit(byte)?;
+            if let Some(slot) = group.get_mut(n) {
+                *slot = digit(byte)?;
+            }
             n += 1;
             if n == 5 {
                 push_group(&mut out, &group, 5);
@@ -136,5 +135,5 @@ fn push_group(out: &mut Vec<u8>, group: &[u8; 5], count: usize) {
         value = value.wrapping_mul(85).wrapping_add(u32::from(digit));
     }
     let bytes = value.to_be_bytes();
-    out.extend_from_slice(&bytes[..count - 1]);
+    out.extend_from_slice(bytes.get(..count.saturating_sub(1)).unwrap_or(&bytes));
 }
