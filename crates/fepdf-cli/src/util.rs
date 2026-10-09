@@ -9,9 +9,9 @@ pub fn parse_page_range(range_str: &str, max_pages: usize) -> Result<Vec<usize>>
         }
         if part.contains('-') {
             let bounds: Vec<&str> = part.split('-').collect();
-            if bounds.len() == 2 {
-                let start: usize = bounds[0].trim().parse::<usize>()?.saturating_sub(1);
-                let end: usize = bounds[1].trim().parse::<usize>()?;
+            if let [first, last] = bounds[..] {
+                let start: usize = first.trim().parse::<usize>()?.saturating_sub(1);
+                let end: usize = last.trim().parse::<usize>()?;
                 for i in start..end.min(max_pages) {
                     pages.push(i);
                 }

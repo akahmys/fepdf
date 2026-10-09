@@ -13,7 +13,7 @@ pub fn handle_debug_dump(
 ) -> Result<()> {
     println!("fepdf debug dump: Object {obj_id} from {}", input.display());
     let data = std::fs::read(&input).with_context(|| "Failed to read input")?;
-    let ingest_options: fepdf::IngestionOptions = ingest.into();
+    let ingest_options: fepdf::IngestionOptions = ingest.try_into()?;
     let doc = PdfDocument::open_with_options(data.into(), &ingest_options)
         .map_err(|e| anyhow::anyhow!("{e:?}"))?;
 
@@ -25,7 +25,7 @@ pub fn handle_debug_dump(
 pub fn handle_debug_stats(input: PathBuf, ingest: IngestArgs) -> Result<()> {
     println!("fepdf debug stats: Analyzing memory usage for {}", input.display());
     let data = std::fs::read(&input).with_context(|| "Failed to read input")?;
-    let ingest_options: fepdf::IngestionOptions = ingest.into();
+    let ingest_options: fepdf::IngestionOptions = ingest.try_into()?;
     let doc = PdfDocument::open_with_options(data.into(), &ingest_options)
         .map_err(|e| anyhow::anyhow!("{e:?}"))?;
 
@@ -55,7 +55,7 @@ pub fn handle_extract_font(
     ingest: IngestArgs,
 ) -> Result<()> {
     let data = std::fs::read(&input).with_context(|| "Failed to read input")?;
-    let ingest_options: fepdf::IngestionOptions = ingest.into();
+    let ingest_options: fepdf::IngestionOptions = ingest.try_into()?;
     let doc = PdfDocument::open_with_options(data.into(), &ingest_options)
         .map_err(|e| anyhow::anyhow!("{e:?}"))?;
 
@@ -127,7 +127,7 @@ pub fn handle_debug_trace_glyph(
 
     let target_char = parse_unicode(&unicode_str)?;
     let data = std::fs::read(&input).with_context(|| "Failed to read input")?;
-    let ingest_options: fepdf::IngestionOptions = ingest.into();
+    let ingest_options: fepdf::IngestionOptions = ingest.try_into()?;
     let doc = PdfDocument::open_with_options(data.into(), &ingest_options)
         .map_err(|e| anyhow::anyhow!("{e:?}"))?;
 

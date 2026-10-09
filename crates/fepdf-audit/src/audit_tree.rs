@@ -522,13 +522,16 @@ fn table_rows_are_well_formed(kids: &[String]) -> bool {
     }
     let head = usize::from(rows.first() == Some(&"THead"));
     let foot = usize::from(rows.len() > head && rows.last() == Some(&"TFoot"));
-    let bodies = &rows[head..rows.len() - foot];
+    let bodies = rows.get(head..rows.len() - foot).unwrap_or_default();
     !bodies.is_empty() && bodies.iter().all(|kid| *kid == "TBody")
 }
 
 /// Table 336: an optional caption, then one or more list items.
 fn list_is_well_formed(kids: &[String]) -> bool {
-    let items = if kids.first().is_some_and(|k| k == "Caption") { &kids[1..] } else { kids };
+    let items = match kids.split_first() {
+        Some((first, rest)) if first == "Caption" => rest,
+        _ => kids,
+    };
     !items.is_empty() && items.iter().all(|kid| kid == "LI")
 }
 

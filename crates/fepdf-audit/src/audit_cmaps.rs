@@ -40,8 +40,11 @@ pub fn cmap(doc: &Document, font: &Object, name: &str, findings: &mut Vec<AuditF
     let stated = entry(arena, &stream, "WMode").and_then(|w| w.as_integer()).unwrap_or(0);
     let written = words
         .windows(2)
-        .find(|pair| pair[0] == b"/WMode")
-        .and_then(|pair| std::str::from_utf8(pair[1]).ok()?.parse::<i64>().ok())
+        .find_map(|pair| match pair {
+            [key, value] if *key == b"/WMode" => Some(*value),
+            _ => None,
+        })
+        .and_then(|value| std::str::from_utf8(value).ok()?.parse::<i64>().ok())
         .unwrap_or(0);
     if stated != written {
         findings.push(broken(
@@ -62,8 +65,10 @@ fn used_cmaps(
 ) {
     let mut unlisted: Vec<String> = words
         .windows(2)
-        .filter(|pair| pair[1] == b"usecmap")
-        .filter_map(|pair| pair[0].strip_prefix(b"/"))
+        .filter_map(|pair| match pair {
+            [name, word] if *word == b"usecmap" => name.strip_prefix(b"/"),
+            _ => None,
+        })
         .map(|n| String::from_utf8_lossy(n).into_owned())
         .chain(name_in(arena, stream, "UseCMap"))
         .filter(|used| !predefined(used))

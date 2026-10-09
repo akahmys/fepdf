@@ -64,13 +64,19 @@ pub fn changed_lines(first: &[String], second: &[String]) -> (Vec<String>, Vec<S
     let (ours, theirs) = (first.len(), second.len());
     // `longest[at][to]`: the longest common subsequence of `first[at..]` and `second[to..]`.
     let mut longest = vec![vec![0_usize; theirs + 1]; ours + 1];
+    let read = |table: &[Vec<usize>], at: usize, to: usize| {
+        table.get(at).and_then(|row| row.get(to)).copied().unwrap_or(0)
+    };
     for at in (0..ours).rev() {
         for to in (0..theirs).rev() {
-            longest[at][to] = if first[at] == second[to] {
-                longest[at + 1][to + 1] + 1
+            let length = if first.get(at) == second.get(to) {
+                read(&longest, at + 1, to + 1) + 1
             } else {
-                longest[at + 1][to].max(longest[at][to + 1])
+                read(&longest, at + 1, to).max(read(&longest, at, to + 1))
             };
+            if let Some(cell) = longest.get_mut(at).and_then(|row| row.get_mut(to)) {
+                *cell = length;
+            }
         }
     }
     let (mut removed, mut added) = (Vec::new(), Vec::new());
@@ -79,11 +85,13 @@ pub fn changed_lines(first: &[String], second: &[String]) -> (Vec<String>, Vec<S
         let same = first.get(at).is_some_and(|line| second.get(to) == Some(line));
         if same {
             (at, to) = (at + 1, to + 1);
-        } else if to < theirs && (at == ours || longest[at][to + 1] >= longest[at + 1][to]) {
-            added.push(second[to].clone());
+        } else if let Some(line) = second.get(to)
+            && (at == ours || read(&longest, at, to + 1) >= read(&longest, at + 1, to))
+        {
+            added.push(line.clone());
             to += 1;
         } else {
-            removed.push(first[at].clone());
+            removed.extend(first.get(at).cloned());
             at += 1;
         }
     }
@@ -203,10 +211,22 @@ pub fn differing_cells(first: &[u8], second: &[u8], width: u32, height: u32) -> 
     {
         if p.iter().zip(q).any(|(x, y)| x.abs_diff(*y) > TOLERANCE) {
             let (x, y) = (index % width, index / width);
-            cells[y / CELL][x / CELL] = true;
+            mark(&mut cells, x / CELL, y / CELL);
         }
     }
     cells
+}
+
+/// Whether the cell at column `x`, row `y` is set; one off the grid is not.
+fn is_set(grid: &[Vec<bool>], x: usize, y: usize) -> bool {
+    grid.get(y).and_then(|row| row.get(x)).copied().unwrap_or(false)
+}
+
+/// Sets the cell at column `x`, row `y`, if the grid has one there.
+fn mark(grid: &mut [Vec<bool>], x: usize, y: usize) {
+    if let Some(cell) = grid.get_mut(y).and_then(|row| row.get_mut(x)) {
+        *cell = true;
+    }
 }
 
 /// The rectangles, in pixels — left, top, right, bottom — round each group of touching
@@ -219,14 +239,14 @@ pub fn regions_of(cells: &[Vec<bool>], width: u32, height: u32) -> Vec<[usize; 4
     let mut regions = Vec::new();
     for row in 0..down {
         for column in 0..across {
-            if !cells[row][column] || seen[row][column] {
+            if !is_set(cells, column, row) || is_set(&seen, column, row) {
                 continue;
             }
             // A group is found by walking to its neighbours with a list, not by
             // recursion, so a page that differs everywhere is not a stack that deep.
             let (mut low, mut high) = ((column, row), (column, row));
             let mut waiting = vec![(column, row)];
-            seen[row][column] = true;
+            mark(&mut seen, column, row);
             while let Some((x, y)) = waiting.pop() {
                 low = (low.0.min(x), low.1.min(y));
                 high = (high.0.max(x), high.1.max(y));
@@ -235,8 +255,8 @@ pub fn regions_of(cells: &[Vec<bool>], width: u32, height: u32) -> Vec<[usize; 4
                     else {
                         continue;
                     };
-                    if nx < across && ny < down && cells[ny][nx] && !seen[ny][nx] {
-                        seen[ny][nx] = true;
+                    if is_set(cells, nx, ny) && !is_set(&seen, nx, ny) {
+                        mark(&mut seen, nx, ny);
                         waiting.push((nx, ny));
                     }
                 }

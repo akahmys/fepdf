@@ -118,21 +118,27 @@ done < <(find $TARGET_DIRS -name "*.rs" | grep -vE "(tests|examples|src/bin)")
 echo "[Rule 1] Checking impl block length..."
 python3 scripts/audit/impl_length.py || { echo "  FAIL: impl_length.py said so above"; ERROR=1; }
 
-# Rule 2: Panic Exclusion
-echo "[Rule 2] Checking for unwrap/expect in production code..."
-rule2_failed=0
-while read -r file; do
-    ranges=$(cfg_test_ranges "$file")
-    while read -r line; do
-        lnum=${line%%:*}
-        if ! is_test_line "$file" "$lnum" "$ranges"; then
-            echo "  FAIL: $file:$line"
-            ERROR=1
-            rule2_failed=1
-        fi
-    done < <(grep -nE "\.(unwrap|expect)\(" "$file" | grep -vE "unwrap_(or|err)\(" | grep -v "// RR-15 Safe")
-done < <(find $TARGET_DIRS -name "*.rs" | grep -vE "(tests|examples|src/bin)")
-[ "$rule2_failed" -eq 0 ] && echo "  PASS"
+# Rule 2: Panic Exclusion, held by clippy over production code (ROADMAP Z-3).
+#
+# **This was a grep for `.unwrap(` and `.expect(`, and measuring it against clippy on
+# 2026-10-09 found nine panics it passed**: `panic!` and `unreachable!`, which it did not
+# look for; an `.expect(` written on the line after its receiver; and three `.unwrap()`s
+# exempted by a `// RR-15 Safe` comment, which nothing checked the reason of. One of the
+# `panic!`s took the CLI down on an unreadable `--recipient-key`. clippy reads the code
+# rather than the text, so none of those shapes passes. `--lib --bins` is the scope the
+# grep had, production code; tests and examples may panic. A real exemption is
+# `#[allow(clippy::unwrap_used, reason = "...")]`, whose reason the compiler keeps.
+echo "[Rule 2] Checking for panics in production code (clippy)..."
+if rule2_out=$(cargo clippy --workspace --lib --bins --quiet -- \
+    -A clippy::all -A clippy::pedantic -A clippy::nursery \
+    -D clippy::unwrap_used -D clippy::expect_used -D clippy::panic \
+    -D clippy::unreachable -D clippy::todo -D clippy::unimplemented 2>&1); then
+    echo "  PASS"
+else
+    echo "$rule2_out" | grep -E "^(error|  *-->)" | head -40
+    echo "  FAIL: clippy found a panic in production code (Rule 2)"
+    ERROR=1
+fi
 
 # Rule 3: No Unsafe
 # Rules 3 and 7 are enforced by rustc, not here. `unsafe_code = "forbid"` fails the build

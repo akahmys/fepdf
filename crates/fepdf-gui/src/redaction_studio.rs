@@ -123,7 +123,9 @@ impl RedactionStudioPanel {
                         });
                     }
                     for (idx, state) in to_toggle {
-                        self.matches[idx].checked = state;
+                        if let Some(found) = self.matches.get_mut(idx) {
+                            found.checked = state;
+                        }
                     }
                 });
             } else {

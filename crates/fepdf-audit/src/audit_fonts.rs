@@ -347,7 +347,9 @@ impl Font<'_> {
             return Some(Vec::new());
         };
         let table = program.get(start..end)?;
-        let read = |at: usize| table.get(at..at + 2).map(|b| u16::from_be_bytes([b[0], b[1]]));
+        let read = |at: usize| {
+            table.get(at..at + 2).and_then(|b| <[u8; 2]>::try_from(b).ok()).map(u16::from_be_bytes)
+        };
         let count = usize::from(read(2)?);
         (0..count).map(|i| Some((read(4 + i * 8)?, read(6 + i * 8)?))).collect()
     }

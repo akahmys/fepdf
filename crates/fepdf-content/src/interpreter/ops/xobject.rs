@@ -154,15 +154,10 @@ impl Interpreter<'_> {
         let matrix_key = self.doc.arena().intern_name(PdfName::new("Matrix"));
         if let Some(Object::Array(h)) = dict.get(&matrix_key).map(|o| o.resolve(self.doc.arena()))
             && let Some(arr) = self.doc.arena().get_array(h)
-            && arr.len() == 6
+            && let [a, b, c, d, e, f] = arr.as_slice()
         {
-            let a = arr[0].resolve(self.doc.arena()).as_f64().unwrap_or(0.0);
-            let b = arr[1].resolve(self.doc.arena()).as_f64().unwrap_or(0.0);
-            let c = arr[2].resolve(self.doc.arena()).as_f64().unwrap_or(0.0);
-            let d = arr[3].resolve(self.doc.arena()).as_f64().unwrap_or(0.0);
-            let e = arr[4].resolve(self.doc.arena()).as_f64().unwrap_or(0.0);
-            let f = arr[5].resolve(self.doc.arena()).as_f64().unwrap_or(0.0);
-            let m = fepdf_model::graphics::Matrix::new(a, b, c, d, e, f);
+            let n = |o: &Object| o.resolve(self.doc.arena()).as_f64().unwrap_or(0.0);
+            let m = fepdf_model::graphics::Matrix::new(n(a), n(b), n(c), n(d), n(e), n(f));
             self.state.ctm = self.state.ctm.concat(&m);
             self.backend.transform(m.as_affine());
         }
@@ -173,12 +168,10 @@ impl Interpreter<'_> {
         let bbox_key = self.doc.arena().intern_name(PdfName::new("BBox"));
         if let Some(Object::Array(h)) = dict.get(&bbox_key).map(|o| o.resolve(self.doc.arena()))
             && let Some(arr) = self.doc.arena().get_array(h)
-            && arr.len() == 4
+            && let [x1, y1, x2, y2] = arr.as_slice()
         {
-            let x1 = arr[0].resolve(self.doc.arena()).as_f64().unwrap_or(0.0);
-            let y1 = arr[1].resolve(self.doc.arena()).as_f64().unwrap_or(0.0);
-            let x2 = arr[2].resolve(self.doc.arena()).as_f64().unwrap_or(0.0);
-            let y2 = arr[3].resolve(self.doc.arena()).as_f64().unwrap_or(0.0);
+            let n = |o: &Object| o.resolve(self.doc.arena()).as_f64().unwrap_or(0.0);
+            let (x1, y1, x2, y2) = (n(x1), n(y1), n(x2), n(y2));
 
             let mut path = kurbo::BezPath::new();
             path.move_to((x1, y1));
@@ -451,9 +444,9 @@ impl Interpreter<'_> {
         let inverted = if let Some(decode_obj) = dict.get(&decode_key)
             && let Some(arr_h) = decode_obj.resolve(arena).as_array()
             && let Some(arr) = arena.get_array(arr_h)
-            && arr.len() >= 2
+            && let [first, _, ..] = arr.as_slice()
         {
-            arr[0].resolve(arena).as_f64().unwrap_or(0.0) > 0.5
+            first.resolve(arena).as_f64().unwrap_or(0.0) > 0.5
         } else {
             false
         };
@@ -834,21 +827,19 @@ fn get_indexed_cs_info(
     let cs_key = arena.intern_name(PdfName::new("ColorSpace"));
     let cs_obj = dict.get(&cs_key)?.resolve(arena);
     let arr = arena.get_array(cs_obj.as_array()?)?;
-    if arr.len() < 4 {
-        return None;
-    }
-    let first = arr[0].resolve(arena).as_name()?;
+    let [first, base, hival, lookup, ..] = arr.as_slice() else { return None };
+    let first = first.resolve(arena).as_name()?;
     let name = arena.get_name(first)?;
     if name.as_str() != "Indexed" && name.as_str() != "I" {
         return None;
     }
-    let base_name = arr[1]
+    let base_name = base
         .resolve(arena)
         .as_name()
         .and_then(|nh| arena.get_name(nh))
         .map_or_else(|| "DeviceRGB".to_string(), |n| n.as_str().to_string());
-    let hival = usize::try_from(arr[2].resolve(arena).as_integer()?).ok()?;
-    let lookup_bytes = match arr[3].resolve(arena) {
+    let hival = usize::try_from(hival.resolve(arena).as_integer()?).ok()?;
+    let lookup_bytes = match lookup.resolve(arena) {
         Object::String(ref b) | Object::Hex(ref b) => Some(b.to_vec()),
         Object::Stream(dh, ref sd) => {
             let s_dict = arena.get_dict(dh)?;
@@ -951,26 +942,23 @@ fn expand_indexed_image(
     let mut rgb = Vec::with_capacity(decoded.len() * 3);
     for &idx in decoded {
         let offset = if usize::from(idx) <= hival { usize::from(idx) * components } else { 0 };
-        if offset + components <= lookup.len() {
-            match components {
-                1 => rgb.extend_from_slice(&[lookup[offset], lookup[offset], lookup[offset]]),
-                4 => {
-                    let cyan = f64::from(lookup[offset]) / 255.0;
-                    let magenta = f64::from(lookup[offset + 1]) / 255.0;
-                    let yellow = f64::from(lookup[offset + 2]) / 255.0;
-                    let black = f64::from(lookup[offset + 3]) / 255.0;
-                    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-                    let red_val = ((1.0 - cyan) * (1.0 - black) * 255.0).round() as u8;
-                    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-                    let green_val = ((1.0 - magenta) * (1.0 - black) * 255.0).round() as u8;
-                    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-                    let blue_val = ((1.0 - yellow) * (1.0 - black) * 255.0).round() as u8;
-                    rgb.extend_from_slice(&[red_val, green_val, blue_val]);
-                }
-                _ => rgb.extend_from_slice(&lookup[offset..offset + 3]),
+        match lookup.get(offset..offset + components) {
+            Some(&[gray]) => rgb.extend_from_slice(&[gray, gray, gray]),
+            Some(&[c, m, y, k]) => {
+                let cyan = f64::from(c) / 255.0;
+                let magenta = f64::from(m) / 255.0;
+                let yellow = f64::from(y) / 255.0;
+                let black = f64::from(k) / 255.0;
+                #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+                let red_val = ((1.0 - cyan) * (1.0 - black) * 255.0).round() as u8;
+                #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+                let green_val = ((1.0 - magenta) * (1.0 - black) * 255.0).round() as u8;
+                #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+                let blue_val = ((1.0 - yellow) * (1.0 - black) * 255.0).round() as u8;
+                rgb.extend_from_slice(&[red_val, green_val, blue_val]);
             }
-        } else {
-            rgb.extend_from_slice(&[0, 0, 0]);
+            Some(&[r, g, b]) => rgb.extend_from_slice(&[r, g, b]),
+            _ => rgb.extend_from_slice(&[0, 0, 0]),
         }
     }
     Some(rgb)

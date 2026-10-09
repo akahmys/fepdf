@@ -344,9 +344,7 @@ pub fn render_node_recursive(
             .response;
 
         collapsing.show_body_indented(&header_response, ui, |ui| {
-            let children_len = node.children.len();
-            for idx in 0..children_len {
-                let child = &mut node.children[idx];
+            for child in &mut node.children {
                 render_node_recursive(
                     ui,
                     child,

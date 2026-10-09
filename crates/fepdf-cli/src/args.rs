@@ -1,4 +1,4 @@
-use anyhow::Result;
+use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 use std::path::PathBuf;
 
@@ -46,9 +46,21 @@ pub struct IngestArgs {
     pub recipient_key: Option<PathBuf>,
 }
 
-impl From<IngestArgs> for fepdf::IngestionOptions {
-    fn from(args: IngestArgs) -> Self {
-        Self {
+/// **Fallible, because a recipient's certificate and key are files.** A path that cannot
+/// be read is the command's error, said and returned; it was a `panic!` here, which a
+/// release build turns into an abort with a backtrace prompt (ROADMAP Z-3).
+impl TryFrom<IngestArgs> for fepdf::IngestionOptions {
+    type Error = anyhow::Error;
+
+    fn try_from(args: IngestArgs) -> anyhow::Result<Self> {
+        let read = |path: &std::path::Path| {
+            std::fs::read(path).with_context(|| format!("cannot read {}", path.display()))
+        };
+        let recipient = match (args.recipient_certificate, args.recipient_key) {
+            (Some(certificate), Some(key)) => Some((read(&certificate)?, read(&key)?)),
+            _ => None,
+        };
+        Ok(Self {
             active_refinement: !args.no_refinement,
             sublime_metadata: !args.no_metadata_recovery,
             color_policy: if args.relaxed_color {
@@ -61,17 +73,9 @@ impl From<IngestArgs> for fepdf::IngestionOptions {
             // Read here rather than in the engine: a path that does not exist is the
             // frontend's problem, and a certificate that does not parse is the
             // engine's. Keeping the two apart means the message names the right one.
-            recipient: match (args.recipient_certificate, args.recipient_key) {
-                (Some(certificate), Some(key)) => Some((
-                    std::fs::read(&certificate)
-                        .unwrap_or_else(|e| panic!("cannot read {}: {e}", certificate.display())),
-                    std::fs::read(&key)
-                        .unwrap_or_else(|e| panic!("cannot read {}: {e}", key.display())),
-                )),
-                _ => None,
-            },
+            recipient,
             progress_callback: None,
-        }
+        })
     }
 }
 
@@ -845,6 +849,26 @@ mod tests {
     /// is answered by varying one flag and comparing the documents that come out —
     /// which for `sublime_metadata`, now that ADR-0013 has made it live, the tests in
     /// `fepdf_model::metadata` do.
+    /// A recipient certificate and key that cannot be read are the command's error, naming
+    /// the path, as Y-F3 made `--encrypt-to` say it. Opening a document read them with
+    /// `panic!`, an abort in a release build, and the grep holding Rule 2 did not see it
+    /// (ROADMAP Z-3).
+    #[test]
+    fn an_unreadable_recipient_key_is_an_error_naming_it() {
+        let missing = std::path::PathBuf::from("/nonexistent/fepdf/recipient.der");
+        let args = IngestArgs {
+            no_refinement: false,
+            no_metadata_recovery: false,
+            relaxed_color: false,
+            force_fallback: false,
+            password: None,
+            recipient_certificate: Some(missing.clone()),
+            recipient_key: Some(missing),
+        };
+        let refused = fepdf::IngestionOptions::try_from(args).expect_err("it cannot read it");
+        assert!(refused.to_string().contains("/nonexistent/fepdf/recipient.der"), "{refused}");
+    }
+
     #[test]
     fn test_ingest_args_conversion() {
         let args = IngestArgs {
@@ -856,7 +880,7 @@ mod tests {
             recipient_certificate: None,
             recipient_key: None,
         };
-        let opts: fepdf::IngestionOptions = args.into();
+        let opts: fepdf::IngestionOptions = args.try_into().expect("there are no files to read");
         assert!(!opts.active_refinement);
         assert!(opts.sublime_metadata);
         assert_eq!(opts.color_policy, fepdf::ColorPolicy::Relaxed);

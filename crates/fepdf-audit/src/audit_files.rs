@@ -222,14 +222,15 @@ fn requires_dynamic_render(xml: &[u8]) -> bool {
     const OPEN: &[u8] = b"<dynamicRender";
     let mut rest = xml;
     while let Some(at) = rest.windows(OPEN.len()).position(|w| w == OPEN) {
-        rest = &rest[at + OPEN.len()..];
+        let Some(after) = rest.get(at + OPEN.len()..) else { return false };
+        rest = after;
         let Some(close) = rest.iter().position(|b| *b == b'>') else { return false };
         if rest.get(close.wrapping_sub(1)) == Some(&b'/') {
             continue;
         }
-        let body = &rest[close + 1..];
-        let end = body.iter().position(|b| *b == b'<').unwrap_or(body.len());
-        if body[..end].trim_ascii() == b"required" {
+        let Some(body) = rest.get(close + 1..) else { return false };
+        let content = body.split(|b| *b == b'<').next().unwrap_or(body);
+        if content.trim_ascii() == b"required" {
             return true;
         }
     }

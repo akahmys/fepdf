@@ -496,10 +496,10 @@ impl FepdfApp {
         }
 
         for &idx in &indices {
-            if idx < self.doc_page_frames.len() {
+            if let Some(frame) = self.doc_page_frames.get_mut(idx) {
                 // The turn itself, not only the swapped size: the view maps points
                 // through it, and a page turned in the window is drawn turned.
-                self.doc_page_frames[idx] = self.doc_page_frames[idx].turned_by(delta.to_degrees());
+                *frame = frame.turned_by(delta.to_degrees());
                 self.scenes.remove(&idx);
                 self.raw_texts.remove(&idx);
                 self.page_spans.remove(&idx);

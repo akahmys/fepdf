@@ -19,11 +19,11 @@ fn read_extend(
     let extend_key = arena.intern_name(PdfName::new("Extend"));
     if let Some(fepdf_model::Object::Array(ah)) = dict.get(&extend_key).map(|o| o.resolve(arena))
         && let Some(arr) = arena.get_array(ah)
-        && arr.len() >= 2
+        && let [start, end, ..] = arr.as_slice()
     {
         [
-            arr[0].resolve(arena).as_bool().unwrap_or(true),
-            arr[1].resolve(arena).as_bool().unwrap_or(true),
+            start.resolve(arena).as_bool().unwrap_or(true),
+            end.resolve(arena).as_bool().unwrap_or(true),
         ]
     } else {
         [true, true]
@@ -608,13 +608,13 @@ pub(crate) fn parse_pattern_object(
         let bbox = if let Some(fepdf_model::Object::Array(ah)) =
             dict.get(&bbox_key).map(|o| o.resolve(arena))
             && let Some(arr) = arena.get_array(ah)
-            && arr.len() >= 4
+            && let [x0, y0, x1, y1, ..] = arr.as_slice()
         {
             [
-                arr[0].resolve(arena).as_f64().unwrap_or(0.0),
-                arr[1].resolve(arena).as_f64().unwrap_or(0.0),
-                arr[2].resolve(arena).as_f64().unwrap_or(100.0),
-                arr[3].resolve(arena).as_f64().unwrap_or(100.0),
+                x0.resolve(arena).as_f64().unwrap_or(0.0),
+                y0.resolve(arena).as_f64().unwrap_or(0.0),
+                x1.resolve(arena).as_f64().unwrap_or(100.0),
+                y1.resolve(arena).as_f64().unwrap_or(100.0),
             ]
         } else {
             [0.0, 0.0, 100.0, 100.0]
@@ -704,8 +704,10 @@ fn shading_domain(dict: &BTreeMap<Handle<PdfName>, Object>, arena: &PdfArena) ->
         .map(|o| o.resolve(arena))
         .and_then(|o| o.as_array())
         .and_then(|ah| arena.get_array(ah))
-        .filter(|a| a.len() >= 2)
-        .and_then(|a| Some((a[0].resolve(arena).as_f64()?, a[1].resolve(arena).as_f64()?)));
+        .and_then(|a| match a.as_slice() {
+            [low, high, ..] => Some((low.resolve(arena).as_f64()?, high.resolve(arena).as_f64()?)),
+            _ => None,
+        });
     pair.unwrap_or((0.0_f64, 1.0_f64))
 }
 
@@ -745,23 +747,12 @@ fn parse_color_from_array(
     if let fepdf_model::Object::Array(ah) = resolved
         && let Some(arr) = arena.get_array(ah)
     {
-        match arr.len() {
-            1 => {
-                let g = arr[0].resolve(arena).as_f64()?;
-                Some(Color::Gray(g))
-            }
-            3 => {
-                let r = arr[0].resolve(arena).as_f64()?;
-                let g = arr[1].resolve(arena).as_f64()?;
-                let b = arr[2].resolve(arena).as_f64()?;
-                Some(Color::Rgb(r, g, b))
-            }
-            4 => {
-                let c = arr[0].resolve(arena).as_f64()?;
-                let m = arr[1].resolve(arena).as_f64()?;
-                let y = arr[2].resolve(arena).as_f64()?;
-                let k = arr[3].resolve(arena).as_f64()?;
-                Some(Color::Cmyk(c, m, y, k))
+        let num = |o: &fepdf_model::Object| o.resolve(arena).as_f64();
+        match arr.as_slice() {
+            [gray] => Some(Color::Gray(num(gray)?)),
+            [red, green, blue] => Some(Color::Rgb(num(red)?, num(green)?, num(blue)?)),
+            [cyan, magenta, yellow, black] => {
+                Some(Color::Cmyk(num(cyan)?, num(magenta)?, num(yellow)?, num(black)?))
             }
             _ => None,
         }

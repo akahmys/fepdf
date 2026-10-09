@@ -222,26 +222,35 @@ impl Pdf {
 /// defect passes.
 ///
 /// The glyphs are the four the `cmap` below names for `A`, `B`, `C` and `D`, so a test can
+/// Writes `bytes` into `table` at `at`, the way a table's fields are laid out. Every
+/// offset here is a constant inside the table's fixed length; one past it is a mistake in
+/// this function, and writes nothing rather than panicking.
+fn put(table: &mut [u8], at: usize, bytes: &[u8]) {
+    if let Some(field) = table.get_mut(at..at + bytes.len()) {
+        field.copy_from_slice(bytes);
+    }
+}
+
 /// ask for text and get glyph ids that are not the ones it asked for by coincidence.
 #[must_use]
 pub fn truetype_program(advances: &[u16; 4]) -> Vec<u8> {
     let mut head = vec![0u8; 54];
     // A parser checks these before it reads anything else: the table's own version, and
     // the magic number that says this is a `head` at all.
-    head[0..4].copy_from_slice(&0x0001_0000_u32.to_be_bytes());
-    head[12..16].copy_from_slice(&0x5F0F_3CF5_u32.to_be_bytes());
-    head[18..20].copy_from_slice(&2048u16.to_be_bytes());
-    head[36..38].copy_from_slice(&(-100i16).to_be_bytes());
-    head[38..40].copy_from_slice(&(-200i16).to_be_bytes());
-    head[40..42].copy_from_slice(&1000i16.to_be_bytes());
-    head[42..44].copy_from_slice(&2000i16.to_be_bytes());
-    head[50..52].copy_from_slice(&1i16.to_be_bytes()); // a long `loca`
+    put(&mut head, 0, &0x0001_0000_u32.to_be_bytes());
+    put(&mut head, 12, &0x5F0F_3CF5_u32.to_be_bytes());
+    put(&mut head, 18, &2048u16.to_be_bytes());
+    put(&mut head, 36, &(-100i16).to_be_bytes());
+    put(&mut head, 38, &(-200i16).to_be_bytes());
+    put(&mut head, 40, &1000i16.to_be_bytes());
+    put(&mut head, 42, &2000i16.to_be_bytes());
+    put(&mut head, 50, &1i16.to_be_bytes()); // a long `loca`
 
     let mut hhea = vec![0u8; 36];
-    hhea[0..4].copy_from_slice(&0x0001_0000_u32.to_be_bytes());
-    hhea[4..6].copy_from_slice(&1800i16.to_be_bytes());
-    hhea[6..8].copy_from_slice(&(-400i16).to_be_bytes());
-    hhea[34..36].copy_from_slice(&4u16.to_be_bytes());
+    put(&mut hhea, 0, &0x0001_0000_u32.to_be_bytes());
+    put(&mut hhea, 4, &1800i16.to_be_bytes());
+    put(&mut hhea, 6, &(-400i16).to_be_bytes());
+    put(&mut hhea, 34, &4u16.to_be_bytes());
 
     let mut hmtx = Vec::new();
     for advance in advances {
@@ -251,8 +260,8 @@ pub fn truetype_program(advances: &[u16; 4]) -> Vec<u8> {
 
     // Version 0.5, which is the form a `glyf` font uses and the length this table is.
     let mut maxp = vec![0u8; 6];
-    maxp[0..4].copy_from_slice(&0x0000_5000_u32.to_be_bytes());
-    maxp[4..6].copy_from_slice(&4u16.to_be_bytes());
+    put(&mut maxp, 0, &0x0000_5000_u32.to_be_bytes());
+    put(&mut maxp, 4, &4u16.to_be_bytes());
 
     let mut glyf = Vec::new();
     let mut loca = Vec::new();

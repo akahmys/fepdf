@@ -594,12 +594,12 @@ impl PdfDocument {
         if let Some(mb) = box_obj
             && let Some(arr_handle) = mb.as_array()
             && let Some(arr) = self.inner.arena().get_array(arr_handle)
-            && arr.len() >= 4
+            && let [x1, y1, x2, y2, ..] = arr.as_slice()
         {
-            let x1 = arr[0].resolve(self.inner.arena()).as_f64().unwrap_or(0.0);
-            let y1 = arr[1].resolve(self.inner.arena()).as_f64().unwrap_or(0.0);
-            let x2 = arr[2].resolve(self.inner.arena()).as_f64().unwrap_or(595.0);
-            let y2 = arr[3].resolve(self.inner.arena()).as_f64().unwrap_or(842.0);
+            let x1 = x1.resolve(self.inner.arena()).as_f64().unwrap_or(0.0);
+            let y1 = y1.resolve(self.inner.arena()).as_f64().unwrap_or(0.0);
+            let x2 = x2.resolve(self.inner.arena()).as_f64().unwrap_or(595.0);
+            let y2 = y2.resolve(self.inner.arena()).as_f64().unwrap_or(842.0);
             return Ok(fepdf_model::graphics::Rect::new(x1, y1, x2, y2));
         }
         Ok(fepdf_model::graphics::Rect::new(0.0, 0.0, 595.0, 842.0)) // Default A4
@@ -1111,7 +1111,7 @@ fn describe_stream_payload(
         let _ = write!(
             out,
             "\n--- [ DECODED CONTENT (PREVIEW) ] ---\n{}\n... (truncated)",
-            String::from_utf8_lossy(&decoded[..PREVIEW])
+            String::from_utf8_lossy(decoded.get(..PREVIEW).unwrap_or(&decoded))
         );
     }
     out

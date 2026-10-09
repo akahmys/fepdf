@@ -135,7 +135,7 @@ impl VelloRenderer {
             self.recreate_viewport_texture(render_state, width, height);
         }
 
-        let tex = self.viewport_texture.as_mut()?; // RR-15 Safe: Guaranteed to exist after creation/recreation above
+        let tex = self.viewport_texture.as_mut()?; // Exists: it was created or recreated above
 
         // Unified Scene covering the entire visible viewport
         let mut viewport_scene = Scene::new();

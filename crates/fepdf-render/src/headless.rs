@@ -76,7 +76,7 @@ pub async fn render_to_bytes_with(
 ) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
     log::debug!("[RENDER] Setting up wgpu...");
     let (mut context, device_id) = setup_wgpu().await?;
-    let device_handle = &mut context.devices[device_id];
+    let device_handle = context.devices.get_mut(device_id).ok_or("wgpu gave no device")?;
     let (device, queue) = (&device_handle.device, &device_handle.queue);
 
     log::debug!("[RENDER] Creating vello renderer...");
@@ -219,7 +219,10 @@ fn copy_texture_to_vec(
     let mut unpadded = Vec::with_capacity((size.width * size.height * 4) as usize);
     for row in 0..size.height {
         let start = (row * padded_width) as usize;
-        unpadded.extend_from_slice(&data[start..start + (size.width * 4) as usize]);
+        let row = data
+            .get(start..start + (size.width * 4) as usize)
+            .ok_or("the mapped buffer is shorter than the texture it holds")?;
+        unpadded.extend_from_slice(row);
     }
     Ok(unpadded)
 }

@@ -602,15 +602,12 @@ impl Interpreter<'_> {
     ) -> PdfResult<Vec<TextGlyph>> {
         let mut glyphs = Vec::new();
         let mut i = 0;
-        while i < text.len() {
-            let (consumed, u, source) = font.decode_next_sourced(&text[i..]);
-            if consumed == 0 {
+        while let Some(rest) = text.get(i..).filter(|rest| !rest.is_empty()) {
+            let (consumed, u, source) = font.decode_next_sourced(rest);
+            let Some(code) = rest.get(..consumed).filter(|code| !code.is_empty()) else {
                 break;
-            }
-            if i + consumed > text.len() {
-                break;
-            }
-            glyphs.push(self.glyph_of(font, &text[i..i + consumed], u, source));
+            };
+            glyphs.push(self.glyph_of(font, code, u, source));
             i += consumed;
         }
         Ok(glyphs)

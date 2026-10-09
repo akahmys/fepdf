@@ -1762,6 +1762,18 @@ before it is decided; Z-4 when convenient; Z-5 with the next GUI defect.
       `// RR-15 Safe` becoming `#[allow(..., reason = "...")]`.
       `indexing_slicing` is counted before it is decided; it is likely to be large.
       *Done when* the counts are in this entry and the owner has chosen.
+      **Counted, 2026-10-09**, over production code (`--lib --bins`): 805 sites, of which
+      591 index and 205 slice; the rest were 5 `unwrap`/`expect`, 2 `panic!` and 2
+      `unreachable!` that the grep passed — an `.expect(` on the line after its receiver,
+      three `.unwrap()`s under `// RR-15 Safe`, and macros it did not look for. One
+      `panic!` aborted the CLI on an unreadable `--recipient-key`, the half of Y-F3 that
+      fixed `--encrypt-to` and not opening.
+      **The nine are gone and clippy holds the rule**: `verify_compliance.sh` denies
+      `unwrap_used`, `expect_used`, `panic`, `unreachable`, `todo` and `unimplemented`
+      over `--lib --bins`, and adding an `unreachable!` to `fepdf-font` fails it.
+      **The owner chose to take out every index and slice**, and then deny
+      `indexing_slicing` too. Under way, crate by crate: render, cli, fixtures, audit,
+      gui, the facade and content are done (133); syntax, doc, model and font remain.
 - [x] **Z-4** — **pdf.js's test files in the external corpus.** `mozilla/pdf.js`
       `test/pdfs` holds files committed to it, and `.link` files naming a URL elsewhere
       (314 of the first 1,000 entries listed). Only the committed files are fetched,

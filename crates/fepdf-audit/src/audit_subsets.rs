@@ -115,8 +115,12 @@ fn cid_set(doc: &Document, descendant: &Object, name: &str, findings: &mut Vec<A
     let Some(descriptor) = entry(arena, descendant, "FontDescriptor") else { return };
     let Some(stream @ Object::Stream(..)) = entry(arena, &descriptor, "CIDSet") else { return };
     let Ok(bits) = doc.decode_stream(&stream) else { return };
-    let listed: BTreeSet<u32> = (0..bits.len() * 8)
-        .filter(|bit| bits[bit / 8] & (0x80 >> (bit % 8)) != 0)
+    let listed: BTreeSet<u32> = bits
+        .iter()
+        .enumerate()
+        .flat_map(|(at, byte)| {
+            (0..8).filter(move |k| byte & (0x80 >> k) != 0).map(move |k| at * 8 + k)
+        })
         .filter_map(|bit| u32::try_from(bit).ok())
         .filter(|cid| *cid != 0)
         .collect();
@@ -209,7 +213,10 @@ impl GidMap {
             None => u16::try_from(cid).ok(),
             Some(bytes) => {
                 let at = usize::try_from(cid).ok()? * 2;
-                bytes.get(at..at + 2).map(|b| u16::from_be_bytes([b[0], b[1]]))
+                bytes
+                    .get(at..at + 2)
+                    .and_then(|b| <[u8; 2]>::try_from(b).ok())
+                    .map(u16::from_be_bytes)
             }
         }
     }

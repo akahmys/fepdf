@@ -25,8 +25,16 @@ fn place_lone_page(
     } else {
         egui::Rect::from_min_size(egui::pos2(offset, -h / 2.0), egui::vec2(w, h))
     };
-    layouts[index] = PageLayout { index, rect, frame: crate::interaction::PageFrame::default() };
+    place(layouts, PageLayout { index, rect, frame: crate::interaction::PageFrame::default() });
     offset + if vertical { h } else { w } + gap
+}
+
+/// Puts `layout` in its page's slot. The slots are made one a page before any is placed,
+/// so an index past them is a page the layout was not sized for, and is not placed.
+fn place(layouts: &mut [PageLayout], layout: PageLayout) {
+    if let Some(slot) = layouts.get_mut(layout.index) {
+        *slot = layout;
+    }
 }
 
 impl FepdfApp {
@@ -118,18 +126,18 @@ impl FepdfApp {
             let gap = 20.0;
             let inner_gap = 8.0;
             let vertical = self.view.scroll_direction == ScrollDirection::Vertical;
-            let mut i = if self.view.cover_page_alone && !sizes.is_empty() {
-                current_offset =
-                    place_lone_page(sizes[0], 0, current_offset, gap, vertical, &mut layouts);
-                1
-            } else {
-                0
+            let mut i = match sizes.first() {
+                Some(&first) if self.view.cover_page_alone => {
+                    current_offset =
+                        place_lone_page(first, 0, current_offset, gap, vertical, &mut layouts);
+                    1
+                }
+                _ => 0,
             };
+            let frame = |i: usize| frames.get(i).copied().unwrap_or_default();
 
-            while i < sizes.len() {
-                if i + 1 < sizes.len() {
-                    let (w1, h1) = sizes[i];
-                    let (w2, h2) = sizes[i + 1];
+            while let Some(&(w1, h1)) = sizes.get(i) {
+                if let Some(&(w2, h2)) = sizes.get(i + 1) {
                     let w1 = w1 as f32;
                     let w2 = w2 as f32;
                     let h1 = h1 as f32;
@@ -188,8 +196,11 @@ impl FepdfApp {
                         }
                     };
 
-                    layouts[i] = PageLayout { index: i, rect: rect1, frame: frames[i] };
-                    layouts[i + 1] = PageLayout { index: i + 1, rect: rect2, frame: frames[i + 1] };
+                    place(&mut layouts, PageLayout { index: i, rect: rect1, frame: frame(i) });
+                    place(
+                        &mut layouts,
+                        PageLayout { index: i + 1, rect: rect2, frame: frame(i + 1) },
+                    );
 
                     if self.view.scroll_direction == ScrollDirection::Vertical {
                         current_offset += max_h + gap;
@@ -199,7 +210,7 @@ impl FepdfApp {
                     i += 2;
                 } else {
                     current_offset =
-                        place_lone_page(sizes[i], i, current_offset, gap, vertical, &mut layouts);
+                        place_lone_page((w1, h1), i, current_offset, gap, vertical, &mut layouts);
                     i += 1;
                 }
             }
@@ -216,7 +227,8 @@ impl FepdfApp {
                 } else {
                     egui::Rect::from_min_size(egui::pos2(0.0, -h / 2.0), egui::vec2(w, h))
                 };
-                layouts[i] = PageLayout { index: i, rect, frame: frames[i] };
+                let frame = frames.get(i).copied().unwrap_or_default();
+                place(&mut layouts, PageLayout { index: i, rect, frame });
             }
         }
         // Every page carries its own frame, whichever arrangement placed it.
@@ -287,10 +299,11 @@ impl FepdfApp {
         is_r2l: bool,
         layouts: &mut [PageLayout],
     ) -> f32 {
-        let row_h = row.iter().map(|&i| sizes[i].1 as f32).fold(0.0_f32, f32::max);
+        let size = |i: usize| sizes.get(i).copied().unwrap_or_default();
+        let row_h = row.iter().map(|&i| size(i).1 as f32).fold(0.0_f32, f32::max);
         let mut x = 0.0_f32;
         for &i in row {
-            let (w, h) = (sizes[i].0 as f32, sizes[i].1 as f32);
+            let (w, h) = (size(i).0 as f32, size(i).1 as f32);
             // A right-bound book's grid runs right to left, for the same reason its
             // spread does: the reader's eye starts at the right edge. Mirroring the row
             // about its own centre puts page order there without moving the row.
@@ -299,8 +312,10 @@ impl FepdfApp {
                 egui::pos2(pos_x, offset_y + (row_h - h) / 2.0),
                 egui::vec2(w, h),
             );
-            layouts[i] =
-                PageLayout { index: i, rect, frame: crate::interaction::PageFrame::default() };
+            place(
+                layouts,
+                PageLayout { index: i, rect, frame: crate::interaction::PageFrame::default() },
+            );
             x += w + gap_x;
         }
         row_h

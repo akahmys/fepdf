@@ -15,7 +15,7 @@ pub fn handle_merge(
 ) -> Result<()> {
     println!("fepdf merge: Combining {} files into {}", inputs.len(), output.display());
     let mut sources = Vec::new();
-    let ingest_options: fepdf::IngestionOptions = ingest.into();
+    let ingest_options: fepdf::IngestionOptions = ingest.try_into()?;
     for path in inputs {
         let data =
             std::fs::read(&path).with_context(|| format!("Failed to read {}", path.display()))?;
@@ -41,7 +41,7 @@ pub fn handle_split(
 ) -> Result<()> {
     println!("fepdf split: Extracting pages from {}", input.display());
     let data = std::fs::read(&input).with_context(|| "Failed to read input")?;
-    let ingest_options: fepdf::IngestionOptions = ingest.into();
+    let ingest_options: fepdf::IngestionOptions = ingest.try_into()?;
     let doc = PdfDocument::open_with_options(data.into(), &ingest_options)
         .map_err(|e| anyhow::anyhow!("{e:?}"))?;
     let page_count = doc.page_count().map_err(|e| anyhow::anyhow!("{e:?}"))?;
@@ -68,7 +68,7 @@ pub fn handle_rotate(
 ) -> Result<()> {
     println!("fepdf rotate: Rotating pages in {} by {angle} degrees...", input.display());
     let data = std::fs::read(&input).with_context(|| "Failed to read input")?;
-    let ingest_options: fepdf::IngestionOptions = ingest.into();
+    let ingest_options: fepdf::IngestionOptions = ingest.try_into()?;
     let mut doc = PdfDocument::open_with_options(data.into(), &ingest_options)
         .map_err(|e| anyhow::anyhow!("{e:?}"))?;
 
@@ -100,7 +100,7 @@ pub fn handle_repair(
 ) -> Result<()> {
     println!("fepdf repair: Attempting to salvage corrupted document {}", input.display());
     let data = std::fs::read(&input).with_context(|| "Failed to read input")?;
-    let ingest_options: fepdf::IngestionOptions = ingest.into();
+    let ingest_options: fepdf::IngestionOptions = ingest.try_into()?;
     let doc = PdfDocument::open_and_repair_with_options(data.into(), &ingest_options)
         .map_err(|e| anyhow::anyhow!("{e:?}"))?;
 
@@ -124,7 +124,7 @@ pub fn handle_retag(
         output.display()
     );
     let data = std::fs::read(&input).with_context(|| "Failed to read input")?;
-    let ingest_options: fepdf::IngestionOptions = ingest.into();
+    let ingest_options: fepdf::IngestionOptions = ingest.try_into()?;
     let mut doc = PdfDocument::open_with_options(data.into(), &ingest_options)
         .map_err(|e| anyhow::anyhow!("{e:?}"))?;
 
@@ -211,7 +211,7 @@ pub fn handle_bates(
 ) -> Result<()> {
     println!("fepdf bates: Applying Bates numbering to {}", input.display());
     let data = std::fs::read(&input).with_context(|| "Failed to read input")?;
-    let ingest_options: fepdf::IngestionOptions = ingest.into();
+    let ingest_options: fepdf::IngestionOptions = ingest.try_into()?;
     let mut doc = PdfDocument::open_with_options(data.into(), &ingest_options)
         .map_err(|e| anyhow::anyhow!("{e:?}"))?;
 
@@ -257,7 +257,7 @@ pub fn handle_attach(
     let af =
         fepdf::AssociatedFile { filename: file_name, relationship, mime_type, data: file_data };
 
-    let ingest_options: fepdf::IngestionOptions = ingest.into();
+    let ingest_options: fepdf::IngestionOptions = ingest.try_into()?;
     let mut doc = PdfDocument::open_with_options(data.into(), &ingest_options)
         .map_err(|e| anyhow::anyhow!("{e:?}"))?;
 
@@ -280,7 +280,7 @@ pub fn handle_page_label(
 ) -> Result<()> {
     println!("fepdf page-label: Setting page labels on {}", input.display());
     let data = std::fs::read(&input).with_context(|| "Failed to read input PDF")?;
-    let ingest_options: fepdf::IngestionOptions = ingest.into();
+    let ingest_options: fepdf::IngestionOptions = ingest.try_into()?;
     let mut doc = PdfDocument::open_with_options(data.into(), &ingest_options)
         .map_err(|e| anyhow::anyhow!("{e:?}"))?;
 
@@ -314,7 +314,7 @@ pub fn handle_geo(
 ) -> Result<()> {
     println!("fepdf geo: Setting GIS anchor ({lat}, {lon}) on {}", input.display());
     let data = std::fs::read(&input).with_context(|| "Failed to read input PDF")?;
-    let ingest_options: fepdf::IngestionOptions = ingest.into();
+    let ingest_options: fepdf::IngestionOptions = ingest.try_into()?;
     let mut doc = PdfDocument::open_with_options(data.into(), &ingest_options)
         .map_err(|e| anyhow::anyhow!("{e:?}"))?;
 
@@ -375,7 +375,7 @@ pub fn handle_text_layer(
         })
         .collect();
     let data = std::fs::read(input).with_context(|| "Failed to read input PDF")?;
-    let ingest_options: fepdf::IngestionOptions = ingest.into();
+    let ingest_options: fepdf::IngestionOptions = ingest.try_into()?;
     let mut doc = PdfDocument::open_with_options(data.into(), &ingest_options)
         .map_err(|e| anyhow::anyhow!("{e:?}"))?;
     doc.apply(fepdf::Operation::AddTextLayer { page: index, items })

@@ -62,7 +62,7 @@ impl Control {
         let Some(fresh) = bytes.get(self.taken..) else { return Vec::new() };
         let Some(end) = fresh.iter().rposition(|&b| b == b'\n') else { return Vec::new() };
         self.taken += end + 1;
-        String::from_utf8_lossy(&fresh[..end])
+        String::from_utf8_lossy(fresh.get(..end).unwrap_or_default())
             .lines()
             .map(|line| line.split('#').next().unwrap_or("").trim().to_owned())
             .filter(|line| !line.is_empty())

@@ -208,16 +208,26 @@ impl PdfDocument {
         let stream_dict =
             arena.get_object(stream)?.as_dict_handle().and_then(|h| arena.get_dict(h))?;
 
-        let bbox = read_numbers(arena, stream_dict.get(&arena.name("BBox")), 4)?;
-        let matrix = read_numbers(arena, stream_dict.get(&arena.name("Matrix")), 6)
-            .map_or_else(fepdf_model::graphics::Matrix::default, |m| {
-                fepdf_model::graphics::Matrix::new(m[0], m[1], m[2], m[3], m[4], m[5])
-            });
-        let rect = read_numbers(arena, dict.get(&arena.name("Rect")), 4)?;
+        let &[b0, b1, b2, b3] =
+            read_numbers(arena, stream_dict.get(&arena.name("BBox")), 4)?.as_slice()
+        else {
+            return None;
+        };
+        let matrix = match read_numbers(arena, stream_dict.get(&arena.name("Matrix")), 6).as_deref()
+        {
+            Some(&[m0, m1, m2, m3, m4, m5]) => {
+                fepdf_model::graphics::Matrix::new(m0, m1, m2, m3, m4, m5)
+            }
+            _ => fepdf_model::graphics::Matrix::default(),
+        };
+        let &[r0, r1, r2, r3] = read_numbers(arena, dict.get(&arena.name("Rect")), 4)?.as_slice()
+        else {
+            return None;
+        };
         let placement = fepdf_model::annotation::appearance_placement(
-            [bbox[0], bbox[1], bbox[2], bbox[3]],
+            [b0, b1, b2, b3],
             matrix,
-            &fepdf_model::graphics::Rect::new(rect[0], rect[1], rect[2], rect[3]),
+            &fepdf_model::graphics::Rect::new(r0, r1, r2, r3),
         );
         let resources = stream_dict
             .get(&arena.name("Resources"))

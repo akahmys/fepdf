@@ -262,16 +262,14 @@ impl<'a, W: Write> PdfWriter<'a, W> {
             "{hint_stream_id} 0 obj\r\n<< /Length {hint_size} /S 00000 /O 00000{} >>\r\nstream\r\n",
             " ".repeat(pad_len)
         );
-        self.write_all(full_dummy_dict.as_bytes())
-            .expect("Write of full dummy dict to in-memory buffer should succeed"); // RR-15 Safe: Writing to in-memory buffer does not fail
+        self.buffer.extend_from_slice(full_dummy_dict.as_bytes());
 
         let stream_start = self.current_offset();
         self.buffer.extend(vec![b' '; hint_size]);
 
         // Match the 21-byte footer exactly in the dummy pass
         let dummy_footer = "\r\nendstream\r\nendobj\r\n";
-        self.write_all(dummy_footer.as_bytes())
-            .expect("Write of dummy footer to in-memory buffer should succeed"); // RR-15 Safe: Writing to in-memory buffer does not fail
+        self.buffer.extend_from_slice(dummy_footer.as_bytes());
 
         (pos, stream_start, 0, 0)
     }

@@ -41,7 +41,8 @@ pub(crate) fn adobe_collection(arena: &PdfArena, font: &Object) -> bool {
 
 /// Whether `cmap` maps the code of `width` bytes whose value is `code`.
 fn covers(cmap: &CMap, code: u32, width: usize) -> bool {
-    let bytes: Vec<u8> = code.to_be_bytes()[4 - width..].to_vec();
+    let all = code.to_be_bytes();
+    let bytes: Vec<u8> = all.get(4usize.saturating_sub(width)..).unwrap_or(&all).to_vec();
     cmap.mappings.contains_key(&bytes)
         || cmap.bf_ranges.iter().any(|r| r.len == width && (r.start..=r.end).contains(&code))
 }

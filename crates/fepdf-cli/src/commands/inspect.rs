@@ -16,7 +16,7 @@ pub fn handle_info(input: PathBuf, format: String, ingest: IngestArgs) -> Result
         println!("fepdf info: Analyzing {}", input.display());
     }
     let data = std::fs::read(&input).with_context(|| "Failed to read input")?;
-    let ingest_options: fepdf::IngestionOptions = ingest.into();
+    let ingest_options: fepdf::IngestionOptions = ingest.try_into()?;
     let doc = PdfDocument::open_with_options(data.into(), &ingest_options)
         .map_err(|e| anyhow::anyhow!("{e:?}"))?;
     let summary = doc.get_summary().map_err(|e| anyhow::anyhow!("{e:?}"))?;
@@ -34,7 +34,7 @@ pub fn handle_audit(input: PathBuf, format: String, ingest: IngestArgs) -> Resul
         println!("fepdf audit: Performing compliance check on {}", input.display());
     }
     let data = std::fs::read(&input).with_context(|| "Failed to read input")?;
-    let ingest_options: fepdf::IngestionOptions = ingest.into();
+    let ingest_options: fepdf::IngestionOptions = ingest.try_into()?;
     let doc = PdfDocument::open_with_options(data.into(), &ingest_options)
         .map_err(|e| anyhow::anyhow!("{e:?}"))?;
     let summary = doc.get_summary().map_err(|e| anyhow::anyhow!("{e:?}"))?;
@@ -50,7 +50,7 @@ pub fn handle_audit(input: PathBuf, format: String, ingest: IngestArgs) -> Resul
 pub fn handle_text(input: PathBuf, pages: Option<String>, ingest: IngestArgs) -> Result<()> {
     println!("fepdf text: Extracting text from {}", input.display());
     let data = std::fs::read(&input).with_context(|| "Failed to read input")?;
-    let ingest_options: fepdf::IngestionOptions = ingest.into();
+    let ingest_options: fepdf::IngestionOptions = ingest.try_into()?;
     let doc = PdfDocument::open_with_options(data.into(), &ingest_options)
         .map_err(|e| anyhow::anyhow!("{e:?}"))?;
 
@@ -93,7 +93,7 @@ pub fn handle_text(input: PathBuf, pages: Option<String>, ingest: IngestArgs) ->
     let taken_interpreting = doc.decisions();
     if taken_interpreting.len() > taken_reading.len() {
         eprintln!("--- [ DECISIONS TAKEN INTERPRETING (5.3) ] ---");
-        for d in &taken_interpreting[taken_reading.len()..] {
+        for d in taken_interpreting.iter().skip(taken_reading.len()) {
             eprintln!("  {d}");
         }
     }
@@ -276,7 +276,7 @@ fn render_coverage(total: &fepdf::Coverage, measured: usize, of: usize, unread: 
 pub fn handle_tree(input: PathBuf, ingest: IngestArgs) -> Result<()> {
     println!("fepdf debug structure: Hierarchical tree for {}", input.display());
     let data = std::fs::read(&input).with_context(|| "Failed to read input")?;
-    let ingest_options: fepdf::IngestionOptions = ingest.into();
+    let ingest_options: fepdf::IngestionOptions = ingest.try_into()?;
     let doc = PdfDocument::open_with_options(data.into(), &ingest_options)
         .map_err(|e| anyhow::anyhow!("{e:?}"))?;
 

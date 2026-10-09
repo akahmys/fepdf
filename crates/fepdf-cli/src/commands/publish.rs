@@ -19,7 +19,7 @@ pub fn handle_upgrade(
     }
 
     let data = std::fs::read(&input).with_context(|| "Failed to read input")?;
-    let ingest_options: fepdf::IngestionOptions = ingest.into();
+    let ingest_options: fepdf::IngestionOptions = ingest.try_into()?;
     let mut doc = PdfDocument::open_with_options(data.into(), &ingest_options)
         .map_err(|e| anyhow::anyhow!("{e:?}"))?;
 
@@ -69,7 +69,7 @@ pub fn handle_render(
         output.display()
     );
     let data = std::fs::read(&input).with_context(|| "Failed to read input")?;
-    let ingest_options: fepdf::IngestionOptions = ingest.into();
+    let ingest_options: fepdf::IngestionOptions = ingest.try_into()?;
     let mut doc = PdfDocument::open_with_options(data.into(), &ingest_options)
         .map_err(|e| anyhow::anyhow!("{e:?}"))?;
 
@@ -91,7 +91,7 @@ pub fn handle_sign(sign: SignArgs, ingest: IngestArgs, save: SaveArgs) -> Result
     let SignArgs { input, output, certificate, private_key, reason, location, name, page } = sign;
     println!("fepdf sign: {} -> {}", input.display(), output.display());
     let data = std::fs::read(&input).with_context(|| "Failed to read input")?;
-    let ingest_options: fepdf::IngestionOptions = ingest.into();
+    let ingest_options: fepdf::IngestionOptions = ingest.try_into()?;
     let doc = PdfDocument::open_with_options(data.into(), &ingest_options)
         .map_err(|e| anyhow::anyhow!("{e:?}"))?;
 

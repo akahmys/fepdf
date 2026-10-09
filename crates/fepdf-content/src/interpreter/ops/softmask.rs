@@ -143,8 +143,7 @@ impl Interpreter<'_> {
     /// the depth being returned to. A single `Q` can close more than one: two `gs`
     /// operators at the same depth each open a bracket.
     pub(crate) fn close_mask_scopes_above(&mut self, depth: usize) -> PdfResult<()> {
-        while self.mask_scopes.last().is_some_and(|s| s.depth > depth) {
-            let scope = self.mask_scopes.pop().unwrap_or_else(|| unreachable!());
+        while let Some(scope) = self.mask_scopes.pop_if(|s| s.depth > depth) {
             self.apply_mask_scope(scope)?;
         }
         Ok(())
@@ -155,8 +154,7 @@ impl Interpreter<'_> {
     /// This is `/SMask /None`, which ends a mask without restoring anything else.
     fn close_mask_scope_at_current_depth(&mut self) -> PdfResult<()> {
         let depth = self.state_stack.len();
-        if self.mask_scopes.last().is_some_and(|s| s.depth == depth) {
-            let scope = self.mask_scopes.pop().unwrap_or_else(|| unreachable!());
+        if let Some(scope) = self.mask_scopes.pop_if(|s| s.depth == depth) {
             self.apply_mask_scope(scope)?;
         }
         Ok(())

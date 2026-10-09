@@ -42,8 +42,6 @@ RECORDED_ELSEWHERE = {
     ("crates/fepdf-content/src/interpreter/ops/color.rs", "Interpreter::parse_shading_object"):
         "Interpreter::handle_shading_operator ('sh' 8.7.4.5.2) and "
         "Interpreter::handle_color_operator ('scn' 8.7.3) both record a Decision::violation",
-    ("crates/fepdf-content/src/interpreter/ops/color.rs", "Interpreter::parse_color_from_array"):
-        "ISO 32000-2 Table 40 (7.10.3) exponential interpolation function defaults /C0 to 0.0 and /C1 to 1.0",
     ("crates/fepdf-doc/src/operation.rs", "Quarter::from_degrees"):
         "Pure mathematical rotation helper; returns None when degrees is not a multiple of 90",
     ("crates/fepdf-font/src/reconstruction.rs", "FontReconstructor::standard_sid_to_unicode"):
