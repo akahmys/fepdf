@@ -53,7 +53,7 @@ pub fn cut_images_outside(
     let mut operands_from = 0;
     for (index, token) in tokens.iter().enumerate() {
         let Token::Keyword(op) = token else { continue };
-        let operands = &tokens[operands_from..index];
+        let operands = tokens.get(operands_from..index).unwrap_or_default();
         operands_from = index + 1;
         match op.as_str() {
             "q" => saved.push(ctm),
@@ -567,11 +567,17 @@ impl Pixels {
         let mut out = vec![0u8; row_out * self.rows()];
         let (first, count) = (self.left * components, self.columns() * components);
         for (nth, row) in (self.top..self.bottom).enumerate() {
-            let source = &samples[row * row_in..(row + 1) * row_in];
-            let target = &mut out[nth * row_out..(nth + 1) * row_out];
+            let (Some(source), Some(target)) = (
+                samples.get(row * row_in..(row + 1) * row_in),
+                out.get_mut(nth * row_out..(nth + 1) * row_out),
+            ) else {
+                continue;
+            };
             if bits.is_multiple_of(8) {
                 let bytes = bits / 8;
-                target.copy_from_slice(&source[first * bytes..(first + count) * bytes]);
+                if let Some(part) = source.get(first * bytes..(first + count) * bytes) {
+                    target.copy_from_slice(part);
+                }
             } else {
                 for sample in 0..count {
                     let value = read_bits(source, (first + sample) * bits, bits);
@@ -597,7 +603,7 @@ fn index(value: f64) -> usize {
 fn read_bits(bytes: &[u8], at: usize, bits: usize) -> u8 {
     let mut value = 0u8;
     for bit in at..at + bits {
-        let on = bytes[bit / 8] >> (7 - bit % 8) & 1;
+        let on = bytes.get(bit / 8).map_or(0, |byte| byte >> (7 - bit % 8) & 1);
         value = (value << 1) | on;
     }
     value
@@ -618,8 +624,10 @@ fn set_bits(bytes: &mut [u8], at: usize, bits: usize, value: u8) {
 fn write_bits(bytes: &mut [u8], at: usize, bits: usize, value: u8) {
     for offset in 0..bits {
         let bit = at + offset;
-        if value >> (bits - 1 - offset) & 1 == 1 {
-            bytes[bit / 8] |= 1 << (7 - bit % 8);
+        if value >> (bits - 1 - offset) & 1 == 1
+            && let Some(byte) = bytes.get_mut(bit / 8)
+        {
+            *byte |= 1 << (7 - bit % 8);
         }
     }
 }

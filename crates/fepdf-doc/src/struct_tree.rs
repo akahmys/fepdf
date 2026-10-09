@@ -505,14 +505,9 @@ fn build_page_handle_map(doc: &Document) -> BTreeMap<Handle<Object>, usize> {
 fn parse_bbox_helper(arena: &PdfArena, bbox_obj: &Object) -> Option<[f32; 4]> {
     let array_h = bbox_obj.resolve(arena).as_array()?;
     let arr = arena.get_array(array_h)?;
-    if arr.len() != 4 {
-        return None;
-    }
-    let x1 = arr[0].resolve(arena).as_f64().unwrap_or(0.0) as f32;
-    let y1 = arr[1].resolve(arena).as_f64().unwrap_or(0.0) as f32;
-    let x2 = arr[2].resolve(arena).as_f64().unwrap_or(0.0) as f32;
-    let y2 = arr[3].resolve(arena).as_f64().unwrap_or(0.0) as f32;
-    Some([x1, y1, x2, y2])
+    let [x1, y1, x2, y2] = arr.as_slice() else { return None };
+    let at = |o: &Object| o.resolve(arena).as_f64().unwrap_or(0.0) as f32;
+    Some([at(x1), at(y1), at(x2), at(y2)])
 }
 
 /// What one entry of `/K` turns out to be (14.7.4.2 Table 355).

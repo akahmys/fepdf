@@ -66,16 +66,16 @@ pub fn cut_paths_outside(doc: &Document, page: usize, keep: (f64, f64, f64, f64)
     let mut operands_from = 0;
     for (index, token) in tokens.iter().enumerate() {
         let Token::Keyword(op) = token else { continue };
-        let numbers = numbers_of(&tokens[operands_from..index]);
+        let numbers = numbers_of(tokens.get(operands_from..index).unwrap_or_default());
         let first = operands_from;
         operands_from = index + 1;
         match op.as_str() {
             "q" => saved.push(pen),
             "Q" => pen = saved.pop().unwrap_or(pen),
             "cm" if numbers.len() >= 6 => {
-                pen.ctm *= Affine::new([
-                    numbers[0], numbers[1], numbers[2], numbers[3], numbers[4], numbers[5],
-                ]);
+                if let [m0, m1, m2, m3, m4, m5, ..] = numbers[..] {
+                    pen.ctm *= Affine::new([m0, m1, m2, m3, m4, m5]);
+                }
             }
             "w" => pen.width = numbers.first().copied().unwrap_or(pen.width),
             "W" | "W*" => path.clips = true,
@@ -238,7 +238,9 @@ fn rebuild(path: &Building, op: &str, pen: Pen, keep: Rect) -> Option<String> {
                 points.push(first);
             }
             for pair in points.windows(2) {
-                if let Some(kept) = clip_segment(pair[0], pair[1], grown) {
+                if let &[from, to] = pair
+                    && let Some(kept) = clip_segment(from, to, grown)
+                {
                     write_polyline(&mut out, &kept, inverse, false);
                 }
             }

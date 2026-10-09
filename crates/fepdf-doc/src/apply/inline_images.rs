@@ -67,7 +67,7 @@ fn image_at(
     };
     // One white-space character follows `ID` (8.9.7).
     let data_start = lexer.pos() + 1;
-    let header = &content[header_start..header_end];
+    let header = content.get(header_start..header_end)?;
     let counted = unfiltered_length(header, components)
         .map(|n| data_start + n)
         .filter(|end| ei_after(content, *end).is_some());
@@ -148,14 +148,15 @@ pub fn lift(doc: &Document, target: Target) -> PdfResult<()> {
     let mut out = Vec::with_capacity(content.len());
     let mut at = 0;
     for image in found {
-        out.extend_from_slice(&content[at..image.whole.start]);
-        let header = &content[image.header.clone()];
-        let xobject = xobject_of(doc, target, header, &content[image.data.clone()]);
+        let piece = |range: std::ops::Range<usize>| content.get(range).unwrap_or_default();
+        out.extend_from_slice(piece(at..image.whole.start));
+        let xobject =
+            xobject_of(doc, target, piece(image.header.clone()), piece(image.data.clone()));
         let name = super::image_crop::name_in(doc, target.resources(doc)?, xobject);
         out.extend_from_slice(format!("/{name} Do").as_bytes());
         at = image.whole.end;
     }
-    out.extend_from_slice(&content[at..]);
+    out.extend_from_slice(content.get(at..).unwrap_or_default());
     target.write(doc, out)
 }
 

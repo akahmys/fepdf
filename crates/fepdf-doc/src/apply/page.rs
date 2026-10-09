@@ -233,8 +233,11 @@ fn refuse_unwritable_labels(labels: &[PageLabelSpec], count: usize) -> PdfResult
     if labels.is_empty() {
         return refuse("no page label ranges were given".to_owned());
     }
-    if let Some(pair) = labels.windows(2).find(|pair| pair[0].start_page == pair[1].start_page) {
-        return refuse(format!("two ranges start at page {}", pair[0].start_page));
+    if let Some(start) = labels.windows(2).find_map(|pair| match pair {
+        [a, b] if a.start_page == b.start_page => Some(a.start_page),
+        _ => None,
+    }) {
+        return refuse(format!("two ranges start at page {start}"));
     }
     if let Some(label) = labels.iter().find(|label| label.start_page >= count) {
         return refuse(format!("this document has {count} pages and no page {}", label.start_page));
@@ -526,7 +529,7 @@ fn page_origin(doc: &Document, index: usize) -> (f64, f64) {
         .and_then(|handle| arena.get_array(handle))
         .filter(|array| array.len() >= 4)
         .map_or((0.0, 0.0), |array| {
-            let at = |i: usize| array[i].resolve(arena).as_f64().unwrap_or(0.0);
+            let at = |i: usize| array.get(i).and_then(|o| o.resolve(arena).as_f64()).unwrap_or(0.0);
             (at(0).min(at(2)), at(1).min(at(3)))
         })
 }
@@ -541,7 +544,7 @@ fn doc_page_size(doc: &Document, index: usize) -> (f64, f64) {
         .and_then(|handle| arena.get_array(handle))
         .filter(|array| array.len() >= 4)
         .map(|array| {
-            let at = |i: usize| array[i].resolve(arena).as_f64().unwrap_or(0.0);
+            let at = |i: usize| array.get(i).and_then(|o| o.resolve(arena).as_f64()).unwrap_or(0.0);
             ((at(2) - at(0)).abs(), (at(3) - at(1)).abs())
         });
     // Letter, which is what `PdfDocument::create_empty` writes and what a page declaring
@@ -763,11 +766,11 @@ pub fn apply_combine_pages(
     let mut indices = pages_named(pages, count)?;
     indices.sort_unstable();
     indices.dedup();
-    if indices.is_empty() {
+    let Some(&at) = indices.first() else {
         return Ok(());
-    }
+    };
 
-    let sheet = onto.sheet.unwrap_or_else(|| shown_size(doc, indices[0]));
+    let sheet = onto.sheet.unwrap_or_else(|| shown_size(doc, at));
     if !(sheet.0.is_finite() && sheet.1.is_finite()) || sheet.0 <= 0.0 || sheet.1 <= 0.0 {
         return Err(PdfError::refused(
             "CombinePages",
@@ -775,7 +778,6 @@ pub fn apply_combine_pages(
         ));
     }
 
-    let at = indices[0];
     let mut built = Vec::new();
     for group in indices.chunks(per_sheet) {
         built.push(combined_sheet(doc, group, sheet, onto)?);

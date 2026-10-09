@@ -40,7 +40,7 @@ pub fn apply_mark_artifact(
         .iter()
         .position(|c| matches!(c, Command::BeginMarkedContent { properties, .. } if carried(properties.as_ref()) == Some(mcid)))
         .ok_or(PdfError::NotFound(fepdf_model::Missing::Mark { page, mcid }))?;
-    if nested_mcid(&commands[at + 1..], &carried) {
+    if nested_mcid(commands.get(at + 1..).unwrap_or_default(), &carried) {
         return Err(PdfError::refused(
             "MarkArtifact",
             format!(
@@ -55,10 +55,12 @@ pub fn apply_mark_artifact(
     if let Some(subtype) = subtype {
         entries.insert("Subtype".to_string(), IrObject::Name(subtype.to_string()));
     }
-    commands[at] = Command::BeginMarkedContent {
-        tag: PdfName::new("Artifact"),
-        properties: (!entries.is_empty()).then_some(IrObject::Dictionary(entries)),
-    };
+    if let Some(begin) = commands.get_mut(at) {
+        *begin = Command::BeginMarkedContent {
+            tag: PdfName::new("Artifact"),
+            properties: (!entries.is_empty()).then_some(IrObject::Dictionary(entries)),
+        };
+    }
     let bytes = fepdf_model::object::sublimation::serializer::serialize_commands(&commands);
     write_page_content(doc, page, bytes)?;
     release(doc, page, mcid);

@@ -323,11 +323,11 @@ fn build_outline_item(
     dict.insert(arena.name("Title"), Object::Text(node.title.clone()));
     dict.insert(arena.name("Parent"), Object::Reference(parent_h));
 
-    if index > 0 {
-        dict.insert(arena.name("Prev"), Object::Reference(siblings[index - 1].1));
+    if let Some(&(_, prev)) = index.checked_sub(1).and_then(|i| siblings.get(i)) {
+        dict.insert(arena.name("Prev"), Object::Reference(prev));
     }
-    if index + 1 < siblings.len() {
-        dict.insert(arena.name("Next"), Object::Reference(siblings[index + 1].1));
+    if let Some(&(_, next)) = siblings.get(index + 1) {
+        dict.insert(arena.name("Next"), Object::Reference(next));
     }
 
     // A bookmark to a page the document does not have is refused, as a link to one is: it
@@ -358,7 +358,9 @@ fn build_outline_item(
         child_count
     };
 
-    arena.set_dict(siblings[index].0, dict);
+    if let Some(&(own, _)) = siblings.get(index) {
+        arena.set_dict(own, dict);
+    }
     Ok(below)
 }
 
@@ -392,8 +394,10 @@ fn build_outline_level(
         total_count += build_outline_item(doc, node, &handles, (i, parent_h, h), depth)?;
     }
 
-    let first_h = handles[0].1;
-    let last_h = handles[handles.len() - 1].1;
+    // `nodes` is not empty, so neither is `handles`; the refusal is the same either way.
+    let (Some(&(_, first_h)), Some(&(_, last_h))) = (handles.first(), handles.last()) else {
+        return Err(PdfError::refused("UpdateOutlines", "Empty outline level"));
+    };
     Ok((first_h, last_h, total_count))
 }
 

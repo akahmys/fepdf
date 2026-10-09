@@ -114,13 +114,13 @@ fn with_inline_named(
     let found = super::inline_images::locate(content, &components);
     let (mut out, mut names, mut at) = (Vec::with_capacity(content.len()), BTreeSet::new(), 0);
     for (nth, image) in found.iter().enumerate() {
-        out.extend_from_slice(&content[at..image.whole.start]);
+        out.extend_from_slice(content.get(at..image.whole.start).unwrap_or_default());
         let name = format!("fepdfInline{nth}");
         out.extend_from_slice(format!("/{name} Do").as_bytes());
         names.insert(name);
         at = image.whole.end;
     }
-    out.extend_from_slice(&content[at..]);
+    out.extend_from_slice(content.get(at..).unwrap_or_default());
     (out, names)
 }
 
@@ -137,7 +137,7 @@ fn images_drawn(
     let mut operands_from = 0;
     for (index, token) in tokens.iter().enumerate() {
         let Token::Keyword(op) = token else { continue };
-        let operands = &tokens[operands_from..index];
+        let operands = tokens.get(operands_from..index).unwrap_or_default();
         operands_from = index + 1;
         match op.as_str() {
             "q" => saved.push(ctm),

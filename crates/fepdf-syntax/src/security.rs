@@ -12,6 +12,23 @@ const PAD: [u8; 32] = [
     0x2e, 0x2e, 0x00, 0xb6, 0xd0, 0x68, 0x3e, 0x80, 0x2f, 0x0c, 0xa9, 0xfe, 0x64, 0x53, 0x69, 0x7a,
 ];
 
+/// XORs `other` into `block`, byte by byte: the chaining step of CBC (7.6.3.2).
+fn xor_into(block: &mut [u8; 16], other: &[u8; 16]) {
+    for (byte, chained) in block.iter_mut().zip(other) {
+        *byte ^= chained;
+    }
+}
+
+/// A password padded or cut to 32 bytes with the standard's padding string: Algorithm 2
+/// step (a), which Algorithm 3 takes the owner password through as well.
+fn padded_password(password: &[u8]) -> [u8; 32] {
+    let mut pad = PAD;
+    for (slot, byte) in pad.iter_mut().zip(password.iter().chain(PAD.iter())) {
+        *slot = *byte;
+    }
+    pad
+}
+
 /// RC4, as clause 7.6.3.2 requires for the standard handler's earlier revisions.
 ///
 /// Written out because no crate in this workspace provides it and the algorithm is
@@ -21,19 +38,22 @@ fn rc4(key: &[u8], data: &[u8]) -> Vec<u8> {
     if key.is_empty() {
         return data.to_vec();
     }
+    // Indices are `u8`, so adding them wraps at 256 as the algorithm's `mod 256` does,
+    // and every one of them is inside the 256-entry state.
     let mut s: [u8; 256] = core::array::from_fn(|i| u8::try_from(i).unwrap_or(0));
-    let mut j = 0usize;
-    for i in 0..256 {
-        j = (j + s[i] as usize + key[i % key.len()] as usize) % 256;
-        s.swap(i, j);
+    let at = |s: &[u8; 256], k: u8| s.get(usize::from(k)).copied().unwrap_or(0);
+    let mut j = 0u8;
+    for (i, &k) in (0..=255u8).zip(key.iter().cycle()) {
+        j = j.wrapping_add(at(&s, i)).wrapping_add(k);
+        s.swap(usize::from(i), usize::from(j));
     }
-    let (mut i, mut j) = (0usize, 0usize);
+    let (mut i, mut j) = (0u8, 0u8);
     data.iter()
         .map(|&byte| {
-            i = (i + 1) % 256;
-            j = (j + s[i] as usize) % 256;
-            s.swap(i, j);
-            byte ^ s[(s[i] as usize + s[j] as usize) % 256]
+            i = i.wrapping_add(1);
+            j = j.wrapping_add(at(&s, i));
+            s.swap(usize::from(i), usize::from(j));
+            byte ^ at(&s, at(&s, i).wrapping_add(at(&s, j)))
         })
         .collect()
 }
@@ -87,13 +107,14 @@ fn hash_2b(password: &[u8], udata: &[u8], seed: [u8; 32]) -> Vec<u8> {
         }
 
         // (b) AES-128 in CBC with no padding, keyed and initialised by the halves of K.
-        let Some(e) = aes128_cbc_encrypt_no_padding(&k[..16], &k[16..32], &k1) else {
+        let (Some(key), Some(iv)) = (k.get(..16), k.get(16..32)) else { return k };
+        let Some(e) = aes128_cbc_encrypt_no_padding(key, iv, &k1) else {
             return k;
         };
 
         // (c) The first 16 bytes of E as a big-endian integer, modulo 3. 256 is 1 mod 3,
         // so the byte sum has the same remainder and needs no wide arithmetic.
-        let remainder = e[..16].iter().map(|b| u32::from(*b)).sum::<u32>() % 3;
+        let remainder = e.iter().take(16).map(|b| u32::from(*b)).sum::<u32>() % 3;
         k = match remainder {
             0 => Sha256::digest(&e).to_vec(),
             1 => sha2::Sha384::digest(&e).to_vec(),
@@ -102,7 +123,7 @@ fn hash_2b(password: &[u8], udata: &[u8], seed: [u8; 32]) -> Vec<u8> {
 
         round += 1;
         // (e), (f): from round 64, stop once the last byte of E is at most round - 32.
-        if round >= 64 && u64::from(e[e.len() - 1]) <= round - 32 {
+        if round >= 64 && e.last().is_some_and(|&last| u64::from(last) <= round - 32) {
             k.truncate(32);
             return k;
         }
@@ -119,8 +140,8 @@ fn aes128_cbc_encrypt_no_padding(key: &[u8], iv: &[u8], data: &[u8]) -> Option<V
     let mut out = Vec::with_capacity(data.len());
     for chunk in data.chunks(16) {
         let mut block = [0u8; 16];
-        for (i, byte) in chunk.iter().enumerate() {
-            block[i] = byte ^ previous[i];
+        for ((slot, byte), prev) in block.iter_mut().zip(chunk).zip(&previous) {
+            *slot = byte ^ prev;
         }
         cipher.encrypt_block(Block::from_mut_slice(&mut block));
         previous = block;
@@ -142,9 +163,7 @@ fn aes256_cbc_decrypt_no_padding(key: &[u8], data: &[u8]) -> Option<Vec<u8>> {
         let mut block: [u8; 16] = chunk.try_into().ok()?;
         let saved = block;
         cipher.decrypt_block(Block::from_mut_slice(&mut block));
-        for (i, byte) in block.iter_mut().enumerate() {
-            *byte ^= previous[i];
-        }
+        xor_into(&mut block, &previous);
         previous = saved;
         out.extend_from_slice(&block);
     }
@@ -162,8 +181,8 @@ fn aes256_cbc_encrypt_no_padding(key: &[u8], data: &[u8]) -> Option<Vec<u8>> {
     let mut out = Vec::with_capacity(data.len());
     for chunk in data.chunks(16) {
         let mut block = [0u8; 16];
-        for (i, byte) in chunk.iter().enumerate() {
-            block[i] = byte ^ previous[i];
+        for ((slot, byte), prev) in block.iter_mut().zip(chunk).zip(&previous) {
+            *slot = byte ^ prev;
         }
         cipher.encrypt_block(Block::from_mut_slice(&mut block));
         previous = block;
@@ -207,9 +226,7 @@ pub(crate) fn aes_cbc_decrypt_padded(key: &[u8], iv: &[u8], data: &[u8]) -> Opti
         let mut block: [u8; 16] = chunk.try_into().ok()?;
         let saved = block;
         decrypt(&mut block);
-        for (i, byte) in block.iter_mut().enumerate() {
-            *byte ^= previous[i];
-        }
+        xor_into(&mut block, &previous);
         previous = saved;
         out.extend_from_slice(&block);
     }
@@ -218,7 +235,7 @@ pub(crate) fn aes_cbc_decrypt_padded(key: &[u8], iv: &[u8], data: &[u8]) -> Opti
     if pad == 0
         || pad > 16
         || pad > out.len()
-        || !out[out.len() - pad..].iter().all(|&b| b as usize == pad)
+        || !out.get(out.len() - pad..).is_some_and(|tail| tail.iter().all(|&b| b as usize == pad))
     {
         return None;
     }
@@ -381,11 +398,7 @@ impl SecurityHandler {
 
     /// The file encryption key: ISO 32000-2, Algorithm 2.
     fn derive_file_key(user_password: &str, spec: &StandardSpec<'_>) -> Vec<u8> {
-        let mut pad = PAD;
-        let pw_bytes = user_password.as_bytes();
-        let len = pw_bytes.len().min(32);
-        pad[..len].copy_from_slice(&pw_bytes[..len]);
-        pad[len..].copy_from_slice(&PAD[..32 - len]);
+        let pad = padded_password(user_password.as_bytes());
 
         let mut hasher = md5::Context::new();
         hasher.consume(pad);
@@ -404,12 +417,12 @@ impl SecurityHandler {
         if spec.revision >= 3 {
             for _ in 0..50 {
                 let mut h2 = md5::Context::new();
-                h2.consume(&hash[..spec.key_len]);
+                h2.consume(hash.get(..spec.key_len).unwrap_or(&hash));
                 hash = h2.finalize().0;
             }
         }
 
-        hash[..spec.key_len].to_vec()
+        hash.get(..spec.key_len).unwrap_or(&hash).to_vec()
     }
 
     /// Encrypts a new document under AES-256, generating a fresh file key.
@@ -451,7 +464,7 @@ impl SecurityHandler {
         rand::thread_rng().fill_bytes(&mut file_key);
         rand::thread_rng().fill_bytes(&mut salts);
 
-        let truncate = |p: &str| p.as_bytes()[..p.len().min(127)].to_vec();
+        let truncate = |p: &str| p.as_bytes().iter().take(127).copied().collect::<Vec<u8>>();
         let user = truncate(user_password);
         let owner = truncate(owner_password);
 
@@ -589,7 +602,7 @@ impl SecurityHandler {
         }
 
         Ok(Self {
-            encryption_key: digest[..key_len].to_vec(),
+            encryption_key: digest.get(..key_len).unwrap_or(&digest).to_vec(),
             revision: if key_len > 20 { 6 } else { 4 },
             is_aes: true,
             encrypt_metadata,
@@ -633,15 +646,23 @@ impl SecurityHandler {
         if spec.u.len() < 48 || spec.o.len() < 48 || spec.ue.len() < 32 || spec.oe.len() < 32 {
             return None;
         }
-        let pw = &password.as_bytes()[..password.len().min(127)];
+        let pw = password.as_bytes();
+        let pw = pw.get(..127).unwrap_or(pw);
+        // Each string's hash, validation salt and key salt; /U is hashed whole with the
+        // owner password. The lengths are checked above, so none of these is missing.
+        let (Some(u), Some(o)) = (spec.u.get(..48), spec.o.get(..48)) else { return None };
+        let (u_hash, u_salts) = u.split_at(32);
+        let (o_hash, o_salts) = o.split_at(32);
+        let (u_valid, u_key) = u_salts.split_at(8);
+        let (o_valid, o_key) = o_salts.split_at(8);
 
-        let (key, access) = if hash_2a(spec.revision, pw, &spec.u[32..40], &[]) == spec.u[..32] {
+        let (key, access) = if hash_2a(spec.revision, pw, u_valid, &[]) == u_hash {
             // Steps (a), (b), (e): the user password.
-            let intermediate = hash_2a(spec.revision, pw, &spec.u[40..48], &[]);
+            let intermediate = hash_2a(spec.revision, pw, u_key, &[]);
             (aes256_cbc_decrypt_no_padding(&intermediate, spec.ue)?, Access::User)
-        } else if hash_2a(spec.revision, pw, &spec.o[32..40], &spec.u[..48]) == spec.o[..32] {
+        } else if hash_2a(spec.revision, pw, o_valid, u) == o_hash {
             // Steps (c), (d): the owner password, which hashes the 48-byte /U with it.
-            let intermediate = hash_2a(spec.revision, pw, &spec.o[40..48], &spec.u[..48]);
+            let intermediate = hash_2a(spec.revision, pw, o_key, u);
             (aes256_cbc_decrypt_no_padding(&intermediate, spec.oe)?, Access::Owner)
         } else {
             return None;
@@ -663,16 +684,14 @@ impl SecurityHandler {
     /// stripping them is not silent.
     #[must_use]
     pub fn perms_agree(&self, perms: &[u8], declared: i32) -> bool {
-        if perms.len() < 16 {
-            return false;
-        }
-        let Some(plain) = aes256_ecb_decrypt(&self.encryption_key, &perms[..16]) else {
+        let Some(plain) = perms.get(..16).and_then(|p| aes256_ecb_decrypt(&self.encryption_key, p))
+        else {
             return false;
         };
-        if &plain[9..12] != b"adb" {
+        if plain.get(9..12) != Some(b"adb".as_slice()) {
             return false;
         }
-        i32::from_le_bytes([plain[0], plain[1], plain[2], plain[3]]) == declared
+        plain.first_chunk::<4>().is_some_and(|p| i32::from_le_bytes(*p) == declared)
     }
 
     /// The file encryption key, for cross-checking key derivation against an
@@ -701,10 +720,10 @@ impl SecurityHandler {
         let computed = self.compute_u(file_id);
         if self.revision == 2 {
             // Algorithm 4: /U is the padding string encrypted with the file key.
-            return computed == u_string[..computed.len().min(u_string.len())];
+            return computed == u_string.get(..computed.len()).unwrap_or(u_string);
         }
         // Algorithm 5: only the first 16 bytes are defined; the rest is arbitrary.
-        computed[..16] == u_string[..16]
+        computed.get(..16) == u_string.get(..16)
     }
 
     /// Whether the password is the document's *owner* password: Algorithm 7 (7.6.4.4).
@@ -723,11 +742,7 @@ impl SecurityHandler {
         if o_string.len() < 32 {
             return None;
         }
-        let mut pad = PAD;
-        let bytes = owner_password.as_bytes();
-        let len = bytes.len().min(32);
-        pad[..len].copy_from_slice(&bytes[..len]);
-        pad[len..].copy_from_slice(&PAD[..32 - len]);
+        let pad = padded_password(owner_password.as_bytes());
 
         let mut digest = md5::compute(pad).0;
         if revision >= 3 {
@@ -735,9 +750,9 @@ impl SecurityHandler {
                 digest = md5::compute(digest).0;
             }
         }
-        let key = &digest[..key_len.min(16)];
+        let key = digest.get(..key_len.min(16)).unwrap_or(&digest);
 
-        let mut out = o_string[..32].to_vec();
+        let mut out = o_string.get(..32)?.to_vec();
         if revision == 2 {
             return Some(rc4(key, &out));
         }
@@ -806,7 +821,7 @@ impl SecurityHandler {
         // 16 regardless is correct only for a 128-bit file key, and silently wrong for
         // the 40-bit default of `/V 1`.
         let n = (self.encryption_key.len() + 5).min(16);
-        hash.0[..n].to_vec()
+        hash.0.get(..n).unwrap_or(&hash.0).to_vec()
     }
 
     /// Encrypts stream data for the given indirect object.
@@ -851,7 +866,9 @@ impl SecurityHandler {
             if pad_len > 0
                 && pad_len <= 16
                 && result.len() >= pad_len
-                && result[result.len() - pad_len..].iter().all(|&b| b == last_byte)
+                && result
+                    .get(result.len() - pad_len..)
+                    .is_some_and(|tail| tail.iter().all(|&b| b == last_byte))
             {
                 result.truncate(result.len() - pad_len);
             }
@@ -866,18 +883,15 @@ impl SecurityHandler {
         if !self.is_aes {
             return Ok(rc4(key, data));
         }
-        if data.len() < 16 {
+        let Some((iv, ciphertext)) = data.split_first_chunk::<16>() else {
             return Ok(data.to_vec());
-        }
-        let iv = &data[..16];
-        let ciphertext = &data[16..];
+        };
         if ciphertext.is_empty() || ciphertext.len() % 16 != 0 {
             return Ok(data.to_vec());
         }
 
         let mut result = Vec::with_capacity(ciphertext.len());
-        let mut prev_block = [0u8; 16];
-        prev_block.copy_from_slice(iv);
+        let mut prev_block = *iv;
 
         let (cipher128, cipher256) = Self::aes_ciphers(key)?;
 
@@ -886,9 +900,7 @@ impl SecurityHandler {
             block.copy_from_slice(chunk);
             let block_ref = Block::from_mut_slice(&mut block);
             self.decrypt_block_aes(cipher128.as_ref(), cipher256.as_ref(), block_ref);
-            for i in 0..16 {
-                block[i] ^= prev_block[i];
-            }
+            xor_into(&mut block, &prev_block);
             result.extend_from_slice(&block);
             prev_block.copy_from_slice(chunk);
         }
@@ -944,9 +956,7 @@ impl SecurityHandler {
         for chunk in padded_data.chunks(16) {
             let mut block = [0u8; 16];
             block.copy_from_slice(chunk);
-            for i in 0..16 {
-                block[i] ^= prev_block[i];
-            }
+            xor_into(&mut block, &prev_block);
             let block_ref = Block::from_mut_slice(&mut block);
             if let Some(c) = &cipher128 {
                 c.encrypt_block(block_ref);

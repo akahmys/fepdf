@@ -296,7 +296,7 @@ pub fn apply_set_calculation_order(doc: &Document, order: &[String]) -> PdfResul
 
     let mut references = Vec::with_capacity(order.len());
     for (nth, name) in order.iter().enumerate() {
-        if order[..nth].contains(name) {
+        if order.iter().take(nth).any(|earlier| earlier == name) {
             return Err(PdfError::refused(
                 "SetCalculationOrder",
                 format!("the order names {name:?} twice"),

@@ -634,7 +634,7 @@ pub fn apply_split_run(doc: &Document, page: usize, run: usize, after: usize) ->
         // As many of this string's codes as are still before the cut, in bytes.
         let codes = target.font.codes(&bytes);
         let taken = after.saturating_sub(placed).min(codes.len());
-        let room: usize = codes[..taken].iter().map(|code| code.len()).sum();
+        let room: usize = codes.iter().take(taken).map(|code| code.len()).sum();
         placed += taken;
         if room > 0 {
             head.push(Token::String(bytes.slice(..room)));
@@ -1558,7 +1558,8 @@ pub fn stretches_of(runs: &[RunInfo]) -> Vec<Stretch> {
         .map(|chain| {
             let mut stretch = Stretch::default();
             for index in chain {
-                for (code, piece) in runs[index].pieces.iter().enumerate() {
+                let pieces = runs.get(index).map(|run| run.pieces.as_slice()).unwrap_or_default();
+                for (code, piece) in pieces.iter().enumerate() {
                     for character in piece.chars() {
                         stretch.at.push((stretch.text.len(), index, code));
                         stretch.text.push(character);
@@ -1575,7 +1576,12 @@ fn chains_of(runs: &[RunInfo]) -> Vec<Vec<usize>> {
     let mut chains: Vec<Vec<usize>> = Vec::new();
     for (index, run) in runs.iter().enumerate() {
         match chains.last_mut() {
-            Some(chain) if chain.last().is_some_and(|&last| carries_on(&runs[last], run)) => {
+            Some(chain)
+                if chain
+                    .last()
+                    .and_then(|&last| runs.get(last))
+                    .is_some_and(|last| carries_on(last, run)) =>
+            {
                 chain.push(index);
             }
             Some(_) | None => chains.push(vec![index]),

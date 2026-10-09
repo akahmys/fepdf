@@ -194,7 +194,7 @@ fn walk(data: &[u8]) -> (Vec<Token>, Vec<Found>) {
     let mut operands_from = 0;
     for (index, token) in tokens.iter().enumerate() {
         let Token::Keyword(op) = token else { continue };
-        let operands = &tokens[operands_from..index];
+        let operands = tokens.get(operands_from..index).unwrap_or_default();
         operands_from = index + 1;
         match op.as_str() {
             "q" => saved.push(ctm),
@@ -275,8 +275,8 @@ fn local_box(doc: &Document, handle: Handle<Object>, image: bool) -> Rect {
     };
     let [x0, y0, x1, y1] = numbers("BBox")[..] else { return unit };
     let six = numbers("Matrix");
-    let matrix = if six.len() == 6 {
-        Affine::new([six[0], six[1], six[2], six[3], six[4], six[5]])
+    let matrix = if let [m0, m1, m2, m3, m4, m5] = six[..] {
+        Affine::new([m0, m1, m2, m3, m4, m5])
     } else {
         Affine::IDENTITY
     };

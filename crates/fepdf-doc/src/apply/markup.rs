@@ -442,18 +442,19 @@ fn jpeg_frame(bytes: &[u8]) -> Option<(u16, u16, u8)> {
         return None;
     }
     let mut at = 2;
-    while at + 4 <= bytes.len() {
-        if bytes[at] != 0xFF {
+    while let Some(&[mark, marker, high, low]) = bytes.get(at..at + 4) {
+        if mark != 0xFF {
             return None;
         }
-        let marker = bytes[at + 1];
-        let length = usize::from(u16::from_be_bytes([bytes[at + 2], bytes[at + 3]]));
+        let length = usize::from(u16::from_be_bytes([high, low]));
         // SOF0 to SOF15, which are not DHT (C4), JPG (C8) or DAC (CC).
         if (0xC0..=0xCF).contains(&marker) && !matches!(marker, 0xC4 | 0xC8 | 0xCC) {
-            let frame = bytes.get(at + 5..at + 10)?;
-            let height = u16::from_be_bytes([frame[0], frame[1]]);
-            let width = u16::from_be_bytes([frame[2], frame[3]]);
-            return (width > 0 && height > 0).then_some((width, height, frame[4]));
+            let &[h0, h1, w0, w1, components] = bytes.get(at + 5..at + 10)? else {
+                return None;
+            };
+            let height = u16::from_be_bytes([h0, h1]);
+            let width = u16::from_be_bytes([w0, w1]);
+            return (width > 0 && height > 0).then_some((width, height, components));
         }
         at += 2 + length;
     }

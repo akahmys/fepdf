@@ -127,7 +127,7 @@ fn walk(tokens: &[Token], painted: &mut dyn FnMut(usize, usize, &Building, &str,
     let mut operands_from = 0;
     for (index, token) in tokens.iter().enumerate() {
         let Token::Keyword(op) = token else { continue };
-        let operands = &tokens[operands_from..index];
+        let operands = tokens.get(operands_from..index).unwrap_or_default();
         let first = operands_from;
         operands_from = index + 1;
         let numbers = numbers_of(operands);
@@ -170,7 +170,10 @@ fn numbers_of(operands: &[Token]) -> Vec<f64> {
 
 /// The matrix six numbers write.
 fn six(n: &[f64]) -> Affine {
-    Affine::new([n[0], n[1], n[2], n[3], n[4], n[5]])
+    match *n {
+        [m0, m1, m2, m3, m4, m5, ..] => Affine::new([m0, m1, m2, m3, m4, m5]),
+        _ => Affine::IDENTITY,
+    }
 }
 
 /// A `d`'s array as written, and its phase; `None` for an empty array, which is solid.
@@ -375,7 +378,13 @@ fn split_at(seg: &PathSeg, line: Line) -> Vec<PathSeg> {
         .collect();
     ts.sort_by(f64::total_cmp);
     let bounds: Vec<f64> = std::iter::once(0.0).chain(ts).chain(std::iter::once(1.0)).collect();
-    bounds.windows(2).filter(|w| w[1] - w[0] > 1e-12).map(|w| seg.subsegment(w[0]..w[1])).collect()
+    bounds
+        .windows(2)
+        .filter_map(|w| match *w {
+            [low, high] if high - low > 1e-12 => Some(seg.subsegment(low..high)),
+            _ => None,
+        })
+        .collect()
 }
 
 /// `pieces` in order as one closed outline, a straight line wherever one ends short of

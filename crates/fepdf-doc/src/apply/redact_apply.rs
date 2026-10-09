@@ -117,11 +117,8 @@ fn appearance(doc: &Document, page: usize, mark: &Mark) -> PdfResult<String> {
         .and_then(|c| c.as_array())
         .and_then(|a| arena.get_array(a))
         .map(|a| a.iter().filter_map(|n| n.resolve(arena).as_f64()).collect());
-    if let Some(rgb) = ic.filter(|c| c.len() == 3) {
-        ops.push_str(&super::redact::fill_of(
-            &mark.regions,
-            &format!("{} {} {} rg", rgb[0], rgb[1], rgb[2]),
-        ));
+    if let Some(&[r, g, b]) = ic.as_deref() {
+        ops.push_str(&super::redact::fill_of(&mark.regions, &format!("{r} {g} {b} rg")));
     }
     if let Some(text) = entry("OverlayText").and_then(|t| text_of(&t)) {
         ops.push_str(&overlay_text(doc, page, mark, &text)?);

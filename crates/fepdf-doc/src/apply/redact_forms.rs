@@ -49,7 +49,7 @@ pub fn forms_drawn(doc: &Document, target: Target, tokens: &[Token]) -> PdfResul
     let mut operands_from = 0;
     for (index, token) in tokens.iter().enumerate() {
         let Token::Keyword(op) = token else { continue };
-        let operands = &tokens[operands_from..index];
+        let operands = tokens.get(operands_from..index).unwrap_or_default();
         operands_from = index + 1;
         match op.as_str() {
             "q" => saved.push(ctm),
@@ -102,15 +102,13 @@ fn forms_in(
             let array = arena.get_array(entry(k)?.as_array()?)?;
             array.iter().map(|n| n.resolve(arena).as_f64()).collect()
         };
-        let matrix = numbers("Matrix")
-            .filter(|m| m.len() == 6)
-            .map_or(Affine::IDENTITY, |m| Affine::new([m[0], m[1], m[2], m[3], m[4], m[5]]));
-        let Some(b) = numbers("BBox").filter(|b| b.len() == 4) else { continue };
+        let matrix = match numbers("Matrix").as_deref() {
+            Some(&[m0, m1, m2, m3, m4, m5]) => Affine::new([m0, m1, m2, m3, m4, m5]),
+            _ => Affine::IDENTITY,
+        };
+        let Some(&[x0, y0, x1, y1]) = numbers("BBox").as_deref() else { continue };
         if let Some(name) = arena.get_name(key) {
-            found.insert(
-                name.as_str().to_string(),
-                (handle, matrix, Rect::new(b[0], b[1], b[2], b[3])),
-            );
+            found.insert(name.as_str().to_string(), (handle, matrix, Rect::new(x0, y0, x1, y1)));
         }
     }
     Ok(found)

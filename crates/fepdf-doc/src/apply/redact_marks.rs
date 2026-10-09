@@ -62,7 +62,8 @@ pub fn mark(
     let mut replaced: BTreeMap<usize, (usize, Vec<u8>)> = BTreeMap::new();
     for sequence in sequences(&tokens) {
         let Some(fate) = fate_of(&items, &sequence, &regions) else { continue };
-        let operands = &tokens[sequence.from..sequence.open];
+        let operands = tokens.get(sequence.from..sequence.open).unwrap_or_default();
+        let Some(open) = tokens.get(sequence.open) else { continue };
         if let Some(mcid) = mcid_of(doc, target, operands) {
             fates
                 .entry(mcid)
@@ -73,7 +74,7 @@ pub fn mark(
                 })
                 .or_insert(fate);
         }
-        if let Some(rewritten) = with_marker(doc, target, operands, &tokens[sequence.open])? {
+        if let Some(rewritten) = with_marker(doc, target, operands, open)? {
             replaced.insert(sequence.from, (sequence.open, rewritten));
         }
     }
@@ -152,7 +153,7 @@ fn mcid_of(doc: &Document, target: Target, operands: &[Token]) -> Option<i64> {
     match operands.get(1)? {
         Token::LeftDict => {
             let mut bytes = Vec::new();
-            for token in &operands[1..] {
+            for token in operands.iter().skip(1) {
                 token.write_to(&mut bytes);
             }
             let scratch = fepdf_model::PdfArena::new();

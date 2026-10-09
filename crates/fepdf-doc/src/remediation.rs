@@ -212,10 +212,9 @@ impl TextExtractionBackend {
     fn fold_ruby_columns(cols: &mut Vec<VerticalColumn>) {
         // Right to left, so the column a ruby annotates is the next one along.
         let mut i = 0;
-        while i + 1 < cols.len() {
-            let (ruby_size, base_size) =
-                (Self::column_size(&cols[i]), Self::column_size(&cols[i + 1]));
-            let gap = cols[i].column_x - cols[i + 1].column_x;
+        while let (Some(ruby), Some(base)) = (cols.get(i), cols.get(i + 1)) {
+            let (ruby_size, base_size) = (Self::column_size(ruby), Self::column_size(base));
+            let gap = ruby.column_x - base.column_x;
             // Half-size is the convention; 0.6 leaves room for a producer that rounds.
             // The gap bound keeps a genuinely narrow column of small text — a marginal
             // note, a page number — from being swallowed by the prose beside it.
@@ -224,10 +223,12 @@ impl TextExtractionBackend {
                 && gap > 0.0
                 && gap <= base_size * 1.2
             {
-                let mut folded = std::mem::take(&mut cols[i].runs);
-                Self::bind_ruby_to_its_base(&mut folded, &cols[i + 1].runs);
-                cols[i + 1].runs.extend(folded);
-                cols.remove(i);
+                // The ruby's column comes out, and the base's moves up into its place.
+                let mut folded = cols.remove(i).runs;
+                if let Some(base) = cols.get_mut(i) {
+                    Self::bind_ruby_to_its_base(&mut folded, &base.runs);
+                    base.runs.extend(folded);
+                }
             } else {
                 i += 1;
             }
@@ -256,20 +257,20 @@ impl TextExtractionBackend {
         let mut start = 0;
         while start < ruby.len() {
             let mut end = start + 1;
-            while end < ruby.len() {
-                let step = (ruby[end - 1].y - ruby[end].y).abs();
-                if step > (ruby[end].size * ruby[end].scale * 2.0).max(f64::EPSILON) {
+            while let (Some(before), Some(next)) = (ruby.get(end - 1), ruby.get(end)) {
+                let step = (before.y - next.y).abs();
+                if step > (next.size * next.scale * 2.0).max(f64::EPSILON) {
                     break;
                 }
                 end += 1;
             }
-            let head = ruby[start].y;
+            let Some(head) = ruby.get(start).map(|run| run.y) else { break };
             let nearest = base
                 .iter()
                 .min_by(|a, b| (a.y - head).abs().total_cmp(&(b.y - head).abs()))
                 .map(|r| r.y);
             if let Some(y) = nearest {
-                for run in &mut ruby[start..end] {
+                for run in ruby.iter_mut().take(end).skip(start) {
                     run.y = y;
                 }
             }
@@ -804,7 +805,7 @@ impl HeuristicEngine {
         let mut all_span_indices = Vec::new();
         for (_y, line_spans) in lines {
             let mut current_cols: Vec<i32> =
-                line_spans.iter().map(|&idx| (spans[idx].x * 10.0) as i32).collect();
+                line_spans.iter().filter_map(|&i| Some((spans.get(i)?.x * 10.0) as i32)).collect();
             current_cols.sort_unstable();
             if current_cols.len() > 1 && !prev_cols.is_empty() {
                 let mut matches = 0;

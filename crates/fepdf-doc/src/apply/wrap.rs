@@ -58,7 +58,7 @@ pub fn apply_wrap_struct(doc: &Document, wrap: StructElemWrap) -> PdfResult<()> 
         ));
     };
     let page = dict.get(&arena.name("Pg")).cloned();
-    let wrapped = kids[first..end].to_vec();
+    let wrapped = kids.get(first..end).unwrap_or_default().to_vec();
     let found =
         wrapped.iter().map(|kid| what(arena, kid, page.as_ref())).collect::<PdfResult<Vec<_>>>()?;
 

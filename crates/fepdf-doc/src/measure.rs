@@ -114,9 +114,12 @@ impl Scale {
     pub fn path_length(&self, points: &[(f64, f64)]) -> String {
         let length = points
             .windows(2)
-            .map(|pair| {
-                let (dx, dy) = self.in_x_units(pair[1].0 - pair[0].0, pair[1].1 - pair[0].1);
-                dx.hypot(dy)
+            .map(|pair| match *pair {
+                [(x0, y0), (x1, y1)] => {
+                    let (dx, dy) = self.in_x_units(x1 - x0, y1 - y0);
+                    dx.hypot(dy)
+                }
+                _ => 0.0,
             })
             .sum();
         format(length, &self.distance)

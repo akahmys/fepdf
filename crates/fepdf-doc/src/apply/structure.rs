@@ -148,21 +148,22 @@ fn create_article_thread_dict(
             if let Some(page_h) = get_page_handle(bead.page) {
                 bdict.insert(arena.name("P"), Object::Reference(page_h));
             }
-            let rect_items = vec![
-                Object::Real(f64::from(bead.rect[0])),
-                Object::Real(f64::from(bead.rect[1])),
-                Object::Real(f64::from(bead.rect[2])),
-                Object::Real(f64::from(bead.rect[3])),
-            ];
+            let rect_items = bead.rect.iter().map(|&v| Object::Real(f64::from(v))).collect();
             let rect_ah = arena.alloc_array(rect_items);
             bdict.insert(arena.name("R"), Object::Array(rect_ah));
-            bdict.insert(arena.name("N"), Object::Reference(bead_handles[(i + 1) % n].1));
-            bdict.insert(arena.name("V"), Object::Reference(bead_handles[(i + n - 1) % n].1));
+            // A thread's beads are a ring (12.4.3): the last's next is the first.
+            for (key, at) in [("N", i + 1), ("V", i + n - 1)] {
+                if let Some(bead) = bead_handles.get(at % n) {
+                    bdict.insert(arena.name(key), Object::Reference(bead.1));
+                }
+            }
             arena.set_dict(bdh, bdict);
         }
 
-        if let Some(mut td) = arena.get_dict(thread_dh) {
-            td.insert(arena.name("F"), Object::Reference(bead_handles[0].1));
+        if let Some(mut td) = arena.get_dict(thread_dh)
+            && let Some(first) = bead_handles.first()
+        {
+            td.insert(arena.name("F"), Object::Reference(first.1));
             arena.set_dict(thread_dh, td);
         }
     }

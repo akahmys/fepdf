@@ -87,12 +87,12 @@ pub struct XrefTable {
 /// Finds the header, scanning rather than demanding it at offset zero.
 #[must_use]
 pub fn find_header(bytes: &[u8]) -> Option<Header> {
-    let window = &bytes[..bytes.len().min(HEADER_SEARCH_WINDOW + 8)];
+    let window = bytes.get(..HEADER_SEARCH_WINDOW + 8).unwrap_or(bytes);
     let offset = window.windows(5).position(|w| w == b"%PDF-")?;
-    let rest = &bytes[offset + 5..];
+    let rest = bytes.get(offset + 5..)?;
     let len =
         rest.iter().position(|b| !(b.is_ascii_digit() || *b == b'.')).unwrap_or(rest.len()).min(8);
-    let version = String::from_utf8_lossy(&rest[..len]).into_owned();
+    let version = String::from_utf8_lossy(rest.get(..len)?).into_owned();
     if version.is_empty() {
         return None;
     }
@@ -106,9 +106,10 @@ pub fn find_header(bytes: &[u8]) -> Option<Header> {
 #[must_use]
 pub fn find_startxref(bytes: &[u8]) -> Option<u64> {
     let from = bytes.len().saturating_sub(TAIL_SEARCH_WINDOW);
-    let tail = &bytes[from..];
+    let tail = bytes.get(from..)?;
     let at = tail.windows(9).rposition(|w| w == b"startxref").map(|p| from + p + 9)?;
-    let digits: Vec<u8> = bytes[at..]
+    let digits: Vec<u8> = bytes
+        .get(at..)?
         .iter()
         .skip_while(|b| b.is_ascii_whitespace())
         .take_while(|b| b.is_ascii_digit())
@@ -124,7 +125,10 @@ pub fn find_startxref(bytes: &[u8]) -> Option<u64> {
 /// get the padding wrong often enough that fields are read by token instead.
 pub fn parse_xref_table(bytes: &[u8], at: usize) -> SyntaxResult<XrefTable> {
     let mut cursor = at;
-    if !bytes[cursor..].starts_with(b"xref") {
+    // An offset past the end of the file is no table: `startxref` said where one is, and
+    // a damaged file can say anywhere.
+    let starts_with = |at: usize, word: &[u8]| bytes.get(at..).is_some_and(|r| r.starts_with(word));
+    if !starts_with(cursor, b"xref") {
         return Err(SyntaxError::Crypto("not a cross-reference table".into()));
     }
     cursor += 4;
@@ -132,7 +136,7 @@ pub fn parse_xref_table(bytes: &[u8], at: usize) -> SyntaxResult<XrefTable> {
     let mut entries = BTreeMap::new();
     loop {
         cursor = skip_whitespace(bytes, cursor);
-        if bytes[cursor..].starts_with(b"trailer") {
+        if starts_with(cursor, b"trailer") {
             return Ok(XrefTable { entries, trailer_at: Some(cursor + 7) });
         }
         let Some((first, next)) = read_u64(bytes, cursor) else {
@@ -220,12 +224,11 @@ pub fn parse_xref_stream_data(
     let mut cursor = 0usize;
     for &(first, count) in &layout.index {
         for i in 0..count {
-            if cursor + width > data.len() {
+            let Some(row) = data.get(cursor..cursor + width) else {
                 // A truncated payload is worth keeping what was read: the objects
                 // already described are still reachable.
                 return Ok(entries);
-            }
-            let row = &data[cursor..cursor + width];
+            };
             cursor += width;
 
             let (kind, rest) = take_field(row, layout.widths[0]);
@@ -281,7 +284,7 @@ pub struct XrefLinks {
 #[must_use]
 pub fn read_links(bytes: &[u8], trailer_at: usize) -> XrefLinks {
     let end = bytes.len().min(trailer_at + TRAILER_SCAN_WINDOW);
-    let head = &bytes[trailer_at.min(bytes.len())..end];
+    let head = bytes.get(trailer_at.min(bytes.len())..end).unwrap_or_default();
     XrefLinks { prev: read_key_u64(head, b"/Prev"), xref_stm: read_key_u64(head, b"/XRefStm") }
 }
 
@@ -332,7 +335,7 @@ const TRAILER_SCAN_WINDOW: usize = 2048;
 /// Reads `key` followed by an unsigned decimal.
 fn read_key_u64(head: &[u8], key: &[u8]) -> Option<u64> {
     let at = head.windows(key.len()).position(|w| w == key)? + key.len();
-    let rest = &head[at..];
+    let rest = head.get(at..)?;
     // Guard against /PrevSomething matching /Prev.
     if rest.first().is_some_and(|b| b.is_ascii_alphabetic()) {
         return None;
@@ -355,7 +358,7 @@ fn read_key_u64(head: &[u8], key: &[u8]) -> Option<u64> {
 pub fn scan_indirect_objects(bytes: &[u8]) -> BTreeMap<u32, u64> {
     let mut found = BTreeMap::new();
     let mut i = 0usize;
-    while let Some(p) = bytes[i..].windows(3).position(|w| w == b"obj") {
+    while let Some(p) = bytes.get(i..).and_then(|r| r.windows(3).position(|w| w == b"obj")) {
         let at = i + p;
         i = at + 3;
         // Walk back over "N G " to the object number.
@@ -370,7 +373,7 @@ fn object_head(bytes: &[u8], obj_at: usize) -> Option<(u32, usize)> {
     let mut i = obj_at;
     i = skip_back_whitespace(bytes, i)?;
     let gen_end = i;
-    while i > 0 && bytes[i - 1].is_ascii_digit() {
+    while i > 0 && bytes.get(i - 1).is_some_and(u8::is_ascii_digit) {
         i -= 1;
     }
     if i == gen_end {
@@ -378,25 +381,25 @@ fn object_head(bytes: &[u8], obj_at: usize) -> Option<(u32, usize)> {
     }
     i = skip_back_whitespace(bytes, i)?;
     let num_end = i;
-    while i > 0 && bytes[i - 1].is_ascii_digit() {
+    while i > 0 && bytes.get(i - 1).is_some_and(u8::is_ascii_digit) {
         i -= 1;
     }
     if i == num_end {
         return None;
     }
-    let number: u32 = std::str::from_utf8(&bytes[i..num_end]).ok()?.parse().ok()?;
+    let number: u32 = std::str::from_utf8(bytes.get(i..num_end)?).ok()?.parse().ok()?;
     Some((number, i))
 }
 
 fn skip_back_whitespace(bytes: &[u8], mut i: usize) -> Option<usize> {
-    while i > 0 && bytes[i - 1].is_ascii_whitespace() {
+    while i > 0 && bytes.get(i - 1).is_some_and(u8::is_ascii_whitespace) {
         i -= 1;
     }
     (i > 0).then_some(i)
 }
 
 fn skip_whitespace(bytes: &[u8], mut i: usize) -> usize {
-    while i < bytes.len() && bytes[i].is_ascii_whitespace() {
+    while bytes.get(i).is_some_and(u8::is_ascii_whitespace) {
         i += 1;
     }
     i
@@ -405,13 +408,13 @@ fn skip_whitespace(bytes: &[u8], mut i: usize) -> usize {
 /// Reads an unsigned decimal at `i`, returning it and the offset just past it.
 fn read_u64(bytes: &[u8], i: usize) -> Option<(u64, usize)> {
     let mut end = i;
-    while end < bytes.len() && bytes[end].is_ascii_digit() {
+    while bytes.get(end).is_some_and(u8::is_ascii_digit) {
         end += 1;
     }
     if end == i {
         return None;
     }
-    let value = std::str::from_utf8(&bytes[i..end]).ok()?.parse().ok()?;
+    let value = std::str::from_utf8(bytes.get(i..end)?).ok()?.parse().ok()?;
     Some((value, end))
 }
 

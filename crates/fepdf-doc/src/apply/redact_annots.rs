@@ -85,7 +85,10 @@ fn rect_of(arena: &PdfArena, annotation: &Object) -> Option<GlyphBox> {
     let rect = arena.dict_entry(dict, arena.name("Rect"))?.resolve(arena).as_array()?;
     let n: Vec<f64> =
         arena.get_array(rect)?.iter().filter_map(|v| v.resolve(arena).as_f64()).collect();
-    (n.len() == 4).then(|| (n[0].min(n[2]), n[1].min(n[3]), n[0].max(n[2]), n[1].max(n[3])))
+    match n[..] {
+        [x0, y0, x1, y1] => Some((x0.min(x1), y0.min(y1), x0.max(x1), y0.max(y1))),
+        _ => None,
+    }
 }
 
 /// The dictionary behind an annotation's handle.

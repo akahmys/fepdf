@@ -75,8 +75,8 @@ pub fn apply_set_unencrypted_wrapper(
 /// What 7.6.7 and Table 28 rule out, said before anything is written.
 fn refuse_unwrappable(doc: &Document, wrapper: &UnencryptedWrapperSpec) -> PdfResult<()> {
     let refuse = |why: String| Err(PdfError::refused("SetUnencryptedWrapper", why));
-    let head = &wrapper.encrypted_payload_bytes[..wrapper.encrypted_payload_bytes.len().min(1024)];
-    if !head.windows(5).any(|w| w == b"%PDF-") {
+    // Within the first 1,024 bytes, which the 1,020 five-byte windows from the start cover.
+    if !wrapper.encrypted_payload_bytes.windows(5).take(1020).any(|w| w == b"%PDF-") {
         return refuse(
             "7.6.7: the encrypted payload is a PDF file, and these bytes carry no %PDF- header"
                 .into(),

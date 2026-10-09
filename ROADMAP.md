@@ -1773,7 +1773,8 @@ before it is decided; Z-4 when convenient; Z-5 with the next GUI defect.
       over `--lib --bins`, and adding an `unreachable!` to `fepdf-font` fails it.
       **The owner chose to take out every index and slice**, and then deny
       `indexing_slicing` too. Under way, crate by crate: render, cli, fixtures, audit,
-      gui, the facade and content are done (133); syntax, doc, model and font remain.
+      gui, the facade, content, syntax and doc are done (355 of 796); model and font
+      remain.
 - [x] **Z-4** — **pdf.js's test files in the external corpus.** `mozilla/pdf.js`
       `test/pdfs` holds files committed to it, and `.link` files naming a URL elsewhere
       (314 of the first 1,000 entries listed). Only the committed files are fetched,

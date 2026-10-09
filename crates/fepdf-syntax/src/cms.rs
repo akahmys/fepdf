@@ -208,11 +208,10 @@ fn der_element(bytes: &[u8]) -> SyntaxResult<&[u8]> {
         .map_err(|e| crypto(format!("not a DER structure: {e}")))?;
     let start = u32::from(reader.position()) as usize;
     let length = u32::from(header.length) as usize;
-    let end = start
+    start
         .checked_add(length)
-        .filter(|&end| end <= bytes.len())
-        .ok_or_else(|| crypto("the DER structure states a length beyond its bytes"))?;
-    Ok(&bytes[..end])
+        .and_then(|end| bytes.get(..end))
+        .ok_or_else(|| crypto("the DER structure states a length beyond its bytes"))
 }
 
 /// How many of these bytes the CMS structure occupies, the rest being padding.
@@ -384,13 +383,12 @@ pub fn open_envelope(der: &[u8], identity: &RecipientIdentity) -> SyntaxResult<O
     })?;
 
     let content = decrypt_envelope(&enveloped.encrypted_content, &content_key)?;
-    if content.len() < 20 {
+    let Some((seed, rest)) = content.split_first_chunk::<20>() else {
         return Err(crypto("the envelope holds no 20-byte seed"));
-    }
+    };
     // 20 bytes of seed, and four of permissions when the producer included them.
-    let permissions = (content.len() >= 24)
-        .then(|| i32::from_be_bytes([content[20], content[21], content[22], content[23]]));
-    Ok(Some(Envelope { seed: content[..20].to_vec(), permissions }))
+    let permissions = rest.first_chunk::<4>().map(|p| i32::from_be_bytes(*p));
+    Ok(Some(Envelope { seed: seed.to_vec(), permissions }))
 }
 
 /// The encrypted key from the `RecipientInfo` addressed to this certificate.
