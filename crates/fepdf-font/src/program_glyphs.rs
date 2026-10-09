@@ -14,8 +14,7 @@ use std::collections::BTreeSet;
 pub fn sfnt_advances(program: &[u8]) -> Option<Vec<f64>> {
     let raw = ttf_parser::RawFace::parse(program, 0).ok()?;
     let table = |tag: &[u8; 4]| raw.table(ttf_parser::Tag::from_bytes(tag));
-    let word =
-        |bytes: &[u8], at: usize| bytes.get(at..at + 2).map(|b| u16::from_be_bytes([b[0], b[1]]));
+    let word = crate::be::read_u16;
     let units = f64::from(word(table(b"head")?, 18)?.max(1));
     let metrics = usize::from(word(table(b"hhea")?, 34)?);
     let hmtx = table(b"hmtx")?;
@@ -115,8 +114,12 @@ pub fn type1_built_in_encoding(cleartext: &[u8]) -> Option<std::collections::BTr
     let words: Vec<&str> = body.split_whitespace().collect();
     let table: std::collections::BTreeMap<u8, String> = words
         .windows(4)
-        .filter(|w| w[0] == "dup" && w[3] == "put")
-        .filter_map(|w| Some((w[1].parse().ok()?, w[2].strip_prefix('/')?.to_owned())))
+        .filter_map(|w| match *w {
+            ["dup", code, name, "put"] => {
+                Some((code.parse().ok()?, name.strip_prefix('/')?.to_owned()))
+            }
+            _ => None,
+        })
         .collect();
     (!table.is_empty()).then_some(table)
 }
@@ -162,7 +165,7 @@ pub fn cff_cid_glyphs(program: &[u8]) -> Option<std::collections::BTreeMap<u32, 
 pub fn sfnt_glyph_count(program: &[u8]) -> Option<u16> {
     let raw = ttf_parser::RawFace::parse(program, 0).ok()?;
     let maxp = raw.table(ttf_parser::Tag::from_bytes(b"maxp"))?;
-    maxp.get(4..6).map(|b| u16::from_be_bytes([b[0], b[1]]))
+    crate::be::read_u16(maxp, 4)
 }
 
 /// The glyphs of an SFNT program that have an outline: those whose `loca` entries differ.
@@ -179,9 +182,9 @@ pub fn sfnt_outlined_glyphs(program: &[u8]) -> Option<BTreeSet<u16>> {
     let count = sfnt_glyph_count(program)?;
     let offset = |gid: usize| -> Option<u32> {
         if long {
-            loca.get(gid * 4..gid * 4 + 4).map(|b| u32::from_be_bytes([b[0], b[1], b[2], b[3]]))
+            crate::be::read_u32(loca, gid * 4)
         } else {
-            loca.get(gid * 2..gid * 2 + 2).map(|b| u32::from(u16::from_be_bytes([b[0], b[1]])) * 2)
+            crate::be::read_u16(loca, gid * 2).map(|half| u32::from(half) * 2)
         }
     };
     Some(

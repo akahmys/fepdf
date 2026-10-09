@@ -107,8 +107,10 @@ impl FontFormat {
         if format == FontFormat::Type1Pfb && resource.subtype() == "CIDFontType0" {
             // CFF should start with version 1.x or 2.x.
             // If data[0] is 1 or 2, it's likely CFF even if the first 2 bytes match PFB.
-            if data.len() >= 4 && (data[0] == 1 || data[0] == 2) {
-                return if data[0] == 1 { FontFormat::Cff1 } else { FontFormat::Cff2 };
+            if data.len() >= 4
+                && let Some(&major @ (1 | 2)) = data.first()
+            {
+                return if major == 1 { FontFormat::Cff1 } else { FontFormat::Cff2 };
             }
         }
 
@@ -133,11 +135,11 @@ impl FontFormat {
 
         // 2. CFF Signatures
         // CFF1: major=1, minor=0 (Standard)
-        if data.len() >= 2 && data[0] == 1 && data[1] == 0 {
+        if data.starts_with(&[1, 0]) {
             return FontFormat::Cff1;
         }
         // CFF2: major=2
-        if !data.is_empty() && data[0] == 2 {
+        if data.first() == Some(&2) {
             return FontFormat::Cff2;
         }
 
@@ -162,10 +164,9 @@ impl FontReconstructor {
     /// the physical font file with the metrics declared in the PDF document.
     pub fn reconstruct(resource: &impl FontInfo, raw_data: &[u8]) -> FontResult<ReconstructedFont> {
         let format = FontFormat::detect_with_resource(raw_data, resource);
-        let sig = if raw_data.len() >= 4 {
-            format!("{:02x}{:02x}{:02x}{:02x}", raw_data[0], raw_data[1], raw_data[2], raw_data[3])
-        } else {
-            "short".to_string()
+        let sig = match raw_data.first_chunk::<4>() {
+            Some([a, b, c, d]) => format!("{a:02x}{b:02x}{c:02x}{d:02x}"),
+            None => "short".to_string(),
         };
         log::debug!(
             "[RECONSTRUCT] Starting reconstruction for {} (format: {:?}, size: {} bytes, sig: {})",
@@ -180,17 +181,13 @@ impl FontReconstructor {
     }
 
     fn get_native_metrics(tables: &[([u8; 4], Vec<u8>)]) -> (u16, Option<u16>) {
-        let upem =
-            tables
-                .iter()
-                .find(|(t, _)| t == b"head")
-                .and_then(|(_, d)| {
-                    if d.len() >= 20 { Some(u16::from_be_bytes([d[18], d[19]])) } else { None }
-                })
-                .unwrap_or(1000);
-        let num_glyphs = tables.iter().find(|(t, _)| t == b"maxp").and_then(|(_, d)| {
-            if d.len() >= 6 { Some(u16::from_be_bytes([d[4], d[5]])) } else { None }
-        });
+        let upem = tables
+            .iter()
+            .find(|(t, _)| t == b"head")
+            .and_then(|(_, d)| crate::be::read_u16(d, 18))
+            .unwrap_or(1000);
+        let num_glyphs =
+            tables.iter().find(|(t, _)| t == b"maxp").and_then(|(_, d)| crate::be::read_u16(d, 4));
         (upem, num_glyphs)
     }
 
@@ -221,8 +218,8 @@ impl FontReconstructor {
                 is_cid_font,
             );
             if let Some(cmap_data) = cmap_data_opt {
-                if let Some(idx) = sfnt_dis.tables.iter().position(|(t, _)| t == b"cmap") {
-                    sfnt_dis.tables[idx].1 = cmap_data;
+                if let Some((_, table)) = sfnt_dis.tables.iter_mut().find(|(t, _)| t == b"cmap") {
+                    *table = cmap_data;
                 } else {
                     sfnt_dis.tables.push((*b"cmap", cmap_data));
                 }
@@ -336,8 +333,8 @@ impl FontReconstructor {
             && let Ok(mut sfnt_dis) = Self::disassemble_sfnt(data)
         {
             log::debug!("[RECONSTRUCT] Patching SFNT cmap table for {}", resource.base_font());
-            if let Some(idx) = sfnt_dis.tables.iter().position(|(t, _)| t == b"cmap") {
-                sfnt_dis.tables[idx].1 = new_cmap_data;
+            if let Some((_, table)) = sfnt_dis.tables.iter_mut().find(|(t, _)| t == b"cmap") {
+                *table = new_cmap_data;
             } else {
                 sfnt_dis.tables.push((*b"cmap", new_cmap_data));
             }
@@ -463,24 +460,17 @@ impl FontReconstructor {
             return Ok(CffInfo::empty());
         }
 
-        let mut pos = cff_data[2] as usize;
+        // The header's size byte; ten bytes are there, by the test above.
+        let mut pos = cff_data.get(2).map_or(0, |&size| usize::from(size));
         pos = skip_index(cff_data, pos);
         let top_dict_pos = pos;
-        let tc = if pos + 2 <= cff_data.len() {
-            u16::from_be_bytes([cff_data[pos], cff_data[pos + 1]])
-        } else {
-            0
-        };
+        let tc = crate::be::read_u16(cff_data, pos).unwrap_or(0);
         pos = skip_index(cff_data, pos);
         let string_idx_pos = pos;
         let string_index = Self::parse_string_index(cff_data, string_idx_pos);
 
         let gsubr_pos = skip_index(cff_data, string_idx_pos);
-        let gsubr_count = if gsubr_pos + 2 <= cff_data.len() {
-            u16::from_be_bytes([cff_data[gsubr_pos], cff_data[gsubr_pos + 1]])
-        } else {
-            0
-        };
+        let gsubr_count = crate::be::read_u16(cff_data, gsubr_pos).unwrap_or(0);
         log::debug!("[RECONSTRUCT] Global Subrs INDEX at {gsubr_pos}, count: {gsubr_count}");
 
         let (cso, cso2, is_cid) = Self::parse_cff_top_dict(cff_data, top_dict_pos, tc);
@@ -527,15 +517,22 @@ impl FontReconstructor {
         // which is all of the Japanese ones — fell through to being read as a bare CFF,
         // and answered with the count a failed parse leaves behind.
         let base = sfnt_base(data);
-        let is_sfnt = data.len() >= base + 4
-            && (data[base..].starts_with(b"OTTO") || data[base..].starts_with(&[0, 1, 0, 0]));
+        let is_sfnt = data
+            .get(base..)
+            .is_some_and(|font| font.starts_with(b"OTTO") || font.starts_with(&[0, 1, 0, 0]));
+        // The directory's range is its word, so one past the end is an error, not a slice.
+        let table = |(o, e): (usize, usize)| {
+            data.get(o..e).ok_or_else(|| {
+                FontError::Other("CFF table runs past the end of the program".into())
+            })
+        };
         if is_sfnt {
             if let Some((o, e)) = find_table_range(data, b"CFF ") {
                 log::debug!("[RECONSTRUCT] Found CFF table at {}-{} (size: {})", o, e, e - o);
-                Ok(&data[o..e])
+                table((o, e))
             } else if let Some((o, e)) = find_table_range(data, b"CFF2") {
                 log::debug!("[RECONSTRUCT] Found CFF2 table at {}-{} (size: {})", o, e, e - o);
-                Ok(&data[o..e])
+                table((o, e))
             } else {
                 // Deliberately silent. This warned, and it fired **918 times across six
                 // of the nine conforming samples** — 342 on `intel_sdm.pdf` alone —
@@ -556,11 +553,7 @@ impl FontReconstructor {
 
     fn parse_string_index(data: &[u8], pos: usize) -> Vec<String> {
         let mut string_index = Vec::new();
-        let str_count = if pos + 2 <= data.len() {
-            u16::from_be_bytes([data[pos], data[pos + 1]]) as usize
-        } else {
-            0
-        };
+        let str_count = crate::be::read_u16(data, pos).map_or(0, usize::from);
         for i in 0..str_count {
             if let Some(item) = get_index_item(data, pos, i) {
                 string_index.push(String::from_utf8_lossy(&item).to_string());
@@ -610,15 +603,15 @@ impl FontReconstructor {
         use crate::cff_standard::CFF_STANDARD_STRINGS;
 
         for (&sid, &gid) in sid_map {
-            let name = if sid <= CFF_LAST_STANDARD_SID {
-                CFF_STANDARD_STRINGS[sid as usize].to_string()
-            } else {
-                let custom_idx = (sid - (CFF_LAST_STANDARD_SID + 1)) as usize;
-                if let Some(item) = get_index_item(data, string_idx_pos, custom_idx) {
-                    String::from_utf8_lossy(&item).to_string()
-                } else {
-                    format!("c{sid:03}")
-                }
+            let name = match CFF_STANDARD_STRINGS.get(sid as usize) {
+                Some(standard) if sid <= CFF_LAST_STANDARD_SID => (*standard).to_string(),
+                _ => sid
+                    .checked_sub(CFF_LAST_STANDARD_SID + 1)
+                    .and_then(|custom| get_index_item(data, string_idx_pos, custom as usize))
+                    .map_or_else(
+                        || format!("c{sid:03}"),
+                        |item| String::from_utf8_lossy(&item).to_string(),
+                    ),
             };
             nm.insert(name.clone(), gid);
             log::debug!("[RECONSTRUCT] Derived name: {name} -> GID {gid}");
@@ -723,38 +716,38 @@ impl FontReconstructor {
                 if let Some(fd) = get_index_item(data, offset, i.into()) {
                     let mut fdp = 0;
                     let mut fdops = Vec::new();
-                    while fdp < fd.len() {
-                        let b0 = fd[fdp];
+                    while let Some(&b0) = fd.get(fdp) {
                         if b0 <= 21 {
                             let mut op = u16::from(b0);
                             fdp += 1;
-                            if op == 12 && fdp < fd.len() {
-                                op = (op << 8) | u16::from(fd[fdp]);
+                            if op == 12
+                                && let Some(&b1) = fd.get(fdp)
+                            {
+                                op = (op << 8) | u16::from(b1);
                                 fdp += 1;
                             }
-                            if op == 18 && fdops.len() >= 2 {
-                                let size = fdops[fdops.len() - 2] as usize;
-                                let off = fdops[fdops.len() - 1] as usize;
-                                if off + size <= data.len() {
-                                    let priv_data = &data[off..off + size];
-                                    let mut pp = 0;
-                                    let mut pops = Vec::new();
-                                    while pp < priv_data.len() {
-                                        let pb0 = priv_data[pp];
-                                        if pb0 <= 21 {
-                                            pp += 1;
-                                            pops.clear();
-                                        } else {
-                                            let (v, l) = parse_dict_number(&priv_data[pp..]);
-                                            pops.push(v);
-                                            pp += l;
-                                        }
+                            if op == 18
+                                && let [.., size, off] = fdops[..]
+                                && let Some(priv_data) = data
+                                    .get(off as usize..(off as usize).saturating_add(size as usize))
+                            {
+                                let mut pp = 0;
+                                let mut pops = Vec::new();
+                                while let Some(&pb0) = priv_data.get(pp) {
+                                    if pb0 <= 21 {
+                                        pp += 1;
+                                        pops.clear();
+                                    } else {
+                                        let rest = priv_data.get(pp..).unwrap_or_default();
+                                        let (v, l) = parse_dict_number(rest);
+                                        pops.push(v);
+                                        pp += l;
                                     }
                                 }
                             }
                             fdops.clear();
                         } else {
-                            let (v, l) = parse_dict_number(&fd[fdp..]);
+                            let (v, l) = parse_dict_number(fd.get(fdp..).unwrap_or_default());
                             fdops.push(v);
                             fdp += l;
                         }
@@ -778,21 +771,20 @@ impl FontReconstructor {
         {
             let mut dpos = 0;
             let mut ops = Vec::new();
-            while dpos < dd.len() {
-                let b0 = dd[dpos];
+            while let Some(&b0) = dd.get(dpos) {
                 if b0 <= 21 {
                     let mut op = u16::from(b0);
                     dpos += 1;
-                    if op == 12 && dpos < dd.len() {
-                        op = (op << 8) | u16::from(dd[dpos]);
+                    if op == 12
+                        && let Some(&b1) = dd.get(dpos)
+                    {
+                        op = (op << 8) | u16::from(b1);
                         dpos += 1;
                     }
                     match op {
                         17 => cso = ops.last().copied().and_then(|v| usize::try_from(v).ok()),
                         18 => {
-                            if ops.len() >= 2 {
-                                let size = ops[ops.len() - 2] as usize;
-                                let offset = ops[ops.len() - 1] as usize;
+                            if let [.., size, offset] = ops[..] {
                                 log::debug!(
                                     "[RECONSTRUCT] Private DICT: offset {offset}, size {size}"
                                 );
@@ -808,7 +800,7 @@ impl FontReconstructor {
                     }
                     ops.clear();
                 } else {
-                    let (v, l) = parse_dict_number(&dd[dpos..]);
+                    let (v, l) = parse_dict_number(dd.get(dpos..).unwrap_or_default());
                     ops.push(v);
                     dpos += l;
                 }
@@ -819,14 +811,11 @@ impl FontReconstructor {
 
     fn parse_cff_charset(data: &[u8], off: usize, num_glyphs: u16) -> Option<BTreeMap<u32, u32>> {
         let mut map = BTreeMap::new();
-        let format = data[off];
+        let format = *data.get(off)?;
         let mut cpos = off + 1;
         if format == 0 {
             for gid in 1..num_glyphs {
-                if cpos + 2 > data.len() {
-                    break;
-                }
-                let cid = u16::from_be_bytes([data[cpos], data[cpos + 1]]);
+                let Some(cid) = crate::be::read_u16(data, cpos) else { break };
                 map.insert(u32::from(cid), u32::from(gid));
                 cpos += 2;
             }
@@ -834,14 +823,15 @@ impl FontReconstructor {
             let mut gid = 1;
             while gid < num_glyphs {
                 let sz = if format == 1 { 3 } else { 4 };
-                if cpos + sz > data.len() {
+                let (Some(fc), Some(nl)) = (
+                    crate::be::read_u16(data, cpos),
+                    if format == 1 {
+                        data.get(cpos + 2).map(|&n| u16::from(n))
+                    } else {
+                        crate::be::read_u16(data, cpos + 2)
+                    },
+                ) else {
                     break;
-                }
-                let fc = u16::from_be_bytes([data[cpos], data[cpos + 1]]);
-                let nl = if format == 1 {
-                    u16::from(data[cpos + 2])
-                } else {
-                    u16::from_be_bytes([data[cpos + 2], data[cpos + 3]])
                 };
                 cpos += sz;
                 for i in 0..=nl {
@@ -860,26 +850,17 @@ impl FontReconstructor {
     }
 
     fn parse_index_header(data: &[u8], pos: usize) -> Option<(usize, u16, usize)> {
-        if pos + 2 > data.len() {
-            return None;
-        }
-        let count = u16::from_be_bytes([data[pos], data[pos + 1]]);
+        let count = crate::be::read_u16(data, pos)?;
         if count == 0 {
             return Some((pos + 2, 0, 0));
         }
-        if pos + 3 > data.len() {
-            return None;
-        }
-        let off_size = data[pos + 2] as usize;
+        let off_size = usize::from(*data.get(pos + 2)?);
         Some((pos + 3, count, off_size))
     }
 }
 
 pub(crate) fn skip_index(data: &[u8], pos: usize) -> usize {
-    if pos + 2 > data.len() {
-        return pos;
-    }
-    let count = u16::from_be_bytes([data[pos], data[pos + 1]]) as usize;
+    let Some(count) = crate::be::read_u16(data, pos).map(usize::from) else { return pos };
     if count == 0 {
         return pos + 2;
     }
@@ -897,10 +878,8 @@ pub(crate) fn skip_index(data: &[u8], pos: usize) -> usize {
         return pos;
     }
     let lo = pos + 3 + count * os;
-    let mut off = 0;
-    for j in 0..os {
-        off = (off << 8) | data[lo + j] as usize;
-    }
+    let Some(last) = data.get(lo..lo + os) else { return pos };
+    let off = last.iter().fold(0, |off, &b| (off << 8) | usize::from(b));
     (pos + is + off).checked_sub(1).filter(|&end| end <= data.len()).unwrap_or(pos)
 }
 
@@ -936,9 +915,9 @@ pub(crate) fn get_index_item(data: &[u8], ip: usize, i: usize) -> Option<Vec<u8>
     let base = ip.checked_add(3)?.checked_add(count.checked_add(1)?.checked_mul(offset_size)?)?;
     let ds = base.checked_add(s)?.checked_sub(1)?;
     let de = base.checked_add(e)?.checked_sub(1)?;
-    // `ds <= de` was not checked either. A backwards pair panics on the slice even when
-    // both ends are inside the buffer, which the `de <= data.len()` guard alone allows.
-    if ds <= de && de <= data.len() { Some(data[ds..de].to_vec()) } else { None }
+    // `ds <= de` was not checked either. A backwards pair panics on a slice even when both
+    // ends are inside the buffer; `get` answers it, and one past the end, with `None`.
+    data.get(ds..de).map(<[u8]>::to_vec)
 }
 
 /// One DICT operand (Technical Note 5176, Table 3), and how many bytes it took. An operand
@@ -949,8 +928,7 @@ fn parse_dict_number(d: &[u8]) -> (i32, usize) {
     let truncated = (0, d.len());
     if b0 == 30 {
         let mut len = 1;
-        while len < d.len() {
-            let b = d[len];
+        while let Some(&b) = d.get(len) {
             len += 1;
             if (b & 0x0F) == 0x0F || (b >> 4) == 0x0F {
                 break;
@@ -958,9 +936,13 @@ fn parse_dict_number(d: &[u8]) -> (i32, usize) {
         }
         (0, len)
     } else if b0 == 28 {
-        d.get(1..3).map_or(truncated, |v| (i32::from(i16::from_be_bytes([v[0], v[1]])), 3))
+        d.get(1..)
+            .and_then(<[u8]>::first_chunk::<2>)
+            .map_or(truncated, |&v| (i32::from(i16::from_be_bytes(v)), 3))
     } else if b0 == 29 {
-        d.get(1..5).map_or(truncated, |v| (i32::from_be_bytes([v[0], v[1], v[2], v[3]]), 5))
+        d.get(1..)
+            .and_then(<[u8]>::first_chunk::<4>)
+            .map_or(truncated, |&v| (i32::from_be_bytes(v), 5))
     } else if (32..=246).contains(&b0) {
         (i32::from(b0) - 139, 1)
     } else if (247..=250).contains(&b0) {
@@ -996,22 +978,21 @@ pub(crate) fn sfnt_base(s: &[u8]) -> usize {
 /// which one is wanted is decided by what each states ([`crate::metrics::regular_face`]),
 /// not by its position.
 pub(crate) fn sfnt_base_at(s: &[u8], index: u32) -> usize {
-    if s.len() < 16 || &s[0..4] != b"ttcf" {
+    if s.len() < 16 || !s.starts_with(b"ttcf") {
         return 0;
     }
     let at = 12 + (index as usize) * 4;
-    let Some(bytes) = s.get(at..at + 4) else { return 0 };
-    let base = u32::from_be_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]) as usize;
+    let Some(base) = crate::be::read_u32(s, at).map(|base| base as usize) else { return 0 };
     if base + 12 <= s.len() { base } else { 0 }
 }
 
 /// How many faces `s` holds: one, unless it is a collection.
 #[must_use]
 pub fn face_count(s: &[u8]) -> u32 {
-    if s.len() < 12 || &s[0..4] != b"ttcf" {
+    if !s.starts_with(b"ttcf") {
         return 1;
     }
-    u32::from_be_bytes([s[8], s[9], s[10], s[11]])
+    crate::be::read_u32(s, 8).unwrap_or(1)
 }
 
 /// Where the table tagged `t` lies in the sfnt program `s` — its first face, in a
@@ -1028,15 +1009,17 @@ pub(crate) fn find_table_range_at(s: &[u8], t: &[u8; 4], base: usize) -> Option<
     if s.len() < 12 {
         return None;
     }
-    let nt = u16::from_be_bytes([*s.get(base + 4)?, *s.get(base + 5)?]) as usize;
-    for i in 0..nt {
+    let nt = crate::be::read_u16(s, base + 4)?;
+    for i in 0..usize::from(nt) {
         let e = base + 12 + i * 16;
-        if e + 16 > s.len() {
+        let Some(&[t0, t1, t2, t3, _, _, _, _, o0, o1, o2, o3, l0, l1, l2, l3]) =
+            s.get(e..).and_then(<[u8]>::first_chunk::<16>)
+        else {
             break;
-        }
-        if &s[e..e + 4] == t {
-            let o = u32::from_be_bytes([s[e + 8], s[e + 9], s[e + 10], s[e + 11]]) as usize;
-            let l = u32::from_be_bytes([s[e + 12], s[e + 13], s[e + 14], s[e + 15]]) as usize;
+        };
+        if &[t0, t1, t2, t3] == t {
+            let o = u32::from_be_bytes([o0, o1, o2, o3]) as usize;
+            let l = u32::from_be_bytes([l0, l1, l2, l3]) as usize;
             return Some((o, o + l));
         }
     }

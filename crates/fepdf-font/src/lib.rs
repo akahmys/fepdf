@@ -8,6 +8,8 @@
 pub mod agl;
 /// The simple-font base encodings of Annex D.
 pub mod annex_d;
+/// Big-endian integers read out of a font program, bounded.
+mod be;
 pub mod cff;
 /// Standard CFF strings and constants.
 pub mod cff_standard;

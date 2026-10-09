@@ -82,21 +82,10 @@ pub fn advance_width(program: &[u8], gid: u16) -> Option<u16> {
     read_u16(program, at)
 }
 
-fn read_u16(data: &[u8], at: usize) -> Option<u16> {
-    Some(u16::from_be_bytes([*data.get(at)?, *data.get(at + 1)?]))
-}
+use crate::be::{read_u16, read_u32};
 
 fn read_i16(data: &[u8], at: usize) -> Option<i16> {
     read_u16(data, at).map(|v| v as i16)
-}
-
-fn read_u32(data: &[u8], at: usize) -> Option<u32> {
-    Some(u32::from_be_bytes([
-        *data.get(at)?,
-        *data.get(at + 1)?,
-        *data.get(at + 2)?,
-        *data.get(at + 3)?,
-    ]))
 }
 
 /// A `Fixed` 16.16, as `post.italicAngle` is written.

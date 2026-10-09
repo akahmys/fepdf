@@ -128,11 +128,14 @@ python3 scripts/audit/impl_length.py || { echo "  FAIL: impl_length.py said so a
 # rather than the text, so none of those shapes passes. `--lib --bins` is the scope the
 # grep had, production code; tests and examples may panic. A real exemption is
 # `#[allow(clippy::unwrap_used, reason = "...")]`, whose reason the compiler keeps.
+# `indexing_slicing` joined on 2026-10-10, when the 796 indexes and slices the first count
+# found were all gone: `data[i]` on a hostile file is a panic the other lints do not see.
 echo "[Rule 2] Checking for panics in production code (clippy)..."
 if rule2_out=$(cargo clippy --workspace --lib --bins --quiet -- \
     -A clippy::all -A clippy::pedantic -A clippy::nursery \
     -D clippy::unwrap_used -D clippy::expect_used -D clippy::panic \
-    -D clippy::unreachable -D clippy::todo -D clippy::unimplemented 2>&1); then
+    -D clippy::unreachable -D clippy::todo -D clippy::unimplemented \
+    -D clippy::indexing_slicing 2>&1); then
     echo "  PASS"
 else
     echo "$rule2_out" | grep -E "^(error|  *-->)" | head -40

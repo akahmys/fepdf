@@ -214,27 +214,32 @@ impl FontReconstructor {
 
     pub(super) fn parse_subrs(full_text: &[u8], pos: usize, subrs: &mut Vec<Vec<u8>>) {
         let mut search_pos = pos;
-        while let Some(dup_pos) = Self::find_subslice(&full_text[search_pos..], b"dup") {
+        while let Some(dup_pos) =
+            full_text.get(search_pos..).and_then(|rest| Self::find_subslice(rest, b"dup"))
+        {
             let current_dup = search_pos + dup_pos;
-            let chunk = &full_text[current_dup..std::cmp::min(current_dup + 50, full_text.len())];
+            let chunk = full_text
+                .get(current_dup..full_text.len().min(current_dup + 50))
+                .unwrap_or_default();
             let chunk_str = String::from_utf8_lossy(chunk);
             let parts: Vec<&str> = chunk_str.split_whitespace().collect();
-            if parts.len() >= 3
-                && parts[0] == "dup"
-                && let Ok(index) = parts[1].parse::<usize>()
+            if let ["dup", number, _, ..] = parts.as_slice()
+                && let Ok(index) = number.parse::<usize>()
                 && let Some((data, next_pos)) =
-                    Self::extract_rd_data(full_text, current_dup + 4 + parts[1].len())
+                    Self::extract_rd_data(full_text, current_dup + 4 + number.len())
             {
                 if index >= subrs.len() {
                     subrs.resize(index + 1, Vec::new());
                 }
-                subrs[index] = data;
+                if let Some(slot) = subrs.get_mut(index) {
+                    *slot = data;
+                }
                 search_pos = next_pos;
                 continue;
             }
             search_pos = current_dup + 3;
             if search_pos >= full_text.len()
-                || &full_text[search_pos..std::cmp::min(search_pos + 3, full_text.len())] == b"def"
+                || full_text.get(search_pos..).is_some_and(|rest| rest.starts_with(b"def"))
             {
                 break;
             }
@@ -266,7 +271,7 @@ impl FontReconstructor {
             }
 
             if search_pos >= full_text.len()
-                || &full_text[search_pos..std::cmp::min(search_pos + 3, full_text.len())] == b"end"
+                || full_text.get(search_pos..).is_some_and(|rest| rest.starts_with(b"end"))
             {
                 break;
             }
@@ -304,8 +309,8 @@ impl FontReconstructor {
                 247..=250 => ((i32::from(byte) - 247) * 256 + next(1)? + 108, 2),
                 251..=254 => (-(i32::from(byte) - 251) * 256 - next(1)? - 108, 2),
                 255 => {
-                    let b = charstring.get(at + 1..at + 5)?;
-                    (i32::from_be_bytes([b[0], b[1], b[2], b[3]]), 5)
+                    let b: [u8; 4] = charstring.get(at + 1..at + 5)?.try_into().ok()?;
+                    (i32::from_be_bytes(b), 5)
                 }
                 13 => return stack.get(1).copied(),
                 12 if charstring.get(at + 1) == Some(&7) => return stack.get(2).copied(),
@@ -340,7 +345,7 @@ impl FontReconstructor {
         full_text.extend_from_slice(binary);
 
         if let Some(pos) = Self::find_subslice(&full_text, b"/lenIV") {
-            let chunk = &full_text[pos..std::cmp::min(pos + 20, full_text.len())];
+            let chunk = full_text.get(pos..full_text.len().min(pos + 20)).unwrap_or_default();
             if let Some(val) = Self::extract_number(chunk) {
                 len_iv = usize::try_from(val).ok();
             }
@@ -401,12 +406,7 @@ impl FontReconstructor {
     /// The byte offset just past the name whose slash is at `pos`.
     pub(super) fn name_end(data: &[u8], pos: usize) -> usize {
         let mut end = pos + 1;
-        while end < data.len()
-            && !data[end].is_ascii_whitespace()
-            && data[end] != b'/'
-            && data[end] != b'{'
-            && data[end] != b'['
-        {
+        while data.get(end).is_some_and(|b| !b.is_ascii_whitespace() && !b"/{[".contains(b)) {
             end += 1;
         }
         end.min(data.len())
@@ -418,30 +418,34 @@ impl FontReconstructor {
         if pos > data.len() {
             return None;
         }
+        let space =
+            |i: usize, want: bool| data.get(i).is_some_and(|b| b.is_ascii_whitespace() == want);
         let mut i = pos;
-        while i < data.len() && data[i].is_ascii_whitespace() {
+        while space(i, true) {
             i += 1;
         }
         let start_num = i;
-        while i < data.len() && !data[i].is_ascii_whitespace() {
+        while space(i, false) {
             i += 1;
         }
-        let num_str = String::from_utf8_lossy(&data[start_num..i]);
+        let num_str = String::from_utf8_lossy(data.get(start_num..i)?);
         let len = num_str.parse::<usize>().ok()?;
 
-        while i < data.len() && data[i].is_ascii_whitespace() {
+        while space(i, true) {
             i += 1;
         }
         let op_start = i;
-        while i < data.len() && !data[i].is_ascii_whitespace() {
+        while space(i, false) {
             i += 1;
         }
-        let op = &data[op_start..i];
+        let op = data.get(op_start..i)?;
 
         if op == b"RD" || op == b"-|" {
             let data_start = i + 1; // Usually a space after RD
-            if data_start < data.len() && data_start + len <= data.len() {
-                return Some((data[data_start..data_start + len].to_vec(), data_start + len));
+            if data_start < data.len()
+                && let Some(bytes) = data.get(data_start..data_start.checked_add(len)?)
+            {
+                return Some((bytes.to_vec(), data_start + len));
             }
         }
         None
@@ -498,24 +502,20 @@ impl FontReconstructor {
         let mut trailer = Vec::new();
         let mut pos = 0;
 
-        while pos + 6 <= data.len() {
-            if data[pos] != 0x80 {
-                break;
-            }
-            let tag = data[pos + 1];
-            let len =
-                u32::from_le_bytes([data[pos + 2], data[pos + 3], data[pos + 4], data[pos + 5]])
-                    as usize;
+        while let Some(&[0x80, tag, l0, l1, l2, l3]) =
+            data.get(pos..).and_then(|rest| rest.first_chunk::<6>())
+        {
+            let len = u32::from_le_bytes([l0, l1, l2, l3]) as usize;
             pos += 6;
 
-            if pos + len > data.len() {
+            let Some(segment) = data.get(pos..pos + len) else {
                 return Err(FontError::Other("Malformed PFB: segment exceeds data length".into()));
-            }
+            };
 
             match tag {
-                1 => ascii.extend_from_slice(&data[pos..pos + len]),
-                2 => binary.extend_from_slice(&data[pos..pos + len]),
-                3 => trailer.extend_from_slice(&data[pos..pos + len]),
+                1 => ascii.extend_from_slice(segment),
+                2 => binary.extend_from_slice(segment),
+                3 => trailer.extend_from_slice(segment),
                 _ => {}
             }
             pos += len;

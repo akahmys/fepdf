@@ -142,7 +142,8 @@ impl Interpreter<'_> {
                     .map(|&w| (f64::from(-(i32::from(b) - 251) * 256 - i32::from(w) - 108), 2)),
                 255 => bytes
                     .get(at + 1..at + 5)
-                    .map(|v| (f64::from(i32::from_be_bytes([v[0], v[1], v[2], v[3]])), 5)),
+                    .and_then(|v| <[u8; 4]>::try_from(v).ok())
+                    .map(|v| (f64::from(i32::from_be_bytes(v)), 5)),
                 _ => None,
             };
             if b >= 32 {

@@ -13,10 +13,10 @@
 /// [ADR-0071](../../../docs/adr/0071-three-declarations-that-read-nothing-and-one-that-wrote-nothing.md).
 pub fn subset_tag(base_font: &str) -> Option<&str> {
     let bytes = base_font.as_bytes();
-    if bytes.len() < 8 || bytes[6] != b'+' {
+    if bytes.len() < 8 || bytes.get(6) != Some(&b'+') {
         return None;
     }
-    let tag = &base_font[..6];
+    let tag = base_font.get(..6)?;
     tag.bytes().all(|b| b.is_ascii_uppercase()).then_some(tag)
 }
 
@@ -264,18 +264,7 @@ fn find_table(program: &[u8], tag: &[u8; 4]) -> Option<(usize, usize)> {
     crate::reconstruction::find_table_range(program, tag)
 }
 
-fn read_u16(data: &[u8], at: usize) -> Option<u16> {
-    Some(u16::from_be_bytes([*data.get(at)?, *data.get(at + 1)?]))
-}
-
-fn read_u32(data: &[u8], at: usize) -> Option<u32> {
-    Some(u32::from_be_bytes([
-        *data.get(at)?,
-        *data.get(at + 1)?,
-        *data.get(at + 2)?,
-        *data.get(at + 3)?,
-    ]))
-}
+use crate::be::{read_u16, read_u32};
 
 #[cfg(test)]
 mod subset_tag_tests {

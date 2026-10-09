@@ -160,8 +160,7 @@ fn read_dict(data: &[u8]) -> Vec<DictEntry> {
     let mut out = Vec::new();
     let mut operands: Vec<i32> = Vec::new();
     let mut at = 0;
-    while at < data.len() {
-        let b0 = data[at];
+    while let Some(&b0) = data.get(at) {
         if b0 <= 21 {
             let mut op = u16::from(b0);
             at += 1;
@@ -583,10 +582,7 @@ pub fn glyph_to_font_dict(program: &[u8]) -> Option<Vec<u8>> {
     }
 }
 
-/// A big-endian `uint16` at `at`.
-fn read_u16(data: &[u8], at: usize) -> Option<u16> {
-    Some(u16::from_be_bytes([*data.get(at)?, *data.get(at + 1)?]))
-}
+use crate::be::read_u16;
 
 /// Programs laid out in orders CFF allows and the corpus does not happen to use.
 #[cfg(test)]

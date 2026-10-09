@@ -1755,7 +1755,7 @@ before it is decided; Z-4 when convenient; Z-5 with the next GUI defect.
       sidebearing, `seac` and flex, and breaking each of those, or the split, fails it.
       Three Isartor pages using ArialMT now draw its glyphs, not the system font's.
       `/FontMatrix` other than 0.001 is not carried into the CFF.
-- [ ] **Z-3** — **Rule 2 held by clippy.** `verify_compliance.sh` greps for `.unwrap(` and
+- [x] **Z-3** — **Rule 2 held by clippy.** `verify_compliance.sh` greps for `.unwrap(` and
       `.expect(`, and does not see `panic!`, `unreachable!` or `todo!` (56 in `src/`,
       tests not yet separated out) or a slice index past the end. `clippy::unwrap_used`,
       `expect_used`, `panic` and `unreachable` at deny would replace the grep, with
@@ -1772,9 +1772,10 @@ before it is decided; Z-4 when convenient; Z-5 with the next GUI defect.
       `unwrap_used`, `expect_used`, `panic`, `unreachable`, `todo` and `unimplemented`
       over `--lib --bins`, and adding an `unreachable!` to `fepdf-font` fails it.
       **The owner chose to take out every index and slice**, and then deny
-      `indexing_slicing` too. Under way, crate by crate: render, cli, fixtures, audit,
-      gui, the facade, content, syntax, doc and model are done (552 of 796); font
-      remains.
+      `indexing_slicing` too. **All 796 are gone, 2026-10-10**, crate by crate, and
+      `verify_compliance.sh` denies `indexing_slicing` with the rest; an index added to
+      `fepdf-font` fails it. Big-endian reads in `fepdf-font` share one checked reader,
+      `be.rs`, in place of three copies.
 - [x] **Z-4** — **pdf.js's test files in the external corpus.** `mozilla/pdf.js`
       `test/pdfs` holds files committed to it, and `.link` files naming a URL elsewhere
       (314 of the first 1,000 entries listed). Only the committed files are fetched,

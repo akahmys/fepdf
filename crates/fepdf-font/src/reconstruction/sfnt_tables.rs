@@ -7,22 +7,24 @@ use super::{
 use crate::{FontError, FontResult};
 use std::collections::BTreeMap;
 
+/// Writes `bytes` into `table` at `at`. Every table here is allocated at the size its
+/// fields need, so the write always lands; one past the end would be dropped, not panic.
+fn put(table: &mut [u8], at: usize, bytes: &[u8]) {
+    if let Some(slot) = table.get_mut(at..at + bytes.len()) {
+        slot.copy_from_slice(bytes);
+    }
+}
+
 impl FontReconstructor {
     pub(super) fn build_name_table(resource: &impl FontInfo) -> Vec<u8> {
         let font_name = resource.base_font().as_bytes();
-        let name_count = 1;
-        let mut name_table = vec![0u8; 6 + 12 * name_count + font_name.len()];
-        name_table[2..4].copy_from_slice(&(name_count as u16).to_be_bytes());
-        name_table[4..6].copy_from_slice(&(6 + 12 * name_count as u16).to_be_bytes());
-
-        // Record 1: Full Name (ID 4)
-        name_table[6..8].copy_from_slice(&3u16.to_be_bytes());
-        name_table[8..10].copy_from_slice(&1u16.to_be_bytes());
-        name_table[10..12].copy_from_slice(&0u16.to_be_bytes());
-        name_table[12..14].copy_from_slice(&4u16.to_be_bytes());
-        name_table[14..16].copy_from_slice(&(font_name.len() as u16).to_be_bytes());
-        name_table[16..18].copy_from_slice(&0u16.to_be_bytes());
-        name_table[18..18 + font_name.len()].copy_from_slice(font_name);
+        let mut name_table = Vec::with_capacity(18 + font_name.len());
+        // Format 0, one record, strings at 18; then record 1: Full Name (ID 4), Windows
+        // Unicode BMP, offset 0.
+        for word in [0, 1, 18, 3, 1, 0, 4, font_name.len() as u16, 0] {
+            name_table.extend_from_slice(&u16::to_be_bytes(word));
+        }
+        name_table.extend_from_slice(font_name);
         name_table
     }
 
@@ -48,35 +50,35 @@ impl FontReconstructor {
         let num_glyphs = info.num_glyphs;
 
         let mut head = vec![0u8; 54];
-        head[0..4].copy_from_slice(&[0, 1, 0, 0]);
-        head[12..16].copy_from_slice(&0x5F0F3CF5u32.to_be_bytes());
-        head[18..20].copy_from_slice(&1000u16.to_be_bytes());
+        put(&mut head, 0, &[0, 1, 0, 0]);
+        put(&mut head, 12, &0x5F0F3CF5u32.to_be_bytes());
+        put(&mut head, 18, &1000u16.to_be_bytes());
         tables.push((*b"head", head));
 
         let mut hhea = vec![0u8; 36];
-        hhea[0..4].copy_from_slice(&[0, 1, 0, 0]);
-        hhea[34..36].copy_from_slice(&(num_glyphs as u16).to_be_bytes());
+        put(&mut hhea, 0, &[0, 1, 0, 0]);
+        put(&mut hhea, 34, &(num_glyphs as u16).to_be_bytes());
         tables.push((*b"hhea", hhea));
 
         let mut maxp = vec![0u8; 32];
-        maxp[0..4].copy_from_slice(&[0, 0, 0x50, 0]);
-        maxp[4..6].copy_from_slice(&(num_glyphs as u16).to_be_bytes());
+        put(&mut maxp, 0, &[0, 0, 0x50, 0]);
+        put(&mut maxp, 4, &(num_glyphs as u16).to_be_bytes());
         tables.push((*b"maxp", maxp));
 
         tables.push((*b"hmtx", Self::build_hmtx_table(resource, num_glyphs)));
 
         // Synthesize a minimal OS/2 table (Required for OpenType)
         let mut os2 = vec![0u8; 96];
-        os2[0..2].copy_from_slice(&3u16.to_be_bytes());
-        os2[64..66].copy_from_slice(&400u16.to_be_bytes());
-        os2[66..68].copy_from_slice(&5u16.to_be_bytes());
+        put(&mut os2, 0, &3u16.to_be_bytes());
+        put(&mut os2, 64, &400u16.to_be_bytes());
+        put(&mut os2, 66, &5u16.to_be_bytes());
         tables.push((*b"OS/2", os2));
 
         tables.push((*b"name", Self::build_name_table(resource)));
 
         // Synthesize a minimal post table (Version 3.0)
         let mut post = vec![0u8; 32];
-        post[0..4].copy_from_slice(&[0, 0, 3, 0]); // version 3.0
+        put(&mut post, 0, &[0, 0, 3, 0]); // version 3.0
         tables.push((*b"post", post));
 
         tables
@@ -336,10 +338,9 @@ impl FontReconstructor {
         cmap.extend_from_slice(&12u32.to_be_bytes()); // offset
 
         let mut groups = Vec::new();
-        let mut cur_start = m[0].0;
-        let mut cur_gid = m[0].1;
+        let (&(mut cur_start, mut cur_gid), rest) = m.split_first()?;
         let mut cur_len = 1;
-        for &(cv, gv) in m.iter().skip(1) {
+        for &(cv, gv) in rest {
             if cv == cur_start + cur_len && gv == cur_gid + cur_len {
                 cur_len += 1;
             } else {
@@ -370,51 +371,43 @@ impl FontReconstructor {
             return Err(FontError::Internal("SFNT too short".into()));
         }
 
+        let magic_at = |at: usize| sfnt.get(at..)?.first_chunk::<4>().copied();
         let mut base_offset = 0;
-        let mut magic = [0u8; 4];
-        magic.copy_from_slice(&sfnt[0..4]);
+        let mut magic = magic_at(0).ok_or_else(|| FontError::Internal("SFNT too short".into()))?;
 
         if &magic == b"ttcf" {
             // A collection's header runs to 16 bytes, the first font's offset in 12..16.
             // This checked for 12, and a 15-byte one indexed past its end (ROADMAP Z-1).
-            if sfnt.len() < 16 {
+            let (Some(num_fonts), Some(first)) =
+                (crate::be::read_u32(sfnt, 8), crate::be::read_u32(sfnt, 12))
+            else {
                 return Err(FontError::Internal("TTC header too short".into()));
-            }
-            let num_fonts = u32::from_be_bytes([sfnt[8], sfnt[9], sfnt[10], sfnt[11]]) as usize;
+            };
             if num_fonts == 0 {
                 return Err(FontError::Internal("TTC contains no fonts".into()));
             }
-            base_offset = u32::from_be_bytes([sfnt[12], sfnt[13], sfnt[14], sfnt[15]]) as usize;
+            base_offset = first as usize;
             if base_offset + 12 > sfnt.len() {
                 return Err(FontError::Internal("TTC offset out of bounds".into()));
             }
-            magic.copy_from_slice(&sfnt[base_offset..base_offset + 4]);
+            magic = magic_at(base_offset)
+                .ok_or_else(|| FontError::Internal("TTC offset out of bounds".into()))?;
         }
 
-        let num_tables =
-            u16::from_be_bytes([sfnt[base_offset + 4], sfnt[base_offset + 5]]) as usize;
+        let num_tables = crate::be::read_u16(sfnt, base_offset + 4)
+            .ok_or_else(|| FontError::Internal("SFNT too short".into()))?;
         let mut tables = Vec::new();
-        for i in 0..num_tables {
+        for i in 0..usize::from(num_tables) {
             let entry = base_offset + 12 + i * 16;
-            if entry + 16 > sfnt.len() {
+            let Some(&[t0, t1, t2, t3, _, _, _, _, o0, o1, o2, o3, l0, l1, l2, l3]) =
+                sfnt.get(entry..).and_then(|rest| rest.first_chunk::<16>())
+            else {
                 break;
-            }
-            let mut tag = [0; 4];
-            tag.copy_from_slice(&sfnt[entry..entry + 4]);
-            let offset = u32::from_be_bytes([
-                sfnt[entry + 8],
-                sfnt[entry + 9],
-                sfnt[entry + 10],
-                sfnt[entry + 11],
-            ]) as usize;
-            let length = u32::from_be_bytes([
-                sfnt[entry + 12],
-                sfnt[entry + 13],
-                sfnt[entry + 14],
-                sfnt[entry + 15],
-            ]) as usize;
-            if offset + length <= sfnt.len() {
-                tables.push((tag, sfnt[offset..offset + length].to_vec()));
+            };
+            let offset = u32::from_be_bytes([o0, o1, o2, o3]) as usize;
+            let length = u32::from_be_bytes([l0, l1, l2, l3]) as usize;
+            if let Some(table) = sfnt.get(offset..offset + length) {
+                tables.push(([t0, t1, t2, t3], table.to_vec()));
             }
         }
         Ok(DisassembledSfnt { magic, tables })
@@ -430,7 +423,7 @@ impl FontReconstructor {
         let mut tables = tables.to_vec();
         tables.sort_by_key(|t| t.0);
         output.extend_from_slice(&(tables.len() as u16).to_be_bytes());
-        log::debug!("[RECONSTRUCT] SFNT: tables={}, sig={:02x?}", tables.len(), &output[0..4]);
+        log::debug!("[RECONSTRUCT] SFNT: tables={}, sig={:02x?}", tables.len(), output.get(..4));
         let search_range = (tables.len() as f64).log2().floor().exp2() as u16 * 16;
         output.extend_from_slice(&search_range.to_be_bytes());
         output.extend_from_slice(&((tables.len() as f64).log2().floor() as u16).to_be_bytes());
@@ -451,12 +444,12 @@ impl FontReconstructor {
         if let Some(h_off) = find_table_range(&output, b"head") {
             let adj = h_off.0 + 8;
             if adj + 4 <= output.len() {
-                output[adj..adj + 4].copy_from_slice(&[0, 0, 0, 0]);
+                put(&mut output, adj, &[0, 0, 0, 0]);
                 let sum = 0xB1B0AFBAu32.wrapping_sub(Self::calc_checksum(&output));
-                output[adj..adj + 4].copy_from_slice(&sum.to_be_bytes());
+                put(&mut output, adj, &sum.to_be_bytes());
             }
         }
-        log::debug!("[RECONSTRUCT] Final SFNT Header: {:02x?}", &output[0..16]);
+        log::debug!("[RECONSTRUCT] Final SFNT Header: {:02x?}", output.get(..16));
         Ok(output)
     }
 
@@ -468,7 +461,7 @@ impl FontReconstructor {
         }
         if !remainder.is_empty() {
             let mut padded = [0u8; 4];
-            padded[..remainder.len()].copy_from_slice(remainder);
+            padded.iter_mut().zip(remainder).for_each(|(pad, &byte)| *pad = byte);
             sum = sum.wrapping_add(u32::from_be_bytes(padded));
         }
         sum
@@ -479,20 +472,11 @@ impl FontReconstructor {
         resource: &impl FontInfo,
         native_upem: u16,
     ) {
-        if let Some(idx) = tables.iter().position(|(t, _)| t == b"hmtx") {
-            let hmtx = &mut tables[idx].1;
-            let n = hmtx.len() / 4;
+        if let Some((_, hmtx)) = tables.iter_mut().find(|(t, _)| t == b"hmtx") {
             let scale = f32::from(native_upem) / 1000.0;
-
-            for gid in 0..n {
+            for (gid, [hi, lo, _, _]) in hmtx.as_chunks_mut::<4>().0.iter_mut().enumerate() {
                 let w_pdf = resource.glyph_width_by_gid(gid as u32);
-                let w_native = (w_pdf * scale) as i16;
-                let off = gid * 4;
-                if off + 2 <= hmtx.len() {
-                    let b = w_native.to_be_bytes();
-                    hmtx[off] = b[0];
-                    hmtx[off + 1] = b[1];
-                }
+                [*hi, *lo] = ((w_pdf * scale) as i16).to_be_bytes();
             }
         }
     }
