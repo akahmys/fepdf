@@ -3,7 +3,7 @@
 /// The SFNT tables a reconstructed program needs, and the container around them.
 mod sfnt_tables;
 /// A Type 1 program made a CFF one.
-mod type1;
+pub(crate) mod type1;
 /// One Type 1 charstring run, and its outline written as Type 2.
 mod type1_charstring;
 
@@ -68,6 +68,9 @@ struct Type1Data {
     charstrings: BTreeMap<String, Vec<u8>>,
     subrs: Vec<Vec<u8>>,
     len_iv: Option<usize>,
+    /// `/FontMatrix` in thousandths of an em: the identity where it is the usual
+    /// `[0.001 0 0 0.001 0 0]`.
+    matrix: [f64; 6],
 }
 
 struct Type1Segments {
@@ -1327,8 +1330,12 @@ mod type1_subroutine_fan_out_tests {
         let (done, finished) = mpsc::channel();
         std::thread::spawn(move || {
             let charstrings = BTreeMap::new();
-            let program =
-                Type1Program { charstrings: &charstrings, subrs: &subrs, len_iv: Some(4) };
+            let program = Type1Program {
+                charstrings: &charstrings,
+                subrs: &subrs,
+                len_iv: Some(4),
+                matrix: [1.0, 0.0, 0.0, 1.0, 0.0, 0.0],
+            };
             let converted = convert_glyph(&glyph, &program);
             let _ = done.send(converted);
         });
@@ -1379,6 +1386,11 @@ mod type1_program_tests {
     /// A program as `/FontFile` holds one: clear text through `eexec`, then the Private
     /// dictionary and `/CharStrings` eexec-encrypted, with no PFB segment headers.
     fn program(glyphs: &[(&str, Vec<u8>)]) -> Vec<u8> {
+        program_in(b"", glyphs)
+    }
+
+    /// The same, with `cleartext` added to the clear text before `eexec`.
+    fn program_in(cleartext: &[u8], glyphs: &[(&str, Vec<u8>)]) -> Vec<u8> {
         let mut private = b"dup /Private 8 dict dup begin\n/lenIV 4 def\n/Subrs 0 array\nND\n\
             2 index /CharStrings 8 dict dup begin\n"
             .to_vec();
@@ -1390,8 +1402,10 @@ mod type1_program_tests {
         }
         private.extend(b"end\nend\nmark currentfile closefile\n");
         let mut data = b"%!FontType1-1.0: Test 001\n/FontName /Test def\n\
-            /Encoding StandardEncoding def\ncurrentfile eexec\n"
+            /Encoding StandardEncoding def\n"
             .to_vec();
+        data.extend(cleartext);
+        data.extend(b"currentfile eexec\n");
         data.extend(encrypt(&private, 55665));
         data
     }
@@ -1515,5 +1529,46 @@ mod type1_program_tests {
             ],
             "a flex is two curves, through the six points after the reference point"
         );
+    }
+
+    /// A program on a grid other than 1000 units is drawn at its size.
+    ///
+    /// The CFF states no `FontMatrix` and a reader takes 0.001, so a program stating
+    /// `[0.0005 0 0 0.0005 0 0]` — 2000 units to the em — came out twice as large, and a
+    /// skewed one upright (ROADMAP Z-2a). Its points are mapped through the matrix.
+    #[test]
+    fn a_program_on_another_grid_is_drawn_at_its_size() {
+        let glyph = charstring(
+            &[&[100, 1200], &[0, 0], &[1000, 0], &[0, 1400], &[]],
+            &[&[13], &[21], &[5], &[5], &[14]],
+        );
+        let outline_of = |cleartext: &[u8]| {
+            let data = program_in(cleartext, &[("A", glyph.clone())]);
+            let font = FontReconstructor::transcode_type1_to_cff(&data, &TestFontInfo)
+                .expect("it converts");
+            let face = ttf_parser::Face::parse(&font.data, 0).expect("the result parses");
+            let gid = (0..face.number_of_glyphs())
+                .map(ttf_parser::GlyphId)
+                .find(|&g| face.glyph_name(g) == Some("A"))
+                .expect("named");
+            let mut o = Outline::default();
+            face.outline_glyph(gid, &mut o);
+            let width = crate::program_glyphs::cff_name_advances(&font.data)
+                .and_then(|advances| advances.get("A").copied())
+                .map(f64::round);
+            (o.0, width)
+        };
+        assert_eq!(
+            outline_of(b"/FontMatrix [0.0005 0 0 0.0005 0 0] readonly def\n"),
+            (
+                vec![('M', vec![50.0, 0.0]), ('L', vec![550.0, 0.0]), ('L', vec![550.0, 700.0])],
+                Some(600.0)
+            ),
+            "a 2000-unit program is halved, its advance with it"
+        );
+        let (oblique, _) = outline_of(b"/FontMatrix {0.001 0 0.0005 0.001 0 0} def\n");
+        assert_eq!(oblique[2], ('L', vec![1800.0, 1400.0]), "a skew moves x by y");
+        let (standard, _) = outline_of(b"");
+        assert_eq!(standard[2], ('L', vec![1100.0, 1400.0]), "the usual matrix changes nothing");
     }
 }

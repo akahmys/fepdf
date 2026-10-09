@@ -26,7 +26,8 @@ The differences are by design:
 - Inherited attributes are resolved onto the pages
   ([ADR-0013](docs/adr/0013-a-document-is-one-normalised-state.md)).
 
-Phase Y is open (2026-09-28): the code the last cleanup never saw.
+Phases Y and Z are closed (2026-10-10). Two items Phase Y found wait on Windows and
+Linux, under [Held for another platform](#held-for-another-platform).
 `./scripts/dev/status.sh` re-derives the figures this file leans on, so a stale one reads
 as a disagreement rather than as current.
 
@@ -307,6 +308,21 @@ corpus counts alone, which is not a reason, so they became questions:
 | **P2** | `/AF` associated files (14.13) | **Built**, `/AFRelationship` included; 17 files carry them |
 | **P3** | `/DSS` and `/Perms` — long-term validation data, and DocMDP | **Open.** Neither occurs in any of 524 files, so a use case would have to justify it |
 | **P4** | What a document does when opened | **Built**, `inspect actions`; two files of 524 run code with no interaction ([ADR-0022](docs/adr/0022-what-a-document-does-is-a-settled-question-where-reads-an-action-is-not.md)) |
+
+## Held for another platform
+
+Work that can be neither done nor checked on this machine. Each keeps the ID of the phase
+that found it, and is taken when it can be run where it applies; until then it holds no
+phase open.
+
+- [ ] **Y-F9** — reading aloud on Windows hands PowerShell the words on standard input
+      and reads them with `[Console]::In`, whose encoding is the console's code page, not
+      UTF-8; nothing sets it, so Japanese may arrive garbled (`speech.rs`). Unverified: no
+      Windows here. Held until it can be run on Windows.
+- [ ] **Y-F10** — stopping speech on Linux kills `spd-say`, and the speaking is done by
+      the speech-dispatcher server; whether the passage under way stops is unverified,
+      and `spd-say --cancel` is the call that says so (`speech.rs`). Held until it can be
+      run on Linux.
 
 ## Not planned
 
@@ -801,8 +817,8 @@ their places; this is the order they are taken in.
    `fepdf-doc` splits, below. The claim reads as the sizes are, and the audit is its own
    crate (2026-10-06).
 
-Y-F9 and Y-F10 are held: each is about a platform this machine is not, and is taken when
-it can be run there.
+Y-F9 and Y-F10 are about a platform this machine is not, and are kept apart under
+[Held for another platform](#held-for-another-platform).
 
 **The net**
 - [x] **Y-0** — `scripts/test/golden_outputs.sh` compares, between `HEAD` and the working
@@ -920,14 +936,6 @@ it can be run there.
       (UI-12), and is gone, the redaction studio command opening the drawer and the
       brush with it; and `fepdf-wasm` builds for `wasm32-unknown-unknown`, with clippy
       clean on that target, once the target was installed.
-- [ ] **Y-F9** — reading aloud on Windows hands PowerShell the words on standard input
-      and reads them with `[Console]::In`, whose encoding is the console's code page, not
-      UTF-8; nothing sets it, so Japanese may arrive garbled (`speech.rs`). Unverified: no
-      Windows here. Held until it can be run on Windows.
-- [ ] **Y-F10** — stopping speech on Linux kills `spd-say`, and the speaking is done by
-      the speech-dispatcher server; whether the passage under way stops is unverified,
-      and `spd-say --cancel` is the call that says so (`speech.rs`). Held until it can be
-      run on Linux.
 - [x] **Y-F11** — writing the bookmark panel's draft replaces the whole tree with what
       `OutlineNode` carries: a title, a page, children. Every item's `/C`, `/F`, `/SE`
       and open state goes, which its module says; so does a non-`GoTo` `/A`, which it
@@ -1692,6 +1700,10 @@ before it is decided; Z-4 when convenient; Z-5 with the next GUI defect.
       `Interpreter::may_nest`'s limit makes about six million backend calls, a second in
       a release build. The limit holds and is recorded; what `VelloBackend` holds in
       memory for a scene that size is not measured.
+      **Nightly, 2026-10-10**: `.github/workflows/fuzz.yml` runs
+      `scripts/test/fuzz.sh` at 03:00 JST, twenty minutes a target, the corpus kept from
+      one night to the next and any finding uploaded. The script fails on a file a run
+      writes under `target/fuzz/artifacts/`; a planted panic in `type1_program` fails it.
 - [x] **Z-2** — **PrintCraft's findings, as inputs.** Each item in its `vendor/README.md`
       names an input and what it did: `/Columns 4294967295` predictor rows, `/W` and
       `/LW` far past any canvas, CCITT and JBIG2 dimensions, a page tree whose `/Kids`
@@ -1754,7 +1766,11 @@ before it is decided; Z-4 when convenient; Z-5 with the next GUI defect.
       as unencrypted. `type1_program_tests` builds a program and checks the names, the
       sidebearing, `seac` and flex, and breaking each of those, or the split, fails it.
       Three Isartor pages using ArialMT now draw its glyphs, not the system font's.
-      `/FontMatrix` other than 0.001 is not carried into the CFF.
+      **`/FontMatrix` other than 0.001 is carried, 2026-10-10.** The CFF states none, so
+      each outline and advance is mapped through the program's matrix into thousandths
+      of an em; a 2000-unit program is halved and a skewed one leans, and without the
+      mapping `a_program_on_another_grid_is_drawn_at_its_size` fails. The advances
+      `program_glyphs` reads come from the same parse.
 - [x] **Z-3** — **Rule 2 held by clippy.** `verify_compliance.sh` greps for `.unwrap(` and
       `.expect(`, and does not see `panic!`, `unreachable!` or `todo!` (56 in `src/`,
       tests not yet separated out) or a slice index past the end. `clippy::unwrap_used`,

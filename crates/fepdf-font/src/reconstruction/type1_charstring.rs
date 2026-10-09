@@ -38,6 +38,9 @@ pub(super) struct Type1Program<'a> {
     /// `/lenIV`: the random bytes each charstring starts with, or `None` where it is
     /// negative and the charstrings are not encrypted at all.
     pub len_iv: Option<usize>,
+    /// `/FontMatrix` times 1000, which every outline is mapped through so that the CFF
+    /// is drawn at 1000 units to the em whatever the program's own grid was.
+    pub matrix: [f64; 6],
 }
 
 impl Type1Program<'_> {
@@ -120,6 +123,7 @@ pub(super) fn convert_glyph(charstring: &[u8], program: &Type1Program<'_>) -> Ve
             }
         }
     }
+    it.map_to_thousandths(program.matrix);
     it.to_type2()
 }
 
@@ -305,6 +309,38 @@ impl Interpreter<'_> {
         let (x3, y3) = (x2 + d[4], y2 + d[5]);
         self.path.push(Segment::Curve([x1, y1, x2, y2, x3, y3]));
         self.point = (x3, y3);
+    }
+
+    /// The outline and the advance mapped through `m`, `/FontMatrix` in thousandths.
+    ///
+    /// **The CFF written here states no `FontMatrix`**, so a reader takes the default
+    /// 0.001 and a program on another grid — 2048 units, or a skewed oblique — was drawn
+    /// at the wrong size. The matrix is applied to the points instead, which no reader can
+    /// overlook. A value within a millionth of a whole number is taken as that number.
+    fn map_to_thousandths(&mut self, m: [f64; 6]) {
+        if m == [1.0, 0.0, 0.0, 1.0, 0.0, 0.0] {
+            return;
+        }
+        let [a, b, c, d, e, f] = m;
+        let snap = |v: f64| if (v - v.round()).abs() < 1e-6 { v.round() } else { v };
+        let map = |x: f64, y: f64| (snap(a * x + c * y + e), snap(b * x + d * y + f));
+        self.width = self.width.map(|w| snap(a * w));
+        for segment in &mut self.path {
+            *segment = match *segment {
+                Segment::Move(x, y) => {
+                    let (x, y) = map(x, y);
+                    Segment::Move(x, y)
+                }
+                Segment::Line(x, y) => {
+                    let (x, y) = map(x, y);
+                    Segment::Line(x, y)
+                }
+                Segment::Curve([x1, y1, x2, y2, x3, y3]) => {
+                    let ((x1, y1), (x2, y2), (x3, y3)) = (map(x1, y1), map(x2, y2), map(x3, y3));
+                    Segment::Curve([x1, y1, x2, y2, x3, y3])
+                }
+            };
+        }
     }
 
     /// The outline as Type 2: the width first, before the first operator that clears

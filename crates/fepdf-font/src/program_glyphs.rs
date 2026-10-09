@@ -55,13 +55,9 @@ pub fn type1_advances(
     cleartext: usize,
 ) -> Option<std::collections::BTreeMap<String, f64>> {
     let (ascii, rest) = program.split_at_checked(cleartext)?;
-    let text = String::from_utf8_lossy(ascii);
-    let scale = text
-        .find("/FontMatrix")
-        .and_then(|at| text[at..].split(['[', ']']).nth(1))
-        .and_then(|inner| inner.split_whitespace().next()?.parse::<f64>().ok())
-        .unwrap_or(0.001)
-        * 1000.0;
+    let [sx, ..] = crate::reconstruction::type1::font_matrix(ascii)
+        .unwrap_or(crate::reconstruction::type1::STANDARD_FONT_MATRIX);
+    let scale = sx * 1000.0;
     let advances =
         crate::reconstruction::FontReconstructor::type1_advances(ascii, &eexec_portion(rest))?;
     let advances: std::collections::BTreeMap<String, f64> =

@@ -1,0 +1,54 @@
+name: Nightly Fuzz
+
+# ROADMAP Z-1: the fuzzer, every night, twenty minutes a target. What it does and why its
+# flags are what they are is `fuzz/README.md`; the run itself is `scripts/test/fuzz.sh`.
+on:
+  schedule:
+    - cron: "0 18 * * *" # 03:00 JST
+  workflow_dispatch:
+    inputs:
+      seconds:
+        description: "Seconds per target"
+        default: "1200"
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  fuzz:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install System Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y pkg-config libfontconfig1-dev
+
+      - name: Install Rust nightly
+        uses: dtolnay/rust-toolchain@nightly
+
+      - name: Install cargo-fuzz
+        run: cargo install cargo-fuzz --locked
+
+      # The corpus each night ends with is where the next one starts.
+      - name: Restore corpus
+        uses: actions/cache@v4
+        with:
+          path: target/fuzz/corpus
+          key: fuzz-corpus-${{ github.run_id }}
+          restore-keys: fuzz-corpus-
+
+      - name: Fetch seed PDFs
+        run: ./scripts/test/fetch_external_corpus.sh
+
+      - name: Fuzz
+        run: ./scripts/test/fuzz.sh "${{ github.event.inputs.seconds || '1200' }}"
+
+      - name: Keep what was found
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fuzz-findings
+          path: target/fuzz/artifacts

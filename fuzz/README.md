@@ -16,10 +16,14 @@ the memory limit is a finding, and becomes a test the way Z-2's did
 
 ## Running
 
-Once: `cargo install cargo-fuzz`. Then, from the repository root:
+Once: `cargo install cargo-fuzz`. Then, from the repository root,
+[`scripts/test/fuzz.sh`](../scripts/test/fuzz.sh) runs each target for the seconds it is
+given (900 by default) and fails if one finds anything; `FUZZ_TARGETS=type1_program`
+runs one. It holds the flags. `.github/workflows/fuzz.yml` runs it every night at
+03:00 JST, keeps the corpus from one night to the next, and uploads what it finds.
 
 ```bash
-cargo +nightly fuzz run --fuzz-dir fuzz -a -O open_draw_save target/fuzz/corpus/open_draw_save -- -max_total_time=900 -timeout=60 -rss_limit_mb=2048 -max_len=65536 -artifact_prefix=target/fuzz/artifacts/open_draw_save/
+./scripts/test/fuzz.sh 900
 ```
 
 `-a` keeps debug assertions on, so an arithmetic overflow is a finding rather than a

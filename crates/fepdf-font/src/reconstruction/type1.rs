@@ -6,6 +6,22 @@ use super::{FontInfo, FontReconstructor, ReconstructedFont, Type1Data, Type1Segm
 use crate::{FontError, FontResult};
 use std::collections::BTreeMap;
 
+/// The `/FontMatrix` a Type 1 program has where it states none, and states in nearly all:
+/// 1000 units to the em.
+pub(crate) const STANDARD_FONT_MATRIX: [f64; 6] = [0.001, 0.0, 0.0, 0.001, 0.0, 0.0];
+
+/// The `/FontMatrix` a Type 1 program's clear text states (Type 1 specification 5.3), as
+/// an array `[...]` or a procedure `{...}`; nothing unless it has six numbers.
+pub(crate) fn font_matrix(cleartext: &[u8]) -> Option<[f64; 6]> {
+    let text = String::from_utf8_lossy(cleartext);
+    let rest = text.get(text.find("/FontMatrix")? + "/FontMatrix".len()..)?;
+    let inner = rest.trim_start().strip_prefix(['[', '{'])?;
+    let inner = inner.get(..inner.find([']', '}'])?)?;
+    let numbers: Vec<f64> =
+        inner.split_whitespace().map(str::parse).collect::<Result<_, _>>().ok()?;
+    numbers.try_into().ok()
+}
+
 impl FontReconstructor {
     pub(super) fn transcode_type1_to_cff(
         data: &[u8],
@@ -35,6 +51,7 @@ impl FontReconstructor {
             charstrings: &t1_data.charstrings,
             subrs: &t1_data.subrs,
             len_iv: t1_data.len_iv,
+            matrix: t1_data.matrix,
         };
         let glyphs: Vec<(String, Vec<u8>)> = t1_data
             .charstrings
@@ -359,7 +376,8 @@ impl FontReconstructor {
             Self::parse_charstrings(&full_text, pos, &mut charstrings);
         }
 
-        Ok(Type1Data { charstrings, subrs, len_iv })
+        let matrix = font_matrix(ascii).unwrap_or(STANDARD_FONT_MATRIX).map(|v| v * 1000.0);
+        Ok(Type1Data { charstrings, subrs, len_iv, matrix })
     }
 
     /// Writes `val` as a Type 2 charstring operand.
