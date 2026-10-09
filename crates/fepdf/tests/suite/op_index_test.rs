@@ -35,6 +35,7 @@ fn opened(refine: bool) -> PdfDocument {
 /// `a_form_is_sublimated_with_the_page_that_draws_it` is what holds the case where the two
 /// would meet.
 #[test]
+#[ignore = "needs samples/, which the repository does not hold"]
 fn a_page_read_from_bytes_gives_every_span_its_own_operator() {
     let spans = opened(false).extract_spans(0).expect("it extracts");
     assert!(spans.len() > 100, "the first page draws more than this: {}", spans.len());
@@ -51,6 +52,7 @@ fn a_page_read_from_bytes_gives_every_span_its_own_operator() {
 /// `None` is the true answer: there is no operator stream to index into. A caller could
 /// not tell the old `0` from an index, and on this page 1,007 of them said it.
 #[test]
+#[ignore = "needs samples/, which the repository does not hold"]
 fn a_page_read_from_commands_names_no_operator() {
     let spans = opened(true).extract_spans(0).expect("it extracts");
     assert!(spans.len() > 100, "the first page draws more than this: {}", spans.len());
@@ -67,6 +69,7 @@ fn a_page_read_from_commands_names_no_operator() {
 /// **The two paths see the same page**, so the difference above is the index and not the
 /// reading.
 #[test]
+#[ignore = "needs samples/, which the repository does not hold"]
 fn both_paths_read_the_same_text() {
     let from_bytes = opened(false).extract_spans(0).expect("it extracts");
     let from_commands = opened(true).extract_spans(0).expect("it extracts");

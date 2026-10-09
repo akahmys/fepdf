@@ -41,6 +41,7 @@ fn sample(name: &str) -> Option<Document> {
 
 /// **A font a document embeds has a program a caller can reach.**
 #[test]
+#[ignore = "needs samples/, which the repository does not hold"]
 fn an_embedded_font_answers_with_its_program() {
     let doc = sample("constitution.pdf").expect("the sample opens");
     let with_program = font_objects(&doc)
@@ -56,6 +57,7 @@ fn an_embedded_font_answers_with_its_program() {
 
 /// A Type 3 font draws with content streams and has no program to answer with (9.6.4).
 #[test]
+#[ignore = "needs samples/, which the repository does not hold"]
 fn a_type_three_font_answers_with_nothing() {
     let doc = sample("fugaku.pdf").expect("the sample opens");
     let fonts: Vec<_> =

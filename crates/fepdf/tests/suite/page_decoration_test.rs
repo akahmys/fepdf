@@ -96,6 +96,7 @@ fn a_page_carrying_its_own_resources_keeps_them() {
 /// a file? It fails against a writer that names one and writes another, whichever font
 /// that is.
 #[test]
+#[ignore = "needs samples/, which the repository does not hold"]
 fn a_decorations_font_resolves_after_a_round_trip() {
     let path =
         std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../samples/constitution.pdf");

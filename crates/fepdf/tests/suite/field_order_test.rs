@@ -33,6 +33,7 @@ fn calculation(doc: &PdfDocument) -> (Vec<String>, Vec<String>) {
 /// **The sample's order is read, and every field in it calculates.** This is the reading
 /// the window lists and reorders from, so it has to name the same fields the write takes.
 #[test]
+#[ignore = "needs samples/, which the repository does not hold"]
 fn the_calculation_order_is_read_by_name() {
     let (calculating, order) = calculation(&sample("sample_02c.pdf"));
     assert_eq!(order.len(), 7, "sample_02c.pdf's /CO holds seven fields: {order:?}");
@@ -42,6 +43,7 @@ fn the_calculation_order_is_read_by_name() {
 }
 
 #[test]
+#[ignore = "needs samples/, which the repository does not hold"]
 fn the_calculation_order_is_written_in_the_order_given() {
     let mut doc = sample("sample_02c.pdf");
     let (_, order) = calculation(&doc);
@@ -52,6 +54,7 @@ fn the_calculation_order_is_written_in_the_order_given() {
 
 /// **Every field that calculates, once each, and nothing else** — refused by name.
 #[test]
+#[ignore = "needs samples/, which the repository does not hold"]
 fn an_order_that_is_not_every_calculating_field_once_is_refused() {
     let doc = sample("sample_02c.pdf");
     let (_, order) = calculation(&doc);
@@ -80,6 +83,7 @@ fn an_order_that_is_not_every_calculating_field_once_is_refused() {
 
 /// `/Tabs` is written on the pages named and on no other.
 #[test]
+#[ignore = "needs samples/, which the repository does not hold"]
 fn the_tab_order_is_written_on_the_pages_named() {
     let mut doc = sample("constitution.pdf");
     doc.apply(Operation::SetTabOrder {
@@ -105,6 +109,7 @@ fn the_tab_order_is_written_on_the_pages_named() {
 /// **And it survives a save.** `/CO` holds references, so an order that pointed at objects
 /// the writer renumbered would read back as nothing.
 #[test]
+#[ignore = "needs samples/, which the repository does not hold"]
 fn the_calculation_order_survives_a_save() {
     let mut doc = sample("sample_02c.pdf");
     let (_, order) = calculation(&doc);

@@ -95,6 +95,7 @@ fn samples() -> Vec<std::path::PathBuf> {
 /// a refusal path nothing reaches is a refusal path nobody has tested. Seven programs of
 /// the nine samples permit preview and print only.
 #[test]
+#[ignore = "needs samples/, which the repository does not hold"]
 fn the_corpus_carries_faces_that_refuse_an_editable_embedding() {
     let refusing = samples()
         .iter()
@@ -115,6 +116,7 @@ fn the_corpus_carries_faces_that_refuse_an_editable_embedding() {
 /// producer may drop it. Reading "no table" as "no restriction" would embed, by default,
 /// exactly the faces whose terms are unknown.
 #[test]
+#[ignore = "needs samples/, which the repository does not hold"]
 fn most_embedded_programs_state_no_permission_at_all() {
     let programs: Vec<Vec<u8>> = samples().iter().flat_map(|p| font_programs(p)).collect();
     let stated = programs.iter().filter(|p| embedding_permission(p).is_some()).count();
@@ -131,6 +133,7 @@ fn most_embedded_programs_state_no_permission_at_all() {
 ///
 /// `cargo test -p fepdf-model --test font_embedding_permission_test -- --nocapture`
 #[test]
+#[ignore = "needs samples/, which the repository does not hold"]
 fn the_tally_is_printable() {
     let mut installable = 0;
     let mut editable = 0;
@@ -176,6 +179,7 @@ fn truetype_programs() -> Vec<Vec<u8>> {
 /// draws has to come with it — byte for byte, at the glyph id it had, because the subset
 /// does not renumber.
 #[test]
+#[ignore = "needs samples/, which the repository does not hold"]
 fn a_composite_in_a_real_font_keeps_what_it_draws() {
     let mut composites_seen = 0;
     for program in truetype_programs() {
@@ -223,6 +227,7 @@ fn a_composite_in_a_real_font_keeps_what_it_draws() {
 ///
 /// `cargo test -p fepdf-model --test font_embedding_permission_test -- --nocapture`
 #[test]
+#[ignore = "needs samples/, which the repository does not hold"]
 fn the_weight_a_subset_saves_is_printable() {
     for program in truetype_programs().iter().take(5) {
         let wanted: std::collections::BTreeSet<u16> = (1..=20).collect();
@@ -257,6 +262,7 @@ fn cff_programs() -> Vec<Vec<u8>> {
 /// CID-keyed fonts with an `FDArray`, predefined charsets, and Top DICTs whose operands
 /// were written in every encoding the format allows.
 #[test]
+#[ignore = "needs samples/, which the repository does not hold"]
 fn a_cff_subset_keeps_the_charstrings_it_was_asked_for() {
     let programs = cff_programs();
     assert!(!programs.is_empty(), "the samples carry CFF programs, or this test asks nothing");
@@ -313,6 +319,7 @@ fn charset_of(program: &[u8]) -> Option<std::collections::BTreeMap<u32, u32>> {
 
 /// A glyph nobody asked for draws nothing, and is one byte rather than gone.
 #[test]
+#[ignore = "needs samples/, which the repository does not hold"]
 fn a_cff_glyph_nobody_asked_for_is_endchar() {
     for program in cff_programs().iter().take(20) {
         let count = fepdf_font::cff::glyph_count(program).expect("it counts");
@@ -332,6 +339,7 @@ fn a_cff_glyph_nobody_asked_for_is_endchar() {
 ///
 /// `cargo test -p fepdf-model --test font_embedding_permission_test -- --nocapture`
 #[test]
+#[ignore = "needs samples/, which the repository does not hold"]
 fn what_a_cff_subset_saves_is_printable() {
     for program in cff_programs().iter().take(5) {
         let count = fepdf_font::cff::glyph_count(program).expect("it counts");

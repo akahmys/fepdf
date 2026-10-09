@@ -41,6 +41,7 @@ fn reopened(doc: &PdfDocument) -> PdfDocument {
 
 /// **A field named in Japanese is filled, and reads back as written through a save.**
 #[test]
+#[ignore = "needs samples/, which the repository does not hold"]
 fn a_field_named_in_utf16_is_filled_and_its_value_survives_a_save() {
     let mut doc = sample();
     fill(&mut doc, "住所", FormValue::Text("東京都千代田区".into())).expect("the field is filled");
@@ -54,6 +55,7 @@ fn a_field_named_in_utf16_is_filled_and_its_value_survives_a_save() {
 
 /// A choice whose options are UTF-16 is chosen by its export value, and `/I` follows.
 #[test]
+#[ignore = "needs samples/, which the repository does not hold"]
 fn a_choice_with_utf16_options_is_chosen() {
     let mut doc = sample();
     fill(&mut doc, "お見積り", FormValue::Choice("お見積りは必要です".into()))
@@ -65,6 +67,7 @@ fn a_choice_with_utf16_options_is_chosen() {
 
 /// **A name the form does not have is refused by name**, and nothing changes.
 #[test]
+#[ignore = "needs samples/, which the repository does not hold"]
 fn a_field_the_form_does_not_have_is_refused() {
     let mut doc = sample();
     let before =
@@ -120,6 +123,7 @@ fn a_nested_field_is_filled_by_its_qualified_name() {
 /// appearance for it, recorded a violation of 12.7.5.2.3 against the file, and left the
 /// box drawn empty.
 #[test]
+#[ignore = "needs samples/, which the repository does not hold"]
 fn a_check_box_is_turned_on_by_its_own_on_state() {
     let mut doc = sample();
     fill(&mut doc, "電話", FormValue::Boolean(true)).expect("the box is ticked");
@@ -136,6 +140,7 @@ fn a_check_box_is_turned_on_by_its_own_on_state() {
 /// **Radio buttons are refused an on/off**, because their widgets each name a different
 /// state and "on" does not say which.
 #[test]
+#[ignore = "needs samples/, which the repository does not hold"]
 fn a_set_of_radio_buttons_is_not_turned_on_without_saying_which() {
     let mut doc = sample();
     let error = fill(&mut doc, "相談", FormValue::Boolean(true)).expect_err("refused");

@@ -205,6 +205,7 @@ mod tests {
 
     /// The entry's example, on the file it names: 日本国憲法 is four runs.
     #[test]
+    #[ignore = "needs samples/, which the repository does not hold"]
     fn the_constitution_is_found_on_its_first_page() {
         let path =
             std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../samples/constitution.pdf");

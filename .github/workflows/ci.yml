@@ -17,17 +17,23 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          # Adobe's CMaps and CID tables and the Arlington model are submodules, and the
+          # tests that read a CJK font or check a save against Arlington need them.
+          submodules: recursive
 
       - name: Install System Dependencies (Linux GUI Build Requirements)
         run: |
           sudo apt-get update
-          sudo apt-get install -y pkg-config libxkbcommon-dev libx11-dev libxcb1-dev libxcursor-dev libxi-dev libxrandr-dev libudev-dev libasound2-dev libegl1-mesa-dev libwayland-dev
+          sudo apt-get install -y pkg-config libxkbcommon-dev libx11-dev libxcb1-dev libxcursor-dev libxi-dev libxrandr-dev libudev-dev libasound2-dev libegl1-mesa-dev libwayland-dev fonts-noto-cjk
 
-      - name: Install Rust Toolchain
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          toolchain: stable
-          components: clippy, rustfmt
+      # `rust-toolchain.toml` names the toolchain the gate runs on; installing `stable`
+      # beside it changed nothing, since the pin wins in this directory. The MSRV check
+      # in the audit builds with the stated minimum as well, so that is installed too.
+      - name: Install Rust Toolchains
+        run: |
+          rustup toolchain install
+          rustup toolchain install "$(grep -m1 'rust-version =' Cargo.toml | cut -d'"' -f2)" --profile minimal
 
       - name: Cache Cargo dependencies
         uses: Swatinem/rust-cache@v2
@@ -35,17 +41,24 @@ jobs:
       - name: Install cargo-deny
         run: cargo install cargo-deny --locked
 
+      # A released binary, its checksum checked. The install script this fetched does not
+      # exist, and `|| true` hid that, so Rule 18 failed on "command not found".
       - name: Install betterleaks
+        env:
+          VERSION: 1.9.0
         run: |
-          curl -sSL https://raw.githubusercontent.com/betterleaks/betterleaks/main/install.sh | bash || true
-          # Fallback: create mock or binary check if betterleaks CLI install is remote
-          sudo cp ~/.local/bin/betterleaks /usr/local/bin/ 2>/dev/null || true
+          base="https://github.com/betterleaks/betterleaks/releases/download/v$VERSION"
+          file="betterleaks_${VERSION}_linux_x64.tar.gz"
+          curl -sSfLO "$base/$file"
+          curl -sSfL "$base/checksums.txt" | grep " $file\$" | sha256sum -c -
+          tar -xzf "$file" betterleaks
+          sudo install betterleaks /usr/local/bin/
+          betterleaks version
 
       - name: Run RR-15 Compliance Audit Script
         run: |
           chmod +x ./scripts/audit/verify_compliance.sh
-          # Run compliance check script
-          ./scripts/audit/verify_compliance.sh || true
+          ./scripts/audit/verify_compliance.sh
 
       - name: Run Cargo Workspace Check
         run: cargo check --workspace

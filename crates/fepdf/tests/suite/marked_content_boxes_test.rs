@@ -133,6 +133,7 @@ fn sample(name: &str) -> PdfDocument {
 }
 
 #[test]
+#[ignore = "needs samples/, which the repository does not hold"]
 fn a_tagged_sample_comes_back_with_boxes_on_its_page() {
     // `print_sample.pdf` writes 794 `/MCID`s across 4 pages; its first page holds 8, and
     // the numbers below are the page's own — a box outside the page box would mean the
@@ -150,6 +151,7 @@ fn a_tagged_sample_comes_back_with_boxes_on_its_page() {
 }
 
 #[test]
+#[ignore = "needs samples/, which the repository does not hold"]
 fn the_first_mark_sits_above_the_second_on_a_page_read_downwards() {
     // The overlay this was built for draws reading order, so the order has to survive the
     // measurement: `print_sample.pdf`'s heading is `/MCID 0` and the paragraph under it
@@ -164,6 +166,7 @@ fn the_first_mark_sits_above_the_second_on_a_page_read_downwards() {
 }
 
 #[test]
+#[ignore = "needs samples/, which the repository does not hold"]
 fn an_untagged_sample_comes_back_with_none() {
     // `constitution.pdf` carries no `/MCID` anywhere, so there is nothing to measure and
     // the answer is empty rather than absent. This is the shape 6 of the 9 samples have.

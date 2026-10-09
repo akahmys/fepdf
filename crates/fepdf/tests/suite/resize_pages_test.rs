@@ -49,6 +49,7 @@ fn own_box(doc: &PdfDocument, index: usize, name: &str) -> Option<[f64; 4]> {
 }
 
 #[test]
+#[ignore = "needs samples/, which the repository does not hold"]
 fn the_sheet_becomes_the_size_asked_for() {
     let Some(mut doc) = sample("fy05.pdf") else {
         panic!("samples/ is not in the tree, so this has nothing to test")
@@ -69,6 +70,7 @@ fn the_sheet_becomes_the_size_asked_for() {
 /// the resize would look like it had not happened. `/TrimBox` and `/BleedBox` describe
 /// where the content is cut and bled, so they follow the content.
 #[test]
+#[ignore = "needs samples/, which the repository does not hold"]
 fn the_crop_becomes_the_sheet_and_the_trim_follows_the_content() {
     let Some(mut doc) = sample("fy05.pdf") else {
         panic!("samples/ is not in the tree, so this has nothing to test")
@@ -112,6 +114,7 @@ fn a_blank_page_gains_no_content_stream() {
 
 /// A sheet with no area, and a scale that draws nothing, are refused rather than written.
 #[test]
+#[ignore = "needs samples/, which the repository does not hold"]
 fn a_sheet_or_a_scale_that_draws_nothing_is_refused() {
     let Some(mut doc) = sample("print_sample.pdf") else {
         panic!("samples/ is not in the tree, so this has nothing to test")
@@ -136,6 +139,7 @@ fn a_sheet_or_a_scale_that_draws_nothing_is_refused() {
 
 /// The resized document survives being written and read back, with its text intact.
 #[test]
+#[ignore = "needs samples/, which the repository does not hold"]
 fn it_survives_a_round_trip_with_its_text() {
     let Some(mut doc) = sample("print_sample.pdf") else {
         panic!("samples/ is not in the tree, so this has nothing to test")
@@ -164,6 +168,7 @@ fn it_survives_a_round_trip_with_its_text() {
 /// inside the page it was already on meant reading that page's size off it first and
 /// naming it back — and getting it wrong for a document whose pages are not all one size.
 #[test]
+#[ignore = "needs samples/, which the repository does not hold"]
 fn a_resize_that_names_no_sheet_keeps_each_pages_own() {
     let Some(mut doc) = sample("fy05.pdf") else {
         panic!("samples/ is not in the tree, so this has nothing to test")
@@ -189,6 +194,7 @@ fn a_resize_that_names_no_sheet_keeps_each_pages_own() {
 ///
 /// A binding margin is exactly this: centred, then moved off-centre by the gutter.
 #[test]
+#[ignore = "needs samples/, which the repository does not hold"]
 fn an_offset_moves_the_content_and_not_the_sheet() {
     let Some(mut doc) = sample("print_sample.pdf") else {
         panic!("samples/ is not in the tree, so this has nothing to test")

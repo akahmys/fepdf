@@ -121,6 +121,7 @@ fn naming_a_run_that_is_not_there_is_an_error() {
 /// **A real page lists as runs of one or two characters**, which is what makes naming one
 /// the honest interface: there is no phrase to point at that the file agrees is a phrase.
 #[test]
+#[ignore = "needs samples/, which the repository does not hold"]
 fn a_real_page_lists_its_runs() {
     let path =
         std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../samples/constitution.pdf");

@@ -41,6 +41,7 @@ fn fonts_in(path: &std::path::Path, refine: bool) -> usize {
 /// so a count that moves when it is switched on is counting the engine rather than the
 /// document.
 #[test]
+#[ignore = "needs samples/, which the repository does not hold"]
 fn the_font_count_does_not_depend_on_how_the_file_was_read() {
     let mut disagreed = Vec::new();
     for path in samples() {

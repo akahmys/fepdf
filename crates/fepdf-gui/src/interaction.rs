@@ -523,6 +523,7 @@ mod selecting_real_text {
     /// spans a real page yields, and the rectangle a drag from one corner to the other
     /// makes in the same space.
     #[test]
+    #[ignore = "needs samples/, which the repository does not hold"]
     fn a_drag_over_the_page_covers_the_text_on_it() {
         let spans = spans("constitution.pdf", 0);
         assert!(!spans.is_empty(), "the page yielded no spans at all");
@@ -536,6 +537,7 @@ mod selecting_real_text {
     /// with something selected". A rect computed once at drag time and drawn as it stood
     /// stays where the screen was, over whatever has moved into its place.
     #[test]
+    #[ignore = "needs samples/, which the repository does not hold"]
     fn what_is_selected_is_kept_in_the_pages_own_coordinates() {
         let spans = spans("constitution.pdf", 0);
         let mut manager = SelectionManager::new();
@@ -554,6 +556,7 @@ mod selecting_real_text {
     /// And that it lands in the right place at any zoom, which is the point of keeping it
     /// that way.
     #[test]
+    #[ignore = "needs samples/, which the repository does not hold"]
     fn a_selection_is_drawn_where_the_page_is_at_any_zoom() {
         let spans = spans("constitution.pdf", 0);
         let span = spans[0].rect;
@@ -577,6 +580,7 @@ mod selecting_real_text {
 
     /// The same drag in the coordinates a pointer actually arrives in.
     #[test]
+    #[ignore = "needs samples/, which the repository does not hold"]
     fn a_drag_in_screen_coordinates_reaches_the_same_spans() {
         let spans = spans("constitution.pdf", 0);
         let page_rect =

@@ -109,6 +109,7 @@ fn a_role_map_says_what_a_non_standard_tag_stands_for() {
 }
 
 #[test]
+#[ignore = "needs samples/, which the repository does not hold"]
 fn the_corpus_reads_three_languages_and_two_mappings() {
     // The only file that exercises either entry beyond a single inherited value.
     let path =

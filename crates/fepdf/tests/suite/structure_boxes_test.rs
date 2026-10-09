@@ -148,6 +148,7 @@ fn an_object_reference_is_neither_a_mark_nor_a_child() {
 }
 
 #[test]
+#[ignore = "needs samples/, which the repository does not hold"]
 fn a_tagged_sample_comes_back_almost_entirely_placed() {
     // The corpus, which is the only thing that says whether the shapes above are the
     // shapes that occur. `print_sample.pdf` leaves 30 elements unplaced: they hold

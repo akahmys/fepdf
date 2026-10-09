@@ -96,6 +96,7 @@ fn a_field_says_what_it_is_and_what_it_is_called() {
 /// taken over: a defect this engine could name and not repair. It can name which field
 /// now, rather than how many.
 #[test]
+#[ignore = "needs samples/, which the repository does not hold"]
 fn a_real_form_reports_its_fields_and_what_they_are_missing() {
     let bytes = std::fs::read("../../samples/sample_02c.pdf").expect("the sample is there");
     let doc = PdfDocument::open_with_options(bytes.into(), &IngestionOptions::default())
@@ -133,6 +134,7 @@ fn a_real_form_reports_its_fields_and_what_they_are_missing() {
 /// every fixture until now had one kind in it. This form has all three, so what it lists
 /// is what a reader will be handed.
 #[test]
+#[ignore = "needs samples/, which the repository does not hold"]
 fn a_real_form_carries_all_three_kinds_the_drawer_draws() {
     let bytes = std::fs::read("../../samples/sample_02c.pdf").expect("the sample is there");
     let doc = PdfDocument::open_with_options(bytes.into(), &IngestionOptions::default())

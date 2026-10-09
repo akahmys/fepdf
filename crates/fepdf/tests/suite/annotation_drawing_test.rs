@@ -57,6 +57,7 @@ fn annotate(doc: &mut PdfDocument, rect: [f32; 4], kind: AnnotationKind) {
 
 /// **A highlight leaves the words it marks readable.**
 #[test]
+#[ignore = "needs samples/, which the repository does not hold"]
 fn a_highlight_leaves_the_text_it_marks_visible() {
     let path =
         std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../samples/constitution.pdf");

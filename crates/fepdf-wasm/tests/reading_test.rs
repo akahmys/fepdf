@@ -19,6 +19,7 @@ fn sample(name: &str) -> Option<PdfDocument> {
 }
 
 #[test]
+#[ignore = "needs samples/, which the repository does not hold"]
 fn a_page_yields_its_text() {
     let Some(doc) = sample("constitution.pdf") else {
         panic!("samples/ is not in the tree, so this has nothing to test")
@@ -30,6 +31,7 @@ fn a_page_yields_its_text() {
 /// A page that does not exist is an error, not an empty string — the two are different
 /// answers and a caller acting on the first cannot tell.
 #[test]
+#[ignore = "needs samples/, which the repository does not hold"]
 fn a_page_that_is_not_there_is_an_error() {
     let Some(doc) = sample("constitution.pdf") else {
         panic!("samples/ is not in the tree, so this has nothing to test")

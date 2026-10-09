@@ -72,7 +72,7 @@ costs ([ADR-0081](docs/adr/0081-the-writing-rules-had-nothing-behind-them.md)).
 
 `./scripts/dev/status.sh` re-derives the figures these documents lean on, so a stale one
 reads as a disagreement rather than as current. The gate is two commands, and each phase
-document holds its own: `cargo test --workspace` ([TESTING.md](TESTING.md)) and
+document holds its own: `cargo test --workspace -- --include-ignored` ([TESTING.md](TESTING.md)) and
 `./scripts/audit/verify_compliance.sh`, which must end `=== AUDIT PASSED ===`
 ([AUDITING.md](AUDITING.md)).
 

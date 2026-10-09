@@ -134,6 +134,7 @@ fn a_range_the_run_does_not_have_has_no_corners() {
 /// separately: a font whose codes the two read at different widths would put every box
 /// after its first multi-byte code on the wrong glyph.
 #[test]
+#[ignore = "needs samples/, which the repository does not hold"]
 fn every_sample_run_has_a_place_for_each_code() {
     let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../samples");
     let mut runs_checked = 0usize;

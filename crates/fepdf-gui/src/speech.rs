@@ -457,14 +457,15 @@ mod reading_in_turn {
     }
 }
 
-/// The real synthesiser, heard by nobody: `say` writes what it would have said.
+/// The real synthesiser, heard by nobody: `say` writes what it would have said. Only on
+/// a Mac, where `say` is; elsewhere the imports would be unused and fail `-D warnings`.
 #[cfg(test)]
+#[cfg(target_os = "macos")]
 mod on_this_mac {
     use super::{Platform, installed_voices, utter};
     use fepdf::reading::{Passage, Spoken};
 
     /// **Japanese and English each come out as speech**, in the voices chosen for them.
-    #[cfg(target_os = "macos")]
     #[test]
     fn say_speaks_each_language_into_a_file() {
         let voices = installed_voices(Platform::MacOs);

@@ -209,6 +209,7 @@ const TOO_SLOW_IN_A_DEBUG_BUILD: [&str; 2] = ["intel_sdm.pdf", "fy05.pdf"];
 
 /// The samples, which is where an operator this file did not think of lives.
 #[test]
+#[ignore = "needs samples/, which the repository does not hold"]
 fn the_two_readers_agree_on_the_sample_corpus() {
     let mut checked = 0;
     for entry in std::fs::read_dir("../../samples").expect("the sample directory") {

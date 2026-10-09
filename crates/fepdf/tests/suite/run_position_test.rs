@@ -46,6 +46,7 @@ fn opened(name: &str) -> PdfDocument {
 ///   paths, so the page arrives as 503 fills and **no text at all** — there is nothing
 ///   here to compare it with, rather than a disagreement.
 #[test]
+#[ignore = "needs samples/, which the repository does not hold"]
 fn a_runs_origin_is_where_the_page_draws_it() {
     let samples = [
         "bokutokitan.pdf",
@@ -202,6 +203,7 @@ fn a_run_this_engine_reads_short_is_still_cut_without_loss() {
 
 /// And `pieces` is what turns a place in the text into a place among the codes.
 #[test]
+#[ignore = "needs samples/, which the repository does not hold"]
 fn a_runs_pieces_are_what_each_of_its_codes_reads() {
     let doc = opened("unicode_16.pdf");
     for run in runs_of_page(doc.inner(), 0).expect("it lists") {

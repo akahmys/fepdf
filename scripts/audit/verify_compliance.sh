@@ -270,11 +270,20 @@ python3 scripts/audit/discarded_results.py || { echo "  FAIL: discarded_results.
 echo "[Rule 14] Checking test code separation (no standalone test files in src/)..."
 stray_tests=$(find $TARGET_DIRS -path "*/src/*" \
     \( -name "*_test*.rs" -o -name "test_*.rs" -o -name "tests.rs" -o -name "test.rs" \) || true)
+# A test is `#[ignore]`d for one reason only: it reads a file the repository does not hold
+# (`samples/`, `docs/specs/`), so CI skips it and the local gate runs it with
+# `--include-ignored` (TESTING.md §2). Ignored for any other reason, a test is switched off.
+other_ignores=$(grep -rn --include='*.rs' '#\[ignore' crates | grep -v '#\[ignore = "needs ' \
+    | grep -v '^[^:]*:[0-9]*: *//' || true)
 if [ -n "$stray_tests" ]; then
     echo "  FAIL: Standalone test files found inside src/: $stray_tests"
     ERROR=1
+elif [ -n "$other_ignores" ]; then
+    echo "$other_ignores"
+    echo "  FAIL: a test is ignored for something other than a file the repository does not hold"
+    ERROR=1
 else
-    echo "  PASS"
+    echo "  PASS ($(grep -rh --include='*.rs' '#\[ignore = "needs ' crates | wc -l | tr -d ' ') ignored as needing a local file)"
 fi
 
 # Rule 15: Clone Restriction

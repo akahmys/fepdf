@@ -87,14 +87,14 @@ brackets hold is not a class this file gets to choose, so it does not try to nam
 | ---: | :--- | :--- |
 | 1 | Function line limits | 1 |
 | 2 | Impl block line limits | 1 |
-| 3 | No `unwrap`/`expect` in production code | 2 |
+| 3 | **No panic in production code — `unwrap`, `expect`, the panicking macros, an index or a slice — by clippy** | **2** |
 | 4 | No wildcard match arms over domain enums | 5 |
 | 5 | **Wildcard arms over a file's numeric value — counted; a stale exemption fails** | **20** |
 | 6 | No non-deterministic collections in core crates | 10 |
 | 7 | No `String`/`anyhow` errors in a `Result` | 11 |
 | 8 | No `filter_map(Result::ok)` | 13 |
 | 9 | **No `Result` discarded by `let _ =` without a reason** | **13** |
-| 10 | Test code separation — no standalone test file in `src/` | 14 |
+| 10 | Test code separation — no standalone test file in `src/`; **a test is `#[ignore]`d only as needing a file the repository does not hold** | 14 |
 | 11 | Excessive cloning (warns; does not fail) | 15 |
 | 12 | `rust-version` is one version in every `Cargo.toml` and `README.md`; `rust-toolchain.toml` pins at or above it, and `rustc` runs what it pins | — |
 | 13 | The stated minimum builds the workspace (`msrv_build.sh`) | — |

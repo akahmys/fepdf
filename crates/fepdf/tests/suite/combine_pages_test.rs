@@ -27,6 +27,7 @@ fn opened(name: &str) -> PdfDocument {
 /// second line follows the top-right page's first — and a run of this sample is one or
 /// two characters, so even a short substring of one page is interrupted by the other.
 #[test]
+#[ignore = "needs samples/, which the repository does not hold"]
 fn four_pages_become_one_that_draws_all_four() {
     let tally = |doc: &PdfDocument, page: usize| {
         let mut recorder = Recorder::new();
@@ -112,6 +113,7 @@ fn pages_fill_the_grid_in_reading_order() {
 
 /// More pages than cells make more sheets.
 #[test]
+#[ignore = "needs samples/, which the repository does not hold"]
 fn more_pages_than_cells_make_more_sheets() {
     let mut doc = opened("print_sample.pdf");
     let before = doc.page_count().expect("it counts");
@@ -128,6 +130,7 @@ fn more_pages_than_cells_make_more_sheets() {
 
 /// A grid with no cells is refused, rather than making a sheet nothing is drawn on.
 #[test]
+#[ignore = "needs samples/, which the repository does not hold"]
 fn a_grid_with_no_cells_is_refused() {
     let mut doc = opened("print_sample.pdf");
     let error = doc

@@ -549,7 +549,7 @@ if [ "${1:-}" = "--full" ]; then
 
     echo
     bold "Verification"
-    passed=$(cargo test --workspace 2>&1 | awk '/^test result/ {p += $4; f += $6} END {print p "/" p + f}')
+    passed=$(cargo test --workspace -- --include-ignored 2>&1 | awk '/^test result/ {p += $4; f += $6} END {print p "/" p + f}')
     row "tests passed" "$passed"
     if ./scripts/audit/verify_compliance.sh >/dev/null 2>&1; then
         row "compliance audit" "PASSED"

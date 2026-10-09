@@ -21,6 +21,7 @@ fn opened(name: &str) -> PdfDocument {
 /// and the text of the right page share nothing, and together they are no more than the
 /// page held before.
 #[test]
+#[ignore = "needs samples/, which the repository does not hold"]
 fn a_page_cut_in_two_gives_two_pages_that_share_nothing() {
     let mut doc = opened("print_sample.pdf");
     let before = doc.page_count().expect("it counts");
@@ -43,6 +44,7 @@ fn a_page_cut_in_two_gives_two_pages_that_share_nothing() {
 
 /// The sheets are the size they were asked for.
 #[test]
+#[ignore = "needs samples/, which the repository does not hold"]
 fn each_page_of_a_split_is_one_part_of_the_sheet() {
     let mut doc = opened("print_sample.pdf");
     let whole = doc.get_page_box(2).expect("the page has a box");
@@ -104,6 +106,7 @@ fn a_grid_comes_out_in_reading_order() {
 
 /// Regions named outright come out in the order they were named.
 #[test]
+#[ignore = "needs samples/, which the repository does not hold"]
 fn named_regions_come_out_in_the_order_they_were_given() {
     let mut doc = opened("print_sample.pdf");
     let whole = doc.get_page_box(2).expect("the page has a box");
@@ -124,6 +127,7 @@ fn named_regions_come_out_in_the_order_they_were_given() {
 
 /// A split into nothing is refused, rather than leaving a document a page short.
 #[test]
+#[ignore = "needs samples/, which the repository does not hold"]
 fn a_split_into_no_regions_is_refused() {
     let mut doc = opened("print_sample.pdf");
     let error = doc

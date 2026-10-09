@@ -77,6 +77,7 @@ fn a_match_does_not_cross_a_break_in_the_text_matrix() {
 /// is one real producers make and hand-written fixtures do not, which is the same defect
 /// the decoration fixtures had (ROADMAP W-E3d).
 #[test]
+#[ignore = "needs samples/, which the repository does not hold"]
 fn the_constitution_names_itself_across_four_runs() {
     let path =
         std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../samples/constitution.pdf");

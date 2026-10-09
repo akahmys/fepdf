@@ -636,7 +636,11 @@ fn holds(sample: &str) {
 
 macro_rules! each_sample {
     ($($name:ident => $file:literal),* $(,)?) => {
-        $(#[test] fn $name() { holds($file); })*
+        $(
+            #[test]
+            #[ignore = "needs samples/, which the repository does not hold"]
+            fn $name() { holds($file); }
+        )*
     };
 }
 
@@ -656,6 +660,7 @@ each_sample! {
 /// Every sample has a test above: one added to `samples/` and not here would be saved by
 /// nothing this file runs.
 #[test]
+#[ignore = "needs samples/, which the repository does not hold"]
 fn every_sample_is_held() {
     let this = std::fs::read_to_string(
         Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/suite/arlington_test.rs"),

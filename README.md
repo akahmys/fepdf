@@ -195,7 +195,7 @@ match over a domain enum — and `make audit` is what checks them.
 
 ```bash
 make audit              # the rules, clippy, cargo-deny, betterleaks
-cargo test --workspace
+cargo test --workspace  # tests that need samples/, which is not committed, are skipped
 ```
 
 Two habits matter more than the rules:

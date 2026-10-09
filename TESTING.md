@@ -26,8 +26,16 @@ All crates in the workspace MUST maintain high test coverage for core data struc
 
 ### Run All Unit & Integration Tests
 ```bash
-cargo test --workspace
+cargo test --workspace -- --include-ignored
 ```
+
+**A test that reads a file the repository does not hold is `#[ignore = "needs …"]`.**
+`samples/` and `docs/specs/` are not committed — the samples are other people's documents
+and the repository is public — so on a clone, and in CI, those tests can only fail. CI runs
+`cargo test --workspace`, which skips them and says how many it skipped; here,
+`--include-ignored` runs them as well, and that is the gate. Ignoring a test for any other
+reason switches it off, and the audit's Rule 14 step fails on it. Measured 2026-10-10 with
+both directories moved away: 94 tests failed, and each is now one of these.
 
 **Where the time goes, re-measured 2026-09-10 — one machine, nothing else running, two
 consecutive runs of each form, everything already built.** A run is **29.8 to 30.9
@@ -268,7 +276,7 @@ python3 scripts/visual_regression.py --update
 | | |
 | :--- | :--- |
 | `./scripts/audit/verify_compliance.sh` | Must end `=== AUDIT PASSED ===`. **Read the last line, not the first**, and run it with no other edits in flight — a run racing an edit reads a tree that no longer exists. |
-| `cargo test --workspace` | 0 failures. It does not imply the audit: two of the audit's findings on 2026-08-29 were invisible to `cargo test -D warnings`. |
+| `cargo test --workspace -- --include-ignored` | 0 failures. Without `--include-ignored` the tests that need `samples/` do not run (§2). It does not imply the audit: two of the audit's findings on 2026-08-29 were invisible to `cargo test -D warnings`. |
 | `./scripts/test/cli_smoke.sh` | **A debug build.** Every other check here builds `--release`, where `debug_assert!` is compiled out, so a debug-only panic ships. |
 
 **When the area is touched**, each against a second implementation:

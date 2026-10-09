@@ -43,6 +43,7 @@ fn pixel(pixels: &[u8], width: u32, x: u32, y: u32) -> [u8; 4] {
 /// that measurement bounds, and a transform that is wrong moves every edge rather than
 /// blurring a few.
 #[test]
+#[ignore = "needs samples/, which the repository does not hold"]
 fn a_region_is_the_part_of_the_page_it_was_taken_from() {
     let doc = opened("print_sample.pdf");
     let page = doc.get_page_box(2).expect("the page has a box");
@@ -109,6 +110,7 @@ fn a_region_is_the_part_of_the_page_it_was_taken_from() {
 /// A snapshot taken at whatever the screen happens to be showing is one nobody can ask
 /// for twice.
 #[test]
+#[ignore = "needs samples/, which the repository does not hold"]
 fn a_region_asked_for_at_twice_the_scale_is_twice_as_many_pixels() {
     let doc = opened("print_sample.pdf");
     let keep = (100.0, 400.0, 300.0, 500.0);
@@ -124,6 +126,7 @@ fn a_region_asked_for_at_twice_the_scale_is_twice_as_many_pixels() {
 
 /// A region the reader dragged is never answered as no image.
 #[test]
+#[ignore = "needs samples/, which the repository does not hold"]
 fn a_region_smaller_than_a_pixel_still_makes_one() {
     let doc = opened("print_sample.pdf");
     let (pixels, wide, tall) = doc
@@ -135,6 +138,7 @@ fn a_region_smaller_than_a_pixel_still_makes_one() {
 
 /// A region with no area, and a scale that draws nothing, are refused by name.
 #[test]
+#[ignore = "needs samples/, which the repository does not hold"]
 fn a_region_with_no_area_and_a_scale_of_nothing_are_refused() {
     let doc = opened("print_sample.pdf");
     let flat = doc

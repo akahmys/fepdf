@@ -39,6 +39,7 @@ fn hanging_over() -> (PdfDocument, (f64, f64, f64, f64)) {
 /// This is the check ADR-0088 asked for: `extract_text` on the cropped side returning a
 /// character that was cut away is the failure.
 #[test]
+#[ignore = "needs samples/, which the repository does not hold"]
 fn a_crop_takes_the_text_it_hides_out_of_the_file() {
     let (mut doc, sheet) = hanging_over();
     let before = doc.extract_text(2).expect("it extracts").chars().count();
@@ -70,6 +71,7 @@ fn a_crop_takes_the_text_it_hides_out_of_the_file() {
 /// and a crop rewrites a run into one string, so the count falls without a glyph being
 /// lost. Positions are the thing that must not move.
 #[test]
+#[ignore = "needs samples/, which the repository does not hold"]
 fn a_crop_leaves_what_it_keeps_where_it_was() {
     let drawn_at = |doc: &PdfDocument| {
         let mut recorder = Recorder::new();
@@ -99,6 +101,7 @@ fn a_crop_leaves_what_it_keeps_where_it_was() {
 
 /// A crop that keeps the whole page changes nothing.
 #[test]
+#[ignore = "needs samples/, which the repository does not hold"]
 fn a_crop_that_hides_nothing_removes_nothing() {
     let doc = opened("print_sample.pdf");
     let before = doc.extract_text(2).expect("it extracts");
@@ -207,6 +210,7 @@ fn a_glyph_the_boundary_crosses_is_kept() {
 /// ([ADR-0088](../../../../docs/adr/0088-what-a-crop-puts-outside-the-sheet-is-removed.md)).
 /// Both put the same sheet on the page and draw the same thing on it.
 #[test]
+#[ignore = "needs samples/, which the repository does not hold"]
 fn a_crop_that_hides_and_a_crop_that_cuts_show_the_same_and_hold_different_things() {
     let keep = (60.0, 300.0, 400.0, 600.0);
     let region = |outside| fepdf::CropRegion { keep, outside };
@@ -253,6 +257,7 @@ fn a_crop_that_hides_and_a_crop_that_cuts_show_the_same_and_hold_different_thing
 /// sheet is the other test's question, and mixing the two would let either answer cover
 /// for the other.
 #[test]
+#[ignore = "needs samples/, which the repository does not hold"]
 fn what_a_crop_keeps_is_moved_onto_the_new_sheet() {
     let keep = (60.0, 300.0, 400.0, 600.0);
     let drawn_at = |doc: &PdfDocument| {
@@ -287,6 +292,7 @@ fn what_a_crop_keeps_is_moved_onto_the_new_sheet() {
 /// The two differ in what is left in the file and not in where anything is, so every run
 /// the cutting crop draws is one the hiding crop draws in the same place.
 #[test]
+#[ignore = "needs samples/, which the repository does not hold"]
 fn the_crop_that_cuts_draws_what_the_one_that_hides_draws() {
     let keep = (60.0, 300.0, 400.0, 600.0);
     let cropped = |outside| {
@@ -315,6 +321,7 @@ fn the_crop_that_cuts_draws_what_the_one_that_hides_draws() {
 
 /// A region with no area is refused, rather than making a page nothing can be drawn on.
 #[test]
+#[ignore = "needs samples/, which the repository does not hold"]
 fn a_crop_to_nothing_is_refused() {
     let mut doc = opened("print_sample.pdf");
     let error = doc

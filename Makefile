@@ -36,7 +36,7 @@ check:
 	cargo check --workspace
 
 test:
-	cargo test --workspace
+	cargo test --workspace -- --include-ignored
 
 clippy:
 	cargo clippy --workspace -- -D warnings

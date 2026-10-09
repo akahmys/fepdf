@@ -21,6 +21,7 @@ fn scratch(name: &str) -> std::path::PathBuf {
 }
 
 #[test]
+#[ignore = "needs samples/, which the repository does not hold"]
 fn the_extracted_document_has_the_pages_asked_for_and_no_others() {
     let Some(doc) = sample("fy05.pdf") else {
         panic!("samples/ is not in the tree, so this has nothing to test")
@@ -31,6 +32,7 @@ fn the_extracted_document_has_the_pages_asked_for_and_no_others() {
 
 /// The pages that come out are the pages that went in, not the first three.
 #[test]
+#[ignore = "needs samples/, which the repository does not hold"]
 fn the_pages_are_the_ones_named() {
     let Some(doc) = sample("fy05.pdf") else {
         panic!("samples/ is not in the tree, so this has nothing to test")
@@ -46,6 +48,7 @@ fn the_pages_are_the_ones_named() {
 
 /// It must survive being written and read back — an in-memory arena is not a file.
 #[test]
+#[ignore = "needs samples/, which the repository does not hold"]
 fn it_survives_being_written_and_read_back() {
     let Some(doc) = sample("fy05.pdf") else {
         panic!("samples/ is not in the tree, so this has nothing to test")
@@ -70,6 +73,7 @@ fn it_survives_being_written_and_read_back() {
 
 /// An empty selection is refused rather than answered with an empty document.
 #[test]
+#[ignore = "needs samples/, which the repository does not hold"]
 fn extracting_nothing_is_refused() {
     let Some(doc) = sample("fy05.pdf") else {
         panic!("samples/ is not in the tree, so this has nothing to test")
@@ -79,6 +83,7 @@ fn extracting_nothing_is_refused() {
 
 /// A page index the document does not have is refused, not skipped.
 #[test]
+#[ignore = "needs samples/, which the repository does not hold"]
 fn a_page_that_is_not_there_is_refused() {
     let Some(doc) = sample("fy05.pdf") else {
         panic!("samples/ is not in the tree, so this has nothing to test")
@@ -92,6 +97,7 @@ fn a_page_that_is_not_there_is_refused() {
 /// Its one caller is `fepdf merge`, which writes the result immediately — so the count
 /// being wrong was invisible for as long as nobody asked the returned document anything.
 #[test]
+#[ignore = "needs samples/, which the repository does not hold"]
 fn a_merged_document_knows_how_many_pages_it_has() {
     let Some(first) = sample("print_sample.pdf") else {
         panic!("samples/ is not in the tree, so this has nothing to test")
@@ -110,6 +116,7 @@ fn a_merged_document_knows_how_many_pages_it_has() {
 /// `cargo run --release --example page_counts -p fepdf -- samples/print_sample.pdf samples/constitution.pdf`
 /// — 23 and 13 on 2026-09-14.
 #[test]
+#[ignore = "needs samples/, which the repository does not hold"]
 fn inserting_a_document_adds_all_of_its_pages() {
     let Some(mut doc) = sample("print_sample.pdf") else {
         panic!("samples/ is not in the tree, so this has nothing to test")
@@ -356,6 +363,7 @@ fn a_link_between_two_kept_pages_is_kept() {
 /// pages the document had. Three routes that each spelled it differently — reading a page,
 /// extracting it, and setting a measurement scale on it — answer the same variant now.
 #[test]
+#[ignore = "needs samples/, which the repository does not hold"]
 fn a_missing_page_says_how_many_pages_there_are() {
     use fepdf::{Missing, PdfError};
     let Some(mut doc) = sample("fy05.pdf") else {
