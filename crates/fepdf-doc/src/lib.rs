@@ -12,6 +12,7 @@ pub mod apply;
 pub mod assembly;
 /// Object graph cloning.
 pub mod cloning;
+pub mod comments;
 /// Where a page's marked content landed, for the structure tree to read.
 pub mod marked_content;
 /// The scale a drawing declares for measuring on it (12.9).

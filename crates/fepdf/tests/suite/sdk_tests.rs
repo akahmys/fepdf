@@ -517,6 +517,7 @@ fn implemented_operations_still_succeed() {
             page: 0,
             rect: [50.0, 50.0, 150.0, 150.0],
             kind: fepdf::AnnotationKind::TextComment { contents: "Test Comment".to_string() },
+            by: fepdf::Authorship::default(),
         }))
         .is_ok()
     );

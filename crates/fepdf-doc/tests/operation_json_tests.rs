@@ -44,6 +44,10 @@ fn variant_name(op: &Operation) -> &'static str {
         Operation::AddPageDecoration { .. } => "AddPageDecoration",
         Operation::ApplyBatesNumbering { .. } => "ApplyBatesNumbering",
         Operation::AddAnnotation(_) => "AddAnnotation",
+        Operation::RemoveAnnotation(_) => "RemoveAnnotation",
+        Operation::EditAnnotation { .. } => "EditAnnotation",
+        Operation::ReplyToAnnotation { .. } => "ReplyToAnnotation",
+        Operation::SetAnnotationState { .. } => "SetAnnotationState",
         Operation::EditRun { .. } => "EditRun",
         Operation::SplitRun { .. } => "SplitRun",
         Operation::DeleteRun { .. } => "DeleteRun",
@@ -159,4 +163,34 @@ fn a_struct_attribute_is_written_as_a_caller_would_write_it() {
             value: AttributeValue::Name("Decimal".into()),
         })
     );
+}
+
+/// The four review operations (AA-2a), in the shape an MCP caller writes them, and an
+/// `AddAnnotation` written before `by` existed, which still reads.
+#[test]
+fn the_review_operations_are_written_as_a_caller_would_write_them() {
+    use fepdf_doc::operation::{AnnotationAt, AnnotationState, Authorship};
+    let at = AnnotationAt { page: 0, index: 2 };
+    let op: Operation = serde_json::from_str(
+        r#"{"SetAnnotationState":{"at":{"page":0,"index":2},"state":"Accepted","by":{"author":"Bo","when":null}}}"#,
+    )
+    .expect("parse");
+    assert_eq!(
+        op,
+        Operation::SetAnnotationState {
+            at,
+            state: AnnotationState::Accepted,
+            by: Authorship { author: Some("Bo".into()), when: None },
+        }
+    );
+    let op: Operation =
+        serde_json::from_str(r#"{"RemoveAnnotation":{"page":0,"index":2}}"#).expect("parse");
+    assert_eq!(op, Operation::RemoveAnnotation(at));
+
+    let old: Operation = serde_json::from_str(
+        r#"{"AddAnnotation":{"page":0,"rect":[0,0,10,10],"kind":{"TextComment":{"contents":"x"}}}}"#,
+    )
+    .expect("an AddAnnotation without `by` still parses");
+    let Operation::AddAnnotation(spec) = old else { panic!("{}", variant_name(&old)) };
+    assert_eq!(spec.by, Authorship::default());
 }

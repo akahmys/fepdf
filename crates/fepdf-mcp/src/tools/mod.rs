@@ -1,6 +1,7 @@
 //! Tool definitions and implementations for the fepdf MCP Server.
 
 pub mod audit;
+pub mod comments;
 pub mod compare;
 pub mod extract;
 pub mod objects;
@@ -13,6 +14,7 @@ pub mod signature;
 pub mod text_layer;
 
 pub use audit::*;
+pub use comments::*;
 pub use extract::*;
 pub use objects::*;
 pub use operations::advanced::*;

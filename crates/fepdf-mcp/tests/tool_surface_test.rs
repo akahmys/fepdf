@@ -100,3 +100,10 @@ fn the_text_editing_operations_are_reachable() {
         assert!(tools.iter().any(|name| name == wanted), "no tool reaches `{wanted}`: {tools:?}");
     }
 }
+
+/// **`list_comments` is served from a router of its own** (AA-2a), and a router that is
+/// defined and not merged into `all_tools` registers nothing.
+#[test]
+fn the_review_router_is_merged() {
+    assert!(served().iter().any(|name| name == "list_comments"), "{:?}", served());
+}

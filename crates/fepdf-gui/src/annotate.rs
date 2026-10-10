@@ -335,7 +335,12 @@ impl AnnotateTool {
             }
             (dragged, self.pointing()?)
         };
-        Ok(AnnotationSpec { page, rect: [rect.min.x, rect.min.y, rect.max.x, rect.max.y], kind })
+        Ok(AnnotationSpec {
+            page,
+            rect: [rect.min.x, rect.min.y, rect.max.x, rect.max.y],
+            kind,
+            by: fepdf::Authorship::default(),
+        })
     }
 
     /// A note, typed words, a text box or a callout.

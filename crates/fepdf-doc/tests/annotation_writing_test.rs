@@ -36,7 +36,12 @@ fn document() -> Document {
 fn annotate(doc: &mut Document, rect: [f32; 4], kind: AnnotationKind) -> Handle<Object> {
     fepdf_doc::apply::apply_operation(
         doc,
-        Operation::AddAnnotation(AnnotationSpec { page: 0, rect, kind }),
+        Operation::AddAnnotation(AnnotationSpec {
+            page: 0,
+            rect,
+            kind,
+            by: fepdf_doc::operation::Authorship::default(),
+        }),
     )
     .expect("the annotation applies");
 
@@ -218,6 +223,7 @@ fn a_stamp_whose_picture_is_not_a_jpeg_is_refused() {
             page: 0,
             rect: [10.0, 20.0, 110.0, 120.0],
             kind: AnnotationKind::Stamp { stamp_image_bytes: (0..64u8).collect() },
+            by: fepdf_doc::operation::Authorship::default(),
         }),
     );
     let error = refused.expect_err("bytes that are not a JPEG are refused");

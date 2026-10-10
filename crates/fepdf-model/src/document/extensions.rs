@@ -476,6 +476,25 @@ pub struct AnnotationSpec {
     pub rect: [f32; 4],
     /// Type and payload of annotation.
     pub kind: AnnotationKind,
+    /// Who made it and when, for a markup annotation (12.5.6.2). A link carries neither.
+    ///
+    /// **Defaulted when absent from JSON**, so an operation written before this existed
+    /// still reads.
+    #[serde(default)]
+    pub by: Authorship,
+}
+
+/// Who made a markup annotation, and when (Table 172's `/T`, Table 166's `/M`).
+///
+/// **Both are the caller's.** The engine reads no login name and no clock for them
+/// (ADR-0116): a name nobody typed is not written into a document that will be sent on,
+/// and a date taken while applying would differ on every replay of the same history.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Authorship {
+    /// `/T`: the author, as they gave it.
+    pub author: Option<String>,
+    /// `/M` and `/CreationDate`: when, as a date string (7.9.4).
+    pub when: Option<String>,
 }
 
 /// Form Field Value representation (AcroForms).

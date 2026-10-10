@@ -56,11 +56,12 @@ pub use fepdf_model::security::{Access, AesV5Spec, SecurityHandler};
 pub use fepdf_model::signature::{SignatureCheck, SignatureReport};
 pub use fepdf_model::{
     AFRelationship, AnnotationKind, AnnotationSpec, ArticleBead, ArticleThread, AssociatedFile,
-    CollectionViewMode, Document, FormFieldSpec, FormValue, GeoSpatialAnchor, Handle, LayerGroup,
-    MeasurementScale, Missing, Object, OptionalContentProperties, OutlineNode, OutlineTree,
-    OutputIntent, Page, PageLabelSpec, PageLabelStyle, PdfAction, PdfArena, PdfError, PdfName,
-    PdfResult, PortfolioCollection, PortfolioItem, ShapeForm, SublimatedData, TransitionSpec,
-    TransitionStyle, UnencryptedWrapperSpec, UserProperty, UserPropertyValue, VisibilityState,
+    Authorship, CollectionViewMode, Document, FormFieldSpec, FormValue, GeoSpatialAnchor, Handle,
+    LayerGroup, MeasurementScale, Missing, Object, OptionalContentProperties, OutlineNode,
+    OutlineTree, OutputIntent, Page, PageLabelSpec, PageLabelStyle, PdfAction, PdfArena, PdfError,
+    PdfName, PdfResult, PortfolioCollection, PortfolioItem, ShapeForm, SublimatedData,
+    TransitionSpec, TransitionStyle, UnencryptedWrapperSpec, UserProperty, UserPropertyValue,
+    VisibilityState,
 };
 pub use fepdf_model::{DocumentSource, PdfSource};
 #[cfg(feature = "render")]
@@ -117,6 +118,10 @@ pub fn pixel_box_on_page(rect: [f64; 4], pixel_to_page: [f64; 6]) -> [f64; 4] {
 
 /// Comparing two documents, page by page (ROADMAP W-18).
 pub mod compare;
+/// A page's annotations as a reviewer reads them (owned by `fepdf-doc`).
+pub mod comments {
+    pub use fepdf_doc::comments::{Comment, StateMark};
+}
 /// A page as pixels: rendered to a file, to a region, or to an image of a given
 /// resolution.
 #[cfg(feature = "render")]
@@ -159,8 +164,8 @@ pub use fepdf_audit::{
 /// What a redaction will remove, read before it is applied.
 pub use fepdf_doc::apply::redact::Removal;
 pub use fepdf_doc::operation::{
-    CropRegion, FieldKind, NewField, PageArrangement, PageDivision, Redaction, TabOrder,
-    TextLayerItem, WhatFallsOutside, XObjectEdit,
+    AnnotationAt, AnnotationState, CropRegion, FieldKind, NewField, PageArrangement, PageDivision,
+    Redaction, TabOrder, TextLayerItem, WhatFallsOutside, XObjectEdit,
 };
 pub use fepdf_doc::{
     Align,
@@ -333,11 +338,13 @@ fn written_version(version: &str) -> PdfResult<()> {
     ))
 }
 
-/// `/M`, the time of signing, in the form 7.9.4 defines.
+/// Now, as a date string in the form 7.9.4 defines: the time of signing's `/M`, and what
+/// a frontend puts in an annotation's [`Authorship::when`].
 ///
 /// Local time with its offset, because that is what the clause asks for and what a
 /// reader shows; `%:z` would give `+09:00` where PDF writes `+09'00`.
-fn pdf_now() -> String {
+#[must_use]
+pub fn pdf_now() -> String {
     let now = chrono::Local::now();
     let offset = now.offset().local_minus_utc();
     let (sign, seconds) = if offset < 0 { ('-', -offset) } else { ('+', offset) };
@@ -527,6 +534,16 @@ impl PdfDocument {
     #[must_use]
     pub fn decisions(&self) -> Vec<Decision> {
         self.inner.decisions.entries()
+    }
+
+    /// Every annotation on `page`, as a reviewer reads them: who made each, what it
+    /// answers, and the state each reviewer has given it. Each carries the
+    /// [`AnnotationAt`] an operation names it by (ADR-0115).
+    ///
+    /// # Errors
+    /// Fails when the page is not there.
+    pub fn comments(&self, page: usize) -> PdfResult<Vec<comments::Comment>> {
+        fepdf_doc::comments::on_page(&self.inner, page)
     }
 
     /// Returns the total number of pages.

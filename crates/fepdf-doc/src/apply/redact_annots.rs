@@ -43,13 +43,23 @@ pub fn meeting(doc: &Document, page: usize, regions: &[GlyphBox]) -> PdfResult<V
 /// Fails when the page is not there, or the structure tree will not read.
 pub fn remove(doc: &Document, page: usize, regions: &[GlyphBox]) -> PdfResult<()> {
     let arena = doc.arena();
-    let mut gone: BTreeSet<Handle<Object>> = annotations_on(doc, page)?
+    let gone: BTreeSet<Handle<Object>> = annotations_on(doc, page)?
         .iter()
         .filter(|a| {
             rect_of(arena, a).is_some_and(|r| regions.iter().any(|g| super::text::meets(r, *g)))
         })
         .filter_map(Object::as_reference)
         .collect();
+    remove_handles(doc, gone)
+}
+
+/// Removes the annotations `gone` names, with their pop-ups and replies, their places in
+/// the field tree, and the structure tree's references to them.
+///
+/// # Errors
+/// Fails when a page is not there, or the structure tree will not read.
+pub fn remove_handles(doc: &Document, mut gone: BTreeSet<Handle<Object>>) -> PdfResult<()> {
+    let arena = doc.arena();
     if gone.is_empty() {
         return Ok(());
     }
@@ -70,7 +80,7 @@ pub fn remove(doc: &Document, page: usize, regions: &[GlyphBox]) -> PdfResult<()
 }
 
 /// The entries of `page`'s `/Annots`.
-fn annotations_on(doc: &Document, page: usize) -> PdfResult<Vec<Object>> {
+pub fn annotations_on(doc: &Document, page: usize) -> PdfResult<Vec<Object>> {
     let arena = doc.arena();
     let page_dict = doc.resolve_to_dict(doc.page_handle(page)?)?;
     Ok(match arena.dict_entry(page_dict, arena.name("Annots")).map(|a| a.resolve(arena)) {

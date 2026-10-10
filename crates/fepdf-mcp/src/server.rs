@@ -12,21 +12,22 @@ use crate::tools::{
     AddAnnotationArgs, AddFormFieldArgs, AddPageDecorationArgs, AddUserPropertiesArgs,
     ApplyBatesNumberingArgs, ApplyOperationArgs, AttachAssociatedFileArgs, AuditArgs,
     CombinePagesArgs, CreatePortfolioArgs, CropPagesArgs, DeleteRunArgs, DeleteStructElemArgs,
-    EditObjectArgs, EditRunArgs, ExtractTextArgs, ListObjectsArgs, ListRunsArgs, MapStructTypeArgs,
-    MarkArtifactArgs, MergeRunsArgs, MoveRunArgs, MoveStructElemArgs, RedactDocumentArgs,
-    RemovePagesArgs, ReorderPagesArgs, RotatePagesArgs, SetCalculationOrderArgs,
-    SetFormFieldValueArgs, SetGeospatialAnchorArgs, SetMeasurementScaleArgs, SetOpenActionArgs,
-    SetOutputIntentArgs, SetPageLabelsArgs, SetPronunciationLexiconArgs, SetStructAttributeArgs,
-    SetStructNamespaceArgs, SetStructRefsArgs, SetTabOrderArgs, SetUnencryptedWrapperArgs,
-    SplitPageArgs, SplitRunArgs, UpdateArticleThreadsArgs, UpdateLayersArgs, UpdateOutlinesArgs,
-    UpdateStructElemArgs, VerifySignaturesArgs, WrapStructElemArgs, add_annotation_impl,
-    add_form_field_impl, add_page_decoration_impl, add_user_properties_impl,
-    apply_bates_numbering_impl, apply_operation_impl, apply_redaction_impl,
-    attach_associated_file_impl, audit_document_impl, combine_pages_impl, create_portfolio_impl,
-    crop_pages_impl, delete_run_impl, delete_struct_elem_impl, edit_object_impl, edit_run_impl,
-    extract_text_impl, list_objects_impl, list_runs_impl, map_struct_type_impl, mark_artifact_impl,
-    merge_runs_impl, move_run_impl, move_struct_elem_impl, remove_pages_impl, reorder_pages_impl,
-    rotate_pages_impl, set_calculation_order_impl, set_form_field_value_impl,
+    EditObjectArgs, EditRunArgs, ExtractTextArgs, ListCommentsArgs, ListObjectsArgs, ListRunsArgs,
+    MapStructTypeArgs, MarkArtifactArgs, MergeRunsArgs, MoveRunArgs, MoveStructElemArgs,
+    RedactDocumentArgs, RemovePagesArgs, ReorderPagesArgs, RotatePagesArgs,
+    SetCalculationOrderArgs, SetFormFieldValueArgs, SetGeospatialAnchorArgs,
+    SetMeasurementScaleArgs, SetOpenActionArgs, SetOutputIntentArgs, SetPageLabelsArgs,
+    SetPronunciationLexiconArgs, SetStructAttributeArgs, SetStructNamespaceArgs, SetStructRefsArgs,
+    SetTabOrderArgs, SetUnencryptedWrapperArgs, SplitPageArgs, SplitRunArgs,
+    UpdateArticleThreadsArgs, UpdateLayersArgs, UpdateOutlinesArgs, UpdateStructElemArgs,
+    VerifySignaturesArgs, WrapStructElemArgs, add_annotation_impl, add_form_field_impl,
+    add_page_decoration_impl, add_user_properties_impl, apply_bates_numbering_impl,
+    apply_operation_impl, apply_redaction_impl, attach_associated_file_impl, audit_document_impl,
+    combine_pages_impl, create_portfolio_impl, crop_pages_impl, delete_run_impl,
+    delete_struct_elem_impl, edit_object_impl, edit_run_impl, extract_text_impl,
+    list_comments_impl, list_objects_impl, list_runs_impl, map_struct_type_impl,
+    mark_artifact_impl, merge_runs_impl, move_run_impl, move_struct_elem_impl, remove_pages_impl,
+    reorder_pages_impl, rotate_pages_impl, set_calculation_order_impl, set_form_field_value_impl,
     set_geospatial_anchor_impl, set_measurement_scale_impl, set_open_action_impl,
     set_output_intent_impl, set_page_labels_impl, set_pronunciation_lexicon_impl,
     set_struct_attribute_impl, set_struct_namespace_impl, set_struct_refs_impl, set_tab_order_impl,
@@ -133,9 +134,31 @@ impl FepdfServer {
     pub fn all_tools() -> rmcp::handler::server::router::tool::ToolRouter<Self> {
         #[allow(unused_mut)]
         let mut router = Self::tool_router();
+        router.merge(Self::review_tool_router());
         #[cfg(feature = "render")]
         router.merge(Self::render_tool_router());
         router
+    }
+}
+
+/// Reading a page's annotations for review (ROADMAP AA-2a).
+///
+/// **A block of its own because the main one is at its limit**: `impl FepdfServer` below
+/// reached 802 lines with this tool in it, against Rule 1's 800 (ADR-0106). The review
+/// operations themselves go through `apply_operation`; what they need from a tool is the
+/// index each annotation is named by.
+#[tool_router(router = review_tool_router)]
+impl FepdfServer {
+    /// Lists a page's annotations, so that a caller has an index to name.
+    #[tool(
+        name = "list_comments",
+        description = "Lists the annotations of a page in /Annots order: each one's kind, author (/T), words, dates, what it replies to, and the state each reviewer has given it. Each `at` (page and index) is what RemoveAnnotation, EditAnnotation, ReplyToAnnotation and SetAnnotationState take through apply_operation."
+    )]
+    pub async fn list_comments(
+        &self,
+        Parameters(args): Parameters<ListCommentsArgs>,
+    ) -> Result<String, McpError> {
+        list_comments_impl(args)
     }
 }
 

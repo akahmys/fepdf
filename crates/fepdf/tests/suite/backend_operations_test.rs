@@ -35,6 +35,7 @@ fn a_link_to_a_page_that_is_not_there_is_refused() {
             page: 0,
             rect: [10.0, 10.0, 100.0, 100.0],
             kind: AnnotationKind::Link { destination_page: to, url: None },
+            by: fepdf::Authorship::default(),
         })
     };
     let mut doc = fepdf::PdfDocument::create_empty().expect("a document");
@@ -490,6 +491,7 @@ fn test_tier2_tier3_operations_execution() {
         page: 0,
         rect: [100.0, 100.0, 200.0, 150.0],
         kind: AnnotationKind::TextComment { contents: "Review note: Approved.".to_string() },
+        by: fepdf::Authorship::default(),
     };
     doc.apply(Operation::AddAnnotation(annot_spec)).expect("AddAnnotation failed");
 

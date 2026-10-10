@@ -51,8 +51,13 @@ fn point(value: f64) -> f32 {
 }
 
 fn annotate(doc: &mut PdfDocument, rect: [f32; 4], kind: AnnotationKind) {
-    doc.apply(Operation::AddAnnotation(AnnotationSpec { page: 0, rect, kind }))
-        .expect("the annotation applies");
+    doc.apply(Operation::AddAnnotation(AnnotationSpec {
+        page: 0,
+        rect,
+        kind,
+        by: fepdf::Authorship::default(),
+    }))
+    .expect("the annotation applies");
 }
 
 /// **A highlight leaves the words it marks readable.**

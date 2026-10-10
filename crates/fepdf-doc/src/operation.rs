@@ -5,10 +5,11 @@
 
 pub use fepdf_model::{
     AFRelationship, Align, AnnotationKind, AnnotationSpec, ArticleThread, AssociatedFile,
-    CollectionViewMode, ContentScale, FormFieldSpec, FormValue, GeoSpatialAnchor, MeasurementScale,
-    OptionalContentProperties, OutlineNode, OutlineTree, OutputIntent, PageLabelSpec,
-    PageLabelStyle, PageResize, PdfAction, PortfolioCollection, ShapeForm, TransitionSpec,
-    TransitionStyle, UnencryptedWrapperSpec, UserProperty, UserPropertyValue, VisibilityState,
+    Authorship, CollectionViewMode, ContentScale, FormFieldSpec, FormValue, GeoSpatialAnchor,
+    MeasurementScale, OptionalContentProperties, OutlineNode, OutlineTree, OutputIntent,
+    PageLabelSpec, PageLabelStyle, PageResize, PdfAction, PortfolioCollection, ShapeForm,
+    TransitionSpec, TransitionStyle, UnencryptedWrapperSpec, UserProperty, UserPropertyValue,
+    VisibilityState,
 };
 use serde::{Deserialize, Serialize};
 
@@ -504,6 +505,46 @@ pub enum Operation {
     },
     /// Add an annotation to a page.
     AddAnnotation(AnnotationSpec),
+    /// Remove an annotation, with its pop-up and every annotation that replies to it
+    /// (12.5.6.2), and the structure tree's references to them.
+    ///
+    /// A widget is refused: it is half of a form field, and a field is removed as a field.
+    RemoveAnnotation(AnnotationAt),
+    /// Replace the words an annotation carries (`/Contents`), and say when (`/M`).
+    ///
+    /// A free text annotation is refused, because its appearance draws the words and
+    /// would go on drawing the old ones. Remove it and add another.
+    EditAnnotation {
+        /// Which.
+        at: AnnotationAt,
+        /// Its words now.
+        contents: String,
+        /// When, as a date string (7.9.4).
+        when: Option<String>,
+    },
+    /// Answer an annotation: a text annotation whose `/IRT` is the one answered
+    /// (12.5.6.2). A reply is not drawn on its own, and has no appearance.
+    ReplyToAnnotation {
+        /// Which is answered.
+        at: AnnotationAt,
+        /// What the reply says.
+        contents: String,
+        /// Who answered, and when.
+        by: Authorship,
+    },
+    /// Set an annotation's state for a person (12.5.6.3).
+    ///
+    /// Written as the clause says, as a text annotation in reply: to the annotation, the
+    /// first time this author sets a state in this model, and to their previous one after.
+    /// The author is required, because the clause requires `/T`.
+    SetAnnotationState {
+        /// Which annotation.
+        at: AnnotationAt,
+        /// The state, which names its model.
+        state: AnnotationState,
+        /// Who set it, and when. `author` must be given.
+        by: Authorship,
+    },
     /// Set a measurement scale for CAD/geospatial drawings (/Measure).
     SetMeasurementScale(MeasurementScale),
 
@@ -678,6 +719,10 @@ impl Operation {
             | Self::SetOutputIntent { .. }
             | Self::SetPronunciationLexicon { .. }
             | Self::AddAnnotation { .. }
+            | Self::RemoveAnnotation(_)
+            | Self::EditAnnotation { .. }
+            | Self::ReplyToAnnotation { .. }
+            | Self::SetAnnotationState { .. }
             // Laid over the page, which is not moved.
             | Self::AddTextLayer { .. }
             | Self::EditRun { .. }
@@ -713,6 +758,81 @@ impl Operation {
             | Self::SetUnencryptedWrapper { .. }
             => false,
         }
+    }
+}
+
+/// An annotation already on a page: which page, and its place in that page's `/Annots`
+/// ([ADR-0115]).
+///
+/// [ADR-0115]: ../../../docs/adr/0115-an-operation-names-an-annotation-by-its-place-on-the-page.md
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AnnotationAt {
+    /// The page, from zero.
+    pub page: usize,
+    /// Its place in the page's `/Annots`, from zero.
+    pub index: usize,
+}
+
+/// A state an annotation can be given (Table 174). **Each names its model**, so a state
+/// cannot be paired with the wrong one.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum AnnotationState {
+    /// `Marked`, in the `Marked` model.
+    Marked,
+    /// `Unmarked`, in the `Marked` model.
+    Unmarked,
+    /// `Accepted`, in the `Review` model: the reviewer agrees with the change.
+    Accepted,
+    /// `Rejected`, in the `Review` model.
+    Rejected,
+    /// `Cancelled`, in the `Review` model.
+    Cancelled,
+    /// `Completed`, in the `Review` model.
+    Completed,
+    /// `None`, in the `Review` model: nothing said about the change.
+    None,
+}
+
+impl AnnotationState {
+    /// `/State`, as Table 174 spells it.
+    #[must_use]
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::Marked => "Marked",
+            Self::Unmarked => "Unmarked",
+            Self::Accepted => "Accepted",
+            Self::Rejected => "Rejected",
+            Self::Cancelled => "Cancelled",
+            Self::Completed => "Completed",
+            Self::None => "None",
+        }
+    }
+
+    /// `/StateModel`: the model this state belongs to.
+    #[must_use]
+    pub const fn model(self) -> &'static str {
+        match self {
+            Self::Marked | Self::Unmarked => "Marked",
+            Self::Accepted | Self::Rejected | Self::Cancelled | Self::Completed | Self::None => {
+                "Review"
+            }
+        }
+    }
+
+    /// The state `/State` and `/StateModel` name, if they name one of Table 174's.
+    #[must_use]
+    pub fn named(state: &str, model: &str) -> Option<Self> {
+        [
+            Self::Marked,
+            Self::Unmarked,
+            Self::Accepted,
+            Self::Rejected,
+            Self::Cancelled,
+            Self::Completed,
+            Self::None,
+        ]
+        .into_iter()
+        .find(|s| s.name() == state && s.model() == model)
     }
 }
 

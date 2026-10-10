@@ -154,7 +154,8 @@ pub fn apply_bates_numbering_impl(args: ApplyBatesNumberingArgs) -> Result<Strin
 /// Implementation of the add_annotation tool.
 pub fn add_annotation_impl(args: AddAnnotationArgs) -> Result<String, McpError> {
     let kind = annotation_kind(&args)?;
-    let spec = AnnotationSpec { page: args.page, rect: args.rect, kind };
+    let spec =
+        AnnotationSpec { page: args.page, rect: args.rect, kind, by: fepdf::Authorship::default() };
     let op = Operation::AddAnnotation(spec);
     execute_single_op(&args.input_path, &args.output_path, op, "Annotation added")
 }

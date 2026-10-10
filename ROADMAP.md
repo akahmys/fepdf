@@ -1870,10 +1870,25 @@ express; then AA-5 and AA-6.
       open clears (`forget_the_document`). And a lock this process had just released
       read as held in one test run of four, because a child process holds a copy of the
       lock's descriptor until it execs; `take_lock` now waits up to 200 ms.
-- [ ] **AA-2** — **annotations that can be reviewed**: removed, edited, replied to
-      (`/IRT`) and given a state (`/State`, `/StateModel`), each named by `/NM` so that
-      an act still finds its annotation after a replay. Then a comment list in the window
-      that can be filtered, sorted and answered.
+- [x] **AA-2a** — **annotations that can be reviewed, in the vocabulary**: removed
+      (with their pop-up and replies, through the code a redaction already removes them
+      with), their words edited, replied to (`/IRT`), and given a state (`/State`,
+      `/StateModel`, 12.5.6.3). Each names its annotation by page and place in `/Annots`
+      ([ADR-0115](docs/adr/0115-an-operation-names-an-annotation-by-its-place-on-the-page.md)).
+      A new annotation carries `/NM`, and `/T` only when an author is given
+      ([ADR-0116](docs/adr/0116-an-annotation-carries-an-author-only-when-the-reader-named-one.md)).
+      The facade lists a page's annotations, with each one's replies and states.
+      **Done, 2026-10-10**: `RemoveAnnotation`, `EditAnnotation`, `ReplyToAnnotation` and
+      `SetAnnotationState`; `PdfDocument::comments(page)`; and `list_comments` in
+      `fepdf-mcp`, in a router of its own because the main one was at 802 lines of its
+      800. Removal is the code a redaction removes annotations with (`remove_handles`).
+      `annotation_review_test.rs` holds seven behaviours, and each of the state chain,
+      the uniqueness of `/NM` and the refusal of a widget was shown to fail with its
+      code broken; so was `AddAnnotation` JSON without `by` reading, and `list_comments`
+      being served. The window's own author name and comment list are AA-2b.
+- [ ] **AA-2b** — **the comment list in the window**: every annotation, filtered by kind,
+      author and state, sorted by page, author or date, and answered from the list. An
+      author name in the settings.
 - [ ] **AA-3** — **FDF** (12.7.8): a document's annotations exported to FDF, and FDF
       imported onto a document. Checked against Arlington's FDF model.
 - [ ] **AA-4** — **XFDF** (ISO 19444-1:2019), the XML form of FDF. The standard is in

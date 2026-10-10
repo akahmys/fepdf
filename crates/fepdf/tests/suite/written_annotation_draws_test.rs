@@ -53,6 +53,7 @@ fn a_highlight_this_engine_wrote_puts_ink_on_the_page() {
         page: 0,
         rect: [20.0, 20.0, 120.0, 40.0],
         kind: AnnotationKind::Highlight { color_rgb: [1.0, 1.0, 0.0] },
+        by: fepdf::Authorship::default(),
     }))
     .expect("the annotation applies");
 
@@ -83,6 +84,7 @@ fn a_hidden_annotation_this_engine_wrote_is_still_hidden() {
         page: 0,
         rect: [20.0, 20.0, 120.0, 40.0],
         kind: AnnotationKind::Highlight { color_rgb: [1.0, 1.0, 0.0] },
+        by: fepdf::Authorship::default(),
     }))
     .expect("the annotation applies");
     assert!(

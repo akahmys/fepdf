@@ -393,36 +393,46 @@ pub fn apply_bates_numbering(
 }
 
 /// Appends an annotation to a target page (Clause 12.5).
+///
+/// A markup annotation is named on its page and signed with who made it and when, as far
+/// as the caller said ([ADR-0116]); a link is neither.
+///
+/// [ADR-0116]: ../../../../docs/adr/0116-an-annotation-carries-an-author-only-when-the-reader-named-one.md
 pub fn apply_add_annotation(doc: &Document, annot: AnnotationSpec) -> PdfResult<()> {
     let arena = doc.arena();
     let page_h = doc.page_handle(annot.page)?;
 
     let annot_dh = crate::apply::markup::annotation(doc, &annot, page_h)?;
+    if !matches!(annot.kind, crate::operation::AnnotationKind::Link { .. }) {
+        let mut dict = arena.get_dict(annot_dh).unwrap_or_default();
+        crate::apply::review::sign(doc, annot.page, &mut dict, &annot.by)?;
+        arena.set_dict(annot_dh, dict);
+    }
     let annot_h = arena.alloc_object(Object::Dictionary(annot_dh));
+    append_to_page(doc, page_h, annot_h)
+}
 
-    let page_dh = doc.resolve_to_dict(page_h)?;
+/// Puts `annot` at the end of `page`'s `/Annots`, making the array if there is none.
+///
+/// # Errors
+/// Fails when the page does not resolve to a dictionary.
+pub(crate) fn append_to_page(
+    doc: &Document,
+    page: Handle<Object>,
+    annot: Handle<Object>,
+) -> PdfResult<()> {
+    let arena = doc.arena();
+    let page_dh = doc.resolve_to_dict(page)?;
     let mut page_dict = arena.get_dict(page_dh).unwrap_or_default();
     let annots_key = arena.name("Annots");
-    let mut annots_items = if let Some(existing_annots) = page_dict.get(&annots_key) {
-        match existing_annots {
-            Object::Array(ah) => arena.get_array(*ah).unwrap_or_default(),
-            Object::Reference(h) => {
-                if let Some(Object::Array(ah)) = arena.get_object(*h) {
-                    arena.get_array(ah).unwrap_or_default()
-                } else {
-                    Vec::new()
-                }
-            }
-            _ => Vec::new(),
-        }
-    } else {
-        Vec::new()
+    let mut annots_items = match page_dict.get(&annots_key).map(|a| a.resolve(arena)) {
+        Some(Object::Array(ah)) => arena.get_array(ah).unwrap_or_default(),
+        _ => Vec::new(),
     };
-    annots_items.push(Object::Reference(annot_h));
+    annots_items.push(Object::Reference(annot));
     let annots_ah = arena.alloc_array(annots_items);
     page_dict.insert(annots_key, Object::Array(annots_ah));
     arena.set_dict(page_dh, page_dict);
-
     Ok(())
 }
 

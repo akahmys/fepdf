@@ -27,6 +27,8 @@ pub(crate) mod redact_apply;
 pub(crate) mod redact_forms;
 pub(crate) mod redact_images;
 pub(crate) mod redact_marks;
+/// What a reviewer does to an annotation: removes, edits, answers, gives a state.
+pub(crate) mod review;
 /// Security, unencrypted wrapper, and public-key recipient operation handlers.
 pub mod security;
 /// Structure element and article thread operation handlers.
@@ -122,6 +124,14 @@ fn dispatch(doc: &mut Document, op: Operation) -> PdfResult<()> {
             annotations::apply_bates(doc, &pages, &prefix, start_number, digits, &position)
         }
         Operation::AddAnnotation(a) => annotations::apply_add_annotation(doc, a),
+        Operation::RemoveAnnotation(at) => review::apply_remove(doc, at),
+        Operation::EditAnnotation { at, contents, when } => {
+            review::apply_edit(doc, at, &contents, when.as_deref())
+        }
+        Operation::ReplyToAnnotation { at, contents, by } => {
+            review::apply_reply(doc, at, &contents, &by)
+        }
+        Operation::SetAnnotationState { at, state, by } => review::apply_state(doc, at, state, &by),
         Operation::EditRun { page, run, text: to } => text::apply_edit_run(doc, page, run, &to),
         Operation::SplitRun { page, run, after } => text::apply_split_run(doc, page, run, after),
         Operation::DeleteRun { page, run } => text::apply_delete_run(doc, page, run),

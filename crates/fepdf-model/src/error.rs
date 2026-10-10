@@ -147,6 +147,13 @@ pub enum Missing {
     },
     /// A structure element, by the object number that was given for it.
     StructElement(u32),
+    /// An annotation past the last in its page's `/Annots`.
+    Annotation {
+        /// The index asked for.
+        index: usize,
+        /// How many the page has.
+        count: usize,
+    },
 }
 
 impl std::fmt::Display for Missing {
@@ -157,6 +164,9 @@ impl std::fmt::Display for Missing {
             }
             Self::Run { index, count } => {
                 write!(f, "this page has {count} runs and no run {index}")
+            }
+            Self::Annotation { index, count } => {
+                write!(f, "this page has {count} annotations and no annotation {index}")
             }
             Self::DrawnObject { index, count } => {
                 write!(f, "this page draws {count} objects and no object {index}")
