@@ -60,14 +60,25 @@ impl Document {
         fonts: &mut BTreeMap<FallbackFontType, Arc<Vec<u8>>>,
         missing_types: &[FallbackFontType],
     ) {
+        // Each type takes the first of its paths that is there. `fonts-japanese-*` are the
+        // links Debian's Japanese font packages make; Noto CJK is what an Ubuntu desktop
+        // ships, and with only the links named, a Japanese page found no font at all.
         let linux_paths = [
             (
                 crate::font::FallbackFontType::JapaneseSerif,
                 "/usr/share/fonts/truetype/fonts-japanese-mincho.ttf",
             ),
             (
+                crate::font::FallbackFontType::JapaneseSerif,
+                "/usr/share/fonts/opentype/noto/NotoSerifCJK-Regular.ttc",
+            ),
+            (
                 crate::font::FallbackFontType::JapaneseSans,
                 "/usr/share/fonts/truetype/fonts-japanese-gothic.ttf",
+            ),
+            (
+                crate::font::FallbackFontType::JapaneseSans,
+                "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
             ),
             (
                 crate::font::FallbackFontType::Serif,
@@ -84,6 +95,7 @@ impl Document {
         ];
         for (ftype, path) in linux_paths {
             if missing_types.contains(&ftype)
+                && !fonts.contains_key(&ftype)
                 && let Ok(data) = std::fs::read(path)
             {
                 fonts.insert(ftype, Arc::new(data));
