@@ -46,3 +46,53 @@ pub fn list_comments_impl(args: ListCommentsArgs) -> McpResult<String> {
     let report = ListCommentsReport { path: args.path, page: args.page, comments };
     Ok(serde_json::to_string_pretty(&report)?)
 }
+
+/// Arguments for `export_fdf`.
+#[derive(Deserialize, JsonSchema)]
+pub struct ExportFdfArgs {
+    /// Path to the PDF file.
+    pub input_path: String,
+    /// Where to write the FDF file.
+    pub output_path: String,
+}
+
+/// Implementation of the `export_fdf` tool: every markup annotation, as FDF (12.7.8).
+///
+/// # Errors
+/// When the file will not read or open, or the FDF will not write.
+pub fn export_fdf_impl(args: ExportFdfArgs) -> McpResult<String> {
+    let data = fs::read(&args.input_path).map_err(McpError::from)?;
+    let doc =
+        PdfDocument::open(Bytes::from(data)).map_err(|e| McpError::pdf("Failed to open PDF", e))?;
+    let fdf = doc.export_fdf().map_err(|e| McpError::pdf("Failed to export the comments", e))?;
+    fs::write(&args.output_path, &fdf).map_err(McpError::from)?;
+    Ok(format!("Wrote {} bytes of FDF to {}", fdf.len(), args.output_path))
+}
+
+/// Arguments for `import_fdf`.
+#[derive(Deserialize, JsonSchema)]
+pub struct ImportFdfArgs {
+    /// Path to the PDF file.
+    pub input_path: String,
+    /// Path to the FDF file whose annotations are imported.
+    pub fdf_path: String,
+    /// Where to write the PDF with them.
+    pub output_path: String,
+}
+
+/// Implementation of the `import_fdf` tool (ADR-0117).
+///
+/// **A path rather than `apply_operation`'s JSON**: `ImportFdf` carries the file's bytes,
+/// and a caller should not have to write a file out as a JSON array of numbers.
+///
+/// # Errors
+/// When a file will not read, the FDF is not one, or the result will not save.
+pub fn import_fdf_impl(args: ImportFdfArgs) -> McpResult<String> {
+    let fdf = fs::read(&args.fdf_path).map_err(McpError::from)?;
+    crate::tools::operations::page::execute_single_op(
+        &args.input_path,
+        &args.output_path,
+        fepdf::Operation::ImportFdf { fdf },
+        "FDF annotations imported",
+    )
+}

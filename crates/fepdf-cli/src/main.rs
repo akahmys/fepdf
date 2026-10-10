@@ -101,6 +101,12 @@ async fn main() -> Result<()> {
             } => {
                 edit::handle_attach(input, output, file, relationship, mime_type, ingest, save)?;
             }
+            EditSubcommands::FdfExport { input, output, ingest } => {
+                edit::handle_fdf_export(&input, &output, ingest)?;
+            }
+            EditSubcommands::FdfImport { input, fdf, output, ingest, save } => {
+                edit::handle_fdf_import(&input, &fdf, &output, ingest, save)?;
+            }
             EditSubcommands::PageLabel { input, output, style, prefix, ingest, save } => {
                 edit::handle_page_label(input, output, style, prefix, ingest, save)?;
             }

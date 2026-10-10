@@ -23,6 +23,10 @@ pub enum Asked {
     Edit(AnnotationAt, String),
     /// Remove it, with what answers it.
     Remove(AnnotationAt),
+    /// Write every comment to an FDF file (12.7.8).
+    ExportFdf,
+    /// Put an FDF file's comments onto the document (ADR-0117).
+    ImportFdf,
 }
 
 /// The order the list is in.
@@ -97,17 +101,26 @@ impl CommentsPanel {
         comments: &[Comment],
         words: &dyn Fn(&str) -> String,
     ) -> Option<Asked> {
+        let mut asked = None;
+        ui.horizontal(|ui| {
+            if ui.button(words("comments_import_fdf")).clicked() {
+                asked = Some(Asked::ImportFdf);
+            }
+            if ui.button(words("comments_export_fdf")).clicked() {
+                asked = Some(Asked::ExportFdf);
+            }
+        });
+        ui.separator();
         let roots: Vec<&Comment> = comments.iter().filter(|c| c.markup && !c.is_reply()).collect();
         if roots.is_empty() {
             ui.label(words("comments_none"));
-            return None;
+            return asked;
         }
         self.filters(ui, &roots, words);
         ui.separator();
         let mut shown: Vec<&Comment> = roots.into_iter().filter(|c| self.keeps(c)).collect();
         self.sort(&mut shown);
         ui.label(words("comments_count").replace("{}", &shown.len().to_string()));
-        let mut asked = None;
         for comment in shown {
             ui.add_space(crate::app::theme::space::ITEM);
             if let Some(a) = self.entry(ui, comment, comments, words) {

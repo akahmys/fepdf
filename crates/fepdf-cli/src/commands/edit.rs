@@ -270,6 +270,43 @@ pub fn handle_attach(
     Ok(())
 }
 
+/// Writes the comments of `input` to `output` as FDF (12.7.8).
+pub fn handle_fdf_export(
+    input: &std::path::Path,
+    output: &std::path::Path,
+    ingest: IngestArgs,
+) -> Result<()> {
+    let data = std::fs::read(input).with_context(|| "Failed to read input PDF")?;
+    let ingest_options: fepdf::IngestionOptions = ingest.try_into()?;
+    let doc = PdfDocument::open_with_options(data.into(), &ingest_options)
+        .map_err(|e| anyhow::anyhow!("{e:?}"))?;
+    let fdf = doc.export_fdf().map_err(|e| anyhow::anyhow!("{e:?}"))?;
+    std::fs::write(output, fdf).with_context(|| "Failed to write the FDF file")?;
+    println!("SUCCESS: comments written to {}", output.display());
+    Ok(())
+}
+
+/// Puts the comments of `fdf` onto `input`, and saves it as `output` (ADR-0117).
+pub fn handle_fdf_import(
+    input: &std::path::Path,
+    fdf: &std::path::Path,
+    output: &std::path::Path,
+    ingest: IngestArgs,
+    save: SaveArgs,
+) -> Result<()> {
+    let data = std::fs::read(input).with_context(|| "Failed to read input PDF")?;
+    let fdf = std::fs::read(fdf).with_context(|| "Failed to read the FDF file")?;
+    let ingest_options: fepdf::IngestionOptions = ingest.try_into()?;
+    let mut doc = PdfDocument::open_with_options(data.into(), &ingest_options)
+        .map_err(|e| anyhow::anyhow!("{e:?}"))?;
+    doc.apply(fepdf::Operation::ImportFdf { fdf }).map_err(|e| anyhow::anyhow!("{e:?}"))?;
+    save.check()?;
+    let save_options: fepdf::SaveOptions = save.try_into()?;
+    save_reporting_permissions(&doc, output, &save_options)?;
+    println!("SUCCESS: comments imported, saved to {}", output.display());
+    Ok(())
+}
+
 pub fn handle_page_label(
     input: PathBuf,
     output: PathBuf,

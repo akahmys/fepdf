@@ -1253,6 +1253,18 @@ fn send_form(doc: Option<&PdfDocument>, tx: &Sender<WorkerResponse>) {
     send_comments(doc, tx);
 }
 
+/// Writes the document's comments to `path` as FDF, and says where.
+fn export_fdf(doc: Option<&PdfDocument>, path: &std::path::Path) -> WorkerResponse {
+    let written = doc
+        .ok_or_else(String::new)
+        .and_then(|doc| doc.export_fdf().map_err(|e| format!("{e:?}")))
+        .and_then(|fdf| std::fs::write(path, fdf).map_err(|e| e.to_string()));
+    match written {
+        Ok(()) => WorkerResponse::DocumentSaved { path: path.to_path_buf(), notices: Vec::new() },
+        Err(detail) => WorkerResponse::Failed { key: "notice_fdf_failed", detail: Some(detail) },
+    }
+}
+
 /// Every annotation in the document, page by page, for the comment list.
 ///
 /// **Sent wherever the form is**, because both are read from the document as it stands
@@ -1345,6 +1357,9 @@ pub enum Read {
         /// Which page.
         page: usize,
     },
+    /// Every comment, written to `path` as FDF (12.7.8). A read: the document is not
+    /// changed by being written out.
+    Fdf { path: std::path::PathBuf },
 }
 
 impl Read {
@@ -1353,6 +1368,7 @@ impl Read {
         match self {
             Self::Print(_) => "busy_printing",
             Self::Compare { .. } | Self::Reading | Self::Scales { .. } => "busy_reading",
+            Self::Fdf { .. } => "busy_exporting",
         }
     }
 }
@@ -1360,6 +1376,7 @@ impl Read {
 /// What `read` finds in `doc`; with no document, what an empty one would answer.
 fn answer(doc: Option<&PdfDocument>, read: Read) -> WorkerResponse {
     match read {
+        Read::Fdf { path } => export_fdf(doc, &path),
         Read::Print(form) => WorkerResponse::Printed { notice: print(doc, &form) },
         Read::Reading => {
             let reading = doc.map(PdfDocument::reading).unwrap_or_default();

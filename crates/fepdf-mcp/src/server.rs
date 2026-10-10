@@ -160,6 +160,30 @@ impl FepdfServer {
     ) -> Result<String, McpError> {
         list_comments_impl(args)
     }
+
+    /// Writes a document's comments to an FDF file.
+    #[tool(
+        name = "export_fdf",
+        description = "Writes every markup annotation of a PDF to an FDF file (ISO 32000-2 12.7.8): each with its /Page and an /NM, replies and states included. Links, widgets and pop-ups are not exported."
+    )]
+    pub async fn export_fdf(
+        &self,
+        Parameters(args): Parameters<crate::tools::ExportFdfArgs>,
+    ) -> Result<String, McpError> {
+        crate::tools::export_fdf_impl(args)
+    }
+
+    /// Puts an FDF file's comments onto a document.
+    #[tool(
+        name = "import_fdf",
+        description = "Imports the annotations of an FDF file onto a PDF and saves the result. An annotation whose /NM matches one on its page replaces it in place; any other is added; annotations the FDF does not name are left alone."
+    )]
+    pub async fn import_fdf(
+        &self,
+        Parameters(args): Parameters<crate::tools::ImportFdfArgs>,
+    ) -> Result<String, McpError> {
+        crate::tools::import_fdf_impl(args)
+    }
 }
 
 /// The one tool that rasterises, and the only reason this server links a GPU stack.

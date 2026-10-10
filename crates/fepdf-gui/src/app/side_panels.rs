@@ -454,11 +454,35 @@ impl FepdfApp {
                 fepdf::Operation::EditAnnotation { at, contents, when: Some(fepdf::pdf_now()) }
             }
             Asked::Remove(at) => fepdf::Operation::RemoveAnnotation(at),
+            Asked::ExportFdf | Asked::ImportFdf => {
+                let Some(operation) = self.fdf_asked(&asked) else { return };
+                operation
+            }
         };
         let _ = self.tx_worker.send(crate::worker::WorkerRequest::Apply {
             operation: Box::new(operation),
             done: self.tr("comments_title"),
         });
+    }
+
+    /// FDF out or in, through the platform's file dialog: out is a read the worker
+    /// answers, and in is the operation `ImportFdf` with the file's bytes.
+    fn fdf_asked(&mut self, asked: &crate::sidebar::comments::Asked) -> Option<fepdf::Operation> {
+        let dialog = rfd::FileDialog::new().add_filter("FDF", &["fdf"]);
+        if matches!(asked, crate::sidebar::comments::Asked::ExportFdf) {
+            let path = dialog.save_file()?;
+            let read = crate::worker::Read::Fdf { path };
+            let _ = self.tx_worker.send(crate::worker::WorkerRequest::Read(read));
+            return None;
+        }
+        match std::fs::read(dialog.pick_file()?) {
+            Ok(fdf) => Some(fepdf::Operation::ImportFdf { fdf }),
+            Err(why) => {
+                let notice = crate::app::Notice::failed("notice_fdf_failed");
+                self.notice = Some(notice.about(why.to_string()));
+                None
+            }
+        }
     }
 
     /// Who is making an annotation now, and when: the author in the settings, if the

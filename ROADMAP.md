@@ -1897,8 +1897,26 @@ express; then AA-5 and AA-6.
       author; a state with no author set was refused with a pointer to the settings; with
       one set, `Reviewer: 承認` appeared; and ⌘Z took it back off the list. The author name
       lasts as long as the window, since nothing in the window is persisted yet.
-- [ ] **AA-3** — **FDF** (12.7.8): a document's annotations exported to FDF, and FDF
-      imported onto a document. Checked against Arlington's FDF model.
+- [x] **AA-3** — **FDF annotations** (12.7.8): a document's markup annotations exported
+      to FDF, each with its `/Page` and an `/NM`, and an FDF's annotations imported onto a
+      document. An imported annotation whose `/NM` matches one on its page replaces it in
+      place, and any other is added
+      ([ADR-0117](docs/adr/0117-an-fdf-import-replaces-an-annotation-of-the-same-name.md)).
+      *Done when* an export imported into the clean document reproduces its comments,
+      replies and states, and a second import of the same file changes nothing.
+      **Done, 2026-10-10**: `PdfDocument::export_fdf` and `Operation::ImportFdf`, reached
+      from `fepdf edit fdf-export` / `fdf-import`, `fepdf-mcp`'s `export_fdf` /
+      `import_fdf`, and the comment drawer's two buttons. `fdf_test.rs` holds both halves
+      of *done when*, the in-place replacement keeping a document's reply, the refusal of
+      a file that is not FDF, and the file's structure read from its bytes: each
+      cross-reference entry at its own `n 0 obj`, generation 0, `/Root` the catalogue.
+      Each was shown to fail with its code broken. The byte check is the one that caught
+      shifted offsets, since this engine's reader recovers from them by scanning. qpdf
+      could not be the second reader: it refuses a file with no page tree. Through the
+      CLI, an export imported back into its own file left two annotations two.
+- [ ] **AA-3b** — **FDF form values** (`/Fields`, Table 249): a form's values exported and
+      imported. Separate from AA-3, because the matching is by field name and the rules
+      are the form's.
 - [ ] **AA-4** — **XFDF** (ISO 19444-1:2019), the XML form of FDF. The standard is in
       `docs/specs/` since 2026-10-10, bought, and never to be committed
       ([docs/specs/README.md](docs/specs/README.md)). Taken after AA-3, whose annotations

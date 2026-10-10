@@ -532,6 +532,13 @@ pub enum Operation {
         /// Who answered, and when.
         by: Authorship,
     },
+    /// Put the annotations of an FDF file onto the document (12.7.8.3.4): one whose `/NM`
+    /// matches an annotation on its page replaces it in place, and any other is added
+    /// (ADR-0117).
+    ImportFdf {
+        /// The FDF file, whole.
+        fdf: Vec<u8>,
+    },
     /// Set an annotation's state for a person (12.5.6.3).
     ///
     /// Written as the clause says, as a text annotation in reply: to the annotation, the
@@ -723,6 +730,7 @@ impl Operation {
             | Self::EditAnnotation { .. }
             | Self::ReplyToAnnotation { .. }
             | Self::SetAnnotationState { .. }
+            | Self::ImportFdf { .. }
             // Laid over the page, which is not moved.
             | Self::AddTextLayer { .. }
             | Self::EditRun { .. }

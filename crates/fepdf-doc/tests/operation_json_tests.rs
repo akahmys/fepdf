@@ -48,6 +48,7 @@ fn variant_name(op: &Operation) -> &'static str {
         Operation::EditAnnotation { .. } => "EditAnnotation",
         Operation::ReplyToAnnotation { .. } => "ReplyToAnnotation",
         Operation::SetAnnotationState { .. } => "SetAnnotationState",
+        Operation::ImportFdf { .. } => "ImportFdf",
         Operation::EditRun { .. } => "EditRun",
         Operation::SplitRun { .. } => "SplitRun",
         Operation::DeleteRun { .. } => "DeleteRun",

@@ -546,6 +546,16 @@ impl PdfDocument {
         fepdf_doc::comments::on_page(&self.inner, page)
     }
 
+    /// Every markup annotation, as an FDF file (12.7.8): each with its `/Page`, and an
+    /// `/NM` so that a document it is imported into can match it again (ADR-0117).
+    /// `Operation::ImportFdf` is the way back.
+    ///
+    /// # Errors
+    /// When a page will not read, or the file will not write.
+    pub fn export_fdf(&self) -> PdfResult<Vec<u8>> {
+        fepdf_doc::fdf::export(&self.inner)
+    }
+
     /// Returns the total number of pages.
     pub fn page_count(&self) -> PdfResult<usize> {
         self.inner.page_count()

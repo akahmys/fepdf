@@ -509,6 +509,35 @@ pub enum EditSubcommands {
         #[command(flatten)]
         save: SaveArgs,
     },
+    /// Write the document's comments to an FDF file (ISO 32000-2 12.7.8, ROADMAP AA-3)
+    FdfExport {
+        /// Input PDF file
+        input: PathBuf,
+        /// Output FDF file
+        #[arg(short, long)]
+        output: PathBuf,
+        /// Ingestion control options
+        #[command(flatten)]
+        ingest: IngestArgs,
+    },
+    /// Put the comments of an FDF file onto the document; one of the same /NM on its
+    /// page is replaced, and any other is added (ADR-0117)
+    FdfImport {
+        /// Input PDF file
+        input: PathBuf,
+        /// The FDF file whose comments are imported
+        #[arg(long)]
+        fdf: PathBuf,
+        /// Output PDF file
+        #[arg(short, long)]
+        output: PathBuf,
+        /// Ingestion control options
+        #[command(flatten)]
+        ingest: IngestArgs,
+        /// Output optimization options
+        #[command(flatten)]
+        save: SaveArgs,
+    },
     /// Set page numbering labels (/PageLabels)
     PageLabel {
         /// Input PDF file

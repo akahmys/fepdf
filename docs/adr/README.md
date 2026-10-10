@@ -181,3 +181,4 @@ quietly wrong — which is the failure this log exists to make visible.
 | 0114 | [The window journals its acts, and a crash replays them](0114-the-window-journals-its-acts-and-a-crash-replays-them.md) | Opens Phase AA |
 | 0115 | [An operation names an annotation by its place on the page](0115-an-operation-names-an-annotation-by-its-place-on-the-page.md) | AA-2; rests on 0114 |
 | 0116 | [An annotation carries an author only when the reader named one](0116-an-annotation-carries-an-author-only-when-the-reader-named-one.md) | AA-2 |
+| 0117 | [An FDF import replaces an annotation of the same name, and adds the rest](0117-an-fdf-import-replaces-an-annotation-of-the-same-name.md) | AA-3 |

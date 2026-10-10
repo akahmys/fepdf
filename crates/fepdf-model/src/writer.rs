@@ -242,6 +242,14 @@ impl<'a, W: Write> PdfWriter<'a, W> {
         Ok(())
     }
 
+    /// Writes the header of an FDF file, which 12.7.8.2.2 fixes as `%FDF-1.2`: the version
+    /// it conforms to goes in the catalogue's `/Version` instead.
+    pub fn write_fdf_header(&mut self) -> PdfResult<()> {
+        self.write_all(b"%FDF-1.2\r\n")?;
+        self.write_all(b"%\xE2\xE3\xCF\xD3\r\n")?;
+        Ok(())
+    }
+
     /// Enables or disables PDF linearization (Fast Web View).
     pub fn set_linearize(&mut self, linearize: bool) {
         self.linearize = linearize;
