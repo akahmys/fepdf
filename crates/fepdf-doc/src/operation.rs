@@ -6,10 +6,10 @@
 pub use fepdf_model::{
     AFRelationship, Align, AnnotationKind, AnnotationSpec, ArticleThread, AssociatedFile,
     Authorship, CollectionViewMode, ContentScale, FormFieldSpec, FormValue, GeoSpatialAnchor,
-    MeasurementScale, OptionalContentProperties, OutlineNode, OutlineTree, OutputIntent,
-    PageLabelSpec, PageLabelStyle, PageResize, PdfAction, PortfolioCollection, ShapeForm,
-    TransitionSpec, TransitionStyle, UnencryptedWrapperSpec, UserProperty, UserPropertyValue,
-    VisibilityState,
+    MeasurementScale, MediaClip, OptionalContentProperties, OutlineNode, OutlineTree, OutputIntent,
+    PageLabelSpec, PageLabelStyle, PageResize, PdfAction, PortfolioCollection, PrinterMarkKind,
+    ShapeForm, TransitionSpec, TransitionStyle, UnencryptedWrapperSpec, UserProperty,
+    UserPropertyValue, VisibilityState,
 };
 use serde::{Deserialize, Serialize};
 

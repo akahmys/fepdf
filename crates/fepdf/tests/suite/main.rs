@@ -58,6 +58,7 @@ mod layer_toggle_test;
 mod linearize_options_test;
 mod linearized_hint_test;
 mod mac_roman_test;
+mod made_annotation_test;
 mod mark_artifact_test;
 mod marked_content_boxes_test;
 mod match_box_test;

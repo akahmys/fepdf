@@ -901,6 +901,15 @@ fn annotation_defaults() -> AddAnnotationArgs {
         url: None,
         destination_page: None,
         stamp_path: None,
+        vertices: None,
+        paragraph: None,
+        file_path: None,
+        mime_type: None,
+        parent: None,
+        open: None,
+        mark: None,
+        opacity: None,
+        interior_color: None,
     }
 }
 
@@ -926,7 +935,10 @@ fn an_unknown_annotation_kind_is_refused() {
 /// Each kind the schema names reaches the page as the subtype it is.
 #[test]
 fn every_kind_the_tool_names_reaches_the_page() {
-    let cases: [(&str, &str, AddAnnotationArgs); 5] = [
+    let attached = written("annot_attached_file", b"Hello");
+    let points = || Some(vec![[110.0, 110.0], [190.0, 110.0], [150.0, 140.0]]);
+    let worded = || AddAnnotationArgs { contents: "DRAFT".into(), ..annotation_defaults() };
+    let cases: [(&str, &str, AddAnnotationArgs); 14] = [
         ("underline", "Underline", annotation_defaults()),
         ("squiggly", "Squiggly", annotation_defaults()),
         ("rectangle", "Square", annotation_defaults()),
@@ -947,6 +959,19 @@ fn every_kind_the_tool_names_reaches_the_page() {
                 ..annotation_defaults()
             },
         ),
+        ("polygon", "Polygon", AddAnnotationArgs { vertices: points(), ..annotation_defaults() }),
+        ("polyline", "PolyLine", AddAnnotationArgs { vertices: points(), ..annotation_defaults() }),
+        ("caret", "Caret", worded()),
+        (
+            "file_attachment",
+            "FileAttachment",
+            AddAnnotationArgs { file_path: Some(attached), ..annotation_defaults() },
+        ),
+        ("screen", "Screen", annotation_defaults()),
+        ("printer_mark", "PrinterMark", annotation_defaults()),
+        ("watermark", "Watermark", worded()),
+        ("redact", "Redact", worded()),
+        ("projection", "Projection", worded()),
     ];
     for (kind, subtype, args) in cases {
         let path = written(&format!("annot_{kind}"), &pages(1));

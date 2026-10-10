@@ -15,6 +15,8 @@ pub mod fields;
 pub mod font;
 pub(crate) mod image_crop;
 pub(crate) mod inline_images;
+/// The annotation kinds made beyond the first (ROADMAP AA-4f).
+pub(crate) mod kinds;
 pub(crate) mod markup;
 /// Portfolio, outline, layer, associated file, and metadata operation handlers.
 pub mod metadata;

@@ -57,12 +57,15 @@ pub struct AddAnnotationArgs {
     pub page: usize,
     /// Bounding rectangle `[x0, y0, x1, y1]`, in points from the page's lower left.
     pub rect: [f32; 4],
-    /// What a note, text box, typewriter or callout says.
+    /// What a note, text box, typewriter, callout, caret, watermark or projection says;
+    /// an attachment's description, a screen's title, and the words over a redaction.
     #[serde(default)]
     pub contents: String,
     /// One of `note` (the default; `text` is the same), `highlight`, `underline`,
     /// `strike_out`, `squiggly`, `text_box`, `typewriter`, `callout`, `ink`, `rectangle`,
-    /// `ellipse`, `line`, `stamp` or `link`. Any other name is refused.
+    /// `ellipse`, `line`, `polygon`, `polyline`, `stamp`, `link`, `caret`,
+    /// `file_attachment`, `screen`, `popup`, `printer_mark`, `watermark`, `redact` or
+    /// `projection`. Any other name is refused.
     pub kind: Option<String>,
     /// RGB colour, each from 0 to 1, for the marks, ink and shapes. Default black, and
     /// yellow for a highlight.
@@ -85,6 +88,24 @@ pub struct AddAnnotationArgs {
     pub destination_page: Option<usize>,
     /// A JPEG file on disk to put in a stamp.
     pub stamp_path: Option<String>,
+    /// A polygon's or polyline's points, on the page.
+    pub vertices: Option<Vec<[f32; 2]>>,
+    /// Whether a caret stands for a new paragraph.
+    pub paragraph: Option<bool>,
+    /// The file an attachment carries, or a screen plays.
+    pub file_path: Option<String>,
+    /// That file's media type, such as `video/mp4`; a screen needs one.
+    pub mime_type: Option<String>,
+    /// The index on the page of the annotation a popup is for.
+    pub parent: Option<usize>,
+    /// Whether a popup opens shown. Default false.
+    pub open: Option<bool>,
+    /// A printer's mark: `registration_target` or `color_bar`.
+    pub mark: Option<String>,
+    /// How opaque a watermark is, from 0 to 1. Default 0.5.
+    pub opacity: Option<f32>,
+    /// What a redacted region is filled with, RGB from 0 to 1.
+    pub interior_color: Option<[f32; 3]>,
 }
 
 /// Arguments for setting a measurement scale.
@@ -199,6 +220,25 @@ fn annotation_kind(args: &AddAnnotationArgs) -> Result<AnnotationKind, McpError>
             from: args.from.ok_or_else(|| needs("from"))?,
             to: args.to.ok_or_else(|| needs("to"))?,
         }),
+        "polygon" => shape(ShapeForm::Polygon {
+            vertices: args.vertices.clone().ok_or_else(|| needs("vertices"))?,
+        }),
+        "polyline" => shape(ShapeForm::PolyLine {
+            vertices: args.vertices.clone().ok_or_else(|| needs("vertices"))?,
+        }),
+        other => {
+            return more_kinds(args, other)?
+                .ok_or_else(|| format!("no annotation kind is called {other:?}").into());
+        }
+    })
+}
+
+/// The kinds that are not marks or words on the page, or `None` for a name that is not
+/// one.
+fn more_kinds(args: &AddAnnotationArgs, kind: &str) -> Result<Option<AnnotationKind>, McpError> {
+    let said = (!args.contents.is_empty()).then(|| args.contents.clone());
+    let needs = |what: &str| format!("a {kind} annotation needs `{what}`");
+    Ok(Some(match kind {
         "stamp" => {
             let path = args.stamp_path.as_deref().ok_or_else(|| needs("stamp_path"))?;
             let picture = std::fs::read(path).map_err(|e| format!("{path}: {e}"))?;
@@ -208,8 +248,67 @@ fn annotation_kind(args: &AddAnnotationArgs) -> Result<AnnotationKind, McpError>
             destination_page: args.destination_page.unwrap_or(args.page),
             url: args.url.clone(),
         },
-        other => return Err(format!("no annotation kind is called {other:?}").into()),
-    })
+        "caret" => AnnotationKind::Caret {
+            contents: args.contents.clone(),
+            color_rgb: args.color.unwrap_or([0.0, 0.0, 1.0]),
+            paragraph: args.paragraph.unwrap_or(false),
+        },
+        "popup" => AnnotationKind::Popup {
+            parent: args.parent.ok_or_else(|| needs("parent"))?,
+            open: args.open.unwrap_or(false),
+        },
+        "printer_mark" => AnnotationKind::PrinterMark {
+            mark: match args.mark.as_deref() {
+                Some("registration_target") | None => fepdf::PrinterMarkKind::RegistrationTarget,
+                Some("color_bar") => fepdf::PrinterMarkKind::ColorBar,
+                Some(other) => return Err(format!("no printer's mark is called {other:?}").into()),
+            },
+        },
+        "watermark" => AnnotationKind::Watermark {
+            text: args.contents.clone(),
+            font_size: args.font_size.unwrap_or(48.0),
+            opacity: args.opacity.unwrap_or(0.5),
+        },
+        "redact" => {
+            AnnotationKind::Redact { overlay_text: said, interior_rgb: args.interior_color }
+        }
+        "projection" => AnnotationKind::Projection { contents: args.contents.clone() },
+        _ => return carried(args, kind),
+    }))
+}
+
+/// The kinds that carry a file from disk — an attachment, and a screen's clip — or `None`
+/// for a name that is not one.
+fn carried(args: &AddAnnotationArgs, kind: &str) -> Result<Option<AnnotationKind>, McpError> {
+    let said = (!args.contents.is_empty()).then(|| args.contents.clone());
+    let needs = |what: &str| format!("a {kind} annotation needs `{what}`");
+    let file = || -> Result<(String, Vec<u8>), McpError> {
+        let path = args.file_path.as_deref().ok_or_else(|| needs("file_path"))?;
+        let data = std::fs::read(path).map_err(|e| format!("{path}: {e}"))?;
+        let name = std::path::Path::new(path)
+            .file_name()
+            .map_or_else(|| path.to_owned(), |n| n.to_string_lossy().into_owned());
+        Ok((name, data))
+    };
+    Ok(Some(match kind {
+        "file_attachment" => {
+            let (filename, data) = file()?;
+            let mime_type = args.mime_type.clone();
+            AnnotationKind::FileAttachment { filename, mime_type, data, description: said }
+        }
+        "screen" => {
+            let clip = match args.file_path {
+                Some(_) => {
+                    let (filename, data) = file()?;
+                    let mime_type = args.mime_type.clone().ok_or_else(|| needs("mime_type"))?;
+                    Some(fepdf::MediaClip { filename, mime_type, data })
+                }
+                None => None,
+            };
+            AnnotationKind::Screen { title: said, clip }
+        }
+        _ => return Ok(None),
+    }))
 }
 
 /// Implementation of the set_measurement_scale tool.

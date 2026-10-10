@@ -78,6 +78,24 @@ pub(super) fn stamp(doc: &Document, entries: &Entries<'_>, area: Area) -> PdfRes
     Ok(drawing)
 }
 
+/// A watermark's words (12.5.6.22), centred in grey, no wider than the rectangle.
+///
+/// # Errors
+/// When the face that draws them will not embed.
+pub(super) fn watermark(
+    doc: &Document,
+    drawing: &mut Drawing,
+    text: &str,
+    size: f64,
+    area: Area,
+) -> PdfResult<()> {
+    let inside = Area { left: 0.0, bottom: 0.0, right: area.width(), top: area.height() };
+    let top = text.lines().count() > 1;
+    let setting =
+        Setting { inside, size, colour: "0.5 g\n".to_owned(), quadding: 1.0, top, fit: true };
+    set(doc, drawing, text, &setting)
+}
+
 /// "NotForPublicRelease" as "Not For Public Release", and ISO 19444-1 Table 14's
 /// "SBNotApproved" and "SHSignHere" without the prefix that says which set they are from.
 fn spaced(name: &str) -> String {

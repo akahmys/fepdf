@@ -122,17 +122,11 @@ fn kind_entries(
         AnnotationKind::Stamp { stamp_image_bytes } => {
             stamp(arena, dict, stamp_image_bytes, drawn)?
         }
-        AnnotationKind::Highlight { color_rgb } => {
-            Some(text_markup(arena, dict, Marking::Highlight, *color_rgb, drawn))
-        }
-        AnnotationKind::Underline { color_rgb } => {
-            Some(text_markup(arena, dict, Marking::Underline, *color_rgb, drawn))
-        }
-        AnnotationKind::StrikeOut { color_rgb } => {
-            Some(text_markup(arena, dict, Marking::StrikeOut, *color_rgb, drawn))
-        }
-        AnnotationKind::Squiggly { color_rgb } => {
-            Some(text_markup(arena, dict, Marking::Squiggly, *color_rgb, drawn))
+        AnnotationKind::Highlight { color_rgb }
+        | AnnotationKind::Underline { color_rgb }
+        | AnnotationKind::StrikeOut { color_rgb }
+        | AnnotationKind::Squiggly { color_rgb } => {
+            Some(text_markup(arena, dict, Marking::of(kind), *color_rgb, drawn))
         }
         AnnotationKind::TextBox { contents, font_size }
         | AnnotationKind::Typewriter { contents, font_size } => {
@@ -152,6 +146,14 @@ fn kind_entries(
         AnnotationKind::Shape { form, color_rgb, width } => {
             Some(shape(arena, dict, form, *color_rgb, f64::from(*width), drawn))
         }
+        AnnotationKind::Caret { .. }
+        | AnnotationKind::FileAttachment { .. }
+        | AnnotationKind::Screen { .. }
+        | AnnotationKind::Popup { .. }
+        | AnnotationKind::PrinterMark { .. }
+        | AnnotationKind::Watermark { .. }
+        | AnnotationKind::Redact { .. }
+        | AnnotationKind::Projection { .. } => super::kinds::entries(doc, dict, kind, drawn)?,
     })
 }
 
@@ -164,6 +166,21 @@ enum Marking {
     Squiggly,
 }
 
+impl Marking {
+    /// Which of the four `kind` is; called only for those four.
+    fn of(kind: &AnnotationKind) -> Self {
+        if matches!(kind, AnnotationKind::Highlight { .. }) {
+            Self::Highlight
+        } else if matches!(kind, AnnotationKind::Underline { .. }) {
+            Self::Underline
+        } else if matches!(kind, AnnotationKind::StrikeOut { .. }) {
+            Self::StrikeOut
+        } else {
+            Self::Squiggly
+        }
+    }
+}
+
 /// The rectangle the annotation occupies: the one it was given, grown to take in any
 /// point it draws outside it — a callout's line, a stroke, a line's ends.
 ///
@@ -173,26 +190,22 @@ fn extent(given: Area, kind: &AnnotationKind) -> PdfResult<Area> {
     let refuse = |why: &str| Err(PdfError::refused("AddAnnotation", why.to_string()));
     let boxed = given.width() > 0.0 && given.height() > 0.0;
     match kind {
+        AnnotationKind::Ink { width, .. } | AnnotationKind::Shape { width, .. }
+            if *width <= 0.0 =>
+        {
+            refuse("a stroke or an outline of no width draws nothing")
+        }
         AnnotationKind::Ink { strokes, width, .. } => {
-            if *width <= 0.0 {
-                return refuse("an ink stroke of no width draws nothing");
-            }
-            if strokes.is_empty() || strokes.iter().any(|stroke| stroke.len() < 2) {
-                return refuse("each ink stroke needs two points at least, and there must be one");
-            }
-            let margin = f64::from(*width);
-            Ok(strokes.iter().flatten().fold(given, |area, point| area.taking(*point, margin)))
+            let enough = !strokes.is_empty() && strokes.iter().all(|stroke| stroke.len() >= 2);
+            let why = "each ink stroke needs two points at least, and there must be one";
+            through(given, strokes.iter().flatten(), *width, enough.then_some(()).ok_or(why))
         }
-        AnnotationKind::Shape { form: ShapeForm::Line { from, to }, width, .. } => {
-            if *width <= 0.0 {
-                return refuse("a line of no width draws nothing");
-            }
-            let margin = f64::from(*width);
-            Ok(given.taking(*from, margin).taking(*to, margin))
+        AnnotationKind::Shape { form, width, .. } => outlined(given, form, *width),
+        AnnotationKind::Watermark { font_size, .. } if *font_size <= 0.0 => {
+            refuse("a watermark set at no size draws nothing")
         }
-        AnnotationKind::Shape { width, .. } if *width <= 0.0 => {
-            refuse("a shape whose outline has no width draws nothing")
-        }
+        // A projection draws nothing (Table 166), so its rectangle need hold nothing.
+        AnnotationKind::Projection { .. } => Ok(given),
         AnnotationKind::Callout { points_at, .. } if boxed => Ok(given.taking(*points_at, 2.0)),
         AnnotationKind::Link { .. }
         | AnnotationKind::TextComment { .. }
@@ -204,7 +217,13 @@ fn extent(given: Area, kind: &AnnotationKind) -> PdfResult<Area> {
         | AnnotationKind::TextBox { .. }
         | AnnotationKind::Typewriter { .. }
         | AnnotationKind::Callout { .. }
-        | AnnotationKind::Shape { .. } => {
+        | AnnotationKind::Caret { .. }
+        | AnnotationKind::FileAttachment { .. }
+        | AnnotationKind::Screen { .. }
+        | AnnotationKind::Popup { .. }
+        | AnnotationKind::PrinterMark { .. }
+        | AnnotationKind::Watermark { .. }
+        | AnnotationKind::Redact { .. } => {
             if boxed {
                 Ok(given)
             } else {
@@ -214,15 +233,53 @@ fn extent(given: Area, kind: &AnnotationKind) -> PdfResult<Area> {
     }
 }
 
-fn name(arena: &PdfArena, dict: &mut Dict, key: &str, value: &str) {
+/// The rectangle a shape occupies: its own, or grown to take in a line's or a polygon's
+/// points.
+fn outlined(given: Area, form: &ShapeForm, width: f32) -> PdfResult<Area> {
+    match form {
+        ShapeForm::Rectangle | ShapeForm::Ellipse
+            if given.width() > 0.0 && given.height() > 0.0 =>
+        {
+            Ok(given)
+        }
+        ShapeForm::Rectangle | ShapeForm::Ellipse => Err(PdfError::refused(
+            "AddAnnotation",
+            "an annotation drawn in a rectangle of no area draws nothing".to_owned(),
+        )),
+        ShapeForm::Line { from, to } => through(given, [from, to].into_iter(), width, Ok(())),
+        ShapeForm::Polygon { vertices } => {
+            let enough = (vertices.len() >= 3).then_some(()).ok_or("a polygon needs three points");
+            through(given, vertices.iter(), width, enough)
+        }
+        ShapeForm::PolyLine { vertices } => {
+            let enough = (vertices.len() >= 2).then_some(()).ok_or("a polyline needs two points");
+            through(given, vertices.iter(), width, enough)
+        }
+    }
+}
+
+/// `given` grown to take in every point a stroke `width` wide passes through, or refused
+/// for why there are not points enough.
+fn through<'a>(
+    given: Area,
+    points: impl Iterator<Item = &'a [f32; 2]>,
+    width: f32,
+    enough: Result<(), &str>,
+) -> PdfResult<Area> {
+    enough.map_err(|why| PdfError::refused("AddAnnotation", why.to_owned()))?;
+    let margin = f64::from(width);
+    Ok(points.fold(given, |area, point| area.taking(*point, margin)))
+}
+
+pub fn name(arena: &PdfArena, dict: &mut Dict, key: &str, value: &str) {
     dict.insert(arena.name(key), Object::Name(arena.name(value)));
 }
 
-fn numbers(arena: &PdfArena, values: &[f64]) -> Object {
+pub fn numbers(arena: &PdfArena, values: &[f64]) -> Object {
     Object::Array(arena.alloc_array(values.iter().map(|v| Object::Real(*v)).collect()))
 }
 
-fn color(arena: &PdfArena, rgb: [f32; 3]) -> Object {
+pub fn color(arena: &PdfArena, rgb: [f32; 3]) -> Object {
     numbers(arena, &rgb.map(f64::from))
 }
 
@@ -540,10 +597,30 @@ fn shape(
             let ((x1, y1), (x2, y2)) = (area.local(*from), area.local(*to));
             format!("{pen}1 J\n{x1:.2} {y1:.2} m {x2:.2} {y2:.2} l S\n")
         }
+        ShapeForm::Polygon { vertices } | ShapeForm::PolyLine { vertices } => {
+            let closed = matches!(form, ShapeForm::Polygon { .. });
+            name(arena, dict, "Subtype", if closed { "Polygon" } else { "PolyLine" });
+            let flat: Vec<f64> =
+                vertices.iter().flat_map(|p| [f64::from(p[0]), f64::from(p[1])]).collect();
+            dict.insert(arena.name("Vertices"), numbers(arena, &flat));
+            run(&pen, vertices, area, closed)
+        }
     };
     dict.insert(arena.name("C"), color(arena, rgb));
     dict.insert(arena.name("BS"), border(arena, width));
     appearance(arena, &drawing, area, None)
+}
+
+/// Straight lines through `vertices`, closed back to the first where `closed`.
+fn run(pen: &str, vertices: &[[f32; 2]], area: Area, closed: bool) -> String {
+    use std::fmt::Write as _;
+    let mut drawing = format!("{pen}1 j\n");
+    for (nth, point) in vertices.iter().enumerate() {
+        let (across, up) = area.local(*point);
+        let _ = writeln!(drawing, "{across:.2} {up:.2} {}", if nth == 0 { "m" } else { "l" });
+    }
+    drawing.push_str(if closed { "s\n" } else { "S\n" });
+    drawing
 }
 
 /// An ellipse centred on `(cx, cy)` as four Bézier arcs, the usual 0.5523 approximation.

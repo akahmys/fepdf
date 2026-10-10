@@ -395,7 +395,8 @@ pub fn apply_bates_numbering(
 /// Appends an annotation to a target page (Clause 12.5).
 ///
 /// A markup annotation is named on its page and signed with who made it and when, as far
-/// as the caller said ([ADR-0116]); a link is neither.
+/// as the caller said ([ADR-0116]); a link, a screen, a popup, a printer's mark and a
+/// watermark are not markup annotations (Table 171), and are neither.
 ///
 /// [ADR-0116]: ../../../../docs/adr/0116-an-annotation-carries-an-author-only-when-the-reader-named-one.md
 pub fn apply_add_annotation(doc: &Document, annot: AnnotationSpec) -> PdfResult<()> {
@@ -403,12 +404,13 @@ pub fn apply_add_annotation(doc: &Document, annot: AnnotationSpec) -> PdfResult<
     let page_h = doc.page_handle(annot.page)?;
 
     let annot_dh = crate::apply::markup::annotation(doc, &annot, page_h)?;
-    if !matches!(annot.kind, crate::operation::AnnotationKind::Link { .. }) {
+    if crate::apply::kinds::is_markup(&annot.kind) {
         let mut dict = arena.get_dict(annot_dh).unwrap_or_default();
         crate::apply::review::sign(doc, annot.page, &mut dict, &annot.by)?;
         arena.set_dict(annot_dh, dict);
     }
     let annot_h = arena.alloc_object(Object::Dictionary(annot_dh));
+    crate::apply::kinds::link_back(doc, (annot.page, &annot.kind), annot_dh, annot_h)?;
     append_to_page(doc, page_h, annot_h)
 }
 

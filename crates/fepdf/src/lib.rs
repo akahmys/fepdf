@@ -57,11 +57,11 @@ pub use fepdf_model::signature::{SignatureCheck, SignatureReport};
 pub use fepdf_model::{
     AFRelationship, AnnotationKind, AnnotationSpec, ArticleBead, ArticleThread, AssociatedFile,
     Authorship, CollectionViewMode, Document, FormFieldSpec, FormValue, GeoSpatialAnchor, Handle,
-    LayerGroup, MeasurementScale, Missing, Object, OptionalContentProperties, OutlineNode,
-    OutlineTree, OutputIntent, Page, PageLabelSpec, PageLabelStyle, PdfAction, PdfArena, PdfError,
-    PdfName, PdfResult, PortfolioCollection, PortfolioItem, ShapeForm, SublimatedData,
-    TransitionSpec, TransitionStyle, UnencryptedWrapperSpec, UserProperty, UserPropertyValue,
-    VisibilityState,
+    LayerGroup, MeasurementScale, MediaClip, Missing, Object, OptionalContentProperties,
+    OutlineNode, OutlineTree, OutputIntent, Page, PageLabelSpec, PageLabelStyle, PdfAction,
+    PdfArena, PdfError, PdfName, PdfResult, PortfolioCollection, PortfolioItem, PrinterMarkKind,
+    ShapeForm, SublimatedData, TransitionSpec, TransitionStyle, UnencryptedWrapperSpec,
+    UserProperty, UserPropertyValue, VisibilityState,
 };
 pub use fepdf_model::{DocumentSource, PdfSource};
 #[cfg(feature = "render")]

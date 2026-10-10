@@ -1978,6 +1978,23 @@ express; then AA-5 and AA-6.
       Redact, Polygon and Caret, which read part of theirs, read all of it.
       `every_subtype_of_table_171_reads_its_own_entries` names one key of each and fails
       without the reader.
+- [x] **AA-4f** — **every subtype written but the deprecated and the 3D**: the ten
+      `AddAnnotation` cannot make yet — Polygon, PolyLine, Caret, FileAttachment, Screen,
+      Popup, PrinterMark, Watermark, Redact, Projection. Sound, Movie and TrapNet are
+      deprecated in PDF 2.0 and are not written; 3D and RichMedia are shown, not made
+      (the owner, 2026-10-10).
+      **Done, 2026-10-10**
+      ([ADR-0122](docs/adr/0122-an-annotation-whose-appearance-is-its-content-is-drawn-only-when-made.md)):
+      eight `AnnotationKind` variants and two `ShapeForm`s, written by
+      `fepdf-doc/src/apply/kinds.rs`. They are drawn by `drawn` from their entries, or by
+      `drawn::made` where the appearance is the content. MCP `add_annotation` names all
+      ten. `made_annotation_test.rs` makes each, checks its entries, links a popup both
+      ways and refuses what would draw nothing; it fails without the back-link and with a
+      screen signed as markup.
+- [ ] **AA-4g** — **the ten new kinds as pens in the window**: a polygon clicked point by
+      point, an attachment or a screen's clip chosen from disk, a popup for the comment
+      picked in the comment list, and a printer's mark and a watermark from the drawer.
+      The engine and MCP make them (AA-4f); the window does not offer them yet.
 - [ ] **AA-5** — **a PDF made from images**: JPEG carried as it is, PNG with its alpha as
       a soft mask, and each page of a TIFF as a page. This is an operation, so it also
       inserts image pages into an existing document.

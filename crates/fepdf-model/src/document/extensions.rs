@@ -449,6 +449,90 @@ pub enum AnnotationKind {
         /// The outline's width, in points.
         width: f32,
     },
+    /// A mark where words are to go in (12.5.6.11, `/Caret`).
+    Caret {
+        /// The words to go in.
+        contents: String,
+        /// RGB colour, each from 0 to 1.
+        color_rgb: [f32; 3],
+        /// Whether it stands for a new paragraph, drawn as a pilcrow (`/Sy /P`).
+        paragraph: bool,
+    },
+    /// A file carried on the page, shown by a push pin (12.5.6.15, `/FileAttachment`).
+    FileAttachment {
+        /// The file's name.
+        filename: String,
+        /// Its media type, such as `text/plain`.
+        mime_type: Option<String>,
+        /// What it holds.
+        data: Vec<u8>,
+        /// What it is, shown as the annotation's text; the file's name where absent.
+        description: Option<String>,
+    },
+    /// A region media plays in (12.5.6.18, `/Screen`), activated by a rendition of `clip`.
+    Screen {
+        /// `/T`: what it is called.
+        title: Option<String>,
+        /// What it plays. A screen with none is a region and nothing more.
+        clip: Option<MediaClip>,
+    },
+    /// The pop-up window of the markup annotation at `parent` on the same page
+    /// (12.5.6.14, `/Popup`).
+    Popup {
+        /// The parent's index in the page's `/Annots`.
+        parent: usize,
+        /// Whether it opens shown.
+        open: bool,
+    },
+    /// A printer's mark (14.11.3, `/PrinterMark`): its appearance is the mark.
+    PrinterMark {
+        /// Which.
+        mark: PrinterMarkKind,
+    },
+    /// Words over the page, at the same size and place however it is printed (12.5.6.22,
+    /// `/Watermark`).
+    Watermark {
+        /// What it says. A line break starts a new line.
+        text: String,
+        /// The size it is set at, in points.
+        font_size: f32,
+        /// How opaque, from 0 to 1.
+        opacity: f32,
+    },
+    /// A region marked to be removed (12.5.6.23, `/Redact`). Marking it removes nothing;
+    /// `RedactDocument` does.
+    Redact {
+        /// Words drawn over the region once it is removed.
+        overlay_text: Option<String>,
+        /// What the region is filled with once it is removed.
+        interior_rgb: Option<[f32; 3]>,
+    },
+    /// A projection (12.5.6.24, `/Projection`): a markup annotation that holds a comment
+    /// on a 3D or geospatial measurement, and draws nothing.
+    Projection {
+        /// The comment.
+        contents: String,
+    },
+}
+
+/// Media a screen annotation plays (13.2.4, a media clip of its data).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MediaClip {
+    /// The file's name.
+    pub filename: String,
+    /// Its media type, such as `video/mp4`. Table 284 requires one.
+    pub mime_type: String,
+    /// What it holds.
+    pub data: Vec<u8>,
+}
+
+/// Which printer's mark (Table 398's `/MN`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum PrinterMarkKind {
+    /// A circle and cross for lining the plates up.
+    RegistrationTarget,
+    /// Patches of cyan, magenta, yellow, black and three tints of black.
+    ColorBar,
 }
 
 /// What a shape annotation draws.
@@ -464,6 +548,16 @@ pub enum ShapeForm {
         from: [f32; 2],
         /// Where it ends.
         to: [f32; 2],
+    },
+    /// A closed run of straight lines through the points on the page (`/Polygon`).
+    Polygon {
+        /// Three at least.
+        vertices: Vec<[f32; 2]>,
+    },
+    /// An open run of straight lines through the points on the page (`/PolyLine`).
+    PolyLine {
+        /// Two at least.
+        vertices: Vec<[f32; 2]>,
     },
 }
 

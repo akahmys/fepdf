@@ -18,6 +18,7 @@
 
 mod icons;
 mod lines;
+pub mod made;
 mod quads;
 mod widgets;
 mod words;
