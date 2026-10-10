@@ -1991,10 +1991,20 @@ express; then AA-5 and AA-6.
       ten. `made_annotation_test.rs` makes each, checks its entries, links a popup both
       ways and refuses what would draw nothing; it fails without the back-link and with a
       screen signed as markup.
-- [ ] **AA-4g** — **the ten new kinds as pens in the window**: a polygon clicked point by
-      point, an attachment or a screen's clip chosen from disk, a popup for the comment
-      picked in the comment list, and a printer's mark and a watermark from the drawer.
-      The engine and MCP make them (AA-4f); the window does not offer them yet.
+- [x] **AA-4g** — **the ten new kinds as pens in the window**: a polygon clicked point by
+      point, an attachment or a screen's clip chosen from disk, a popup for a comment
+      picked in the drawer, and a printer's mark and a watermark from the drawer.
+      **Done, 2026-10-11**: `fepdf-gui/src/annotate/more.rs`. A polygon or polyline is
+      finished by a double-click, Enter or the drawer's button, and Escape starts again.
+      Its points belong to the pen that clicked them. A watermark fills the box dragged.
+      `scripts/dev/annotation-pens.txt` draws all of them with the pointer and keys, and
+      was looked at. Its traces found three things:
+      - Switching pens kept the last pen's points.
+      - egui counts a brisk double-click on the last point as a triple-click, which
+        finished nothing.
+      - A 12-point watermark could hardly be seen.
+      `dblclickat` was added to capture plans for the second, since `dblclick` sends no
+      pointer event. Not checked by gesture: choosing a file, which is a system dialog.
 - [ ] **AA-5** — **a PDF made from images**: JPEG carried as it is, PNG with its alpha as
       a soft mask, and each page of a TIFF as a page. This is an operation, so it also
       inserts image pages into an existing document.

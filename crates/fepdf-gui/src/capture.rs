@@ -162,6 +162,9 @@ pub enum Step {
     /// Click at a point of the window, in points from its top-left: `clickat <x> <y>`.
     /// The press and the release go in where the platform's do, as `drag`'s events do.
     ClickAt(u32, u32),
+    /// Click twice at a point, one frame apart, as a double-click is: `dblclickat <x> <y>`.
+    /// `dblclick` is the bench's own, and sends no pointer event.
+    DoubleClickAt(u32, u32),
     /// Click the middle of the first widget whose name contains the words, ignoring case:
     /// `clicklabel Zoom in`. The names are the last frame's AccessKit tree (`control.rs`).
     ClickLabel(String),
@@ -444,6 +447,10 @@ fn parse(line: &str) -> Option<Step> {
             let (x, y) = rest.split_once(' ')?;
             Step::ClickAt(x.trim().parse().ok()?, y.trim().parse().ok()?)
         }
+        "dblclickat" => {
+            let (x, y) = rest.split_once(' ')?;
+            Step::DoubleClickAt(x.trim().parse().ok()?, y.trim().parse().ok()?)
+        }
         "clicklabel" if !rest.is_empty() => Step::ClickLabel(rest.to_owned()),
         "key" if crate::control::key_events(rest).is_some() => Step::Key(rest.to_owned()),
         "type" if !rest.is_empty() => Step::Type(rest.to_owned()),
@@ -699,6 +706,7 @@ impl crate::app::FepdfApp {
             Step::ClickAt(x, y) => {
                 self.queue_input(crate::control::click_events(egui::pos2(x as f32, y as f32)));
             }
+            Step::DoubleClickAt(x, y) => self.double_click_at(x, y),
             Step::ClickLabel(name) => self.click_label(&name, ctx),
             Step::Key(chord) => {
                 self.queue_input(crate::control::key_events(&chord).unwrap_or_default());
@@ -792,6 +800,15 @@ fn drag_events(from: egui::Pos2, to: egui::Pos2) -> VecDeque<Vec<egui::Event>> {
 
 impl crate::app::FepdfApp {
     /// Puts events in the plan's input, one batch a frame.
+    /// Two clicks at a point, one frame apart, as a double-click is.
+    #[allow(clippy::cast_precision_loss)] // a window is nowhere near 2^24 points across
+    fn double_click_at(&mut self, x: u32, y: u32) {
+        let at = egui::pos2(x as f32, y as f32);
+        let mut twice = crate::control::click_events(at);
+        twice.extend(crate::control::click_events(at).into_iter().skip(1));
+        self.queue_input(twice);
+    }
+
     fn queue_input(&mut self, events: VecDeque<Vec<egui::Event>>) {
         if let Some(plan) = self.capture.as_mut() {
             plan.input = events;
@@ -898,6 +915,7 @@ mod commands {
     #[test]
     fn the_control_verbs_are_read() {
         assert_eq!(parse("clickat 10 20"), Some(Step::ClickAt(10, 20)));
+        assert_eq!(parse("dblclickat 10 20"), Some(Step::DoubleClickAt(10, 20)));
         assert_eq!(parse("clicklabel Zoom in"), Some(Step::ClickLabel("Zoom in".to_owned())));
         assert_eq!(parse("key cmd+K"), Some(Step::Key("cmd+K".to_owned())));
         assert_eq!(parse("type invoice"), Some(Step::Type("invoice".to_owned())));

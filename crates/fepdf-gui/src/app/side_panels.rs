@@ -190,9 +190,12 @@ impl FepdfApp {
                         ActiveDrawer::Annotate => {
                             let locale = &self.locale_mgr;
                             let lang = &self.active_language;
-                            crate::annotate::show(&mut self.annotate_tool, ui, &|key| {
-                                locale.tr(lang, key)
-                            });
+                            crate::annotate::show(
+                                &mut self.annotate_tool,
+                                ui,
+                                &|key| locale.tr(lang, key),
+                                &self.comments,
+                            );
                         }
                         ActiveDrawer::WhatItDoes => {
                             let locale = &self.locale_mgr;

@@ -8,8 +8,11 @@
 //! highlight marks or a box holds, a drag from a point to where the words go is a callout,
 //! the path of a drag is an ink stroke, and a click is enough for a note or typed words.
 
+mod more;
+
 use crate::interaction::SelectionManager;
 use fepdf::{AnnotationKind, AnnotationSpec, ShapeForm};
+pub use more::More;
 
 /// What a reader draws with.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -42,11 +45,31 @@ pub enum Pen {
     Stamp,
     /// A region that goes somewhere when clicked.
     Link,
+    /// A closed shape through points clicked in turn (12.5.6.9).
+    Polygon,
+    /// An open line through points clicked in turn (12.5.6.9).
+    PolyLine,
+    /// A mark where words are to go in (12.5.6.11).
+    Caret,
+    /// A file carried on the page (12.5.6.15).
+    Attachment,
+    /// A region media plays in (12.5.6.18).
+    Screen,
+    /// The window a comment's words open in (12.5.6.14).
+    Popup,
+    /// A registration target or a colour bar (14.11.3).
+    PrinterMark,
+    /// Words across the page that print as they are shown (12.5.6.22).
+    Watermark,
+    /// A region marked to be redacted, and not yet removed (12.5.6.23).
+    Redact,
+    /// A comment on a measurement (12.5.6.24).
+    Projection,
 }
 
 impl Pen {
     /// Every pen, in the order the drawer lists them.
-    pub const ALL: [Self; 14] = [
+    pub const ALL: [Self; 24] = [
         Self::Note,
         Self::Typewriter,
         Self::TextBox,
@@ -61,11 +84,21 @@ impl Pen {
         Self::Line,
         Self::Stamp,
         Self::Link,
+        Self::Polygon,
+        Self::PolyLine,
+        Self::Caret,
+        Self::Attachment,
+        Self::Screen,
+        Self::Popup,
+        Self::PrinterMark,
+        Self::Watermark,
+        Self::Redact,
+        Self::Projection,
     ];
 
     /// The locale keys naming it and saying how it is drawn.
     ///
-    /// No wildcard arm, so a fifteenth pen does not compile until it has both (Rule 5).
+    /// No wildcard arm, so another pen does not compile until it has both (Rule 5).
     pub const fn keys(self) -> (&'static str, &'static str) {
         match self {
             Self::Note => ("annotate_note", "annotate_how_click"),
@@ -82,17 +115,46 @@ impl Pen {
             Self::Line => ("annotate_line", "annotate_how_line"),
             Self::Stamp => ("annotate_stamp", "annotate_how_box"),
             Self::Link => ("annotate_link", "annotate_how_box"),
+            Self::Polygon => ("annotate_polygon", "annotate_how_points"),
+            Self::PolyLine => ("annotate_polyline", "annotate_how_points"),
+            Self::Caret => ("annotate_caret", "annotate_how_click"),
+            Self::Attachment => ("annotate_attachment", "annotate_how_click"),
+            Self::Screen => ("annotate_screen", "annotate_how_box"),
+            Self::Popup => ("annotate_popup", "annotate_how_popup"),
+            Self::PrinterMark => ("annotate_printer_mark", "annotate_how_box"),
+            Self::Watermark => ("annotate_watermark", "annotate_how_box"),
+            Self::Redact => ("annotate_redact", "annotate_how_box"),
+            Self::Projection => ("annotate_projection", "annotate_how_box"),
         }
     }
 
-    /// Whether it carries words the reader types.
+    /// Whether it carries words the reader types: needed by a note, typed words, a box,
+    /// a callout, a watermark and a projection, and taken where given by a caret, an
+    /// attachment (what it is), a screen (its title) and a redaction (what is put over it).
     pub const fn takes_words(self) -> bool {
-        matches!(self, Self::Note | Self::Typewriter | Self::TextBox | Self::Callout)
+        matches!(
+            self,
+            Self::Note
+                | Self::Typewriter
+                | Self::TextBox
+                | Self::Callout
+                | Self::Caret
+                | Self::Attachment
+                | Self::Screen
+                | Self::Watermark
+                | Self::Redact
+                | Self::Projection
+        )
     }
 
     /// Whether the words are set on the page at a size, rather than kept behind an icon.
     pub const fn takes_size(self) -> bool {
         matches!(self, Self::Typewriter | Self::TextBox | Self::Callout)
+    }
+
+    /// Whether it is drawn through points clicked one at a time.
+    pub const fn takes_points(self) -> bool {
+        matches!(self, Self::Polygon | Self::PolyLine)
     }
 
     /// Whether it is drawn in a colour the reader chooses.
@@ -107,12 +169,88 @@ impl Pen {
                 | Self::Rectangle
                 | Self::Ellipse
                 | Self::Line
+                | Self::Polygon
+                | Self::PolyLine
+                | Self::Caret
+                | Self::Redact
         )
     }
 
     /// Whether it is a line of a width the reader chooses.
     pub const fn takes_width(self) -> bool {
-        matches!(self, Self::Ink | Self::Rectangle | Self::Ellipse | Self::Line)
+        matches!(
+            self,
+            Self::Ink
+                | Self::Rectangle
+                | Self::Ellipse
+                | Self::Line
+                | Self::Polygon
+                | Self::PolyLine
+        )
+    }
+}
+
+/// How a pen's gesture is read, and which of its group it is.
+///
+/// One exhaustive match decides the group, so each placing function matches its own pens
+/// and nothing else (Rule 5) — rather than each listing every other pen as refused.
+enum Gesture {
+    Written(Written),
+    Drawn(Drawn),
+    /// A stamp or a link, in a box.
+    Pointing,
+    More(more::Kind),
+}
+
+/// Pens that carry words a reader typed.
+#[derive(Clone, Copy)]
+enum Written {
+    Note,
+    Typewriter,
+    TextBox,
+    Callout,
+}
+
+/// Pens that draw in a colour: marks, strokes and shapes.
+#[derive(Clone, Copy)]
+enum Drawn {
+    Highlight,
+    Underline,
+    StrikeOut,
+    Squiggly,
+    Ink,
+    Rectangle,
+    Ellipse,
+    Line,
+}
+
+impl Pen {
+    const fn gesture(self) -> Gesture {
+        use more::Kind;
+        match self {
+            Self::Note => Gesture::Written(Written::Note),
+            Self::Typewriter => Gesture::Written(Written::Typewriter),
+            Self::TextBox => Gesture::Written(Written::TextBox),
+            Self::Callout => Gesture::Written(Written::Callout),
+            Self::Highlight => Gesture::Drawn(Drawn::Highlight),
+            Self::Underline => Gesture::Drawn(Drawn::Underline),
+            Self::StrikeOut => Gesture::Drawn(Drawn::StrikeOut),
+            Self::Squiggly => Gesture::Drawn(Drawn::Squiggly),
+            Self::Ink => Gesture::Drawn(Drawn::Ink),
+            Self::Rectangle => Gesture::Drawn(Drawn::Rectangle),
+            Self::Ellipse => Gesture::Drawn(Drawn::Ellipse),
+            Self::Line => Gesture::Drawn(Drawn::Line),
+            Self::Stamp | Self::Link => Gesture::Pointing,
+            Self::Polygon | Self::PolyLine => Gesture::More(Kind::Points),
+            Self::Caret => Gesture::More(Kind::Caret),
+            Self::Attachment => Gesture::More(Kind::Attachment),
+            Self::Screen => Gesture::More(Kind::Screen),
+            Self::Popup => Gesture::More(Kind::Popup),
+            Self::PrinterMark => Gesture::More(Kind::PrinterMark),
+            Self::Watermark => Gesture::More(Kind::Watermark),
+            Self::Redact => Gesture::More(Kind::Redact),
+            Self::Projection => Gesture::More(Kind::Projection),
+        }
     }
 }
 
@@ -129,7 +267,12 @@ pub const COLOURS: [(&str, [f32; 3]); 5] = [
 ///
 /// **The drawer holds no gesture**, as the snapshot's does not: what is drawn is drawn on
 /// the page, where the reader can see what it covers.
-pub fn show(tool: &mut AnnotateTool, ui: &mut egui::Ui, tr: &dyn Fn(&str) -> String) {
+pub fn show(
+    tool: &mut AnnotateTool,
+    ui: &mut egui::Ui,
+    tr: &dyn Fn(&str) -> String,
+    comments: &[fepdf::comments::Comment],
+) {
     use crate::app::theme::space;
     ui.horizontal_wrapped(|ui| {
         for pen in Pen::ALL {
@@ -169,6 +312,7 @@ pub fn show(tool: &mut AnnotateTool, ui: &mut egui::Ui, tr: &dyn Fn(&str) -> Str
     if tool.pen == Pen::Stamp {
         choose_picture(tool, ui, tr);
     }
+    more::show(tool, ui, tr, comments);
 }
 
 /// The stamp's picture: a JPEG, which the engine carries into the file as it is.
@@ -206,6 +350,8 @@ pub struct AnnotateTool {
     pub target: String,
     /// A stamp's picture: its file name, and the JPEG.
     pub picture: Option<(String, Vec<u8>)>,
+    /// What the pens of AA-4g hold: points clicked, a file, a comment, a mark.
+    pub more: More,
     /// The drag under way, in the page's own space.
     drag: Vec<egui::Pos2>,
 }
@@ -221,6 +367,7 @@ impl Default for AnnotateTool {
             width: 2.0,
             target: String::new(),
             picture: None,
+            more: More::default(),
             drag: Vec::new(),
         }
     }
@@ -247,6 +394,11 @@ impl AnnotateTool {
         let (pointer, origin) = ui.input(|i| (i.pointer.interact_pos(), i.pointer.press_origin()));
         if response.hovered() {
             ui.ctx().set_cursor_icon(egui::CursorIcon::Crosshair);
+        }
+        if self.pen.takes_points() {
+            let finished = self.follow_points(ui, &response, page, &at, pointer);
+            self.paint_points(ui, page, page_rect, frame, (zoom, pointer));
+            return finished.map(|points| self.placed(page, &points));
         }
         if response.drag_started() {
             self.drag = origin.or(pointer).map(at).into_iter().collect();
@@ -299,7 +451,17 @@ impl AnnotateTool {
             | Pen::Rectangle
             | Pen::Ellipse
             | Pen::Stamp
-            | Pen::Link => {
+            | Pen::Link
+            | Pen::Polygon
+            | Pen::PolyLine
+            | Pen::Caret
+            | Pen::Attachment
+            | Pen::Screen
+            | Pen::Popup
+            | Pen::PrinterMark
+            | Pen::Watermark
+            | Pen::Redact
+            | Pen::Projection => {
                 let rect = egui::Rect::from_two_pos(to(start), to(end));
                 painter.rect_stroke(
                     rect,
@@ -325,15 +487,14 @@ impl AnnotateTool {
         };
         let dragged = egui::Rect::from_two_pos(start, end);
         let has_area = dragged.width() >= 1.0 && dragged.height() >= 1.0;
-        let (rect, kind) = if self.pen.takes_words() {
-            self.written(start, end)?
-        } else if self.pen.takes_colour() {
-            self.drawn(dragged, has_area, points)?
-        } else {
-            if !has_area {
-                return Err("annotate_needs_drag");
+        let (rect, kind) = match self.pen.gesture() {
+            Gesture::Written(pen) => self.written(pen, start, end)?,
+            Gesture::Drawn(pen) => self.drawn(pen, dragged, has_area, points)?,
+            Gesture::Pointing if has_area => (dragged, self.pointing()?),
+            Gesture::Pointing => return Err("annotate_needs_drag"),
+            Gesture::More(kind) => {
+                self.more_placed(kind, page, (start, dragged, has_area), points)?
             }
-            (dragged, self.pointing()?)
         };
         Ok(AnnotationSpec {
             page,
@@ -346,6 +507,7 @@ impl AnnotateTool {
     /// A note, typed words, a text box or a callout.
     fn written(
         &self,
+        pen: Written,
         start: egui::Pos2,
         end: egui::Pos2,
     ) -> Result<(egui::Rect, AnnotationKind), Refusal> {
@@ -355,8 +517,8 @@ impl AnnotateTool {
         }
         let font_size = self.font_size;
         let fits = words_size(&contents, font_size);
-        Ok(match self.pen {
-            Pen::Note => (
+        Ok(match pen {
+            Written::Note => (
                 egui::Rect::from_min_max(
                     egui::pos2(start.x, start.y - NOTE),
                     egui::pos2(start.x + NOTE, start.y),
@@ -364,79 +526,63 @@ impl AnnotateTool {
                 AnnotationKind::TextComment { contents },
             ),
             // Typed words start where the pointer was and take the room they need.
-            Pen::Typewriter => (
+            Written::Typewriter => (
                 egui::Rect::from_min_max(
                     egui::pos2(start.x, start.y - fits.y),
                     egui::pos2(start.x + fits.x, start.y),
                 ),
                 AnnotationKind::Typewriter { contents, font_size },
             ),
-            Pen::TextBox => {
+            Written::TextBox => {
                 let rect = egui::Rect::from_two_pos(start, end);
                 if rect.width() < 1.0 || rect.height() < 1.0 {
                     return Err("annotate_needs_drag");
                 }
                 (rect, AnnotationKind::TextBox { contents, font_size })
             }
-            Pen::Callout => (
+            Written::Callout => (
                 callout_box(start, end, fits)?,
                 AnnotationKind::Callout { contents, font_size, points_at: [start.x, start.y] },
             ),
-            Pen::Highlight
-            | Pen::Underline
-            | Pen::StrikeOut
-            | Pen::Squiggly
-            | Pen::Ink
-            | Pen::Rectangle
-            | Pen::Ellipse
-            | Pen::Line
-            | Pen::Stamp
-            | Pen::Link => return Err("annotate_needs_drag"),
         })
     }
 
     /// A text markup, a stroke or a shape, in the chosen colour.
     fn drawn(
         &self,
+        pen: Drawn,
         dragged: egui::Rect,
         has_area: bool,
         points: &[egui::Pos2],
     ) -> Result<(egui::Rect, AnnotationKind), Refusal> {
-        let color_rgb = COLOURS.get(self.colour).map_or(COLOURS[0].1, |(_, rgb)| *rgb);
+        let color_rgb = self.colour_rgb();
         let width = self.width;
         let boxed = |kind| if has_area { Ok((dragged, kind)) } else { Err("annotate_needs_drag") };
-        match self.pen {
-            Pen::Highlight => boxed(AnnotationKind::Highlight { color_rgb }),
-            Pen::Underline => boxed(AnnotationKind::Underline { color_rgb }),
-            Pen::StrikeOut => boxed(AnnotationKind::StrikeOut { color_rgb }),
-            Pen::Squiggly => boxed(AnnotationKind::Squiggly { color_rgb }),
-            Pen::Rectangle => {
+        match pen {
+            Drawn::Highlight => boxed(AnnotationKind::Highlight { color_rgb }),
+            Drawn::Underline => boxed(AnnotationKind::Underline { color_rgb }),
+            Drawn::StrikeOut => boxed(AnnotationKind::StrikeOut { color_rgb }),
+            Drawn::Squiggly => boxed(AnnotationKind::Squiggly { color_rgb }),
+            Drawn::Rectangle => {
                 boxed(AnnotationKind::Shape { form: ShapeForm::Rectangle, color_rgb, width })
             }
-            Pen::Ellipse => {
+            Drawn::Ellipse => {
                 boxed(AnnotationKind::Shape { form: ShapeForm::Ellipse, color_rgb, width })
             }
             // A stroke or a line is drawn along its points, and the engine grows the
             // rectangle to take them in.
-            Pen::Ink if points.len() >= 2 => {
+            Drawn::Ink if points.len() >= 2 => {
                 let stroke = points.iter().map(|p| [p.x, p.y]).collect();
                 Ok((dragged, AnnotationKind::Ink { strokes: vec![stroke], color_rgb, width }))
             }
-            Pen::Line if dragged.size().length() >= 1.0 => {
+            Drawn::Line if dragged.size().length() >= 1.0 => {
                 let (Some(from), Some(to)) = (points.first(), points.last()) else {
                     return Err("annotate_needs_drag");
                 };
                 let form = ShapeForm::Line { from: [from.x, from.y], to: [to.x, to.y] };
                 Ok((dragged, AnnotationKind::Shape { form, color_rgb, width }))
             }
-            Pen::Ink
-            | Pen::Line
-            | Pen::Note
-            | Pen::Typewriter
-            | Pen::TextBox
-            | Pen::Callout
-            | Pen::Stamp
-            | Pen::Link => Err("annotate_needs_drag"),
+            Drawn::Ink | Drawn::Line => Err("annotate_needs_drag"),
         }
     }
 
@@ -597,6 +743,70 @@ mod placed {
         web.target = "https://example.org/".to_owned();
         let spec = web.placed(0, &area).expect("a link");
         assert!(matches!(spec.kind, AnnotationKind::Link { url: Some(_), .. }));
+    }
+
+    /// **A polygon is the points clicked, three at least; a polyline two.**
+    #[test]
+    fn a_polygon_is_its_points() {
+        let two = drag((10.0, 10.0), (60.0, 30.0));
+        assert_eq!(tool(Pen::Polygon).placed(0, &two).err(), Some("annotate_needs_points"));
+        let spec = tool(Pen::PolyLine).placed(0, &two).expect("a polyline");
+        let AnnotationKind::Shape { form: ShapeForm::PolyLine { vertices }, .. } = spec.kind else {
+            panic!("{spec:?}")
+        };
+        assert_eq!(vertices, vec![[10.0, 10.0], [60.0, 30.0]]);
+        let mut three = two;
+        three.push(egui::pos2(30.0, 80.0));
+        let spec = tool(Pen::Polygon).placed(0, &three).expect("a polygon");
+        assert!(matches!(spec.kind, AnnotationKind::Shape { form: ShapeForm::Polygon { .. }, .. }));
+        assert_eq!(spec.rect, [10.0, 10.0, 60.0, 80.0], "the box holds every point");
+    }
+
+    /// A caret stands on the click; an attachment needs its file, and says what it is.
+    #[test]
+    fn a_caret_and_an_attachment_go_where_the_click_was() {
+        let at = [egui::pos2(100.0, 200.0)];
+        let caret = tool(Pen::Caret).placed(0, &at).expect("a caret");
+        assert_eq!(caret.rect, [93.0, 186.0, 107.0, 200.0]);
+        assert_eq!(tool(Pen::Attachment).placed(0, &at).err(), Some("annotate_needs_file"));
+        let mut attaching = tool(Pen::Attachment);
+        attaching.more.file = Some(("clip.MP4".to_owned(), vec![1, 2]));
+        let spec = attaching.placed(0, &at).expect("an attachment");
+        let AnnotationKind::FileAttachment { mime_type, description, .. } = spec.kind else {
+            panic!("{spec:?}")
+        };
+        assert_eq!(mime_type.as_deref(), Some("video/mp4"));
+        assert_eq!(description.as_deref(), Some("注記"), "the words say what it is");
+    }
+
+    /// **A popup opens for the comment chosen, on that comment's page.**
+    #[test]
+    fn a_popup_needs_its_comment_on_its_page() {
+        let area = drag((10.0, 10.0), (60.0, 30.0));
+        assert_eq!(tool(Pen::Popup).placed(0, &area).err(), Some("annotate_needs_parent"));
+        let mut popup = tool(Pen::Popup);
+        popup.more.parent = Some(fepdf::AnnotationAt { page: 1, index: 4 });
+        assert_eq!(popup.placed(0, &area).err(), Some("annotate_parent_elsewhere"));
+        let spec = popup.placed(1, &area).expect("a popup");
+        assert_eq!(spec.kind, AnnotationKind::Popup { parent: 4, open: true });
+    }
+
+    /// What has no words to be, and a clip of no type a screen plays, are refused.
+    #[test]
+    fn words_and_a_playable_clip_are_asked_for() {
+        let area = drag((10.0, 10.0), (60.0, 30.0));
+        for pen in [Pen::Watermark, Pen::Projection] {
+            let mut empty = tool(pen);
+            empty.words.clear();
+            assert_eq!(empty.placed(0, &area).err(), Some("annotate_needs_words"), "{pen:?}");
+        }
+        let mut screen = tool(Pen::Screen);
+        assert!(matches!(
+            screen.placed(0, &area).map(|s| s.kind),
+            Ok(AnnotationKind::Screen { clip: None, .. })
+        ));
+        screen.more.file = Some(("notes.txt".to_owned(), vec![]));
+        assert_eq!(screen.placed(0, &area).err(), Some("annotate_unknown_media"));
     }
 
     /// A stamp with no picture chosen says so, rather than stamping nothing.

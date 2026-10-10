@@ -1,0 +1,49 @@
+# The pens of ROADMAP AA-4g, drawn with the pointer and keys a reader uses.
+#
+#   ./target/debug/fepdf-gui --capture scripts/dev/annotation-pens.txt --shots /tmp/pens
+#
+# A shot after choosing a pen lets the page finish drawing: a click before then has no
+# page under it. The bottom of the window is left alone: the view controls come up there
+# when the pointer reaches it, over the page, and take the click (`view_controls.rs`).
+
+open samples/constitution.pdf
+
+# A polygon's corners clicked, and Enter.
+pen polygon
+shot 01-polygon-pen
+clickat 700 60
+clickat 830 60
+clickat 765 125
+key Enter
+
+# A polyline's points clicked briskly and the last double-clicked, which egui counts as a
+# triple-click (2026-10-11).
+pen polyline
+shot 02-polyline-pen
+clickat 700 700
+clickat 820 740
+dblclickat 940 690
+
+# Boxes: a watermark that fills its box, a colour bar, a redaction mark in black.
+pen watermark 下書き
+drag 330 470 820 560
+pen printer_mark
+clicklabel カラーバー
+drag 600 20 800 45
+pen redact 削除済み
+clicklabel 黒
+drag 500 220 700 240
+
+# A caret where the click was, a projection's comment, and a popup for the polygon.
+pen caret 追加
+clickat 1150 160
+pen projection 計測値の確認
+drag 300 120 340 160
+pen popup
+clicklabel コメントを選ぶ
+clicklabel Polygon
+drag 650 60 860 160
+shot 03-every-pen
+
+drawer comments
+shot 04-comments
