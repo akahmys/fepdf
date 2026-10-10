@@ -419,6 +419,10 @@ pub enum WorkerResponse {
     /// **Sent after every change and not only on opening**, because filling a field
     /// changes the form: the drawer listing it has to list what the document has, not
     /// what the file had.
+    /// Every annotation in the document, read again after what may have changed them.
+    CommentsChanged {
+        comments: Vec<fepdf::comments::Comment>,
+    },
     FormChanged {
         /// The fields, in the order the document declares them.
         form: Box<fepdf::FormFields>,
@@ -760,6 +764,7 @@ pub fn run_worker(
                 if history.step(undo) {
                     history.journal(if undo { &EntryRef::Undo } else { &EntryRef::Redo }, &tx);
                     current_doc = rebuild(&history, &tx);
+                    send_form(current_doc.as_ref(), &tx);
                 }
                 let _ = tx.send(WorkerResponse::Idle);
                 ctx.request_repaint();
@@ -1245,6 +1250,22 @@ fn sheet_scale(doc: &PdfDocument, page: usize, scale: f64) -> f64 {
 fn send_form(doc: Option<&PdfDocument>, tx: &Sender<WorkerResponse>) {
     let form = doc.map(|doc| fepdf::form_of(doc.inner())).unwrap_or_default();
     let _ = tx.send(WorkerResponse::FormChanged { form: Box::new(form) });
+    send_comments(doc, tx);
+}
+
+/// Every annotation in the document, page by page, for the comment list.
+///
+/// **Sent wherever the form is**, because both are read from the document as it stands
+/// and both go stale on the same acts. A page whose annotations do not read contributes
+/// none rather than ending the list.
+fn send_comments(doc: Option<&PdfDocument>, tx: &Sender<WorkerResponse>) {
+    let comments = doc
+        .map(|doc| {
+            let pages = doc.page_count().unwrap_or(0);
+            (0..pages).filter_map(|page| doc.comments(page).ok()).flatten().collect()
+        })
+        .unwrap_or_default();
+    let _ = tx.send(WorkerResponse::CommentsChanged { comments });
 }
 
 /// What this worker remembers about the pages it has read, and throws away together.

@@ -1886,9 +1886,17 @@ express; then AA-5 and AA-6.
       the uniqueness of `/NM` and the refusal of a widget was shown to fail with its
       code broken; so was `AddAnnotation` JSON without `by` reading, and `list_comments`
       being served. The window's own author name and comment list are AA-2b.
-- [ ] **AA-2b** — **the comment list in the window**: every annotation, filtered by kind,
+- [x] **AA-2b** — **the comment list in the window**: every annotation, filtered by kind,
       author and state, sorted by page, author or date, and answered from the list. An
       author name in the settings.
+      **Done, 2026-10-10**: a `Comments` drawer (`sidebar/comments.rs`), refreshed wherever
+      the form is, after undo and redo included. Replies are listed under what they
+      answer at any depth, and states show as `author: state`. Annotations made in the
+      window are signed with the settings' author and the time. Driven with `--control`
+      on a file with two notes by others: a reply showed under its note as having no
+      author; a state with no author set was refused with a pointer to the settings; with
+      one set, `Reviewer: 承認` appeared; and ⌘Z took it back off the list. The author name
+      lasts as long as the window, since nothing in the window is persisted yet.
 - [ ] **AA-3** — **FDF** (12.7.8): a document's annotations exported to FDF, and FDF
       imported onto a document. Checked against Arlington's FDF model.
 - [ ] **AA-4** — **XFDF** (ISO 19444-1:2019), the XML form of FDF. The standard is in

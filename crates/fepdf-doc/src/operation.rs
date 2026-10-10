@@ -765,7 +765,7 @@ impl Operation {
 /// ([ADR-0115]).
 ///
 /// [ADR-0115]: ../../../docs/adr/0115-an-operation-names-an-annotation-by-its-place-on-the-page.md
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub struct AnnotationAt {
     /// The page, from zero.
     pub page: usize,

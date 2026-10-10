@@ -1,5 +1,6 @@
 mod accessibility;
 pub mod bookmarks;
+pub mod comments;
 pub mod document_info;
 pub mod form;
 pub mod layers;
@@ -51,6 +52,8 @@ pub enum ActiveDrawer {
     Snapshot,
     /// Notes, marks, shapes and the rest, drawn on the page with the pointer (12.5.6).
     Annotate,
+    /// Every comment in the document, filtered, sorted and answered (12.5.6.2, 12.5.6.3).
+    Comments,
     /// The document read aloud, in its structure's order, by the platform's synthesiser.
     ReadAloud,
     /// This document against another, page by page.
@@ -65,7 +68,7 @@ impl ActiveDrawer {
     /// **The rail iterates this rather than naming its buttons**, so a drawer that
     /// exists has a door by construction (UI-4). `scripts/audit/reachability.py` holds
     /// this list against the enum, because an array cannot be exhaustive on its own.
-    pub const ALL: [Self; 14] = [
+    pub const ALL: [Self; 15] = [
         Self::DocumentInfo,
         Self::WhatItDoes,
         Self::Accessibility,
@@ -77,6 +80,7 @@ impl ActiveDrawer {
         Self::Form,
         Self::Snapshot,
         Self::Annotate,
+        Self::Comments,
         Self::ReadAloud,
         Self::Compare,
         Self::Print,
@@ -101,6 +105,7 @@ impl ActiveDrawer {
             Self::Form => Some((glyph::FORM, "cmd_fill_form")),
             Self::Snapshot => Some((glyph::SNAPSHOT, "cmd_snapshot")),
             Self::Annotate => Some((glyph::ANNOTATE, "cmd_annotate")),
+            Self::Comments => Some((glyph::COMMENTS, "cmd_comments")),
             Self::ReadAloud => Some((glyph::READ_ALOUD, "cmd_read_aloud")),
             Self::Compare => Some((glyph::COMPARE, "cmd_compare")),
             Self::Print => Some((glyph::PRINT, "cmd_print")),
@@ -132,6 +137,8 @@ impl ActiveDrawer {
             | Self::Accessibility
             | Self::Tools
             | Self::Bookmarks
+            // A list of the whole document's, whichever view is on screen.
+            | Self::Comments
             // Read from the page on screen, which either view has.
             | Self::ReadAloud
             // A list, and outlines drawn in whichever view shows the page.

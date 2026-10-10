@@ -95,6 +95,7 @@ fn a_reply_is_listed_against_what_it_answers() {
         "a reply is placed where what it answers is"
     );
     assert!(!list[0].is_reply());
+    assert!(list[0].markup && reply.markup, "a note and its reply are both markup");
 }
 
 /// **A state needs a person**: 12.5.6.3 says the reply's `/T` "shall specify the user".
@@ -191,6 +192,7 @@ fn removing_takes_the_answers_and_refuses_a_widget() {
     let left = comments(&doc);
     assert_eq!(left.len(), 1, "the note, its reply and its state went: {left:?}");
     assert_eq!(left[0].subtype, "Widget");
+    assert!(!left[0].markup, "a widget is not a comment");
     let past = doc.apply(Operation::RemoveAnnotation(at(5)));
     assert!(matches!(past, Err(PdfError::NotFound(_))), "{past:?}");
 }

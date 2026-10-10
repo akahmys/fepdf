@@ -364,6 +364,18 @@ impl FepdfApp {
     }
 
     /// The settings window.
+    /// The name put on what the reader writes (ADR-0116), and what leaving it empty means.
+    fn author_row(&mut self, ui: &mut egui::Ui) {
+        let tr = |key: &str| self.locale_mgr.tr(&self.active_language, key);
+        let (label, hint, note) =
+            (tr("settings_author_label"), tr("settings_author_hint"), tr("settings_author_note"));
+        ui.horizontal(|ui| {
+            ui.label(label);
+            ui.add(egui::TextEdit::singleline(&mut self.author).hint_text(hint));
+        });
+        ui.label(egui::RichText::new(note).weak());
+    }
+
     fn show_settings_window(&mut self, ctx: &egui::Context) {
         if self.show_settings_modal {
             let mut show_settings = true;
@@ -393,6 +405,9 @@ impl FepdfApp {
                                     }
                                 });
                         });
+
+                        ui.add_space(space::GROUP);
+                        self.author_row(ui);
 
                         ui.add_space(space::SECTION);
                         ui.separator();

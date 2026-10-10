@@ -148,6 +148,12 @@ pub struct FepdfApp {
     pub form: fepdf::FormFields,
     /// What the form drawer is holding between frames.
     pub form_panel: crate::sidebar::form::FormPanel,
+    /// Every annotation in the document, as the engine reads them for review.
+    pub comments: Vec<fepdf::comments::Comment>,
+    pub comments_panel: crate::sidebar::comments::CommentsPanel,
+    /// The name put on what the reader writes (`/T`). Empty until they type one, and then
+    /// nothing is put (ADR-0116).
+    pub author: String,
     /// The snapshot tool: whether it is on, the drag, and the resolution.
     pub snapshot_tool: crate::snapshot::SnapshotTool,
     /// The annotation tool: its pen, what the pen draws with, and the drag.
@@ -338,6 +344,9 @@ impl FepdfApp {
             text_runs_panel: crate::sidebar::text_runs::TextRunsPanel::default(),
             form: fepdf::FormFields::default(),
             form_panel: crate::sidebar::form::FormPanel::default(),
+            comments: Vec::new(),
+            comments_panel: crate::sidebar::comments::CommentsPanel::default(),
+            author: String::new(),
             snapshot_tool: crate::snapshot::SnapshotTool::default(),
             annotate_tool: crate::annotate::AnnotateTool::default(),
             read_aloud: crate::read_aloud::ReadAloud::default(),
@@ -412,21 +421,28 @@ impl FepdfApp {
         }
     }
 
+    /// A document came back locked: the prompt goes up for it.
+    ///
+    /// Not an error: the file is fine and the reader has not been asked yet. `retried`
+    /// says whether a password was already refused, which the prompt says differently.
+    fn ask_for_password(
+        &mut self,
+        (data, name, method): (bytes::Bytes, Option<String>, String),
+        retried: bool,
+        ctx: &egui::Context,
+    ) {
+        self.is_loading = false;
+        self.locked =
+            Some(LockedDocument { data, name, method, attempt: String::new(), refused: retried });
+        ctx.request_repaint();
+    }
+
     fn process_worker_messages(&mut self, ctx: &egui::Context) {
         // RR-15 Limit: GUI - Handle asynchronous background messages
         while let Ok(msg) = self.rx_worker.try_recv() {
             match msg {
                 WorkerResponse::NeedsPassword { data, name, method, retried } => {
-                    // Not an error: the file is fine and the reader has not been asked yet.
-                    self.is_loading = false;
-                    self.locked = Some(crate::app::LockedDocument {
-                        data,
-                        name,
-                        method,
-                        attempt: String::new(),
-                        refused: retried,
-                    });
-                    ctx.request_repaint();
+                    self.ask_for_password((data, name, method), retried, ctx);
                 }
                 WorkerResponse::LoadingProgress { message } => {
                     self.loading_message = message;
@@ -536,6 +552,10 @@ impl FepdfApp {
                 }
                 WorkerResponse::FormChanged { form } => {
                     self.form = *form;
+                    ctx.request_repaint();
+                }
+                WorkerResponse::CommentsChanged { comments } => {
+                    self.comments = comments;
                     ctx.request_repaint();
                 }
                 WorkerResponse::PageRendered { index, scene, text, spans, runs, .. } => {

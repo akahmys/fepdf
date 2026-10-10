@@ -133,6 +133,7 @@ impl FepdfApp {
             ActiveDrawer::Form => tr("form_title"),
             ActiveDrawer::Snapshot => tr("snapshot_title"),
             ActiveDrawer::Annotate => tr("annotate_title"),
+            ActiveDrawer::Comments => tr("comments_title"),
             ActiveDrawer::ReadAloud => tr("speech_title"),
             ActiveDrawer::Compare => tr("compare_title"),
             ActiveDrawer::Print => tr("print_title"),
@@ -181,6 +182,7 @@ impl FepdfApp {
                         ActiveDrawer::None => {}
                         ActiveDrawer::TextRuns => self.render_text_runs(ui),
                         ActiveDrawer::Form => self.render_form(ui),
+                        ActiveDrawer::Comments => self.render_comments(ui),
                         ActiveDrawer::Snapshot => self.render_snapshot(ui),
                         ActiveDrawer::ReadAloud => self.render_read_aloud(ui),
                         ActiveDrawer::Compare => self.render_compare(ui),
@@ -416,6 +418,57 @@ impl FepdfApp {
             operation: Box::new(operation),
             done: self.tr("form_title"),
         });
+    }
+
+    /// The document's comments, and what the reader asks of one.
+    ///
+    /// **Turned into an `Operation` here, as the form's answers are** (Rule D). A state
+    /// needs an author (12.5.6.3), and the window has one only if the reader typed it
+    /// (ADR-0116), so without one the reader is told where to put it instead of the
+    /// engine refusing. The settings are not opened from here: they have one door (UI-12).
+    fn render_comments(&mut self, ui: &mut egui::Ui) {
+        use crate::sidebar::comments::Asked;
+        let comments = self.comments.clone();
+        let locale = &self.locale_mgr;
+        let lang = &self.active_language;
+        let Some(asked) = self.comments_panel.show(ui, &comments, &|key| locale.tr(lang, key))
+        else {
+            return;
+        };
+        let operation = match asked {
+            Asked::GoTo(page) => {
+                self.view.open_page(page);
+                return;
+            }
+            Asked::State(_, _) if self.author.trim().is_empty() => {
+                self.notice = Some(crate::app::Notice::check("comments_need_author"));
+                return;
+            }
+            Asked::Reply(at, contents) => {
+                fepdf::Operation::ReplyToAnnotation { at, contents, by: self.authorship() }
+            }
+            Asked::State(at, state) => {
+                fepdf::Operation::SetAnnotationState { at, state, by: self.authorship() }
+            }
+            Asked::Edit(at, contents) => {
+                fepdf::Operation::EditAnnotation { at, contents, when: Some(fepdf::pdf_now()) }
+            }
+            Asked::Remove(at) => fepdf::Operation::RemoveAnnotation(at),
+        };
+        let _ = self.tx_worker.send(crate::worker::WorkerRequest::Apply {
+            operation: Box::new(operation),
+            done: self.tr("comments_title"),
+        });
+    }
+
+    /// Who is making an annotation now, and when: the author in the settings, if the
+    /// reader typed one, and nothing otherwise (ADR-0116).
+    pub(crate) fn authorship(&self) -> fepdf::Authorship {
+        let author = self.author.trim();
+        fepdf::Authorship {
+            author: (!author.is_empty()).then(|| author.to_owned()),
+            when: Some(fepdf::pdf_now()),
+        }
     }
 
     /// The runs of the page the reader is on, and what they ask of one.

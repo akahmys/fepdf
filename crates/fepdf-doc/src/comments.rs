@@ -22,6 +22,9 @@ pub struct Comment {
     pub at: AnnotationAt,
     /// `/Subtype`.
     pub subtype: String,
+    /// Whether it is a markup annotation (12.5.6.2): one a person writes to comment on the
+    /// page, rather than a link, a widget or a pop-up. The list a reviewer reads is these.
+    pub markup: bool,
     /// `/NM`.
     pub name: Option<String>,
     /// `/T`: by convention, who made it.
@@ -106,9 +109,11 @@ fn read(
         (Some(state), Some(model)) => AnnotationState::named(&state, &model),
         _ => None,
     };
+    let subtype = name("Subtype").unwrap_or_default();
     Comment {
         at,
-        subtype: name("Subtype").unwrap_or_default(),
+        markup: fepdf_model::annotation::MARKUP_SUBTYPES.contains(&subtype.as_str()),
+        subtype,
         name: text("NM"),
         author: text("T"),
         contents: text("Contents"),

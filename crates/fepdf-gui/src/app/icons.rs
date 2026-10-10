@@ -40,6 +40,8 @@ pub mod glyph {
     pub const SNAPSHOT: &str = "\u{e064}";
     /// `highlighter` — putting an annotation on the page.
     pub const ANNOTATE: &str = "\u{e0f4}";
+    /// `message-square-text` — the document's comments, as a list.
+    pub const COMMENTS: &str = "\u{e575}";
     /// `audio-lines` — reading the document aloud.
     pub const READ_ALOUD: &str = "\u{e55a}";
     /// `git-compare` — this document against another.

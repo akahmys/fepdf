@@ -439,7 +439,8 @@ impl FepdfApp {
             ContentTool::Annotate => {
                 match self.annotate_tool.interaction(ui, page, rect, frame, zoom) {
                     None => {}
-                    Some(Ok(spec)) => {
+                    Some(Ok(mut spec)) => {
+                        spec.by = self.authorship();
                         let done = self.tr("annotate_done");
                         let _ = self.tx_worker.send(crate::worker::WorkerRequest::Apply {
                             operation: Box::new(fepdf::Operation::AddAnnotation(spec)),

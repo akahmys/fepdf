@@ -465,6 +465,7 @@ fn drawer(name: &str) -> Option<ActiveDrawer> {
         "form" => ActiveDrawer::Form,
         "snapshot" => ActiveDrawer::Snapshot,
         "annotate" => ActiveDrawer::Annotate,
+        "comments" => ActiveDrawer::Comments,
         "readaloud" => ActiveDrawer::ReadAloud,
         "compare" => ActiveDrawer::Compare,
         "print" => ActiveDrawer::Print,
