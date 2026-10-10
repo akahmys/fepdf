@@ -4,6 +4,7 @@ pub mod icons;
 mod layout;
 mod modals;
 mod page_ops;
+mod recovering;
 mod side_panels;
 mod status_bar;
 pub mod theme;
@@ -118,6 +119,8 @@ pub struct FepdfApp {
     pub locked: Option<LockedDocument>,
     pub survey: crate::sidebar::what_it_does::Survey,
     pub tools: crate::document_tools::ToolState,
+    /// Sessions a window left behind, offered back at start (ADR-0114).
+    offers: recovering::Offers,
 
     pub total_pages: usize,
     pub page_layouts: Vec<PageLayout>,
@@ -306,9 +309,14 @@ impl FepdfApp {
         // would stay shrunk after the shortcut was taken away from it.
         cc.egui_ctx.set_zoom_factor(1.0);
 
+        // Found before this window's own session exists, which it does not until the
+        // first act: nothing this window writes can be offered back to it.
+        let recovery_root = crate::recovery::root();
+        let offers = recovering::Offers::at(recovery_root.as_deref());
+        let session = recovery_root.map(|root| root.join(crate::recovery::session_name()));
         let egui_ctx = cc.egui_ctx.clone();
         std::thread::spawn(move || {
-            run_worker(rx_req, tx_res, egui_ctx);
+            run_worker(rx_req, tx_res, egui_ctx, session);
         });
 
         Self {
@@ -398,6 +406,7 @@ impl FepdfApp {
             close_after_extract: false,
             pages_left_out: 0,
             locked: None,
+            offers,
             survey: crate::sidebar::what_it_does::Survey::default(),
             tools: crate::document_tools::ToolState::default(),
         }
@@ -456,6 +465,7 @@ impl FepdfApp {
                     self.bookmarks.filed(*tree, report);
                 }
                 WorkerResponse::DocumentLoaded(loaded) => {
+                    self.offers.answered();
                     let crate::worker::LoadedDocument {
                         name,
                         num_pages,
@@ -612,7 +622,12 @@ impl FepdfApp {
                     });
                     ctx.request_repaint();
                 }
+                WorkerResponse::RecoveryLocked { retried } => {
+                    self.is_loading = false;
+                    self.offers.locked(retried);
+                }
                 WorkerResponse::Failed { key, detail } => {
+                    self.offers.answered();
                     self.is_loading = false;
                     self.busy = None;
                     let notice = Notice::failed(key);
@@ -1012,6 +1027,10 @@ impl FepdfApp {
 }
 
 impl eframe::App for FepdfApp {
+    fn on_exit(&mut self) {
+        self.end_session();
+    }
+
     fn raw_input_hook(&mut self, _ctx: &egui::Context, raw_input: &mut egui::RawInput) {
         self.feed_capture_input(raw_input);
     }

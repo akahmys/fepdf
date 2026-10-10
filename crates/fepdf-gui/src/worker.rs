@@ -1,5 +1,6 @@
 //! Off-thread document worker and request/response dispatch loop.
 
+use crate::recovery::{Entry, EntryRef, Journal};
 use bytes::Bytes;
 use fepdf::{FallbackFontType, VelloBackend};
 use fepdf::{Operation, OutlineTree, PageSelection, PdfDocument};
@@ -109,6 +110,18 @@ pub enum WorkerRequest {
     },
     /// Take back the last operation, and the one before it, and so on.
     Undo,
+    /// Rebuild the document a window that did not exit normally left in `dir`, and go on
+    /// journaling there (ADR-0114). `password` opens a sealed journal and the document
+    /// together, since the one sealed the other.
+    Recover {
+        dir: std::path::PathBuf,
+        password: Option<String>,
+    },
+    /// The window is closing: end the session, removing its journal, and say so on `done`
+    /// so the window waits for that and not longer.
+    Shutdown {
+        done: Sender<()>,
+    },
     /// Put back the last operation `Undo` took.
     Redo,
     /// Put the pages of another document where these pages are, as one act.
@@ -214,10 +227,13 @@ impl Protection {
 /// `constitution.pdf`, 37ms for `fugaku.pdf`, 251ms for `volvo_xc90.pdf` at 27MB, and
 /// 1.7s for `intel_sdm.pdf` at 24MB. The first three are imperceptible and the last is
 /// why an undo says that it is happening.
+/// What `Open` was given: the bytes, the name, and the password.
+type Origin = (Bytes, Option<String>, Option<String>);
+
 struct History {
     /// What `Open` was given, kept so the document can be rebuilt from it. `Bytes` is
     /// refcounted and the arena already points into this buffer.
-    origin: Option<(Bytes, Option<String>, Option<String>)>,
+    origin: Option<Origin>,
     /// Applied, in order, one entry an act.
     ///
     /// **An act, not an operation**, because an undo takes back what the reader did and
@@ -228,11 +244,62 @@ struct History {
     /// Taken back, most recent last. Emptied by any new act, because a branch in the
     /// history is a second thing to explain.
     undone: Vec<Vec<Operation>>,
+    /// Where this history is written as it happens, so a crash loses none of it
+    /// (ADR-0114).
+    journal: Journal,
 }
 
 impl History {
     const fn new() -> Self {
-        Self { origin: None, applied: Vec::new(), undone: Vec::new() }
+        Self { origin: None, applied: Vec::new(), undone: Vec::new(), journal: Journal::Off }
+    }
+
+    /// A history journaled to `dir`, for a document opened from `origin`.
+    fn journaled(dir: Option<&std::path::Path>, origin: Origin) -> Self {
+        let journal = Journal::ready(dir.map(std::path::Path::to_path_buf));
+        Self { origin: Some(origin), journal, ..Self::new() }
+    }
+
+    /// A recovered session's history: its origin, and its entries replayed onto an
+    /// empty history as they were onto the one that crashed.
+    fn recovered(recovered: &crate::recovery::Recovered, password: Option<String>) -> Self {
+        let mut history = Self::new();
+        history.origin = Some((recovered.origin.clone(), recovered.name.clone(), password));
+        for entry in &recovered.entries {
+            match entry {
+                Entry::Act(act) => {
+                    history.applied.push(act.clone());
+                    history.undone.clear();
+                }
+                // A step with nothing to move moved nothing in the window either, so
+                // replaying it as nothing is the same history.
+                Entry::Undo => {
+                    history.step(true);
+                }
+                Entry::Redo => {
+                    history.step(false);
+                }
+            }
+        }
+        history
+    }
+
+    /// Writes `entry` to the journal; tells the reader, once, if it cannot.
+    fn journal(&mut self, entry: &EntryRef<'_>, tx: &Sender<WorkerResponse>) {
+        let Some((origin, name, _)) = self.origin.as_ref() else { return };
+        if let Some(why) = self.journal.record(entry, origin, name.as_deref()) {
+            let _ = tx
+                .send(WorkerResponse::Failed { key: "notice_autosave_failed", detail: Some(why) });
+        }
+    }
+
+    /// Ends the journal, removing it: what it held is no longer the reader's to lose.
+    fn close_journal(&mut self, tx: &Sender<WorkerResponse>) {
+        let journal = std::mem::replace(&mut self.journal, Journal::Off);
+        if let Some(why) = journal.close() {
+            let _ = tx
+                .send(WorkerResponse::Failed { key: "notice_autosave_failed", detail: Some(why) });
+        }
     }
 
     /// Whether the document differs from the file it was opened from.
@@ -470,6 +537,11 @@ pub enum WorkerResponse {
         /// which the user is about to hand to someone else (7.6.4.2).
         notices: Vec<String>,
     },
+    /// A journal to recover is sealed, and the password given does not open it.
+    RecoveryLocked {
+        /// Whether a password was offered, as `NeedsPassword` says.
+        retried: bool,
+    },
     /// Something did not happen. `key` frames it and `detail` is the engine's own
     /// sentence, which names an ISO clause and has no translation.
     Failed {
@@ -478,7 +550,14 @@ pub enum WorkerResponse {
     },
 }
 
-pub fn run_worker(rx: Receiver<WorkerRequest>, tx: Sender<WorkerResponse>, ctx: egui::Context) {
+/// `recovery` is where this window's session journals what it does (ADR-0114), or
+/// `None` where the platform names no place for it.
+pub fn run_worker(
+    rx: Receiver<WorkerRequest>,
+    tx: Sender<WorkerResponse>,
+    ctx: egui::Context,
+    recovery: Option<std::path::PathBuf>,
+) {
     // RR-15 Limit: GUI - main routing message loop dispatcher for background worker thread
     let mut current_doc: Option<PdfDocument> = None;
     // The bytes the open read. `Bytes` is refcounted and the arena already points into
@@ -493,9 +572,8 @@ pub fn run_worker(rx: Receiver<WorkerRequest>, tx: Sender<WorkerResponse>, ctx: 
             WorkerRequest::Open { data, name, password } => {
                 pages.clear();
                 current_bytes = Some(data.clone());
-                history = History::new();
-                history.origin = Some((data.clone(), name.clone(), password.clone()));
-                current_doc = handle_open(data, name, password, &[], &tx);
+                let origin = (data, name, password);
+                current_doc = open_requested(&mut history, recovery.as_deref(), origin, &tx);
                 send_form(current_doc.as_ref(), &tx);
                 ctx.request_repaint();
             }
@@ -658,12 +736,29 @@ pub fn run_worker(rx: Receiver<WorkerRequest>, tx: Sender<WorkerResponse>, ctx: 
                 );
                 ctx.request_repaint();
             }
+            WorkerRequest::Recover { dir, password } => {
+                pages.clear();
+                let _ = tx.send(WorkerResponse::Busy { key: "busy_recovering" });
+                if let Some(doc) = handle_recover(&mut history, (dir, password), &tx) {
+                    current_bytes = history.origin.as_ref().map(|(data, ..)| data.clone());
+                    current_doc = Some(doc);
+                    send_form(current_doc.as_ref(), &tx);
+                }
+                let _ = tx.send(WorkerResponse::Idle);
+                ctx.request_repaint();
+            }
+            WorkerRequest::Shutdown { done } => {
+                history.close_journal(&tx);
+                let _ = done.send(());
+                break;
+            }
             step @ (WorkerRequest::Undo | WorkerRequest::Redo) => {
                 pages.clear();
                 let undo = matches!(step, WorkerRequest::Undo);
                 let key = if undo { "history_undoing" } else { "history_redoing" };
                 let _ = tx.send(WorkerResponse::Busy { key });
                 if history.step(undo) {
+                    history.journal(if undo { &EntryRef::Undo } else { &EntryRef::Redo }, &tx);
                     current_doc = rebuild(&history, &tx);
                 }
                 let _ = tx.send(WorkerResponse::Idle);
@@ -703,6 +798,7 @@ fn apply_recorded(
     let Some(doc) = doc.as_mut() else { return };
     match result {
         Ok(()) => {
+            history.journal(&EntryRef::Act(&act), tx);
             history.applied.push(act);
             // A new operation after an undo abandons what was undone: a branch in the
             // history is a second thing the window would have to explain.
@@ -795,6 +891,66 @@ fn handle_export_images(
     }
     let _ =
         tx.send(WorkerResponse::DocumentSaved { path: folder.to_path_buf(), notices: Vec::new() });
+}
+
+/// Opens what `Open` was given, with a new history journaled to `recovery`, and ends
+/// the journal of the document it replaces.
+///
+/// **Sealed when the document is encrypted**, with the password it opened with: the
+/// journal holds what the reader typed, and the file was protected so that would not be
+/// on disk in the clear (ADR-0114).
+fn open_requested(
+    history: &mut History,
+    recovery: Option<&std::path::Path>,
+    (data, name, password): Origin,
+    tx: &Sender<WorkerResponse>,
+) -> Option<PdfDocument> {
+    history.close_journal(tx);
+    *history = History::journaled(recovery, (data.clone(), name.clone(), password.clone()));
+    let doc = handle_open(data, name, password.clone(), &[], tx);
+    if doc.as_ref().is_some_and(PdfDocument::is_encrypted) {
+        history.journal.seal_with(password.unwrap_or_default());
+    }
+    doc
+}
+
+/// Rebuilds the document a crashed window journaled in `dir`, makes its history this
+/// one, and goes on journaling there.
+///
+/// **The history is replaced only once the journal has read.** A wrong password leaves
+/// whatever is open as it was, and asks again.
+fn handle_recover(
+    history: &mut History,
+    (dir, password): (std::path::PathBuf, Option<String>),
+    tx: &Sender<WorkerResponse>,
+) -> Option<PdfDocument> {
+    let recovered = match crate::recovery::recover(&dir, password.as_deref()) {
+        Ok(recovered) => recovered,
+        Err(crate::recovery::RecoveryError::WrongPassword) => {
+            let _ = tx.send(WorkerResponse::RecoveryLocked { retried: password.is_some() });
+            return None;
+        }
+        Err(e) => {
+            let detail = Some(e.to_string());
+            let _ = tx.send(WorkerResponse::Failed { key: "notice_recovery_failed", detail });
+            return None;
+        }
+    };
+    history.close_journal(tx);
+    *history = History::recovered(&recovered, password);
+    let lost_tail = recovered.lost_tail;
+    history.journal = match crate::recovery::Session::resume(dir, recovered) {
+        Ok(session) => Journal::Writing(session),
+        Err(e) => {
+            let detail = Some(e.to_string());
+            let _ = tx.send(WorkerResponse::Failed { key: "notice_autosave_failed", detail });
+            Journal::Failed
+        }
+    };
+    if lost_tail {
+        let _ = tx.send(WorkerResponse::Failed { key: "notice_recovery_lost_tail", detail: None });
+    }
+    rebuild(history, tx)
 }
 
 /// Opens the original bytes again and replays what is still in the history onto them.
@@ -1928,6 +2084,47 @@ mod history {
 
         assert_eq!(history.applied, vec![remove(5)]);
         assert!(history.undone.is_empty(), "the abandoned branch is gone");
+    }
+
+    /// **A recovered history is the history that crashed**, undo and all: replaying the
+    /// journal's entries onto an empty history leaves what stood and what was taken back
+    /// where the window had them.
+    #[test]
+    fn a_journal_replays_into_the_history_it_recorded() {
+        use crate::recovery::{Entry, EntryRef, Session};
+        let dir =
+            std::env::temp_dir().join(format!("fepdf-history-{}", crate::recovery::session_name()));
+        let mut session =
+            Session::begin(dir.clone(), b"origin", None, None).expect("a session begins");
+        // Three acts, two taken back, one put back, then a new act abandoning the rest:
+        // every move the window can make.
+        for entry in [
+            EntryRef::Act(&remove(0)),
+            EntryRef::Act(&remove(1)),
+            EntryRef::Act(&remove(2)),
+            EntryRef::Undo,
+            EntryRef::Undo,
+            EntryRef::Redo,
+            EntryRef::Undo,
+            EntryRef::Undo,
+            EntryRef::Redo,
+        ] {
+            session.append(&entry).expect("appended");
+        }
+        drop(session);
+
+        let recovered = crate::recovery::recover(&dir, None).expect("recovered");
+        assert_eq!(recovered.entries.len(), 9);
+        assert!(matches!(recovered.entries.first(), Some(Entry::Act(_))));
+        let history = History::recovered(&recovered, None);
+        std::fs::remove_dir_all(&dir).expect("cleaned up");
+
+        assert_eq!(history.applied, vec![remove(0)], "what stood");
+        assert_eq!(history.undone, vec![remove(2), remove(1)], "what was taken back, in order");
+        assert_eq!(
+            history.origin.map(|(data, ..)| data),
+            Some(bytes::Bytes::from_static(b"origin"))
+        );
     }
 }
 

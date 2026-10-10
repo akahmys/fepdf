@@ -133,6 +133,7 @@ EXEMPT_PROSE = {
     "/System/Library/Fonts/ヒラギノ角ゴシック W4.ttc": "a path the platform chose",
     "/System/Library/Fonts/Hiragino Sans GB.ttc": "a path the platform chose",
     "/System/Library/Fonts/Supplemental/Arial Unicode.ttf": "a path the platform chose",
+    "Application Support": "a directory the platform chose, where recovery journals go",
     "{:.2} pt  ({:.2} mm)": "two unit symbols, the same in every language",
     "{length:.2} pt  ({:.2} mm)": "two unit symbols, the same in every language",
     "{area:.2} pt²  ({:.2} mm²)": "two unit symbols, the same in every language",

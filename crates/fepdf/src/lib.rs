@@ -932,6 +932,12 @@ impl PdfDocument {
         self.inner.security_method.clone()
     }
 
+    /// Whether the file this was opened from is encrypted (7.6).
+    #[must_use]
+    pub fn is_encrypted(&self) -> bool {
+        self.inner.is_encrypted()
+    }
+
     /// What is lost by writing this document out, when its `/P` said not to.
     ///
     /// Reports rather than refuses; see `Document::permissions_lost_on_write`.

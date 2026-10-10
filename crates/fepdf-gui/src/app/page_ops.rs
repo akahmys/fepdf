@@ -108,6 +108,19 @@ impl FepdfApp {
         name: Option<String>,
         ctx: &egui::Context,
     ) {
+        self.forget_the_document();
+        let _ = self.tx_worker.send(WorkerRequest::Open { data, name, password: None });
+        ctx.request_repaint();
+    }
+
+    /// Clears everything the window knows about the document it had, before another
+    /// arrives in its place: opened, or recovered after a crash.
+    ///
+    /// **One place for both**, because recovery began with a copy that left out the
+    /// render queue. The window asks for page 0 before any document is open, the worker
+    /// has nothing to draw it from, and the request stayed queued, so the recovered
+    /// document's first page was never asked for and said "rendering" for good.
+    pub(crate) fn forget_the_document(&mut self) {
         self.notice = None;
         self.total_pages = 0;
         self.page_layouts.clear();
@@ -134,8 +147,6 @@ impl FepdfApp {
         // The last document's answers are not this one's.
         self.survey = crate::sidebar::what_it_does::Survey::default();
         self.reset_view();
-        let _ = self.tx_worker.send(WorkerRequest::Open { data, name, password: None });
-        ctx.request_repaint();
     }
 
     pub fn reorder_pages_batch(&mut self, source_indices: &[usize], target_insert_pos: usize) {

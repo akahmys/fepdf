@@ -308,6 +308,7 @@ impl FepdfApp {
         self.show_settings_window(ctx);
         self.show_about_modal_window(ctx);
         self.show_close_confirmation(ctx);
+        self.show_recovery_offer(ctx);
         // Last, so it draws over everything: a locked document has nothing behind this
         // worth interacting with.
         self.show_password_prompt(ctx);

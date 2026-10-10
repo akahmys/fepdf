@@ -48,6 +48,7 @@ mod locale;
 mod measuring;
 mod printing;
 mod read_aloud;
+mod recovery;
 mod redaction;
 mod redaction_studio;
 mod sidebar;

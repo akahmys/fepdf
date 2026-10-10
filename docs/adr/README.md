@@ -178,3 +178,4 @@ quietly wrong — which is the failure this log exists to make visible.
 | 0111 | [A redaction keeps the remaining glyphs where they were](0111-a-redaction-keeps-the-remaining-glyphs-where-they-were.md) | Bounds Y-10 |
 | 0112 | [The audit is a crate above the operations](0112-the-audit-is-a-crate-above-the-operations.md) | Moves Rule E from 0107 to cargo |
 | 0113 | [Another project's findings cross as facts, not as its code](0113-another-projects-findings-cross-as-facts-not-code.md) | Opens Phase Z |
+| 0114 | [The window journals its acts, and a crash replays them](0114-the-window-journals-its-acts-and-a-crash-replays-them.md) | Opens Phase AA |

@@ -26,7 +26,7 @@ The differences are by design:
 - Inherited attributes are resolved onto the pages
   ([ADR-0013](docs/adr/0013-a-document-is-one-normalised-state.md)).
 
-Phases Y and Z are closed (2026-10-10). Two items Phase Y found wait on Windows and
+Phases Y and Z are closed (2026-10-10), and Phase AA is open. Two items Phase Y found wait on Windows and
 Linux, under [Held for another platform](#held-for-another-platform).
 `./scripts/dev/status.sh` re-derives the figures this file leans on, so a stale one reads
 as a disagreement rather than as current.
@@ -1841,6 +1841,51 @@ before it is decided; Z-4 when convenient; Z-5 with the next GUI defect.
 test. The list is kept as a reference in
 [docs/reference/acrobat-features/](docs/reference/acrobat-features/README.md); what this
 engine reads is already measured by `fepdf inspect coverage`.
+
+
+### Phase AA — What an Acrobat user reaches for that is not here
+
+[docs/reference/acrobat-features/](docs/reference/acrobat-features/README.md) was compared
+with this engine on 2026-10-10, item by item, from the CLI's help, the operation
+vocabulary, `fepdf-mcp`'s tools and the window's labels. The owner chose three gaps from it.
+The order was set the same day: AA-1 first, because the window's history already holds
+what it needs; then AA-2 and AA-3, since FDF carries annotations the model cannot yet
+express; then AA-5 and AA-6.
+
+- [x] **AA-1** — **autosave and crash recovery** (`core.autosave`, `core.crash-recovery`,
+      `core.encrypted-autosave`, P0). The window journals each act and replays the
+      journal after a crash; an encrypted document's journal is sealed with its password
+      ([ADR-0114](docs/adr/0114-the-window-journals-its-acts-and-a-crash-replays-them.md)).
+      *Done when* a journal written by a window that did not exit normally rebuilds the
+      same document, with the same undo history, and a sealed journal holds none of an
+      `EditRun`'s words in the clear.
+      **Done, 2026-10-10.** `recovery.rs`'s tests hold each part, and each was shown to
+      fail with its part broken: the seal, the lock, the trim of a torn record, and the
+      undo replay. Driven with `--control`, on `constitution.pdf` and on an AES-256 copy
+      of it: an edit, `kill -9`, a restart. The restart offered the session, a wrong
+      password was refused, and the right one rebuilt the page with its edit. ⌘Z after
+      the recovery took the edit back. A normal quit removed the session. The drive found
+      two defects, both fixed. The recovered page never drew, because a render request
+      queued before any document was open stayed queued; recovery now clears what an
+      open clears (`forget_the_document`). And a lock this process had just released
+      read as held in one test run of four, because a child process holds a copy of the
+      lock's descriptor until it execs; `take_lock` now waits up to 200 ms.
+- [ ] **AA-2** — **annotations that can be reviewed**: removed, edited, replied to
+      (`/IRT`) and given a state (`/State`, `/StateModel`), each named by `/NM` so that
+      an act still finds its annotation after a replay. Then a comment list in the window
+      that can be filtered, sorted and answered.
+- [ ] **AA-3** — **FDF** (12.7.8): a document's annotations exported to FDF, and FDF
+      imported onto a document. Checked against Arlington's FDF model.
+- [ ] **AA-4** — **XFDF**. Held until ISO 19444-1 is in `docs/specs/`, because a format
+      this copy lacks is not implemented from memory
+      ([ADR-0095](docs/adr/0095-a-condition-citing-a-document-this-copy-lacks-is-not-implemented-from-memory.md)).
+- [ ] **AA-5** — **a PDF made from images**: JPEG carried as it is, PNG with its alpha as
+      a soft mask, and each page of a TIFF as a page. This is an operation, so it also
+      inserts image pages into an existing document.
+- [ ] **AA-6** — **a PDF made from plain text**: lines broken by UAX #14 at the face's
+      advances, pages broken where they fill, and each paragraph the input separates with
+      a blank line tagged `/P`. Paragraphs are declared by the input, not inferred
+      ([ADR-0091](docs/adr/0091-paragraphs-are-not-inferred-and-overflow-is-shown.md)).
 
 ---
 
