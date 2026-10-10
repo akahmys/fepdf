@@ -29,6 +29,7 @@ mod crop_removes_test;
 mod declaration_test;
 mod decoration_placement_test;
 mod direct_font_test;
+mod drawn_appearance_test;
 mod edit_run_test;
 #[cfg(feature = "render")]
 mod edit_xobject_test;
@@ -64,6 +65,7 @@ mod measurement_test;
 mod one_face_per_operation_test;
 mod op_index_test;
 mod open_form_test;
+mod opened_appearance_test;
 mod optional_content_test;
 mod outline_tree_test;
 mod page_decoration_test;

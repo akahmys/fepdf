@@ -182,3 +182,6 @@ quietly wrong — which is the failure this log exists to make visible.
 | 0115 | [An operation names an annotation by its place on the page](0115-an-operation-names-an-annotation-by-its-place-on-the-page.md) | AA-2; rests on 0114 |
 | 0116 | [An annotation carries an author only when the reader named one](0116-an-annotation-carries-an-author-only-when-the-reader-named-one.md) | AA-2 |
 | 0117 | [An FDF import replaces an annotation of the same name, and adds the rest](0117-an-fdf-import-replaces-an-annotation-of-the-same-name.md) | AA-3 |
+| 0118 | [A reply carries an appearance that draws nothing](0118-a-reply-carries-an-appearance-that-draws-nothing.md) | Amends AA-2a |
+| 0119 | [An annotation without an appearance is given one from its own entries](0119-an-annotation-without-an-appearance-is-given-one-from-its-own-entries.md) | AA-4 |
+| 0120 | [A document is opened with every annotation given an appearance it can be](0120-a-document-is-opened-with-every-annotation-given-an-appearance.md) | AA-4d; rests on 0013, 0119 |

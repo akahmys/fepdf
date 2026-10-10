@@ -6,6 +6,9 @@ pub mod annotations;
 pub mod appearance;
 /// Marking tagged content as an artifact (14.8.2.2).
 pub mod artifacts;
+/// An annotation's appearance, drawn from its own entries (ADR-0119).
+pub(crate) mod drawn;
+pub use drawn::give_missing as give_missing_appearances;
 /// Creating a form field, not only filling one (ADR-0087).
 pub mod fields;
 /// Putting a font program into a document.

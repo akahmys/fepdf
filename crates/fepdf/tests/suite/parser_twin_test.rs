@@ -77,7 +77,13 @@ fn describe(event: &Event) -> String {
         return format!("blend({mode:?})");
     }
     if let Event::SetFont(name) = event {
-        return format!("set_font({name})");
+        // **A face this engine embedded while opening is numbered by when it was made**,
+        // and the two readers allocate a different number of objects first: what an
+        // appearance it drew is called (ADR-0120) is not what the readers disagree about.
+        // A file's own fonts keep their numbers, which are its object numbers either way.
+        let made_here = name.starts_with("Fepdf");
+        let shown = if made_here { name.split('_').next().unwrap_or(name) } else { name };
+        return format!("set_font({shown})");
     }
     if let Event::CharSpacing(v) | Event::WordSpacing(v) = event {
         return format!("{}({v:.2})", event.name());

@@ -227,3 +227,33 @@ fn replies_and_states_survive_a_save() {
         vec![StateMark { author: "Bo".into(), state: AnnotationState::Completed }]
     );
 }
+
+/// **Every annotation the review operations write has an appearance** (Table 166): a reply
+/// and a state change draw nothing, and still carry one (ADR-0118).
+#[test]
+fn replies_and_states_carry_an_appearance() {
+    let mut doc = one_note();
+    doc.apply(Operation::ReplyToAnnotation { at: at(0), contents: "ok".to_owned(), by: by("Bo") })
+        .expect("it replies");
+    doc.apply(Operation::SetAnnotationState {
+        at: at(0),
+        state: AnnotationState::Accepted,
+        by: by("Bo"),
+    })
+    .expect("it sets");
+    let inner = doc.inner();
+    let arena = inner.arena();
+    let page = inner.resolve_to_dict(inner.page_handle(0).expect("page")).expect("dict");
+    let annots = arena
+        .dict_entry(page, arena.name("Annots"))
+        .and_then(|a| a.resolve(arena).as_array())
+        .and_then(|a| arena.get_array(a))
+        .expect("annotations");
+    for (index, annot) in annots.iter().enumerate().skip(1) {
+        let dict = annot.resolve(arena).as_dict_handle().expect("a dictionary");
+        assert!(
+            arena.dict_entry(dict, arena.name("AP")).is_some(),
+            "annotation {index} has no /AP"
+        );
+    }
+}

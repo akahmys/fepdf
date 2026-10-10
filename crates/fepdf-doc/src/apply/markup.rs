@@ -22,11 +22,11 @@ type Dict = BTreeMap<Handle<PdfName>, Object>;
 
 /// An upright rectangle on the page: left, bottom, right, top.
 #[derive(Debug, Clone, Copy)]
-struct Area {
-    left: f64,
-    bottom: f64,
-    right: f64,
-    top: f64,
+pub struct Area {
+    pub(crate) left: f64,
+    pub(crate) bottom: f64,
+    pub(crate) right: f64,
+    pub(crate) top: f64,
 }
 
 impl Area {
@@ -37,11 +37,11 @@ impl Area {
         Self { left: x1.min(x2), bottom: y1.min(y2), right: x1.max(x2), top: y1.max(y2) }
     }
 
-    fn width(self) -> f64 {
+    pub(crate) fn width(self) -> f64 {
         self.right - self.left
     }
 
-    fn height(self) -> f64 {
+    pub(crate) fn height(self) -> f64 {
         self.top - self.bottom
     }
 
@@ -88,8 +88,18 @@ pub fn annotation(
     // printed, which is also what PDF/A asks of every annotation it keeps.
     dict.insert(arena.name("F"), Object::Integer(4));
 
-    if let Some(appearance) = kind_entries(doc, &mut dict, &annot.kind, given, drawn)? {
-        dict.insert(arena.name("AP"), appearance);
+    match kind_entries(doc, &mut dict, &annot.kind, given, drawn)? {
+        Some(appearance) => {
+            dict.insert(arena.name("AP"), appearance);
+        }
+        // What `kind_entries` did not draw — a stamp with no picture — is drawn from the
+        // entries it wrote, since Table 166 requires an appearance (ADR-0119). A link is
+        // exempt, and the drawing says so by answering `None`.
+        None => {
+            if let Some(appearance) = crate::apply::drawn::appearance_for(doc, &dict)? {
+                dict.insert(arena.name("AP"), appearance);
+            }
+        }
     }
     Ok(arena.alloc_dict(dict))
 }
@@ -252,14 +262,14 @@ fn link_target(
 }
 
 /// A form XObject of `area`'s size holding `drawing`, as a normal appearance (12.5.5).
-fn appearance(arena: &PdfArena, drawing: &str, area: Area, resources: Option<Dict>) -> Object {
+pub fn appearance(arena: &PdfArena, drawing: &str, area: Area, resources: Option<Dict>) -> Object {
     let mut dict = Dict::new();
     name(arena, &mut dict, "Type", "XObject");
     name(arena, &mut dict, "Subtype", "Form");
     dict.insert(arena.name("BBox"), numbers(arena, &[0.0, 0.0, area.width(), area.height()]));
-    if let Some(resources) = resources {
-        dict.insert(arena.name("Resources"), Object::Dictionary(arena.alloc_dict(resources)));
-    }
+    // Table 93 requires `/Resources` on a form XObject in PDF 2.0, empty or not.
+    let resources = resources.unwrap_or_default();
+    dict.insert(arena.name("Resources"), Object::Dictionary(arena.alloc_dict(resources)));
     let stream = Object::Stream(
         arena.alloc_dict(dict),
         Arc::new(SublimatedData::Raw(Bytes::copy_from_slice(drawing.as_bytes()))),
@@ -267,6 +277,12 @@ fn appearance(arena: &PdfArena, drawing: &str, area: Area, resources: Option<Dic
     let mut ap = Dict::new();
     ap.insert(arena.name("N"), Object::Reference(arena.alloc_object(stream)));
     Object::Dictionary(arena.alloc_dict(ap))
+}
+
+/// An appearance that draws nothing: what a reply carries, since 12.5.6.2 shows it with
+/// what it answers and Table 166 still requires it to have one (ADR-0118).
+pub fn nothing_drawn(arena: &PdfArena) -> Object {
+    appearance(arena, "", Area { left: 0.0, bottom: 0.0, right: 1.0, top: 1.0 }, None)
 }
 
 /// A note, and its appearance. The icon is a reader's to replace; what matters is that the
@@ -367,7 +383,7 @@ fn zigzag(width: f64, amplitude: f64) -> String {
 
 /// How many whole steps fit, rounded up, as a count the loop can use.
 #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-fn whole(steps: f64) -> u32 {
+pub fn whole(steps: f64) -> u32 {
     // Bounded well inside `u32`: the widest page is 14,400 units and a step is at least 1.
     steps.ceil().clamp(0.0, 1.0e6) as u32
 }
@@ -696,7 +712,7 @@ fn set_lines(
 }
 
 /// The codes `line` is shown by in a face embedded by `embed_for`, as hexadecimal.
-fn codes_of(
+pub fn codes_of(
     program: &[u8],
     embedded: &crate::apply::font::Embedded,
     line: &str,

@@ -471,7 +471,11 @@ impl PdfDocument {
         data: Bytes,
         options: &fepdf_model::ingest::IngestionOptions,
     ) -> PdfResult<Self> {
-        Ok(Self::sealed(Document::open(data, options)?))
+        let document = Document::open(data, options)?;
+        // Before the seal, as part of reading it: every annotation that can be shown is
+        // given the appearance it lacks (ADR-0120).
+        fepdf_doc::apply::give_missing_appearances(&document);
+        Ok(Self::sealed(document))
     }
 
     /// A document built through the model layer, handed to the facade: from here it

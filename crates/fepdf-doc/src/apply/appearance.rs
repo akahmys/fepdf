@@ -34,11 +34,11 @@ type Dict = BTreeMap<Handle<PdfName>, Object>;
 const INSET: f64 = 2.0;
 
 /// The font and size a `/DA` string selects (12.7.4.3).
-struct DefaultAppearance {
+pub(crate) struct DefaultAppearance {
     /// The resource name of the font, without its solidus.
-    font: String,
+    pub(crate) font: String,
     /// The size in points, or zero for auto.
-    size: f64,
+    pub(crate) size: f64,
     /// The whole string, replayed into the appearance so the colour and any other state
     /// operators it carries survive.
     verbatim: String,
@@ -49,7 +49,7 @@ struct DefaultAppearance {
 /// The clause requires at minimum a `Tf` with its two operands; everything else in the
 /// string is graphics state this function does not need to understand, because it is
 /// replayed unchanged.
-fn parse_default_appearance(da: &str) -> Option<DefaultAppearance> {
+pub(crate) fn parse_default_appearance(da: &str) -> Option<DefaultAppearance> {
     let tokens: Vec<&str> = da.split_whitespace().collect();
     let at = tokens.iter().position(|t| *t == "Tf")?;
     let size = tokens.get(at.checked_sub(1)?)?.parse().ok()?;

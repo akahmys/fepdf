@@ -66,14 +66,14 @@ pub fn export(doc: &Document) -> PdfResult<Vec<u8>> {
 }
 
 /// An annotation chosen for export.
-struct Chosen {
-    page: usize,
-    index: usize,
-    handle: Handle<Object>,
+pub(crate) struct Chosen {
+    pub(crate) page: usize,
+    pub(crate) index: usize,
+    pub(crate) handle: Handle<Object>,
 }
 
 /// The markup annotations of every page, in page and `/Annots` order.
-fn exportable(doc: &Document) -> PdfResult<Vec<Chosen>> {
+pub(crate) fn exportable(doc: &Document) -> PdfResult<Vec<Chosen>> {
     let mut chosen = Vec::new();
     for page in 0..doc.page_count()? {
         let annots = crate::apply::redact_annots::annotations_on(doc, page)?;
@@ -148,7 +148,36 @@ fn write(arena: &PdfArena, root: Handle<Object>) -> PdfResult<Vec<u8>> {
 pub fn apply_import(doc: &Document, fdf: &[u8]) -> PdfResult<()> {
     let raw = fepdf_model::reader::load_document(&bytes::Bytes::copy_from_slice(fdf))?;
     let source = &raw.arena;
-    let incoming = incoming(doc, source, catalog(&raw)?)?;
+    let catalog = catalog(&raw)?;
+    let fdf = source
+        .dict_entry(catalog, source.name("FDF"))
+        .and_then(|f| f.resolve(source).as_dict_handle());
+    let annots: Vec<Handle<Object>> = fdf
+        .and_then(|f| source.dict_entry(f, source.name("Annots")))
+        .and_then(|a| a.resolve(source).as_array())
+        .and_then(|a| source.get_array(a))
+        .unwrap_or_default()
+        .iter()
+        .filter_map(Object::as_reference)
+        .collect();
+    import_annotations(doc, source, &annots)
+}
+
+/// Puts the annotations `annots` of `source` onto `doc`: an FDF file's, or an XFDF file's
+/// built into an arena of their own. One whose `/NM` matches an annotation on its page
+/// replaces it in place, and any other is added (ADR-0117).
+///
+/// `/IRT` is a reference to another of `annots`, or a text string naming an annotation
+/// already on the page, which is how XFDF's `inreplyto` names one outside its file.
+///
+/// # Errors
+/// When a page will not read or an annotation will not clone.
+pub(crate) fn import_annotations(
+    doc: &Document,
+    source: &PdfArena,
+    annots: &[Handle<Object>],
+) -> PdfResult<()> {
+    let incoming = incoming(doc, source, annots)?;
     let target = doc.arena();
     // Where each incoming annotation will be: the annotation it replaces, or a new object.
     let mut placed: BTreeMap<Handle<Object>, Handle<Object>> = BTreeMap::new();
@@ -204,18 +233,14 @@ struct Incoming {
 
 /// The annotations of the file that the document can take, each with its page and what
 /// it replaces. What it cannot take is recorded and left out.
-fn incoming(doc: &Document, source: &PdfArena, catalog: DictHandle) -> PdfResult<Vec<Incoming>> {
-    let fdf = source
-        .dict_entry(catalog, source.name("FDF"))
-        .and_then(|f| f.resolve(source).as_dict_handle());
-    let annots = fdf
-        .and_then(|f| source.dict_entry(f, source.name("Annots")))
-        .and_then(|a| a.resolve(source).as_array())
-        .and_then(|a| source.get_array(a))
-        .unwrap_or_default();
+fn incoming(
+    doc: &Document,
+    source: &PdfArena,
+    annots: &[Handle<Object>],
+) -> PdfResult<Vec<Incoming>> {
     let pages = doc.page_count()?;
     let mut taken = Vec::new();
-    for handle in annots.iter().filter_map(Object::as_reference) {
+    for handle in annots.iter().copied() {
         let page = entry(source, handle, "Page")
             .and_then(|p| p.as_integer())
             .and_then(|p| usize::try_from(p).ok());
@@ -270,11 +295,25 @@ fn imported(
             dict.insert(target.name(&name), cloner.clone_complete(value)?);
         }
     }
-    let answered = entries.get(&source.name("IRT")).and_then(Object::as_reference);
-    if let Some(to) = answered.and_then(|h| placed.get(&h)) {
-        dict.insert(target.name("IRT"), Object::Reference(*to));
+    let answered = match entries.get(&source.name("IRT")) {
+        Some(Object::Reference(h)) => placed.get(h).copied(),
+        // A name, as XFDF's `inreplyto` gives one: the annotation of that name on the page.
+        Some(name) => {
+            crate::apply::fields::text_of(source, name).and_then(|n| named_on(doc, i.page, &n))
+        }
+        None => None,
+    };
+    if let Some(to) = answered {
+        dict.insert(target.name("IRT"), Object::Reference(to));
     }
     dict.insert(target.name("P"), Object::Reference(doc.page_handle(i.page)?));
+    // An FDF annotation can come without its appearance, and Table 166 requires one
+    // (ADR-0119).
+    if !dict.contains_key(&target.name("AP"))
+        && let Some(appearance) = crate::apply::drawn::appearance_for(doc, &dict)?
+    {
+        dict.insert(target.name("AP"), appearance);
+    }
     // What ties the annotation it replaces to this document stays: its pop-up, and its
     // key in the structure tree.
     for key in ["Popup", "StructParent"] {

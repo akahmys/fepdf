@@ -188,11 +188,26 @@ fn an_annotation_in_a_layer_that_is_off_is_not_drawn() {
     );
 }
 
-/// An annotation with no appearance at all is not drawn and is not an error: a `/Link` is
-/// the commonest annotation in the corpus and 30,016 of them carry none.
+/// A link with no appearance is not drawn and is not an error: Table 166 exempts it, and
+/// 30,016 links in the corpus carry none.
 #[test]
-fn an_annotation_with_no_appearance_is_skipped_quietly() {
-    let (marks, decisions) = draw(page_with_annotation("", &[]));
+fn a_link_with_no_appearance_is_skipped_quietly() {
+    // The same length as `/Square`, so every offset in the fixture stays right.
+    let file =
+        String::from_utf8_lossy(&page_with_annotation("", &[])).replace("/Square", "/Link  ");
+    let (marks, decisions) = draw(file.into_bytes());
     assert!(marks.device_fills().is_empty());
     assert!(decisions.is_empty(), "{decisions:?}");
+}
+
+/// **A square with no appearance is given one when the document opens**, and that is
+/// said: Table 166 requires one, and before ADR-0120 it was skipped as a link is.
+#[test]
+fn a_square_with_no_appearance_is_given_one_and_it_is_said() {
+    let (marks, decisions) = draw(page_with_annotation("/C [0 0 1] /IC [1 1 0]", &[]));
+    assert!(!marks.device_fills().is_empty(), "the square was not drawn");
+    assert!(
+        decisions.iter().any(|d| d.contains("12.5.5") && d.contains("/Square")),
+        "{decisions:?}"
+    );
 }

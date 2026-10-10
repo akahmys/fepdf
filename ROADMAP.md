@@ -1919,8 +1919,46 @@ express; then AA-5 and AA-6.
       are the form's.
 - [ ] **AA-4** — **XFDF** (ISO 19444-1:2019), the XML form of FDF. The standard is in
       `docs/specs/` since 2026-10-10, bought, and never to be committed
-      ([docs/specs/README.md](docs/specs/README.md)). Taken after AA-3, whose annotations
-      it carries in another syntax.
+      ([docs/specs/README.md](docs/specs/README.md)). XFDF carries an appearance only
+      for a stamp (6.5.2), and Table 166 requires one on almost every annotation, so it
+      comes in three parts:
+  - [x] **AA-4a** — replies and state changes carry an appearance that draws nothing.
+        AA-2a wrote them without one, which Table 166 forbids
+        ([ADR-0118](docs/adr/0118-a-reply-carries-an-appearance-that-draws-nothing.md)).
+        **Done, 2026-10-10**, held by `replies_and_states_carry_an_appearance`, which
+        fails with the appearance taken out.
+  - [x] **AA-4b** — an appearance drawn from an annotation's own entries, for every kind
+        XFDF admits that Table 166 does not exempt: seventeen subtypes
+        ([ADR-0119](docs/adr/0119-an-annotation-without-an-appearance-is-given-one-from-its-own-entries.md)).
+        **Done, 2026-10-10**: `apply/drawn/`, from `/QuadPoints` in either order the field
+        writes, `/Vertices`, `/InkList` and `/Path`, `/L` with leader lines and Table 179's
+        ten endings, `/IC`, `/BS` and `/Border`, `/RD`, `/CA`, `/DA` and `/Q`, `/Sy`; and
+        icons for every name ISO 32000-2 and ISO 19444-1 list (fifteen for a note, four for
+        an attachment, three for a sound), and a stamp's name set in a face and fitted to
+        its frame. The FDF import and `AddAnnotation`'s stamp without a picture, which also
+        had no appearance, use it. `drawn_appearance_test.rs` imports each subtype without
+        `/AP` and checks it draws, and was shown to fail with the generator answering
+        nothing. A page of twenty-two was rendered and looked at. **Not drawn**: a line's
+        caption (`/Cap`), whose text needs a face and a place Table 178 describes in
+        figures.
+- [x] **AA-4d** — **every annotation shown**: opening a document gives each annotation with
+      no appearance the one it can be given, and records it
+      ([ADR-0120](docs/adr/0120-a-document-is-opened-with-every-annotation-given-an-appearance.md)).
+      Seventeen subtypes from their entries, widgets from their fields, Movie, 3D and
+      RichMedia a frame and a sign; PrinterMark, TrapNet and Watermark none, recorded. A
+      Screen with none is left so, as 12.5.6.18 says it shows nothing.
+      Measured 2026-10-10: 11 widgets in `sample_02c.pdf` and 9 annotations in isartor and
+      veraPDF files had none.
+      **Done, 2026-10-10**: `fepdf_doc::apply::give_missing_appearances`, called by
+      `PdfDocument::open_with_options` before the seal. `sample_02c.pdf` opens with eleven
+      `REPAIRED 12.5.5` decisions, one a widget, and draws as it did, its fields being
+      empty; an empty field is given an appearance with nothing in it and no face looked
+      for. `opened_appearance_test.rs` holds a text value drawn, a check box's two states,
+      the media stand-ins and the printer's mark said, and fails without the call.
+      `parser_twin_test` now ignores the number of a face the engine made while opening,
+      which differs between the two readers by how many objects each allocated first; and
+      `an_annotation_with_no_appearance_is_skipped_quietly` became two tests, a link still
+      skipped and a square now drawn.
 - [ ] **AA-5** — **a PDF made from images**: JPEG carried as it is, PNG with its alpha as
       a soft mask, and each page of a TIFF as a page. This is an operation, so it also
       inserts image pages into an existing document.

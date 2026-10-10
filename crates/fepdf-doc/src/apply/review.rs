@@ -65,9 +65,10 @@ pub fn apply_edit(
 
 /// Answers the annotation `at` names: a text annotation in reply to it (12.5.6.2, `/IRT`).
 ///
-/// **No appearance**, because the clause says a reply is shown with what it answers and
-/// not on its own; it takes the answered annotation's `/Rect` so that a reader which does
-/// place it puts it there.
+/// **An appearance that draws nothing**, because the clause says a reply is shown with
+/// what it answers and not on its own, and Table 166 still requires one (ADR-0118). It
+/// takes the answered annotation's `/Rect` so that a reader which does place it puts it
+/// there.
 ///
 /// # Errors
 /// Fails when there is no such annotation.
@@ -148,6 +149,7 @@ fn reply_to(doc: &Document, page: usize, to: Handle<Object>, by: &Authorship) ->
     }
     dict.insert(arena.name("P"), Object::Reference(doc.page_handle(page)?));
     dict.insert(arena.name("IRT"), Object::Reference(to));
+    dict.insert(arena.name("AP"), super::markup::nothing_drawn(arena));
     sign(doc, page, &mut dict, by)?;
     Ok(dict)
 }
