@@ -1970,6 +1970,14 @@ express; then AA-5 and AA-6.
       which differs between the two readers by how many objects each allocated first; and
       `an_annotation_with_no_appearance_is_skipped_quietly` became two tests, a link still
       skipped and a square now drawn.
+- [x] **AA-4e** — **every subtype read**: the eleven of Table 171's twenty-eight with no
+      reader of their own entries get one — Text, FreeText, Line, Ink, Sound, Screen,
+      PrinterMark, TrapNet, 3D, Projection, RichMedia.
+      **Done, 2026-10-10**: a reader each in `fepdf-model/src/annotation.rs`, Projection
+      excepted, whose table adds nothing to the markup entries (12.5.6.24); and Stamp,
+      Redact, Polygon and Caret, which read part of theirs, read all of it.
+      `every_subtype_of_table_171_reads_its_own_entries` names one key of each and fails
+      without the reader.
 - [ ] **AA-5** — **a PDF made from images**: JPEG carried as it is, PNG with its alpha as
       a soft mask, and each page of a TIFF as a page. This is an operation, so it also
       inserts image pages into an existing document.

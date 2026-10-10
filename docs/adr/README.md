@@ -185,3 +185,4 @@ quietly wrong — which is the failure this log exists to make visible.
 | 0118 | [A reply carries an appearance that draws nothing](0118-a-reply-carries-an-appearance-that-draws-nothing.md) | Amends AA-2a |
 | 0119 | [An annotation without an appearance is given one from its own entries](0119-an-annotation-without-an-appearance-is-given-one-from-its-own-entries.md) | AA-4 |
 | 0120 | [A document is opened with every annotation given an appearance it can be](0120-a-document-is-opened-with-every-annotation-given-an-appearance.md) | AA-4d; rests on 0013, 0119 |
+| 0121 | [Every annotation subtype is read, not only the ones the corpus writes](0121-every-annotation-subtype-is-read-not-only-the-ones-the-corpus-writes.md) | AA-4e |

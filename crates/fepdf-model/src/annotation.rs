@@ -484,6 +484,9 @@ pub struct StampEntries {
     #[pdf_key("Name")]
     /// `/Name`: which standard stamp it is — `Approved`, `Draft`, and so on.
     pub name: Option<PdfName>,
+    #[pdf_key("IT")]
+    /// `/IT` (PDF 2.0): `Stamp`, `StampImage` or `StampSnapshot`.
+    pub intent: Option<PdfName>,
 }
 
 /// Entries a `/Redact` adds (12.5.6.23, Table 194).
@@ -508,6 +511,15 @@ pub struct RedactEntries {
     #[pdf_key("DA")]
     /// `/DA`: how overlay text is drawn, when `/OverlayText` is used instead of `/RO`.
     pub default_appearance: Option<String>,
+    #[pdf_key("OverlayText")]
+    /// `/OverlayText`: words drawn over the region once it is redacted.
+    pub overlay_text: Option<String>,
+    #[pdf_key("Repeat")]
+    /// `/Repeat`: whether `/OverlayText` repeats to fill the region.
+    pub repeat: Option<bool>,
+    #[pdf_key("Q")]
+    /// `/Q`: how `/OverlayText` is justified.
+    pub quadding: Option<i64>,
 }
 
 /// Entries a `/Polygon` or `/PolyLine` adds (12.5.6.9, Table 178).
@@ -521,6 +533,27 @@ pub struct PolygonEntries {
     #[pdf_key("Vertices")]
     /// `/Vertices`: the points, as x y pairs in default user space.
     pub vertices: Option<Handle<Vec<Object>>>,
+    #[pdf_key("LE")]
+    /// `/LE`: a polyline's two line endings.
+    pub line_endings: Option<Object>,
+    #[pdf_key("BS")]
+    /// `/BS`: the border style.
+    pub border_style: Option<BorderStyle>,
+    #[pdf_key("IC")]
+    /// `/IC`: the interior colour.
+    pub interior_colour: Option<AnnotationColour>,
+    #[pdf_key("BE")]
+    /// `/BE`: the border effect — a cloud, and how tightly drawn.
+    pub border_effect: Option<Object>,
+    #[pdf_key("IT")]
+    /// `/IT`: `PolygonCloud`, `PolyLineDimension` or `PolygonDimension`.
+    pub intent: Option<PdfName>,
+    #[pdf_key("Measure")]
+    /// `/Measure`: the measure dictionary a dimension is given in (12.9).
+    pub measure: Option<Object>,
+    #[pdf_key("Path")]
+    /// `/Path` (PDF 2.0): curves, drawn in place of `/Vertices`.
+    pub path: Option<Object>,
 }
 
 /// Entries a text-markup annotation adds (12.5.6.10, Table 179).
@@ -559,6 +592,217 @@ pub struct CaretEntries {
     #[pdf_key("RD")]
     /// `/RD`: how far `/Rect` is inset from the caret it draws.
     pub difference: Option<Handle<Vec<Object>>>,
+    #[pdf_key("Sy")]
+    /// `/Sy`: `P` for a paragraph symbol, or `None`.
+    pub symbol: Option<PdfName>,
+}
+
+/// Entries a `/Text` adds (12.5.6.4, Table 175).
+#[derive(Debug, Clone, FromPdfObject)]
+#[pdf_dict(clause = "12.5.6.4")]
+pub struct TextEntries {
+    #[pdf_key("Open")]
+    /// `/Open`: whether its pop-up is displayed open.
+    pub open: Option<bool>,
+    #[pdf_key("Name")]
+    /// `/Name`: the icon — `Comment`, `Key`, `Note` and so on.
+    pub icon: Option<PdfName>,
+    #[pdf_key("State")]
+    /// `/State`: the state a reply sets, under `/StateModel`.
+    pub state: Option<String>,
+    #[pdf_key("StateModel")]
+    /// `/StateModel`: `Marked` or `Review`.
+    pub state_model: Option<String>,
+}
+
+/// Entries a `/FreeText` adds (12.5.6.6, Table 177).
+#[derive(Debug, Clone, FromPdfObject)]
+#[pdf_dict(clause = "12.5.6.6")]
+pub struct FreeTextEntries {
+    #[pdf_key("DA")]
+    /// `/DA`: the default appearance string text is set in.
+    pub default_appearance: Option<String>,
+    #[pdf_key("Q")]
+    /// `/Q`: justification: 0 left, 1 centred, 2 right.
+    pub quadding: Option<i64>,
+    #[pdf_key("RC")]
+    /// `/RC`: rich text, a string or a stream. Carried, not parsed.
+    pub rich_text: Option<Object>,
+    #[pdf_key("DS")]
+    /// `/DS`: the default style string, CSS-like.
+    pub default_style: Option<String>,
+    #[pdf_key("CL")]
+    /// `/CL`: a callout's line, four or six numbers.
+    pub callout: Option<Handle<Vec<Object>>>,
+    #[pdf_key("IT")]
+    /// `/IT`: the intent, which says what kind of this subtype it is.
+    pub intent: Option<PdfName>,
+    #[pdf_key("BE")]
+    /// `/BE`: the border effect — a cloud, and how tightly drawn.
+    pub border_effect: Option<Object>,
+    #[pdf_key("RD")]
+    /// `/RD`: how far the drawn shape is inset from `/Rect`.
+    pub inset: Option<Handle<Vec<Object>>>,
+    #[pdf_key("BS")]
+    /// `/BS`: the border style.
+    pub border_style: Option<BorderStyle>,
+    #[pdf_key("LE")]
+    /// `/LE`: the ending at the callout's start.
+    pub line_ending: Option<PdfName>,
+}
+
+/// Entries a `/Line` adds (12.5.6.7, Table 178).
+#[derive(Debug, Clone, FromPdfObject)]
+#[pdf_dict(clause = "12.5.6.7")]
+pub struct LineEntries {
+    #[pdf_key("L")]
+    /// `/L`: the line's two end points.
+    pub line: Option<Handle<Vec<Object>>>,
+    #[pdf_key("BS")]
+    /// `/BS`: the border style.
+    pub border_style: Option<BorderStyle>,
+    #[pdf_key("LE")]
+    /// `/LE`: the two line endings (Table 179).
+    pub line_endings: Option<Object>,
+    #[pdf_key("IC")]
+    /// `/IC`: the interior colour.
+    pub interior_colour: Option<AnnotationColour>,
+    #[pdf_key("LL")]
+    /// `/LL`: the leader lines' length.
+    pub leader_length: Option<f64>,
+    #[pdf_key("LLE")]
+    /// `/LLE`: how far the leader lines extend past the line.
+    pub leader_extension: Option<f64>,
+    #[pdf_key("Cap")]
+    /// `/Cap`: whether `/Contents` is drawn as a caption.
+    pub caption: Option<bool>,
+    #[pdf_key("IT")]
+    /// `/IT`: the intent, which says what kind of this subtype it is.
+    pub intent: Option<PdfName>,
+    #[pdf_key("LLO")]
+    /// `/LLO`: the leader lines' offset from the points.
+    pub leader_offset: Option<f64>,
+    #[pdf_key("CP")]
+    /// `/CP`: where the caption goes: `Inline` or `Top`.
+    pub caption_position: Option<PdfName>,
+    #[pdf_key("Measure")]
+    /// `/Measure`: the measure dictionary a dimension is given in (12.9).
+    pub measure: Option<Object>,
+    #[pdf_key("CO")]
+    /// `/CO`: the caption's offset from where `/CP` puts it.
+    pub caption_offset: Option<Handle<Vec<Object>>>,
+}
+
+/// Entries an `/Ink` adds (12.5.6.13, Table 182).
+#[derive(Debug, Clone, FromPdfObject)]
+#[pdf_dict(clause = "12.5.6.13")]
+pub struct InkEntries {
+    #[pdf_key("InkList")]
+    /// `/InkList`: the strokes, each an array of x y pairs.
+    pub ink_list: Option<Handle<Vec<Object>>>,
+    #[pdf_key("BS")]
+    /// `/BS`: the border style.
+    pub border_style: Option<BorderStyle>,
+    #[pdf_key("Path")]
+    /// `/Path`: curves (PDF 2.0), drawn in place of the points.
+    pub path: Option<Object>,
+}
+
+/// Entries a `/Sound` adds (12.5.6.16, Table 185). Deprecated in PDF 2.0: read, and
+/// not made.
+#[derive(Debug, Clone, FromPdfObject)]
+#[pdf_dict(clause = "12.5.6.16")]
+pub struct SoundEntries {
+    #[pdf_key("Sound")]
+    /// `/Sound`: the sound stream. Carried, not played.
+    pub sound: Option<Object>,
+    #[pdf_key("Name")]
+    /// `/Name`: the icon.
+    pub icon: Option<PdfName>,
+}
+
+/// Entries a `/Screen` adds (12.5.6.18, Table 190).
+#[derive(Debug, Clone, FromPdfObject)]
+#[pdf_dict(clause = "12.5.6.18")]
+pub struct ScreenEntries {
+    #[pdf_key("T")]
+    /// `/T`: the title, shown when the screen is chosen.
+    pub title: Option<String>,
+    #[pdf_key("MK")]
+    /// `/MK`: the appearance characteristics (Table 192).
+    pub appearance_characteristics: Option<Object>,
+    #[pdf_key("A")]
+    /// `/A`: the action, usually a rendition, performed when it is activated.
+    pub action: Option<Object>,
+    #[pdf_key("AA")]
+    /// `/AA`: actions triggered by other events (Table 197).
+    pub additional_actions: Option<Object>,
+}
+
+/// Entries a `/PrinterMark` adds (14.11.3, Table 398).
+#[derive(Debug, Clone, FromPdfObject)]
+#[pdf_dict(clause = "14.11.3")]
+pub struct PrinterMarkEntries {
+    #[pdf_key("MN")]
+    /// `/MN`: what kind of mark — `ColorBar`, `RegistrationTarget` and so on.
+    pub mark_name: Option<PdfName>,
+}
+
+/// Entries a `/TrapNet` adds (14.11.6, Table 403). Deprecated in PDF 2.0: read, and not
+/// made.
+#[derive(Debug, Clone, FromPdfObject)]
+#[pdf_dict(clause = "14.11.6")]
+pub struct TrapNetEntries {
+    #[pdf_key("LastModified")]
+    /// `/LastModified`: when the trap network was last changed.
+    pub last_modified: Option<String>,
+    #[pdf_key("Version")]
+    /// `/Version`: the objects whose change invalidates the network.
+    pub version: Option<Object>,
+    #[pdf_key("AnnotStates")]
+    /// `/AnnotStates`: the appearance states of the annotations when trapped.
+    pub annotation_states: Option<Object>,
+    #[pdf_key("FontFauxing")]
+    /// `/FontFauxing`: the fonts substituted when trapped.
+    pub font_fauxing: Option<Object>,
+}
+
+/// Entries a `/3D` adds (13.6.2, Table 309). The artwork is carried, not read: shown,
+/// and not made (the owner, 2026-10-10).
+#[derive(Debug, Clone, FromPdfObject)]
+#[pdf_dict(clause = "13.6.2")]
+pub struct ThreeDEntries {
+    #[pdf_key("3DD")]
+    /// `/3DD`: the 3D stream or reference dictionary.
+    pub artwork: Option<Object>,
+    #[pdf_key("3DV")]
+    /// `/3DV`: the view shown first.
+    pub view: Option<Object>,
+    #[pdf_key("3DA")]
+    /// `/3DA`: when it is activated and deactivated.
+    pub activation: Option<Object>,
+    #[pdf_key("3DI")]
+    /// `/3DI`: whether it is interactive.
+    pub interactive: Option<bool>,
+    #[pdf_key("3DB")]
+    /// `/3DB`: the 3D view box, in the annotation's space.
+    pub view_box: Option<Handle<Vec<Object>>>,
+    #[pdf_key("3DU")]
+    /// `/3DU`: the units the artwork is measured in.
+    pub units: Option<Object>,
+}
+
+/// Entries a `/RichMedia` adds (13.7.2, Table 333). The content is carried, not read:
+/// shown, and not made.
+#[derive(Debug, Clone, FromPdfObject)]
+#[pdf_dict(clause = "13.7.2")]
+pub struct RichMediaEntries {
+    #[pdf_key("RichMediaContent")]
+    /// `/RichMediaContent`: the assets, configurations and views.
+    pub content: Option<Object>,
+    #[pdf_key("RichMediaSettings")]
+    /// `/RichMediaSettings`: how it is activated and deactivated.
+    pub settings: Option<Object>,
 }
 
 /// Entries a `/Watermark` adds (12.5.6.22, Table 193).
@@ -655,9 +899,8 @@ pub fn entries_read_for(subtype: &str) -> Vec<&'static str> {
     if MARKUP_SUBTYPES.contains(&subtype) {
         keys.extend(MarkupEntries::pdf_keys());
     }
-    // In the order the corpus presents them, and stopping where it stops saying
-    // anything: every subtype it writes more than once has a reader, and the ten it
-    // writes exactly once do not. A sample of one is not a reason to build a type.
+    // Every subtype of Table 171 has its own table read (ROADMAP AA-4e). A projection's
+    // table adds nothing to a markup annotation's (12.5.6.24), so it falls through.
     match subtype {
         "Link" => keys.extend(LinkEntries::pdf_keys()),
         "Popup" => keys.extend(PopupEntries::pdf_keys()),
@@ -672,6 +915,16 @@ pub fn entries_read_for(subtype: &str) -> Vec<&'static str> {
         "FileAttachment" => keys.extend(FileAttachmentEntries::pdf_keys()),
         "Caret" => keys.extend(CaretEntries::pdf_keys()),
         "Watermark" => keys.extend(WatermarkEntries::pdf_keys()),
+        "Text" => keys.extend(TextEntries::pdf_keys()),
+        "FreeText" => keys.extend(FreeTextEntries::pdf_keys()),
+        "Line" => keys.extend(LineEntries::pdf_keys()),
+        "Ink" => keys.extend(InkEntries::pdf_keys()),
+        "Sound" => keys.extend(SoundEntries::pdf_keys()),
+        "Screen" => keys.extend(ScreenEntries::pdf_keys()),
+        "PrinterMark" => keys.extend(PrinterMarkEntries::pdf_keys()),
+        "TrapNet" => keys.extend(TrapNetEntries::pdf_keys()),
+        "3D" => keys.extend(ThreeDEntries::pdf_keys()),
+        "RichMedia" => keys.extend(RichMediaEntries::pdf_keys()),
         "Widget" => {
             keys.extend(WidgetEntries::pdf_keys());
             keys.extend(FIELD_ENTRIES_READ);
@@ -756,6 +1009,53 @@ mod tests {
         assert!(
             !widget.contains(&"DR"),
             "a field's own /DR is not read — only the form's: {widget:?}"
+        );
+    }
+
+    /// **Every subtype of Table 171 reads its own table** (ROADMAP AA-4e): one key of
+    /// each, which no other table gives it. A projection's table adds none (12.5.6.24).
+    #[test]
+    fn every_subtype_of_table_171_reads_its_own_entries() {
+        let own = [
+            ("Text", "StateModel"),
+            ("Link", "Dest"),
+            ("FreeText", "CL"),
+            ("Line", "LLO"),
+            ("Square", "RD"),
+            ("Circle", "RD"),
+            ("Polygon", "Vertices"),
+            ("PolyLine", "LE"),
+            ("Highlight", "QuadPoints"),
+            ("Underline", "QuadPoints"),
+            ("Squiggly", "QuadPoints"),
+            ("StrikeOut", "QuadPoints"),
+            ("Caret", "Sy"),
+            ("Stamp", "IT"),
+            ("Ink", "InkList"),
+            ("Popup", "Parent"),
+            ("FileAttachment", "FS"),
+            ("Sound", "Sound"),
+            ("Movie", "Movie"),
+            ("Screen", "MK"),
+            ("Widget", "MK"),
+            ("PrinterMark", "MN"),
+            ("TrapNet", "FontFauxing"),
+            ("Watermark", "FixedPrint"),
+            ("3D", "3DD"),
+            ("Redact", "OverlayText"),
+            ("RichMedia", "RichMediaContent"),
+        ];
+        for (subtype, key) in own {
+            let read = entries_read_for(subtype);
+            assert!(read.contains(&key), "a /{subtype} does not read /{key}: {read:?}");
+        }
+        assert_eq!(own.len() + 1, 28, "and /Projection, which has no table of its own");
+        assert_eq!(
+            entries_read_for("Projection"),
+            entries_read_for("Square")
+                .into_iter()
+                .filter(|k| !SquareCircleEntries::pdf_keys().contains(k))
+                .collect::<Vec<_>>()
         );
     }
 
