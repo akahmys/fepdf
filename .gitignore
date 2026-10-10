@@ -39,6 +39,9 @@ out_check.txt
 
 # PDF Specifications & Tools
 /specs/*.pdf
+# A paid, single-user standard (docs/specs/README.md). Named as well as matched by
+# **/*.pdf, so that loosening the general rule cannot expose it.
+/docs/specs/ISO19444-1-2019.pdf
 # External Tools & Environments
 /external/
 /.arlington-venv/

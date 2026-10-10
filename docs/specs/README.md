@@ -6,11 +6,15 @@ The `.pdf` files beside these notes are the normative documents this engine is w
 against. They are untracked — `.gitignore` excludes every `*.pdf` — so a clone does not
 carry them and this list is what says which ones a working copy needs.
 
-**All of them are free.** The PDF Association's members sponsor access: the
+**All but one are free.** The PDF Association's members sponsor access: the
 [ISO 32000-2 bundle](https://www.pdfa-inc.org/product/iso-32000-2-pdf-2-0-bundle-sponsored-access/)
 since 2023-04-05 and the
 [PDF/UA bundle](https://www.pdfa-inc.org/product/pdf-ua-bundle/) since 2024-08-12, each
 at $0.00. The Matterhorn Protocol is a free PDF Association publication under CC BY 4.0.
+
+**ISO 19444-1 is not.** It is a single-user licence bought from ISO, and it must never be
+committed or published. `.gitignore` names it as well as matching it as a `*.pdf`, so
+that removing the general rule would not expose it.
 
 | File | What it is |
 | :--- | :--- |
@@ -26,6 +30,7 @@ at $0.00. The Matterhorn Protocol is a free PDF Association publication under CC
 | `PDF20_AN00{1,2,3}-*.pdf` | Application notes: black point compensation, associated files, object metadata |
 | `Tagged-PDF-Best-Practice-Guide.pdf` | Implementation guidance — **for UA-1**, as its cover says |
 | `PDF-Declarations.pdf` | |
+| `ISO19444-1-2019.pdf` | **XFDF 3.0**, the XML form of FDF (ISO 32000-2 12.7.8). **Paid, single-user: never commit it.** Placed 2026-10-10 for ROADMAP AA-4 |
 
 **Three things this list exists to stop being got wrong**, each of which was got wrong on
 2026-09-21 before the documents were read:

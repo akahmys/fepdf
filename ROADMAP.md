@@ -1876,9 +1876,10 @@ express; then AA-5 and AA-6.
       that can be filtered, sorted and answered.
 - [ ] **AA-3** — **FDF** (12.7.8): a document's annotations exported to FDF, and FDF
       imported onto a document. Checked against Arlington's FDF model.
-- [ ] **AA-4** — **XFDF**. Held until ISO 19444-1 is in `docs/specs/`, because a format
-      this copy lacks is not implemented from memory
-      ([ADR-0095](docs/adr/0095-a-condition-citing-a-document-this-copy-lacks-is-not-implemented-from-memory.md)).
+- [ ] **AA-4** — **XFDF** (ISO 19444-1:2019), the XML form of FDF. The standard is in
+      `docs/specs/` since 2026-10-10, bought, and never to be committed
+      ([docs/specs/README.md](docs/specs/README.md)). Taken after AA-3, whose annotations
+      it carries in another syntax.
 - [ ] **AA-5** — **a PDF made from images**: JPEG carried as it is, PNG with its alpha as
       a soft mask, and each page of a TIFF as a page. This is an operation, so it also
       inserts image pages into an existing document.
