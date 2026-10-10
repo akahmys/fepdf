@@ -129,6 +129,7 @@ fn dispatch(doc: &mut Document, op: Operation) -> PdfResult<()> {
         Operation::AddAnnotation(a) => annotations::apply_add_annotation(doc, a),
         Operation::RemoveAnnotation(at) => review::apply_remove(doc, at),
         Operation::ImportFdf { fdf } => crate::fdf::apply_import(doc, &fdf),
+        Operation::ImportXfdf { xfdf } => crate::xfdf::apply_import(doc, &xfdf),
         Operation::EditAnnotation { at, contents, when } => {
             review::apply_edit(doc, at, &contents, when.as_deref())
         }

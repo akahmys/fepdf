@@ -1917,7 +1917,7 @@ express; then AA-5 and AA-6.
 - [ ] **AA-3b** — **FDF form values** (`/Fields`, Table 249): a form's values exported and
       imported. Separate from AA-3, because the matching is by field name and the rules
       are the form's.
-- [ ] **AA-4** — **XFDF** (ISO 19444-1:2019), the XML form of FDF. The standard is in
+- [x] **AA-4** — **XFDF** (ISO 19444-1:2019), the XML form of FDF. The standard is in
       `docs/specs/` since 2026-10-10, bought, and never to be committed
       ([docs/specs/README.md](docs/specs/README.md)). XFDF carries an appearance only
       for a stamp (6.5.2), and Table 166 requires one on almost every annotation, so it
@@ -1941,6 +1941,17 @@ express; then AA-5 and AA-6.
         nothing. A page of twenty-two was rendered and looked at. **Not drawn**: a line's
         caption (`/Cap`), whose text needs a face and a place Table 178 describes in
         figures.
+  - [x] **AA-4c** — XFDF export and import of annotations, by Tables 33 and 34. The import
+        draws each annotation through AA-4b and matches by name as AA-3 does.
+        **Done, 2026-10-10**: `PdfDocument::export_xfdf` and `Operation::ImportXfdf`,
+        reached from `fepdf edit fdf-export` (to a `.xfdf`) and `fdf-import` (by the
+        file's first character), `fepdf-mcp`'s `export_xfdf` / `import_xfdf`, and the
+        comment drawer. `inreplyto` names an annotation in the file or already on the
+        page. What XFDF has no place for — a free text's `/CL` and `/RD`, a stamp's
+        picture, `/Path` — is a `Decision` on export. `xfdf_test.rs`: the round trip, a
+        second import, a hand-written file by Table 34, a file attachment's bytes, the
+        refusal; the round trip found `/IRT` read resolved, and so lost, which it now is
+        not. Links and projections are left out, as from FDF.
 - [x] **AA-4d** — **every annotation shown**: opening a document gives each annotation with
       no appearance the one it can be given, and records it
       ([ADR-0120](docs/adr/0120-a-document-is-opened-with-every-annotation-given-an-appearance.md)).

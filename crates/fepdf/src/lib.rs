@@ -560,6 +560,17 @@ impl PdfDocument {
         fepdf_doc::fdf::export(&self.inner)
     }
 
+    /// The same annotations as [`Self::export_fdf`], as an XFDF file (ISO 19444-1). What
+    /// XFDF has no place for — a free text's `/CL` and `/RD`, a stamp's picture, `/Path`
+    /// — is recorded as a decision rather than dropped quietly. `Operation::ImportXfdf` is
+    /// the way back.
+    ///
+    /// # Errors
+    /// When a page will not read, or a stream an annotation carries will not decode.
+    pub fn export_xfdf(&self) -> PdfResult<String> {
+        fepdf_doc::xfdf::export(&self.inner)
+    }
+
     /// Returns the total number of pages.
     pub fn page_count(&self) -> PdfResult<usize> {
         self.inner.page_count()

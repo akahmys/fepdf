@@ -173,6 +173,30 @@ impl FepdfServer {
         crate::tools::export_fdf_impl(args)
     }
 
+    /// Writes a document's comments to an XFDF file.
+    #[tool(
+        name = "export_xfdf",
+        description = "Writes the annotations export_fdf writes as XFDF (ISO 19444-1). What XFDF has no place for (a free text's /CL and /RD, a stamp's picture, /Path) is recorded as a decision."
+    )]
+    pub async fn export_xfdf(
+        &self,
+        Parameters(args): Parameters<crate::tools::ExportFdfArgs>,
+    ) -> Result<String, McpError> {
+        crate::tools::export_xfdf_impl(args)
+    }
+
+    /// Puts an XFDF file's comments onto a document.
+    #[tool(
+        name = "import_xfdf",
+        description = "Imports the annotations of an XFDF file (ISO 19444-1, given as fdf_path) onto a PDF and saves the result, as import_fdf does: matched by name, and given an appearance drawn from their entries where they carry none."
+    )]
+    pub async fn import_xfdf(
+        &self,
+        Parameters(args): Parameters<crate::tools::ImportFdfArgs>,
+    ) -> Result<String, McpError> {
+        crate::tools::import_xfdf_impl(args)
+    }
+
     /// Puts an FDF file's comments onto a document.
     #[tool(
         name = "import_fdf",

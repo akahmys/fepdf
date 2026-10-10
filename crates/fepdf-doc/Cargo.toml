@@ -16,6 +16,8 @@ fepdf-font.workspace = true
 kurbo.workspace = true
 serde.workspace = true
 bytes.workspace = true
+# XFDF (ISO 19444-1) is XML; the model already reads XMP with this one, which compiles no C.
+roxmltree.workspace = true
 
 [lints]
 workspace = true

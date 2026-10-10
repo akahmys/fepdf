@@ -112,6 +112,7 @@ mod vacuum_test;
 mod wrap_struct_test;
 mod written_annotation_draws_test;
 mod written_text_reads_back_test;
+mod xfdf_test;
 mod xmp_claims_survive_test;
 
 /// **Every file here is a module, and none changes what the whole process shares.**

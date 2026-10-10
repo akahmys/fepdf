@@ -1255,9 +1255,14 @@ fn send_form(doc: Option<&PdfDocument>, tx: &Sender<WorkerResponse>) {
 
 /// Writes the document's comments to `path` as FDF, and says where.
 fn export_fdf(doc: Option<&PdfDocument>, path: &std::path::Path) -> WorkerResponse {
+    let xml = path.extension().is_some_and(|e| e.eq_ignore_ascii_case("xfdf"));
     let written = doc
         .ok_or_else(String::new)
-        .and_then(|doc| doc.export_fdf().map_err(|e| format!("{e:?}")))
+        .and_then(|doc| {
+            let out =
+                if xml { doc.export_xfdf().map(String::into_bytes) } else { doc.export_fdf() };
+            out.map_err(|e| format!("{e:?}"))
+        })
         .and_then(|fdf| std::fs::write(path, fdf).map_err(|e| e.to_string()));
     match written {
         Ok(()) => WorkerResponse::DocumentSaved { path: path.to_path_buf(), notices: Vec::new() },

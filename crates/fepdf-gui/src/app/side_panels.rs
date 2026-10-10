@@ -468,7 +468,8 @@ impl FepdfApp {
     /// FDF out or in, through the platform's file dialog: out is a read the worker
     /// answers, and in is the operation `ImportFdf` with the file's bytes.
     fn fdf_asked(&mut self, asked: &crate::sidebar::comments::Asked) -> Option<fepdf::Operation> {
-        let dialog = rfd::FileDialog::new().add_filter("FDF", &["fdf"]);
+        let dialog =
+            rfd::FileDialog::new().add_filter("FDF", &["fdf"]).add_filter("XFDF", &["xfdf"]);
         if matches!(asked, crate::sidebar::comments::Asked::ExportFdf) {
             let path = dialog.save_file()?;
             let read = crate::worker::Read::Fdf { path };
@@ -476,6 +477,10 @@ impl FepdfApp {
             return None;
         }
         match std::fs::read(dialog.pick_file()?) {
+            // XFDF is XML; FDF is PDF syntax and begins `%FDF`.
+            Ok(xml) if xml.iter().find(|b| !b.is_ascii_whitespace()) == Some(&b'<') => {
+                Some(fepdf::Operation::ImportXfdf { xfdf: xml })
+            }
             Ok(fdf) => Some(fepdf::Operation::ImportFdf { fdf }),
             Err(why) => {
                 let notice = crate::app::Notice::failed("notice_fdf_failed");

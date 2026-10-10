@@ -69,6 +69,33 @@ pub fn export_fdf_impl(args: ExportFdfArgs) -> McpResult<String> {
     Ok(format!("Wrote {} bytes of FDF to {}", fdf.len(), args.output_path))
 }
 
+/// Implementation of the `export_xfdf` tool: the same annotations as XFDF (ISO 19444-1).
+///
+/// # Errors
+/// When the file will not read or open, or the XFDF will not write.
+pub fn export_xfdf_impl(args: ExportFdfArgs) -> McpResult<String> {
+    let data = fs::read(&args.input_path).map_err(McpError::from)?;
+    let doc =
+        PdfDocument::open(Bytes::from(data)).map_err(|e| McpError::pdf("Failed to open PDF", e))?;
+    let xfdf = doc.export_xfdf().map_err(|e| McpError::pdf("Failed to export the comments", e))?;
+    fs::write(&args.output_path, &xfdf).map_err(McpError::from)?;
+    Ok(format!("Wrote {} bytes of XFDF to {}", xfdf.len(), args.output_path))
+}
+
+/// Implementation of the `import_xfdf` tool (ADR-0117, ADR-0119).
+///
+/// # Errors
+/// When a file will not read, it is not XFDF, or the result will not save.
+pub fn import_xfdf_impl(args: ImportFdfArgs) -> McpResult<String> {
+    let xfdf = fs::read(&args.fdf_path).map_err(McpError::from)?;
+    crate::tools::operations::page::execute_single_op(
+        &args.input_path,
+        &args.output_path,
+        fepdf::Operation::ImportXfdf { xfdf },
+        "XFDF annotations imported",
+    )
+}
+
 /// Arguments for `import_fdf`.
 #[derive(Deserialize, JsonSchema)]
 pub struct ImportFdfArgs {

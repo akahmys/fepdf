@@ -39,6 +39,8 @@ mod struct_tree_marking;
 mod struct_tree_pruning;
 /// Whether what a page draws is tagged, marked as an artefact, or neither.
 pub mod tagging;
+/// XFDF annotations, exported and imported (ISO 19444-1).
+pub mod xfdf;
 
 pub use apply::apply_operation;
 pub use operation::*;

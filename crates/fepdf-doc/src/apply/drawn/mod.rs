@@ -187,6 +187,16 @@ impl<'a> Entries<'a> {
         Self { arena, dict }
     }
 
+    /// The arena the dictionary is in.
+    pub const fn arena(&self) -> &'a PdfArena {
+        self.arena
+    }
+
+    /// An entry as written: a reference stays a reference, which is what `/IRT` is.
+    pub fn written(&self, key: &str) -> Option<Object> {
+        self.dict.get(&self.arena.name(key)).cloned()
+    }
+
     /// An entry, resolved.
     pub fn get(&self, key: &str) -> Option<Object> {
         self.dict.get(&self.arena.name(key)).map(|v| v.resolve(self.arena))

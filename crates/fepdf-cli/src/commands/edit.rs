@@ -280,8 +280,10 @@ pub fn handle_fdf_export(
     let ingest_options: fepdf::IngestionOptions = ingest.try_into()?;
     let doc = PdfDocument::open_with_options(data.into(), &ingest_options)
         .map_err(|e| anyhow::anyhow!("{e:?}"))?;
-    let fdf = doc.export_fdf().map_err(|e| anyhow::anyhow!("{e:?}"))?;
-    std::fs::write(output, fdf).with_context(|| "Failed to write the FDF file")?;
+    let xml = output.extension().is_some_and(|e| e.eq_ignore_ascii_case("xfdf"));
+    let written = if xml { doc.export_xfdf().map(String::into_bytes) } else { doc.export_fdf() }
+        .map_err(|e| anyhow::anyhow!("{e:?}"))?;
+    std::fs::write(output, written).with_context(|| "Failed to write the file")?;
     println!("SUCCESS: comments written to {}", output.display());
     Ok(())
 }
@@ -299,7 +301,15 @@ pub fn handle_fdf_import(
     let ingest_options: fepdf::IngestionOptions = ingest.try_into()?;
     let mut doc = PdfDocument::open_with_options(data.into(), &ingest_options)
         .map_err(|e| anyhow::anyhow!("{e:?}"))?;
-    doc.apply(fepdf::Operation::ImportFdf { fdf }).map_err(|e| anyhow::anyhow!("{e:?}"))?;
+    // XFDF is XML and FDF is PDF syntax: the first character that is not white space
+    // says which (ISO 19444-1 5.5.2, ISO 32000-2 12.7.8.2.2).
+    let xml = fdf.iter().find(|b| !b.is_ascii_whitespace()) == Some(&b'<');
+    let operation = if xml {
+        fepdf::Operation::ImportXfdf { xfdf: fdf }
+    } else {
+        fepdf::Operation::ImportFdf { fdf }
+    };
+    doc.apply(operation).map_err(|e| anyhow::anyhow!("{e:?}"))?;
     save.check()?;
     let save_options: fepdf::SaveOptions = save.try_into()?;
     save_reporting_permissions(&doc, output, &save_options)?;

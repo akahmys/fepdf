@@ -539,6 +539,13 @@ pub enum Operation {
         /// The FDF file, whole.
         fdf: Vec<u8>,
     },
+    /// Put the annotations of an XFDF file onto the document (ISO 19444-1), as `ImportFdf`
+    /// does: matched by name, and drawn from their entries where they carry no appearance
+    /// (ADR-0117, ADR-0119).
+    ImportXfdf {
+        /// The XFDF file, whole.
+        xfdf: Vec<u8>,
+    },
     /// Set an annotation's state for a person (12.5.6.3).
     ///
     /// Written as the clause says, as a text annotation in reply: to the annotation, the
@@ -731,6 +738,7 @@ impl Operation {
             | Self::ReplyToAnnotation { .. }
             | Self::SetAnnotationState { .. }
             | Self::ImportFdf { .. }
+            | Self::ImportXfdf { .. }
             // Laid over the page, which is not moved.
             | Self::AddTextLayer { .. }
             | Self::EditRun { .. }

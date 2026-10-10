@@ -105,7 +105,7 @@ fn the_text_editing_operations_are_reachable() {
 /// defined and not merged into `all_tools` registers nothing.
 #[test]
 fn the_review_router_is_merged() {
-    for tool in ["list_comments", "export_fdf", "import_fdf"] {
+    for tool in ["list_comments", "export_fdf", "import_fdf", "export_xfdf", "import_xfdf"] {
         assert!(served().iter().any(|name| name == tool), "{tool} is not served: {:?}", served());
     }
 }
