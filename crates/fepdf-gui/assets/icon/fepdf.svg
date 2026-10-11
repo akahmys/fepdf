@@ -1,0 +1,67 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256">
+  <!-- fepdf App Icon Master: 一番外の枠も浮遊 ＆ 切れ込み解消（白枠polyline+butt末端で外枠完全保護） ＆ 12px白溝 ＆ 文字彫り込み凹み ＆ 折り返し白枠7.5px(左下miter直角)＋原寸錆色三角浮遊 ＆ Fe 85px / PDF 38px (y=208) -->
+
+  <defs>
+    <!-- 1. 白溝へ落とすプレート影 -->
+    <filter id="grooveShadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="3.5" stdDeviation="3" flood-color="#475569" flood-opacity="0.32"/>
+    </filter>
+    <!-- 2. 外枠が白溝に落とす浮遊インナーシャドー -->
+    <filter id="outerFrameShadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="2.8" stdDeviation="2.4" flood-color="#0F172A" flood-opacity="0.40"/>
+    </filter>
+    <!-- 3. 三角浮遊シャドー (白枠とプレートへ自然に落ちる影) -->
+    <filter id="rustTriFloat" x="-30%" y="-30%" width="160%" height="160%">
+      <feDropShadow dx="-2.2" dy="3.0" stdDeviation="2.6" flood-color="#0F172A" flood-opacity="0.48"/>
+    </filter>
+    <!-- 4. 文字の本格インナーシャドー（上端フチから奥へ落ちる彫り込み凹み影） -->
+    <filter id="debossFilter" x="-20%" y="-20%" width="140%" height="140%">
+      <feOffset dx="0" dy="2.4" in="SourceAlpha" result="offsetDown"/>
+      <feComposite in="SourceAlpha" in2="offsetDown" operator="out" result="topRim"/>
+      <feGaussianBlur in="topRim" stdDeviation="1.6" result="blurredRim"/>
+      <feFlood flood-color="#0B132B" flood-opacity="0.80" result="shadowColor"/>
+      <feComposite in="shadowColor" in2="blurredRim" operator="in" result="coloredShadow"/>
+      <feComposite in="coloredShadow" in2="SourceAlpha" operator="in" result="innerShadow"/>
+      <feMerge>
+        <feMergeNode in="SourceGraphic"/>
+        <feMergeNode in="innerShadow"/>
+      </feMerge>
+    </filter>
+  </defs>
+
+  <!-- 1. ベース白溝（底面キャンバス） -->
+  <rect x="6" y="6" width="244" height="244" rx="44" fill="#FFFFFF"/>
+
+  <!-- 2. 外枠が白溝に落とす浮遊影 (外枠が浮いて見える) -->
+  <rect x="6" y="6" width="244" height="244" rx="44" fill="none" stroke="#0F172A" stroke-width="12" stroke-opacity="0.35" transform="translate(0, 2.6)" filter="url(#outerFrameShadow)"/>
+
+  <!-- 3. 内側の錆色プレート: 錆 (fepdf canonical Rust #943820, 白溝へ影をドロップ, プレート面はピュアRust) -->
+  <path d="M 50 24
+           H 165
+           L 232 91
+           V 206
+           A 26 26 0 0 1 206 232
+           H 50
+           A 26 26 0 0 1 24 206
+           V 50
+           A 26 26 0 0 1 50 24
+           Z" fill="#943820" filter="url(#grooveShadow)"/>
+
+  <!-- 4. 白枠台座 (幅7.5px、左下はシャープな直角 miter、末端は butt で y=24 / x=232 にピッタリ収まり外枠への干渉・切れ込みを完全解消) -->
+  <polyline points="165,24 165,91 232,91" fill="none" stroke="#FFFFFF" stroke-width="15" stroke-linecap="butt" stroke-linejoin="miter" stroke-miterlimit="3"/>
+
+  <!-- 5. 錆色三角本体 (01正規原寸大 ＋ 02仕様浮遊シャドーで白枠とプレートへ影を落とす) -->
+  <polygon points="165,24 165,91 232,91" fill="#943820" stroke-linejoin="miter" filter="url(#rustTriFloat)"/>
+
+  <!-- 6. 一番外の枠本体 (12px 錆色, 浮遊層の最前面として外周を途切れなく完全に引き締め) -->
+  <rect x="6" y="6" width="244" height="244" rx="44" fill="none" stroke="#943820" stroke-width="12"/>
+
+  <!-- 7. 26: 元素番号 (彫り込み凹みインナーシャドー, font-size=24, x=42, y=65) -->
+  <text x="42" y="65" fill="#FFFFFF" font-family="-apple-system, BlinkMacSystemFont, 'SF Pro Display', sans-serif" font-size="24" font-weight="700" filter="url(#debossFilter)">26</text>
+
+  <!-- 8. Fe: 元素記号・03採用 85px (彫り込み凹みインナーシャドー, x=128, y=157) -->
+  <text x="128" y="157" text-anchor="middle" fill="#FFFFFF" font-family="-apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Helvetica Neue', sans-serif" font-size="85" font-weight="700" letter-spacing="-1.0" filter="url(#debossFilter)">Fe</text>
+
+  <!-- 9. PDF: 下部ボールドラベル・03採用位置 (彫り込み凹みインナーシャドー, font-size=38, x=128, y=208) -->
+  <text x="128" y="208" text-anchor="middle" fill="#FFFFFF" font-family="-apple-system, BlinkMacSystemFont, 'SF Pro Display', sans-serif" font-size="38" font-weight="700" letter-spacing="2.0" filter="url(#debossFilter)">PDF</text>
+</svg>

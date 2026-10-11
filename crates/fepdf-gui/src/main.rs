@@ -35,6 +35,7 @@
 
 mod annotate;
 mod app;
+mod app_icon;
 mod cad_canvas;
 mod capture;
 mod command_palette;
@@ -70,9 +71,9 @@ use std::path::PathBuf;
 /// with whatever the adapter will actually give.
 fn native_options() -> eframe::NativeOptions {
     eframe::NativeOptions {
-        viewport: egui::ViewportBuilder::default()
-            .with_inner_size([1600.0, 900.0])
-            .with_title("fepdf"),
+        viewport: app_icon::with_icon(
+            egui::ViewportBuilder::default().with_inner_size([1600.0, 900.0]).with_title("fepdf"),
+        ),
         renderer: eframe::Renderer::Wgpu,
         wgpu_options: egui_wgpu::WgpuConfiguration {
             wgpu_setup: egui_wgpu::WgpuSetup::CreateNew(egui_wgpu::WgpuSetupCreateNew {

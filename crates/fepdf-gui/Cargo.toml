@@ -26,6 +26,8 @@ log.workspace = true
 env_logger.workspace = true
 wgpu.workspace = true
 regex.workspace = true
+# The window's icon, carried as a PNG and decoded to the pixels `egui` takes.
+png.workspace = true
 
 [dev-dependencies]
 fepdf-fixtures.workspace = true
