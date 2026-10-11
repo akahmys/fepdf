@@ -274,6 +274,7 @@ pub fn handle_attach(
 pub fn handle_fdf_export(
     input: &std::path::Path,
     output: &std::path::Path,
+    form: bool,
     ingest: IngestArgs,
 ) -> Result<()> {
     let data = std::fs::read(input).with_context(|| "Failed to read input PDF")?;
@@ -281,10 +282,16 @@ pub fn handle_fdf_export(
     let doc = PdfDocument::open_with_options(data.into(), &ingest_options)
         .map_err(|e| anyhow::anyhow!("{e:?}"))?;
     let xml = output.extension().is_some_and(|e| e.eq_ignore_ascii_case("xfdf"));
-    let written = if xml { doc.export_xfdf().map(String::into_bytes) } else { doc.export_fdf() }
-        .map_err(|e| anyhow::anyhow!("{e:?}"))?;
+    let written = match (xml, form) {
+        (true, false) => doc.export_xfdf().map(String::into_bytes),
+        (false, false) => doc.export_fdf(),
+        (true, true) => doc.export_xfdf_form().map(String::into_bytes),
+        (false, true) => doc.export_fdf_form(),
+    }
+    .map_err(|e| anyhow::anyhow!("{e:?}"))?;
     std::fs::write(output, written).with_context(|| "Failed to write the file")?;
-    println!("SUCCESS: comments written to {}", output.display());
+    let what = if form { "form values" } else { "comments" };
+    println!("SUCCESS: {what} written to {}", output.display());
     Ok(())
 }
 
@@ -313,7 +320,7 @@ pub fn handle_fdf_import(
     save.check()?;
     let save_options: fepdf::SaveOptions = save.try_into()?;
     save_reporting_permissions(&doc, output, &save_options)?;
-    println!("SUCCESS: comments imported, saved to {}", output.display());
+    println!("SUCCESS: comments and form values imported, saved to {}", output.display());
     Ok(())
 }
 

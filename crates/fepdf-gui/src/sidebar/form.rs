@@ -24,6 +24,10 @@ pub enum Asked {
     },
     /// Recalculate the calculated fields in this order (`/CO`).
     CalculationOrder(Vec<String>),
+    /// Write the form's values to an FDF or XFDF file (ROADMAP AA-3b).
+    ExportData,
+    /// Fill the form from an FDF or XFDF file, field by field by name.
+    ImportData,
 }
 
 /// What the drawer is holding between frames.
@@ -63,6 +67,15 @@ impl FormPanel {
         }
 
         let mut asked = None;
+        ui.horizontal_wrapped(|ui| {
+            if ui.button(words("form_export_data")).clicked() {
+                asked = Some(Asked::ExportData);
+            }
+            if ui.button(words("form_import_data")).clicked() {
+                asked = Some(Asked::ImportData);
+            }
+        });
+        ui.add_space(crate::app::theme::space::ITEM);
         for field in &form.terminal {
             if let Some(answer) = self.field(ui, field, words) {
                 asked = Some(answer);

@@ -575,12 +575,17 @@ pub enum EditSubcommands {
         /// Output FDF or XFDF file
         #[arg(short, long)]
         output: PathBuf,
+        /// Write the form's field values (Table 249, ISO 19444-1 6.3) rather than the
+        /// comments. fdf-import takes either, by what the file carries
+        #[arg(long)]
+        form: bool,
         /// Ingestion control options
         #[command(flatten)]
         ingest: IngestArgs,
     },
-    /// Put the comments of an FDF or XFDF file onto the document; one of the same /NM on
-    /// its page is replaced, and any other is added (ADR-0117)
+    /// Put the comments and form values of an FDF or XFDF file onto the document: a
+    /// comment of the same /NM on its page is replaced and any other added (ADR-0117); a
+    /// value fills the field of its name, and no field is made (ADR-0125)
     FdfImport {
         /// Input PDF file
         input: PathBuf,

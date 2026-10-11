@@ -739,7 +739,7 @@ fn refresh_appearance(
 
 /// A field's entry `key`, or its nearest ancestor field's through `/Parent` (12.7.4.1):
 /// `/FT`, `/Ff`, `/DA` and `/Q` are inherited, and a field in a group states none of them.
-fn inherited(
+pub(crate) fn inherited(
     arena: &PdfArena,
     field: Handle<BTreeMap<Handle<PdfName>, Object>>,
     key: &str,
@@ -758,7 +758,7 @@ fn inherited(
 
 /// The widgets a field is shown through: its `/Kids`, or the field itself when the two
 /// are merged into one object (12.7.4.1).
-fn widgets_of(
+pub(crate) fn widgets_of(
     arena: &PdfArena,
     field_dh: Handle<BTreeMap<Handle<PdfName>, Object>>,
 ) -> Vec<Handle<BTreeMap<Handle<PdfName>, Object>>> {

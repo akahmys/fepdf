@@ -1289,13 +1289,17 @@ fn send_form(doc: Option<&PdfDocument>, tx: &Sender<WorkerResponse>) {
 }
 
 /// Writes the document's comments to `path` as FDF, and says where.
-fn export_fdf(doc: Option<&PdfDocument>, path: &std::path::Path) -> WorkerResponse {
+fn export_fdf(doc: Option<&PdfDocument>, path: &std::path::Path, form: bool) -> WorkerResponse {
     let xml = path.extension().is_some_and(|e| e.eq_ignore_ascii_case("xfdf"));
     let written = doc
         .ok_or_else(String::new)
         .and_then(|doc| {
-            let out =
-                if xml { doc.export_xfdf().map(String::into_bytes) } else { doc.export_fdf() };
+            let out = match (xml, form) {
+                (true, false) => doc.export_xfdf().map(String::into_bytes),
+                (false, false) => doc.export_fdf(),
+                (true, true) => doc.export_xfdf_form().map(String::into_bytes),
+                (false, true) => doc.export_fdf_form(),
+            };
             out.map_err(|e| format!("{e:?}"))
         })
         .and_then(|fdf| std::fs::write(path, fdf).map_err(|e| e.to_string()));
@@ -1399,7 +1403,11 @@ pub enum Read {
     },
     /// Every comment, written to `path` as FDF (12.7.8). A read: the document is not
     /// changed by being written out.
-    Fdf { path: std::path::PathBuf },
+    Fdf {
+        path: std::path::PathBuf,
+        /// The form's values rather than the comments (ROADMAP AA-3b).
+        form: bool,
+    },
 }
 
 impl Read {
@@ -1416,7 +1424,7 @@ impl Read {
 /// What `read` finds in `doc`; with no document, what an empty one would answer.
 fn answer(doc: Option<&PdfDocument>, read: Read) -> WorkerResponse {
     match read {
-        Read::Fdf { path } => export_fdf(doc, &path),
+        Read::Fdf { path, form } => export_fdf(doc, &path, form),
         Read::Print(form) => WorkerResponse::Printed { notice: print(doc, &form) },
         Read::Reading => {
             let reading = doc.map(PdfDocument::reading).unwrap_or_default();

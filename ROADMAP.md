@@ -1914,9 +1914,23 @@ express; then AA-5 and AA-6.
       shifted offsets, since this engine's reader recovers from them by scanning. qpdf
       could not be the second reader: it refuses a file with no page tree. Through the
       CLI, an export imported back into its own file left two annotations two.
-- [ ] **AA-3b** — **FDF form values** (`/Fields`, Table 249): a form's values exported and
+- [x] **AA-3b** — **FDF form values** (`/Fields`, Table 249): a form's values exported and
       imported. Separate from AA-3, because the matching is by field name and the rules
       are the form's.
+      **Done, 2026-10-11**
+      ([ADR-0125](docs/adr/0125-form-values-come-in-by-name-and-make-no-field.md)), with
+      XFDF's `<fields>` (ISO 19444-1 6.3) too:
+      - `PdfDocument::export_fdf_form` and `export_xfdf_form`;
+      - `ImportFdf` and `ImportXfdf`, which take values as well as comments, by name,
+        setting flags as Table 249 says, through `fepdf-doc/src/form_data.rs`;
+      - `fepdf edit fdf-export --form`, the MCP export tools' `form`, and two buttons in
+        the form drawer.
+
+      `fdf_form_test.rs` covers both formats' round trips, flags, what is not imported,
+      the signature not exported, Shift_JIS with Windows' extensions and UTF-8 decoded
+      by `/Encoding` (with `encoding_rs`), and an encoding Table 246 does not name
+      refused. Each was shown to fail with what it guards removed. `sample_02c.pdf`'s Japanese-named fields filled from an
+      XFDF draw their value.
 - [x] **AA-4** — **XFDF** (ISO 19444-1:2019), the XML form of FDF. The standard is in
       `docs/specs/` since 2026-10-10, bought, and never to be committed
       ([docs/specs/README.md](docs/specs/README.md)). XFDF carries an appearance only

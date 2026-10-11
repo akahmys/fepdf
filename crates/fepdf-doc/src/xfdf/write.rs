@@ -379,7 +379,7 @@ fn number(value: f64) -> String {
 /// Text for an attribute or an element, escaped as 5.8.2 says: the XML delimiters as
 /// entities, line breaks and tabs as character references, and any other control
 /// character as a backslash and three octal digits.
-fn escape(text: &str) -> String {
+pub(super) fn escape(text: &str) -> String {
     let mut out = String::with_capacity(text.len());
     for c in text.chars() {
         match c {

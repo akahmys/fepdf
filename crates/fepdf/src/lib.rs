@@ -606,6 +606,24 @@ impl PdfDocument {
         fepdf_doc::fdf::export(&self.inner)
     }
 
+    /// The form's values as an FDF file (12.7.8.3.2): each field by its partial name,
+    /// nested as the form nests them, each terminal one with its `/V` (ROADMAP AA-3b,
+    /// ADR-0125). `Operation::ImportFdf` puts them back, matching by name.
+    ///
+    /// # Errors
+    /// When the file will not write.
+    pub fn export_fdf_form(&self) -> PdfResult<Vec<u8>> {
+        fepdf_doc::fdf::export_form(&self.inner)
+    }
+
+    /// The same values as [`Self::export_fdf_form`], as an XFDF file (ISO 19444-1 6.3).
+    ///
+    /// # Errors
+    /// As [`Self::export_xfdf`].
+    pub fn export_xfdf_form(&self) -> PdfResult<String> {
+        fepdf_doc::xfdf::export_form(&self.inner)
+    }
+
     /// The same annotations as [`Self::export_fdf`], as an XFDF file (ISO 19444-1). What
     /// XFDF has no place for — a free text's `/CL` and `/RD`, a stamp's picture, `/Path`
     /// — is recorded as a decision rather than dropped quietly. `Operation::ImportXfdf` is

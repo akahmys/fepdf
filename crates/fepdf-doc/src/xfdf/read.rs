@@ -59,7 +59,9 @@ pub fn apply_import(doc: &Document, xml: &[u8]) -> PdfResult<()> {
     }
     answer(&arena, &built);
     let handles: Vec<Handle<Object>> = built.iter().map(|(h, ..)| *h).collect();
-    crate::fdf::import_annotations(doc, &arena, &handles)
+    let fields = super::fields::incoming(root);
+    crate::fdf::import_annotations(doc, &arena, &handles)?;
+    crate::form_data::put(doc, &fields, "ISO 19444-1 6.3")
 }
 
 /// Gives each reply its `/IRT`: a reference to the annotation of that name in the file,

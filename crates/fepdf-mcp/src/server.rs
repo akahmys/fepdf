@@ -165,7 +165,7 @@ impl FepdfServer {
     /// Writes a document's comments to an FDF file.
     #[tool(
         name = "export_fdf",
-        description = "Writes every markup annotation of a PDF to an FDF file (ISO 32000-2 12.7.8): each with its /Page and an /NM, replies and states included. Links, widgets and pop-ups are not exported."
+        description = "Writes every markup annotation of a PDF to an FDF file (ISO 32000-2 12.7.8): each with its /Page and an /NM, replies and states included. Links, widgets and pop-ups are not exported. With form set, writes the form's field values instead (/Fields, Table 249), each by its partial name and nested as the form nests them."
     )]
     pub async fn export_fdf(
         &self,
@@ -177,7 +177,7 @@ impl FepdfServer {
     /// Writes a document's comments to an XFDF file.
     #[tool(
         name = "export_xfdf",
-        description = "Writes the annotations export_fdf writes as XFDF (ISO 19444-1). What XFDF has no place for (a free text's /CL and /RD, a stamp's picture, /Path) is recorded as a decision."
+        description = "Writes the annotations export_fdf writes as XFDF (ISO 19444-1). What XFDF has no place for (a free text's /CL and /RD, a stamp's picture, /Path) is recorded as a decision. With form set, writes the form's field values as <fields> (ISO 19444-1 6.3)."
     )]
     pub async fn export_xfdf(
         &self,
@@ -189,7 +189,7 @@ impl FepdfServer {
     /// Puts an XFDF file's comments onto a document.
     #[tool(
         name = "import_xfdf",
-        description = "Imports the annotations of an XFDF file (ISO 19444-1, given as fdf_path) onto a PDF and saves the result, as import_fdf does: matched by name, and given an appearance drawn from their entries where they carry none."
+        description = "Imports the annotations of an XFDF file (ISO 19444-1, given as fdf_path) onto a PDF and saves the result, as import_fdf does: matched by name, and given an appearance drawn from their entries where they carry none. Its <fields> values fill the form's fields of the same names."
     )]
     pub async fn import_xfdf(
         &self,
@@ -201,7 +201,7 @@ impl FepdfServer {
     /// Puts an FDF file's comments onto a document.
     #[tool(
         name = "import_fdf",
-        description = "Imports the annotations of an FDF file onto a PDF and saves the result. An annotation whose /NM matches one on its page replaces it in place; any other is added; annotations the FDF does not name are left alone."
+        description = "Imports the annotations of an FDF file onto a PDF and saves the result. An annotation whose /NM matches one on its page replaces it in place; any other is added; annotations the FDF does not name are left alone. Its /Fields values fill the form's fields of the same fully qualified names, with their flags; no field is created."
     )]
     pub async fn import_fdf(
         &self,

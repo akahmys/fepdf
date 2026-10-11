@@ -1,6 +1,9 @@
 //! FDF annotations (12.7.8): a document's comments written to a file of their own, and
 //! such a file's comments put onto a document (ROADMAP AA-3).
 //!
+//! **Its form values are `/Fields`**, read and written here and set by `form_data`
+//! (AA-3b, ADR-0125).
+//!
 //! **An FDF annotation is the document's annotation without the document.** `/P` names
 //! a page object of the file it came from, `/Popup` a window of that file's viewer, and
 //! `/StructParent` a key into that file's structure tree. None of them means anything in
@@ -160,7 +163,200 @@ pub fn apply_import(doc: &Document, fdf: &[u8]) -> PdfResult<()> {
         .iter()
         .filter_map(Object::as_reference)
         .collect();
-    import_annotations(doc, source, &annots)
+    let fields = fdf.map(|f| incoming_fields(source, f)).transpose()?.unwrap_or_default();
+    import_annotations(doc, source, &annots)?;
+    crate::form_data::put(doc, &fields, "12.7.8.3.2")
+}
+
+/// The document's form values as an FDF file: `/Fields`, each a root field with its kids,
+/// a terminal field's value in `/V` (12.7.8.3.2). A signature's value is not exported.
+///
+/// # Errors
+/// When the file will not write.
+pub fn export_form(doc: &Document) -> PdfResult<Vec<u8>> {
+    let target = PdfArena::new();
+    let roots = crate::form_data::tree(crate::form_data::values(doc));
+    let fields: Vec<Object> = roots.iter().map(|node| field_object(node, &target, 0)).collect();
+    let mut fdf = Dict::new();
+    fdf.insert(target.name("Fields"), Object::Array(target.alloc_array(fields)));
+    let mut catalog = Dict::new();
+    catalog.insert(target.name("FDF"), Object::Dictionary(target.alloc_dict(fdf)));
+    catalog.insert(target.name("Version"), Object::Name(target.name("2.0")));
+    let root = target.alloc_object(Object::Dictionary(target.alloc_dict(catalog)));
+    write(&target, root)
+}
+
+/// A field as an FDF field dictionary.
+///
+/// Its kids are direct, which Table 249 allows, and go as deep as a field tree is read
+/// (Rule 6).
+fn field_object(node: &crate::form_data::FieldNode, arena: &PdfArena, depth: usize) -> Object {
+    use crate::form_data::Given;
+    let mut dict = Dict::new();
+    dict.insert(arena.name("T"), Object::Text(node.name.clone()));
+    match &node.value {
+        Some(Given::Text(text)) => {
+            dict.insert(arena.name("V"), Object::Text(text.clone()));
+        }
+        Some(Given::Name(state)) => {
+            dict.insert(arena.name("V"), Object::Name(arena.name(state)));
+        }
+        Some(Given::Several(all)) => {
+            let items = all.iter().map(|t| Object::Text(t.clone())).collect();
+            dict.insert(arena.name("V"), Object::Array(arena.alloc_array(items)));
+        }
+        None => {}
+    }
+    if !node.kids.is_empty() && depth < 64 {
+        let kids = node.kids.iter().map(|kid| field_object(kid, arena, depth + 1)).collect();
+        dict.insert(arena.name("Kids"), Object::Array(arena.alloc_array(kids)));
+    }
+    Object::Dictionary(arena.alloc_dict(dict))
+}
+
+/// Entries of Table 249 this does not import.
+const NOT_IMPORTED: [&str; 7] = ["AP", "APRef", "IF", "Opt", "A", "AA", "RV"];
+
+/// The fields of the FDF dictionary `fdf`, by fully qualified name: each that carries a
+/// value or a flag, read down `/Kids` as far as a field tree is read (Rule 6).
+///
+/// # Errors
+/// Refused when `/Encoding` names one Table 246 does not: its names and values would be
+/// read as the wrong characters.
+fn incoming_fields(
+    source: &PdfArena,
+    fdf: DictHandle,
+) -> PdfResult<Vec<crate::form_data::Incoming>> {
+    let encoding = source
+        .dict_entry(fdf, source.name("Encoding"))
+        .and_then(|e| e.as_name())
+        .and_then(|e| source.get_name_str(e));
+    let strings = Strings::declared(encoding.as_deref()).ok_or_else(|| {
+        PdfError::refused(
+            "ImportFdf",
+            format!("its strings are in {encoding:?}, which Table 246 does not name"),
+        )
+    })?;
+    let roots = source
+        .dict_entry(fdf, source.name("Fields"))
+        .and_then(|f| f.resolve(source).as_array())
+        .and_then(|f| source.get_array(f))
+        .unwrap_or_default();
+    let mut found = Vec::new();
+    let mut pending: Vec<(Object, Option<String>, usize)> =
+        roots.into_iter().rev().map(|f| (f, None, 0)).collect();
+    while let Some((field, parent, depth)) = pending.pop() {
+        let Some(dict) = field.resolve(source).as_dict_handle() else { continue };
+        let own =
+            source.dict_entry(dict, source.name("T")).and_then(|t| fdf_text(source, &t, strings));
+        let name = match (parent, own) {
+            (Some(parent), Some(own)) => format!("{parent}.{own}"),
+            (Some(parent), None) => parent,
+            (None, Some(own)) => own,
+            (None, None) => continue,
+        };
+        if let Some(field) = incoming_field(source, dict, &name, strings) {
+            found.push(field);
+        }
+        let kids = source
+            .dict_entry(dict, source.name("Kids"))
+            .and_then(|k| k.resolve(source).as_array())
+            .and_then(|k| source.get_array(k))
+            .unwrap_or_default();
+        if depth < 64 {
+            pending.extend(kids.into_iter().rev().map(|k| (k, Some(name.clone()), depth + 1)));
+        }
+    }
+    Ok(found)
+}
+
+/// One FDF field dictionary, where it carries a value or a flag.
+fn incoming_field(
+    source: &PdfArena,
+    dict: DictHandle,
+    name: &str,
+    strings: Strings,
+) -> Option<crate::form_data::Incoming> {
+    use crate::form_data::{Flags, Given, Incoming};
+    let integer =
+        |key: &str| source.dict_entry(dict, source.name(key)).and_then(|v| v.as_integer());
+    let flags = Flags {
+        ff: integer("Ff"),
+        set_ff: integer("SetFf"),
+        clr_ff: integer("ClrFf"),
+        f: integer("F"),
+        set_f: integer("SetF"),
+        clr_f: integer("ClrF"),
+    };
+    let value = source.dict_entry(dict, source.name("V")).map(|v| v.resolve(source)).and_then(
+        |v| match v {
+            Object::Name(n) => source.get_name_str(n).map(Given::Name),
+            Object::Array(items) => Some(Given::Several(
+                source
+                    .get_array(items)?
+                    .iter()
+                    .filter_map(|i| fdf_text(source, i, strings))
+                    .collect(),
+            )),
+            other => fdf_text(source, &other, strings).map(Given::Text),
+        },
+    );
+    if value.is_none() && flags == Flags::default() {
+        return None;
+    }
+    let unread = NOT_IMPORTED
+        .iter()
+        .filter(|key| source.dict_entry(dict, source.name(key)).is_some())
+        .map(|key| format!("/{key}"))
+        .collect();
+    Some(Incoming { name: name.to_owned(), value, flags, unread })
+}
+
+/// How an FDF file's field names, values and options are decoded: its `/Encoding`
+/// (Table 246), for every string that does not begin with U+FEFF.
+#[derive(Debug, Clone, Copy)]
+enum Strings {
+    /// PDFDocEncoding, the default, or `utf_16`: a PDF text string either way.
+    Pdf,
+    /// `utf_8`.
+    Utf8,
+    /// `Shift_JIS`, `BigFive`, `GBK` or `UHC`, decoded as the WHATWG Encoding Standard
+    /// decodes them — Shift_JIS with Windows' extensions, as Windows writes it, and UHC as
+    /// the superset of EUC-KR that the standard calls EUC-KR.
+    Legacy(&'static encoding_rs::Encoding),
+}
+
+impl Strings {
+    /// The decoding `/Encoding` names; none where Table 246 does not name it.
+    fn declared(name: Option<&str>) -> Option<Self> {
+        Some(match name {
+            None | Some("PDFDocEncoding" | "utf_16") => Self::Pdf,
+            Some("utf_8") => Self::Utf8,
+            Some("Shift_JIS") => Self::Legacy(encoding_rs::SHIFT_JIS),
+            Some("BigFive") => Self::Legacy(encoding_rs::BIG5),
+            Some("GBK") => Self::Legacy(encoding_rs::GBK),
+            Some("UHC") => Self::Legacy(encoding_rs::EUC_KR),
+            Some(_) => return None,
+        })
+    }
+}
+
+/// A string of an FDF file as text, decoded as `/Encoding` says, or as a PDF text string
+/// where it begins with U+FEFF or the encoding is PDFDocEncoding. A string not valid in
+/// its encoding is no text, rather than one with replacement characters in it.
+fn fdf_text(source: &PdfArena, object: &Object, strings: Strings) -> Option<String> {
+    let object = object.resolve(source);
+    let bytes = match &object {
+        Object::String(bytes) | Object::Hex(bytes) if !bytes.starts_with(&[0xFE, 0xFF]) => bytes,
+        _ => return crate::apply::fields::text_of(source, &object),
+    };
+    match strings {
+        Strings::Pdf => crate::apply::fields::text_of(source, &object),
+        Strings::Utf8 => String::from_utf8(bytes.to_vec()).ok(),
+        Strings::Legacy(encoding) => encoding
+            .decode_without_bom_handling_and_without_replacement(bytes)
+            .map(std::borrow::Cow::into_owned),
+    }
 }
 
 /// Puts the annotations `annots` of `source` onto `doc`: an FDF file's, or an XFDF file's

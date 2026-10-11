@@ -262,6 +262,8 @@
   "form_calc_down": "1つ後に計算する",
   "form_calc_heading": "計算の順序",
   "form_calc_up": "1つ前に計算する",
+  "form_export_data": "フォームの値を FDF・XFDF に書き出す…",
+  "form_import_data": "FDF・XFDF から値を取り込む…",
   "form_no_fields": "フォームに項目がありません。",
   "form_none": "この文書はフォームを持っていません。",
   "form_signature_not_filled": "署名欄は入力ではなく署名で埋めます。",

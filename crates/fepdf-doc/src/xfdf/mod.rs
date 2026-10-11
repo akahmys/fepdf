@@ -17,9 +17,11 @@
 //! [ADR-0117]: ../../../../docs/adr/0117-an-fdf-import-replaces-an-annotation-of-the-same-name.md
 //! [ADR-0119]: ../../../../docs/adr/0119-an-annotation-without-an-appearance-is-given-one-from-its-own-entries.md
 
+mod fields;
 mod read;
 mod write;
 
+pub use fields::export_form;
 pub use read::apply_import;
 pub use write::export;
 

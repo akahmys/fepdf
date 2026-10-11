@@ -15,6 +15,8 @@ pub mod cloning;
 pub mod comments;
 /// FDF annotations, exported and imported (12.7.8).
 pub mod fdf;
+/// A form's values, as FDF and XFDF carry them (ROADMAP AA-3b).
+pub(crate) mod form_data;
 /// Where a page's marked content landed, for the structure tree to read.
 pub mod marked_content;
 /// The scale a drawing declares for measuring on it (12.9).

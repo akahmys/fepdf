@@ -35,6 +35,7 @@ mod edit_run_test;
 mod edit_xobject_test;
 mod encrypted_objstm_test;
 mod extract_pages_test;
+mod fdf_form_test;
 mod fdf_test;
 mod field_order_test;
 mod find_across_runs_test;

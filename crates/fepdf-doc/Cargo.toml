@@ -23,6 +23,8 @@ png.workspace = true
 tiff.workspace = true
 # Pages made from plain text: where a line may break (UAX #14).
 unicode-linebreak.workspace = true
+# An FDF file's declared /Encoding, decoded (ROADMAP AA-3b).
+encoding_rs.workspace = true
 
 [lints]
 workspace = true

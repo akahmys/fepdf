@@ -262,6 +262,8 @@
   "form_calc_down": "Calculate one later",
   "form_calc_heading": "Calculation order",
   "form_calc_up": "Calculate one earlier",
+  "form_export_data": "Write the values to FDF or XFDF…",
+  "form_import_data": "Fill from FDF or XFDF…",
   "form_no_fields": "The form declares no fields.",
   "form_none": "This document declares no form.",
   "form_signature_not_filled": "A signature field is signed, not filled.",

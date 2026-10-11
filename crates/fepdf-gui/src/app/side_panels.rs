@@ -416,6 +416,16 @@ impl FepdfApp {
             Some(crate::sidebar::form::Asked::CalculationOrder(order)) => {
                 fepdf::Operation::SetCalculationOrder(order)
             }
+            // One file dialog for the form's data and the comments, as one import takes
+            // whichever a file carries (ADR-0125).
+            Some(crate::sidebar::form::Asked::ExportData) => {
+                self.fdf_export(true);
+                return;
+            }
+            Some(crate::sidebar::form::Asked::ImportData) => {
+                let Some(operation) = self.fdf_import() else { return };
+                operation
+            }
         };
         let _ = self.tx_worker.send(crate::worker::WorkerRequest::Apply {
             operation: Box::new(operation),
@@ -457,8 +467,12 @@ impl FepdfApp {
                 fepdf::Operation::EditAnnotation { at, contents, when: Some(fepdf::pdf_now()) }
             }
             Asked::Remove(at) => fepdf::Operation::RemoveAnnotation(at),
-            Asked::ExportFdf | Asked::ImportFdf => {
-                let Some(operation) = self.fdf_asked(&asked) else { return };
+            Asked::ExportFdf => {
+                self.fdf_export(false);
+                return;
+            }
+            Asked::ImportFdf => {
+                let Some(operation) = self.fdf_import() else { return };
                 operation
             }
         };
@@ -470,16 +484,18 @@ impl FepdfApp {
 
     /// FDF out or in, through the platform's file dialog: out is a read the worker
     /// answers, and in is the operation `ImportFdf` with the file's bytes.
-    fn fdf_asked(&mut self, asked: &crate::sidebar::comments::Asked) -> Option<fepdf::Operation> {
-        let dialog =
-            rfd::FileDialog::new().add_filter("FDF", &["fdf"]).add_filter("XFDF", &["xfdf"]);
-        if matches!(asked, crate::sidebar::comments::Asked::ExportFdf) {
-            let path = dialog.save_file()?;
-            let read = crate::worker::Read::Fdf { path };
-            let _ = self.tx_worker.send(crate::worker::WorkerRequest::Read(read));
-            return None;
-        }
-        match std::fs::read(dialog.pick_file()?) {
+    /// Writes the comments, or the form's values where `form`, to the FDF or XFDF file a
+    /// reader names (ADR-0125).
+    fn fdf_export(&mut self, form: bool) {
+        let Some(path) = fdf_files().save_file() else { return };
+        let read = crate::worker::Read::Fdf { path, form };
+        let _ = self.tx_worker.send(crate::worker::WorkerRequest::Read(read));
+    }
+
+    /// The FDF or XFDF file a reader names, as the operation that imports whatever it
+    /// carries: comments and form values alike. One function for both drawers' imports.
+    fn fdf_import(&mut self) -> Option<fepdf::Operation> {
+        match std::fs::read(fdf_files().pick_file()?) {
             // XFDF is XML; FDF is PDF syntax and begins `%FDF`.
             Ok(xml) if xml.iter().find(|b| !b.is_ascii_whitespace()) == Some(&b'<') => {
                 Some(fepdf::Operation::ImportXfdf { xfdf: xml })
@@ -550,4 +566,9 @@ impl FepdfApp {
             done: self.tr("marks_written"),
         });
     }
+}
+
+/// A file dialog for FDF and XFDF.
+fn fdf_files() -> rfd::FileDialog {
+    rfd::FileDialog::new().add_filter("FDF", &["fdf"]).add_filter("XFDF", &["xfdf"])
 }

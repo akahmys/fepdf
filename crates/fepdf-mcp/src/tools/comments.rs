@@ -54,6 +54,10 @@ pub struct ExportFdfArgs {
     pub input_path: String,
     /// Where to write the FDF file.
     pub output_path: String,
+    /// Write the form's field values rather than the comments (ROADMAP AA-3b). The
+    /// import tools take either, by what the file carries.
+    #[serde(default)]
+    pub form: bool,
 }
 
 /// Implementation of the `export_fdf` tool: every markup annotation, as FDF (12.7.8).
@@ -64,7 +68,8 @@ pub fn export_fdf_impl(args: ExportFdfArgs) -> McpResult<String> {
     let data = fs::read(&args.input_path).map_err(McpError::from)?;
     let doc =
         PdfDocument::open(Bytes::from(data)).map_err(|e| McpError::pdf("Failed to open PDF", e))?;
-    let fdf = doc.export_fdf().map_err(|e| McpError::pdf("Failed to export the comments", e))?;
+    let fdf = if args.form { doc.export_fdf_form() } else { doc.export_fdf() }
+        .map_err(|e| McpError::pdf("Failed to export", e))?;
     fs::write(&args.output_path, &fdf).map_err(McpError::from)?;
     Ok(format!("Wrote {} bytes of FDF to {}", fdf.len(), args.output_path))
 }
@@ -77,7 +82,8 @@ pub fn export_xfdf_impl(args: ExportFdfArgs) -> McpResult<String> {
     let data = fs::read(&args.input_path).map_err(McpError::from)?;
     let doc =
         PdfDocument::open(Bytes::from(data)).map_err(|e| McpError::pdf("Failed to open PDF", e))?;
-    let xfdf = doc.export_xfdf().map_err(|e| McpError::pdf("Failed to export the comments", e))?;
+    let xfdf = if args.form { doc.export_xfdf_form() } else { doc.export_xfdf() }
+        .map_err(|e| McpError::pdf("Failed to export", e))?;
     fs::write(&args.output_path, &xfdf).map_err(McpError::from)?;
     Ok(format!("Wrote {} bytes of XFDF to {}", xfdf.len(), args.output_path))
 }
