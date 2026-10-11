@@ -337,6 +337,146 @@ fn sfnt(tables: &[([u8; 4], Vec<u8>)]) -> Vec<u8> {
     out
 }
 
+/// The objects of [`deprecated_in_2_0`], from 1: each a dictionary, and a stream's data
+/// when it is one. A comment names the rows of the table an object carries.
+const DEPRECATED_IN_2_0: &[(&str, Option<&[u8]>)] = &[
+    // 1. #5, #6, #7, #17, #29: the catalogue and what hangs off it.
+    (
+        "<< /Type /Catalog /Pages 2 0 R /SpiderInfo << /V 1.0 /C [] >> /NeedsRendering false \
+         /AcroForm 20 0 R /Names << /IDS 18 0 R /URLS 18 0 R /AlternatePresentations 18 0 R >> \
+         /MarkInfo << /Marked true /Suspects false >> /StructTreeRoot 15 0 R \
+         /ViewerPreferences << /ViewArea /CropBox /ViewClip /CropBox /PrintArea /CropBox \
+         /PrintClip /CropBox >> >>",
+        None,
+    ),
+    ("<< /Type /Pages /Kids [3 0 R] /Count 1 >>", None),
+    // 3. #6, #8, #10, #11, #12, #32: the page.
+    (
+        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Contents 4 0 R /ID (page) \
+         /SeparationInfo << /Pages [3 0 R] /DeviceColorant /Cyan >> /StructParents 0 \
+         /Annots [12 0 R 10 0 R 13 0 R 11 0 R] \
+         /Resources << /ProcSet [/PDF /Text /ImageB] /Font << /F1 5 0 R /F2 22 0 R >> \
+         /XObject << /Im1 7 0 R /Fm1 8 0 R >> \
+         /ExtGState << /G1 << /BM [/Foo /Multiply] /TR /Identity /TR2 /Default >> \
+         /G2 << /BM /Compatible >> >> >> >>",
+        None,
+    ),
+    // 4. #13: the operator `F`.
+    ("", Some(b"/P << /MCID 0 >> BDC 0 0 10 10 re F EMC /G1 gs /G2 gs /Im1 Do /Fm1 Do")),
+    // 5, 6. #14, #15: a font's /Name, a descriptor's /CharSet.
+    (
+        "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Name /F1 /FirstChar 32 \
+         /LastChar 32 /Widths [278] /FontDescriptor 6 0 R >>",
+        None,
+    ),
+    (
+        "<< /Type /FontDescriptor /FontName /Helvetica /Flags 32 /FontBBox [0 0 1000 1000] \
+         /ItalicAngle 0 /Ascent 700 /Descent -200 /CapHeight 700 /StemV 80 /CharSet (/space) >>",
+        None,
+    ),
+    // 7, 8. #6, #14, #33: an image's and a form's /Name, /ID, /OPI.
+    (
+        "/Type /XObject /Subtype /Image /Width 1 /Height 1 /ColorSpace /DeviceGray \
+         /BitsPerComponent 8 /Name /Im1 /ID (image) \
+         /OPI << /2.0 << /Type /OPI /Version 2.0 /F (hi.tif) /Inks /full_color >> >>",
+        Some(b"\x80"),
+    ),
+    (
+        "/Type /XObject /Subtype /Form /BBox [0 0 1 1] /Name /Fm1 \
+         /OPI << /2.0 << /Type /OPI /Version 2.0 /F (hi.eps) /Inks /full_color >> >>",
+        Some(b""),
+    ),
+    // 9. Nothing: the numbers the comments give stay the objects' own.
+    ("<< >>", None),
+    // 10. #18: a sound annotation.
+    ("<< /Type /Annot /Subtype /Sound /Rect [0 0 10 10] /Sound 19 0 R >>", None),
+    // 11. #19: a trap network annotation, Print and ReadOnly as 14.11.6.2 requires.
+    (
+        "<< /Type /Annot /Subtype /TrapNet /Rect [0 0 200 200] /F 68 \
+         /LastModified (D:20200101000000Z) /AP << /N 21 0 R >> >>",
+        None,
+    ),
+    // 12. #9, #20: a launch with platform parameters, to a file with platform strings.
+    (
+        "<< /Type /Annot /Subtype /Link /Rect [20 20 40 40] \
+         /A << /S /Launch /F 14 0 R /Win << /F (app.exe) >> /Unix (app) >> >>",
+        None,
+    ),
+    // 13. #28: a 3D annotation whose stream has /Resources.
+    ("<< /Type /Annot /Subtype /3D /Rect [50 50 90 90] /3DD 23 0 R >>", None),
+    ("<< /Type /Filespec /F (a.txt) /UF (a.txt) /DOS (A.TXT) /Mac (a.txt) /Unix (a.txt) >>", None),
+    // 15, 16. #30, #31: revision numbers, and the lower-case `checked`.
+    (
+        "<< /Type /StructTreeRoot /K 16 0 R /ParentTree << /Nums [0 [16 0 R]] >> \
+         /ClassMap << /cls << /O /Layout /Placement /Block >> >> >>",
+        None,
+    ),
+    (
+        "<< /Type /StructElem /S /P /P 15 0 R /Pg 3 0 R /K 0 /R 3 /C [/cls 1] \
+         /A [<< /O /PrintField /Role /cb /checked /on >> 2] >>",
+        None,
+    ),
+    // 17. #1: /Info.
+    (
+        "<< /Title (Probe) /Producer (hand) /Trapped /False \
+         /CreationDate (D:20200101000000Z) >>",
+        None,
+    ),
+    ("<< /Names [] >>", None),
+    ("/Type /Sound /R 8000", Some(b"\0\0")),
+    // 20. #5, #21: the form.
+    ("<< /Fields [] /NeedAppearances true /XFA 24 0 R >>", None),
+    (
+        "/Type /XObject /Subtype /Form /BBox [0 0 200 200] /PCM /DeviceCMYK /TrapRegions []",
+        Some(b""),
+    ),
+    // 22. #15: a CID font whose descriptor has /CIDSet.
+    (
+        "<< /Type /Font /Subtype /Type0 /BaseFont /Probe /Encoding /Identity-H \
+         /DescendantFonts [25 0 R] >>",
+        None,
+    ),
+    ("/Type /3D /Subtype /U3D /Resources << /Names [] >>", Some(b"U3D")),
+    ("", Some(b"<xdp/>")),
+    (
+        "<< /Type /Font /Subtype /CIDFontType2 /BaseFont /Probe /CIDToGIDMap /Identity \
+         /CIDSystemInfo << /Registry (Adobe) /Ordering (Identity) /Supplement 0 >> \
+         /FontDescriptor 26 0 R >>",
+        None,
+    ),
+    (
+        "<< /Type /FontDescriptor /FontName /Probe /Flags 4 /FontBBox [0 0 1000 1000] \
+         /ItalicAngle 0 /Ascent 880 /Descent -120 /CapHeight 700 /StemV 80 /CIDSet 27 0 R >>",
+        None,
+    ),
+    ("", Some(b"\xff")),
+];
+
+/// One page carrying a feature ISO 32000-2 deprecates for each row of
+/// `docs/specs/pdf-2-0-deprecations.md` a file can hand the engine, numbered here as the
+/// table numbers them (ROADMAP AB-1).
+///
+/// **Version 1.7**, because these are what a 1.x file brings to a translator; a 2.0 file
+/// carrying them is the rarer case. Object 17 is `/Info`. `/TrapNet` is the last of the
+/// page's annotations, as 12.5.6.21 requires.
+#[must_use]
+pub fn deprecated_in_2_0() -> Vec<u8> {
+    let bodies: Vec<Vec<u8>> = DEPRECATED_IN_2_0
+        .iter()
+        .map(|(dict, data)| match data {
+            None => dict.as_bytes().to_vec(),
+            Some(data) => {
+                let mut body =
+                    format!("<< {dict} /Length {} >>\nstream\n", data.len()).into_bytes();
+                body.extend_from_slice(data);
+                body.extend_from_slice(b"\nendstream");
+                body
+            }
+        })
+        .collect();
+    Pdf::new().version("1.7").trailer_entries("/Info 17 0 R").assemble(&bodies)
+}
+
 /// A 16 by 16 JPEG of one red, three components, baseline — 775 bytes.
 ///
 /// **Made once and kept as bytes**, because a fixture that needs an encoder is a fixture

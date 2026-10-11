@@ -36,10 +36,12 @@ count. A move that loses nothing records nothing ([ARCHITECTURE.md](../../ARCHIT
 ## The table
 
 **Successor**: *stated* — the standard names it; *derived* — the standard has it but does
-not connect the two; — — none. **Now** was measured 2026-10-11 by saving a probe file
-carrying each item through `fepdf publish upgrade --no-obj-stm --no-compress` and reading
-the output, except where it says *code*, which was read and not run, and *not measured*.
-A **gap** is a row whose Now is not its Rule.
+not connect the two; — — none. **Now** is what
+[`deprecations_test.rs`](../../crates/fepdf/tests/suite/deprecations_test.rs) asserts: it
+opens `fepdf_fixtures::deprecated_in_2_0()`, saves it, and reads each row in the open
+document and, through the byte layer, in the saved file. A row that changes here changes
+there. *Code* marks what was read and not run; *not measured*, what the probe does not
+carry. A **gap** is a row whose Now is not its Rule.
 
 | # | Feature (clause) | Successor | Rule | Now |
 | :--- | :--- | :--- | :--- | :--- |
@@ -56,8 +58,8 @@ A **gap** is a row whose Now is not its Rule.
 | 11 | Blend mode `Compatible` (Table 134) | `Normal` — stated | Load | *Code*: drawn as `Normal` (`graphics/mod.rs`); written unchanged |
 | 12 | `/TR`, `/TR2` in a graphics state (Table 57, 10.5) | Halftone transfer functions — derived, **not equivalent** | Keep | Kept; *code*: not applied (only a soft mask's `/TR` is read) |
 | 13 | Operator `F` (Table 59) | `f` — stated | Interpret | A saved content stream carries `f` |
-| 14 | `/Name` of fonts (Table 109), image and form XObjects (Tables 87, 93) | — | Load | Font: dropped at load (`conform.rs`). **Gap**: image `/Name` kept; form not measured |
-| 15 | `/CharSet`, `/CIDSet` (Tables 120, 122) | — subset tag | Save | `/CharSet` dropped from what is written (`drop_subset_claims`); `/CIDSet` takes the same path, not measured |
+| 14 | `/Name` of fonts (Table 109), image and form XObjects (Tables 87, 93) | — | Load | Font: dropped at load (`conform.rs`). **Gap**: image and form `/Name` kept |
+| 15 | `/CharSet`, `/CIDSet` (Tables 120, 122) | — subset tag | Save | Both dropped from what is written, and kept in the open document (`drop_subset_claims`) |
 | 16 | Adobe-Japan2, Adobe-Korea1 (2020) | Adobe-Japan1-7, Adobe-KR — derived, with no mapping | Keep | Not measured |
 | 17 | `/ViewArea`, `/ViewClip`, `/PrintArea`, `/PrintClip` (Table 147) | — | Save | **Gap**: kept |
 | 18 | Sound and Movie annotations and actions; 13.3, 13.4 | 13.2 Multimedia — stated, but see [Inconsistencies](#inconsistencies-in-the-standard) | Keep | Kept; not made by `AddAnnotation` (`apply/kinds.rs`) |
@@ -70,7 +72,7 @@ A **gap** is a row whose Now is not its Rule.
 | 25 | Signature `/R` (Table 255) | `/Prop_Build` — stated | Keep — it lies inside the signed byte range | Not measured |
 | 26 | UR transform method, `/UR3`, usage rights signatures (12.8.2.3, Table 263) | — | Keep | Not measured |
 | 27 | `/MovieActions`, `/SoundActions`, `/ExternalOPIdicts` (Table 264) | — | Keep — part of a legal attestation | Not measured |
-| 28 | 3D stream `/Resources` (Table 311), by errata | — | Save | Not measured |
+| 28 | 3D stream `/Resources` (Table 311), by errata | — | Save | **Gap**: kept |
 | 29 | `/Suspects` (Table 353) | — | Save | **Gap**: kept |
 | 30 | Attribute revision numbers (14.7.6.3): structure element `/R`, and the integers in `/C` and `/A` arrays — both by errata | — | Load, once the structure tree code is shown to read an array without them | **Gap**: kept |
 | 31 | PrintField attribute key spelled `checked` (Table 383) | `Checked` — stated | Load | **Gap**: kept |

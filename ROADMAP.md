@@ -2057,8 +2057,8 @@ express; then AA-5 and AA-6.
 
 [docs/specs/pdf-2-0-deprecations.md](docs/specs/pdf-2-0-deprecations.md) gives each of the
 34 features ISO 32000-2 deprecates a rule — load, interpret, save, keep, never written —
-and what the engine does now. On 2026-10-11, seventeen rows were gaps, and a blend-mode
-array was not applied at all. The owner decided two rules the same day: a file's own
+and what the engine does now. AB-1 measured fifteen rows as gaps on 2026-10-11 (count
+the table's **Gap** marks), and a blend-mode array is not applied at all. The owner decided two rules the same day: a file's own
 `/NeedAppearances true` is dropped once every widget has an appearance built for it, and
 a TrapNet annotation is dropped on save rather than turned into another kind, since none
 carries what it means.
@@ -2066,11 +2066,18 @@ carries what it means.
 **Done when** every row's Now is its Rule, measured by a test rather than read from this
 file, and the Arlington audit of a saved probe reports only rows whose rule is Keep.
 
-- [ ] **AB-1** — **the probe, as a test.** A fixture carrying every row the engine can be
+- [x] **AB-1** — **the probe, as a test.** A fixture carrying every row the engine can be
       handed (`fepdf-fixtures`), saved by `deprecations_test.rs`, which asserts each row's
       Now: absent from the output, present in the open document, and the `Decision`
       recorded. It asserts today's behaviour; each later item changes its rows' assertions.
       *Done when* the test re-derives the Now column the table carries.
+      **Done, 2026-10-11**: `fepdf_fixtures::deprecated_in_2_0()`, a 1.7 file of 27
+      objects, and three tests — 40 keys of 26 rows, the operator `F`, and the three
+      drops' `Decision`s. The saved file is read through the byte layer, so a key the
+      writer wrote and a reload would drop is still seen. Shown to fail with
+      `drop_procsets` and `drop_subset_claims` taken out, and with the parser no longer
+      reading `F`. It measured three rows the table had not: a form XObject's `/Name` and
+      a 3D stream's `/Resources` are kept, and `/CIDSet` goes on save as `/CharSet` does.
 - [ ] **AB-2** — **a blend-mode array** (11.6.3): `BlendMode::from_pdf_object` takes the
       first mode it recognises, or `Normal`; and at load an array, and `Compatible`, become
       one name. *Done when* `/BM [/Foo /Multiply]` draws as Multiply, shown to fail with the
@@ -2092,8 +2099,8 @@ file, and the Arlington audit of a saved probe reports only rows whose rule is K
       multi-line and comb text do not, so this is the largest item. An ADR records the
       decision when it lands.
 - [ ] **AB-6** — **the rows not measured**: signatures (#23–26), FDF encryption,
-      `/CIDSet`, a form XObject's `/Name`, Adobe-Japan2 and Adobe-Korea1, permission bit
-      10, and a Link element enclosing several annotations. Each row says what was found.
+      Adobe-Japan2 and Adobe-Korea1, permission bit 10, and a Link element enclosing
+      several annotations. Each row says what was found.
 
 ---
 
