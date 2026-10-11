@@ -61,9 +61,9 @@ A **gap** is a row whose Now is not its Rule.
 | 16 | Adobe-Japan2, Adobe-Korea1 (2020) | Adobe-Japan1-7, Adobe-KR — derived, with no mapping | Keep | Not measured |
 | 17 | `/ViewArea`, `/ViewClip`, `/PrintArea`, `/PrintClip` (Table 147) | — | Save | **Gap**: kept |
 | 18 | Sound and Movie annotations and actions; 13.3, 13.4 | 13.2 Multimedia — stated, but see [Inconsistencies](#inconsistencies-in-the-standard) | Keep | Kept; not made by `AddAnnotation` (`apply/kinds.rs`) |
-| 19 | TrapNet annotation, trapping (14.11.6), `/TrapRegions` | — | Save | **Gap**: kept |
+| 19 | TrapNet annotation, trapping (14.11.6), `/TrapRegions` | — | Save, the annotation taken out of `/Annots` as well. No other kind means what it means: a PrinterMark would read as a production mark and could not tell that a later edit had left the traps stale (the owner, 2026-10-11) | **Gap**: kept |
 | 20 | Launch `/Win`, `/Mac`, `/Unix` (Table 207) | — | Keep | Kept, and read when `/F` is absent (`actions.rs`) |
-| 21 | `/NeedAppearances` (Table 224) | Appearance streams — stated | Never written | Not written by a field edit, which builds the appearance (`apply/appearance.rs`). **Gap**: a file's own `true` is kept |
+| 21 | `/NeedAppearances` (Table 224) | Appearance streams — stated | Never written; a file's own `true` is dropped once an appearance is built for every widget lacking one (the owner, 2026-10-11) | Not written by a field edit, which builds the appearance (`apply/appearance.rs`). **Gap**: a file's own `true` is kept |
 | 22 | FDF encryption (12.7.8.3.1, Table 247) | — | Keep | Not measured |
 | 23 | SubFilter `adbe.x509.rsa_sha1`, `adbe.pkcs7.sha1`; PKCS #1 signatures (12.8.3) | `adbe.pkcs7.detached`, `ETSI.CAdES.detached` — derived | Keep | Not measured |
 | 24 | MD5, SHA1 digests; `/DigestMethod` of a signature reference, by errata (Tables 237, 256) | SHA-256 and up — derived | Keep | Not measured |

@@ -26,7 +26,7 @@ The differences are by design:
 - Inherited attributes are resolved onto the pages
   ([ADR-0013](docs/adr/0013-a-document-is-one-normalised-state.md)).
 
-Phases Y and Z are closed (2026-10-10), and Phase AA is open. Two items Phase Y found wait on Windows and
+Phases Y and Z are closed (2026-10-10), and Phases AA and AB are open. Two items Phase Y found wait on Windows and
 Linux, under [Held for another platform](#held-for-another-platform).
 `./scripts/dev/status.sh` re-derives the figures this file leans on, so a stale one reads
 as a disagreement rather than as current.
@@ -2052,6 +2052,48 @@ express; then AA-5 and AA-6.
       - the refusals.
       Each was shown to fail with what it guards removed. The constitution's first page,
       set from its text, audits with no PDF/UA-2 error when given a title.
+
+### Phase AB — What 2.0 deprecates, translated as the table says
+
+[docs/specs/pdf-2-0-deprecations.md](docs/specs/pdf-2-0-deprecations.md) gives each of the
+34 features ISO 32000-2 deprecates a rule — load, interpret, save, keep, never written —
+and what the engine does now. On 2026-10-11, seventeen rows were gaps, and a blend-mode
+array was not applied at all. The owner decided two rules the same day: a file's own
+`/NeedAppearances true` is dropped once every widget has an appearance built for it, and
+a TrapNet annotation is dropped on save rather than turned into another kind, since none
+carries what it means.
+
+**Done when** every row's Now is its Rule, measured by a test rather than read from this
+file, and the Arlington audit of a saved probe reports only rows whose rule is Keep.
+
+- [ ] **AB-1** — **the probe, as a test.** A fixture carrying every row the engine can be
+      handed (`fepdf-fixtures`), saved by `deprecations_test.rs`, which asserts each row's
+      Now: absent from the output, present in the open document, and the `Decision`
+      recorded. It asserts today's behaviour; each later item changes its rows' assertions.
+      *Done when* the test re-derives the Now column the table carries.
+- [ ] **AB-2** — **a blend-mode array** (11.6.3): `BlendMode::from_pdf_object` takes the
+      first mode it recognises, or `Normal`; and at load an array, and `Compatible`, become
+      one name. *Done when* `/BM [/Foo /Multiply]` draws as Multiply, shown to fail with the
+      array arm removed.
+- [ ] **AB-3** — **at load**: an image or form XObject's `/Name` (#14), `checked` as
+      `Checked` (#31), a structure element's `/R` and the integers in `/C` and `/A` (#30 —
+      the two readers, `audit_tree.rs` and `apply/structure.rs`, skip them already), and
+      `/Trapped` moved into the packet as `pdf:Trapped` (#1).
+- [ ] **AB-4** — **on save**, beside `drop_subset_claims`: web capture's five keys,
+      `/AlternatePresentations`, the `/ViewArea` family, `/Suspects`, `/SeparationInfo`,
+      OPI, the TrapNet annotation (taken out of `/Annots` too), a file specification's
+      platform strings when `/F` or `/UF` is there, and a 3D stream's `/Resources`. One
+      `Decision` a kind. `crosscheck_selfread.sh` compares catalogues key for key, and the
+      claim this file opens with says no catalogue key is lost; both name `/SpiderInfo`
+      as the one catalogue key a save drops by rule.
+- [ ] **AB-5** — **`/NeedAppearances` from the file** (#21): an appearance built for each
+      widget that lacks one, then the entry dropped. Text fields have a builder
+      (`set_text_appearance`); check boxes, radio buttons, choice fields, push buttons,
+      multi-line and comb text do not, so this is the largest item. An ADR records the
+      decision when it lands.
+- [ ] **AB-6** — **the rows not measured**: signatures (#23–26), FDF encryption,
+      `/CIDSet`, a form XObject's `/Name`, Adobe-Japan2 and Adobe-Korea1, permission bit
+      10, and a Link element enclosing several annotations. Each row says what was found.
 
 ---
 
