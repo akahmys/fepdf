@@ -140,6 +140,31 @@ impl PdfDocument {
             return Ok(Vec::new());
         }
 
+        let file = std::fs::File::create(output_path).map_err(PdfError::Io)?;
+        self.write_into(file, version, options, signing, linearize)
+    }
+
+    /// The document as the bytes [`Self::save_with_options`] would write, held rather
+    /// than written to a file: for a window that opens what it has just made, which has
+    /// no file yet (ROADMAP AA-5).
+    ///
+    /// # Errors
+    /// As saving does.
+    pub fn to_bytes(&self, options: &SaveOptions) -> PdfResult<Vec<u8>> {
+        let mut bytes = Vec::new();
+        self.write_into(&mut bytes, "2.0", options, None, false)?;
+        Ok(bytes)
+    }
+
+    /// What [`Self::write_out`] writes, into `sink`.
+    fn write_into<W: std::io::Write>(
+        &self,
+        sink: W,
+        version: &str,
+        options: &SaveOptions,
+        signing: Option<(&fepdf_model::cms::SigningIdentity, &SignOptions)>,
+        linearize: bool,
+    ) -> PdfResult<Vec<Decision>> {
         let output = self.output_document()?;
         let stripped = Self::settle_metadata(&output, options)?;
         let mut claims = fepdf_model::interpretation::DecisionLog::default();
@@ -147,8 +172,7 @@ impl PdfDocument {
         let (final_arena, root, info) =
             (output.arena(), *output.root_handle(), output.info_handle());
 
-        let file = std::fs::File::create(output_path).map_err(PdfError::Io)?;
-        let mut writer = crate::writer::PdfWriter::new(file, final_arena);
+        let mut writer = crate::writer::PdfWriter::new(sink, final_arena);
         writer.set_string_encoding(options.string_encoding);
         if options.compress {
             writer.set_compression(options.compression_level);

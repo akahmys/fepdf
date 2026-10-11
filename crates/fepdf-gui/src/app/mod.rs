@@ -4,6 +4,7 @@ pub mod icons;
 mod layout;
 mod modals;
 mod page_ops;
+pub use page_ops::opening_dialog;
 mod recovering;
 mod side_panels;
 mod status_bar;
@@ -722,7 +723,7 @@ impl FepdfApp {
             }
         }
         if ui.input(|i| i.modifiers.command && i.key_pressed(egui::Key::O))
-            && let Some(p) = rfd::FileDialog::new().add_filter("PDF", &["pdf"]).pick_file()
+            && let Some(p) = page_ops::opening_dialog().pick_file()
         {
             if self.total_pages > 0 {
                 self.open_in_new_window(&p);

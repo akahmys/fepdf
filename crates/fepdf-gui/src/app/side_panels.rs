@@ -48,7 +48,7 @@ impl FepdfApp {
         let tip_export = self.locale_mgr.tr(&self.active_language, "tooltip_export_pdf");
 
         if icon_action(ui, glyph::OPEN, false, true, &tip_import).clicked()
-            && let Some(p) = rfd::FileDialog::new().add_filter("PDF", &["pdf"]).pick_file()
+            && let Some(p) = super::page_ops::opening_dialog().pick_file()
         {
             if has_doc {
                 self.open_in_new_window(&p);

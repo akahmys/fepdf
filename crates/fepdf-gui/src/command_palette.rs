@@ -89,7 +89,7 @@ impl Command {
     pub(crate) fn run(self, app: &mut crate::app::FepdfApp, ctx: &egui::Context) {
         match self {
             Self::Load => {
-                if let Some(p) = rfd::FileDialog::new().add_filter("PDF", &["pdf"]).pick_file() {
+                if let Some(p) = crate::app::opening_dialog().pick_file() {
                     app.open_file(p, ctx);
                 }
             }

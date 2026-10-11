@@ -48,6 +48,11 @@ env_logger.workspace = true
 fepdf-fixtures = { workspace = true, features = ["backend"] }
 # The reachability test for colour management builds a Display P3 profile to render with.
 moxcms.workspace = true
+# Pages made from pictures (ROADMAP AA-5): the tests write the JPEGs, PNGs and TIFFs they
+# read, rather than keep binary fixtures.
+image.workspace = true
+png.workspace = true
+tiff.workspace = true
 
 [features]
 default = []

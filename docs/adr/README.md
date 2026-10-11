@@ -187,3 +187,4 @@ quietly wrong — which is the failure this log exists to make visible.
 | 0120 | [A document is opened with every annotation given an appearance it can be](0120-a-document-is-opened-with-every-annotation-given-an-appearance.md) | AA-4d; rests on 0013, 0119 |
 | 0121 | [Every annotation subtype is read, not only the ones the corpus writes](0121-every-annotation-subtype-is-read-not-only-the-ones-the-corpus-writes.md) | AA-4e |
 | 0122 | [An annotation whose appearance is its content is drawn only when it is made](0122-an-annotation-whose-appearance-is-its-content-is-drawn-only-when-made.md) | AA-4f; rests on 0119, 0120 |
+| 0123 | [A picture becomes a page at its own size](0123-a-picture-becomes-a-page-at-its-own-size.md) | AA-5 |

@@ -317,6 +317,62 @@ pub fn handle_fdf_import(
     Ok(())
 }
 
+/// Where `edit images` puts its pages: into a document, at a page, on a sheet.
+pub struct Placing {
+    /// The document, or a new one.
+    pub into: Option<std::path::PathBuf>,
+    /// The page they go before, counting from 1, or the end.
+    pub at: Option<usize>,
+    /// A sheet's name from `PageResize::SHEETS`.
+    pub sheet: Option<String>,
+}
+
+/// A PDF of pictures, or pictures put into a document (ROADMAP AA-5).
+pub fn handle_images(
+    images: &[std::path::PathBuf],
+    output: &std::path::Path,
+    placing: Placing,
+    ingest: IngestArgs,
+    save: SaveArgs,
+) -> Result<()> {
+    let sheet = match placing.sheet.as_deref() {
+        Some(name) => {
+            let known: Vec<&str> = fepdf::PageResize::SHEETS.iter().map(|(n, _)| *n).collect();
+            let (w, h) = fepdf::PageResize::sheet(name).ok_or_else(|| {
+                anyhow::anyhow!("no sheet is called {name:?}; the sheets are {}", known.join(", "))
+            })?;
+            #[allow(clippy::cast_possible_truncation)] // whole points, well inside f32
+            let sheet = [w as f32, h as f32];
+            Some(sheet)
+        }
+        None => None,
+    };
+    let mut pictures = Vec::with_capacity(images.len());
+    for path in images {
+        pictures.push(
+            std::fs::read(path).with_context(|| format!("Failed to read {}", path.display()))?,
+        );
+    }
+    let doc = if let Some(into) = &placing.into {
+        let data = std::fs::read(into).with_context(|| "Failed to read the document")?;
+        let ingest_options: fepdf::IngestionOptions = ingest.try_into()?;
+        let mut doc = PdfDocument::open_with_options(data.into(), &ingest_options)
+            .map_err(|e| anyhow::anyhow!("{e:?}"))?;
+        let count = doc.page_count().map_err(|e| anyhow::anyhow!("{e:?}"))?;
+        let at = placing.at.map_or(count, |page| page.saturating_sub(1));
+        doc.apply(fepdf::Operation::InsertImages { images: pictures, at, sheet })
+            .map_err(|e| anyhow::anyhow!("{e:?}"))?;
+        doc
+    } else {
+        PdfDocument::from_images(pictures, sheet).map_err(|e| anyhow::anyhow!("{e:?}"))?
+    };
+    save.check()?;
+    let save_options: fepdf::SaveOptions = save.try_into()?;
+    save_reporting_permissions(&doc, output, &save_options)?;
+    println!("SUCCESS: {} picture(s) made into pages, saved to {}", images.len(), output.display());
+    Ok(())
+}
+
 pub fn handle_page_label(
     input: PathBuf,
     output: PathBuf,

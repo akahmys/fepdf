@@ -71,6 +71,11 @@ image = { version = "0.25", default-features = false, features = ["png", "jpeg",
 # components. Reaching the decoder underneath `image` keeps the samples in the colour
 # space the image dictionary declares. Already in the tree: `image` depends on it.
 zune-jpeg = "0.5"
+# PNG and TIFF, directly, for pages made from pictures (ROADMAP AA-5). `image` decodes
+# both but keeps neither a PNG's `pHYs` and `iCCP` nor a TIFF's second page; these two are
+# what it decodes with, already in the tree.
+png = "0.18"
+tiff = "0.11"
 zune-core = "0.5"
 # CCITT Group 3 and 4 (7.4.6), the compression of a scanned page. Pure Rust and
 # `unsafe` forbidden by a crate attribute. Chosen over `fax`, which is already in the

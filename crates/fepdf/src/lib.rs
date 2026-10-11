@@ -461,6 +461,29 @@ impl PdfDocument {
         Self::open_with_options(blank_document(), &fepdf_model::ingest::IngestionOptions::default())
     }
 
+    /// Whether `bytes` are a picture [`Self::from_images`] reads — a JPEG, a PNG or a TIFF —
+    /// by their first bytes, as a window deciding how to open a file asks.
+    #[must_use]
+    pub fn is_picture(bytes: &[u8]) -> bool {
+        fepdf_doc::apply::pictures::is_picture(bytes)
+    }
+
+    /// A new document whose pages are `images`, one to a picture and every page of a TIFF
+    /// (ROADMAP AA-5, ADR-0123). Each page is its picture's size, or `sheet` where one is
+    /// given. It is `Operation::InsertImages` applied to an empty document, whose blank
+    /// page is then taken out.
+    ///
+    /// # Errors
+    /// Refused when there are no pictures or one will not read, saying which.
+    pub fn from_images(images: Vec<Vec<u8>>, sheet: Option<[f32; 2]>) -> PdfResult<Self> {
+        let mut doc = Self::create_empty()?;
+        let blank = doc.page_count()?;
+        doc.apply(Operation::InsertImages { images, at: 0, sheet })?;
+        let last = doc.page_count()?.saturating_sub(blank);
+        doc.apply(Operation::RemovePages(PageSelection::Single(last)))?;
+        Ok(doc)
+    }
+
     /// Opens a PDF document from a byte buffer with default ingestion options.
     pub fn open(data: Bytes) -> PdfResult<Self> {
         Self::open_with_options(data, &fepdf_model::ingest::IngestionOptions::default())

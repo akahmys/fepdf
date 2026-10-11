@@ -24,6 +24,8 @@ pub mod metadata;
 pub mod page;
 pub(crate) mod path_crop;
 pub(crate) mod path_redact;
+/// Pages made from pictures (ROADMAP AA-5).
+pub mod pictures;
 /// Radio buttons: a group's field, and a widget per button.
 pub(crate) mod radio;
 pub mod redact;
@@ -77,6 +79,9 @@ fn dispatch(doc: &mut Document, op: Operation) -> PdfResult<()> {
         }
         Operation::DuplicatePages(pages) => page::apply_duplicate_pages(doc, &pages),
         Operation::ResizePages(pages, to) => page::apply_resize_pages(doc, &pages, &to),
+        Operation::InsertImages { images, at, sheet } => {
+            pictures::apply_insert_images(doc, &images, at, sheet).map(|_| ())
+        }
         Operation::InsertFrom { source, at } => {
             page::apply_insert_from(doc, &source, at).map(|_| ())
         }

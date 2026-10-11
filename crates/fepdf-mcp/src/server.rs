@@ -135,6 +135,7 @@ impl FepdfServer {
         #[allow(unused_mut)]
         let mut router = Self::tool_router();
         router.merge(Self::review_tool_router());
+        router.merge(Self::making_tool_router());
         #[cfg(feature = "render")]
         router.merge(Self::render_tool_router());
         router
@@ -207,6 +208,25 @@ impl FepdfServer {
         Parameters(args): Parameters<crate::tools::ImportFdfArgs>,
     ) -> Result<String, McpError> {
         crate::tools::import_fdf_impl(args)
+    }
+}
+
+/// Documents made from what is not a PDF (ROADMAP AA-5).
+///
+/// A block of its own for the reason the review tools have one: the main block is at
+/// Rule 1's 800 lines (ADR-0106).
+#[tool_router(router = making_tool_router)]
+impl FepdfServer {
+    /// A PDF of pictures, or pictures put into a PDF.
+    #[tool(
+        name = "images_to_pdf",
+        description = "Makes a PDF of JPEG, PNG or TIFF pictures, one page to each picture and every page of a TIFF, or puts them into an existing PDF at a 0-based index. A JPEG is carried as it is; a PNG's alpha becomes a soft mask. Each page is its picture's size at the resolution its file states, or a named sheet with the picture fitted inside."
+    )]
+    pub async fn images_to_pdf(
+        &self,
+        Parameters(args): Parameters<crate::tools::ImagesToPdfArgs>,
+    ) -> Result<String, McpError> {
+        crate::tools::images_to_pdf_impl(args)
     }
 }
 

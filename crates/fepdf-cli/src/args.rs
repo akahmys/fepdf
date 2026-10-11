@@ -509,6 +509,32 @@ pub enum EditSubcommands {
         #[command(flatten)]
         save: SaveArgs,
     },
+    /// Make a PDF of pictures — JPEG, PNG or TIFF, one page to each picture and every page
+    /// of a TIFF — or put them into a document with --into (ADR-0123)
+    Images {
+        /// The pictures, in page order
+        #[arg(required = true)]
+        images: Vec<PathBuf>,
+        /// Output PDF file
+        #[arg(short, long)]
+        output: PathBuf,
+        /// A document to put the pages into, rather than a new one
+        #[arg(long)]
+        into: Option<PathBuf>,
+        /// Where in that document, counting pages from 1; the end where absent
+        #[arg(long)]
+        at: Option<usize>,
+        /// A sheet every page is, the picture fitted inside it: A3, A4, A5, B4, B5,
+        /// Letter, Legal or Tabloid. Each page is its picture's size where absent
+        #[arg(long)]
+        sheet: Option<String>,
+        /// Ingestion control options, for --into
+        #[command(flatten)]
+        ingest: IngestArgs,
+        /// Output optimization options
+        #[command(flatten)]
+        save: SaveArgs,
+    },
     /// Write the document's comments to an FDF file (ISO 32000-2 12.7.8), or to XFDF
     /// (ISO 19444-1) when the output ends in .xfdf
     FdfExport {

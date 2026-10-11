@@ -2005,9 +2005,22 @@ express; then AA-5 and AA-6.
       - A 12-point watermark could hardly be seen.
       `dblclickat` was added to capture plans for the second, since `dblclick` sends no
       pointer event. Not checked by gesture: choosing a file, which is a system dialog.
-- [ ] **AA-5** — **a PDF made from images**: JPEG carried as it is, PNG with its alpha as
+- [x] **AA-5** — **a PDF made from images**: JPEG carried as it is, PNG with its alpha as
       a soft mask, and each page of a TIFF as a page. This is an operation, so it also
       inserts image pages into an existing document.
+      **Done, 2026-10-11**
+      ([ADR-0123](docs/adr/0123-a-picture-becomes-a-page-at-its-own-size.md)):
+      `Operation::InsertImages` and `PdfDocument::from_images`, in
+      `fepdf-doc/src/apply/pictures/`. Each page is its picture's size at its resolution,
+      or a named sheet. Reached from `fepdf edit images` (`--into`, `--at`, `--sheet`), MCP
+      `images_to_pdf`, and the window, which opens a picture as a new document and
+      inserts pictures through its insert dialog. `image_pages_test.rs` makes its own
+      JPEG, PNG and TIFF files. It checks a JPEG's bytes through a save, an EXIF-turned
+      page, Adobe CMYK, a soft mask and an opaque alpha with none, sixteen bits and
+      `pHYs`, a TIFF's pages without its thumbnail, a one-bit WhiteIsZero scan, a sheet,
+      and the refusals. Each was shown to fail with what it guards removed.
+      `PdfDocument::to_bytes` was added for the window, which opens what it has just
+      made.
 - [ ] **AA-6** — **a PDF made from plain text**: lines broken by UAX #14 at the face's
       advances, pages broken where they fill, and each paragraph the input separates with
       a blank line tagged `/P`. Paragraphs are declared by the input, not inferred

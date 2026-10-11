@@ -1217,3 +1217,48 @@ fn apply_redact_annotations_removes_what_they_mark() {
     .expect("the tool runs");
     assert!(!text_of(&dest, 0).contains("P0"), "what the annotation marked stayed");
 }
+
+/// **`images_to_pdf` makes a document of pictures, or puts them into one**, and an unknown
+/// sheet is refused by name (ROADMAP AA-5).
+#[test]
+fn images_to_pdf_makes_and_inserts_pages() {
+    use fepdf_mcp::tools::{ImagesToPdfArgs, images_to_pdf_impl};
+    let picture = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../samples/references/constitution.pdf_page_1.png"
+    );
+    let count = |path: &str| {
+        let bytes = std::fs::read(path).expect("written");
+        fepdf::PdfDocument::open(bytes.into()).and_then(|d| d.page_count()).expect("it opens")
+    };
+    let made = out("images_made");
+    images_to_pdf_impl(ImagesToPdfArgs {
+        image_paths: vec![picture.to_owned(), picture.to_owned()],
+        output_path: made.clone(),
+        input_path: None,
+        at: None,
+        sheet: None,
+    })
+    .expect("it makes a PDF");
+    assert_eq!(count(&made), 2);
+
+    let into = out("images_into");
+    images_to_pdf_impl(ImagesToPdfArgs {
+        image_paths: vec![picture.to_owned()],
+        output_path: into.clone(),
+        input_path: Some(written("images_three", &pages(3))),
+        at: Some(1),
+        sheet: Some("A4".to_owned()),
+    })
+    .expect("it inserts");
+    assert_eq!(count(&into), 4);
+
+    let refused = images_to_pdf_impl(ImagesToPdfArgs {
+        image_paths: vec![picture.to_owned()],
+        output_path: out("images_refused"),
+        input_path: None,
+        at: None,
+        sheet: Some("a4".to_owned()),
+    });
+    assert!(refused.is_err_and(|e| format!("{e:?}").contains("A4, A5")), "an unknown sheet");
+}

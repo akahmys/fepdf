@@ -281,11 +281,67 @@ impl FepdfApp {
     /// The page count is not adjusted here. Unlike a removal, this window does not know
     /// how many pages are coming until the worker has opened the file, so the count and
     /// the layout come back with the reload rather than being guessed at.
+    ///
+    /// **Pictures go in through the same door** (ROADMAP AA-5): a JPEG, PNG or TIFF chosen
+    /// here becomes a page, on a sheet the size of the page it goes before.
     pub fn insert_document_at(&mut self, at: usize) {
-        let Some(path) = rfd::FileDialog::new().add_filter("PDF", &["pdf"]).pick_file() else {
-            return;
-        };
-        self.insert_document_bytes(&path, at);
+        let Some(paths) = opening_dialog().pick_files() else { return };
+        self.insert_files(&paths, at);
+    }
+
+    /// Everything [`Self::insert_document_at`] does once files have been named.
+    ///
+    /// Pictures alone go in as one act. Otherwise each file goes in at `at` in turn, last
+    /// first, so they come out in the order chosen.
+    pub fn insert_files(&mut self, paths: &[std::path::PathBuf], at: usize) {
+        let mut read = Vec::with_capacity(paths.len());
+        for path in paths {
+            match std::fs::read(path) {
+                Ok(bytes) => read.push(bytes),
+                Err(why) => {
+                    self.notice =
+                        Some(super::Notice::check("notice_open_failed").about(why.to_string()));
+                    return;
+                }
+            }
+        }
+        let operations: Vec<fepdf::Operation> =
+            if read.iter().all(|b| fepdf::PdfDocument::is_picture(b)) {
+                vec![fepdf::Operation::InsertImages { images: read, at, sheet: self.sheet_at(at) }]
+            } else {
+                read.into_iter()
+                    .rev()
+                    .map(|bytes| {
+                        if fepdf::PdfDocument::is_picture(&bytes) {
+                            fepdf::Operation::InsertImages {
+                                images: vec![bytes],
+                                at,
+                                sheet: self.sheet_at(at),
+                            }
+                        } else {
+                            fepdf::Operation::InsertFrom { source: bytes, at }
+                        }
+                    })
+                    .collect()
+            };
+        for operation in operations {
+            let _ = self.tx_worker.send(WorkerRequest::Apply {
+                operation: Box::new(operation),
+                done: self.tr("menu_insert_done"),
+            });
+        }
+    }
+
+    /// The sheet a picture put in at `at` is fitted to: the page it goes before, or the
+    /// last page, as it is shown — turned where the page is turned a quarter.
+    fn sheet_at(&self, at: usize) -> Option<[f32; 2]> {
+        let beside = at.min(self.total_pages.checked_sub(1)?);
+        let frame = self.page_layouts.iter().find(|l| l.index == beside)?.frame;
+        let (w, h) = (frame.rect.x2 - frame.rect.x1, frame.rect.y2 - frame.rect.y1);
+        let (w, h) = if frame.rotation.rem_euclid(180) == 90 { (h, w) } else { (w, h) };
+        #[allow(clippy::cast_possible_truncation)] // a page's size, well inside f32
+        let sheet = [w.abs() as f32, h.abs() as f32];
+        Some(sheet)
     }
 
     /// Everything [`Self::insert_document_at`] does once a file has been named.
@@ -293,18 +349,7 @@ impl FepdfApp {
     /// Split out because a capture plan cannot answer a file dialog, and a second copy of
     /// the read and the send would be a second thing to keep true (UI-12).
     pub fn insert_document_bytes(&mut self, path: &std::path::Path, at: usize) {
-        let source = match std::fs::read(path) {
-            Ok(bytes) => bytes,
-            Err(why) => {
-                self.notice =
-                    Some(super::Notice::check("notice_open_failed").about(why.to_string()));
-                return;
-            }
-        };
-        let _ = self.tx_worker.send(WorkerRequest::Apply {
-            operation: Box::new(fepdf::Operation::InsertFrom { source, at }),
-            done: self.tr("menu_insert_done"),
-        });
+        self.insert_files(&[path.to_path_buf()], at);
     }
 
     /// Writes `pages` as PNG files into a folder the reader picks.
@@ -625,4 +670,13 @@ mod turning {
         assert_eq!(pages_to_turn(true, &BTreeSet::new(), Some(3)), vec![3]);
         assert!(pages_to_turn(true, &BTreeSet::new(), None).is_empty());
     }
+}
+
+/// What the window opens and inserts: PDF, and the pictures it makes pages of (ROADMAP
+/// AA-5). One list for every dialog that opens or inserts, so that none of them is the
+/// one that forgot pictures (UI-12). The names are file types, the same in every
+/// language, so the filter carries no locale key.
+pub fn opening_dialog() -> rfd::FileDialog {
+    rfd::FileDialog::new()
+        .add_filter("PDF / JPEG / PNG / TIFF", &["pdf", "jpg", "jpeg", "png", "tif", "tiff"])
 }

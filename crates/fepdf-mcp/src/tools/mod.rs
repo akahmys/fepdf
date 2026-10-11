@@ -6,6 +6,7 @@ pub mod compare;
 pub mod extract;
 pub mod objects;
 pub mod operations;
+pub mod pictures;
 pub mod redact;
 #[cfg(feature = "render")]
 pub mod render;
@@ -23,6 +24,7 @@ pub use operations::metadata::*;
 pub use operations::page::*;
 pub use operations::struct_elem::*;
 pub use operations::*;
+pub use pictures::*;
 pub use redact::*;
 #[cfg(feature = "render")]
 pub use render::*;

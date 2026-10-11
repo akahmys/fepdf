@@ -18,6 +18,9 @@ serde.workspace = true
 bytes.workspace = true
 # XFDF (ISO 19444-1) is XML; the model already reads XMP with this one, which compiles no C.
 roxmltree.workspace = true
+# Pages made from pictures: a PNG's resolution and profile, and a TIFF's every page.
+png.workspace = true
+tiff.workspace = true
 
 [lints]
 workspace = true

@@ -248,6 +248,19 @@ pub enum Operation {
         /// The 0-based position to insert at, clamped to the page count.
         at: usize,
     },
+    /// A page for each picture, put in at `at` (ROADMAP AA-5, ADR-0123): a JPEG carried as
+    /// it is, a PNG with its alpha as a soft mask, and each page of a TIFF.
+    ///
+    /// Bytes, as `InsertFrom`'s source is, so the operation serialises.
+    InsertImages {
+        /// The pictures, each a JPEG, PNG or TIFF file whole.
+        images: Vec<Vec<u8>>,
+        /// The 0-based position to insert at, clamped to the page count.
+        at: usize,
+        /// The sheet every page is, in points, the picture fitted inside it; or `None`,
+        /// for each page to be its picture's size at the resolution its file states.
+        sheet: Option<[f32; 2]>,
+    },
     /// Put the named pages on a different sheet, and say what happens to what is on them.
     ///
     /// **One operation for both "change the paper size" and "scale".** They are the same
@@ -721,6 +734,7 @@ impl Operation {
             | Self::ReorderBatch { .. }
             | Self::DuplicatePages { .. }
             | Self::InsertFrom { .. }
+            | Self::InsertImages { .. }
             | Self::AddLtvInfo { .. }
             | Self::Upgrade { .. }
             | Self::UpdateStructElem { .. }

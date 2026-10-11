@@ -575,8 +575,8 @@ pub fn run_worker(
         match request {
             WorkerRequest::Open { data, name, password } => {
                 pages.clear();
-                current_bytes = Some(data.clone());
-                let origin = (data, name, password);
+                let Some(origin) = as_a_pdf((data, name, password), &tx) else { continue };
+                current_bytes = Some(origin.0.clone());
                 current_doc = open_requested(&mut history, recovery.as_deref(), origin, &tx);
                 send_form(current_doc.as_ref(), &tx);
                 ctx.request_repaint();
@@ -904,6 +904,34 @@ fn handle_export_images(
 /// **Sealed when the document is encrypted**, with the password it opened with: the
 /// journal holds what the reader typed, and the file was protected so that would not be
 /// on disk in the clear (ADR-0114).
+/// What `Open` was given, as a PDF: a JPEG, PNG or TIFF is made into one first, each
+/// page its picture's size, and named as the picture is with `.pdf` (ROADMAP AA-5).
+///
+/// **Made here, and opened as the file it would have been saved as**, so its history
+/// begins at the pictures' document rather than at a blank page with edits on it.
+fn as_a_pdf((data, name, password): Origin, tx: &Sender<WorkerResponse>) -> Option<Origin> {
+    if !PdfDocument::is_picture(&data) {
+        return Some((data, name, password));
+    }
+    let made = PdfDocument::from_images(vec![data.to_vec()], None)
+        .and_then(|doc| doc.to_bytes(&fepdf::SaveOptions::default()));
+    match made {
+        Ok(bytes) => {
+            let named = name.map(|n| {
+                std::path::Path::new(&n).with_extension("pdf").to_string_lossy().into_owned()
+            });
+            Some((Bytes::from(bytes), named, password))
+        }
+        Err(e) => {
+            let _ = tx.send(WorkerResponse::Failed {
+                key: "notice_open_failed",
+                detail: Some(e.to_string()),
+            });
+            None
+        }
+    }
+}
+
 fn open_requested(
     history: &mut History,
     recovery: Option<&std::path::Path>,
