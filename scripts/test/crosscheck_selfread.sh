@@ -118,6 +118,11 @@ done
 # resolves onto each page, so `dictionary[4]` becomes `dictionary[3]` while nothing is
 # lost. That is the single normalised state (ADR-0013), and it is the one entry where
 # the shape is not the fact worth comparing.
+#
+# `/SpiderInfo` is left out of the input side: a save drops it by rule, with the rest of
+# web capture 2.0 deprecates (`docs/specs/pdf-2-0-deprecations.md` row #6, ROADMAP AB-4),
+# and records that it did. No sample carries it (2026-10-11); a file that does would
+# otherwise read as losing a key the translation is meant to lose.
 echo "--- the catalogue survives, key for key ---"
 catalog_keys() {
     target/release/fepdf inspect catalog "$1" 2>/dev/null \
@@ -133,7 +138,7 @@ for src in samples/*.pdf; do
     b=$(basename "$src" .pdf)
     out="$WORK/$b.default.pdf"
     [ -f "$out" ] || continue
-    catalog_keys "$src" > "$WORK/cat.want"
+    catalog_keys "$src" | grep -v '^SpiderInfo ' > "$WORK/cat.want"
     if grep -q '^Metadata ' "$WORK/cat.want"; then
         catalog_keys "$out" > "$WORK/cat.got"
     else
@@ -168,11 +173,16 @@ done
 # normalised state (ADR-0013) rather than a loss. That is the same reason the check above
 # compares `/Pages` by key alone — this found it independently on its first run, which is
 # the evidence that it can see contents and not only shapes.
+#
+# The entries a save drops by rule are dropped from both sides too — `/SpiderInfo`, the
+# four page-boundary viewer preferences and `/Suspects` (rows #6, #17 and #29 of
+# `docs/specs/pdf-2-0-deprecations.md`) — for the reason the key check gives.
 echo "--- the catalogue still says the same things ---"
 catalog_reading() {
     target/release/fepdf inspect catalog --format json "$1" 2>/dev/null | python3 -c '
 import json, sys
 INHERITED = {"media_box", "resources", "rotate"}
+DROPPED_ON_SAVE = {"spider_info", "view_area", "view_clip", "print_area", "print_clip", "suspects"}
 def strip(node, inside_pages=False):
     if isinstance(node, dict):
         if "index" in node and "_phantom" in node:
@@ -180,7 +190,8 @@ def strip(node, inside_pages=False):
         return {
             k: strip(v, inside_pages or k == "pages")
             for k, v in node.items()
-            if k != "metadata" and not (inside_pages and k in INHERITED)
+            if k != "metadata" and k not in DROPPED_ON_SAVE
+            and not (inside_pages and k in INHERITED)
         }
     if isinstance(node, list):
         return [strip(v, inside_pages) for v in node]

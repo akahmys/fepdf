@@ -77,6 +77,148 @@ pub fn drop_subset_claims(arena: &PdfArena, decisions: &mut DecisionLog) {
     }
 }
 
+/// What a save leaves out, in [`drop_for_output`]'s order: the clause, and what was found.
+const LEFT_OUT: [(&str, &str); 9] = [
+    (
+        "14.10",
+        "catalogues, pages, images or name dictionaries carry web capture's /SpiderInfo, /ID, \
+         /IDS or /URLS, which 2.0 deprecates with the clause",
+    ),
+    ("13.5", "name dictionaries carry /AlternatePresentations, which 2.0 deprecates"),
+    (
+        "12.2",
+        "viewer preferences carry /ViewArea, /ViewClip, /PrintArea or /PrintClip, which 2.0 \
+         deprecates",
+    ),
+    ("14.7.1", "mark information dictionaries carry /Suspects, which 2.0 deprecates"),
+    ("14.11.4", "pages carry a separation dictionary, which 2.0 deprecates"),
+    ("14.11.7", "images or form XObjects carry an OPI dictionary, which 2.0 deprecates"),
+    (
+        "14.11.6",
+        "pages carry a trap network annotation, which 2.0 deprecates with trapping; no other \
+         kind means what it means",
+    ),
+    (
+        "7.11.3",
+        "file specifications carry /DOS, /Mac or /Unix beside /F or /UF, which 2.0 deprecates",
+    ),
+    ("13.6.3", "3D streams carry /Resources, which 2.0 deprecates"),
+];
+
+/// Takes out of a document being written what 2.0 deprecates and keeps nothing in place of
+/// — the rows of `docs/specs/pdf-2-0-deprecations.md` whose rule is *save* (ROADMAP AB-4)
+/// — and says how many of each went.
+///
+/// **On the copy a save writes, not at load**, as [`drop_subset_claims`] is: the audit
+/// reads `/Suspects` and the TrapNet annotation, and `inspect` reports what the file said,
+/// so the open document keeps each.
+pub fn drop_for_output(arena: &PdfArena, decisions: &mut DecisionLog) {
+    let mut dropped = [0usize; 9];
+    for holder in arena.all_dict_handles() {
+        let ty = name_of(arena, holder, "Type");
+        let subtype = name_of(arena, holder, "Subtype");
+        match (ty.as_deref(), subtype.as_deref()) {
+            (Some("Catalog"), _) => catalogue_for_output(arena, holder, &mut dropped),
+            (Some("Page"), _) => {
+                dropped[0] += drop_keys(arena, holder, &["ID"]);
+                dropped[4] += drop_keys(arena, holder, &["SeparationInfo"]);
+                dropped[6] += drop_trap_network(arena, holder);
+            }
+            (_, Some("Image")) => {
+                dropped[0] += drop_keys(arena, holder, &["ID"]);
+                dropped[5] += drop_keys(arena, holder, &["OPI"]);
+            }
+            (_, Some("Form")) => dropped[5] += drop_keys(arena, holder, &["OPI"]),
+            (Some("3D"), _) => dropped[8] += drop_keys(arena, holder, &["Resources"]),
+            _ => dropped[7] += drop_platform_names(arena, holder),
+        }
+    }
+    for (count, (clause, what)) in dropped.into_iter().zip(LEFT_OUT) {
+        if count > 0 {
+            decisions.push(Decision::repaired(
+                clause,
+                format!("{count} {what}"),
+                "left them out of what was written; the open document keeps them",
+            ));
+        }
+    }
+}
+
+/// The catalogue's share of [`drop_for_output`]: `/SpiderInfo`, the name dictionary's
+/// `/IDS`, `/URLS` and `/AlternatePresentations`, the four page-boundary viewer
+/// preferences, and `/Suspects`.
+fn catalogue_for_output(arena: &PdfArena, catalogue: DictHandle, dropped: &mut [usize; 9]) {
+    dropped[0] += drop_keys(arena, catalogue, &["SpiderInfo"]);
+    let inner = |key: &str| {
+        arena.dict_entry(catalogue, arena.name(key)).and_then(|v| v.resolve(arena).as_dict_handle())
+    };
+    if let Some(names) = inner("Names") {
+        dropped[0] += drop_keys(arena, names, &["IDS", "URLS"]);
+        dropped[1] += drop_keys(arena, names, &["AlternatePresentations"]);
+    }
+    if let Some(viewer) = inner("ViewerPreferences") {
+        dropped[2] += drop_keys(arena, viewer, &["ViewArea", "ViewClip", "PrintArea", "PrintClip"]);
+    }
+    if let Some(mark_info) = inner("MarkInfo") {
+        dropped[3] += drop_keys(arena, mark_info, &["Suspects"]);
+    }
+}
+
+/// Takes `page`'s trap network annotation out of its `/Annots`; 1 if it had one. Nothing
+/// else refers to it (12.5.6.21 puts it last in `/Annots` and nowhere else), so the writer,
+/// which writes what the catalogue reaches, does not write it.
+fn drop_trap_network(arena: &PdfArena, page: DictHandle) -> usize {
+    let key = arena.name("Annots");
+    let Some(Object::Array(array)) = arena.dict_entry(page, key).map(|a| a.resolve(arena)) else {
+        return 0;
+    };
+    let annots = arena.get_array(array).unwrap_or_default();
+    let kept: Vec<Object> = annots
+        .iter()
+        .filter(|a| {
+            let subtype =
+                a.resolve(arena).as_dict_handle().and_then(|h| name_of(arena, h, "Subtype"));
+            subtype.as_deref() != Some("TrapNet")
+        })
+        .cloned()
+        .collect();
+    if kept.len() == annots.len() {
+        return 0;
+    }
+    arena.set_array(array, kept);
+    1
+}
+
+/// A file specification's `/DOS`, `/Mac` and `/Unix`, and its embedded files' `/Mac`
+/// parameters, when it states `/F` or `/UF` beside them; 1 if any went.
+///
+/// **Only beside `/F` or `/UF`**: with neither, the platform string is all the file says,
+/// and making an `/F` of it is a guess at the platform's rules. **Not in a Launch action**,
+/// whose `/Mac` and `/Unix` are its own and are kept (row #20); an action says `/S`.
+fn drop_platform_names(arena: &PdfArena, holder: DictHandle) -> usize {
+    let has = |key: &str| arena.dict_entry(holder, arena.name(key)).is_some();
+    if has("S") || !(has("F") || has("UF")) {
+        return 0;
+    }
+    let mut dropped = drop_keys(arena, holder, &["DOS", "Mac", "Unix"]);
+    let files = arena
+        .dict_entry(holder, arena.name("EF"))
+        .and_then(|ef| ef.resolve(arena).as_dict_handle())
+        .and_then(|ef| arena.get_dict(ef))
+        .unwrap_or_default();
+    for stream in files.values() {
+        let params = stream
+            .resolve(arena)
+            .as_dict_handle()
+            .and_then(|s| arena.dict_entry(s, arena.name("Params")))
+            .and_then(|p| p.resolve(arena).as_dict_handle());
+        if let Some(params) = params {
+            dropped = dropped.max(drop_keys(arena, params, &["Mac"]));
+        }
+    }
+    dropped
+}
+
 /// How many of each translation were made.
 #[derive(Default)]
 struct Counts {

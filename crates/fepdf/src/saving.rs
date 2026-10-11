@@ -169,6 +169,7 @@ impl PdfDocument {
         let stripped = Self::settle_metadata(&output, options)?;
         let mut claims = fepdf_model::interpretation::DecisionLog::default();
         fepdf_model::ingest::conform::drop_subset_claims(output.arena(), &mut claims);
+        fepdf_model::ingest::conform::drop_for_output(output.arena(), &mut claims);
         let (final_arena, root, info) =
             (output.arena(), *output.root_handle(), output.info_handle());
 

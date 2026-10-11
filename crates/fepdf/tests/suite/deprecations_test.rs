@@ -63,30 +63,30 @@ const ROWS: &[Row] = {
         Row { number: 1, from: From::Info, path: &["Trapped"], open: Absent, saved: Absent },
         row(5, &["NeedsRendering"], Present, Present),
         row(5, &["AcroForm", "XFA"], Present, Present),
-        row(6, &["SpiderInfo"], Present, Present),
-        row(6, &["Pages", "Kids", PAGE, "ID"], Present, Present),
-        row(6, &["Pages", "Kids", PAGE, "Resources", "XObject", "Im1", "ID"], Present, Present),
-        row(6, &["Names", "IDS"], Present, Present),
-        row(6, &["Names", "URLS"], Present, Present),
-        row(7, &["Names", "AlternatePresentations"], Present, Present),
+        row(6, &["SpiderInfo"], Present, Absent),
+        row(6, &["Pages", "Kids", PAGE, "ID"], Present, Absent),
+        row(6, &["Pages", "Kids", PAGE, "Resources", "XObject", "Im1", "ID"], Present, Absent),
+        row(6, &["Names", "IDS"], Present, Absent),
+        row(6, &["Names", "URLS"], Present, Absent),
+        row(7, &["Names", "AlternatePresentations"], Present, Absent),
         row(8, &["Pages", "Kids", PAGE, "Resources", "ProcSet"], Absent, Absent),
         row(
             9,
             &["Pages", "Kids", PAGE, "Annots", "Subtype=Link", "A", "F", "DOS"],
             Present,
-            Present,
+            Absent,
         ),
         row(
             9,
             &["Pages", "Kids", PAGE, "Annots", "Subtype=Link", "A", "F", "Mac"],
             Present,
-            Present,
+            Absent,
         ),
         row(
             9,
             &["Pages", "Kids", PAGE, "Annots", "Subtype=Link", "A", "F", "Unix"],
             Present,
-            Present,
+            Absent,
         ),
         row(
             10,
@@ -128,15 +128,15 @@ const ROWS: &[Row] = {
             Present,
             Absent,
         ),
-        row(17, &["ViewerPreferences", "ViewArea"], Present, Present),
-        row(17, &["ViewerPreferences", "PrintClip"], Present, Present),
+        row(17, &["ViewerPreferences", "ViewArea"], Present, Absent),
+        row(17, &["ViewerPreferences", "PrintClip"], Present, Absent),
         row(18, &["Pages", "Kids", PAGE, "Annots", "Subtype=Sound"], Present, Present),
-        row(19, &["Pages", "Kids", PAGE, "Annots", "Subtype=TrapNet"], Present, Present),
+        row(19, &["Pages", "Kids", PAGE, "Annots", "Subtype=TrapNet"], Present, Absent),
         row(
             19,
             &["Pages", "Kids", PAGE, "Annots", "Subtype=TrapNet", "AP", "N", "TrapRegions"],
             Present,
-            Present,
+            Absent,
         ),
         row(20, &["Pages", "Kids", PAGE, "Annots", "Subtype=Link", "A", "Win"], Present, Present),
         row(20, &["Pages", "Kids", PAGE, "Annots", "Subtype=Link", "A", "Unix"], Present, Present),
@@ -145,17 +145,17 @@ const ROWS: &[Row] = {
             28,
             &["Pages", "Kids", PAGE, "Annots", "Subtype=3D", "3DD", "Resources"],
             Present,
-            Present,
+            Absent,
         ),
-        row(29, &["MarkInfo", "Suspects"], Present, Present),
+        row(29, &["MarkInfo", "Suspects"], Present, Absent),
         row(30, &["StructTreeRoot", "K", "R"], Absent, Absent),
         row(30, &["StructTreeRoot", "K", "C"], Array, Array),
         row(30, &["StructTreeRoot", "K", "A"], Present, Present),
         row(31, &["StructTreeRoot", "K", "A", "O=PrintField", "checked"], Absent, Absent),
         row(31, &["StructTreeRoot", "K", "A", "O=PrintField", "Checked"], Present, Present),
-        row(32, &["Pages", "Kids", PAGE, "SeparationInfo"], Present, Present),
-        row(33, &["Pages", "Kids", PAGE, "Resources", "XObject", "Im1", "OPI"], Present, Present),
-        row(33, &["Pages", "Kids", PAGE, "Resources", "XObject", "Fm1", "OPI"], Present, Present),
+        row(32, &["Pages", "Kids", PAGE, "SeparationInfo"], Present, Absent),
+        row(33, &["Pages", "Kids", PAGE, "Resources", "XObject", "Im1", "OPI"], Present, Absent),
+        row(33, &["Pages", "Kids", PAGE, "Resources", "XObject", "Fm1", "OPI"], Present, Absent),
     ]
 };
 
@@ -300,7 +300,8 @@ fn page_contents(arena: &PdfArena, page: &Object) -> Option<Object> {
 
 /// **What is dropped or rewritten is said**: at load `/ProcSet`, a font's, an image's and a
 /// form's `/Name`, the two deprecated forms of `/BM`, `checked` and the revision numbers; on
-/// save a descriptor's subset claims — each once, by its clause. `/Trapped` moves into the
+/// save a descriptor's subset claims and the nine kinds `drop_for_output` leaves out — each
+/// once, by its clause. `/Trapped` moves into the
 /// packet and loses nothing, so it is not said (`ARCHITECTURE.md` §4.3).
 #[test]
 fn each_drop_is_recorded_by_its_clause() {
@@ -316,7 +317,16 @@ fn each_drop_is_recorded_by_its_clause() {
     }
     let (_, on_save) = saved(&doc);
     let on_save: Vec<String> = on_save.into_iter().map(|d| d.clause.into_owned()).collect();
-    assert_eq!(on_save.iter().filter(|c| *c == "9.8.1").count(), 1, "on save: {on_save:?}");
+    for clause in [
+        "9.8.1", "14.10", "13.5", "12.2", "14.7.1", "14.11.4", "14.11.7", "14.11.6", "7.11.3",
+        "13.6.3",
+    ] {
+        assert_eq!(
+            on_save.iter().filter(|c| *c == clause).count(),
+            1,
+            "{clause} on save: {on_save:?}"
+        );
+    }
 }
 
 /// **#10, #11: the page draws with Multiply, then Normal** — the first mode of
@@ -341,4 +351,26 @@ fn trapped_moves_into_the_packet() {
     let reread = PdfDocument::open(bytes.into()).expect("the save reads");
     // The saved `/Info` has no `/Trapped` (row #1), so this can only be the packet's.
     assert_eq!(reread.metadata().trapped.as_deref(), Some("False"));
+}
+
+/// **#19: the trap network annotation is not written at all** — not only gone from
+/// `/Annots`, which the row checks, but absent from every object of the saved file, so
+/// nothing is left that no page reaches.
+#[test]
+fn no_trap_network_is_written() {
+    let (bytes, _) = saved(&opened());
+    let raw = fepdf_model::reader::load_document(&Bytes::from(bytes)).expect("the save reads");
+    let trap_networks = raw
+        .arena
+        .all_dict_handles()
+        .into_iter()
+        .filter(|h| {
+            raw.arena
+                .dict_entry(*h, raw.arena.name("Subtype"))
+                .and_then(|s| s.as_name())
+                .and_then(|n| raw.arena.get_name_str(n))
+                .is_some_and(|n| n == "TrapNet")
+        })
+        .count();
+    assert_eq!(trap_networks, 0);
 }

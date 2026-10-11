@@ -20,6 +20,9 @@ does it say whether what was read was read correctly.
 Round-trip fidelity holds: no catalogue key is lost through a save, and
 `crosscheck_selfread.sh` makes that comparison rather than this sentence asserting it.
 The differences are by design:
+- `/SpiderInfo` is dropped, with the rest of what 2.0 deprecates and keeps nothing in
+  place of ([docs/specs/pdf-2-0-deprecations.md](docs/specs/pdf-2-0-deprecations.md),
+  AB-4).
 - `/Metadata` is added where a source had none.
 - Objects are renumbered, since saving produces a new document
   ([ADR-0012](docs/adr/0012-saving-produces-a-new-document.md)).
@@ -2098,13 +2101,21 @@ file, and the Arlington audit of a saved probe reports only rows whose rule is K
       `MetadataInfo::trapped`, and writes it with `xmp-writer`'s `trapped`; `Unknown`, the
       default, is not carried. Each of the five pieces was taken out in turn and failed its
       rows or `trapped_moves_into_the_packet`. Ten gaps remain.
-- [ ] **AB-4** — **on save**, beside `drop_subset_claims`: web capture's five keys,
+- [x] **AB-4** — **on save**, beside `drop_subset_claims`: web capture's five keys,
       `/AlternatePresentations`, the `/ViewArea` family, `/Suspects`, `/SeparationInfo`,
       OPI, the TrapNet annotation (taken out of `/Annots` too), a file specification's
       platform strings when `/F` or `/UF` is there, and a 3D stream's `/Resources`. One
       `Decision` a kind. `crosscheck_selfread.sh` compares catalogues key for key, and the
       claim this file opens with says no catalogue key is lost; both name `/SpiderInfo`
       as the one catalogue key a save drops by rule.
+      **Done, 2026-10-11**: `conform::drop_for_output`, called by `write_into` on the copy
+      it writes, with nine `Decision`s. Shown to fail with the call removed (18 rows), with
+      the TrapNet step doing nothing, and with the Launch action's guard removed, which
+      took row #20's `/Unix` — the one place a kept row and a dropped one share a key.
+      `no_trap_network_is_written` scans every object of the saved file. Of the samples,
+      none carries a catalogue entry this drops (scanned with `inspect catalog`, which
+      finds each in the probe), so the crosscheck's exclusions change nothing on them
+      today. One gap remains, #21, which is AB-5.
 - [ ] **AB-5** — **`/NeedAppearances` from the file** (#21): an appearance built for each
       widget that lacks one, then the entry dropped. Text fields have a builder
       (`set_text_appearance`); check boxes, radio buttons, choice fields, push buttons,
