@@ -137,9 +137,10 @@ pub struct SaveArgs {
     // encryption flag. `required_unless_present_any` says the opposite of what it reads
     // like — it made `--permissions` mandatory on every save — so the check is below,
     // where the message can say why.
-    /// Grant only these permissions: print, modify, copy, annotate, forms,
-    /// accessibility, assemble, print-high. Everything unnamed is denied. Needs one of
-    /// --encrypt-password or --encrypt-to, since /P lives in /Encrypt
+    /// Grant only these permissions: print, modify, copy, annotate, forms, assemble,
+    /// print-high. Everything unnamed is denied. Extracting for accessibility is always
+    /// granted, as PDF 2.0 requires; `accessibility` is accepted and changes nothing. Needs
+    /// one of --encrypt-password or --encrypt-to, since /P lives in /Encrypt
     #[arg(long)]
     pub permissions: Option<String>,
     /// Text string encoding for non-ASCII characters (utf16be, utf8)

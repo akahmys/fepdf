@@ -237,7 +237,6 @@
   "export_opt_linearize": "ヒントテーブル線形化 (ファストウェブビュー)",
   "export_opt_strip": "説明的なメタデータを削除（文書情報と XMP）",
   "export_options_heading": "書き出しと適合性オプション",
-  "export_perm_accessibility": "アクセシビリティのための抽出（PDF 2.0 では非推奨）",
   "export_perm_annotate": "注釈の追加・変更とフォーム入力",
   "export_perm_assemble": "ページの挿入・回転・削除",
   "export_perm_copy": "文字や図のコピー・抽出",

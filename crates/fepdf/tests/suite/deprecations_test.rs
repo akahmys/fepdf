@@ -425,12 +425,13 @@ fn written_p(permissions: Option<&str>) -> i64 {
     entry(&raw.arena, &encrypt, "P").and_then(|p| p.as_integer()).expect("a /P")
 }
 
-/// **#4: bit 10 of `/P`**, which 2.0 deprecates as a restriction: "PDF writers shall
-/// always set this bit to 1" (Table 22). Set when no permissions are named; **clear when
-/// they are and `accessibility` is not** — the gap row #4 records.
+/// **#4: bit 10 of `/P` is always set**, which is what 2.0 asks of a writer once it
+/// deprecates the restriction: "PDF writers shall always set this bit to 1" (Table 22).
+/// With permissions named and `accessibility` not among them, it was cleared.
 #[test]
-fn permission_bit_10_as_written() {
+fn permission_bit_10_is_always_set() {
     let bit_10 = |p: i64| p & (1 << 9) != 0;
     assert!(bit_10(written_p(None)), "with every permission granted");
-    assert!(!bit_10(written_p(Some("print"))), "with print named and accessibility not");
+    assert!(bit_10(written_p(Some("print"))), "with print named and accessibility not");
+    assert!(bit_10(written_p(Some(""))), "with nothing granted");
 }

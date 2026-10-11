@@ -7,13 +7,12 @@ use std::path::PathBuf;
 ///
 /// **The keywords are the engine's**, `fepdf::permission_keywords`; this only adds the
 /// names, and `the_permissions_offered_are_the_engines` fails if the two lists part.
-const PERMISSIONS: [(&str, &str); 8] = [
+const PERMISSIONS: [(&str, &str); 7] = [
     ("print", "export_perm_print"),
     ("modify", "export_perm_modify"),
     ("copy", "export_perm_copy"),
     ("annotate", "export_perm_annotate"),
     ("forms", "export_perm_forms"),
-    ("accessibility", "export_perm_accessibility"),
     ("assemble", "export_perm_assemble"),
     ("print-high", "export_perm_print_high"),
 ];
@@ -457,7 +456,7 @@ mod protection {
         let protection = protection_of(Some(&password), None, None, &denied);
         assert_eq!(
             protection.permissions.as_deref(),
-            Some("print,annotate,forms,accessibility,assemble,print-high")
+            Some("print,annotate,forms,assemble,print-high")
         );
     }
 

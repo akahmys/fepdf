@@ -139,10 +139,22 @@ const PERMISSION_BITS: &[(u8, &str, &str)] = &[
     (12, "print-high", "print at high resolution"),
 ];
 
-/// The keywords `--permissions` takes, for a caller that has to list them.
+/// Bit 10, the restriction on extracting for accessibility, which 2.0 deprecates: "PDF
+/// readers shall ignore this bit and PDF writers shall always set this bit to 1" (Table
+/// 22). So it is **always granted** in a `/P` this engine writes, and reported as the file
+/// has it in one it reads (ROADMAP AB-6).
+const ALWAYS_GRANTED: u8 = 10;
+
+/// The keywords `--permissions` takes that decide something, for a caller that has to
+/// list them or offer them. `accessibility` is accepted too and grants what is granted
+/// regardless, so it is not offered.
 #[must_use]
 pub fn permission_keywords() -> Vec<&'static str> {
-    PERMISSION_BITS.iter().map(|(_, keyword, _)| *keyword).collect()
+    PERMISSION_BITS
+        .iter()
+        .filter(|(bit, _, _)| *bit != ALWAYS_GRANTED)
+        .map(|(_, keyword, _)| *keyword)
+        .collect()
 }
 
 /// Builds a `/P` from a comma-separated list of keywords: what is named is granted.
@@ -151,6 +163,7 @@ pub fn permission_keywords() -> Vec<&'static str> {
 /// mean something — `--permissions ""` grants nothing, rather than silently granting
 /// all. The reserved bits follow Table 22: 1 and 2 are cleared, and the rest are set,
 /// because a reserved bit written the wrong way is a `/P` other readers disagree about.
+/// Bit 10 is set whatever the list says (`ALWAYS_GRANTED`).
 ///
 /// # Errors
 /// If a keyword is not one of [`permission_keywords`], naming the ones that are.
@@ -161,6 +174,7 @@ pub fn permissions_from_keywords(list: &str) -> PdfResult<i32> {
     for (bit, _, _) in PERMISSION_BITS {
         bits &= !(1 << (bit - 1));
     }
+    bits |= 1 << (ALWAYS_GRANTED - 1);
 
     for keyword in list.split(',').map(str::trim).filter(|k| !k.is_empty()) {
         let found = PERMISSION_BITS.iter().find(|(_, k, _)| *k == keyword).ok_or_else(|| {

@@ -2131,8 +2131,15 @@ file, and the Arlington audit of a saved probe reports only rows whose rule is K
       code shows and the probe does not carry. FDF encryption is read and written nowhere. **One gap was
       found: permission bit 10** — `permissions_from_keywords` clears it unless
       `accessibility` is named, where Table 22 says a writer shall always set it.
-      `permission_bit_10_as_written` asserts that as it stands. Two gaps remain: #4 and
+      `permission_bit_10_as_written` asserted that as it stood. Two gaps remained: #4 and
       #21.
+- [x] **AB-6b** — **permission bit 10, always set** (#4, Table 22).
+      **Done, 2026-10-12**: `permissions_from_keywords` sets it whatever the list says.
+      `accessibility` is still accepted, as the owner chose, and changes nothing;
+      `permission_keywords` no longer lists it, so the window's export dialog no longer
+      offers it and `--permissions`' help says why. `permission_bit_10_is_always_set`
+      saves with every permission, with `print` alone and with none, and fails with the
+      line that sets the bit removed. One gap remains, #21, which is AB-5.
 
 ---
 
