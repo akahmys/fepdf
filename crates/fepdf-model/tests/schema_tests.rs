@@ -41,6 +41,23 @@ fn test_graphics_schema_expansion() {
     assert_eq!(PdfExtGState::iso_clause(), "8.4.5");
 }
 
+/// **A `/BM` array is read as its first recognised mode, or `Normal`** (11.6.3), and
+/// `Compatible` as `Normal` (Table 134). Read as a name alone, an array set no mode at all.
+#[test]
+fn a_blend_mode_array_is_its_first_recognised_mode() {
+    use fepdf_model::graphics::BlendMode;
+    let arena = PdfArena::new();
+    let read = |names: &[&str]| {
+        let items = names.iter().map(|n| Object::Name(arena.name(n))).collect();
+        BlendMode::from_pdf_object(Object::Array(arena.alloc_array(items)), &arena).unwrap()
+    };
+    assert_eq!(read(&["Foo", "Multiply", "Screen"]), BlendMode::Multiply);
+    assert_eq!(read(&["Foo"]), BlendMode::Normal);
+    assert_eq!(read(&["Compatible", "Multiply"]), BlendMode::Normal);
+    let compatible = Object::Name(arena.name("Compatible"));
+    assert_eq!(BlendMode::from_pdf_object(compatible, &arena).unwrap(), BlendMode::Normal);
+}
+
 /// `/PageMode` and `/PageLayout` are names from a fixed list, and the list has grown
 /// twice — `UseOC` in 1.5, `UseAttachments` in 1.6. A file may therefore carry a value
 /// newer than this code, so an unrecognised one is kept rather than folded to a default.

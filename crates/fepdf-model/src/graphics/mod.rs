@@ -647,34 +647,57 @@ pub struct TextMatrices {
     pub tlm: Matrix,
 }
 
+impl BlendMode {
+    /// The mode `name` names in Tables 134 and 135, or `None` for a name neither has.
+    ///
+    /// `Compatible` is `Normal`: Table 134 says so, and deprecates it in 2.0.
+    #[must_use]
+    pub fn named(name: &str) -> Option<Self> {
+        Some(match name {
+            "Normal" | "Compatible" => Self::Normal,
+            "Multiply" => Self::Multiply,
+            "Screen" => Self::Screen,
+            "Overlay" => Self::Overlay,
+            "Darken" => Self::Darken,
+            "Lighten" => Self::Lighten,
+            "ColorDodge" => Self::ColorDodge,
+            "ColorBurn" => Self::ColorBurn,
+            "HardLight" => Self::HardLight,
+            "SoftLight" => Self::SoftLight,
+            "Difference" => Self::Difference,
+            "Exclusion" => Self::Exclusion,
+            "Hue" => Self::Hue,
+            "Saturation" => Self::Saturation,
+            "Color" => Self::Color,
+            "Luminosity" => Self::Luminosity,
+            _ => return None,
+        })
+    }
+}
+
+/// A `/BM` is a name or, deprecated in 2.0, an array of names. **Of an array, the first
+/// mode recognised is used, or `Normal` if none is** (11.6.3); an unrecognised name is
+/// `Normal` too.
 impl FromPdfObject for BlendMode {
     fn from_pdf_object(obj: Object, arena: &PdfArena) -> PdfResult<Self> {
-        let name = obj.resolve(arena).as_name().ok_or_else(|| PdfError::Parse {
-            pos: 0,
-            message: "Expected name for BlendMode".into(),
-        })?;
-        let name_owned = arena
-            .get_name(name)
-            .map(|n| n.as_str().to_string())
-            .unwrap_or_else(|| "Normal".to_string());
-        match name_owned.as_str() {
-            "Normal" | "Compatible" => Ok(Self::Normal),
-            "Multiply" => Ok(Self::Multiply),
-            "Screen" => Ok(Self::Screen),
-            "Overlay" => Ok(Self::Overlay),
-            "Darken" => Ok(Self::Darken),
-            "Lighten" => Ok(Self::Lighten),
-            "ColorDodge" => Ok(Self::ColorDodge),
-            "ColorBurn" => Ok(Self::ColorBurn),
-            "HardLight" => Ok(Self::HardLight),
-            "SoftLight" => Ok(Self::SoftLight),
-            "Difference" => Ok(Self::Difference),
-            "Exclusion" => Ok(Self::Exclusion),
-            "Hue" => Ok(Self::Hue),
-            "Saturation" => Ok(Self::Saturation),
-            "Color" => Ok(Self::Color),
-            "Luminosity" => Ok(Self::Luminosity),
-            _ => Ok(Self::Normal),
+        let named = |item: &Object| {
+            item.resolve(arena)
+                .as_name()
+                .and_then(|n| arena.get_name_str(n))
+                .and_then(|n| Self::named(&n))
+        };
+        match obj.resolve(arena) {
+            name @ Object::Name(_) => Ok(named(&name).unwrap_or(Self::Normal)),
+            Object::Array(array) => Ok(arena
+                .get_array(array)
+                .unwrap_or_default()
+                .iter()
+                .find_map(named)
+                .unwrap_or(Self::Normal)),
+            _ => Err(PdfError::Parse {
+                pos: 0,
+                message: "Expected a name or an array for BlendMode".into(),
+            }),
         }
     }
 }

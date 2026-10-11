@@ -54,8 +54,8 @@ carry. A **gap** is a row whose Now is not its Rule.
 | 7 | `/AlternatePresentations` (Table 32, 13.5) | — | Save | **Gap**: kept |
 | 8 | `/ProcSet` (Table 34, 14.2) | — | Load | Dropped at load (`discovery.rs`, `drop_procsets`) |
 | 9 | File specification `/DOS`, `/Mac`, `/Unix`; embedded file `/Mac` (Tables 43, 45) | `/F`, `/UF` — derived | Save when `/F` or `/UF` is present; otherwise keep, since making `/F` from a platform string is a guess | **Gap**: kept beside `/F` and `/UF` |
-| 10 | Array of blend modes (Table 57, 11.6.3) | Reader takes the first it recognises — stated | Load | **Gap**: written unchanged, and *code*: `BlendMode::from_pdf_object` accepts only a name, so an array is not applied at all — contrary to 11.6.3 |
-| 11 | Blend mode `Compatible` (Table 134) | `Normal` — stated | Load | *Code*: drawn as `Normal` (`graphics/mod.rs`); written unchanged |
+| 10 | Array of blend modes (Table 57, 11.6.3) | Reader takes the first it recognises — stated | Load | Made the first recognised name at load (`conform.rs`, `11.6.3` recorded), and read so by `BlendMode::from_pdf_object` wherever an array is still met |
+| 11 | Blend mode `Compatible` (Table 134) | `Normal` — stated | Load | Made `Normal` at load (`conform.rs`, `11.3.5` recorded) |
 | 12 | `/TR`, `/TR2` in a graphics state (Table 57, 10.5) | Halftone transfer functions — derived, **not equivalent** | Keep | Kept; *code*: not applied (only a soft mask's `/TR` is read) |
 | 13 | Operator `F` (Table 59) | `f` — stated | Interpret | A saved content stream carries `f` |
 | 14 | `/Name` of fonts (Table 109), image and form XObjects (Tables 87, 93) | — | Load | Font: dropped at load (`conform.rs`). **Gap**: image and form `/Name` kept |

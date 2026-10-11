@@ -2058,7 +2058,8 @@ express; then AA-5 and AA-6.
 [docs/specs/pdf-2-0-deprecations.md](docs/specs/pdf-2-0-deprecations.md) gives each of the
 34 features ISO 32000-2 deprecates a rule — load, interpret, save, keep, never written —
 and what the engine does now. AB-1 measured fifteen rows as gaps on 2026-10-11 (count
-the table's **Gap** marks), and a blend-mode array is not applied at all. The owner decided two rules the same day: a file's own
+the table's **Gap** marks); AB-2 closed one, and with it a blend-mode array that was not
+applied at all. The owner decided two rules the same day: a file's own
 `/NeedAppearances true` is dropped once every widget has an appearance built for it, and
 a TrapNet annotation is dropped on save rather than turned into another kind, since none
 carries what it means.
@@ -2078,10 +2079,15 @@ file, and the Arlington audit of a saved probe reports only rows whose rule is K
       `drop_procsets` and `drop_subset_claims` taken out, and with the parser no longer
       reading `F`. It measured three rows the table had not: a form XObject's `/Name` and
       a 3D stream's `/Resources` are kept, and `/CIDSet` goes on save as `/CharSet` does.
-- [ ] **AB-2** — **a blend-mode array** (11.6.3): `BlendMode::from_pdf_object` takes the
+- [x] **AB-2** — **a blend-mode array** (11.6.3): `BlendMode::from_pdf_object` takes the
       first mode it recognises, or `Normal`; and at load an array, and `Compatible`, become
       one name. *Done when* `/BM [/Foo /Multiply]` draws as Multiply, shown to fail with the
       array arm removed.
+      **Done, 2026-10-11**: `BlendMode::named` and an array arm in `graphics/mod.rs`, and
+      `one_blend_mode` in `conform.rs`, recording `11.6.3` and `11.3.5`. The probe draws
+      Multiply then Normal. The two halves cover for each other, so each was broken alone
+      and then both: the array arm alone fails `schema_tests.rs`, the load step alone fails
+      rows #10 and #11 and their `Decision`s, and the draw test fails only with both gone.
 - [ ] **AB-3** — **at load**: an image or form XObject's `/Name` (#14), `checked` as
       `Checked` (#31), a structure element's `/R` and the integers in `/C` and `/A` (#30 —
       the two readers, `audit_tree.rs` and `apply/structure.rs`, skip them already), and

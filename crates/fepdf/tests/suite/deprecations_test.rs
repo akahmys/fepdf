@@ -11,8 +11,11 @@
 
 use bytes::Bytes;
 use fepdf::{PdfDocument, SaveOptions};
+use fepdf_content::BlendMode;
+use fepdf_fixtures::recorder::{Event, Recorder};
 use fepdf_model::access::entry;
 use fepdf_model::{Object, PdfArena};
+use kurbo::Affine;
 
 /// Where a row's object hangs from.
 #[derive(Clone, Copy)]
@@ -54,7 +57,7 @@ const PAGE: &str = "0";
 
 /// Every row, with what the engine does now. Kept in the table's order.
 const ROWS: &[Row] = {
-    use Seen::{Absent, Array, ArrayWithInteger, Name, Present};
+    use Seen::{Absent, ArrayWithInteger, Name, Present};
     &[
         Row { number: 1, from: From::Info, path: &["Title"], open: Absent, saved: Absent },
         Row { number: 1, from: From::Info, path: &["Trapped"], open: Present, saved: Present },
@@ -85,12 +88,17 @@ const ROWS: &[Row] = {
             Present,
             Present,
         ),
-        row(10, &["Pages", "Kids", PAGE, "Resources", "ExtGState", "G1", "BM"], Array, Array),
+        row(
+            10,
+            &["Pages", "Kids", PAGE, "Resources", "ExtGState", "G1", "BM"],
+            Name("Multiply"),
+            Name("Multiply"),
+        ),
         row(
             11,
             &["Pages", "Kids", PAGE, "Resources", "ExtGState", "G2", "BM"],
-            Name("Compatible"),
-            Name("Compatible"),
+            Name("Normal"),
+            Name("Normal"),
         ),
         row(12, &["Pages", "Kids", PAGE, "Resources", "ExtGState", "G1", "TR"], Present, Present),
         row(12, &["Pages", "Kids", PAGE, "Resources", "ExtGState", "G1", "TR2"], Present, Present),
@@ -174,14 +182,20 @@ fn walk(arena: &PdfArena, start: Object, path: &[&str]) -> Option<Object> {
     Some(at)
 }
 
+/// The names a row distinguishes; any other reads as [`Seen::Present`].
+const NAMES: &[&str] = &["Compatible", "Normal", "Multiply"];
+
 /// What is at `path`, as a row says it.
 fn seen(arena: &PdfArena, start: Option<Object>, path: &[&str]) -> Seen {
     let Some(value) = start.and_then(|s| walk(arena, s, path)) else { return Seen::Absent };
     match value {
-        Object::Name(n) => match arena.get_name_str(n).as_deref() {
-            Some("Compatible") => Seen::Name("Compatible"),
-            _ => Seen::Present,
-        },
+        Object::Name(n) => {
+            let spelled = arena.get_name_str(n);
+            NAMES
+                .iter()
+                .find(|k| Some(**k) == spelled.as_deref())
+                .map_or(Seen::Present, |k| Seen::Name(k))
+        }
         Object::Array(array) => {
             let items = arena.get_array(array).unwrap_or_default();
             if items.iter().any(|i| matches!(i, Object::Integer(_))) {
@@ -204,7 +218,12 @@ fn opened() -> PdfDocument {
 /// The probe saved loose and uncompressed, as the bytes and what the save decided.
 fn saved(doc: &PdfDocument) -> (Vec<u8>, Vec<fepdf_model::interpretation::Decision>) {
     let options = SaveOptions { compress: false, obj_stm: false, ..SaveOptions::default() };
-    let path = std::env::temp_dir().join(format!("fepdf-deprecations-{}.pdf", std::process::id()));
+    // One path a save: the tests of this file run in parallel in one process, and a path
+    // from the process id alone let one test remove the file another was about to read.
+    static SAVES: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+    let n = SAVES.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let path =
+        std::env::temp_dir().join(format!("fepdf-deprecations-{}-{n}.pdf", std::process::id()));
     let decisions = doc.save_with_options(&path, "2.0", &options).expect("the probe saves");
     let bytes = std::fs::read(&path).expect("the save was written");
     let _ = std::fs::remove_file(&path);
@@ -278,13 +297,14 @@ fn page_contents(arena: &PdfArena, page: &Object) -> Option<Object> {
     arena.get_object(contents.as_reference()?)
 }
 
-/// **What is dropped is said**: `/ProcSet` and a font's `/Name` at load, a descriptor's
-/// subset claims on save — each once, by its clause.
+/// **What is dropped or rewritten is said**: `/ProcSet`, a font's `/Name` and the two
+/// deprecated forms of `/BM` at load, a descriptor's subset claims on save — each once, by
+/// its clause.
 #[test]
 fn each_drop_is_recorded_by_its_clause() {
     let doc = opened();
     let at_load: Vec<String> = doc.decisions().into_iter().map(|d| d.clause.into_owned()).collect();
-    for clause in ["14.2", "9.6.2.1"] {
+    for clause in ["14.2", "9.6.2.1", "11.6.3", "11.3.5"] {
         assert_eq!(
             at_load.iter().filter(|c| *c == clause).count(),
             1,
@@ -294,4 +314,18 @@ fn each_drop_is_recorded_by_its_clause() {
     let (_, on_save) = saved(&doc);
     let on_save: Vec<String> = on_save.into_iter().map(|d| d.clause.into_owned()).collect();
     assert_eq!(on_save.iter().filter(|c| *c == "9.8.1").count(), 1, "on save: {on_save:?}");
+}
+
+/// **#10, #11: the page draws with Multiply, then Normal** — the first mode of
+/// `[/Foo /Multiply]` a reader recognises, and `Compatible` as Table 134 has it (11.6.3).
+#[test]
+fn a_blend_mode_array_draws_with_its_first_recognised_mode() {
+    let mut drawn = Recorder::new();
+    opened().render_page(0, &mut drawn, Affine::IDENTITY).expect("the page draws");
+    let blends: Vec<BlendMode> = drawn
+        .events
+        .iter()
+        .filter_map(|e| if let Event::Blend(m) = e { Some(*m) } else { None })
+        .collect();
+    assert_eq!(blends, vec![BlendMode::Multiply, BlendMode::Normal]);
 }

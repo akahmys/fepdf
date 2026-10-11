@@ -4,14 +4,17 @@
 //! a departure (ROADMAP Y-F28): a font's `/Name`, a descriptor's `/CIDSet` and `/CharSet`,
 //! a form's 1.0 resource `/Encoding`, keys a dictionary of its kind does not have, and a
 //! DCT image's `/ColorTransform` written in the image dictionary instead of its decode
-//! parameters. Each is translated here — moved where 2.0 keeps it, or dropped where 2.0
-//! keeps nothing — and each kind is recorded once a document, with how many.
+//! parameters. A `/BM` written as an array or as `Compatible` is made one name, as 11.6.3
+//! and Table 134 read it (ROADMAP AB-2). Each is translated here — moved where 2.0 keeps
+//! it, rewritten as what it means, or dropped where 2.0 keeps nothing — and each kind is
+//! recorded once a document, with how many.
 //!
 //! A key no table of the standard names anywhere is left alone: 7.3.7 lets a dictionary
 //! carry one, and a reader ignores it. What is taken out here is what the standard names
 //! and deprecates, or names for another dictionary.
 
 use crate::arena::PdfArena;
+use crate::graphics::BlendMode;
 use crate::handle::DictHandle;
 use crate::interpretation::{Decision, DecisionLog};
 use crate::object::Object;
@@ -36,6 +39,9 @@ pub fn conform_to_2_0(arena: &PdfArena, decisions: &mut DecisionLog) {
             (_, Some("Image")) => counts.color_transform += move_color_transform(arena, holder),
             _ => {}
         }
+        let (array, compatible) = one_blend_mode(arena, holder);
+        counts.blend_array += array;
+        counts.blend_compatible += compatible;
     }
     (counts.mark_info, counts.viewer) = untyped_catalog_entries(arena);
     (counts.form_encoding, counts.widget_resources) = form_resources(arena);
@@ -75,48 +81,54 @@ struct Counts {
     viewer: usize,
     form_encoding: usize,
     widget_resources: usize,
+    blend_array: usize,
+    blend_compatible: usize,
 }
 
+/// What each count of [`Counts`] says, in the order [`Counts::tallies`] gives them: the
+/// clause, and what was found.
+const SAID: [(&str, &str); 9] = [
+    ("9.8.1", "font descriptors carry /Subtype, which Table 120 does not have"),
+    ("9.6.2.1", "fonts carry /Name, which 2.0 deprecates, or a key their kind does not have"),
+    (
+        "7.4.8",
+        "DCT images state /ColorTransform in the image dictionary, where Table 13 puts it in \
+         the decode parameters",
+    ),
+    ("14.7.1", "mark information dictionaries carry a /Type Table 353 does not have"),
+    ("12.2", "viewer preferences dictionaries carry a /Type Table 147 does not have"),
+    ("7.8.3", "form resource dictionaries carry PDF 1.0's /Encoding, which Table 34 does not have"),
+    ("12.7.3", "widgets carry /DR, which Table 224 gives the interactive form dictionary"),
+    (
+        "11.6.3",
+        "graphics states or annotations give /BM as an array of names, deprecated in 2.0; \
+         each keeps the first mode a reader recognises, as 11.6.3 has it read",
+    ),
+    (
+        "11.3.5",
+        "graphics states or annotations give /BM as Compatible, which Table 134 deprecates \
+         as the same as Normal",
+    ),
+];
+
 impl Counts {
+    /// The counts, in [`SAID`]'s order.
+    const fn tallies(&self) -> [usize; 9] {
+        [
+            self.descriptor,
+            self.font,
+            self.color_transform,
+            self.mark_info,
+            self.viewer,
+            self.form_encoding,
+            self.widget_resources,
+            self.blend_array,
+            self.blend_compatible,
+        ]
+    }
+
     fn record(&self, decisions: &mut DecisionLog) {
-        let said = [
-            (
-                self.descriptor,
-                "9.8.1",
-                "font descriptors carry /Subtype, which Table 120 does not have",
-            ),
-            (
-                self.font,
-                "9.6.2.1",
-                "fonts carry /Name, which 2.0 deprecates, or a key their kind does not have",
-            ),
-            (
-                self.color_transform,
-                "7.4.8",
-                "DCT images state /ColorTransform in the image dictionary, where Table 13 puts it in the decode parameters",
-            ),
-            (
-                self.mark_info,
-                "14.7.1",
-                "mark information dictionaries carry a /Type Table 353 does not have",
-            ),
-            (
-                self.viewer,
-                "12.2",
-                "viewer preferences dictionaries carry a /Type Table 147 does not have",
-            ),
-            (
-                self.form_encoding,
-                "7.8.3",
-                "form resource dictionaries carry PDF 1.0's /Encoding, which Table 34 does not have",
-            ),
-            (
-                self.widget_resources,
-                "12.7.3",
-                "widgets carry /DR, which Table 224 gives the interactive form dictionary",
-            ),
-        ];
-        for (count, clause, what) in said {
+        for (count, (clause, what)) in self.tallies().into_iter().zip(SAID) {
             if count > 0 {
                 decisions.push(Decision::repaired(
                     clause,
@@ -212,6 +224,34 @@ fn with_transform(
             Object::Array(arena.alloc_array(items))
         }
     }
+}
+
+/// Makes `holder`'s `/BM` one name: of an array, the first mode Tables 134 and 135 name,
+/// or `Normal` if none (11.6.3); `Compatible` as `Normal` (Table 134). `/BM` is a key of
+/// graphics state parameter dictionaries and of annotations, and of nothing else. How
+/// many of each, 1 or 0.
+fn one_blend_mode(arena: &PdfArena, holder: DictHandle) -> (usize, usize) {
+    let key = arena.name("BM");
+    let Some(value) = arena.dict_entry(holder, key).map(|v| v.resolve(arena)) else {
+        return (0, 0);
+    };
+    let spelled = |item: &Object| item.resolve(arena).as_name().and_then(|n| arena.get_name_str(n));
+    let (one, counted) = match value {
+        Object::Array(array) => {
+            let names = arena.get_array(array).unwrap_or_default();
+            let first = names.iter().filter_map(spelled).find(|n| BlendMode::named(n).is_some());
+            (first.unwrap_or_else(|| "Normal".to_string()), (1, 0))
+        }
+        ref name @ Object::Name(_) if spelled(name).as_deref() == Some("Compatible") => {
+            ("Normal".to_string(), (0, 1))
+        }
+        _ => return (0, 0),
+    };
+    let one = if one == "Compatible" { "Normal".to_string() } else { one };
+    let Some(mut dict) = arena.get_dict(holder) else { return (0, 0) };
+    dict.insert(key, Object::Name(arena.name(&one)));
+    arena.set_dict(holder, dict);
+    counted
 }
 
 /// Drops the `/Type` that `/MarkInfo` and `/ViewerPreferences` dictionaries carry, which
