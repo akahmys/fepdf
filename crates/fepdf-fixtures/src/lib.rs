@@ -340,11 +340,13 @@ fn sfnt(tables: &[([u8; 4], Vec<u8>)]) -> Vec<u8> {
 /// The objects of [`deprecated_in_2_0`], from 1: each a dictionary, and a stream's data
 /// when it is one. A comment names the rows of the table an object carries.
 const DEPRECATED_IN_2_0: &[(&str, Option<&[u8]>)] = &[
-    // 1. #5, #6, #7, #17, #29: the catalogue and what hangs off it.
+    // 1. #5, #6, #7, #17, #26, #27, #29: the catalogue and what hangs off it.
     (
         "<< /Type /Catalog /Pages 2 0 R /SpiderInfo << /V 1.0 /C [] >> /NeedsRendering false \
          /AcroForm 20 0 R /Names << /IDS 18 0 R /URLS 18 0 R /AlternatePresentations 18 0 R >> \
          /MarkInfo << /Marked true /Suspects false >> /StructTreeRoot 15 0 R \
+         /Perms << /UR3 30 0 R >> \
+         /Legal << /MovieActions 1 /SoundActions 1 /ExternalOPIdicts 1 >> \
          /ViewerPreferences << /ViewArea /CropBox /ViewClip /CropBox /PrintArea /CropBox \
          /PrintClip /CropBox >> >>",
         None,
@@ -354,8 +356,8 @@ const DEPRECATED_IN_2_0: &[(&str, Option<&[u8]>)] = &[
     (
         "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Contents 4 0 R /ID (page) \
          /SeparationInfo << /Pages [3 0 R] /DeviceColorant /Cyan >> /StructParents 0 \
-         /Annots [12 0 R 10 0 R 13 0 R 11 0 R] \
-         /Resources << /ProcSet [/PDF /Text /ImageB] /Font << /F1 5 0 R /F2 22 0 R >> \
+         /Annots [12 0 R 10 0 R 13 0 R 28 0 R 31 0 R 11 0 R] \
+         /Resources << /ProcSet [/PDF /Text /ImageB] /Font << /F1 5 0 R /F2 22 0 R /F3 33 0 R >> \
          /XObject << /Im1 7 0 R /Fm1 8 0 R >> \
          /ExtGState << /G1 << /BM [/Foo /Multiply] /TR /Identity /TR2 /Default >> \
          /G2 << /BM /Compatible >> >> >> >>",
@@ -398,7 +400,7 @@ const DEPRECATED_IN_2_0: &[(&str, Option<&[u8]>)] = &[
     ),
     // 12. #9, #20: a launch with platform parameters, to a file with platform strings.
     (
-        "<< /Type /Annot /Subtype /Link /Rect [20 20 40 40] \
+        "<< /Type /Annot /Subtype /Link /Rect [20 20 40 40] /StructParent 1 \
          /A << /S /Launch /F 14 0 R /Win << /F (app.exe) >> /Unix (app) >> >>",
         None,
     ),
@@ -407,7 +409,8 @@ const DEPRECATED_IN_2_0: &[(&str, Option<&[u8]>)] = &[
     ("<< /Type /Filespec /F (a.txt) /UF (a.txt) /DOS (A.TXT) /Mac (a.txt) /Unix (a.txt) >>", None),
     // 15, 16. #30, #31: revision numbers, and the lower-case `checked`.
     (
-        "<< /Type /StructTreeRoot /K 16 0 R /ParentTree << /Nums [0 [16 0 R]] >> \
+        "<< /Type /StructTreeRoot /K [16 0 R 32 0 R] \
+         /ParentTree << /Nums [0 [16 0 R] 1 32 0 R 2 32 0 R] >> /ParentTreeNextKey 3 \
          /ClassMap << /cls << /O /Layout /Placement /Block >> >> >>",
         None,
     ),
@@ -425,7 +428,7 @@ const DEPRECATED_IN_2_0: &[(&str, Option<&[u8]>)] = &[
     ("<< /Names [] >>", None),
     ("/Type /Sound /R 8000", Some(b"\0\0")),
     // 20. #5, #21: the form.
-    ("<< /Fields [] /NeedAppearances true /XFA 24 0 R >>", None),
+    ("<< /Fields [28 0 R] /SigFlags 3 /NeedAppearances true /XFA 24 0 R >>", None),
     (
         "/Type /XObject /Subtype /Form /BBox [0 0 200 200] /PCM /DeviceCMYK /TrapRegions []",
         Some(b""),
@@ -450,6 +453,55 @@ const DEPRECATED_IN_2_0: &[(&str, Option<&[u8]>)] = &[
         None,
     ),
     ("", Some(b"\xff")),
+    // 28, 29. #23, #24, #25: a signature field whose signature is in each deprecated form.
+    (
+        "<< /Type /Annot /Subtype /Widget /FT /Sig /T (signed) /Rect [0 0 0 0] /F 132 \
+         /P 3 0 R /V 29 0 R >>",
+        None,
+    ),
+    (
+        "<< /Type /Sig /Filter /Adobe.PPKLite /SubFilter /adbe.x509.rsa_sha1 /R 65537 \
+         /Cert (certificate) /ByteRange [0 0 0 0] /Contents <00> \
+         /Reference [<< /Type /SigRef /TransformMethod /DocMDP /DigestMethod /MD5 \
+         /TransformParams << /Type /TransformParams /P 2 /V /1.2 >> >>] >>",
+        None,
+    ),
+    // 30. #23, #26: a usage rights signature, by the UR transform method.
+    (
+        "<< /Type /Sig /Filter /Adobe.PPKLite /SubFilter /adbe.pkcs7.sha1 \
+         /ByteRange [0 0 0 0] /Contents <00> \
+         /Reference [<< /Type /SigRef /TransformMethod /UR \
+         /TransformParams << /Type /TransformParams /V /2.2 >> >>] >>",
+        None,
+    ),
+    // 31, 32. #34: a second link, and one Link element enclosing both.
+    (
+        "<< /Type /Annot /Subtype /Link /Rect [60 20 80 40] /StructParent 2 \
+         /A << /S /URI /URI (http://example.com/) >> >>",
+        None,
+    ),
+    (
+        "<< /Type /StructElem /S /Link /P 15 0 R /Pg 3 0 R \
+         /K [<< /Type /OBJR /Obj 12 0 R >> << /Type /OBJR /Obj 31 0 R >>] >>",
+        None,
+    ),
+    // 33, 34, 35. #16: a CID font of Adobe-Japan2, which 2.0 (2020) deprecates.
+    (
+        "<< /Type /Font /Subtype /Type0 /BaseFont /ProbeJ /Encoding /Identity-H \
+         /DescendantFonts [34 0 R] >>",
+        None,
+    ),
+    (
+        "<< /Type /Font /Subtype /CIDFontType0 /BaseFont /ProbeJ \
+         /CIDSystemInfo << /Registry (Adobe) /Ordering (Japan2) /Supplement 0 >> \
+         /FontDescriptor 35 0 R >>",
+        None,
+    ),
+    (
+        "<< /Type /FontDescriptor /FontName /ProbeJ /Flags 4 /FontBBox [0 0 1000 1000] \
+         /ItalicAngle 0 /Ascent 880 /Descent -120 /CapHeight 700 /StemV 80 >>",
+        None,
+    ),
 ];
 
 /// One page carrying a feature ISO 32000-2 deprecates for each row of

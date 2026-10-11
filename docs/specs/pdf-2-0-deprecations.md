@@ -48,7 +48,7 @@ carry. A **gap** is a row whose Now is not its Rule.
 | 1 | `/Info` entries other than `CreationDate`, `ModDate` (14.3.3) | XMP metadata stream — stated | Load | Each moves to XMP once the packet holds it (`metadata.rs`); `/Trapped` as `pdf:Trapped`, `Unknown` being the default and not carried. Not recorded: nothing is lost |
 | 2 | Encryption `V` 1–4; standard handler `R` 2–5; Algorithms 1–7; RC4; MD5 key derivation (7.6) | `V` 5 / `R` 6 — derived | Never written | Read; AES-256 R6 is the only scheme written ([ADR-0015](../adr/0015-this-engine-reads-five-encryption-schemes-and-writes-one.md)). Not re-measured |
 | 3 | Public-key RC4, DES, 3DES, RC2, AES-128/192; crypt filters `V2`, `AESV2`; crypt filter `Length` (7.6.5, 7.6.6) | `AESV3` — derived | Never written | As #2 |
-| 4 | Permission bit 10 (Tables 22, 24) | — readers ignore it, writers set 1 — stated | Never written | Not measured |
+| 4 | Permission bit 10 (Tables 22, 24) | — readers ignore it, writers set 1 — stated | Never written | **Gap**: set when no permissions are named; **clear** when `--permissions` names others and not `accessibility` (`permissions_from_keywords`), against Table 22's "shall always set this bit to 1" |
 | 5 | `NeedsRendering` (Table 29), `/XFA` (Table 224), Annex K | AcroForm — derived | Keep | Kept |
 | 6 | Web capture (14.10): `/SpiderInfo` (Table 29), page `/ID` (Table 31), image `/ID` (Tables 87, 143), `/IDS` and `/URLS` (Table 32) — the five keys by errata | — | Save | Dropped on save (`drop_for_output`, `14.10` recorded); kept in the open document |
 | 7 | `/AlternatePresentations` (Table 32, 13.5) | — | Save | Dropped on save (`13.5` recorded) |
@@ -60,25 +60,25 @@ carry. A **gap** is a row whose Now is not its Rule.
 | 13 | Operator `F` (Table 59) | `f` — stated | Interpret | A saved content stream carries `f` |
 | 14 | `/Name` of fonts (Table 109), image and form XObjects (Tables 87, 93) | — | Load | Dropped at load (`conform.rs`): fonts recorded under `9.6.2.1`, images `8.9.5`, forms `8.10.2` |
 | 15 | `/CharSet`, `/CIDSet` (Tables 120, 122) | — subset tag | Save | Both dropped from what is written, and kept in the open document (`drop_subset_claims`) |
-| 16 | Adobe-Japan2, Adobe-Korea1 (2020) | Adobe-Japan1-7, Adobe-KR — derived, with no mapping | Keep | Not measured |
+| 16 | Adobe-Japan2, Adobe-Korea1 (2020) | Adobe-Japan1-7, Adobe-KR — derived, with no mapping | Keep | Kept. Adobe-Japan2 text is declined, `9.7.3` recorded: codes left unnamed rather than read through Adobe-Japan1, which would name other characters; recorded twice, once a font build (ARCHITECTURE.md §4.4). *Code*: Adobe-Korea1 is read through its own table, `Adobe-Korea1-UCS2`, which `fetch_font_resources.sh` fetches (`collections.rs`); not probed |
 | 17 | `/ViewArea`, `/ViewClip`, `/PrintArea`, `/PrintClip` (Table 147) | — | Save | Dropped on save (`12.2` recorded) |
 | 18 | Sound and Movie annotations and actions; 13.3, 13.4 | 13.2 Multimedia — stated, but see [Inconsistencies](#inconsistencies-in-the-standard) | Keep | Kept; not made by `AddAnnotation` (`apply/kinds.rs`) |
 | 19 | TrapNet annotation, trapping (14.11.6), `/TrapRegions` | — | Save, the annotation taken out of `/Annots` as well. No other kind means what it means: a PrinterMark would read as a production mark and could not tell that a later edit had left the traps stale (the owner, 2026-10-11) | Dropped on save, out of `/Annots` and so out of the file (`14.11.6` recorded); kept in the open document, which the audit reads |
 | 20 | Launch `/Win`, `/Mac`, `/Unix` (Table 207) | — | Keep | Kept, and read when `/F` is absent (`actions.rs`) |
 | 21 | `/NeedAppearances` (Table 224) | Appearance streams — stated | Never written; a file's own `true` is dropped once an appearance is built for every widget lacking one (the owner, 2026-10-11) | Not written by a field edit, which builds the appearance (`apply/appearance.rs`). **Gap**: a file's own `true` is kept |
-| 22 | FDF encryption (12.7.8.3.1, Table 247) | — | Keep | Not measured |
-| 23 | SubFilter `adbe.x509.rsa_sha1`, `adbe.pkcs7.sha1`; PKCS #1 signatures (12.8.3) | `adbe.pkcs7.detached`, `ETSI.CAdES.detached` — derived | Keep | Not measured |
-| 24 | MD5, SHA1 digests; `/DigestMethod` of a signature reference, by errata (Tables 237, 256) | SHA-256 and up — derived | Keep | Not measured |
-| 25 | Signature `/R` (Table 255) | `/Prop_Build` — stated | Keep — it lies inside the signed byte range | Not measured |
-| 26 | UR transform method, `/UR3`, usage rights signatures (12.8.2.3, Table 263) | — | Keep | Not measured |
-| 27 | `/MovieActions`, `/SoundActions`, `/ExternalOPIdicts` (Table 264) | — | Keep — part of a legal attestation | Not measured |
+| 22 | FDF encryption (12.7.8.3.1, Table 247) | — | Keep | *Code*: neither read nor written — no crate names `/EmbeddedFDFs` or `/EncryptionRevision`, and an FDF export writes no encryption |
+| 23 | SubFilter `adbe.x509.rsa_sha1`, `adbe.pkcs7.sha1`; PKCS #1 signatures (12.8.3) | `adbe.pkcs7.detached`, `ETSI.CAdES.detached` — derived | Keep | Kept, on a field's signature and on `/UR3` alike. The signer writes `ETSI.CAdES.detached` (`interactive.rs`) |
+| 24 | MD5, SHA1 digests; `/DigestMethod` of a signature reference, by errata (Tables 237, 256) | SHA-256 and up — derived | Keep | Kept. The signer digests with SHA-256 (`fepdf-syntax/src/cms.rs`) |
+| 25 | Signature `/R` (Table 255) | `/Prop_Build` — stated | Keep — it lies inside the signed byte range | Kept |
+| 26 | UR transform method, `/UR3`, usage rights signatures (12.8.2.3, Table 263) | — | Keep | Kept, with its `/UR` reference |
+| 27 | `/MovieActions`, `/SoundActions`, `/ExternalOPIdicts` (Table 264) | — | Keep — part of a legal attestation | Kept |
 | 28 | 3D stream `/Resources` (Table 311), by errata | — | Save | Dropped on save (`13.6.3` recorded) |
 | 29 | `/Suspects` (Table 353) | — | Save | Dropped on save (`14.7.1` recorded); kept in the open document, which the audit reads |
 | 30 | Attribute revision numbers (14.7.6.3): structure element `/R`, and the integers in `/C` and `/A` arrays — both by errata | — | Load. Both readers of `/A` and `/C`, `audit_tree.rs` and `apply/structure.rs`, pass over an integer | Dropped at load from every element the tree reaches (`conform.rs`, `14.7.6.3` recorded) |
 | 31 | PrintField attribute key spelled `checked` (Table 383) | `Checked` — stated | Load | Respelled at load, or dropped where `Checked` is there (`conform.rs`, `14.8.5.6` recorded) |
 | 32 | Separation dictionaries (14.11.4), page `/SeparationInfo` | — | Save | Dropped on save (`14.11.4` recorded) |
 | 33 | OPI (14.11.7) on images, forms and trap networks | — | Save | Dropped on save from images and forms (`14.11.7` recorded) |
-| 34 | One Link element enclosing several link annotations of a page (14.8.4.7.3), by errata | One annotation to each Link — derived | Keep | Not measured |
+| 34 | One Link element enclosing several link annotations of a page (14.8.4.7.3), by errata | One annotation to each Link — derived | Keep | Kept, with both object references |
 
 ## Removed, not deprecated
 

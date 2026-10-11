@@ -2121,9 +2121,18 @@ file, and the Arlington audit of a saved probe reports only rows whose rule is K
       (`set_text_appearance`); check boxes, radio buttons, choice fields, push buttons,
       multi-line and comb text do not, so this is the largest item. An ADR records the
       decision when it lands.
-- [ ] **AB-6** — **the rows not measured**: signatures (#23–26), FDF encryption,
+- [x] **AB-6** — **the rows not measured**: signatures (#23–26), FDF encryption,
       Adobe-Japan2 and Adobe-Korea1, permission bit 10, and a Link element enclosing
       several annotations. Each row says what was found.
+      **Done, 2026-10-12**: the probe grew a signature field signed `adbe.x509.rsa_sha1`
+      with `/R` and an MD5 reference, a `/UR3` signed `adbe.pkcs7.sha1`, `/Legal`'s three
+      counts, a Link element over two links, and an Adobe-Japan2 font — 11 keys more, every
+      one kept as its rule says. Adobe-Korea1 is read through its own table, which the
+      code shows and the probe does not carry. FDF encryption is read and written nowhere. **One gap was
+      found: permission bit 10** — `permissions_from_keywords` clears it unless
+      `accessibility` is named, where Table 22 says a writer shall always set it.
+      `permission_bit_10_as_written` asserts that as it stands. Two gaps remain: #4 and
+      #21.
 
 ---
 

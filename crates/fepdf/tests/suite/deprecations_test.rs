@@ -128,6 +128,23 @@ const ROWS: &[Row] = {
             Present,
             Absent,
         ),
+        row(
+            16,
+            &[
+                "Pages",
+                "Kids",
+                PAGE,
+                "Resources",
+                "Font",
+                "F3",
+                "DescendantFonts",
+                "0",
+                "CIDSystemInfo",
+                "Ordering",
+            ],
+            Present,
+            Present,
+        ),
         row(17, &["ViewerPreferences", "ViewArea"], Present, Absent),
         row(17, &["ViewerPreferences", "PrintClip"], Present, Absent),
         row(18, &["Pages", "Kids", PAGE, "Annots", "Subtype=Sound"], Present, Present),
@@ -141,6 +158,20 @@ const ROWS: &[Row] = {
         row(20, &["Pages", "Kids", PAGE, "Annots", "Subtype=Link", "A", "Win"], Present, Present),
         row(20, &["Pages", "Kids", PAGE, "Annots", "Subtype=Link", "A", "Unix"], Present, Present),
         row(21, &["AcroForm", "NeedAppearances"], Present, Present),
+        row(23, &["AcroForm", "Fields", "0", "V", "SubFilter"], Present, Present),
+        row(23, &["Perms", "UR3", "SubFilter"], Present, Present),
+        row(
+            24,
+            &["AcroForm", "Fields", "0", "V", "Reference", "0", "DigestMethod"],
+            Present,
+            Present,
+        ),
+        row(25, &["AcroForm", "Fields", "0", "V", "R"], Present, Present),
+        row(26, &["Perms", "UR3"], Present, Present),
+        row(26, &["Perms", "UR3", "Reference", "0", "TransformMethod"], Present, Present),
+        row(27, &["Legal", "MovieActions"], Present, Present),
+        row(27, &["Legal", "SoundActions"], Present, Present),
+        row(27, &["Legal", "ExternalOPIdicts"], Present, Present),
         row(
             28,
             &["Pages", "Kids", PAGE, "Annots", "Subtype=3D", "3DD", "Resources"],
@@ -148,14 +179,15 @@ const ROWS: &[Row] = {
             Absent,
         ),
         row(29, &["MarkInfo", "Suspects"], Present, Absent),
-        row(30, &["StructTreeRoot", "K", "R"], Absent, Absent),
-        row(30, &["StructTreeRoot", "K", "C"], Array, Array),
-        row(30, &["StructTreeRoot", "K", "A"], Present, Present),
-        row(31, &["StructTreeRoot", "K", "A", "O=PrintField", "checked"], Absent, Absent),
-        row(31, &["StructTreeRoot", "K", "A", "O=PrintField", "Checked"], Present, Present),
+        row(30, &["StructTreeRoot", "K", "0", "R"], Absent, Absent),
+        row(30, &["StructTreeRoot", "K", "0", "C"], Array, Array),
+        row(30, &["StructTreeRoot", "K", "0", "A"], Present, Present),
+        row(31, &["StructTreeRoot", "K", "0", "A", "O=PrintField", "checked"], Absent, Absent),
+        row(31, &["StructTreeRoot", "K", "0", "A", "O=PrintField", "Checked"], Present, Present),
         row(32, &["Pages", "Kids", PAGE, "SeparationInfo"], Present, Absent),
         row(33, &["Pages", "Kids", PAGE, "Resources", "XObject", "Im1", "OPI"], Present, Absent),
         row(33, &["Pages", "Kids", PAGE, "Resources", "XObject", "Fm1", "OPI"], Present, Absent),
+        row(34, &["StructTreeRoot", "K", "1", "K", "1", "Obj"], Present, Present),
     ]
 };
 
@@ -373,4 +405,32 @@ fn no_trap_network_is_written() {
         })
         .count();
     assert_eq!(trap_networks, 0);
+}
+
+/// The `/P` an encrypted save of the probe writes, given `permissions`.
+fn written_p(permissions: Option<&str>) -> i64 {
+    let options = SaveOptions {
+        password: Some("probe".to_string()),
+        permissions: permissions.map(str::to_string),
+        ..SaveOptions::default()
+    };
+    let path = std::env::temp_dir()
+        .join(format!("fepdf-deprecations-p-{}-{permissions:?}.pdf", std::process::id()));
+    let _ = opened().save_with_options(&path, "2.0", &options).expect("the probe saves");
+    let bytes = std::fs::read(&path).expect("the save was written");
+    let _ = std::fs::remove_file(&path);
+    let raw = fepdf_model::reader::load_document(&Bytes::from(bytes)).expect("the save reads");
+    let trailer = raw.trailer.map(Object::Dictionary).expect("a trailer");
+    let encrypt = entry(&raw.arena, &trailer, "Encrypt").expect("an encryption dictionary");
+    entry(&raw.arena, &encrypt, "P").and_then(|p| p.as_integer()).expect("a /P")
+}
+
+/// **#4: bit 10 of `/P`**, which 2.0 deprecates as a restriction: "PDF writers shall
+/// always set this bit to 1" (Table 22). Set when no permissions are named; **clear when
+/// they are and `accessibility` is not** — the gap row #4 records.
+#[test]
+fn permission_bit_10_as_written() {
+    let bit_10 = |p: i64| p & (1 << 9) != 0;
+    assert!(bit_10(written_p(None)), "with every permission granted");
+    assert!(!bit_10(written_p(Some("print"))), "with print named and accessibility not");
 }
