@@ -1262,3 +1262,45 @@ fn images_to_pdf_makes_and_inserts_pages() {
     });
     assert!(refused.is_err_and(|e| format!("{e:?}").contains("A4, A5")), "an unknown sheet");
 }
+
+/// **`text_to_pdf` sets text as a document, or into one**, and reads a file's text where
+/// it is named (ROADMAP AA-6).
+#[test]
+fn text_to_pdf_sets_and_inserts_pages() {
+    use fepdf_mcp::tools::{TextToPdfArgs, text_to_pdf_impl};
+    let count = |path: &str| {
+        let bytes = std::fs::read(path).expect("written");
+        fepdf::PdfDocument::open(bytes.into()).and_then(|d| d.page_count()).expect("it opens")
+    };
+    let made = out("text_made");
+    text_to_pdf_impl(TextToPdfArgs {
+        text: "first\n\nsecond".to_owned(),
+        text_path: None,
+        output_path: made.clone(),
+        input_path: None,
+        at: None,
+        sheet: Some("A5".to_owned()),
+        font_size: None,
+        lang: Some("en".to_owned()),
+    })
+    .expect("it sets the text");
+    assert_eq!(count(&made), 1);
+    assert!(text_of(&made, 0).contains("second"));
+
+    let file = std::env::temp_dir().join("fepdf_mcp_text.txt");
+    std::fs::write(&file, "from a file").expect("written");
+    let into = out("text_into");
+    text_to_pdf_impl(TextToPdfArgs {
+        text: String::new(),
+        text_path: Some(file.to_string_lossy().into_owned()),
+        output_path: into.clone(),
+        input_path: Some(written("text_three", &pages(3))),
+        at: Some(0),
+        sheet: None,
+        font_size: Some(14.0),
+        lang: None,
+    })
+    .expect("it inserts");
+    assert_eq!(count(&into), 4);
+    assert!(text_of(&into, 0).contains("from a file"), "{}", text_of(&into, 0));
+}

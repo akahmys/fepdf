@@ -43,6 +43,8 @@ pub mod structure;
 pub(crate) mod target;
 pub mod text;
 pub(crate) mod text_layer;
+/// Pages made from plain text (ROADMAP AA-6).
+pub mod typeset;
 /// A new structure element round existing content (14.7.2).
 pub mod wrap;
 pub mod xobject;
@@ -79,6 +81,9 @@ fn dispatch(doc: &mut Document, op: Operation) -> PdfResult<()> {
         }
         Operation::DuplicatePages(pages) => page::apply_duplicate_pages(doc, &pages),
         Operation::ResizePages(pages, to) => page::apply_resize_pages(doc, &pages, &to),
+        Operation::InsertText { text, at, setting } => {
+            typeset::apply_insert_text(doc, &text, at, &setting).map(|_| ())
+        }
         Operation::InsertImages { images, at, sheet } => {
             pictures::apply_insert_images(doc, &images, at, sheet).map(|_| ())
         }

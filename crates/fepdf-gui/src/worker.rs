@@ -905,16 +905,23 @@ fn handle_export_images(
 /// journal holds what the reader typed, and the file was protected so that would not be
 /// on disk in the clear (ADR-0114).
 /// What `Open` was given, as a PDF: a JPEG, PNG or TIFF is made into one first, each
-/// page its picture's size, and named as the picture is with `.pdf` (ROADMAP AA-5).
+/// page its picture's size (ROADMAP AA-5), and a file named `.txt` is set as text on A4
+/// (AA-6); either is named as the file is, with `.pdf`.
 ///
 /// **Made here, and opened as the file it would have been saved as**, so its history
 /// begins at the pictures' document rather than at a blank page with edits on it.
 fn as_a_pdf((data, name, password): Origin, tx: &Sender<WorkerResponse>) -> Option<Origin> {
-    if !PdfDocument::is_picture(&data) {
+    let text = name.as_deref().is_some_and(crate::app::is_text_file);
+    if !text && !PdfDocument::is_picture(&data) {
         return Some((data, name, password));
     }
-    let made = PdfDocument::from_images(vec![data.to_vec()], None)
-        .and_then(|doc| doc.to_bytes(&fepdf::SaveOptions::default()));
+    let made = if text {
+        PdfDocument::plain_text(&data)
+            .and_then(|t| PdfDocument::from_text(&t, fepdf::TextSetting::default()))
+    } else {
+        PdfDocument::from_images(vec![data.to_vec()], None)
+    }
+    .and_then(|doc| doc.to_bytes(&fepdf::SaveOptions::default()));
     match made {
         Ok(bytes) => {
             let named = name.map(|n| {

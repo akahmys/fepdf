@@ -228,6 +228,18 @@ impl FepdfServer {
     ) -> Result<String, McpError> {
         crate::tools::images_to_pdf_impl(args)
     }
+
+    /// A PDF of plain text, or its pages put into a PDF.
+    #[tool(
+        name = "text_to_pdf",
+        description = "Sets plain text as PDF pages, or puts them into an existing PDF at a 0-based index. Lines break where Unicode's line breaking rules allow, pages where they fill, and each paragraph a blank line ends is tagged /P in the structure tree. The text is given as it is, or as a UTF-8 or UTF-16 file."
+    )]
+    pub async fn text_to_pdf(
+        &self,
+        Parameters(args): Parameters<crate::tools::TextToPdfArgs>,
+    ) -> Result<String, McpError> {
+        crate::tools::text_to_pdf_impl(args)
+    }
 }
 
 /// The one tool that rasterises, and the only reason this server links a GPU stack.

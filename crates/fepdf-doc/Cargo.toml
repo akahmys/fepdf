@@ -21,6 +21,8 @@ roxmltree.workspace = true
 # Pages made from pictures: a PNG's resolution and profile, and a TIFF's every page.
 png.workspace = true
 tiff.workspace = true
+# Pages made from plain text: where a line may break (UAX #14).
+unicode-linebreak.workspace = true
 
 [lints]
 workspace = true

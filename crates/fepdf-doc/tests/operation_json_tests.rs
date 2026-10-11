@@ -28,6 +28,7 @@ fn variant_name(op: &Operation) -> &'static str {
         Operation::DuplicatePages(_) => "DuplicatePages",
         Operation::InsertFrom { .. } => "InsertFrom",
         Operation::InsertImages { .. } => "InsertImages",
+        Operation::InsertText { .. } => "InsertText",
         Operation::ResizePages(..) => "ResizePages",
         Operation::AddLtvInfo { .. } => "AddLtvInfo",
         Operation::Retag => "Retag",

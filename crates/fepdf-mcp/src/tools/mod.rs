@@ -4,9 +4,9 @@ pub mod audit;
 pub mod comments;
 pub mod compare;
 pub mod extract;
+pub mod making;
 pub mod objects;
 pub mod operations;
-pub mod pictures;
 pub mod redact;
 #[cfg(feature = "render")]
 pub mod render;
@@ -17,6 +17,7 @@ pub mod text_layer;
 pub use audit::*;
 pub use comments::*;
 pub use extract::*;
+pub use making::*;
 pub use objects::*;
 pub use operations::advanced::*;
 pub use operations::decoration::*;
@@ -24,7 +25,6 @@ pub use operations::metadata::*;
 pub use operations::page::*;
 pub use operations::struct_elem::*;
 pub use operations::*;
-pub use pictures::*;
 pub use redact::*;
 #[cfg(feature = "render")]
 pub use render::*;

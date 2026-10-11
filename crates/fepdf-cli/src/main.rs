@@ -105,6 +105,20 @@ async fn main() -> Result<()> {
                 let placing = edit::Placing { into, at, sheet };
                 edit::handle_images(&images, &output, placing, ingest, save)?;
             }
+            EditSubcommands::Text {
+                input,
+                output,
+                into,
+                at,
+                sheet,
+                size,
+                margin,
+                ingest,
+                save,
+            } => {
+                let placing = edit::Placing { into, at, sheet };
+                edit::handle_text(&input, &output, placing, (size, margin), ingest, save)?;
+            }
             EditSubcommands::FdfExport { input, output, ingest } => {
                 edit::handle_fdf_export(&input, &output, ingest)?;
             }

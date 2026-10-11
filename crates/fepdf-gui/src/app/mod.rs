@@ -4,7 +4,7 @@ pub mod icons;
 mod layout;
 mod modals;
 mod page_ops;
-pub use page_ops::opening_dialog;
+pub use page_ops::{is_text_file, opening_dialog};
 mod recovering;
 mod side_panels;
 mod status_bar;

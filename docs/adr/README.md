@@ -188,3 +188,4 @@ quietly wrong — which is the failure this log exists to make visible.
 | 0121 | [Every annotation subtype is read, not only the ones the corpus writes](0121-every-annotation-subtype-is-read-not-only-the-ones-the-corpus-writes.md) | AA-4e |
 | 0122 | [An annotation whose appearance is its content is drawn only when it is made](0122-an-annotation-whose-appearance-is-its-content-is-drawn-only-when-made.md) | AA-4f; rests on 0119, 0120 |
 | 0123 | [A picture becomes a page at its own size](0123-a-picture-becomes-a-page-at-its-own-size.md) | AA-5 |
+| 0124 | [Plain text is set by its own lines and paragraphs](0124-plain-text-is-set-by-its-own-lines-and-paragraphs.md) | AA-6; rests on 0091 |

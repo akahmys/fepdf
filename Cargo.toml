@@ -76,6 +76,9 @@ zune-jpeg = "0.5"
 # what it decodes with, already in the tree.
 png = "0.18"
 tiff = "0.11"
+# UAX #14 line breaking, for pages made from plain text (ROADMAP AA-6). Pure Rust, no
+# dependencies of its own, its tables generated from the Unicode data files.
+unicode-linebreak = "0.1"
 zune-core = "0.5"
 # CCITT Group 3 and 4 (7.4.6), the compression of a scanned page. Pure Rust and
 # `unsafe` forbidden by a crate attribute. Chosen over `fax`, which is already in the

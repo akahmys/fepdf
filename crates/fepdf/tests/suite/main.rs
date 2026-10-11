@@ -107,6 +107,7 @@ mod structure_move_test;
 mod structure_tree_test;
 #[cfg(feature = "render")]
 mod text_layer_test;
+mod text_pages_test;
 mod text_string_encoding_test;
 mod transparency_test;
 mod undecodable_image_test;

@@ -2021,10 +2021,23 @@ express; then AA-5 and AA-6.
       and the refusals. Each was shown to fail with what it guards removed.
       `PdfDocument::to_bytes` was added for the window, which opens what it has just
       made.
-- [ ] **AA-6** — **a PDF made from plain text**: lines broken by UAX #14 at the face's
+- [x] **AA-6** — **a PDF made from plain text**: lines broken by UAX #14 at the face's
       advances, pages broken where they fill, and each paragraph the input separates with
       a blank line tagged `/P`. Paragraphs are declared by the input, not inferred
       ([ADR-0091](docs/adr/0091-paragraphs-are-not-inferred-and-overflow-is-shown.md)).
+      **Done, 2026-10-11**
+      ([ADR-0124](docs/adr/0124-plain-text-is-set-by-its-own-lines-and-paragraphs.md)):
+      `Operation::InsertText`, `PdfDocument::from_text` and `PdfDocument::plain_text`, in
+      `fepdf-doc/src/apply/typeset/`, with `unicode-linebreak`. Reached from
+      `fepdf edit text`, MCP `text_to_pdf`, and the window, which opens a `.txt` as a new
+      document and inserts one through its insert dialog. `text_pages_test.rs` covers:
+      - paragraphs by blank lines, each `/P` in its language;
+      - lines inside the margins, English, Japanese and an unbroken word;
+      - a paragraph over two pages, and a form feed;
+      - a second text joining the tree;
+      - the refusals.
+      Each was shown to fail with what it guards removed. The constitution's first page,
+      set from its text, audits with no PDF/UA-2 error when given a title.
 
 ---
 

@@ -526,6 +526,30 @@ pub struct MediaClip {
     pub data: Vec<u8>,
 }
 
+/// How plain text is set on pages (ROADMAP AA-6, ADR-0124).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct TextSetting {
+    /// The sheet, width and height in points.
+    pub sheet: [f32; 2],
+    /// The space left at each edge, in points.
+    pub margin: f32,
+    /// The size the text is set at, in points.
+    pub font_size: f32,
+    /// From one line's baseline to the next, as a multiple of the size.
+    pub leading: f32,
+    /// The language the text is in (BCP 47), given to each paragraph as `/Lang`.
+    pub lang: Option<String>,
+}
+
+impl Default for TextSetting {
+    /// A4, an inch of margin, 10.5 points, and lines half as far apart again as the
+    /// text is high.
+    fn default() -> Self {
+        Self { sheet: [595.0, 842.0], margin: 72.0, font_size: 10.5, leading: 1.5, lang: None }
+    }
+}
+
 /// Which printer's mark (Table 398's `/MN`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum PrinterMarkKind {

@@ -296,6 +296,18 @@ impl FepdfApp {
     pub fn insert_files(&mut self, paths: &[std::path::PathBuf], at: usize) {
         let mut read = Vec::with_capacity(paths.len());
         for path in paths {
+            if is_text_file(&path.to_string_lossy()) {
+                let text = std::fs::read(path).map_err(|e| e.to_string()).and_then(|bytes| {
+                    fepdf::PdfDocument::plain_text(&bytes).map_err(|e| e.to_string())
+                });
+                match text {
+                    Ok(text) => self.insert_text(text, at),
+                    Err(why) => {
+                        self.notice = Some(super::Notice::check("notice_open_failed").about(why));
+                    }
+                }
+                continue;
+            }
             match std::fs::read(path) {
                 Ok(bytes) => read.push(bytes),
                 Err(why) => {
@@ -306,7 +318,9 @@ impl FepdfApp {
             }
         }
         let operations: Vec<fepdf::Operation> =
-            if read.iter().all(|b| fepdf::PdfDocument::is_picture(b)) {
+            // Not when nothing but text was chosen: "all pictures" is true of no files, and
+            // asked for a page of each of none.
+            if !read.is_empty() && read.iter().all(|b| fepdf::PdfDocument::is_picture(b)) {
                 vec![fepdf::Operation::InsertImages { images: read, at, sheet: self.sheet_at(at) }]
             } else {
                 read.into_iter()
@@ -330,6 +344,18 @@ impl FepdfApp {
                 done: self.tr("menu_insert_done"),
             });
         }
+    }
+
+    /// Text set on pages the size of the page it goes before (ROADMAP AA-6).
+    fn insert_text(&mut self, text: String, at: usize) {
+        let mut setting = fepdf::TextSetting::default();
+        if let Some(sheet) = self.sheet_at(at) {
+            setting.sheet = sheet;
+        }
+        let _ = self.tx_worker.send(WorkerRequest::Apply {
+            operation: Box::new(fepdf::Operation::InsertText { text, at, setting }),
+            done: self.tr("menu_insert_done"),
+        });
     }
 
     /// The sheet a picture put in at `at` is fitted to: the page it goes before, or the
@@ -677,6 +703,14 @@ mod turning {
 /// one that forgot pictures (UI-12). The names are file types, the same in every
 /// language, so the filter carries no locale key.
 pub fn opening_dialog() -> rfd::FileDialog {
-    rfd::FileDialog::new()
-        .add_filter("PDF / JPEG / PNG / TIFF", &["pdf", "jpg", "jpeg", "png", "tif", "tiff"])
+    rfd::FileDialog::new().add_filter(
+        "PDF / JPEG / PNG / TIFF / Text",
+        &["pdf", "jpg", "jpeg", "png", "tif", "tiff", "txt"],
+    )
+}
+
+/// Whether a file is plain text, by its name: text has no signature in its bytes to be
+/// known by, as a PDF or a picture has (ROADMAP AA-6).
+pub fn is_text_file(name: &str) -> bool {
+    std::path::Path::new(name).extension().is_some_and(|e| e.eq_ignore_ascii_case("txt"))
 }

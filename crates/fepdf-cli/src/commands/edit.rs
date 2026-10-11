@@ -335,18 +335,7 @@ pub fn handle_images(
     ingest: IngestArgs,
     save: SaveArgs,
 ) -> Result<()> {
-    let sheet = match placing.sheet.as_deref() {
-        Some(name) => {
-            let known: Vec<&str> = fepdf::PageResize::SHEETS.iter().map(|(n, _)| *n).collect();
-            let (w, h) = fepdf::PageResize::sheet(name).ok_or_else(|| {
-                anyhow::anyhow!("no sheet is called {name:?}; the sheets are {}", known.join(", "))
-            })?;
-            #[allow(clippy::cast_possible_truncation)] // whole points, well inside f32
-            let sheet = [w as f32, h as f32];
-            Some(sheet)
-        }
-        None => None,
-    };
+    let sheet = sheet_named(placing.sheet.as_deref())?;
     let mut pictures = Vec::with_capacity(images.len());
     for path in images {
         pictures.push(
@@ -371,6 +360,55 @@ pub fn handle_images(
     save_reporting_permissions(&doc, output, &save_options)?;
     println!("SUCCESS: {} picture(s) made into pages, saved to {}", images.len(), output.display());
     Ok(())
+}
+
+/// A PDF of a plain text file, or its pages put into a document (ROADMAP AA-6).
+pub fn handle_text(
+    input: &std::path::Path,
+    output: &std::path::Path,
+    placing: Placing,
+    (size, margin): (f32, f32),
+    ingest: IngestArgs,
+    save: SaveArgs,
+) -> Result<()> {
+    let bytes =
+        std::fs::read(input).with_context(|| format!("Failed to read {}", input.display()))?;
+    let text = PdfDocument::plain_text(&bytes).map_err(|e| anyhow::anyhow!("{e:?}"))?;
+    let lang = save.lang.clone();
+    let mut setting = fepdf::TextSetting { font_size: size, margin, lang, ..Default::default() };
+    if let Some(sheet) = sheet_named(placing.sheet.as_deref())? {
+        setting.sheet = sheet;
+    }
+    let doc = if let Some(into) = &placing.into {
+        let data = std::fs::read(into).with_context(|| "Failed to read the document")?;
+        let ingest_options: fepdf::IngestionOptions = ingest.try_into()?;
+        let mut doc = PdfDocument::open_with_options(data.into(), &ingest_options)
+            .map_err(|e| anyhow::anyhow!("{e:?}"))?;
+        let count = doc.page_count().map_err(|e| anyhow::anyhow!("{e:?}"))?;
+        let at = placing.at.map_or(count, |page| page.saturating_sub(1));
+        doc.apply(fepdf::Operation::InsertText { text, at, setting })
+            .map_err(|e| anyhow::anyhow!("{e:?}"))?;
+        doc
+    } else {
+        PdfDocument::from_text(&text, setting).map_err(|e| anyhow::anyhow!("{e:?}"))?
+    };
+    save.check()?;
+    let save_options: fepdf::SaveOptions = save.try_into()?;
+    save_reporting_permissions(&doc, output, &save_options)?;
+    println!("SUCCESS: {} set as pages, saved to {}", input.display(), output.display());
+    Ok(())
+}
+
+/// The sheet `name` from `PageResize::SHEETS`, in points, or a refusal listing them.
+fn sheet_named(name: Option<&str>) -> Result<Option<[f32; 2]>> {
+    let Some(name) = name else { return Ok(None) };
+    let known: Vec<&str> = fepdf::PageResize::SHEETS.iter().map(|(n, _)| *n).collect();
+    let (w, h) = fepdf::PageResize::sheet(name).ok_or_else(|| {
+        anyhow::anyhow!("no sheet is called {name:?}; the sheets are {}", known.join(", "))
+    })?;
+    #[allow(clippy::cast_possible_truncation)] // whole points, well inside f32
+    let sheet = [w as f32, h as f32];
+    Ok(Some(sheet))
 }
 
 pub fn handle_page_label(

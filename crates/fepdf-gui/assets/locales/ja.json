@@ -340,7 +340,7 @@
   "menu_duplicate_page": "ページを複製",
   "menu_extract_selected": "選択ページを抽出",
   "menu_images_selected": "選択ページを画像として書き出す…",
-  "menu_insert_at_selection": "選択ページの先頭に挿入（PDF・画像）…",
+  "menu_insert_at_selection": "選択ページの先頭に挿入（PDF・画像・テキスト）…",
   "menu_insert_done": "ページを挿入しました",
   "menu_replace_done": "ページを置き換えました",
   "menu_replace_selected": "選択ページを別の文書で置き換える…",

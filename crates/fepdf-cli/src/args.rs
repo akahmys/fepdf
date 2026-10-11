@@ -535,6 +535,38 @@ pub enum EditSubcommands {
         #[command(flatten)]
         save: SaveArgs,
     },
+    /// Make a PDF of a plain text file — UTF-8, or UTF-16 with a byte order mark — or
+    /// put its pages into a document with --into: lines broken by UAX #14, pages broken
+    /// where they fill, and each paragraph a blank line ends tagged /P (ADR-0124)
+    Text {
+        /// The text file
+        input: PathBuf,
+        /// Output PDF file
+        #[arg(short, long)]
+        output: PathBuf,
+        /// A document to put the pages into, rather than a new one
+        #[arg(long)]
+        into: Option<PathBuf>,
+        /// Where in that document, counting pages from 1; the end where absent
+        #[arg(long)]
+        at: Option<usize>,
+        /// The sheet: A3, A4, A5, B4, B5, Letter, Legal or Tabloid. A4 where absent
+        #[arg(long)]
+        sheet: Option<String>,
+        /// The size the text is set at, in points
+        #[arg(long, default_value_t = 10.5)]
+        size: f32,
+        /// The margin at each edge, in points. The text's language is --lang, which says
+        /// it of the document and of each paragraph
+        #[arg(long, default_value_t = 72.0)]
+        margin: f32,
+        /// Ingestion control options, for --into
+        #[command(flatten)]
+        ingest: IngestArgs,
+        /// Output optimization options
+        #[command(flatten)]
+        save: SaveArgs,
+    },
     /// Write the document's comments to an FDF file (ISO 32000-2 12.7.8), or to XFDF
     /// (ISO 19444-1) when the output ends in .xfdf
     FdfExport {

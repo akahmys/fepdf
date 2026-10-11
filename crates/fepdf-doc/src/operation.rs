@@ -8,7 +8,7 @@ pub use fepdf_model::{
     Authorship, CollectionViewMode, ContentScale, FormFieldSpec, FormValue, GeoSpatialAnchor,
     MeasurementScale, MediaClip, OptionalContentProperties, OutlineNode, OutlineTree, OutputIntent,
     PageLabelSpec, PageLabelStyle, PageResize, PdfAction, PortfolioCollection, PrinterMarkKind,
-    ShapeForm, TransitionSpec, TransitionStyle, UnencryptedWrapperSpec, UserProperty,
+    ShapeForm, TextSetting, TransitionSpec, TransitionStyle, UnencryptedWrapperSpec, UserProperty,
     UserPropertyValue, VisibilityState,
 };
 use serde::{Deserialize, Serialize};
@@ -260,6 +260,19 @@ pub enum Operation {
         /// The sheet every page is, in points, the picture fitted inside it; or `None`,
         /// for each page to be its picture's size at the resolution its file states.
         sheet: Option<[f32; 2]>,
+    },
+    /// Pages of plain text, put in at `at` (ROADMAP AA-6, ADR-0124): lines broken where
+    /// UAX #14 allows at the face's advances, pages broken where they fill, and each
+    /// paragraph — what a blank line separates — tagged `/P`.
+    InsertText {
+        /// The text. A line break is kept; a blank line ends a paragraph; a form feed
+        /// starts a page.
+        text: String,
+        /// The 0-based position to insert at, clamped to the page count.
+        at: usize,
+        /// The sheet, margins, size and spacing.
+        #[serde(default)]
+        setting: TextSetting,
     },
     /// Put the named pages on a different sheet, and say what happens to what is on them.
     ///
@@ -735,6 +748,7 @@ impl Operation {
             | Self::DuplicatePages { .. }
             | Self::InsertFrom { .. }
             | Self::InsertImages { .. }
+            | Self::InsertText { .. }
             | Self::AddLtvInfo { .. }
             | Self::Upgrade { .. }
             | Self::UpdateStructElem { .. }

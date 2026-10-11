@@ -60,8 +60,8 @@ pub use fepdf_model::{
     LayerGroup, MeasurementScale, MediaClip, Missing, Object, OptionalContentProperties,
     OutlineNode, OutlineTree, OutputIntent, Page, PageLabelSpec, PageLabelStyle, PdfAction,
     PdfArena, PdfError, PdfName, PdfResult, PortfolioCollection, PortfolioItem, PrinterMarkKind,
-    ShapeForm, SublimatedData, TransitionSpec, TransitionStyle, UnencryptedWrapperSpec,
-    UserProperty, UserPropertyValue, VisibilityState,
+    ShapeForm, SublimatedData, TextSetting, TransitionSpec, TransitionStyle,
+    UnencryptedWrapperSpec, UserProperty, UserPropertyValue, VisibilityState,
 };
 pub use fepdf_model::{DocumentSource, PdfSource};
 #[cfg(feature = "render")]
@@ -482,6 +482,29 @@ impl PdfDocument {
         let last = doc.page_count()?.saturating_sub(blank);
         doc.apply(Operation::RemovePages(PageSelection::Single(last)))?;
         Ok(doc)
+    }
+
+    /// A new document whose pages are `text`, set as `setting` says (ROADMAP AA-6,
+    /// ADR-0124): `Operation::InsertText` applied to an empty document, whose blank page
+    /// is then taken out.
+    ///
+    /// # Errors
+    /// Refused when there is no text, no room for a line, or no face for its characters.
+    pub fn from_text(text: &str, setting: TextSetting) -> PdfResult<Self> {
+        let mut doc = Self::create_empty()?;
+        let blank = doc.page_count()?;
+        doc.apply(Operation::InsertText { text: text.to_owned(), at: 0, setting })?;
+        let last = doc.page_count()?.saturating_sub(blank);
+        doc.apply(Operation::RemovePages(PageSelection::Single(last)))?;
+        Ok(doc)
+    }
+
+    /// The text of a plain text file: UTF-8, or UTF-16 with a byte order mark.
+    ///
+    /// # Errors
+    /// Refused when it is neither, rather than guessed at.
+    pub fn plain_text(bytes: &[u8]) -> PdfResult<String> {
+        fepdf_doc::apply::typeset::plain_text(bytes)
     }
 
     /// Opens a PDF document from a byte buffer with default ingestion options.
