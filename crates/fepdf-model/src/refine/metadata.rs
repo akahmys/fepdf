@@ -165,6 +165,9 @@ fn write_basic_fields(info: &BTreeMap<PdfName, RefinedObject>, writer: &mut XmpW
     if let Some(val) = get_info_field(info, "Rights") {
         writer.rights([(None, val.as_str())]);
     }
+    if let Some(val) = get_info_field(info, "Trapped") {
+        writer.trapped(val == "True");
+    }
 }
 
 fn generate_and_write_uuids(

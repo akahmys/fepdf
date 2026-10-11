@@ -36,13 +36,19 @@ pub fn conform_to_2_0(arena: &PdfArena, decisions: &mut DecisionLog) {
             (Some("Font"), Some("Type1" | "MMType1" | "TrueType")) => {
                 counts.font += drop_keys(arena, holder, &["Name"]);
             }
-            (_, Some("Image")) => counts.color_transform += move_color_transform(arena, holder),
+            (_, Some("Image")) => {
+                counts.color_transform += move_color_transform(arena, holder);
+                counts.image_name += drop_keys(arena, holder, &["Name"]);
+            }
+            (_, Some("Form")) => counts.form_name += drop_keys(arena, holder, &["Name"]),
             _ => {}
         }
         let (array, compatible) = one_blend_mode(arena, holder);
         counts.blend_array += array;
         counts.blend_compatible += compatible;
+        counts.checked += spell_checked(arena, holder);
     }
+    counts.revisions = drop_revision_numbers(arena);
     (counts.mark_info, counts.viewer) = untyped_catalog_entries(arena);
     (counts.form_encoding, counts.widget_resources) = form_resources(arena);
     counts.record(decisions);
@@ -83,11 +89,15 @@ struct Counts {
     widget_resources: usize,
     blend_array: usize,
     blend_compatible: usize,
+    image_name: usize,
+    form_name: usize,
+    checked: usize,
+    revisions: usize,
 }
 
 /// What each count of [`Counts`] says, in the order [`Counts::tallies`] gives them: the
 /// clause, and what was found.
-const SAID: [(&str, &str); 9] = [
+const SAID: [(&str, &str); 13] = [
     ("9.8.1", "font descriptors carry /Subtype, which Table 120 does not have"),
     ("9.6.2.1", "fonts carry /Name, which 2.0 deprecates, or a key their kind does not have"),
     (
@@ -109,11 +119,23 @@ const SAID: [(&str, &str); 9] = [
         "graphics states or annotations give /BM as Compatible, which Table 134 deprecates \
          as the same as Normal",
     ),
+    ("8.9.5", "images carry /Name, which Table 87 deprecates in 2.0"),
+    ("8.10.2", "form XObjects carry /Name, which Table 93 deprecates in 2.0"),
+    (
+        "14.8.5.6",
+        "PrintField attributes spell their key `checked`, the lower case form Table 383 \
+         deprecates; each is now `Checked`",
+    ),
+    (
+        "14.7.6.3",
+        "structure elements carry attribute revision numbers — an /R, or integers among their \
+         /A and /C — which 2.0 deprecates",
+    ),
 ];
 
 impl Counts {
     /// The counts, in [`SAID`]'s order.
-    const fn tallies(&self) -> [usize; 9] {
+    const fn tallies(&self) -> [usize; 13] {
         [
             self.descriptor,
             self.font,
@@ -124,6 +146,10 @@ impl Counts {
             self.widget_resources,
             self.blend_array,
             self.blend_compatible,
+            self.image_name,
+            self.form_name,
+            self.checked,
+            self.revisions,
         ]
     }
 
@@ -252,6 +278,84 @@ fn one_blend_mode(arena: &PdfArena, holder: DictHandle) -> (usize, usize) {
     dict.insert(key, Object::Name(arena.name(&one)));
     arena.set_dict(holder, dict);
     counted
+}
+
+/// Spells a PrintField attribute object's `checked` as `Checked` (Table 383), or drops it
+/// where `Checked` is there already, which a reader takes; 1 if it was there.
+fn spell_checked(arena: &PdfArena, holder: DictHandle) -> usize {
+    let lower = arena.name("checked");
+    if arena.dict_entry(holder, lower).is_none()
+        || name_of(arena, holder, "O").as_deref() != Some("PrintField")
+    {
+        return 0;
+    }
+    let Some(mut dict) = arena.get_dict(holder) else { return 0 };
+    if let Some(value) = dict.remove(&lower) {
+        dict.entry(arena.name("Checked")).or_insert(value);
+    }
+    arena.set_dict(holder, dict);
+    1
+}
+
+/// Takes the attribute revision numbers (14.7.6.3) out of every structure element the tree
+/// reaches: its `/R`, and the integer after an attribute object in `/A` or a class name in
+/// `/C`. How many elements carried any.
+///
+/// **Walked from the tree root**, because a structure element need not say `/Type
+/// /StructElem` (Table 355), and `/R` and `/C` mean other things in other dictionaries.
+/// Both readers of `/A` and `/C` — the audit's `audit_tree.rs` and `apply/structure.rs` —
+/// pass over an integer, so nothing that reads the tree reads differently.
+fn drop_revision_numbers(arena: &PdfArena) -> usize {
+    let mut seen = std::collections::BTreeSet::new();
+    let mut queue: Vec<Object> = arena
+        .all_dict_handles()
+        .into_iter()
+        .filter(|h| name_of(arena, *h, "Type").as_deref() == Some("Catalog"))
+        .filter_map(|h| arena.dict_entry(h, arena.name("StructTreeRoot")))
+        .filter_map(|root| entry_of(arena, &root, "K"))
+        .collect();
+    let mut dropped = 0;
+    while let Some(node) = queue.pop() {
+        match node.resolve(arena) {
+            Object::Array(array) => queue.extend(arena.get_array(array).unwrap_or_default()),
+            Object::Dictionary(element)
+                if seen.insert(element) && name_of(arena, element, "S").is_some() =>
+            {
+                dropped += drop_revisions_of(arena, element);
+                queue.extend(arena.dict_entry(element, arena.name("K")));
+            }
+            _ => {}
+        }
+    }
+    dropped
+}
+
+/// The value at `key` of the dictionary `object` is or refers to.
+fn entry_of(arena: &PdfArena, object: &Object, key: &str) -> Option<Object> {
+    arena.dict_entry(object.resolve(arena).as_dict_handle()?, arena.name(key))
+}
+
+/// One element's `/R`, and the integers among its `/A` and `/C`; 1 if it had any.
+fn drop_revisions_of(arena: &PdfArena, element: DictHandle) -> usize {
+    let Some(mut dict) = arena.get_dict(element) else { return 0 };
+    let mut changed = dict.remove(&arena.name("R")).is_some();
+    for key in ["A", "C"] {
+        let key = arena.name(key);
+        let Some(Object::Array(array)) = dict.get(&key).map(|v| v.resolve(arena)) else {
+            continue;
+        };
+        let items = arena.get_array(array).unwrap_or_default();
+        let kept: Vec<Object> =
+            items.iter().filter(|i| !matches!(i, Object::Integer(_))).cloned().collect();
+        if kept.len() != items.len() {
+            dict.insert(key, Object::Array(arena.alloc_array(kept)));
+            changed = true;
+        }
+    }
+    if changed {
+        arena.set_dict(element, dict);
+    }
+    usize::from(changed)
 }
 
 /// Drops the `/Type` that `/MarkInfo` and `/ViewerPreferences` dictionaries carry, which

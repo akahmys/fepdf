@@ -57,10 +57,10 @@ const PAGE: &str = "0";
 
 /// Every row, with what the engine does now. Kept in the table's order.
 const ROWS: &[Row] = {
-    use Seen::{Absent, ArrayWithInteger, Name, Present};
+    use Seen::{Absent, Array, Name, Present};
     &[
         Row { number: 1, from: From::Info, path: &["Title"], open: Absent, saved: Absent },
-        Row { number: 1, from: From::Info, path: &["Trapped"], open: Present, saved: Present },
+        Row { number: 1, from: From::Info, path: &["Trapped"], open: Absent, saved: Absent },
         row(5, &["NeedsRendering"], Present, Present),
         row(5, &["AcroForm", "XFA"], Present, Present),
         row(6, &["SpiderInfo"], Present, Present),
@@ -103,8 +103,8 @@ const ROWS: &[Row] = {
         row(12, &["Pages", "Kids", PAGE, "Resources", "ExtGState", "G1", "TR"], Present, Present),
         row(12, &["Pages", "Kids", PAGE, "Resources", "ExtGState", "G1", "TR2"], Present, Present),
         row(14, &["Pages", "Kids", PAGE, "Resources", "Font", "F1", "Name"], Absent, Absent),
-        row(14, &["Pages", "Kids", PAGE, "Resources", "XObject", "Im1", "Name"], Present, Present),
-        row(14, &["Pages", "Kids", PAGE, "Resources", "XObject", "Fm1", "Name"], Present, Present),
+        row(14, &["Pages", "Kids", PAGE, "Resources", "XObject", "Im1", "Name"], Absent, Absent),
+        row(14, &["Pages", "Kids", PAGE, "Resources", "XObject", "Fm1", "Name"], Absent, Absent),
         row(
             15,
             &["Pages", "Kids", PAGE, "Resources", "Font", "F1", "FontDescriptor", "CharSet"],
@@ -148,10 +148,11 @@ const ROWS: &[Row] = {
             Present,
         ),
         row(29, &["MarkInfo", "Suspects"], Present, Present),
-        row(30, &["StructTreeRoot", "K", "R"], Present, Present),
-        row(30, &["StructTreeRoot", "K", "C"], ArrayWithInteger, ArrayWithInteger),
-        row(30, &["StructTreeRoot", "K", "A"], ArrayWithInteger, ArrayWithInteger),
-        row(31, &["StructTreeRoot", "K", "A", "O=PrintField", "checked"], Present, Present),
+        row(30, &["StructTreeRoot", "K", "R"], Absent, Absent),
+        row(30, &["StructTreeRoot", "K", "C"], Array, Array),
+        row(30, &["StructTreeRoot", "K", "A"], Present, Present),
+        row(31, &["StructTreeRoot", "K", "A", "O=PrintField", "checked"], Absent, Absent),
+        row(31, &["StructTreeRoot", "K", "A", "O=PrintField", "Checked"], Present, Present),
         row(32, &["Pages", "Kids", PAGE, "SeparationInfo"], Present, Present),
         row(33, &["Pages", "Kids", PAGE, "Resources", "XObject", "Im1", "OPI"], Present, Present),
         row(33, &["Pages", "Kids", PAGE, "Resources", "XObject", "Fm1", "OPI"], Present, Present),
@@ -297,14 +298,16 @@ fn page_contents(arena: &PdfArena, page: &Object) -> Option<Object> {
     arena.get_object(contents.as_reference()?)
 }
 
-/// **What is dropped or rewritten is said**: `/ProcSet`, a font's `/Name` and the two
-/// deprecated forms of `/BM` at load, a descriptor's subset claims on save — each once, by
-/// its clause.
+/// **What is dropped or rewritten is said**: at load `/ProcSet`, a font's, an image's and a
+/// form's `/Name`, the two deprecated forms of `/BM`, `checked` and the revision numbers; on
+/// save a descriptor's subset claims — each once, by its clause. `/Trapped` moves into the
+/// packet and loses nothing, so it is not said (`ARCHITECTURE.md` §4.3).
 #[test]
 fn each_drop_is_recorded_by_its_clause() {
     let doc = opened();
     let at_load: Vec<String> = doc.decisions().into_iter().map(|d| d.clause.into_owned()).collect();
-    for clause in ["14.2", "9.6.2.1", "11.6.3", "11.3.5"] {
+    for clause in ["14.2", "9.6.2.1", "11.6.3", "11.3.5", "8.9.5", "8.10.2", "14.8.5.6", "14.7.6.3"]
+    {
         assert_eq!(
             at_load.iter().filter(|c| *c == clause).count(),
             1,
@@ -328,4 +331,14 @@ fn a_blend_mode_array_draws_with_its_first_recognised_mode() {
         .filter_map(|e| if let Event::Blend(m) = e { Some(*m) } else { None })
         .collect();
     assert_eq!(blends, vec![BlendMode::Multiply, BlendMode::Normal]);
+}
+
+/// **#1: `/Trapped` leaves `/Info` for the packet**, as `pdf:Trapped`, which a reader of
+/// the saved file finds with the value `/Info` gave.
+#[test]
+fn trapped_moves_into_the_packet() {
+    let (bytes, _) = saved(&opened());
+    let reread = PdfDocument::open(bytes.into()).expect("the save reads");
+    // The saved `/Info` has no `/Trapped` (row #1), so this can only be the packet's.
+    assert_eq!(reread.metadata().trapped.as_deref(), Some("False"));
 }

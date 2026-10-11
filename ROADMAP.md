@@ -2088,10 +2088,16 @@ file, and the Arlington audit of a saved probe reports only rows whose rule is K
       Multiply then Normal. The two halves cover for each other, so each was broken alone
       and then both: the array arm alone fails `schema_tests.rs`, the load step alone fails
       rows #10 and #11 and their `Decision`s, and the draw test fails only with both gone.
-- [ ] **AB-3** — **at load**: an image or form XObject's `/Name` (#14), `checked` as
+- [x] **AB-3** — **at load**: an image or form XObject's `/Name` (#14), `checked` as
       `Checked` (#31), a structure element's `/R` and the integers in `/C` and `/A` (#30 —
       the two readers, `audit_tree.rs` and `apply/structure.rs`, skip them already), and
       `/Trapped` moved into the packet as `pdf:Trapped` (#1).
+      **Done, 2026-10-11**: `conform.rs` takes the first three, walking the structure tree
+      from its root for the revision numbers, since an element need not say `/Type`.
+      `metadata.rs` reads `/Trapped` from `/Info` and `pdf:Trapped`, carries it as
+      `MetadataInfo::trapped`, and writes it with `xmp-writer`'s `trapped`; `Unknown`, the
+      default, is not carried. Each of the five pieces was taken out in turn and failed its
+      rows or `trapped_moves_into_the_packet`. Ten gaps remain.
 - [ ] **AB-4** — **on save**, beside `drop_subset_claims`: web capture's five keys,
       `/AlternatePresentations`, the `/ViewArea` family, `/Suspects`, `/SeparationInfo`,
       OPI, the TrapNet annotation (taken out of `/Annots` too), a file specification's

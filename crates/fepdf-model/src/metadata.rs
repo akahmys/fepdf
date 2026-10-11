@@ -53,6 +53,10 @@ pub struct MetadataInfo {
     /// `dc:rights` — the copyright notice. XMP only: 14.3.3's `/Info` has no entry for
     /// it, and that clause deprecates `/Info` regardless.
     pub rights: Option<String>,
+    /// `/Trapped` as `pdf:Trapped` spells it, `True` or `False`. `Unknown` is 14.3.3's
+    /// default and is not carried, so a document that says it is the same as one that
+    /// says nothing.
+    pub trapped: Option<String>,
     /// The catalogue's `/Lang` (14.9.2.1): the natural language of the document's text.
     ///
     /// Not descriptive metadata, which is why `--strip` leaves it alone. A reader that
@@ -76,8 +80,27 @@ fn read_info(doc: &Document) -> MetadataInfo {
         info.producer = pdf_info.producer;
         info.creation_date = pdf_info.creation_date;
         info.mod_date = pdf_info.mod_date;
+        info.trapped = trapped_in(arena, trapped_entry(arena, info_handle));
     }
     info
+}
+
+/// The `/Info` dictionary's `/Trapped`, which `PdfInfo` does not model: it is a name, and
+/// a boolean in files that predate 1.3's names.
+fn trapped_entry(arena: &PdfArena, info: Handle<Object>) -> Option<Object> {
+    let dict = arena.get_object(info)?.resolve(arena).as_dict_handle()?;
+    arena.dict_entry(dict, arena.name("Trapped")).map(|v| v.resolve(arena))
+}
+
+/// `True` or `False` from a `/Trapped` value; `None` for `Unknown`, the default, or
+/// anything else.
+fn trapped_in(arena: &PdfArena, value: Option<Object>) -> Option<String> {
+    let said = match value? {
+        Object::Name(n) => arena.get_name_str(n)?,
+        Object::Boolean(b) => if b { "True" } else { "False" }.to_string(),
+        _ => return None,
+    };
+    matches!(said.as_str(), "True" | "False").then_some(said)
 }
 
 /// Reads the catalogue's own metadata stream (14.3.2), if it has one.
@@ -124,7 +147,7 @@ pub fn extract_metadata(doc: &Document) -> MetadataInfo {
 }
 
 fn overlay(base: &mut MetadataInfo, top: MetadataInfo) {
-    let fields: [(&mut Option<String>, Option<String>); 9] = [
+    let fields: [(&mut Option<String>, Option<String>); 10] = [
         (&mut base.title, top.title),
         (&mut base.author, top.author),
         (&mut base.subject, top.subject),
@@ -134,6 +157,7 @@ fn overlay(base: &mut MetadataInfo, top: MetadataInfo) {
         (&mut base.creation_date, top.creation_date),
         (&mut base.mod_date, top.mod_date),
         (&mut base.rights, top.rights),
+        (&mut base.trapped, top.trapped),
     ];
     for (slot, value) in fields {
         if let Some(v) = value {
@@ -216,7 +240,7 @@ fn report_disagreement(
     xmp: &MetadataInfo,
     decisions: &mut crate::interpretation::DecisionLog,
 ) {
-    let pairs: [(&str, &Option<String>, &Option<String>, bool); 8] = [
+    let pairs: [(&str, &Option<String>, &Option<String>, bool); 9] = [
         ("Title", &info.title, &xmp.title, false),
         ("Author", &info.author, &xmp.author, false),
         ("Subject", &info.subject, &xmp.subject, false),
@@ -225,6 +249,7 @@ fn report_disagreement(
         ("Producer", &info.producer, &xmp.producer, false),
         ("CreationDate", &info.creation_date, &xmp.creation_date, true),
         ("ModDate", &info.mod_date, &xmp.mod_date, true),
+        ("Trapped", &info.trapped, &xmp.trapped, false),
     ];
     for (key, left, right, is_date) in pairs {
         let (Some(a), Some(b)) = (left, right) else { continue };
@@ -250,7 +275,8 @@ fn report_disagreement(
 /// constant rather than a signal (`ARCHITECTURE.md` §4.3). What *is* recorded is the
 /// case where something is lost: `/Info` and the stream disagreeing, which is one file.
 fn migrate_deprecated_info(doc: &Document) {
-    const DEPRECATED: [&str; 6] = ["Title", "Author", "Subject", "Keywords", "Creator", "Producer"];
+    const DEPRECATED: [&str; 7] =
+        ["Title", "Author", "Subject", "Keywords", "Creator", "Producer", "Trapped"];
     let arena = doc.arena();
     let Some(info_handle) = doc.info_handle() else { return };
     let Some(Object::Dictionary(dh)) = arena.get_object(info_handle) else { return };
@@ -482,6 +508,7 @@ fn build_refined_metadata_map(
     insert_text_if_present(&mut refined_map, "CreationDate", &info.creation_date);
     insert_text_if_present(&mut refined_map, "ModDate", &info.mod_date);
     insert_text_if_present(&mut refined_map, "Rights", &info.rights);
+    insert_text_if_present(&mut refined_map, "Trapped", &info.trapped);
     refined_map
 }
 
@@ -579,6 +606,9 @@ fn apply_xmp_metadata(doc: &roxmltree::Document, info: &mut MetadataInfo) {
     // Written from `rights` and never read back, so a file's notice was lost at ingest.
     if let Some(text) = find_tag_text(doc, dc_ns, "rights") {
         info.rights = Some(text);
+    }
+    if let Some(text) = find_tag_text(doc, pdf_ns, "Trapped") {
+        info.trapped = matches!(text.as_str(), "True" | "False").then_some(text);
     }
 }
 

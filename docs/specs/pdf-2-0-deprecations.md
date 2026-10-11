@@ -45,7 +45,7 @@ carry. A **gap** is a row whose Now is not its Rule.
 
 | # | Feature (clause) | Successor | Rule | Now |
 | :--- | :--- | :--- | :--- | :--- |
-| 1 | `/Info` entries other than `CreationDate`, `ModDate` (14.3.3) | XMP metadata stream — stated | Load | `Title`, `Producer` move to XMP (`metadata.rs`). **Gap**: `/Trapped` stays in `/Info` |
+| 1 | `/Info` entries other than `CreationDate`, `ModDate` (14.3.3) | XMP metadata stream — stated | Load | Each moves to XMP once the packet holds it (`metadata.rs`); `/Trapped` as `pdf:Trapped`, `Unknown` being the default and not carried. Not recorded: nothing is lost |
 | 2 | Encryption `V` 1–4; standard handler `R` 2–5; Algorithms 1–7; RC4; MD5 key derivation (7.6) | `V` 5 / `R` 6 — derived | Never written | Read; AES-256 R6 is the only scheme written ([ADR-0015](../adr/0015-this-engine-reads-five-encryption-schemes-and-writes-one.md)). Not re-measured |
 | 3 | Public-key RC4, DES, 3DES, RC2, AES-128/192; crypt filters `V2`, `AESV2`; crypt filter `Length` (7.6.5, 7.6.6) | `AESV3` — derived | Never written | As #2 |
 | 4 | Permission bit 10 (Tables 22, 24) | — readers ignore it, writers set 1 — stated | Never written | Not measured |
@@ -58,7 +58,7 @@ carry. A **gap** is a row whose Now is not its Rule.
 | 11 | Blend mode `Compatible` (Table 134) | `Normal` — stated | Load | Made `Normal` at load (`conform.rs`, `11.3.5` recorded) |
 | 12 | `/TR`, `/TR2` in a graphics state (Table 57, 10.5) | Halftone transfer functions — derived, **not equivalent** | Keep | Kept; *code*: not applied (only a soft mask's `/TR` is read) |
 | 13 | Operator `F` (Table 59) | `f` — stated | Interpret | A saved content stream carries `f` |
-| 14 | `/Name` of fonts (Table 109), image and form XObjects (Tables 87, 93) | — | Load | Font: dropped at load (`conform.rs`). **Gap**: image and form `/Name` kept |
+| 14 | `/Name` of fonts (Table 109), image and form XObjects (Tables 87, 93) | — | Load | Dropped at load (`conform.rs`): fonts recorded under `9.6.2.1`, images `8.9.5`, forms `8.10.2` |
 | 15 | `/CharSet`, `/CIDSet` (Tables 120, 122) | — subset tag | Save | Both dropped from what is written, and kept in the open document (`drop_subset_claims`) |
 | 16 | Adobe-Japan2, Adobe-Korea1 (2020) | Adobe-Japan1-7, Adobe-KR — derived, with no mapping | Keep | Not measured |
 | 17 | `/ViewArea`, `/ViewClip`, `/PrintArea`, `/PrintClip` (Table 147) | — | Save | **Gap**: kept |
@@ -74,8 +74,8 @@ carry. A **gap** is a row whose Now is not its Rule.
 | 27 | `/MovieActions`, `/SoundActions`, `/ExternalOPIdicts` (Table 264) | — | Keep — part of a legal attestation | Not measured |
 | 28 | 3D stream `/Resources` (Table 311), by errata | — | Save | **Gap**: kept |
 | 29 | `/Suspects` (Table 353) | — | Save | **Gap**: kept |
-| 30 | Attribute revision numbers (14.7.6.3): structure element `/R`, and the integers in `/C` and `/A` arrays — both by errata | — | Load, once the structure tree code is shown to read an array without them | **Gap**: kept |
-| 31 | PrintField attribute key spelled `checked` (Table 383) | `Checked` — stated | Load | **Gap**: kept |
+| 30 | Attribute revision numbers (14.7.6.3): structure element `/R`, and the integers in `/C` and `/A` arrays — both by errata | — | Load. Both readers of `/A` and `/C`, `audit_tree.rs` and `apply/structure.rs`, pass over an integer | Dropped at load from every element the tree reaches (`conform.rs`, `14.7.6.3` recorded) |
+| 31 | PrintField attribute key spelled `checked` (Table 383) | `Checked` — stated | Load | Respelled at load, or dropped where `Checked` is there (`conform.rs`, `14.8.5.6` recorded) |
 | 32 | Separation dictionaries (14.11.4), page `/SeparationInfo` | — | Save | **Gap**: kept |
 | 33 | OPI (14.11.7) on images, forms and trap networks | — | Save | **Gap**: kept |
 | 34 | One Link element enclosing several link annotations of a page (14.8.4.7.3), by errata | One annotation to each Link — derived | Keep | Not measured |
