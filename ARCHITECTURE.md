@@ -498,6 +498,10 @@ Raw bytes ─► Reading ─► Pass 0: Decryption ─► Pass 2: Semantic ─�
   metadata — the `/Info` dictionary and the catalogue's metadata stream — into one,
   recording where they disagreed. Runs after Pass 2 because Pass 2 rewrites the stream.
 
+What each feature 2.0 deprecates is translated to — at load, in the interpreter, on save,
+or not at all — is one table, [pdf-2-0-deprecations.md](docs/specs/pdf-2-0-deprecations.md),
+with what the engine does now beside each rule.
+
 Pass 1 no longer exists. It converted another library's object model into ours; the
 reader now produces the arena directly
 ([ADR-0003](docs/adr/0003-lopdf-was-not-providing-robustness.md)).
