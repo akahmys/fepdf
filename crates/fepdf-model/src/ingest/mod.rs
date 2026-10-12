@@ -14,6 +14,8 @@ use std::sync::Arc;
 /// What a file says that ISO 32000-2 deprecates or puts elsewhere, made 2.0's at load.
 pub mod conform;
 pub(crate) mod discovery;
+/// A form XObject with no `/Resources`, given the ones it names from what draws it.
+pub mod form_resources;
 /// Dictionaries written in place where the reader needs an object, given one at load.
 pub(crate) mod indirect;
 pub use discovery::*;

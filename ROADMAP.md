@@ -29,7 +29,7 @@ The differences are by design:
 - Inherited attributes are resolved onto the pages
   ([ADR-0013](docs/adr/0013-a-document-is-one-normalised-state.md)).
 
-Phases Y and Z are closed (2026-10-10), Phase AB on 2026-10-12, and Phase AA is open. Two items Phase Y found wait on Windows and
+Phases Y and Z are closed (2026-10-10), Phases AB and AC on 2026-10-12, and Phase AA is open. Two items Phase Y found wait on Windows and
 Linux, under [Held for another platform](#held-for-another-platform).
 `./scripts/dev/status.sh` re-derives the figures this file leans on, so a stale one reads
 as a disagreement rather than as current.
@@ -2166,6 +2166,22 @@ file, and the Arlington audit of a saved probe reports only rows whose rule is K
       ADR-0125 has what an import cannot take recorded; it now records them under
       12.7.8.3.1, with how many are encrypted, and the rest of the import goes ahead. The
       test fails with the record removed. Every row of the table is now measured.
+
+### Phase AC — What 2.0 asks of a 1.x file beyond what it deprecates
+
+Opened on 2026-10-12 by what Phase AB's Arlington audit found that was no deprecation.
+
+- [x] **AC-1** — **a form XObject that draws with its caller's resources** (8.10.2).
+      Errata Collection 3 makes a form's `/Resources` "sometimes required" and a form
+      independent of the stream it appears in from 2.0; a 1.x form may hold none and use
+      its page's. **Done, 2026-10-12**
+      ([ADR-0127](docs/adr/0127-a-form-is-given-the-resources-its-callers-lend-it.md)):
+      `ingest/form_resources.rs` gives each such form the entries its content names,
+      copied from the pages and forms that draw it, or an empty dictionary where it names
+      none, and leaves it as it was, recorded, where a name is lent for two objects or by
+      no caller. Over 528 files, 13 forms in 12 lacked `/Resources`; all 13 are given
+      theirs, ten empty and three what they name. `form_resources_test.rs` fails with the
+      pass, the ambiguity check, the missing-name check or the nesting removed.
 - [x] **AB-6** — **the rows not measured**: signatures (#23–26), FDF encryption,
       Adobe-Japan2 and Adobe-Korea1, permission bit 10, and a Link element enclosing
       several annotations. Each row says what was found.

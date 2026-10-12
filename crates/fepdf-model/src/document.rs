@@ -725,6 +725,7 @@ impl Document {
         doc.index_pages();
         doc.rebuild_page_tree_in_arena()?;
         crate::ingest::require_page_resources(&doc);
+        crate::ingest::form_resources::give_forms_resources(&doc);
         Ok(doc)
     }
 

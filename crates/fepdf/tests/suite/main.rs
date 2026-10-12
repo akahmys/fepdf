@@ -45,6 +45,7 @@ mod font_census_test;
 mod form_appearance_test;
 mod form_filling_test;
 mod form_font_name_test;
+mod form_resources_test;
 mod form_xobject_test;
 mod function_shading_test;
 mod glyph_list_test;
