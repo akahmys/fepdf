@@ -107,6 +107,10 @@ pub struct Interpreter<'a> {
     /// Each entry remembers the `q` depth it was opened at, which is what `Q` compares
     /// against to know that the scope has ended.
     pub(crate) mask_scopes: Vec<MaskScope>,
+    /// How many compatibility sections (`BX` … `EX`, 7.8.2) are open in the stream
+    /// running now. Each nested stream starts with none, as with `marked_sections`: a
+    /// section is a bracket within one content stream.
+    pub(crate) compatibility_depth: usize,
 }
 
 /// One open soft-mask bracket.
@@ -163,6 +167,7 @@ impl<'a> Interpreter<'a> {
             optional_content: None,
             marked_sections: Vec::new(),
             mask_scopes: Vec::new(),
+            compatibility_depth: 0,
             initial_transform,
             page_area: None,
         }
@@ -591,8 +596,10 @@ impl<'a> Interpreter<'a> {
             "J" | "j" | "w" | "M" | "d" | "i" | "ri" => self.handle_state_operator(op),
             "SCN" | "scn" | "sc" | "SC" => self.handle_color_operator(op),
             "sh" => self.handle_shading_operator(),
-            // 7.8.2: a compatibility section changes nothing drawn, so its bounds run nothing.
-            "BX" | "EX" => Ok(()),
+            "BX" | "EX" => {
+                self.handle_compatibility_operator(op);
+                Ok(())
+            }
             _ => {
                 if !op.is_empty() {
                     self.record_unknown_operator(op);
@@ -637,12 +644,34 @@ impl<'a> Interpreter<'a> {
     /// 524 files produce six firings — three `UnknownOP` from a file built to be
     /// malformed and three runs of binary rubbish — and **none** on the nine conforming
     /// samples, so this is a signal rather than the constant §4.3 warns about.
+    ///
+    /// **Inside a compatibility section it is not recorded**: there 7.8.2 has unrecognised
+    /// operators "ignored without error", so skipping one is what the standard asks and
+    /// not a departure. Outside one, 7.8.2 makes it an error,
+    /// and that is the clause cited. Both used to be recorded alike, under 8.2.
     fn record_unknown_operator(&self, op: &str) {
+        if self.compatibility_depth > 0 {
+            return;
+        }
         self.doc.record(Decision::violation(
-            "8.2",
-            format!("operator {op:?} at index {:?} is not one this engine runs", self.op_index),
+            "7.8.2",
+            format!(
+                "operator {op:?} at index {:?} is not one this engine runs, and stands \
+                 outside any compatibility section",
+                self.op_index
+            ),
             "skipped it and carried on with the rest of the content stream",
         ));
+    }
+
+    /// Opens (`BX`) or closes (`EX`) a compatibility section (7.8.2). Sections "may be
+    /// nested", so this counts; an `EX` with none open leaves the count at zero.
+    fn handle_compatibility_operator(&mut self, op: &str) {
+        if op == "BX" {
+            self.compatibility_depth += 1;
+        } else {
+            self.compatibility_depth = self.compatibility_depth.saturating_sub(1);
+        }
     }
 
     /// Records an operand outside the set its table defines, and what stood in for it.
@@ -724,11 +753,13 @@ impl<'a> Interpreter<'a> {
         run: impl FnOnce(&mut Self) -> PdfResult<T>,
     ) -> PdfResult<T> {
         let enclosing = std::mem::take(&mut self.marked_sections);
+        let compatibility = std::mem::take(&mut self.compatibility_depth);
         let hidden = self.backend.hidden_depth();
         self.nesting += 1;
         let outcome = run(self);
         self.nesting -= 1;
         self.marked_sections = enclosing;
+        self.compatibility_depth = compatibility;
         self.backend.restore_hidden_depth(hidden);
         outcome
     }
