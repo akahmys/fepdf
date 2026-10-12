@@ -501,3 +501,11 @@ fn need_appearances_stays_while_a_widget_lacks_one() {
     let form = entry(arena, &catalog, "AcroForm").expect("the form");
     assert!(entry(arena, &form, "NeedAppearances").is_some(), "the entry went");
 }
+
+/// **#16: a font of a collection this engine cannot read is said once**, not once for the
+/// Type 0 font and again for its descendant CIDFont loaded as a font of its own.
+#[test]
+fn a_declined_collection_is_said_once() {
+    let declined = opened().decisions().into_iter().filter(|d| d.clause == "9.7.3").count();
+    assert_eq!(declined, 1);
+}

@@ -501,7 +501,13 @@ fn scan_ingested_objects(arena: &PdfArena) -> (Vec<u32>, Vec<u32>) {
                 arena.dict_entry(handle, base_font_key).is_some()
                     && arena.dict_entry(handle, subtype_key).is_some()
             };
-            if is_font {
+            // A CIDFont is a Type 0 font's descendant and is read through it (9.7.4): loaded
+            // as a font of its own as well, everything it decides was recorded twice — a
+            // declined collection's `9.7.3` among them (ROADMAP AB-7).
+            let descendant = subtype_val_resolved
+                .and_then(|s| arena.get_name_str(s))
+                .is_some_and(|s| s == "CIDFontType0" || s == "CIDFontType2");
+            if is_font && !descendant {
                 font_indices.push(i);
             }
         }

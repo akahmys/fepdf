@@ -2131,6 +2131,18 @@ file, and the Arlington audit of a saved probe reports only rows whose rule is K
       and drops the entry once every widget has an appearance. Each of the rebuild, the
       condition and the drop was taken out and failed a test. No sample carries the
       entry. The table has no gap left.
+- [x] **AB-7** — **a descendant font's decisions, recorded once.** AB-6 found the probe's
+      Adobe-Japan2 font declined twice under 9.7.3, and put it down to fonts being built
+      again at first draw; counting showed two right after opening and still two after
+      three extractions and two draws. The cause was at load: `scan_ingested_objects`
+      took every `/Type /Font` as a font to load, so a Type 0 font's descendant CIDFont was
+      loaded on its own as well, and decided again what the Type 0 font had decided.
+      **Done, 2026-10-12**: a `CIDFontType0` or `CIDFontType2` is read through its Type 0
+      font only. `a_declined_collection_is_said_once` fails with the descendant loaded
+      again. The golden outputs of the 16 inputs agree with `e7e62fb`'s — decisions,
+      fonts, text and saves — and none of them recorded a decision twice before the
+      change (counted, with the counter shown to find a planted duplicate); the external
+      corpus was not run.
 - [x] **AB-6** — **the rows not measured**: signatures (#23–26), FDF encryption,
       Adobe-Japan2 and Adobe-Korea1, permission bit 10, and a Link element enclosing
       several annotations. Each row says what was found.
