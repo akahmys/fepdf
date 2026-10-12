@@ -591,6 +591,8 @@ impl<'a> Interpreter<'a> {
             "J" | "j" | "w" | "M" | "d" | "i" | "ri" => self.handle_state_operator(op),
             "SCN" | "scn" | "sc" | "SC" => self.handle_color_operator(op),
             "sh" => self.handle_shading_operator(),
+            // 7.8.2: a compatibility section changes nothing drawn, so its bounds run nothing.
+            "BX" | "EX" => Ok(()),
             _ => {
                 if !op.is_empty() {
                     self.record_unknown_operator(op);

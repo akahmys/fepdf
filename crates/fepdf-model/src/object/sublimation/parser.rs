@@ -219,7 +219,12 @@ impl<'a> Sublimator<'a> {
                 self.handle_color_op(op)
             }
             "BMC" | "BDC" | "EMC" | "MP" | "DP" => self.handle_marked_content_op(op),
-            "BX" | "EX" => Vec::new(), // Strip compatibility operators
+            // Kept, so a save writes the compatibility section as the file had it. They
+            // were mapped to nothing, and a vendor operator between them was written back
+            // outside any section, where 7.8.2 makes an unrecognised operator an error.
+            "BX" | "EX" => {
+                vec![Command::RawOperator { name: op.to_string(), operands: Vec::new() }]
+            }
             "d0" | "d1" => self.handle_type3_op(op),
             _ => {
                 self.decisions.push(crate::interpretation::Decision::ambiguity(

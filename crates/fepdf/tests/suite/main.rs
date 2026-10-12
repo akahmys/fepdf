@@ -19,6 +19,7 @@ mod colour_space_test;
 mod combine_pages_test;
 #[cfg(feature = "render")]
 mod compare_test;
+mod compatibility_section_test;
 mod compliance_clauses_test;
 mod conform_test;
 mod create_empty_test;
