@@ -190,3 +190,4 @@ quietly wrong — which is the failure this log exists to make visible.
 | 0123 | [A picture becomes a page at its own size](0123-a-picture-becomes-a-page-at-its-own-size.md) | AA-5 |
 | 0124 | [Plain text is set by its own lines and paragraphs](0124-plain-text-is-set-by-its-own-lines-and-paragraphs.md) | AA-6; rests on 0091 |
 | 0125 | [Form values come in by name, and make no field](0125-form-values-come-in-by-name-and-make-no-field.md) | AA-3b; rests on 0117 |
+| 0126 | [`/NeedAppearances true` is done as it asks, and then dropped](0126-need-appearances-is-done-as-it-asks-and-then-dropped.md) | AB-5; rests on 0120 |

@@ -19,6 +19,7 @@
 mod icons;
 mod lines;
 pub mod made;
+mod need;
 mod quads;
 mod widgets;
 mod words;
@@ -73,16 +74,28 @@ const EXEMPT: &[&str] = &["Popup", "Link", "Projection", "Screen"];
 /// A `Decision` records each (ADR-0120). Called while opening, before the arena is sealed:
 /// this is how the document is read, not a change made to it.
 ///
+/// **Where the form says `/NeedAppearances true`, the widgets that have an appearance are
+/// rebuilt from their values first, and the entry goes once every widget has one** (`need`,
+/// ROADMAP AB-5).
+///
 /// An annotation whose appearance is its content — PrinterMark, TrapNet, Watermark — or
 /// whose subtype this engine does not know is left without one, and that is recorded
 /// too. Nothing here fails the open: an annotation that cannot be drawn is recorded.
 pub fn give_missing(doc: &Document) {
     let Ok(pages) = doc.page_count() else { return };
+    let needed = need::asked(doc);
+    let mut rebuilt = need::Rebuilt::default();
     for page in 0..pages {
         let Ok(annots) = super::redact_annots::annotations_on(doc, page) else { continue };
         for (index, annot) in annots.iter().enumerate() {
+            if needed.is_some() {
+                rebuilt.widget(doc, (page, index), annot);
+            }
             give_one(doc, (page, index), annot);
         }
+    }
+    if let Some(form) = needed {
+        rebuilt.settle(doc, form);
     }
 }
 

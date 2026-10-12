@@ -19,39 +19,107 @@ const PUSH: i64 = 1 << 16;
 /// `/Ff` bit 16: a radio button (Table 229).
 const RADIO: i64 = 1 << 15;
 
+/// What a widget's field says that its appearance depends on, its own entries or its
+/// ancestors' (12.7.4.2), and the form's where neither has one.
+struct Field {
+    acro: Dict,
+    kind: String,
+    flags: i64,
+    da: String,
+    quadding: i64,
+    value: Option<Object>,
+}
+
+impl Field {
+    fn of(doc: &Document, widget: DictHandle) -> Self {
+        let arena = doc.arena();
+        let acro = form(doc);
+        let entry = |key: &str| {
+            inherited(arena, widget, key).or_else(|| acro.get(&arena.name(key)).cloned())
+        };
+        Self {
+            kind: entry("FT")
+                .and_then(|t| t.as_name())
+                .and_then(|n| arena.get_name_str(n))
+                .unwrap_or_default(),
+            flags: entry("Ff").and_then(|f| f.as_integer()).unwrap_or(0),
+            da: entry("DA")
+                .and_then(|d| super::super::fields::text_of(arena, &d))
+                .unwrap_or_else(|| "/Helv 0 Tf 0 g".to_owned()),
+            quadding: entry("Q").and_then(|q| q.as_integer()).unwrap_or(0),
+            value: inherited(arena, widget, "V"),
+            acro,
+        }
+    }
+
+    /// The value as a text or choice field shows it.
+    fn shown(&self, arena: &PdfArena) -> String {
+        self.value.as_ref().map(|v| shown_value(arena, v)).unwrap_or_default()
+    }
+}
+
 /// Gives the widget `widget` an appearance from its field; whether it could.
 ///
 /// # Errors
 /// When a face found for the value will not embed.
 pub(super) fn widget(doc: &Document, widget: DictHandle) -> PdfResult<bool> {
     let arena = doc.arena();
-    let acro = form(doc);
-    let entry =
-        |key: &str| inherited(arena, widget, key).or_else(|| acro.get(&arena.name(key)).cloned());
-    let kind = entry("FT")
-        .and_then(|t| t.as_name())
-        .and_then(|n| arena.get_name_str(n))
-        .unwrap_or_default();
-    let flags = entry("Ff").and_then(|f| f.as_integer()).unwrap_or(0);
-    let da = entry("DA")
-        .and_then(|d| super::super::fields::text_of(arena, &d))
-        .unwrap_or_else(|| "/Helv 0 Tf 0 g".to_owned());
-    let quadding = entry("Q").and_then(|q| q.as_integer()).unwrap_or(0);
-    match kind.as_str() {
-        "Btn" if flags & PUSH != 0 => {
+    let field = Field::of(doc, widget);
+    let style = (&field.acro, field.da.as_str(), field.quadding);
+    match field.kind.as_str() {
+        "Btn" if field.flags & PUSH != 0 => {
             let caption = mk_text(arena, widget, "CA").unwrap_or_default();
-            words(doc, widget, (&acro, &da, quadding), &caption)
+            words(doc, widget, style, &caption)
         }
         "Btn" => {
-            states(arena, widget, flags & RADIO != 0);
+            states(arena, widget, field.flags & RADIO != 0);
             Ok(true)
         }
-        "Tx" | "Ch" => {
-            let value = entry("V").map(|v| shown_value(arena, &v)).unwrap_or_default();
-            words(doc, widget, (&acro, &da, quadding), &value)
-        }
+        "Tx" | "Ch" => words(doc, widget, style, &field.shown(arena)),
         _ => Ok(false),
     }
+}
+
+/// Rebuilds the appearance a widget already has from its field's value, as
+/// `/NeedAppearances true` asks of a reader (Table 224); whether it could.
+///
+/// **What depends on the value is rebuilt, and nothing else.** A text or choice value is
+/// set again, over an appearance a producer may have left from before it changed `/V`. A
+/// check box or radio button keeps its producer's appearances and is pointed at the state
+/// `/V` names, or `/Off` where it names none they have (12.7.5.2.3). A push button's
+/// caption and a signature's appearance do not follow a value, and are kept.
+///
+/// # Errors
+/// When a face found for the value will not embed.
+pub(super) fn rebuild(doc: &Document, widget: DictHandle) -> PdfResult<bool> {
+    let arena = doc.arena();
+    let field = Field::of(doc, widget);
+    match field.kind.as_str() {
+        "Btn" if field.flags & PUSH == 0 => {
+            show_state(doc, widget, field.value.as_ref());
+            Ok(true)
+        }
+        "Tx" | "Ch" => words(
+            doc,
+            widget,
+            (&field.acro, field.da.as_str(), field.quadding),
+            &field.shown(arena),
+        ),
+        _ => Ok(true),
+    }
+}
+
+/// Points a button widget's `/AS` at the state `value` names, where its normal appearance
+/// has one, and at `/Off` where it has not.
+fn show_state(doc: &Document, widget: DictHandle, value: Option<&Object>) {
+    let arena = doc.arena();
+    let named = value.and_then(Object::as_name);
+    let state = named
+        .filter(|n| appearance::button_states(doc, widget).contains(n))
+        .unwrap_or_else(|| arena.name("Off"));
+    let mut dict = arena.get_dict(widget).unwrap_or_default();
+    dict.insert(arena.name("AS"), Object::Name(state));
+    arena.set_dict(widget, dict);
 }
 
 /// `text` set in the widget, or, where there is no text, an appearance that draws nothing:

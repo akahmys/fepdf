@@ -157,7 +157,7 @@ const ROWS: &[Row] = {
         ),
         row(20, &["Pages", "Kids", PAGE, "Annots", "Subtype=Link", "A", "Win"], Present, Present),
         row(20, &["Pages", "Kids", PAGE, "Annots", "Subtype=Link", "A", "Unix"], Present, Present),
-        row(21, &["AcroForm", "NeedAppearances"], Present, Present),
+        row(21, &["AcroForm", "NeedAppearances"], Absent, Absent),
         row(23, &["AcroForm", "Fields", "0", "V", "SubFilter"], Present, Present),
         row(23, &["Perms", "UR3", "SubFilter"], Present, Present),
         row(
@@ -434,4 +434,70 @@ fn permission_bit_10_is_always_set() {
     assert!(bit_10(written_p(None)), "with every permission granted");
     assert!(bit_10(written_p(Some("print"))), "with print named and accessibility not");
     assert!(bit_10(written_p(Some(""))), "with nothing granted");
+}
+
+/// A form saying `/NeedAppearances true` over a text field whose appearance shows the
+/// value it held before (`Old`) and a check box whose `/AS` is not its `/V`, with
+/// `extra` added to the page's annotations.
+fn stale_form(extra: &str) -> PdfDocument {
+    let bytes = fepdf_fixtures::assemble(&[
+        "<< /Type /Catalog /Pages 2 0 R /AcroForm << /Fields [4 0 R 6 0 R] /NeedAppearances true \
+           /DA (/Helv 0 Tf 0 g) /DR << /Font << /Helv << /Type /Font /Subtype /Type1 \
+           /BaseFont /Helvetica /Encoding /WinAnsiEncoding >> >> >> >> >>",
+        "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+        &format!(
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Annots [4 0 R 6 0 R{extra}] >>"
+        ),
+        "<< /Type /Annot /Subtype /Widget /FT /Tx /T (name) /V (New) /Rect [10 10 110 30] \
+           /P 3 0 R /AP << /N 5 0 R >> >>",
+        "<< /Type /XObject /Subtype /Form /BBox [0 0 100 20] /Resources << >> /Length 33 >>\n\
+         stream\nBT /Helv 12 Tf 2 5 Td (Old) Tj ET\nendstream",
+        "<< /Type /Annot /Subtype /Widget /FT /Btn /T (box) /V /Yes /AS /Off \
+           /Rect [10 40 30 60] /P 3 0 R /AP << /N << /Yes 7 0 R /Off 7 0 R >> >> >>",
+        "<< /Type /XObject /Subtype /Form /BBox [0 0 20 20] /Resources << >> /Length 0 >>\n\
+         stream\n\nendstream",
+        "<< /Type /Annot /Subtype /Widget /FT /Sig /T (unsigned) /Rect [10 70 110 90] /P 3 0 R >>",
+    ]);
+    PdfDocument::open(bytes.into()).expect("the form opens")
+}
+
+/// A widget's entry `key` on the open document's page.
+fn widget_entry(doc: &PdfDocument, index: usize, key: &str) -> Option<Object> {
+    let arena = doc.inner().arena();
+    let page = Object::Reference(doc.inner().get_page_handle(0).expect("a page"));
+    let annots = entry(arena, &page, "Annots")?;
+    let widget = walk(arena, annots, &[&index.to_string()])?;
+    entry(arena, &widget, key)
+}
+
+/// **#21: `/NeedAppearances true` is done and then dropped.** The text field's appearance
+/// is rebuilt from `/V` and no longer shows `Old`; the check box shows the state `/V`
+/// names; the entry goes, and that is said.
+#[test]
+fn need_appearances_rebuilds_from_the_values_and_goes() {
+    let doc = stale_form("");
+    let arena = doc.inner().arena();
+    let ap = widget_entry(&doc, 0, "AP").expect("the text field has an appearance");
+    let normal = entry(arena, &ap, "N").expect("a normal appearance");
+    let Object::Stream(_, data) = normal else { panic!("a stream") };
+    let content =
+        String::from_utf8_lossy(&arena.get_stream_bytes(&data).expect("it reads")).into_owned();
+    assert!(!content.contains("Old"), "the stale appearance stayed: {content}");
+    let state = widget_entry(&doc, 1, "AS").and_then(|s| s.as_name());
+    assert_eq!(state.and_then(|n| arena.get_name_str(n)).as_deref(), Some("Yes"));
+    let catalog = Object::Reference(*doc.inner().root_handle());
+    let form = entry(arena, &catalog, "AcroForm").expect("the form");
+    assert!(entry(arena, &form, "NeedAppearances").is_none(), "the entry stayed");
+    assert!(doc.decisions().iter().any(|d| d.clause == "12.7.3"), "{:?}", doc.decisions());
+}
+
+/// **The entry stays while a widget still lacks the appearance it asks for** — here an
+/// unsigned signature field with a page-sized `/Rect`, which nothing here draws.
+#[test]
+fn need_appearances_stays_while_a_widget_lacks_one() {
+    let doc = stale_form(" 8 0 R");
+    let arena = doc.inner().arena();
+    let catalog = Object::Reference(*doc.inner().root_handle());
+    let form = entry(arena, &catalog, "AcroForm").expect("the form");
+    assert!(entry(arena, &form, "NeedAppearances").is_some(), "the entry went");
 }

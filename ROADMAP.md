@@ -2116,11 +2116,21 @@ file, and the Arlington audit of a saved probe reports only rows whose rule is K
       none carries a catalogue entry this drops (scanned with `inspect catalog`, which
       finds each in the probe), so the crosscheck's exclusions change nothing on them
       today. One gap remains, #21, which is AB-5.
-- [ ] **AB-5** — **`/NeedAppearances` from the file** (#21): an appearance built for each
+- [x] **AB-5** — **`/NeedAppearances` from the file** (#21): an appearance built for each
       widget that lacks one, then the entry dropped. Text fields have a builder
       (`set_text_appearance`); check boxes, radio buttons, choice fields, push buttons,
       multi-line and comb text do not, so this is the largest item. An ADR records the
       decision when it lands.
+      **Done, 2026-10-12**
+      ([ADR-0126](docs/adr/0126-need-appearances-is-done-as-it-asks-and-then-dropped.md)).
+      The premise above was wrong: ADR-0120 already gives every widget without `/AP` one
+      from its field, at open, buttons and choices included — read in `appearance.rs`
+      alone, the builders in `drawn/widgets.rs` were missed. What was left was which
+      widgets to build for, and the owner chose every one whose appearance depends on a
+      value, as Table 224 means. `drawn/need.rs` rebuilds them in `give_missing`'s pass
+      and drops the entry once every widget has an appearance. Each of the rebuild, the
+      condition and the drop was taken out and failed a test. No sample carries the
+      entry. The table has no gap left.
 - [x] **AB-6** — **the rows not measured**: signatures (#23–26), FDF encryption,
       Adobe-Japan2 and Adobe-Korea1, permission bit 10, and a Link element enclosing
       several annotations. Each row says what was found.
