@@ -119,6 +119,13 @@ done
 # lost. That is the single normalised state (ADR-0013), and it is the one entry where
 # the shape is not the fact worth comparing.
 #
+# `/MarkInfo` and `/ViewerPreferences` are compared by key alone as well, because a save
+# changes how many entries they hold by rule: the `/Type` neither table has goes at load
+# (Y-F28, 2026-10-03), and the deprecated `/Suspects` and page-boundary preferences on
+# save (AB-4). It failed on `fugaku.pdf` and `volvo_xc90.pdf` when run on 2026-10-12, and
+# had presumably done so since Y-F28 landed, unread, since no gate runs it. What the two
+# dictionaries say is compared in full by the check after this one.
+#
 # `/SpiderInfo` is left out of the input side: a save drops it by rule, with the rest of
 # web capture 2.0 deprecates (`docs/specs/pdf-2-0-deprecations.md` row #6, ROADMAP AB-4),
 # and records that it did. No sample carries it (2026-10-11); a file that does would
@@ -131,7 +138,7 @@ catalog_keys() {
             key = $1; $1 = ""; $2 = ""; $3 = "";       # drop key, support, in-7.7.2
             gsub(/[0-9]+ 0 R -> /, "");                # object numbers are renumbered
             sub(/^ +/, "");
-            print key, (key == "Pages" ? "" : $0);
+            print key, (key ~ /^(Pages|MarkInfo|ViewerPreferences)$/ ? "" : $0);
         }' | sort
 }
 for src in samples/*.pdf; do

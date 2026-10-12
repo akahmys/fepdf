@@ -46,7 +46,7 @@ carry. A **gap** is a row whose Now is not its Rule.
 | # | Feature (clause) | Successor | Rule | Now |
 | :--- | :--- | :--- | :--- | :--- |
 | 1 | `/Info` entries other than `CreationDate`, `ModDate` (14.3.3) | XMP metadata stream — stated | Load | Each moves to XMP once the packet holds it (`metadata.rs`); `/Trapped` as `pdf:Trapped`, `Unknown` being the default and not carried. Not recorded: nothing is lost |
-| 2 | Encryption `V` 1–4; standard handler `R` 2–5; Algorithms 1–7; RC4; MD5 key derivation (7.6) | `V` 5 / `R` 6 — derived | Never written | Read; AES-256 R6 is the only scheme written ([ADR-0015](../adr/0015-this-engine-reads-five-encryption-schemes-and-writes-one.md)). Not re-measured |
+| 2 | Encryption `V` 1–4; standard handler `R` 2–5; Algorithms 1–7; RC4; MD5 key derivation (7.6) | `V` 5 / `R` 6 — derived | Never written | Read; written as `/V 5 /R 6` with `AESV3` only (`an_encrypted_save_is_v5_r6`; [ADR-0015](../adr/0015-this-engine-reads-five-encryption-schemes-and-writes-one.md)) |
 | 3 | Public-key RC4, DES, 3DES, RC2, AES-128/192; crypt filters `V2`, `AESV2`; crypt filter `Length` (7.6.5, 7.6.6) | `AESV3` — derived | Never written | As #2 |
 | 4 | Permission bit 10 (Tables 22, 24) | — readers ignore it, writers set 1 — stated | Never written | Always set (`permissions_from_keywords`, `ALWAYS_GRANTED`); `accessibility` is accepted and offered nowhere. Read and reported as a file has it |
 | 5 | `NeedsRendering` (Table 29), `/XFA` (Table 224), Annex K | AcroForm — derived | Keep | Kept |
@@ -56,13 +56,13 @@ carry. A **gap** is a row whose Now is not its Rule.
 | 9 | File specification `/DOS`, `/Mac`, `/Unix`; embedded file `/Mac` (Tables 43, 45) | `/F`, `/UF` — derived | Save when `/F` or `/UF` is present; otherwise keep, since making `/F` from a platform string is a guess | Dropped on save beside `/F` or `/UF`, with an embedded file's `/Mac` parameters (`7.11.3` recorded); kept where neither is there |
 | 10 | Array of blend modes (Table 57, 11.6.3) | Reader takes the first it recognises — stated | Load | Made the first recognised name at load (`conform.rs`, `11.6.3` recorded), and read so by `BlendMode::from_pdf_object` wherever an array is still met |
 | 11 | Blend mode `Compatible` (Table 134) | `Normal` — stated | Load | Made `Normal` at load (`conform.rs`, `11.3.5` recorded) |
-| 12 | `/TR`, `/TR2` in a graphics state (Table 57, 10.5) | Halftone transfer functions — derived, **not equivalent** | Keep | Kept; *code*: not applied (only a soft mask's `/TR` is read) |
+| 12 | `/TR`, `/TR2` in a graphics state (Table 57, 10.5) | Halftone transfer functions — derived, **not equivalent** | Keep | Kept, and not applied: a fill under `/TR` is drawn in the colour it names (`a_transfer_function_is_not_applied`; ADR-0029 declines transfer functions) |
 | 13 | Operator `F` (Table 59) | `f` — stated | Interpret | A saved content stream carries `f` |
 | 14 | `/Name` of fonts (Table 109), image and form XObjects (Tables 87, 93) | — | Load | Dropped at load (`conform.rs`): fonts recorded under `9.6.2.1`, images `8.9.5`, forms `8.10.2` |
 | 15 | `/CharSet`, `/CIDSet` (Tables 120, 122) | — subset tag | Save | Both dropped from what is written, and kept in the open document (`drop_subset_claims`) |
-| 16 | Adobe-Japan2, Adobe-Korea1 (2020) | Adobe-Japan1-7, Adobe-KR — derived, with no mapping | Keep | Kept. Adobe-Japan2 text is declined, `9.7.3` recorded: codes left unnamed rather than read through Adobe-Japan1, which would name other characters; recorded once. *Code*: Adobe-Korea1 is read through its own table, `Adobe-Korea1-UCS2`, which `fetch_font_resources.sh` fetches (`collections.rs`); not probed |
+| 16 | Adobe-Japan2, Adobe-Korea1 (2020) | Adobe-Japan1-7, Adobe-KR — derived, with no mapping | Keep | Kept. Adobe-Japan2 text is declined, `9.7.3` recorded once: codes left unnamed rather than read through Adobe-Japan1, which would name other characters. Adobe-Korea1 text is read through its own table, `Adobe-Korea1-UCS2` (`korea1_text_is_read_through_its_own_table`) |
 | 17 | `/ViewArea`, `/ViewClip`, `/PrintArea`, `/PrintClip` (Table 147) | — | Save | Dropped on save (`12.2` recorded) |
-| 18 | Sound and Movie annotations and actions; 13.3, 13.4 | 13.2 Multimedia — stated, but see [Inconsistencies](#inconsistencies-in-the-standard) | Keep | Kept; not made by `AddAnnotation` (`apply/kinds.rs`) |
+| 18 | Sound and Movie annotations and actions; 13.3, 13.4 | 13.2 Multimedia — stated, but see [Inconsistencies](#inconsistencies-in-the-standard) | Keep | Kept — Sound and Movie annotations, a Sound action and the Movie action it chains to, and the sound object; not made by `AddAnnotation` (`apply/kinds.rs`) |
 | 19 | TrapNet annotation, trapping (14.11.6), `/TrapRegions` | — | Save, the annotation taken out of `/Annots` as well. No other kind means what it means: a PrinterMark would read as a production mark and could not tell that a later edit had left the traps stale (the owner, 2026-10-11) | Dropped on save, out of `/Annots` and so out of the file (`14.11.6` recorded); kept in the open document, which the audit reads |
 | 20 | Launch `/Win`, `/Mac`, `/Unix` (Table 207) | — | Keep | Kept, and read when `/F` is absent (`actions.rs`) |
 | 21 | `/NeedAppearances` (Table 224) | Appearance streams — stated | Never written; a file's own `true` is dropped once an appearance is built for every widget lacking one (the owner, 2026-10-11) | Done at open and dropped: what depends on a value is rebuilt from it, what has no appearance is given one, and the entry goes once every widget has one, `12.7.3` recorded; kept where one still lacks it ([ADR-0126](../adr/0126-need-appearances-is-done-as-it-asks-and-then-dropped.md)). Never written by an edit |
@@ -89,8 +89,12 @@ carry. A **gap** is a row whose Now is not its Rule.
 | `TagSuspect` (1.7, 14.8.2.3) | The same note |
 | PostScript XObjects (1.7, 8.8.2: "should not be used") | Absent from 2.0's text, without a note. Found only by reading 1.7 beside it |
 
-A removed feature takes the rule of a deprecated one with no successor: **Keep** while it
-is read, and not written.
+**Each is kept as read, and none is made here**, the rule of a deprecated feature whose
+translation would be a guess (*Keep*). The engine's own public-key encryption dictionary
+has no `/P`: the permissions travel in each recipient's envelope (`writer/standard.rs`;
+measured 2026-10-12 by encrypting to the certificate `scripts/test/make_pubsec.py` makes).
+A PostScript XObject and its `Do`, a `/Clip` marked clipping sequence and a `TagSuspect`
+one come through a save unchanged (`removed_features_through_a_save`).
 
 ## Inconsistencies in the standard
 
@@ -114,5 +118,12 @@ that, it marks as deprecated in 2.0 rows the standard does not:
 - **A cross-reference stream's `/F`, `/FFilter`, `/FDecodeParms`**, citing pdf-issues #246;
   EC3's text does not.
 
-It also dates `Compatible` from 1.4, where Table 134 says 2.0. The standard ranks above
-the model, so an Arlington report on these rows is not a finding about 2.0.
+It also dates `Compatible` from 1.4, where Table 134 says 2.0; reads a UR signature
+reference with DocMDP's table, so `/UR` and its `/V` read as names that table does not
+allow; and requires a form XObject's `/Resources` outright, where Table 93 with the errata
+says "sometimes required". The standard ranks above the model, so an Arlington report on
+these rows is not a finding about 2.0.
+
+**A save of the probe departs from the model only where the table keeps what 2.0
+deprecates**: `arlington_test.rs`'s `deprecation_probe` lists each departure with its row,
+and fails on a new one or a listed one gone.

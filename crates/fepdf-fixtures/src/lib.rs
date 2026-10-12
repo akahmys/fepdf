@@ -340,12 +340,13 @@ fn sfnt(tables: &[([u8; 4], Vec<u8>)]) -> Vec<u8> {
 /// The objects of [`deprecated_in_2_0`], from 1: each a dictionary, and a stream's data
 /// when it is one. A comment names the rows of the table an object carries.
 const DEPRECATED_IN_2_0: &[(&str, Option<&[u8]>)] = &[
-    // 1. #5, #6, #7, #17, #26, #27, #29: the catalogue and what hangs off it.
+    // 1. #5, #6, #7, #17, #18, #26, #27, #29: the catalogue and what hangs off it.
     (
         "<< /Type /Catalog /Pages 2 0 R /SpiderInfo << /V 1.0 /C [] >> /NeedsRendering false \
          /AcroForm 20 0 R /Names << /IDS 18 0 R /URLS 18 0 R /AlternatePresentations 18 0 R >> \
          /MarkInfo << /Marked true /Suspects false >> /StructTreeRoot 15 0 R \
          /Perms << /UR3 30 0 R >> \
+         /OpenAction << /S /Sound /Sound 19 0 R /Next << /S /Movie /Annotation 36 0 R >> >> \
          /Legal << /MovieActions 1 /SoundActions 1 /ExternalOPIdicts 1 >> \
          /ViewerPreferences << /ViewArea /CropBox /ViewClip /CropBox /PrintArea /CropBox \
          /PrintClip /CropBox >> >>",
@@ -356,15 +357,25 @@ const DEPRECATED_IN_2_0: &[(&str, Option<&[u8]>)] = &[
     (
         "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Contents 4 0 R /ID (page) \
          /SeparationInfo << /Pages [3 0 R] /DeviceColorant /Cyan >> /StructParents 0 \
-         /Annots [12 0 R 10 0 R 13 0 R 28 0 R 31 0 R 11 0 R] \
-         /Resources << /ProcSet [/PDF /Text /ImageB] /Font << /F1 5 0 R /F2 22 0 R /F3 33 0 R >> \
-         /XObject << /Im1 7 0 R /Fm1 8 0 R >> \
+         /Annots [12 0 R 10 0 R 13 0 R 28 0 R 31 0 R 36 0 R 11 0 R] \
+         /Resources << /ProcSet [/PDF /Text /ImageB] /Font << /F1 5 0 R /F2 22 0 R /F3 33 0 R /F4 37 0 R >> \
+         /XObject << /Im1 7 0 R /Fm1 8 0 R /PS1 40 0 R >> \
          /ExtGState << /G1 << /BM [/Foo /Multiply] /TR /Identity /TR2 /Default >> \
          /G2 << /BM /Compatible >> >> >> >>",
         None,
     ),
-    // 4. #13: the operator `F`.
-    ("", Some(b"/P << /MCID 0 >> BDC 0 0 10 10 re F EMC /G1 gs /G2 gs /Im1 Do /Fm1 Do")),
+    // 4. #13: the operator `F`; #16: Korea1 text, CID 34 being `A`; and what 2.0 removed
+    // — a PostScript XObject, a marked clipping sequence and tag suspects (1.7 14.6.3,
+    // 14.8.2.3).
+    (
+        "",
+        Some(
+            b"/P << /MCID 0 >> BDC 0 0 10 10 re F EMC /G1 gs /G2 gs /Im1 Do /Fm1 Do \
+              /Clip BMC 100 100 10 10 re W n EMC \
+              /TagSuspect << /TagSuspect /Ordering >> BDC BT /F4 12 Tf 10 150 Td <0022> Tj ET EMC \
+              /PS1 Do",
+        ),
+    ),
     // 5, 6. #14, #15: a font's /Name, a descriptor's /CharSet.
     (
         "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Name /F1 /FirstChar 32 \
@@ -384,7 +395,7 @@ const DEPRECATED_IN_2_0: &[(&str, Option<&[u8]>)] = &[
         Some(b"\x80"),
     ),
     (
-        "/Type /XObject /Subtype /Form /BBox [0 0 1 1] /Name /Fm1 \
+        "/Type /XObject /Subtype /Form /BBox [0 0 1 1] /Name /Fm1 /Resources << >> \
          /OPI << /2.0 << /Type /OPI /Version 2.0 /F (hi.eps) /Inks /full_color >> >>",
         Some(b""),
     ),
@@ -430,7 +441,8 @@ const DEPRECATED_IN_2_0: &[(&str, Option<&[u8]>)] = &[
     // 20. #5, #21: the form.
     ("<< /Fields [28 0 R] /SigFlags 3 /NeedAppearances true /XFA 24 0 R >>", None),
     (
-        "/Type /XObject /Subtype /Form /BBox [0 0 200 200] /PCM /DeviceCMYK /TrapRegions []",
+        "/Type /XObject /Subtype /Form /BBox [0 0 200 200] /Resources << >> /PCM /DeviceCMYK \
+         /TrapRegions []",
         Some(b""),
     ),
     // 22. #15: a CID font whose descriptor has /CIDSet.
@@ -502,6 +514,30 @@ const DEPRECATED_IN_2_0: &[(&str, Option<&[u8]>)] = &[
          /ItalicAngle 0 /Ascent 880 /Descent -120 /CapHeight 700 /StemV 80 >>",
         None,
     ),
+    // 36. #18: a movie annotation, which the catalogue's /OpenAction plays.
+    (
+        "<< /Type /Annot /Subtype /Movie /Rect [100 100 140 140] /Movie << /F (probe.mov) >> >>",
+        None,
+    ),
+    // 37, 38, 39. #16: a CID font of Adobe-Korea1, which 2.0 (2020) deprecates.
+    (
+        "<< /Type /Font /Subtype /Type0 /BaseFont /ProbeK /Encoding /Identity-H \
+         /DescendantFonts [38 0 R] >>",
+        None,
+    ),
+    (
+        "<< /Type /Font /Subtype /CIDFontType0 /BaseFont /ProbeK \
+         /CIDSystemInfo << /Registry (Adobe) /Ordering (Korea1) /Supplement 2 >> \
+         /FontDescriptor 39 0 R >>",
+        None,
+    ),
+    (
+        "<< /Type /FontDescriptor /FontName /ProbeK /Flags 4 /FontBBox [0 0 1000 1000] \
+         /ItalicAngle 0 /Ascent 880 /Descent -120 /CapHeight 700 /StemV 80 >>",
+        None,
+    ),
+    // 40. A PostScript XObject, which 2.0 removed (1.7 8.8.2).
+    ("/Type /XObject /Subtype /PS", Some(b"%!PS\n")),
 ];
 
 /// One page carrying a feature ISO 32000-2 deprecates for each row of

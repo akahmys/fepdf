@@ -145,6 +145,26 @@ const ROWS: &[Row] = {
             Present,
             Present,
         ),
+        row(
+            16,
+            &[
+                "Pages",
+                "Kids",
+                PAGE,
+                "Resources",
+                "Font",
+                "F4",
+                "DescendantFonts",
+                "0",
+                "CIDSystemInfo",
+                "Ordering",
+            ],
+            Present,
+            Present,
+        ),
+        row(18, &["Pages", "Kids", PAGE, "Annots", "Subtype=Movie"], Present, Present),
+        row(18, &["OpenAction", "Sound"], Present, Present),
+        row(18, &["OpenAction", "Next", "Annotation"], Present, Present),
         row(17, &["ViewerPreferences", "ViewArea"], Present, Absent),
         row(17, &["ViewerPreferences", "PrintClip"], Present, Absent),
         row(18, &["Pages", "Kids", PAGE, "Annots", "Subtype=Sound"], Present, Present),
@@ -508,4 +528,93 @@ fn need_appearances_stays_while_a_widget_lacks_one() {
 fn a_declined_collection_is_said_once() {
     let declined = opened().decisions().into_iter().filter(|d| d.clause == "9.7.3").count();
     assert_eq!(declined, 1);
+}
+
+/// **#16: Adobe-Korea1 text is read through its own table**, which is fetched, so CID 34
+/// comes out as `A` and the font is not declined. Adobe-Japan2, whose table is not
+/// fetched, is the one declined.
+#[test]
+fn korea1_text_is_read_through_its_own_table() {
+    let doc = opened();
+    let text = doc.extract_text(0).expect("the page reads");
+    assert!(text.contains('A'), "{text:?}");
+    let declined: Vec<String> =
+        doc.decisions().into_iter().filter(|d| d.clause == "9.7.3").map(|d| d.found).collect();
+    assert!(declined.iter().all(|f| !f.contains("Korea1")), "{declined:?}");
+}
+
+/// The colour a page's one fill is drawn in, with `gs` naming a graphics state that sets
+/// `/TR` to `f(x) = 1 - x` when `with_transfer`.
+fn fill_colour(with_transfer: bool) -> Vec<fepdf_content::Color> {
+    let gs = if with_transfer { "/G1 gs " } else { "" };
+    let content = format!("{gs}0.25 g 0 0 10 10 re f");
+    let bytes = fepdf_fixtures::assemble(&[
+        "<< /Type /Catalog /Pages 2 0 R >>".to_string(),
+        "<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_string(),
+        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 20 20] /Contents 4 0 R /Resources \
+           << /ExtGState << /G1 << /TR << /FunctionType 2 /Domain [0 1] /C0 [1] /C1 [0] /N 1 >> \
+           >> >> >> >>"
+            .to_string(),
+        format!("<< /Length {} >>\nstream\n{content}\nendstream", content.len()),
+    ]);
+    let doc = PdfDocument::open(bytes.into()).expect("the page opens");
+    let mut drawn = Recorder::new();
+    doc.render_page(0, &mut drawn, Affine::IDENTITY).expect("the page draws");
+    drawn
+        .events
+        .iter()
+        .filter_map(|e| if let Event::Fill { color, .. } = e { Some(*color) } else { None })
+        .collect()
+}
+
+/// **#12: a graphics state's `/TR` is kept and not applied** — the fill is drawn in the
+/// colour it names, as though there were no transfer function (ADR-0029 declines them).
+#[test]
+fn a_transfer_function_is_not_applied() {
+    let (with, without) = (fill_colour(true), fill_colour(false));
+    assert_eq!(with.len(), 1);
+    assert_eq!(format!("{with:?}"), format!("{without:?}"));
+}
+
+/// **#2, #3: an encrypted save is AES-256 under the standard handler's revision 6**, the
+/// one scheme 2.0 does not deprecate (ADR-0015).
+#[test]
+fn an_encrypted_save_is_v5_r6() {
+    let options = SaveOptions { password: Some("probe".to_string()), ..SaveOptions::default() };
+    let path =
+        std::env::temp_dir().join(format!("fepdf-deprecations-v5-{}.pdf", std::process::id()));
+    let _ = opened().save_with_options(&path, "2.0", &options).expect("the probe saves");
+    let bytes = std::fs::read(&path).expect("the save was written");
+    let _ = std::fs::remove_file(&path);
+    let raw = fepdf_model::reader::load_document(&Bytes::from(bytes)).expect("the save reads");
+    let trailer = raw.trailer.map(Object::Dictionary).expect("a trailer");
+    let encrypt = entry(&raw.arena, &trailer, "Encrypt").expect("an encryption dictionary");
+    let number = |key: &str| entry(&raw.arena, &encrypt, key).and_then(|v| v.as_integer());
+    assert_eq!((number("V"), number("R")), (Some(5), Some(6)));
+    let cfm = walk(&raw.arena, encrypt, &["CF", "StdCF", "CFM"])
+        .and_then(|n| n.as_name())
+        .and_then(|n| raw.arena.get_name_str(n));
+    assert_eq!(cfm.as_deref(), Some("AESV3"));
+}
+
+/// **What 2.0 removed is kept through a save**, as a feature with no successor that the
+/// engine reads and does not make: a PostScript XObject and its `Do`, a marked clipping
+/// sequence tagged `Clip`, and one tagged `TagSuspect` (1.7 8.8.2, 14.6.3, 14.8.2.3).
+#[test]
+fn removed_features_through_a_save() {
+    let (bytes, _) = saved(&opened());
+    let raw = fepdf_model::reader::load_document(&Bytes::from(bytes)).expect("the save reads");
+    let trailer = raw.trailer.map(Object::Dictionary).expect("a trailer");
+    let root = entry(&raw.arena, &trailer, "Root").expect("a catalogue");
+    let page = walk(&raw.arena, root, &["Pages", "Kids", PAGE]).expect("the page");
+    let ps = walk(&raw.arena, page.clone(), &["Resources", "XObject", "PS1"]);
+    let Some(Object::Stream(_, data)) = page_contents(&raw.arena, &page) else {
+        panic!("the page has one content stream")
+    };
+    let content =
+        String::from_utf8_lossy(&raw.arena.get_stream_bytes(&data).expect("it reads")).into_owned();
+    assert!(ps.is_some(), "the PostScript XObject went");
+    for kept in ["/Clip BMC", "/TagSuspect << /TagSuspect /Ordering >> BDC", "/PS1 Do"] {
+        assert!(content.contains(kept), "{kept} went: {content}");
+    }
 }

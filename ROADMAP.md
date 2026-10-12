@@ -29,7 +29,7 @@ The differences are by design:
 - Inherited attributes are resolved onto the pages
   ([ADR-0013](docs/adr/0013-a-document-is-one-normalised-state.md)).
 
-Phases Y and Z are closed (2026-10-10), and Phases AA and AB are open. Two items Phase Y found wait on Windows and
+Phases Y and Z are closed (2026-10-10), Phase AB on 2026-10-12, and Phase AA is open. Two items Phase Y found wait on Windows and
 Linux, under [Held for another platform](#held-for-another-platform).
 `./scripts/dev/status.sh` re-derives the figures this file leans on, so a stale one reads
 as a disagreement rather than as current.
@@ -2143,6 +2143,23 @@ file, and the Arlington audit of a saved probe reports only rows whose rule is K
       fonts, text and saves — and none of them recorded a decision twice before the
       change (counted, with the counter shown to find a planted duplicate); the external
       corpus was not run.
+- [x] **AB-8** — **what Phase AB had left unmeasured, and its condition's second half.**
+      **Done, 2026-10-12.** The rows read only in code were measured: an encrypted save is
+      `/V 5 /R 6` with `AESV3` (#2, #3); a `/TR` is kept and not applied (#12); Adobe-Korea1
+      text is read through its own table (#16); Movie annotations and the Sound and Movie
+      actions are kept (#18). What 2.0 removed is kept as read — a PostScript XObject, a
+      `/Clip` and a `TagSuspect` sequence — and the public-key dictionary this engine
+      writes has no `/P`, measured with the CLI on a `make_pubsec.py` certificate. The
+      table's sentence that gave removed features two rules at once now gives one.
+      `arlington_test.rs`'s `deprecation_probe` holds a save of the probe against the model
+      and lists 34 departures, every one a Keep row's; it fails with the save-time drops
+      removed. The probe's forms carry an empty `/Resources`, because the model requires
+      one outright where Table 93 with the errata says "sometimes required"; a form that
+      relies on its page's resources is a translation of its own, flagged apart.
+      `crosscheck_selfread.sh` passes, once `/MarkInfo` and `/ViewerPreferences` are
+      compared by key: it failed on two samples whose `/Type` Y-F28 drops, and had not
+      been run since. Each new test was shown to fail with what it guards broken. FDF
+      encryption (#22) stays read in code.
 - [x] **AB-6** — **the rows not measured**: signatures (#23–26), FDF encryption,
       Adobe-Japan2 and Adobe-Korea1, permission bit 10, and a Link element enclosing
       several annotations. Each row says what was found.

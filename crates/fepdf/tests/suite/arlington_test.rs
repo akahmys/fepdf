@@ -674,3 +674,80 @@ fn every_sample_is_held() {
         }
     }
 }
+
+/// What a save of `fepdf_fixtures::deprecated_in_2_0()` departs from, each with the row of
+/// `docs/specs/pdf-2-0-deprecations.md` that keeps it (ROADMAP Phase AB's condition). A
+/// row whose rule is Load or Save leaves nothing here; one whose rule is Keep may.
+const PROBE_DEPARTURES: &[(&str, &str, &str)] = &[
+    ("key deprecated in 2.0", "ActionLaunch: /Unix", "#20"),
+    ("key deprecated in 2.0", "ActionLaunch: /Win", "#20"),
+    ("key deprecated in 2.0", "MicrosoftWindowsLaunchParam: /F", "#20"),
+    (
+        "wrong type",
+        "ActionLaunch/Unix: string where null",
+        "#20: Table 207 leaves its type undefined",
+    ),
+    ("key deprecated in 2.0", "ActionMovie: /Annotation", "#18"),
+    ("key deprecated in 2.0", "ActionMovie: /S", "#18"),
+    ("key deprecated in 2.0", "ActionSound: /Next", "#18"),
+    ("key deprecated in 2.0", "ActionSound: /S", "#18"),
+    ("key deprecated in 2.0", "ActionSound: /Sound", "#18"),
+    ("key deprecated in 2.0", "AnnotMovie: /AP", "#18"),
+    ("key deprecated in 2.0", "AnnotMovie: /Movie", "#18"),
+    ("key deprecated in 2.0", "AnnotMovie: /Rect", "#18"),
+    ("key deprecated in 2.0", "AnnotMovie: /Subtype", "#18"),
+    ("key deprecated in 2.0", "AnnotMovie: /Type", "#18"),
+    ("key deprecated in 2.0", "AnnotSound: /AP", "#18"),
+    ("key deprecated in 2.0", "AnnotSound: /Rect", "#18"),
+    ("key deprecated in 2.0", "AnnotSound: /Sound", "#18"),
+    ("key deprecated in 2.0", "AnnotSound: /Subtype", "#18"),
+    ("key deprecated in 2.0", "AnnotSound: /Type", "#18"),
+    ("key deprecated in 2.0", "Movie: /F", "#18"),
+    ("key deprecated in 2.0", "SoundObject: /R", "#18"),
+    ("key deprecated in 2.0", "SoundObject: /Type", "#18"),
+    ("key deprecated in 2.0", "Catalog: /NeedsRendering", "#5"),
+    ("key deprecated in 2.0", "InteractiveForm: /XFA", "#5"),
+    ("key deprecated in 2.0", "GraphicsStateParameter: /TR", "#12"),
+    ("key deprecated in 2.0", "GraphicsStateParameter: /TR2", "#12"),
+    ("key deprecated in 2.0", "SignatureReferenceDocMDP: /DigestMethod", "#24"),
+    ("key deprecated in 2.0", "Signature: /R", "#25"),
+    ("key deprecated in 2.0", "Permissions: /UR3", "#26"),
+    (
+        "name the model does not allow",
+        "SignatureReferenceDocMDP/TransformMethod: /UR",
+        "#26: the model reads a UR reference with DocMDP's table",
+    ),
+    (
+        "name the model does not allow",
+        "DocMDPTransformParameters/V: /2.2",
+        "#26: the same reference's parameters, read as DocMDP's",
+    ),
+    ("key deprecated in 2.0", "XObjectFormPS: /Length", "removed: a PostScript XObject"),
+    ("key deprecated in 2.0", "XObjectFormPS: /Subtype", "removed: a PostScript XObject"),
+    ("key deprecated in 2.0", "XObjectFormPS: /Type", "removed: a PostScript XObject"),
+];
+
+/// **A save of the deprecation probe departs from the model only where the table keeps
+/// what 2.0 deprecates**, which is Phase AB's condition. A new departure fails here, and so
+/// does a listed one the save no longer makes.
+#[test]
+fn deprecation_probe() {
+    let model = Model::load(&model_dir());
+    let doc = PdfDocument::open(fepdf_fixtures::deprecated_in_2_0().into()).expect("it opens");
+    let out =
+        std::env::temp_dir().join(format!("fepdf-arlington-probe-{}.pdf", std::process::id()));
+    let _ = doc.save_with_options(&out, "2.0", &fepdf::SaveOptions::default()).expect("it saves");
+    let found: BTreeSet<(String, String)> =
+        findings_for(&model, std::fs::read(&out).expect("it was written"))
+            .by_kind
+            .into_iter()
+            .flat_map(|(kind, items)| items.into_iter().map(move |i| (kind.clone(), i)))
+            .collect();
+    let _ = std::fs::remove_file(&out);
+    let listed: BTreeSet<(String, String)> =
+        PROBE_DEPARTURES.iter().map(|(k, f, _)| ((*k).to_string(), (*f).to_string())).collect();
+    let new: Vec<_> = found.difference(&listed).collect();
+    let gone: Vec<_> = listed.difference(&found).collect();
+    assert!(new.is_empty(), "departures the table does not keep: {new:#?}");
+    assert!(gone.is_empty(), "listed departures the save no longer makes: {gone:#?}");
+}
