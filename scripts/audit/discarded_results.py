@@ -87,7 +87,7 @@ ACCOUNTED_FOR: dict[tuple[str, str], str] = {
     ): "returns the drained Vec, not a Result — the drain is the point",
     (
         "crates/fepdf-model/src/document/normalisation.rs",
-        "self.push_down_attributes_recursive(root_h, &mut inherited, 0);",
+        "self.push_down_attributes_recursive(root_h, &mut inherited, 0, &mut seen);",
     ): (
         "normalization is best-effort at load: a page tree this cannot walk is reported "
         "by the reader that built it, and refusing to normalize the rest would leave a "

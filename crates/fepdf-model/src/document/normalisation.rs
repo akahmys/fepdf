@@ -23,7 +23,8 @@ impl Document {
         };
 
         let mut inherited = BTreeMap::new();
-        let _ = self.push_down_attributes_recursive(root_h, &mut inherited, 0);
+        let mut seen = std::collections::BTreeSet::new();
+        let _ = self.push_down_attributes_recursive(root_h, &mut inherited, 0, &mut seen);
     }
 
     pub(super) fn process_leaf_page(
@@ -59,6 +60,7 @@ impl Document {
         dict: &BTreeMap<Handle<PdfName>, Object>,
         local_inherited: &mut BTreeMap<Handle<PdfName>, Object>,
         depth: usize,
+        seen: &mut std::collections::BTreeSet<u32>,
     ) -> PdfResult<()> {
         let kids_key = self.arena.name("Kids");
         let kids_obj = dict
@@ -74,7 +76,15 @@ impl Document {
             .ok_or_else(|| PdfError::internal("Invalid kids array handle"))?;
         for kid in kids {
             if let Some(kh) = kid.as_reference() {
-                self.push_down_attributes_recursive(kh, local_inherited, depth + 1)?;
+                match self.push_down_attributes_recursive(kh, local_inherited, depth + 1, seen) {
+                    Ok(()) => {}
+                    // A kid that does not read is recorded where the tree is indexed
+                    // (7.7.3.2). Its siblings still inherit: returning here with `?` left
+                    // every page after it without what its ancestors held, and the tree's
+                    // rebuild then dropped the ancestors' copy too (ROADMAP AC-2). `seen`
+                    // is what ends a tree that loops, which that return used to.
+                    Err(_) => continue,
+                }
             }
         }
 
@@ -92,9 +102,17 @@ impl Document {
         node_h: Handle<Object>,
         inherited: &mut BTreeMap<Handle<PdfName>, Object>,
         depth: usize,
+        seen: &mut std::collections::BTreeSet<u32>,
     ) -> PdfResult<()> {
         if depth > 32 {
             return Err(PdfError::DepthLimitExceeded(32));
+        }
+        // Each node once. A `/Kids` that names an ancestor, or a node twice, would
+        // otherwise be walked once a path to it: a node whose kids are itself and one more
+        // doubles the walk at every level, which a tree 32 deep makes billions (Z-2's
+        // `kids_loop`).
+        if !seen.insert(node_h.index()) {
+            return Ok(());
         }
 
         let dict_h = self.resolve_to_dict(node_h)?;
@@ -125,7 +143,7 @@ impl Document {
         if let Some(name) = &node_type
             && name.as_str() == "Pages"
         {
-            return self.process_pages_node(dict_h, &dict, &mut local_inherited, depth);
+            return self.process_pages_node(dict_h, &dict, &mut local_inherited, depth, seen);
         }
 
         Err(PdfError::violation("7.7.3", "Invalid node type in page tree"))

@@ -2131,6 +2131,25 @@ file, and the Arlington audit of a saved probe reports only rows whose rule is K
       and drops the entry once every widget has an appearance. Each of the rebuild, the
       condition and the drop was taken out and failed a test. No sample carries the
       entry. The table has no gap left.
+- [x] **AB-6** — **the rows not measured**: signatures (#23–26), FDF encryption,
+      Adobe-Japan2 and Adobe-Korea1, permission bit 10, and a Link element enclosing
+      several annotations. Each row says what was found.
+      **Done, 2026-10-12**: the probe grew a signature field signed `adbe.x509.rsa_sha1`
+      with `/R` and an MD5 reference, a `/UR3` signed `adbe.pkcs7.sha1`, `/Legal`'s three
+      counts, a Link element over two links, and an Adobe-Japan2 font — 11 keys more, every
+      one kept as its rule says. Adobe-Korea1 is read through its own table, which the
+      code shows and the probe does not carry. FDF encryption is read and written nowhere. **One gap was
+      found: permission bit 10** — `permissions_from_keywords` clears it unless
+      `accessibility` is named, where Table 22 says a writer shall always set it.
+      `permission_bit_10_as_written` asserted that as it stood. Two gaps remained: #4 and
+      #21.
+- [x] **AB-6b** — **permission bit 10, always set** (#4, Table 22).
+      **Done, 2026-10-12**: `permissions_from_keywords` sets it whatever the list says.
+      `accessibility` is still accepted, as the owner chose, and changes nothing;
+      `permission_keywords` no longer lists it, so the window's export dialog no longer
+      offers it and `--permissions`' help says why. `permission_bit_10_is_always_set`
+      saves with every permission, with `print` alone and with none, and fails with the
+      line that sets the bit removed. One gap remains, #21, which is AB-5.
 - [x] **AB-7** — **a descendant font's decisions, recorded once.** AB-6 found the probe's
       Adobe-Japan2 font declined twice under 9.7.3, and put it down to fonts being built
       again at first draw; counting showed two right after opening and still two after
@@ -2182,25 +2201,23 @@ Opened on 2026-10-12 by what Phase AB's Arlington audit found that was no deprec
       no caller. Over 528 files, 13 forms in 12 lacked `/Resources`; all 13 are given
       theirs, ten empty and three what they name. `form_resources_test.rs` fails with the
       pass, the ambiguity check, the missing-name check or the nesting removed.
-- [x] **AB-6** — **the rows not measured**: signatures (#23–26), FDF encryption,
-      Adobe-Japan2 and Adobe-Korea1, permission bit 10, and a Link element enclosing
-      several annotations. Each row says what was found.
-      **Done, 2026-10-12**: the probe grew a signature field signed `adbe.x509.rsa_sha1`
-      with `/R` and an MD5 reference, a `/UR3` signed `adbe.pkcs7.sha1`, `/Legal`'s three
-      counts, a Link element over two links, and an Adobe-Japan2 font — 11 keys more, every
-      one kept as its rule says. Adobe-Korea1 is read through its own table, which the
-      code shows and the probe does not carry. FDF encryption is read and written nowhere. **One gap was
-      found: permission bit 10** — `permissions_from_keywords` clears it unless
-      `accessibility` is named, where Table 22 says a writer shall always set it.
-      `permission_bit_10_as_written` asserted that as it stood. Two gaps remained: #4 and
-      #21.
-- [x] **AB-6b** — **permission bit 10, always set** (#4, Table 22).
-      **Done, 2026-10-12**: `permissions_from_keywords` sets it whatever the list says.
-      `accessibility` is still accepted, as the owner chose, and changes nothing;
-      `permission_keywords` no longer lists it, so the window's export dialog no longer
-      offers it and `--permissions`' help says why. `permission_bit_10_is_always_set`
-      saves with every permission, with `print` alone and with none, and fails with the
-      line that sets the bit removed. One gap remains, #21, which is AB-5.
+- [x] **AC-2** — **what a review of AC-1 found.** **Done, 2026-10-12.** The pass read a
+      page's own `/Resources`. Following one that inherits them showed the push-down of
+      inherited attributes returning at the first kid that does not read: every page after
+      it was left without what its ancestors held, the tree's rebuild dropped the
+      ancestors' copy, and the page was given an empty `/Resources` and drew its text in a
+      fallback font. One kid that does not read now stops none of its siblings
+      (`normalisation.rs`), and the pass reads a page's resources through its ancestors as
+      `require_page_resources` does. That return had also been what ended a tree that
+      loops: without it Z-2's `kids_loop` ran past its 20 s, a node whose kids are itself
+      and one more doubling the walk at every level. Each node is now walked once. The pass also no longer scans an inline image's
+      samples for operators — it passes over one as the sublimator does, so ` EI` among
+      them does not end it — holds three operands rather than every one before an
+      operator, and counts a form with a name lent twice and another lent by none under
+      both. `cs`, `CS`, `sh`, `scn`, `SCN`, `BDC` and `DP` are tested; each new test failed
+      with its fix undone. The pass still starts from the pages only, so a form drawn
+      only from an appearance, a pattern or a glyph is reported rather than given
+      resources (ADR-0127).
 
 ---
 

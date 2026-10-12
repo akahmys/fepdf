@@ -127,3 +127,64 @@ fn a_save_writes_what_the_form_was_given() {
     let font = entry(&raw.arena, &a, "Resources").and_then(|r| entry(&raw.arena, &r, "Font"));
     assert!(font.and_then(|f| entry(&raw.arena, &f, "F1")).is_some(), "A's /F1 was not written");
 }
+
+/// **A form that has both a name lent twice and one lent by no caller is counted for each**:
+/// Z, drawn by two pages that lend `/F1` differently, also names `/F9`, which neither has.
+#[test]
+fn ambiguous_and_missing_are_counted_apart() {
+    let body = "BT /F1 9 Tf /F9 9 Tf (z) Tj ET";
+    let bytes = fepdf_fixtures::assemble(&[
+        "<< /Type /Catalog /Pages 2 0 R >>".to_string(),
+        "<< /Type /Pages /Kids [3 0 R 4 0 R] /Count 2 >>".to_string(),
+        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 10 10] /Contents 6 0 R /Resources \
+           << /Font << /F1 7 0 R >> /XObject << /Z 5 0 R >> >> >>"
+            .to_string(),
+        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 10 10] /Contents 6 0 R /Resources \
+           << /Font << /F1 8 0 R >> /XObject << /Z 5 0 R >> >> >>"
+            .to_string(),
+        format!(
+            "<< /Type /XObject /Subtype /Form /BBox [0 0 1 1] /Length {} >>\nstream\n{body}\nendstream",
+            body.len()
+        ),
+        "<< /Length 5 >>\nstream\n/Z Do\nendstream".to_string(),
+        "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>".to_string(),
+        "<< /Type /Font /Subtype /Type1 /BaseFont /Times-Roman >>".to_string(),
+    ]);
+    let doc = PdfDocument::open(bytes.into()).expect("it opens");
+    assert!(resources(&doc, 5).is_none(), "Z was given a guess");
+    let said: Vec<String> =
+        doc.decisions().into_iter().filter(|d| d.clause == "8.10.2").map(|d| d.found).collect();
+    assert_eq!(said.len(), 2, "{said:?}");
+}
+
+/// **A page after a kid that does not read still has, and lends, what its ancestors hold.**
+/// The root's first kid refers to a number. The push-down of inherited attributes stopped
+/// there, the page after it was given an empty `/Resources`, and its text was drawn in a
+/// fallback font for want of `/F1` (ROADMAP AC-2).
+#[test]
+fn a_page_lends_what_it_inherits() {
+    let body = "BT /F1 9 Tf (inherited) Tj ET";
+    let bytes = fepdf_fixtures::assemble(&[
+        "<< /Type /Catalog /Pages 2 0 R >>".to_string(),
+        "<< /Type /Pages /Kids [3 0 R 4 0 R] /Count 1 \
+           /Resources << /Font << /F1 7 0 R >> /XObject << /D 6 0 R >> >> >>"
+            .to_string(),
+        "7".to_string(),
+        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 10 10] /Contents 5 0 R >>".to_string(),
+        "<< /Length 5 >>\nstream\n/D Do\nendstream".to_string(),
+        format!(
+            "<< /Type /XObject /Subtype /Form /BBox [0 0 1 1] /Length {} >>\nstream\n{body}\nendstream",
+            body.len()
+        ),
+        "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>".to_string(),
+    ]);
+    let doc = PdfDocument::open(bytes.into()).expect("it opens");
+    let reference = Some(Object::Reference(fepdf_model::Handle::new(7)));
+    let page = Object::Reference(fepdf_model::Handle::new(4));
+    let held = entry(doc.inner().arena(), &page, "Resources").expect("the page's resources");
+    let font = entry(doc.inner().arena(), &held, "Font").and_then(|f| {
+        doc.inner().arena().dict_entry(f.as_dict_handle()?, doc.inner().arena().name("F1"))
+    });
+    assert_eq!(font, reference, "the page lost /F1: {:?}", doc.decisions());
+    assert_eq!(lent(&doc, 6, "Font", "F1"), reference, "{:?}", doc.decisions());
+}

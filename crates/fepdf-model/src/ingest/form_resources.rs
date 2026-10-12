@@ -43,7 +43,12 @@ pub fn give_forms_resources(doc: &Document) {
     let mut walk: Vec<(Vec<u8>, Option<DictHandle>, usize)> = Vec::new();
     for &page in &doc.pages {
         let Some(dict) = arena.get_object(page).and_then(|o| o.as_dict_handle()) else { continue };
-        let resources = entry_dict(doc, dict, "Resources");
+        // Through the page tree, as `require_page_resources` reads them: a page the
+        // push-down did not reach (a tree past its depth, a node that does not resolve)
+        // holds its resources in an ancestor.
+        let resources = crate::Page::new(arena, page, doc.get_parent_chain(page))
+            .resolve_attribute("Resources")
+            .and_then(|r| r.resolve(arena).as_dict_handle());
         walk.push((page_content(doc, dict), resources, 0));
     }
     while let Some((content, resources, depth)) = walk.pop() {
@@ -101,11 +106,12 @@ fn settle(doc: &Document, lent: &BTreeMap<DictHandle, Lent>) {
         let lent_for = |key: &(&'static str, Vec<u8>)| found.and_then(|l| l.get(key));
         let keys: Vec<_> =
             uses.iter().flat_map(|(c, ns)| ns.iter().map(move |n| (*c, n.clone()))).collect();
-        if keys.iter().any(|k| lent_for(k).is_some_and(|v| v.len() > 1)) {
-            ambiguous += 1;
-        } else if keys.iter().any(|k| lent_for(k).is_none_or(Vec::is_empty)) {
-            missing += 1;
-        } else {
+        // Counted apart: one form may have both a name lent twice and one lent by none.
+        let is_ambiguous = keys.iter().any(|k| lent_for(k).is_some_and(|v| v.len() > 1));
+        let is_missing = keys.iter().any(|k| lent_for(k).is_none_or(Vec::is_empty));
+        ambiguous += usize::from(is_ambiguous);
+        missing += usize::from(is_missing);
+        if !is_ambiguous && !is_missing {
             let mut built: BTreeMap<&'static str, Vec<(Vec<u8>, Object)>> = BTreeMap::new();
             for key in &keys {
                 if let Some(value) = lent_for(key).and_then(|v| v.first()) {
@@ -164,51 +170,72 @@ fn put_resources(
 
 /// The names a content stream uses, by the category of Table 34 each operator looks in.
 ///
-/// An inline image's data is passed over, from `ID` to `EI`, since it is not syntax.
+/// **Read a token at a time, and an inline image passed over as the sublimator passes
+/// over one** (`Sublimator::parse_inline_image`): its samples are not syntax, and the
+/// bytes ` EI` among them do not end it where its size says how long it is. Only the
+/// operands [`named`] reads are kept, so a run of operands with no operator holds three.
 fn names_used(content: &[u8]) -> Names {
-    use fepdf_syntax::lexer::{Token, tokenize};
+    use fepdf_syntax::lexer::{Lexer, Token};
+    let fonts = BTreeMap::new();
+    let images = crate::object::sublimation::parser::Sublimator::new(&fonts);
+    let mut lexer = Lexer::new(bytes::Bytes::copy_from_slice(content));
     let mut found = Names::new();
-    let mut operands: Vec<Token> = Vec::new();
-    let mut in_image = false;
-    for token in tokenize(content) {
-        let Token::Keyword(op) = &token else {
-            if !in_image {
-                operands.push(token);
-            }
-            continue;
-        };
-        match op.as_str() {
-            "ID" => in_image = true,
-            "EI" => in_image = false,
-            _ if in_image => continue,
-            _ => {
-                if let Some((category, name)) = named(op, &operands) {
+    let mut operands = Operands::default();
+    loop {
+        match lexer.next_token() {
+            Ok(Token::EOF) | Err(_) => break,
+            Ok(Token::Keyword(op)) => {
+                if op == "BI" {
+                    images.parse_inline_image(&mut lexer);
+                } else if let Some((category, name)) = named(&op, &operands) {
                     found.entry(category).or_default().insert(name);
                 }
+                operands = Operands::default();
             }
+            Ok(token) => operands.push(token),
         }
-        operands.clear();
     }
     found
 }
 
+/// The operands before an operator that [`named`] reads: the first, the second and the
+/// last. Kept rather than all of them, which a stream of operands and no operator would
+/// grow without bound.
+#[derive(Default)]
+struct Operands {
+    first: Option<fepdf_syntax::lexer::Token>,
+    second: Option<fepdf_syntax::lexer::Token>,
+    last: Option<fepdf_syntax::lexer::Token>,
+}
+
+impl Operands {
+    fn push(&mut self, token: fepdf_syntax::lexer::Token) {
+        if self.first.is_none() {
+            self.first = Some(token.clone());
+        } else if self.second.is_none() {
+            self.second = Some(token.clone());
+        }
+        self.last = Some(token);
+    }
+}
+
 /// The category and name the operator `op` looks up, given its operands.
-fn named(op: &str, operands: &[fepdf_syntax::lexer::Token]) -> Option<(&'static str, Vec<u8>)> {
+fn named(op: &str, operands: &Operands) -> Option<(&'static str, Vec<u8>)> {
     use fepdf_syntax::lexer::Token;
-    let name_at = |i: usize| match operands.get(i) {
+    let name = |token: &Option<Token>| match token {
         Some(Token::Name(n)) => Some(n.to_vec()),
         _ => None,
     };
-    let last = operands.len().checked_sub(1)?;
+    let last = name(&operands.last);
     match op {
-        "Tf" => Some(("Font", name_at(0)?)),
-        "Do" => Some(("XObject", name_at(last)?)),
-        "gs" => Some(("ExtGState", name_at(last)?)),
-        "sh" => Some(("Shading", name_at(last)?)),
-        "scn" | "SCN" => Some(("Pattern", name_at(last)?)),
-        "BDC" | "DP" => Some(("Properties", name_at(1)?)),
+        "Tf" => Some(("Font", name(&operands.first)?)),
+        "Do" => Some(("XObject", last?)),
+        "gs" => Some(("ExtGState", last?)),
+        "sh" => Some(("Shading", last?)),
+        "scn" | "SCN" => Some(("Pattern", last?)),
+        "BDC" | "DP" => Some(("Properties", name(&operands.second)?)),
         "cs" | "CS" => {
-            let name = name_at(last)?;
+            let name = last?;
             let family = [&b"DeviceGray"[..], b"DeviceRGB", b"DeviceCMYK", b"Pattern"];
             (!family.contains(&name.as_slice())).then_some(("ColorSpace", name))
         }
@@ -275,4 +302,48 @@ fn page_content(doc: &Document, page: DictHandle) -> Vec<u8> {
         }
     }
     joined
+}
+
+#[cfg(test)]
+mod tests {
+    use super::names_used;
+
+    fn used(content: &[u8], category: &str) -> Vec<String> {
+        names_used(content)
+            .remove(category)
+            .unwrap_or_default()
+            .into_iter()
+            .map(|n| String::from_utf8_lossy(&n).into_owned())
+            .collect()
+    }
+
+    /// `cs` and `CS` name a colour space resource, and a family name is not one.
+    #[test]
+    fn a_colour_space_is_named_unless_it_is_a_family() {
+        let content = b"/CS1 cs /CS2 CS /DeviceRGB cs /DeviceCMYK CS /DeviceGray cs /Pattern cs";
+        assert_eq!(used(content, "ColorSpace"), ["CS1", "CS2"]);
+    }
+
+    /// `sh` names a shading, and `scn`/`SCN` a pattern only when a name ends their operands.
+    #[test]
+    fn shadings_and_patterns_are_named() {
+        assert_eq!(used(b"/Sh1 sh", "Shading"), ["Sh1"]);
+        assert_eq!(used(b"/P1 scn 0.5 0.5 0.5 /P2 SCN 1 0 0 scn", "Pattern"), ["P1", "P2"]);
+    }
+
+    /// `BDC` and `DP` name a property list by their second operand; one written in place
+    /// names none.
+    #[test]
+    fn a_property_list_is_named_by_the_second_operand() {
+        let content = b"/Span /MC0 BDC EMC /Tag /Pr1 DP /Span << /MCID 0 >> BDC EMC";
+        assert_eq!(used(content, "Properties"), ["MC0", "Pr1"]);
+    }
+
+    /// **An inline image's samples are not read as operators**, even where they hold
+    /// ` EI ` and something that looks like `Tf`: twelve one-byte samples, then `EI`.
+    #[test]
+    fn an_inline_images_samples_are_passed_over() {
+        let content = b"BI /W 12 /H 1 /BPC 8 /CS /G ID  EI /Fx Tf  \nEI\nBT /F1 12 Tf ET";
+        assert_eq!(used(content, "Font"), ["F1"]);
+    }
 }

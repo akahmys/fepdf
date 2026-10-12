@@ -50,7 +50,10 @@ impl<'a> Sublimator<'a> {
         }
     }
 
-    fn parse_inline_image(&self, lexer: &mut Lexer) -> Command {
+    /// Reads an inline image from just after `BI` to just after its `EI`, its data's end
+    /// found as ROADMAP Y-10 has it: counted where its size says, so bytes ` EI` among its
+    /// samples do not end it. Also how `ingest::form_resources` passes over one.
+    pub(crate) fn parse_inline_image(&self, lexer: &mut Lexer) -> Command {
         // Inline Image Handling (ISO 32000-2:2020 Clause 8.9.7)
         let after_bi = lexer.pos();
         let mut dict = BTreeMap::new();
