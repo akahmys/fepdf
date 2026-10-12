@@ -618,3 +618,36 @@ fn removed_features_through_a_save() {
         assert!(content.contains(kept), "{kept} went: {content}");
     }
 }
+
+/// **#22: an FDF export writes no encryption**, of the comments or of the form values.
+#[test]
+fn an_fdf_export_writes_no_encryption() {
+    let doc = opened();
+    for (what, bytes) in [
+        ("comments", doc.export_fdf().expect("comments export")),
+        ("form", doc.export_fdf_form().expect("form values export")),
+    ] {
+        let text = String::from_utf8_lossy(&bytes);
+        assert!(!text.contains("/Encrypt"), "{what}: an /Encrypt was written");
+        assert!(!text.contains("EncryptionRevision"), "{what}: an encrypted FDF was written");
+    }
+}
+
+/// **#22: an FDF import says it leaves out the FDF files it embeds**, and how many are
+/// encrypted, rather than leaving them out unseen; the rest of the import goes ahead.
+#[test]
+fn an_fdf_import_says_its_embedded_fdfs_are_left_out() {
+    let fdf = fepdf_fixtures::Pdf::new().version("1.2").assemble(&[
+        "<< /FDF << /Annots [] /EmbeddedFDFs [2 0 R 4 0 R] >> >>",
+        "<< /Type /Filespec /F (locked.fdf) /EF << /F 3 0 R >> >>",
+        "<< /Type /EmbeddedFile /EncryptionRevision 1 /Length 4 >>\nstream\nabcd\nendstream",
+        "<< /Type /Filespec /F (plain.fdf) /EF << /F 5 0 R >> >>",
+        "<< /Type /EmbeddedFile /Length 4 >>\nstream\nabcd\nendstream",
+    ]);
+    let mut doc = opened();
+    doc.apply(fepdf::Operation::ImportFdf { fdf }).expect("the import goes ahead");
+    let said: Vec<String> =
+        doc.decisions().into_iter().filter(|d| d.clause == "12.7.8.3.1").map(|d| d.found).collect();
+    assert_eq!(said.len(), 1, "{said:?}");
+    assert!(said[0].contains("embeds 2") && said[0].contains("1 of them encrypted"), "{said:?}");
+}

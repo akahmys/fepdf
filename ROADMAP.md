@@ -2160,6 +2160,12 @@ file, and the Arlington audit of a saved probe reports only rows whose rule is K
       compared by key: it failed on two samples whose `/Type` Y-F28 drops, and had not
       been run since. Each new test was shown to fail with what it guards broken. FDF
       encryption (#22) stays read in code.
+- [x] **AB-9** — **FDF encryption, measured** (#22). **Done, 2026-10-12**: an FDF export,
+      of comments or of form values, writes no encryption. An import read `/Annots` and
+      `/Fields` and passed over `/EmbeddedFDFs` without a word, encrypted or not, where
+      ADR-0125 has what an import cannot take recorded; it now records them under
+      12.7.8.3.1, with how many are encrypted, and the rest of the import goes ahead. The
+      test fails with the record removed. Every row of the table is now measured.
 - [x] **AB-6** — **the rows not measured**: signatures (#23–26), FDF encryption,
       Adobe-Japan2 and Adobe-Korea1, permission bit 10, and a Link element enclosing
       several annotations. Each row says what was found.

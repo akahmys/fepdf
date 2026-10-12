@@ -164,8 +164,45 @@ pub fn apply_import(doc: &Document, fdf: &[u8]) -> PdfResult<()> {
         .filter_map(Object::as_reference)
         .collect();
     let fields = fdf.map(|f| incoming_fields(source, f)).transpose()?.unwrap_or_default();
+    if let Some(fdf) = fdf {
+        report_embedded(doc, source, fdf);
+    }
     import_annotations(doc, source, &annots)?;
     crate::form_data::put(doc, &fields, "12.7.8.3.2")
+}
+
+/// Says that the FDF file's `/EmbeddedFDFs` (Table 245) are not imported, and how many of
+/// them are encrypted, which 2.0 deprecates (12.7.8.3.1; ROADMAP AB-9). An embedded FDF
+/// file is not opened here, encrypted or not, so what it carries is left out — and said,
+/// rather than left out unseen.
+fn report_embedded(doc: &Document, source: &PdfArena, fdf: DictHandle) {
+    let embedded = source
+        .dict_entry(fdf, source.name("EmbeddedFDFs"))
+        .and_then(|e| e.resolve(source).as_array())
+        .and_then(|e| source.get_array(e))
+        .unwrap_or_default();
+    if embedded.is_empty() {
+        return;
+    }
+    let encrypted = embedded
+        .iter()
+        .filter(|spec| {
+            use fepdf_model::access::entry;
+            entry(source, spec, "EF")
+                .and_then(|ef| entry(source, &ef, "F"))
+                .and_then(|file| entry(source, &file, "EncryptionRevision"))
+                .is_some()
+        })
+        .count();
+    doc.record(Decision::violation(
+        "12.7.8.3.1",
+        format!(
+            "the FDF file embeds {} FDF files in /EmbeddedFDFs, {encrypted} of them encrypted, \
+             which 2.0 deprecates",
+            embedded.len()
+        ),
+        "left them out of the import: this engine does not open an embedded FDF file",
+    ));
 }
 
 /// The document's form values as an FDF file: `/Fields`, each a root field with its kids,
