@@ -41,7 +41,7 @@ How a version is chosen is [TESTING.md](TESTING.md) §5. The last row is the ver
 
 | Version | Date | Phases closed |
 | :--- | :--- | :--- |
-| 0.1.0 | not yet tagged | A–Z, AB, AC: every phase closed before versions were kept |
+| 0.1.0 | 2026-10-14 | A–Z, AB, AC: every phase closed before versions were kept |
 
 v1.0.0 and v1.0.1 are withdrawn
 ([ADR-0131](docs/adr/0131-a-version-is-a-release-and-a-release-closes-a-phase.md)).
