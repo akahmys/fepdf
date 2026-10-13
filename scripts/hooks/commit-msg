@@ -1,0 +1,12 @@
+#!/bin/sh
+# The pre-commit scan reads the staged files, not the message; this reads the message.
+set -e
+if ! command -v betterleaks >/dev/null 2>&1; then
+    echo "commit-msg: betterleaks is not installed; refusing to commit unscanned." >&2
+    exit 1
+fi
+betterleaks stdin --no-banner --redact < "$1"
+PERSONAL="${FEPDF_PERSONAL_LEAKS:-$HOME/.config/betterleaks/personal.toml}"
+if [ -f "$PERSONAL" ]; then
+    betterleaks stdin --no-banner --redact -c "$PERSONAL" < "$1"
+fi

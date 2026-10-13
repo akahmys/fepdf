@@ -1,9 +1,28 @@
 title = "fepdf betterleaks config"
 
-[allowlist]
-description = "Ignore build artifacts and samples"
+# Without this line betterleaks loads this file's rules only, and it has none of its own:
+# the scan ran with zero rules and reported every file clean (ADR-0130).
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "Build output, generated artefacts and sample documents"
 paths = [
-    '''target''',
-    '''artifacts''',
-    '''samples''',
+    '''(^|/)target/''',
+    '''^artifacts/''',
+    '''^samples/''',
+]
+
+[[allowlists]]
+description = "Interface labels that contain the word password; they hold no secret"
+targetRules = ["generic-password"]
+paths = ['''^crates/fepdf-gui/assets/locales/[a-z-]+\.json$''']
+
+[[allowlists]]
+description = "The fixed passwords the encryption cross-checks encrypt their test files with"
+targetRules = ["generic-password"]
+regexTarget = "line"
+regexes = [
+    '''PASSWORD="open sesame"''',
+    '''password="userpw"''',
 ]

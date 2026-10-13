@@ -1,0 +1,19 @@
+#!/bin/sh
+# Secret and personal-data scan of the staged change (AUDITING.md §2). Tracked, and
+# installed with `git config core.hooksPath scripts/hooks`.
+#
+# Fails closed: a missing scanner stops the commit. A hook that skips its scan when the
+# tool is absent is a scan that does not run.
+set -e
+if ! command -v betterleaks >/dev/null 2>&1; then
+    echo "pre-commit: betterleaks is not installed; refusing to commit unscanned." >&2
+    exit 1
+fi
+betterleaks git --pre-commit --staged --no-banner --redact
+
+# Personal data, by rules kept outside every repository: a committed rule naming a
+# person leaks the name it protects (ADR-0130).
+PERSONAL="${FEPDF_PERSONAL_LEAKS:-$HOME/.config/betterleaks/personal.toml}"
+if [ -f "$PERSONAL" ]; then
+    betterleaks git --pre-commit --staged --no-banner --redact -c "$PERSONAL"
+fi

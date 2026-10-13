@@ -30,9 +30,36 @@ make audit-licenses
 
 ## 2. Secrets and PII (`betterleaks`)
 
-Credentials, private keys, tokens and personal data are scanned for by **`betterleaks`**,
-before every commit through `.git/hooks/pre-commit` and in the audit. The patterns,
-including the project's own, are in [`.betterleaks.toml`](.betterleaks.toml).
+Credentials, private keys, tokens and personal data are scanned for by **`betterleaks`**
+in three places:
+
+| Where | Command | Reads |
+| :--- | :--- | :--- |
+| `scripts/hooks/pre-commit` | `betterleaks git --pre-commit --staged` | the staged change |
+| `scripts/hooks/commit-msg` | `betterleaks stdin` | the commit message |
+| the audit, Rule 18 | `betterleaks dir .` | the working tree |
+
+The hooks are tracked and installed once per clone with
+`git config core.hooksPath scripts/hooks`. **They fail closed**: when `betterleaks` is
+missing the commit stops, rather than going ahead unscanned.
+
+**The rules** are betterleaks' defaults, which [`.betterleaks.toml`](.betterleaks.toml)
+extends. That `[extend]` line is load-bearing: without it the file's own rules are the only
+ones, and it has none. The audit fails when fewer than a hundred rules load, so a config
+that drops it reads as a failure ([ADR-0130](docs/adr/0130-the-secret-scan-had-no-rules.md)).
+Three allowlists, each as narrow as it can be: build output and samples; interface labels
+that contain the word *password*; and the two fixed passwords the encryption
+cross-checks encrypt their test files with. A real token in a locale file, or a different
+password in those scripts, is still found.
+
+**Personal data** — names, addresses — is matched by rules kept **outside every
+repository**, in `~/.config/betterleaks/personal.toml` (or `$FEPDF_PERSONAL_LEAKS`),
+because a committed rule naming a person leaks the name it protects. The hooks and the
+audit run a second pass with it when it exists: the staged change, the message, the
+working tree, every commit's message and author, and the history from `49befc1` on.
+History before that commit holds the owner's name and is public; ADR-0130 says why the
+audit starts there and what removing it would take. CI has no personal file, so this pass
+runs only on a machine that has one.
 
 **Commands**
 ```bash
@@ -41,6 +68,9 @@ betterleaks dir .
 
 # Run pre-commit staged scan manually
 betterleaks git --pre-commit --staged
+
+# How many rules the config loads (the audit requires at least 100)
+betterleaks config check
 ```
 
 ---

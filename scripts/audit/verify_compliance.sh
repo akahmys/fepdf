@@ -524,7 +524,34 @@ cargo deny check licenses || ERROR=1
 
 # Rule 18: Secret & PII Protection via betterleaks
 echo "[Rule 18] Checking for secrets and PII (betterleaks)..."
-betterleaks dir . || ERROR=1
+# `.betterleaks.toml` must extend the default rules: without `[extend]` the file's own
+# rules are the only ones, and it has none, so this step scanned with zero rules and
+# passed every file (ADR-0130). The rule count is checked so that cannot recur unseen.
+rule18_rules=$(betterleaks config check 2>&1 | sed -nE 's/^OK: ([0-9]+) rules.*/\1/p')
+if [ "${rule18_rules:-0}" -lt 100 ]; then
+    echo "  FAIL: betterleaks loaded ${rule18_rules:-no} rules from .betterleaks.toml"; ERROR=1
+fi
+betterleaks dir . --no-banner --redact || ERROR=1
+# Personal data, by rules kept outside every repository, since a committed rule naming
+# a person leaks the name (ADR-0130). Absent on CI, and said so rather than passed.
+#
+# The history is read from RULE18_PERSONAL_FROM on, because the commits before it are
+# known to carry the owner's name and are already public; whether to rewrite them is the
+# owner's decision, recorded in ADR-0130. Messages and authors are read for all of it.
+RULE18_PERSONAL_FROM=49befc1
+PERSONAL="${FEPDF_PERSONAL_LEAKS:-$HOME/.config/betterleaks/personal.toml}"
+if [ -f "$PERSONAL" ]; then
+    betterleaks dir . --no-banner --redact -c "$PERSONAL" >/dev/null 2>&1 \
+        || { echo "  FAIL: personal data in the working tree"; ERROR=1; }
+    betterleaks git . --no-banner --redact -c "$PERSONAL" \
+        --log-opts="$RULE18_PERSONAL_FROM..HEAD" >/dev/null 2>&1 \
+        || { echo "  FAIL: personal data in history since $RULE18_PERSONAL_FROM"; ERROR=1; }
+    git log --format='%an%n%ae%n%cn%n%ce%n%B' \
+        | betterleaks stdin --no-banner --redact -c "$PERSONAL" >/dev/null 2>&1 \
+        || { echo "  FAIL: personal data in a commit message or author"; ERROR=1; }
+else
+    echo "  (no personal rules at $PERSONAL: personal data not scanned)"
+fi
 
 if [ $ERROR -eq 1 ]; then
     echo "=== AUDIT FAILED ==="
