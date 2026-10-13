@@ -46,9 +46,6 @@ CJK document loses its character collection: measured on a vertically set Japane
 the binary alone extracts 4,554 bytes of text where the same binary beside `resources/`
 extracts 212,342. Point `FEPDF_RESOURCES` at the directory to keep it somewhere else.
 
-Releases up to and including v1.0.0 shipped a `fepdf-macos-universal.zip` and no
-`resources/`.
-
 ## Building from source
 
 Needs Rust 1.94 or later.

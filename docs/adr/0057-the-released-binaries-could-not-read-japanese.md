@@ -1,6 +1,6 @@
 # ADR-0057: The released binaries could not read Japanese, because the resources they look for were never built
 
-- **Status**: Accepted
+- **Status**: Amended by ADR-0131
 - **Date**: 2026-09-05
 - **Commit**: (see the commit that adds this file)
 

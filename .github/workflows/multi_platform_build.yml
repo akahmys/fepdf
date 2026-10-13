@@ -150,6 +150,16 @@ jobs:
     steps:
     - uses: actions/checkout@v4
 
+    # TESTING.md §5: a release's tag is `v` and the workspace version, or the binaries
+    # report a version the release does not carry, as v1.0.1's did.
+    - name: The tag is the workspace version
+      run: |
+        version=$(sed -n '/^\[workspace.package\]/,/^\[/s/^version = "\(.*\)"/\1/p' Cargo.toml)
+        if [ "$GITHUB_REF" != "refs/tags/v$version" ]; then
+          echo "::error::$GITHUB_REF is not v$version, the version Cargo.toml declares"
+          exit 1
+        fi
+
     - name: Download All Artifacts
       uses: actions/download-artifact@v4
       with:
@@ -160,9 +170,6 @@ jobs:
     # 10 — so every Mac downloaded the other architecture as well. That trade made sense
     # while Intel was the majority and stops making sense as it leaves support. It also
     # packaged macOS as a `.zip` where every other Unix target is a `.tar.gz`.
-    #
-    # The already-published `fepdf-macos-universal.zip` on v1.0.0 stays where it is: a
-    # released asset that people have linked to is not renamed.
     - name: Rearrange Release Files
       run: |
         mkdir final_dist

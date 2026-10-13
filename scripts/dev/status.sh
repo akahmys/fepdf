@@ -282,6 +282,14 @@ row "JavaScript lines no RR-15 check reads" "${unaudited_js:-0}"
 adrs=$(find docs/adr -name '0*.md' | wc -l | tr -d ' ')
 row "decision records" "$adrs"
 
+# TESTING.md §5, V3: the last row of ROADMAP.md's release table is the version Cargo.toml
+# declares. A version raised without its row, or a row written ahead of the bump, reads 1.
+cargo_version=$(sed -n '/^\[workspace.package\]/,/^\[/s/^version = "\(.*\)"/\1/p' Cargo.toml)
+table_version=$(awk '/^## Releases/{f=1; next} /^## /{f=0} f && /^\| [0-9]+\.[0-9]+\.[0-9]+ /{v=$2} END{print v}' ROADMAP.md)
+release_drift=0
+[ -n "$cargo_version" ] && [ "$cargo_version" = "$table_version" ] || release_drift=1
+row "release table behind Cargo.toml (expect 0)" "$release_drift"
+
 # Output isolation (CODING.md §5, L1). Every generated file goes under `out/`, and a
 # root-level output directory is git-ignored, so nothing goes red when one appears. Four
 # writers used a root `artifacts/` until 2026-08-29 for exactly that reason.

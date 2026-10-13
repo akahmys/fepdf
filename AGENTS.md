@@ -30,7 +30,7 @@ to disagree.
 | **[AGENTS.md](AGENTS.md)** | Where is everything written, and what outranks what? | The rules themselves |
 | **[PLANNING.md](PLANNING.md)** | What is decided before code is written? | Any specific plan |
 | **[CODING.md](CODING.md)** | What must code satisfy? RR-15, the layering rules, and where files go | Why the design is this shape |
-| **[TESTING.md](TESTING.md)** | What must pass before a change lands? | Test results |
+| **[TESTING.md](TESTING.md)** | What must pass before a change lands, and how is a release numbered? | Test results |
 | **[AUDITING.md](AUDITING.md)** | What is checked mechanically, and by what? | The rules being checked |
 | **[ARCHITECTURE.md](ARCHITECTURE.md)** | What is the design **now**? | Why it came to be, history, rules |
 | **[ROADMAP.md](ROADMAP.md)** | What is measured, built, and next? | Rules |

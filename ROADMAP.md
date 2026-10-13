@@ -34,6 +34,18 @@ Linux, under [Held for another platform](#held-for-another-platform).
 `./scripts/dev/status.sh` re-derives the figures this file leans on, so a stale one reads
 as a disagreement rather than as current.
 
+## Releases
+
+How a version is chosen is [TESTING.md](TESTING.md) §5. The last row is the version
+`Cargo.toml` declares, and `status.sh` holds the two equal.
+
+| Version | Date | Phases closed |
+| :--- | :--- | :--- |
+| 0.1.0 | not yet tagged | A–Z, AB, AC: every phase closed before versions were kept |
+
+v1.0.0 and v1.0.1 are withdrawn
+([ADR-0131](docs/adr/0131-a-version-is-a-release-and-a-release-closes-a-phase.md)).
+
 ---
 
 ## The subsets this processor has chosen

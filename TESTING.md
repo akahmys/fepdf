@@ -276,3 +276,21 @@ is a module of it, listed in `main.rs`. A file is run alone with
 `main.rs` names it. One binary took the edit-and-gate loop from 2,122 to 924 seconds
 (ROADMAP Y-9); the price is that its tests share a process, so a test may not change
 process-wide state — an environment variable, the working directory — that another reads.
+
+---
+
+## 5. Releasing
+
+| | Rule | Enforcement |
+| :--- | :--- | :--- |
+| **V1** | The version is `0.MINOR.PATCH`, written once, in the workspace `Cargo.toml` | Cargo: every crate takes `version.workspace = true` |
+| **V2** | A release is cut when at least one phase of [ROADMAP.md](ROADMAP.md) has closed since the last, and raises MINOR. One that only fixes the last release raises PATCH | **nothing** |
+| **V3** | `ROADMAP.md`'s release table carries each release, its date and the phases it closed, and its last row is the version `Cargo.toml` declares | `status.sh`'s `release table behind Cargo.toml (expect 0)`, gated by the audit |
+| **V4** | A release's tag is `v` and that version | the release workflow fails a tag that differs |
+| **V5** | 1.0 is the owner's call, recorded in an ADR | **nothing** |
+
+Phase letters stay the names of the work and are never renumbered: code, commits and
+records name them. A version names a release, and the table is where the two meet
+([ADR-0131](docs/adr/0131-a-version-is-a-release-and-a-release-closes-a-phase.md)).
+
+Before tagging, the gate in §4 passes on the commit the tag names.

@@ -195,3 +195,4 @@ quietly wrong — which is the failure this log exists to make visible.
 | 0128 | [The layout rules leave the design document](0128-the-layout-rules-leave-the-design-document.md) | rests on 0037 |
 | 0129 | [The subsystem notes are deleted](0129-the-subsystem-notes-are-deleted.md) | rests on 0038 |
 | 0130 | [The secret scan had no rules](0130-the-secret-scan-had-no-rules.md) | Rule 18 |
+| 0131 | [A version is a release, and a release closes a phase](0131-a-version-is-a-release-and-a-release-closes-a-phase.md) | amends 0057 |
