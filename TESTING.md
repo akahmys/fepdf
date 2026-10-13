@@ -288,9 +288,18 @@ process-wide state — an environment variable, the working directory — that a
 | **V3** | `ROADMAP.md`'s release table carries each release, its date and the phases it closed, and its last row is the version `Cargo.toml` declares | `status.sh`'s `release table behind Cargo.toml (expect 0)`, gated by the audit |
 | **V4** | A release's tag is `v` and that version | the release workflow fails a tag that differs |
 | **V5** | 1.0 is the owner's call, recorded in an ADR | **nothing** |
+| **V6** | A tag names a commit on which every workflow a push to `main` runs has completed and succeeded | `scripts/dev/release.sh`, which tags only then; a tag pushed by hand passes **nothing** |
 
 Phase letters stay the names of the work and are never renumbered: code, commits and
 records name them. A version names a release, and the table is where the two meet
 ([ADR-0131](docs/adr/0131-a-version-is-a-release-and-a-release-closes-a-phase.md)).
 
-Before tagging, the gate in §4 passes on the commit the tag names.
+Before tagging, the gate in §4 passes on the commit the tag names, and then GitHub Actions
+does (V6). The two are not the same check: the gate runs with `--include-ignored` on a
+machine that holds `samples/`, and CI runs without either, so a test that reads a sample
+and is not marked as needing one passes only here.
+
+```bash
+./scripts/dev/release.sh --dry-run   # every check, no tag
+./scripts/dev/release.sh             # tags, pushes the tag, waits for the release
+```

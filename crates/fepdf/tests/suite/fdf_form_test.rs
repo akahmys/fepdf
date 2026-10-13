@@ -143,6 +143,7 @@ fn value_of(doc: &PdfDocument, name: &str) -> Option<String> {
 /// 住所 named in Shift_JIS finds the field named in UTF-16, and the value keeps 髙 and ①,
 /// which only Windows' extensions of Shift_JIS have.
 #[test]
+#[ignore = "needs samples/, which the repository does not hold"]
 fn a_shift_jis_fdf_is_decoded() {
     let mut doc = japanese_form();
     let fdf = encoded_fdf("Shift_JIS", "8F5A8F8A", "8B9E93738E738DB68B9E8BE620EEE08BB48740");
@@ -152,6 +153,7 @@ fn a_shift_jis_fdf_is_decoded() {
 
 /// UTF-8, the other encoding Table 246 names that is not a PDF text string.
 #[test]
+#[ignore = "needs samples/, which the repository does not hold"]
 fn a_utf_8_fdf_is_decoded() {
     let mut doc = japanese_form();
     let fdf = encoded_fdf("utf_8", "E5908DE5898DE6BCA2E5AD97", "E794B0E4B8AD");
@@ -161,6 +163,7 @@ fn a_utf_8_fdf_is_decoded() {
 
 /// **An encoding Table 246 does not name is refused**, before anything changes.
 #[test]
+#[ignore = "needs samples/, which the repository does not hold"]
 fn an_unnamed_encoding_is_refused() {
     let mut doc = japanese_form();
     let before = values(&doc);

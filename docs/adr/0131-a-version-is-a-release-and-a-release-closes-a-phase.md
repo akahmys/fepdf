@@ -45,4 +45,10 @@ nobody had.
 - The release workflow fails a tag that is not `v` and the workspace version. `status.sh`
   reads 1 when the release table's last row is not that version, and the audit gates the
   row. Both checks were run against a deliberate mismatch and failed.
+- A tag names only a commit on which every push workflow on `main` has succeeded (V6).
+  The local gate cannot stand in for this. On 2026-10-14, CI on `main` had been failing
+  since `319ab25` on three tests that read `samples/sample_02c.pdf` without being marked
+  as needing it, and the local gate, which runs them, passed. `scripts/dev/release.sh`
+  enforces V6. It was run against `82daa1d` and refused, and against `1d2f66f` and
+  accepted.
 - How often a release is cut (V2) is checked by nothing.
