@@ -192,3 +192,5 @@ quietly wrong — which is the failure this log exists to make visible.
 | 0125 | [Form values come in by name, and make no field](0125-form-values-come-in-by-name-and-make-no-field.md) | AA-3b; rests on 0117 |
 | 0126 | [`/NeedAppearances true` is done as it asks, and then dropped](0126-need-appearances-is-done-as-it-asks-and-then-dropped.md) | AB-5; rests on 0120 |
 | 0127 | [A form is given the resources its callers lend it](0127-a-form-is-given-the-resources-its-callers-lend-it.md) | AC-1 |
+| 0128 | [The layout rules leave the design document](0128-the-layout-rules-leave-the-design-document.md) | rests on 0037 |
+| 0129 | [The subsystem notes are deleted](0129-the-subsystem-notes-are-deleted.md) | rests on 0038 |

@@ -38,10 +38,9 @@ struct ArenaInner {
     /// **A `Vec<Object>`, since the slot it used to hold had one other field and that
     /// field was a claim.** `ObjectEntry.generation` said "incremented when the slot is
     /// reused"; one site constructed it, always as `0`, nothing read it, and no slot is
-    /// ever reused because this pool has no free list. `docs/specs/README.md` records
-    /// that `refinery_engine.md` claimed generation bits on `Handle` and that the claim
-    /// was struck from the document — the field that made it look true outlived it by
-    /// three weeks. Reuse, if it is ever built, brings its own check back with it.
+    /// ever reused because this pool has no free list. A subsystem note claimed generation
+    /// bits on `Handle`, and the claim was struck from it — the field that made it look
+    /// true outlived it by three weeks. Reuse, if it is ever built, brings its own check back with it.
     objects: RwLock<Vec<Object>>,
     /// Dedicated pools for complex types to allow typesafe handles.
     /// This separation prevents "Handle Confusion" (e.g., using an Array handle to access a Dictionary).

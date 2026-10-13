@@ -1,15 +1,12 @@
-# 💻 fepdf Coding Standards & Hardening Protocol
+# fepdf — coding
 
 > **Phase: implementation.** What code must satisfy. What to decide first is in
 > [PLANNING.md](PLANNING.md); what to run afterwards is in [TESTING.md](TESTING.md).
 
-This document defines the coding conventions, safety standards (**RR-15 Protocol**), and architectural patterns required across all crates in the fepdf workspace.
-
----
-
 ## 🛡️ 1. The RR-15 Hardening Rules
 
-Derived from aerospace safety principles, the **RR-15 (Reliable Rust-15)** rules guarantee determinism, memory safety, and absolute runtime reliability.
+**RR-15 (Reliable Rust-15)** takes its shape from aerospace coding rules. It is a name,
+not a count.
 
 ### Rule Summary Matrix
 
@@ -27,7 +24,7 @@ Derived from aerospace safety principles, the **RR-15 (Reliable Rust-15)** rules
 | **Rule 10** | Determinism | `HashMap` and `HashSet` are forbidden in core pipelines. Use `BTreeMap`, `BTreeSet`, or `PdfArena`. | Automated grep check |
 | **Rule 11** | Error Transparency | Return typed `thiserror` enums. String-based errors (`Result<T, String>`) are forbidden in core APIs. | Automated grep check |
 | **Rule 13** | Error Swallowing | `filter_map(Result::ok)`, and any `let _ =` over a call that can fail, are forbidden. | Grep, plus `scripts/audit/discarded_results.py` via `verify_compliance.sh`. Detail below |
-| **Rule 14** | Test Code Separation | Standalone/Integration tests MUST be placed in `crates/*/tests/`. Do NOT pollute `src/` with dedicated test files. | Directory structure check |
+| **Rule 14** | Test Code Separation | Standalone and integration tests are placed in `crates/*/tests/`, never as a dedicated file in `src/`. A test is `#[ignore]`d only as needing a file the repository does not hold ([TESTING.md](TESTING.md) §2). | `verify_compliance.sh`: directory check and `#[ignore]` reasons |
 | **Rule 15** | Clone Optimization | Avoid excessive `.clone()`. Use `Arc` or handle references where appropriate. | Code review / Density warning |
 | **Rule 16** | Licences | Every dependency's licence must be on `deny.toml`'s allow-list. | `cargo deny check licenses` via `verify_compliance.sh` |
 | **Rule 18** | Secrets and PII | No credential, key or personal datum may be committed. | `betterleaks` via `verify_compliance.sh` and a pre-commit hook |
@@ -35,17 +32,11 @@ Derived from aerospace safety principles, the **RR-15 (Reliable Rust-15)** rules
 | **Rule 20** | Recorded Interpretation | Where the engine accepts input the standard does not describe, it MUST record a `Decision` naming the clause and what was done. A silent acceptance is a defect even when the output is right. | Code review / ARCHITECTURE.md §4.3. `scripts/audit/silent_branches.py` via `verify_compliance.sh` counts the arms and gates the one verdict it has — a stale exemption. Detail below |
 
 **Two numbers are unused: 12 and 17.** Rule 12 was Invariant Enforcement and left the
-table while the practice stayed in the code; Rule 17 required a float suffix and was
-retired on 2026-08-29 because nothing it prevented could reach a build —
-[ADR-0040](docs/adr/0040-a-rule-the-compiler-already-keeps-is-not-a-rule.md). The numbers
-are left unused rather than reassigned, because reassigning one is what made Rules 9 and
-14 mean two different things.
-
-Two more things this table does not say for itself, recorded in
-[ADR-0037](docs/adr/0037-a-rules-document-holds-rules-and-its-log-holds-the-rest.md)
-rather than here: **Rule 12** was Invariant Enforcement and is gone from this table, while Rules 9 and 14
-name different rules than RR-15's original fifteen did; **RR-15** is a name, not a count — the table
-is 1–11 and 13–20.
+table while the practice stayed in the code; Rule 17 required a float suffix and nothing
+it prevented could reach a build
+([ADR-0040](docs/adr/0040-a-rule-the-compiler-already-keeps-is-not-a-rule.md)). A number
+is never reassigned: reassigning one is what made Rules 9 and 14 mean two different things
+([ADR-0037](docs/adr/0037-a-rules-document-holds-rules-and-its-log-holds-the-rest.md)).
 
 ### Rule 9 in detail: where the line is
 
@@ -82,8 +73,7 @@ Any other `cc` in any tree fails the audit.
 
 ### Rule 6 in detail: what a checker can and cannot see
 
-This column said **Code review** until 2026-09-06, and review missed five walks in one
-week. A four-object file crashed `inspect catalog`
+Review alone missed five walks in one week. A four-object file crashed `inspect catalog`
 ([ADR-0060](docs/adr/0060-a-reference-chain-is-bounded-by-what-it-has-seen.md));
 `DeleteStructElem` and `SetFormFieldValue` aborted on a cyclic `/K` or `/Kids`
 ([ADR-0061](docs/adr/0061-four-walks-bounded-and-two-that-were-not-what-the-sweep-said.md));
@@ -96,22 +86,6 @@ The throwaway detector used for those sweeps produced two false positives of its
 those where no participant carries a depth, a visited set or a worklist. **Its first run
 found a sixth walk none of the sweeps had**: a Type0 font whose `/DescendantFonts` names
 itself aborted `inspect audit` on five objects.
-
-### Rule 13's other half
-
-`let _ = f();`, where `f` returns a `Result`, is the same swallow as
-`filter_map(Result::ok)` written as a binding, and the grep cannot see it.
-`scripts/audit/discarded_results.py` covers it.
-
-`clippy::let_underscore_must_use` was tried first and is not used. It has the type
-information the script lacks, and reports 99 sites — the great majority a `write!` into a
-`String`, which cannot fail, or an `mpsc` `send` whose receiver has hung up, which means
-the GUI is closing. It was 97 when the script was written; the shape of the ratio is what
-matters, not the count, which is why the script names the two benign forms rather than a
-number. A check that is 89% noise is a check nobody reads, so the script
-names those two shapes as benign and requires a written reason for everything else, in
-`ACCOUNTED_FOR`. An entry naming a line that no longer discards anything fails as stale,
-so the list cannot become a permanent exemption.
 
 **It reports one class and counts two others**, because they are different risks:
 
@@ -129,6 +103,21 @@ and made it useless, which is the same failure the throwaway detector had.
 
 It exits non-zero on an unguarded, unexempted cycle, and on an exemption naming a function
 that is no longer recursive.
+
+### Rule 13's other half
+
+`let _ = f();`, where `f` returns a `Result`, is the same swallow as
+`filter_map(Result::ok)` written as a binding, and the grep cannot see it.
+`scripts/audit/discarded_results.py` covers it.
+
+`clippy::let_underscore_must_use` was tried first and is not used. It has the type
+information the script lacks, and reports 99 sites — the great majority a `write!` into a
+`String`, which cannot fail, or an `mpsc` `send` whose receiver has hung up, which means
+the GUI is closing. It was 97 when the script was written; the shape of the ratio is what
+matters, not the count. A check that is 89% noise is a check nobody reads, so the script
+names those two shapes as benign and requires a written reason for everything else, in
+`ACCOUNTED_FOR`. An entry naming a line that no longer discards anything fails as stale,
+so the list cannot become a permanent exemption.
 
 ### Rule 5 in detail: what "no wildcards" can and cannot mean
 
@@ -153,20 +142,14 @@ a butt cap, `/LJ 7` a mitre join. Rule 20 is what covers this ground.
 gated, on purpose**: an unknown `/V` makes the document fail to open, which is loud enough
 without a `Decision`, so a new arm is a question rather than a defect. What the audit does
 gate is the tool's own verdict — an exemption naming a site that no longer matches a
-silent arm, which reads as a check still being made and is not one. Until 2026-09-08 only
-`status.sh` ran the tool, and nothing read its exit code, so that verdict was reachable
-and unread.
+silent arm, which reads as a check still being made and is not one.
 
-**Those three were recorded first**, on 2026-08-30: `LineCap::from_i64`, `LineJoin::from_i64`
-and `TextRenderingMode::from_i64` return `Option` instead of a default, so each of their
-call sites — the interpreter, the content-stream pre-parse, and since 2026-09-06 the
-`/LC` and `/LJ` an `/ExtGState` carries — has to say what it substituted, and each records
-a `Violation` naming the table. `scripts/audit/silent_branches.py` took the count from 11
-to 8 that day and **to 0 on 2026-08-31**, when the remaining eight were audited and each
-registered against the caller that records for it. It now reads 0 with 11 exemptions, and
-exits non-zero if an exemption names a site that has gone. No file in either corpus
-presents such a value — 0 of 524 — so this reports rather than counts, and a fixture is
-what proves it fires.
+`LineCap::from_i64`, `LineJoin::from_i64` and `TextRenderingMode::from_i64` return
+`Option` instead of a default, so each call site — the interpreter, the content-stream
+pre-parse, and the `/LC` and `/LJ` an `/ExtGState` carries — says what it substituted and
+records a `Violation` naming the table. Every other arm the script lists is registered
+against the caller that records for it, and printed with that caller named. No file in
+either corpus presents such a value, so a fixture is what proves it fires.
 
 **Forbidden** — wildcard arms over domain enums such as `ColorSpaceKind`,
 `SublimatedData`, `Color`, `PixelFormat`, and any enum added from here on. These gain
@@ -190,11 +173,6 @@ its reason, not as an inline `#[allow]`.
 ---
 
 ## 🧱 2. The layering rules
-
-Where code goes. These were `ARCHITECTURE.md` §1 and §7 until 2026-08-29, on the reading
-that a rule about structure is architecture; they are here because they are rules, and
-`ARCHITECTURE.md` says what the design *is*. Its own charter had said it holds no coding
-rules while it held these four.
 
 Five rules decide where code goes. They are what keeps the topology from eroding;
 the layer diagram is a consequence of them, not the other way round.
@@ -258,17 +236,16 @@ through, or below it in `fepdf-model`'s `access`
 
 | | Checked by |
 | :--- | :--- |
-| **Rules A–C** | Cargo, through [`scripts/audit/layering.py`](scripts/audit/layering.py) in the audit. A frontend declares `fepdf` and a library that stands above it ([ADR-0082](docs/adr/0082-the-script-crate-is-a-library-the-frontends-call.md)); no arena type appears above the facade at all; and no `PdfArena::new` appears in the facade. Each expects 0, and the audit fails on any. `status.sh` reports what that script returns. **It reported them and nothing gated on either until 2026-09-07**, when a frontend gained a dependency the row counted and the audit passed regardless. |
-| **Rule D** | [`scripts/audit/layering.py`](scripts/audit/layering.py) in the audit, with Rules A–C. It counts `&mut self` methods on the facade that are neither `apply` nor a save setting, expects 0, and fails on any. **Measured here and gated nowhere until 2026-09-07**, which is the shape that let Rule A read 1 with the audit passing ([ADR-0082](docs/adr/0082-the-script-crate-is-a-library-the-frontends-call.md)). A write through `&self` is what that count cannot see: the arena's seal panics on it in a debug build, so `cargo test --workspace` fails on any path that takes one, and `sealed_document_test.rs` holds that the seal fires. |
-| **Rule E** | Cargo. `fepdf-audit` depends on `fepdf-doc`, so a module of `fepdf-doc` naming an audit does not compile, and declaring the dependency back is a cycle cargo refuses — tried 2026-10-06, and `cargo check` stops on it. `layering.py` counted the lines of `apply/` naming an audit module until the audit became its own crate. |
+| **Rules A–C** | Cargo, through [`scripts/audit/layering.py`](scripts/audit/layering.py) in the audit. A frontend declares `fepdf` and a library that stands above it ([ADR-0082](docs/adr/0082-the-script-crate-is-a-library-the-frontends-call.md)); no arena type appears above the facade at all; and no `PdfArena::new` appears in the facade. Each expects 0, and the audit fails on any. `status.sh` reports what that script returns. |
+| **Rule D** | [`scripts/audit/layering.py`](scripts/audit/layering.py) in the audit, with Rules A–C. It counts `&mut self` methods on the facade that are neither `apply` nor a save setting, expects 0, and fails on any. A write through `&self` is what that count cannot see: the arena's seal panics on it in a debug build, so `cargo test --workspace` fails on any path that takes one, and `sealed_document_test.rs` holds that the seal fires. |
+| **Rule E** | Cargo. `fepdf-audit` depends on `fepdf-doc`, so a module of `fepdf-doc` naming an audit does not compile, and declaring the dependency back is a cycle cargo refuses — tried 2026-10-06, and `cargo check` stops on it. |
 | **RR-15** | [`scripts/audit/verify_compliance.sh`](scripts/audit/verify_compliance.sh) |
 | **Lints** | `cargo clippy --workspace --all-targets -- -D warnings`. `--all-targets` is required, or tests, examples and benches go unlinted. |
 | **Licences** | `cargo deny check licenses` ([`deny.toml`](deny.toml)) |
 | **Secrets and PII** | `betterleaks`, pre-commit and in the audit ([`.betterleaks.toml`](.betterleaks.toml)) |
 
-Rule D read "enforced by construction" for four phases while ten facade methods went
-round it, and the tell was that its row named no tool where every other row did. **Do not
-write "by construction" without naming what would notice.**
+**Do not write "by construction" without naming what would notice.** Rule D read that way
+while ten facade methods went round it, and its row was the one that named no tool.
 
 `fepdf-render` declares `fepdf` as a dev-dependency for its own tests. That is not the
 cycle it looks like: it is absent from the build graph of anything that links
@@ -363,20 +340,27 @@ carries a paper-coloured halo so it reads on any ground (`theme::canvas`).
 
 ## 🏛️ 4. What code must satisfy elsewhere
 
-This document says what code must satisfy. The design it satisfies lives in
-`ARCHITECTURE.md`, and repeating it here is how the two came to disagree: this section
-described a **Pass 1 (Arena Ingestion)** that [ADR-0003] removed when the reader stopped
-converting another library's object model, and it had said so for as long as the reader
-had been fepdf's own.
+The design this code satisfies is `ARCHITECTURE.md`'s, and is not repeated here;
+repeating it is how this section once described a Pass 1 that [ADR-0003] had removed.
+§4.4 is the Sublimation Pipeline, §4.5 the arena's invariants (Rule 10 is their enforced
+half), and §4.6 rendering.
 
-- **The Sublimation Pipeline** — `ARCHITECTURE.md` §4.4. A `Document` is the normalised
-  state, not the file; the file is reached through the byte layer named in the same
-  section.
-- **`PdfArena` invariants** — `ARCHITECTURE.md` §4.6. Objects are reached through
-  `Handle<Object>`, never a pointer or a raw index, and traversal is deterministic
-  (Rule 10 above is the enforced half of this).
-- **Rendering and the GUI** — `ARCHITECTURE.md` §4.7. Vello compute shaders on wgpu,
-  `f64` preserved through path snapping and measurement, CJK font loading and
-  English/Japanese localisation in `fepdf-gui`.
+---
+
+## 📁 5. Where files go
+
+The directories themselves are listed in `ARCHITECTURE.md` §2.1. These rules moved here
+from it because they are rules
+([ADR-0128](docs/adr/0128-the-layout-rules-leave-the-design-document.md)).
+
+| Rule | Requirement | Enforcement |
+| :--- | :--- | :--- |
+| **L1** | Every generated file goes under `out/`, which is git-ignored and the only root directory that holds output. The rule names the directory rather than the principle, because a git-ignored directory outside it is one nothing notices | `status.sh`'s `writers outside out/ (expect 0)`, gated by the audit's "(expect 0)" step |
+| **L2** | Static resources live in `assets/`; there is no root-level resource directory. Nothing in `external/` is copied into `assets/` — the engine points at `external/` | **nothing** |
+| **L3** | A script lives in `scripts/audit/` (compliance and static analysis), `scripts/dev/` (developer tools) or `scripts/test/` (integration and functional testing) | **nothing** |
+| **L4** | Specifications and notes live in `docs/`. The root holds the documents `AGENTS.md` lists, `LICENSE`, and workspace and tool configuration | **nothing** |
+| **L5** | An example lives in the `examples/` of the crate it exercises. A root `examples/` is never compiled, because the workspace root has no `[package]` | **nothing** — cargo ignores a root `examples/` silently |
+| **L6** | A directory added to the root is listed in `ARCHITECTURE.md` §2.1 | **nothing**, which is how `target/` went unlisted through five phases that measured against its contents |
+| **L7** | A prototype in `src/bin/` becomes a CLI subcommand or a regression test once it works, or is removed | **nothing** |
 
 [ADR-0003]: docs/adr/0003-lopdf-was-not-providing-robustness.md

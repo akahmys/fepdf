@@ -45,7 +45,6 @@ PAST = re.compile(
 # which rule 3 requires of a quoted figure — the opposite of the thing rule 2 forbids.
 DATED_MEASUREMENTS = {
     ("ARCHITECTURE.md", "re-derived 2026-09-07"),
-    ("AGENTS.md", "It read three until 2026-09-05"),
 }
 
 

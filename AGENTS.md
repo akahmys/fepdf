@@ -5,12 +5,12 @@ Where each thing is written down, and what to do when two of them disagree.
 ## Hierarchy of truth
 
 ```
-1. ISO 32000-2:2020, the standard itself
+1. ISO 32000-2:2020, the standard itself — kept, untracked, in docs/specs/
    └── 2. Measurement of the code as it is
         └── 3. This file — the principles below
              └── 4. The rules of each phase, in the order work happens:
                     PLANNING.md → CODING.md → TESTING.md → AUDITING.md
-                 └── 5. docs/specs/ — background on a subsystem
+                 └── 5. docs/specs/pdf-2-0-deprecations.md — the deprecation table
 ```
 
 **Measurement outranks documentation.** A claim about this codebase is established by
@@ -29,13 +29,15 @@ to disagree.
 | :--- | :--- | :--- |
 | **[AGENTS.md](AGENTS.md)** | Where is everything written, and what outranks what? | The rules themselves |
 | **[PLANNING.md](PLANNING.md)** | What is decided before code is written? | Any specific plan |
-| **[CODING.md](CODING.md)** | What must code satisfy? RR-15, and the layering rules | Why the design is this shape |
+| **[CODING.md](CODING.md)** | What must code satisfy? RR-15, the layering rules, and where files go | Why the design is this shape |
 | **[TESTING.md](TESTING.md)** | What must pass before a change lands? | Test results |
 | **[AUDITING.md](AUDITING.md)** | What is checked mechanically, and by what? | The rules being checked |
 | **[ARCHITECTURE.md](ARCHITECTURE.md)** | What is the design **now**? | Why it came to be, history, rules |
 | **[ROADMAP.md](ROADMAP.md)** | What is measured, built, and next? | Rules |
 | **[README.md](README.md)** | What is this, and how is it built? | Design or rules |
 | **[docs/adr/](docs/adr/README.md)** | How did a rule or a design come to be? | The present design |
+| **[docs/specs/](docs/specs/README.md)** | Which standards does a working copy need, and what does 2.0 deprecate? | Rules, or the present design |
+| **[docs/reference/](docs/reference/acrobat-features/README.md)** | What does a shipping editor offer, to consult when adding a feature? | A backlog |
 
 Only the four phase documents state rules. When another appears to, the rule belongs in a
 phase document and an ADR records why.
@@ -84,10 +86,8 @@ document holds its own: `cargo test --workspace -- --include-ignored` ([TESTING.
    record serves the translation ([README.md](README.md) says what fepdf is). A finding
    about a *document* is a `Decision` naming its clause (`ARCHITECTURE.md` §4.3) — not a
    log line, because a warning on stderr cannot tell a caller *this loaded* from *this was
-   conforming*. The engine keeps two `log::warn!`/`log::error!` sites — which fonts this
-   machine has, and the GPU failing to initialise — counted by `./scripts/dev/status.sh`.
-   It read three until 2026-09-05, when unifying the three fallback-font assemblies into
-   one took the third with the duplicated code.
+   conforming*. The two `log::warn!`/`log::error!` sites the engine keeps report the
+   *host*, and `ARCHITECTURE.md` §4.3 names them.
 3. **A corpus can justify building something. Only a use case can justify not building
    it.** Zero occurrences measures the corpus, not the world.
 

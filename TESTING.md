@@ -3,10 +3,6 @@
 > **Phase: verification.** What must pass before a change lands. The automated audits are
 > in [AUDITING.md](AUDITING.md).
 
-This document details the testing methodology, test suites, visual regression framework, and quality assurance processes for fepdf.
-
----
-
 ## 1. Where a test goes
 
 Three tiers: visual regression (Python driving the Vello renderer), crate integration
@@ -22,9 +18,7 @@ binary, so `fepdf`'s unit tests are inline.
 
 ## 2. The suites
 
-All crates in the workspace MUST maintain high test coverage for core data structures, object sublimation, and font handling.
-
-### Run All Unit & Integration Tests
+### Run all unit and integration tests
 ```bash
 cargo test --workspace -- --include-ignored
 ```
@@ -37,100 +31,42 @@ and the repository is public — so on a clone, and in CI, those tests can only 
 reason switches it off, and the audit's Rule 14 step fails on it. Measured 2026-10-10 with
 both directories moved away: 94 tests failed, and each is now one of these.
 
-**Where the time goes, re-measured 2026-09-10 — one machine, nothing else running, two
-consecutive runs of each form, everything already built.** A run is **29.8 to 30.9
-seconds** and reported **848 tests**. Derive both from one run:
+**What a run costs is derived, not quoted.** One command gives both the time and the count:
 
 ```bash
 time cargo test --workspace 2>&1 | grep -oE 'test result: ok\. [0-9]+' \
   | grep -oE '[0-9]+' | awk '{s+=$1} END{print s " tests"}'
 ```
 
-**The count is 855 as of 2026-09-13**, re-derived with that command: the seven added are
-`crates/fepdf/tests/suite/text_string_encoding_test.rs`. Every other figure below belongs to the
-2026-09-10 run and is left at what that run measured — the timings are a statement about
-one machine, and re-deriving a number on a different one would not correct them.
+On 2026-09-10, warm, a run took about 30 seconds, and two binaries that open documents —
+`suite/pattern_color_test.rs` (patterns over the corpus; most of it opening
+`samples/fy05.pdf` once) and `suite/parser_twin_test.rs` (each sample opened twice, to
+hold the two content-stream readers to the same conclusions) — were 19 of them.
+`parser_twin_test` leaves out `intel_sdm.pdf` and `fy05.pdf` because measured they were
+nine tenths of its cost and caught none of its defects; `crosscheck_reading_order.sh`
+compares both against PDFKit instead. The list follows measured cost and detection, not
+bytes, and the test's own comment carries the per-sample figures.
 
-**This paragraph used to say 1m 57s for 591 tests, and to recommend a shorter form on the
-strength of it.** Both halves stopped being true:
+**A slow test is worth reading before it is worth optimising.** Two tests once spent 5.8
+seconds opening `fy05.pdf` for assertions that could not fail: the cost was the symptom
+and a vacuous assertion was the defect.
 
-| | measured 2026-08-30 | measured 2026-09-10 |
-| :--- | ---: | ---: |
-| `cargo test --workspace` | 1m 57s, 591 tests | **29.8–30.9s, 848 tests** |
-| `cargo test --workspace --lib --bins --tests` | 1m 31s | 25.2–25.3s, 848 tests |
-| the difference — the doc-test phase | **26s, a fifth of the run** | **4.7s, and 0 tests** |
+**The dependencies build at `opt-level = 2` in the dev profile**
+(`[profile.dev.package."*"]`), which took a warm run from 45.9s to 27.5s on 2026-09-09 at
+a one-off rebuild of about 212 seconds. It is `package."*"` and not `[profile.dev]`:
+optimising the workspace's own crates would put that cost on every edit-and-rebuild.
+**A run that has to *build* costs far more than the run** — 8m 21s for a change to
+`fepdf-render`, measured 2026-08-30.
 
-257 more tests at **a quarter of what 591 tests cost**. The doc-test phase went from a
-fifth of the run to 4.7 seconds of it, and it still counts nothing — see below for why
-that is not a reason to reach for the short form.
-
-**Two test binaries are 19 of the 30 seconds**, and both open documents:
-
-| | 2026-09-10 | what it does |
-| :--- | ---: | :--- |
-| `tests/pattern_color_test.rs` | 9.9s | patterns and colour over the corpus. 5.8s of it is opening `samples/fy05.pdf` once, shared by the binary; the rest is extracting its 846 pages at 4.8ms each |
-| `tests/parser_twin_test.rs` | 9.4s | opens each sample twice, refined and not, to hold the two content-stream readers to the same conclusions |
-
-`fepdf-wasm`'s `reading_test.rs` was a third entry at 7.2s until 2026-09-10, when two of
-its tests were found to be opening `fy05.pdf` — 5.8 seconds — for assertions that could
-not fail. It runs in 0.07s now, and both assertions check what their names say. **A slow
-test is worth reading before it is worth optimising**: the cost was the symptom and a
-vacuous assertion was the defect.
-
-`parser_twin_test` was 46 seconds until `intel_sdm.pdf` and `fy05.pdf` were left out of
-it: measured, they were nine tenths of its cost and caught none of the three defects it
-has found, and both are compared page for page against PDFKit by
-`crosscheck_reading_order.sh` instead. **Not "the two largest"** — `samples/volvo_xc90.pdf`
-is larger than either and stays, at 1.88s against `unicode_16.pdf`'s 3.43s for a file half
-the size. The list follows measured cost and measured detection, not bytes; the test's own
-comment carries the per-sample figures.
-
-**The cost was the debug build, not the work**, and half of it is gone. The same nine
-documents open twice in 5.4 seconds under `--release`, which is what asked the question.
-Measured 2026-09-09 at 814 tests, `[profile.dev.package."*"] opt-level = 2` took `cargo
-test --workspace` from **45.9s to 27.5s**. That setting is in `Cargo.toml` now, so the
-29.8s above is the tuned figure and not something it could still buy. The one-off price is
-**212 seconds** to rebuild the dependency graph, paid again whenever a dependency changes,
-and recovered by the eighth run.
-
-`package."*"` and not `[profile.dev]`: optimising this workspace's own crates would put
-that cost on every edit-and-rebuild, which is the loop a contributor is actually in.
-
-**What made the suite fast in the first place is unchanged**, and is most of why 848
-tests cost a quarter of what 591 did:
-[ADR-0074](docs/adr/0074-the-reader-copied-the-file-once-per-object.md) (the reader copied
-the file once per object), [ADR-0075](docs/adr/0075-two-costs-a-caller-never-asked-for.md)
-(the arena maintained a reverse index nothing queried) and
-[ADR-0076](docs/adr/0076-what-the-arena-compresses-and-what-that-was-costing.md)
-(compression level). The suite opens documents, so it inherited all three.
-
-**Both forms report the same 848**, which is the doc-test phase saying in a second way
-what the paragraph above says: it runs no examples, so it counts none.
-
-**So the short form is no longer worth knowing about.** It was documented because it saved
-a fifth of the run; it now saves 4.7 seconds of 30, and it still stops guarding doc
-examples. `cargo test --workspace` is the gate and there is no reason to reach past it for
-that.
-
-What has not changed is that the doc-test phase checks nothing: `rustdoc` builds a harness
-for each library crate and finds no examples, because no doc comment in the workspace
-carries a ```` ```rust ```` block — the convention here is ```` ```text ````. Verify with:
+**The doc-test phase checks nothing**, so `--lib --bins --tests` saves only its few
+seconds and is not worth reaching for: no doc comment in the workspace carries a
+```` ```rust ```` block — the convention here is ```` ```text ````.
 
 ```bash
 grep -rn '```rust' crates/*/src --include='*.rs' | wc -l   # 0
 ```
 
-**A measurement quoted and not re-derived is the thing this file exists to warn about.**
-This one stood for eight days and was wrong by 4x; `ARCHITECTURE.md`'s crate-size table
-was stale by up to 1,956 lines on the same day. Both are re-derived by a command written
-beside the number.
-
-**A run that has to *build* costs far more than either**: 8m 21s for a change that touched
-`fepdf-render`, measured 2026-08-30 and not re-derived since. The compile is the cost, not
-the suite — and the gap widened when the suite fell to half a minute, so a change that
-compiles is now roughly fifteen times a warm run rather than four.
-
-### Key Subsystem Test Suites
+### Key subsystem suites
 - **`fepdf-model`**:
   - `tests/parser_tests.rs`: Lexer primitives, tokenizing, and object parser.
   - `tests/security_tests.rs`: R4 AES-128 and R5 AES-256 security handlers.
@@ -147,26 +83,25 @@ compiles is now roughly fifteen times a warm run rather than four.
     instead ([ADR-0041](docs/adr/0041-a-character-collection-is-declared-not-guessed.md)).
     Each of the four cases was verified by putting one of the three defects back.
 - **`fepdf-render`**:
-  - `tests/path_tests.rs`: Bezier curves, path bounds, transformation matrices.
   - `tests/text_tests.rs`: Text positioning and text matrix initialization.
 - **`fepdf`**:
-  - `tests/sdk_tests.rs`: Facade API, color conversions, rotation modes, document lifecycle.
+  - `tests/suite/sdk_tests.rs`: Facade API, color conversions, rotation modes, document lifecycle.
     Since Rule D removed the facade's mutating methods it exercises them as `Operation`s,
     which is what a caller now has. Two of its cases cover `DuplicatePages`: the ordering
     one was verified by putting the bug back, and the measured failure was worse than the
     one predicted when it was written — page 0 cloned three times rather than a
     mis-ordering, because after the first insertion the remaining indices name clones.
-  - `tests/backend_operations_test.rs`: Document mutation operations execution.
-  - `tests/encrypted_objstm_test.rs`: Encrypted object stream ingestion.
-  - `tests/pattern_color_test.rs`: Pattern color extraction.
-  - `tests/text_string_encoding_test.rs`: that the entries ISO 32000-2 types as *text
+  - `tests/suite/backend_operations_test.rs`: Document mutation operations execution.
+  - `tests/suite/encrypted_objstm_test.rs`: Encrypted object stream ingestion.
+  - `tests/suite/pattern_color_test.rs`: Pattern color extraction.
+  - `tests/suite/text_string_encoding_test.rs`: that the entries ISO 32000-2 types as *text
     strings* (7.9.2.2) survive being written and read back, and that the byte strings
     beside them — a `/EmbeddedFiles` name-tree key, the collection `/D` that must equal
     one, a filespec's `/F` — still match each other byte for byte. Every value is outside
     PDFDocEncoding, because an ASCII one round-trips through the defect untouched. Each of
     the eleven sites was verified by putting `Object::String(Bytes::from(…))` back, and
     each of the three byte-string cases by making it `Object::Text` instead.
-  - `tests/rasteriser_determinism_test.rs`: that `Rasteriser::Cpu` draws a page the same
+  - `tests/suite/rasteriser_determinism_test.rs`: that `Rasteriser::Cpu` draws a page the same
     way twice, which `Rasteriser::Gpu` does not — RR-15 Rule 10 against the renderer, which
     nothing checked
     ([ADR-0043](docs/adr/0043-the-scene-repeats-and-the-rasteriser-does-not.md)). **Its
@@ -252,19 +187,14 @@ cases, and "the suite passes" is a statement about one machine rather than about
 commit. That is a property of this check worth knowing before quoting a pass — it is the
 one suite here whose subject cannot be reconstructed from what is tracked.
 
-`scripts/test/verify_visuals.sh` used to sit beside this, running
-`cargo test --package fepdf-render --test visual_regression`. There has never been such a
-test target, so it exited 101 every time it was run and nothing referenced it. Deleted
-rather than repaired: it duplicated a suite that works.
-
-### Run Visual Regression Tests
+### Run visual regression
 ```bash
-python3 scripts/visual_regression.py
+python3 scripts/test/visual_regression.py
 ```
 
-### Update Baseline Reference Images
+### Update the baselines
 ```bash
-python3 scripts/visual_regression.py --update
+python3 scripts/test/visual_regression.py --update
 ```
 
 ---
@@ -346,6 +276,3 @@ is a module of it, listed in `main.rs`. A file is run alone with
 `main.rs` names it. One binary took the edit-and-gate loop from 2,122 to 924 seconds
 (ROADMAP Y-9); the price is that its tests share a process, so a test may not change
 process-wide state — an environment variable, the working directory — that another reads.
-
-[ADR-0006]: docs/adr/0006-a-container-may-not-overwrite-a-newer-revision.md
-[ADR-0010]: docs/adr/0010-a-synthesised-tounicode-keyed-on-glyphs-destroys-text.md

@@ -1,30 +1,29 @@
-# 🏛️ `fepdf` Architecture & System Design
+# fepdf — architecture
 
 > **Not a rule.** This is the design as it stands. The rules that keep it that way are in
 > [CODING.md](CODING.md) §2; how it came to be is in [docs/adr/](docs/adr/README.md).
 
-Crate topology, the Sublimation Pipeline, and memory invariants. The layering rules that
-keep this shape are in [CODING.md](CODING.md) §2. The design serves what
+Crate topology, the Sublimation Pipeline, and memory invariants. The design serves what
 [README.md](README.md) says fepdf is: a translator from any PDF to ISO 32000-2, operations
 on what it translated, and frontends for those operations.
 
-> **Status.** Realised: every crate in §3 exists, the migration that produced them is
-> complete, and Rule D holds — `status.sh` counts document-mutating methods on the facade
-> and reads 0. **This banner has twice asserted the opposite of what the file beneath it
-> said**, which is why it now states only what a `status.sh` row derives
+> **Status.** Every crate in §3 exists, and Rule D holds — `status.sh` counts
+> document-mutating methods on the facade and reads 0. This banner states only what a
+> `status.sh` row derives
 > ([ADR-0037](docs/adr/0037-a-rules-document-holds-rules-and-its-log-holds-the-rest.md)).
 
 ---
 
 ## 📐 1. Where the rules are
 
-The four rules that decide where code goes — **A** storage abstractions stop at the
+The five rules that decide where code goes — **A** storage abstractions stop at the
 facade, **B** a crate defining a contract does not depend on its implementations, **C**
-read and write live together, **D** frontends translate and never decide — are in
-[`CODING.md`](CODING.md) §2 with what checks each. This document says what the design
+read and write live together, **D** frontends translate and never decide, **E** an
+operation does not reach into an audit — are in [`CODING.md`](CODING.md) §2 with what
+checks each. This document says what the design
 *is*; a rule about structure is still a rule.
 
-## 🗺️ 2. Target Topology
+## 🗺️ 2. Topology
 
 ```
 ┌─ Frontends ─────────────────────────────────────────────────────────┐
@@ -80,60 +79,27 @@ reads, and nothing in `fepdf-doc` can name it (Rule E).
 
 Where things live, and what may not move.
 
-| Directory | Holds | Owner |
-| :--- | :--- | :--- |
-| `assets/` | Static, Read-only Resources (Fonts, Models) | Project |
-| `crates/` | Modular Rust Logic Layer | Engineering |
-| `docs/` | Technical Specs & Architectural History | Architecture |
-| `external/` | Submodules & Third-party Compliance Data | Engineering |
-| `crates/*/examples/` | Rust Usage Examples & Demonstrations. Must live under the crate they exercise — a root `examples/` directory is never compiled, because the workspace root has no `[package]`. | Engineering |
-| `out/` | Ephemeral & Persistent Outputs (Ignored by Git) | Pipeline |
-| `out/artifacts/`| Test results, renders, and temporary PDFs | CI/CD |
-| `out/exports/` | Extracted document assets (Fonts, Images) | Refinery |
-| `samples/` | Test Input Corpus (PDFs) — **files this project chose**, 9 of them | QA |
-| `scripts/` | Automation & CI/CD Scripts | DevOps |
-| `target/` | Cargo's build directory, **and the external corpora**: 515 files this project did not choose, under `target/external/`, plus `encrypted/`, `malformed/`, `scans/`, `layers/` and `colour/`. Git-ignored, fetched by `scripts/test/fetch_external_corpus.sh` | QA |
+| Directory | Holds |
+| :--- | :--- |
+| `assets/` | Static, Read-only Resources (Fonts, Models) |
+| `crates/` | Modular Rust Logic Layer |
+| `docs/` | Technical Specs & Architectural History |
+| `external/` | Submodules & Third-party Compliance Data |
+| `crates/*/examples/` | Rust usage examples, each under the crate it exercises |
+| `out/` | Ephemeral & Persistent Outputs (Ignored by Git) |
+| `out/artifacts/`| Test results, renders, and temporary PDFs |
+| `out/exports/` | Extracted document assets (Fonts, Images) |
+| `samples/` | Test Input Corpus (PDFs) — **files this project chose**. Git-ignored |
+| `fuzz/` | `cargo fuzz` targets, outside the workspace |
+| `dist_release/`, `release_assets/` | Release packaging output. Git-ignored |
+| `scripts/` | Automation & CI/CD Scripts |
+| `target/` | Cargo's build directory, **and the external corpora**: 515 files this project did not choose, under `target/external/`, plus `encrypted/`, `malformed/`, `scans/`, `layers/` and `colour/`. Git-ignored, fetched by `scripts/test/fetch_external_corpus.sh` |
 
-**Organisation.**
-
-1.  **Consolidation**: All static resources MUST reside within `assets/`. Prohibit root-level resource directories (e.g., `resources/`).
-2.  **Output Isolation**: every generated file goes under `out/`, which is git-ignored
-    and the only root directory that holds output.
-
-    The rule names the directory rather than the principle, because a git-ignored
-    directory outside it is one nothing notices
-    ([ADR-0080](docs/adr/0080-a-design-document-does-not-carry-a-number-that-moves.md)).
-
-3.  **Script Categorization**:
-    *   `scripts/audit/`: Compliance, security, and static analysis.
-    *   `scripts/dev/`: Developer productivity and UI utilities.
-    *   `scripts/test/`: Integration and functional testing.
-4.  **Documentation Locality**: All technical specifications and architectural history MUST reside within `docs/`. High-level vision documents (`README.md`, `ROADMAP.md`, `AGENTS.md`) are permitted at the root for maximum visibility.
-5.  **Scratch & Utility Binaries**:
-    *   Prototyping debug scripts in `src/bin/` are permitted for initial verification.
-    *   Once stabilized, their logic MUST be integrated into standard product CLI subcommands (e.g., `fepdf debug <cmd>`) or standardized as formal regression tests.
-    *   Redundant or obsolete prototyping files MUST be purged during milestone stabilization to prevent codebase rot.
-    *   Infrastructure binaries (e.g., `verify_render.rs` for visual regressions, `bypass_decrypt.rs` for emergency recovery) are exempt but MUST be clean of hardcoded values and compile warning-free under RR-15.
-
-**Governance.**
-
-1.  **No Redundancy**: Do not copy files from `external/` to `assets/`. Point the engine directly to the unified `external/` paths.
-2.  **Script Placement**: Always place new automation in the appropriate `scripts/` subdirectory (`audit`, `dev`, or `test`).
-3.  **Clean Root**: Keep the project root clean. Only core project metadata (`README`, `ROADMAP`, `VISION`, `LICENSE`) and workspace Cargo files should reside here.
-
-**Maintenance.**
-
-- Every new directory added to the root MUST be registered in this document. **Nothing
-  checks this**, which is how `target/` — the largest and most load-bearing of them —
-  went unregistered through five phases that measured against its contents.
-- Root-level stray files are prohibited except for core configuration (`Cargo.toml`, `Makefile`, `LICENSE`).
-- Tool-owned dotfile directories (`.git/`, `.github/`, `.cargo/`, `.claude/`, `.gemini/`)
-  are not registered and do not need to be. This document governs what the project puts
-  in the tree, not what its tools do.
+What may go where, and what checks it, is [`CODING.md`](CODING.md) §5. Tool-owned dotfile
+directories (`.git/`, `.github/`, `.cargo/`, `.claude/`, `.gemini/`) are not listed: this
+table is what the project puts in the tree, not what its tools do.
 
 ## 🧩 3. Crate Responsibilities
-
-Status: **✅** exists as-is · **⚠️** partially landed · **🔄** code exists, lives elsewhere today · **🆕** new.
 
 What each crate holds is one command away, and is not written down here
 ([ADR-0080](docs/adr/0080-a-design-document-does-not-carry-a-number-that-moves.md)):
@@ -148,15 +114,14 @@ done
 The weights worth knowing do not move: `fepdf-model` is the largest crate and holds the
 document graph, the reader and the writer; `fepdf-doc`, the operations, and `fepdf-gui`,
 the largest frontend, come after it; `fepdf-wasm` and `fepdf-macros` are thin enough to read in a sitting.
-`fepdf-model` and `fepdf-content` are where Phase P landed — the function evaluator (7.10),
-the colour-space resolver (8.6) and the mesh decoder (8.7.4.5.5 to 8.7.4.5.8) in the
-first's `src/function/`, `src/color/space.rs` and `src/graphics/mesh.rs`, and the
-interpreter changes that reach them in the second.
+The function evaluator (7.10), the colour-space resolver (8.6) and the mesh decoder
+(8.7.4.5.5 to 8.7.4.5.8) are in `fepdf-model`'s `src/function/`, `src/color/space.rs`
+and `src/graphics/mesh.rs`.
 
 | Crate | Status | Responsibility |
 | :--- | :---: | :--- |
 | **`fepdf-syntax`** | ✅ | The byte layer: lexing and encryption/decryption. Depends on no model type, which is what lets the cryptography be reviewed on its own. Parsing and stream filters are *not* here — see `fepdf-model` below. |
-| **`fepdf-font`** | ✅ (Audited ✅) | Font *programs*: CFF, TrueType, CMap, Adobe Glyph List, subset tags, reconstruction. Hardened against W/W2 out-of-bounds, CMap underflows (`e_val >= s_val`), and CID byte truncations. |
+| **`fepdf-font`** | ✅ | Font *programs*: CFF, TrueType, CMap, Adobe Glyph List, subset tags, reconstruction. Hardened against W/W2 out-of-bounds, CMap underflows (`e_val >= s_val`), and CID byte truncations. |
 | **`fepdf-model`** | ✅ | The document graph: `PdfArena`, `Handle<T>`, `Object`, page tree, metadata — and, since Phase A, the reader (7.5) and `writer.rs`. Hardened with pool overflow guards, cyclic `resolve` limits (`64`), and safe `Null` reference fallbacks. |
 | **`fepdf-content`** | ✅ | Content-stream interpreter, and the **`RenderBackend` contract** it drives (`TextGlyph`, `TextState`, `SMaskData`, path geometry). No GPU dependency. |
 | **`fepdf-doc`** | ✅ | Owns the **`Operation` vocabulary** (§4.1) and is its only interpreter (`apply/`). Builds the documents the facade hands back new — merged, extracted, or copied for a save (`assembly`, beside the `cloning` it uses) — and forgets what a removed page leaves named (`page_removal`). Holds the structure tree and its parent tree, remediation, reading order, measurement, and the two GPU-free `RenderBackend`s. |
@@ -192,78 +157,20 @@ through the facade. Frontends construct it; only `fepdf-doc` interprets it.
                                                       and the only way in
 ```
 
-```rust
-pub enum Operation {
-    // (unlabelled in the source: the core page and structure group)
-    Rotate { pages: PageSelection, mode: RotateMode },
-    Reorder { from: usize, to: usize },
-    RemovePages(PageSelection),
-    ReorderBatch { sources: Vec<usize>, target: usize },
-    DuplicatePages(PageSelection),
-    InsertFrom { source: Vec<u8>, at: usize },
-    AddLtvInfo { certificates: Vec<Vec<u8>> },
-    Retag,
-    Upgrade { standard: PdfStandard },
-    UpdateStructElem(StructElemUpdate),
-    DeleteStructElem { handle_index: u32 },
-    MoveStructElem(StructElemMove),
-
-    // --- Metadata & Structure ---
-    CreatePortfolio(PortfolioCollection),
-    UpdateOutlines(OutlineTree),
-    UpdateLayers(OptionalContentProperties),
-    AttachAssociatedFile(AssociatedFile),
-    SetOutputIntent(OutputIntent),
-    SetPronunciationLexicon { lexicon_xml_bytes: Vec<u8> },
-
-    // --- Decorations & Annotations ---
-    AddPageDecoration { pages: PageSelection, text: String,
-                        position: DecorationPosition, layer: Option<String> },
-    ApplyBatesNumbering { pages: PageSelection, prefix: String,
-                          start_number: u64, digits: usize, position: DecorationPosition },
-    AddAnnotation(AnnotationSpec),
-    SetMeasurementScale(MeasurementScale),
-
-    // --- Interactive Forms ---
-    SetFormFieldValue(FormFieldSpec),
-
-    // --- Navigation, Structure & Actions ---
-    SetPageLabels(Vec<PageLabelSpec>),
-    UpdateArticleThreads(Vec<ArticleThread>),
-    AddUserProperties { target_handle: u32, properties: Vec<UserProperty> },
-    SetOpenAction(PdfAction),
-
-    // --- Advanced Graphics & GIS ---
-    SetGeospatialAnchor(GeoSpatialAnchor),
-
-    // --- Font & Cryptography ---
-    SetUnencryptedWrapper(UnencryptedWrapperSpec),
-}
-
-pub enum RotateMode {
-    /// Set `/Rotate` to this angle. Rejected unless a multiple of 90.
-    Absolute(Quarter),
-    /// Add to the current angle, normalised into [0, 360).
-    Relative(Quarter),
-}
-```
-
-**The listing above is derived from the enum, not written beside it**
-([ADR-0080](docs/adr/0080-a-design-document-does-not-carry-a-number-that-moves.md)),
-because a list written before the code and never re-read against it named nine variants
-that did not exist. How many variants there are, and how many each frontend constructs,
-are `./scripts/dev/status.sh`'s `operations …` rows, and this section states none of
-them.
+The variants are listed by the enum itself, not here
+([ADR-0080](docs/adr/0080-a-design-document-does-not-carry-a-number-that-moves.md)): a
+list written beside the code once named nine variants that did not exist, and a later one
+showed thirty of sixty-three while saying it was derived. How many there are, and how many
+each frontend constructs, are `./scripts/dev/status.sh`'s `operations …` rows.
 
 ```bash
 sed -n '/^pub enum Operation {/,/^}/p' crates/fepdf-doc/src/operation.rs | grep -oE '^    [A-Z][A-Za-z]*'
 ```
 
-Four of the nine turn out to be the more interesting half — see Rule D below.
+Where two readings of an argument lead to different documents, the type makes the caller
+choose: `RotateMode` is `Absolute` or `Relative`, and `Quarter` makes 45° unconstructible.
 
-A caller must now say which it means, and `Quarter` makes 45° unconstructible.
-
-**Three consequences fall out rather than being designed in:**
+**What follows from it, rather than being designed in:**
 
 - **Undo/redo.** Operations are values, so they are recorded and replayed:
   `fepdf-gui` keeps the bytes it opened alongside the operations applied to them, and
@@ -294,51 +201,13 @@ A caller must now say which it means, and `Quarter` makes 45° unconstructible.
 - **Testability.** An operation sequence can be applied and asserted without starting
   a GUI or spawning a process.
 
-**Rule D did not hold, and what was checking said it did.** The rule says every mutation
-is an `Operation`, which this document once called "enforced by construction". Nothing enforced it, because
-the facade exposed each mutation *twice* — as a variant and as a plain `&mut self` method —
-and a frontend that called the method had re-implemented nothing but had still left the
-vocabulary. Eight frontend call sites did exactly that:
-
-| Where | Method | Was there an `Operation`? |
-| :--- | :--- | :--- |
-| `fepdf-gui/src/worker.rs` ×2 | `remove_page` | **yes** — `RemovePages`, unused by the GUI |
-| `fepdf-gui/src/worker.rs` ×2 | `insert_pages_from` | no |
-| `fepdf-gui/src/worker.rs`, `thumbnail_sidebar.rs` | `duplicate_page` | no |
-| `fepdf-cli/src/commands/publish.rs` | `upgrade_to_standard` | no |
-| `fepdf-cli/src/commands/edit.rs` | `retag_document` | no |
-
-The first row is the rotate divergence Rule D was written for, in its early form: two ways to remove a page,
-one of them the vocabulary and one of them not, with nothing comparing them.
-
-**It holds now, and by construction rather than by assertion.** Ten mutating methods left
-the facade — the eight above plus `swap_pages` and `add_ltv_info`, which had **no caller
-anywhere** — and six became operations. `apply` is the only way in, so a frontend has
-nothing to reach for. That is the same move `RotateMode` and `Quarter` made for the
-divergence that created the rule: make the alternative unrepresentable rather than
-discouraged.
-
-What the enforcement taught, in order of how much it cost to learn:
-
-- **A check that greps call sites cannot do this job.** The first version of the
-  `status.sh` row searched the four frontends for each facade mutator's name. It missed
-  `reorder_pages_batch`, whose signature spans two lines, and it counted
-  `app.duplicate_page` — the GUI's *own* method, which merely shares a name. The row now
-  reads `crates/fepdf/src/lib.rs` alone and counts `&mut self` methods that are not `apply`
-  and not the four that configure saving. One file, no receivers to disambiguate. Verified
-  by adding a method back with a multi-line signature, which the old version could not see
-  and the new one reads as 1.
-- **Two of the ten were not passthroughs.** `duplicate_page` and `insert_pages_from` held
-  arena work and the object cloner — document logic in the crate that exists to expose it.
-  Their new home in `fepdf-doc` is where `ObjectCloner` already lived.
-- **The frontend was doing the engine's arithmetic.** The GUI removed pages by sorting
-  indices descending and looping, so that removing one did not move the next. `RemovePages`
-  takes the set and owns the order. `DuplicatePages` had to solve the same problem, and
-  getting it wrong is not a mis-ordering: selecting three pages and inserting ascending
-  clones page 0 three times, because after the first insertion the remaining indices name
-  clones. A test asserts the widths and was verified by putting the bug in.
-- **`fepdf-mcp` constructs every one of them**, which `status.sh` derives against the
-  enum rather than against a list kept by hand.
+**Rule D holds because the facade offers nothing else.** It has no mutating method but
+`apply` and the save settings, so a frontend has nothing to reach for — the alternative is
+unrepresentable rather than discouraged — and what checks it is in `CODING.md` §2. Logic
+that once sat in facade methods, such as page duplication and insertion, lives in
+`fepdf-doc` beside `ObjectCloner`, and operations that take a page set own the order of
+their own edits: inserting clones ascending would otherwise duplicate page 0 three times,
+because after the first insertion the remaining indices name clones.
 
 **What this is not.** The GUI keeps its worker thread: `WorkerRequest` remains, but as
 a thin envelope (`Execute(Operation)`, plus genuinely GUI-only messages such as
@@ -361,8 +230,7 @@ Its options are an associated type, not a shared struct: `password` and
 per-format feature flags. An interface designed against one implementation is
 almost always wrong for the second, and this codebase keeps paying for building
 a container before its contents existed — `fepdf-resource`, an `Operation`
-vocabulary of which 19 of 24 *were* stubs (all 24 are implemented now, and `status.sh`
-holds the row that would say otherwise), and ingestion options nothing reads
+vocabulary that was once mostly stubs, and ingestion options nothing reads
 ([ADR-0007](docs/adr/0007-an-option-that-is-not-read-is-hidden.md); one of the two
 became live with [ADR-0013](docs/adr/0013-a-document-is-one-normalised-state.md), and
 `color_policy` is the one that remains). When a second source exists, its real
@@ -544,42 +412,17 @@ a standard's identification, a PDF Declaration or an extension schema, is carrie
 rebuilt packet as written
 ([ADR-0099](docs/adr/0099-the-xmp-packet-carries-what-the-engine-does-not-write.md)).
 
-### 4.5 Unified Extension Architecture (Anti-Ad-Hoc Policy)
-
-To prevent drift, ad-hoc struct additions and uncoordinated writer logic, a new backend
-capability belongs in one of four domain namespaces owned by `fepdf-model` (and `fepdf-doc`):
-
-1. **Metadata & Structure**: Portfolio (`/Collection`), Outlines (`/Outlines`), Optional
-   Content (`/OCProperties`), Associated Files (`/AF`), Output Intents
-   (`/OutputIntents`), Pronunciation (`/PL`).
-2. **Security & Provenance**: public-key security handlers (7.6.5), PAdES digital
-   signatures, redaction.
-3. **Decorations & Annotations**: watermarks, Bates numbering, hyperlinks (`/Link`),
-   stamps, measurements (`/Measure`).
-4. **Interactive Forms**: AcroForms, FDF/XFDF static data models.
-
-No feature may bypass the `Operation` vocabulary or inject un-audited dictionary
-mutations directly into frontends or serialisers.
-
-#### 4.5.1 Multi-Format Provider Architecture
-
-When introducing support for external document formats (Word `.docx`, Excel `.xlsx`,
-SVG, HTML), each format follows Rule C by keeping its ingestion and emission in one
-provider crate (`fepdf-import-docx`). Providers translate into the `Operation`
-vocabulary or intermediate layout structures without exposing format-specific
-dependencies to `fepdf-model`. See [§4.2](#42-document-sources) for what such a provider
-actually owes.
-
-### 4.6 Safety invariants
+### 4.5 Safety invariants
 
 - **Handles, not pointers.** Objects are reached only through `Handle<Object>`,
   eliminating use-after-free and dangling references by construction.
 - **Deterministic traversal.** `PdfArena` uses `BTreeMap` and indexed handle arrays
   throughout, so iteration order — and therefore produced bytes — is reproducible.
-  RR-15 Rule 10 forbids `HashMap`/`HashSet` in the crates that decide output.
-- **Zero unsafe.** `unsafe_code = "forbid"` across the workspace.
 
-### 4.7 Rendering
+What keeps these true — no `unsafe`, no `HashMap` in the crates that decide output — is
+RR-15 Rules 3 and 10 in [`CODING.md`](CODING.md).
+
+### 4.6 Rendering
 
 `fepdf-content` walks the content stream and issues calls against `RenderBackend`.
 `fepdf-render` answers them with **Vello** compute shaders on **wgpu**. Path snapping

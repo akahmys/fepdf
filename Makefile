@@ -96,7 +96,7 @@ audit-external:
 	./scripts/audit/arlington_audit.sh $(PDF)
 
 visual-test:
-	python3 scripts/visual_regression.py
+	python3 scripts/test/visual_regression.py
 
 visual-update-ref:
-	python3 scripts/visual_regression.py --update
+	python3 scripts/test/visual_regression.py --update

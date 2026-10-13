@@ -75,7 +75,7 @@ lopdf=$(grep -rl "lopdf" crates/ --include="*.rs" --include="*.toml" 2>/dev/null
 row "files still referencing lopdf (expect 0)" "$lopdf"
 
 # Scoped to the engine on purpose. A frontend logging for the user is doing its job;
-# the engine logging a conclusion about the document is losing it (ARCHITECTURE.md 5.3).
+# the engine logging a conclusion about the document is losing it (ARCHITECTURE.md §4.3).
 #
 # The engine is *derived* rather than listed, for the reason the Decision row above had
 # to learn twice: a row that names the places it looks keeps missing new ones. It read
@@ -121,7 +121,7 @@ row "frontend log sites (not a defect)" "$frontend_logs"
 # one line, read before the first row that needs them.
 layering=$(python3 scripts/audit/layering.py 2>/dev/null | head -1)
 
-# Rule D (ARCHITECTURE.md 5.1): every document mutation is an `Operation`, and only
+# Rule D (ARCHITECTURE.md §4.1): every document mutation is an `Operation`, and only
 # `fepdf-doc` interprets it. Section 7 called that "enforced by construction" while
 # nothing enforced it — the facade exposed each mutation twice, as a variant and as a
 # plain method, and eight frontend call sites used the method.
@@ -242,7 +242,7 @@ done
 row "runtime dependencies only a test or example uses (expect 0)" "$misplaced_deps"
 
 # `fepdf-mcp` is the frontend whose whole job is to expose the `Operation` vocabulary — a
-# tool is the serialised form of an operation (ARCHITECTURE 5.1). It named all of it until
+# tool is the serialised form of an operation (ARCHITECTURE §4.1). It named all of it until
 # Rule D turned ten facade methods into six new operations, and it sat at 24 of 30 for a
 # phase because nothing counted. Every variant is *reachable* through the generic
 # `apply_operation` tool whatever this says; what a missing one lacks is a schema, so a
@@ -282,7 +282,7 @@ row "JavaScript lines no RR-15 check reads" "${unaudited_js:-0}"
 adrs=$(find docs/adr -name '0*.md' | wc -l | tr -d ' ')
 row "decision records" "$adrs"
 
-# Output isolation (ARCHITECTURE.md §2.1). Every generated file goes under `out/`, and a
+# Output isolation (CODING.md §5, L1). Every generated file goes under `out/`, and a
 # root-level output directory is git-ignored, so nothing goes red when one appears. Four
 # writers used a root `artifacts/` until 2026-08-29 for exactly that reason.
 stray_out=$(grep -rnE '"(artifacts|exports|renders)/|OUT(PUT)?_DIR="(artifacts|exports)' \
@@ -356,7 +356,7 @@ else
     row "records missing from the index (expect 0)" "missing: ${adr_missing:-none}  stale rows: ${adr_extra:-none}"
 fi
 
-# ARCHITECTURE.md 5.3 quotes this. It read "one site" for as long as it took Phase A to
+# ARCHITECTURE.md §4.3 quotes this. It read "one site" for as long as it took Phase A to
 # convert the other eleven, which is the drift this row exists to make visible.
 #
 # `fepdf-content` is searched too, and was not until Phase H put a decision there. The

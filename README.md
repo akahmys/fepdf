@@ -72,8 +72,7 @@ dictionary in ISO 32000-2. Building does not need it; the tests do, since a save
 against it (`crates/fepdf/tests/suite/arlington_test.rs`).
 
 The script clones the same two repositories at their tips rather than at the pinned
-commits, so the two mechanisms do not agree about *which* data you get. That is a knot
-worth untying — one resource should have one way in — and it is not untied here.
+commits, so prefer the submodules ([ROADMAP.md](ROADMAP.md#open-outside-a-phase)).
 
 That gives you `target/release/fepdf` (command line) and `target/release/fepdf-gui`
 (desktop). The GUI wants a GPU; the CLI does not.
@@ -146,10 +145,10 @@ engine made of it**, which is not the same thing and is not meant to be
 | **Draw a page in a browser** | `fepdf-wasm` opens a document, counts its pages, extracts their text, and hands over the decisions and the structure tree. Its `render_page` returns an error naming what it did not draw. |
 | **Produce a file you can read in a text editor** | Objects are packed into 7.5.7 object streams by default, which shrinks every sample — `intel_sdm.pdf` goes from +131% to +1% — and puts almost all of them inside a compressed container. `--no-obj-stm` writes the loose form ([ADR-0016](docs/adr/0016-objects-are-packed-by-default.md)). |
 
-All thirty-two of Table 29's catalogue entries have a field and **twenty-three** have a
-type that says what the entry holds — every key those corpora carry except `/Type`, whose
-value the clause fixes. The ten that no file carries are declined a reader on purpose,
-and `inspect catalog` names them
+All thirty-two of Table 29's catalogue entries have a field. Of the twenty-two the corpora
+carry, **twenty-one** have a reader that says what the entry holds — every one but
+`/Type`, whose value the clause fixes. The ten that no file carries are declined a reader
+on purpose, and `inspect catalog` names them
 ([ADR-0017](docs/adr/0017-declaring-a-catalogue-key-is-not-modelling-it.md)). It also
 reports how much of each entry's *own* table its reader covers, because "modelled" is a
 statement about the entry and not about everything beneath it: `/AcroForm` reads 4 of
@@ -158,7 +157,7 @@ Table 224's 8
 
 `inspect coverage` puts a number on the whole thing across a corpus — the share of the
 constructs your files actually contain whose *contents* the engine reads. Over the ten
-samples and 515 external files it is 92%, 257 of 279 constructs (re-derived 2026-10-06).
+samples and 515 external files it is 94%, 265 of 279 constructs (re-derived 2026-10-13).
 It read 88% on 2026-08-22 over nine samples, and the same over 251 files before that:
 doubling the corpus moved the denominator without moving the ratio. It is a proxy and
 [ADR-0019](docs/adr/0019-semantic-understanding-is-measured-against-what-a-corpus-presents.md)
@@ -198,24 +197,8 @@ make audit              # the rules, clippy, cargo-deny, betterleaks
 cargo test --workspace  # tests that need samples/, which is not committed, are skipped
 ```
 
-Two habits matter more than the rules:
-
-- **Measure before designing.** This codebase has repeatedly paid for building a
-  container before its contents existed.
-- **Prove a check fires by breaking the thing it checks.** Several tests here passed
-  against the very defect they were written for, and were only found to be inert when
-  someone put the bug back.
-
-| | |
-| :--- | :--- |
-| [AGENTS.md](AGENTS.md) | The principles, and which document answers what — start here |
-| [PLANNING.md](PLANNING.md) | What to decide before writing code |
-| [CODING.md](CODING.md) | What code must satisfy: RR-15 and the layering rules |
-| [TESTING.md](TESTING.md) | What must pass before a change lands |
-| [AUDITING.md](AUDITING.md) | What is checked mechanically, and by what |
-| [ARCHITECTURE.md](ARCHITECTURE.md) | The design as it stands |
-| [ROADMAP.md](ROADMAP.md) | The work: measured state, clause by clause |
-| [docs/adr/](docs/adr/README.md) | Why things are the way they are, including reversals |
+Start with [AGENTS.md](AGENTS.md): it says which document answers what, what outranks
+what, and the habits that matter more than the rules.
 
 ## Licence
 

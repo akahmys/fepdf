@@ -97,7 +97,7 @@ impl PdfDocument {
     /// `samples/constitution.pdf` page 1, one isolated pixel apart at a channel delta of 1. The
     /// CPU shaders give one ([ADR-0043]).
     ///
-    /// `scripts/visual_regression.py` is deliberately **not** this caller: it tolerates a
+    /// `scripts/test/visual_regression.py` is deliberately **not** this caller: it tolerates a
     /// delta of 1, which is the whole size of the difference, and rendering it on the CPU
     /// would stop it exercising the pipeline a user actually gets. What needs this is a
     /// caller for whom "the same" means the same bytes — a hash, a cache key, a signature
