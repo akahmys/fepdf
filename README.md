@@ -56,20 +56,19 @@ cargo build --release
 
 Text extraction needs two Adobe resource repositories. They answer opposite questions,
 and reading one for the other's job is how 7,617 CIDs of Adobe-Japan1 came to be
-unreadable. **`external/` carries both as submodules**, pinned to a commit each, so a
-clone that took them needs nothing further:
+unreadable. **`external/` carries both as submodules**, pinned to the commit the engine
+was measured against, and that is the only way in:
 
 ```bash
-git submodule update --init            # what a clone should do
-./scripts/dev/fetch_font_resources.sh  # or this, if it did not
+git submodule update --init
 ```
+
+A source archive downloaded as a ZIP carries no submodules and no history to fetch them
+from; clone the repository instead.
 
 `external/arlington` is a third submodule, the PDF Association's model of every
 dictionary in ISO 32000-2. Building does not need it; the tests do, since a save is held
 against it (`crates/fepdf/tests/suite/arlington_test.rs`).
-
-The script clones the same two repositories at their tips rather than at the pinned
-commits, so prefer the submodules ([ROADMAP.md](ROADMAP.md#open-outside-a-phase)).
 
 That gives you `target/release/fepdf` (command line) and `target/release/fepdf-gui`
 (desktop). The GUI wants a GPU; the CLI does not.

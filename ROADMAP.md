@@ -341,10 +341,11 @@ phase open.
 
 ## Open, outside a phase
 
-- [ ] **Two ways in for the font resources.** `external/` pins Adobe's CMap and
+- [x] **Two ways in for the font resources.** `external/` pins Adobe's CMap and
       CID-to-Unicode repositories as submodules, and `scripts/dev/fetch_font_resources.sh`
-      clones the same two at their tips, so the two do not agree about which data a
-      working copy gets. One resource should have one way in.
+      cloned the same two at their tips, so the two disagreed about which data a working
+      copy got. **Done, 2026-10-14**: the script is deleted and the submodules are the one
+      way in, as CI and the release build already used.
 
 ## Not planned
 

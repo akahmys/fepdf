@@ -147,8 +147,8 @@ impl FontResource {
 
     /// Loads `{Registry}-{Ordering}-UCS2`, Adobe's CID-to-Unicode table for a collection.
     ///
-    /// **Five of these are fetched and one was read.** `fetch_font_resources.sh` brings
-    /// down `Adobe-CNS1`, `Adobe-GB1`, `Adobe-Japan1`, `Adobe-KR` and `Adobe-Korea1`, and
+    /// **Five of these are on disk and one was read.** `external/mapping-resources-pdf`
+    /// holds `Adobe-CNS1`, `Adobe-GB1`, `Adobe-Japan1`, `Adobe-KR` and `Adobe-Korea1`, and
     /// this asked for Japan1 by name whatever the file declared — so a font declaring
     /// `Adobe-Korea1` had a *Japanese* table applied to it while the Korean one sat on
     /// disk unopened (ADR-0041), and after that was stopped it had none at all.
