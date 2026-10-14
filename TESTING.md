@@ -28,8 +28,12 @@ cargo test --workspace -- --include-ignored
 and the repository is public — so on a clone, and in CI, those tests can only fail. CI runs
 `cargo test --workspace`, which skips them and says how many it skipped; here,
 `--include-ignored` runs them as well, and that is the gate. Ignoring a test for any other
-reason switches it off, and the audit's Rule 14 step fails on it. Measured 2026-10-10 with
-both directories moved away: 94 tests failed, and each is now one of these.
+reason switches it off, and the audit's Rule 14 step fails on it. That step reads the
+reason, and cannot see a test that needs a file and carries no `#[ignore]` at all: only a
+run without the files can. Move `samples/` and `docs/specs/*.pdf` aside and run
+`cargo test --workspace --no-fail-fast` — `--no-fail-fast`, because CI stops at the first
+failing crate and hides the rest. On 2026-10-10 that found 94; on 2026-10-14, four more,
+three of which had kept CI red since `319ab25`.
 
 **What a run costs is derived, not quoted.** One command gives both the time and the count:
 
